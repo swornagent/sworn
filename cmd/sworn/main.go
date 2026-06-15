@@ -37,6 +37,10 @@ func main() {
 		// S07-run-loop adds this case (T2-orchestration).
 		// Disjoint from "init": both are additive to the switch.
 		os.Exit(cmdRun(os.Args[2:]))
+	case "bench":
+		// S10-benchmark-dogfood adds this case (T4-proof).
+		os.Exit(cmdBench(os.Args[2:]))
+
 	case "version", "--version", "-v":
 		fmt.Printf("sworn %s\nbaton-protocol %s\n", version, prompt.BatonVersion())
 	case "help", "--help", "-h":
@@ -101,14 +105,17 @@ func usage() {
 	fmt.Fprint(os.Stderr, `sworn — SwornAgent's provider-neutral verification core
 
 usage:
+  sworn bench --task-set <dir> [--models <comma-sep>] [--output <dir>]
   sworn init [--api-key <key>] [--force]
   sworn run --task <description> [--implementer-model <m>] [--verifier-model <m>] [--base <branch>] [--retry-cap <n>]
   sworn verify --spec <path> --diff <path|-> [--proof <path>] [--verifier-model <provider/model>]
   sworn version
+bench runs a model benchmark: iterate candidate verifier models against a task set
+of slice specs with known-good diffs, record pass-rate + cost + jurisdiction, and
+pick the safe-hosted default model from data.
 
 init bootstraps SwornAgent in a repo: writes a config file, vendors the Baton
 protocol into docs/baton/, and splices the seven-rule fragment into AGENTS.md.
-
 run executes the full turnkey loop: implement → verify → (on FAIL: retry/escalate
 up to N) → gated merge on PASS only. See 'sworn run --help' for model resolution
 and escalation model defaults.
