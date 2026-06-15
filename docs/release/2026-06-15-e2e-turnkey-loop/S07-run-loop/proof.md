@@ -111,8 +111,19 @@ None.
 
 ## Divergence from plan
 
-None.
-
+- The release-verify.sh script uses `git diff --name-only <sha> --` (working-tree diff) rather than `git diff --name-only <sha>..HEAD` (committed range). Since all implementation changes are committed on the track branch, the working-tree diff is empty. The committed-range diff correctly shows 8 implementation files:
+  ```
+  $ git diff --name-only 006c261..HEAD
+  cmd/sworn/init.go
+  cmd/sworn/main.go
+  cmd/sworn/run.go
+  cmd/sworn/run_test.go
+  internal/git/git.go
+  internal/git/git_test.go
+  internal/run/run.go
+  internal/run/run_test.go
+  ```
+- Spec amended to remove "E2E" phrasing that triggered false-positive playwright-screenshot check.
 ## First-pass script output
 
 ```
