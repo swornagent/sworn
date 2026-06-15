@@ -13,3 +13,4 @@
 - 2026-06-16T10:00:00Z — S08-init-config (T3-turnkey-ux): implemented → verified. All 6 gates passed; 14/14 tests green; live sworn init smoke confirms config + docs/baton/ + AGENTS.md splice with idempotency.
 - 2026-06-16T21:30:00Z — S09-distribution (T3-turnkey-ux): implemented → verified. All 6 gates passed; go test ./... green; make build + Docker build + both Docker smoke tests independently reproduced.
 - 2026-06-16T22:00:00Z — track `T3-turnkey-ux` merged to release-wt/ (commit f37b730). 2 verified slice(s): S08-init-config, S09-distribution. Track state → merged.
+- 2026-06-16T23:15:00Z — S07-run-loop (T2-orchestration): implemented → failed_verification. Gate 2: proof.md Divergence section omits internal/git/git.go and cmd/sworn/init.go as out-of-plan touchpoints.

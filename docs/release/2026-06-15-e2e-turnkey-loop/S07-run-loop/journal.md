@@ -37,3 +37,26 @@ Not run — panel requires Agent/Workflow tool which is unavailable in this envi
 ### Deferrals
 
 None.
+
+## 2026-06-16 — Verifier verdict (fresh context)
+
+**State transition:** implemented → failed_verification
+
+### Verdict
+
+FAIL: 1 violation
+
+**Violation 1 — Gate 2 (Planned touchpoints match actual changed files):**
+Actual changed files include `internal/git/git.go` (adds `Merge()` — a functional dependency of `internal/run/run.go`) and `cmd/sworn/init.go` (trailing-newline whitespace fix). Neither file appears in the planned touchpoints (`internal/run/`, `cmd/sworn/run.go`, `cmd/sworn/main.go`). The proof.md "Divergence from plan" section documents only the diff-base tool issue and the spec amendment; it does not declare these out-of-plan touchpoints as divergences. The "Delivered" section records `internal/git/git.go — added Merge() (Flag c)` as a delivery item, but that is not a divergence declaration. Gate 2 requires that any mismatch between planned and actual changed files be explained in the proof bundle.
+
+### All other gates passed
+
+- Gate 1 ✓ — `sworn run` CLI wired in `cmd/sworn/run.go` through `cmd/sworn/main.go`; user-reachable.
+- Gate 3 ✓ — All 6 `internal/run` tests pass (PASS/FAIL/FAIL-then-PASS/BLOCKED/MissingTask/SanitiseBranch); 4/5 `cmd/sworn` tests pass (1 skipped via `t.Skip` for a non-spec-required help-text check).
+- Gate 4 ✓ — `TestRun_PassPath_Merges` explicitly asserts state == `verified` and merge commit on `main`; `TestRun_FailPath_NoMerge` asserts no merge after repeated FAIL.
+- Gate 5 ✓ — No TODO/FIXME/deferred/placeholder in any changed file.
+- Gate 6 ✓ — All 4 ACs covered with named test evidence.
+
+### Fix required
+
+Update proof.md "Divergence from plan" to add: (a) `internal/git/git.go` — `Merge()` added as a direct dependency of `internal/run/run.go`; not in planned touchpoints because it was a discovered implementation need; (b) `cmd/sworn/init.go` — trailing-newline whitespace fix; cosmetic only.
