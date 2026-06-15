@@ -23,7 +23,15 @@ var (
 	//   release_index: 6 # bumpedrelease_worktree_path: /path
 	// the second key is invisible to frontmatter readers.
 	reConcatKey = regexp.MustCompile(`#[ \t]*[a-z_]\w*:`)
-	reTracksKey = regexp.MustCompile(`(?m)^tracks:`)
+	// a list item (`- key:`) fused onto the end of another value on the same
+	// line, e.g. a botched in-place edit that ate the newline:
+	//   e2e_specs: []  - id: T2-orchestration
+	// the grafted track entry is no longer a top-level list item, so the reader
+	// silently absorbs it (and everything under it) into the preceding entry.
+	// Requires non-space content before the `- key:` so a clean block-list item
+	// (`  - id: T1`, only whitespace before the dash) does not match.
+	reGraftedItem = regexp.MustCompile(`\S[ \t]+-[ \t]+[a-z_]\w*:`)
+	reTracksKey   = regexp.MustCompile(`(?m)^tracks:`)
 
 	reTrackID      = regexp.MustCompile(`^\s*-\s+id:\s*(\S+)`)
 	reSlicesInline = regexp.MustCompile(`^\s+slices:\s*\[`)
@@ -57,6 +65,10 @@ func ValidateIndex(name, text string) []string {
 			trailing := strings.TrimLeft(strings.TrimPrefix(hit, "#"), " \t")
 			errs = append(errs, name+": '"+trailing+"' follows a # comment on the same line without a"+
 				" newline — the key is invisible to frontmatter readers; split onto its own line")
+		}
+		if reGraftedItem.MatchString(line) {
+			errs = append(errs, name+": a list item ('- key:') is grafted onto the end of another"+
+				" value on this line — a lost newline; split onto its own line: "+strings.TrimSpace(line))
 		}
 	}
 

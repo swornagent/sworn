@@ -50,6 +50,13 @@ tracks:
 			wantHint: "follows a # comment",
 		},
 		{
+			// the real-world bug: a materialise edit ate the newline before the
+			// next track entry, fusing it onto the prior track's e2e_specs line.
+			name:     "list item grafted onto a value line (lost newline)",
+			text:     "---\ntracks:\n  - id: T1\n    slices: [S01]\n    worktree_branch: b\n    e2e_specs: []  - id: T2\n    slices: [S05]\n    worktree_branch: c\n---\n",
+			wantHint: "grafted onto the end of another value",
+		},
+		{
 			name:     "tracks present but no entries",
 			text:     "---\ntracks:\n  garbage\n---\n",
 			wantHint: "no track entries found",
