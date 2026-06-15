@@ -3,7 +3,7 @@
   "slice_id": "S02-oai-model-client",
   "release": "2026-06-15-e2e-turnkey-loop",
   "track": "T1-engine",
-  "state": "failed_verification",
+  "state": "in_progress",
   "owner": "agent",
   "last_updated_by": "verifier",
   "last_updated_at": "2026-06-16T06:00:00Z",
@@ -30,14 +30,5 @@
     "end-to-end: /tmp/sworn verify --verifier-model openai/gpt-4.1-mini against fake OpenAI server → PASS (0.000109 USD), FAIL (0.000156 USD), BLOCKED on connection error"
   ],
   "open_deferrals": [],
-  "verification": {
-    "result": "fail",
-    "verifier_session_id": null,
-    "verifier_verdict_at": "2026-06-16T06:00:00Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      "Gate 3 — Required tests not table-driven: spec.md prescribes 'Unit: table-driven against an httptest fake server — PASS reply, FAIL reply, HTTP 500, timeout (each → expected verdict).' The implementation in internal/model/oai_test.go uses four separate top-level functions (TestOAI_Verify_PASS, TestOAI_Verify_FAIL, TestOAI_Verify_HTTP500, TestOAI_Verify_Timeout) instead of a single table-driven test."
-    ]
-  },
   "release_base": "release/v0.1.0"
 }
