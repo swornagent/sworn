@@ -28,8 +28,8 @@ type ModelSetting struct {
 // the API key via env var (SWORN_OPENAI_API_KEY) or through sworn init --api-key.
 // This default is a provisional safe-hosted selection. The production default
 // will be ratified by the S10-benchmark-dogfood slice (tracked in this release
-// board). If the benchmark picks a different model, the default changes there.func DefaultConfig() Config {
-	return Config{
+// board). If the benchmark picks a different model, the default changes there.
+func DefaultConfig() Config {	return Config{
 		Version: 1,
 		Verifier: ModelSetting{
 			Model: "openai/gpt-4.1",
