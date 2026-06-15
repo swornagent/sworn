@@ -128,5 +128,5 @@ None.
 
 ```
 $ release-verify.sh S07-run-loop 2026-06-15-e2e-turnkey-loop
-(see live run output)
+19 PASS, 2 FAIL (both diff-base: script uses git diff --name-only <sha> -- without ..HEAD on clean working tree; 8 implementation files correctly shown in committed range 006c261..HEAD).
 ```
