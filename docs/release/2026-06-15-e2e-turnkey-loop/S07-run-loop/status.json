@@ -7,8 +7,7 @@
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-16T23:30:00Z",
-  "start_commit": "006c261f5c54cc1988c1cac9d17857ebbe98e5f5",
-  "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S07-run-loop/spec.md",
+  "start_commit": "006c261b9dc93865bccf8c7a5dc1c8f07597fd8a",  "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S07-run-loop/spec.md",
   "proof_path": "docs/release/2026-06-15-e2e-turnkey-loop/S07-run-loop/proof.md",
   "journal_path": "docs/release/2026-06-15-e2e-turnkey-loop/S07-run-loop/journal.md",
   "planned_files": [
