@@ -44,3 +44,30 @@
 2. **Gate 6 — Claimed scope divergence not fully disclosed**: `proof.md` "Divergence from plan" mentions `internal/model/oai_test.go` but omits `internal/model/oai.go`, which received 115+ lines of new production code (type exports, the `Chat` method). This touchpoint outside the planned `internal/agent/` scope is required for the agent package to compile and must appear in the Divergence section.
 
 Fix: restore the return statement on its own line in `computeCost`, add `internal/model/oai.go` to the proof.md Divergence section, and resubmit.
+
+## Re-implementation session — 2026-06-16T01:00:00Z
+
+### Verdict 1 violations addressed
+
+1. **Gate 3 — build error (missing return)**: `internal/agent/agent.go:188` — the `return` statement in `computeCost()` was fused into a `//` comment via a trailing tab. Split onto its own line. `go build ./internal/agent/` now succeeds; all 22 tests pass.
+2. **Gate 6 — divergence disclosure**: `proof.md` "Divergence from plan" now includes `internal/model/oai.go` explicitly (115+ lines of new production code: exported types + Chat method), with rationale for why this touchpoint exists outside the planned `internal/agent/` scope.
+
+### Changes
+
+- `internal/agent/agent.go`: one-line fix — split fused comment+return into separate lines.
+- `docs/release/2026-06-15-e2e-turnkey-loop/S03-agentic-tool-loop/proof.md`: regenerated from live state; Divergence section now lists `internal/model/oai.go` explicitly.
+- `docs/release/2026-06-15-e2e-turnkey-loop/S03-agentic-tool-loop/status.json`: state `in_progress` → `implemented`; `verification.result` cleared.
+
+### Test results
+
+- `go test ./internal/agent/ -v`: 5/5 PASS (0.015s)
+- `go test ./internal/model/ -v`: 22/22 PASS (0.210s)
+- `go vet ./...`: clean
+
+### Skeptic panel
+
+Skipped — no Agent/Workflow tool available in this harness. Noted per implementer.md Step 5.
+
+### First-pass verify
+
+21/22 deterministic checks PASS. Single FAIL is state `in_progress` (expected — transitions to `implemented` on commit).

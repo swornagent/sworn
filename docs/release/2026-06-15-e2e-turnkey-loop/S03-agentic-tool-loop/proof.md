@@ -1,3 +1,8 @@
+---
+title: S03-agentic-tool-loop proof
+description: Rule 6 proof bundle, generated from live repo state. Verifier reads this; do not paraphrase.
+---
+
 # Proof Bundle: `S03-agentic-tool-loop`
 
 ## Scope
@@ -8,7 +13,11 @@ The engine can drive a model through a tool loop (read/write/edit files, run com
 
 ```
 $ git diff --name-only ae8d37959c199efdb08230e272ee7e8ae2605c0d..HEAD
+docs/release/2026-06-15-e2e-turnkey-loop/S03-agentic-tool-loop/approved-ack.md
+docs/release/2026-06-15-e2e-turnkey-loop/S03-agentic-tool-loop/journal.md
+docs/release/2026-06-15-e2e-turnkey-loop/S03-agentic-tool-loop/proof.md
 docs/release/2026-06-15-e2e-turnkey-loop/S03-agentic-tool-loop/status.json
+docs/release/2026-06-15-e2e-turnkey-loop/activity.md
 internal/agent/agent.go
 internal/agent/agent_test.go
 internal/agent/tools.go
@@ -21,7 +30,7 @@ internal/model/oai_test.go
 ### Go
 
 ```
-$ go test ./internal/agent/ ./internal/model/ -v
+$ go test ./internal/agent/ -v
 === RUN   TestRun_SuccessPath
 --- PASS: TestRun_SuccessPath (0.00s)
 === RUN   TestRun_ToolError_ModelAdapts
@@ -33,7 +42,11 @@ $ go test ./internal/agent/ ./internal/model/ -v
 === RUN   TestRun_PathTraversalRejected
 --- PASS: TestRun_PathTraversalRejected (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/internal/agent	0.010s
+ok  	github.com/swornagent/sworn/internal/agent	0.015s
+```
+
+```
+$ go test ./internal/model/ -v
 === RUN   TestOAI_Verify
 === RUN   TestOAI_Verify/PASS
 === RUN   TestOAI_Verify/FAIL
@@ -47,11 +60,27 @@ ok  	github.com/swornagent/sworn/internal/agent	0.010s
 === RUN   TestOAI_Verify_EmptyChoices
 --- PASS: TestOAI_Verify_EmptyChoices (0.00s)
 === RUN   TestComputeCost
-... (all pass)
+=== RUN   TestComputeCost/nil_usage
+=== RUN   TestComputeCost/unknown_model
+=== RUN   TestComputeCost/gpt-4.1-mini_exact
+=== RUN   TestComputeCost/gpt-4.1_exact
+=== RUN   TestComputeCost/gpt-4o_exact
+=== RUN   TestComputeCost/o3_exact
+--- PASS: TestComputeCost (0.00s)
 === RUN   TestFromEnv
-... (all pass)
+=== RUN   TestFromEnv/empty_model_ID
+=== RUN   TestFromEnv/no_slash
+=== RUN   TestFromEnv/empty_provider
+=== RUN   TestFromEnv/empty_model
+=== RUN   TestFromEnv/missing_key
+=== RUN   TestFromEnv/openai_with_key,_no_base_URL_→_uses_default
+=== RUN   TestFromEnv/custom_provider_with_key_but_no_base_URL
+=== RUN   TestFromEnv/custom_provider_with_key_and_base_URL
+=== RUN   TestFromEnv/env_model_override
+=== RUN   TestFromEnv/invalid_base_URL
+--- PASS: TestFromEnv (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/internal/model	0.213s
+ok  	github.com/swornagent/sworn/internal/model	0.210s
 ```
 
 ```
@@ -79,5 +108,59 @@ N/A — all four acceptance checks are delivered.
 
 ## Divergence from plan
 
-- `docs/release/2026-06-15-e2e-turnkey-loop/S03-agentic-tool-loop/status.json` — metadata update (start_commit, state transition). Not production code.
+- `internal/model/oai.go` — 115+ lines of new production code (exported types: ChatMessage, ChatResponse, ToolCall, FunctionCall, UsageBlock, ToolDef; `Chat()` method). Required by the agent package to perform multi-turn tool-loop conversations. The OAI client in S02 was single-shot (verifier); the agent needs the Chat endpoint and structured tool-call responses. Extending the existing client rather than creating a separate one keeps one HTTP client and one pricing table.
 - `internal/model/oai_test.go` — updated test helper to match extended ChatResponse struct (FinishReason field). Required by Pin 6 regression verification.
+- `docs/release/2026-06-15-e2e-turnkey-loop/S03-agentic-tool-loop/status.json` — metadata update (start_commit, state transitions, verification verdict records). Not production code.
+- `docs/release/2026-06-15-e2e-turnkey-loop/S03-agentic-tool-loop/approved-ack.md` — design-review token from Captain (transient). Not production code.
+- `docs/release/2026-06-15-e2e-turnkey-loop/activity.md` — board-level activity log. Not S03 production scope.
+
+## First-pass script output
+
+```
+$ release-verify.sh S03-agentic-tool-loop 2026-06-15-e2e-turnkey-loop
+  slice:       S03-agentic-tool-loop
+  slice dir:   docs/release/2026-06-15-e2e-turnkey-loop/S03-agentic-tool-loop
+  base branch: main
+
+== Slice artefacts ==
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+  PASS  spec.md has Required tests section
+
+== Status ==
+  PASS  status.json is valid JSON
+  state: in_progress
+  FAIL  state is 'in_progress' — slice not yet ready for verifier; complete implementation first
+
+== Integration branch drift ==
+  PASS  worktree branch is current with release/v0.1.0 (no drift)
+
+== Diff vs start_commit (verifier base) ==
+  PASS  10 file(s) changed vs diff base
+
+== Dark-code markers in changed files ==
+  PASS  no dark-code markers in changed source files
+
+== Proof bundle structural checks ==
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+  PASS  proof.md 'Not delivered' deferrals carry non-placeholder tracking refs
+  PASS  proof.md 'Files changed' count (~6) consistent with diff vs start_commit (10)
+
+== Test results section scope ==
+  PASS  Test results section contains no Playwright runner output (Jest/Vitest scope confirmed)
+
+== First-pass verdict ==
+  checks passed: 21
+  checks failed: 1
+FIRST-PASS FAIL (state in_progress — expected; transitions to implemented next)
+```
