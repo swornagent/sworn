@@ -60,3 +60,35 @@ Actual changed files include `internal/git/git.go` (adds `Merge()` — a functio
 ### Fix required
 
 Update proof.md "Divergence from plan" to add: (a) `internal/git/git.go` — `Merge()` added as a direct dependency of `internal/run/run.go`; not in planned touchpoints because it was a discovered implementation need; (b) `cmd/sworn/init.go` — trailing-newline whitespace fix; cosmetic only.
+## 2026-06-16 — Re-implementation session (implementer, post-FAIL)
+
+**State transition:** failed_verification → in_progress → implemented
+
+### Root cause of prior FAIL
+
+The `start_commit` SHA in status.json was corrupted (`006c261f5c54...` instead of `006c261b9dc9...`), causing `git diff` to return zero files. This masked the Gate 2 divergence check and caused the proof.md "Files changed" mismatch.
+
+### Fixes applied
+
+1. **Corrected start_commit SHA** in status.json: `006c261b9dc93865bccf8c7a5dc1c8f07597fd8a`.
+2. **Documented out-of-plan touchpoints** in proof.md "Divergence from plan":
+   - `internal/git/git.go` (+ test) — `Merge()` added as a direct dependency of the run loop
+   - `cmd/sworn/init.go` — trailing-newline whitespace fix, cosmetic
+3. **Regenerated proof.md** from fresh live test output.
+
+### Test results
+
+All tests pass identically to prior round (no production code changes — only documentation fix):
+- `go test ./...` — all packages PASS
+- `go test ./internal/run/ -v` — 6 tests PASS
+- `go test ./internal/git/ -v -run TestMerge` — PASS
+- `go test ./cmd/sworn/ -v` — 4 PASS, 1 SKIP
+- `release-verify.sh` — 22 PASS, 0 FAIL
+
+### Skeptic panel
+
+Not run — Agent/Workflow tools unavailable. Proceeding to implemented; fresh-context verifier provides adversarial check.
+
+### Deferrals
+
+None.

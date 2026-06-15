@@ -131,6 +131,51 @@ None.
 - **`internal/git/git.go` (+`internal/git/git_test.go`)** — `Merge()` added as a direct dependency of `internal/run/run.go`. Not in planned touchpoints (`internal/run/`, `cmd/sworn/run.go`, `cmd/sworn/main.go`) because the need for a dedicated `git.Merge()` surfaced during implementation when wiring the gated-merge step. The run loop needs to programmatically merge a branch; factoring this into `internal/git` (the canonical home for git operations, established by S05) keeps the seam clean.
 - **`cmd/sworn/init.go`** — trailing-newline whitespace fix (added missing `\n` at EOF). Cosmetic only; no logic change.
 
+
 ## First-pass script output
 
-(To be populated after re-running release-verify.sh with corrected start_commit)
+```
+$ release-verify.sh S07-run-loop 2026-06-15-e2e-turnkey-loop
+
+== Slice artefacts ==
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+  PASS  spec.md has Required tests section
+
+== Status ==
+  PASS  status.json is valid JSON
+  PASS  state is 'implemented' (eligible for verifier review)
+
+== Integration branch drift ==
+  PASS  worktree branch is current with release/v0.1.0 (no drift)
+
+== Diff vs start_commit (verifier base) ==
+  PASS  14 file(s) changed vs diff base
+
+== Dark-code markers in changed files ==
+  PASS  no dark-code markers in changed source files
+
+== Proof bundle structural checks ==
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+  PASS  proof.md 'Not delivered' deferrals carry non-placeholder tracking refs
+  PASS  proof.md 'Files changed' count (~14) consistent with diff vs start_commit (14)
+
+== Test results section scope ==
+  PASS  Test results section contains no Playwright runner output
+
+== First-pass verdict ==
+  checks passed: 22
+  checks failed: 0
+
+FIRST-PASS PASS
+```
