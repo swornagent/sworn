@@ -3,11 +3,11 @@
   "slice_id": "S04-embed-baton-prompts",
   "release": "2026-06-15-e2e-turnkey-loop",
   "track": "T1-engine",
-  "state": "planned",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-15T00:00:00Z",
-  "start_commit": null,
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-16T18:30:00Z",
+  "start_commit": "5396772ea000b501b2a48e1146e1aaf77d36a109",
   "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S04-embed-baton-prompts/spec.md",
   "proof_path": "docs/release/2026-06-15-e2e-turnkey-loop/S04-embed-baton-prompts/proof.md",
   "journal_path": "docs/release/2026-06-15-e2e-turnkey-loop/S04-embed-baton-prompts/journal.md",
@@ -15,17 +15,31 @@
     "internal/prompt/",
     "internal/verify/verify.go"
   ],
-  "actual_files": [],
-  "test_commands": [
-    "go test ./..."
+  "actual_files": [
+    "internal/prompt/VERSION.txt",
+    "internal/prompt/captain.md",
+    "internal/prompt/implementer.md",
+    "internal/prompt/planner.md",
+    "internal/prompt/prompt.go",
+    "internal/prompt/prompt_test.go",
+    "internal/prompt/verifier.md",
+    "internal/verify/verify.go",
+    "internal/verdict/verdict.go",
+    "cmd/sworn/main.go"
   ],
-  "reachability_artifacts": [],
+  "test_commands": [
+    "go test ./...",
+    "go vet ./..."
+  ],
+  "reachability_artifacts": [
+    "manual-smoke-step: /tmp/sworn version → sworn 0.0.0-dev + baton-protocol v1.0.0"
+  ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "pass",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-06-16T18:30:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
   },
   "release_base": "release/v0.1.0"

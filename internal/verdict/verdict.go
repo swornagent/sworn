@@ -2,7 +2,7 @@
 //
 // The contract is deliberately small and fail-closed: anything that is not an
 // explicit PASS does not merge. This mirrors the Baton Rule 7 verifier contract
-// (PASS / FAIL / BLOCKED) that SwornAgent enforces.
+// (PASS / FAIL / BLOCKED / INCONCLUSIVE) that SwornAgent enforces.
 package verdict
 
 // Verdict is the outcome of an adversarial verification.
@@ -16,6 +16,11 @@ const (
 	// Blocked: verification could not be completed (missing artefact, unrunnable
 	// model, unresolved spec). Fail-closed — treated as not-mergeable.
 	Blocked Verdict = "BLOCKED"
+	// Inconclusive: the verifier could not reach a determinate PASS or FAIL
+	// (e.g. ambiguous spec, contradictory evidence, model uncertainty).
+	// Fail-closed — treated as not-mergeable, but signals re-verify rather than
+	// replan (distinct from BLOCKED).
+	Inconclusive Verdict = "INCONCLUSIVE"
 )
 
 // Result is the machine-readable verdict emitted by `swornagent verify`.
@@ -34,6 +39,8 @@ func (r Result) ExitCode() int {
 		return 0
 	case Fail:
 		return 1
+	case Inconclusive:
+		return 3
 	default: // Blocked or any unknown value -> fail closed
 		return 2
 	}

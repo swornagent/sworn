@@ -13,9 +13,10 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/swornagent/sworn/internal/model"
+	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/verify"
 )
-
 // version is overridden at build time via -ldflags "-X main.version=...".
 var version = "0.0.0-dev"
 
@@ -28,9 +29,8 @@ func main() {
 	case "verify":
 		os.Exit(cmdVerify(os.Args[2:]))
 	case "version", "--version", "-v":
-		fmt.Printf("sworn %s\n", version)
-	case "help", "--help", "-h":
-		usage()
+		fmt.Printf("sworn %s\nbaton-protocol %s\n", version, prompt.BatonVersion())
+		case "help", "--help", "-h":		usage()
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", os.Args[1])
 		usage()
@@ -46,15 +46,24 @@ func cmdVerify(args []string) int {
 	mdl := fs.String("verifier-model", "", "verifier model id (customer-chosen)")
 	_ = fs.Parse(args)
 
+	var v model.Verifier
+	if *mdl != "" {
+		var err error
+		v, err = model.FromEnv(*mdl)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "sworn verify: %v\n", err)
+			return 2
+		}
+	}
+	// v remains nil when --verifier-model is unset -> Unconfigured (fail-closed).
+
 	res := verify.Run(context.Background(), verify.Input{
 		SpecPath:  *spec,
 		DiffPath:  *diff,
 		ProofPath: *proof,
 		Model:     *mdl,
-		// Verifier left nil -> Unconfigured (fails closed) until the
-		// OpenAI-compatible client lands in the next slice.
+		Verifier:  v,
 	})
-
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(res)
