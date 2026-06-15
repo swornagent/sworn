@@ -44,3 +44,21 @@ None. All ACs delivered.
 
 Skipped — harness has neither Agent nor Workflow tool available. The panel is an
 accelerant, not a gate. The fresh-context verifier is still required per Rule 7.
+
+## Verifier verdicts received
+
+### 2026-06-16T00:00:00Z — PASS
+
+PASS
+
+Slice: `S01-verifier-core`
+Verified against: `fc2d014291f6678d316c22d1a8a73dc3abd7b94e`
+Verifier session: `fresh, artefact-only`
+
+Gate walk:
+- Gate 1 (user-reachable): PASS — `sworn verify` wired in cmd/sworn/main.go → verify.Run() → JSON + exit code.
+- Gate 2 (touchpoints): PASS — Scaffold files predate start_commit; spec explicitly states "Already implemented (the scaffold)". proof.md "Files changed" explains this. AGENTS.md in diff is from release-wt forward-merge (merge commit 51c4389), expected noise.
+- Gate 3 (tests): PASS — All 5 tests present and green in live re-run; tests exercise verify.Run() (integration point).
+- Gate 4 (reachability): PASS — Manual smoke re-run confirmed: empty spec → BLOCKED/2, missing file → BLOCKED/2, unconfigured model → BLOCKED/2. Outputs match proof.
+- Gate 5 (no deferrals): PASS — No dark-code markers in changed files. systemPrompt placeholder in pre-existing verify.go is for out-of-scope S04 (spec explicitly calls it out).
+- Gate 6 (scope): PASS — AC1–AC4 all have verifiable evidence; code and tests confirmed working.
