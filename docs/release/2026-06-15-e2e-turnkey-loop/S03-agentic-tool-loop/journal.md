@@ -26,3 +26,9 @@
 - Created `internal/agent/`: Agent interface, Run loop, six tools (Read/Write/Edit/Bash/Grep/Glob), workspace confinement.
 - 5 unit tests covering success path, error path (AC2), turn cap (AC4), absolute path rejection, traversal rejection (AC3).
 - Pin 6: TestOAI_Verify passes unchanged after struct extension — backward compatible.
+
+## Session wrap-up
+
+- First-pass verify: 22/22 PASS
+- Skeptic panel: skipped (no Agent/Workflow tool available in harness). Proceeding directly to verifier.
+- State: `implemented`
