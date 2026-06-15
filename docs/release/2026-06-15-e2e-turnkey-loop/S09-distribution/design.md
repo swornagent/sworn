@@ -31,7 +31,7 @@ A developer will be able to install `sworn` through three channels: `brew instal
 
 ## §4. Things I'm NOT doing
 
-- **Windows builds.** Not in the matrix. Deferred with tracking: add `windows/amd64` to goreleaser when a user asks for it.
+- **Windows builds.** Not in the matrix. Deferred with tracking: https://github.com/swornagent/sworn/issues/1.
 - **macOS notarization / code signing.** Requires an Apple Developer account and notarization pipeline. Out of scope.
 - **The GitHub Action gate (verify-on-top mode).** Explicitly out of scope per spec.
 - **Creating the `swornagent/homebrew-tap` repository.** The goreleaser config assumes it exists. I'll document it as a prerequisite in `packaging/README.md`.
@@ -41,8 +41,7 @@ A developer will be able to install `sworn` through three channels: `brew instal
 ## §5. Reachability plan
 
 1. **Local goreleaser snapshot:** `goreleaser release --snapshot --skip-publish --clean` produces a dist/ binary. Run `dist/sworn_darwin_arm64/sworn version` — must print the snapshot version (not `0.0.0-dev`).
-2. **Docker smoke test:** `docker build -t sworn-test . && docker run --rm sworn-test version` — must print the version.
-3. **Workflow review:** the `.github/workflows/release.yml` is a static YAML file; correctness is verified by reviewing the goreleaser-action configuration and the secret references against goreleaser's documented interface.
+2. **Docker smoke test:** `docker build -t sworn-test . && docker run --rm sworn-test version && docker run --rm sworn-test verify --spec /tmp/smoke-spec.md --diff /tmp/smoke-diff` — version prints the version tag; verify exercises the binary's primary subcommand (non-zero exit is expected without a configured model, confirming the binary is intact).3. **Workflow review:** the `.github/workflows/release.yml` is a static YAML file; correctness is verified by reviewing the goreleaser-action configuration and the secret references against goreleaser's documented interface.
 
 ## §6. Open questions for the Coach
 
