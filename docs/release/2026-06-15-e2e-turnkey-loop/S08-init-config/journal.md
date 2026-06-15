@@ -43,6 +43,10 @@ The release-verify.sh flagged two dark-code markers:
 
 Both are documented text, not code-level deferrals.
 
+### Skeptic panel
+
+Skipped — Agent/Workflow tool not available in this harness. Noted per implementer.md
+Step 5 escalation clause.
 ### AC1 narrowing (Coach Pin 1)
 
 AC1 ("After `sworn init` + one key, `sworn run` works with defaults") is cross-slice.
