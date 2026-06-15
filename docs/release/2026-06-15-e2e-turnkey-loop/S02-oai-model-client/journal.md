@@ -44,7 +44,7 @@ direction, committed the WIP files as a single commit before proceeding.
 Skipped — Agent/Workflow tool not available in this harness. First-pass 22/22 green;
 verifier fresh-context session will be the definitive adversarial check.
 
-## Verifier verdicts received
+## Verifier verdicts received (round 2)
 
 ### Verdict — 2026-06-16T06:00:00Z
 
@@ -102,3 +102,47 @@ Re-entered S02 to address the single verifier violation: four top-level
 
 Skipped — Agent/Workflow tool not available in this harness. First-pass 22/22
 green; fresh-context verifier will be the definitive check.
+
+## Verifier verdicts received (round 2)
+
+### Verdict — 2026-06-16T16:00:00Z
+
+```
+FAIL
+
+Slice: `S02-oai-model-client`
+
+Violations:
+1. Gate 2 — proof.md "Divergence from plan" section for the re-entry round does
+   not disclose that `internal/verify/verify.go` (a planned touchpoint) was never
+   modified, that the wire was instead implemented via the unplanned touchpoint
+   `cmd/sworn/main.go`, and that `internal/verify/verify_test.go` (unplanned) was
+   also modified in the first implementation round. These touchpoint deviations are
+   absent from the proof bundle's Divergence section, violating Gate 2.
+
+2. Gate 4 — No fresh reachability artefact for this re-entry round. The spec's
+   Required Tests section prescribes "Reachability artefact: `sworn verify ...
+   --verifier-model <id>` against a fake server prints a real verdict with non-zero
+   cost." The proof.md states "Path: N/A" and cites prior-round smoke results
+   (commit `f9454eb`) rather than a freshly-generated execution artefact from live
+   repo state (Baton Rule 6: proof bundle must be generated from live repo state,
+   not recalled).
+
+All four acceptance checks ARE implemented correctly and tests all pass. The
+violations are documentation/proof-quality gates, not functional failures.
+
+Required to address:
+1. Add to proof.md "Divergence from plan": document that the wire touchpoint was
+   `cmd/sworn/main.go` (not the planned `internal/verify/verify.go`), explain why
+   (the verify.Run Input struct already accepted a Verifier; the CLI was the
+   correct injection point), and note the unplanned `internal/verify/verify_test.go`
+   whitespace fix.
+2. Provide a fresh CLI-level reachability artefact: build the binary and run
+   `sworn verify --spec ... --diff ... --verifier-model openai/gpt-4.1-mini`
+   against an httptest-based fake server (or a script driving the binary against a
+   netcat/socat fake), capturing the output showing a real PASS verdict with
+   non-zero cost_usd. Path to artefact file required.
+```
+
+Verifier session: fresh, artefact-only (no prior implementer context).
+Verified against: `ddcddea`
