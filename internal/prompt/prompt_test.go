@@ -25,16 +25,16 @@ func TestVerifier_ContainsVerdictContract(t *testing.T) {
 	}
 }
 
-// Negative check: the embedded verifier prompt must NOT be the old placeholder.
-// A silent vendoring failure (wrong path, empty embed) would pass the positive
-// checks above because the placeholder also contains PASS/FAIL/BLOCKED.
+// Negative check: the embedded verifier prompt must differ from the old
+// inline const that preceded go:embed vendoring. A silent vendoring failure
+// (wrong path, empty embed) would pass the positive checks above because
+// the old const also contains PASS/FAIL/BLOCKED.
 func TestVerifier_NotOldPlaceholder(t *testing.T) {
 	got := strings.TrimSpace(Verifier())
 	if got == strings.TrimSpace(oldPlaceholder) {
-		t.Fatal("Verifier() returned the old placeholder — vendored prompt not embedded")
+		t.Fatal("Verifier() returned the old inline const — vendored prompt not embedded")
 	}
 }
-
 func TestVerifier_ContainsInconclusive(t *testing.T) {
 	got := Verifier()
 	if !strings.Contains(got, "INCONCLUSIVE") {
