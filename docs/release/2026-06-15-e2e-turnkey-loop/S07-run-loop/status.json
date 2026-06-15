@@ -3,11 +3,11 @@
   "slice_id": "S07-run-loop",
   "release": "2026-06-15-e2e-turnkey-loop",
   "track": "T2-orchestration",
-  "state": "design_review",
+  "state": "in_progress",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-16T21:00:00Z",  "start_commit": null,
-  "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S07-run-loop/spec.md",
+  "last_updated_at": "2026-06-16T21:00:00Z",
+  "start_commit": "f774494f5c54cc1988c1cac9d17857ebbe98e5f5",  "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S07-run-loop/spec.md",
   "proof_path": "docs/release/2026-06-15-e2e-turnkey-loop/S07-run-loop/proof.md",
   "journal_path": "docs/release/2026-06-15-e2e-turnkey-loop/S07-run-loop/journal.md",
   "planned_files": [
@@ -22,7 +22,7 @@
   "reachability_artifacts": [],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "",
     "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
