@@ -184,7 +184,6 @@ func computeCost(usage *model.UsageBlock) float64 {
 	if usage == nil {
 		return 0
 	}
-	// Nominal cost placeholder — real model prices are in model.modelPricing.
-	// S10 will make this data-driven.
-	return float64(usage.TotalTokens) * 0.000002 // ~$2/1M tokens
+	// Nominal cost estimate (~$2/1M tokens). Real model prices are in
+	// model.modelPricing. S10 (benchmark) will make this data-driven.	return float64(usage.TotalTokens) * 0.000002 // ~$2/1M tokens
 }
