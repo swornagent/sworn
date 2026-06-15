@@ -7,8 +7,7 @@
   "owner": "agent",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-16T00:00:00Z",
-  "start_commit": null,
-  "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S02-oai-model-client/spec.md",
+  "start_commit": "f9454ebe2f9199e849e988b9d1371b8e696b89f0",  "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S02-oai-model-client/spec.md",
   "proof_path": "docs/release/2026-06-15-e2e-turnkey-loop/S02-oai-model-client/proof.md",
   "journal_path": "docs/release/2026-06-15-e2e-turnkey-loop/S02-oai-model-client/journal.md",
   "planned_files": [
