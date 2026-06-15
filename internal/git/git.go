@@ -1,0 +1,96 @@
+// Package git wraps git operations needed by the run-loop: init, branch
+// create/checkout, stage, commit, rev-parse, and slice diff. It uses os/exec
+// against the system git binary — zero runtime dependencies beyond the
+// standard library, consistent with the project's dependency policy.
+//
+// All methods operate within a single repository directory, supplied at
+// construction time. The package is not goroutine-safe; the caller (the
+// run-loop) owns serialisation.
+package git
+
+import (
+	"fmt"
+	"os/exec"
+	"strings"
+)
+
+// Repo is a handle to a local git repository.
+type Repo struct {
+	Dir string // working directory; must be inside an initialised git repo
+}
+
+// New returns a Repo rooted at dir. The directory must exist; Init is a
+// separate call.
+func New(dir string) *Repo {
+	return &Repo{Dir: dir}
+}
+
+// Init runs `git init` in r.Dir. It is safe to call on an already-initialised
+// repo (git init is idempotent).
+func (r *Repo) Init() error {
+	_, err := r.run("init")
+	return err
+}
+
+// Branch creates and checks out a new branch named name.
+func (r *Repo) Branch(name string) error {
+	_, err := r.run("checkout", "-b", name)
+	return err
+}
+
+// Checkout switches to branch name.
+func (r *Repo) Checkout(name string) error {
+	_, err := r.run("checkout", name)
+	return err
+}
+
+// Stage stages the given paths (equivalent to `git add <paths...>`).
+func (r *Repo) Stage(paths ...string) error {
+	args := append([]string{"add"}, paths...)
+	_, err := r.run(args...)
+	return err
+}
+
+// Commit creates a commit with the given message. The index must already
+// contain staged changes (see Stage). Uses --allow-empty so tests can create
+// commits without staging real files.
+func (r *Repo) Commit(msg string) error {
+	_, err := r.run("commit", "--allow-empty", "-m", msg)
+	return err
+}
+
+// RevParse returns the full SHA for ref (e.g. "HEAD", "start_commit").
+func (r *Repo) RevParse(ref string) (string, error) {
+	out, err := r.run("rev-parse", ref)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// DiffRange returns the unified diff for base..head. Both are any
+// git-rev-parse-able refs (branch names, SHAs, HEAD, etc.).
+func (r *Repo) DiffRange(base, head string) (string, error) {
+	return r.run("diff", base+".."+head)
+}
+
+// DiffRangeStat returns file names changed in base..head, one per line —
+// suitable for populating actual_files in a proof bundle.
+func (r *Repo) DiffRangeStat(base, head string) (string, error) {
+	return r.run("diff", "--name-only", base+".."+head)
+}
+
+// run executes a git command in r.Dir and returns stdout (trimmed). On
+// non-zero exit it returns stderr as the error.
+func (r *Repo) run(args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = r.Dir
+	out, err := cmd.Output()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), strings.TrimSpace(string(ee.Stderr)))
+		}
+		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
