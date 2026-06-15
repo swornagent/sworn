@@ -28,14 +28,29 @@ type OAI struct {
 	Client  *http.Client // nil means http.DefaultClient
 }
 
+// ToolDef describes a tool the model may call. Name, Description, and the
+// JSON Schema for Parameters are the wire format in the /chat/completions
+// tools array. ToolDef is defined in the model package (the wire-format
+// owner); agent tools provide their definition via Schema() model.ToolDef
+// to avoid hand-editing JSON schema on both sides of the boundary.
+type ToolDef struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"`
+}
+
 type chatRequest struct {
 	Model    string        `json:"model"`
 	Messages []chatMessage `json:"messages"`
+	Tools    []ToolDef     `json:"tools,omitempty"`
 }
 
 type chatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content,omitempty"`
+	Name       string     `json:"name,omitempty"`
+	ToolCallID *string    `json:"tool_call_id,omitempty"`
+	ToolCalls  []toolCall `json:"tool_calls,omitempty"`
 }
 
 // chatResponse contains only the fields SwornAgent needs. Other fields from
@@ -43,12 +58,25 @@ type chatMessage struct {
 type chatResponse struct {
 	Choices []struct {
 		Message struct {
-			Content string `json:"content"`
+			Content    string     `json:"content"`
+			ToolCalls  []toolCall `json:"tool_calls,omitempty"`
 		} `json:"message"`
+		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage *usageBlock `json:"usage"`
 }
 
+// toolCall is a single tool invocation the model requests in a response.
+type toolCall struct {
+	ID       string       `json:"id"`
+	Type     string       `json:"type"`
+	Function functionCall `json:"function"`
+}
+
+type functionCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
 type usageBlock struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
@@ -131,6 +159,62 @@ func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (str
 	return cr.Choices[0].Message.Content, cost, nil
 }
 
+// Chat sends a multi-message conversation (possibly with tool definitions
+// and tool-call history) to /chat/completions. It returns the full
+// chatResponse so the caller can inspect tool_calls and finish_reason.
+// Cost is the sum of all Chat calls in the loop — tracked by the caller.
+//
+// No logging of message content — per AGENTS.md Security. The message
+// history may contain file contents and command output.
+func (c *OAI) Chat(ctx context.Context, messages []chatMessage, tools []ToolDef) (*chatResponse, error) {
+	reqBody := chatRequest{
+		Model:    c.Model,
+		Messages: messages,
+		Tools:    tools,
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(reqBody); err != nil {
+		return nil, fmt.Errorf("model: marshal request: %w", err)
+	}
+
+	url := strings.TrimRight(c.BaseURL, "/") + "/chat/completions"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &buf)
+	if err != nil {
+		return nil, fmt.Errorf("model: build request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := c.Client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("model: dispatch: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("model: read response: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("model: HTTP %d: %s", resp.StatusCode, trimBody(body, 200))
+	}
+
+	var cr chatResponse
+	if err := json.Unmarshal(body, &cr); err != nil {
+		return nil, fmt.Errorf("model: unmarshal response: %w", err)
+	}
+	if len(cr.Choices) == 0 {
+		return nil, fmt.Errorf("model: empty choices in response")
+	}
+
+	return &cr, nil
+}
 func computeCost(model string, usage *usageBlock) float64 {
 	p, ok := modelPricing[model]
 	if !ok || usage == nil {

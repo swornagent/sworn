@@ -16,23 +16,30 @@ func fakeServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	return srv
 }
 
+// oaiResp builds a chatResponse JSON blob for test handlers.
+// finishReason defaults to "stop" when choices are present.
 func oaiResp(choices []struct {
 	content string
 }, usage *usageBlock) []byte {
 	cr := chatResponse{}
+	finish := "stop"
 	for _, c := range choices {
 		cr.Choices = append(cr.Choices, struct {
 			Message struct {
-				Content string `json:"content"`
+				Content    string     `json:"content"`
+				ToolCalls  []toolCall `json:"tool_calls,omitempty"`
 			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
 		}{Message: struct {
-			Content string `json:"content"`
-		}{Content: c.content}})
+			Content    string     `json:"content"`
+			ToolCalls  []toolCall `json:"tool_calls,omitempty"`
+		}{Content: c.content}, FinishReason: finish})
 	}
 	cr.Usage = usage
 	b, _ := json.Marshal(cr)
 	return b
 }
+
 
 func TestOAI_Verify(t *testing.T) {
 	tests := []struct {
