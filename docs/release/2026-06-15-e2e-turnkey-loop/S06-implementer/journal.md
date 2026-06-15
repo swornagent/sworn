@@ -19,3 +19,7 @@
 **Trade-offs**:
 - proof.md is machine-generated with minimal "Delivered" content — doesn't do semantic analysis of which acceptance checks were met. The verifier will need to cross-reference the spec directly.
 - No git commit inside Run() — that's the run-loop's (S07) responsibility. The proof captures pre-commit working tree state.
+
+## Skeptic panel
+
+Skipped — the harness provides Bash/Read/Write/Edit/Glob/Grep tools but no Agent or Workflow tool for parallel skeptic dispatch. Per implementer role prompt: "the panel is an accelerant, not a gate." Verifier (fresh context) remains the authoritative gate.
