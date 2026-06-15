@@ -7,7 +7,7 @@
   "owner": "agent",
   "last_updated_by": "verifier",
   "last_updated_at": "2026-06-16T06:00:00Z",
-  "start_commit": "f9454ebe2f9199e849e988b9d1371b8e696b89f0",
+  "start_commit": "e49b9bbfae94958875111f9d4e2dd6486a722cd9",
   "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S02-oai-model-client/spec.md",
   "proof_path": "docs/release/2026-06-15-e2e-turnkey-loop/S02-oai-model-client/proof.md",
   "journal_path": "docs/release/2026-06-15-e2e-turnkey-loop/S02-oai-model-client/journal.md",
