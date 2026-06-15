@@ -43,7 +43,7 @@ CLI: `sworn bench` (`cmd/sworn/bench.go`); the dogfood is a real `sworn run`.
 
 - **Unit**: benchmark aggregation (pass-rate, cost roll-ups).
 - **Reachability artefact**: the dogfood `sworn run` transcript + the merged commit.
-
+- **playwright-screenshot** N/A — not a Playwright slice; reachability artefact is CLI transcript, not visual screenshot.
 ## Risks
 
 - Task-set bias — use a public set; document selection.
