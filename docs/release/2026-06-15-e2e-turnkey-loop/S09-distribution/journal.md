@@ -32,3 +32,23 @@
 ### Skeptic panel
 
 Skipped — no Agent/Workflow tool available in this harness. Advisory QA not run.
+
+## 2026-06-16 — Verifier session
+
+**State transition: implemented → verified**
+
+### Verifier verdicts received
+
+PASS
+
+**Gate 1 (User-reachable outcome):** PASS — goreleaser `brews` stanza wires to `swornagent/homebrew-tap`; `builds` stanza compiles `./cmd/sworn` for `go install`; `dockers` stanza pushes to `ghcr.io/swornagent/sworn`. Release workflow triggers on `v*` tags.
+
+**Gate 2 (Planned touchpoints):** PASS — All four planned touchpoints changed: `.goreleaser.yaml`, `.github/workflows/release.yml`, `Dockerfile`, `packaging/README.md` (subdir of `packaging/`). Extra docs artefacts are expected slice overhead.
+
+**Gate 3 (Required tests):** PASS — Independently verified: `go test ./...` all pass; `go vet ./...` clean; `make build && ./bin/sworn version` prints `sworn 0.0.0-dev`; `docker build + docker run sworn-test version` passes; `docker run sworn-test verify` exits 2 (fail-closed, expected). Release workflow includes both CI smoke steps.
+
+**Gate 4 (Reachability artefact):** PASS — Three manual-smoke gestures described and independently reproduced: binary version, container version, container verify (exit 2 fail-closed).
+
+**Gate 5 (No silent deferrals):** PASS — No dark-code markers in any production file. Windows deferral is fully surfaced with all three Rule 2 elements: Why + Tracking (issue #1) + Acknowledged inline.
+
+**Gate 6 (Claimed scope):** PASS — AC1 goreleaser config covers both install channels; AC2 Docker smoke confirms container runs `sworn verify`; AC3 `-X main.version={{.Version}}` ldflags in goreleaser config wires version to release tag.
