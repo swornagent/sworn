@@ -27,6 +27,9 @@ No servers needed — sworn is a pure Go CLI project. `baton-server-start.sh` sk
 
 None.
 
+### Skeptic panel
+
+Skipped — no Agent/Workflow tool available in this harness. Panel is an accelerant, not a gate per implementer prompt.
 ### Trade-offs
 
 - `prompt.go` uses `panic` in `init()` if an embedded file is missing — build-time failure is correct (no degraded runtime fallback), but means a corrupted vendoring dir produces a confusing startup panic rather than a compile error. go:embed would catch most cases at compile time; the `init()` panic is a belt-and-suspenders backstop.

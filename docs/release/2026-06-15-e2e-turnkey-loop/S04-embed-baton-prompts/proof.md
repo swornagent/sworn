@@ -11,6 +11,8 @@ the inline placeholder in `verify` is replaced by the real Baton verifier prompt
 ```
 $ git diff --name-only 5396772ea000b501b2a48e1146e1aaf77d36a109
 cmd/sworn/main.go
+docs/release/2026-06-15-e2e-turnkey-loop/S04-embed-baton-prompts/journal.md
+docs/release/2026-06-15-e2e-turnkey-loop/S04-embed-baton-prompts/proof.md
 docs/release/2026-06-15-e2e-turnkey-loop/S04-embed-baton-prompts/status.json
 internal/prompt/VERSION.txt
 internal/prompt/captain.md
@@ -22,7 +24,6 @@ internal/prompt/verifier.md
 internal/verdict/verdict.go
 internal/verify/verify.go
 ```
-
 ## Test results
 
 ### Go
@@ -141,4 +142,45 @@ embedded at build time via `go:embed`.
 
 ## First-pass script output
 
-(To be filled after running release-verify.sh)
+```$ release-verify.sh S04-embed-baton-prompts 2026-06-15-e2e-turnkey-loop
+
+== Slice artefacts ==
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+  PASS  spec.md has Required tests section
+
+== Status ==
+  PASS  status.json is valid JSON
+  state: implemented
+  PASS  state is 'implemented' (eligible for verifier review)
+
+== Integration branch drift ==
+  PASS  worktree branch is current with release/v0.1.0 (no drift)
+
+== Diff vs start_commit (verifier base) ==
+  PASS  13 file(s) changed vs diff base
+
+== Dark-code markers in changed files ==
+  PASS  no dark-code markers in changed source files
+
+== Proof bundle structural checks ==
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+  PASS  proof.md 'Not delivered' deferrals carry non-placeholder tracking refs
+  PASS  proof.md 'Files changed' count (~11) consistent with diff vs start_commit (13)
+
+== First-pass verdict ==
+  checks passed: 22
+  checks failed: 0
+
+FIRST-PASS PASS
+```
