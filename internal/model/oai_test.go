@@ -34,74 +34,82 @@ func oaiResp(choices []struct {
 	return b
 }
 
-func TestOAI_Verify_PASS(t *testing.T) {
-	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(oaiResp([]struct{ content string }{{"PASS - all checks pass"}}, &usageBlock{
-			PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150,
-		}))
-	})
-	o := &OAI{BaseURL: srv.URL, Model: "gpt-4.1-mini", APIKey: "sk-test"}
-	text, cost, err := o.Verify(context.Background(), "be strict", "verify this diff")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestOAI_Verify(t *testing.T) {
+	tests := []struct {
+		name        string
+		handler     func(w http.ResponseWriter, r *http.Request)
+		client      *http.Client
+		wantErr     bool
+		wantText    string
+		wantCostGt0 bool
+	}{
+		{
+			name: "PASS",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.Write(oaiResp([]struct{ content string }{{"PASS - all checks pass"}}, &usageBlock{
+					PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150,
+				}))
+			},
+			wantErr:     false,
+			wantText:    "PASS - all checks pass",
+			wantCostGt0: true,
+		},
+		{
+			name: "FAIL",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.Write(oaiResp([]struct{ content string }{{"FAIL: missing proof bundle"}}, &usageBlock{
+					PromptTokens: 80, CompletionTokens: 30, TotalTokens: 110,
+				}))
+			},
+			wantErr:     false,
+			wantText:    "FAIL: missing proof bundle",
+			wantCostGt0: true,
+		},
+		{
+			name: "HTTP 500",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(`{"error": "internal"}`))
+			},
+			wantErr: true,
+		},
+		{
+			name: "timeout",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				time.Sleep(200 * time.Millisecond)
+			},
+			client:  &http.Client{Timeout: 50 * time.Millisecond},
+			wantErr: true,
+		},
 	}
-	if text != "PASS - all checks pass" {
-		t.Fatalf("want PASS, got %q", text)
-	}
-	if cost <= 0 {
-		t.Fatalf("want cost > 0, got %f", cost)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := fakeServer(t, tt.handler)
+			o := &OAI{
+				BaseURL: srv.URL,
+				Model:   "gpt-4.1-mini",
+				APIKey:  "sk-test",
+				Client:  tt.client,
+			}
+			text, cost, err := o.Verify(context.Background(), "be strict", "verify this diff")
+			if tt.wantErr && err == nil {
+				t.Fatal("want error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.wantText != "" && text != tt.wantText {
+				t.Fatalf("want %q, got %q", tt.wantText, text)
+			}
+			if tt.wantCostGt0 && cost <= 0 {
+				t.Fatalf("want cost > 0, got %f", cost)
+			}
+		})
 	}
 }
-
-func TestOAI_Verify_FAIL(t *testing.T) {
-	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(oaiResp([]struct{ content string }{{"FAIL: missing proof bundle"}}, &usageBlock{
-			PromptTokens: 80, CompletionTokens: 30, TotalTokens: 110,
-		}))
-	})
-	o := &OAI{BaseURL: srv.URL, Model: "gpt-4.1-mini", APIKey: "sk-test"}
-	text, cost, err := o.Verify(context.Background(), "be strict", "verify this diff")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if text != "FAIL: missing proof bundle" {
-		t.Fatalf("want FAIL, got %q", text)
-	}
-	if cost <= 0 {
-		t.Fatalf("want cost > 0, got %f", cost)
-	}
-}
-
-func TestOAI_Verify_HTTP500(t *testing.T) {
-	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": "internal"}`))
-	})
-	o := &OAI{BaseURL: srv.URL, Model: "gpt-4.1-mini", APIKey: "sk-test"}
-	_, _, err := o.Verify(context.Background(), "be strict", "verify this diff")
-	if err == nil {
-		t.Fatal("want error on HTTP 500, got nil")
-	}
-}
-
-func TestOAI_Verify_Timeout(t *testing.T) {
-	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(200 * time.Millisecond)
-	})
-	o := &OAI{
-		BaseURL: srv.URL,
-		Model:   "gpt-4.1-mini",
-		APIKey:  "sk-test",
-		Client:  &http.Client{Timeout: 50 * time.Millisecond},
-	}
-	_, _, err := o.Verify(context.Background(), "be strict", "verify this diff")
-	if err == nil {
-		t.Fatal("want timeout error, got nil")
-	}
-}
-
 func TestOAI_Verify_GarbledJSON(t *testing.T) {
 	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
