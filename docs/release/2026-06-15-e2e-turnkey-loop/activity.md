@@ -8,3 +8,4 @@
 - 2026-06-16T08:30:00Z — S03-agentic-tool-loop (T1-engine): implemented → verified. All 6 gates passed; 5/5 agent tests green; reachability artefact confirmed at agent.Run() boundary.
 - 2026-06-16T18:30:00Z — S04-embed-baton-prompts (T1-engine): implemented → verified. All 6 gates passed; 13/13 tests green (8 prompt + 5 verify); binary smoke confirms baton-protocol v1.0.0 embedded.
 - 2026-06-16T18:45:00Z — track `T1-engine` merged to release-wt/ (commit f10649d). 4 verified slice(s): S01-verifier-core, S02-oai-model-client, S03-agentic-tool-loop, S04-embed-baton-prompts. Track state → merged.
+- 2026-06-16T19:00:00Z — S05-state-and-git (T2-orchestration): implemented → verified. All 6 gates passed; 16/16 tests green; go vet + go build clean.

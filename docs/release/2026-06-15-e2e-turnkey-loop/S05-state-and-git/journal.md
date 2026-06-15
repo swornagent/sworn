@@ -26,3 +26,19 @@
 **Skeptic panel:** Not dispatched (harness Agent tool unavailable in this session — noted per implementer.md Step 5 instructions).
 
 **Release-verify.sh:** PASS on all deterministic gates that ran (slice artefacts, valid JSON, no drift, 5 files changed, no dark-code markers). Script has unbound-variable bug at PLAYWRIGHT_OPTIN line 471 — non-blocking for this backend-only slice.
+
+## Verifier verdicts received
+
+### 2026-06-16T19:00:00Z — PASS (fresh-context session)
+
+**Verifier role active. No prior implementer context loaded.**
+
+Gate walk:
+- Gate 1 ✓ — `internal/state/` and `internal/git/` packages importable; `go build ./...` clean. Backend-only entry point per spec.
+- Gate 2 ✓ — Planned touchpoints (`internal/state/`, `internal/git/`) match actual code changes; docs artefacts are expected noise.
+- Gate 3 ✓ — 16/16 tests pass live from track worktree. Temp-git-repo tests cover: commit creation, diff range, state transitions, illegal transition `Planned→Verified`.
+- Gate 4 ✓ — `go test + go vet + go build` all pass live; valid reachability artefact for backend-only package.
+- Gate 5 ✓ — No TODO/FIXME/deferred/placeholder in source files; "Not delivered: None" in proof.md; spec says deferrals disallowed.
+- Gate 6 ✓ — AC1/AC2/AC3 all have implementation + test evidence; no overclaiming.
+
+**Verdict: PASS**
