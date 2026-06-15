@@ -4,7 +4,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 .PHONY: build test vet fmt clean
 
 build:
-	go build -ldflags "$(LDFLAGS)" -o bin/swornagent ./cmd/swornagent
+	go build -ldflags "$(LDFLAGS)" -o bin/sworn ./cmd/sworn
 
 test:
 	go test ./...

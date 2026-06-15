@@ -6,6 +6,8 @@ an independent, fresh-context adversarial verifier against a change's
 cannot reach merged state. Built on the open [Baton](https://github.com/sawy3r/baton)
 protocol.
 
+Brand: **SwornAgent**. CLI binary: **`sworn`**.
+
 > Status: early scaffold (S1 — provider-neutral verifier core). The model
 > dispatch leg is stubbed (fails closed) until the OpenAI-compatible client lands.
 
@@ -21,20 +23,25 @@ protocol.
 
 ```sh
 make build
-./bin/swornagent verify --spec spec.md --diff change.diff
+./bin/sworn verify --spec spec.md --diff change.diff
 ```
 
 `verify` emits a JSON verdict and sets the exit code from it
 (`0`=PASS, `1`=FAIL, `2`=BLOCKED).
 
+## Command surface (roadmap)
+
+One binary, subcommands: `sworn verify` (now) · `top` (TUI) · `run` · `plan` ·
+`implement` · `merge` · `status` · `models` · `cost` · `attest` · `config`.
+
 ## Roadmap (MVP)
 
 - [x] Verdict contract + deterministic first-pass + fail-closed model stub (S1)
-- [ ] OpenAI-compatible verifier client (BYO-key, customer-chosen model)
+- [ ] OpenAI-compatible verifier client (BYO-key, customer-chosen, safe-hosted default)
 - [ ] Spec/diff/proof resolution at the PR boundary (fail-closed)
 - [ ] GitHub Action + required status check (the merge gate)
 - [ ] `model × hosting-jurisdiction × cost × pass-rate` benchmark
-- [ ] Distribution: Action Marketplace + container (GHCR) + Homebrew
+- [ ] Distribution: Action Marketplace + container (GHCR) + Homebrew (`sworn`)
 
 ## Licence
 

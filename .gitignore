@@ -1,7 +1,7 @@
 # build output
 /bin/
 /dist/
-swornagent
+sworn
 
 # go
 *.test
