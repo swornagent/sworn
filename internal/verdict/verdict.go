@@ -1,0 +1,40 @@
+// Package verdict defines SwornAgent's verification result contract.
+//
+// The contract is deliberately small and fail-closed: anything that is not an
+// explicit PASS does not merge. This mirrors the Baton Rule 7 verifier contract
+// (PASS / FAIL / BLOCKED) that SwornAgent enforces.
+package verdict
+
+// Verdict is the outcome of an adversarial verification.
+type Verdict string
+
+const (
+	// Pass: every gate satisfied; the change may merge.
+	Pass Verdict = "PASS"
+	// Fail: a concrete acceptance/gate violation was found.
+	Fail Verdict = "FAIL"
+	// Blocked: verification could not be completed (missing artefact, unrunnable
+	// model, unresolved spec). Fail-closed — treated as not-mergeable.
+	Blocked Verdict = "BLOCKED"
+)
+
+// Result is the machine-readable verdict emitted by `swornagent verify`.
+type Result struct {
+	Verdict    Verdict `json:"verdict"`
+	FailedGate string  `json:"failed_gate,omitempty"`
+	Rationale  string  `json:"rationale"`
+	CostUSD    float64 `json:"cost_usd"`
+}
+
+// ExitCode maps a verdict to a process exit code. 0 only for PASS; everything
+// else is non-zero so a CI required-check blocks the merge by default.
+func (r Result) ExitCode() int {
+	switch r.Verdict {
+	case Pass:
+		return 0
+	case Fail:
+		return 1
+	default: // Blocked or any unknown value -> fail closed
+		return 2
+	}
+}

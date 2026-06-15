@@ -1,0 +1,14 @@
+# build output
+/bin/
+/dist/
+swornagent
+
+# go
+*.test
+*.out
+coverage.*
+
+# editor / os
+.DS_Store
+.idea/
+.vscode/
