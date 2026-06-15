@@ -3,10 +3,11 @@
   "slice_id": "S09-distribution",
   "release": "2026-06-15-e2e-turnkey-loop",
   "track": "T3-turnkey-ux",
-  "state": "design_review",
+  "state": "in_progress",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-16T20:00:00Z",  "start_commit": null,
+  "last_updated_at": "2026-06-16T20:30:00Z",
+  "start_commit": null,
   "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S09-distribution/spec.md",
   "proof_path": "docs/release/2026-06-15-e2e-turnkey-loop/S09-distribution/proof.md",
   "journal_path": "docs/release/2026-06-15-e2e-turnkey-loop/S09-distribution/journal.md",
@@ -21,9 +22,16 @@
     "go test ./..."
   ],
   "reachability_artifacts": [],
-  "open_deferrals": [],
+  "open_deferrals": [
+    {
+      "item": "Windows builds (windows/amd64)",
+      "why": "None of the three install channels target Windows; shipping untested binaries would be worse",
+      "tracking": "https://github.com/swornagent/sworn/issues/1",
+      "acknowledged": "Coach via approved-ack.md, 2026-06-16"
+    }
+  ],
   "verification": {
-    "result": "pending",
+    "result": "",
     "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
