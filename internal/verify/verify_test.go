@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/swornagent/swornagent/internal/verdict"
+	"github.com/swornagent/sworn/internal/verdict"
 )
 
 type fakeVerifier struct {

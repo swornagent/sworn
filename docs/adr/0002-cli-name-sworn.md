@@ -8,8 +8,10 @@ The product brand is **SwornAgent**; the CLI binary is **`sworn`** (the
 GitHub-CLI → `gh`, Kubernetes → `kubectl` split). Short, fast to type, reads as
 verb-object: `sworn verify`, `sworn run`, `sworn top`.
 
-- Go module stays `github.com/swornagent/swornagent`; the command package is
-  `cmd/sworn`, so `go install .../cmd/sworn@latest` produces `sworn`.
+- Go module is `github.com/swornagent/sworn` (the repo was renamed from
+  `swornagent/swornagent` to `swornagent/sworn` on 2026-06-15 to drop the
+  brand-name stutter); the command package is `cmd/sworn`, so
+  `go install .../cmd/sworn@latest` produces `sworn`.
 - Distribution: `brew install swornagent/tap/sworn`, `go install`, container, and
   the GitHub Action — none collide. The bare npm name `sworn` is taken by a
   non-mainstream package; irrelevant (npm is not a primary channel; a scoped

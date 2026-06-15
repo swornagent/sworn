@@ -12,7 +12,7 @@ it immediately — the turnkey install side of "download and get value".
 
 ## Entry point
 
-`brew install swornagent/tap/sworn` · `go install github.com/swornagent/swornagent/cmd/sworn@latest`
+`brew install swornagent/tap/sworn` · `go install github.com/swornagent/sworn/cmd/sworn@latest`
 · `docker run ghcr.io/swornagent/sworn`.
 
 ## In scope

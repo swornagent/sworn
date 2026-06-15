@@ -11,8 +11,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/swornagent/swornagent/internal/model"
-	"github.com/swornagent/swornagent/internal/verdict"
+	"github.com/swornagent/sworn/internal/model"
+	"github.com/swornagent/sworn/internal/verdict"
 )
 
 // systemPrompt is a placeholder. The real prompt is the Baton verifier role

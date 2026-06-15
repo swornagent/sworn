@@ -2,7 +2,7 @@
 title: Release board — 2026-06-15-e2e-turnkey-loop
 description: sworn v0.1 — native-Go end-to-end loop. Machine-readable track registry + human-readable board.
 release_index: 1
-release_worktree_path: /home/brad/projects/swornagent-worktrees/release-2026-06-15-e2e-turnkey-loop
+release_worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop
 release_worktree_branch: release-wt/2026-06-15-e2e-turnkey-loop
 tracks:
   - id: T1-engine
