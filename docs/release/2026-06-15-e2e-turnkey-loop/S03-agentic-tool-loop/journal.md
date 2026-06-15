@@ -20,3 +20,9 @@
 - Chat method added to OAI, not a separate client — keeps one HTTP client, one pricing table.
 - Tool calls executed sequentially within a turn (no parallel execution) per design §4.
 - Workspace confinement is path-prefix enforcement with `filepath.Clean` + prefix check, documented in package doc.
+## Implementation summary
+
+- Extended `internal/model/oai.go`: exported ChatMessage, ChatResponse, ToolCall, FunctionCall, UsageBlock, ToolDef. Added `Chat()` method.
+- Created `internal/agent/`: Agent interface, Run loop, six tools (Read/Write/Edit/Bash/Grep/Glob), workspace confinement.
+- 5 unit tests covering success path, error path (AC2), turn cap (AC4), absolute path rejection, traversal rejection (AC3).
+- Pin 6: TestOAI_Verify passes unchanged after struct extension — backward compatible.

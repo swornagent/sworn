@@ -3,23 +3,36 @@
   "slice_id": "S03-agentic-tool-loop",
   "release": "2026-06-15-e2e-turnkey-loop",
   "track": "T1-engine",
-  "state": "in_progress",  "owner": "human",
+  "state": "implemented",
+  "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-16T00:00:00Z",
-  "start_commit": "ae8d37959c199efdb08230e272ee7e8ae2605c0d",  "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S03-agentic-tool-loop/spec.md",
+  "start_commit": "ae8d37959c199efdb08230e272ee7e8ae2605c0d",
+  "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S03-agentic-tool-loop/spec.md",
   "proof_path": "docs/release/2026-06-15-e2e-turnkey-loop/S03-agentic-tool-loop/proof.md",
   "journal_path": "docs/release/2026-06-15-e2e-turnkey-loop/S03-agentic-tool-loop/journal.md",
   "planned_files": [
     "internal/agent/"
   ],
-  "actual_files": [],
-  "test_commands": [
-    "go test ./..."
+  "actual_files": [
+    "internal/agent/agent.go",
+    "internal/agent/agent_test.go",
+    "internal/agent/tools.go",
+    "internal/model/oai.go",
+    "internal/model/oai_test.go"
   ],
-  "reachability_artifacts": [],
+  "test_commands": [
+    "go test ./internal/agent/ -v",
+    "go test ./internal/model/ -v",
+    "go vet ./..."
+  ],
+  "reachability_artifacts": [
+    "internal/agent/agent_test.go: TestRun_SuccessPath (integration test at agent boundary)"
+  ],
   "open_deferrals": [],
   "verification": {
-    "result": "",    "verifier_session_id": null,
+    "result": "",
+    "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
     "violations": []
