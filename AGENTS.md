@@ -68,21 +68,89 @@ Keep `go vet` clean and code `gofmt`'d. Every new package ships with tests; pref
 table-driven tests against fakes (e.g. `httptest`) so they run with no network and
 no token spend.
 
-## How work is organised (we dogfood Baton)
+## Engineering Process — Baton (we dogfood the protocol)
 
-Work is **sliced**. Each slice lives at `docs/release/<release>/<slice-id>/` with
-a `spec.md` (the contract) and `status.json` (machine state). State machine:
+This project follows the **Baton** rule-set — the same protocol SwornAgent
+productises. Full rule docs with provenance live in [`docs/baton/`](docs/baton/);
+the seven rules below are the canonical fragment, adapted for this Go CLI. They
+are **listed in priority order** (higher rule wins on conflict).
 
-`planned → in_progress → implemented → verified | failed_verification`
+### 1. Reachability Gate (CRITICAL)
 
-- The **implementer** implements against the spec and writes a proof bundle **from
-  live repo state** (git diff + test output), then stops at `implemented` — it
-  **never certifies its own work**.
-- A **fresh-context verifier** (no implementer context, artefact-only) returns
-  PASS / FAIL / BLOCKED, fail-closed. Only `verified` slices may merge.
+For any feature with a user-facing affordance (a `sworn` subcommand/flag, an exit
+code, an API call, a config key), the first failing test must exercise the feature
+**through the integration point that owns it** — the `cmd/sworn` dispatch or an
+end-to-end `sworn` invocation — NOT a leaf function in isolation.
 
-Read the active release board at `docs/release/2026-06-15-e2e-turnkey-loop/`
-(`index.md` + the relevant slice's `spec.md`) before implementing anything.
+- If the entry point can't reach the feature yet, THAT failure is the correct TDD
+  red. Build the wiring first; the leaf falls out.
+- A function imported only by its own test file is a red flag. Investigate before
+  claiming a task done.
+
+Before marking any phase complete, produce a **reachability artefact**: an actual
+`sworn <subcommand>` run with its output/exit code, or an end-to-end test that
+drives the binary. A green `go test` on leaf packages is not a reachability
+artefact.
+
+### 2. No Silent Deferrals
+
+"Deferred" is not a decision unless all three are present: **why** (concrete
+reason), **tracking** (linked issue / slice / punch-list item), **acknowledgement**
+(decision-maker told in plain text). Without all three, a `// TODO` / `// later`
+on a contract surface is rationalisation, not a decision — surface it first.
+
+### 3. Capture Discipline
+
+Conversation context is the most ephemeral persistence layer. Decisions and
+subagent findings must land in durable storage before a session ends. Durability
+hierarchy, most to least permanent: **git history → code → `docs/` → GitHub
+issues → memory → conversation.** Bias every capture toward the more permanent.
+
+### 4. Commit Messages as Capture Layer
+
+Commits that land a decision restate it in the **message body** (3–5 lines), not
+just "see slice X" — `git log` is permanent, plans move. AI commits add a
+`Co-Authored-By:` trailer after the rationale. Single-line messages are fine for
+trivial mechanical changes only.
+
+### 5. Session Discipline
+
+Non-trivial work is anchored to a GitHub issue. Capture decisions and trade-offs
+at natural breakpoints and at session end. Use issues for epics/specs/session
+captures; use `docs/` for ADRs and stable reference material.
+
+### 6. Proof Bundle (CRITICAL)
+
+Before claiming any slice complete, produce a proof bundle at
+`docs/release/<release>/<slice-id>/proof.md`, generated from **live repo state**
+— not recalled from context. Required sections: **Scope**, **Files changed**
+(`git diff --name-only <base>`), **Test results** (`go test ./...` + `go vet`),
+**Reachability artefact** (Rule 1), **Delivered** (each with evidence),
+**Not delivered** (each a Rule 2 deferral), **Divergence from plan** (empty is
+valid; the section must be present). Claiming completion without a proof bundle is
+a silent deferral of verification (Rule 2).
+
+### 7. Adversarial Verification (CRITICAL)
+
+No slice reaches `verified` without a PASS from a **fresh-context** session loaded
+only with the slice artefacts (`spec.md`, `proof.md`, `status.json`) and live repo
+state. **The implementer never certifies its own work.** Verifier returns exactly
+one of `PASS` / `FAIL: <numbered violations>` / `BLOCKED: <reason>`, and **fails
+closed** — absence of evidence is FAIL, not optimistic PASS. State machine:
+
+`planned → in_progress → implemented → [fresh verifier] → verified | failed_verification`
+
+The `implemented` checkpoint exists so no agent can shortcut straight to
+`verified`. This rule is exactly what the `sworn` binary automates — we run it by
+hand on ourselves until the binary can.
+
+### Operating the board
+
+Work is **sliced**: each slice lives at `docs/release/<release>/<slice-id>/` with
+a `spec.md` (the contract) and `status.json` (machine state). Read the active
+release board at `docs/release/2026-06-15-e2e-turnkey-loop/` (`index.md` + the
+relevant slice's `spec.md`) before implementing anything. Only `verified` slices
+merge.
 
 ## Conventions
 
