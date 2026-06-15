@@ -3,10 +3,10 @@
   "slice_id": "S02-oai-model-client",
   "release": "2026-06-15-e2e-turnkey-loop",
   "track": "T1-engine",
-  "state": "failed_verification",
+  "state": "implemented",
   "owner": "agent",
-  "last_updated_by": "verifier",
-  "last_updated_at": "2026-06-16T16:00:00Z",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-06-16T17:00:00Z",
   "start_commit": "e49b9bbfae94958875111f9d4e2dd6486a722cd9",
   "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S02-oai-model-client/spec.md",
   "proof_path": "docs/release/2026-06-15-e2e-turnkey-loop/S02-oai-model-client/proof.md",
@@ -16,23 +16,22 @@
     "internal/verify/verify.go"
   ],
   "actual_files": [
+    "internal/model/oai.go",
     "internal/model/oai_test.go",
-    "docs/release/2026-06-15-e2e-turnkey-loop/S02-oai-model-client/status.json"
+    "internal/model/config.go",
+    "internal/model/client.go",
+    "cmd/sworn/main.go",
+    "internal/verify/verify_test.go",
+    "docs/release/2026-06-15-e2e-turnkey-loop/S02-oai-model-client/"
   ],
   "test_commands": [
     "go test ./internal/model/... ./internal/verify/...",
     "go vet ./..."
   ],
   "reachability_artifacts": [
-    "manual-smoke-step: end-to-end smoke unchanged from prior round (behavioural no-op refactor)"
+    "docs/release/2026-06-15-e2e-turnkey-loop/S02-oai-model-client/reachability.txt"
   ],
   "open_deferrals": [],
   "release_base": "release/v0.1.0",
-  "verification": {
-    "result": "fail",
-    "violations": [
-      "Gate 2: proof.md Divergence section omits that internal/verify/verify.go (planned touchpoint) was never modified; wire implemented via unplanned cmd/sworn/main.go; internal/verify/verify_test.go also modified (unplanned). All first-round deviations absent from proof bundle.",
-      "Gate 4: No fresh CLI-level reachability artefact for this re-entry round. proof.md Path: N/A — cites prior-round smoke output (commit f9454eb) rather than freshly-generated live-state artefact. Spec requires sworn verify --verifier-model against a fake server showing real verdict with non-zero cost."
-    ]
-  }
+  "verification": {}
 }

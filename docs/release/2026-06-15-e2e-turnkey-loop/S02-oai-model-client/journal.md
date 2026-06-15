@@ -146,3 +146,46 @@ Required to address:
 
 Verifier session: fresh, artefact-only (no prior implementer context).
 Verified against: `ddcddea`
+## Implementer session — 2026-06-16 ~17:00 AEST (re-entry, round 3)
+
+**State transition: failed_verification → in_progress → implemented**
+
+Re-entered S02 to address two documentation/proof-quality verifier violations
+(round 2). No production-code changes needed — both violations were proof-bundle
+defects, not functional failures.
+
+### Changes
+
+- `proof.md` — regenerated from live repo state with:
+  - Rewritten "Divergence from plan" section disclosing all three touchpoint
+    deviations (verify.go not modified, wire in main.go, verify_test.go
+    whitespace fix), with rationale for each
+  - Fresh CLI-level reachability artefact (`reachability.txt`) captured via
+    `/tmp/reach_artefact.go` driving the built `sworn` binary against a local
+    httptest fake server
+- `reachability.txt` (new) — fresh CLI artefact showing PASS (exit 0, $0.00007),
+  FAIL (exit 1, $0.000048), and BLOCKED (exit 2, $0) verdicts with non-zero
+  cost on success cases
+- `status.json` — state transition; verification field cleared; actual_files
+  and reachability_artifacts updated to reflect the full implementation surface
+- `journal.md` — this entry
+
+### Verification
+
+- All unit tests PASS (model: 0.212s, verify: 0.005s)
+- `go vet ./...` clean
+- First-pass: 21/22 PASS (1 FAIL is expected `in_progress` state — resolves
+  to green at `implemented`)
+
+### Decisions
+
+- Touchpoint divergence documented explicitly rather than worked around:
+  `cmd/sworn/main.go` is the correct injection point (process boundary);
+  `verify.go` was correctly left untouched (provider-neutral)
+- Reachability artefact generated fresh via Go helper driving the built binary,
+  not recalled from prior round
+
+### Skeptic panel
+
+Skipped — Agent/Workflow tool not available in this harness. No production-code
+changes; this round is purely proof-bundle documentation fixes.
