@@ -8,11 +8,10 @@ tracks:
   - id: T1-engine
     slices: [S01-verifier-core, S02-oai-model-client, S03-agentic-tool-loop, S04-embed-baton-prompts]
     depends_on: null
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop-T1-engine
     worktree_branch: track/2026-06-15-e2e-turnkey-loop/T1-engine
-    state: planned
-    e2e_specs: []
-  - id: T2-orchestration
+    state: in_progress
+    e2e_specs: []  - id: T2-orchestration
     slices: [S05-state-and-git, S06-implementer, S07-run-loop]
     depends_on: T1-engine
     worktree_path:
