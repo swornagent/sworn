@@ -186,5 +186,5 @@ func computeCost(usage *model.UsageBlock) float64 {
 	}
 	// Nominal cost estimate (~$2/1M tokens). Real model prices are in
 	// model.modelPricing. S10 (benchmark) will make this data-driven.
-		return float64(usage.TotalTokens) * 0.000002 // ~$2/1M tokens
+	return float64(usage.TotalTokens) * 0.000002 // ~$2/1M tokens
 }
