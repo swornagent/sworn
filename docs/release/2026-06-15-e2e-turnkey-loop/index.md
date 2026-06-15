@@ -11,7 +11,8 @@ tracks:
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop-T1-engine
     worktree_branch: track/2026-06-15-e2e-turnkey-loop/T1-engine
     state: in_progress
-    e2e_specs: []  - id: T2-orchestration
+    e2e_specs: []
+  - id: T2-orchestration
     slices: [S05-state-and-git, S06-implementer, S07-run-loop]
     depends_on: T1-engine
     worktree_path:
