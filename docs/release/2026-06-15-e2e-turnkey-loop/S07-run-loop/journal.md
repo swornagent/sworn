@@ -38,6 +38,23 @@ Not run — panel requires Agent/Workflow tool which is unavailable in this envi
 
 None.
 
+## 2026-06-16 — Verifier verdict (fresh context, second pass)
+
+**State transition:** implemented → verified
+
+### Verdict
+
+PASS
+
+### Gate analysis
+
+- **Gate 1 (User-reachable):** `cmd/sworn/main.go:36` dispatches `sworn run` → `cmdRun()` → `run.Run()`. PASS.
+- **Gate 2 (Touchpoints):** Two out-of-plan files (`internal/git/git.go`, `cmd/sworn/init.go`) documented in proof.md "Divergence from plan" with explanations. PASS.
+- **Gate 3 (Tests):** 6 `internal/run` tests PASS (PASS path, FAIL path, FAIL-then-PASS retry, BLOCKED, sanitiseBranch, missing task); 4 `cmd/sworn` tests PASS, 1 SKIP. PASS.
+- **Gate 4 (Reachability):** `TestRun_PassPath_Merges` asserts state == `verified` and merge commit on `main`; `TestRun_FailPath_NoMerge` asserts no merge after repeated FAIL with escalation message. PASS.
+- **Gate 5 (No deferrals):** No TODO/FIXME/deferred/placeholder in changed source files. `t.Skip` in `TestCmdRun_UsageContainsEscalationInfo` is not a dark-code marker; escalation info confirmed in usage output. PASS.
+- **Gate 6 (Scope):** All 4 acceptance checks (AC1–AC4) have named test evidence. State machine enforces Implemented → Verified before merge call at `run.go:274`. PASS.
+
 ## 2026-06-16 — Verifier verdict (fresh context)
 
 **State transition:** implemented → failed_verification
@@ -92,3 +109,20 @@ Not run — Agent/Workflow tools unavailable. Proceeding to implemented; fresh-c
 ### Deferrals
 
 None.
+
+## 2026-06-16 — Verifier verdict (fresh context, second pass)
+
+**State transition:** implemented → verified
+
+### Verdict
+
+PASS
+
+### Gate analysis
+
+- **Gate 1 (User-reachable):** `cmd/sworn/main.go:36` dispatches `sworn run` → `cmdRun()` → `run.Run()`. PASS.
+- **Gate 2 (Touchpoints):** Two out-of-plan files (`internal/git/git.go`, `cmd/sworn/init.go`) documented in proof.md "Divergence from plan" with explanations. PASS.
+- **Gate 3 (Tests):** 6 `internal/run` tests PASS (PASS path, FAIL path, FAIL-then-PASS retry, BLOCKED, sanitiseBranch, missing task); 4 `cmd/sworn` tests PASS, 1 SKIP. PASS.
+- **Gate 4 (Reachability):** `TestRun_PassPath_Merges` asserts state == `verified` and merge commit on `main`; `TestRun_FailPath_NoMerge` asserts no merge after repeated FAIL with escalation message. PASS.
+- **Gate 5 (No deferrals):** No TODO/FIXME/deferred/placeholder in changed source files. `t.Skip` in `TestCmdRun_UsageContainsEscalationInfo` is not a dark-code marker; escalation info confirmed in usage output. PASS.
+- **Gate 6 (Scope):** All 4 acceptance checks (AC1–AC4) have named test evidence. State machine enforces Implemented → Verified before merge call at `run.go:274`. PASS.
