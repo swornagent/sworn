@@ -29,9 +29,9 @@ tracks:
   - id: T4-proof
     slices: [S10-benchmark-dogfood]
     depends_on: T2-orchestration
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop-T4-proof
     worktree_branch: track/2026-06-15-e2e-turnkey-loop/T4-proof
-    state: planned
+    state: in_progress
     e2e_specs: []
 ---
 
