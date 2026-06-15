@@ -6,8 +6,7 @@
   "state": "in_progress",  "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-16T00:00:00Z",
-  "start_commit": null,
-  "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S03-agentic-tool-loop/spec.md",
+  "start_commit": "ae8d37959c199efdb08230e272ee7e8ae2605c0d",  "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S03-agentic-tool-loop/spec.md",
   "proof_path": "docs/release/2026-06-15-e2e-turnkey-loop/S03-agentic-tool-loop/proof.md",
   "journal_path": "docs/release/2026-06-15-e2e-turnkey-loop/S03-agentic-tool-loop/journal.md",
   "planned_files": [
