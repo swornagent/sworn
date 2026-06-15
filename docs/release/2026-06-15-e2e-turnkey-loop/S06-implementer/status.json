@@ -11,10 +11,21 @@
   "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S06-implementer/spec.md",
   "proof_path": "docs/release/2026-06-15-e2e-turnkey-loop/S06-implementer/proof.md",
   "journal_path": "docs/release/2026-06-15-e2e-turnkey-loop/S06-implementer/journal.md",
-  "planned_files": ["internal/implement/"],
+  "planned_files": [
+    "internal/implement/"
+  ],
   "actual_files": [],
-  "test_commands": ["go test ./..."],
+  "test_commands": [
+    "go test ./..."
+  ],
   "reachability_artifacts": [],
   "open_deferrals": [],
-  "verification": { "result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": [] }
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.1.0"
 }

@@ -11,7 +11,8 @@ tracks:
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop-T1-engine
     worktree_branch: track/2026-06-15-e2e-turnkey-loop/T1-engine
     state: in_progress
-    e2e_specs: []  - id: T2-orchestration
+    e2e_specs: []
+  - id: T2-orchestration
     slices: [S05-state-and-git, S06-implementer, S07-run-loop]
     depends_on: T1-engine
     worktree_path:
@@ -40,7 +41,7 @@ tracks:
 
 - **Goal**: `sworn` v0.1 — one native-Go binary that runs implement→verify→
   (retry/escalate)→gated-merge end-to-end, turnkey self-serve, zero deps.
-- **Target version / integration branch**: `main` (this repo).
+- **Target version / integration branch**: `release/v0.1.0` (cut from `main`; merges back to `main` = prod at ship). All release work integrates here, never directly on `main`.
 - **Started**: 2026-06-15
 - **Target ship**: uncommitted (multi-month native build)
 - **Intake**: `intake.md`
