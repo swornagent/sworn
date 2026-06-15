@@ -74,7 +74,8 @@ func TestRun_MissingFileBlocks(t *testing.T) {
 	}
 }
 
-func TestRun_GarbledVerdictBlocks(t *testing.T) {	in := Input{
+func TestRun_GarbledVerdictBlocks(t *testing.T) {
+	in := Input{
 		SpecPath: writeTmp(t, "spec.md", "must do X"),
 		DiffPath: writeTmp(t, "c.diff", "+ did X"),
 		Verifier: fakeVerifier{reply: "looks good to me!"}, // no PASS/FAIL/BLOCKED prefix

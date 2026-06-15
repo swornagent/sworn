@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/verify"
 )
 
@@ -46,15 +47,24 @@ func cmdVerify(args []string) int {
 	mdl := fs.String("verifier-model", "", "verifier model id (customer-chosen)")
 	_ = fs.Parse(args)
 
+	var v model.Verifier
+	if *mdl != "" {
+		var err error
+		v, err = model.FromEnv(*mdl)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "sworn verify: %v\n", err)
+			return 2
+		}
+	}
+	// v remains nil when --verifier-model is unset -> Unconfigured (fail-closed).
+
 	res := verify.Run(context.Background(), verify.Input{
 		SpecPath:  *spec,
 		DiffPath:  *diff,
 		ProofPath: *proof,
 		Model:     *mdl,
-		// Verifier left nil -> Unconfigured (fails closed) until the
-		// OpenAI-compatible client lands in the next slice.
+		Verifier:  v,
 	})
-
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(res)
