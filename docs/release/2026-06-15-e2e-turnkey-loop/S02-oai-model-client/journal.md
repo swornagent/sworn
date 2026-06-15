@@ -74,3 +74,31 @@ Required to address:
 
 Verifier session: fresh, artefact-only (no prior implementer context).
 Verified against: `8c8559a`
+
+## Implementer session — 2026-06-16 ~16:00 AEST (re-entry)
+
+**State transition: failed_verification → in_progress → implemented**
+
+Re-entered S02 to address the single verifier violation: four top-level
+`TestOAI_Verify_*` functions needed consolidation into a single table-driven
+`TestOAI_Verify`.
+
+### Changes
+
+- `internal/model/oai_test.go` — refactored `TestOAI_Verify_PASS`, `_FAIL`,
+  `_HTTP500`, `_Timeout` into a single table-driven `TestOAI_Verify` with
+  sub-tests (PASS, FAIL, HTTP 500, timeout). Edge-case functions
+  (`GarbledJSON`, `MissingUsageBlock`, `EmptyChoices`) kept separate per
+  verifier's explicit allowance.
+
+### Verification
+
+- All unit tests PASS (model: 0.210s, verify: 0.006s)
+- `go vet ./...` clean
+- First-pass: 22/22 PASS
+- Behavioural no-op — end-to-end smoke unchanged from prior round.
+
+### Skeptic panel
+
+Skipped — Agent/Workflow tool not available in this harness. First-pass 22/22
+green; fresh-context verifier will be the definitive check.

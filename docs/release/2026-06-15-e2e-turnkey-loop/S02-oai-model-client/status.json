@@ -3,7 +3,7 @@
   "slice_id": "S02-oai-model-client",
   "release": "2026-06-15-e2e-turnkey-loop",
   "track": "T1-engine",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "agent",
   "last_updated_by": "verifier",
   "last_updated_at": "2026-06-16T06:00:00Z",
@@ -16,18 +16,15 @@
     "internal/verify/verify.go"
   ],
   "actual_files": [
-    "internal/model/config.go",
-    "internal/model/oai.go",
     "internal/model/oai_test.go",
-    "cmd/sworn/main.go",
-    "internal/verify/verify_test.go"
+    "docs/release/2026-06-15-e2e-turnkey-loop/S02-oai-model-client/status.json"
   ],
   "test_commands": [
     "go test ./internal/model/... ./internal/verify/...",
     "go vet ./..."
   ],
   "reachability_artifacts": [
-    "end-to-end: /tmp/sworn verify --verifier-model openai/gpt-4.1-mini against fake OpenAI server → PASS (0.000109 USD), FAIL (0.000156 USD), BLOCKED on connection error"
+    "manual-smoke-step: end-to-end smoke unchanged from prior round (behavioural no-op refactor)"
   ],
   "open_deferrals": [],
   "release_base": "release/v0.1.0"
