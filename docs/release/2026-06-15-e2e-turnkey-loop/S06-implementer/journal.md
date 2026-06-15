@@ -23,3 +23,19 @@
 ## Skeptic panel
 
 Skipped — the harness provides Bash/Read/Write/Edit/Glob/Grep tools but no Agent or Workflow tool for parallel skeptic dispatch. Per implementer role prompt: "the panel is an accelerant, not a gate." Verifier (fresh context) remains the authoritative gate.
+
+## Verifier verdicts received
+
+### 2026-06-16T21:00:00Z — PASS
+
+PASS
+
+**Gate walkthrough:**
+1. User-reachable outcome exists — `implement.Run()` is exported and exercised by 6 tests in a real temp git repo with a scripted fake agent. ✓
+2. Planned touchpoints match actual changed files — `internal/implement/implement.go` and `internal/implement/implement_test.go` match `internal/implement/` touchpoint. Release artefacts (journal.md, proof.md, status.json) are expected non-code additions. ✓
+3. Required tests exist and exercise the integration point — 6 tests all PASS: `TestRun_GeneratesProofFromLiveRepoState`, `TestRun_DesignReviewToInProgress`, `TestRun_IllegalStateRejected`, `TestRun_AgentErrorDoesNotTransition`, `TestProof_ContainsRequiredSections`, `TestProof_FilesChangedFromGit`. ✓
+4. Reachability artefact proves the user path — proof.md artefact with `go test ./internal/implement/` user gesture; tests independently re-run and passed. ✓
+5. No silent deferrals — grep found zero TODO/FIXME/deferred hits. "Not delivered": None. "Deferrals allowed: No" satisfied. ✓
+6. Claimed scope matches implemented scope — AC1 (proof from live git), AC2 (files from `git status --porcelain`, not model claims; agent-touched files verified by tests), AC3 (state ends at `implemented`, no `verified` transition). ✓
+
+**go vet**: clean. **Total test runtime**: 0.156s.
