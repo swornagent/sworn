@@ -42,3 +42,21 @@ All `go test ./...` pass. `go vet ./...` clean. Binary smoke: `sworn version` ou
 ### Dark-code false positive
 
 `release-verify.sh` flagged "placeholder" in `prompt_test.go` comments as dark-code markers. Reworded test comments to avoid the pattern — the word was legitimate (referring to the old inline const, not marking deferred work).
+
+## Verifier verdicts received
+
+### 2026-06-16T18:30:00Z — PASS
+
+**Gate 1 — User-reachable outcome:** `internal/verify/verify.go:21` uses `prompt.Verifier()` (not the old inline placeholder). Confirmed live.
+
+**Gate 2 — Planned touchpoints match actual changed files:** Diff matches spec touchpoints; out-of-plan files (`verdict.go`, `main.go`) are documented in proof.md "Divergence from plan" with justification.
+
+**Gate 3 — Required tests exist and exercise integration point:** 8/8 prompt tests + 5/5 verify tests pass live, including `TestVerifier_ContainsVerdictContract` (PASS/FAIL/BLOCKED tokens), `TestVerifier_NotOldPlaceholder`, `TestVerifier_ContainsInconclusive`.
+
+**Gate 4 — Reachability artefact:** Fresh build + `sworn version` produces `sworn 0.0.0-dev\nbaton-protocol v1.0.0` — matches proof.md.
+
+**Gate 5 — No silent deferrals:** Only "placeholder" hit is test variable name (not a deferral). No TODO/FIXME in production code. spec: "Deferrals allowed? No" — zero deferrals found.
+
+**Gate 6 — Claimed scope matches implemented scope:** All 3 ACs and 4 Coach Pins have verifiable evidence references.
+
+Verdict: **PASS** — slice moves to `verified`.
