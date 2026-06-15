@@ -111,6 +111,8 @@ None.
 
 ## Divergence from plan
 
+- **`internal/git/git.go` (+`internal/git/git_test.go`)** — `Merge()` added as a direct dependency of `internal/run/run.go`. Not in planned touchpoints (`internal/run/`, `cmd/sworn/run.go`, `cmd/sworn/main.go`) because the need for a dedicated `git.Merge()` surfaced during implementation when wiring the gated-merge step. The run loop needs to programmatically merge a branch; factoring this into `internal/git` (the canonical home for git operations, established by S05) keeps the seam clean.
+- **`cmd/sworn/init.go`** — trailing-newline whitespace fix (added missing `\n` at EOF). Cosmetic only; no logic change.
 - The release-verify.sh script uses `git diff --name-only <sha> --` (working-tree diff) rather than `git diff --name-only <sha>..HEAD` (committed range). Since all implementation changes are committed on the track branch, the working-tree diff is empty. The committed-range diff correctly shows 8 implementation files:
   ```
   $ git diff --name-only 006c261..HEAD
@@ -123,8 +125,7 @@ None.
   internal/run/run.go
   internal/run/run_test.go
   ```
-- Spec amended to remove "E2E" phrasing that triggered false-positive playwright-screenshot check.
-## First-pass script output
+- Spec amended to remove "E2E" phrasing that triggered false-positive playwright-screenshot check.## First-pass script output
 
 ```
 $ release-verify.sh S07-run-loop 2026-06-15-e2e-turnkey-loop
