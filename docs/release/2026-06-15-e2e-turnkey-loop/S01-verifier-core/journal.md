@@ -40,3 +40,7 @@ and addresses Coach review feedback from `approved-ack.md`.
 ## Deferrals
 
 None. All ACs delivered.
+## Skeptic panel
+
+Skipped — harness has neither Agent nor Workflow tool available. The panel is an
+accelerant, not a gate. The fresh-context verifier is still required per Rule 7.
