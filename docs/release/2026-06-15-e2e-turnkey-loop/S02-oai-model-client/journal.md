@@ -189,3 +189,46 @@ defects, not functional failures.
 
 Skipped — Agent/Workflow tool not available in this harness. No production-code
 changes; this round is purely proof-bundle documentation fixes.
+
+## Verifier verdicts received (round 3)
+
+### Verdict — 2026-06-16T17:30:00Z
+
+```
+PASS
+
+Slice: `S02-oai-model-client`
+
+Gate 1 — User-reachable outcome: PASS. `sworn verify --verifier-model openai/gpt-4.1-mini`
+wired from CLI (cmdVerify) → model.FromEnv → OAI.Verify → verify.Run. reachability.txt
+confirms PASS/FAIL/BLOCKED outputs with correct exit codes.
+
+Gate 2 — Planned touchpoints vs actual: PASS. Production code (oai.go, config.go,
+client.go, cmd/sworn/main.go) was committed in round 1 and predates current start_commit;
+proof.md "Divergence from plan" explains all deviations: verify.go not modified (wire
+moved to process boundary in cmd/sworn/main.go — correct architectural decision),
+cmd/sworn/main.go as unplanned touchpoint, verify_test.go whitespace-only. "No
+production-code changes in this re-entry round" acknowledges the round 1 provenance.
+
+Gate 3 — Required tests: PASS. TestOAI_Verify is table-driven with PASS/FAIL/HTTP_500/
+timeout sub-tests. 22 tests ran on fresh live run, all passed (model: 0.213s, verify: 0.005s).
+go vet clean.
+
+Gate 4 — Reachability artefact: PASS. reachability.txt exists, freshly generated via
+Go helper driving the built binary against httptest fake server. Shows PASS (exit 0,
+cost_usd $0.00007), FAIL (exit 1, $0.000048), BLOCKED (exit 2, $0).
+
+Gate 5 — No silent deferrals: PASS. grep for TODO/FIXME/deferred/placeholder across all
+production files: clean. parseModelID "not yet handled (flag for S10)" is an
+out-of-scope implementation note with tracking reference, not a spec-level deferral.
+proof.md "Not delivered": None.
+
+Gate 6 — Claimed scope matches implemented scope: PASS. All 4 acceptance checks verified:
+AC1 (PASS+FAIL from endpoint): TestOAI_Verify + reachability artefact;
+AC2 (cost_usd from token usage): TestComputeCost (6 cases) + reachability artefact;
+AC3 (BYO-key from env, never logged): TestFromEnv (10 cases) + code inspection (no log statements);
+AC4 (HTTP/timeout → BLOCKED): TestOAI_Verify HTTP_500/timeout + reachability artefact BLOCKED.
+```
+
+Verifier session: fresh, artefact-only (no prior implementer context).
+Verified against: `e9cd973`
