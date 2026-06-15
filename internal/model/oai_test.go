@@ -16,23 +16,23 @@ func fakeServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	return srv
 }
 
-// oaiResp builds a chatResponse JSON blob for test handlers.
+// oaiResp builds a ChatResponse JSON blob for test handlers.
 // finishReason defaults to "stop" when choices are present.
 func oaiResp(choices []struct {
 	content string
-}, usage *usageBlock) []byte {
-	cr := chatResponse{}
+}, usage *UsageBlock) []byte {
+	cr := ChatResponse{}
 	finish := "stop"
 	for _, c := range choices {
 		cr.Choices = append(cr.Choices, struct {
 			Message struct {
 				Content    string     `json:"content"`
-				ToolCalls  []toolCall `json:"tool_calls,omitempty"`
+				ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 			} `json:"message"`
 			FinishReason string `json:"finish_reason"`
 		}{Message: struct {
 			Content    string     `json:"content"`
-			ToolCalls  []toolCall `json:"tool_calls,omitempty"`
+			ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 		}{Content: c.content}, FinishReason: finish})
 	}
 	cr.Usage = usage
@@ -54,7 +54,7 @@ func TestOAI_Verify(t *testing.T) {
 			name: "PASS",
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
-				w.Write(oaiResp([]struct{ content string }{{"PASS - all checks pass"}}, &usageBlock{
+				w.Write(oaiResp([]struct{ content string }{{"PASS - all checks pass"}}, &UsageBlock{
 					PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150,
 				}))
 			},
@@ -66,7 +66,7 @@ func TestOAI_Verify(t *testing.T) {
 			name: "FAIL",
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
-				w.Write(oaiResp([]struct{ content string }{{"FAIL: missing proof bundle"}}, &usageBlock{
+				w.Write(oaiResp([]struct{ content string }{{"FAIL: missing proof bundle"}}, &UsageBlock{
 					PromptTokens: 80, CompletionTokens: 30, TotalTokens: 110,
 				}))
 			},
@@ -148,7 +148,7 @@ func TestOAI_Verify_MissingUsageBlock(t *testing.T) {
 func TestOAI_Verify_EmptyChoices(t *testing.T) {
 	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(oaiResp(nil, &usageBlock{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}))
+		w.Write(oaiResp(nil, &UsageBlock{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}))
 	})
 	o := &OAI{BaseURL: srv.URL, Model: "gpt-4.1-mini", APIKey: "sk-test"}
 	_, _, err := o.Verify(context.Background(), "be strict", "verify this diff")
@@ -161,7 +161,7 @@ func TestComputeCost(t *testing.T) {
 	tests := []struct {
 		name  string
 		model string
-		usage *usageBlock
+		usage *UsageBlock
 		want  float64
 	}{
 		{
@@ -173,30 +173,30 @@ func TestComputeCost(t *testing.T) {
 		{
 			name:  "unknown model",
 			model: "unknown-model",
-			usage: &usageBlock{PromptTokens: 1000, CompletionTokens: 500},
+			usage: &UsageBlock{PromptTokens: 1000, CompletionTokens: 500},
 			want:  0,
 		},
 		{
 			name:  "gpt-4.1-mini exact",
 			model: "gpt-4.1-mini",
-			usage: &usageBlock{PromptTokens: 1_000_000, CompletionTokens: 1_000_000},
+			usage: &UsageBlock{PromptTokens: 1_000_000, CompletionTokens: 1_000_000},
 			want:  0.30 + 0.80,
 		}, {
 			name:  "gpt-4.1 exact",
 			model: "gpt-4.1",
-			usage: &usageBlock{PromptTokens: 500_000, CompletionTokens: 250_000},
+			usage: &UsageBlock{PromptTokens: 500_000, CompletionTokens: 250_000},
 			want:  1.00 + 2.00,
 		},
 		{
 			name:  "gpt-4o exact",
 			model: "gpt-4o",
-			usage: &usageBlock{PromptTokens: 1_000_000, CompletionTokens: 1_000_000},
+			usage: &UsageBlock{PromptTokens: 1_000_000, CompletionTokens: 1_000_000},
 			want:  2.50 + 10.00,
 		},
 		{
 			name:  "o3 exact",
 			model: "o3",
-			usage: &usageBlock{PromptTokens: 1_000_000, CompletionTokens: 1_000_000},
+			usage: &UsageBlock{PromptTokens: 1_000_000, CompletionTokens: 1_000_000},
 			want:  10.00 + 40.00,
 		},
 	}

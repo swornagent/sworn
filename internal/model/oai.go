@@ -41,43 +41,49 @@ type ToolDef struct {
 
 type chatRequest struct {
 	Model    string        `json:"model"`
-	Messages []chatMessage `json:"messages"`
+	Messages []ChatMessage `json:"messages"`
 	Tools    []ToolDef     `json:"tools,omitempty"`
 }
 
-type chatMessage struct {
+// ChatMessage is a single message in a /chat/completions conversation.
+// Exported so callers (agent package) can build message history.
+type ChatMessage struct {
 	Role       string     `json:"role"`
 	Content    string     `json:"content,omitempty"`
 	Name       string     `json:"name,omitempty"`
 	ToolCallID *string    `json:"tool_call_id,omitempty"`
-	ToolCalls  []toolCall `json:"tool_calls,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 }
 
-// chatResponse contains only the fields SwornAgent needs. Other fields from
+// ChatResponse contains only the fields SwornAgent needs. Other fields from
 // the provider's response are silently ignored (normalisation per Risk #1).
-type chatResponse struct {
+type ChatResponse struct {
 	Choices []struct {
 		Message struct {
-			Content    string     `json:"content"`
-			ToolCalls  []toolCall `json:"tool_calls,omitempty"`
+			Content   string     `json:"content"`
+			ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 		} `json:"message"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
-	Usage *usageBlock `json:"usage"`
+	Usage *UsageBlock `json:"usage"`
 }
 
-// toolCall is a single tool invocation the model requests in a response.
-type toolCall struct {
+// ToolCall is a single tool invocation the model requests in a response.
+// Exported so the agent package can reconstruct message history.
+type ToolCall struct {
 	ID       string       `json:"id"`
 	Type     string       `json:"type"`
-	Function functionCall `json:"function"`
+	Function FunctionCall `json:"function"`
 }
 
-type functionCall struct {
+// FunctionCall is the function name and arguments within a ToolCall.
+type FunctionCall struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
 }
-type usageBlock struct {
+
+// UsageBlock carries token usage from the API response.
+type UsageBlock struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
@@ -109,7 +115,7 @@ var modelPricing = map[string]struct {
 func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
 	reqBody := chatRequest{
 		Model: c.Model,
-		Messages: []chatMessage{
+		Messages: []ChatMessage{
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userPayload},
 		},
@@ -147,7 +153,7 @@ func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (str
 		return "", 0, fmt.Errorf("model: HTTP %d: %s", resp.StatusCode, trimBody(body, 200))
 	}
 
-	var cr chatResponse
+	var cr ChatResponse
 	if err := json.Unmarshal(body, &cr); err != nil {
 		return "", 0, fmt.Errorf("model: unmarshal response: %w", err)
 	}
@@ -161,12 +167,12 @@ func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (str
 
 // Chat sends a multi-message conversation (possibly with tool definitions
 // and tool-call history) to /chat/completions. It returns the full
-// chatResponse so the caller can inspect tool_calls and finish_reason.
+// ChatResponse so the caller can inspect tool_calls and finish_reason.
 // Cost is the sum of all Chat calls in the loop — tracked by the caller.
 //
 // No logging of message content — per AGENTS.md Security. The message
 // history may contain file contents and command output.
-func (c *OAI) Chat(ctx context.Context, messages []chatMessage, tools []ToolDef) (*chatResponse, error) {
+func (c *OAI) Chat(ctx context.Context, messages []ChatMessage, tools []ToolDef) (*ChatResponse, error) {
 	reqBody := chatRequest{
 		Model:    c.Model,
 		Messages: messages,
@@ -205,7 +211,7 @@ func (c *OAI) Chat(ctx context.Context, messages []chatMessage, tools []ToolDef)
 		return nil, fmt.Errorf("model: HTTP %d: %s", resp.StatusCode, trimBody(body, 200))
 	}
 
-	var cr chatResponse
+	var cr ChatResponse
 	if err := json.Unmarshal(body, &cr); err != nil {
 		return nil, fmt.Errorf("model: unmarshal response: %w", err)
 	}
@@ -215,7 +221,8 @@ func (c *OAI) Chat(ctx context.Context, messages []chatMessage, tools []ToolDef)
 
 	return &cr, nil
 }
-func computeCost(model string, usage *usageBlock) float64 {
+
+func computeCost(model string, usage *UsageBlock) float64 {
 	p, ok := modelPricing[model]
 	if !ok || usage == nil {
 		return 0
