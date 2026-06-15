@@ -17,7 +17,7 @@ tracks:
     depends_on: T1-engine
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop-T2-orchestration
     worktree_branch: track/2026-06-15-e2e-turnkey-loop/T2-orchestration
-    state: in_progress
+    state: merged
     e2e_specs: []
   - id: T3-turnkey-ux
     slices: [S08-init-config, S09-distribution]

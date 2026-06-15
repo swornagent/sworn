@@ -15,3 +15,4 @@
 - 2026-06-16T22:00:00Z — track `T3-turnkey-ux` merged to release-wt/ (commit f37b730). 2 verified slice(s): S08-init-config, S09-distribution. Track state → merged.
 - 2026-06-16T23:15:00Z — S07-run-loop (T2-orchestration): implemented → failed_verification. Gate 2: proof.md Divergence section omits internal/git/git.go and cmd/sworn/init.go as out-of-plan touchpoints.
 - 2026-06-16T23:55:00Z — S07-run-loop (T2-orchestration): implemented → verified. All 6 gates passed; 6/6 internal/run tests green; 4/5 cmd/sworn tests pass (1 skip); merge invariant confirmed.
+- 2026-06-17T00:15:00Z — track `T2-orchestration` merged to release-wt/ (commit 16db025). 3 verified slice(s): S05-state-and-git, S06-implementer, S07-run-loop. Track state → merged.
