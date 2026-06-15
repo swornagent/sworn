@@ -26,20 +26,19 @@ func oaiResp(choices []struct {
 	for _, c := range choices {
 		cr.Choices = append(cr.Choices, struct {
 			Message struct {
-				Content    string     `json:"content"`
-				ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+				Content   string     `json:"content"`
+				ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 			} `json:"message"`
 			FinishReason string `json:"finish_reason"`
 		}{Message: struct {
-			Content    string     `json:"content"`
-			ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+			Content   string     `json:"content"`
+			ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 		}{Content: c.content}, FinishReason: finish})
 	}
 	cr.Usage = usage
 	b, _ := json.Marshal(cr)
 	return b
 }
-
 
 func TestOAI_Verify(t *testing.T) {
 	tests := []struct {
