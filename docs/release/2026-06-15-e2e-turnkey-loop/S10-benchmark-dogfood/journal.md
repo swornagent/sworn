@@ -37,3 +37,32 @@ None. All scope delivered. AC3 is a run-time operation requiring API credentials
 ### Open questions
 
 None.
+
+## Verifier verdicts received
+
+### 2026-06-16 — Verifier (fresh context)
+
+FAIL
+
+Slice: `S10-benchmark-dogfood`
+
+Violations:
+1. Gate 2 — `cmd/sworn/main.go` is changed (+9 lines, adding `case "bench":` switch block) but is not in `spec.md` planned touchpoints. `proof.md` "Divergence from plan" mentions only the AC3 API key gap and `docs/benchmark/` directory — it does not account for `main.go`. Precedent: the same class of finding FAILed S02 round 2 ("proof.md Divergence omits cmd/sworn/main.go wire touchpoint swap") and S07 round 1 ("proof.md Divergence section omits out-of-plan touchpoints") in this release.
+   Evidence: `git diff --name-only 1a89626` includes `cmd/sworn/main.go`; spec.md planned touchpoints are `internal/bench/`, `cmd/sworn/bench.go`, `docs/benchmark/`; proof.md "Divergence from plan" has two items, neither mentions main.go.
+
+2. Gate 4 — Reachability artefact for AC3 does not exist on disk. proof.md Artefact 3 ("Dogfood run") is written in future tense: "The merged commit SHA + run transcript **will serve as** the reachability artefact for AC3." No transcript file exists. `docs/benchmark/` is empty (benchmark never run, no committed report).
+   Evidence: Artefact 3 is future-tense prose with no file path; `ls docs/benchmark/` shows empty directory.
+
+3. Gate 5 — AC3 ("A real `sworn run` lands a verified, merged change") appears in "Not delivered" as a deferral with incomplete Rule 2 elements:
+   - Why ✓ — "Requires `SWORN_OPENAI_API_KEY` to execute the turnkey loop"
+   - Tracking ✗ — absent (no issue number, slice ID, or plan task)
+   - Acknowledgement ✗ — absent (no `**Acknowledged**: <decision-maker>, <date>`)
+   Additionally, `spec.md` states "**Deferrals allowed? No.**" The journal's reframing of AC3 as "a run-time operation requiring API credentials, not a code deferral" does not satisfy the acceptance check, which requires the `sworn run` to have actually produced a merged commit.
+   Evidence: proof.md "Not delivered" section; spec.md footer "Deferrals allowed? No."; journal.md "Deferrals" section.
+
+Required to address:
+1. Add `cmd/sworn/main.go` to proof.md "Divergence from plan" section (explanation: required to wire the `bench` subcommand into the CLI switch).
+2. Execute the dogfood: set `SWORN_OPENAI_API_KEY`, run `sworn run --task "fix README typo" --base main`, verify the merged commit, and commit the run transcript + merged commit SHA as a reachability artefact.
+3. Either complete (2) above (removing the deferral), or escalate to the planner to amend the spec to allow a deferred AC3 with all three Rule 2 elements and an explicit spec amendment.
+
+State: implemented → failed_verification
