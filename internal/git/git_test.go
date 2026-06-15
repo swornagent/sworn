@@ -200,3 +200,38 @@ func TestDiffRange_Empty(t *testing.T) {
 		t.Errorf("DiffRange base==HEAD: want empty diff, got %q", diff)
 	}
 }
+func TestMerge(t *testing.T) {
+	r := setupRepo(t)
+	writeFile(t, r.Dir, "f.txt", "base")
+	r.Stage("f.txt")
+	r.Commit("initial on main")
+	initialSHA, _ := r.RevParse("HEAD")
+
+	// Create feature branch, make a change, then merge back.
+	if err := r.Branch("feature"); err != nil {
+		t.Fatalf("branch: %v", err)
+	}
+	writeFile(t, r.Dir, "f.txt", "feature change")
+	r.Stage("f.txt")
+	r.Commit("change on feature")
+
+	// Switch back to the original branch.
+	if err := r.Checkout("-"); err != nil {
+		t.Fatalf("checkout -: %v", err)
+	}
+	backSHA, _ := r.RevParse("HEAD")
+	if backSHA != initialSHA {
+		t.Fatalf("after checkout -, want %s, got %s", initialSHA, backSHA)
+	}
+
+	// Merge feature into current branch.
+	if err := r.Merge("feature"); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+
+	// After merge, HEAD should be a merge commit (different from initial).
+	mergedSHA, _ := r.RevParse("HEAD")
+	if mergedSHA == initialSHA {
+		t.Fatal("HEAD unchanged after merge")
+	}
+}

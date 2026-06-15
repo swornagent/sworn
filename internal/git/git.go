@@ -80,6 +80,13 @@ func (r *Repo) DiffRangeStat(base, head string) (string, error) {
 	return r.run("diff", "--name-only", base+".."+head)
 }
 
+// Merge merges branch into the currently checked-out branch with --no-ff.
+// The merge message is auto-generated.
+func (r *Repo) Merge(branch string) error {
+	_, err := r.run("merge", "--no-ff", branch, "-m", "merge: "+branch)
+	return err
+}
+
 // run executes a git command in r.Dir and returns stdout (trimmed). On
 // non-zero exit it returns stderr as the error.
 func (r *Repo) run(args ...string) (string, error) {

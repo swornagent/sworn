@@ -29,12 +29,21 @@ func main() {
 	}
 	switch os.Args[1] {
 	case "init":
+		// S08-init-config adds this case (T3-turnkey-ux).
 		os.Exit(cmdInit(os.Args[2:]))
 	case "verify":
 		os.Exit(cmdVerify(os.Args[2:]))
+	case "run":
+		// S07-run-loop adds this case (T2-orchestration).
+		// Disjoint from "init": both are additive to the switch.
+		os.Exit(cmdRun(os.Args[2:]))
 	case "version", "--version", "-v":
 		fmt.Printf("sworn %s\nbaton-protocol %s\n", version, prompt.BatonVersion())
 	case "help", "--help", "-h":
+		if len(os.Args) > 2 && os.Args[2] == "run" {
+			cmdRun([]string{"--help"})
+			return
+		}
 		usage()
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", os.Args[1])
@@ -93,13 +102,16 @@ func usage() {
 
 usage:
   sworn init [--api-key <key>] [--force]
+  sworn run --task <description> [--implementer-model <m>] [--verifier-model <m>] [--base <branch>] [--retry-cap <n>]
   sworn verify --spec <path> --diff <path|-> [--proof <path>] [--verifier-model <provider/model>]
   sworn version
 
 init bootstraps SwornAgent in a repo: writes a config file, vendors the Baton
 protocol into docs/baton/, and splices the seven-rule fragment into AGENTS.md.
-Config file location (precedence): $SWORN_CONFIG_PATH > $SWORN_HOME/config.json >
-$HOME/.config/sworn/config.json (Linux) / $HOME/Library/Application Support/sworn/config.json (macOS).
+
+run executes the full turnkey loop: implement → verify → (on FAIL: retry/escalate
+up to N) → gated merge on PASS only. See 'sworn run --help' for model resolution
+and escalation model defaults.
 
 verify emits a JSON verdict (PASS/FAIL/BLOCKED) and exits 0 only on PASS,
 so a CI required-check blocks the merge by default.
