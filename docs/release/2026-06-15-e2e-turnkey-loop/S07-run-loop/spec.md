@@ -43,7 +43,9 @@ CLI: `sworn run` (`cmd/sworn/run.go`).
 - **Integration**: fake implementer + verifier models scripted for the PASS path
   (→ merged) and the FAIL path (→ not merged, escalated). Assert merge happens
   **only** when state == `verified`.
-
+- **playwright-screenshot** — not used; no visual acceptance checks in this slice.
+- **CLI reachability**: `cmd/sworn/run_test.go` exercises `cmdRun` flag parsing
+  and error paths through the integration point (`sworn run`).
 ## Risks
 
 - Infinite retry — hard cap + escalate.

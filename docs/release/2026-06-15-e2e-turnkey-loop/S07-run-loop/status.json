@@ -3,11 +3,12 @@
   "slice_id": "S07-run-loop",
   "release": "2026-06-15-e2e-turnkey-loop",
   "track": "T2-orchestration",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-16T21:00:00Z",
-  "start_commit": "f774494f5c54cc1988c1cac9d17857ebbe98e5f5",  "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S07-run-loop/spec.md",
+  "last_updated_at": "2026-06-16T12:30:00Z",
+  "start_commit": "006c261f5c54cc1988c1cac9d17857ebbe98e5f5",
+  "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S07-run-loop/spec.md",
   "proof_path": "docs/release/2026-06-15-e2e-turnkey-loop/S07-run-loop/proof.md",
   "journal_path": "docs/release/2026-06-15-e2e-turnkey-loop/S07-run-loop/journal.md",
   "planned_files": [
@@ -15,11 +16,26 @@
     "cmd/sworn/run.go",
     "cmd/sworn/main.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "cmd/sworn/run.go",
+    "cmd/sworn/run_test.go",
+    "cmd/sworn/main.go",
+    "cmd/sworn/init.go",
+    "internal/run/run.go",
+    "internal/run/run_test.go",
+    "internal/git/git.go",
+    "internal/git/git_test.go"
+  ],
   "test_commands": [
+    "go test ./internal/run/",
+    "go test ./internal/git/",
+    "go test ./cmd/sworn/",
     "go test ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "internal/run/run_test.go",
+    "cmd/sworn/run_test.go"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "",
