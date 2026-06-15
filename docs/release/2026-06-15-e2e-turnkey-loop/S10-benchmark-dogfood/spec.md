@@ -1,7 +1,6 @@
 ---
 title: S10-benchmark-dogfood
-description: model × hosting-jurisdiction × cost × pass-rate benchmark + a real-repo E2E dogfood run (the launch proof).
----
+description: model × hosting-jurisdiction × cost × pass-rate benchmark + a real-repo end-to-end dogfood run (the launch proof).---
 
 # Slice: `S10-benchmark-dogfood`
 
@@ -42,9 +41,7 @@ CLI: `sworn bench` (`cmd/sworn/bench.go`); the dogfood is a real `sworn run`.
 ## Required tests
 
 - **Unit**: benchmark aggregation (pass-rate, cost roll-ups).
-- **Reachability artefact**: the dogfood `sworn run` transcript + the merged commit.
-- **playwright-screenshot** N/A — not a Playwright slice; reachability artefact is CLI transcript, not visual screenshot.
-## Risks
+- **Reachability artefact**: the dogfood `sworn run` transcript + the merged commit.## Risks
 
 - Task-set bias — use a public set; document selection.
 - Cost blowout — per-run cost cap.
