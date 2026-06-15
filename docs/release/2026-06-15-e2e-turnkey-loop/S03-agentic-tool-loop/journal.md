@@ -71,3 +71,18 @@ Skipped — no Agent/Workflow tool available in this harness. Noted per implemen
 ### First-pass verify
 
 21/22 deterministic checks PASS. Single FAIL is state `in_progress` (expected — transitions to `implemented` on commit).
+
+## Verifier verdicts received (2nd session)
+
+### Verdict 2 — 2026-06-16T08:30:00Z
+
+**PASS**
+
+Gate 1: `agent.Run()` exists at `agent.go:71`; internal package entry point correctly wired.
+Gate 2: Planned touchpoint `internal/agent/` matched; `internal/model/oai.go` divergence documented in proof.md Divergence section with clear rationale (agent needs Chat method; extending existing client keeps one HTTP client and pricing table).
+Gate 3: All 5 tests in `agent_test.go` target `agent.Run()` directly via `fakeAgent` (scripted tool calls). All pass live: `TestRun_SuccessPath`, `TestRun_ToolError_ModelAdapts`, `TestRun_TurnCap`, `TestRun_WorkspaceConfinement`, `TestRun_PathTraversalRejected`. `go test ./internal/agent/ -v` = 5/5 PASS.
+Gate 4: Reachability artefact `internal/agent/agent_test.go:TestRun_SuccessPath` confirmed; exercises Write→Bash→text termination path through `agent.Run()`.
+Gate 5: No TODO/FIXME/deferred/placeholder markers in changed source files. `computeCost` approximation is documented inline with S10 forward-reference — transparent, not silent.
+Gate 6: AC1–AC4 each have a named test with verifiable evidence. Not delivered: none. Divergence section complete.
+
+`go vet ./...`: clean.
