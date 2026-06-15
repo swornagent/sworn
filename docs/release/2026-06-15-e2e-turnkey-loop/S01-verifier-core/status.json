@@ -1,0 +1,26 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S01-verifier-core",
+  "release": "2026-06-15-e2e-turnkey-loop",
+  "track": "T1-engine",
+  "state": "implemented",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-15T00:00:00Z",
+  "start_commit": "253bc10",
+  "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S01-verifier-core/spec.md",
+  "proof_path": "docs/release/2026-06-15-e2e-turnkey-loop/S01-verifier-core/proof.md",
+  "journal_path": "docs/release/2026-06-15-e2e-turnkey-loop/S01-verifier-core/journal.md",
+  "planned_files": ["cmd/sworn/main.go", "internal/verdict/verdict.go", "internal/model/client.go", "internal/verify/verify.go"],
+  "actual_files": ["cmd/sworn/main.go", "internal/verdict/verdict.go", "internal/model/client.go", "internal/verify/verify.go", "internal/verify/verify_test.go"],
+  "test_commands": ["go test ./..."],
+  "reachability_artifacts": ["sworn verify --spec <f> --diff <f> prints JSON verdict + exit code"],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}

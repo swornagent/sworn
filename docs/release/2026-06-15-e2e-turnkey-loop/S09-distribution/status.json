@@ -1,0 +1,20 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S09-distribution",
+  "release": "2026-06-15-e2e-turnkey-loop",
+  "track": "T3-turnkey-ux",
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-15T00:00:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S09-distribution/spec.md",
+  "proof_path": "docs/release/2026-06-15-e2e-turnkey-loop/S09-distribution/proof.md",
+  "journal_path": "docs/release/2026-06-15-e2e-turnkey-loop/S09-distribution/journal.md",
+  "planned_files": [".goreleaser.yaml", ".github/workflows/release.yml", "Dockerfile", "packaging/"],
+  "actual_files": [],
+  "test_commands": ["go test ./..."],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": { "result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": [] }
+}
