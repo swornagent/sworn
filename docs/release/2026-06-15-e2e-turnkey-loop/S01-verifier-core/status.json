@@ -37,5 +37,6 @@
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
     "violations": []
-  }
+  },
+  "release_base": "release/v0.1.0"
 }
