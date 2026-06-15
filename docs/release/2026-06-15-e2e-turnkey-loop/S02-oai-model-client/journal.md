@@ -43,3 +43,34 @@ direction, committed the WIP files as a single commit before proceeding.
 
 Skipped — Agent/Workflow tool not available in this harness. First-pass 22/22 green;
 verifier fresh-context session will be the definitive adversarial check.
+
+## Verifier verdicts received
+
+### Verdict — 2026-06-16T06:00:00Z
+
+```
+FAIL
+
+Slice: `S02-oai-model-client`
+
+Violations:
+1. Gate 3 — Required tests not table-driven: spec.md `Required tests` prescribes
+   "Unit: table-driven against an `httptest` fake server — PASS reply, FAIL reply,
+   HTTP 500, timeout (each → expected verdict)." The implementation in
+   `internal/model/oai_test.go` provides four separate top-level functions
+   (`TestOAI_Verify_PASS`, `TestOAI_Verify_FAIL`, `TestOAI_Verify_HTTP500`,
+   `TestOAI_Verify_Timeout`) instead of a single table-driven test. All four
+   scenarios are covered and pass; the defect is structural, not coverage.
+
+Required to address:
+1. Refactor `TestOAI_Verify_PASS`, `TestOAI_Verify_FAIL`, `TestOAI_Verify_HTTP500`,
+   and `TestOAI_Verify_Timeout` in `internal/model/oai_test.go` into a single
+   table-driven `TestOAI_Verify` function using a `tests []struct` (handler func,
+   wantErr bool, wantText string, wantCost >0 bool). The four remaining edge-case
+   functions (`TestOAI_Verify_GarbledJSON`, `TestOAI_Verify_MissingUsageBlock`,
+   `TestOAI_Verify_EmptyChoices`) may remain separate or be merged into the same
+   table — spec does not require them to be table-driven.
+```
+
+Verifier session: fresh, artefact-only (no prior implementer context).
+Verified against: `8c8559a`
