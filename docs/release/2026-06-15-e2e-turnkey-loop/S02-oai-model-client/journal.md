@@ -39,3 +39,7 @@ direction, committed the WIP files as a single commit before proceeding.
 
 - `cmd/sworn/main.go` modified (not in `planned_files`) — necessary CLI glue between `model.FromEnv` and `verify.Run`; the integration point for the slice.
 - `internal/verify/verify_test.go` — whitespace-only fix (newline after function sig).
+### Skeptic panel
+
+Skipped — Agent/Workflow tool not available in this harness. First-pass 22/22 green;
+verifier fresh-context session will be the definitive adversarial check.
