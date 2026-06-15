@@ -15,16 +15,16 @@ tracks:
   - id: T2-orchestration
     slices: [S05-state-and-git, S06-implementer, S07-run-loop]
     depends_on: T1-engine
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop-T2-orchestration
     worktree_branch: track/2026-06-15-e2e-turnkey-loop/T2-orchestration
-    state: planned
+    state: in_progress
     e2e_specs: []
   - id: T3-turnkey-ux
     slices: [S08-init-config, S09-distribution]
     depends_on: T1-engine
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop-T3-turnkey-ux
     worktree_branch: track/2026-06-15-e2e-turnkey-loop/T3-turnkey-ux
-    state: planned
+    state: in_progress
     e2e_specs: []
   - id: T4-proof
     slices: [S10-benchmark-dogfood]
