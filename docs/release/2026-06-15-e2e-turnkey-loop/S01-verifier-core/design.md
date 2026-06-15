@@ -4,9 +4,10 @@
 
 A developer runs `sworn verify --spec <path> --diff <path>` and gets a JSON
 verdict printed to stdout. The process exits 0 only on PASS; FAIL exits 1 and
-BLOCKED exits 2. This is the fail-closed core — the CI gate that makes
-SwornAgent's adversarial verification enforceable.
-
+BLOCKED exits 2. The BLOCKED state covers three fail-closed paths: empty or
+missing inputs, an unconfigured verifier model, and an unparseable model reply.
+This is the fail-closed core — the CI gate that makes SwornAgent's adversarial
+verification enforceable.
 ## §2. Design decisions not in spec (max 5)
 
 1. **PASS/FAIL/BLOCKED as typed Go constants, not raw strings** — the `verdict`
