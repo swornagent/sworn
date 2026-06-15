@@ -1,0 +1,65 @@
+// Package prompt embeds the Baton role prompts (planner, implementer, verifier,
+// captain) into the sworn binary via go:embed. The prompts are vendored verbatim
+// from the open Baton protocol (~/.claude/baton/role-prompts/).
+//
+// Vendored Baton protocol version is recorded in VERSION.txt and surfaced by
+// `sworn version`.
+package prompt
+
+import (
+	"embed"
+	"strings"
+)
+
+//go:embed verifier.md implementer.md planner.md captain.md VERSION.txt
+var fs embed.FS
+
+var (
+	verifier    string
+	implementer string
+	planner     string
+	captain     string
+	batonVer    string
+)
+
+func init() {
+	verifier = mustRead("verifier.md")
+	implementer = mustRead("implementer.md")
+	planner = mustRead("planner.md")
+	captain = mustRead("captain.md")
+	batonVer = strings.TrimSpace(mustRead("VERSION.txt"))
+	// Strip the comment line(s) — version is the last non-empty line.
+	if lines := strings.Split(batonVer, "\n"); len(lines) > 0 {
+		for i := len(lines) - 1; i >= 0; i-- {
+			if ln := strings.TrimSpace(lines[i]); ln != "" && !strings.HasPrefix(ln, "#") {
+				batonVer = ln
+				break
+			}
+		}
+	}
+}
+
+func mustRead(name string) string {
+	b, err := fs.ReadFile(name)
+	if err != nil {
+		// A missing file at init() is a build-time failure — the binary
+		// should not start in a degraded state.
+		panic("prompt: embedded file " + name + " not found: " + err.Error())
+	}
+	return string(b)
+}
+
+// Verifier returns the embedded Baton verifier role prompt.
+func Verifier() string { return verifier }
+
+// Implementer returns the embedded Baton implementer role prompt.
+func Implementer() string { return implementer }
+
+// Planner returns the embedded Baton planner role prompt.
+func Planner() string { return planner }
+
+// Captain returns the embedded Baton captain role prompt.
+func Captain() string { return captain }
+
+// BatonVersion returns the vendored Baton protocol version string (e.g. "v1.0.0").
+func BatonVersion() string { return batonVer }

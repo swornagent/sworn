@@ -12,17 +12,13 @@ import (
 	"strings"
 
 	"github.com/swornagent/sworn/internal/model"
+	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/verdict"
 )
 
-// systemPrompt is a placeholder. The real prompt is the Baton verifier role
-// prompt, embedded from the (open) Baton protocol at build time in a later
-// slice. Kept inline here so S1 builds and runs standalone.
-const systemPrompt = `You are an adversarial verifier. You see only the spec, the diff, and the proof.
-You never saw the implementer's reasoning. Return exactly one of:
-PASS | FAIL: <numbered violations> | BLOCKED: <reason>. Fail closed: absence of
-evidence is FAIL, not optimistic PASS.`
-
+// systemPrompt is the embedded Baton verifier role prompt, vendored from the
+// open Baton protocol at build time via go:embed (internal/prompt).
+var systemPrompt = prompt.Verifier()
 // Input is everything a verification needs.
 type Input struct {
 	SpecPath  string
@@ -85,12 +81,13 @@ func parseVerdict(text string, cost float64) verdict.Result {
 		return verdict.Result{Verdict: verdict.Fail, FailedGate: "adversarial", Rationale: t, CostUSD: cost}
 	case strings.HasPrefix(upper, "BLOCKED"):
 		return verdict.Result{Verdict: verdict.Blocked, FailedGate: "adversarial", Rationale: t, CostUSD: cost}
+	case strings.HasPrefix(upper, "INCONCLUSIVE"):
+		return verdict.Result{Verdict: verdict.Inconclusive, FailedGate: "adversarial", Rationale: t, CostUSD: cost}
 	default:
 		return verdict.Result{Verdict: verdict.Blocked, FailedGate: "unparseable_verdict",
-			Rationale: "verifier reply did not start with PASS/FAIL/BLOCKED", CostUSD: cost}
+			Rationale: "verifier reply did not start with PASS/FAIL/BLOCKED/INCONCLUSIVE", CostUSD: cost}
 	}
 }
-
 func blocked(gate, why string) verdict.Result {
 	return verdict.Result{Verdict: verdict.Blocked, FailedGate: gate, Rationale: why}
 }
