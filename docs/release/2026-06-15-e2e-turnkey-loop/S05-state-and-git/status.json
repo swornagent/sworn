@@ -3,11 +3,11 @@
   "slice_id": "S05-state-and-git",
   "release": "2026-06-15-e2e-turnkey-loop",
   "track": "T2-orchestration",
-  "state": "planned",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-15T00:00:00Z",
-  "start_commit": null,
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-16T19:00:00Z",
+  "start_commit": "64cb31248cba8ed686afee177d304a4072cc5575",
   "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S05-state-and-git/spec.md",
   "proof_path": "docs/release/2026-06-15-e2e-turnkey-loop/S05-state-and-git/proof.md",
   "journal_path": "docs/release/2026-06-15-e2e-turnkey-loop/S05-state-and-git/journal.md",
@@ -15,17 +15,26 @@
     "internal/state/",
     "internal/git/"
   ],
-  "actual_files": [],
-  "test_commands": [
-    "go test ./..."
+  "actual_files": [
+    "internal/state/state.go",
+    "internal/state/state_test.go",
+    "internal/git/git.go",
+    "internal/git/git_test.go"
   ],
-  "reachability_artifacts": [],
+  "test_commands": [
+    "go test ./internal/state/ ./internal/git/ -v -count=1",
+    "go vet ./internal/state/ ./internal/git/",
+    "go build ./..."
+  ],
+  "reachability_artifacts": [
+    "go test + go vet + go build (backend-only; no CLI surface)"
+  ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "pass",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-06-16T19:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
   },
   "release_base": "release/v0.1.0"

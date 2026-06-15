@@ -8,6 +8,10 @@
 - 2026-06-16T08:30:00Z — S03-agentic-tool-loop (T1-engine): implemented → verified. All 6 gates passed; 5/5 agent tests green; reachability artefact confirmed at agent.Run() boundary.
 - 2026-06-16T18:30:00Z — S04-embed-baton-prompts (T1-engine): implemented → verified. All 6 gates passed; 13/13 tests green (8 prompt + 5 verify); binary smoke confirms baton-protocol v1.0.0 embedded.
 - 2026-06-16T18:45:00Z — track `T1-engine` merged to release-wt/ (commit f10649d). 4 verified slice(s): S01-verifier-core, S02-oai-model-client, S03-agentic-tool-loop, S04-embed-baton-prompts. Track state → merged.
+- 2026-06-16T19:00:00Z — S05-state-and-git (T2-orchestration): implemented → verified. All 6 gates passed; 16/16 tests green; go vet + go build clean.
+- 2026-06-16T21:00:00Z — S06-implementer (T2-orchestration): implemented → verified. All 6 gates passed; 6/6 tests green (implement package); go vet clean.
 - 2026-06-16T10:00:00Z — S08-init-config (T3-turnkey-ux): implemented → verified. All 6 gates passed; 14/14 tests green; live sworn init smoke confirms config + docs/baton/ + AGENTS.md splice with idempotency.
 - 2026-06-16T21:30:00Z — S09-distribution (T3-turnkey-ux): implemented → verified. All 6 gates passed; go test ./... green; make build + Docker build + both Docker smoke tests independently reproduced.
 - 2026-06-16T22:00:00Z — track `T3-turnkey-ux` merged to release-wt/ (commit f37b730). 2 verified slice(s): S08-init-config, S09-distribution. Track state → merged.
+- 2026-06-16T23:15:00Z — S07-run-loop (T2-orchestration): implemented → failed_verification. Gate 2: proof.md Divergence section omits internal/git/git.go and cmd/sworn/init.go as out-of-plan touchpoints.
+- 2026-06-16T23:55:00Z — S07-run-loop (T2-orchestration): implemented → verified. All 6 gates passed; 6/6 internal/run tests green; 4/5 cmd/sworn tests pass (1 skip); merge invariant confirmed.
