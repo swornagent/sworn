@@ -1,67 +1,119 @@
 ---
-title: 'Release board template'
-description: 'The release board — the single source of truth for slice states and track grouping across a release. Updated by the planner during decomposition and by implementer / verifier as each slice progresses.'
-# The frontmatter below is the machine-readable registry the slash commands read.
-# - Planner fills `tracks:` (id, slices, depends_on, worktree_branch) during decomposition.
-# - First /implement-slice in the release fills `release_worktree_path` / `release_worktree_branch`.
-# - First /implement-slice in a track fills that track's `worktree_path`.
-# See `docs/baton/track-mode.md` for the model these fields encode.
-release_worktree_path: # <set by first /implement-slice in the release — absolute path, e.g. <HOME>/projects/<repo-basename>-worktrees/release-2026-05-20-billing-redesign>
-release_worktree_branch: # release-wt/<release-name>
-tracks: []
-#  - id: T1-<short-name>
-#    slices: [S01-<name>, S02-<name>]   # ordered; slices run sequentially within the track
-#    depends_on: null                    # or another track id (see track-mode.md "Cross-track dependencies")
-#    worktree_path:                      # <set by first /implement-slice in this track>
-#    worktree_branch: track/<release-name>/T1-<short-name>
-#    state: planned                      # planned | in_progress | merged
+title: '2026-06-16-fidelity-layer — release board'
+description: 'Fidelity layer (Baton Rules 8/9/10): requirements fidelity, design fidelity, and customer-journey / system-acceptance validation, as protocol + native sworn enforcement. 15 slices across 4 tracks.'
+release_worktree_path: # <set by first /implement-slice in the release>
+release_worktree_branch: release-wt/2026-06-16-fidelity-layer
+tracks:
+  - id: T1-fidelity-core
+    slices: [S01-rtm-spine, S02-ears-ac-format, S04-requirements-verify-gate, S05-requirements-validate-gate, S07-design-fit-gate, S11-journey-elicitation]
+    depends_on: null
+    worktree_path:
+    worktree_branch: track/2026-06-16-fidelity-layer/T1-fidelity-core
+    state: planned
+  - id: T2-delivery-cutover
+    slices: [S06-definition-of-ready, S10-no-mock-boundary, S12-journey-impact-analysis, S13-walkthrough-attestation, S14-journey-regression-suite]
+    depends_on: T1-fidelity-core
+    worktree_path:
+    worktree_branch: track/2026-06-16-fidelity-layer/T2-delivery-cutover
+    state: planned
+  - id: T3-leaf-gates
+    slices: [S03-spec-quality-firstpass, S08-design-system-input, S09-design-conformance-audit]
+    depends_on: T1-fidelity-core
+    worktree_path:
+    worktree_branch: track/2026-06-16-fidelity-layer/T3-leaf-gates
+    state: planned
+  - id: T4-evidence-surface
+    slices: [S15-sworn-top-evidence]
+    depends_on: T1-fidelity-core
+    worktree_path:
+    worktree_branch: track/2026-06-16-fidelity-layer/T4-evidence-surface
+    state: planned
 ---
 
-# Release Board: `<release-name>`
+# Release Board: `2026-06-16-fidelity-layer`
 
-> Copy this file to `docs/release/<release-name>/index.md`. The frontmatter is the machine-readable registry; the tables below are the human-readable mirror. Keep them in sync.
->
-> **Parallelism model:** this release runs under **track mode** — see `docs/baton/track-mode.md`. Slices are grouped into tracks; tracks run in parallel, each in its own worktree; slices within a track run sequentially. The touchpoint matrix below is what licenses the parallelism.
->
-> **Naming convention:** `<release-name>` follows `YYYY-MM-DD-<theme>` where the date is planning-start. The *target version* of this release goes in the Release summary block below, not in the folder name.
+> Frontmatter is the machine-readable registry; the tables below mirror it. Keep them in sync.
+> Parallelism model: track mode. T2/T3/T4 each `depends_on` T1 and are mutually touchpoint-
+> disjoint, so they run in parallel **after** T1 merges.
 
 ## Release summary
 
-- **Goal**: \<one sentence; cite `intake.md` for the long form\>
-- **Target version / integration branch**: \<e.g. `release/v0.5.0`, `release/v0.6.0`\>
-- **Started**: `<YYYY-MM-DD>` (should match the date prefix in the folder name)
-- **Target ship**: `<YYYY-MM-DD or "uncommitted">`
+- **Goal**: the fidelity layer — Baton Rules 8 (requirements), 9 (design), 10 (customer-journey
+  / system-acceptance) — as protocol + native sworn enforcement; see `intake.md`.
+- **Target version / integration branch**: `release/v0.1.0` (the accumulating pre-1.0 milestone)
+- **Started**: 2026-06-16
+- **Target ship**: uncommitted
 - **Intake**: `intake.md`
-- **Stakeholder**: `<name>`
-- **Tracking issue**: `<link>`
+- **Stakeholder**: Brad (maintainer)
+- **Tracking issue**: TBD — create a `sworn` epic before implementation (Rule 5)
 
 ## Tracks
 
-> Each track runs in its own worktree (`/implement-slice` materialises it lazily). Slices within a track run **in the listed order**. Tracks with no `depends_on` may run fully in parallel.
-
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
-| `T1-<name>` | S01 → S02 | — | `track/<release-name>/T1-<name>` | planned |
-| `T2-<name>` | S03 | — | `track/<release-name>/T2-<name>` | planned |
-
-Track state: `planned` (no slice started) → `in_progress` (≥1 slice started, not all merged) → `merged` (`/merge-track` landed it in `release-wt/<release-name>`).
+| `T1-fidelity-core` | S01 → S02 → S04 → S05 → S07 → S11 | — | `track/2026-06-16-fidelity-layer/T1-fidelity-core` | planned |
+| `T2-delivery-cutover` | S06 → S10 → S12 → S13 → S14 | T1 | `track/2026-06-16-fidelity-layer/T2-delivery-cutover` | planned |
+| `T3-leaf-gates` | S03 → S08 → S09 | T1 | `track/2026-06-16-fidelity-layer/T3-leaf-gates` | planned |
+| `T4-evidence-surface` | S15 | T1 | `track/2026-06-16-fidelity-layer/T4-evidence-surface` | planned |
 
 ### Touchpoint matrix
 
-> Proves the tracks are disjoint — **no row may carry a `✓` in more than one track column.** If you cannot achieve that, the colliding slices belong in the same track, or one track must `depends_on` another. See `track-mode.md`.
+> T1 owns the shared core; T2/T3/T4 must be **mutually disjoint** (each `depends_on` T1, so any
+> file they share *with T1* is serialised by the dependency edge). No file carries `✓` in two
+> columns of the parallel set {T2, T3, T4}.
 
-| File / surface | T1 | T2 |
-|---|---|---|
-| `src/.../SomeComponent.tsx` | ✓ | |
-| `src/.../OtherComponent.tsx` | | ✓ |
+| File / surface | T1 | T2 | T3 | T4 |
+|---|---|---|---|---|
+| `internal/prompt/planner.md` | ✓ | | (T1 via dep) | |
+| `internal/prompt/captain.md` | ✓ | | | |
+| `internal/prompt/implementer.md` | | ✓ | | |
+| `internal/prompt/requirements-verifier.md` (new) | ✓ | | | |
+| `internal/state/state.go` | ✓ | (T1 via dep) | | |
+| `internal/board/index.go` | ✓ | | | (read-only) |
+| `internal/rtm/` (new) | ✓ | | | |
+| `internal/ears/` (new) | ✓ | | | |
+| `internal/reqverify/` (new) | ✓ | | | |
+| `internal/reqvalidate/` (new) | ✓ | | | |
+| `internal/designfit/` (new) | ✓ | | | |
+| `internal/journey/` (new) | ✓ | (T1 via dep) | | (read-only) |
+| `internal/implement/` | | ✓ | | |
+| `internal/verify/` | | ✓ | | |
+| `cmd/sworn/ship.go` (new) | | ✓ | | |
+| `internal/specquality/` (new) | | | ✓ | |
+| `internal/designaudit/` (new) | | | ✓ | |
+| `internal/config/` | | | ✓ | |
+| `bin/*.sh` (new gate scripts) | | | ✓ | |
+| `cmd/sworn/top.go` (new) | | | | ✓ |
+| `internal/adopt/baton/rules/08-requirements-fidelity.md` (new) | ✓ | (T1 via dep) | (T1 via dep) | |
+| `internal/adopt/baton/rules/09-design-fidelity.md` (new) | ✓ | | (T1 via dep) | |
+| `internal/adopt/baton/rules/10-customer-journey-validation.md` (new) | ✓ | (T1 via dep) | | |
+
+**Convention (recorded in intake):** `cmd/sworn/main.go` carries an **additive command switch**;
+each command-adding slice (S01 `rtm`, S02 `ears`, S03 `specquality`, S04 `reqverify`, S05
+`reqvalidate`, S07 `designfit`, S09 `designaudit`, S11 `journeys`, S13 `ship`, S15 `top`)
+contributes a distinct `case`. Per the prior release's parallel command registration, this is
+**not** treated as a touchpoint collision. Command *implementations* live in their own
+`cmd/sworn/<cmd>.go` files (disjoint).
 
 ## Slices
 
 | ID | Track | User outcome | State | Owner | Spec | Proof |
 |---|---|---|---|---|---|---|
-| `S01-<name>` | T1 | `<one sentence>` | planned | human | [spec](./S01-`<name>`/spec.md) | — |
-| `S02-<name>` | T1 | `<one sentence>` | planned | human | [spec](./S02-`<name>`/spec.md) | — |
-| `S03-<name>` | T2 | `<one sentence>` | planned | human | [spec](./S03-`<name>`/spec.md) | — |
+| `S01-rtm-spine` | T1 | 2-D requirements traceability matrix, threaded through artefacts, fail-closed (`sworn rtm`) | planned | human | [spec](./S01-rtm-spine/spec.md) | — |
+| `S02-ears-ac-format` | T1 | EARS acceptance-criteria notation + validator (`sworn ears`) | planned | human | [spec](./S02-ears-ac-format/spec.md) | — |
+| `S04-requirements-verify-gate` | T1 | 29148 quality-characteristic check, fresh-context, fail-closed (`sworn reqverify`) | planned | human | [spec](./S04-requirements-verify-gate/spec.md) | — |
+| `S05-requirements-validate-gate` | T1 | Human-owned scenario pos/neg + benefit-hypothesis validation (`sworn reqvalidate`) | planned | human | [spec](./S05-requirements-validate-gate/spec.md) | — |
+| `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | planned | human | [spec](./S07-design-fit-gate/spec.md) | — |
+| `S11-journey-elicitation` | T1 | AI-drafts/human-ratifies critical journeys into a durable artefact (`sworn journeys`) | planned | human | [spec](./S11-journey-elicitation/spec.md) | — |
+| `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | planned | human | [spec](./S06-definition-of-ready/spec.md) | — |
+| `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | planned | human | [spec](./S10-no-mock-boundary/spec.md) | — |
+| `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | planned | human | [spec](./S12-journey-impact-analysis/spec.md) | — |
+| `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | planned | human | [spec](./S13-walkthrough-attestation/spec.md) | — |
+| `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | planned | human | [spec](./S14-journey-regression-suite/spec.md) | — |
+| `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | planned | human | [spec](./S03-spec-quality-firstpass/spec.md) | — |
+| `S08-design-system-input` | T3 | Design system (tokens + component library) as first-class project input | planned | human | [spec](./S08-design-system-input/spec.md) | — |
+| `S09-design-conformance-audit` | T3 | Deterministic drift first-pass + human cohesion verdict (`sworn designaudit`) | planned | human | [spec](./S09-design-conformance-audit/spec.md) | — |
+| `S15-sworn-top-evidence` | T4 | Read-only journey-validation green-board / kill-list (`sworn top`) | planned | human | [spec](./S15-sworn-top-evidence/spec.md) | — |
 
 ### State legend
 
@@ -75,39 +127,47 @@ Track state: `planned` (no slice started) → `in_progress` (≥1 slice started,
 | `deferred` | Slice carved out per Rule 2; not in this release | Human |
 | `shipped` | Slice is live in production | — (terminal) |
 
-A slice stays `verified` through `/merge-track` and `/merge-release`; it flips to `shipped` only when the version branch deploys.
-
 ## Aggregate state
 
-`<Rolling count, updated whenever any slice transitions.>`
+- Planned: 15
+- In progress: 0
+- Implemented (awaiting verification): 0
+- Verified (awaiting merge): 0
+- Failed verification: 0
+- Deferred: 0
+- Shipped: 0
 
-- Planned: N
-- In progress: N
-- Implemented (awaiting verification): N
-- Verified (awaiting merge): N
-- Failed verification: N
-- Deferred: N
-- Shipped: N
-
-**Tracks:** Planned: N / In progress: N / Merged: N
+**Tracks:** Planned: 4 / In progress: 0 / Merged: 0
 
 ## Recent activity
 
-`<Chronological log of the most recent state transitions, including track merges.>`
+### 2026-06-16 — release planned
 
-### `<YYYY-MM-DD HH:MM>` — `<slice-id>`: `<old-state>` → `<new-state>`
-
-- **Actor**: `<implementer / verifier / human>`
-- **Note**: `<one line>`
+- **Actor**: planner (human + Claude)
+- **Note**: 15 slices across 4 tracks specced to `planned`. T1 fidelity-core; T2/T3/T4
+  `depends_on` T1 and run in parallel after it. Handed off for implementation.
 
 ## Decisions deferred (Rule 2)
 
-`<Items carved out of this release with explicit acknowledgement.>`
-
-- ...
+- **Track C provisional schema** (S11/S12/S13/S14): journey-artefact field detail is refined via
+  `/replan-release` as the live journey-validation hand-run delivers evidence. **Why**: the
+  hand-run is the source of truth for the journey schema. **Tracking**: intake "Open questions";
+  refined post-hand-run. **Acknowledged**: 2026-06-16.
+- **S14 scaffold-not-complete-oracle**: sworn emits a structured regression scaffold + coverage
+  check per journey, not a complete journey oracle. **Why**: a complete oracle is project-
+  specific E2E work. **Tracking**: consuming project's E2E backlog. **Acknowledged**: 2026-06-16.
 
 ## Cross-slice / cross-track notes
 
-`<Anything affecting more than one slice or track that needs human-level coordination — data-model migrations, env-var changes, shared infra, dependent-track ordering.>`
-
-- ...
+- **Keystone first.** S01 (RTM spine) writes the shared native core (`state` + `board`) and must
+  land first; T2/T3/T4 `depends_on` T1 for that reason.
+- **Rule docs created in T1, extended downstream via depends_on.** `08`/`09`/`10` are created in
+  T1 (S01/S07/S11) and extended by their owning lane after T1 merges; no parallel-set collision.
+- **`internal/adopt/baton/VERSION`** bumps once per new rule (S01 → Rule 8, S07 → Rule 9, S11 →
+  Rule 10). All on T1; serialised within the track.
+- **S15 functional sequencing.** `sworn top` renders S13's attestations, so it is most useful
+  after S13 lands; it is only *touchpoint*-gated on T1 and renders an empty state until S13 is
+  live. Prefer scheduling T4 after T2's S13, though it is not touchpoint-blocked.
+- **Native/protocol composition.** Standalone command verbs are the primitive; the autonomous
+  path composes them (S06's Definition of Ready invokes the S01/S04/S05 gates at the
+  `planned→in_progress` transition).
