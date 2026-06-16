@@ -48,3 +48,21 @@ description: Implementation session notes for S01 — stateless verify prompt.
 ### Out-of-scope discoveries
 
 None. No track collisions (all files in T1's matrix).
+
+## Verifier verdicts received
+
+### 2026-06-16 — Verifier verdict
+
+**Verdict**: PASS
+
+**Verified against**: `cba8cce30af21e3fe665e8118a88257bb93ed12e`
+
+**Verifier session**: fresh, artefact-only
+
+**Gate results**:
+- Gate 1 (user-reachable outcome): PASS — `sworn verify` CLI → `verify.Run` → `prompt.VerifyStateless()` wired; binary builds and reaches dispatch, exits 2 on Unconfigured model as expected.
+- Gate 2 (touchpoints match): PASS — all three planned touchpoints changed; additional test files explained by spec's Required Tests section; docs artefacts are slice infrastructure, not production scope.
+- Gate 3 (required tests, integration point): PASS — `TestRun_SystemPromptIsStateless` exercises real `verify.Run` via `capturingVerifier`; all 11 prompt+verify tests re-run fresh and green.
+- Gate 4 (reachability artefact): PASS — smoke step reproduced in verifier session: `sworn verify --spec /tmp/s01-spec.md --diff /tmp/s01-diff.patch` exits 2 (BLOCKED on Unconfigured), no build or wiring panic.
+- Gate 5 (no silent deferrals): PASS — "deferred" hits in verify-stateless.md are instruction text in the judge prompt, not code deferrals; no TODO/FIXME/XXX/HACK in slice production files.
+- Gate 6 (claimed scope matches): PASS — all five Delivered items verified against live code; evidence references point to real, working state.

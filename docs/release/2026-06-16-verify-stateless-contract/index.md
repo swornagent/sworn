@@ -52,7 +52,7 @@ Track state: `planned` → `in_progress` → `merged`.
 
 | ID | Track | User outcome | State | Owner | Spec | Proof |
 |---|---|---|---|---|---|---|
-| `S01-stateless-verify-prompt` | T1 | The verify path is told "judge from SPEC+DIFF only, verdict-leading, no tools" instead of the agentic role prompt | planned | human | [spec](./S01-stateless-verify-prompt/spec.md) | — |
+| `S01-stateless-verify-prompt` | T1 | The verify path is told "judge from SPEC+DIFF only, verdict-leading, no tools" instead of the agentic role prompt | verified | human | [spec](./S01-stateless-verify-prompt/spec.md) | [proof](./S01-stateless-verify-prompt/proof.md) |
 | `S02-tolerant-verdict-parser` | T1 | A reply with markdown emphasis / leading prose / a leaked tool-call line still resolves to the intended verdict, fail-closed on ambiguity | planned | human | [spec](./S02-tolerant-verdict-parser/spec.md) | — |
 | `S03-run-loop-verify-reachability` | T1 | `sworn run`'s verify gate lands a parseable verdict end-to-end instead of always BLOCKED | planned | human | [spec](./S03-run-loop-verify-reachability/spec.md) | — |
 
@@ -70,17 +70,22 @@ Track state: `planned` → `in_progress` → `merged`.
 
 ## Aggregate state
 
-- Planned: 3
+- Planned: 2
 - In progress: 0
 - Implemented (awaiting verification): 0
-- Verified (awaiting merge): 0
+- Verified (awaiting merge): 1
 - Failed verification: 0
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 1 / In progress: 0 / Merged: 0
+**Tracks:** Planned: 0 / In progress: 1 / Merged: 0
 
 ## Recent activity
+
+### 2026-06-16 — S01 verified
+
+- **Actor**: verifier (fresh context)
+- **Note**: S01-stateless-verify-prompt PASS — all six gates cleared. Binary smoke-tested from worktree. Next: /implement-slice S02-tolerant-verdict-parser.
 
 ### 2026-06-16 — release planned
 
