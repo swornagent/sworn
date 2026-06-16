@@ -1,0 +1,39 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S01-rtm-spine",
+  "release": "2026-06-16-fidelity-layer",
+  "track": "T1-fidelity-core",
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-16T09:19:56Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/spec.md",
+  "proof_path": "docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/proof.md",
+  "journal_path": "docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/journal.md",
+  "planned_files": [
+    "internal/rtm/rtm.go",
+    "internal/rtm/rtm_test.go",
+    "internal/state/state.go",
+    "internal/board/index.go",
+    "cmd/sworn/rtm.go",
+    "cmd/sworn/main.go",
+    "internal/prompt/planner.md",
+    "internal/adopt/baton/rules/08-requirements-fidelity.md",
+    "internal/adopt/baton/VERSION"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/rtm/...",
+    "go test ./cmd/sworn/ -run TestRtm"
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}

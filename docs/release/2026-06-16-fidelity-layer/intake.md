@@ -195,6 +195,32 @@ Discrete capabilities (candidate acceptance checks downstream):
   directly implementable primitive (the requirements-side analog of the delivery first-pass
   script), worth isolating and verifying alone.
 
+### `2026-06-16` — Track grouping: core + three dependent lanes (not three rule-tracks)
+
+- **Context**: the rule-clean A/B/C split is **not** touchpoint-disjoint — all three
+  front-end gates route through `internal/prompt/planner.md`, and the RTM keystone (S01) writes
+  the shared native core (`internal/state/state.go`, `internal/board/index.go`) that the
+  journey + evidence slices also touch.
+- **Options considered**: ratify a core + three dependent lanes; one sequential track; split
+  the core further.
+- **Decision**: **T1 fidelity-core → T2 ∥ T3 ∥ T4**, each lane `depends_on` T1.
+  - **T1 fidelity-core**: S01, S02, S04, S05, S07, S11 (planner.md, state, board, templates,
+    requirements packages, journey-create).
+  - **T2 delivery & cutover**: S06, S10, S12, S13, S14 (implementer.md, verify, state
+    transitions, `sworn ship`, journey walkthrough/regression).
+  - **T3 leaf-gates (deterministic)**: S03, S08, S09 (specquality, designaudit, config, bin
+    scripts).
+  - **T4 evidence-surface**: S15 (`sworn top`, board read).
+- **Why**: the interactive surface is the spine, so the front end cannot fan out into three
+  independent rule-lanes; a core-then-fan-out shape is the honest touchpoint-disjoint structure.
+  Aggressive parallel safety is the *next* release's job — this release stays correctly gated.
+
+**Cross-track convention (recorded):** `cmd/sworn/main.go` carries an **additive command
+switch** — each command-adding slice (S01 `rtm`, S13 `ship`, S15 `top`) contributes a distinct
+`case`. Per the established convention in the prior release (parallel tracks each added a case),
+additive command registration in `main.go` is **not** treated as a touchpoint collision. New
+command *implementations* live in their own `cmd/sworn/<cmd>.go` files (disjoint).
+
 ## Schema-vs-spec audit notes
 
 - The RTM is not a new store — it threads through the **existing** artefacts: intake needs →
