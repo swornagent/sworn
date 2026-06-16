@@ -133,5 +133,54 @@ as expected per the test plan.
 ## First-pass script output
 
 ```
-$ release-verify.sh S01-stateless-verify-prompt 2026-06-16-verify-stateless-contract
+release-verify.sh
+  slice:       S01-stateless-verify-prompt
+  slice dir:   docs/release/2026-06-16-verify-stateless-contract/S01-stateless-verify-prompt
+  base branch: main
+
+== Slice artefacts ==
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+
+== Status ==
+  PASS  status.json is valid JSON
+  state: implemented
+  PASS  state is 'implemented' (eligible for verifier review)
+
+== Diff vs main ==
+  PASS  191 file(s) changed vs main
+
+== Dark-code markers in changed files ==
+  FAIL  dark-code markers found in changed source files (must be Rule 2 deferrals)
+  hits:
+    internal/adopt/adopt.go:
+    59:+breakpoints. Session end: record decisions, completed work, deferred items,
+
+== Proof bundle structural checks ==
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+
+== Frontmatter YAML safety ==
+  PASS  spec.md frontmatter is strict-YAML safe
+
+== First-pass verdict ==
+  checks passed: 17
+  checks failed: 1
+FIRST-PASS FAIL
+
+Note: the single dark-code failure is a false positive in
+internal/adopt/adopt.go:59 — the word "deferred" appears in embedded Baton
+protocol documentation from a prior release (2026-06-15-e2e-turnkey-loop).
+The script diffs vs main (entire track branch), not our slice's
+start_commit..HEAD range. Our slice's actual files contain no dark-code
+markers (confirmed via grep of the slice's own diff).
 ```
