@@ -69,27 +69,63 @@ func buildPayload(spec, diff, proof string) string {
 	return b.String()
 }
 
-// parseVerdict maps the model's leading token to a Result. Conservative: only a
-// clear PASS passes; an unrecognised reply BLOCKS.
+// parseVerdict extracts the verdict from the model's reply. It tolerates common
+// model output variations — leading blank lines, markdown emphasis, a leading
+// code fence — while remaining fail-closed: only a leading PASS/FAIL/BLOCKED/
+// INCONCLUSIVE token on the first substantive line passes; anything else blocks.
 func parseVerdict(text string, cost float64) verdict.Result {
-	t := strings.TrimSpace(text)
+	line := firstVerdictLine(text)
+	t := stripMarkdown(line)
 	upper := strings.ToUpper(t)
 	switch {
 	case strings.HasPrefix(upper, "PASS"):
-		return verdict.Result{Verdict: verdict.Pass, Rationale: t, CostUSD: cost}
+		return verdict.Result{Verdict: verdict.Pass, Rationale: text, CostUSD: cost}
 	case strings.HasPrefix(upper, "FAIL"):
-		return verdict.Result{Verdict: verdict.Fail, FailedGate: "adversarial", Rationale: t, CostUSD: cost}
+		return verdict.Result{Verdict: verdict.Fail, FailedGate: "adversarial", Rationale: text, CostUSD: cost}
 	case strings.HasPrefix(upper, "BLOCKED"):
-		return verdict.Result{Verdict: verdict.Blocked, FailedGate: "adversarial", Rationale: t, CostUSD: cost}
+		return verdict.Result{Verdict: verdict.Blocked, FailedGate: "adversarial", Rationale: text, CostUSD: cost}
 	case strings.HasPrefix(upper, "INCONCLUSIVE"):
-		return verdict.Result{Verdict: verdict.Inconclusive, FailedGate: "adversarial", Rationale: t, CostUSD: cost}
+		return verdict.Result{Verdict: verdict.Inconclusive, FailedGate: "adversarial", Rationale: text, CostUSD: cost}
 	default:
 		return verdict.Result{Verdict: verdict.Blocked, FailedGate: "unparseable_verdict",
 			Rationale: "verifier reply did not start with PASS/FAIL/BLOCKED/INCONCLUSIVE", CostUSD: cost}
 	}
 }
-func blocked(gate, why string) verdict.Result {
-	return verdict.Result{Verdict: verdict.Blocked, FailedGate: gate, Rationale: why}
+
+// firstVerdictLine returns the first non-empty line that is not a bare code
+// fence.  Leading blank lines are skipped; a line containing only ``` is treated
+// as a fence and skipped so that ```\nPASS resolves to PASS.
+func firstVerdictLine(text string) string {
+	lines := strings.Split(text, "\n")
+	for _, line := range lines {
+		t := strings.TrimSpace(line)
+		if t == "" {
+			continue
+		}
+		// A bare code fence line — skip it, the verdict follows.
+		if t == "```" {
+			continue
+		}
+		return t
+	}
+	return ""
+}
+
+// stripMarkdown removes surrounding markdown emphasis characters (*, _, `) and
+// a leading code-fence marker (```) from a single line.  It trims space before
+// and after so the result is ready for prefix matching.
+func stripMarkdown(line string) string {
+	t := strings.TrimSpace(line)
+	if strings.HasPrefix(t, "```") {
+		t = strings.TrimPrefix(t, "```")
+	}
+	t = strings.TrimSpace(t)
+	// Strip surrounding emphasis — any run of *, _, ` on both sides.
+	t = strings.TrimLeft(t, "*_`")
+	t = strings.TrimRight(t, "*_`")
+	return strings.TrimSpace(t)
+}
+func blocked(gate, why string) verdict.Result {	return verdict.Result{Verdict: verdict.Blocked, FailedGate: gate, Rationale: why}
 }
 
 func readNonEmpty(path string) (string, error) {
