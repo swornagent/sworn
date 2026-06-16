@@ -20,3 +20,8 @@
 - 2026-06-17T00:45:00Z — S10-benchmark-dogfood (T4-proof): implemented → failed_verification. Gate 4/6 FAIL: AC3 dogfood merge not found in repo (no branch, README.md unchanged on main).
 - 2026-06-17T02:30:00Z — S10-benchmark-dogfood (T4-proof): implemented → verified. All 6 gates passed; 10/10 bench tests green; dogfood commit 52ae89e confirmed on main; benchmark report table complete.
 - 2026-06-17T02:45:00Z — track `T4-proof` merged to release-wt/ (commit 55848d2). 1 verified slice(s): S10-benchmark-dogfood. Track state → merged.
+
+### 2026-06-16 — release merged to release/v0.1.0 (commit c1794bd)
+
+- **Actor**: release integrator (/merge-release)
+- **Note**: 10 verified slices merged (S01–S10), 0 deferred. Integration branch is `release/v0.1.0` (the v0.1 version branch cut from `main`); index.md "Release summary" already records this — the stale `main` checkout still showed the old value, corrected target confirmed by the release owner. A forward-merge of `main` into `release-wt/` was retained at the owner's request (commit 2fe3064), carrying main's docs-only drift (README phrasing + the unrelated `run-20260616` journal) into this snapshot. Slices remain in `verified` state until `release/v0.1.0` ships to production (i.e. merges to `main` = prod); at that point each slice's `status.json` flips to `shipped`. Branch `release-wt/2026-06-15-e2e-turnkey-loop` retained; remove with `git branch -D release-wt/2026-06-15-e2e-turnkey-loop` once you're sure no more work belongs to this release.
