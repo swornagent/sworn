@@ -1,0 +1,32 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S15-sworn-top-evidence",
+  "release": "2026-06-16-fidelity-layer",
+  "track": "T4-evidence-surface",
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-16T09:19:56Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence/spec.md",
+  "proof_path": "docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence/proof.md",
+  "journal_path": "docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence/journal.md",
+  "planned_files": [
+    "cmd/sworn/top.go",
+    "cmd/sworn/top_test.go",
+    "cmd/sworn/main.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./cmd/sworn/ -run TestTop"
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}
