@@ -1,0 +1,18 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S01-task",
+  "release": "run-20260616-012907",
+  "track": "",
+  "state": "in_progress",
+  "owner": "sworn-run",
+  "last_updated_by": "run-loop",
+  "last_updated_at": "2026-06-16T01:29:07Z",
+  "spec_path": "docs/release/run-20260616-012907/S01-task/spec.md",
+  "proof_path": "docs/release/run-20260616-012907/S01-task/proof.md",
+  "journal_path": "docs/release/run-20260616-012907/S01-task/journal.md",
+  "test_commands": [
+    "go test ./..."
+  ],
+  "verification": {},
+  "release_base": "main"
+}
