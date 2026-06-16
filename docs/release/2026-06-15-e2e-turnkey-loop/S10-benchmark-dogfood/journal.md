@@ -229,3 +229,26 @@ Round 4 complete. All verifier violations from round 2 addressed:
 - Gate 6: AC3 delivery verified — merge commit SHA, README diff, and git reflog all present.
 
 First-pass: 22/22 PASS. Ready for fresh-context verifier.
+
+---
+
+## Verifier verdicts received
+
+### 2026-06-17 — Verifier (fresh context, round 3)
+
+PASS
+
+Slice: `S10-benchmark-dogfood`
+Verified against: `3938ab8`
+Verifier session: `fresh, artefact-only`
+
+Gates walked in order:
+
+- Gate 1 ✓ — `sworn bench` entry point wired: `cmd/sworn/bench.go` implements `cmdBench`; registered at `cmd/sworn/main.go:40` (`case "bench":`). User-reachable.
+- Gate 2 ✓ — Planned touchpoints (`internal/bench/`, `cmd/sworn/bench.go`, `docs/benchmark/`) delivered in rounds 1–3 and confirmed present on branch. Round 4 `start_commit..HEAD` scope is docs-only (proof-bundle update only); proof Note explains the multi-round scope correctly. Off-plan touches (`cmd/sworn/main.go`, `internal/model/oai.go`) documented in proof.md "Divergence from plan".
+- Gate 3 ✓ — 10/10 `internal/bench` tests PASS fresh (independently re-run from worktree). Full `go test ./...` clean. `go vet ./...` clean.
+- Gate 4 ✓ — Artefact 1: `docs/benchmark/benchmark-report.md` and `.json` exist on disk with complete `model × jurisdiction × cost × pass-rate` table (8 models × 9 tasks). Artefact 2: `sworn bench --help` output consistent with CLI. Artefact 3: merge commit `52ae89e` verified on main — `git show`, `git diff 7d613b6..52ae89e -- README.md`, and `git log` all confirm README.md changed from "early scaffold" to "early development".
+- Gate 5 ✓ — No TODO/FIXME/deferred/placeholder/XXX/HACK markers in implementation files.
+- Gate 6 ✓ — All "Delivered" items verified: bench harness files present, 10 tests pass, CLI registered, AC1 report table confirmed, AC2 default selection algorithm correct (`openai/o4-mini` via safe-hosted filter + tie-break), AC3 dogfood commit `52ae89e` verified on main.
+
+State transition: `implemented` → `verified`
