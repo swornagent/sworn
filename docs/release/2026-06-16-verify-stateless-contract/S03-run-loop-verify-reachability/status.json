@@ -3,10 +3,10 @@
   "slice_id": "S03-run-loop-verify-reachability",
   "release": "2026-06-16-verify-stateless-contract",
   "track": "T1-verify-contract",
-  "state": "implemented",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-16T14:41:53Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-16T14:47:11Z",
   "start_commit": "000fe38a78529c0a33f61224fcc9a859492ab410",
   "spec_path": "docs/release/2026-06-16-verify-stateless-contract/S03-run-loop-verify-reachability/spec.md",
   "proof_path": "docs/release/2026-06-16-verify-stateless-contract/S03-run-loop-verify-reachability/proof.md",
@@ -26,10 +26,10 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "pass",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-06-16T14:47:11Z",
+    "verifier_was_fresh_context": true,
     "violations": []
   },
   "release_base": "release/v0.1.0"

@@ -46,3 +46,19 @@
 ### Out-of-scope discoveries
 
 None.
+
+## Verifier verdicts received
+
+### 2026-06-17 — PASS
+
+**Verdict**: PASS
+**Verifier session**: fresh context, artefact-only inputs, no prior implementer context loaded
+**Commit verified against**: `e0ae2c3`
+
+**Gate results:**
+1. Gate 1 (User-reachable outcome) — PASS. `run.Run` calls `verify.Run` at line 232; tests drive `run.Run` directly via the existing `Options.NewVerifier` injection seam.
+2. Gate 2 (Touchpoints match) — PASS. Only `internal/run/run_test.go` changed in production scope; slice artefacts expected.
+3. Gate 3 (Tests exercise integration point) — PASS. All 3 S03 tests PASS on independent re-run (`go test ./internal/run/... -v -run TestRun_Verify -count=1`). Tests drive `run.Run`, not a leaf verify function.
+4. Gate 4 (Reachability artefact) — PASS. `go test ./internal/run/...` green (independently re-run). Multi-provider manual smoke table recorded in proof.md; spec designates this as the authorised reachability form.
+5. Gate 5 (No silent deferrals) — PASS. Grep of changed files: no TODO/FIXME/deferred/placeholder hits.
+6. Gate 6 (Claimed scope matches) — PASS. All four ACs have verifiable evidence in `run_test.go`.
