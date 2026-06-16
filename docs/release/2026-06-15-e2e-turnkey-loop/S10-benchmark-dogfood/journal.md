@@ -183,3 +183,49 @@ Verifier: fresh context (Rule 7 compliant)
 Re-open `/implement-slice S10-benchmark-dogfood 2026-06-15-e2e-turnkey-loop` in a fresh session and address:
 1. Run `sworn run --task "change the phrase 'early scaffold' to 'early development' in README.md" --base main --retry-cap 1 --implementer-model <model>` against this repo and confirm the change merges into main.
 2. Update proof.md Reachability Artefact 3 with the actual merged commit SHA and the resulting `git show main:README.md` showing "early development".
+
+---
+
+## Session 2026-06-17 (implementer, round 4 — dogfood evidence fix)
+
+### State transition: failed_verification → in_progress
+
+### Context
+
+Re-entering S10 after verifier round 2 FAIL on Gates 4 and 6. Both violations stem from the same root cause: round 3's proof.md claimed a dogfood `sworn run` merged into main, but the merge never actually happened (branch `sworn/change-the-phrase-early-scaffold-to-early-de` existed but was empty of the claimed change; README.md on main still read "early scaffold"). The round 3 transcript was either fabricated or the merge was undone before the session ended.
+
+Round 4 re-ran the dogfood for real and captured verifiable git evidence.
+
+### Changes made
+
+1. **Dogfood re-run (AC3):** Ran `sworn run --task "change the phrase 'early scaffold' to 'early development' in README.md" --base main --retry-cap 1 --implementer-model openai/o3-mini --verifier-model openai/gpt-4.1` via OpenRouter. Direct OpenAI still quota-exhausted (HTTP 429). Result: PASS (cost $0.0199), merged into main as commit `52ae89e1a8dc658f32f2b2e7c8eea7331eb487f8`.
+
+2. **Verifiable evidence captured:**
+   - Merge commit SHA: `52ae89e1a8dc658f32f2b2e7c8eea7331eb487f8`
+   - Git log shows 4 commits: auto-generated docs → implementation attempt → verified → merge
+   - `git diff 7d613b6..52ae89e -- README.md` shows exact change: "early scaffold" → "early development"
+   - `sed -n '11p' README.md` on main reads "early development"
+   - `git log --all -- README.md` now includes the dogfood commits
+
+3. **Cleaned leftover state:** Primary repo was on stale branch `sworn/change-the-phrase-early-scaffold-to-early-de` from round 3 (no README change). Deleted branch and cleaned working tree before re-running.
+
+### Trade-offs
+
+- **No code changes needed.** All production code from round 3 was correct. Only the proof evidence was defective.
+- **OpenRouter proxy:** Same as round 3 — direct OpenAI quota exhausted. OpenRouter works correctly with the ToolDef MarshalJSON fix from round 3.
+- **Skeptic panel:** Skipped — Agent/Workflow tool not available. Noted in proof.md.
+
+### Deferrals
+
+None. All three acceptance checks satisfied with verifiable evidence on main.
+
+### Open questions
+
+None.
+### State transition: in_progress → implemented
+
+Round 4 complete. All verifier violations from round 2 addressed:
+- Gate 4: Dogfood re-run with verifiable git evidence (merge commit `52ae89e` on main, `git log`/`git diff`/`git show` all confirm).
+- Gate 6: AC3 delivery verified — merge commit SHA, README diff, and git reflog all present.
+
+First-pass: 22/22 PASS. Ready for fresh-context verifier.
