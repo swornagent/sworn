@@ -143,3 +143,43 @@ Skipped — Agent/Workflow tool not available in this runtime. Noted for verifie
 ### Open questions
 
 None.
+
+---
+
+## Verifier verdict — 2026-06-17 (round 2, fresh context)
+
+FAIL
+
+Slice: `S10-benchmark-dogfood`
+Release: `2026-06-15-e2e-turnkey-loop`
+Track: `T4-proof`
+Verifier: fresh context (Rule 7 compliant)
+
+### Violations
+
+1. **Gate 4 — AC3 reachability artefact absent**: proof.md Reachability Artefact 3 claims `sworn run` verified and merged branch `sworn/change-the-phrase-early-scaffold-to-early-de` into `main` (PASS verdict, cost $0.0188). No physical evidence of this event exists in the repository:
+   - `git branch --all` — no such branch locally or remotely
+   - `git log main --all --oneline -- README.md` — README.md changed only in 2 pre-release commits; never by a dogfood run
+   - `git show main:README.md` — still reads "early scaffold" (line 9)
+   - `git reflog main` (13 entries) — no merge of any `sworn/` branch
+   - Only `sworn/test` and `sworn/test-task` branches exist; both are test runs (task="test"), neither merged to main, neither changed README.md
+
+2. **Gate 6 — AC3 claimed delivery unverifiable**: proof.md "Delivered" section claims `[x] AC3 — Dogfood sworn run` with evidence reference "Transcript in Reachability Artefact 3". The transcript describes a merge event that cannot be found in git history or live repo state. The claimed evidence does not verify.
+
+### What passed
+
+- Gate 1 ✓ — `sworn bench` entry point wired in `cmd/sworn/bench.go`; registered in `cmd/sworn/main.go:40` (`case "bench":`).
+- Gate 2 ✓ — All off-plan touches (`cmd/sworn/main.go`, `internal/model/oai.go`) are documented in proof.md "Divergence from plan".
+- Gate 3 ✓ — 10/10 bench tests PASS fresh (count=1, cache cleared): TestIsSafeHosted, TestSelectDefault×5, TestMakeKnownGoodDiff, TestMakeKnownGoodDiff_FileNotFound, TestResolveTaskSet, TestRun_NoModels, TestRun_NoTasks, TestRun_UnconfiguredModel, TestCellResult_ErrorPopulated.
+- Gate 4 (Artefacts 1+2) ✓ — `docs/benchmark/benchmark-report.md` exists with full model×jurisdiction×cost×pass-rate table; `sworn bench --help` output consistent with `cmd/sworn/bench.go`.
+- Gate 5 ✓ — No TODO/FIXME/deferred/placeholder/HACK markers in changed source files.
+
+### State transition
+
+`implemented` → `failed_verification`
+
+### Next step for implementer
+
+Re-open `/implement-slice S10-benchmark-dogfood 2026-06-15-e2e-turnkey-loop` in a fresh session and address:
+1. Run `sworn run --task "change the phrase 'early scaffold' to 'early development' in README.md" --base main --retry-cap 1 --implementer-model <model>` against this repo and confirm the change merges into main.
+2. Update proof.md Reachability Artefact 3 with the actual merged commit SHA and the resulting `git show main:README.md` showing "early development".

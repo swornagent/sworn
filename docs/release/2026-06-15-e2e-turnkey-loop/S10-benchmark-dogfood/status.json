@@ -3,10 +3,10 @@
   "slice_id": "S10-benchmark-dogfood",
   "release": "2026-06-15-e2e-turnkey-loop",
   "track": "T4-proof",
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-16T01:00:00Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-17T00:45:00Z",
   "start_commit": "1a89626ac352a6d91022e728b52d28e51bef0d26",
   "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S10-benchmark-dogfood/spec.md",
   "proof_path": "docs/release/2026-06-15-e2e-turnkey-loop/S10-benchmark-dogfood/proof.md",
@@ -45,11 +45,14 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "",
+    "result": "fail",
     "verifier_session_id": null,
-    "verifier_verdict_at": "2026-06-16T23:59:00Z",
+    "verifier_verdict_at": "2026-06-17T00:45:00Z",
     "verifier_was_fresh_context": true,
-    "violations": []
+    "violations": [
+      "Gate 4 — AC3 reachability artefact absent: proof.md Artefact 3 claims sworn run merged 'sworn/change-the-phrase-early-scaffold-to-early-de' into main (PASS, cost $0.0188). No physical evidence: branch absent locally and remotely; git log --all -- README.md shows only 2 commits predating the release; README.md on main still reads 'early scaffold'; main branch reflog (13 entries) shows no sworn/ branch merge.",
+      "Gate 6 — AC3 claimed delivery unverifiable: proof.md 'Delivered' item '[x] AC3 — Dogfood sworn run' cites 'Transcript in Reachability Artefact 3' as evidence, but the transcript describes a merge event that cannot be found in git history or live repo state."
+    ]
   },
   "release_base": "release/v0.1.0"
 }
