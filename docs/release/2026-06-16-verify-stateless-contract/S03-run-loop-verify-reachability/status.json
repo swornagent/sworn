@@ -3,10 +3,10 @@
   "slice_id": "S03-run-loop-verify-reachability",
   "release": "2026-06-16-verify-stateless-contract",
   "track": "T1-verify-contract",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-16T14:30:42Z",
+  "last_updated_at": "2026-06-16T14:41:53Z",
   "start_commit": "000fe38a78529c0a33f61224fcc9a859492ab410",
   "spec_path": "docs/release/2026-06-16-verify-stateless-contract/S03-run-loop-verify-reachability/spec.md",
   "proof_path": "docs/release/2026-06-16-verify-stateless-contract/S03-run-loop-verify-reachability/proof.md",
@@ -14,13 +14,15 @@
   "planned_files": [
     "internal/run/run_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/run/run_test.go"
+  ],
   "test_commands": [
-    "go test ./internal/run/..."
+    "go test ./internal/run/... -v -run TestRun_Verify -count=1"
   ],
   "reachability_artifacts": [
-    "go test ./internal/run/... (run-loop verify gate lands PASS + transition; tool-call-leak BLOCKS)",
-    "manual: sworn verify parseable verdict across deepseek/groq/gemini on synthetic spec+diff \u2014 recorded in proof.md"
+    "go test ./internal/run/... (all 9 tests PASS; 3 new S03-specific integration tests)",
+    "manual: sworn verify parseable verdicts across deepseek/groq/gemini on synthetic spec+diff \u2014 recorded in proof.md multi-provider table"
   ],
   "open_deferrals": [],
   "verification": {
