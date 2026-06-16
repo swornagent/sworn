@@ -16,3 +16,6 @@
 - 2026-06-16T23:15:00Z — S07-run-loop (T2-orchestration): implemented → failed_verification. Gate 2: proof.md Divergence section omits internal/git/git.go and cmd/sworn/init.go as out-of-plan touchpoints.
 - 2026-06-16T23:55:00Z — S07-run-loop (T2-orchestration): implemented → verified. All 6 gates passed; 6/6 internal/run tests green; 4/5 cmd/sworn tests pass (1 skip); merge invariant confirmed.
 - 2026-06-17T00:15:00Z — track `T2-orchestration` merged to release-wt/ (commit 16db025). 3 verified slice(s): S05-state-and-git, S06-implementer, S07-run-loop. Track state → merged.
+- 2026-06-16T23:59:00Z — S10-benchmark-dogfood (T4-proof): implemented → failed_verification. Gate 2: main.go unplanned touchpoint not in Divergence; Gate 4: AC3 reachability artefact absent (future-tense placeholder); Gate 5: AC3 deferred without tracking+ack, spec prohibits deferrals.
+- 2026-06-17T00:45:00Z — S10-benchmark-dogfood (T4-proof): implemented → failed_verification. Gate 4/6 FAIL: AC3 dogfood merge not found in repo (no branch, README.md unchanged on main).
+- 2026-06-17T02:30:00Z — S10-benchmark-dogfood (T4-proof): implemented → verified. All 6 gates passed; 10/10 bench tests green; dogfood commit 52ae89e confirmed on main; benchmark report table complete.

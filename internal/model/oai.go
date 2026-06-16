@@ -33,10 +33,39 @@ type OAI struct {
 // tools array. ToolDef is defined in the model package (the wire-format
 // owner); agent tools provide their definition via Schema() model.ToolDef
 // to avoid hand-editing JSON schema on both sides of the boundary.
+//
+// JSON serialisation uses the OpenAI-compliant nested format:
+// {"type":"function","function":{"name":"...","description":"...","parameters":{...}}}
+// MarshalJSON handles this so callers construct ToolDef flat.
 type ToolDef struct {
+	Name        string          `json:"-"`
+	Description string          `json:"-"`
+	Parameters  json.RawMessage `json:"-"`
+}
+
+// ToolFunction is the nested function object in an OpenAI tool definition.
+type ToolFunction struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	Parameters  json.RawMessage `json:"parameters"`
+}
+
+// MarshalJSON serialises ToolDef in the OpenAI-compliant format with
+// "type": "function" and the nested "function" object. This is required
+// by OpenRouter (and is the canonical OpenAI API format); direct OpenAI
+// accepts both shapes but OpenRouter strictly validates.
+func (td ToolDef) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Type     string       `json:"type"`
+		Function ToolFunction `json:"function"`
+	}{
+		Type: "function",
+		Function: ToolFunction{
+			Name:        td.Name,
+			Description: td.Description,
+			Parameters:  td.Parameters,
+		},
+	})
 }
 
 type chatRequest struct {
