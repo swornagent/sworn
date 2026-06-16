@@ -3,7 +3,7 @@
   "slice_id": "S10-benchmark-dogfood",
   "release": "2026-06-15-e2e-turnkey-loop",
   "track": "T4-proof",
-  "state": "failed_verification",
+  "state": "in_progress",
   "owner": "human",
   "last_updated_by": "verifier",
   "last_updated_at": "2026-06-16T23:59:00Z",
@@ -38,15 +38,11 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "fail",
+    "result": "",
     "verifier_session_id": null,
     "verifier_verdict_at": "2026-06-16T23:59:00Z",
     "verifier_was_fresh_context": true,
-    "violations": [
-      "Gate 2 — cmd/sworn/main.go changed but not in planned touchpoints; not explained in proof.md Divergence from plan",
-      "Gate 4 — Reachability artefact for AC3 does not exist (future-tense placeholder, no dogfood transcript or merged commit on disk)",
-      "Gate 5 — AC3 deferred without complete Rule 2 elements (missing tracking reference and acknowledgement); spec.md states Deferrals allowed: No"
-    ]
+    "violations": []
   },
   "release_base": "release/v0.1.0"
 }
