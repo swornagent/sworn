@@ -53,7 +53,7 @@ Track state: `planned` → `in_progress` → `merged`.
 | ID | Track | User outcome | State | Owner | Spec | Proof |
 |---|---|---|---|---|---|---|
 | `S01-stateless-verify-prompt` | T1 | The verify path is told "judge from SPEC+DIFF only, verdict-leading, no tools" instead of the agentic role prompt | verified | human | [spec](./S01-stateless-verify-prompt/spec.md) | [proof](./S01-stateless-verify-prompt/proof.md) |
-| `S02-tolerant-verdict-parser` | T1 | A reply with markdown emphasis / leading prose / a leaked tool-call line still resolves to the intended verdict, fail-closed on ambiguity | planned | human | [spec](./S02-tolerant-verdict-parser/spec.md) | — |
+| `S02-tolerant-verdict-parser` | T1 | A reply with markdown emphasis / leading prose / a leaked tool-call line still resolves to the intended verdict, fail-closed on ambiguity | verified | human | [spec](./S02-tolerant-verdict-parser/spec.md) | [proof](./S02-tolerant-verdict-parser/proof.md) |
 | `S03-run-loop-verify-reachability` | T1 | `sworn run`'s verify gate lands a parseable verdict end-to-end instead of always BLOCKED | planned | human | [spec](./S03-run-loop-verify-reachability/spec.md) | — |
 
 ### State legend
@@ -70,10 +70,10 @@ Track state: `planned` → `in_progress` → `merged`.
 
 ## Aggregate state
 
-- Planned: 2
+- Planned: 1
 - In progress: 0
 - Implemented (awaiting verification): 0
-- Verified (awaiting merge): 1
+- Verified (awaiting merge): 2
 - Failed verification: 0
 - Deferred: 0
 - Shipped: 0
@@ -81,6 +81,11 @@ Track state: `planned` → `in_progress` → `merged`.
 **Tracks:** Planned: 0 / In progress: 1 / Merged: 0
 
 ## Recent activity
+
+### 2026-06-17 — S02 verified
+
+- **Actor**: verifier (fresh context)
+- **Note**: S02-tolerant-verdict-parser PASS — all six gates cleared. 11/11 tests green on independent run. `firstVerdictLine` + `stripMarkdown` implementation correct and fail-closed. Next: /implement-slice S03-run-loop-verify-reachability 2026-06-16-verify-stateless-contract.
 
 ### 2026-06-16 — S01 verified
 

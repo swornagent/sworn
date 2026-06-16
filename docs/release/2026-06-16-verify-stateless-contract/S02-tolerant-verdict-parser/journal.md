@@ -23,3 +23,20 @@
 - Emphasis stripping uses `TrimLeft`/`TrimRight` with `"*_\`"` — this means `*_PASS_*` → `PASS` but also means `__PASS__` → `PASS`. The fail-closed property (only `PASS`-leading tokens pass) prevents over-stripping from granting a false PASS.
 
 **Out-of-scope discoveries:** None.
+
+## Verifier verdicts received
+
+### 2026-06-17 — fresh-context session
+
+**Verdict: PASS**
+
+Gates walked (all satisfied):
+
+1. **User-reachable outcome exists** — `verify.Run` is the integration point for both `sworn verify` CLI and `sworn run`'s verify gate. All 5 new tests drive through `verify.Run`, not a private helper. ✓
+2. **Planned touchpoints match actual changed files** — Planned: `internal/verify/verify.go`, `internal/verify/verify_test.go`. Actual diff (`git diff --name-only 34f7adcabc76a9f57c1119f3008391fd403f5a71`): same two files plus release artefacts. ✓
+3. **Required tests exist and exercise the integration point** — All 5 acceptance-check test functions present (`TestParseVerdict_MarkdownEmphasis`, `TestParseVerdict_LeadingBlankLines`, `TestParseVerdict_LeadingFence`, `TestParseVerdict_ToolCallLeakBlocks`, `TestParseVerdict_ProsePreambleBlocks`). All green on independent run. ✓
+4. **Reachability artefact proves the user path** — `go test ./internal/verify/... -v` passed (11/11 tests); E2E gate type is N/A per spec. ✓
+5. **No silent deferrals or placeholder logic** — grep for TODO/FIXME/deferred/placeholder returned nothing. ✓
+6. **Claimed scope matches implemented scope** — All 6 acceptance checks delivered with verifiable evidence references (file + line). ✓
+
+`verifier_was_fresh_context: true`
