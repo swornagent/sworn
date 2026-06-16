@@ -8,30 +8,30 @@ tracks:
   - id: T1-engine
     slices: [S01-verifier-core, S02-oai-model-client, S03-agentic-tool-loop, S04-embed-baton-prompts]
     depends_on: null
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop-T1-engine
     worktree_branch: track/2026-06-15-e2e-turnkey-loop/T1-engine
-    state: planned
+    state: merged
     e2e_specs: []
   - id: T2-orchestration
     slices: [S05-state-and-git, S06-implementer, S07-run-loop]
     depends_on: T1-engine
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop-T2-orchestration
     worktree_branch: track/2026-06-15-e2e-turnkey-loop/T2-orchestration
-    state: planned
+    state: merged
     e2e_specs: []
   - id: T3-turnkey-ux
     slices: [S08-init-config, S09-distribution]
     depends_on: T1-engine
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop-T3-turnkey-ux
     worktree_branch: track/2026-06-15-e2e-turnkey-loop/T3-turnkey-ux
-    state: planned
+    state: merged
     e2e_specs: []
   - id: T4-proof
     slices: [S10-benchmark-dogfood]
     depends_on: T2-orchestration
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop-T4-proof
     worktree_branch: track/2026-06-15-e2e-turnkey-loop/T4-proof
-    state: planned
+    state: merged
     e2e_specs: []
 ---
 
@@ -41,7 +41,7 @@ tracks:
 
 - **Goal**: `sworn` v0.1 — one native-Go binary that runs implement→verify→
   (retry/escalate)→gated-merge end-to-end, turnkey self-serve, zero deps.
-- **Target version / integration branch**: `main` (this repo).
+- **Target version / integration branch**: `release/v0.1.0` (cut from `main`; merges back to `main` = prod at ship). All release work integrates here, never directly on `main`.
 - **Started**: 2026-06-15
 - **Target ship**: uncommitted (multi-month native build)
 - **Intake**: `intake.md`

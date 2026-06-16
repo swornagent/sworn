@@ -152,6 +152,19 @@ release board at `docs/release/2026-06-15-e2e-turnkey-loop/` (`index.md` + the
 relevant slice's `spec.md`) before implementing anything. Only `verified` slices
 merge.
 
+## Branching
+
+- **`main` is prod.** Never commit release work directly to it; `main` only
+  advances via `/merge-release` when a release ships.
+- **`release/vX.Y.Z` is the integration base** for a release (current:
+  `release/v0.1.0`, cut from `main`). It is declared in the active release's
+  `index.md` ("Release summary → Target version / integration branch") and as
+  `release_base` in each slice's `status.json`, and merges to `main` at ship.
+- Baton layers beneath it: `release/vX.Y.Z` ← `release-wt/<release>` (per-release
+  worktree integration) ← `track/<release>/<track>` ← slice work. Each branch
+  strictly contains its base, so the chain stays fast-forwardable and drift gates
+  stay green.
+
 ## Conventions
 
 - **Naming:** brand is **SwornAgent**; the binary is **`sworn`**.
