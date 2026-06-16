@@ -19,3 +19,4 @@
 - 2026-06-16T23:59:00Z — S10-benchmark-dogfood (T4-proof): implemented → failed_verification. Gate 2: main.go unplanned touchpoint not in Divergence; Gate 4: AC3 reachability artefact absent (future-tense placeholder); Gate 5: AC3 deferred without tracking+ack, spec prohibits deferrals.
 - 2026-06-17T00:45:00Z — S10-benchmark-dogfood (T4-proof): implemented → failed_verification. Gate 4/6 FAIL: AC3 dogfood merge not found in repo (no branch, README.md unchanged on main).
 - 2026-06-17T02:30:00Z — S10-benchmark-dogfood (T4-proof): implemented → verified. All 6 gates passed; 10/10 bench tests green; dogfood commit 52ae89e confirmed on main; benchmark report table complete.
+- 2026-06-17T02:45:00Z — track `T4-proof` merged to release-wt/ (commit 55848d2). 1 verified slice(s): S10-benchmark-dogfood. Track state → merged.
