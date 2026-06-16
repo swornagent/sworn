@@ -45,7 +45,7 @@ tracks:
 - **Target ship**: uncommitted
 - **Intake**: `intake.md`
 - **Stakeholder**: Brad (maintainer)
-- **Tracking issue**: TBD — create a `sworn` epic before implementation (Rule 5)
+- **Tracking issue**: [#4](https://github.com/swornagent/sworn/issues/4) — Epic: fidelity-layer (Baton Rules 8/9/10)
 
 ## Tracks
 
