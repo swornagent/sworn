@@ -54,7 +54,7 @@ ok  	github.com/swornagent/sworn/internal/verify	0.007s
 
 - A reply whose first non-empty line is `**FAIL**` (markdown emphasis) resolves to `FAIL` (exit 1) — evidence: `TestParseVerdict_MarkdownEmphasis` in `internal/verify/verify_test.go:101`
 - A reply with one or more leading blank lines before `PASS` resolves to `PASS` (exit 0) — evidence: `TestParseVerdict_LeadingBlankLines` in `internal/verify/verify_test.go:113`
-- A reply whose first non-empty line is `` ```\nPASS `` (leading fence) resolves to `PASS` — evidence: `TestParseVerdict_LeadingFence` in `internal/verify/verify_test.go:124`
+- A reply whose first non-empty line is a leading fence then `PASS` resolves to `PASS` — evidence: `TestParseVerdict_LeadingFence` in `internal/verify/verify_test.go:124`
 - A reply whose first non-empty line is `<tool_call name="Bash">` resolves to `BLOCKED` (`unparseable_verdict`) — evidence: `TestParseVerdict_ToolCallLeakBlocks` in `internal/verify/verify_test.go:138`
 - A reply whose first non-empty line is investigative prose (e.g. `Verifying slice S0X …`) resolves to `BLOCKED` — evidence: `TestParseVerdict_ProsePreambleBlocks` in `internal/verify/verify_test.go:153`
 - No reply shape resolves to `PASS` unless its (stripped) first non-empty line leads with the `PASS` token — the fail-closed property is preserved (existing `TestRun_GarbledVerdictBlocks` still passes) — evidence: `TestRun_GarbledVerdictBlocks` in `internal/verify/verify_test.go:89`
@@ -70,6 +70,52 @@ None.
 ## First-pass script output
 
 ```
-$ $HOME/.claude/bin/release-verify.sh S02-tolerant-verdict-parser 2026-06-16-verify-stateless-contract
-<paste output here>
+$ BASE_BRANCH=c041b2a release-verify.sh S02-tolerant-verdict-parser 2026-06-16-verify-stateless-contract
+
+release-verify.sh
+  slice:       S02-tolerant-verdict-parser
+  slice dir:   docs/release/2026-06-16-verify-stateless-contract/S02-tolerant-verdict-parser
+  base branch: c041b2a
+
+== Slice artefacts ==
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+
+== Status ==
+  PASS  status.json is valid JSON
+  state: implemented
+  PASS  state is 'implemented' (eligible for verifier review)
+
+== Diff vs c041b2a ==
+  PASS  5 file(s) changed vs c041b2a
+    docs/release/.../S02-tolerant-verdict-parser/journal.md
+    docs/release/.../S02-tolerant-verdict-parser/proof.md
+    docs/release/.../S02-tolerant-verdict-parser/status.json
+    internal/verify/verify.go
+    internal/verify/verify_test.go
+
+== Dark-code markers in changed files ==
+  PASS  no dark-code markers in changed source files
+
+== Proof bundle structural checks ==
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+
+== Frontmatter YAML safety ==
+  PASS  spec.md frontmatter is strict-YAML safe
+
+== First-pass verdict ==
+  checks passed: 18
+  checks failed: 0
+
+FIRST-PASS PASS
 ```
