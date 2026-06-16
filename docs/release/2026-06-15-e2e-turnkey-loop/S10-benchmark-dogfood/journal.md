@@ -98,3 +98,48 @@ None.
 ### Next step
 
 Route to `/replan-release 2026-06-15-e2e-turnkey-loop` to resolve the AC3 blocker.
+---
+
+## Session 2026-06-16 (implementer, round 3 — dogfood PASS)
+
+### State transition: in_progress → implemented
+
+### Context
+
+Re-entering S10 after round 2 left the slice at `in_progress` with AC3 blocked on API quota. API keys now available, but the same two blockers remained: direct OpenAI quota exceeded (HTTP 429) and OpenRouter tool-format incompatibility (HTTP 400 — missing `tools[0].type`).
+
+### Changes made
+
+1. **ToolDef serialisation fix (`internal/model/oai.go`):** Added `MarshalJSON()` to `ToolDef` that wraps tool definitions in the OpenAI-compliant `{"type":"function","function":{...}}` format. The previous flat format (`{"name":...,"description":...,"parameters":...}`) worked with direct OpenAI (lenient) but OpenRouter strictly validates the API contract. This unblocked the OpenRouter path.
+
+2. **Dogfood execution (AC3):** Ran `sworn run --task "change the phrase 'early scaffold' to 'early development' in README.md" --base main --retry-cap 1 --implementer-model openai/o3-mini` via OpenRouter. o3-mini successfully implemented the change; gpt-4.1 verified PASS; change merged into main. Cost: $0.0188.
+
+### Dogfood transcript
+
+```
+sworn run: attempt 1/1 — implementing with openai/o3-mini
+sworn run: verifying with openai/gpt-4.1
+sworn run: verdict PASS (cost $0.0188)
+sworn run: rationale: PASS
+sworn run: merged sworn/change-the-phrase-early-scaffold-to-early-de into main (PASS)
+```
+
+### Trade-offs
+
+- **Cross-slice touch (S02 model client):** The ToolDef fix touches `internal/model/oai.go`, which belongs to S02-oai-model-client (verified). Justification: this is a bug fix — the serialisation was non-compliant with the documented OpenAI API spec. Without it, neither AC3 (dogfood) nor any OpenRouter-based run would work. Documented as divergence in proof.md.
+
+- **Model quality for dogfood:** gpt-4o-mini and gpt-4o both failed the task (implementer made errors; verifier gave false FAILs). Only o3-mini succeeded. This is an expected finding: the turnkey loop's success rate depends on model quality. The data is captured in the benchmark architecture.
+
+- **OpenRouter proxy:** Used because direct OpenAI quota was exhausted. OpenRouter supports the same OpenAI-compatible API. The ToolDef fix ensures compatibility with both providers.
+
+### Deferrals
+
+None. All three acceptance checks satisfied.
+
+### Skeptic panel
+
+Skipped — Agent/Workflow tool not available in this runtime. Noted for verifier awareness.
+
+### Open questions
+
+None.

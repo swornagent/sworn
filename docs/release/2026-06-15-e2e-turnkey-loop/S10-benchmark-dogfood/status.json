@@ -3,10 +3,10 @@
   "slice_id": "S10-benchmark-dogfood",
   "release": "2026-06-15-e2e-turnkey-loop",
   "track": "T4-proof",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-16T10:30:00Z",
+  "last_updated_at": "2026-06-16T01:00:00Z",
   "start_commit": "1a89626ac352a6d91022e728b52d28e51bef0d26",
   "spec_path": "docs/release/2026-06-15-e2e-turnkey-loop/S10-benchmark-dogfood/spec.md",
   "proof_path": "docs/release/2026-06-15-e2e-turnkey-loop/S10-benchmark-dogfood/proof.md",
@@ -19,12 +19,19 @@
   "actual_files": [
     "cmd/sworn/bench.go",
     "cmd/sworn/main.go",
+    "docs/benchmark/benchmark-report.json",
+    "docs/benchmark/benchmark-report.md",
     "internal/bench/default.go",
     "internal/bench/default_test.go",
     "internal/bench/reporter.go",
     "internal/bench/runner.go",
     "internal/bench/runner_test.go",
-    "docs/benchmark/"
+    "internal/model/oai.go",
+    "docs/release/2026-06-15-e2e-turnkey-loop/S10-benchmark-dogfood/journal.md",
+    "docs/release/2026-06-15-e2e-turnkey-loop/S10-benchmark-dogfood/proof.md",
+    "docs/release/2026-06-15-e2e-turnkey-loop/S10-benchmark-dogfood/spec.md",
+    "docs/release/2026-06-15-e2e-turnkey-loop/S10-benchmark-dogfood/status.json",
+    "docs/release/2026-06-15-e2e-turnkey-loop/activity.md"
   ],
   "test_commands": [
     "go test ./...",
@@ -32,9 +39,9 @@
     "go test ./internal/bench/... -v"
   ],
   "reachability_artifacts": [
-    "sworn bench synthetic report (proof.md)",
+    "sworn bench synthetic report (proof.md, docs/benchmark/)",
     "sworn bench --help output",
-    "dogfood sworn run (pending SWORN_OPENAI_API_KEY)"
+    "dogfood sworn run transcript (PASS, merged into main)"
   ],
   "open_deferrals": [],
   "verification": {
