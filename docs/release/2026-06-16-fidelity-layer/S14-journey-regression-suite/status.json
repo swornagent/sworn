@@ -1,0 +1,37 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S14-journey-regression-suite",
+  "release": "2026-06-16-fidelity-layer",
+  "track": "T2-delivery-cutover",
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-16T09:19:56Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/spec.md",
+  "proof_path": "docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/proof.md",
+  "journal_path": "docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/journal.md",
+  "planned_files": [
+    "internal/journey/journey.go",
+    "internal/journey/regression_test.go",
+    "cmd/sworn/journeys.go",
+    "internal/adopt/baton/rules/10-customer-journey-validation.md"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/journey/...",
+    "go test ./cmd/sworn/ -run TestJourneysRegen"
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [
+    "Scaffold-not-complete-oracle: complete journey oracle is project E2E work (why/tracking/ack 2026-06-16)",
+    "Provisional journey-schema detail tracks S11, refined via /replan-release"
+  ],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}

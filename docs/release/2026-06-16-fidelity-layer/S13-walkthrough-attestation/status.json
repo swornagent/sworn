@@ -1,0 +1,39 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S13-walkthrough-attestation",
+  "release": "2026-06-16-fidelity-layer",
+  "track": "T2-delivery-cutover",
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-16T09:19:56Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-16-fidelity-layer/S13-walkthrough-attestation/spec.md",
+  "proof_path": "docs/release/2026-06-16-fidelity-layer/S13-walkthrough-attestation/proof.md",
+  "journal_path": "docs/release/2026-06-16-fidelity-layer/S13-walkthrough-attestation/journal.md",
+  "planned_files": [
+    "cmd/sworn/ship.go",
+    "cmd/sworn/main.go",
+    "internal/state/state.go",
+    "internal/journey/journey.go",
+    "internal/journey/walkthrough_test.go",
+    "internal/adopt/baton/rules/10-customer-journey-validation.md"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/journey/...",
+    "go test ./internal/state/...",
+    "go test ./cmd/sworn/ -run TestShip"
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [
+    "Attestation fields track S11 provisional journey schema, refined via /replan-release (acknowledged 2026-06-16)"
+  ],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}
