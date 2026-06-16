@@ -195,6 +195,26 @@ Discrete capabilities (candidate acceptance checks downstream):
   directly implementable primitive (the requirements-side analog of the delivery first-pass
   script), worth isolating and verifying alone.
 
+### `2026-06-16` — Native command surface: standalone verbs (primitive) + autonomous composition
+
+- **Context**: how should the fidelity gates surface natively (S01/S03/S04/S09/S13/S15)?
+- **Options considered**: standalone verbs; unified `sworn check`; decide per slice.
+- **Decision**: **standalone verbs** (`sworn rtm`, `sworn ship`, `sworn top`, etc.) as the
+  primitive — matching the existing `init/run/verify/bench` convention and mapping 1:1 to
+  slash-commands for manual interactive driving (the on-ramp). The autonomous path **composes**
+  the verbs (the run-loop / S06's DoR gate invokes the requirements checks at the
+  `planned -> in_progress` transition); the gate *packages* (`internal/*`) are the shared
+  primitive both paths call. An optional `sworn check` convenience that delegates to the verbs
+  can be added later — not sliced now.
+- **Why**: no strong counter-argument to verbs; the unified option's only advantage (one CI
+  entry) is recovered by loop-side composition without losing the slash-command mapping. Verb
+  proliferation is a future namespacing watch-item, not a current blocker.
+
+**House style (confirmed):** acceptance checks are written in **EARS**
+(`WHEN/WHILE/IF/WHERE … THE SYSTEM SHALL …`) from slice one (dogfooding S02). Specs hold
+**tight scope seams** — each slice owns one mechanism; adjacent concerns are explicit
+out-of-scope pointers to their own slice.
+
 ### `2026-06-16` — Track grouping: core + three dependent lanes (not three rule-tracks)
 
 - **Context**: the rule-clean A/B/C split is **not** touchpoint-disjoint — all three
@@ -258,14 +278,15 @@ command *implementations* live in their own `cmd/sworn/<cmd>.go` files (disjoint
 
 ## Open questions
 
-> Surfaced as decision cards in this session (Phase 2/3) before the dependent slices are specced.
+> Phase 2/3 decision points are all resolved above (Track C timing, S03 split, native command
+> surface). Remaining genuine unknowns, to be closed before the dependent slices leave `planned`:
 
-- Does Track C get specced now (provisionally, refined later via `/replan-release`) or deferred
-  until the live journey-validation hand-run delivers its evidence?
-- Is the spec-quality first-pass (soundness/completeness) its own slice (`S03`) or folded into
-  the requirements-verify gate (`S04`)?
-- Native enforcement surface per rule (new `sworn` subcommand vs gate-script vs role-prompt
-  addition) — resolved per slice at spec time.
+- **Track C detail pending the live journey-validation hand-run.** S11 (journey-elicitation
+  schema), S12 (impact-analysis heuristic), S13 (walkthrough/attestation format) are specced
+  provisionally; their hand-run-derived detail is refined via `/replan-release`. Each Track C
+  spec names its own provisional sections.
+- **Trace id scheme (S01)** — the exact stable-id convention for intake needs is an
+  implementation choice the implementer fixes; the spec mandates *stability*, not the format.
 
 ## Screenshots / references
 
