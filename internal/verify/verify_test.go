@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/swornagent/sworn/internal/verdict"
@@ -18,6 +19,17 @@ func (f fakeVerifier) Verify(context.Context, string, string) (string, float64, 
 	return f.reply, f.cost, nil
 }
 
+// capturingVerifier records the system prompt it is handed by verify.Run.
+type capturingVerifier struct {
+	reply        string
+	cost         float64
+	capturedPrompt string
+}
+
+func (c *capturingVerifier) Verify(_ context.Context, systemPrompt, _ string) (string, float64, error) {
+	c.capturedPrompt = systemPrompt
+	return c.reply, c.cost, nil
+}
 func writeTmp(t *testing.T, name, content string) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), name)
@@ -82,5 +94,35 @@ func TestRun_GarbledVerdictBlocks(t *testing.T) {
 	}
 	if got := Run(context.Background(), in); got.Verdict != verdict.Blocked {
 		t.Fatalf("want BLOCKED on unparseable, got %s", got.Verdict)
+	}
+}
+
+// TestRun_SystemPromptIsStateless validates that verify.Run passes the
+// stateless judge prompt (VerifyStateless) to the model, NOT the agentic
+// verifier role prompt (Verifier).
+func TestRun_SystemPromptIsStateless(t *testing.T) {
+	cv := &capturingVerifier{reply: "PASS - looks good", cost: 0.01}
+	in := Input{
+		SpecPath: writeTmp(t, "spec.md", "must do X"),
+		DiffPath: writeTmp(t, "c.diff", "+ did X"),
+		Verifier: cv,
+	}
+	got := Run(context.Background(), in)
+	if got.Verdict != verdict.Pass {
+		t.Fatalf("want PASS, got %s", got.Verdict)
+	}
+
+	prompt := cv.capturedPrompt
+	// Must contain stateless markers.
+	for _, want := range []string{"no tools", "SPEC+DIFF only", "verdict-leading"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("system prompt missing stateless marker %q", want)
+		}
+	}
+	// Must NOT contain agentic verifier instructions.
+	for _, forbidden := range []string{"worktree", "git -C", "fresh terminal", "Baton verifier"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Errorf("system prompt contains agentic token %q — should use stateless prompt, not verifier.md", forbidden)
+		}
 	}
 }

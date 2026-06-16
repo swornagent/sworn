@@ -16,10 +16,10 @@ import (
 	"github.com/swornagent/sworn/internal/verdict"
 )
 
-// systemPrompt is the embedded Baton verifier role prompt, vendored from the
-// open Baton protocol at build time via go:embed (internal/prompt).
-var systemPrompt = prompt.Verifier()
-// Input is everything a verification needs.
+// systemPrompt is the sworn-authored stateless judge prompt, vendored at
+// build time via go:embed (internal/prompt). It instructs the model to judge
+// from SPEC+DIFF+PROOF only with a verdict-leading reply — no tools, no repo.
+var systemPrompt = prompt.VerifyStateless()// Input is everything a verification needs.
 type Input struct {
 	SpecPath  string
 	DiffPath  string // "-" reads stdin
