@@ -86,3 +86,16 @@ Required to address:
 ```
 
 Gates 1, 3, 4, 5, 6 all PASS. Only Gate 2 fails.
+
+### `2026-06-18 00:10` — re-implementation after failed_verification
+
+- **State**: `failed_verification -> in_progress`
+- **Notes**:
+  - Discovered that a prior bad merge (commit `49d9eda`) had dropped all implementation files from the track branch's working tree. The merge of `release-wt/2026-06-16-fidelity-layer` into the track branch resolved in favour of the pre-implementation tree, silently removing `internal/rtm/`, `internal/state` changes, `internal/board` changes, `cmd/sworn/rtm.go`, and all other implementation artefacts.
+  - Fix: reset track branch to `dac5ec8` (the "implemented" commit with all source files), cherry-picked `9f2f7bb` (verifier verdict FAIL recording). This restored all implementation files while preserving the verifier verdict.
+  - The verifier FAIL was purely a proof.md Divergence section gap: two changed files (`internal/adopt/adopt.go` and `internal/adopt/baton/README.md`) were not explained as functional changes. No code change needed.
+  - Rewrote the Divergence section to explain both files:
+    - `internal/adopt/adopt.go`: added `08-requirements-fidelity.md` to the `Materialise` file list so the rule is written to consumer repos on `sworn init`. The `//go:embed baton/rules/*` wildcard already covers it for the binary.
+    - `internal/adopt/baton/README.md`: added Rule 8 to the embedded Baton README's numbered rule index so the documentation surface stays consistent with the rules directory.
+  - Also documented the test-file divergences (`internal/state/state_test.go` gofmt alignment, `internal/board/index_test.go` and `cmd/sworn/rtm_test.go` as new test files) that were not in the planned touchpoints.
+  - All tests pass, vet clean, gofmt clean. No code changes in this session — proof.md update only.

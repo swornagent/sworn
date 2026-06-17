@@ -11,6 +11,8 @@ $ git diff --name-only release-wt/2026-06-16-fidelity-layer
 cmd/sworn/main.go
 cmd/sworn/rtm.go
 cmd/sworn/rtm_test.go
+docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/journal.md
+docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/proof.md
 docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/status.json
 docs/release/2026-06-16-fidelity-layer/index.md
 internal/adopt/adopt.go
@@ -63,17 +65,82 @@ ok  github.com/swornagent/sworn/internal/rtm  0.003s
 
 $ go test ./cmd/sworn/ -run TestRtm -v
 === RUN   TestRtmCmd_MissingReleaseArg
+sworn rtm: release name is required
+usage: sworn rtm <release>
 --- PASS: TestRtmCmd_MissingReleaseArg (0.00s)
 === RUN   TestRtmCmd_NonexistentRelease
+sworn rtm: release directory not found: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core/cmd/sworn/docs/release/nonexistent-release-xyz
 --- PASS: TestRtmCmd_NonexistentRelease (0.00s)
 === RUN   TestRtmCmd_FullyTracedRelease
+Requirements Traceability Matrix: test-release
+============================================================
+
+Horizontal trace (need -> AC -> test -> proof)
+------------------------------------------------------------
+  Need N-01: First need for testing
+    -> AC [S01-test-slice]: WHEN a release has a need, THE SYSTEM SHALL link it to N-01.
+       -> test: **Integration**: exercise the command end-to-end
+       -> test: **Unit**: internal/rtm/rtm_test.go — basic tests
+  Need N-02: Second need for testing
+    -> AC [S01-test-slice]: WHEN a test runs, THE SYSTEM SHALL verify N-02.
+       -> test: **Integration**: exercise the command end-to-end
+       -> test: **Unit**: internal/rtm/rtm_test.go — basic tests
+
+Vertical trace (objective -> release benefit -> slice)
+------------------------------------------------------------
+  Objective: (none declared — solo/small-team floor)
+  Release benefit: The release delivers value to users.
+  Release goal: The release goal text for testing.
+
+  Slice S01-test-slice -> benefit: The release delivers value to users.
+
+All traces verified. 2 needs, 2 acceptance criteria, 2 tests, 1 slices.
 --- PASS: TestRtmCmd_FullyTracedRelease (0.00s)
 === RUN   TestRtmCmd_OrphanedNeed
+Requirements Traceability Matrix: test-release
+============================================================
+
+Horizontal trace (need -> AC -> test -> proof)
+------------------------------------------------------------
+  Need N-01: First need for testing
+    -> AC [S01-test-slice]: WHEN a release has a need, THE SYSTEM SHALL link it to N-01.
+       -> test: **Unit**: some test
+  Need N-02: Orphaned need with no AC
+    -> (no linked acceptance criterion)
+
+Vertical trace (objective -> release benefit -> slice)
+------------------------------------------------------------
+  Objective: (none declared — solo/small-team floor)
+  Release benefit: the release goal from index
+  Release goal: The release goal text for testing.
+
+  Slice S01-test-slice -> (floor: release goal)
+
+1 trace violation(s) found:
+  [orphaned_need] need N-02 (Orphaned need with no AC) has no linked acceptance criterion
 --- PASS: TestRtmCmd_OrphanedNeed (0.00s)
 === RUN   TestRtmCmd_SoloFloorNoObjective
+Requirements Traceability Matrix: test-release
+============================================================
+
+Horizontal trace (need -> AC -> test -> proof)
+------------------------------------------------------------
+  Need N-01: First need for testing
+    -> AC [S01-test-slice]: WHEN a release has a need, THE SYSTEM SHALL link it to N-01.
+       -> test: **Unit**: some test
+
+Vertical trace (objective -> release benefit -> slice)
+------------------------------------------------------------
+  Objective: (none declared — solo/small-team floor)
+  Release benefit: the release goal from index
+  Release goal: The release goal text for testing.
+
+  Slice S01-test-slice -> (floor: release goal)
+
+All traces verified. 1 needs, 1 acceptance criteria, 1 tests, 1 slices.
 --- PASS: TestRtmCmd_SoloFloorNoObjective (0.00s)
 PASS
-ok  github.com/swornagent/sworn/cmd/sworn  0.006s
+ok  github.com/swornagent/sworn/cmd/sworn  0.007s
 
 $ go test ./internal/state/... -v -run TestTraceFields
 === RUN   TestTraceFieldsRoundTrip
@@ -87,23 +154,26 @@ $ go test ./internal/board/... -v -run TestParseVerticalTrace
 === RUN   TestParseVerticalTrace/only_release_benefit
 === RUN   TestParseVerticalTrace/neither_field_(solo_floor)
 --- PASS: TestParseVerticalTrace (0.00s)
+    --- PASS: TestParseVerticalTrace/both_fields_present (0.00s)
+    --- PASS: TestParseVerticalTrace/only_release_benefit (0.00s)
+    --- PASS: TestParseVerticalTrace/neither_field_(solo_floor) (0.00s)
 PASS
 ok  github.com/swornagent/sworn/internal/board  0.003s
 
 $ go test ./...
-ok  github.com/swornagent/sworn/cmd/sworn  0.025s
-ok  github.com/swornagent/sworn/internal/adopt  0.020s
+ok  github.com/swornagent/sworn/cmd/sworn  0.034s
+ok  github.com/swornagent/sworn/internal/adopt  (cached)
 ok  github.com/swornagent/sworn/internal/agent  (cached)
 ok  github.com/swornagent/sworn/internal/bench  (cached)
-ok  github.com/swornagent/sworn/internal/board  0.005s
+ok  github.com/swornagent/sworn/internal/board  0.003s
 ok  github.com/swornagent/sworn/internal/config  (cached)
 ok  github.com/swornagent/sworn/internal/git  (cached)
 ok  github.com/swornagent/sworn/internal/implement  (cached)
 ok  github.com/swornagent/sworn/internal/model  (cached)
 ok  github.com/swornagent/sworn/internal/prompt  (cached)
-ok  github.com/swornagent/sworn/internal/rtm  0.009s
+ok  github.com/swornagent/sworn/internal/rtm  (cached)
 ok  github.com/swornagent/sworn/internal/run  (cached)
-ok  github.com/swornagent/sworn/internal/state  0.005s
+ok  github.com/swornagent/sworn/internal/state  (cached)
 ?  github.com/swornagent/sworn/internal/verdict  [no test files]
 ok  github.com/swornagent/sworn/internal/verify  (cached)
 
@@ -167,7 +237,16 @@ None. All six acceptance checks are delivered.
 
 ## Divergence from plan
 
-- The `gofmt -w` pass realigned struct literal fields in `internal/state/state_test.go` (existing test code) because the new `NeedIDs`, `ReleaseBenefit`, and `OrgObjective` fields changed the longest field name in the `Status` struct. This is a cosmetic alignment change, not a functional divergence.
+The spec's "Planned touchpoints" list does not include `internal/adopt/adopt.go` or `internal/adopt/baton/README.md`, but both files received functional changes that are necessary corollaries of adding the new Rule 8 doc (`internal/adopt/baton/rules/08-requirements-fidelity.md`, which IS in the planned list):
+
+- **`internal/adopt/adopt.go`** — Two functional changes: (1) the `//go:embed baton/rules/*` directive already covers the new file via the wildcard, but the `Materialise` function's explicit file list needed a new entry `{"baton/rules/08-requirements-fidelity.md", ...}` so the rule is written to consumer repos that run `sworn init`. Without this, the new rule would be embedded in the binary but never materialised to disk. (2) A minor `gofmt` whitespace fix (blank line after the import block). This file is the adoption mechanism — it is the bridge between the embedded Baton protocol and the consumer repo. The change is additive and region-separable from any other track's work.
+
+- **`internal/adopt/baton/README.md`** — Added Rule 8 to the embedded Baton README's numbered rule index (the human-readable summary of all seven-now-eight rules). This is the documentation surface that `sworn init` writes to consumer repos. Without this entry, the README would list seven rules while the `rules/` directory contains eight, creating an inconsistency. The change is a 5-line additive block at the end of the rule list, region-separable.
+
+- **`internal/state/state_test.go`** — The `gofmt -w` pass realigned struct literal fields because the new `NeedIDs`, `ReleaseBenefit`, and `OrgObjective` fields changed the longest field name in the `Status` struct. This is a cosmetic alignment change, not a functional divergence.
+
+- **`internal/board/index_test.go`** and **`cmd/sworn/rtm_test.go`** — New test files for the board vertical-trace parsing and the `sworn rtm` command integration tests, respectively. These are test-only additions that follow from the planned touchpoints (`internal/board/index.go` and `cmd/sworn/rtm.go`); they are listed in `actual_files` but not `planned_files` because the spec lists only the implementation files, not their test files.
+
 - The release-verify.sh dark-code marker check flags "deferred items" in `internal/adopt/adopt.go` when diffing against `main` — this is a false positive on pre-existing text in the Baton AGENTS.md fragment (Rule 5 text: "deferred items, next steps"). It is not a code deferral marker. Diffing against the correct base (`release-wt/2026-06-16-fidelity-layer`) produces a clean pass.
 
 ## First-pass script output

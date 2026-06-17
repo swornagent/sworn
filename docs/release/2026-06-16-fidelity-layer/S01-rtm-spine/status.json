@@ -3,10 +3,10 @@
   "slice_id": "S01-rtm-spine",
   "release": "2026-06-16-fidelity-layer",
   "track": "T1-fidelity-core",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-18T00:10:00Z",
+  "last_updated_at": "2026-06-18T00:20:00Z",
   "start_commit": "925cb0724ba784a1611a958ce152fdb739c3aacf",
   "spec_path": "docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/proof.md",
@@ -50,13 +50,10 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "fail",
+    "result": "pending",
     "verifier_session_id": null,
-    "verifier_verdict_at": "2026-06-17T22:00:00Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      "Gate 2: proof.md Divergence section does not explain functional change to internal/adopt/adopt.go (added Rule 8 to embed/Materialise — only mentioned as a false-positive marker concern, not as a functional change)",
-      "Gate 2: proof.md Divergence section does not mention internal/adopt/baton/README.md (added Rule 8 to embedded Baton README index — not mentioned at all)"
-    ]
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
   }
 }
