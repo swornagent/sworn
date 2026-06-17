@@ -3,42 +3,58 @@ title: Slice journal template
 description: Implementation log for one slice. Append-only. Visible to verifier as context, but verifier verdict is based on proof.md and repo state, not journal prose.
 ---
 
-# Journal: `<slice-id>`
+# Journal: `S01-rtm-spine`
 
 > Copy this file to `docs/release/<release-name>/<slice-id>/journal.md`. Append entries chronologically. Do not delete history. Decisions captured here must also land in commit message bodies per Rule 4 — this journal is a working surface, not a substitute for durable capture.
 
 ## Session log
 
-### `<YYYY-MM-DD HH:MM>` — `<session start / state transition>`
+### `2026-06-17 20:15` — session start
 
-- **State**: `<planned | in_progress | implemented | failed_verification | verified | deferred | shipped>`
+- **State**: `planned -> in_progress`
 - **Notes**:
-  - `<Decisions made>`
-  - `<Trade-offs encountered>`
-  - `<Subagent dispatches and where their outputs landed>`
+  - Materialised track worktree at `/home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core` for track `T1-fidelity-core`.
+  - First `/implement-slice` in the release and track. Release worktree already existed at `/home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer`.
+  - Recorded worktree_path in index.md frontmatter on release-wt branch.
 
-### `<YYYY-MM-DD HH:MM>` — `<next event>`
+### `2026-06-17 20:30` — implementation
 
-- ...
+- **State**: `in_progress`
+- **Notes**:
+  - Designed the RTM data model: 2-D matrix with horizontal (need -> AC -> test -> proof) and vertical (org objective -> release benefit -> slice) axes.
+  - Need id scheme: N-NN (e.g. N-01), stable, never reused, assigned by planner at intake time, cited inline in AC text.
+  - No separate datastore: the RTM builds from existing artefacts (intake.md, spec.md, status.json, index.md) alone.
+  - Fail-closed: orphaned need, orphaned AC (no need or no test), and slice with no vertical link each cause non-zero exit.
+  - Lightweight floor: slice -> release goal satisfies the vertical trace without an org-objective link (solo/small-team).
+  - Added trace fields to state.Status: NeedIDs, ReleaseBenefit, OrgObjective.
+  - Added ParseVerticalTrace to board package for release_benefit / org_objective frontmatter fields.
+  - Updated planner prompt to instruct need-id assignment in intake and citation in acceptance checks.
+  - Created Rule 8 doc (08-requirements-fidelity.md) in the adopted baton rules.
+  - Updated adopt.go to include the new rule in Materialise and embed.
+  - Updated baton VERSION and README.
+
+### `2026-06-17 21:15` — state transition to implemented
+
+- **State**: `in_progress -> implemented`
+- **Notes**:
+  - All 13 RTM unit tests pass (orphaned need, orphaned AC no need, orphaned AC no test, slice no vertical, solo floor, non-existent need, fully traced, print, parse needs, parse ACs, parse tests, isSliceID, truncate).
+  - All 5 integration tests pass (cmdRtm missing arg, nonexistent release, fully traced, orphaned need, solo floor).
+  - State trace fields round-trip test passes.
+  - Board ParseVerticalTrace test passes.
+  - Full suite green: `go test ./...` all pass.
+  - `go vet ./...` clean.
+  - `gofmt` clean on all changed files.
+  - Reachability artefact: live `sworn rtm 2026-06-16-fidelity-layer` run produces the matrix and correctly fails with 70 violations (all ACs lack need ids because the release was specced before the RTM existed).
+  - Proof bundle generated from live repo state.
 
 ## Open questions
 
-\<Anything the implementer needs the human to resolve. Each open question blocks state transition to `implemented` until answered.\>
-
-- ...
+None. All acceptance checks are delivered.
 
 ## Deferrals surfaced
 
-`<Per Rule 2: each deferral needs why + tracking + acknowledgement. Cross-link to GitHub issue or punch-list entry. If empty, write "None" explicitly.>`
-
-- ...
+None.
 
 ## Verifier verdicts received
 
-`<Append every verifier verdict here. Even FAIL verdicts stay — they are part of the slice's history.>`
-
-### `<YYYY-MM-DD HH:MM>` — `<PASS | FAIL | BLOCKED>`
-
-- **Verifier session**: `<fresh / inherited — should always be fresh>`
-- **Verdict body**: `<paste the full verifier output>`
-- **Action taken**: `<how the implementer responded>`
+(None yet — awaiting fresh-context verification.)

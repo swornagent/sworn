@@ -3,11 +3,11 @@
   "slice_id": "S01-rtm-spine",
   "release": "2026-06-16-fidelity-layer",
   "track": "T1-fidelity-core",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-17T20:15:00Z",
-  "start_commit": "33dd204ff270c04f665b4315f8754aca95f46f5d",
+  "last_updated_at": "2026-06-17T21:15:00Z",
+  "start_commit": "8767fc7543693af5791ff2a3391d7621deb750c5",
   "spec_path": "docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/proof.md",
   "journal_path": "docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/journal.md",
@@ -22,12 +22,32 @@
     "internal/adopt/baton/rules/08-requirements-fidelity.md",
     "internal/adopt/baton/VERSION"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/rtm/rtm.go",
+    "internal/rtm/rtm_test.go",
+    "internal/state/state.go",
+    "internal/state/state_test.go",
+    "internal/board/index.go",
+    "internal/board/index_test.go",
+    "cmd/sworn/rtm.go",
+    "cmd/sworn/rtm_test.go",
+    "cmd/sworn/main.go",
+    "internal/prompt/planner.md",
+    "internal/adopt/baton/rules/08-requirements-fidelity.md",
+    "internal/adopt/baton/VERSION",
+    "internal/adopt/baton/README.md",
+    "internal/adopt/adopt.go"
+  ],
   "test_commands": [
     "go test ./internal/rtm/...",
-    "go test ./cmd/sworn/ -run TestRtm"
+    "go test ./cmd/sworn/ -run TestRtm",
+    "go test ./internal/state/... -run TestTraceFields",
+    "go test ./internal/board/... -run TestParseVerticalTrace",
+    "go vet ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "manual-smoke-step: run sworn rtm <fixture-release>; observe printed matrix and exit 0; introduce orphaned need; re-run; observe named orphan and non-zero exit"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "pending",
