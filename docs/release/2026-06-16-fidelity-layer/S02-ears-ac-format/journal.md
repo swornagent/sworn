@@ -3,42 +3,43 @@ title: Slice journal template
 description: Implementation log for one slice. Append-only. Visible to verifier as context, but verifier verdict is based on proof.md and repo state, not journal prose.
 ---
 
-# Journal: `<slice-id>`
-
-> Copy this file to `docs/release/<release-name>/<slice-id>/journal.md`. Append entries chronologically. Do not delete history. Decisions captured here must also land in commit message bodies per Rule 4 — this journal is a working surface, not a substitute for durable capture.
+# Journal: `S02-ears-ac-format`
 
 ## Session log
 
-### `<YYYY-MM-DD HH:MM>` — `<session start / state transition>`
+### 2026-06-18 04:00 — session start
 
-- **State**: `<planned | in_progress | implemented | failed_verification | verified | deferred | shipped>`
+- **State**: `in_progress`
 - **Notes**:
-  - `<Decisions made>`
-  - `<Trade-offs encountered>`
-  - `<Subagent dispatches and where their outputs landed>`
+  - Track worktree at `/home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core` (T1-fidelity-core, already materialised by S01).
+  - Preceding slice S01-rtm-spine is `verified` — sequential gate clear.
+  - No BLOCKED verdict — `verification.result` is `pending` on both track branch and release-wt.
+  - `start_commit` set to `cd46236` (the start-implementation commit).
 
-### `<YYYY-MM-DD HH:MM>` — `<next event>`
+### 2026-06-18 04:15 — implementation decisions
 
-- ...
+- **Multi-line AC handling**: The real release's spec.md files use continuation indentation (checkbox line + indented continuation lines). The initial implementation only classified the checkbox line, which caused 20 false violations. Fixed by joining continuation lines (indented, non-checkbox, non-heading) into the AC text before classification. Added `TestValidate_MultiLineAC` to cover this.
+- **IF-without-THEN classification**: An `IF` without `THEN` is an incomplete unwanted-behaviour pattern, not ubiquitous. The classifier now returns `PatternNone` for this case. Similarly, `THEN` without `IF` is a stray keyword and returns `PatternNone`.
+- **Precondition matching scope**: Precondition keywords (WHEN/WHILE/WHERE/IF/THEN) are only meaningful before the SHALL clause. Keywords after SHALL are part of the action, not preconditions. The classifier extracts the precondition part (text before the SHALL clause) and only matches keywords there.
+- **EARS vs Gherkin**: The spec records Gherkin as a considered-and-rejected alternative. This decision is not re-litigated; the Rule 08 doc extension records the rationale.
+
+### 2026-06-18 04:30 — state transition to implemented
+
+- **State**: `implemented`
+- **Notes**:
+  - All 4 acceptance checks demonstrably true (see proof.md Delivered section).
+  - 20 unit tests + 6 integration tests pass. Full suite green. go vet clean. gofmt clean.
+  - Live smoke test: `sworn ears 2026-06-16-fidelity-layer` exits 0 with 70 ACs classified; corrupted fixture exits 1 naming the slice + line.
+  - No deferrals. No divergences from plan beyond the multi-line AC handling (additive, covered by test).
 
 ## Open questions
 
-\<Anything the implementer needs the human to resolve. Each open question blocks state transition to `implemented` until answered.\>
-
-- ...
+None.
 
 ## Deferrals surfaced
 
-`<Per Rule 2: each deferral needs why + tracking + acknowledgement. Cross-link to GitHub issue or punch-list entry. If empty, write "None" explicitly.>`
-
-- ...
+None.
 
 ## Verifier verdicts received
 
-`<Append every verifier verdict here. Even FAIL verdicts stay — they are part of the slice's history.>`
-
-### `<YYYY-MM-DD HH:MM>` — `<PASS | FAIL | BLOCKED>`
-
-- **Verifier session**: `<fresh / inherited — should always be fresh>`
-- **Verdict body**: `<paste the full verifier output>`
-- **Action taken**: `<how the implementer responded>`
+(none yet)
