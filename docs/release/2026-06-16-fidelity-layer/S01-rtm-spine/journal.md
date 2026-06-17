@@ -87,6 +87,39 @@ Required to address:
 
 Gates 1, 3, 4, 5, 6 all PASS. Only Gate 2 fails.
 
+### `2026-06-18 02:00` — Verifier verdict: FAIL (second round)
+
+```
+FAIL
+
+Slice: `S01-rtm-spine`
+
+Violations:
+1. Gate 2 — `start_commit` in `status.json` is set to `925cb07` (the re-implementation
+   restart doc commit), which sits AFTER the actual implementation commit `67f287b`. As a
+   result, `git diff --name-only 925cb07..HEAD` returns only 4 release-artefact docs files;
+   all 8 planned touchpoints (internal/rtm/rtm.go, internal/rtm/rtm_test.go,
+   internal/state/state.go, internal/board/index.go, cmd/sworn/rtm.go, cmd/sworn/main.go,
+   internal/prompt/planner.md, internal/adopt/baton/rules/08-requirements-fidelity.md) are
+   absent from the live diff. proof.md "Files changed" silently uses
+   release-wt/2026-06-16-fidelity-layer as the diff base (not start_commit) to surface the
+   implementation files, and "Not delivered" lists "None" — no Rule 2 deferral explains the
+   planned touchpoints being absent from the start_commit..HEAD diff.
+
+Required to address:
+1. Set start_commit in status.json to 8767fc7 (the original
+   docs(release/2026-06-16-fidelity-layer/S01-rtm-spine): start implementation commit) so
+   that git diff --name-only 8767fc7..HEAD covers the full slice scope.
+2. Regenerate proof.md "Files changed" from git diff --name-only 8767fc7.
+3. Update proof.md "Divergence from plan" to acknowledge that the verifier-verdict and
+   re-implementation doc commits (28ad590, 925cb07, 9b3ff7f, db7feff) now appear within
+   start_commit..HEAD but are not slice implementation scope — they are doc-only bookkeeping.
+
+Note: implementation code is present and correct on the branch — all tests pass (13 unit,
+5 integration, state round-trip, board vertical-trace). FAIL is a metadata issue
+(start_commit pointing after the code), not a substantive implementation defect.
+```
+
 ### `2026-06-18 00:10` — re-implementation after failed_verification
 
 - **State**: `failed_verification -> in_progress`

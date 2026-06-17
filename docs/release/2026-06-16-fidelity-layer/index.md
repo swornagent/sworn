@@ -141,6 +141,18 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Recent activity
 
+### 2026-06-18 — S01-rtm-spine verifier verdict: FAIL (second round)
+
+- **Actor**: verifier (fresh-context)
+- **Note**: Gate 2 violation — `start_commit` in `status.json` is set to `925cb07` (the
+  re-implementation restart commit, after the actual implementation commit `67f287b`). Live diff
+  `git diff --name-only 925cb07..HEAD` shows only 4 docs files; all 8 planned touchpoints are
+  absent. `proof.md` "Files changed" silently uses `release-wt` as base (not `start_commit`).
+  Fix: set `start_commit` to `8767fc7` (original start-implementation commit), regenerate
+  proof.md "Files changed", update "Divergence from plan" to acknowledge bookkeeping commits in
+  scope. All tests pass; FAIL is metadata-only. Implementer should re-open
+  `/implement-slice S01-rtm-spine 2026-06-16-fidelity-layer`.
+
 ### 2026-06-17 — S01-rtm-spine verifier verdict: FAIL
 
 - **Actor**: verifier (fresh-context)

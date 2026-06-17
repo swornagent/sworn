@@ -3,10 +3,10 @@
   "slice_id": "S01-rtm-spine",
   "release": "2026-06-16-fidelity-layer",
   "track": "T1-fidelity-core",
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-18T00:20:00Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-18T02:00:00Z",
   "start_commit": "925cb0724ba784a1611a958ce152fdb739c3aacf",
   "spec_path": "docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/proof.md",
@@ -50,10 +50,12 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "fail",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
+    "verifier_verdict_at": "2026-06-18T02:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "Gate 2: start_commit is 925cb07 (re-implementation restart doc commit, after the actual implementation commit 67f287b). git diff --name-only 925cb07..HEAD shows only 4 docs files; all 8 planned touchpoints are absent. proof.md 'Files changed' silently uses release-wt as base instead of start_commit. Remediation: set start_commit to 8767fc7 (original start implementation commit), regenerate proof.md 'Files changed', update 'Divergence from plan' to acknowledge the bookkeeping commits now in scope."
+    ]
   }
 }
