@@ -140,10 +140,17 @@ Once the slice list and track grouping are agreed, for each slice:
 1. Create `docs/release/<release-name>/<slice-id>/` (copy the template folder).
 2. Fill in `spec.md` from the conversation. Every section is mandatory. Acceptance checks must be falsifiable from artefacts the verifier can read.
 3. **Cite need ids in acceptance checks.** Each acceptance check must cite the need id(s) it satisfies inline (e.g. `WHEN ... THE SYSTEM SHALL ... (N-01)`). This is the horizontal trace link (`need -> AC`) that `sworn rtm` enforces. An AC with no need id is an orphan and fails the RTM.
-4. **Record the vertical link.** In `status.json`, set `release_benefit` to the release benefit this slice contributes to (from `index.md`). If the release has an org objective, set `org_objective` too. For solo/small-team releases with no org objective, the release goal in `intake.md` is the vertical floor — every slice satisfies the vertical trace via `slice -> release goal` without an explicit `release_benefit`.
-5. Initialise `status.json` with `state: planned` and the slice's `track` id.
-6. Leave `journal.md` and `proof.md` as empty templates — they get filled in during implementation.
-Don't write specs in a batch at the end. Write each one immediately after the human approves the slice description. Commit after each spec, so an interrupted session doesn't lose the planning work.
+4. **Author acceptance checks in EARS notation.** Every acceptance check must match one of the six EARS pattern classes (see below). `sworn ears <release>` validates this fail-closed — a free-form AC that matches no pattern is a violation. Author EARS by construction, not as a post-hoc fix.
+   - **Ubiquitous:** `THE SYSTEM SHALL <action>`
+   - **Event-driven:** `WHEN <trigger> THE SYSTEM SHALL <action>`
+   - **State-driven:** `WHILE <state> THE SYSTEM SHALL <action>`
+   - **Optional-feature:** `WHERE <feature> THE SYSTEM SHALL <action>`
+   - **Unwanted-behaviour:** `IF <condition> THEN THE SYSTEM SHALL <action>`
+   - **Complex:** a combination of two or more preconditions (e.g. `WHEN <trigger> WHILE <state> THE SYSTEM SHALL <action>`)
+   - **Escape:** a line prefixed with `NOTE:` is a deliberate non-requirement note and is excluded from validation. Use it for context that is not a testable requirement.
+5. **Record the vertical link.** In `status.json`, set `release_benefit` to the release benefit this slice contributes to (from `index.md`). If the release has an org objective, set `org_objective` too. For solo/small-team releases with no org objective, the release goal in `intake.md` is the vertical floor — every slice satisfies the vertical trace via `slice -> release goal` without an explicit `release_benefit`.
+6. Initialise `status.json` with `state: planned` and the slice's `track` id.
+7. Leave `journal.md` and `proof.md` as empty templates — they get filled in during implementation.Don't write specs in a batch at the end. Write each one immediately after the human approves the slice description. Commit after each spec, so an interrupted session doesn't lose the planning work.
 
 ### Phase 5 — Write the release board
 

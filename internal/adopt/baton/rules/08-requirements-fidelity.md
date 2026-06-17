@@ -142,3 +142,40 @@ delivery rules (1/6/7) verify code against spec, but nothing verified the
 spec against the need. The RTM is the keystone — it threads through existing
 artefacts and enforces traceability fail-closed, so a need cannot drop
 silently between intake and spec.
+## EARS notation — structured acceptance criteria
+
+The RTM enforces *traceability* (need -> AC -> test). EARS (Easy Approach to
+Requirements Syntax) enforces *structure* — each acceptance criterion is a
+single sentence with a fixed keyword shape, not free-form prose. Together
+they form the front-end fidelity gate: traced AND well-formed.
+
+`sworn ears <release>` classifies every acceptance check in every slice's
+`spec.md` by EARS pattern and fails closed on any free-form check that matches
+no pattern, naming the slice + the offending line. A release whose every AC is
+well-formed EARS passes and prints the per-pattern distribution.
+
+### The six EARS pattern classes
+
+| Class | Pattern | Example |
+|---|---|---|
+| Ubiquitous | `THE SYSTEM SHALL <action>` | `THE SYSTEM SHALL display the dashboard.` |
+| Event-driven | `WHEN <trigger> THE SYSTEM SHALL <action>` | `WHEN a user clicks save THE SYSTEM SHALL persist the form.` |
+| State-driven | `WHILE <state> THE SYSTEM SHALL <action>` | `WHILE the system is in maintenance mode THE SYSTEM SHALL show a banner.` |
+| Optional-feature | `WHERE <feature> THE SYSTEM SHALL <action>` | `WHERE a premium feature is enabled THE SYSTEM SHALL show the export button.` |
+| Unwanted-behaviour | `IF <condition> THEN THE SYSTEM SHALL <action>` | `IF the database is unreachable THEN THE SYSTEM SHALL return a 503 error.` |
+| Complex | Two or more preconditions combined | `WHEN a user clicks save WHILE the form is valid THE SYSTEM SHALL persist the form.` |
+
+### The NOTE: escape
+
+A line prefixed with `NOTE:` is a deliberate non-requirement note and is
+excluded from validation. Use it for context that is not a testable
+requirement (e.g. a design constraint, a cross-reference, a rationale note).
+Without the escape, such lines would fail the gate as free-form.
+
+### Why EARS, not Gherkin
+
+Gherkin (Given-When-Then) was considered and rejected. EARS is lighter (one
+sentence per requirement, no scenario tables), is the de-facto notation for
+agent-authored requirements, and maps cleanly to the checkbox format already
+used in `spec.md` acceptance checks. The decision is recorded; do not
+re-litigate at implementation.

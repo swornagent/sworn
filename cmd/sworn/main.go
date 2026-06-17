@@ -43,6 +43,9 @@ func main() {
 	case "rtm":
 		// S01-rtm-spine adds this case (T1-fidelity-core).
 		os.Exit(cmdRtm(os.Args[2:]))
+	case "ears":
+		// S02-ears-ac-format adds this case (T1-fidelity-core).
+		os.Exit(cmdEars(os.Args[2:]))
 	case "version", "--version", "-v":
 		fmt.Printf("sworn %s\nbaton-protocol %s\n", version, prompt.BatonVersion())
 	case "help", "--help", "-h":
@@ -109,9 +112,9 @@ func usage() {
 usage:
   sworn bench --task-set <dir> [--models <comma-sep>] [--output <dir>]
   sworn init [--api-key <key>] [--force]
+  sworn ears <release>
   sworn rtm <release>
-  sworn run --task <description> [--implementer-model <m>] [--verifier-model <m>] [--base <branch>] [--retry-cap <n>]
-  sworn verify --spec <path> --diff <path|-> [--proof <path>] [--verifier-model <provider/model>]
+  sworn run --task <description> [--implementer-model <m>] [--verifier-model <m>] [--base <branch>] [--retry-cap <n>]  sworn verify --spec <path> --diff <path|-> [--proof <path>] [--verifier-model <provider/model>]
   sworn version
 bench runs a model benchmark: iterate candidate verifier models against a task set
 of slice specs with known-good diffs, record pass-rate + cost + jurisdiction, and
@@ -119,10 +122,14 @@ pick the safe-hosted default model from data.
 
 init bootstraps SwornAgent in a repo: writes a config file, vendors the Baton
 protocol into docs/baton/, and splices the seven-rule fragment into AGENTS.md.
+ears classifies every acceptance check in a release by EARS pattern and
+fails closed on any free-form check that matches no pattern, naming the
+slice + the offending line. A release whose every AC is well-formed EARS
+passes and prints the per-pattern distribution.
+
 rtm builds the 2-D requirements traceability matrix for a release and fails
 closed on any broken trace (orphaned need, orphaned AC, or slice with no
 vertical link).
-
 run executes the full turnkey loop: implement → verify → (on FAIL: retry/escalate
 up to N) → gated merge on PASS only. See 'sworn run --help' for model resolution
 and escalation model defaults.
