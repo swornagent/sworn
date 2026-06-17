@@ -9,7 +9,7 @@ tracks:
     depends_on: null
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-verify-stateless-contract-T1-verify-contract
     worktree_branch: track/2026-06-16-verify-stateless-contract/T1-verify-contract
-    state: ready_to_merge
+    state: merged
     e2e_specs: []
 ---
 
@@ -31,7 +31,7 @@ tracks:
 
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
-| `T1-verify-contract` | S01 → S02 → S03 | — | `track/2026-06-16-verify-stateless-contract/T1-verify-contract` | ready_to_merge |
+| `T1-verify-contract` | S01 → S02 → S03 | — | `track/2026-06-16-verify-stateless-contract/T1-verify-contract` | merged |
 
 Track state: `planned` → `in_progress` → `merged`.
 
@@ -73,14 +73,19 @@ Track state: `planned` → `in_progress` → `merged`.
 - Planned: 0
 - In progress: 0
 - Implemented (awaiting verification): 0
-- Verified (awaiting merge): 3
+- Verified (awaiting merge): 0
 - Failed verification: 0
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 0 / In progress: 0 / Ready to merge: 1 / Merged: 0
+**Tracks:** Planned: 0 / In progress: 0 / Ready to merge: 0 / Merged: 1
 
 ## Recent activity
+
+### 2026-06-17 — track T1-verify-contract merged to release-wt
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 3 verified slices merged: S01-stateless-verify-prompt, S02-tolerant-verdict-parser, S03-run-loop-verify-reachability. Track state → merged. All tracks now merged — ready for `/merge-release`.
 
 ### 2026-06-17 — S03 verified — track T1 complete
 
