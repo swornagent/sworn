@@ -7,9 +7,9 @@ tracks:
   - id: T1-fidelity-core
     slices: [S01-rtm-spine, S02-ears-ac-format, S04-requirements-verify-gate, S05-requirements-validate-gate, S07-design-fit-gate, S11-journey-elicitation]
     depends_on: null
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core
     worktree_branch: track/2026-06-16-fidelity-layer/T1-fidelity-core
-    state: planned
+    state: in_progress
   - id: T2-delivery-cutover
     slices: [S06-definition-of-ready, S10-no-mock-boundary, S12-journey-impact-analysis, S13-walkthrough-attestation, S14-journey-regression-suite]
     depends_on: T1-fidelity-core
