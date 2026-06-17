@@ -209,6 +209,7 @@ None. All four acceptance checks are demonstrably true.
 ## Divergence from plan
 
 - **Multi-line AC handling**: The spec's planned touchpoints did not mention multi-line ACs, but the real release's spec.md files use continuation indentation (checkbox line + indented continuation). The `classifySpec` function joins continuation lines into the AC text before classification. This is an additive implementation detail, not a scope change — the spec's acceptance checks themselves are multi-line EARS. Added `TestValidate_MultiLineAC` to cover this.
+- **`cmd/sworn/ears_test.go` (unplanned test file)**: Added as the integration test for `cmd/sworn/ears.go`; implied by the spec's "Required tests" section but not explicitly listed as a planned touchpoint. Required by Rule 1 (Reachability Gate) — tests must be at the integration point that owns the user-facing affordance (`sworn ears <release>`).
 
 ## First-pass script output
 
