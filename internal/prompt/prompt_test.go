@@ -35,6 +35,7 @@ func TestVerifier_NotOldPlaceholder(t *testing.T) {
 		t.Fatal("Verifier() returned the old inline const — vendored prompt not embedded")
 	}
 }
+
 func TestVerifier_ContainsInconclusive(t *testing.T) {
 	got := Verifier()
 	if !strings.Contains(got, "INCONCLUSIVE") {
@@ -57,6 +58,48 @@ func TestPlanner_NonEmpty(t *testing.T) {
 func TestCaptain_NonEmpty(t *testing.T) {
 	if got := Captain(); strings.TrimSpace(got) == "" {
 		t.Fatal("Captain() returned empty string — embed may have failed")
+	}
+}
+
+func TestVerifyStateless_NonEmpty(t *testing.T) {
+	if got := VerifyStateless(); strings.TrimSpace(got) == "" {
+		t.Fatal("VerifyStateless() returned empty string — embed may have failed")
+	}
+}
+
+func TestVerifyStateless_StatelessMarkers(t *testing.T) {
+	got := VerifyStateless()
+	markers := []string{
+		"no tools",
+		"SPEC+DIFF only",
+		"verdict-leading",
+		"PASS",
+		"FAIL",
+		"BLOCKED",
+		"INCONCLUSIVE",
+	}
+	for _, m := range markers {
+		if !strings.Contains(got, m) {
+			t.Errorf("VerifyStateless() missing marker %q", m)
+		}
+	}
+}
+
+func TestVerifyStateless_NotAgenticVerifier(t *testing.T) {
+	got := VerifyStateless()
+	agenticTokens := []string{
+		"walk a worktree",
+		"git worktree",
+		"git -C",
+		"run tests",
+		"fresh terminal",
+		"Baton verifier",
+		"investigating agent",
+	}
+	for _, tok := range agenticTokens {
+		if strings.Contains(got, tok) {
+			t.Errorf("VerifyStateless() contains agentic token %q — should be a pure judge, not an investigator", tok)
+		}
 	}
 }
 

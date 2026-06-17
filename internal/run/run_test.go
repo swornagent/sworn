@@ -106,9 +106,29 @@ func (f *fakeVerifier) Verify(_ context.Context, _, _ string) (string, float64, 
 var _ model.Verifier = (*fakeVerifier)(nil)
 
 // ---------------------------------------------------------------------------
-// Test helpers
+// textVerifier — returns a fixed raw reply, optionally capturing the system prompt
 // ---------------------------------------------------------------------------
 
+// textVerifier returns a fixed reply text. When capture is non-nil, it records
+// the system prompt it receives from verify.Run. Used for S03 reachability tests
+// that must inspect what prompt the run loop wired.
+type textVerifier struct {
+	reply   string
+	capture *string
+}
+
+func (v *textVerifier) Verify(_ context.Context, systemPrompt, _ string) (string, float64, error) {
+	if v.capture != nil {
+		*v.capture = systemPrompt
+	}
+	return v.reply, 0, nil
+}
+
+var _ model.Verifier = (*textVerifier)(nil)
+
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
 func setupTestRepo(t *testing.T) (workspaceRoot string, cleanup func()) {
 	t.Helper()
 	dir := t.TempDir()
@@ -339,5 +359,130 @@ func TestRun_MissingTask(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "task is required") {
 		t.Fatalf("expected task required, got: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// S03 — verify reachability through the run loop
+// ---------------------------------------------------------------------------
+
+// TestRun_VerifyMarkdownPass proves that a markdown-emphasised PASS reply
+// (e.g. **PASS**) still resolves through the run loop's verify gate and
+// merges.  This is AC1 — the parser from S02 is wired on the run path.
+func TestRun_VerifyMarkdownPass(t *testing.T) {
+	workspaceRoot, _ := setupTestRepo(t)
+
+	impl := stdoutAgent("markdown pass test")
+
+	verifier := &textVerifier{reply: "**PASS** — verification successful"}
+
+	err := Run(context.Background(), Options{
+		Task:          "Write a markdown pass file",
+		VerifierModel: "fake/verifier",
+		Base:          "main",
+		RetryCap:      0,
+		WorkspaceRoot: workspaceRoot,
+		NewAgent:      func(_ string) (agent.Agent, error) { return impl, nil },
+		NewVerifier:   func(_ string) (model.Verifier, error) { return verifier, nil },
+	})
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	// Verify status.json state is verified.
+	entries, _ := filepath.Glob(filepath.Join(workspaceRoot, "docs", "release", "run-*", "S01-task", "status.json"))
+	if len(entries) == 0 {
+		t.Fatal("status.json not found after run")
+	}
+	st, err := state.Read(entries[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.State != state.Verified {
+		t.Fatalf("expected state verified, got %q", st.State)
+	}
+
+	// Verify merge commit exists on main.
+	runCmd(t, workspaceRoot, "git", "checkout", "main")
+	log := runCmd(t, workspaceRoot, "git", "log", "--oneline", "-1")
+	if !strings.Contains(log, "merge:") {
+		t.Fatalf("expected merge commit on main, got: %s", log)
+	}
+}
+
+// TestRun_VerifyStatelessPromptWired proves the stateless judge prompt
+// (S01's VerifyStateless) is wired on the run path — the verifier
+// receives "no tools / SPEC+DIFF only / verdict-leading", not the
+// agentic verifier.md role prompt.  This is AC2.
+func TestRun_VerifyStatelessPromptWired(t *testing.T) {
+	workspaceRoot, _ := setupTestRepo(t)
+
+	impl := stdoutAgent("stateless prompt test")
+
+	var capturedPrompt string
+	verifier := &textVerifier{reply: "PASS — looks good", capture: &capturedPrompt}
+
+	err := Run(context.Background(), Options{
+		Task:          "Stateless prompt check",
+		VerifierModel: "fake/verifier",
+		Base:          "main",
+		RetryCap:      0,
+		WorkspaceRoot: workspaceRoot,
+		NewAgent:      func(_ string) (agent.Agent, error) { return impl, nil },
+		NewVerifier:   func(_ string) (model.Verifier, error) { return verifier, nil },
+	})
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	// Must contain stateless markers.
+	for _, want := range []string{"no tools", "SPEC+DIFF only", "verdict-leading"} {
+		if !strings.Contains(capturedPrompt, want) {
+			t.Errorf("system prompt missing stateless marker %q", want)
+		}
+	}
+	// Must NOT contain agentic verifier instructions from verifier.md.
+	for _, forbidden := range []string{"worktree", "git -C", "fresh terminal", "Baton verifier"} {
+		if strings.Contains(capturedPrompt, forbidden) {
+			t.Errorf("system prompt contains agentic token %q — should use stateless prompt, not verifier.md", forbidden)
+		}
+	}
+}
+
+// TestRun_VerifyToolCallLeakBlocks proves that a tool-call-leak reply
+// from the verifier (e.g. <tool_call name="...">) leaves the run loop
+// NOT merged — the parser from S02 maps it to BLOCKED/unparseable_verdict
+// and the run loop stops without merging.  This is AC3 — fail-closed
+// end-to-end.
+func TestRun_VerifyToolCallLeakBlocks(t *testing.T) {
+	workspaceRoot, _ := setupTestRepo(t)
+
+	impl := stdoutAgent("tool call leak test")
+
+	verifier := &textVerifier{reply: `<tool_call name="Bash">
+{"command": "cat /etc/passwd"}
+</tool_call>`}
+
+	err := Run(context.Background(), Options{
+		Task:          "Tool call leak task",
+		VerifierModel: "fake/verifier",
+		Base:          "main",
+		RetryCap:      0,
+		WorkspaceRoot: workspaceRoot,
+		NewAgent:      func(_ string) (agent.Agent, error) { return impl, nil },
+		NewVerifier:   func(_ string) (model.Verifier, error) { return verifier, nil },
+	})
+	if err == nil {
+		t.Fatal("expected error for tool-call leak, got nil")
+	}
+	if !strings.Contains(err.Error(), "verification blocked") {
+		t.Fatalf("expected 'verification blocked', got: %v", err)
+	}
+
+	// Verify no merge on main.
+	runCmd(t, workspaceRoot, "git", "checkout", "main")
+	log := runCmd(t, workspaceRoot, "git", "log", "--oneline", "-1")
+	if strings.Contains(log, "merge:") {
+		t.Fatal("unexpected merge commit on main after tool-call BLOCKED")
 	}
 }

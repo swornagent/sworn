@@ -3,11 +3,11 @@
   "slice_id": "S02-tolerant-verdict-parser",
   "release": "2026-06-16-verify-stateless-contract",
   "track": "T1-verify-contract",
-  "state": "planned",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-16T20:00:00Z",
-  "start_commit": null,
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-17T00:00:00Z",
+  "start_commit": "34f7adcabc76a9f57c1119f3008391fd403f5a71",
   "spec_path": "docs/release/2026-06-16-verify-stateless-contract/S02-tolerant-verdict-parser/spec.md",
   "proof_path": "docs/release/2026-06-16-verify-stateless-contract/S02-tolerant-verdict-parser/proof.md",
   "journal_path": "docs/release/2026-06-16-verify-stateless-contract/S02-tolerant-verdict-parser/journal.md",
@@ -15,19 +15,22 @@
     "internal/verify/verify.go",
     "internal/verify/verify_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/verify/verify.go",
+    "internal/verify/verify_test.go"
+  ],
   "test_commands": [
     "go test ./internal/verify/..."
   ],
   "reachability_artifacts": [
-    "go test ./internal/verify/... — named cases per acceptance check (markdown emphasis, leading blank, fence, tool-call-leak block, prose block)"
+    "go test ./internal/verify/... \u2014 named cases per acceptance check (markdown emphasis, leading blank, fence, tool-call-leak block, prose block)"
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "pass",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-06-17T00:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
   },
   "release_base": "release/v0.1.0"
