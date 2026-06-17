@@ -82,6 +82,11 @@ Track state: `planned` → `in_progress` → `merged`.
 
 ## Recent activity
 
+### 2026-06-17 — release merged to release/v0.1.0 (commit 652a55a)
+
+- **Actor**: release integrator (/merge-release)
+- **Note**: 3 verified slices merged. Slices remain in `verified` state until release/v0.1.0 ships to production; at that point each slice's `status.json` flips to `shipped`. Branch `release-wt/2026-06-16-verify-stateless-contract` retained; remove with `git branch -D release-wt/2026-06-16-verify-stateless-contract` once you're sure no more work belongs to this release.
+
 ### 2026-06-17 — track T1-verify-contract merged to release-wt
 
 - **Actor**: track integrator (/merge-track)
