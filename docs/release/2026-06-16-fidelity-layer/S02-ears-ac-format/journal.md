@@ -42,4 +42,17 @@ None.
 
 ## Verifier verdicts received
 
-(none yet)
+### 2026-06-18 — verifier verdict: FAIL
+
+FAIL
+
+Slice: `S02-ears-ac-format`
+
+Violations:
+1. Gate 2 — `cmd/sworn/ears_test.go` changed but not listed in planned touchpoints and not explained in proof.md "Divergence from plan"
+   Evidence: `git diff --name-only cd462364..HEAD` includes `cmd/sworn/ears_test.go`; spec.md "Planned touchpoints" lists `cmd/sworn/ears.go` but not `cmd/sworn/ears_test.go`; proof.md "Divergence from plan" only mentions "Multi-line AC handling" and does not acknowledge `cmd/sworn/ears_test.go`.
+
+Required to address:
+1. Add to proof.md "Divergence from plan": "`cmd/sworn/ears_test.go` added as the integration test for `cmd/sworn/ears.go`; implied by the spec's Required tests section but not explicitly listed as a planned touchpoint."
+
+All other gates (1, 3, 4, 5, 6) passed. The fix is a proof.md update only — no code changes needed.
