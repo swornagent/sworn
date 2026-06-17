@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 )
+
 //go:embed baton/README.md baton/VERSION baton/rules/*
 var batonFS embed.FS
 
@@ -131,7 +132,7 @@ func Materialise(repoRoot string) error {
 		{"baton/rules/05-session-discipline.md", filepath.Join(rulesDir, "05-session-discipline.md"), 0644},
 		{"baton/rules/06-proof-bundle.md", filepath.Join(rulesDir, "06-proof-bundle.md"), 0644},
 		{"baton/rules/07-adversarial-verification.md", filepath.Join(rulesDir, "07-adversarial-verification.md"), 0644},
-	}
+		{"baton/rules/08-requirements-fidelity.md", filepath.Join(rulesDir, "08-requirements-fidelity.md"), 0644}}
 
 	for _, f := range files {
 		data, err := batonFS.ReadFile(f.src)

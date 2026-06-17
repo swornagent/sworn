@@ -21,11 +21,11 @@ import (
 type State string
 
 const (
-	Planned           State = "planned"
-	DesignReview      State = "design_review"
-	InProgress        State = "in_progress"
-	Implemented       State = "implemented"
-	Verified          State = "verified"
+	Planned            State = "planned"
+	DesignReview       State = "design_review"
+	InProgress         State = "in_progress"
+	Implemented        State = "implemented"
+	Verified           State = "verified"
 	FailedVerification State = "failed_verification"
 )
 
@@ -59,34 +59,45 @@ func (s State) Transition(next State) error {
 // metadata, violations). It mirrors the nested "verification" object in
 // status.json.
 type Verification struct {
-	Result              string   `json:"result,omitempty"`
-	VerifierSessionID   *string  `json:"verifier_session_id,omitempty"`
-	VerifierVerdictAt   *string  `json:"verifier_verdict_at,omitempty"`
-	VerifierWasFreshContext *bool `json:"verifier_was_fresh_context,omitempty"`
-	Violations          []string `json:"violations,omitempty"`
+	Result                  string   `json:"result,omitempty"`
+	VerifierSessionID       *string  `json:"verifier_session_id,omitempty"`
+	VerifierVerdictAt       *string  `json:"verifier_verdict_at,omitempty"`
+	VerifierWasFreshContext *bool    `json:"verifier_was_fresh_context,omitempty"`
+	Violations              []string `json:"violations,omitempty"`
 }
 
 // Status is the full status.json payload for a slice.
 type Status struct {
-	Schema              string       `json:"$schema"`
-	SliceID             string       `json:"slice_id"`
-	Release             string       `json:"release"`
-	Track               string       `json:"track"`
-	State               State        `json:"state"`
-	Owner               string       `json:"owner,omitempty"`
-	LastUpdatedBy       string       `json:"last_updated_by,omitempty"`
-	LastUpdatedAt       string       `json:"last_updated_at,omitempty"`
-	StartCommit         string       `json:"start_commit,omitempty"`
-	SpecPath            string       `json:"spec_path,omitempty"`
-	ProofPath           string       `json:"proof_path,omitempty"`
-	JournalPath         string       `json:"journal_path,omitempty"`
-	PlannedFiles        []string     `json:"planned_files,omitempty"`
-	ActualFiles         []string     `json:"actual_files,omitempty"`
-	TestCommands        []string     `json:"test_commands,omitempty"`
-	ReachabilityArtifacts []string   `json:"reachability_artifacts,omitempty"`
-	OpenDeferrals       []string     `json:"open_deferrals,omitempty"`
-	Verification        Verification `json:"verification"`
-	ReleaseBase         string       `json:"release_base,omitempty"`
+	Schema                string       `json:"$schema"`
+	SliceID               string       `json:"slice_id"`
+	Release               string       `json:"release"`
+	Track                 string       `json:"track"`
+	State                 State        `json:"state"`
+	Owner                 string       `json:"owner,omitempty"`
+	LastUpdatedBy         string       `json:"last_updated_by,omitempty"`
+	LastUpdatedAt         string       `json:"last_updated_at,omitempty"`
+	StartCommit           string       `json:"start_commit,omitempty"`
+	SpecPath              string       `json:"spec_path,omitempty"`
+	ProofPath             string       `json:"proof_path,omitempty"`
+	JournalPath           string       `json:"journal_path,omitempty"`
+	PlannedFiles          []string     `json:"planned_files,omitempty"`
+	ActualFiles           []string     `json:"actual_files,omitempty"`
+	TestCommands          []string     `json:"test_commands,omitempty"`
+	ReachabilityArtifacts []string     `json:"reachability_artifacts,omitempty"`
+	OpenDeferrals         []string     `json:"open_deferrals,omitempty"`
+	Verification          Verification `json:"verification"`
+	ReleaseBase           string       `json:"release_base,omitempty"`
+	// Horizontal trace: need ids this slice's acceptance checks satisfy.
+	// Populated by the planner during spec authoring; consumed by the RTM
+	// (internal/rtm) to build the need -> AC link.
+	NeedIDs []string `json:"need_ids,omitempty"`
+	// Vertical trace (golden thread): the release benefit this slice
+	// contributes to, and the optional org objective. The release goal
+	// (from intake.md) is the lightweight floor — when present, every slice
+	// satisfies the vertical trace via slice -> release goal without an
+	// explicit release_benefit. Org objective is opt-in for enterprise depth.
+	ReleaseBenefit string `json:"release_benefit,omitempty"`
+	OrgObjective   string `json:"org_objective,omitempty"`
 }
 
 // Read parses a status.json file at path and returns the Status. It returns

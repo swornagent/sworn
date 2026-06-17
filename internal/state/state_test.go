@@ -30,13 +30,13 @@ func TestTransition_IllegalMoves(t *testing.T) {
 	tests := []struct {
 		from, to State
 	}{
-		{Planned, Verified},           // skip every gate
-		{Planned, Implemented},        // skip in_progress
-		{InProgress, Verified},        // skip implemented
-		{Verified, InProgress},        // terminal → non-terminal
+		{Planned, Verified},            // skip every gate
+		{Planned, Implemented},         // skip in_progress
+		{InProgress, Verified},         // skip implemented
+		{Verified, InProgress},         // terminal → non-terminal
 		{Verified, FailedVerification}, // terminal
-		{DesignReview, Verified},      // skip everything
-		{Implemented, Planned},        // backward
+		{DesignReview, Verified},       // skip everything
+		{Implemented, Planned},         // backward
 		{FailedVerification, Verified}, // skip implemented
 	}
 	for _, tt := range tests {
@@ -57,21 +57,21 @@ func TestReadWrite_RoundTrip(t *testing.T) {
 	path := filepath.Join(dir, "status.json")
 
 	orig := Status{
-		Schema:          "https://example.com/schemas/baton/slice-status-v1.json",
-		SliceID:         "S05-state-and-git",
-		Release:         "2026-06-15-e2e-turnkey-loop",
-		Track:           "T2-orchestration",
-		State:           InProgress,
-		Owner:           "human",
-		LastUpdatedBy:   "implementer",
-		LastUpdatedAt:   "2026-06-16T00:00:00Z",
-		StartCommit:     "abc123",
-		SpecPath:        "docs/release/x/S05/spec.md",
-		ProofPath:       "docs/release/x/S05/proof.md",
-		JournalPath:     "docs/release/x/S05/journal.md",
-		PlannedFiles:    []string{"internal/state/", "internal/git/"},
-		ActualFiles:     []string{"internal/state/state.go"},
-		TestCommands:    []string{"go test ./..."},
+		Schema:                "https://example.com/schemas/baton/slice-status-v1.json",
+		SliceID:               "S05-state-and-git",
+		Release:               "2026-06-15-e2e-turnkey-loop",
+		Track:                 "T2-orchestration",
+		State:                 InProgress,
+		Owner:                 "human",
+		LastUpdatedBy:         "implementer",
+		LastUpdatedAt:         "2026-06-16T00:00:00Z",
+		StartCommit:           "abc123",
+		SpecPath:              "docs/release/x/S05/spec.md",
+		ProofPath:             "docs/release/x/S05/proof.md",
+		JournalPath:           "docs/release/x/S05/journal.md",
+		PlannedFiles:          []string{"internal/state/", "internal/git/"},
+		ActualFiles:           []string{"internal/state/state.go"},
+		TestCommands:          []string{"go test ./..."},
 		ReachabilityArtifacts: []string{"proof.md"},
 		Verification: Verification{
 			Result: "pending",
@@ -164,5 +164,38 @@ func TestTransitionFromLiveStatus(t *testing.T) {
 		if _, ok := allowedTransitions[s]; !ok {
 			t.Errorf("state %q is not in allowedTransitions — a live status.json may carry it", s)
 		}
+	}
+}
+
+// TestTraceFieldsRoundTrip ensures the RTM trace fields (need_ids,
+// release_benefit, org_objective) survive a write-read cycle.
+func TestTraceFieldsRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "status.json")
+
+	orig := Status{
+		SliceID:        "S01-rtm-spine",
+		State:          Planned,
+		NeedIDs:        []string{"N-01", "N-02"},
+		ReleaseBenefit: "The release delivers value.",
+		OrgObjective:   "Become the standard.",
+	}
+	if err := Write(path, &orig); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	if len(got.NeedIDs) != 2 || got.NeedIDs[0] != "N-01" || got.NeedIDs[1] != "N-02" {
+		t.Errorf("NeedIDs: want [N-01 N-02], got %v", got.NeedIDs)
+	}
+	if got.ReleaseBenefit != "The release delivers value." {
+		t.Errorf("ReleaseBenefit: want %q, got %q", "The release delivers value.", got.ReleaseBenefit)
+	}
+	if got.OrgObjective != "Become the standard." {
+		t.Errorf("OrgObjective: want %q, got %q", "Become the standard.", got.OrgObjective)
 	}
 }
