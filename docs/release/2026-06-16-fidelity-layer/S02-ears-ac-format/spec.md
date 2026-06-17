@@ -11,13 +11,13 @@ description: 'EARS acceptance-criteria notation: a template the planner authors 
 ## User outcome
 
 When a planner drafts acceptance criteria, they author them in EARS notation, and
-`sworn ears <release>` classifies every acceptance check by EARS pattern and **fails closed**
+`sworn lint ac <release>` classifies every acceptance check by EARS pattern and **fails closed**
 on any free-form check that matches no pattern, naming the slice + the offending line. A
 release whose every AC is well-formed EARS passes and prints the per-pattern breakdown.
 
 ## Entry point
 
-- **Native:** `sworn ears <release>` (additive `case "ears"` in `cmd/sworn/main.go`,
+- **Native:** `sworn lint ac <release>` (additive `case "ears"` in `cmd/sworn/main.go`,
   implementation in `cmd/sworn/ears.go`).
 - **Protocol:** `internal/prompt/planner.md` instructs authoring acceptance checks in EARS; the
   release-mode `spec.md` template's "Acceptance checks" section documents the EARS patterns.
@@ -53,7 +53,7 @@ release whose every AC is well-formed EARS passes and prints the per-pattern bre
 ## Acceptance checks
 
 - [ ] WHEN a slice's `spec.md` contains an acceptance check matching no EARS pattern, THE
-      SYSTEM SHALL exit non-zero from `sworn ears <release>` and name the slice + the line.
+      SYSTEM SHALL exit non-zero from `sworn lint ac <release>` and name the slice + the line.
 - [ ] WHEN every acceptance check across the release matches an EARS pattern, THE SYSTEM SHALL
       exit 0 and print the per-pattern distribution.
 - [ ] THE SYSTEM SHALL recognise all six EARS pattern classes (ubiquitous, event-driven,
@@ -65,9 +65,9 @@ release whose every AC is well-formed EARS passes and prints the per-pattern bre
 
 - **Unit**: `internal/ears/ears_test.go` — each pattern class classifies correctly; a free-form
   line is flagged; the `NOTE:` escape is excluded.
-- **Integration**: `sworn ears` exercised on a fixture release with one malformed AC (Rule 1:
+- **Integration**: `sworn lint ac` exercised on a fixture release with one malformed AC (Rule 1:
   drives the command entry point).
-- **Reachability artefact**: smoke step — "run `sworn ears <fixture>`; observe pass + pattern
+- **Reachability artefact**: smoke step — "run `sworn lint ac <fixture>`; observe pass + pattern
   breakdown; corrupt one AC to free-form; re-run; observe the named failure + non-zero exit."
 - **E2E gate type**: `local`.
 

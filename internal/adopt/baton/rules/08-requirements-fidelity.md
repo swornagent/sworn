@@ -88,7 +88,7 @@ the vertical trace without an org-objective link.
 
 ## Enforcement
 
-`sworn rtm <release>` builds the matrix from `intake.md` / `spec.md` /
+`sworn lint trace <release>` builds the matrix from `intake.md` / `spec.md` /
 `status.json` / `index.md` alone — no separate datastore. It fails closed
 (exit non-zero) on:
 
@@ -149,7 +149,7 @@ Requirements Syntax) enforces *structure* — each acceptance criterion is a
 single sentence with a fixed keyword shape, not free-form prose. Together
 they form the front-end fidelity gate: traced AND well-formed.
 
-`sworn ears <release>` classifies every acceptance check in every slice's
+`sworn lint ac <release>` classifies every acceptance check in every slice's
 `spec.md` by EARS pattern and fails closed on any free-form check that matches
 no pattern, naming the slice + the offending line. A release whose every AC is
 well-formed EARS passes and prints the per-pattern distribution.

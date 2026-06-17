@@ -44,7 +44,7 @@ description: Implementation log for one slice. Append-only. Visible to verifier 
   - Full suite green: `go test ./...` all pass.
   - `go vet ./...` clean.
   - `gofmt` clean on all changed files.
-  - Reachability artefact: live `sworn rtm 2026-06-16-fidelity-layer` run produces the matrix and correctly fails with 70 violations (all ACs lack need ids because the release was specced before the RTM existed).
+  - Reachability artefact: live `sworn lint trace 2026-06-16-fidelity-layer` run produces the matrix and correctly fails with 70 violations (all ACs lack need ids because the release was specced before the RTM existed).
   - Proof bundle generated from live repo state.
 
 ## Open questions
@@ -143,7 +143,7 @@ Verifier session: `fresh, artefact-only`
 ```
 
 All six gates passed:
-- Gate 1: `sworn rtm` is wired in `cmd/sworn/main.go` `case "rtm"` and dispatches to `cmdRtm` in `cmd/sworn/rtm.go`. Entry point is real and user-reachable.
+- Gate 1: `sworn lint trace` is wired in `cmd/sworn/main.go` `case "rtm"` and dispatches to `cmdRtm` in `cmd/sworn/rtm.go`. Entry point is real and user-reachable.
 - Gate 2: All 9 planned touchpoints are present in `git diff --name-only 8767fc7`. The 5 unplanned files (`internal/adopt/adopt.go`, `internal/adopt/baton/README.md`, 3 test files) are fully explained in proof.md "Divergence from plan".
 - Gate 3: 13 unit tests in `internal/rtm/rtm_test.go` (all pass) and 5 integration tests in `cmd/sworn/rtm_test.go` calling `cmdRtm` directly (Rule 1 ✓, all pass). State round-trip and board ParseVerticalTrace tests pass. `go vet` clean.
 - Gate 4: Reachability artefact is the integration tests driving `cmdRtm` plus a live smoke run against the actual release. User gesture and expected outcome are named.

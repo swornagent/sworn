@@ -2,7 +2,7 @@
 
 ## Scope
 
-When a planner runs `sworn rtm <release>`, sworn reports the release's 2-D requirements traceability matrix and fails closed on any broken trace: an intake need with no acceptance criterion, an acceptance criterion with no need or no test, or a slice with no link up to a release benefit are each named and cause a non-zero exit. A fully-traced release prints the matrix and exits 0.
+When a planner runs `sworn lint trace <release>`, sworn reports the release's 2-D requirements traceability matrix and fails closed on any broken trace: an intake need with no acceptance criterion, an acceptance criterion with no need or no test, or a slice with no link up to a release benefit are each named and cause a non-zero exit. A fully-traced release prints the matrix and exits 0.
 
 ## Files changed
 
@@ -65,11 +65,11 @@ ok  github.com/swornagent/sworn/internal/rtm  0.003s
 
 $ go test ./cmd/sworn/ -run TestRtm -v
 === RUN   TestRtmCmd_MissingReleaseArg
-sworn rtm: release name is required
-usage: sworn rtm <release>
+sworn lint trace: release name is required
+usage: sworn lint trace <release>
 --- PASS: TestRtmCmd_MissingReleaseArg (0.00s)
 === RUN   TestRtmCmd_NonexistentRelease
-sworn rtm: release directory not found: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core/cmd/sworn/docs/release/nonexistent-release-xyz
+sworn lint trace: release directory not found: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core/cmd/sworn/docs/release/nonexistent-release-xyz
 --- PASS: TestRtmCmd_NonexistentRelease (0.00s)
 === RUN   TestRtmCmd_FullyTracedRelease
 Requirements Traceability Matrix: test-release
@@ -188,14 +188,14 @@ $ gofmt -l .
 
 - **Type**: manual-smoke-step
 - **Path**: N/A (command-line invocation)
-- **User gesture**: "Run `sworn rtm <release>`; observe the printed matrix and exit code; introduce a deliberately orphaned need in the fixture intake; re-run; observe the named orphan and non-zero exit."
+- **User gesture**: "Run `sworn lint trace <release>`; observe the printed matrix and exit code; introduce a deliberately orphaned need in the fixture intake; re-run; observe the named orphan and non-zero exit."
 
 Evidence: the integration test `TestRtmCmd_FullyTracedRelease` in `cmd/sworn/rtm_test.go` drives the actual `cmdRtm` entry point (Rule 1) on a fixture release tree and asserts exit 0. `TestRtmCmd_OrphanedNeed` introduces an orphaned need and asserts non-zero exit. `TestRtmCmd_SoloFloorNoObjective` verifies the lightweight floor (no org objective, release goal present) passes.
 
 Live smoke run against the actual release:
 
 ```
-$ ./bin/sworn rtm 2026-06-16-fidelity-layer
+$ ./bin/sworn lint trace 2026-06-16-fidelity-layer
 Requirements Traceability Matrix: 2026-06-16-fidelity-layer
 ============================================================
 
@@ -245,7 +245,7 @@ The spec's "Planned touchpoints" list does not include `internal/adopt/adopt.go`
 
 - **`internal/state/state_test.go`** — The `gofmt -w` pass realigned struct literal fields because the new `NeedIDs`, `ReleaseBenefit`, and `OrgObjective` fields changed the longest field name in the `Status` struct. This is a cosmetic alignment change, not a functional divergence.
 
-- **`internal/board/index_test.go`** and **`cmd/sworn/rtm_test.go`** — New test files for the board vertical-trace parsing and the `sworn rtm` command integration tests, respectively. These are test-only additions that follow from the planned touchpoints (`internal/board/index.go` and `cmd/sworn/rtm.go`); they are listed in `actual_files` but not `planned_files` because the spec lists only the implementation files, not their test files.
+- **`internal/board/index_test.go`** and **`cmd/sworn/rtm_test.go`** — New test files for the board vertical-trace parsing and the `sworn lint trace` command integration tests, respectively. These are test-only additions that follow from the planned touchpoints (`internal/board/index.go` and `cmd/sworn/rtm.go`); they are listed in `actual_files` but not `planned_files` because the spec lists only the implementation files, not their test files.
 
 ### Bookkeeping commits within start_commit..HEAD
 

@@ -22,18 +22,18 @@
   "actual_files": [
     "internal/ears/ears.go",
     "internal/ears/ears_test.go",
-    "cmd/sworn/ears.go",
-    "cmd/sworn/ears_test.go",
+    "cmd/sworn/lint.go",
+    "cmd/sworn/lint_ac_test.go",
     "cmd/sworn/main.go",
     "internal/prompt/planner.md",
     "internal/adopt/baton/rules/08-requirements-fidelity.md"
   ],
   "test_commands": [
     "go test ./internal/ears/...",
-    "go test ./cmd/sworn/ -run TestEars"
+    "go test ./cmd/sworn/ -run TestLintAC"
   ],
   "reachability_artifacts": [
-    "manual-smoke-step: sworn ears <release> pass case (exit 0 + distribution) and fail case (exit 1 + named violation)"
+    "manual-smoke-step: sworn lint ac <release> pass case (exit 0 + distribution) and fail case (exit 1 + named violation)"
   ],
   "open_deferrals": [],
   "verification": {

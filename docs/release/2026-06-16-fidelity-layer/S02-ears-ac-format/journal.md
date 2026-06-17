@@ -29,7 +29,7 @@ description: Implementation log for one slice. Append-only. Visible to verifier 
 - **Notes**:
   - All 4 acceptance checks demonstrably true (see proof.md Delivered section).
   - 20 unit tests + 6 integration tests pass. Full suite green. go vet clean. gofmt clean.
-  - Live smoke test: `sworn ears 2026-06-16-fidelity-layer` exits 0 with 70 ACs classified; corrupted fixture exits 1 naming the slice + line.
+  - Live smoke test: `sworn lint ac 2026-06-16-fidelity-layer` exits 0 with 70 ACs classified; corrupted fixture exits 1 naming the slice + line.
   - No deferrals. No divergences from plan beyond the multi-line AC handling (additive, covered by test).
 
 ## Open questions

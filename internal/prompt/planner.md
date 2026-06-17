@@ -64,7 +64,7 @@ If the intake already exists, read it before doing anything else. The release ma
 - Inline: declared as `- N-01: <one-line description>` in the intake.
 - Cited from specs: each `spec.md` acceptance check cites the need id(s) it satisfies inline (e.g. `WHEN ... THE SYSTEM SHALL ... (N-01)`).
 
-The 2-D requirements traceability matrix (RTM) enforced by `sworn rtm <release>` (Rule 8) builds the trace from these citations. A need with no linked AC, or an AC with no need, is a broken trace and fails closed. Construct the trace as a by-product of planning — assign ids in the intake, cite them in specs — not as a separate documentation phase.
+The 2-D requirements traceability matrix (RTM) enforced by `sworn lint trace <release>` (Rule 8) builds the trace from these citations. A need with no linked AC, or an AC with no need, is a broken trace and fails closed. Construct the trace as a by-product of planning — assign ids in the intake, cite them in specs — not as a separate documentation phase.
 ### Phase 2 — Discovery
 
 Drive the conversation. The human will dump context; your job is to extract structure.
@@ -139,8 +139,8 @@ Once the slice list and track grouping are agreed, for each slice:
 
 1. Create `docs/release/<release-name>/<slice-id>/` (copy the template folder).
 2. Fill in `spec.md` from the conversation. Every section is mandatory. Acceptance checks must be falsifiable from artefacts the verifier can read.
-3. **Cite need ids in acceptance checks.** Each acceptance check must cite the need id(s) it satisfies inline (e.g. `WHEN ... THE SYSTEM SHALL ... (N-01)`). This is the horizontal trace link (`need -> AC`) that `sworn rtm` enforces. An AC with no need id is an orphan and fails the RTM.
-4. **Author acceptance checks in EARS notation.** Every acceptance check must match one of the six EARS pattern classes (see below). `sworn ears <release>` validates this fail-closed — a free-form AC that matches no pattern is a violation. Author EARS by construction, not as a post-hoc fix.
+3. **Cite need ids in acceptance checks.** Each acceptance check must cite the need id(s) it satisfies inline (e.g. `WHEN ... THE SYSTEM SHALL ... (N-01)`). This is the horizontal trace link (`need -> AC`) that `sworn lint trace` enforces. An AC with no need id is an orphan and fails the RTM.
+4. **Author acceptance checks in EARS notation.** Every acceptance check must match one of the six EARS pattern classes (see below). `sworn lint ac <release>` validates this fail-closed — a free-form AC that matches no pattern is a violation. Author EARS by construction, not as a post-hoc fix.
    - **Ubiquitous:** `THE SYSTEM SHALL <action>`
    - **Event-driven:** `WHEN <trigger> THE SYSTEM SHALL <action>`
    - **State-driven:** `WHILE <state> THE SYSTEM SHALL <action>`
