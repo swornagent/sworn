@@ -1,7 +1,7 @@
 ---
 title: '2026-06-16-fidelity-layer — release board'
 description: 'Fidelity layer (Baton Rules 8/9/10): requirements fidelity, design fidelity, and customer-journey / system-acceptance validation, as protocol + native sworn enforcement. 15 slices across 4 tracks.'
-release_worktree_path: # <set by first /implement-slice in the release>
+release_worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer
 release_worktree_branch: release-wt/2026-06-16-fidelity-layer
 tracks:
   - id: T1-fidelity-core
