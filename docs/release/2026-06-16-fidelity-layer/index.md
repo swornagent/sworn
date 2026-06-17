@@ -99,7 +99,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 | ID | Track | User outcome | State | Owner | Spec | Proof |
 |---|---|---|---|---|---|---|
-| `S01-rtm-spine` | T1 | 2-D requirements traceability matrix, threaded through artefacts, fail-closed (`sworn rtm`) | planned | human | [spec](./S01-rtm-spine/spec.md) | — |
+| `S01-rtm-spine` | T1 | 2-D requirements traceability matrix, threaded through artefacts, fail-closed (`sworn rtm`) | failed_verification | human | [spec](./S01-rtm-spine/spec.md) | [proof](./S01-rtm-spine/proof.md) |
 | `S02-ears-ac-format` | T1 | EARS acceptance-criteria notation + validator (`sworn ears`) | planned | human | [spec](./S02-ears-ac-format/spec.md) | — |
 | `S04-requirements-verify-gate` | T1 | 29148 quality-characteristic check, fresh-context, fail-closed (`sworn reqverify`) | planned | human | [spec](./S04-requirements-verify-gate/spec.md) | — |
 | `S05-requirements-validate-gate` | T1 | Human-owned scenario pos/neg + benefit-hypothesis validation (`sworn reqvalidate`) | planned | human | [spec](./S05-requirements-validate-gate/spec.md) | — |
@@ -129,17 +129,25 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Aggregate state
 
-- Planned: 15
+- Planned: 14
 - In progress: 0
 - Implemented (awaiting verification): 0
 - Verified (awaiting merge): 0
-- Failed verification: 0
+- Failed verification: 1
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 4 / In progress: 0 / Merged: 0
+**Tracks:** Planned: 3 / In progress: 1 / Merged: 0
 
 ## Recent activity
+
+### 2026-06-17 — S01-rtm-spine verifier verdict: FAIL
+
+- **Actor**: verifier (fresh-context)
+- **Note**: Gate 2 violation — `proof.md` Divergence section does not explain functional changes
+  to `internal/adopt/adopt.go` (added Rule 8 to embed/Materialise) or `internal/adopt/baton/README.md`
+  (added Rule 8 documentation). Fix is proof.md update only; no code changes needed. Slice moves
+  to `failed_verification`. Implementer should re-open `/implement-slice S01-rtm-spine 2026-06-16-fidelity-layer`.
 
 ### 2026-06-16 — release planned
 

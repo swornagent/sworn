@@ -57,4 +57,32 @@ None.
 
 ## Verifier verdicts received
 
-(None yet — awaiting fresh-context verification.)
+### `2026-06-17` — Verifier verdict: FAIL
+
+```
+FAIL
+
+Slice: `S01-rtm-spine`
+
+Violations:
+1. Gate 2 — `proof.md` "Divergence from plan" does not adequately explain functional changes to
+   `internal/adopt/adopt.go` and `internal/adopt/baton/README.md`, which are not listed in the
+   spec's "Planned touchpoints".
+   - `internal/adopt/adopt.go`: mentioned in divergence only as a release-verify.sh false-positive
+     concern; the actual functional change (adding Rule 8 to the embed directive and `Materialise`
+     file list so the rule is embedded in the binary and written to repos that run `sworn init`)
+     is not described.
+   - `internal/adopt/baton/README.md`: not mentioned in the divergence section at all; this file
+     received a functional documentation change (Rule 8 added to the embedded Baton README index).
+
+Required to address:
+1. Update `proof.md` "Divergence from plan" to explain `internal/adopt/adopt.go`: the file was
+   changed to add `08-requirements-fidelity.md` to the `//go:embed` directive and to the
+   `Materialise` file list, so the new rule is bundled into the `sworn` binary and written to
+   consumer repos on `sworn init`. No code change required — proof.md update only.
+2. Update `proof.md` "Divergence from plan" to explain `internal/adopt/baton/README.md`: the
+   file was changed to document Rule 8 in the embedded Baton README (the index listing of all
+   rules). No code change required — proof.md update only.
+```
+
+Gates 1, 3, 4, 5, 6 all PASS. Only Gate 2 fails.
