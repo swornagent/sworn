@@ -99,7 +99,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 | ID | Track | User outcome | State | Owner | Spec | Proof |
 |---|---|---|---|---|---|---|
-| `S01-rtm-spine` | T1 | 2-D requirements traceability matrix, threaded through artefacts, fail-closed (`sworn rtm`) | failed_verification | human | [spec](./S01-rtm-spine/spec.md) | [proof](./S01-rtm-spine/proof.md) |
+| `S01-rtm-spine` | T1 | 2-D requirements traceability matrix, threaded through artefacts, fail-closed (`sworn rtm`) | verified | human | [spec](./S01-rtm-spine/spec.md) | [proof](./S01-rtm-spine/proof.md) |
 | `S02-ears-ac-format` | T1 | EARS acceptance-criteria notation + validator (`sworn ears`) | planned | human | [spec](./S02-ears-ac-format/spec.md) | — |
 | `S04-requirements-verify-gate` | T1 | 29148 quality-characteristic check, fresh-context, fail-closed (`sworn reqverify`) | planned | human | [spec](./S04-requirements-verify-gate/spec.md) | — |
 | `S05-requirements-validate-gate` | T1 | Human-owned scenario pos/neg + benefit-hypothesis validation (`sworn reqvalidate`) | planned | human | [spec](./S05-requirements-validate-gate/spec.md) | — |
@@ -132,14 +132,23 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 - Planned: 14
 - In progress: 0
 - Implemented (awaiting verification): 0
-- Verified (awaiting merge): 0
-- Failed verification: 1
+- Verified (awaiting merge): 1
+- Failed verification: 0
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** Planned: 3 / In progress: 1 / Merged: 0
 
 ## Recent activity
+
+### 2026-06-17 — S01-rtm-spine verifier verdict: PASS
+
+- **Actor**: verifier (fresh-context)
+- **Note**: All six gates passed. `sworn rtm` entry point wired and reachable; all 9 planned
+  touchpoints changed; 13 unit + 5 integration tests pass (integration tests drive `cmdRtm`
+  directly — Rule 1 satisfied); reachability artefact is the integration test suite + live smoke
+  run; no silent deferrals; all six ACs verified with evidence. Slice moves to `verified`.
+  Next step: `/implement-slice S02-ears-ac-format 2026-06-16-fidelity-layer` in a fresh session.
 
 ### 2026-06-18 — S01-rtm-spine verifier verdict: FAIL (second round)
 
