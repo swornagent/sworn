@@ -132,3 +132,14 @@ Note: implementation code is present and correct on the branch — all tests pas
     - `internal/adopt/baton/README.md`: added Rule 8 to the embedded Baton README's numbered rule index so the documentation surface stays consistent with the rules directory.
   - Also documented the test-file divergences (`internal/state/state_test.go` gofmt alignment, `internal/board/index_test.go` and `cmd/sworn/rtm_test.go` as new test files) that were not in the planned touchpoints.
   - All tests pass, vet clean, gofmt clean. No code changes in this session — proof.md update only.
+### `2026-06-18 03:00` — re-implementation after second FAIL (metadata fix)
+
+- **State**: `failed_verification -> in_progress -> implemented`
+- **Notes**:
+  - The second verifier FAIL was purely a metadata issue: `start_commit` was set to `925cb07` (the re-implementation restart doc commit, AFTER the actual implementation commit `67f287b`), causing the verifier's diff base to miss all 8 planned touchpoints. The verifier explicitly noted "implementation code is present and correct on the branch — all tests pass. FAIL is a metadata issue (start_commit pointing after the code), not a substantive implementation defect."
+  - Fix: set `start_commit` to `8767fc7` (the original "start implementation" commit) so `8767fc7..HEAD` covers the full slice scope including all 18 changed files.
+  - Regenerated `proof.md` "Files changed" from `git diff --name-only 8767fc7..HEAD` (18 files, all 8 planned touchpoints present).
+  - Added "Bookkeeping commits within start_commit..HEAD" subsection to "Divergence from plan" acknowledging that 10 doc-only/merge commits in the range are not implementation scope.
+  - Discovered and fixed a worktree state corruption: the track worktree had been re-registered to `main` instead of `track/2026-06-16-fidelity-layer/T1-fidelity-core`. Removed and re-added the worktree on the correct branch.
+  - All tests pass (13 RTM unit, 5 integration, state round-trip, board vertical-trace). `go vet ./...` clean. `gofmt -l .` clean.
+  - No code changes in this session — metadata and proof.md fix only.

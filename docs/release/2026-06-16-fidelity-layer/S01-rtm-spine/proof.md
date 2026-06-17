@@ -7,7 +7,7 @@ When a planner runs `sworn rtm <release>`, sworn reports the release's 2-D requi
 ## Files changed
 
 ```
-$ git diff --name-only release-wt/2026-06-16-fidelity-layer
+$ git diff --name-only 8767fc7..HEAD
 cmd/sworn/main.go
 cmd/sworn/rtm.go
 cmd/sworn/rtm_test.go
@@ -161,11 +161,11 @@ PASS
 ok  github.com/swornagent/sworn/internal/board  0.003s
 
 $ go test ./...
-ok  github.com/swornagent/sworn/cmd/sworn  0.034s
+ok  github.com/swornagent/sworn/cmd/sworn  0.031s
 ok  github.com/swornagent/sworn/internal/adopt  (cached)
 ok  github.com/swornagent/sworn/internal/agent  (cached)
 ok  github.com/swornagent/sworn/internal/bench  (cached)
-ok  github.com/swornagent/sworn/internal/board  0.003s
+ok  github.com/swornagent/sworn/internal/board  0.005s
 ok  github.com/swornagent/sworn/internal/config  (cached)
 ok  github.com/swornagent/sworn/internal/git  (cached)
 ok  github.com/swornagent/sworn/internal/implement  (cached)
@@ -180,7 +180,7 @@ ok  github.com/swornagent/sworn/internal/verify  (cached)
 $ go vet ./...
 (clean)
 
-$ gofmt -l internal/rtm/ cmd/sworn/rtm.go cmd/sworn/rtm_test.go cmd/sworn/main.go internal/board/index.go internal/board/index_test.go internal/state/state.go internal/state/state_test.go internal/adopt/adopt.go
+$ gofmt -l .
 (clean)
 ```
 
@@ -247,7 +247,22 @@ The spec's "Planned touchpoints" list does not include `internal/adopt/adopt.go`
 
 - **`internal/board/index_test.go`** and **`cmd/sworn/rtm_test.go`** — New test files for the board vertical-trace parsing and the `sworn rtm` command integration tests, respectively. These are test-only additions that follow from the planned touchpoints (`internal/board/index.go` and `cmd/sworn/rtm.go`); they are listed in `actual_files` but not `planned_files` because the spec lists only the implementation files, not their test files.
 
-- The release-verify.sh dark-code marker check flags "deferred items" in `internal/adopt/adopt.go` when diffing against `main` — this is a false positive on pre-existing text in the Baton AGENTS.md fragment (Rule 5 text: "deferred items, next steps"). It is not a code deferral marker. Diffing against the correct base (`release-wt/2026-06-16-fidelity-layer`) produces a clean pass.
+### Bookkeeping commits within start_commit..HEAD
+
+The `start_commit` is `8767fc7` (the original "start implementation" commit). The diff `8767fc7..HEAD` covers the full slice scope — all 18 changed files including all 8 planned touchpoints. However, the commit range also includes bookkeeping commits that are not implementation scope:
+
+- `dce92d8` — materialise worktree for track T1-fidelity-core (pre-existing infrastructure commit, parent of start_commit in the track branch's history)
+- `dac5ec8` — mark implemented with proof bundle (doc-only)
+- `28ad590` — verifier verdict FAIL, first round (doc-only)
+- `925cb07` — start re-implementation after failed_verification (doc-only)
+- `9b3ff7f` — set start_commit (doc-only)
+- `d61f085` — merge release-wt into track branch (merge commit, doc-only index.md change)
+- `417790b` — verifier verdict FAIL, second round (doc-only)
+- `ee21c94` — start re-implementation after second FAIL (doc-only)
+- `2fcb3ba` — set start_commit (doc-only)
+- `ab9c7db` — fix start_commit to 8767fc7 (doc-only)
+
+The two implementation commits are `67f287b` and `db7feff` (both `feat(rtm): land S01-rtm-spine`). The first was the original implementation; the second was the re-implementation after a bad merge had dropped the implementation files. All other commits in the range are release-artefact doc updates (status.json, proof.md, journal.md) or verifier verdict recordings.
 
 ## First-pass script output
 
