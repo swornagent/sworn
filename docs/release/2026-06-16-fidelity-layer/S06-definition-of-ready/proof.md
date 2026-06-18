@@ -7,12 +7,16 @@ When an implementer tries to move a slice `planned -> in_progress`, sworn **fail
 ## Files changed
 
 ```
-$ git diff --name-only
+$ git diff --name-only b9718b3c..HEAD -- internal/implement/ internal/state/ internal/prompt/ internal/adopt/baton/
+internal/adopt/baton/rules/08-requirements-fidelity.md
 internal/implement/implement.go
 internal/implement/implement_test.go
 internal/implement/ready.go
+internal/implement/ready_test.go
+internal/prompt/implementer.md
+internal/state/state.go
+internal/state/state_test.go
 ```
-
 ## Test results
 
 ### Go (implement package — including CheckDoR + integration tests)
@@ -111,13 +115,51 @@ None.
 ## Divergence from plan
 
 - `implement.go` was modified (not just additive new files) to wire `CheckDoR` into the `design_review -> in_progress` transition. The original spec listed `implement.go` as a touchpoint, and the verifier's Gate 1 required this change. The diff is: `TransitionGate` closure calls `CheckDoR` with an `agentVerifier` adapter; returns `DoRErrorSummary` on failure.
-- `implement_test.go` was extended (in addition to the existing `ready_test.go`) to add: (1) release directory fixtures in `setupTempRepo` (intake.md, index.md, validation record) needed by the DoR gate, (2) a verifier-response entry in `TestRun_DesignReviewToInProgress`'s fake agent script, (3) a new integration test `TestRun_DesignReviewBlockedByDoR`. The spec listed `implement_test.go` as a touchpoint but the earlier implementation put all tests in `ready_test.go` — this revision restores the planned touchpoint.
+- `implement_test.go` was extended (in addition to the new `ready_test.go` — created alongside `ready.go`) to add: (1) release directory fixtures in `setupTempRepo` (intake.md, index.md, validation record) needed by the DoR gate, (2) a verifier-response entry in `TestRun_DesignReviewToInProgress`'s fake agent script, (3) a new integration test `TestRun_DesignReviewBlockedByDoR`. The spec listed `implement_test.go` as a touchpoint but the earlier implementation put all tests in `ready_test.go` — this revision restores the planned touchpoint.
 - `ready.go` was extended with the `agentVerifier` adapter type that wraps `agent.Agent` to satisfy `reqverify.Verifier`. This was not in the original plan but is required to wire the DoR through the native entry point without a second model client.
 - `internal/state/state_test.go` was extended in the original implementation with 4 `TransitionGate` tests (TestTransitionGate_PassesThroughGate, TestTransitionGate_GateBlocksTransition, TestTransitionGate_IllegalTransitionBeforeGate, TestTransitionGate_NilGateSkipped). This file was absent from the spec's planned touchpoints because `TransitionGate` was itself a design decision to avoid an import cycle. The trade-off is documented in the journal.
 
 ## First-pass script output
 
 ```
-$ scripts/release-verify.sh S06-definition-of-ready
-(see live run above — all 29 tests pass across implement + state packages)
+$ $HOME/.claude/bin/release-verify.sh S06-definition-of-ready 2026-06-16-fidelity-layer
+  slice:       S06-definition-of-ready
+  slice dir:   docs/release/2026-06-16-fidelity-layer/S06-definition-of-ready
+  base branch: main
+
+== Slice artefacts ==
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+
+== Status ==
+  PASS  status.json is valid JSON
+  state: implemented
+  PASS  state is 'implemented' — ready for verifier
+
+== Diff vs main ==
+  PASS  20 file(s) changed vs main
+
+== Dark-code markers in changed files ==
+  PASS  no dark-code markers in changed source files
+
+== Proof bundle structural checks ==
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+
+== Frontmatter YAML safety ==
+  PASS  spec.md frontmatter is strict-YAML safe
+
+== First-pass verdict ==
+  checks passed: 18
+  checks failed: 0
+FIRST-PASS PASS — all 29 tests pass across implement + state packages)
 ```

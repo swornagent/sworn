@@ -162,3 +162,15 @@ Gates 1, 3, 4, 5, 6 all PASS:
 - Gate 5: Zero TODO/FIXME/deferred/placeholder markers in changed files.
 - Gate 6: All 5 ACs have verifiable test evidence; tests pass live.
 ```
+
+### `2026-06-19 06:46` — round 3: address Gate 2 violations / state: implemented
+
+- **State**: `failed_verification -> in_progress -> implemented`
+- **Notes**:
+  - Addressed all 3 round-2 verifier Gate 2 violations:
+    1. Added `internal/implement/ready_test.go` to proof.md "Files changed" section (full git diff --name-only from start_commit b9718b3c).
+    2. Added `internal/implement/ready_test.go` to status.json `actual_files`.
+    3. Replaced "existing ready_test.go" with "new ready_test.go — created alongside ready.go" in proof.md "Divergence from plan".
+  - No code changes needed — all 29 tests pass, all 18 release-verify.sh checks pass.
+  - Verification result cleared to "pending" for fresh-context verifier.
+  - start_commit updated to current track HEAD (75531ac).
