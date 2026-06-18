@@ -155,7 +155,13 @@ Once the slice list and track grouping are agreed, for each slice:
    - At least **one negative/exception scenario** (what should not happen, edge + failure flows) per requirement
    - A **benefit/alignment hypothesis** — this slice's benefit and its vertical link (slice -> release benefit -> objective)
    - Present these to the human for ratification. Set `human_ratified: true` + `ratified_by` + `ratified_at` only after the human explicitly confirms. **Never auto-set `human_ratified`.** The validation record lives in `status.json` under the `validation` field and is checked fail-closed by `sworn reqvalidate <release>`.
-8. Leave `journal.md` and `proof.md` as empty templates — they get filled in during implementation.Don't write specs in a batch at the end. Write each one immediately after the human approves the slice description. Commit after each spec, so an interrupted session doesn't lose the planning work.
+8. **Record design decisions in `status.json` (Rule 9).** For each design choice surfaced during planning:
+   - Classify by stakes: Type-1 (hard-to-reverse / wide blast-radius) or Type-2 (reversible / narrow). Architecturally-significant choices are always Type-1.
+   - Draft at least two options with trade-offs and prior art.
+   - Present Type-1 choices to the human for a decision. Record the human's choice + rationale in `status.json` under `design_decisions`. **Never auto-set `human_decision` for a Type-1 choice.**
+   - For Type-2 choices, record a noted default and proceed.
+   - These decisions are checked fail-closed by `sworn designfit <release>` — a Type-1 choice without a recorded human decision causes a violation.
+9. Leave `journal.md` and `proof.md` as empty templates — they get filled in during implementation.Don't write specs in a batch at the end. Write each one immediately after the human approves the slice description. Commit after each spec, so an interrupted session doesn't lose the planning work.
 ### Phase 5 — Write the release board
 
 Create `docs/release/<release-name>/index.md`, `activity.md`, and `.gitattributes` by copying them from `$HOME/.claude/baton/release-mode-template/`.

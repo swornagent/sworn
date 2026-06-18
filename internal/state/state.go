@@ -80,9 +80,34 @@ type Verification struct {	Result                  string   `json:"result,omitem
 	Violations              []string `json:"violations,omitempty"`
 }
 
+// StakeClass classifies a design decision by its stakes = reversibility x blast-radius.
+// Type-1 (high stakes / hard-to-reverse) requires a recorded human decision.
+// Type-2 (low stakes / reversible) may proceed with a noted default.
+// See docs/baton/rules/09-design-fidelity.md.
+type StakeClass string
+
+const (
+	Type1 StakeClass = "Type-1"
+	Type2 StakeClass = "Type-2"
+)
+
+// DesignDecision records one design choice for a slice. Populated by the
+// planner during design and consumed by `sworn designfit <release>` for
+// fail-closed enforcement (Rule 9).
+//
+// A Type-1 choice with no HumanDecision is a violation — the model cannot
+// commit to an architecturally-significant choice on its own.
+type DesignDecision struct {
+	Choice                    string     `json:"choice"`
+	StakeClass                StakeClass `json:"stake_class"`
+	Options                   []string   `json:"options,omitempty"`
+	HumanDecision             string     `json:"human_decision,omitempty"`
+	Rationale                 string     `json:"rationale,omitempty"`
+	ArchitecturallySignificant bool       `json:"architecturally_significant,omitempty"`
+}
+
 // Status is the full status.json payload for a slice.
-type Status struct {
-	Schema                string       `json:"$schema"`
+type Status struct {	Schema                string       `json:"$schema"`
 	SliceID               string       `json:"slice_id"`
 	Release               string       `json:"release"`
 	Track                 string       `json:"track"`
@@ -112,9 +137,9 @@ type Status struct {
 	// explicit release_benefit. Org objective is opt-in for enterprise depth.
 	ReleaseBenefit string          `json:"release_benefit,omitempty"`
 	OrgObjective   string          `json:"org_objective,omitempty"`
-	Validation     ValidationRecord `json:"validation,omitempty"`
-}
-// Read parses a status.json file at path and returns the Status. It returns
+	Validation      ValidationRecord `json:"validation,omitempty"`
+	DesignDecisions []DesignDecision  `json:"design_decisions,omitempty"`
+}// Read parses a status.json file at path and returns the Status. It returns
 // an error if the file cannot be read or is not valid JSON.
 func Read(path string) (*Status, error) {
 	data, err := os.ReadFile(path)
