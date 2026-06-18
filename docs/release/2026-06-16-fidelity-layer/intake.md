@@ -210,6 +210,32 @@ Discrete capabilities (candidate acceptance checks downstream):
   entry) is recovered by loop-side composition without losing the slash-command mapping. Verb
   proliferation is a future namespacing watch-item, not a current blocker.
 
+### `2026-06-18` — Lint namespace: `sworn lint <target>` supersedes bare verbs for quality gates
+
+- **Context**: after S01 (`sworn rtm`) and S02 (`sworn ears`) were implemented, both command
+  names were found to be opaque in code review. `ears` is borrowed jargon (EARS = Easy Approach
+  to Requirements Syntax) that means nothing without knowing the spec. `rtm` is an acronym
+  (Requirements Traceability Matrix) equally opaque to newcomers. A user reading `sworn ears` or
+  `sworn rtm` for the first time has no affordance for what it does.
+- **Options considered**: keep bare verbs; rename to descriptive verbs (`sworn validate-acs`,
+  `sworn check-trace`); group under a `lint` namespace.
+- **Decision**: **`sworn lint <target>`** as the command surface for all quality-checking gates.
+  - `sworn lint ac <release>` — acceptance-criteria format validation (was `sworn ears`)
+  - `sworn lint trace <release>` — traceability matrix (was `sworn rtm`)
+  - Future gates follow the same pattern: `sworn lint spec`, `sworn lint design`, etc.
+  - `sworn lint` (no args) — future: run all targets
+- **Why**:
+  - `lint` is immediately understood by any developer — `golint`, `eslint`, `ruff`, etc. all
+    share the same mental model: "check that this file/project is well-structured."
+  - `ac` and `trace` are plain English targets — no prior knowledge of EARS or RTM required.
+  - The namespace makes the extension path obvious; adding a new quality gate is `sworn lint <new>`, not a new top-level verb.
+  - `trace` is a true verb ("check the trace"), unambiguous without the RTM acronym.
+  - Internal packages (`internal/ears`, `internal/rtm`) keep their precise names — only the
+    user-facing CLI surface changed. No internal knowledge is lost; it's a presentation decision.
+- **Supersedes**: the 2026-06-16 "standalone verbs" decision for quality-gate commands.
+  Non-quality verbs (`sworn run`, `sworn verify`, `sworn init`, `sworn bench`) are unaffected.
+- **Tracked in**: S16-lint-rename (documentation sweep + proof bundle restoration).
+
 **House style (confirmed):** acceptance checks are written in **EARS**
 (`WHEN/WHILE/IF/WHERE … THE SYSTEM SHALL …`) from slice one (dogfooding S02). Specs hold
 **tight scope seams** — each slice owns one mechanism; adjacent concerns are explicit
