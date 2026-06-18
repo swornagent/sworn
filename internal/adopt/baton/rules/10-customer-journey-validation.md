@@ -115,6 +115,41 @@ A journey that crosses a validated boundary (every journey touches the DB; most 
 - The human walkthrough (S13), where mocks are fully off and real journeys run against real infra — that slice is out of scope for S10.
 
 
-## Provenance
+## Impact analysis (S12)
 
+**Per-release journey-impact analysis ties Rule 10 into the release workflow.** For a given release, `sworn journeys --impact <release>` computes which critical journeys the release touches, derived from the release's slice planned/actual files and the journeys' step surfaces. The output is the release's validation scope: the set of journeys that must be walked and re-tested before cutover.
+
+### Algorithm
+
+1. **Load the journeys artefact** from `.sworn/journeys.json` — fail-closed if missing or unratified.
+2. **Collect slice touchpoints** — scan `docs/release/<release>/S*/status.json` for each slice's `planned_files` and `actual_files` (the files the release changes).
+3. **Heuristic surface matching** — for each journey, its `entry_surface` and each step's `surface` are matched against the collected touchpoint files:
+   - Level 1: direct substring match (normalised to lowercase).
+   - Level 2: token-level match (alphanumeric tokens from both file path and surface).
+   - Level 3: conventional mapping (surface "CLI" maps to files under `cmd/`).
+4. **Output the touched set** — a journey is in-scope if any of its surfaces match any touchpoint file. The heuristic is biased toward over-inclusion (a journey is touched if any step's surface is touched), so the walkthrough scope errs safe.
+
+### Fail-closed on missing artefact
+
+If no ratified journeys artefact exists at `.sworn/journeys.json`, impact analysis cannot run and directs the user to run elicitation (S11) first. An unratified artefact also fails — ratification is required before impact analysis.
+
+### Empty touched set
+
+A release that touches no journeys (e.g. an internal-only refactor with touchpoints that no journey surface matches) reports an empty touched-set explicitly rather than failing. This allows infrastructure-only releases to pass the gate.
+
+### CLI
+
+```
+sworn journeys --impact <release> [project-path]
+```
+
+Exit codes:
+- **0** — success; the touched-journey set is reported (may be empty).
+- **1** — journeys artefact missing or unratified.
+- **2** — unrecoverable error (I/O or parse failure).
+
+The impact result is consumed by S13 (walkthrough attestation) and S14 (journey regression suite) to determine the release's validation scope.
+
+
+## Provenance
 Rule 10 was introduced in the `2026-06-16-fidelity-layer` release. It closes the cross-slice integration-evidence gap: per-slice verification (Rules 1/6/7) catches within-slice defects, but no artefact captures the end-to-end user path. Journey validation fills that gap with a lightweight, version-controlled artefact that survives release boundaries.

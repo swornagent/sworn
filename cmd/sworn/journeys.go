@@ -9,22 +9,28 @@ import (
 	"github.com/swornagent/sworn/internal/journey"
 )
 
-// cmdJourneys implements `sworn journeys [--check] [project-path]`.
+// cmdJourneys implements `sworn journeys [--check] [--impact <release>] [project-path]`.
 //
-// Without --check: runs the elicitation loop — creates a draft journeys
+// Without flags: runs the elicitation loop — creates a draft journeys
 // artefact from the project structure, presents it for human ratification.
 //
 // With --check: validates the artefact's presence + ratification status.
 // Exits 0 when the artefact exists and is human-ratified, 1 otherwise.
 //
+// With --impact <release>: computes which critical journeys the release
+// touches, derived from the release's slice touchpoints and journey surfaces.
+// Exits 0 on success (even with an empty touched set), 1 when the journeys
+// artefact is missing or unratified, 2 on I/O or parse errors.
+//
 // Returns exit codes:
-//   0  — check passed (artefact exists and is ratified), or elicit+ratify succeeded
-//   1  — check failed (missing or unratified artefact)
+//   0  — success (check passed, impact computed, or elicit+ratify succeeded)
+//   1  — check or impact failed (missing or unratified artefact)
 //   2  — unrecoverable error (parse failure, I/O error)
 //   64 — usage error
 func cmdJourneys(args []string) int {
 	fs := flag.NewFlagSet("journeys", flag.ExitOnError)
 	checkOnly := fs.Bool("check", false, "validate artefact presence + ratification (no draft)")
+	impactRelease := fs.String("impact", "", "analyse which journeys a release touches (release name)")
 	_ = fs.Parse(args)
 
 	projectRoot := "."
@@ -43,9 +49,12 @@ func cmdJourneys(args []string) int {
 		return cmdJourneysCheck(absRoot)
 	}
 
+	if *impactRelease != "" {
+		return cmdJourneysImpact(absRoot, *impactRelease)
+	}
+
 	return cmdJourneysElicit(absRoot)
 }
-
 // cmdJourneysCheck implements the --check path. It reads the artefact and
 // checks presence + ratification. Exits 0 on pass, 1 on failure.
 func cmdJourneysCheck(projectRoot string) int {
@@ -156,4 +165,68 @@ func cmdJourneysElicit(projectRoot string) int {
 	fmt.Println("via the live journey-validation hand-run (refined by /replan-release).")
 
 	return 0
+}
+// cmdJourneysImpact implements the --impact path.
+// It reads the journeys artefact from projectRoot and the release slices
+// from docs/release/<release-name>/, computes the touched-journey set, and
+// reports it.
+func cmdJourneysImpact(projectRoot, releaseName string) int {
+	releaseDir := filepath.Join(projectRoot, "docs", "release", releaseName)
+
+	result, err := journey.AnalyzeImpact(projectRoot, releaseDir)
+	if err != nil {
+		// Structured error (missing/unratified artefact).
+		var impErr *journey.ImpactError
+		if asImpactError(err, &impErr) {
+			fmt.Fprintf(os.Stderr, "FAIL: %s\n", impErr.Message)
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "sworn journeys --impact: %v\n", err)
+		return 2
+	}
+
+	fmt.Printf("Release: %s\n", result.ReleaseName)
+	fmt.Printf("Journeys artefact: found and ratified\n")
+	fmt.Println()
+	fmt.Printf("Journeys touched by this release (%d):\n", len(result.JourneysTouched))
+	if len(result.JourneysTouched) == 0 {
+		fmt.Println("  (none — release touches no critical journeys)")
+	} else {
+		for _, j := range result.JourneysTouched {
+			fmt.Println("  -", j)
+		}
+	}
+
+	if len(result.AllJourneyIDs) > 0 {
+		fmt.Println()
+		fmt.Printf("All ratified journeys (%d):\n", len(result.AllJourneyIDs))
+		for _, j := range result.AllJourneyIDs {
+			mark := " "
+			for _, t := range result.JourneysTouched {
+				if j == t {
+					mark = "*"
+					break
+				}
+			}
+			fmt.Printf("  %s %s\n", mark, j)
+		}
+	}
+
+	return 0
+}
+
+// asImpactError unwraps a *journey.ImpactError (duplicate of test helper
+// so the binary has no test dependencies).
+func asImpactError(err error, target **journey.ImpactError) bool {
+	if err == nil {
+		return false
+	}
+	if e, ok := err.(*journey.ImpactError); ok {
+		*target = e
+		return true
+	}
+	if e, ok := err.(interface{ Unwrap() error }); ok {
+		return asImpactError(e.Unwrap(), target)
+	}
+	return false
 }

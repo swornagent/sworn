@@ -136,8 +136,7 @@ func usage() {
 usage:
   sworn bench --task-set <dir> [--models <comma-sep>] [--output <dir>]
   sworn init [--api-key <key>] [--force]
-  sworn journeys [--check] [project-path]
-  sworn lint ac <release>
+  sworn journeys [--check] [--impact <release>] [project-path]  sworn lint ac <release>
   sworn lint trace <release>
   sworn reqverify <release>
   sworn reqvalidate <release>
@@ -152,10 +151,11 @@ pick the safe-hosted default model from data.
 
 init bootstraps SwornAgent in a repo: writes a config file, vendors the Baton
 protocol into docs/baton/, and splices the seven-rule fragment into AGENTS.md.
-journeys drafts critical customer journeys from the project and validates
-their presence + ratification status. See 'sworn journeys --check' for the
-deterministic gate, or 'sworn journeys <project>' for the elicitation loop.
-lint checks a release for structural problems. Targets:
+journeys drafts critical customer journeys from the project, validates
+their presence + ratification status, and analyses which journeys a release
+touches. See 'sworn journeys --check' for the deterministic gate, 'sworn
+journeys <project>' for the elicitation loop, and 'sworn journeys --impact
+<release>' for per-release journey-impact analysis.lint checks a release for structural problems. Targets:
   ac     — classify every acceptance check by EARS pattern; fail closed on any
            free-form check that matches no pattern, naming the slice + line.
   trace  — build the 2-D requirements traceability matrix; fail closed on any

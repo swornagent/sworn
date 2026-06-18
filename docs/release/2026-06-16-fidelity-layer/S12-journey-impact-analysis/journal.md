@@ -1,44 +1,33 @@
 ---
-title: Slice journal template
-description: Implementation log for one slice. Append-only. Visible to verifier as context, but verifier verdict is based on proof.md and repo state, not journal prose.
+title: Slice journal — S12-journey-impact-analysis
+description: Implementation log for S12 — per-release journey-impact analysis.
 ---
 
-# Journal: `<slice-id>`
-
-> Copy this file to `docs/release/<release-name>/<slice-id>/journal.md`. Append entries chronologically. Do not delete history. Decisions captured here must also land in commit message bodies per Rule 4 — this journal is a working surface, not a substitute for durable capture.
+# Journal: S12-journey-impact-analysis
 
 ## Session log
 
-### `<YYYY-MM-DD HH:MM>` — `<session start / state transition>`
+### 2026-06-23 10:00 — session start / implementation
 
-- **State**: `<planned | in_progress | implemented | failed_verification | verified | deferred | shipped>`
+- **State**: `planned → in_progress → implemented`
 - **Notes**:
-  - `<Decisions made>`
-  - `<Trade-offs encountered>`
-  - `<Subagent dispatches and where their outputs landed>`
-
-### `<YYYY-MM-DD HH:MM>` — `<next event>`
-
-- ...
+  - Core implementation in `internal/journey/impact.go`: `AnalyzeImpact()` reads journeys artefact, scans release slice directories for `status.json`, collects `planned_files` + `actual_files`, matches against journey step/entry surfaces via heuristic `surfacesTouch()`.
+  - Heuristic matching has 3 levels: direct substring, token-level, and conventional mapping (CLI ↔ cmd/). Biased toward over-inclusion per spec Risk mitigation.
+  - CLI update in `cmd/sworn/journeys.go`: added `--impact <release>` flag and `cmdJourneysImpact()` function.
+  - Integration tests in `cmd/sworn/journeys_impact_test.go` cover all 4 acceptance checks via CLI.
+  - Rule 10 doc updated with "Impact analysis (S12)" section.
+  - Usage string in `main.go` updated.
+  - **Divergence from plan**: Created new file `internal/journey/impact.go` instead of modifying `journey.go` (S11's file). Created `cmd/sworn/journeys_impact_test.go` for separate CLI integration tests. Updated `cmd/sworn/main.go` for documentation (not in planned_files but necessary).
+  - **Open deferral acknowledged**: Step→surface matching precision tracks S11's provisional journey schema, refined via `/replan-release`. Accepted from planner.
 
 ## Open questions
 
-\<Anything the implementer needs the human to resolve. Each open question blocks state transition to `implemented` until answered.\>
-
-- ...
+None.
 
 ## Deferrals surfaced
 
-`<Per Rule 2: each deferral needs why + tracking + acknowledgement. Cross-link to GitHub issue or punch-list entry. If empty, write "None" explicitly.>`
-
-- ...
+- Step→surface matching precision tracks S11 provisional schema, refined via `/replan-release` (acknowledged 2026-06-16 by planner).
 
 ## Verifier verdicts received
 
-`<Append every verifier verdict here. Even FAIL verdicts stay — they are part of the slice's history.>`
-
-### `<YYYY-MM-DD HH:MM>` — `<PASS | FAIL | BLOCKED>`
-
-- **Verifier session**: `<fresh / inherited — should always be fresh>`
-- **Verdict body**: `<paste the full verifier output>`
-- **Action taken**: `<how the implementer responded>`
+(Fresh-context verifier session will run separately — Rule 7.)
