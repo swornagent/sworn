@@ -25,10 +25,9 @@ tracks:
   - id: T4-evidence-surface
     slices: [S15-sworn-top-evidence]
     depends_on: T1-fidelity-core
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T4-evidence-surface
     worktree_branch: track/2026-06-16-fidelity-layer/T4-evidence-surface
-    state: planned
----
+    state: in_progress---
 
 # Release Board: `2026-06-16-fidelity-layer`
 
