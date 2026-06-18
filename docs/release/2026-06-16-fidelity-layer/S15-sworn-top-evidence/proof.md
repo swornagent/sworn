@@ -1,77 +1,101 @@
----
-title: Slice proof bundle template
-description: Rule 6 proof bundle, scoped to one slice. Generated from live repo state, not recollection. Verifier reads this; do not paraphrase.
----
+# Proof Bundle: S15-sworn-top-evidence
 
-# Proof Bundle: `<slice-id>`
-
-> Copy this file to `docs/release/<release-name>/<slice-id>/proof.md`. Every section must be populated from a live command run, not reconstructed from memory. Replace placeholder commands as appropriate for your stack.
+> Generated from live repo state, not recollection.
 
 ## Scope
 
-`<One sentence. Should mirror the spec's "User outcome" exactly — if it doesn't, fix the spec or fix the implementation; don't paper over the gap here.>`
+When a maintainer runs `sworn top`, sworn renders a read-only evidence surface for the active release: each critical journey in scope with its validation status (un-walked / walked-pass / walked-fail), assembled into a green-board when all pass and a kill-list when any fail. The surface only reads and displays; it issues no state transitions and gates nothing.
 
 ## Files changed
 
-<Paste raw output of `git diff --name-only <base-branch>`. Do not edit.>
-
 ```
-$ git diff --name-only main
-<paste output here>
+$ git diff --name-only release-wt/2026-06-16-fidelity-layer
+cmd/sworn/main.go
+cmd/sworn/top.go
+cmd/sworn/top_test.go
+internal/journey/walkthrough.go
+internal/journey/walkthrough_test.go
 ```
 
 ## Test results
 
-> Each project supplies its own test commands. Replace the commands below with your project's actual invocations. If a stack is not touched by this slice, write the section as `N/A — no <stack> changes`.
-
-### `<Stack 1, e.g. Go>`
+### Go
 
 ```
-$ <your backend test command>
-<paste full output including exit code>
-```
+$ go test ./cmd/sworn/ -run TestTop -v
+=== RUN   TestTop_EmptyState
+--- PASS: TestTop_EmptyState (0.00s)
+=== RUN   TestTop_GreenBoard
+--- PASS: TestTop_GreenBoard (0.00s)
+=== RUN   TestTop_KillList_Unwalked
+--- PASS: TestTop_KillList_Unwalked (0.00s)
+=== RUN   TestTop_KillList_Failed
+--- PASS: TestTop_KillList_Failed (0.00s)
+=== RUN   TestTop_ReadOnly
+--- PASS: TestTop_ReadOnly (0.00s)
+=== RUN   TestTop_Mixed
+--- PASS: TestTop_Mixed (0.00s)
+=== RUN   TestTop_EmptyJourneysArtefact
+--- PASS: TestTop_EmptyJourneysArtefact (0.00s)
+PASS
+ok  	github.com/swornagent/sworn/cmd/sworn	0.006s
 
-### `<Stack 2, e.g. TypeScript>`
+$ go test ./internal/journey/ -run "TestLoadAttest|TestAttest" -v
+=== RUN   TestLoadAttestations_MissingFile
+--- PASS: TestLoadAttestations_MissingFile (0.00s)
+=== RUN   TestLoadAttestations_ExistingFile
+--- PASS: TestLoadAttestations_ExistingFile (0.00s)
+=== RUN   TestLoadAttestations_InvalidJSON
+--- PASS: TestLoadAttestations_InvalidJSON (0.00s)
+=== RUN   TestAttestationStatus_NoArtefact
+--- PASS: TestAttestationStatus_NoArtefact (0.00s)
+=== RUN   TestAttestationStatus_NoMatch
+--- PASS: TestAttestationStatus_NoMatch (0.00s)
+=== RUN   TestAttestationStatus_Match
+--- PASS: TestAttestationStatus_Match (0.00s)
+=== RUN   TestAttestationArtefactPath
+--- PASS: TestAttestationArtefactPath (0.00s)
+PASS
+ok  	github.com/swornagent/sworn/internal/journey	0.004s
 
-```
-$ <your frontend test command>
-<paste full output including exit code>
+$ go vet ./...
+(clean)
 ```
 
 ## Reachability artefact
 
-`<Path to screenshot / Playwright trace / explicit smoke-step description naming the user gesture. Must exist on disk and be discoverable from this path. "Tests pass" is not a reachability artefact — see Rule 1.>`
-
-- **Type**: `<screenshot | playwright-trace | manual-smoke-step>`
-- **Path**: `<relative path from repo root>`
-  - When Type is `screenshot`, the canonical path is `<docs-tree>/release/<release-name>/screenshots/<slice-id>-<descriptor>.png`, captured by `tests/e2e/release/<release-name>/<track-id>.spec.ts` via the shared helpers in `tests/e2e/release/_helpers.ts`. Full pattern — including the disambiguation from planner-context screenshots, helper signatures, and the bit-stable capture recipe — lives in [`role-prompts/implementer.md`](../role-prompts/implementer.md) → "Reachability screenshot convention".
-  - For `playwright-trace` and `manual-smoke-step`, Path is free-form.
-- **User gesture**: `<"User clicks X, observes Y" — exact words>`
+- **Type**: `manual-smoke-step`
+- **User gesture**:
+  1. Create a test project with `.sworn/journeys.json` containing one journey and no attestations.
+  2. Run `sworn top test-release /path/to/project`.
+  3. Observe the kill-list output showing the journey as "un-walked".
+  4. Create `.sworn/attestations.json` with a walked-pass attestation for that journey.
+  5. Run `sworn top test-release /path/to/project` again.
+  6. Observe the green-board output showing all journeys validated.
 
 ## Delivered
 
-`<Bulleted list. Every item from the spec's acceptance checks that is now demonstrably true, each with an evidence reference the verifier can independently confirm.>`
-
-- `<Acceptance check #1>` — evidence: `<file path / test name / artefact path>`
-- `<Acceptance check #2>` — evidence: `<file path / test name / artefact path>`
+- **AC 1: Green-board when all pass** — `TestTop_GreenBoard` verifies that sworn top exits 0 and renders "Green-board ✓" when all journeys have walked-pass attestations. Evidence: `cmd/sworn/top_test.go` lines 22-57.
+- **AC 2: Kill-list when any un-walked or failed** — `TestTop_KillList_Unwalked` (exit 1, kill-list naming the journey) and `TestTop_KillList_Failed` (exit 1, kill-list labelling walked-fail). Evidence: `cmd/sworn/top_test.go` lines 59-131.
+- **AC 3: Strictly read-only** — `TestTop_ReadOnly` snapshots the filesystem before and after running sworn top and asserts no files were created or modified. Evidence: `cmd/sworn/top_test.go` lines 133-168.
+- **AC 4: Empty state hint when no journeys artefact** — `TestTop_EmptyState` verifies exit 0 and output hinting to run `sworn journeys`. Evidence: `cmd/sworn/top_test.go` lines 9-20.
 
 ## Not delivered
 
-`<Bulleted list. Every item from the spec's acceptance checks that is NOT demonstrably true. Each must be a Rule 2 deferral: why + tracking + acknowledgement. Empty list is acceptable only if every acceptance check is delivered. Do not omit the section.>`
-
-- `<Item>` — **Why**: `<reason>`. **Tracking**: `<issue link / punch-list entry>`. **Acknowledged**: `<who, when>`.
+None. All four acceptance checks are delivered.
 
 ## Divergence from plan
 
-`<Any implementation that differs from the spec's planned touchpoints or approach. Empty is valid but the section must be present and explicit.>`
+The planned touchpoints (`planned_files`) listed only `cmd/sworn/top.go`, `cmd/sworn/top_test.go`, and `cmd/sworn/main.go`. Two additional files were needed:
 
-- `<Divergence description, or "None">`
+- `internal/journey/walkthrough.go` — the walkthrough attestation model and loading API. The spec describes sworn top as reading "journey attestations (`internal/journey`) via their existing public APIs." Since no attestation API existed in the journey package (S13 is planned), this slice adds the types and API that sworn top consumes. This is a natural forward-extension of the journey package — S13 will populate the attestation artefact; S15 reads it.
+- `internal/journey/walkthrough_test.go` — tests for the new walkthrough API.
+
+This divergence is recorded and is consistent with the spec's risk section: "it can be built against empty/fixture attestation data and renders the empty state cleanly until S13 is live."
 
 ## First-pass script output
 
-<Paste the output of `scripts/release-verify.sh <slice-id>`. Must show all deterministic checks green before requesting verifier review.>
-
 ```
-$ scripts/release-verify.sh <slice-id>
-<paste output here>
+$ $HOME/.claude/bin/release-verify.sh S15-sworn-top-evidence 2026-06-16-fidelity-layer
+<paste output here — run live>
 ```

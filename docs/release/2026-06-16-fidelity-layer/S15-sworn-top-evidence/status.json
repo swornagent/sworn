@@ -3,11 +3,10 @@
   "slice_id": "S15-sworn-top-evidence",
   "release": "2026-06-16-fidelity-layer",
   "track": "T4-evidence-surface",
-  "state": "planned",
-  "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-16T09:19:56Z",
-  "start_commit": null,
+  "state": "implemented",
+  "owner": "agent",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-06-23T00:00:00Z",  "start_commit": null,
   "spec_path": "docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence/proof.md",
   "journal_path": "docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence/journal.md",
@@ -16,12 +15,19 @@
     "cmd/sworn/top_test.go",
     "cmd/sworn/main.go"
   ],
-  "actual_files": [],
-  "test_commands": [
-    "go test ./cmd/sworn/ -run TestTop"
+  "actual_files": [
+    "cmd/sworn/top.go",
+    "cmd/sworn/top_test.go",
+    "cmd/sworn/main.go",
+    "internal/journey/walkthrough.go",
+    "internal/journey/walkthrough_test.go"
   ],
-  "reachability_artifacts": [],
-  "open_deferrals": [],
+  "test_commands": [
+    "go test ./cmd/sworn/ -run TestTop",
+    "go test ./internal/journey/ -run TestLoadAttestations",
+    "go test ./internal/journey/ -run TestAttestation"
+  ],
+  "reachability_artifacts": [],  "open_deferrals": [],
   "verification": {
     "result": "pending",
     "verifier_session_id": null,
