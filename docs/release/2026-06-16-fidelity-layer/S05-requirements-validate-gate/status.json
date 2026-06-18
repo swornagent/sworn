@@ -3,11 +3,11 @@
   "slice_id": "S05-requirements-validate-gate",
   "release": "2026-06-16-fidelity-layer",
   "track": "T1-fidelity-core",
-  "state": "failed_verification",
+  "state": "in_progress",
   "owner": "human",
-  "last_updated_by": "verifier",
-  "last_updated_at": "2026-06-18T08:30:00Z",  "start_commit": "40b2af4b0077d03b041cd7ac8ae3324caaa29a15",
-  "spec_path": "docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/spec.md",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-06-18T16:00:00Z",
+  "start_commit": "40b2af4b0077d03b041cd7ac8ae3324caaa29a15",  "spec_path": "docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/proof.md",
   "journal_path": "docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/journal.md",
   "planned_files": [
@@ -37,13 +37,7 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "fail",
-    "verifier_session_id": null,
-    "verifier_verdict_at": "2026-06-18T08:30:00Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      "Gate 2 — cmd/sworn/reqvalidate_test.go is in the actual diff and in actual_files but is not acknowledged in proof.md Divergence from plan",
-      "Gate 4 — pass-case CLI smoke output not captured; spec requires 'add + ratify it; observe pass' but proof only asserts this verbally",
-      "Gate 4 — no explicit note that the interactive scenario walk is exercised via the planner session"
-    ]
-  }}
+    "result": "pending",    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": false,
+    "violations": []  }}
