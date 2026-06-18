@@ -203,6 +203,16 @@ Required to address:
 
 ## Verifier verdicts received
 
+### 2026-06-18 (fifth fresh-context session) — PASS
+
+```
+PASS
+
+Slice: `S04-requirements-verify-gate`
+Verified against: `8d78b01795eda8a2374577277d8e397b71f19922`
+Verifier session: `fresh, artefact-only`
+```
+
 ### 2026-06-18 (fourth fresh-context session) — FAIL
 
 ```
