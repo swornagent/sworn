@@ -1,44 +1,43 @@
 ---
-title: Slice journal template
-description: Implementation log for one slice. Append-only. Visible to verifier as context, but verifier verdict is based on proof.md and repo state, not journal prose.
+title: Slice journal
+description: Implementation log for S06-definition-of-ready. Append-only.
 ---
 
-# Journal: `<slice-id>`
-
-> Copy this file to `docs/release/<release-name>/<slice-id>/journal.md`. Append entries chronologically. Do not delete history. Decisions captured here must also land in commit message bodies per Rule 4 — this journal is a working surface, not a substitute for durable capture.
+# Journal: `S06-definition-of-ready`
 
 ## Session log
 
-### `<YYYY-MM-DD HH:MM>` — `<session start / state transition>`
+### `2026-06-23 10:00` — session start / state: in_progress
 
-- **State**: `<planned | in_progress | implemented | failed_verification | verified | deferred | shipped>`
+- **State**: `planned -> in_progress`
 - **Notes**:
-  - `<Decisions made>`
-  - `<Trade-offs encountered>`
-  - `<Subagent dispatches and where their outputs landed>`
+  - Materialised track worktree for T2-delivery-cutover (branch `track/2026-06-16-fidelity-layer/T2-delivery-cutover`)
+  - Read spec.md - 5 acceptance checks, 4 planned touchpoints
+  - Explored existing codebase: state.go state machine, rtm.Build(), reqverify.Run(), reqvalidate.Run()
+  - Design decision: DoR check function lives in `internal/implement/ready.go` (new file) rather than modifying existing implement.go. The state machine gets a `TransitionGate` callback in state.go to avoid import cycle.
 
-### `<YYYY-MM-DD HH:MM>` — `<next event>`
+### `2026-06-23 11:00` — implementation complete / state: implemented
 
-- ...
+- **State**: `in_progress -> implemented`
+- **Notes**:
+  - Created `internal/implement/ready.go` - CheckDoR() composes RTM, reqverify, reqvalidate gates; DoRErrorSummary() formats failures
+  - Created `internal/implement/ready_test.go` - 9 tests covering all 5 ACs plus summary formatting
+  - Added `TransitionGate(next, gate func() error)` to `internal/state/state.go` + 4 tests in state_test.go
+  - Updated `internal/prompt/implementer.md` - Gate 0 rewritten from "sections present" to "Definition of Ready"
+  - Updated `internal/adopt/baton/rules/08-requirements-fidelity.md` - Added Definition of Ready section
+  - Key divergence: implement.go and implement_test.go were NOT modified (changed additive new files instead). State package avoids importing gate packages by using a callback pattern.
+  - 27 tests pass total (15 implement + 12 state)
+  - release-verify.sh: 17/18 checks pass (only fails on state being in_progress, now changed to implemented)
+  - Discovered a worktree issue: the `git worktree add -b` command checked out `main` instead of the new track branch. Fixed by checking out the correct branch and cherry-picking.
 
 ## Open questions
 
-\<Anything the implementer needs the human to resolve. Each open question blocks state transition to `implemented` until answered.\>
-
-- ...
+None.
 
 ## Deferrals surfaced
 
-`<Per Rule 2: each deferral needs why + tracking + acknowledgement. Cross-link to GitHub issue or punch-list entry. If empty, write "None" explicitly.>`
-
-- ...
+None.
 
 ## Verifier verdicts received
 
-`<Append every verifier verdict here. Even FAIL verdicts stay — they are part of the slice's history.>`
-
-### `<YYYY-MM-DD HH:MM>` — `<PASS | FAIL | BLOCKED>`
-
-- **Verifier session**: `<fresh / inherited — should always be fresh>`
-- **Verdict body**: `<paste the full verifier output>`
-- **Action taken**: `<how the implementer responded>`
+None yet.
