@@ -103,7 +103,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S02-ears-ac-format` | T1 | EARS acceptance-criteria notation + validator (`sworn lint ac`) | verified | human | [spec](./S02-ears-ac-format/spec.md) | [proof](./S02-ears-ac-format/proof.md) |
 | `S04-requirements-verify-gate` | T1 | 29148 quality-characteristic check, fresh-context, fail-closed (`sworn reqverify`) | verified | human | [spec](./S04-requirements-verify-gate/spec.md) | [proof](./S04-requirements-verify-gate/proof.md) |
 | `S05-requirements-validate-gate` | T1 | Human-owned scenario pos/neg + benefit-hypothesis validation (`sworn reqvalidate`) | verified | human | [spec](./S05-requirements-validate-gate/spec.md) | [proof](./S05-requirements-validate-gate/proof.md) |
-| `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | planned | human | [spec](./S07-design-fit-gate/spec.md) | — |
+| `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | failed_verification | human | [spec](./S07-design-fit-gate/spec.md) | [proof](./S07-design-fit-gate/proof.md) |
 | `S11-journey-elicitation` | T1 | AI-drafts/human-ratifies critical journeys into a durable artefact (`sworn journeys`) | planned | human | [spec](./S11-journey-elicitation/spec.md) | — |
 | `S16-lint-rename` | T1 | Documentation sweep — rename `sworn ears`→`lint ac` / `sworn rtm`→`lint trace` throughout; restore S02 proof.md | planned | human | [spec](./S16-lint-rename/spec.md) | — |
 | `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | planned | human | [spec](./S06-definition-of-ready/spec.md) | — |
@@ -130,17 +130,22 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Aggregate state
 
-- Planned: 12
+- Planned: 11
 - In progress: 0
 - Implemented (awaiting verification): 0
 - Verified (awaiting merge): 4
-- Failed verification: 0
+- Failed verification: 1
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** Planned: 3 / In progress: 1 / Merged: 0
 
 ## Recent activity
+
+### 2026-06-18 — S07-design-fit-gate: FAIL (round 1, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Gate 2. `start_commit` in `status.json` is set to the implementation commit itself (`f4a3bfbe`, `feat(designfit): land S07`), not a pre-implementation "start" commit. `git diff --name-only f4a3bfbe..HEAD` returns only 3 proof-bundle documentation files — none of the planned touchpoints from `spec.md` appear in the verifier's independent diff. Per protocol, the verifier must use `start_commit` from `status.json`. Identical pattern to S05 round-4 FAIL. Gates 1, 3, 4, 5, 6 all PASS; implementation correct (9 unit + 5 CLI integration tests green). Fix: correct `start_commit` to `a1b2672` (S05 PASS commit, immediately before S07 feat). Slice state → `failed_verification`.
 
 ### 2026-06-18 — S05-requirements-validate-gate: PASS (round 5, fresh-context)
 

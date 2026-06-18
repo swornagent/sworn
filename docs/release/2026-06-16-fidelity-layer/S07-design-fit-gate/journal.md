@@ -50,4 +50,17 @@ None.
 
 ## Verifier verdicts received
 
-*Pending — verifier not yet run.*
+### 2026-06-18 — FAIL (round 1, fresh-context)
+
+FAIL
+
+Slice: `S07-design-fit-gate`
+
+Violations:
+1. Gate 2 — `start_commit` in `status.json` points to the implementation commit itself (`f4a3bfbe`, `feat(designfit): land S07`), not a pre-implementation "start" commit. `git diff --name-only f4a3bfbe..HEAD` returns only 3 proof-bundle documentation files; none of the planned touchpoints from `spec.md` (`internal/designfit/designfit.go`, `cmd/sworn/designfit.go`, `internal/state/state.go`, `internal/prompt/planner.md`, etc.) appear in the computed diff scope. Per protocol, the verifier uses `start_commit` from `status.json` and cannot trust `proof.md`'s stated base (`a1b2672`).
+   Evidence: `git diff --name-only f4a3bfbe..HEAD` → `docs/release/2026-06-16-fidelity-layer/S07-design-fit-gate/{journal.md,proof.md,status.json}` only (3 files).
+
+Required to address:
+1. Correct `start_commit` in `docs/release/2026-06-16-fidelity-layer/S07-design-fit-gate/status.json` from `f4a3bfbe6778de3c8ba031babbd4312667be1a07` to `a1b2672b...` (the last commit before S07 implementation — the S05 verifier PASS commit, `chore(release/2026-06-16-fidelity-layer/S05-requirements-validate-gate): verifier verdict — PASS`). Confirm `git diff --name-only a1b2672..HEAD` then shows all planned implementation touchpoints. This is a metadata-only fix; no production code changes are needed.
+
+Note: Gates 1, 3, 4, 5, 6 all PASS. Implementation is correct — all 9 unit tests and 5 CLI integration tests pass in a fresh session. The sole fix needed is the `start_commit` metadata field.
