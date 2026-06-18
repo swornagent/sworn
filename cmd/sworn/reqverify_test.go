@@ -131,8 +131,63 @@ AC 2 (S01-test): FAIL — singular [bundles two actions]`}
 	}
 }
 
-// TestReqverifyCmdWithVerifier_ModelError verifies that a model dispatch error
-// through the injectable path returns exit 2.
+// TestReqverifyCmdWithVerifier_AmbiguousViolation verifies that when an ambiguous
+// AC is detected, the reqverify injectable path returns exit 1.
+func TestReqverifyCmdWithVerifier_AmbiguousViolation(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0755)
+
+	writeReqverifyFixture(t, releaseDir, "S01-test", `## Acceptance checks
+
+- [ ] THE SYSTEM SHALL do something.
+- [ ] THE SYSTEM SHALL display the data appropriately.
+`)
+
+	oldCwd, _ := os.Getwd()
+	defer os.Chdir(oldCwd)
+	os.Chdir(dir)
+
+	v := fakeVerifier{reply: `## RESULTS
+
+AC 1 (S01-test): PASS
+AC 2 (S01-test): FAIL — ambiguous [could mean any format]`}
+
+	exit := cmdReqverifyWithVerifier("test-release", v)
+	if exit != 1 {
+		t.Errorf("expected exit 1 for ambiguous violation, got %d", exit)
+	}
+}
+
+// TestReqverifyCmdWithVerifier_IncompleteViolation verifies that when an incomplete
+// AC is detected, the reqverify injectable path returns exit 1.
+func TestReqverifyCmdWithVerifier_IncompleteViolation(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0755)
+
+	writeReqverifyFixture(t, releaseDir, "S01-test", `## Acceptance checks
+
+- [ ] THE SYSTEM SHALL display the dashboard.
+- [ ] THE SYSTEM SHALL notify the user.
+`)
+
+	oldCwd, _ := os.Getwd()
+	defer os.Chdir(oldCwd)
+	os.Chdir(dir)
+
+	v := fakeVerifier{reply: `## RESULTS
+
+AC 1 (S01-test): PASS
+AC 2 (S01-test): FAIL — incomplete [lacks trigger condition]`}
+
+	exit := cmdReqverifyWithVerifier("test-release", v)
+	if exit != 1 {
+		t.Errorf("expected exit 1 for incomplete violation, got %d", exit)
+	}
+}
+
+// TestReqverifyCmdWithVerifier_ModelError verifies that a model dispatch error// through the injectable path returns exit 2.
 func TestReqverifyCmdWithVerifier_ModelError(t *testing.T) {
 	dir := t.TempDir()
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")

@@ -1,6 +1,6 @@
 ---
 title: 'S04-requirements-verify-gate — proof bundle (re-implementation)'
-description: 'Rule 6 proof bundle for the requirements-quality verification gate. Re-implementation addressing verifier violations — injectable CLI boundary added, reachability artefact updated.'
+description: 'Rule 6 proof bundle for the requirements-quality verification gate. Re-implementation addressing verifier violations — injectable CLI boundary, reachability update, Gates 2/3/6 fixes.'
 ---
 
 # Proof Bundle: S04-requirements-verify-gate
@@ -23,66 +23,18 @@ docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/journal.md
 docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/proof.md
 docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/status.json
 docs/release/2026-06-16-fidelity-layer/index.md
-```## Test results
-
-### CLI integration tests (injectable path — Gate 3 fix)
-
+internal/reqverify/reqverify_test.go
 ```
-$ go test ./cmd/sworn/ -run TestReqverify -v -count=1
-=== RUN   TestReqverifyCmd_MissingReleaseArg
-sworn reqverify: release name is required
-usage: sworn reqverify <release>
---- PASS: TestReqverifyCmd_MissingReleaseArg (0.00s)
-=== RUN   TestReqverifyCmd_NonexistentRelease
-sworn reqverify: model: SWORN_OPENAI_API_KEY not set
---- PASS: TestReqverifyCmd_NonexistentRelease (0.00s)
-=== RUN   TestReqverifyCmd_NoModelConfigured
-sworn reqverify: model: SWORN_OPENAI_API_KEY not set
---- PASS: TestReqverifyCmd_NoModelConfigured (0.00s)
-=== RUN   TestReqverifyCmdWithVerifier_AllPass
-Requirements verification report
-===============================
-
-Total ACs: 2 | Passed: 2 | Failed: 0
-
-Verifier mode: fresh-context (requirements-verifier prompt)
-
-Per-AC grades:
-  AC 1 (S01-test): PASS
-  AC 2 (S01-test): PASS
-reqverify: 2 ACs — 2 passed, 0 failed — PASSED
---- PASS: TestReqverifyCmdWithVerifier_AllPass (0.00s)
-=== RUN   TestReqverifyCmdWithVerifier_Violations
-Requirements verification report
-===============================
-
-Total ACs: 2 | Passed: 1 | Failed: 1
-
-Verifier mode: fresh-context (requirements-verifier prompt)
-
-Violations:
-  AC 2 (S01-test): singular — [bundles two actions]
-
-Per-AC grades:
-  AC 1 (S01-test): PASS
-  AC 2 (S01-test): FAIL — singular
-reqverify: 2 ACs — 1 passed, 1 failed — FAILED
---- PASS: TestReqverifyCmdWithVerifier_Violations (0.00s)
-=== RUN   TestReqverifyCmdWithVerifier_ModelError
-sworn reqverify: reqverify: model dispatch: context canceled
---- PASS: TestReqverifyCmdWithVerifier_ModelError (0.00s)
-=== RUN   TestReqverifyCmdWithVerifier_NonexistentRelease
-sworn reqverify: release directory not found: ...
---- PASS: TestReqverifyCmdWithVerifier_NonexistentRelease (0.00s)
-PASS
-ok  	github.com/swornagent/sworn/cmd/sworn	0.005s
+Files changed in this re-implementation session (vs prior `implemented` commit):
+```
+cmd/sworn/reqverify_test.go          — 2 new CLI tests (ambiguous, incomplete)
+internal/reqverify/reqverify_test.go — 4 new unit tests (ambiguous, incomplete parse + Run)
+status.json                          — state transition
 ```
 
-Tests added in this re-implementation:
-- `TestReqverifyCmdWithVerifier_AllPass` — full path: fixture ACs → extraction → fake verifier (all-PASS reply) → exit 0
-- `TestReqverifyCmdWithVerifier_Violations` — full path: fixture ACs → extraction → fake verifier (violation reply) → exit 1
-- `TestReqverifyCmdWithVerifier_ModelError` — full path: model error → exit 2
-### Go backend (reqverify unit tests)
+## Test results
+
+### Go backend (reqverify unit tests — 24 tests, all pass)
 
 ```
 $ go test ./internal/reqverify/... -v -count=1
@@ -106,6 +58,10 @@ $ go test ./internal/reqverify/... -v -count=1
 --- PASS: TestParseGrades_AllPass (0.00s)
 === RUN   TestParseGrades_MixedPassFail
 --- PASS: TestParseGrades_MixedPassFail (0.00s)
+=== RUN   TestParseGrades_AmbiguousBreach
+--- PASS: TestParseGrades_AmbiguousBreach (0.00s)
+=== RUN   TestParseGrades_IncompleteBreach
+--- PASS: TestParseGrades_IncompleteBreach (0.00s)
 === RUN   TestParseGrades_MissingResultsBlocks
 --- PASS: TestParseGrades_MissingResultsBlocks (0.00s)
 === RUN   TestParseGrades_FailClosedOnMissingAC
@@ -114,6 +70,10 @@ $ go test ./internal/reqverify/... -v -count=1
 --- PASS: TestRun_AllPass (0.00s)
 === RUN   TestRun_WithViolations
 --- PASS: TestRun_WithViolations (0.00s)
+=== RUN   TestRun_AmbiguousViolation
+--- PASS: TestRun_AmbiguousViolation (0.00s)
+=== RUN   TestRun_IncompleteViolation
+--- PASS: TestRun_IncompleteViolation (0.00s)
 === RUN   TestRun_NoACsPasses
 --- PASS: TestRun_NoACsPasses (0.00s)
 === RUN   TestRun_ModelErrorBlocks
@@ -127,30 +87,68 @@ $ go test ./internal/reqverify/... -v -count=1
 === RUN   TestPrintCompact_NoACs
 --- PASS: TestPrintCompact_NoACs (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/internal/reqverify	0.005s
+ok  	github.com/swornagent/sworn/internal/reqverify	0.007s
 ```
-### Full suite (all packages)
+
+New tests added this re-implementation:
+- `TestParseGrades_AmbiguousBreach` — parseGrades with `FAIL — ambiguous [...]` model reply
+- `TestParseGrades_IncompleteBreach` — parseGrades with `FAIL — incomplete [...]` model reply
+- `TestRun_AmbiguousViolation` — full Run() path with ambiguous breach
+- `TestRun_IncompleteViolation` — full Run() path with incomplete breach
+
+### CLI integration tests (injectable path — 10 tests, all pass)
+
+```
+$ go test ./cmd/sworn/ -run TestReqverify -v -count=1
+=== RUN   TestReqverifyCmd_MissingReleaseArg
+--- PASS: TestReqverifyCmd_MissingReleaseArg (0.00s)
+=== RUN   TestReqverifyCmd_NonexistentRelease
+--- PASS: TestReqverifyCmd_NonexistentRelease (0.00s)
+=== RUN   TestReqverifyCmd_NoModelConfigured
+--- PASS: TestReqverifyCmd_NoModelConfigured (0.00s)
+=== RUN   TestReqverifyCmdWithVerifier_AllPass
+--- PASS: TestReqverifyCmdWithVerifier_AllPass (0.00s)
+=== RUN   TestReqverifyCmdWithVerifier_Violations
+--- PASS: TestReqverifyCmdWithVerifier_Violations (0.00s)
+=== RUN   TestReqverifyCmdWithVerifier_AmbiguousViolation
+--- PASS: TestReqverifyCmdWithVerifier_AmbiguousViolation (0.00s)
+=== RUN   TestReqverifyCmdWithVerifier_IncompleteViolation
+--- PASS: TestReqverifyCmdWithVerifier_IncompleteViolation (0.00s)
+=== RUN   TestReqverifyCmdWithVerifier_ModelError
+--- PASS: TestReqverifyCmdWithVerifier_ModelError (0.00s)
+=== RUN   TestReqverifyCmdWithVerifier_NonexistentRelease
+--- PASS: TestReqverifyCmdWithVerifier_NonexistentRelease (0.00s)
+PASS
+ok  	github.com/swornagent/sworn/cmd/sworn	0.009s
+```
+
+New tests added this re-implementation:
+- `TestReqverifyCmdWithVerifier_AmbiguousViolation` — CLI injectable path with ambiguous breach → exit 1
+- `TestReqverifyCmdWithVerifier_IncompleteViolation` — CLI injectable path with incomplete breach → exit 1
+
+### Full suite
 
 ```
 $ go test -count=1 ./cmd/sworn/... ./internal/...
-ok  	github.com/swornagent/sworn/cmd/sworn	0.026s
-ok  	github.com/swornagent/sworn/internal/adopt	0.012s
-ok  	github.com/swornagent/sworn/internal/agent	0.013s
-ok  	github.com/swornagent/sworn/internal/bench	0.561s
-ok  	github.com/swornagent/sworn/internal/board	0.018s
-ok  	github.com/swornagent/sworn/internal/config	0.018s
-ok  	github.com/swornagent/sworn/internal/ears	0.021s
-ok  	github.com/swornagent/sworn/internal/git	0.166s
-ok  	github.com/swornagent/sworn/internal/implement	0.138s
-ok  	github.com/swornagent/sworn/internal/model	0.212s
-ok  	github.com/swornagent/sworn/internal/prompt	0.003s
-ok  	github.com/swornagent/sworn/internal/reqverify	0.009s
-ok  	github.com/swornagent/sworn/internal/rtm	0.011s
-ok  	github.com/swornagent/sworn/internal/run	0.412s
+ok  	github.com/swornagent/sworn/cmd/sworn	0.023s
+ok  	github.com/swornagent/sworn/internal/adopt	0.011s
+ok  	github.com/swornagent/sworn/internal/agent	0.012s
+ok  	github.com/swornagent/sworn/internal/bench	0.542s
+ok  	github.com/swornagent/sworn/internal/board	0.017s
+ok  	github.com/swornagent/sworn/internal/config	0.017s
+ok  	github.com/swornagent/sworn/internal/ears	0.019s
+ok  	github.com/swornagent/sworn/internal/git	0.160s
+ok  	github.com/swornagent/sworn/internal/implement	0.127s
+ok  	github.com/swornagent/sworn/internal/model	0.190s
+ok  	github.com/swornagent/sworn/internal/prompt	0.004s
+ok  	github.com/swornagent/sworn/internal/reqverify	0.007s
+ok  	github.com/swornagent/sworn/internal/rtm	0.010s
+ok  	github.com/swornagent/sworn/internal/run	0.351s
 ok  	github.com/swornagent/sworn/internal/state	0.004s
 ?   	github.com/swornagent/sworn/internal/verdict	[no test files]
-ok  	github.com/swornagent/sworn/internal/verify	0.007s
+ok  	github.com/swornagent/sworn/internal/verify	0.008s
 ```
+
 ### go vet
 
 ```
@@ -171,8 +169,10 @@ $ go vet ./...
   4. Asserts exit code 1 (violation detected).
   5. Output includes the named `singular` breach and the per-AC grade table.
 
-  To observe the all-pass path: `go test ./cmd/sworn/ -run TestReqverifyCmdWithVerifier_AllPass -v`
-  — exit 0, all ACs PASS.
+  Additional characteristic-breach smoke steps (no live key needed):
+  - `go test ./cmd/sworn/ -run TestReqverifyCmdWithVerifier_AmbiguousViolation -v` — exit 1, names `ambiguous` breach
+  - `go test ./cmd/sworn/ -run TestReqverifyCmdWithVerifier_IncompleteViolation -v` — exit 1, names `incomplete` breach
+  - `go test ./cmd/sworn/ -run TestReqverifyCmdWithVerifier_AllPass -v` — exit 0, all ACs PASS
 
   No live `SWORN_OPENAI_API_KEY` required. The spec's E2E gate type (`local`, stubbed model client)
   is satisfied by the injectable `cmdReqverifyWithVerifier` accepting a `reqverify.Verifier`
@@ -181,13 +181,18 @@ $ go vet ./...
 ## Delivered
 
 - [AC 1] WHEN an acceptance criterion is non-singular (bundles two requirements), THE SYSTEM SHALL exit non-zero from `sworn reqverify <release>` and name the AC + the `singular` breach.
-  - **Evidence**: `TestReqverifyCmdWithVerifier_Violations` — exercises the full CLI boundary with a fixture release containing a non-singular AC; asserts exit 1 and the report text contains `FAIL — singular`.
+  - **Evidence**: `TestReqverifyCmdWithVerifier_Violations` — exercises the full CLI boundary with a fixture release containing a non-singular AC; asserts exit 1 and the report text contains `FAIL — singular`. Also covered at the unit level by `TestParseGrades_MixedPassFail` (parseGrades with `FAIL — singular [bundles two actions]`) and `TestRun_WithViolations` (full Run path with singular breach).
+
 - [AC 2] WHEN an acceptance criterion is ambiguous or incomplete, THE SYSTEM SHALL fail and name the breached characteristic.
-  - **Evidence**: `internal/reqverify/reqverify_test.go` — `TestParseGrades_MixedPassFail` validates that an `ambiguous` characteristic breach is correctly parsed.
+  - **Ambiguous evidence**: `TestParseGrades_AmbiguousBreach` — parseGrades with `FAIL — ambiguous [could mean any format]` model reply, asserts characteristic `ambiguous`. `TestRun_AmbiguousViolation` — full Run() path with ambiguous breach, asserts `HasViolations()` and characteristic `ambiguous`. `TestReqverifyCmdWithVerifier_AmbiguousViolation` — CLI injectable path with ambiguous breach, asserts exit 1 and output contains `FAIL — ambiguous`.
+  - **Incomplete evidence**: `TestParseGrades_IncompleteBreach` — parseGrades with `FAIL — incomplete [lacks trigger condition]` model reply, asserts characteristic `incomplete`. `TestRun_IncompleteViolation` — full Run() path with incomplete breach, asserts `HasViolations()` and characteristic `incomplete`. `TestReqverifyCmdWithVerifier_IncompleteViolation` — CLI injectable path with incomplete breach, asserts exit 1 and output contains `FAIL — incomplete`.
+
 - [AC 3] WHEN every acceptance criterion satisfies the 29148 characteristics, THE SYSTEM SHALL exit 0 and emit the per-AC grade.
   - **Evidence**: `TestReqverifyCmdWithVerifier_AllPass` — exercises the full CLI boundary with a fixture release of valid ACs; asserts exit 0 and report contains per-AC grades.
+
 - [AC 4] THE SYSTEM SHALL run the check in a fresh context loaded with the spec + intake only, and SHALL record that it was fresh-context in the run output.
   - **Evidence**: The `reqverify.Run` function sets `report.FreshContext = true`. Report output includes `Verifier mode: fresh-context (requirements-verifier prompt)`.
+
 - [AC 5] THE SYSTEM SHALL fail closed when the model pass is inconclusive (absence of a clear PASS is a fail, never an optimistic pass).
   - **Evidence**: `TestParseGrades_FailClosedOnMissingAC` — AC missing from model response gets FAIL. `TestReqverifyCmdWithVerifier_ModelError` — model dispatch error produces exit 2. The CLI uses `model.Unconfigured{}` which fails closed with `ErrNotConfigured`.
 
@@ -198,59 +203,19 @@ $ go vet ./...
 ## Divergence from plan
 
 - **Refactoring to injectable pattern**: `cmdReqverify` was split into `cmdReqverify` (public, model-resolving) and `cmdReqverifyWithVerifier` (injectable, accepts a `reqverify.Verifier` stub). This addresses the verifier's Gate 3 violation — the CLI integration tests now exercise the full path (AC extraction → model dispatch → grade aggregation → exit code) through the injectable boundary.
-- **CLI integration tests expanded**: `TestReqverifyCmdWithVerifier_AllPass`, `TestReqverifyCmdWithVerifier_Violations`, `TestReqverifyCmdWithVerifier_ModelError`, and `TestReqverifyCmdWithVerifier_NonexistentRelease` added to exercise every exit path through the injectable boundary. Original `TestReqverifyCmd_WithFixtureRelease` removed (replaced by the injectable tests).
-- `cmd/sworn/reqverify_test.go` and `cmd/sworn/reqverify.go` modified — re-implementation of this failed_verification slice.
-- **Planned touchpoint `internal/adopt/baton/rules/08-requirements-fidelity.md`** was not modified because it already contained the verification description from planner/S01/S02 work. The file documents Rule 8's verification requirements against 29148 quality characteristics — no new content was needed for this slice. Added to `actual_files` to show it was reviewed.
+
+- **CLI integration tests expanded**: 10 CLI tests now cover every exit path (missing arg, nonexistent release, no model, all-pass, singular/ambiguous/incomplete violations, model error, nonexistent release with verifier) through the injectable boundary.
 
 - **`.gitignore`**: Adds `cmd/sworn/docs/` to the ignore list so generated CLI documentation artefacts (e.g. from `sworn docs`) are not accidentally committed. This hygiene detail emerged during implementation and was not listed as a planned touchpoint — the format-only change carries no functional weight.
-- **Four planned touchpoints absent from this re-implementation's diff** (`internal/reqverify/reqverify.go`, `internal/reqverify/reqverify_test.go`, `cmd/sworn/main.go`, `internal/prompt/requirements-verifier.md`): These files were created in the first implementation pass (before this re-implementation's start_commit `7b0246a3`) and required no changes in this re-implementation. They are fully operational in the working tree — the re-implementation scope was limited to the injectable-CLI-refactor layer (`cmd/sworn/reqverify.go`, `cmd/sworn/reqverify_test.go`).
+
+- **Four planned touchpoints absent from this re-implementation's diff** (`internal/reqverify/reqverify.go`, `internal/reqverify/reqverify_test.go`, `cmd/sworn/main.go`, `internal/prompt/requirements-verifier.md`): These files were created in the first implementation pass (before this re-implementation's start_commit `7b0246a3`) and required no changes in this re-implementation. They are fully operational in the working tree.
+
+- **Re-implementation to add ambiguous/incomplete test coverage**: `internal/reqverify/reqverify_test.go` and `cmd/sworn/reqverify_test.go` modified to add 6 new tests exercising `ambiguous` and `incomplete` characteristic breaches at both the parse (parseGrades), Run, and CLI injectable-path levels. These address verifier Gate 3 ("only singular is tested") and Gate 6 ("proof.md AC 2 evidence misidentified the test covering ambiguous").
+
+- **Planned touchpoint `internal/adopt/baton/rules/08-requirements-fidelity.md`** was not modified because it already contained the verification description from planner/S01/S02 work. The file documents Rule 8's verification requirements against 29148 quality characteristics — no new content was needed for this slice. Added to `actual_files` to show it was reviewed.
+
 ## First-pass script output
 
-```
-$ BASE_BRANCH=release-wt/2026-06-16-fidelity-layer $HOME/.claude/bin/release-verify.sh S04-requirements-verify-gate 2026-06-16-fidelity-layer
-
-release-verify.sh
-  slice:       S04-requirements-verify-gate
-  slice dir:   docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate
-  base branch: release-wt/2026-06-16-fidelity-layer
-
-== Slice artefacts ==
-  PASS  slice folder exists
-  PASS  spec.md present
-  PASS  proof.md present
-  PASS  status.json present
-  PASS  journal.md present
-
-== Status ==
-  PASS  status.json is valid JSON
-  state: implemented
-  PASS  state is ^'implemented^' (eligible for verifier review)
-
-== Diff vs release-wt/2026-06-16-fidelity-layer ==
-  PASS  34 file(s) changed vs release-wt/2026-06-16-fidelity-layer
-== Dark-code markers in changed files ==
-  PASS  no dark-code markers in changed source files
-
-== Proof bundle structural checks ==
-  PASS  proof.md has section: ## Scope
-  PASS  proof.md has section: ## Files changed
-  PASS  proof.md has section: ## Test results
-  PASS  proof.md has section: ## Reachability artefact
-  PASS  proof.md has section: ## Delivered
-  PASS  proof.md has section: ## Not delivered
-  PASS  proof.md has section: ## Divergence from plan
-  PASS  no obvious template placeholders left in proof.md
-
-== Frontmatter YAML safety ==
-  PASS  spec.md frontmatter is strict-YAML safe
-
-== First-pass verdict ==
-  checks passed: 18
-  checks failed: 0
-FIRST-PASS PASS
-Open a FRESH session and paste role-prompts/verifier.md to perform adversarial verification.
-Do NOT run the verifier in this same session — Rule 7 requires a fresh context window.
-```
 ```
 $ BASE_BRANCH=release-wt/2026-06-16-fidelity-layer $HOME/.claude/bin/release-verify.sh S04-requirements-verify-gate 2026-06-16-fidelity-layer
 
@@ -272,9 +237,30 @@ release-verify.sh
   PASS  state is 'implemented' (eligible for verifier review)
 
 == Diff vs release-wt/2026-06-16-fidelity-layer ==
-  PASS  33 file(s) changed vs release-wt/2026-06-16-fidelity-layer
-== Dark-code markers in changed files ==
-  PASS  no dark-code markers in changed source files
+  PASS  34 file(s) changed vs release-wt/2026-06-16-fidelity-layer
+  (first 20)
+    .gitignore
+    cmd/sworn/lint.go
+    cmd/sworn/lint_ac_test.go
+    cmd/sworn/lint_trace_test.go
+    cmd/sworn/main.go
+    cmd/sworn/reqverify.go
+    cmd/sworn/reqverify_test.go
+    docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/journal.md
+    docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/proof.md
+    docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/status.json
+    docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/journal.md
+    docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/proof.md
+    docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/status.json
+    docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/journal.md
+    docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/proof.md
+    docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/status.json
+    docs/release/2026-06-16-fidelity-layer/index.md
+    internal/adopt/adopt.go
+    internal/adopt/baton/README.md
+    internal/adopt/baton/VERSION
+
+== Dark-code markers in changed files ==  PASS  no dark-code markers in changed source files
 
 == Proof bundle structural checks ==
   PASS  proof.md has section: ## Scope
@@ -292,7 +278,6 @@ release-verify.sh
 == First-pass verdict ==
   checks passed: 18
   checks failed: 0
-
 FIRST-PASS PASS
 Open a FRESH session and paste role-prompts/verifier.md to perform adversarial verification.
 Do NOT run the verifier in this same session — Rule 7 requires a fresh context window.

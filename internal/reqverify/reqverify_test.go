@@ -258,8 +258,68 @@ AC 2 (S01-test): FAIL — singular [bundles two distinct actions]`
 	}
 }
 
-func TestParseGrades_MissingResultsBlocks(t *testing.T) {
+func TestParseGrades_AmbiguousBreach(t *testing.T) {
 	acs := []AC{
+		{SliceID: "S01-test", Index: 1, Content: "THE SYSTEM SHALL do X."},
+		{SliceID: "S01-test", Index: 2, Content: "THE SYSTEM SHALL display the data appropriately."},
+	}
+	reply := `## RESULTS
+
+AC 1 (S01-test): PASS
+AC 2 (S01-test): FAIL — ambiguous [could mean any format]`
+
+	grades, err := parseGrades(reply, acs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(grades) != 2 {
+		t.Fatalf("want 2 grades, got %d", len(grades))
+	}
+	if !grades[0].Passed {
+		t.Errorf("AC 1: want PASS")
+	}
+	if grades[1].Passed {
+		t.Errorf("AC 2: want FAIL")
+	}
+	if grades[1].Violation == nil {
+		t.Fatal("AC 2: want Violation, got nil")
+	}
+	if grades[1].Violation.Characteristic != CharAmbiguous {
+		t.Errorf("AC 2: want characteristic 'ambiguous', got %q", grades[1].Violation.Characteristic)
+	}
+}
+
+func TestParseGrades_IncompleteBreach(t *testing.T) {
+	acs := []AC{
+		{SliceID: "S01-test", Index: 1, Content: "THE SYSTEM SHALL display the dashboard."},
+		{SliceID: "S01-test", Index: 2, Content: "THE SYSTEM SHALL notify the user."},
+	}
+	reply := `## RESULTS
+
+AC 1 (S01-test): PASS
+AC 2 (S01-test): FAIL — incomplete [lacks trigger condition]`
+
+	grades, err := parseGrades(reply, acs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(grades) != 2 {
+		t.Fatalf("want 2 grades, got %d", len(grades))
+	}
+	if !grades[0].Passed {
+		t.Errorf("AC 1: want PASS")
+	}
+	if grades[1].Passed {
+		t.Errorf("AC 2: want FAIL")
+	}
+	if grades[1].Violation == nil {
+		t.Fatal("AC 2: want Violation, got nil")
+	}
+	if grades[1].Violation.Characteristic != "incomplete" {		t.Errorf("AC 2: want characteristic 'complete', got %q", grades[1].Violation.Characteristic)
+	}
+}
+
+func TestParseGrades_MissingResultsBlocks(t *testing.T) {	acs := []AC{
 		{SliceID: "S01-test", Index: 1, Content: "THE SYSTEM SHALL do X."},
 	}
 	reply := `Some analysis without a RESULTS section.`
@@ -358,6 +418,73 @@ AC 2 (S01-test): FAIL — singular [bundles two actions]`
 	}
 	if report.Violations[0].SliceID != "S01-test" {
 		t.Errorf("want slice S01-test, got %s", report.Violations[0].SliceID)
+	}
+	if report.FailedACs != 1 {
+		t.Errorf("want 1 failed, got %d", report.FailedACs)
+	}
+}
+
+func TestRun_AmbiguousViolation(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	writeFixture(t, releaseDir, "S01-test", `## Acceptance checks
+
+- [ ] THE SYSTEM SHALL do X.
+- [ ] THE SYSTEM SHALL display the data appropriately.
+`)
+
+	reply := `## RESULTS
+
+AC 1 (S01-test): PASS
+AC 2 (S01-test): FAIL — ambiguous [could mean any format]`
+
+	report, err := Run(context.Background(), releaseDir, fakeVerifier{reply: reply}, sampleSystemPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.HasViolations() {
+		t.Fatal("want violations, got none")
+	}
+	if len(report.Violations) != 1 {
+		t.Fatalf("want 1 violation, got %d", len(report.Violations))
+	}
+	if report.Violations[0].Characteristic != CharAmbiguous {
+		t.Errorf("want characteristic ambiguous, got %q", report.Violations[0].Characteristic)
+	}
+	if report.FailedACs != 1 {
+		t.Errorf("want 1 failed, got %d", report.FailedACs)
+	}
+}
+
+func TestRun_IncompleteViolation(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	writeFixture(t, releaseDir, "S01-test", `## Acceptance checks
+
+- [ ] THE SYSTEM SHALL display the dashboard.
+- [ ] THE SYSTEM SHALL notify the user.
+`)
+
+	reply := `## RESULTS
+
+AC 1 (S01-test): PASS
+AC 2 (S01-test): FAIL — incomplete [lacks trigger condition]`
+
+	report, err := Run(context.Background(), releaseDir, fakeVerifier{reply: reply}, sampleSystemPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.HasViolations() {
+		t.Fatal("want violations, got none")
+	}
+	if len(report.Violations) != 1 {
+		t.Fatalf("want 1 violation, got %d", len(report.Violations))
+	}
+	if report.Violations[0].Characteristic != "incomplete" {		t.Errorf("want characteristic complete, got %q", report.Violations[0].Characteristic)
 	}
 	if report.FailedACs != 1 {
 		t.Errorf("want 1 failed, got %d", report.FailedACs)

@@ -231,3 +231,24 @@ Required to address:
 2. Update proof.md AC 2 "Evidence" to reference the actual test(s) that cover the
    `ambiguous` and `incomplete` breach paths.
 ```
+
+### 2026-06-18 18:00 — re-implementation (address Gate 3 + Gate 6 — ambiguous/incomplete test coverage)
+
+- **State**: `failed_verification → in_progress → implemented`
+- **Notes**:
+  - Addressed both verifier violations from the fourth fresh-context session.
+  - **Gate 3 fix — ambiguous/incomplete test coverage**:
+    - Added `TestParseGrades_AmbiguousBreach` — parseGrades with `FAIL — ambiguous [could mean any format]` model reply, asserts characteristic `ambiguous`.
+    - Added `TestParseGrades_IncompleteBreach` — parseGrades with `FAIL — incomplete [lacks trigger condition]` model reply, asserts characteristic `incomplete`.
+    - Added `TestRun_AmbiguousViolation` — full `Run()` path with ambiguous breach through fakeVerifier, asserts `HasViolations()` and characteristic.
+    - Added `TestRun_IncompleteViolation` — full `Run()` path with incomplete breach through fakeVerifier, asserts `HasViolations()` and characteristic.
+    - Added `TestReqverifyCmdWithVerifier_AmbiguousViolation` — CLI injectable path with ambiguous breach → exit 1.
+    - Added `TestReqverifyCmdWithVerifier_IncompleteViolation` — CLI injectable path with incomplete breach → exit 1.
+    - All 6 new tests exercise characteristic-breach detection through the model-client seam (fakeVerifier), covering the spec's Required Tests demand for (non-singular, ambiguous, incomplete).
+  - **Gate 6 fix — corrected AC 2 evidence**:
+    - Updated proof.md AC 2 "Evidence" to separately reference the `ambiguous` tests (`TestParseGrades_AmbiguousBreach`, `TestRun_AmbiguousViolation`, `TestReqverifyCmdWithVerifier_AmbiguousViolation`) and the `incomplete` tests (`TestParseGrades_IncompleteBreach`, `TestRun_IncompleteViolation`, `TestReqverifyCmdWithVerifier_IncompleteViolation`).
+    - The prior claim that `TestParseGrades_MixedPassFail` tested `ambiguous` was incorrect — it tests `singular`. `singular` is now correctly cited for AC 1, and `ambiguous`/`incomplete` are correctly cited for AC 2 with their own dedicated tests.
+  - **Characteristic constant note**: The model returns `incomplete` as a raw characteristic — the `parseGrades` function faithfully passes through whatever the model returns. The `CharComplete` constant (`"complete"`) exists but the breach is named by the model as `"incomplete"`. Tests assert against the raw string the model emits.
+  - All 24 unit tests + 10 CLI integration tests pass. `go vet` clean.
+  - First-pass: 18/18 PASS.
+  - No changes to `internal/reqverify/reqverify.go` or `cmd/sworn/reqverify.go` — pure test coverage expansion.
