@@ -104,10 +104,24 @@ Next: `/implement-slice S10-no-mock-boundary 2026-06-16-fidelity-layer` to addre
   - `go vet` clean on all affected packages
   - `release-verify.sh` — all checks pass (state transitioned from in_progress to implemented)
 - **No deferrals** — this slice bans undeclared deferrals and carries none itself.
+### `2026-06-25 14:00` — re-implementation session (round 4, from failed_verification)
+
+- **State**: `failed_verification → in_progress → implemented`
+- **Violation fix — Gate 2: start_commit**:
+  - Reset `start_commit` to `4d866d66af5b7fe33b1282eef458ea664dd30974` (the original `docs: start implementation` commit, as instructed by round-3 verifier).
+  - Previous value `cec70a6` was a FAIL verdict commit that excluded `internal/prompt/implementer.md` and `internal/adopt/baton/rules/10-customer-journey-validation.md` from the canonical diff — both were delivered in the original feat commit `72dfaee` which precedes `cec70a6`.
+  - Updated proof.md "Files changed" to diff from `4d866d6`; all four planned touchpoints now appear.
+  - Updated proof.md "Divergence from plan" to explain: implementer.md + 10-customer-journey-validation.md delivered in round-1 feat commit; sworn binary tracked accidentally; cmd/sworn/main.go + internal/run/run.go added for entry-point wiring (required by round-1 verifier violations).
+- **Verification**:
+  - All 12 S10 tests + full `internal/verify/` suite pass
+  - All `internal/run/` tests pass
+  - `go vet` clean on all affected packages
+  - `go test ./internal/...` — all green
+- **No deferrals** — this slice bans undeclared deferrals and carries none itself.
+
 ### `2026-06-19` — verifier verdict: FAIL
 
 FAIL: 2 violations
-
 1. **AC2 + Rule 1 — Declared-deferral path not wired at entry points**: `internal/run/run.go` (line 232) and `cmd/sworn/main.go` cmdVerify (line 111) both call `verify.Run()` without populating `OpenDeferrals`. Neither reads `open_deferrals` from `status.json` and passes it through. As a result, every boundary mock is treated as undeclared in any real invocation (`sworn verify` or `sworn run`). AC2 (declared boundary mock allowed) is only exercised in unit tests — not user-reachable via the integration entry point. Rule 1 violation.
 
 2. **AC2 / Required Tests — "passes-with-note" not verified**: The spec's Required Tests say "declared mock (with the three components) passes-with-note." `TestRun_DeclaredBoundaryMockAllowed` only asserts `got.Verdict == verdict.Pass` — it does not verify the declared mock is surfaced in the output as a known deferral. AC2 states "THE SYSTEM SHALL allow it and surface it in the run output as a known deferral," a SHALL with no test coverage.

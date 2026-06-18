@@ -1,6 +1,6 @@
 ---
-title: Proof bundle for S10-no-mock-boundary (re-implementation)
-description: Generated from live repo state. Addresses two verifier violations from previous failed_verification: wiring OpenDeferrals at entry points and surfacing declared mocks in output.
+title: Proof bundle for S10-no-mock-boundary (round 4 — Gate 2 fix)
+description: Generated from live repo state. Fixes round-3 verifier Gate 2 violation: start_commit reset to 4d866d6 (original docs: start implementation) so canonical diff includes all planned touchpoints.
 ---
 
 # Proof Bundle: `S10-no-mock-boundary`
@@ -11,31 +11,36 @@ When an implementer cannot reach real infrastructure at a validated boundary (DB
 
 ## Files changed
 
-### Changes in this re-implementation session (diff from `cec70a6e` — round-1 FAIL verdict commit, before re-implementation began)
+### Canonical diff from `start_commit` (`4d866d6`) — the original `docs: start implementation` commit
 
 ```
-$ git diff --name-only cec70a61667b571acc413ee2afe2a6380f9b986e HEAD
+$ git diff --name-only 4d866d66af5b7fe33b1282eef458ea664dd30974 HEAD
 cmd/sworn/main.go
 docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/journal.md
 docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/proof.md
 docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/status.json
 docs/release/2026-06-16-fidelity-layer/index.md
+internal/adopt/baton/rules/10-customer-journey-validation.md
+internal/prompt/implementer.md
 internal/run/run.go
 internal/verify/verify.go
 internal/verify/verify_test.go
 sworn
 ```
 
-Note: `sworn` binary appears because it was tracked in `bfdede8`. All planned touchpoints (`cmd/sworn/main.go`, `internal/run/run.go`, `internal/verify/verify.go`, `internal/verify/verify_test.go`) and all docs files appear in the verifier's canonical diff.
+All four planned touchpoints appear: `internal/verify/verify.go`, `internal/verify/verify_test.go`, `internal/prompt/implementer.md`, `internal/adopt/baton/rules/10-customer-journey-validation.md`.
 
 ### Key changes by file
 
 | File | Change |
 |------|--------|
-| `internal/verify/verify.go` | After model call, prepend declared mock info to result Rationale |
-| `internal/verify/verify_test.go` | `TestRun_DeclaredBoundaryMockAllowed` now asserts rationale contains declared mock |
-| `cmd/sworn/main.go` | Added `--deferral` repeatable flag to `sworn verify`; passed as `OpenDeferrals` |
-| `internal/run/run.go` | Reads `open_deferrals` from status.json before `verify.Run()` call |
+| `internal/verify/verify.go` | `CheckBoundaryMocks()` — heuristic boundary-mock detection; `Run()` short-circuits on undeclared mocks; prepends declared-mock info to Rationale |
+| `internal/verify/verify_test.go` | 12 tests: undeclared-boundary-mock fails, declared-boundary-mock passes, non-boundary-mock not flagged, auth/entitlement/fake/stub detection, empty diff, multiple mocks, `TestRun_UndeclaredBoundaryMockFailsClosed`, `TestRun_DeclaredBoundaryMockAllowed` (asserts rationale) |
+| `internal/prompt/implementer.md` | Stop-don't-mock hard constraint: on environment wall, STOP and surface blocker |
+| `internal/adopt/baton/rules/10-customer-journey-validation.md` | No-mock-boundary enforcement section |
+| `cmd/sworn/main.go` | `--deferral` repeatable flag on `sworn verify`; passed as `Input.OpenDeferrals` |
+| `internal/run/run.go` | Reads `open_deferrals` from `status.json` before `verify.Run()` call |
+
 ## Test results
 
 ### Go — S10-specific tests (`internal/verify/`)
@@ -74,7 +79,7 @@ ok  	github.com/swornagent/sworn/internal/verify	(cached)
 
 ```
 $ go test ./internal/run/
-ok  	github.com/swornagent/sworn/internal/run	0.594s
+ok  	github.com/swornagent/sworn/internal/run	(cached)
 ```
 
 ### Go vet — all affected packages
@@ -90,8 +95,8 @@ $ go vet ./internal/verify/ ./internal/run/ ./cmd/sworn/
 $ go test ./internal/...
 ok  	github.com/swornagent/sworn/internal/adopt	(cached)
 ok  	github.com/swornagent/sworn/internal/agent	(cached)
-ok  	github.com/swornagent/sworn/internal/bench	0.608s
-ok  	github.com/swornagent/sworn/internal/board	0.006s
+ok  	github.com/swornagent/sworn/internal/bench	(cached)
+ok  	github.com/swornagent/sworn/internal/board	0.005s
 ok  	github.com/swornagent/sworn/internal/config	(cached)
 ok  	github.com/swornagent/sworn/internal/designfit	(cached)
 ok  	github.com/swornagent/sworn/internal/ears	(cached)
@@ -121,8 +126,8 @@ ok  	github.com/swornagent/sworn/internal/verify	(cached)
 ## Delivered
 
 - **AC1: Undeclared boundary mock fails closed** — evidence: `TestCheckBoundaryMocks_UndeclaredDbMockFails`, `TestRun_UndeclaredBoundaryMockFailsClosed` in `internal/verify/verify_test.go`
-- **AC2: Declared boundary mock allowed AND surfaced in output** — evidence: `TestRun_DeclaredBoundaryMockAllowed` in `internal/verify/verify_test.go` now asserts `Rationale` contains "Declared boundary mock" and the mock type detail; `verify.Run()` in `internal/verify/verify.go` prepends declared mock info to `Rationale` after model call
-- **AC2 — Entry point wiring (Violation 1 fix)**: `cmd/sworn/main.go` adds `--deferral` flag to `sworn verify`; `internal/run/run.go` reads `open_deferrals` from `status.json` — declared mocks are surfaced at every production entry point
+- **AC2: Declared boundary mock allowed AND surfaced in output** — evidence: `TestRun_DeclaredBoundaryMockAllowed` in `internal/verify/verify_test.go` asserts `Rationale` contains "Declared boundary mock" and the mock type detail; `verify.Run()` in `internal/verify/verify.go` prepends declared mock info to `Rationale` after model call
+- **AC2 — Entry point wiring**: `cmd/sworn/main.go` adds `--deferral` flag to `sworn verify`; `internal/run/run.go` reads `open_deferrals` from `status.json` — declared mocks are surfaced at every production entry point
 - **AC3: Blocked-on-environment state support** — evidence: `internal/prompt/implementer.md` hard constraint instructs implementer to stop and record blocked-on-environment state; `CheckBoundaryMocks` in `internal/verify/verify.go` detects boundary mocks and returns FAIL for undeclared ones
 - **AC4: Undeclared boundary mock = Rule-2 violation, absence fails closed** — evidence: `CheckBoundaryMocks` returns undeclared mocks as violations; `Run()` short-circuits with `verdict.Fail` before model dispatch; `internal/adopt/baton/rules/10-customer-journey-validation.md` documents the enforcement
 
@@ -132,45 +137,7 @@ None.
 
 ## Divergence from plan
 
-- `internal/bench/runner.go` not changed — benchmark tasks are synthetic and don't have a status.json context; not a production entry point. The original planned touchpoints listed `internal/verify/verify.go` and `internal/verify/verify_test.go`; the re-implementation adds `cmd/sworn/main.go` and `internal/run/run.go` (required by the verifier violations).
-
-## First-pass script output
-
-```
-$ $HOME/.claude/bin/release-verify.sh S10-no-mock-boundary 2026-06-16-fidelity-layer
-release-verify.sh
-  slice:       S10-no-mock-boundary
-  slice dir:   docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary
-  base branch: main
-
-== Slice artefacts ==
-  PASS  slice folder exists
-  PASS  spec.md present
-  PASS  proof.md present
-  PASS  status.json present
-  PASS  journal.md present
-
-== Status ==
-  PASS  status.json is valid JSON
-  FAIL  state is 'in_progress' — slice not yet ready for verifier (expected — will transition to implemented)
-
-== Diff vs main ==
-  PASS  28 file(s) changed vs main
-
-== Dark-code markers in changed files ==
-  PASS  no dark-code markers in changed source files
-
-== Proof bundle structural checks ==
-  PASS  proof.md has section: ## Scope
-  PASS  proof.md has section: ## Files changed
-  PASS  proof.md has section: ## Test results
-  PASS  proof.md has section: ## Reachability artefact
-  PASS  proof.md has section: ## Delivered
-  PASS  proof.md has section: ## Not delivered
-  PASS  proof.md has section: ## Divergence from plan
-  PASS  no obvious template placeholders left in proof.md
-
-checks passed: 17
-checks failed: 1
-(state: in_progress expected — completing transition to implemented)
-```
+- `internal/bench/runner.go` not changed — benchmark tasks are synthetic and don't have a status.json context; not a production entry point.
+- `cmd/sworn/main.go` and `internal/run/run.go` added beyond original planned touchpoints — required by round-1 verifier violations to wire `OpenDeferrals` at both production entry points (`sworn verify` CLI and `sworn run` loop).
+- `sworn` binary appears in the diff — accidentally tracked in commit `bfdede8`; not a planned production source file. The `sworn` binary was added to `.gitignore` in a subsequent release.
+- `internal/prompt/implementer.md` and `internal/adopt/baton/rules/10-customer-journey-validation.md` were delivered in the original feat commit `72dfaee` and remain correctly updated in the working tree. Prior round-2/round-3 diffs from `cec70a6` (a FAIL verdict commit after `72dfaee`) incorrectly excluded them; this round restores `start_commit` to `4d866d6` so they correctly appear in the canonical diff.
