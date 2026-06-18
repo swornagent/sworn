@@ -113,7 +113,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | planned | human | [spec](./S03-spec-quality-firstpass/spec.md) | — |
 | `S08-design-system-input` | T3 | Design system (tokens + component library) as first-class project input | planned | human | [spec](./S08-design-system-input/spec.md) | — |
 | `S09-design-conformance-audit` | T3 | Deterministic drift first-pass + human cohesion verdict (`sworn designaudit`) | planned | human | [spec](./S09-design-conformance-audit/spec.md) | — |
-| `S15-sworn-top-evidence` | T4 | Read-only journey-validation green-board / kill-list (`sworn top`) | planned | human | [spec](./S15-sworn-top-evidence/spec.md) | — |
+| `S15-sworn-top-evidence` | T4 | Read-only journey-validation green-board / kill-list (`sworn top`) | failed_verification | agent | [spec](./S15-sworn-top-evidence/spec.md) | [proof](./S15-sworn-top-evidence/proof.md) |
 
 ### State legend
 
@@ -129,17 +129,22 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Aggregate state
 
-- Planned: 9
+- Planned: 8
 - In progress: 0
 - Implemented (awaiting verification): 0
 - Verified (awaiting merge): 7 (S01, S02, S04, S05, S07, S11, S16)
-- Failed verification: 0
+- Failed verification: 1 (S15)
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** Planned: 3 / In progress: 0 / Merged: 1 (T1: merged at b8521f8)
 
 ## Recent activity
+
+### 2026-06-18 — S15-sworn-top-evidence: FAIL (round 1, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Two violations. (1) **Gate 2**: `start_commit` (`a58733d`) is the implementation commit itself; `git diff --name-only a58733d..HEAD` returns only doc files — no planned touchpoints visible per protocol. proof.md "Not delivered" incorrectly says "None." Fix: set `start_commit` to `e3b0ec2`. (2) **Gate 3**: All 7 tests call `renderEvidenceSurface` directly, bypassing `cmdTop`; spec requires "Rule 1 via the command entry point." Fix: add test calling `cmdTop([]string{...})`. Implementation is functionally correct — both violations are protocol/test-layer. Slice state → `failed_verification`.
 
 ### 2026-06-18 — track `T1-fidelity-core` merged to release-wt (commit b8521f8)
 

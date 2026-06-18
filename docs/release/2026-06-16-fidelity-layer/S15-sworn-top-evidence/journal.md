@@ -28,4 +28,12 @@ None.
 None.
 
 ## Verifier verdicts received
-None yet — pending fresh-context verification session.
+
+### 2026-06-18 — FAIL (round 1, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Two violations.
+  1. **Gate 2** — `start_commit` is set to the implementation commit itself (`a58733d`). Running `git diff --name-only a58733d..HEAD` (per protocol) returns only 4 doc files — none of the planned touchpoints (`cmd/sworn/top.go`, `cmd/sworn/main.go`) appear in the required diff range. proof.md "Files changed" used `git diff --name-only release-wt/2026-06-16-fidelity-layer` instead of `git diff --name-only <start_commit>`, masking this error. proof.md "Not delivered" incorrectly claims "None." Fix: set `start_commit` to `e3b0ec2` (the commit immediately before `a58733d`); update proof.md "Files changed" to use the corrected range.
+  2. **Gate 3** — All 7 tests in `top_test.go` call `renderEvidenceSurface` directly, bypassing the CLI entry point `cmdTop`. The spec requires "Integration: `sworn top` against a fixture release with mixed journey statuses (Rule 1 via the command entry point)." The codebase convention (explicit comment in `lint_ac_test.go`: "drives the actual command entry point (cmdLintAC), not just the ears package") confirms that Rule 1 requires `cmdTop`. Fix: add at least one test calling `cmdTop([]string{"<release>", dir})` exercising the mixed-statuses path.
+  - Gates 1, 4, 5, 6 all PASS: `case "top"` is wired in `main.go`; smoke step is described; no silent deferral markers; all 4 AC evidence references are real. Implementation is functionally correct — both violations are protocol/test-layer defects, not logic errors.
+  - Slice state → `failed_verification`. Next: `/implement-slice S15-sworn-top-evidence 2026-06-16-fidelity-layer` in a fresh session to address the 2 numbered violations.

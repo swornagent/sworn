@@ -3,7 +3,7 @@
   "slice_id": "S15-sworn-top-evidence",
   "release": "2026-06-16-fidelity-layer",
   "track": "T4-evidence-surface",
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "agent",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-23T00:00:00Z",
@@ -31,10 +31,13 @@
   "reachability_artifacts": [],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "fail",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
+    "verifier_verdict_at": "2026-06-18T00:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "Gate 2 — start_commit is set to the implementation commit itself (a58733d); git diff --name-only a58733d..HEAD returns only 4 doc files — none of the planned touchpoints (cmd/sworn/top.go, cmd/sworn/main.go) appear. proof.md 'Not delivered' incorrectly claims 'None' instead of acknowledging this. Fix: set start_commit to e3b0ec2 (immediately before the feat commit); update proof.md 'Files changed' accordingly.",
+      "Gate 3 — All 7 tests in top_test.go call renderEvidenceSurface directly, bypassing the CLI entry point cmdTop. The spec requires 'Integration: sworn top against a fixture release with mixed journey statuses (Rule 1 via the command entry point).' The codebase convention (explicit in lint_ac_test.go: 'drives the actual command entry point (cmdLintAC), not just the ears package') requires the integration test to call cmdTop. Fix: add at least one test calling cmdTop([]string{\"<release>\", dir}) exercising the mixed-statuses path."
+    ]
   }
 }
