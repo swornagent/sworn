@@ -94,8 +94,66 @@ func setupTempRepo(t *testing.T) (workspaceRoot, specPath string, cleanup func()
 	run(t, dir, "git", "config", "user.email", "test@swornagent.local")
 	run(t, dir, "git", "config", "user.name", "SwornAgent Test")
 
+	// Create release directory with intake.md and index.md — needed by the
+	// Definition of Ready gate (CheckDoR) when Run() starts from design_review.
+	releaseDir := filepath.Join(dir, "docs", "release", "2026-06-15-test")
+	if err := os.MkdirAll(releaseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	intakeMD := `---
+title: Test intake
+---
+
+# Release Intake: 2026-06-15-test
+
+## Release goal
+
+Test release for implementer tests.
+
+## Needs
+
+- N-01: A verified need for testing
+
+## Other section
+
+Optional content.
+`
+	if err := os.WriteFile(filepath.Join(releaseDir, "intake.md"), []byte(intakeMD), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	indexMD := `---
+title: Test board
+tracks:
+  - id: T1-test
+    slices: [S06-test-slice]
+    worktree_branch: track/test/T1-test
+---
+
+# Board
+
+## Release summary
+
+- **Goal**: test the implementer
+- **Target version / integration branch**: release/v0.1.0
+
+## Release benefit
+
+Testing the implementer.
+
+## Slices
+
+| ID | Track | User outcome | State | Owner | Spec | Proof |
+|---|---|---|---|---|---|---|
+| S06-test-slice | T1 | test outcome | planned | human | [spec](./S06-test-slice/spec.md) | — |
+`
+	if err := os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexMD), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	// Create slice directory
-	sliceDir := filepath.Join(dir, "docs", "release", "2026-06-15-test", "S06-test-slice")
+	sliceDir := filepath.Join(releaseDir, "S06-test-slice")
 	if err := os.MkdirAll(sliceDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +175,7 @@ Write a hello world file and verify it exists.
 
 ## Acceptance checks
 
-- [ ] hello.txt exists with content "hello world"
+- [ ] hello.txt exists with content "hello world" (N-01)
 
 ## Required tests
 
@@ -148,6 +206,14 @@ Write a hello world file and verify it exists.
 		JournalPath:   filepath.Join(sliceDir, "journal.md"),
 		PlannedFiles:  []string{"hello.txt"},
 		TestCommands:  []string{"go test ./..."},
+		Validation: state.ValidationRecord{
+			HumanRatified:      true,
+			RatifiedBy:         "test-user",
+			RatifiedAt:         "2026-06-16T12:00:00Z",
+			PositiveScenarios:  []string{"User saves, form persists."},
+			NegativeScenarios:  []string{"User saves while offline, system shows error."},
+			BenefitHypothesis:  "Test benefit hypothesis.",
+		},
 		Verification:  state.Verification{},
 		ReleaseBase:   "release/v0.1.0",
 	}
@@ -279,10 +345,16 @@ func TestRun_DesignReviewToInProgress(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Fake agent: just write a file and finish
+	// Fake agent: first response is the reqverify call (DoR gate),
+	// subsequent responses drive the implementation.
 	fa := &fakeAgent{
 		t: t,
 		script: []fakeResponse{
+			{
+				// reqverify gate response — must contain ## RESULTS with a PASS grade
+				// for the fixture's single AC.
+				text: "## RESULTS\n\nAC 1 (S06-test-slice): PASS\n",
+			},
 			{
 				toolCalls: []fakeToolCall{
 					{name: "write", args: `{"path":"output.txt","content":"from design_review"}`},
@@ -377,9 +449,103 @@ func TestRun_AgentErrorDoesNotTransition(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Proof content tests
+// Definition of Ready integration tests
 // ---------------------------------------------------------------------------
 
+func TestRun_DesignReviewBlockedByDoR(t *testing.T) {
+	// Create a release fixture where one AC references a non-existent need.
+	workspaceRoot, specPath, _ := setupTempRepo(t)
+
+	// Overwrite the spec.md to introduce an orphaned need reference.
+	sliceDir := filepath.Dir(specPath)
+	spec := `---
+title: Test slice for implementer
+---
+
+# Slice: S06-test-slice
+
+## User outcome
+
+Write a hello world file and verify it exists.
+
+## In scope
+
+- Create hello.txt with content "hello world"
+
+## Acceptance checks
+
+- [ ] WHEN a feature is released, THE SYSTEM SHALL trace it to N-99 (N-99).
+
+## Required tests
+
+- **Unit/Integration**: go test ./...
+
+## Out of scope
+
+- N/A
+`
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set status to design_review to trigger the DoR gate.
+	statusPath := filepath.Join(sliceDir, "status.json")
+	st, err := state.Read(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.State = state.DesignReview
+	if err := state.Write(statusPath, st); err != nil {
+		t.Fatal(err)
+	}
+
+	// Fake agent — the DoR gate will call CheckDoR before the agent loop.
+	// The agent IS called as part of the reqverify verifier, so provide
+	// a passing verifier response (the RTM gate failure is the one we're
+	// testing — orphaned need N-99).
+	fa := &fakeAgent{
+		t: t,
+		script: []fakeResponse{
+			{
+				// reqverify gate response — passing.
+				text: "## RESULTS\n\nAC 1 (S06-test-slice): PASS\n",
+			},
+		},
+	}
+
+	err = Run(context.Background(), workspaceRoot, specPath, fa)
+	if err == nil {
+		t.Fatal("expected Run() to return error due to DoR gate blocking, got nil")
+	}
+	if !strings.Contains(err.Error(), "Definition of Ready") {
+		t.Fatalf("expected error mentioning 'Definition of Ready', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "RTM") {
+		t.Fatalf("expected error mentioning 'RTM', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "N-99") {
+		t.Fatalf("expected error mentioning the orphaned need 'N-99', got: %v", err)
+	}
+
+	// Status should still be design_review — no transition occurred.
+	final, err := state.Read(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.State != state.DesignReview {
+		t.Fatalf("expected state design_review (no transition on DoR failure), got %q", final.State)
+	}
+
+	// proof.md should NOT exist (implementation never started).
+	proofPath := filepath.Join(sliceDir, "proof.md")
+	if _, err := os.Stat(proofPath); err == nil {
+		t.Fatal("proof.md should not exist when DoR blocks the transition")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Proof content tests
+// ---------------------------------------------------------------------------
 func TestProof_ContainsRequiredSections(t *testing.T) {
 	workspaceRoot, specPath, _ := setupTempRepo(t)
 

@@ -109,3 +109,16 @@ Required to address:
 5. Update each AC's evidence in "Delivered" to reference the integration test
    that proves the system blocks the transition.
 ```
+### `2026-06-23 15:00` — re-implementation after failed verification / state: implemented
+
+- **State**: `failed_verification -> in_progress -> implemented`
+- **Notes**:
+  - Addressed all 5 verifier violations:
+    1. Wired `CheckDoR` into `implement.Run()` via `TransitionGate` before `design_review → in_progress`. Added `agentVerifier` adapter in `ready.go` wrapping `agent.Agent` to satisfy `reqverify.Verifier`. The gate closure calls `CheckDoR` with the adapter and returns `DoRErrorSummary` on failure.
+    2. Explained `internal/state/state_test.go` extension in proof.md "Divergence from plan".
+    3. Added integration test `TestRun_DesignReviewBlockedByDoR` in `implement_test.go` — calls `Run()` on a DoR-failing fixture (orphaned need N-99), asserts error mentions "Definition of Ready", "RTM", and "orphaned", asserts state stays `design_review` and proof.md is NOT created.
+    4. Updated reachability artefact in proof.md to reference the integration test as the primary artefact.
+    5. Updated each AC's evidence to reference the integration test alongside unit coverage.
+  - `setupTempRepo` in `implement_test.go` was extended with intake.md, index.md, and validation record for the DoR gate to pass in `TestRun_DesignReviewToInProgress`.
+  - Full project test suite: all 19 packages pass.
+  - release-verify.sh pending — state now `implemented`.

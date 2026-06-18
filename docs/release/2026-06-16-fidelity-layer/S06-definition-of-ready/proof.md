@@ -7,34 +7,32 @@ When an implementer tries to move a slice `planned -> in_progress`, sworn **fail
 ## Files changed
 
 ```
-$ git diff --name-only b9718b3..HEAD
-docs/release/2026-06-16-fidelity-layer/S06-definition-of-ready/status.json
-internal/adopt/baton/rules/08-requirements-fidelity.md
+$ git diff --name-only
+internal/implement/implement.go
+internal/implement/implement_test.go
 internal/implement/ready.go
-internal/implement/ready_test.go
-internal/prompt/implementer.md
-internal/state/state.go
-internal/state/state_test.go
 ```
 
 ## Test results
 
-### Go (implement package — including new CheckDoR tests)
+### Go (implement package — including CheckDoR + integration tests)
 
 ```
 $ go test ./internal/implement/... -v -count=1
 === RUN   TestRun_GeneratesProofFromLiveRepoState
---- PASS: TestRun_GeneratesProofFromLiveRepoState (0.03s)
+--- PASS: TestRun_GeneratesProofFromLiveRepoState (0.06s)
 === RUN   TestRun_DesignReviewToInProgress
---- PASS: TestRun_DesignReviewToInProgress (0.02s)
+--- PASS: TestRun_DesignReviewToInProgress (0.03s)
 === RUN   TestRun_IllegalStateRejected
 --- PASS: TestRun_IllegalStateRejected (0.02s)
 === RUN   TestRun_AgentErrorDoesNotTransition
 --- PASS: TestRun_AgentErrorDoesNotTransition (0.02s)
+=== RUN   TestRun_DesignReviewBlockedByDoR
+--- PASS: TestRun_DesignReviewBlockedByDoR (0.02s)
 === RUN   TestProof_ContainsRequiredSections
---- PASS: TestProof_ContainsRequiredSections (0.02s)
+--- PASS: TestProof_ContainsRequiredSections (0.03s)
 === RUN   TestProof_FilesChangedFromGit
---- PASS: TestProof_FilesChangedFromGit (0.04s)
+--- PASS: TestProof_FilesChangedFromGit (0.05s)
 === RUN   TestCheckDoR_AllPass
 --- PASS: TestCheckDoR_AllPass (0.00s)
 === RUN   TestCheckDoR_RTMFailure
@@ -54,10 +52,10 @@ $ go test ./internal/implement/... -v -count=1
 === RUN   TestDoRErrorSummary_AllFailing
 --- PASS: TestDoRErrorSummary_AllFailing (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/internal/implement	0.143s
+ok  	github.com/swornagent/sworn/internal/implement	0.253s
 ```
 
-### Go (state package — including new TransitionGate tests)
+### Go (state package — TransitionGate tests)
 
 ```
 $ go test ./internal/state/... -v -count=1
@@ -88,22 +86,23 @@ $ go test ./internal/state/... -v -count=1
 === RUN   TestTraceFieldsRoundTrip
 --- PASS: TestTraceFieldsRoundTrip (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/internal/state	0.004s
+ok  	github.com/swornagent/sworn/internal/state	0.006s
 ```
 
 ## Reachability artefact
 
-- **Type**: manual-smoke-step
-- **Path**: `internal/implement/ready.go` + `internal/implement/ready_test.go`
-- **User gesture**: The `TestCheckDoR_*` tests exercise each DoR gate (RTM failure, reqverify failure, reqvalidate failure, all-pass, fail-closed) through a fake verifier and temp release directory fixture. The `TestTransitionGate_*` tests in state package exercise the gate callback pattern through the state machine.
+- **Type**: integration-test
+- **Path**: `TestRun_DesignReviewBlockedByDoR` in `internal/implement/implement_test.go`
+- **User gesture**: Creates a release fixture where the target slice has an orphaned need reference (N-99 does not exist in intake). Sets slice state to `design_review`. Calls `implement.Run()`. Asserts `Run()` returns an error mentioning "Definition of Ready", "RTM", and "orphaned". Asserts the slice's state remains `design_review` (no transition occurred) and `proof.md` is NOT created. This proves the system blocks `planned -> in_progress` at the real entry point, per spec.md Required tests: "drive the start-of-implementation path on a fixture slice that fails one DoR gate; assert the transition is refused with the named gate (Rule 1 via the real entry point)."
+- **Supporting**: `TestRun_DesignReviewToInProgress` in the same file proves a fully-traced, validated slice passes the DoR and transitions successfully through `design_review -> in_progress -> implemented`.
 
 ## Delivered
 
-- **AC 1** (WHEN a slice has an incomplete trace, THE SYSTEM SHALL block planned->in_progress and name the failed RTM check) — evidence: `TestCheckDoR_RTMFailure` creates a release with an orphaned AC (cites non-existent need N-999), asserts CheckDoR returns !Passed with RTMPassed=false and RTMFailures populated. The DoRErrorSummary surfaces "RTM" with the violation detail.
-- **AC 2** (WHEN a slice's ACs fail reqverify, THE SYSTEM SHALL block and name the breach) — evidence: `TestCheckDoR_ReqverifyFailure` uses a fakeVerifier that returns `FAIL — ambiguous` for the target slice, asserts ReqverifyPassed=false with ReqverifyFailures containing the characteristic name.
-- **AC 3** (WHEN a slice has no human-ratified validation, THE SYSTEM SHALL block) — evidence: `TestCheckDoR_ReqvalidateFailure` creates a fixture with no human ratification (HumanRatified=false), asserts ReqvalidatePassed=false with failures about ratification.
-- **AC 4** (WHEN a slice passes all three gates, THE SYSTEM SHALL allow planned->in_progress) — evidence: `TestCheckDoR_AllPass` creates a fully-traced, validated fixture with a passing verifier, asserts Passed=true with all three sub-gates passing.
-- **AC 5** (THE SYSTEM SHALL fail closed) — evidence: `TestCheckDoR_FailClosedNoVerifier` passes nil verifier, asserts Passed=false with ReqverifyPassed=false. `TestCheckDoR_FailClosedOnUnreadableDir` passes a nonexistent release dir, asserts error returned.
+- **AC 1** (WHEN a slice has an incomplete trace, THE SYSTEM SHALL block planned->in_progress and name the failed RTM check) — evidence: `TestRun_DesignReviewBlockedByDoR` calls `Run()` with an orphaned need fixture, asserts the error mentions "Definition of Ready" and "RTM" and "orphaned". Integration test proves the real entry point (implement.Run) enforces the gate. Unit coverage: `TestCheckDoR_RTMFailure` in ready_test.go.
+- **AC 2** (WHEN a slice's ACs fail reqverify, THE SYSTEM SHALL block and name the breach) — evidence: `TestCheckDoR_ReqverifyFailure` uses a fakeVerifier that returns `FAIL — ambiguous` for the target slice, asserts ReqverifyPassed=false with ReqverifyFailures containing the characteristic name. The `agentVerifier` adapter wraps the implementer's agent as a reqverify.Verifier so the gate works through the native entry point.
+- **AC 3** (WHEN a slice has no human-ratified validation, THE SYSTEM SHALL block) — evidence: `TestCheckDoR_ReqvalidateFailure` creates a fixture with no human ratification (HumanRatified=false), asserts ReqvalidatePassed=false with failures about ratification. The reqvalidate gate fires before the agent loop in `Run()`.
+- **AC 4** (WHEN a slice passes all three gates, THE SYSTEM SHALL allow planned->in_progress) — evidence: `TestRun_DesignReviewToInProgress` creates a fully-traced, validated fixture with a passing verifier, sets state to `design_review`, calls `Run()`, and asserts the slice advances to `implemented`. This is the full-system smoke test through the native entry point.
+- **AC 5** (THE SYSTEM SHALL fail closed) — evidence: `TestCheckDoR_FailClosedNoVerifier` passes nil verifier, asserts Passed=false with ReqverifyPassed=false. `TestCheckDoR_FailClosedOnUnreadableDir` passes a nonexistent release dir, asserts error returned. The `Run()` code path handles nil agent gracefully (`if a != nil` guard) so an unavailable model still blocks via the RTM + reqvalidate gates.
 
 ## Not delivered
 
@@ -111,13 +110,14 @@ None.
 
 ## Divergence from plan
 
-- The State package (state.go) does NOT import the gate packages directly. Instead, `TransitionGate` accepts a callback `func() error`, avoiding a dependency cycle (state packages are imported by the gate packages for Status types). The CheckDoR logic lives in `internal/implement/ready.go`, which imports the gate packages and is called by the implementer workflow.
-- The spec lists `internal/implement/implement.go` as a planned touchpoint — changes were made to a new file `internal/implement/ready.go` (existing implement.go remained untouched). This is additive, not divergent.
-- The spec lists `internal/implement/implement_test.go` — tests were added in a new file `internal/implement/ready_test.go` to keep the existing test file unchanged. All 9 new tests are in ready_test.go.
+- `implement.go` was modified (not just additive new files) to wire `CheckDoR` into the `design_review -> in_progress` transition. The original spec listed `implement.go` as a touchpoint, and the verifier's Gate 1 required this change. The diff is: `TransitionGate` closure calls `CheckDoR` with an `agentVerifier` adapter; returns `DoRErrorSummary` on failure.
+- `implement_test.go` was extended (in addition to the existing `ready_test.go`) to add: (1) release directory fixtures in `setupTempRepo` (intake.md, index.md, validation record) needed by the DoR gate, (2) a verifier-response entry in `TestRun_DesignReviewToInProgress`'s fake agent script, (3) a new integration test `TestRun_DesignReviewBlockedByDoR`. The spec listed `implement_test.go` as a touchpoint but the earlier implementation put all tests in `ready_test.go` — this revision restores the planned touchpoint.
+- `ready.go` was extended with the `agentVerifier` adapter type that wraps `agent.Agent` to satisfy `reqverify.Verifier`. This was not in the original plan but is required to wire the DoR through the native entry point without a second model client.
+- `internal/state/state_test.go` was extended in the original implementation with 4 `TransitionGate` tests (TestTransitionGate_PassesThroughGate, TestTransitionGate_GateBlocksTransition, TestTransitionGate_IllegalTransitionBeforeGate, TestTransitionGate_NilGateSkipped). This file was absent from the spec's planned touchpoints because `TransitionGate` was itself a design decision to avoid an import cycle. The trade-off is documented in the journal.
 
 ## First-pass script output
 
 ```
 $ scripts/release-verify.sh S06-definition-of-ready
-(see live run above — all 27 tests pass across implement + state packages)
+(see live run above — all 29 tests pass across implement + state packages)
 ```

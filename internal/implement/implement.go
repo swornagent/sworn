@@ -17,8 +17,8 @@ import (
 	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/prompt"
-	"github.com/swornagent/sworn/internal/state"
-)
+	"github.com/swornagent/sworn/internal/reqverify"
+	"github.com/swornagent/sworn/internal/state")
 
 // Run drives the implementer role for one slice:
 //  1. Read status.json; if design_review, transition to in_progress.
@@ -42,10 +42,27 @@ func Run(ctx context.Context, workspaceRoot, specPath string, a agent.Agent) err
 	}
 
 	// State transition guard (Coach pin 2): design_review → in_progress
-	// before launching the agent loop.
+	// before launching the agent loop.  The Definition of Ready gate
+	// (CheckDoR) is applied at this boundary — a slice whose RTM trace,
+	// requirements-verify, or requirements-validate gates are not satisfied
+	// cannot start implementation.
 	if st.State == state.DesignReview {
-		if err := st.State.Transition(state.InProgress); err != nil {
-			return fmt.Errorf("implement: %w", err)
+		releaseDir := filepath.Dir(filepath.Dir(specPath))
+		if err := st.State.TransitionGate(state.InProgress, func() error {
+			var v reqverify.Verifier
+			if a != nil {
+				v = agentVerifier{a: a}
+			}
+			result, err := CheckDoR(ctx, releaseDir, st.SliceID, v)
+			if err != nil {
+				return fmt.Errorf("Definition of Ready check failed: %w", err)
+			}
+			if !result.Passed {
+				return fmt.Errorf("Definition of Ready blocked: %s", DoRErrorSummary(result))
+			}
+			return nil
+		}); err != nil {
+			return fmt.Errorf("implement: design_review → in_progress gate: %w", err)
 		}
 		st.State = state.InProgress
 		st.LastUpdatedBy = "implementer"
@@ -53,8 +70,7 @@ func Run(ctx context.Context, workspaceRoot, specPath string, a agent.Agent) err
 		if err := state.Write(statusPath, st); err != nil {
 			return fmt.Errorf("implement: write status: %w", err)
 		}
-	} else if st.State != state.InProgress && st.State != state.FailedVerification {
-		return fmt.Errorf("implement: cannot run from state %q", st.State)
+	} else if st.State != state.InProgress && st.State != state.FailedVerification {		return fmt.Errorf("implement: cannot run from state %q", st.State)
 	}
 
 	// Step 2: Read spec.

@@ -11,11 +11,34 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/swornagent/sworn/internal/agent"
+	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/reqvalidate"
 	"github.com/swornagent/sworn/internal/reqverify"
 	"github.com/swornagent/sworn/internal/rtm"
 )
 
+// agentVerifier adapts agent.Agent to reqverify.Verifier, allowing the
+// implementer's Run() function to evaluate the requirements-verification
+// gate (S04) as part of the Definition of Ready without needing a separate
+// model client.
+type agentVerifier struct {
+	a agent.Agent
+}
+
+func (v agentVerifier) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
+	resp, err := v.a.Chat(ctx, []model.ChatMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userPayload},
+	}, nil)
+	if err != nil {
+		return "", 0, err
+	}
+	if len(resp.Choices) == 0 {
+		return "", 0, fmt.Errorf("agent verifier: empty response")
+	}
+	return resp.Choices[0].Message.Content, 0.0, nil
+}
 // DoRResult captures the Definition of Ready evaluation for one slice.
 // Passed is true only when every gate passes.
 type DoRResult struct {
