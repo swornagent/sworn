@@ -14,7 +14,7 @@
   "planned_files": [
     "internal/ears/ears.go",
     "internal/ears/ears_test.go",
-    "cmd/sworn/ears.go",
+    "cmd/sworn/lint.go",
     "cmd/sworn/main.go",
     "internal/prompt/planner.md",
     "internal/adopt/baton/rules/08-requirements-fidelity.md"

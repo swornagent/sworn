@@ -99,8 +99,8 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 | ID | Track | User outcome | State | Owner | Spec | Proof |
 |---|---|---|---|---|---|---|
-| `S01-rtm-spine` | T1 | 2-D requirements traceability matrix, threaded through artefacts, fail-closed (`sworn rtm`) | planned | human | [spec](./S01-rtm-spine/spec.md) | — |
-| `S02-ears-ac-format` | T1 | EARS acceptance-criteria notation + validator (`sworn ears`) | planned | human | [spec](./S02-ears-ac-format/spec.md) | — |
+| `S01-rtm-spine` | T1 | 2-D requirements traceability matrix, threaded through artefacts, fail-closed (`sworn lint trace`) | planned | human | [spec](./S01-rtm-spine/spec.md) | — |
+| `S02-ears-ac-format` | T1 | EARS acceptance-criteria notation + validator (`sworn lint ac`) | planned | human | [spec](./S02-ears-ac-format/spec.md) | — |
 | `S04-requirements-verify-gate` | T1 | 29148 quality-characteristic check, fresh-context, fail-closed (`sworn reqverify`) | planned | human | [spec](./S04-requirements-verify-gate/spec.md) | — |
 | `S05-requirements-validate-gate` | T1 | Human-owned scenario pos/neg + benefit-hypothesis validation (`sworn reqvalidate`) | planned | human | [spec](./S05-requirements-validate-gate/spec.md) | — |
 | `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | planned | human | [spec](./S07-design-fit-gate/spec.md) | — |
