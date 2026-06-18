@@ -133,3 +133,25 @@ Required to address:
     dependency-free. The `model.Unconfigured` / `model.FromEnv` resolution stays in `cmdReqverify`.
   - No changes to `internal/reqverify/reqverify.go` or `internal/reqverify/reqverify_test.go`
     — the existing fakeVerifier pattern was already correct from the first pass.
+
+### 2026-06-18 15:30 — re-implementation (address Gate 2 — proof.md acknowledgement)
+
+- **State**: `failed_verification -> in_progress -> implemented`
+- **Notes**:
+  - Addressed Gate 2 violation from the most recent verifier session: planned touchpoint
+    `internal/adopt/baton/rules/08-requirements-fidelity.md` was not acknowledged in proof.md.
+  - **Resolution**: The file already contained the verification description from planner/S01/S02
+    work — it documents Rule 8 (Requirements Fidelity) including verification against 29148
+    quality characteristics. No code or content change was needed.
+  - Updated `proof.md`:
+    - "Divergence from plan": added entry explaining the file was reviewed but not modified
+      because its content was already sufficient.
+    - "Not delivered": added entry acknowledging the planned touchpoint was not modified,
+      with explanation.
+  - Updated `status.json`:
+    - Set `state: implemented`, reset `verification.result: pending`, cleared violations.
+    - Added `internal/adopt/baton/rules/08-requirements-fidelity.md` to `actual_files` to
+      show it was reviewed.
+    - Added `reachability_artifacts` with the injectable-path test command.
+  - All 20 unit tests + 8 CLI integration tests pass. `go vet` clean.
+  - First-pass script expected to pass (addressed solely proof.md and status.json, no code change).

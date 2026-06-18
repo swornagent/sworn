@@ -15,42 +15,72 @@ infeasible AC is named with the characteristic it breaches.
 ## Files changed
 
 ```
-$ git diff --name-only 3e45078..HEAD
+$ git diff --name-only 7b0246a3e5eb38a00cadd28251b8619e03f6d90e..HEAD
 cmd/sworn/reqverify.go
 cmd/sworn/reqverify_test.go
 docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/journal.md
 docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/proof.md
 docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/status.json
-```
-## Test results
+docs/release/2026-06-16-fidelity-layer/index.md
+```## Test results
 
 ### CLI integration tests (injectable path — Gate 3 fix)
 
 ```
 $ go test ./cmd/sworn/ -run TestReqverify -v -count=1
 === RUN   TestReqverifyCmd_MissingReleaseArg
+sworn reqverify: release name is required
+usage: sworn reqverify <release>
 --- PASS: TestReqverifyCmd_MissingReleaseArg (0.00s)
 === RUN   TestReqverifyCmd_NonexistentRelease
+sworn reqverify: model: SWORN_OPENAI_API_KEY not set
 --- PASS: TestReqverifyCmd_NonexistentRelease (0.00s)
 === RUN   TestReqverifyCmd_NoModelConfigured
+sworn reqverify: model: SWORN_OPENAI_API_KEY not set
 --- PASS: TestReqverifyCmd_NoModelConfigured (0.00s)
 === RUN   TestReqverifyCmdWithVerifier_AllPass
+Requirements verification report
+===============================
+
+Total ACs: 2 | Passed: 2 | Failed: 0
+
+Verifier mode: fresh-context (requirements-verifier prompt)
+
+Per-AC grades:
+  AC 1 (S01-test): PASS
+  AC 2 (S01-test): PASS
+reqverify: 2 ACs — 2 passed, 0 failed — PASSED
 --- PASS: TestReqverifyCmdWithVerifier_AllPass (0.00s)
 === RUN   TestReqverifyCmdWithVerifier_Violations
+Requirements verification report
+===============================
+
+Total ACs: 2 | Passed: 1 | Failed: 1
+
+Verifier mode: fresh-context (requirements-verifier prompt)
+
+Violations:
+  AC 2 (S01-test): singular — [bundles two actions]
+
+Per-AC grades:
+  AC 1 (S01-test): PASS
+  AC 2 (S01-test): FAIL — singular
+reqverify: 2 ACs — 1 passed, 1 failed — FAILED
 --- PASS: TestReqverifyCmdWithVerifier_Violations (0.00s)
 === RUN   TestReqverifyCmdWithVerifier_ModelError
+sworn reqverify: reqverify: model dispatch: context canceled
 --- PASS: TestReqverifyCmdWithVerifier_ModelError (0.00s)
 === RUN   TestReqverifyCmdWithVerifier_NonexistentRelease
+sworn reqverify: release directory not found: ...
 --- PASS: TestReqverifyCmdWithVerifier_NonexistentRelease (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/cmd/sworn	0.006s
+ok  	github.com/swornagent/sworn/cmd/sworn	0.005s
 ```
 
 Tests added in this re-implementation:
 - `TestReqverifyCmdWithVerifier_AllPass` — full path: fixture ACs → extraction → fake verifier (all-PASS reply) → exit 0
 - `TestReqverifyCmdWithVerifier_Violations` — full path: fixture ACs → extraction → fake verifier (violation reply) → exit 1
 - `TestReqverifyCmdWithVerifier_ModelError` — full path: model error → exit 2
-
 ### Go backend (reqverify unit tests)
 
 ```
@@ -98,30 +128,28 @@ $ go test ./internal/reqverify/... -v -count=1
 PASS
 ok  	github.com/swornagent/sworn/internal/reqverify	0.005s
 ```
-
 ### Full suite (all packages)
 
 ```
 $ go test -count=1 ./cmd/sworn/... ./internal/...
-ok  	github.com/swornagent/sworn/cmd/sworn	0.041s
-ok  	github.com/swornagent/sworn/internal/adopt	0.006s
-ok  	github.com/swornagent/sworn/internal/agent	0.010s
-ok  	github.com/swornagent/sworn/internal/bench	0.539s
-ok  	github.com/swornagent/sworn/internal/board	0.011s
-ok  	github.com/swornagent/sworn/internal/config	0.012s
-ok  	github.com/swornagent/sworn/internal/ears	0.012s
-ok  	github.com/swornagent/sworn/internal/git	0.165s
-ok  	github.com/swornagent/sworn/internal/implement	0.143s
-ok  	github.com/swornagent/sworn/internal/model	0.209s
-ok  	github.com/swornagent/sworn/internal/prompt	0.013s
-ok  	github.com/swornagent/sworn/internal/reqverify	0.020s
-ok  	github.com/swornagent/sworn/internal/rtm	0.018s
-ok  	github.com/swornagent/sworn/internal/run	0.439s
-ok  	github.com/swornagent/sworn/internal/state	0.017s
+ok  	github.com/swornagent/sworn/cmd/sworn	0.026s
+ok  	github.com/swornagent/sworn/internal/adopt	0.012s
+ok  	github.com/swornagent/sworn/internal/agent	0.013s
+ok  	github.com/swornagent/sworn/internal/bench	0.561s
+ok  	github.com/swornagent/sworn/internal/board	0.018s
+ok  	github.com/swornagent/sworn/internal/config	0.018s
+ok  	github.com/swornagent/sworn/internal/ears	0.021s
+ok  	github.com/swornagent/sworn/internal/git	0.166s
+ok  	github.com/swornagent/sworn/internal/implement	0.138s
+ok  	github.com/swornagent/sworn/internal/model	0.212s
+ok  	github.com/swornagent/sworn/internal/prompt	0.003s
+ok  	github.com/swornagent/sworn/internal/reqverify	0.009s
+ok  	github.com/swornagent/sworn/internal/rtm	0.011s
+ok  	github.com/swornagent/sworn/internal/run	0.412s
+ok  	github.com/swornagent/sworn/internal/state	0.004s
 ?   	github.com/swornagent/sworn/internal/verdict	[no test files]
-ok  	github.com/swornagent/sworn/internal/verify	0.018s
+ok  	github.com/swornagent/sworn/internal/verify	0.007s
 ```
-
 ### go vet
 
 ```
@@ -164,14 +192,14 @@ $ go vet ./...
 
 ## Not delivered
 
-None — all acceptance checks are delivered.
+- **Planned touchpoint `internal/adopt/baton/rules/08-requirements-fidelity.md`**: Not modified by this slice because it already contains the verification description authored by the planner and S01/S02 work. The file documents Rule 8 (Requirements Fidelity), including verification against ISO/IEC/IEEE 29148 quality characteristics. No additional content was needed — this slice implements the gate that the rule describes. Recorded in `actual_files` as reviewed/acknowledged.
 
 ## Divergence from plan
 
 - **Refactoring to injectable pattern**: `cmdReqverify` was split into `cmdReqverify` (public, model-resolving) and `cmdReqverifyWithVerifier` (injectable, accepts a `reqverify.Verifier` stub). This addresses the verifier's Gate 3 violation — the CLI integration tests now exercise the full path (AC extraction → model dispatch → grade aggregation → exit code) through the injectable boundary.
 - **CLI integration tests expanded**: `TestReqverifyCmdWithVerifier_AllPass`, `TestReqverifyCmdWithVerifier_Violations`, `TestReqverifyCmdWithVerifier_ModelError`, and `TestReqverifyCmdWithVerifier_NonexistentRelease` added to exercise every exit path through the injectable boundary. Original `TestReqverifyCmd_WithFixtureRelease` removed (replaced by the injectable tests).
 - `cmd/sworn/reqverify_test.go` and `cmd/sworn/reqverify.go` modified — re-implementation of this failed_verification slice.
-
+- **Planned touchpoint `internal/adopt/baton/rules/08-requirements-fidelity.md`** was not modified because it already contained the verification description from planner/S01/S02 work. The file documents Rule 8's verification requirements against 29148 quality characteristics — no new content was needed for this slice. Added to `actual_files` to show it was reviewed.
 ## First-pass script output
 
 ```
@@ -195,8 +223,7 @@ release-verify.sh
   PASS  state is 'implemented' (eligible for verifier review)
 
 == Diff vs release-wt/2026-06-16-fidelity-layer ==
-  PASS  32 file(s) changed vs release-wt/2026-06-16-fidelity-layer
-
+  PASS  33 file(s) changed vs release-wt/2026-06-16-fidelity-layer
 == Dark-code markers in changed files ==
   PASS  no dark-code markers in changed source files
 

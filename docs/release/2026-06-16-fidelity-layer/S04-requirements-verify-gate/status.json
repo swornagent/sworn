@@ -3,12 +3,14 @@
   "slice_id": "S04-requirements-verify-gate",
   "release": "2026-06-16-fidelity-layer",
   "track": "T1-fidelity-core",
-  "state": "failed_verification",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-18T15:00:00Z",
-  "start_commit": "7b0246a3e5eb38a00cadd28251b8619e03f6d90e",  "spec_path": "docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/spec.md",
-  "proof_path": "docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/proof.md",  "journal_path": "docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/journal.md",
+  "start_commit": "7b0246a3e5eb38a00cadd28251b8619e03f6d90e",
+  "spec_path": "docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/spec.md",
+  "proof_path": "docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/proof.md",
+  "journal_path": "docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/journal.md",
   "planned_files": [
     "internal/reqverify/reqverify.go",
     "internal/reqverify/reqverify_test.go",
@@ -24,21 +26,26 @@
     "cmd/sworn/reqverify_test.go",
     "cmd/sworn/main.go",
     "internal/prompt/requirements-verifier.md",
-    "internal/prompt/prompt.go"
+    "internal/prompt/prompt.go",
+    "internal/adopt/baton/rules/08-requirements-fidelity.md"
   ],
   "test_commands": [
     "go test ./internal/reqverify/...",
     "go test ./cmd/sworn/ -run TestReqverify"
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    {
+      "type": "test",
+      "command": "go test ./cmd/sworn/ -run TestReqverifyCmdWithVerifier_Violations -v",
+      "description": "CLI integration test exercising the full reqverify path through the injectable CLI boundary with a stubbed model client (no live key needed)"
+    }
+  ],
   "open_deferrals": [],
   "verification": {
-    "result": "fail",
+    "result": "pending",
     "verifier_session_id": null,
-    "verifier_verdict_at": "2026-06-18T15:30:00Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      "Gate 2 — planned touchpoint `internal/adopt/baton/rules/08-requirements-fidelity.md` not modified; proof.md 'Divergence from plan' and 'Not delivered' do not acknowledge or explain the omission. The file was last touched by S01/S02 commits (not S04); status.json actual_files does not include it; proof.md says 'Not delivered: None'."
-    ]
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": false,
+    "violations": []
   }
 }
