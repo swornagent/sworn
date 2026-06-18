@@ -188,3 +188,15 @@ Required to address:
     - Added `reachability_artifacts` with the injectable-path test command.
   - All 20 unit tests + 8 CLI integration tests pass. `go vet` clean.
   - First-pass script expected to pass (addressed solely proof.md and status.json, no code change).
+### 2026-06-18 17:00 — re-implementation (address Gate 2 — .gitignore + round-1 planned touchpoints)
+
+- **State**: `failed_verification → in_progress → implemented`
+- **Notes**:
+  - Addressed both Gate 2 violations from the 2026-06-18 16:30 FAIL verdict.
+  - **Violation 1 (`.gitignore`)**: Added entry to proof.md "Divergence from plan" explaining that `.gitignore` adds `cmd/sworn/docs/` to prevent generated CLI doc artefacts from being committed. Hygiene detail, not a functional change.
+  - **Violation 2 (four round-1 planned touchpoints)**: Added entry to proof.md "Divergence from plan" explaining that `internal/reqverify/reqverify.go`, `internal/reqverify/reqverify_test.go`, `cmd/sworn/main.go`, and `internal/prompt/requirements-verifier.md` were created in the first implementation pass (before start_commit `7b0246a3`) and required no changes in this re-implementation. They are fully operational.
+  - Updated `status.json`: state → `implemented`, verification.result → `pending`, cleared violations. Added `.gitignore` to `actual_files`.
+  - Updated proof.md "Files changed" to include `.gitignore`. Refreshed "First-pass script output" with live run.
+  - All 20 unit tests + 8 CLI integration tests pass. `go vet` clean.
+  - First-pass: 18/18 PASS.
+  - No code changes — documentation-only fix.
