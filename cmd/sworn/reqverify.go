@@ -14,8 +14,8 @@ import (
 
 // cmdReqverify implements `sworn reqverify <release>`.
 //
-// It grades every acceptance criterion in the release against the 29148 quality
-// characteristics using a fresh-context model pass. Returns exit 0 when every
+// It resolves the model from flag/env/config, then delegates to
+// cmdReqverifyWithVerifier for the actual work. Returns exit 0 when every
 // AC passes, exit 1 on any violation, exit 2 on error.
 func cmdReqverify(args []string) int {
 	fs := flag.NewFlagSet("reqverify", flag.ExitOnError)
@@ -29,18 +29,12 @@ func cmdReqverify(args []string) int {
 	}
 
 	releaseName := fs.Arg(0)
-	releaseDir, err := resolveReleaseDir(releaseName)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "sworn reqverify: %v\n", err)
-		return 2
-	}
 
 	// Resolve verifier model with precedence: flag > env > config.
 	var v model.Verifier
 	cfg, cfgErr := config.Load()
 	if cfgErr != nil {
 		fmt.Fprintf(os.Stderr, "sworn reqverify: loading config: %v\n", cfgErr)
-		// Continue — config may be unavailable but env vars or flags may work.
 	}
 
 	resolvedModel, err := config.ResolveVerifierModel(*mdl, cfg)
@@ -61,6 +55,24 @@ func cmdReqverify(args []string) int {
 
 	if v == nil {
 		v = model.Unconfigured{}
+	}
+
+	return cmdReqverifyWithVerifier(releaseName, v)
+}
+
+// cmdReqverifyWithVerifier runs the reqverify business logic with an already-
+// resolved verifier. Exported as a package-level function so CLI integration
+// tests can inject a stub verifier and exercise the full path through the CLI
+// boundary (release resolution -> AC extraction -> model dispatch -> grade
+// aggregation -> exit code).
+//
+// Returns exit 0 when every AC passes, exit 1 on any violation, exit 2 on
+// unrecoverable error.
+func cmdReqverifyWithVerifier(releaseName string, v reqverify.Verifier) int {
+	releaseDir, err := resolveReleaseDir(releaseName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn reqverify: %v\n", err)
+		return 2
 	}
 
 	systemPrompt := prompt.RequirementsVerifier()

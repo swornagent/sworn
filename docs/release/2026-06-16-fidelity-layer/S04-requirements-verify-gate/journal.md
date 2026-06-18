@@ -81,3 +81,28 @@ Required to address:
 2. Update the `proof.md` reachability artefact to document a smoke step that uses the injectable
    path (no live key), or reference the new passing CLI-level test.
 ```
+### 2026-06-18 15:00 — re-implementation (address verifier violations)
+
+- **State**: `failed_verification -> in_progress -> implemented`
+- **Notes**:
+  - Addressed both verifier violations from the 2026-06-18 14:00 FAIL verdict.
+  - **Gate 3 fix**: Refactored `cmd/sworn/reqverify.go` — split into `cmdReqverify` (public,
+    model-resolving) and `cmdReqverifyWithVerifier(releaseName string, v reqverify.Verifier) int`
+    (injectable, accepts a pre-resolved verifier stub). The injectable path does the full business
+    logic: resolve release dir -> extract ACs -> call `reqverify.Run()` with the stub -> print
+    report -> return exit code.
+  - **Gate 4 fix**: Updated proof.md reachability artefact — replaced "requires SWORN_OPENAI_API_KEY"
+    with `go test` commands for `TestReqverifyCmdWithVerifier_AllPass` and
+    `TestReqverifyCmdWithVerifier_Violations` that run with a stubbed model client (no live key).
+  - Rewrote `cmd/sworn/reqverify_test.go`:
+    - Replaced `TestReqverifyCmd_WithFixtureRelease` with injectable-path tests:
+      `TestReqverifyCmdWithVerifier_AllPass` (exit 0), `TestReqverifyCmdWithVerifier_Violations`
+      (exit 1), `TestReqverifyCmdWithVerifier_ModelError` (exit 2),
+      `TestReqverifyCmdWithVerifier_NonexistentRelease` (exit 2).
+    - Removed old test that could only test the unconfigured-model path.
+  - All 20 internal/reqverify tests + 8 CLI tests pass. `go vet` clean.
+  - **Key design decision**: `cmdReqverifyWithVerifier` accepts a `reqverify.Verifier` (the
+    package's own local interface) rather than `model.Verifier`, keeping the reqverify package
+    dependency-free. The `model.Unconfigured` / `model.FromEnv` resolution stays in `cmdReqverify`.
+  - No changes to `internal/reqverify/reqverify.go` or `internal/reqverify/reqverify_test.go`
+    — the existing fakeVerifier pattern was already correct from the first pass.

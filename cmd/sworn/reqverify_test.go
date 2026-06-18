@@ -1,10 +1,40 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+// fakeVerifier returns a canned reply for model dispatch.
+type fakeVerifier struct {
+	reply string
+	cost  float64
+}
+
+func (f fakeVerifier) Verify(context.Context, string, string) (string, float64, error) {
+	return f.reply, f.cost, nil
+}
+
+// errVerifier returns an error on dispatch, simulating a model failure.
+type errVerifier struct{}
+
+func (errVerifier) Verify(context.Context, string, string) (string, float64, error) {
+	return "", 0, context.Canceled
+}
+
+// writeReqverifyFixture creates a slice spec.md under a temp release directory.
+func writeReqverifyFixture(t *testing.T, releaseDir, sliceID, spec string) {
+	t.Helper()
+	dir := filepath.Join(releaseDir, sliceID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte(spec), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // TestReqverifyCmd_MissingReleaseArg verifies that `sworn reqverify` without a
 // release argument exits 64 (usage error).
@@ -25,8 +55,7 @@ func TestReqverifyCmd_NonexistentRelease(t *testing.T) {
 }
 
 // TestReqverifyCmd_NoModelConfigured verifies that `sworn reqverify` with a valid
-// release exits 2 when no model is configured (model resolution happens before
-// the reqverify Run, so even an empty release reaches this error).
+// release exits 2 when no model is configured.
 func TestReqverifyCmd_NoModelConfigured(t *testing.T) {
 	dir := t.TempDir()
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
@@ -46,43 +75,89 @@ func TestReqverifyCmd_NoModelConfigured(t *testing.T) {
 	}
 }
 
-// TestReqverifyCmd_WithFixtureRelease verifies CLI wiring with a fixture release
-// that has ACs. No model configured — exits 2 on model resolution error.
-func TestReqverifyCmd_WithFixtureRelease(t *testing.T) {
+// TestReqverifyCmdWithVerifier_AllPass verifies that when all ACs pass the
+// reqverify injectable path returns exit 0.
+func TestReqverifyCmdWithVerifier_AllPass(t *testing.T) {
 	dir := t.TempDir()
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
 	os.MkdirAll(releaseDir, 0755)
 
-	sliceDir := filepath.Join(releaseDir, "S01-test-slice")
-	os.MkdirAll(sliceDir, 0755)
-	spec := `---
-title: S01-test-slice
----
-
-# Slice: S01-test-slice
-
-## User outcome
-
-Test outcome.
-
-## Acceptance checks
+	writeReqverifyFixture(t, releaseDir, "S01-test", `## Acceptance checks
 
 - [ ] THE SYSTEM SHALL do something.
-- [ ] THE SYSTEM SHALL do something else.
-
-## Required tests
-
-- **Unit**: internal/reqverify/reqverify_test.go
-`
-	os.WriteFile(filepath.Join(sliceDir, "spec.md"), []byte(spec), 0644)
+- [ ] WHEN a user clicks save THE SYSTEM SHALL persist.
+`)
 
 	oldCwd, _ := os.Getwd()
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
 
-	exit := cmdReqverify([]string{"test-release"})
-	// No model configured — should exit 2.
+	v := fakeVerifier{reply: `## RESULTS
+
+AC 1 (S01-test): PASS
+AC 2 (S01-test): PASS`}
+
+	exit := cmdReqverifyWithVerifier("test-release", v)
+	if exit != 0 {
+		t.Errorf("expected exit 0 for all-pass, got %d", exit)
+	}
+}
+
+// TestReqverifyCmdWithVerifier_Violations verifies that when a non-singular AC
+// is detected, the reqverify injectable path returns exit 1.
+func TestReqverifyCmdWithVerifier_Violations(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0755)
+
+	writeReqverifyFixture(t, releaseDir, "S01-test", `## Acceptance checks
+
+- [ ] THE SYSTEM SHALL do something.
+- [ ] WHEN Y THE SYSTEM SHALL do Z and also do W.
+`)
+
+	oldCwd, _ := os.Getwd()
+	defer os.Chdir(oldCwd)
+	os.Chdir(dir)
+
+	v := fakeVerifier{reply: `## RESULTS
+
+AC 1 (S01-test): PASS
+AC 2 (S01-test): FAIL — singular [bundles two actions]`}
+
+	exit := cmdReqverifyWithVerifier("test-release", v)
+	if exit != 1 {
+		t.Errorf("expected exit 1 for violations, got %d", exit)
+	}
+}
+
+// TestReqverifyCmdWithVerifier_ModelError verifies that a model dispatch error
+// through the injectable path returns exit 2.
+func TestReqverifyCmdWithVerifier_ModelError(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0755)
+
+	writeReqverifyFixture(t, releaseDir, "S01-test", `## Acceptance checks
+
+- [ ] THE SYSTEM SHALL do something.
+`)
+
+	oldCwd, _ := os.Getwd()
+	defer os.Chdir(oldCwd)
+	os.Chdir(dir)
+
+	exit := cmdReqverifyWithVerifier("test-release", errVerifier{})
 	if exit != 2 {
-		t.Errorf("expected exit 2 for unconfigured model, got %d", exit)
+		t.Errorf("expected exit 2 for model error, got %d", exit)
+	}
+}
+
+// TestReqverifyCmdWithVerifier_NonexistentRelease verifies that the injectable
+// path returns exit 2 for a release that doesn't exist.
+func TestReqverifyCmdWithVerifier_NonexistentRelease(t *testing.T) {
+	exit := cmdReqverifyWithVerifier("nonexistent-release-xyz", fakeVerifier{reply: ""})
+	if exit != 2 {
+		t.Errorf("expected exit 2 for nonexistent release, got %d", exit)
 	}
 }
