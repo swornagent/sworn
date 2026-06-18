@@ -6,8 +6,7 @@
   "state": "in_progress",
   "owner": "implementer",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-23T12:00:00Z",  "start_commit": null,
-  "spec_path": "docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/spec.md",
+  "last_updated_at": "2026-06-23T12:00:00Z",  "start_commit": "4d866d66af5b7fe33b1282eef458ea664dd30974",  "spec_path": "docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/proof.md",
   "journal_path": "docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/journal.md",
   "planned_files": [
