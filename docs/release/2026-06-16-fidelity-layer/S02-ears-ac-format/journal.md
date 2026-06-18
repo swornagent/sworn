@@ -96,3 +96,18 @@ Required to address:
 1. Add to proof.md "Divergence from plan": "`cmd/sworn/ears_test.go` added as the integration test for `cmd/sworn/ears.go`; implied by the spec's Required tests section but not explicitly listed as a planned touchpoint."
 
 All other gates (1, 3, 4, 5, 6) passed. The fix is a proof.md update only — no code changes needed.
+### 2026-06-18 — verifier verdict: PASS
+
+PASS
+
+Slice: `S02-ears-ac-format`
+Verified against: `9a2a0e61b8f7e28fef2ecf8ec1f8c2e5a485378a`
+Verifier session: `fresh, artefact-only`
+
+All six gates passed:
+- Gate 1: `case "lint"` in main.go → `cmdLintAC` in lint.go wired; binary executed successfully for pass and fail cases.
+- Gate 2: All 6 planned touchpoints present in diff; all extra files (rtm.go deletion, lint_trace_test.go rename, S01 doc updates, S16-lint-rename, intake.md) explained by the refactor/replan mechanism in Divergence from plan.
+- Gate 3: 20 unit tests in internal/ears/ears_test.go + 6 integration tests in cmd/sworn/lint_ac_test.go, all pass live in fresh session.
+- Gate 4: Both smoke steps executed live — pass case (74 ACs, exit 0) and fail case (named violation + exit 1).
+- Gate 5: No TODO/FIXME/deferred/placeholder in changed Go files.
+- Gate 6: All 4 ACs delivered with concrete evidence references.

@@ -99,8 +99,8 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 | ID | Track | User outcome | State | Owner | Spec | Proof |
 |---|---|---|---|---|---|---|
-| `S01-rtm-spine` | T1 | 2-D requirements traceability matrix, threaded through artefacts, fail-closed (`sworn lint trace`) | planned | human | [spec](./S01-rtm-spine/spec.md) | — |
-| `S02-ears-ac-format` | T1 | EARS acceptance-criteria notation + validator (`sworn lint ac`) | planned | human | [spec](./S02-ears-ac-format/spec.md) | — |
+| `S01-rtm-spine` | T1 | 2-D requirements traceability matrix, threaded through artefacts, fail-closed (`sworn lint trace`) | verified | human | [spec](./S01-rtm-spine/spec.md) | [proof](./S01-rtm-spine/proof.md) |
+| `S02-ears-ac-format` | T1 | EARS acceptance-criteria notation + validator (`sworn lint ac`) | verified | human | [spec](./S02-ears-ac-format/spec.md) | [proof](./S02-ears-ac-format/proof.md) |
 | `S04-requirements-verify-gate` | T1 | 29148 quality-characteristic check, fresh-context, fail-closed (`sworn reqverify`) | planned | human | [spec](./S04-requirements-verify-gate/spec.md) | — |
 | `S05-requirements-validate-gate` | T1 | Human-owned scenario pos/neg + benefit-hypothesis validation (`sworn reqvalidate`) | planned | human | [spec](./S05-requirements-validate-gate/spec.md) | — |
 | `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | planned | human | [spec](./S07-design-fit-gate/spec.md) | — |
@@ -130,17 +130,22 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Aggregate state
 
-- Planned: 15
+- Planned: 14
 - In progress: 0
 - Implemented (awaiting verification): 0
-- Verified (awaiting merge): 0
+- Verified (awaiting merge): 2
 - Failed verification: 0
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 4 / In progress: 0 / Merged: 0
+**Tracks:** Planned: 3 / In progress: 1 / Merged: 0
 
 ## Recent activity
+
+### 2026-06-18 — S02-ears-ac-format: PASS
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: All six gates passed. 20 unit tests + 6 integration tests green in fresh session. Both smoke steps confirmed live (pass case: 74 ACs, exit 0; fail case: named violation, exit 1). Slice state → `verified`. T1-fidelity-core now has 2/7 slices verified.
 
 ### 2026-06-16 — release planned
 
