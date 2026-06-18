@@ -1,11 +1,11 @@
 ---
 title: '2026-06-16-fidelity-layer — release board'
-description: 'Fidelity layer (Baton Rules 8/9/10): requirements fidelity, design fidelity, and customer-journey / system-acceptance validation, as protocol + native sworn enforcement. 15 slices across 4 tracks.'
-release_worktree_path: # <set by first /implement-slice in the release>
+description: 'Fidelity layer (Baton Rules 8/9/10): requirements fidelity, design fidelity, and customer-journey / system-acceptance validation, as protocol + native sworn enforcement. 16 slices across 4 tracks.'
+release_worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer
 release_worktree_branch: release-wt/2026-06-16-fidelity-layer
 tracks:
   - id: T1-fidelity-core
-    slices: [S01-rtm-spine, S02-ears-ac-format, S04-requirements-verify-gate, S05-requirements-validate-gate, S07-design-fit-gate, S11-journey-elicitation]
+    slices: [S01-rtm-spine, S02-ears-ac-format, S04-requirements-verify-gate, S05-requirements-validate-gate, S07-design-fit-gate, S11-journey-elicitation, S16-lint-rename]
     depends_on: null
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core
     worktree_branch: track/2026-06-16-fidelity-layer/T1-fidelity-core
@@ -51,7 +51,7 @@ tracks:
 
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
-| `T1-fidelity-core` | S01 → S02 → S04 → S05 → S07 → S11 | — | `track/2026-06-16-fidelity-layer/T1-fidelity-core` | planned |
+| `T1-fidelity-core` | S01 → S02 → S04 → S05 → S07 → S11 → S16 | — | `track/2026-06-16-fidelity-layer/T1-fidelity-core` | planned |
 | `T2-delivery-cutover` | S06 → S10 → S12 → S13 → S14 | T1 | `track/2026-06-16-fidelity-layer/T2-delivery-cutover` | planned |
 | `T3-leaf-gates` | S03 → S08 → S09 | T1 | `track/2026-06-16-fidelity-layer/T3-leaf-gates` | planned |
 | `T4-evidence-surface` | S15 | T1 | `track/2026-06-16-fidelity-layer/T4-evidence-surface` | planned |
@@ -99,12 +99,13 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 | ID | Track | User outcome | State | Owner | Spec | Proof |
 |---|---|---|---|---|---|---|
-| `S01-rtm-spine` | T1 | 2-D requirements traceability matrix, threaded through artefacts, fail-closed (`sworn lint trace`) | verified | human | [spec](./S01-rtm-spine/spec.md) | [proof](./S01-rtm-spine/proof.md) |
-| `S02-ears-ac-format` | T1 | EARS acceptance-criteria notation + validator (`sworn lint ac`) | failed_verification | human | [spec](./S02-ears-ac-format/spec.md) | [proof](./S02-ears-ac-format/proof.md) |
+| `S01-rtm-spine` | T1 | 2-D requirements traceability matrix, threaded through artefacts, fail-closed (`sworn lint trace`) | planned | human | [spec](./S01-rtm-spine/spec.md) | — |
+| `S02-ears-ac-format` | T1 | EARS acceptance-criteria notation + validator (`sworn lint ac`) | planned | human | [spec](./S02-ears-ac-format/spec.md) | — |
 | `S04-requirements-verify-gate` | T1 | 29148 quality-characteristic check, fresh-context, fail-closed (`sworn reqverify`) | planned | human | [spec](./S04-requirements-verify-gate/spec.md) | — |
 | `S05-requirements-validate-gate` | T1 | Human-owned scenario pos/neg + benefit-hypothesis validation (`sworn reqvalidate`) | planned | human | [spec](./S05-requirements-validate-gate/spec.md) | — |
 | `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | planned | human | [spec](./S07-design-fit-gate/spec.md) | — |
 | `S11-journey-elicitation` | T1 | AI-drafts/human-ratifies critical journeys into a durable artefact (`sworn journeys`) | planned | human | [spec](./S11-journey-elicitation/spec.md) | — |
+| `S16-lint-rename` | T1 | Documentation sweep — rename `sworn ears`→`lint ac` / `sworn rtm`→`lint trace` throughout; restore S02 proof.md | planned | human | [spec](./S16-lint-rename/spec.md) | — |
 | `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | planned | human | [spec](./S06-definition-of-ready/spec.md) | — |
 | `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | planned | human | [spec](./S10-no-mock-boundary/spec.md) | — |
 | `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | planned | human | [spec](./S12-journey-impact-analysis/spec.md) | — |
@@ -129,61 +130,17 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Aggregate state
 
-- Planned: 13
+- Planned: 15
 - In progress: 0
 - Implemented (awaiting verification): 0
-- Verified (awaiting merge): 1
-- Failed verification: 1
+- Verified (awaiting merge): 0
+- Failed verification: 0
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 3 / In progress: 1 / Merged: 0
+**Tracks:** Planned: 4 / In progress: 0 / Merged: 0
 
 ## Recent activity
-
-### 2026-06-18 (round 2) — S02-ears-ac-format verifier verdict: FAIL
-
-- **Actor**: verifier (fresh-context)
-- **Note**: Gate 2 violations (5) — all are proof.md documentation gaps introduced by refactor commit `6518f3b` (renamed `sworn ears`→`sworn lint ac`, `sworn rtm`→`sworn lint trace`). Proof.md "Files changed" was captured before the refactor and omits `cmd/sworn/rtm.go` (deleted S01 file), `cmd/sworn/lint_trace_test.go` (renamed from S01's `rtm_test.go`), and three S01-rtm-spine doc files. "Divergence from plan" does not explain the planned `cmd/sworn/ears.go` → actual `cmd/sworn/lint.go` substitution, the S01 file deletions, or the S01 doc modifications. Gates 1/3/4/5/6 all pass (entry point wired, 26 tests pass live, smoke artefact present, no dark-code markers, all 4 ACs delivered with evidence). Fix is proof.md update only — no code changes needed. Slice stays `failed_verification`. Implementer should re-open `/implement-slice S02-ears-ac-format 2026-06-16-fidelity-layer`.
-
-### 2026-06-18 — S02-ears-ac-format verifier verdict: FAIL
-
-- **Actor**: verifier (fresh-context)
-- **Note**: Gate 2 violation — `cmd/sworn/ears_test.go` is changed but not listed in planned
-  touchpoints and not explained in proof.md "Divergence from plan". All other gates passed (entry
-  point wired, all 26 tests pass live, reachability artefact verified, no silent deferrals, all
-  four ACs delivered with evidence). Fix is proof.md update only (add one sentence to
-  "Divergence from plan"). Slice moves to `failed_verification`. Implementer should re-open
-  `/implement-slice S02-ears-ac-format 2026-06-16-fidelity-layer`.
-
-### 2026-06-17 — S01-rtm-spine verifier verdict: PASS
-
-- **Actor**: verifier (fresh-context)
-- **Note**: All six gates passed. `sworn lint trace` entry point wired and reachable; all 9 planned
-  touchpoints changed; 13 unit + 5 integration tests pass (integration tests drive `cmdRtm`
-  directly — Rule 1 satisfied); reachability artefact is the integration test suite + live smoke
-  run; no silent deferrals; all six ACs verified with evidence. Slice moves to `verified`.
-  Next step: `/implement-slice S02-ears-ac-format 2026-06-16-fidelity-layer` in a fresh session.
-
-### 2026-06-18 — S01-rtm-spine verifier verdict: FAIL (second round)
-
-- **Actor**: verifier (fresh-context)
-- **Note**: Gate 2 violation — `start_commit` in `status.json` is set to `925cb07` (the
-  re-implementation restart commit, after the actual implementation commit `67f287b`). Live diff
-  `git diff --name-only 925cb07..HEAD` shows only 4 docs files; all 8 planned touchpoints are
-  absent. `proof.md` "Files changed" silently uses `release-wt` as base (not `start_commit`).
-  Fix: set `start_commit` to `8767fc7` (original start-implementation commit), regenerate
-  proof.md "Files changed", update "Divergence from plan" to acknowledge bookkeeping commits in
-  scope. All tests pass; FAIL is metadata-only. Implementer should re-open
-  `/implement-slice S01-rtm-spine 2026-06-16-fidelity-layer`.
-
-### 2026-06-17 — S01-rtm-spine verifier verdict: FAIL
-
-- **Actor**: verifier (fresh-context)
-- **Note**: Gate 2 violation — `proof.md` Divergence section does not explain functional changes
-  to `internal/adopt/adopt.go` (added Rule 8 to embed/Materialise) or `internal/adopt/baton/README.md`
-  (added Rule 8 documentation). Fix is proof.md update only; no code changes needed. Slice moves
-  to `failed_verification`. Implementer should re-open `/implement-slice S01-rtm-spine 2026-06-16-fidelity-layer`.
 
 ### 2026-06-16 — release planned
 

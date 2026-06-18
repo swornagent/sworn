@@ -17,8 +17,8 @@ release whose every AC is well-formed EARS passes and prints the per-pattern bre
 
 ## Entry point
 
-- **Native:** `sworn lint ac <release>` (additive `case "ears"` in `cmd/sworn/main.go`,
-  implementation in `cmd/sworn/ears.go`).
+- **Native:** `sworn lint ac <release>` (additive `case "lint"` in `cmd/sworn/main.go`,
+  implementation in `cmd/sworn/lint.go`).
 - **Protocol:** `internal/prompt/planner.md` instructs authoring acceptance checks in EARS; the
   release-mode `spec.md` template's "Acceptance checks" section documents the EARS patterns.
 
@@ -44,8 +44,8 @@ release whose every AC is well-formed EARS passes and prints the per-pattern bre
 ## Planned touchpoints
 
 - `internal/ears/ears.go`, `internal/ears/ears_test.go` (new — pattern set + classifier)
-- `cmd/sworn/ears.go` (new command)
-- `cmd/sworn/main.go` (additive `case "ears"`)
+- `cmd/sworn/lint.go` (lint namespace dispatcher + AC target)
+- `cmd/sworn/main.go` (additive `case "lint"`)
 - `internal/prompt/planner.md` (author-in-EARS guidance)
 - `internal/adopt/baton/rules/08-requirements-fidelity.md` (EARS section — extends the doc S01
   creates; same track, serialised)

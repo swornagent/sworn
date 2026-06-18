@@ -19,8 +19,8 @@ prints the matrix and exits 0.
 
 ## Entry point
 
-- **Native:** `sworn lint trace <release>` (new subcommand; additive `case "rtm"` in
-  `cmd/sworn/main.go`, implementation in `cmd/sworn/rtm.go`).
+- **Native:** `sworn lint trace <release>` (new subcommand; additive `case "lint"` in
+  `cmd/sworn/main.go`, implementation in `cmd/sworn/lint.go`).
 - **Protocol:** `internal/prompt/planner.md` instructs the planner to assign stable need ids
   in `intake.md`, reference them from each `spec.md` acceptance check, and record the vertical
   link (slice -> release benefit -> objective) so the trace is constructed *as a by-product of
@@ -59,7 +59,7 @@ prints the matrix and exits 0.
 - `internal/state/state.go` (add horizontal trace fields to the status schema)
 - `internal/board/index.go` (parse + validate the vertical-trace fields)
 - `cmd/sworn/rtm.go` (new command implementation)
-- `cmd/sworn/main.go` (additive `case "rtm"` only — see intake cross-track convention)
+- `cmd/sworn/main.go` (additive `case "lint"` only — see intake cross-track convention)
 - `internal/prompt/planner.md` (instruct trace construction during planning)
 - `internal/adopt/baton/rules/08-requirements-fidelity.md` (new rule doc — the RTM section)
   and `internal/adopt/baton/VERSION` (protocol version bump)

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S16-lint-rename",
+  "release": "2026-06-16-fidelity-layer",
+  "track": "T1-fidelity-core",
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-18T00:00:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-16-fidelity-layer/S16-lint-rename/spec.md",
+  "proof_path": "docs/release/2026-06-16-fidelity-layer/S16-lint-rename/proof.md",
+  "journal_path": "docs/release/2026-06-16-fidelity-layer/S16-lint-rename/journal.md",
+  "planned_files": [
+    "docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/proof.md",
+    "docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/status.json",
+    "docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/status.json",
+    "docs/release/2026-06-16-fidelity-layer/intake.md"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./cmd/sworn/ -run TestLintAC",
+    "go test ./cmd/sworn/ -run TestLintTrace"
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}
