@@ -155,3 +155,16 @@ data. Minimum tests (mirroring S04's pattern in `cmd/sworn/reqverify_test.go`):
 2. Update proof.md "Files changed" to show the output of `git diff --name-only 031e1cf..HEAD`.
 
 **Note:** The implementation is complete and correct. All 15 unit tests and 3 CLI integration tests pass in fresh context. Both smoke steps (fail-closed on real release; exit 0 on fully-validated fixture) verified live. The FAIL is solely on the proof bundle's `start_commit` representation.
+
+### 2026-06-18 18:45 — re-implementation (address round-4 violations)
+
+- **State**: `failed_verification → implemented`
+- **Notes**:
+  - **Round-4 violation (Gate 2)**: `start_commit` (`12ef38a`) was the round-3 session-start commit (docs-only), so `start_commit..HEAD` showed only journal/proof/status. All 7 planned touchpoints were absent from the diff range.
+  - **Fix**: Reset `start_commit` from `12ef38a` to `031e1cf` — the S04 PASS commit immediately before the first S05 implementation commit (`7832963`). `031e1cf..HEAD` now shows all 7 planned touchpoints + `cmd/sworn/reqvalidate_test.go` (Rule 1 addition) + S05 self-tracking docs + `index.md` (board bookkeeping).
+  - Updated proof.md "Files changed" to reflect `git diff --name-only 031e1cf..HEAD` (12 files).
+  - Updated proof.md "Divergence from plan" to document all non-planned files in the diff range (reqvalidate_test.go, index.md board bookkeeping, self-tracking docs).
+  - Updated proof.md "First-pass script output" with fresh run.
+  - Cleared `verification.result` to `pending`, cleared violations.
+  - All tests pass: `go test ./internal/reqvalidate/...` (15/15 PASS), `go test ./cmd/sworn/ -run TestReqvalidateCmd` (3/3 PASS), `go vet ./...` (clean).
+  - First-pass: 18/18 PASS.

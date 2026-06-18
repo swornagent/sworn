@@ -12,10 +12,19 @@ When a planner reaches validation for a slice, sworn presents AI-drafted **posit
 ## Files changed
 
 ```
-$ git diff --name-only 12ef38a28a05cda5b837a78087f3542476cc00eb..HEAD
+$ git diff --name-only 031e1cf99cbbc51f5c78f1a23c53e782717064ca..HEAD
+cmd/sworn/main.go
+cmd/sworn/reqvalidate.go
+cmd/sworn/reqvalidate_test.go
 docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/journal.md
 docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/proof.md
 docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/status.json
+docs/release/2026-06-16-fidelity-layer/index.md
+internal/adopt/baton/rules/08-requirements-fidelity.md
+internal/prompt/planner.md
+internal/reqvalidate/reqvalidate.go
+internal/reqvalidate/reqvalidate_test.go
+internal/state/state.go
 ```## Test results
 
 ### Go (CLI integration — reqvalidate)
@@ -156,10 +165,17 @@ None.
 ## Divergence from plan
 
 - **`cmd/sworn/reqvalidate_test.go` added beyond planned touchpoints**: The spec's "Planned touchpoints" lists `cmd/sworn/reqvalidate.go` but not a corresponding test file. `cmd/sworn/reqvalidate_test.go` was added to satisfy the Rule 1 CLI integration test requirement (the spec's "Required tests" calls for "Integration: `sworn reqvalidate` exercised on a fixture release (Rule 1)"). This mirrors S04's pattern (`cmd/sworn/reqverify_test.go`) and exercises `cmdReqvalidate()` at the CLI integration point, not just the leaf library.
+- **`docs/release/2026-06-16-fidelity-layer/index.md` in diff range**: The release board index appears because S05 status commits (`chore`, `docs`, `feat`) on this track update the track-level state (in_progress/implemented) recorded in `index.md` frontmatter, and `start_commit` (`031e1cf`, S04's PASS) pre-dates all those commits. This is expected board bookkeeping, not an S05 code change.
+- **Self-tracking docs (`journal.md`, `proof.md`, `status.json`) in diff range**: These are the slice's own Baton artefacts — expected side-effects of any implementation or re-implementation session.
 
 ## First-pass script output
 
 ```
+release-verify.sh
+  slice:       S05-requirements-validate-gate
+  slice dir:   docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate
+  base branch: main
+
 == Slice artefacts ==
   PASS  slice folder exists
   PASS  spec.md present
@@ -199,5 +215,8 @@ None.
 == First-pass verdict ==
   checks passed: 18
   checks failed: 0
+
 FIRST-PASS PASS
+Open a FRESH session and paste role-prompts/verifier.md to perform adversarial verification.
+Do NOT run the verifier in this same session — Rule 7 requires a fresh context window.
 ```
