@@ -8,10 +8,24 @@ track: T1-fidelity-core
 
 ## Background
 
-During implementation of S01 and S02, the user-facing commands were renamed
-out-of-band (without a replan slice): `sworn ears` → `sworn lint ac` and
-`sworn rtm` → `sworn lint trace`. The code rename landed in commit `6518f3b`
-on the T1-fidelity-core track branch. This slice performs the remaining cleanup:
+After S01 (`sworn rtm`) and S02 (`sworn ears`) were implemented, both command
+names were found to be opaque: `ears` is borrowed jargon (EARS = Easy Approach
+to Requirements Syntax — meaningless without knowing the spec), and `rtm` is an
+acronym (Requirements Traceability Matrix) equally opaque to newcomers. The
+decision was made to group all quality-checking gates under a `sworn lint`
+namespace — matching the developer-familiar lint mental model (`golint`, `eslint`,
+etc.) and using plain-English target names:
+
+- `sworn lint ac <release>` — acceptance-criteria format check (was `sworn ears`)
+- `sworn lint trace <release>` — traceability matrix check (was `sworn rtm`)
+
+The rationale and supersession of the original "standalone verbs" decision are
+recorded in `intake.md` under `2026-06-18 — Lint namespace`. Internal packages
+(`internal/ears`, `internal/rtm`) keep their precise names; only the CLI surface
+changed.
+
+The code rename landed in commit `6518f3b` on the T1-fidelity-core track branch
+out-of-band (without a replan slice). This slice performs the remaining cleanup:
 
 - Sweeps all release documentation for stale `sworn ears` / `sworn rtm`
   references and replaces them with the canonical names.
