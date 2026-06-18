@@ -8,17 +8,16 @@ track: T1-fidelity-core
 
 ## Background
 
-After S01 (`sworn rtm`) and S02 (`sworn ears`) were implemented, both command
-names were found to be opaque: `ears` is borrowed jargon (EARS = Easy Approach
+After S01 and S02 were implemented under their original names (`rtm`, `ears`), both
+command names were found to be opaque: `ears` is borrowed jargon (EARS = Easy Approach
 to Requirements Syntax — meaningless without knowing the spec), and `rtm` is an
 acronym (Requirements Traceability Matrix) equally opaque to newcomers. The
 decision was made to group all quality-checking gates under a `sworn lint`
 namespace — matching the developer-familiar lint mental model (`golint`, `eslint`,
 etc.) and using plain-English target names:
 
-- `sworn lint ac <release>` — acceptance-criteria format check (was `sworn ears`)
-- `sworn lint trace <release>` — traceability matrix check (was `sworn rtm`)
-
+- `sworn lint ac <release>` — acceptance-criteria format check (replaces original `ears`)
+- `sworn lint trace <release>` — traceability matrix check (replaces original `rtm`)
 The rationale and supersession of the original "standalone verbs" decision are
 recorded in `intake.md` under `2026-06-18 — Lint namespace`. Internal packages
 (`internal/ears`, `internal/rtm`) keep their precise names; only the CLI surface
@@ -27,7 +26,7 @@ changed.
 The code rename landed in commit `6518f3b` on the T1-fidelity-core track branch
 out-of-band (without a replan slice). This slice performs the remaining cleanup:
 
-- Sweeps all release documentation for stale `sworn ears` / `sworn rtm`
+- Sweeps all release documentation for stale bare-verb references (`ears`, `rtm`)
   references and replaces them with the canonical names.
 - Regenerates the S02-ears-ac-format proof.md so it captures the full diff
   from `start_commit` to HEAD (including `6518f3b`) — the prior proof was
@@ -38,8 +37,8 @@ out-of-band (without a replan slice). This slice performs the remaining cleanup:
 ## User outcome
 
 All documentation in `docs/release/2026-06-16-fidelity-layer/` consistently
-refers to `sworn lint ac` and `sworn lint trace`. No stale `sworn ears` or
-`sworn rtm` references remain in any spec.md, proof.md, index.md, intake.md,
+refers to `sworn lint ac` and `sworn lint trace`. No stale references to the original bare-verb names (`ears`, `rtm`)
+remain in any spec.md, proof.md, index.md, intake.md,
 or status.json. The S02-ears-ac-format proof bundle accurately reflects every
 file in the diff and S02 is in `implemented` state, ready for fresh
 verification.
@@ -58,8 +57,8 @@ were completed in commit `6518f3b`; this slice only updates artefacts.
 - Update `S02-ears-ac-format/status.json`: clear `verification.result`
   violations, update `actual_files`, set `state` to `implemented`.
 - Update `docs/release/2026-06-16-fidelity-layer/intake.md`: replace the
-  decision record reference to `sworn rtm` with `sworn lint trace`.
-- Verify no remaining `sworn ears` or `sworn rtm` references exist in any
+  decision record reference to the original `rtm` name with `sworn lint trace`.
+- Verify no remaining stale bare-verb references exist in any
   `.md` or `.json` under `docs/release/2026-06-16-fidelity-layer/` (excluding
   `docs/captures/` historical snapshots, which are time-stamped records).
 - Update `S01-rtm-spine/status.json` `planned_files`: replace

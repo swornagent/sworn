@@ -35,7 +35,7 @@ description: Implementation log for one slice. Append-only. Visible to verifier 
 ### 2026-06-18 10:45 — re-implementation: address verifier FAIL (5 Gate 2 violations)
 
 - **State**: `implemented` (recovered from `failed_verification`)
-- **Context**: A forward-merge from `release-wt/2026-06-16-fidelity-layer` brought in replan changes (S16-lint-rename added, spec references corrected). The verifier's 5 violations were all Gate 2 — proof.md was stale after the `6518f3b` refactor that renamed `sworn ears`→`sworn lint ac` and `sworn rtm`→`sworn lint trace`.
+- **Context**: A forward-merge from `release-wt/2026-06-16-fidelity-layer` brought in replan changes (S16-lint-rename added, spec references corrected). The verifier's 5 violations were all Gate 2 — proof.md was stale after the `6518f3b` refactor that renamed the original `ears` command to `sworn lint ac` and the original `rtm` command to `sworn lint trace`.
 - **Worktree branch fix**: The worktree had been accidentally bound to `main` instead of `track/2026-06-16-fidelity-layer/T1-fidelity-core` — fixed via `git checkout track/...`.
 - **What was fixed**:
   1. proof.md Files changed regenerated from `cd462364f2ed38a357a2625c377ebd8ff373be83..HEAD` (19 files, from live `git diff`)
@@ -78,7 +78,7 @@ Required to address:
 2. Add to proof.md "Divergence from plan":
    - planned `cmd/sworn/ears.go` was not created standalone — the refactor `6518f3b` combined S01's `cmdRtm` and S02's new `cmdLintAC` into a single `cmd/sworn/lint.go` dispatcher under `sworn lint`, replacing both planned `ears.go` and S01's `rtm.go`
    - `cmd/sworn/rtm.go` (S01 implementation) deleted and `cmd/sworn/lint_trace_test.go` renamed from `rtm_test.go` as part of the same refactor
-   - `S01-rtm-spine/spec.md`, `proof.md`, `journal.md` updated by the refactor to replace `sworn rtm` references with `sworn lint trace`
+   - `S01-rtm-spine/spec.md`, `proof.md`, `journal.md` updated by the refactor to replace original `rtm` references with `sworn lint trace`
 
 Gates 1, 3, 4, 5, 6 all pass (entry point wired, all 26 tests pass live, reachability artefact present, no dark-code markers, all four ACs delivered with evidence).
 
