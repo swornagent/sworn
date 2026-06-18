@@ -7,8 +7,7 @@ When an implementer tries to move a slice `planned -> in_progress`, sworn **fail
 ## Files changed
 
 ```
-$ git diff --name-only b9718b3c..HEAD -- internal/implement/ internal/state/ internal/prompt/ internal/adopt/baton/
-internal/adopt/baton/rules/08-requirements-fidelity.md
+$ git diff --name-only 8ace0f6..HEAD -- internal/implement/ internal/state/ internal/prompt/ internal/adopt/baton/internal/adopt/baton/rules/08-requirements-fidelity.md
 internal/implement/implement.go
 internal/implement/implement_test.go
 internal/implement/ready.go
@@ -137,13 +136,33 @@ $ $HOME/.claude/bin/release-verify.sh S06-definition-of-ready 2026-06-16-fidelit
 == Status ==
   PASS  status.json is valid JSON
   state: implemented
-  PASS  state is 'implemented' — ready for verifier
+  PASS  state is 'implemented' (eligible for verifier review)
 
 == Diff vs main ==
   PASS  20 file(s) changed vs main
+  (first 20)
+    cmd/sworn/main.go
+    cmd/sworn/top.go
+    cmd/sworn/top_test.go
+    docs/release/2026-06-16-fidelity-layer/S06-definition-of-ready/journal.md
+    docs/release/2026-06-16-fidelity-layer/S06-definition-of-ready/proof.md
+    docs/release/2026-06-16-fidelity-layer/S06-definition-of-ready/status.json
+    docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence/journal.md
+    docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence/proof.md
+    docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence/status.json
+    docs/release/2026-06-16-fidelity-layer/index.md
+    internal/adopt/baton/rules/08-requirements-fidelity.md
+    internal/implement/implement.go
+    internal/implement/implement_test.go
+    internal/implement/ready.go
+    internal/implement/ready_test.go
+    internal/journey/walkthrough.go
+    internal/journey/walkthrough_test.go
+    internal/prompt/implementer.md
+    internal/state/state.go
+    internal/state/state_test.go
 
-== Dark-code markers in changed files ==
-  PASS  no dark-code markers in changed source files
+== Dark-code markers in changed files ==  PASS  no dark-code markers in changed source files
 
 == Proof bundle structural checks ==
   PASS  proof.md has section: ## Scope
@@ -161,5 +180,5 @@ $ $HOME/.claude/bin/release-verify.sh S06-definition-of-ready 2026-06-16-fidelit
 == First-pass verdict ==
   checks passed: 18
   checks failed: 0
-FIRST-PASS PASS — all 29 tests pass across implement + state packages)
+FIRST-PASS PASS — all 29 tests pass across implement + state packages; 20/20 project packages ok
 ```

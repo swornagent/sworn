@@ -220,3 +220,13 @@ Environmental note: T2 worktree was observed to have switched to `main` branch m
 cutover` before writing this verdict. All verification reads and test runs were performed
 on the correct T2 branch.
 ```
+### `2026-06-23 16:00` — round 4: address round-3 Gate 2 violation / state: implemented
+
+- **State**: `failed_verification -> in_progress -> implemented`
+- **Notes**:
+  - Addressed sole round-3 verifier Gate 2 violation:
+    1. Updated status.json `start_commit` from `75531ac` (second FAIL verdict commit) to `8ace0f6` (docs(release/S06): start implementation — the true start of S06's implementation window).
+    2. Updated proof.md "Files changed" diff base from `b9718b3c` to `8ace0f6`.
+  - No code changes needed — diff from `8ace0f6` with path filters produces the identical 7-file list. All 29 implement+state tests pass; full suite 20/20 packages pass.
+  - Verification result cleared to "pending" for fresh-context verifier.
+  - release-verify.sh: all checks pass, first-pass PASS.
