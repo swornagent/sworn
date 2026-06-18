@@ -19,6 +19,24 @@
 
 ## Verifier verdicts received
 
+### 2026-06-18 — Fresh-context verification round 2
+
+**Verdict: BLOCKED**
+
+Reason: AC N-S16-03 is a spec defect — the AC requires `S02-ears-ac-format` to be in `implemented` state, but S02 is currently in `verified` state (it was verified after S16's first round and that verification stands). Transitioning S02 back to `implemented` would violate the state machine and undo valid work; this fix is not achievable by the implementer within the spec as written. Planner amendment required.
+
+Proposed `spec.md` amendment for AC N-S16-03: change "in `implemented` state" to "in `implemented` or `verified` state", and remove the expectation that `cmd/sworn/ears.go` appears in the `--name-only` diff (it was added and deleted within the range and cannot appear in that output; acknowledgement of its deletion in the Divergence section is sufficient).
+
+Additional implementer-fixable violations to address after the spec is corrected:
+
+1. **Gate 2 / Gate 6 — Proof "Files changed" wrong command**: The proof's "Files changed" section ran `git diff --name-only HEAD` (showing 5 pre-commit working-tree files) rather than `git diff --name-only b820a183` (which shows all 11 files in the actual slice scope). The following files are in the actual diff but absent from the proof's section: `cmd/sworn/main.go`, `S02-ears-ac-format/journal.md`, `S02-ears-ac-format/status.json`, `S16-lint-rename/status.json`, `index.md`, `intake.md`. The Divergence section does not explain this gap.
+2. **Gate 2 — Three unplanned changed files not explained in proof Divergence**: `cmd/sworn/main.go` (gofmt trailing-newline fix — mentioned in journal but not in proof Divergence), `S02-ears-ac-format/journal.md` (S02 verifier artefact from commit `23e2c36`), `index.md` (board update). Each needs a Divergence entry.
+3. **Gate 6 — Board index.md inconsistency**: After the re-implementation (commit `2a18b2d`), the board's S16 row was not updated — it still showed `failed_verification` rather than `implemented`. This verifier updated the row to `implemented` as part of recording this BLOCKED verdict.
+
+Gates 1–5 all PASS: `TestLintAC` and `TestLintTrace` pass fresh, `sworn lint ac 2026-06-16-fidelity-layer` exits 0 (74 ACs, 0 violations), grep gate clean (zero stale `sworn ears` / `sworn rtm` references outside S16's own artefacts), no silent deferrals.
+
+Next step: `/replan-release 2026-06-16-fidelity-layer` to ratify the AC N-S16-03 amendment. Do NOT re-open `/implement-slice`.
+
 ### 2026-06-18 — Fresh-context verification
 
 **Verdict: FAIL**

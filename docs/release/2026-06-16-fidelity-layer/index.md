@@ -105,7 +105,8 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S05-requirements-validate-gate` | T1 | Human-owned scenario pos/neg + benefit-hypothesis validation (`sworn reqvalidate`) | verified | human | [spec](./S05-requirements-validate-gate/spec.md) | [proof](./S05-requirements-validate-gate/proof.md) |
 | `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | verified | human | [spec](./S07-design-fit-gate/spec.md) | [proof](./S07-design-fit-gate/proof.md) |
 | `S11-journey-elicitation` | T1 | AI-drafts/human-ratifies critical journeys into a durable artefact (`sworn journeys`) | verified | verifier | [spec](./S11-journey-elicitation/spec.md) | [proof](./S11-journey-elicitation/proof.md) |
-| `S16-lint-rename` | T1 | Documentation sweep — adopt `sworn lint ac` / `sworn lint trace` canonical names throughout release docs; restore S02 proof.md | failed_verification | human | [spec](./S16-lint-rename/spec.md) | [proof](./S16-lint-rename/proof.md) || `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | planned | human | [spec](./S06-definition-of-ready/spec.md) | — |
+| `S16-lint-rename` | T1 | Documentation sweep — adopt `sworn lint ac` / `sworn lint trace` canonical names throughout release docs; restore S02 proof.md | implemented | human | [spec](./S16-lint-rename/spec.md) | [proof](./S16-lint-rename/proof.md) |
+| `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | planned | human | [spec](./S06-definition-of-ready/spec.md) | — |
 | `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | planned | human | [spec](./S10-no-mock-boundary/spec.md) | — |
 | `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | planned | human | [spec](./S12-journey-impact-analysis/spec.md) | — |
 | `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | planned | human | [spec](./S13-walkthrough-attestation/spec.md) | — |
@@ -131,15 +132,20 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 - Planned: 9
 - In progress: 0
-- Implemented (awaiting verification): 0
+- Implemented (awaiting verification): 1 (S16-lint-rename — blocked, needs replan)
 - Verified (awaiting merge): 6 (S01, S02, S04, S05, S07, S11)
-- Failed verification: 1 (S16-lint-rename)
+- Failed verification: 0
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** Planned: 3 / In progress: 1 / Merged: 0
 
 ## Recent activity
+
+### 2026-06-18 — S16-lint-rename: BLOCKED (round 2, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Gates 1–5 all PASS (TestLintAC and TestLintTrace pass, `sworn lint ac 2026-06-16-fidelity-layer` exits 0, grep gate clean, no silent deferrals). Gate 6 BLOCKED on AC N-S16-03 spec defect: the AC requires `S02-ears-ac-format` in `implemented` state, but S02 is in `verified` state — this transition happened legitimately after S16's round 1 FAIL, and rolling it back would violate the state machine. Cannot be fixed by the implementer; requires planner to amend AC N-S16-03 to say "in `implemented` or `verified` state." Also found two implementer-fixable issues (proof "Files changed" used `git diff --name-only HEAD` instead of `git diff --name-only b820a183`, showing 5 of 11 files; three unplanned changed files not explained in Divergence). Board row corrected from stale `failed_verification` → `implemented`. Next step: `/replan-release 2026-06-16-fidelity-layer` to ratify the AC amendment.
 
 ### 2026-06-18 — S02-ears-ac-format: PASS (round 4, fresh-context)
 

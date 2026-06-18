@@ -39,9 +39,14 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "blocked",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": false,
-    "violations": []
+    "verifier_verdict_at": "2026-06-18T00:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "Gate 6 — AC N-S16-03 spec defect: requires S02 in 'implemented' state but S02 is in 'verified' state; rolling back would violate the state machine — requires planner amendment to AC N-S16-03",
+      "Gate 2/6 — Proof 'Files changed' used wrong command (git diff --name-only HEAD showing 5 pre-commit files) instead of git diff --name-only b820a183 (11 files); Divergence section does not explain the gap",
+      "Gate 2 — Three unplanned changed files (cmd/sworn/main.go, S02-ears-ac-format/journal.md, index.md) not explained in proof Divergence section"
+    ],
+    "blocked_reason": "AC N-S16-03 requires S02-ears-ac-format in 'implemented' state; S02 is in 'verified' state. Cannot be fixed by implementer without violating the state machine. Proposed amendment: change 'in `implemented` state' to 'in `implemented` or `verified` state' and remove the expectation that cmd/sworn/ears.go appears in --name-only output."
   }}
