@@ -12,19 +12,32 @@ When a planner reaches validation for a slice, sworn presents AI-drafted **posit
 ## Files changed
 
 ```
-$ git diff --name-only main
+$ git diff --name-only 40b2af4b0077d03b041cd7ac8ae3324caaa29a15..HEAD
 cmd/sworn/main.go
+cmd/sworn/reqvalidate.go
+cmd/sworn/reqvalidate_test.go
 internal/adopt/baton/rules/08-requirements-fidelity.md
 internal/prompt/planner.md
-internal/state/state.go
-
-New files (not yet tracked):
-cmd/sworn/reqvalidate.go
 internal/reqvalidate/reqvalidate.go
 internal/reqvalidate/reqvalidate_test.go
+internal/state/state.go
 ```
 
 ## Test results
+
+### Go (CLI integration — reqvalidate)
+
+```
+$ go test ./cmd/sworn/ -run TestReqvalidateCmd -v
+=== RUN   TestReqvalidateCmd_MissingReleaseArg
+--- PASS: TestReqvalidateCmd_MissingReleaseArg (0.00s)
+=== RUN   TestReqvalidateCmd_NonexistentRelease
+--- PASS: TestReqvalidateCmd_NonexistentRelease (0.00s)
+=== RUN   TestReqvalidateCmd_WithFixtureRelease
+--- PASS: TestReqvalidateCmd_WithFixtureRelease (0.00s)
+PASS
+ok  	github.com/swornagent/sworn/cmd/sworn	0.006s
+```
 
 ### Go (unit — reqvalidate)
 
@@ -62,30 +75,6 @@ $ go test ./internal/reqvalidate/... -v
 --- PASS: TestPrintCompact_NoSlices (0.00s)
 PASS
 ok  	github.com/swornagent/sworn/internal/reqvalidate	0.007s
-```
-
-### Go (full suite)
-
-```
-$ go test ./...
-ok  	github.com/swornagent/sworn/cmd/sworn	0.044s
-ok  	github.com/swornagent/sworn/internal/adopt	(cached)
-ok  	github.com/swornagent/sworn/internal/agent	(cached)
-ok  	github.com/swornagent/sworn/internal/bench	(cached)
-ok  	github.com/swornagent/sworn/internal/board	(cached)
-ok  	github.com/swornagent/sworn/internal/config	(cached)
-ok  	github.com/swornagent/sworn/internal/ears	(cached)
-ok  	github.com/swornagent/sworn/internal/git	(cached)
-ok  	github.com/swornagent/sworn/internal/implement	(cached)
-ok  	github.com/swornagent/sworn/internal/model	(cached)
-ok  	github.com/swornagent/sworn/internal/prompt	(cached)
-ok  	github.com/swornagent/sworn/internal/reqvalidate	(cached)
-ok  	github.com/swornagent/sworn/internal/reqverify	(cached)
-ok  	github.com/swornagent/sworn/internal/rtm	(cached)
-ok  	github.com/swornagent/sworn/internal/run	(cached)
-ok  	github.com/swornagent/sworn/internal/state	(cached)
-?   	github.com/swornagent/sworn/internal/verdict	[no test files]
-ok  	github.com/swornagent/sworn/internal/verify	(cached)
 ```
 
 ### go vet
@@ -134,6 +123,7 @@ When called on a release where all slices have complete human-ratified validatio
 - [x] Validation record schema added to `state.go` (`ValidationRecord` with all required fields). — **Evidence**: `internal/state/state.go` — `ValidationRecord` struct with `HumanRatified`, `PositiveScenarios`, `NegativeScenarios`, `BenefitHypothesis` fields.
 - [x] Planner prompt updated to draft scenarios + benefit hypothesis and require human ratification. — **Evidence**: `internal/prompt/planner.md` Phase 4 step 7.
 - [x] Rule 8 doc updated with "Validation — human-owned sense-check" section. — **Evidence**: `internal/adopt/baton/rules/08-requirements-fidelity.md`.
+- [x] CLI integration point tested (Rule 1) — `cmdReqvalidate()` exercised at the CLI wiring layer, not only the leaf library. — **Evidence**: `cmd/sworn/reqvalidate_test.go` — `TestReqvalidateCmd_MissingReleaseArg`, `_NonexistentRelease`, `_WithFixtureRelease`; all 3 pass.
 
 ## Not delivered
 
