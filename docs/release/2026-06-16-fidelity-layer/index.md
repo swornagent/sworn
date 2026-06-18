@@ -101,7 +101,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 |---|---|---|---|---|---|---|
 | `S01-rtm-spine` | T1 | 2-D requirements traceability matrix, threaded through artefacts, fail-closed (`sworn lint trace`) | verified | human | [spec](./S01-rtm-spine/spec.md) | [proof](./S01-rtm-spine/proof.md) |
 | `S02-ears-ac-format` | T1 | EARS acceptance-criteria notation + validator (`sworn lint ac`) | verified | human | [spec](./S02-ears-ac-format/spec.md) | [proof](./S02-ears-ac-format/proof.md) |
-| `S04-requirements-verify-gate` | T1 | 29148 quality-characteristic check, fresh-context, fail-closed (`sworn reqverify`) | planned | human | [spec](./S04-requirements-verify-gate/spec.md) | — |
+| `S04-requirements-verify-gate` | T1 | 29148 quality-characteristic check, fresh-context, fail-closed (`sworn reqverify`) | failed_verification | human | [spec](./S04-requirements-verify-gate/spec.md) | [proof](./S04-requirements-verify-gate/proof.md) |
 | `S05-requirements-validate-gate` | T1 | Human-owned scenario pos/neg + benefit-hypothesis validation (`sworn reqvalidate`) | planned | human | [spec](./S05-requirements-validate-gate/spec.md) | — |
 | `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | planned | human | [spec](./S07-design-fit-gate/spec.md) | — |
 | `S11-journey-elicitation` | T1 | AI-drafts/human-ratifies critical journeys into a durable artefact (`sworn journeys`) | planned | human | [spec](./S11-journey-elicitation/spec.md) | — |
@@ -130,17 +130,22 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Aggregate state
 
-- Planned: 14
+- Planned: 13
 - In progress: 0
 - Implemented (awaiting verification): 0
 - Verified (awaiting merge): 2
-- Failed verification: 0
+- Failed verification: 1
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** Planned: 3 / In progress: 1 / Merged: 0
 
 ## Recent activity
+
+### 2026-06-18 — S04-requirements-verify-gate: FAIL
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Gate 3 failure — CLI integration test does not exercise `reqverify.Run()` through the CLI boundary; stops at "no model configured" before the reqverify logic runs. Spec specifies "local (stubbed model client; no live key needed)" but CLI is not injectable. Gate 4 derivative: smoke step requires a live model key, contradicting the spec. State → `failed_verification`. Fix: make `cmdReqverify` injectable and add a CLI-level passing + failing test using a `fakeVerifier` stub.
 
 ### 2026-06-18 — S02-ears-ac-format: PASS
 

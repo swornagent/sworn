@@ -48,4 +48,36 @@ None.
 
 ## Verifier verdicts received
 
-(No verifier has been run yet — fresh-context session required per Rule 7.)
+### 2026-06-18 14:00 — FAIL (fresh-context session)
+
+```
+FAIL
+
+Slice: `S04-requirements-verify-gate`
+
+Violations:
+1. Gate 3 — CLI integration test does not exercise the reqverify logic through the CLI boundary.
+   Evidence: `cmd/sworn/reqverify_test.go` — `TestReqverifyCmd_WithFixtureRelease` creates a
+   fixture release and calls `cmdReqverify([]string{"test-release"})` but stops at "sworn
+   reqverify: model: SWORN_OPENAI_API_KEY not set" (exit 2) before `reqverify.Run()` is called.
+   Steps 4–6 of `cmdReqverify` (run, print, return exit 1 on violations) are never tested
+   through the CLI. The `internal/reqverify/reqverify_test.go` unit tests test `Run()` directly
+   — that is the leaf package, not the CLI integration point. Spec states "E2E gate type: local
+   (stubbed model client; no live key needed)" but the CLI is not injectable and the prescribed
+   stubbed-client path is unreachable from the CLI tests.
+
+2. Gate 4 — Reachability smoke step is unrunnable without a live model key.
+   Evidence: `proof.md` "Reachability artefact" states "This requires a configured model (env:
+   SWORN_OPENAI_API_KEY)" and substitutes unit-test evidence for the smoke step. This directly
+   contradicts the spec's "E2E gate type: local (stubbed model client; no live key needed)."
+
+Required to address:
+1. Refactor `cmdReqverify` to accept an injectable `reqverify.Verifier` (e.g. add
+   `cmdReqverifyWithVerifier(args []string, v reqverify.Verifier) int` and have `cmdReqverify`
+   resolve and delegate). Update `TestReqverifyCmd_WithFixtureRelease` to pass a `fakeVerifier`
+   stub so the test exercises the full path: fixture ACs → extraction → model stub → violations
+   detected → exit 1. Also add a passing-path test (all-pass reply → exit 0). Pattern already
+   present in `internal/reqverify/reqverify_test.go`.
+2. Update the `proof.md` reachability artefact to document a smoke step that uses the injectable
+   path (no live key), or reference the new passing CLI-level test.
+```
