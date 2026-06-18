@@ -199,7 +199,7 @@ Discrete capabilities (candidate acceptance checks downstream):
 
 - **Context**: how should the fidelity gates surface natively (S01/S03/S04/S09/S13/S15)?
 - **Options considered**: standalone verbs; unified `sworn check`; decide per slice.
-- **Decision**: **standalone verbs** (`sworn rtm`, `sworn ship`, `sworn top`, etc.) as the
+- **Decision**: **standalone verbs** (`sworn lint trace`, `sworn ship`, `sworn top`, etc.) as the
   primitive — matching the existing `init/run/verify/bench` convention and mapping 1:1 to
   slash-commands for manual interactive driving (the on-ramp). The autonomous path **composes**
   the verbs (the run-loop / S06's DoR gate invokes the requirements checks at the
@@ -212,17 +212,16 @@ Discrete capabilities (candidate acceptance checks downstream):
 
 ### `2026-06-18` — Lint namespace: `sworn lint <target>` supersedes bare verbs for quality gates
 
-- **Context**: after S01 (`sworn rtm`) and S02 (`sworn ears`) were implemented, both command
-  names were found to be opaque in code review. `ears` is borrowed jargon (EARS = Easy Approach
-  to Requirements Syntax) that means nothing without knowing the spec. `rtm` is an acronym
-  (Requirements Traceability Matrix) equally opaque to newcomers. A user reading `sworn ears` or
-  `sworn rtm` for the first time has no affordance for what it does.
+- **Context**: after S01 and S02 were implemented, both command names were found to be opaque in
+  code review. The original names (`ears` — borrowed jargon for EARS = Easy Approach to
+  Requirements Syntax — and `rtm` — an acronym for Requirements Traceability Matrix) meant nothing
+  without knowing the spec. A user encountering either name for the first time had no affordance for
+  what it did.
 - **Options considered**: keep bare verbs; rename to descriptive verbs (`sworn validate-acs`,
   `sworn check-trace`); group under a `lint` namespace.
 - **Decision**: **`sworn lint <target>`** as the command surface for all quality-checking gates.
-  - `sworn lint ac <release>` — acceptance-criteria format validation (was `sworn ears`)
-  - `sworn lint trace <release>` — traceability matrix (was `sworn rtm`)
-  - Future gates follow the same pattern: `sworn lint spec`, `sworn lint design`, etc.
+  - `sworn lint ac <release>` — acceptance-criteria format validation (replaces original `ears`)
+  - `sworn lint trace <release>` — traceability matrix (replaces original `rtm`)  - Future gates follow the same pattern: `sworn lint spec`, `sworn lint design`, etc.
   - `sworn lint` (no args) — future: run all targets
 - **Why**:
   - `lint` is immediately understood by any developer — `golint`, `eslint`, `ruff`, etc. all
