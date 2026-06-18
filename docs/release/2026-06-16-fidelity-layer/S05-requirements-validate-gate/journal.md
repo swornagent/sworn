@@ -89,3 +89,41 @@ data. Minimum tests (mirroring S04's pattern in `cmd/sworn/reqverify_test.go`):
   - Added "Divergence from plan" entry explaining S04 files in diff range (concurrent track slice re-implementation cycles pre-dating start_commit) and S05 self-tracking docs as expected side-effects.
   - All tests pass: `go test ./cmd/sworn/ -run TestReqvalidateCmd` (3/3 PASS), `go test ./internal/reqvalidate/...` (15/15 PASS), `go vet ./...` (clean).
   - Clearing `verification.result` to `pending` for upcoming fresh-context verification.
+
+## Verifier verdicts received (continued)
+
+### 2026-06-18 — verifier verdict: FAIL (round 3)
+
+**Verdict**: FAIL
+
+**Violations:**
+
+1. Gate 2 — `cmd/sworn/reqvalidate_test.go` is in the actual diff and in `actual_files` in
+   status.json, but is not listed in the spec's "Planned touchpoints" and is not acknowledged
+   in proof.md "Divergence from plan." The section explains S04 files and self-tracking docs,
+   but omits this unplanned S05 file. Gate 2 requires every unplanned changed file to be
+   explained in "Divergence from plan."
+
+2. Gate 4 — spec.md "Reachability artefact" requires the smoke step to show "add + ratify it;
+   observe pass." proof.md shows the fail case (exit 1, 16 violations) and asserts the pass
+   case verbally ("When called on a release where all slices have complete human-ratified
+   validation records, sworn reqvalidate exits 0") but provides no captured CLI output
+   demonstrating exit 0 on a fully-validated fixture. (Verifier ran the smoke independently —
+   implementation is correct, exit 0 is returned — but the proof bundle does not demonstrate
+   it.)
+
+3. Gate 4 — spec.md "Reachability artefact" requires "an explicit note that the *interactive*
+   scenario walk is exercised via the planner session." No such note appears in proof.md's
+   Reachability artefact section.
+
+**Required to address:**
+
+1. Add `cmd/sworn/reqvalidate_test.go` to proof.md "Divergence from plan" explaining it was
+   added beyond the planned touchpoints to satisfy the Rule 1 CLI integration test requirement.
+2. Add captured CLI output to proof.md showing `sworn reqvalidate` returning exit 0 on a
+   fully-validated fixture release (e.g., a temp fixture where S01 has a complete
+   human-ratified record).
+3. Add a note in the proof.md Reachability artefact section: "The interactive scenario walk
+   is exercised through the updated `internal/prompt/planner.md` Phase 4 step 7, which
+   instructs the model to draft positive/negative scenarios and a benefit hypothesis and
+   requires the human to ratify before setting `human_ratified: true`."

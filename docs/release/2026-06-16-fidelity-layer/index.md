@@ -138,9 +138,23 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 - Deferred: 0
 - Shipped: 0
 
+<!-- S05 state: failed_verification (round 3 FAIL — 2026-06-18) -->
+
 **Tracks:** Planned: 3 / In progress: 1 / Merged: 0
 
 ## Recent activity
+
+### 2026-06-18 — S05-requirements-validate-gate: FAIL (round 3)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Gate 2 + Gate 4 (×2). Gate 2: `cmd/sworn/reqvalidate_test.go` is in the actual
+  diff and `actual_files` but not acknowledged in proof.md "Divergence from plan". Gate 4(1):
+  spec requires smoke step to show "add + ratify it; observe pass" — proof only asserts the
+  pass case verbally, no captured CLI output. Gate 4(2): spec requires "an explicit note that
+  the *interactive* scenario walk is exercised via the planner session" — absent from proof.
+  Implementation verified correct (all 15 unit tests + 3 CLI integration tests pass; pass-case
+  smoke independently confirmed: `sworn reqvalidate fixture-release` exits 0). Slice state →
+  `failed_verification`.
 
 ### 2026-06-18 — S05-requirements-validate-gate: FAIL (round 2)
 
