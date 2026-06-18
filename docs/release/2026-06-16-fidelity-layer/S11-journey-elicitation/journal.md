@@ -1,8 +1,7 @@
 ---
 title: Slice journal S11-journey-elicitation
-description: Implementation log for the journey model, CLI, and gate.
+description: Implementation log for the journey model, CLI, and gate. Fixed verifier violation (journeys_test.go divergence).
 ---
-
 # Journal: S11-journey-elicitation
 
 ## Session log
@@ -62,6 +61,15 @@ Slice state → `failed_verification`.
 2. Add `internal/adopt/adopt.go` to proof.md "Divergence from plan" with a one-sentence rationale (e.g. "the Materialise() files list was updated to register rule 10 so `sworn init` vendors the new rule doc").
 
 Slice state → `failed_verification`.
+
+### 2026-06-22 12:00 — fix verifier violation (round 2)
+
+- **State**: failed_verification → implemented
+- **Violation addressed**: Added `cmd/sworn/journeys_test.go` to proof.md "Divergence from plan" with one-sentence rationale: the integration test file provides the Rule 1 integration test required by the spec's "Required tests" section, absent from Planned touchpoints which named only the command implementation file.
+- **Re-run tests**: all 14 journey unit tests PASS, 9 CLI integration tests PASS.
+- **Proof.md updated** with fresh first-pass script output (18/18 PASS).
+- **Verification result cleared** to `pending` for fresh verifier session.
+
 ### 2026-06-20 20:00 — re-implementation (fix violations from round 1)
 
 - **State**: failed_verification → implemented

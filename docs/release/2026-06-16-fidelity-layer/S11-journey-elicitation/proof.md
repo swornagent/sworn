@@ -157,6 +157,7 @@ $ go build ./...
 
 ## Divergence from plan
 
+- `cmd/sworn/journeys_test.go` was added (not in spec.md Planned touchpoints) — the integration test file provides the Rule 1 integration test (`sworn journeys --check` exercised on a fixture project) required by the spec's "Required tests" section. The Planned touchpoints named only the command implementation file (`cmd/sworn/journeys.go`); the companion test file follows the project's pattern of co-locating tests with the command they cover.
 - `internal/adopt/adopt.go` was updated (not in spec.md Planned touchpoints) — the `Materialise()` function's files list was extended with the `10-customer-journey-validation.md` rule doc entry so that `sworn init` vendors Rule 10's artefact into the target repo. This is a necessary runtime companion to the rule doc's creation — without it, `sworn init` would not materialise the new rule. The planned touchpoints were written assuming rule-registration happens separately; the implementation correctly includes it.
 - The `internal/prompt/planner.md` was updated with journey elicitation guidance as a new section inserted before "Working style notes", rather than a standalone prompt file — this keeps the elicitation guidance co-located with the existing planner prompt.
 - The draft template (`DraftTemplate`) scans the project's file system to produce candidate journeys rather than using an AI model — the model-assisted draft is deferred as provisional per the spec's own acknowledgement.
