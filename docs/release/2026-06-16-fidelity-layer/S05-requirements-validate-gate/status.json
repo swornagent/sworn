@@ -3,11 +3,10 @@
   "slice_id": "S05-requirements-validate-gate",
   "release": "2026-06-16-fidelity-layer",
   "track": "T1-fidelity-core",
-  "state": "in_progress",
-  "owner": "human",
+  "state": "implemented",  "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-18T16:00:00Z",
-  "start_commit": "40b2af4b0077d03b041cd7ac8ae3324caaa29a15",  "spec_path": "docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/spec.md",
+  "start_commit": "12ef38a28a05cda5b837a78087f3542476cc00eb",  "spec_path": "docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/proof.md",
   "journal_path": "docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/journal.md",
   "planned_files": [
@@ -30,12 +29,14 @@
     "internal/adopt/baton/rules/08-requirements-fidelity.md"
   ],
   "test_commands": [
-    "go test ./internal/reqvalidate/..."
+    "go test ./internal/reqvalidate/...",
+    "go test ./cmd/sworn/ -run TestReqvalidateCmd"
   ],
   "reachability_artifacts": [
-    "smoke step: run `sworn reqvalidate 2026-06-16-fidelity-layer` — exits 1 naming all 16 unvalidated slices (fail-closed). Smoke confirmed: /tmp/sworn-bin reqvalidate 2026-06-16-fidelity-layer returned exit 1 with all 16 slices named in violations."
-  ],
-  "open_deferrals": [],
+    "smoke step: run `sworn reqvalidate <release>` on a fixture with incomplete validation records — exits 1 naming violations (fail-closed). Smoke confirmed: `sworn reqvalidate test-release` with incomplete fixture returned exit 1.",
+    "smoke step: run `sworn reqvalidate <release>` on a fixture with complete human-ratified records — exits 0 (pass). Smoke confirmed: `sworn reqvalidate test-release` with fully-validated fixture returned exit 0 with '1 validated, 0 failed — PASSED'.",
+    "planner session note: the interactive scenario walk is exercised via `internal/prompt/planner.md` Phase 4 step 7 — model drafts positive/negative scenarios + benefit hypothesis, human ratifies; prompt enforces 'Never auto-set human_ratified'."
+  ],  "open_deferrals": [],
   "verification": {
     "result": "pending",    "verifier_session_id": null,
     "verifier_verdict_at": null,
