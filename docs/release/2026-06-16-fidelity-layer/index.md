@@ -106,7 +106,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S11-journey-elicitation` | T1 | AI-drafts/human-ratifies critical journeys into a durable artefact (`sworn journeys`) | verified | verifier | [spec](./S11-journey-elicitation/spec.md) | [proof](./S11-journey-elicitation/proof.md) |
 | `S16-lint-rename` | T1 | Documentation sweep — adopt `sworn lint ac` / `sworn lint trace` canonical names throughout release docs; restore S02 proof.md | verified | human | [spec](./S16-lint-rename/spec.md) | [proof](./S16-lint-rename/proof.md) |
 | `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | verified | verifier | [spec](./S06-definition-of-ready/spec.md) | [proof](./S06-definition-of-ready/proof.md) |
-| `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | failed_verification | verifier | [spec](./S10-no-mock-boundary/spec.md) | [proof](./S10-no-mock-boundary/proof.md) |
+| `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | verified | verifier | [spec](./S10-no-mock-boundary/spec.md) | [proof](./S10-no-mock-boundary/proof.md) |
 | `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | planned | human | [spec](./S12-journey-impact-analysis/spec.md) | — |
 | `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | planned | human | [spec](./S13-walkthrough-attestation/spec.md) | — |
 | `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | planned | human | [spec](./S14-journey-regression-suite/spec.md) | — |
@@ -132,14 +132,19 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 - Planned: 5 (S08, S09, S12, S13, S14)
 - In progress: 0
 - Implemented (awaiting verification): 0
-- Verified: 9 (S01, S02, S04, S05, S06, S07, S11, S15, S16)
-- Failed verification: 2 (S03, S10)
+- Verified: 10 (S01, S02, S04, S05, S06, S07, S10, S11, S15, S16)
+- Failed verification: 1 (S03)
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** Planned: 1 (T3) / In progress: 1 (T2) / Merged: 2 (T1: b8521f8, T4: ca5b1ea)
 
 ## Recent activity
+
+### 2026-06-19 — S10-no-mock-boundary: PASS (round 4, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: All six gates passed. 12 S10 boundary-mock tests pass fresh. CLI confirmed live: undeclared DB mock → FAIL/boundary_mock (exit 1); declared mock with `--deferral` passes through to model dispatch. All 4 ACs verified: AC1 (undeclared fails closed), AC2 (declared allowed + surfaced in rationale), AC3 (implementer.md stop-don't-mock), AC4 (absence fails closed). start_commit (`4d866d6`) now correctly includes all 4 planned touchpoints. `sworn` binary acknowledged as accidentally tracked divergence. Slice state → `verified`. T2-delivery-cutover: S06 ✓, S10 ✓, S12/S13/S14 planned. Next: `/implement-slice S12-journey-impact-analysis 2026-06-16-fidelity-layer`.
 
 ### 2026-06-19 — S10-no-mock-boundary: FAIL (round 3, fresh-context)
 

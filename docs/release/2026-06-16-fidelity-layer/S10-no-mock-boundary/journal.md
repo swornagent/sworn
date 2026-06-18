@@ -67,6 +67,24 @@ None.
 
 ## Verifier verdicts received
 
+### `2026-06-19` — verifier verdict: PASS (round 4, fresh-context)
+
+PASS
+
+Slice: `S10-no-mock-boundary`
+Verified against: `7ff976d`
+Verifier session: `fresh, artefact-only`
+
+All six gates passed:
+- **Gate 1**: `CheckBoundaryMocks()` in `internal/verify/verify.go` is called from `verify.Run()` before model dispatch; `sworn verify` CLI and `internal/run/run.go` both wire `OpenDeferrals` through to the check. Live CLI confirms: undeclared DB mock → `FAIL/boundary_mock` (exit 1); declared mock (with `--deferral "db mock..."`) passes through the boundary gate and reaches model dispatch.
+- **Gate 2**: All 4 planned touchpoints in `start_commit..HEAD` diff. Three extra files (`cmd/sworn/main.go`, `internal/run/run.go`, `sworn` binary) explained in proof.md "Divergence from plan" (entry-point wiring required by round-1 violations; binary accidentally tracked in `bfdede8`).
+- **Gate 3**: 12 S10 tests pass fresh (`-run "S10|BoundaryMock|Mock|Run_Undeclared|Run_Declared"`). `TestRun_UndeclaredBoundaryMockFailsClosed` and `TestRun_DeclaredBoundaryMockAllowed` exercise the integration point (`verify.Run()`). `TestRun_DeclaredBoundaryMockAllowed` asserts `Rationale` contains "Declared boundary mock" and mock-type detail. All `internal/run/` tests pass.
+- **Gate 4**: proof.md exists; 3 user gestures described. Steps 1–2 (test commands) verified live. Step 3 (CLI) verified live: `sworn verify --spec spec.md --diff diff.patch` → `FAIL/boundary_mock`; adding `--deferral "db mock..."` → BLOCKED on model dispatch (proving the boundary gate does not false-positive on declared mocks).
+- **Gate 5**: Zero TODO/FIXME/deferred/later/placeholder/XXX/HACK in changed production source files.
+- **Gate 6**: All 4 AC evidence references verified: AC1 (`TestRun_UndeclaredBoundaryMockFailsClosed`), AC2 (`TestRun_DeclaredBoundaryMockAllowed` + `cmd/sworn/main.go` `--deferral` flag + `internal/run/run.go` `open_deferrals` read), AC3 (`internal/prompt/implementer.md` hard constraint), AC4 (`verify.Run()` short-circuits before model dispatch on undeclared mocks).
+
+Next: `/implement-slice S12-journey-impact-analysis 2026-06-16-fidelity-layer` (next planned slice in T2-delivery-cutover).
+
 ### `2026-06-19` — verifier verdict: FAIL (round 3, fresh-context)
 
 FAIL: 1 violation (Gate 2)
