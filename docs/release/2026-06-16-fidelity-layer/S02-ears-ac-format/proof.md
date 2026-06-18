@@ -29,8 +29,8 @@ cmd/sworn/rtm.go
 docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/journal.md
 docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/proof.md
 docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/spec.md
-docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/journal.md
-docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/proof.md
+docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/status.json
+docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/journal.mddocs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/proof.md
 docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/spec.md
 docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/status.json
 docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/journal.md
@@ -47,8 +47,9 @@ docs/release/2026-06-16-fidelity-layer/S11-journey-elicitation/proof.md
 docs/release/2026-06-16-fidelity-layer/S11-journey-elicitation/status.json
 docs/release/2026-06-16-fidelity-layer/S16-lint-rename/spec.md
 docs/release/2026-06-16-fidelity-layer/S16-lint-rename/status.json
-docs/release/2026-06-16-fidelity-layer/index.md
-docs/release/2026-06-16-fidelity-layer/intake.md
+docs/release/2026-06-16-fidelity-layer/S16-lint-rename/journal.md
+docs/release/2026-06-16-fidelity-layer/S16-lint-rename/proof.md
+docs/release/2026-06-16-fidelity-layer/index.mddocs/release/2026-06-16-fidelity-layer/intake.md
 internal/adopt/adopt.go
 internal/adopt/baton/rules/08-requirements-fidelity.md
 internal/adopt/baton/rules/09-design-fidelity.md
@@ -223,8 +224,8 @@ None. All four acceptance checks are demonstrably true.
 - **`cmd/sworn/lint_trace_test.go` (renamed from S01's `rtm_test.go`)**: The refactor renamed S01's `cmd/sworn/rtm_test.go` to `cmd/sworn/lint_trace_test.go` to match the new command surface. This file appears in the diff and is the S01 slice's test, not S02's work.
 - **S01-rtm-spine doc files updated**: The refactor updated `docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/spec.md`, `proof.md`, and `journal.md` to replace original `rtm` references with `sworn lint trace`. These changes are S01's scope (post-slice clean-up), not S02's.
 - **S02 spec.md updated**: The refactor updated `docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/spec.md` to replace the original `ears` with `sworn lint ac` throughout. No change to requirements — purely surface renaming to match the refactored CLI.
-- **S16-lint-rename (new slice from replan)**: A forward-merge from `release-wt/2026-06-16-fidelity-layer` brought in the new `S16-lint-rename` slice, whose `spec.md` and `status.json` appear in the diff. This is not S02 work — it was added by the planner's replan.
-- **53 files in diff (not all S02's work)**: This regenerated proof lists every file from `git diff --name-only cd462364..HEAD` as required by AC N-S16-03. Many files are from later slices (S04, S05, S07, S11, S16) committed after S02's start_commit. The S02-specific files are: `internal/ears/ears.go`, `internal/ears/ears_test.go`, `cmd/sworn/lint.go`, `cmd/sworn/lint_ac_test.go`, `cmd/sworn/main.go`, `internal/prompt/planner.md`, `internal/adopt/baton/rules/08-requirements-fidelity.md`, and S02's own doc artefacts.
+- **S16-lint-rename (new slice from replan)**: A forward-merge from `release-wt/2026-06-16-fidelity-layer` brought in the new `S16-lint-rename` slice, whose `spec.md`, `status.json`, `journal.md`, and `proof.md` appear in the diff. This is not S02 work — it was added by the planner's replan and updated by S16's own implementation.
+- **60 files in diff (not all S02's work)**: This regenerated proof lists every file from `git diff --name-only cd462364..HEAD` as required by AC N-S16-03. Many files are from later slices (S04, S05, S07, S11, S16) committed after S02's start_commit. The S02-specific files are: `internal/ears/ears.go`, `internal/ears/ears_test.go`, `cmd/sworn/lint.go`, `cmd/sworn/lint_ac_test.go`, `cmd/sworn/main.go`, `internal/prompt/planner.md`, `internal/adopt/baton/rules/08-requirements-fidelity.md`, and S02's own doc artefacts.
 
 ## First-pass script output
 

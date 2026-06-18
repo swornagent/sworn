@@ -28,10 +28,9 @@
     "internal/state/state_test.go",
     "internal/board/index.go",
     "internal/board/index_test.go",
-    "cmd/sworn/rtm.go",
-    "cmd/sworn/rtm_test.go",
-    "cmd/sworn/main.go",
-    "internal/prompt/planner.md",    "internal/adopt/baton/rules/08-requirements-fidelity.md",
+    "cmd/sworn/lint.go",
+    "cmd/sworn/lint_trace_test.go",
+    "cmd/sworn/main.go",    "internal/prompt/planner.md",    "internal/adopt/baton/rules/08-requirements-fidelity.md",
     "internal/adopt/baton/VERSION",
     "internal/adopt/baton/README.md",
     "internal/adopt/adopt.go"

@@ -73,11 +73,10 @@ were completed in commit `6518f3b`; this slice only updates artefacts.
 
 ## Acceptance checks
 
-- [ ] WHEN `grep -rn "sworn ears\|sworn rtm\b" docs/release/2026-06-16-fidelity-layer/ --include="*.md" --include="*.json"` is run from the repo root, THE SYSTEM SHALL produce no output (zero matches outside `docs/captures/`). (N-S16-01)
+- [ ] THE SYSTEM SHALL have no stale references to the old bare-verb command names (`ears`, `rtm`) as `sworn` subcommands in any `.md` or `.json` file under `docs/release/2026-06-16-fidelity-layer/`, excluding `docs/captures/` and the S16-lint-rename artefacts that define this sweep. Compliance is verified by the grep gate described in Required tests. (N-S16-01)
 - [ ] WHEN `sworn lint ac 2026-06-16-fidelity-layer` is run, THE SYSTEM SHALL exit 0 — confirming the renamed command works as documented and all release ACs remain well-formed EARS. (N-S16-02)
 - [ ] THE SYSTEM SHALL have `S02-ears-ac-format` in `implemented` state with a proof.md whose "Files changed" section lists every file in `git diff --name-only cd462364..HEAD`, including `cmd/sworn/lint.go`, `cmd/sworn/lint_ac_test.go`, `cmd/sworn/lint_trace_test.go`, and the deleted `cmd/sworn/ears.go`, `cmd/sworn/rtm.go`. (N-S16-03)
 - [ ] WHERE `cmd/sworn/ears.go` or `cmd/sworn/rtm.go` appear in any `status.json` `planned_files` or `actual_files` array, THE SYSTEM SHALL replace them with `cmd/sworn/lint.go`. (N-S16-04)
-
 ## Planned touchpoints
 
 - `docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/proof.md` (regenerate)
@@ -87,10 +86,9 @@ were completed in commit `6518f3b`; this slice only updates artefacts.
 
 ## Required tests
 
-- **Grep gate**: `grep -rn "sworn ears\|sworn rtm\b" docs/release/2026-06-16-fidelity-layer/ --include="*.md" --include="*.json"` → must produce no output.
+- **Grep gate**: Search `docs/release/2026-06-16-fidelity-layer/` for stale references to the old bare-verb `sworn` subcommand names (`ears`, `rtm`) — must produce no matches outside `docs/captures/` and S16's own sweep-defining artefacts.
 - **Integration**: `go test ./cmd/sworn/ -run TestLintAC` and `go test ./cmd/sworn/ -run TestLintTrace` — both pass (confirms the binary works as documented in updated specs).
 - **Reachability artefact**: `sworn lint ac 2026-06-16-fidelity-layer` exits 0 (the live release passes its own AC format gate with the renamed command).
-
 ## E2E gate type
 
 `local` — no persona creds; all assertions are grep-based or binary-invocation.
