@@ -13,16 +13,26 @@ When a planner reaches validation for a slice, sworn presents AI-drafted **posit
 
 ```
 $ git diff --name-only 40b2af4b0077d03b041cd7ac8ae3324caaa29a15..HEAD
+.gitignore
 cmd/sworn/main.go
 cmd/sworn/reqvalidate.go
 cmd/sworn/reqvalidate_test.go
+cmd/sworn/reqverify.go
+cmd/sworn/reqverify_test.go
+docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/journal.md
+docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/proof.md
+docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/status.json
+docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/journal.md
+docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/proof.md
+docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/status.json
+docs/release/2026-06-16-fidelity-layer/index.md
 internal/adopt/baton/rules/08-requirements-fidelity.md
 internal/prompt/planner.md
 internal/reqvalidate/reqvalidate.go
 internal/reqvalidate/reqvalidate_test.go
+internal/reqverify/reqverify_test.go
 internal/state/state.go
 ```
-
 ## Test results
 
 ### Go (CLI integration — reqvalidate)
@@ -131,4 +141,15 @@ None.
 
 ## Divergence from plan
 
-None.
+- **S04 files in diff range**: `cmd/sworn/reqverify.go`, `cmd/sworn/reqverify_test.go`,
+  `internal/reqverify/reqverify_test.go`, `.gitignore`, and
+  `docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/*` appear in the
+  `git diff --name-only 40b2af4..HEAD` output because the start_commit (`40b2af4`) pre-dates
+  S04's re-implementation cycles (which ran concurrently with S05 on track T1-fidelity-core).
+  These files are S04 scope (a distinct, verified slice), not S05 scope. They appear in the
+  diff range but are not S05 deliverables.
+- **S05 self-tracking docs in diff range**: `docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/journal.md`,
+  `proof.md`, and `status.json` are the slice's own tracking artefacts (created and updated by
+  this session) — they are not planned_files but are naturally part of the diff. `index.md`
+  was touched by the track worktree materialisation and milestone updates. These are expected
+  side-effects of operating inside a release, not plan deviations.

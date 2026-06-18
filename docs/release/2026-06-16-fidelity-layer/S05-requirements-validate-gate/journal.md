@@ -81,3 +81,11 @@ data. Minimum tests (mirroring S04's pattern in `cmd/sworn/reqverify_test.go`):
    in the diff range because start_commit (`40b2af4`) pre-dates S04's re-implementation cycles
    (which ran concurrently with S05 on this track); these files are S04 scope (a distinct
    verified slice), not S05 scope.
+### 2026-06-18 06:22 — re-implementation (address round-2 violations)
+
+- **State**: `failed_verification → implemented`
+- **Notes**:
+  - Updated proof.md "Files changed" section to reflect the full `git diff --name-only 40b2af4..HEAD` output, including S04 re-implementation files, S05 self-tracking docs, and `.gitignore`.
+  - Added "Divergence from plan" entry explaining S04 files in diff range (concurrent track slice re-implementation cycles pre-dating start_commit) and S05 self-tracking docs as expected side-effects.
+  - All tests pass: `go test ./cmd/sworn/ -run TestReqvalidateCmd` (3/3 PASS), `go test ./internal/reqvalidate/...` (15/15 PASS), `go vet ./...` (clean).
+  - Clearing `verification.result` to `pending` for upcoming fresh-context verification.
