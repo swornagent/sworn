@@ -16,6 +16,7 @@ infeasible AC is named with the characteristic it breaches.
 
 ```
 $ git diff --name-only 7b0246a3e5eb38a00cadd28251b8619e03f6d90e..HEAD
+.gitignore
 cmd/sworn/reqverify.go
 cmd/sworn/reqverify_test.go
 docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/journal.md
@@ -200,6 +201,9 @@ $ go vet ./...
 - **CLI integration tests expanded**: `TestReqverifyCmdWithVerifier_AllPass`, `TestReqverifyCmdWithVerifier_Violations`, `TestReqverifyCmdWithVerifier_ModelError`, and `TestReqverifyCmdWithVerifier_NonexistentRelease` added to exercise every exit path through the injectable boundary. Original `TestReqverifyCmd_WithFixtureRelease` removed (replaced by the injectable tests).
 - `cmd/sworn/reqverify_test.go` and `cmd/sworn/reqverify.go` modified — re-implementation of this failed_verification slice.
 - **Planned touchpoint `internal/adopt/baton/rules/08-requirements-fidelity.md`** was not modified because it already contained the verification description from planner/S01/S02 work. The file documents Rule 8's verification requirements against 29148 quality characteristics — no new content was needed for this slice. Added to `actual_files` to show it was reviewed.
+
+- **`.gitignore`**: Adds `cmd/sworn/docs/` to the ignore list so generated CLI documentation artefacts (e.g. from `sworn docs`) are not accidentally committed. This hygiene detail emerged during implementation and was not listed as a planned touchpoint — the format-only change carries no functional weight.
+- **Four planned touchpoints absent from this re-implementation's diff** (`internal/reqverify/reqverify.go`, `internal/reqverify/reqverify_test.go`, `cmd/sworn/main.go`, `internal/prompt/requirements-verifier.md`): These files were created in the first implementation pass (before this re-implementation's start_commit `7b0246a3`) and required no changes in this re-implementation. They are fully operational in the working tree — the re-implementation scope was limited to the injectable-CLI-refactor layer (`cmd/sworn/reqverify.go`, `cmd/sworn/reqverify_test.go`).
 ## First-pass script output
 
 ```
