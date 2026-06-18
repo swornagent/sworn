@@ -113,7 +113,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | planned | human | [spec](./S03-spec-quality-firstpass/spec.md) | — |
 | `S08-design-system-input` | T3 | Design system (tokens + component library) as first-class project input | planned | human | [spec](./S08-design-system-input/spec.md) | — |
 | `S09-design-conformance-audit` | T3 | Deterministic drift first-pass + human cohesion verdict (`sworn designaudit`) | planned | human | [spec](./S09-design-conformance-audit/spec.md) | — |
-| `S15-sworn-top-evidence` | T4 | Read-only journey-validation green-board / kill-list (`sworn top`) | failed_verification | agent | [spec](./S15-sworn-top-evidence/spec.md) | [proof](./S15-sworn-top-evidence/proof.md) |
+| `S15-sworn-top-evidence` | T4 | Read-only journey-validation green-board / kill-list (`sworn top`) | verified | agent | [spec](./S15-sworn-top-evidence/spec.md) | [proof](./S15-sworn-top-evidence/proof.md) |
 
 ### State legend
 
@@ -132,14 +132,19 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 - Planned: 8
 - In progress: 0
 - Implemented (awaiting verification): 0
-- Verified (awaiting merge): 7 (S01, S02, S04, S05, S07, S11, S16)
-- Failed verification: 1 (S15)
+- Verified (awaiting merge): 8 (S01, S02, S04, S05, S07, S11, S16, S15)
+- Failed verification: 0
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 3 / In progress: 0 / Merged: 1 (T1: merged at b8521f8)
+**Tracks:** Planned: 2 / In progress: 1 / Merged: 1 (T1: merged at b8521f8) / T4 complete (all slices verified, ready for /merge-track)
 
 ## Recent activity
+
+### 2026-06-18 — S15-sworn-top-evidence: PASS (round 2, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: All six gates passed. Both prior FAIL violations fully resolved. `TestTopCmd_MixedStatuses` calls `cmdTop([]string{"test-release", dir})` (the command entry point) — Gate 3 (Rule 1) satisfied. `start_commit` corrected to `e3b0ec2`; `git diff --name-only e3b0ec2..HEAD` shows all 9 files including the 3 planned touchpoints — Gate 2 satisfied. 8 tests green fresh (`-count=1`). `case "top"` wired in `main.go`. Manual smoke step proves kill-list → green-board user path. No deferral markers in production files. All 4 ACs have verifiable evidence. Slice state → `verified`. Track T4-evidence-surface complete. Next: `/merge-track T4-evidence-surface 2026-06-16-fidelity-layer`.
 
 ### 2026-06-18 — S15-sworn-top-evidence: FAIL (round 1, fresh-context)
 

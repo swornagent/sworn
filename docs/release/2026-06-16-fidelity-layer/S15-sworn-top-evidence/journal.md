@@ -48,3 +48,8 @@ None.
   - All tests pass (8 total: 7 existing + 1 new cmdTop integration test).
   - First-pass verification: 18/18 PASS (re-run).
   - **No new divergence**: Both fixes are protocol/test-layer corrections to an otherwise functional implementation.
+
+### 2026-06-18 — PASS (round 2, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: All six gates passed. Both prior FAIL violations fully resolved. `TestTopCmd_MixedStatuses` calls `cmdTop([]string{"test-release", dir})` (the command entry point) and verifies exit 1 for mixed-status kill-list — Gate 3 satisfied. `start_commit` is `e3b0ec2`; `git diff --name-only e3b0ec2..HEAD` shows all 9 files including the 3 planned touchpoints — Gate 2 satisfied. 8 tests green fresh (`-count=1`). `case "top"` wired in `main.go`. Manual smoke step described for kill-list → green-board flow. No deferral markers. All 4 ACs have verifiable evidence. Verified at commit `addadd2`. Slice state → `verified`. Track T4-evidence-surface complete (only slice). Next: `/merge-track T4-evidence-surface 2026-06-16-fidelity-layer`.
