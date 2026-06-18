@@ -44,6 +44,9 @@ func main() {
 		// S01-rtm-spine / S02-ears-ac-format add this case (T1-fidelity-core).
 		// Dispatches to: lint ac <release>, lint trace <release>.
 		os.Exit(cmdLint(os.Args[2:]))
+	case "reqverify":
+		// S04-requirements-verify-gate adds this case (T1-fidelity-core).
+		os.Exit(cmdReqverify(os.Args[2:]))
 	case "version", "--version", "-v":
 		fmt.Printf("sworn %s\nbaton-protocol %s\n", version, prompt.BatonVersion())
 	case "help", "--help", "-h":
@@ -112,6 +115,7 @@ usage:
   sworn init [--api-key <key>] [--force]
   sworn lint ac <release>
   sworn lint trace <release>
+  sworn reqverify <release>
   sworn run --task <description> [--implementer-model <m>] [--verifier-model <m>] [--base <branch>] [--retry-cap <n>]
   sworn verify --spec <path> --diff <path|-> [--proof <path>] [--verifier-model <provider/model>]
   sworn version
@@ -123,9 +127,12 @@ init bootstraps SwornAgent in a repo: writes a config file, vendors the Baton
 protocol into docs/baton/, and splices the seven-rule fragment into AGENTS.md.
 lint checks a release for structural problems. Targets:
   ac     — classify every acceptance check by EARS pattern; fail closed on any
-            free-form check that matches no pattern, naming the slice + line.
+           free-form check that matches no pattern, naming the slice + line.
   trace  — build the 2-D requirements traceability matrix; fail closed on any
-            broken trace (orphaned need, orphaned AC, slice with no vertical link).
+           broken trace (orphaned need, orphaned AC, slice with no vertical link).
+reqverify grades every acceptance criterion in a release against the ISO/IEC/IEEE
+29148 quality characteristics using a fresh-context model pass, fail-closed.
+  See 'sworn reqverify <release>' for details.
 run executes the full turnkey loop: implement → verify → (on FAIL: retry/escalate
 up to N) → gated merge on PASS only. See 'sworn run --help' for model resolution
 and escalation model defaults.

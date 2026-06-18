@@ -11,24 +11,28 @@ import (
 	"strings"
 )
 
-//go:embed verifier.md implementer.md planner.md captain.md verify-stateless.md VERSION.txt
+//go:embed verifier.md implementer.md planner.md captain.md verify-stateless.md requirements-verifier.md VERSION.txt
 var fs embed.FS
 
 var (
-	verifier        string
-	implementer     string
-	planner         string
-	captain         string
-	verifyStateless string
-	batonVer        string
+	verifier              string
+	implementer           string
+	planner               string
+	captain               string
+	verifyStateless       string
+	requirementsVerifier  string
+	batonVer              string
 )
+
 func init() {
 	verifier = mustRead("verifier.md")
 	implementer = mustRead("implementer.md")
 	planner = mustRead("planner.md")
 	captain = mustRead("captain.md")
 	verifyStateless = mustRead("verify-stateless.md")
-	batonVer = strings.TrimSpace(mustRead("VERSION.txt"))	// Strip the comment line(s) — version is the last non-empty line.
+	requirementsVerifier = mustRead("requirements-verifier.md")
+	batonVer = strings.TrimSpace(mustRead("VERSION.txt"))
+	// Strip the comment line(s) — version is the last non-empty line.
 	if lines := strings.Split(batonVer, "\n"); len(lines) > 0 {
 		for i := len(lines) - 1; i >= 0; i-- {
 			if ln := strings.TrimSpace(lines[i]); ln != "" && !strings.HasPrefix(ln, "#") {
@@ -55,6 +59,12 @@ func Verifier() string { return verifier }
 // VerifyStateless returns the embedded sworn-authored stateless judge prompt
 // for the verify gate — SPEC+DIFF only, no tools, verdict-leading reply.
 func VerifyStateless() string { return verifyStateless }
+
+// RequirementsVerifier returns the embedded requirements-quality verifier prompt
+// for the reqverify gate — grades acceptance criteria against 29148 quality
+// characteristics, fail-closed on any violation.
+func RequirementsVerifier() string { return requirementsVerifier }
+
 // Implementer returns the embedded Baton implementer role prompt.
 func Implementer() string { return implementer }
 

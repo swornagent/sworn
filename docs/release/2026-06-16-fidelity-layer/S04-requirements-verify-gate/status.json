@@ -6,8 +6,7 @@
   "state": "in_progress",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-18T12:00:00Z",  "start_commit": null,
-  "spec_path": "docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/spec.md",
+  "last_updated_at": "2026-06-18T12:00:00Z",  "start_commit": "a98cc1e4ac9fc509f59fb835fa935353b508548e",  "spec_path": "docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/proof.md",
   "journal_path": "docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/journal.md",
   "planned_files": [
