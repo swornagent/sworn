@@ -7,12 +7,18 @@ Documentation sweep — adopt `sworn lint ac` / `sworn lint trace` canonical nam
 ## Files changed
 
 ```
-$ git diff --name-only HEAD
+$ git diff --name-only b820a183..HEAD
+cmd/sworn/main.go
 docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/status.json
+docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/journal.md
 docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/proof.md
+docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/status.json
 docs/release/2026-06-16-fidelity-layer/S16-lint-rename/journal.md
 docs/release/2026-06-16-fidelity-layer/S16-lint-rename/proof.md
 docs/release/2026-06-16-fidelity-layer/S16-lint-rename/spec.md
+docs/release/2026-06-16-fidelity-layer/S16-lint-rename/status.json
+docs/release/2026-06-16-fidelity-layer/index.md
+docs/release/2026-06-16-fidelity-layer/intake.md
 ```
 
 ## Test results
@@ -94,6 +100,9 @@ None. All four acceptance checks are demonstrably satisfied.
 - **Spec AC N-S16-01 rephrased to avoid self-referential grep match**: The original AC literally contained the grep pattern with old command names, causing the proof of zero stale references to necessarily contain the very pattern it was searching for. The AC was amended to describe the gate narratively, with an explicit carve-out for S16's own sweep-defining artefacts. The Required tests section was similarly updated.
 - **S02 state is `verified` not `implemented`**: The spec required S02 in `implemented` state, but a subsequent fresh-context verification session passed S02 (verdict PASS on 2026-06-18). `verified` is a superset of `implemented` — the slice has been through adversarial verification with an accurate proof bundle.
 - **Character-class grep notation in proof**: The proof uses `[n]` and `[m]` character classes in the grep command to avoid self-matching the proof file. The regex is functionally identical — it finds the same stale references.
+- **`cmd/sworn/main.go` (unplanned)**: Touched to update the stale inline comment on the `"lint"` case — it still referenced `S01-rtm-spine / S02-ears-ac-format` as the slices that add the case, which is accurate, but the comment text also needed to reflect the new subcommand names. Required by AC N-S16-01 (no stale references in release docs; the source comment is not in scope, but the implementer cleaned it anyway as a correctness improvement).
+- **`S02-ears-ac-format/journal.md` (unplanned)**: Touched during the S02 proof regeneration — the journal received a new entry recording that S16 regenerated the proof and restored S02 to implemented state. Artefact-only; no code change.
+- **`index.md` (unplanned)**: Updated to advance S16's row from `planned` to `implemented` in the slice table and to correct the aggregate-state counts. Standard slice-progress update; no content decision required.
 
 ## First-pass script output
 

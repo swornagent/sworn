@@ -75,7 +75,7 @@ were completed in commit `6518f3b`; this slice only updates artefacts.
 
 - [ ] THE SYSTEM SHALL have no stale references to the old bare-verb command names (`ears`, `rtm`) as `sworn` subcommands in any `.md` or `.json` file under `docs/release/2026-06-16-fidelity-layer/`, excluding `docs/captures/` and the S16-lint-rename artefacts that define this sweep. Compliance is verified by the grep gate described in Required tests. (N-S16-01)
 - [ ] WHEN `sworn lint ac 2026-06-16-fidelity-layer` is run, THE SYSTEM SHALL exit 0 — confirming the renamed command works as documented and all release ACs remain well-formed EARS. (N-S16-02)
-- [ ] THE SYSTEM SHALL have `S02-ears-ac-format` in `implemented` state with a proof.md whose "Files changed" section lists every file in `git diff --name-only cd462364..HEAD`, including `cmd/sworn/lint.go`, `cmd/sworn/lint_ac_test.go`, `cmd/sworn/lint_trace_test.go`, and the deleted `cmd/sworn/ears.go`, `cmd/sworn/rtm.go`. (N-S16-03)
+- [ ] THE SYSTEM SHALL have `S02-ears-ac-format` in `implemented` or `verified` state with a proof.md whose "Files changed" section lists every file in `git diff --name-only cd462364..HEAD`, including `cmd/sworn/lint.go`, `cmd/sworn/lint_ac_test.go`, `cmd/sworn/lint_trace_test.go`, and the deleted `cmd/sworn/ears.go`, `cmd/sworn/rtm.go`. (`verified` is a superset of `implemented` — the state machine does not permit downgrade; reaching `verified` satisfies this gate.) (N-S16-03)
 - [ ] WHERE `cmd/sworn/ears.go` or `cmd/sworn/rtm.go` appear in any `status.json` `planned_files` or `actual_files` array, THE SYSTEM SHALL replace them with `cmd/sworn/lint.go`. (N-S16-04)
 ## Planned touchpoints
 
