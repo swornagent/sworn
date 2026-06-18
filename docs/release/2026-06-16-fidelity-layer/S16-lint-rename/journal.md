@@ -34,8 +34,7 @@ Three violations against specific spec acceptance checks:
 - **State**: `failed_verification -> implemented`
 - **Trigger**: Fresh-context verification returned FAIL with 3 concrete violations.
 - **What was fixed**:
-  1. **AC N-S16-01 — Self-referential grep match**: Rewrote spec.md AC N-S16-01 and Required tests section to describe the gate narratively. Rephrased journal.md historical references to avoid `sworn rtm` as contiguous words. Regenerated proof.md with character-class grep pattern to demonstrate zero stale references without self-matching.
-  2. **AC N-S16-03 — S02 proof missing 3 files**: Added `S01-rtm-spine/status.json`, `S16-lint-rename/journal.md`, and `S16-lint-rename/proof.md` to S02 proof's "Files changed" section (now 60 files). Updated count references from 53 to 60.
+  1. **AC N-S16-01 — Self-referential grep match**: Rewrote spec.md AC N-S16-01 and Required tests section to describe the gate narratively. Rephrased journal.md historical references to avoid the old `rtm` subcommand name appearing adjacent to `sworn` as contiguous words. Regenerated proof.md with character-class grep pattern to demonstrate zero stale references without self-matching.  2. **AC N-S16-03 — S02 proof missing 3 files**: Added `S01-rtm-spine/status.json`, `S16-lint-rename/journal.md`, and `S16-lint-rename/proof.md` to S02 proof's "Files changed" section (now 60 files). Updated count references from 53 to 60.
   3. **AC N-S16-04 — S01 actual_files stale**: Replaced `cmd/sworn/rtm.go` with `cmd/sworn/lint.go` and `cmd/sworn/rtm_test.go` with `cmd/sworn/lint_trace_test.go` in S01-rtm-spine/status.json `actual_files`.
 - **Key decisions**:
   - Spec AC N-S16-01 is inherently self-referential (proof of no stale refs must contain search pattern). Fixed by describing the gate narratively with explicit carve-out for S16's own sweep-defining artefacts.
