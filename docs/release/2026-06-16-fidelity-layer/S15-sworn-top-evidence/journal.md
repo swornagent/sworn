@@ -37,3 +37,14 @@ None.
   2. **Gate 3** — All 7 tests in `top_test.go` call `renderEvidenceSurface` directly, bypassing the CLI entry point `cmdTop`. The spec requires "Integration: `sworn top` against a fixture release with mixed journey statuses (Rule 1 via the command entry point)." The codebase convention (explicit comment in `lint_ac_test.go`: "drives the actual command entry point (cmdLintAC), not just the ears package") confirms that Rule 1 requires `cmdTop`. Fix: add at least one test calling `cmdTop([]string{"<release>", dir})` exercising the mixed-statuses path.
   - Gates 1, 4, 5, 6 all PASS: `case "top"` is wired in `main.go`; smoke step is described; no silent deferral markers; all 4 AC evidence references are real. Implementation is functionally correct — both violations are protocol/test-layer defects, not logic errors.
   - Slice state → `failed_verification`. Next: `/implement-slice S15-sworn-top-evidence 2026-06-16-fidelity-layer` in a fresh session to address the 2 numbered violations.
+### 2026-06-23 — re-entry from failed_verification -> implemented
+
+- **State**: `failed_verification -> implemented` (re-entry session)
+- **Notes**:
+  - Re-entered as implementer via /implement-slice to fix 2 verifier violations.
+  - **Gate 2 fix**: Changed `start_commit` from `a58733d` to `e3b0ec2` (the materialise-commit before the first impl commit). `git diff --name-only e3b0ec2..HEAD` now correctly shows all 9 changed files including the 3 planned touchpoints.
+  - **Gate 3 fix**: Added `TestTopCmd_MixedStatuses` — an integration test that calls `cmdTop([]string{"test-release", dir})` directly (the CLI entry point), following the same pattern as `lint_ac_test.go`. Verifies exit 1 for a mixed-status kill-list.
+  - Updated proof.md with corrected diff range, new integration test results, and a "Verifier violations resolved" section.
+  - All tests pass (8 total: 7 existing + 1 new cmdTop integration test).
+  - First-pass verification: 18/18 PASS (re-run).
+  - **No new divergence**: Both fixes are protocol/test-layer corrections to an otherwise functional implementation.

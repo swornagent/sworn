@@ -308,5 +308,54 @@ func stringSliceEqual(a, b []string) bool {
 	return true
 }
 
+// TestTopCmd_MixedStatuses is the integration test (Rule 1): it drives the
+// actual command entry point (cmdTop), not just renderEvidenceSurface.
+// It verifies a mixed-status release renders a kill-list with exit code 1.
+func TestTopCmd_MixedStatuses(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create journeys artefact with two journeys.
+	createJourneysArtefact(t, dir, `{
+		"version": 1,
+		"created_at": "2026-06-16T00:00:00Z",
+		"updated_at": "2026-06-16T00:00:00Z",
+		"journeys": [
+			{
+				"id": "J01-onboard-new-user",
+				"user_type": "new_user",
+				"outcome": "User creates account and sets up profile"
+			},
+			{
+				"id": "J02-create-scenario",
+				"user_type": "pro_user",
+				"outcome": "User creates a new financial scenario"
+			}
+		],
+		"is_ratified": true,
+		"ratified_by": "brad",
+		"ratified_at": "2026-06-16T00:00:00Z"
+	}`)
+
+	// Only one journey has an attestation (passed); the other is un-walked.
+	createAttestationsArtefact(t, dir, `{
+		"version": 1,
+		"attestations": [
+			{
+				"journey_id": "J01-onboard-new-user",
+				"status": "walked-pass",
+				"walked_by": "brad",
+				"real_infra": true,
+				"mocks_off": true
+			}
+		]
+	}`)
+
+	// Call through cmdTop (the command entry point), not renderEvidenceSurface.
+	exitCode := cmdTop([]string{"test-release", dir})
+	if exitCode != 1 {
+		t.Errorf("expected exit 1 for kill-list (mixed statuses), got %d", exitCode)
+	}
+}
+
 // ensure TestTop matched by -run TestTop
 var _ = strings.Contains // suppress unused import
