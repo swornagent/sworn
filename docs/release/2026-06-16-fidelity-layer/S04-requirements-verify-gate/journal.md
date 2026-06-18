@@ -1,44 +1,51 @@
 ---
-title: Slice journal template
-description: Implementation log for one slice. Append-only. Visible to verifier as context, but verifier verdict is based on proof.md and repo state, not journal prose.
+title: Slice journal — S04-requirements-verify-gate
+description: Implementation log for the requirements-quality verification gate.
 ---
 
-# Journal: `<slice-id>`
-
-> Copy this file to `docs/release/<release-name>/<slice-id>/journal.md`. Append entries chronologically. Do not delete history. Decisions captured here must also land in commit message bodies per Rule 4 — this journal is a working surface, not a substitute for durable capture.
+# Journal: S04-requirements-verify-gate
 
 ## Session log
 
-### `<YYYY-MM-DD HH:MM>` — `<session start / state transition>`
+### 2026-06-18 12:00 — implementation start
 
-- **State**: `<planned | in_progress | implemented | failed_verification | verified | deferred | shipped>`
+- **State**: `planned → in_progress`
 - **Notes**:
-  - `<Decisions made>`
-  - `<Trade-offs encountered>`
-  - `<Subagent dispatches and where their outputs landed>`
+  - Track T1-fidelity-core worktree materialised at `/home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core`.
+  - S01-rtm-spine and S02-ears-ac-format already `verified` — sequential ordering satisfied.
+  - Designed and implemented `internal/reqverify/` package (core logic + test).
+  - Created `internal/prompt/requirements-verifier.md` — fresh-context prompt for grading ACs against ISO/IEC/IEEE 29148 quality characteristics.
+  - Created `cmd/sworn/reqverify.go` — CLI handler following the same `config.ResolveVerifierModel` pattern as `cmdVerify`.
+  - Modified `cmd/sworn/main.go` — added `case "reqverify"` and usage text.
+  - Modified `internal/prompt/prompt.go` — added `RequirementsVerifier()` accessor and embedded the new prompt.
 
-### `<YYYY-MM-DD HH:MM>` — `<next event>`
+### 2026-06-18 12:30 — implementation complete
 
-- ...
+- **State**: `in_progress → implemented`
+- **Notes**:
+  - All 20 unit tests pass in `internal/reqverify/`.
+  - All 4 CLI integration tests pass in `cmd/sworn/reqverify_test.go`.
+  - `go vet ./...` clean.
+  - First-pass script: 18/18 PASS.
+  - Design decisions:
+    - Batched model dispatch (all ACs in one call) rather than per-AC model calls, for efficiency.
+    - Model output parsed from `## RESULTS` section with per-AC lines in format `AC <N> (<slice-id>): PASS|FAIL — <characteristic>`.
+    - AC extraction uses markdown checkbox regex under `## Acceptance checks` section header.
+    - Fail-closed: missing AC in model response → FAIL; missing RESULTS section → BLOCKED (via error).
+    - CLI behaviour mirrors `verify` command: flag > env > config > Unconfigured for model resolution.
+  - Divergence from plan:
+    - `internal/prompt/prompt.go` modified (not in planned_files) to add accessor.
+    - `cmd/sworn/reqverify_test.go` created (not in planned_files) for CLI integration tests.
+    - `internal/adopt/baton/rules/08-requirements-fidelity.md` not modified (already authored by plan/S16).
 
 ## Open questions
 
-\<Anything the implementer needs the human to resolve. Each open question blocks state transition to `implemented` until answered.\>
-
-- ...
+None.
 
 ## Deferrals surfaced
 
-`<Per Rule 2: each deferral needs why + tracking + acknowledgement. Cross-link to GitHub issue or punch-list entry. If empty, write "None" explicitly.>`
-
-- ...
+None.
 
 ## Verifier verdicts received
 
-`<Append every verifier verdict here. Even FAIL verdicts stay — they are part of the slice's history.>`
-
-### `<YYYY-MM-DD HH:MM>` — `<PASS | FAIL | BLOCKED>`
-
-- **Verifier session**: `<fresh / inherited — should always be fresh>`
-- **Verdict body**: `<paste the full verifier output>`
-- **Action taken**: `<how the implementer responded>`
+(No verifier has been run yet — fresh-context session required per Rule 7.)
