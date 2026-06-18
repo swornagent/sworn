@@ -105,7 +105,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S05-requirements-validate-gate` | T1 | Human-owned scenario pos/neg + benefit-hypothesis validation (`sworn reqvalidate`) | verified | human | [spec](./S05-requirements-validate-gate/spec.md) | [proof](./S05-requirements-validate-gate/proof.md) |
 | `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | verified | human | [spec](./S07-design-fit-gate/spec.md) | [proof](./S07-design-fit-gate/proof.md) |
 | `S11-journey-elicitation` | T1 | AI-drafts/human-ratifies critical journeys into a durable artefact (`sworn journeys`) | verified | verifier | [spec](./S11-journey-elicitation/spec.md) | [proof](./S11-journey-elicitation/proof.md) |
-| `S16-lint-rename` | T1 | Documentation sweep — adopt `sworn lint ac` / `sworn lint trace` canonical names throughout release docs; restore S02 proof.md | implemented | human | [spec](./S16-lint-rename/spec.md) | [proof](./S16-lint-rename/proof.md) |
+| `S16-lint-rename` | T1 | Documentation sweep — adopt `sworn lint ac` / `sworn lint trace` canonical names throughout release docs; restore S02 proof.md | verified | human | [spec](./S16-lint-rename/spec.md) | [proof](./S16-lint-rename/proof.md) |
 | `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | planned | human | [spec](./S06-definition-of-ready/spec.md) | — |
 | `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | planned | human | [spec](./S10-no-mock-boundary/spec.md) | — |
 | `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | planned | human | [spec](./S12-journey-impact-analysis/spec.md) | — |
@@ -132,15 +132,20 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 - Planned: 9
 - In progress: 0
-- Implemented (awaiting verification): 1 (S16-lint-rename — blocked, needs replan)
-- Verified (awaiting merge): 6 (S01, S02, S04, S05, S07, S11)
+- Implemented (awaiting verification): 0
+- Verified (awaiting merge): 7 (S01, S02, S04, S05, S07, S11, S16)
 - Failed verification: 0
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 3 / In progress: 1 / Merged: 0
+**Tracks:** Planned: 3 / In progress: 1 / Merged: 0 (T1: all 7 slices verified — ready for /merge-track)
 
 ## Recent activity
+
+### 2026-06-18 — S16-lint-rename: PASS (round 3, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: All six gates passed. `TestLintAC` (6 tests) and `TestLintTrace` (5 tests) pass fresh from worktree. `sworn lint ac 2026-06-16-fidelity-layer` exits 0 (74 ACs, 0 violations) confirmed from worktree binary. Grep gate clean (zero stale `sworn ears` / `sworn rtm` references outside S16's own artefacts carve-out). No silent deferrals. All 4 ACs satisfied with verifiable evidence. T1-fidelity-core now has 7/7 slices verified. Next: `/merge-track T1-fidelity-core 2026-06-16-fidelity-layer`.
 
 ### 2026-06-18 — S16-lint-rename: BLOCKED (round 2, fresh-context)
 

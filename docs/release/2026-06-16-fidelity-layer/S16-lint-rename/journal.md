@@ -19,6 +19,23 @@
 
 ## Verifier verdicts received
 
+### 2026-06-18 — Fresh-context verification round 3
+
+**Verdict: PASS**
+
+All six gates satisfied.
+
+1. **Gate 1 — User-reachable outcome exists**: `sworn lint` case wired at `cmd/sworn/main.go:43-46`. `sworn lint ac 2026-06-16-fidelity-layer` confirmed exit 0 live (74 ACs, 0 violations, from worktree binary).
+2. **Gate 2 — Planned touchpoints match actual changed files**: All 4 planned touchpoints present in `git diff --name-only b820a183..HEAD`. Unplanned files (`cmd/sworn/main.go`, `S02-ears-ac-format/journal.md`, `S16-lint-rename/*`, `index.md`) all documented in proof.md "Divergence from plan".
+3. **Gate 3 — Required tests pass**: `TestLintAC` PASS (6 test cases), `TestLintTrace` PASS (5 test cases) — both run fresh from worktree.
+4. **Gate 4 — Reachability artefact**: `sworn lint ac 2026-06-16-fidelity-layer` exits 0 (74 ACs, 0 violations) confirmed from worktree binary built fresh.
+5. **Gate 5 — No silent deferrals**: Zero TODO/FIXME/deferred/placeholder markers in changed source files. Hits in documentation/journal context are all legitimate.
+6. **Gate 6 — Claimed scope matches implemented scope**: N-S16-01 PASS (grep: zero stale references outside S16 carve-out); N-S16-02 PASS (live exit 0); N-S16-03 PASS (S02 in `verified` state — superset of `implemented`; spec parenthetical confirmed); N-S16-04 PASS (grep confirms no `cmd/sworn/ears.go` or `cmd/sworn/rtm.go` in any `planned_files`/`actual_files`).
+
+Next step: `/merge-track T1-fidelity-core 2026-06-16-fidelity-layer` — all 7 slices in T1 are now `verified`.
+
+
+
 ### 2026-06-18 — Fresh-context verification round 2
 
 **Verdict: BLOCKED**
