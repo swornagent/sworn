@@ -104,7 +104,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S04-requirements-verify-gate` | T1 | 29148 quality-characteristic check, fresh-context, fail-closed (`sworn reqverify`) | verified | human | [spec](./S04-requirements-verify-gate/spec.md) | [proof](./S04-requirements-verify-gate/proof.md) |
 | `S05-requirements-validate-gate` | T1 | Human-owned scenario pos/neg + benefit-hypothesis validation (`sworn reqvalidate`) | verified | human | [spec](./S05-requirements-validate-gate/spec.md) | [proof](./S05-requirements-validate-gate/proof.md) |
 | `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | verified | human | [spec](./S07-design-fit-gate/spec.md) | [proof](./S07-design-fit-gate/proof.md) |
-| `S11-journey-elicitation` | T1 | AI-drafts/human-ratifies critical journeys into a durable artefact (`sworn journeys`) | planned | human | [spec](./S11-journey-elicitation/spec.md) | — |
+| `S11-journey-elicitation` | T1 | AI-drafts/human-ratifies critical journeys into a durable artefact (`sworn journeys`) | failed_verification | implementer | [spec](./S11-journey-elicitation/spec.md) | [proof](./S11-journey-elicitation/proof.md) |
 | `S16-lint-rename` | T1 | Documentation sweep — rename `sworn ears`→`lint ac` / `sworn rtm`→`lint trace` throughout; restore S02 proof.md | planned | human | [spec](./S16-lint-rename/spec.md) | — |
 | `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | planned | human | [spec](./S06-definition-of-ready/spec.md) | — |
 | `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | planned | human | [spec](./S10-no-mock-boundary/spec.md) | — |
@@ -130,17 +130,22 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Aggregate state
 
-- Planned: 11
+- Planned: 10
 - In progress: 0
 - Implemented (awaiting verification): 0
 - Verified (awaiting merge): 5
-- Failed verification: 0
+- Failed verification: 1
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** Planned: 3 / In progress: 1 / Merged: 0
 
 ## Recent activity
+
+### 2026-06-20 — S11-journey-elicitation: FAIL (round 1, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Gate 3 (primary): `internal/journey/journey.go:274` has the `DraftTemplate` function declaration fused into the tail of a comment line; the function body (lines 275–329) is orphaned code outside any function. `go build ./...` exits 1 with `syntax error: non-declaration statement outside function body`. Proof.md's 14-test passing output is impossible from this commit. Gate 2 (secondary): `internal/adopt/adopt.go` is in the diff but neither listed in planned touchpoints nor explained in proof.md "Divergence from plan". Fix: (1) split line 274 to properly terminate the comment and declare `DraftTemplate` on a separate line; rerun both test commands with live output; (2) add `internal/adopt/adopt.go` to proof.md "Divergence from plan". Slice state → `failed_verification`.
 
 ### 2026-06-18 — S07-design-fit-gate: PASS (round 2, fresh-context)
 

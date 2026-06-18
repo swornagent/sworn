@@ -3,10 +3,10 @@
   "slice_id": "S11-journey-elicitation",
   "release": "2026-06-16-fidelity-layer",
   "track": "T1-fidelity-core",
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "implementer",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-20T10:30:00Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-20T11:00:00Z",
   "start_commit": "0535a74db22a4d86411cca540dc9178cfdebfdc4",
   "spec_path": "docs/release/2026-06-16-fidelity-layer/S11-journey-elicitation/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S11-journey-elicitation/proof.md",
@@ -42,10 +42,13 @@
     "Provisional journey-artefact schema fields, refined via /replan-release post hand-run (acknowledged 2026-06-16)"
   ],
   "verification": {
-    "result": "pending",
+    "result": "fail",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
+    "verifier_verdict_at": "2026-06-20T11:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "Gate 3 — journey.go:274 has DraftTemplate function declaration fused into a comment; package fails to build (syntax error: non-declaration statement outside function body at line 275); proof.md test output is impossible from this commit.",
+      "Gate 2 — internal/adopt/adopt.go is in the diff but not in planned touchpoints and not explained in proof.md Divergence from plan."
+    ]
   }
 }

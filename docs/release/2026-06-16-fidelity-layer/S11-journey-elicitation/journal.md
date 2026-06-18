@@ -34,4 +34,18 @@ description: Implementation log for the journey model, CLI, and gate.
 
 ## Verifier verdicts received
 
-- *Pending — no verifier session yet.*
+### 2026-06-20 — FAIL (round 1, fresh-context)
+
+**Verdict**: FAIL
+
+**Violations**:
+
+1. **Gate 3** — `internal/journey/journey.go:274` has the `DraftTemplate` function declaration fused into the tail of a comment: `// a well-structured template with guidance.func DraftTemplate(projectRoot string) (*JourneyArtefact, error) {`. The function body (lines 275–329) becomes orphaned code outside any function. `go build ./...` fails: `syntax error: non-declaration statement outside function body` at line 275. Both `go test ./internal/journey/...` and `go test ./cmd/sworn/ -run TestJourneys` exit 1 with the same build error. The 14-test passing output in proof.md is therefore impossible from this commit — the package cannot have compiled.
+
+2. **Gate 2** — `internal/adopt/adopt.go` appears in `git diff --name-only 0535a74..HEAD` but is not listed in spec.md Planned touchpoints and is not mentioned in proof.md "Divergence from plan". The change (adding the rule-10 entry to `Materialise()`'s files list and a one-word comment tweak) is a meaningful code change that requires an explanation.
+
+**Required to address**:
+1. Fix `journey.go:274` — end the comment before the function declaration. The line should read `// a well-structured template with guidance.` on its own line, followed by `func DraftTemplate(projectRoot string) (*JourneyArtefact, error) {` on the next line. Rerun both test commands and capture live output in proof.md.
+2. Add `internal/adopt/adopt.go` to proof.md "Divergence from plan" with a one-sentence rationale (e.g. "the Materialise() files list was updated to register rule 10 so `sworn init` vendors the new rule doc").
+
+Slice state → `failed_verification`.
