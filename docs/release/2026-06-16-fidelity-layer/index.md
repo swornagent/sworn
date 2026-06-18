@@ -141,6 +141,11 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Recent activity
 
+### 2026-06-18 (round 2) — S02-ears-ac-format verifier verdict: FAIL
+
+- **Actor**: verifier (fresh-context)
+- **Note**: Gate 2 violations (5) — all are proof.md documentation gaps introduced by refactor commit `6518f3b` (renamed `sworn ears`→`sworn lint ac`, `sworn rtm`→`sworn lint trace`). Proof.md "Files changed" was captured before the refactor and omits `cmd/sworn/rtm.go` (deleted S01 file), `cmd/sworn/lint_trace_test.go` (renamed from S01's `rtm_test.go`), and three S01-rtm-spine doc files. "Divergence from plan" does not explain the planned `cmd/sworn/ears.go` → actual `cmd/sworn/lint.go` substitution, the S01 file deletions, or the S01 doc modifications. Gates 1/3/4/5/6 all pass (entry point wired, 26 tests pass live, smoke artefact present, no dark-code markers, all 4 ACs delivered with evidence). Fix is proof.md update only — no code changes needed. Slice stays `failed_verification`. Implementer should re-open `/implement-slice S02-ears-ac-format 2026-06-16-fidelity-layer`.
+
 ### 2026-06-18 — S02-ears-ac-format verifier verdict: FAIL
 
 - **Actor**: verifier (fresh-context)

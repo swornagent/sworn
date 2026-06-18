@@ -42,6 +42,33 @@ None.
 
 ## Verifier verdicts received
 
+### 2026-06-18 (round 2) — verifier verdict: FAIL
+
+FAIL
+
+Slice: `S02-ears-ac-format`
+
+Violations:
+1. Gate 2 — `cmd/sworn/rtm.go` appears in live diff (deleted S01 file) but absent from proof.md "Files changed" and not explained in "Divergence from plan"
+   Evidence: `git diff --name-only cd462364..HEAD` includes `cmd/sworn/rtm.go` as a deletion; spec.md "Planned touchpoints" does not list it; proof.md "Divergence from plan" does not acknowledge it.
+2. Gate 2 — `cmd/sworn/lint_trace_test.go` appears in live diff (renamed from S01's `rtm_test.go`) but absent from proof.md "Files changed" and not explained in "Divergence from plan"
+   Evidence: `git diff --name-only cd462364..HEAD` includes `cmd/sworn/lint_trace_test.go`; spec.md "Planned touchpoints" does not list it; proof.md "Divergence from plan" does not acknowledge it.
+3. Gate 2 — `docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/spec.md`, `proof.md`, and `journal.md` appear in live diff but absent from proof.md "Files changed" and not explained in "Divergence from plan"
+   Evidence: `git diff --name-only cd462364..HEAD` shows all three S01-rtm-spine docs changed by the refactor commit `6518f3b`; spec.md "Planned touchpoints" does not list them; proof.md "Divergence from plan" does not acknowledge them.
+4. Gate 2 — `cmd/sworn/ears.go` (planned touchpoint) is absent from the live diff (net-zero: created and deleted within S02 scope), replaced by `cmd/sworn/lint.go`, but proof.md "Divergence from plan" does not explicitly state this substitution
+   Evidence: spec.md "Planned touchpoints" lists `cmd/sworn/ears.go`; live diff does not include it; proof.md Divergence mentions lint_ac_test.go serving lint.go but never states planned ears.go was renamed to lint.go.
+5. Gate 2 — proof.md "Files changed" is stale: captured before the `6518f3b` refactor commit; omits `cmd/sworn/rtm.go`, `cmd/sworn/lint_trace_test.go`, and S01-rtm-spine doc files
+   Evidence: proof.md shows 7 source files; live `git diff --name-only cd462364..HEAD` (source only) shows 9.
+
+Required to address:
+1. Regenerate proof.md "Files changed" from `git diff --name-only <start_commit>` post-refactor.
+2. Add to proof.md "Divergence from plan":
+   - planned `cmd/sworn/ears.go` was not created standalone — the refactor `6518f3b` combined S01's `cmdRtm` and S02's new `cmdLintAC` into a single `cmd/sworn/lint.go` dispatcher under `sworn lint`, replacing both planned `ears.go` and S01's `rtm.go`
+   - `cmd/sworn/rtm.go` (S01 implementation) deleted and `cmd/sworn/lint_trace_test.go` renamed from `rtm_test.go` as part of the same refactor
+   - `S01-rtm-spine/spec.md`, `proof.md`, `journal.md` updated by the refactor to replace `sworn rtm` references with `sworn lint trace`
+
+Gates 1, 3, 4, 5, 6 all pass (entry point wired, all 26 tests pass live, reachability artefact present, no dark-code markers, all four ACs delivered with evidence).
+
 ### 2026-06-18 — verifier verdict: FAIL
 
 FAIL
