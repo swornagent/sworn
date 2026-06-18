@@ -3,11 +3,10 @@
   "slice_id": "S10-no-mock-boundary",
   "release": "2026-06-16-fidelity-layer",
   "track": "T2-delivery-cutover",
-  "state": "failed_verification",
+  "state": "implemented",
   "owner": "agent",
-  "last_updated_by": "verifier",
-  "last_updated_at": "2026-06-25T12:45:00Z",  "start_commit": "bfdede8de70d42dffecc26328e7d5df4f346e761",  "spec_path": "docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/spec.md",
-  "proof_path": "docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/proof.md",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-06-25T13:00:00Z",  "start_commit": "cec70a61667b571acc413ee2afe2a6380f9b986e",  "spec_path": "docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/spec.md",  "proof_path": "docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/proof.md",
   "journal_path": "docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/journal.md",
   "planned_files": [
     "internal/verify/verify.go",
@@ -35,11 +34,6 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "fail",
-    "violations": [
-      "Gate 2 — start_commit (bfdede8) is the commit containing the re-implementation's production code changes; git diff bfdede8..HEAD shows only 3 docs files, not the planned touchpoints. proof.md 'Files changed' diffs from 4d866d66 (original start_commit), disagreeing with status.json. Fix: set start_commit to cec70a6e and update proof.md Files changed section."
-    ],
-    "verifier_was_fresh_context": true,
-    "verifier_verdict_at": "2026-06-25T12:45:00Z"
-  }
-}
+    "result": "pending",
+    "violations": []
+  }}

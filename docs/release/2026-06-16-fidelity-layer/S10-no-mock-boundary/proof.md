@@ -11,22 +11,22 @@ When an implementer cannot reach real infrastructure at a validated boundary (DB
 
 ## Files changed
 
-### Changes in this re-implementation session (diff from previous start_commit `4d866d66`)
+### Changes in this re-implementation session (diff from `cec70a6e` — round-1 FAIL verdict commit, before re-implementation began)
 
 ```
-$ git diff --name-only 4d866d66af5b7fe33b1282eef458ea664dd30974 HEAD
+$ git diff --name-only cec70a61667b571acc413ee2afe2a6380f9b986e HEAD
 cmd/sworn/main.go
 docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/journal.md
 docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/proof.md
 docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/status.json
 docs/release/2026-06-16-fidelity-layer/index.md
-internal/adopt/baton/rules/10-customer-journey-validation.md
-internal/prompt/implementer.md
 internal/run/run.go
 internal/verify/verify.go
 internal/verify/verify_test.go
 sworn
 ```
+
+Note: `sworn` binary appears because it was tracked in `bfdede8`. All planned touchpoints (`cmd/sworn/main.go`, `internal/run/run.go`, `internal/verify/verify.go`, `internal/verify/verify_test.go`) and all docs files appear in the verifier's canonical diff.
 
 ### Key changes by file
 
@@ -36,7 +36,6 @@ sworn
 | `internal/verify/verify_test.go` | `TestRun_DeclaredBoundaryMockAllowed` now asserts rationale contains declared mock |
 | `cmd/sworn/main.go` | Added `--deferral` repeatable flag to `sworn verify`; passed as `OpenDeferrals` |
 | `internal/run/run.go` | Reads `open_deferrals` from status.json before `verify.Run()` call |
-
 ## Test results
 
 ### Go — S10-specific tests (`internal/verify/`)

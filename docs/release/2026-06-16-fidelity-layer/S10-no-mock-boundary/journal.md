@@ -77,6 +77,16 @@ Gates 1, 3, 4, 5, 6 all PASS. All 12 S10 tests and all `internal/run/` tests pas
 
 Next: `/implement-slice S10-no-mock-boundary 2026-06-16-fidelity-layer` to address 1 violation (update `start_commit` in `status.json` and proof.md "Files changed").
 
+### `2026-06-25 13:00` — fix Gate 2 violation (start_commit + proof.md)
+
+- **State**: `failed_verification → in_progress → implemented`
+- **Violation fix**: Set `status.json` `start_commit` to `cec70a6e` (the round-1 FAIL verdict commit, immediately before re-implementation code). Updated proof.md "Files changed" to diff from `cec70a6e` instead of `4d866d66`, matching the canonical base the verifier expects.
+- **Verification**:
+  - All 12 S10 tests + full `internal/verify/` suite pass
+  - All `internal/run/` tests pass
+  - `go vet` clean on all affected packages
+  - `release-verify.sh` — all checks pass (state transitioned from in_progress to implemented)
+- **No deferrals** — this slice bans undeclared deferrals and carries none itself.
 ### `2026-06-19` — verifier verdict: FAIL
 
 FAIL: 2 violations
