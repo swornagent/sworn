@@ -33,6 +33,20 @@ description: Implementation log for the journey model, CLI, and gate. Fixed veri
 
 ## Verifier verdicts received
 
+### 2026-06-22 14:00 — PASS (round 3, fresh-context)
+
+**Verdict**: PASS
+
+All six gates passed.
+- **Gate 1**: `case "journeys"` wired in `cmd/sworn/main.go:56-58`; live binary confirmed the full user path (fail-closed check → elicit → ratify → pass).
+- **Gate 2**: All 7 planned touchpoints changed; 2 extra files (`cmd/sworn/journeys_test.go`, `internal/adopt/adopt.go`) explained in proof.md "Divergence from plan".
+- **Gate 3**: 14 unit tests + 8 CLI integration tests re-run live (all green). `TestJourneysCmd_*` exercises `cmdJourneys()` — the CLI integration point — not a leaf (Rule 1 satisfied).
+- **Gate 4**: Manual smoke step executed live with fresh binary: `sworn journeys --check` exits 1 on missing/unratified artefact; exits 0 and lists journeys after ratification. Matches proof.md description.
+- **Gate 5**: No deferral markers (`TODO/FIXME/deferred/later/placeholder`) in production source files. "later"/"deferred" hits are in documentation prose (`planner.md`, vendored rule text in `adopt.go`) — not on code paths.
+- **Gate 6**: All 5 ACs have verifiable evidence in proof.md "Delivered"; evidence references map to real, passing tests.
+
+Verified at commit `1143afb`. Slice state → `verified`. Next: `/implement-slice S16-lint-rename 2026-06-16-fidelity-layer`.
+
 ### 2026-06-20 — FAIL (round 2, fresh-context)
 
 **Verdict**: FAIL

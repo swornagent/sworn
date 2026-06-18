@@ -104,7 +104,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S04-requirements-verify-gate` | T1 | 29148 quality-characteristic check, fresh-context, fail-closed (`sworn reqverify`) | verified | human | [spec](./S04-requirements-verify-gate/spec.md) | [proof](./S04-requirements-verify-gate/proof.md) |
 | `S05-requirements-validate-gate` | T1 | Human-owned scenario pos/neg + benefit-hypothesis validation (`sworn reqvalidate`) | verified | human | [spec](./S05-requirements-validate-gate/spec.md) | [proof](./S05-requirements-validate-gate/proof.md) |
 | `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | verified | human | [spec](./S07-design-fit-gate/spec.md) | [proof](./S07-design-fit-gate/proof.md) |
-| `S11-journey-elicitation` | T1 | AI-drafts/human-ratifies critical journeys into a durable artefact (`sworn journeys`) | failed_verification | implementer | [spec](./S11-journey-elicitation/spec.md) | [proof](./S11-journey-elicitation/proof.md) |
+| `S11-journey-elicitation` | T1 | AI-drafts/human-ratifies critical journeys into a durable artefact (`sworn journeys`) | verified | verifier | [spec](./S11-journey-elicitation/spec.md) | [proof](./S11-journey-elicitation/proof.md) |
 | `S16-lint-rename` | T1 | Documentation sweep — rename `sworn ears`→`lint ac` / `sworn rtm`→`lint trace` throughout; restore S02 proof.md | planned | human | [spec](./S16-lint-rename/spec.md) | — |
 | `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | planned | human | [spec](./S06-definition-of-ready/spec.md) | — |
 | `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | planned | human | [spec](./S10-no-mock-boundary/spec.md) | — |
@@ -133,14 +133,19 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 - Planned: 10
 - In progress: 0
 - Implemented (awaiting verification): 0
-- Verified (awaiting merge): 5
-- Failed verification: 1
+- Verified (awaiting merge): 6
+- Failed verification: 0
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** Planned: 3 / In progress: 1 / Merged: 0
 
 ## Recent activity
+
+### 2026-06-22 — S11-journey-elicitation: PASS (round 3, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: All six gates passed. 14 unit tests + 8 CLI integration tests green in fresh session. Live binary confirmed smoke step: fail-closed on missing/unratified artefact, exits 0 with listed journeys after ratification. No deferral markers in production files. All 5 ACs have verifiable evidence. Verified at commit `1143afb`. Slice state → `verified`. T1-fidelity-core now has 6/7 slices verified. Next: `/implement-slice S16-lint-rename 2026-06-16-fidelity-layer`.
 
 ### 2026-06-20 — S11-journey-elicitation: FAIL (round 2, fresh-context)
 
