@@ -27,7 +27,7 @@ tracks:
     depends_on: T1-fidelity-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T4-evidence-surface
     worktree_branch: track/2026-06-16-fidelity-layer/T4-evidence-surface
-    state: in_progress
+    state: merged
 ---
 # Release Board: `2026-06-16-fidelity-layer`
 
@@ -53,7 +53,7 @@ tracks:
 | `T1-fidelity-core` | S01 → S02 → S04 → S05 → S07 → S11 → S16 | — | `track/2026-06-16-fidelity-layer/T1-fidelity-core` | merged |
 | `T2-delivery-cutover` | S06 → S10 → S12 → S13 → S14 | T1 | `track/2026-06-16-fidelity-layer/T2-delivery-cutover` | planned |
 | `T3-leaf-gates` | S03 → S08 → S09 | T1 | `track/2026-06-16-fidelity-layer/T3-leaf-gates` | planned |
-| `T4-evidence-surface` | S15 | T1 | `track/2026-06-16-fidelity-layer/T4-evidence-surface` | in_progress |
+| `T4-evidence-surface` | S15 | T1 | `track/2026-06-16-fidelity-layer/T4-evidence-surface` | merged |
 
 ### Touchpoint matrix
 
@@ -129,17 +129,22 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Aggregate state
 
-- Planned: 8
+- Planned: 6 (S08, S09, S10, S12, S13, S14)
 - In progress: 0
-- Implemented (awaiting verification): 0
-- Verified (awaiting merge): 8 (S01, S02, S04, S05, S07, S11, S16, S15)
-- Failed verification: 0
+- Implemented (awaiting verification): 1 (S06)
+- Verified (in release-wt): 8 (S01, S02, S04, S05, S07, S11, S16, S15)
+- Failed verification: 1 (S03)
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 2 / In progress: 1 / Merged: 1 (T1: merged at b8521f8) / T4 complete (all slices verified, ready for /merge-track)
+**Tracks:** Planned: 1 (T3) / In progress: 1 (T2) / Merged: 2 (T1: b8521f8, T4: ca5b1ea)
 
 ## Recent activity
+
+### 2026-06-19 — track `T4-evidence-surface` merged to release-wt (commit ca5b1ea)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 1 verified slice merged: S15-sworn-top-evidence. No drift (0 sibling commits to sync). Track state → merged.
 
 ### 2026-06-18 — S15-sworn-top-evidence: PASS (round 2, fresh-context)
 
