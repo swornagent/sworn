@@ -174,3 +174,49 @@ Gates 1, 3, 4, 5, 6 all PASS:
   - No code changes needed — all 29 tests pass, all 18 release-verify.sh checks pass.
   - Verification result cleared to "pending" for fresh-context verifier.
   - start_commit updated to current track HEAD (75531ac).
+
+### `2026-06-19` — FAIL (round 3, fresh-context verifier)
+
+```
+FAIL
+
+Slice: `S06-definition-of-ready`
+
+Violations:
+1. Gate 2 — status.json `start_commit` field (`75531ac`) was set to the second
+   FAIL verdict commit, a post-implementation commit. The verifier-required diff
+   `git diff --name-only 75531ac` returns only docs files (journal.md, proof.md,
+   status.json) — not the planned touchpoints (implement.go, implement_test.go,
+   state.go, implementer.md, 08-requirements-fidelity.md). proof.md correctly uses
+   `b9718b3c` with path filters as the diff base, but per verifier protocol the
+   diff must use start_commit from status.json, and that field breaks the invariant
+   that `start_commit..HEAD` captures exactly this slice's implementation scope.
+   The round-3 fix ("address round-2 Gate 2 violations") inadvertently set
+   start_commit to the second FAIL verdict rather than the actual start of
+   implementation (`8ace0f6 docs(release/S06): start implementation`).
+   Evidence: `git diff --name-only 75531ac` returns 3 docs files; planned touchpoints
+   (implement.go, state.go, etc.) are absent from that diff.
+
+Required to address:
+1. Update status.json `start_commit` from `75531ac` to `8ace0f6` (the
+   `docs(release/S06): start implementation` commit — the true start of S06's
+   implementation window). Update proof.md "Files changed" to use `8ace0f6` as the
+   base, with path filters `-- internal/implement/ internal/state/ internal/prompt/
+   internal/adopt/baton/` to isolate S06's files from T4-evidence-surface files
+   that arrived via the release-wt forward-merge.
+
+Gates 1, 3, 4, 5, 6 all PASS:
+- Gate 1: implement.Run() calls CheckDoR via TransitionGate at design_review→in_progress
+  (lines 49–66 of implement.go). Wiring is live.
+- Gate 3: TestRun_DesignReviewBlockedByDoR drives implement.Run() through a DoR-failing
+  fixture (orphaned N-99). All 29 target tests pass; full suite 20/20 packages pass.
+- Gate 4: Reachability artefact correctly names the real entry point and blocked-transition
+  evidence.
+- Gate 5: No TODO/FIXME/deferred/placeholder markers in implementation files.
+- Gate 6: All 5 ACs have verifiable test evidence; tests pass live.
+
+Environmental note: T2 worktree was observed to have switched to `main` branch mid-session
+(external process). Worktree was restored to `track/2026-06-16-fidelity-layer/T2-delivery-
+cutover` before writing this verdict. All verification reads and test runs were performed
+on the correct T2 branch.
+```

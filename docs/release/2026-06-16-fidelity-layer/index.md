@@ -141,6 +141,24 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Recent activity
 
+### 2026-06-19 — S06-definition-of-ready: FAIL (round 3, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: 1 violation (Gate 2 only). `status.json` `start_commit` field (`75531ac`) was set to
+  the second FAIL verdict commit (post-implementation) by the round-3 documentation fix, breaking
+  the invariant that `start_commit..HEAD` captures the slice's implementation scope. The verifier-
+  required diff `git diff --name-only 75531ac` returns only docs files (journal.md, proof.md,
+  status.json) — none of the planned touchpoints (implement.go, state.go, etc.). proof.md correctly
+  uses `b9718b3c` with path filters, but protocol requires using `start_commit` from status.json.
+  Fix: update status.json `start_commit` from `75531ac` to `8ace0f6` (the `docs(release/S06): start
+  implementation` commit) and update proof.md "Files changed" to use that base with path filters
+  `-- internal/implement/ internal/state/ internal/prompt/ internal/adopt/baton/`. Gates 1, 3, 4,
+  5, 6 all PASS: implement.Run() calls CheckDoR via TransitionGate (Gate 1);
+  TestRun_DesignReviewBlockedByDoR drives the real entry point with a DoR-failing fixture (Gate 3);
+  reachability artefact names the integration test (Gate 4); zero deferral markers (Gate 5); all 5
+  ACs have verifiable test evidence, 20/20 packages pass (Gate 6). Next:
+  `/implement-slice S06-definition-of-ready 2026-06-16-fidelity-layer` to address 1 violation.
+
 ### 2026-06-19 — S06-definition-of-ready: FAIL (round 2, fresh-context)
 
 - **Actor**: verifier (fresh-context session)

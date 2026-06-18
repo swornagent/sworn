@@ -3,10 +3,10 @@
   "slice_id": "S06-definition-of-ready",
   "release": "2026-06-16-fidelity-layer",
   "track": "T2-delivery-cutover",
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-18T20:46:00Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-19T00:00:00Z",
   "start_commit": "75531ac026a5216cdeb355b2e3e2a81d2c7bded7",
   "spec_path": "docs/release/2026-06-16-fidelity-layer/S06-definition-of-ready/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S06-definition-of-ready/proof.md",
@@ -39,10 +39,12 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "fail",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": false,
-    "violations": []
+    "verifier_verdict_at": "2026-06-19T00:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "Gate 2 — status.json start_commit (75531ac) was set to the second FAIL verdict commit (post-implementation). git diff --name-only 75531ac returns only docs files, not the planned touchpoints. Fix: update start_commit to 8ace0f6 (docs(release/S06): start implementation) and update proof.md Files changed to use that base with path filters."
+    ]
   }
 }
