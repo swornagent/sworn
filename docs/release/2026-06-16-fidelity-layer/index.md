@@ -13,16 +13,14 @@ tracks:
   - id: T2-delivery-cutover
     slices: [S06-definition-of-ready, S10-no-mock-boundary, S12-journey-impact-analysis, S13-walkthrough-attestation, S14-journey-regression-suite]
     depends_on: T1-fidelity-core
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T2-delivery-cutover
     worktree_branch: track/2026-06-16-fidelity-layer/T2-delivery-cutover
-    state: planned
-  - id: T3-leaf-gates
+    state: in_progress  - id: T3-leaf-gates
     slices: [S03-spec-quality-firstpass, S08-design-system-input, S09-design-conformance-audit]
     depends_on: T1-fidelity-core
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T3-leaf-gates
     worktree_branch: track/2026-06-16-fidelity-layer/T3-leaf-gates
-    state: planned
-  - id: T4-evidence-surface
+    state: in_progress  - id: T4-evidence-surface
     slices: [S15-sworn-top-evidence]
     depends_on: T1-fidelity-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T4-evidence-surface
