@@ -142,6 +142,11 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Recent activity
 
+### 2026-06-18 — S04-requirements-verify-gate: FAIL (second verdict, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Gate 2 failure — planned touchpoint `internal/adopt/baton/rules/08-requirements-fidelity.md` not modified by S04 (file last touched by S01/S02 commits); proof.md "Divergence from plan" and "Not delivered" do not acknowledge or explain the omission. Gates 1, 3, 4, 5, 6 all PASS — injectable CLI tests pass, all AC evidence is real and verified, no deferrals. State remains `failed_verification`. Fix: add one line to proof.md "Divergence from plan" explaining the file was not modified because it already contained the verification description from S01/S02 work.
+
 ### 2026-06-18 — S04-requirements-verify-gate: FAIL
 
 - **Actor**: verifier (fresh-context session)

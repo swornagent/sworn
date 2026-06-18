@@ -48,6 +48,33 @@ None.
 
 ## Verifier verdicts received
 
+### 2026-06-18 (second fresh-context session) — FAIL
+
+```
+FAIL
+
+Slice: `S04-requirements-verify-gate`
+
+Violations:
+1. Gate 2 — planned touchpoint `internal/adopt/baton/rules/08-requirements-fidelity.md` not
+   modified; proof.md "Divergence from plan" and "Not delivered" do not acknowledge or explain
+   the omission.
+   Evidence: `spec.md` "Planned touchpoints" lists this file (with "(verification section)"); git
+   log for this file shows last-modified commit is S01/S02 work, never S04; status.json
+   `actual_files` does not include the file; proof.md "Divergence from plan" section mentions
+   only the injectable-pattern refactor and CLI test expansion — no mention of this file.
+
+Required to address:
+1. Add an entry to proof.md "Divergence from plan" explaining that
+   `internal/adopt/baton/rules/08-requirements-fidelity.md` was not modified because it already
+   contained the verification description added by S01/S02 work and no further changes were
+   needed — OR add the planned verification section to the file if the content is genuinely
+   absent. The current proof.md "Not delivered" claims "None" with no acknowledgement of the
+   missing planned touchpoint.
+```
+
+
+
 ### 2026-06-18 14:00 — FAIL (fresh-context session)
 
 ```
