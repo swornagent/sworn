@@ -1,44 +1,49 @@
 ---
-title: Slice journal template
-description: Implementation log for one slice. Append-only. Visible to verifier as context, but verifier verdict is based on proof.md and repo state, not journal prose.
+title: Slice journal — S03-spec-quality-firstpass
+description: Implementation log. Append-only.
 ---
 
-# Journal: `<slice-id>`
-
-> Copy this file to `docs/release/<release-name>/<slice-id>/journal.md`. Append entries chronologically. Do not delete history. Decisions captured here must also land in commit message bodies per Rule 4 — this journal is a working surface, not a substitute for durable capture.
+# Journal: `S03-spec-quality-firstpass`
 
 ## Session log
 
-### `<YYYY-MM-DD HH:MM>` — `<session start / state transition>`
+### 2026-06-22 — implementation complete
 
-- **State**: `<planned | in_progress | implemented | failed_verification | verified | deferred | shipped>`
+- **State**: implemented
 - **Notes**:
-  - `<Decisions made>`
-  - `<Trade-offs encountered>`
-  - `<Subagent dispatches and where their outputs landed>`
-
-### `<YYYY-MM-DD HH:MM>` — `<next event>`
-
-- ...
+  - Implemented `internal/specquality/` package with soundness and completeness
+    computation, mutation operators (flip exit code, negate assertion, remove
+    keyword, uppercase, lowercase, swap zero/one), and `## Acceptance examples`
+    parser (structured YAML-like and shorthand arrow format).
+  - Created `cmd/sworn/specquality.go` — CLI command wiring with `--threshold` flag.
+  - Updated `cmd/sworn/main.go` — additive `case "specquality"` + usage docs.
+  - Created `bin/spec-quality.sh` — thin wrapper for CI/first-pass use.
+  - Updated `internal/prompt/planner.md` — added acceptance-examples guidance
+    as step 5 in Phase 4; renumbered steps 5-9 to 6-10.
+  - Updated `internal/adopt/baton/rules/08-requirements-fidelity.md` — added
+    "Spec-quality metric" section documenting the metric, enforcement, and
+    relationship to verify/validate gates.
+  - **Key decision**: mutation operators are deterministic text heuristics
+    (pattern matching on exit codes, assertions, keywords). This is by design —
+    the spec requires "no model call." The operators are deliberately simple
+    and documented; they can be extended later. The score is always
+    interpretable because every operator that ran is named.
+  - **Trade-off**: the soundness check is limited to contradiction detection
+    (expects failure vs pass-only criteria; command-name consistency). Full
+    semantic soundness would require a model — that's S04's role. S03 is a
+    cheap first-pass that catches the most obvious defects.
+  - Bin/spec-quality.sh required `git add -f` because `/bin/` is in
+    .gitignore. Noted in proof.md "Divergence from plan."
+  - **Subagent dispatches**: none — single-session implementation.
 
 ## Open questions
 
-\<Anything the implementer needs the human to resolve. Each open question blocks state transition to `implemented` until answered.\>
-
-- ...
+- None.
 
 ## Deferrals surfaced
 
-`<Per Rule 2: each deferral needs why + tracking + acknowledgement. Cross-link to GitHub issue or punch-list entry. If empty, write "None" explicitly.>`
-
-- ...
+- None.
 
 ## Verifier verdicts received
 
-`<Append every verifier verdict here. Even FAIL verdicts stay — they are part of the slice's history.>`
-
-### `<YYYY-MM-DD HH:MM>` — `<PASS | FAIL | BLOCKED>`
-
-- **Verifier session**: `<fresh / inherited — should always be fresh>`
-- **Verdict body**: `<paste the full verifier output>`
-- **Action taken**: `<how the implementer responded>`
+- Pending.

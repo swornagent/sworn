@@ -56,6 +56,9 @@ func main() {
 	case "journeys":
 		// S11-journey-elicitation adds this case (T1-fidelity-core).
 		os.Exit(cmdJourneys(os.Args[2:]))
+	case "specquality":
+		// S03-spec-quality-firstpass adds this case (T3-leaf-gates).
+		os.Exit(cmdSpecquality(os.Args[2:]))
 	case "version", "--version", "-v":
 		fmt.Printf("sworn %s\nbaton-protocol %s\n", version, prompt.BatonVersion())
 	case "help", "--help", "-h":
@@ -128,6 +131,7 @@ usage:
   sworn reqverify <release>
   sworn reqvalidate <release>
   sworn designfit <release>
+  sworn specquality <release> [--threshold <0.0-1.0>]
   sworn run --task <description> [--implementer-model <m>] [--verifier-model <m>] [--base <branch>] [--retry-cap <n>]
   sworn verify --spec <path> --diff <path|-> [--proof <path>] [--verifier-model <provider/model>]
   sworn version
@@ -155,6 +159,10 @@ designfit checks every slice in a release for stakes-calibrated design-fit gate
 (Rule 9): fails closed when any Type-1 (high-stakes) choice lacks a recorded
 human decision. No model dispatch needed.
   See 'sworn designfit <release>' for details.
+specquality computes soundness + completeness metrics from every slice's
+acceptance examples, with no source code and no model call. Fails closed when
+any slice falls below the completeness threshold (default 50%).
+  See 'sworn specquality <release> [--threshold <0.0-1.0>]' for details.
 run executes the full turnkey loop: implement -> verify -> (on FAIL: retry/escalate
 up to N) -> gated merge on PASS only. See 'sworn run --help' for model resolution
 and escalation model defaults.
