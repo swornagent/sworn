@@ -3,10 +3,10 @@
   "slice_id": "S10-no-mock-boundary",
   "release": "2026-06-16-fidelity-layer",
   "track": "T2-delivery-cutover",
-  "state": "implemented",
-  "owner": "implementer",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-23T12:30:00Z",
+  "state": "failed_verification",
+  "owner": "verifier",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-19T00:00:00Z",
   "start_commit": "4d866d66af5b7fe33b1282eef458ea664dd30974",
   "spec_path": "docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/proof.md",
@@ -34,10 +34,13 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "fail",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
+    "verifier_verdict_at": "2026-06-19T00:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "AC2 + Rule 1 — Declared-deferral path not wired at entry points: run.go and cmdVerify both call verify.Run() without populating OpenDeferrals from status.json. Declared boundary mocks are treated as undeclared in all real invocations; AC2 is only exercised in unit tests.",
+      "AC2 / Required Tests — passes-with-note not verified: TestRun_DeclaredBoundaryMockAllowed only checks got.Verdict == verdict.Pass; spec requires declared mock to be surfaced in the run output as a known deferral, which has no test coverage."
+    ]
   }
 }

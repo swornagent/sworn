@@ -45,4 +45,10 @@ None.
 
 ## Verifier verdicts received
 
-None (not yet submitted for verification).
+### `2026-06-19` — verifier verdict: FAIL
+
+FAIL: 2 violations
+
+1. **AC2 + Rule 1 — Declared-deferral path not wired at entry points**: `internal/run/run.go` (line 232) and `cmd/sworn/main.go` cmdVerify (line 111) both call `verify.Run()` without populating `OpenDeferrals`. Neither reads `open_deferrals` from `status.json` and passes it through. As a result, every boundary mock is treated as undeclared in any real invocation (`sworn verify` or `sworn run`). AC2 (declared boundary mock allowed) is only exercised in unit tests — not user-reachable via the integration entry point. Rule 1 violation.
+
+2. **AC2 / Required Tests — "passes-with-note" not verified**: The spec's Required Tests say "declared mock (with the three components) passes-with-note." `TestRun_DeclaredBoundaryMockAllowed` only asserts `got.Verdict == verdict.Pass` — it does not verify the declared mock is surfaced in the output as a known deferral. AC2 states "THE SYSTEM SHALL allow it and surface it in the run output as a known deferral," a SHALL with no test coverage.

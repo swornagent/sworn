@@ -106,7 +106,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S11-journey-elicitation` | T1 | AI-drafts/human-ratifies critical journeys into a durable artefact (`sworn journeys`) | verified | verifier | [spec](./S11-journey-elicitation/spec.md) | [proof](./S11-journey-elicitation/proof.md) |
 | `S16-lint-rename` | T1 | Documentation sweep — adopt `sworn lint ac` / `sworn lint trace` canonical names throughout release docs; restore S02 proof.md | verified | human | [spec](./S16-lint-rename/spec.md) | [proof](./S16-lint-rename/proof.md) |
 | `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | verified | verifier | [spec](./S06-definition-of-ready/spec.md) | [proof](./S06-definition-of-ready/proof.md) |
-| `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | planned | human | [spec](./S10-no-mock-boundary/spec.md) | — |
+| `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | failed_verification | verifier | [spec](./S10-no-mock-boundary/spec.md) | [proof](./S10-no-mock-boundary/proof.md) |
 | `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | planned | human | [spec](./S12-journey-impact-analysis/spec.md) | — |
 | `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | planned | human | [spec](./S13-walkthrough-attestation/spec.md) | — |
 | `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | planned | human | [spec](./S14-journey-regression-suite/spec.md) | — |
@@ -129,17 +129,22 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Aggregate state
 
-- Planned: 6 (S08, S09, S10, S12, S13, S14)
+- Planned: 5 (S08, S09, S12, S13, S14)
 - In progress: 0
 - Implemented (awaiting verification): 0
 - Verified: 9 (S01, S02, S04, S05, S06, S07, S11, S15, S16)
-- Failed verification: 1 (S03)
+- Failed verification: 2 (S03, S10)
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** Planned: 1 (T3) / In progress: 1 (T2) / Merged: 2 (T1: b8521f8, T4: ca5b1ea)
 
 ## Recent activity
+
+### 2026-06-19 — S10-no-mock-boundary: FAIL (round 1, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: 2 violations. (1) **AC2 + Rule 1**: `run.go` (line 232) and `cmdVerify` in `main.go` (line 111) both call `verify.Run()` without populating `OpenDeferrals` from `status.json`. The declared-deferral allowance (AC2) is not user-reachable via any real invocation; it is exercised only in unit tests. (2) **AC2 / Required Tests**: spec says "declared mock (with the three components) passes-with-note" but `TestRun_DeclaredBoundaryMockAllowed` only checks `got.Verdict == verdict.Pass` — no test verifies the note/surfacing claim. AC1 (undeclared mocks fail closed), AC3 (implementer guidance), and AC4 (absence fails closed) are all satisfied. All 23 verify-package tests pass fresh. Next: `/implement-slice S10-no-mock-boundary 2026-06-16-fidelity-layer` to address 2 violations.
 
 ### 2026-06-19 — S06-definition-of-ready: PASS (round 4, fresh-context)
 
