@@ -56,3 +56,28 @@ data. Minimum tests (mirroring S04's pattern in `cmd/sworn/reqverify_test.go`):
 - `TestReqvalidateCmd_NonexistentRelease` — nonexistent release → exit 2
 - `TestReqvalidateCmd_WithFixtureRelease` — temp dir with fixture slices (one passing, one failing),
   calls `cmdReqvalidate([]string{"test-release"})`, verifies exit 1 and named violation output
+
+### 2026-06-18 — verifier verdict: FAIL (round 2)
+
+**Verdict**: FAIL
+
+**Violations:**
+
+1. Gate 2 — proof.md "Files changed" section is stale and "Divergence from plan" omits S04 files in the diff range.
+   Running `git diff --name-only 40b2af4b0077d03b041cd7ac8ae3324caaa29a15..HEAD` in a fresh
+   context returns additional files not listed in proof.md and not explained in "Divergence from
+   plan": `cmd/sworn/reqverify.go`, `cmd/sworn/reqverify_test.go`,
+   `internal/reqverify/reqverify_test.go`, `.gitignore`. These are S04 re-implementation files —
+   the start_commit (`40b2af4`) pre-dates S04's multiple FAIL/re-implementation cycles, which ran
+   concurrently with S05 on this track. proof.md "Divergence from plan" says "None" and the
+   "Files changed" section omits these files entirely.
+
+**Required to address:**
+
+1. Update proof.md "Files changed" to accurately reflect the full output of `git diff --name-only
+   40b2af4b0077d03b041cd7ac8ae3324caaa29a15..HEAD` (all files in range, including S04 files).
+2. Add a "Divergence from plan" entry explaining that `cmd/sworn/reqverify.go`,
+   `cmd/sworn/reqverify_test.go`, `internal/reqverify/reqverify_test.go`, and `.gitignore` appear
+   in the diff range because start_commit (`40b2af4`) pre-dates S04's re-implementation cycles
+   (which ran concurrently with S05 on this track); these files are S04 scope (a distinct
+   verified slice), not S05 scope.

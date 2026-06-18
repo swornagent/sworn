@@ -142,7 +142,19 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Recent activity
 
-### 2026-06-18 — S05-requirements-validate-gate: FAIL
+### 2026-06-18 — S05-requirements-validate-gate: FAIL (round 2)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Gate 2. proof.md "Files changed" section is stale — actual `git diff --name-only
+  start_commit..HEAD` includes `cmd/sworn/reqverify.go`, `cmd/sworn/reqverify_test.go`,
+  `internal/reqverify/reqverify_test.go`, `.gitignore` (S04 re-implementation files in the diff
+  range because start_commit pre-dates S04's re-implementation cycles). proof.md "Divergence from
+  plan" says "None" — these files are not explained. Gates 1, 3, 4, 5, 6 all PASS. All tests
+  (15 unit + 3 CLI integration) pass in fresh context. Smoke step verified live. Fix: update
+  proof.md "Files changed" + "Divergence from plan" to acknowledge the S04 files in range.
+  Slice state → `failed_verification`.
+
+### 2026-06-18 — S05-requirements-validate-gate: FAIL (round 1)
 
 - **Actor**: verifier (fresh-context session)
 - **Note**: Gate 3 (Rule 1). No `cmd/sworn/reqvalidate_test.go` exercises the CLI integration
