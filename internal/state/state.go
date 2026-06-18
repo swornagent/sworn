@@ -55,11 +55,25 @@ func (s State) Transition(next State) error {
 	return fmt.Errorf("state: illegal transition %s → %s", s, next)
 }
 
+// ValidationRecord holds the human-ratified requirements validation for one
+// slice: scenarios (positive AND negative) and the benefit/alignment hypothesis.
+// Populated by the planner during /plan-release or /replan-release. The
+// human_ratified flag is mandatory — model-only validation is not a pass.
+// See docs/baton/rules/08-requirements-fidelity.md "Validated".
+type ValidationRecord struct {
+	HumanRatified      bool     `json:"human_ratified"`
+	RatifiedBy         string   `json:"ratified_by,omitempty"`
+	RatifiedAt         string   `json:"ratified_at,omitempty"`
+	PositiveScenarios  []string `json:"positive_scenarios,omitempty"`
+	NegativeScenarios  []string `json:"negative_scenarios,omitempty"`
+	BenefitHypothesis  string   `json:"benefit_hypothesis,omitempty"`
+	ReleaseBenefitLink string   `json:"release_benefit_link,omitempty"`
+}
+
 // Verification holds the per-slice verification record (verdict, session
 // metadata, violations). It mirrors the nested "verification" object in
 // status.json.
-type Verification struct {
-	Result                  string   `json:"result,omitempty"`
+type Verification struct {	Result                  string   `json:"result,omitempty"`
 	VerifierSessionID       *string  `json:"verifier_session_id,omitempty"`
 	VerifierVerdictAt       *string  `json:"verifier_verdict_at,omitempty"`
 	VerifierWasFreshContext *bool    `json:"verifier_was_fresh_context,omitempty"`
@@ -96,10 +110,10 @@ type Status struct {
 	// (from intake.md) is the lightweight floor — when present, every slice
 	// satisfies the vertical trace via slice -> release goal without an
 	// explicit release_benefit. Org objective is opt-in for enterprise depth.
-	ReleaseBenefit string `json:"release_benefit,omitempty"`
-	OrgObjective   string `json:"org_objective,omitempty"`
+	ReleaseBenefit string          `json:"release_benefit,omitempty"`
+	OrgObjective   string          `json:"org_objective,omitempty"`
+	Validation     ValidationRecord `json:"validation,omitempty"`
 }
-
 // Read parses a status.json file at path and returns the Status. It returns
 // an error if the file cannot be read or is not valid JSON.
 func Read(path string) (*Status, error) {

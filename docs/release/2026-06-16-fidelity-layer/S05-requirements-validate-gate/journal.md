@@ -1,44 +1,36 @@
 ---
-title: Slice journal template
-description: Implementation log for one slice. Append-only. Visible to verifier as context, but verifier verdict is based on proof.md and repo state, not journal prose.
+title: Slice journal
+description: Implementation log for S05-requirements-validate-gate. Append-only.
 ---
 
-# Journal: `<slice-id>`
-
-> Copy this file to `docs/release/<release-name>/<slice-id>/journal.md`. Append entries chronologically. Do not delete history. Decisions captured here must also land in commit message bodies per Rule 4 — this journal is a working surface, not a substitute for durable capture.
+# Journal: S05-requirements-validate-gate
 
 ## Session log
 
-### `<YYYY-MM-DD HH:MM>` — `<session start / state transition>`
+### 2026-06-18 16:00 — session start / state transition
 
-- **State**: `<planned | in_progress | implemented | failed_verification | verified | deferred | shipped>`
+- **State**: `planned → in_progress → implemented`
 - **Notes**:
-  - `<Decisions made>`
-  - `<Trade-offs encountered>`
-  - `<Subagent dispatches and where their outputs landed>`
-
-### `<YYYY-MM-DD HH:MM>` — `<next event>`
-
-- ...
+  - Added `ValidationRecord` struct to `internal/state/state.go` with fields: human_ratified, ratified_by, ratified_at, positive_scenarios, negative_scenarios, benefit_hypothesis, release_benefit_link.
+  - Added `Validation` field to `Status` struct.
+  - Created `internal/reqvalidate/` package with `Run()`, `validateSlice()`, `Print()`, `PrintCompact()`.
+  - Validation checks: human_ratified=true, ≥1 positive scenario, ≥1 negative scenario, non-empty benefit hypothesis.
+  - No model dispatch — deterministic gate reading status.json directly.
+  - Created `cmd/sworn/reqvalidate.go` — `sworn reqvalidate <release>` command.
+  - Added `reqvalidate` case to `cmd/sworn/main.go` switch and usage text.
+  - Updated `internal/prompt/planner.md` Phase 4: added step 7 for drafting scenarios + benefit hypothesis with human ratification requirement.
+  - Updated `internal/adopt/baton/rules/08-requirements-fidelity.md`: added "Validation — human-owned sense-check" section with validation record table and enforcement description.
+  - Written 15 unit tests covering all acceptance checks (missing record, model-only, positive-without-negative, negative-without-positive, missing benefit hypothesis, complete passes).
+  - Smoke test confirmed: `sworn reqvalidate 2026-06-16-fidelity-layer` exits 1 with all 16 slices named in violations (fail-closed, no validation records populated yet).
 
 ## Open questions
 
-\<Anything the implementer needs the human to resolve. Each open question blocks state transition to `implemented` until answered.\>
-
-- ...
+None.
 
 ## Deferrals surfaced
 
-`<Per Rule 2: each deferral needs why + tracking + acknowledgement. Cross-link to GitHub issue or punch-list entry. If empty, write "None" explicitly.>`
-
-- ...
+None.
 
 ## Verifier verdicts received
 
-`<Append every verifier verdict here. Even FAIL verdicts stay — they are part of the slice's history.>`
-
-### `<YYYY-MM-DD HH:MM>` — `<PASS | FAIL | BLOCKED>`
-
-- **Verifier session**: `<fresh / inherited — should always be fresh>`
-- **Verdict body**: `<paste the full verifier output>`
-- **Action taken**: `<how the implementer responded>`
+(Not yet verified — fresh-context session required.)

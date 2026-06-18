@@ -179,3 +179,50 @@ sentence per requirement, no scenario tables), is the de-facto notation for
 agent-authored requirements, and maps cleanly to the checkbox format already
 used in `spec.md` acceptance checks. The decision is recorded; do not
 re-litigate at implementation.
+
+## Validation — human-owned sense-check
+
+Validation answers "are we building the *right* requirements?" — does the spec
+make sense and serve the need (as distinct from verification's "are the
+requirements well-formed?"). This is the cheapest defect-catch point and is
+**human-owned**: the model drafts scenarios + a benefit hypothesis; the human
+ratifies. Spec validation has no oracle but the user, so this gate is never LLM
+self-certified.
+
+### Validation record
+
+Every slice must carry a validation record in its `status.json` under the
+`validation` field (see `state.ValidationRecord`):
+
+| Field | Required | Description |
+|---|---|---|
+| `human_ratified` | Yes | Must be `true`. Model-only validation is not a pass. |
+| `ratified_by` | Yes | Who ratified (human identifier). |
+| `ratified_at` | Yes | When ratified (ISO 8601). |
+| `positive_scenarios` | Yes (≥1) | Scenarios where the requirement works as intended. |
+| `negative_scenarios` | Yes (≥1) | Edge + failure flows; what should *not* happen. |
+| `benefit_hypothesis` | Yes | This slice's benefit and its vertical link (slice -> release benefit -> objective). |
+
+### Enforcement
+
+`sworn reqvalidate <release>` reads every slice's `status.json` and fails
+closed on:
+
+- **Missing record** — no `validation` field at all
+- **Model-only** — `human_ratified` is false or absent
+- **Missing positive scenarios** — empty `positive_scenarios` array
+- **Missing negative scenarios** — empty `negative_scenarios` array
+- **Missing benefit hypothesis** — empty or blank `benefit_hypothesis`
+
+A fully-validated release exits 0 and prints the per-slice summary.
+
+### Relationship to verification
+
+| Gate | What it checks | Owner | Tool |
+|---|---|---|---|
+| **Verify** (S04) | Quality characteristics per 29148 (well-formedness) | Model (fresh context) | `sworn reqverify` |
+| **Validate** (S05) | Scenarios + benefit (sense-check) | Human | `sworn reqvalidate` |
+
+The two gates are complementary. A spec can be perfectly well-formed (pass
+reqverify) but answer the wrong question (fail reqvalidate), and vice versa.
+Both must pass before a slice enters implementation (Definition of Ready, S06).

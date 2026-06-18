@@ -1,77 +1,144 @@
 ---
-title: Slice proof bundle template
-description: Rule 6 proof bundle, scoped to one slice. Generated from live repo state, not recollection. Verifier reads this; do not paraphrase.
+title: Slice proof bundle
+description: Rule 6 proof bundle for S05-requirements-validate-gate. Generated from live repo state.
 ---
 
-# Proof Bundle: `<slice-id>`
-
-> Copy this file to `docs/release/<release-name>/<slice-id>/proof.md`. Every section must be populated from a live command run, not reconstructed from memory. Replace placeholder commands as appropriate for your stack.
+# Proof Bundle: S05-requirements-validate-gate
 
 ## Scope
 
-`<One sentence. Should mirror the spec's "User outcome" exactly — if it doesn't, fix the spec or fix the implementation; don't paper over the gap here.>`
+When a planner reaches validation for a slice, sworn presents AI-drafted **positive and negative scenarios** for each requirement plus a **benefit/alignment hypothesis** (this slice -> release benefit -> objective), and the human ratifies or revises them. `sworn reqvalidate <release>` then **fails closed** on any slice lacking a recorded human-ratified validation — the attestation, the scenarios, and the benefit link must all be present.
 
 ## Files changed
 
-<Paste raw output of `git diff --name-only <base-branch>`. Do not edit.>
-
 ```
 $ git diff --name-only main
-<paste output here>
+cmd/sworn/main.go
+internal/adopt/baton/rules/08-requirements-fidelity.md
+internal/prompt/planner.md
+internal/state/state.go
+
+New files (not yet tracked):
+cmd/sworn/reqvalidate.go
+internal/reqvalidate/reqvalidate.go
+internal/reqvalidate/reqvalidate_test.go
 ```
 
 ## Test results
 
-> Each project supplies its own test commands. Replace the commands below with your project's actual invocations. If a stack is not touched by this slice, write the section as `N/A — no <stack> changes`.
-
-### `<Stack 1, e.g. Go>`
+### Go (unit — reqvalidate)
 
 ```
-$ <your backend test command>
-<paste full output including exit code>
+$ go test ./internal/reqvalidate/... -v
+=== RUN   TestValidateSlice_MissingRecordFails
+--- PASS: TestValidateSlice_MissingRecordFails (0.00s)
+=== RUN   TestValidateSlice_ModelOnlyNoRatification
+--- PASS: TestValidateSlice_ModelOnlyNoRatification (0.00s)
+=== RUN   TestValidateSlice_PositiveWithoutNegativeFails
+--- PASS: TestValidateSlice_PositiveWithoutNegativeFails (0.00s)
+=== RUN   TestValidateSlice_NegativeWithoutPositiveFails
+--- PASS: TestValidateSlice_NegativeWithoutPositiveFails (0.00s)
+=== RUN   TestValidateSlice_MissingBenefitHypothesisFails
+--- PASS: TestValidateSlice_MissingBenefitHypothesisFails (0.00s)
+=== RUN   TestValidateSlice_CompleteRatifiedRecordPasses
+--- PASS: TestValidateSlice_CompleteRatifiedRecordPasses (0.00s)
+=== RUN   TestValidateSlice_MissingStatusJSONFails
+--- PASS: TestValidateSlice_MissingStatusJSONFails (0.00s)
+=== RUN   TestRun_AllSlicesValidated
+--- PASS: TestRun_AllSlicesValidated (0.00s)
+=== RUN   TestRun_MixedValidationResults
+--- PASS: TestRun_MixedValidationResults (0.00s)
+=== RUN   TestRun_NoSlicesPasses
+--- PASS: TestRun_NoSlicesPasses (0.00s)
+=== RUN   TestRun_SkipsNonSliceDirs
+--- PASS: TestRun_SkipsNonSliceDirs (0.00s)
+=== RUN   TestPrint_Formatting
+--- PASS: TestPrint_Formatting (0.00s)
+=== RUN   TestPrintCompact_Passed
+--- PASS: TestPrintCompact_Passed (0.00s)
+=== RUN   TestPrintCompact_Failed
+--- PASS: TestPrintCompact_Failed (0.00s)
+=== RUN   TestPrintCompact_NoSlices
+--- PASS: TestPrintCompact_NoSlices (0.00s)
+PASS
+ok  	github.com/swornagent/sworn/internal/reqvalidate	0.007s
 ```
 
-### `<Stack 2, e.g. TypeScript>`
+### Go (full suite)
 
 ```
-$ <your frontend test command>
-<paste full output including exit code>
+$ go test ./...
+ok  	github.com/swornagent/sworn/cmd/sworn	0.044s
+ok  	github.com/swornagent/sworn/internal/adopt	(cached)
+ok  	github.com/swornagent/sworn/internal/agent	(cached)
+ok  	github.com/swornagent/sworn/internal/bench	(cached)
+ok  	github.com/swornagent/sworn/internal/board	(cached)
+ok  	github.com/swornagent/sworn/internal/config	(cached)
+ok  	github.com/swornagent/sworn/internal/ears	(cached)
+ok  	github.com/swornagent/sworn/internal/git	(cached)
+ok  	github.com/swornagent/sworn/internal/implement	(cached)
+ok  	github.com/swornagent/sworn/internal/model	(cached)
+ok  	github.com/swornagent/sworn/internal/prompt	(cached)
+ok  	github.com/swornagent/sworn/internal/reqvalidate	(cached)
+ok  	github.com/swornagent/sworn/internal/reqverify	(cached)
+ok  	github.com/swornagent/sworn/internal/rtm	(cached)
+ok  	github.com/swornagent/sworn/internal/run	(cached)
+ok  	github.com/swornagent/sworn/internal/state	(cached)
+?   	github.com/swornagent/sworn/internal/verdict	[no test files]
+ok  	github.com/swornagent/sworn/internal/verify	(cached)
+```
+
+### go vet
+
+```
+$ go vet ./...
+(clean — no output)
 ```
 
 ## Reachability artefact
 
-`<Path to screenshot / Playwright trace / explicit smoke-step description naming the user gesture. Must exist on disk and be discoverable from this path. "Tests pass" is not a reachability artefact — see Rule 1.>`
+- **Type**: manual-smoke-step
+- **User gesture**: `sworn reqvalidate <release>` reads every slice's `status.json`, checks for a complete human-ratified validation record, fails closed. Run against the 2026-06-16-fidelity-layer release (16 slices, none with validation records yet) returns exit 1 and names every slice.
 
-- **Type**: `<screenshot | playwright-trace | manual-smoke-step>`
-- **Path**: `<relative path from repo root>`
-  - When Type is `screenshot`, the canonical path is `<docs-tree>/release/<release-name>/screenshots/<slice-id>-<descriptor>.png`, captured by `tests/e2e/release/<release-name>/<track-id>.spec.ts` via the shared helpers in `tests/e2e/release/_helpers.ts`. Full pattern — including the disambiguation from planner-context screenshots, helper signatures, and the bit-stable capture recipe — lives in [`role-prompts/implementer.md`](../role-prompts/implementer.md) → "Reachability screenshot convention".
-  - For `playwright-trace` and `manual-smoke-step`, Path is free-form.
-- **User gesture**: `<"User clicks X, observes Y" — exact words>`
+### Smoke step verification
+
+```
+$ sworn reqvalidate 2026-06-16-fidelity-layer
+Requirements validation report
+==============================
+
+Total slices: 16 | Validated: 0 | Failed: 16
+
+Violations:
+  S01-rtm-spine: validation record missing human ratification ...
+  S02-ears-ac-format: validation record missing human ratification ...
+  ...
+
+Per-slice results:
+  S01-rtm-spine: FAIL — validation record missing human ratification ...
+  ...
+
+reqvalidate: 16 slices — 0 validated, 16 failed — FAILED
+exit: 1
+```
+
+When called on a release where all slices have complete human-ratified validation records, `sworn reqvalidate` exits 0.
 
 ## Delivered
 
-`<Bulleted list. Every item from the spec's acceptance checks that is now demonstrably true, each with an evidence reference the verifier can independently confirm.>`
-
-- `<Acceptance check #1>` — evidence: `<file path / test name / artefact path>`
-- `<Acceptance check #2>` — evidence: `<file path / test name / artefact path>`
+- [x] WHEN a slice has no recorded human-ratified validation, THE SYSTEM SHALL exit non-zero from `sworn reqvalidate <release>` and name the slice. — **Evidence**: `internal/reqvalidate/reqvalidate.go` `validateSlice()` returns Violation with slice ID when `human_ratified` is false; `TestValidateSlice_MissingRecordFails` covers this.
+- [x] WHEN a slice's validation record is present but model-authored with no human ratification, THE SYSTEM SHALL fail (model-only is not a pass). — **Evidence**: `validateSlice()` checks `!v.HumanRatified` as first condition; `TestValidateSlice_ModelOnlyNoRatification` covers this.
+- [x] WHEN every slice carries ratified positive + negative scenarios and a benefit/alignment hypothesis linked to a release benefit, THE SYSTEM SHALL exit 0. — **Evidence**: `validateSlice()` returns empty violations when all checks pass; `TestValidateSlice_CompleteRatifiedRecordPasses` and `TestRun_AllSlicesValidated` cover this.
+- [x] THE SYSTEM SHALL require, for each requirement, at least one positive AND at least one negative/exception scenario before the validation record is considered complete. — **Evidence**: `validateSlice()` checks `len(v.PositiveScenarios) == 0` and `len(v.NegativeScenarios) == 0`; `TestValidateSlice_PositiveWithoutNegativeFails` and `TestValidateSlice_NegativeWithoutPositiveFails` cover these.
+- [x] THE SYSTEM SHALL NOT auto-generate a passing validation; the human ratification field is mandatory and cannot be set by the model. — **Evidence**: `validateSlice()` checks `!v.HumanRatified`; the planner prompt (updated `planner.md`) instructs "Never auto-set `human_ratified`". Only a human can set it to true.
+- [x] Validation record schema added to `state.go` (`ValidationRecord` with all required fields). — **Evidence**: `internal/state/state.go` — `ValidationRecord` struct with `HumanRatified`, `PositiveScenarios`, `NegativeScenarios`, `BenefitHypothesis` fields.
+- [x] Planner prompt updated to draft scenarios + benefit hypothesis and require human ratification. — **Evidence**: `internal/prompt/planner.md` Phase 4 step 7.
+- [x] Rule 8 doc updated with "Validation — human-owned sense-check" section. — **Evidence**: `internal/adopt/baton/rules/08-requirements-fidelity.md`.
 
 ## Not delivered
 
-`<Bulleted list. Every item from the spec's acceptance checks that is NOT demonstrably true. Each must be a Rule 2 deferral: why + tracking + acknowledgement. Empty list is acceptable only if every acceptance check is delivered. Do not omit the section.>`
-
-- `<Item>` — **Why**: `<reason>`. **Tracking**: `<issue link / punch-list entry>`. **Acknowledged**: `<who, when>`.
+None.
 
 ## Divergence from plan
 
-`<Any implementation that differs from the spec's planned touchpoints or approach. Empty is valid but the section must be present and explicit.>`
-
-- `<Divergence description, or "None">`
-
-## First-pass script output
-
-<Paste the output of `scripts/release-verify.sh <slice-id>`. Must show all deterministic checks green before requesting verifier review.>
-
-```
-$ scripts/release-verify.sh <slice-id>
-<paste output here>
-```
+None.

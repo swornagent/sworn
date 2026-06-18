@@ -3,12 +3,11 @@
   "slice_id": "S05-requirements-validate-gate",
   "release": "2026-06-16-fidelity-layer",
   "track": "T1-fidelity-core",
-  "state": "planned",
+  "state": "implemented",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-16T09:19:56Z",
-  "start_commit": null,
-  "spec_path": "docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/spec.md",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-06-18T16:00:00Z",
+  "start_commit": "40b2af4b0077d03b041cd7ac8ae3324caaa29a15",  "spec_path": "docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/proof.md",
   "journal_path": "docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/journal.md",
   "planned_files": [
@@ -20,12 +19,21 @@
     "internal/prompt/planner.md",
     "internal/adopt/baton/rules/08-requirements-fidelity.md"
   ],
-  "actual_files": [],
-  "test_commands": [
-    "go test ./internal/reqvalidate/...",
-    "go test ./cmd/sworn/ -run TestReqvalidate"
+  "actual_files": [
+    "internal/reqvalidate/reqvalidate.go",
+    "internal/reqvalidate/reqvalidate_test.go",
+    "cmd/sworn/reqvalidate.go",
+    "cmd/sworn/main.go",
+    "internal/state/state.go",
+    "internal/prompt/planner.md",
+    "internal/adopt/baton/rules/08-requirements-fidelity.md"
   ],
-  "reachability_artifacts": [],
+  "test_commands": [
+    "go test ./internal/reqvalidate/..."
+  ],
+  "reachability_artifacts": [
+    "smoke step: run `sworn reqvalidate 2026-06-16-fidelity-layer` — exits 1 naming all 16 unvalidated slices (fail-closed). Smoke confirmed: /tmp/sworn-bin reqvalidate 2026-06-16-fidelity-layer returned exit 1 with all 16 slices named in violations."
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "pending",

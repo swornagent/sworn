@@ -47,8 +47,10 @@ func main() {
 	case "reqverify":
 		// S04-requirements-verify-gate adds this case (T1-fidelity-core).
 		os.Exit(cmdReqverify(os.Args[2:]))
-	case "version", "--version", "-v":
-		fmt.Printf("sworn %s\nbaton-protocol %s\n", version, prompt.BatonVersion())
+	case "reqvalidate":
+		// S05-requirements-validate-gate adds this case (T1-fidelity-core).
+		os.Exit(cmdReqvalidate(os.Args[2:]))
+	case "version", "--version", "-v":		fmt.Printf("sworn %s\nbaton-protocol %s\n", version, prompt.BatonVersion())
 	case "help", "--help", "-h":
 		if len(os.Args) > 2 && os.Args[2] == "run" {
 			cmdRun([]string{"--help"})
@@ -116,7 +118,7 @@ usage:
   sworn lint ac <release>
   sworn lint trace <release>
   sworn reqverify <release>
-  sworn run --task <description> [--implementer-model <m>] [--verifier-model <m>] [--base <branch>] [--retry-cap <n>]
+  sworn reqvalidate <release>  sworn run --task <description> [--implementer-model <m>] [--verifier-model <m>] [--base <branch>] [--retry-cap <n>]
   sworn verify --spec <path> --diff <path|-> [--proof <path>] [--verifier-model <provider/model>]
   sworn version
 bench runs a model benchmark: iterate candidate verifier models against a task set
@@ -133,7 +135,9 @@ lint checks a release for structural problems. Targets:
 reqverify grades every acceptance criterion in a release against the ISO/IEC/IEEE
 29148 quality characteristics using a fresh-context model pass, fail-closed.
   See 'sworn reqverify <release>' for details.
-run executes the full turnkey loop: implement → verify → (on FAIL: retry/escalate
+reqvalidate checks every slice in a release for a human-ratified requirements
+validation record (positive+negative scenarios + benefit hypothesis), fail-closed.
+  See 'sworn reqvalidate <release>' for details.run executes the full turnkey loop: implement → verify → (on FAIL: retry/escalate
 up to N) → gated merge on PASS only. See 'sworn run --help' for model resolution
 and escalation model defaults.
 
