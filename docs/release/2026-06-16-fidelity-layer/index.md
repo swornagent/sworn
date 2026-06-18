@@ -9,7 +9,7 @@ tracks:
     depends_on: null
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core
     worktree_branch: track/2026-06-16-fidelity-layer/T1-fidelity-core
-    state: in_progress
+    state: merged
   - id: T2-delivery-cutover
     slices: [S06-definition-of-ready, S10-no-mock-boundary, S12-journey-impact-analysis, S13-walkthrough-attestation, S14-journey-regression-suite]
     depends_on: T1-fidelity-core
@@ -51,7 +51,7 @@ tracks:
 
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
-| `T1-fidelity-core` | S01 → S02 → S04 → S05 → S07 → S11 → S16 | — | `track/2026-06-16-fidelity-layer/T1-fidelity-core` | planned |
+| `T1-fidelity-core` | S01 → S02 → S04 → S05 → S07 → S11 → S16 | — | `track/2026-06-16-fidelity-layer/T1-fidelity-core` | merged |
 | `T2-delivery-cutover` | S06 → S10 → S12 → S13 → S14 | T1 | `track/2026-06-16-fidelity-layer/T2-delivery-cutover` | planned |
 | `T3-leaf-gates` | S03 → S08 → S09 | T1 | `track/2026-06-16-fidelity-layer/T3-leaf-gates` | planned |
 | `T4-evidence-surface` | S15 | T1 | `track/2026-06-16-fidelity-layer/T4-evidence-surface` | planned |
@@ -138,9 +138,14 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 3 / In progress: 1 / Merged: 0 (T1: all 7 slices verified — ready for /merge-track)
+**Tracks:** Planned: 3 / In progress: 0 / Merged: 1 (T1: merged at b8521f8)
 
 ## Recent activity
+
+### 2026-06-18 — track `T1-fidelity-core` merged to release-wt (commit b8521f8)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 7 verified slices merged: S01-rtm-spine, S02-ears-ac-format, S04-requirements-verify-gate, S05-requirements-validate-gate, S07-design-fit-gate, S11-journey-elicitation, S16-lint-rename. Forward-merged release-wt into track first (1 sibling commit; sync commit 0d93c46); all track tests re-ran green on merged base. Track state → merged.
 
 ### 2026-06-18 — S16-lint-rename: PASS (round 3, fresh-context)
 
