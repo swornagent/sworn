@@ -79,8 +79,21 @@ func Run(ctx context.Context, in Input) verdict.Result {
 	if err != nil {
 		return blocked("verifier_dispatch", err.Error())
 	}
-	return parseVerdict(text, cost)
-}
+	result := parseVerdict(text, cost)
+
+	// Surface declared boundary mocks in the result rationale so the caller
+	// sees them as known deferrals (AC2 — no-mock-boundary).
+	if len(report.DeclaredMocks) > 0 {
+		var b strings.Builder
+		b.WriteString("Declared boundary mock(s) — allowed with known deferral:\n")
+		for _, m := range report.DeclaredMocks {
+			b.WriteString(fmt.Sprintf("  - %s (boundary: %s) at %s:%d\n", m.MockType, m.Boundary, m.File, m.Line))
+		}
+		b.WriteString("\n")
+		result.Rationale = b.String() + result.Rationale
+	}
+
+	return result}
 
 func buildPayload(spec, diff, proof string) string {
 	var b strings.Builder

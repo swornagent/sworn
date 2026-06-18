@@ -329,8 +329,15 @@ func TestRun_DeclaredBoundaryMockAllowed(t *testing.T) {
 	if got.Verdict != verdict.Pass {
 		t.Fatalf("want PASS with declared deferral, got %s", got.Verdict)
 	}
+	// AC2: the declared mock MUST be surfaced in the run output as a known
+	// deferral, not just silently passed through.
+	if !strings.Contains(got.Rationale, "Declared boundary mock") {
+		t.Fatalf("rationale should surface declared mock as known deferral, got: %q", got.Rationale)
+	}
+	if !strings.Contains(got.Rationale, "mockDB") {
+		t.Fatalf("rationale should include mock type detail, got: %q", got.Rationale)
+	}
 }
-
 func TestCheckBoundaryMocks_StubAuthDetected(t *testing.T) {
 	diff := "+func TestAuth(t *testing.T) {\n+	authStub := &stubAuth{}\n+}"
 	report := CheckBoundaryMocks(diff, nil)
