@@ -32,6 +32,19 @@ description: Implementation log for one slice. Append-only. Visible to verifier 
   - Live smoke test: `sworn lint ac 2026-06-16-fidelity-layer` exits 0 with 70 ACs classified; corrupted fixture exits 1 naming the slice + line.
   - No deferrals. No divergences from plan beyond the multi-line AC handling (additive, covered by test).
 
+### 2026-06-18 10:45 — re-implementation: address verifier FAIL (5 Gate 2 violations)
+
+- **State**: `implemented` (recovered from `failed_verification`)
+- **Context**: A forward-merge from `release-wt/2026-06-16-fidelity-layer` brought in replan changes (S16-lint-rename added, spec references corrected). The verifier's 5 violations were all Gate 2 — proof.md was stale after the `6518f3b` refactor that renamed `sworn ears`→`sworn lint ac` and `sworn rtm`→`sworn lint trace`.
+- **Worktree branch fix**: The worktree had been accidentally bound to `main` instead of `track/2026-06-16-fidelity-layer/T1-fidelity-core` — fixed via `git checkout track/...`.
+- **What was fixed**:
+  1. proof.md Files changed regenerated from `cd462364f2ed38a357a2625c377ebd8ff373be83..HEAD` (19 files, from live `git diff`)
+  2. proof.md Divergence from plan expanded to explain: ears.go→lint.go rename, rtm.go deletion, lint_trace_test.go rename, S01-rtm-spine doc updates, S16-lint-rename addition
+  3. status.json verification.result set to `pending` with resolved violations listed
+  4. status.json state set to `implemented`
+- **Tests**: 20 unit tests + 6 integration tests pass. Smoke test: 74 ACs classified, exit 0. Fail case: exit 1 with named violation.
+- **first-pass script**: Run 1 FAIL (state `in_progress`, expected), Run 2 PASS (state `implemented`).
+- **Deferrals**: None.
 ## Open questions
 
 None.

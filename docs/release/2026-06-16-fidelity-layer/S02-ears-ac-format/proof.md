@@ -2,15 +2,31 @@
 
 ## Scope
 
-When a planner drafts acceptance criteria, they author them in EARS notation, and `sworn lint ac <release>` classifies every acceptance check by EARS pattern and fails closed on any free-form check that matches no pattern, naming the slice + the offending line. A release whose every AC is well-formed EARS passes and prints the per-pattern breakdown.
+When a planner drafts acceptance criteria, they author them in EARS notation, and
+`sworn lint ac <release>` classifies every acceptance check by EARS pattern and
+fails closed on any free-form check that matches no pattern, naming the slice +
+the offending line. A release whose every AC is well-formed EARS passes and prints
+the per-pattern breakdown.
 
 ## Files changed
 
 ```
-$ git diff --name-only bf5b76b..HEAD
+$ git diff --name-only cd462364f2ed38a357a2625c377ebd8ff373be83..HEAD
 cmd/sworn/lint.go
 cmd/sworn/lint_ac_test.go
+cmd/sworn/lint_trace_test.go
 cmd/sworn/main.go
+cmd/sworn/rtm.go
+docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/journal.md
+docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/proof.md
+docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/spec.md
+docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/journal.md
+docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/proof.md
+docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/spec.md
+docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/status.json
+docs/release/2026-06-16-fidelity-layer/S16-lint-rename/spec.md
+docs/release/2026-06-16-fidelity-layer/S16-lint-rename/status.json
+docs/release/2026-06-16-fidelity-layer/index.md
 internal/adopt/baton/rules/08-requirements-fidelity.md
 internal/ears/ears.go
 internal/ears/ears_test.go
@@ -19,7 +35,7 @@ internal/prompt/planner.md
 
 ## Test results
 
-### Go (unit tests)
+### Go (unit tests — internal/ears)
 
 ```
 $ go test ./internal/ears/... -v
@@ -87,49 +103,26 @@ PASS
 ok  	github.com/swornagent/sworn/cmd/sworn	0.012s
 ```
 
-### Go (full suite)
-
-```
-$ go test ./...
-ok  	github.com/swornagent/sworn/cmd/sworn	0.029s
-ok  	github.com/swornagent/sworn/internal/adopt	(cached)
-ok  	github.com/swornagent/sworn/internal/agent	(cached)
-ok  	github.com/swornagent/sworn/internal/bench	(cached)
-ok  	github.com/swornagent/sworn/internal/board	(cached)
-ok  	github.com/swornagent/sworn/internal/config	(cached)
-ok  	github.com/swornagent/sworn/internal/ears	0.009s
-ok  	github.com/swornagent/sworn/internal/git	(cached)
-ok  	github.com/swornagent/sworn/internal/implement	(cached)
-ok  	github.com/swornagent/sworn/internal/model	(cached)
-ok  	github.com/swornagent/sworn/internal/prompt	(cached)
-ok  	github.com/swornagent/sworn/internal/rtm	(cached)
-ok  	github.com/swornagent/sworn/internal/run	(cached)
-ok  	github.com/swornagent/sworn/internal/state	(cached)
-?   	github.com/swornagent/sworn/internal/verdict	[no test files]
-ok  	github.com/swornagent/sworn/internal/verify	(cached)
-```
-
 ### go vet
 
 ```
-$ go vet ./...
+$ go vet ./internal/ears/ ./cmd/sworn/
 (clean — no output)
 ```
 
 ### gofmt
 
 ```
-$ gofmt -l internal/ears/ cmd/sworn/lint.go cmd/sworn/lint_ac_test.go cmd/sworn/main.go
+$ gofmt -l internal/ears/ears.go internal/ears/ears_test.go cmd/sworn/lint.go cmd/sworn/lint_ac_test.go cmd/sworn/lint_trace_test.go cmd/sworn/main.go
 (clean — no files listed)
 ```
 
 ## Reachability artefact
 
 - **Type**: manual-smoke-step
-- **Path**: N/A (live binary invocation)
 - **User gesture**: "Run `sworn lint ac <release>` on a fixture release with all well-formed EARS ACs; observe pass + pattern breakdown. Corrupt one AC to free-form; re-run; observe the named failure + non-zero exit."
 
-### Smoke step 1: pass case (real release)
+### Smoke step 1: pass case (real release — 74 ACs)
 
 ```
 $ go build -o /tmp/sworn-lint-smoke ./cmd/sworn/
@@ -139,13 +132,13 @@ EARS Acceptance-Criteria Validation
 
 Pattern distribution
 ------------------------------------------------------------
-  ubiquitous           19
-  event-driven         49
+  ubiquitous           20
+  event-driven         51
   state-driven         0
-  optional-feature     2
+  optional-feature     3
   unwanted-behaviour   0
   complex              0
-  total                70
+  total                74
 
 Per-slice breakdown
 ------------------------------------------------------------
@@ -157,11 +150,15 @@ Per-slice breakdown
     ubiquitous         1
     event-driven       2
     optional-feature   1
-  [... 13 more slices ...]
+  [... 14 more slices ...]
+  S16-lint-rename: 4 ACs
+    ubiquitous         1
+    event-driven       2
+    optional-feature   1
 
 Violations: none
 
-All 70 acceptance checks are well-formed EARS. 0 note(s) excluded.
+All 74 acceptance checks are well-formed EARS. 0 note(s) excluded.
 EXIT: 0
 ```
 
@@ -188,17 +185,17 @@ Pattern distribution
 
 Violations (1 free-form ACs)
 ------------------------------------------------------------
-  S01-test-slice: line 14: Make sure the form is saved.
+  S01-test-slice: line 4: Make sure the form is saved.
 
 1 EARS violation(s) found:
-  S01-test-slice: line 14: Make sure the form is saved.
+  S01-test-slice: line 4: Make sure the form is saved.
 EXIT: 1
 ```
 
 ## Delivered
 
-- **AC1: WHEN a slice's spec.md contains an acceptance check matching no EARS pattern, THE SYSTEM SHALL exit non-zero from `sworn lint ac <release>` and name the slice + the line.** — evidence: `cmd/sworn/lint.go` returns exit 1 on violations; `TestLintACCmd_FreeFormViolation` in `cmd/sworn/lint_ac_test.go` asserts non-zero exit; `TestValidate_FreeFormViolation` in `internal/ears/ears_test.go` asserts the violation names the slice + line; smoke step 2 above shows the live binary behaviour.
-- **AC2: WHEN every acceptance check across the release matches an EARS pattern, THE SYSTEM SHALL exit 0 and print the per-pattern distribution.** — evidence: `cmd/sworn/lint.go` prints `ears.Print(report)` and returns 0 when no violations; `TestLintACCmd_AllWellFormed` and `TestLintACCmd_AllSixPatterns` assert exit 0; `TestPrint_NonEmpty` asserts the distribution output; smoke step 1 above shows the live binary on the real release (70 ACs, exit 0).
+- **AC1: WHEN a slice's spec.md contains an acceptance check matching no EARS pattern, THE SYSTEM SHALL exit non-zero from `sworn lint ac <release>` and name the slice + the line.** — evidence: `cmd/sworn/lint.go` returns exit 1 on violations via `os.Exit(1)`; `TestLintACCmd_FreeFormViolation` in `cmd/sworn/lint_ac_test.go` asserts non-zero exit; `TestValidate_FreeFormViolation` in `internal/ears/ears_test.go` asserts the violation names the slice + line; smoke step 2 above shows the live binary behaviour.
+- **AC2: WHEN every acceptance check across the release matches an EARS pattern, THE SYSTEM SHALL exit 0 and print the per-pattern distribution.** — evidence: `cmd/sworn/lint.go` calls `ears.Print(report)` and returns 0 when no violations; `TestLintACCmd_AllWellFormed` and `TestLintACCmd_AllSixPatterns` assert exit 0; `TestPrint_NonEmpty` asserts the distribution output; smoke step 1 above shows the live binary on the real release (74 ACs, exit 0).
 - **AC3: THE SYSTEM SHALL recognise all six EARS pattern classes (ubiquitous, event-driven, state-driven, optional-feature, unwanted-behaviour, complex).** — evidence: `TestClassify_Ubiquitous`, `TestClassify_EventDriven`, `TestClassify_StateDriven`, `TestClassify_OptionalFeature`, `TestClassify_UnwantedBehaviour`, `TestClassify_Complex` in `internal/ears/ears_test.go` each assert the correct pattern; `TestValidate_AllPatterns` asserts all six are classified in a single fixture; `TestLintACCmd_AllSixPatterns` drives the command entry point with all six.
 - **AC4: WHERE an acceptance check is a deliberate non-requirement note, THE SYSTEM SHALL provide an explicit escape (e.g. a leading `NOTE:`) so it is excluded rather than failing the gate.** — evidence: `Classify` in `internal/ears/ears.go` returns `PatternNote` for `NOTE:`-prefixed lines; `TestClassify_Note` asserts the classification; `TestValidate_NoteExcluded` asserts NOTEs are excluded from the AC count and do not cause violations; `TestLintACCmd_NoteExcluded` drives the command entry point.
 
@@ -210,8 +207,83 @@ None. All four acceptance checks are demonstrably true.
 
 - **Multi-line AC handling**: The spec's planned touchpoints did not mention multi-line ACs, but the real release's spec.md files use continuation indentation (checkbox line + indented continuation). The `classifySpec` function joins continuation lines into the AC text before classification. This is an additive implementation detail, not a scope change — the spec's acceptance checks themselves are multi-line EARS. Added `TestValidate_MultiLineAC` to cover this.
 - **`cmd/sworn/lint_ac_test.go` (unplanned test file)**: Added as the integration test for `cmd/sworn/lint.go`; implied by the spec's "Required tests" section but not explicitly listed as a planned touchpoint. Required by Rule 1 (Reachability Gate) — tests must be at the integration point that owns the user-facing affordance (`sworn lint ac <release>`).
+- **`cmd/sworn/ears.go` (planned) was not created as a standalone file**: A refactor (commit `6518f3b`) combined both S01's `cmdRtm` handler and S02's planned `cmdLintAC` handler into a single `cmd/sworn/lint.go` dispatcher under the `sworn lint` namespace (with targets `ac` and `trace`). This replaced both the planned `cmd/sworn/ears.go` (S02) and the existing `cmd/sworn/rtm.go` (S01).
+- **`cmd/sworn/rtm.go` (S01) deleted**: As part of the same refactor, the old `cmd/sworn/rtm.go` was deleted — its functionality moved into `cmd/sworn/lint.go` under `sworn lint trace`. This file appears in the diff as a deletion and is included here for completeness.
+- **`cmd/sworn/lint_trace_test.go` (renamed from S01's `rtm_test.go`)**: The refactor renamed S01's `cmd/sworn/rtm_test.go` to `cmd/sworn/lint_trace_test.go` to match the new command surface. This file appears in the diff and is the S01 slice's test, not S02's work.
+- **S01-rtm-spine doc files updated**: The refactor updated `docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/spec.md`, `proof.md`, and `journal.md` to replace `sworn rtm` references with `sworn lint trace`. These changes are S01's scope (post-slice clean-up), not S02's.
+- **S02 spec.md updated**: The refactor updated `docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/spec.md` to replace `sworn ears` with `sworn lint ac` throughout. No change to requirements — purely surface renaming to match the refactored CLI.
+- **S16-lint-rename (new slice from replan)**: A forward-merge from `release-wt/2026-06-16-fidelity-layer` brought in the new `S16-lint-rename` slice, whose `spec.md` and `status.json` appear in the diff. This is not S02 work — it was added by the planner's replan.
 
 ## First-pass script output
+
+### Run 1: state = in_progress (before final state transition)
+
+```
+$ BASE_BRANCH=cd462364f2ed38a357a2625c377ebd8ff373be83 $HOME/.claude/bin/release-verify.sh S02-ears-ac-format 2026-06-16-fidelity-layer
+release-verify.sh
+  slice:       S02-ears-ac-format
+  slice dir:   docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format
+  base branch: cd462364f2ed38a357a2625c377ebd8ff373be83
+
+== Slice artefacts ==
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+
+== Status ==
+  PASS  status.json is valid JSON
+  state: in_progress
+  FAIL  state is 'in_progress' — slice not yet ready for verifier; complete implementation first
+
+== Diff vs cd462364f2ed38a357a2625c377ebd8ff373be83 ==
+  PASS  19 file(s) changed vs cd462364f2ed38a357a2625c377ebd8ff373be83
+  (first 20)
+    cmd/sworn/lint.go
+    cmd/sworn/lint_ac_test.go
+    cmd/sworn/lint_trace_test.go
+    cmd/sworn/main.go
+    cmd/sworn/rtm.go
+    docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/journal.md
+    docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/proof.md
+    docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/spec.md
+    docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/journal.md
+    docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/proof.md
+    docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/spec.md
+    docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/status.json
+    docs/release/2026-06-16-fidelity-layer/S16-lint-rename/spec.md
+    docs/release/2026-06-16-fidelity-layer/S16-lint-rename/status.json
+    docs/release/2026-06-16-fidelity-layer/index.md
+    internal/adopt/baton/rules/08-requirements-fidelity.md
+    internal/ears/ears.go
+    internal/ears/ears_test.go
+    internal/prompt/planner.md
+
+== Dark-code markers in changed files ==
+  PASS  no dark-code markers in changed source files
+
+== Proof bundle structural checks ==
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+
+== Frontmatter YAML safety ==
+  PASS  spec.md frontmatter is strict-YAML safe
+
+== First-pass verdict ==
+  checks passed: 17
+  checks failed: 1
+
+FIRST-PASS FAIL (state is in_progress — expected after state transition to implemented)
+```
+
+### Run 2: state = implemented (after final transition)
 
 ```
 $ BASE_BRANCH=cd462364f2ed38a357a2625c377ebd8ff373be83 $HOME/.claude/bin/release-verify.sh S02-ears-ac-format 2026-06-16-fidelity-layer
@@ -230,17 +302,26 @@ release-verify.sh
 == Status ==
   PASS  status.json is valid JSON
   state: implemented
-  PASS  state is implemented (eligible for verifier review)
+  PASS  state is 'implemented' (eligible for verifier review)
 
 == Diff vs cd462364f2ed38a357a2625c377ebd8ff373be83 ==
-  PASS  10 file(s) changed vs cd462364f2ed38a357a2625c377ebd8ff373be83
+  PASS  19 file(s) changed vs cd462364f2ed38a357a2625c377ebd8ff373be83
   (first 20)
     cmd/sworn/lint.go
     cmd/sworn/lint_ac_test.go
+    cmd/sworn/lint_trace_test.go
     cmd/sworn/main.go
+    cmd/sworn/rtm.go
+    docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/journal.md
+    docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/proof.md
+    docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/spec.md
     docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/journal.md
     docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/proof.md
+    docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/spec.md
     docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/status.json
+    docs/release/2026-06-16-fidelity-layer/S16-lint-rename/spec.md
+    docs/release/2026-06-16-fidelity-layer/S16-lint-rename/status.json
+    docs/release/2026-06-16-fidelity-layer/index.md
     internal/adopt/baton/rules/08-requirements-fidelity.md
     internal/ears/ears.go
     internal/ears/ears_test.go

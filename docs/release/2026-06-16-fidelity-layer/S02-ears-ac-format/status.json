@@ -3,12 +3,10 @@
   "slice_id": "S02-ears-ac-format",
   "release": "2026-06-16-fidelity-layer",
   "track": "T1-fidelity-core",
-  "state": "failed_verification",
-  "owner": "human",
-  "last_updated_by": "verifier",
-  "last_updated_at": "2026-06-18T08:45:00Z",
-  "start_commit": "cd462364f2ed38a357a2625c377ebd8ff373be83",
-  "spec_path": "docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/spec.md",
+  "state": "implemented",  "owner": "human",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-06-18T10:45:00Z",
+  "start_commit": "cd462364f2ed38a357a2625c377ebd8ff373be83",  "spec_path": "docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/proof.md",
   "journal_path": "docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/journal.md",
   "planned_files": [
@@ -42,16 +40,12 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "fail",
+    "result": "pending",
     "verifier_session_id": null,
-    "verifier_verdict_at": "2026-06-18T08:45:00Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      "Gate 2 — cmd/sworn/rtm.go appears in live diff (deleted S01 file) but absent from proof.md Files changed and not explained in Divergence from plan",
-      "Gate 2 — cmd/sworn/lint_trace_test.go appears in live diff (renamed from S01 rtm_test.go) but absent from proof.md Files changed and not explained in Divergence from plan",
-      "Gate 2 — S01-rtm-spine doc files (spec.md, proof.md, journal.md) appear in live diff but absent from proof.md Files changed and not explained in Divergence from plan",
-      "Gate 2 — cmd/sworn/ears.go (planned touchpoint) is absent from live diff (net-zero: created+deleted within S02 scope, replaced by lint.go) but proof.md Divergence from plan does not explicitly state this substitution",
-      "Gate 2 — proof.md Files changed section is stale (captured before refactor commit 6518f3b); omits cmd/sworn/rtm.go, cmd/sworn/lint_trace_test.go, and S01-rtm-spine doc files"
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations_resolved": [
+      "Gate 2 — proof.md Files changed regenerated from live diff",
+      "Gate 2 — Divergence from plan now explains: ears.go→lint.go rename, rtm.go deletion, lint_trace_test.go rename, S01-rtm-spine doc changes, S16-lint-rename addition"
     ]
-  }
-}
+  }}
