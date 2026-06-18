@@ -141,6 +141,11 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Recent activity
 
+### 2026-06-19 — S10-no-mock-boundary: FAIL (round 3, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: 1 violation (Gate 2 only). `status.json` `start_commit` is `cec70a6` — a "verifier verdict — FAIL" commit (round-1 FAIL verdict), not the `docs: start implementation` commit (`4d866d6`). `git diff --name-only cec70a6..HEAD` omits planned touchpoints `internal/prompt/implementer.md` and `internal/adopt/baton/rules/10-customer-journey-validation.md`; they were delivered in round-1 feat commit `72dfaee` and are correctly updated in the working tree, but fall outside the too-narrow diff range. `proof.md` "Divergence from plan" does not explain their absence. `sworn` binary appears in diff but is not mentioned in "Divergence from plan." Note: the round-2 verifier's instruction to use `cec70a6e` as `start_commit` was incorrect; the correct value is `4d866d6` (the original docs: start implementation commit). Gates 1, 3, 4, 5, 6 all PASS: 12 S10 tests pass fresh; all 4 ACs verified; `--deferral` flag and `open_deferrals` wiring correct. Fix: restore `start_commit` to `4d866d6`; update proof.md "Files changed" and "Divergence from plan" accordingly. Next: `/implement-slice S10-no-mock-boundary 2026-06-16-fidelity-layer`.
+
 ### 2026-06-25 — S10-no-mock-boundary: FAIL (round 2, fresh-context)
 
 - **Actor**: verifier (fresh-context session)

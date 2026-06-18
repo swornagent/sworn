@@ -67,6 +67,23 @@ None.
 
 ## Verifier verdicts received
 
+### `2026-06-19` — verifier verdict: FAIL (round 3, fresh-context)
+
+FAIL: 1 violation (Gate 2)
+
+1. **Gate 2 — `start_commit` points to a FAIL verdict commit, causing two planned touchpoints to be invisible to the protocol diff.** `status.json` `start_commit` is `cec70a61667b571acc413ee2afe2a6380f9b986e`, whose commit message is `"chore(release/2026-06-16-fidelity-layer/S10-no-mock-boundary): verifier verdict — FAIL"`. This is the round-1 FAIL verdict commit, not a `docs: start implementation` commit. Running `git diff --name-only cec70a6..HEAD` omits `internal/prompt/implementer.md` and `internal/adopt/baton/rules/10-customer-journey-validation.md` — both spec-listed planned touchpoints that were delivered in round-1 feat commit `72dfaee` and are correctly updated in the working tree, but fall outside the too-narrow diff range. `proof.md` "Divergence from plan" does not explain their absence. Additionally, the `sworn` binary appears in the diff but is not a planned touchpoint and is not mentioned in "Divergence from plan." Note: the round-2 verifier's instruction to set `start_commit` to `cec70a6e` was incorrect; the protocol requires the `docs: start implementation` commit (`4d866d6`).
+
+**Required fixes:**
+1. Correct `start_commit` in `status.json` to `4d866d6` (the `docs(release/2026-06-16-fidelity-layer/S10-no-mock-boundary): start implementation` commit — the original value before round-2 verifier's erroneous instruction).
+2. Update `proof.md` "Files changed" to use `4d866d6` as the base commit; the diff will then include all planned touchpoints.
+3. Update `proof.md` "Divergence from plan" to: (a) note that `implementer.md` and `10-customer-journey-validation.md` were delivered in round-1 feat commit `72dfaee` and are correctly updated; (b) note that the `sworn` binary appears in the diff because it was accidentally tracked in commit `bfdede8` and is not a planned production source file.
+
+**All other gates PASS.** Gates 1, 3, 4, 5, 6 clear: `verify.Run()` → `CheckBoundaryMocks` → FAIL/PASS on (un)declared boundary mocks; `--deferral` flag in `cmd/sworn/main.go` and `open_deferrals` read in `internal/run/run.go` wire the path at both entry points; 12 S10 tests pass fresh (including integration-level `TestRun_UndeclaredBoundaryMockFailsClosed` and `TestRun_DeclaredBoundaryMockAllowed` via the verify.Run entry point); reachability artefact (proof.md) exists with explicit user gestures independently verified; no TODO/FIXME/deferred markers; all 4 AC evidence references check out.
+
+Next: `/implement-slice S10-no-mock-boundary 2026-06-16-fidelity-layer` to address 1 violation (Gate 2 only).
+
+
+
 ### `2026-06-25` — verifier verdict: FAIL (round 2, fresh-context)
 
 FAIL: 1 violation
