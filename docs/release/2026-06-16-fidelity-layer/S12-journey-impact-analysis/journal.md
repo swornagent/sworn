@@ -30,4 +30,50 @@ None.
 
 ## Verifier verdicts received
 
-(Fresh-context verifier session will run separately — Rule 7.)
+### 2026-06-19 — PASS
+
+- **Verifier session**: `fresh`
+- **Verdict body**:
+
+```
+PASS
+
+Slice: `S12-journey-impact-analysis`
+Verified against: `5d77276`
+Verifier session: `fresh, artefact-only`
+
+Gate 1 — User-reachable outcome exists: PASS
+  `cmdJourneysImpact` wired in `cmdJourneys` via `if *impactRelease != ""` branch
+  (journeys.go:52). Entry point is the actual CLI handler invoked by `main.go`.
+
+Gate 2 — Planned touchpoints match actual changed files: PASS
+  `internal/journey/journey.go` not changed — replaced by `impact.go`; explained
+  in proof.md "Divergence from plan". All other planned files present. Extra files
+  (`impact.go`, `journeys_impact_test.go`, `main.go`) explained.
+
+Gate 3 — Required tests exist and exercise the integration point: PASS
+  8 unit tests in `internal/journey/impact_test.go` (all pass fresh).
+  4 CLI integration tests in `cmd/sworn/journeys_impact_test.go` invoking
+  `cmdJourneys(...)` directly (Rule 1 satisfied — all pass fresh).
+
+Gate 4 — Reachability artefact proves the user path: PASS
+  Manual smoke step in proof.md#smoke-test-output names the user gesture
+  (`sworn journeys --impact <fixture>`) and shows Test 1 (missing artefact →
+  exit 1), Test 2 (3 journeys reported → exit 0), Test 3 (removed artefact →
+  exit 1). Output format consistent with live code behavior confirmed by
+  integration test runs.
+
+Gate 5 — No silent deferrals or placeholder logic: PASS
+  Grep of all changed source files returned zero matches for TODO/FIXME/
+  deferred/placeholder/XXX/HACK/later. One explicit provisional deferral
+  (step->surface matching precision) is spec-allowed with all three Rule 2
+  elements.
+
+Gate 6 — Claimed scope matches implemented scope: PASS
+  All 4 ACs have real, named, passing tests as evidence. "Not delivered" is
+  empty — all ACs delivered.
+
+Full test suite: 20 packages, all PASS.
+```
+
+- **Action taken**: Slice state → `verified`. Next: `/implement-slice S13-walkthrough-attestation 2026-06-16-fidelity-layer` in a fresh session.

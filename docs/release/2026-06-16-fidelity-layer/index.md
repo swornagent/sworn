@@ -107,7 +107,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S16-lint-rename` | T1 | Documentation sweep — adopt `sworn lint ac` / `sworn lint trace` canonical names throughout release docs; restore S02 proof.md | verified | human | [spec](./S16-lint-rename/spec.md) | [proof](./S16-lint-rename/proof.md) |
 | `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | verified | verifier | [spec](./S06-definition-of-ready/spec.md) | [proof](./S06-definition-of-ready/proof.md) |
 | `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | verified | verifier | [spec](./S10-no-mock-boundary/spec.md) | [proof](./S10-no-mock-boundary/proof.md) |
-| `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | planned | human | [spec](./S12-journey-impact-analysis/spec.md) | — |
+| `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | verified | verifier | [spec](./S12-journey-impact-analysis/spec.md) | [proof](./S12-journey-impact-analysis/proof.md) |
 | `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | planned | human | [spec](./S13-walkthrough-attestation/spec.md) | — |
 | `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | planned | human | [spec](./S14-journey-regression-suite/spec.md) | — |
 | `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | failed_verification | human | [spec](./S03-spec-quality-firstpass/spec.md) | — |
@@ -129,10 +129,10 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Aggregate state
 
-- Planned: 5 (S08, S09, S12, S13, S14)
+- Planned: 4 (S08, S09, S13, S14)
 - In progress: 0
 - Implemented (awaiting verification): 0
-- Verified: 10 (S01, S02, S04, S05, S06, S07, S10, S11, S15, S16)
+- Verified: 11 (S01, S02, S04, S05, S06, S07, S10, S11, S12, S15, S16)
 - Failed verification: 1 (S03)
 - Deferred: 0
 - Shipped: 0
@@ -140,6 +140,11 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 **Tracks:** Planned: 1 (T3) / In progress: 1 (T2) / Merged: 2 (T1: b8521f8, T4: ca5b1ea)
 
 ## Recent activity
+
+### 2026-06-19 — S12-journey-impact-analysis: PASS (round 1, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: All six gates passed. 8 unit tests (`internal/journey/impact_test.go`) + 4 CLI integration tests (`cmd/sworn/journeys_impact_test.go`, invoking `cmdJourneys(...)` directly) green in fresh session. All 4 ACs verified with named test evidence. Manual smoke step in proof.md shows fail-closed on missing/unratified artefact (exit 1) and correct touched-journey set output (exit 0). No silent deferrals in production files. Divergences (new `impact.go` instead of `journey.go`; new `journeys_impact_test.go`; `main.go` docs update) all explained in proof.md. Verified at commit `5d77276`. Slice state → `verified`. T2-delivery-cutover: S06 ✓, S10 ✓, S12 ✓, S13/S14 planned. Next: `/implement-slice S13-walkthrough-attestation 2026-06-16-fidelity-layer`.
 
 ### 2026-06-19 — S10-no-mock-boundary: PASS (round 4, fresh-context)
 
