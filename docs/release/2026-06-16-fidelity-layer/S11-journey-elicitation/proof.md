@@ -1,6 +1,6 @@
 ---
 title: Proof Bundle S11-journey-elicitation
-description: Rule 6 proof bundle for the journey model, CLI, and gate.
+description: Rule 6 proof bundle for the journey model, CLI, and gate. Re-implemented after failed verification (syntax error fix + adopt.go divergence documentation).
 ---
 
 # Proof Bundle: S11-journey-elicitation
@@ -16,7 +16,10 @@ $ git diff --name-only 0535a74..HEAD
 cmd/sworn/journeys.go
 cmd/sworn/journeys_test.go
 cmd/sworn/main.go
+docs/release/2026-06-16-fidelity-layer/S11-journey-elicitation/journal.md
+docs/release/2026-06-16-fidelity-layer/S11-journey-elicitation/proof.md
 docs/release/2026-06-16-fidelity-layer/S11-journey-elicitation/status.json
+docs/release/2026-06-16-fidelity-layer/index.md
 internal/adopt/adopt.go
 internal/adopt/baton/VERSION
 internal/adopt/baton/rules/10-customer-journey-validation.md
@@ -60,7 +63,7 @@ $ go test ./internal/journey/... -v
 === RUN   TestJourneyArtefactPath
 --- PASS: TestJourneyArtefactPath (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/internal/journey	0.004s
+ok  	github.com/swornagent/sworn/internal/journey	0.006s
 ```
 
 ### Go (journeys CLI command)
@@ -84,16 +87,40 @@ $ go test ./cmd/sworn/ -run TestJourneys -v
 === RUN   TestJourneysCmd_NonExistentPath
 --- PASS: TestJourneysCmd_NonExistentPath (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/cmd/sworn	0.007s
+ok  	github.com/swornagent/sworn/cmd/sworn	0.005s
 ```
 
 ### Full suite
 
 ```
 $ go test ./...
-ok  	github.com/swornagent/sworn/cmd/sworn	0.029s
-ok  	github.com/swornagent/sworn/internal/adopt	(cached)
-... (all pass)
+ok  	github.com/swornagent/sworn/cmd/sworn	0.034s
+ok  	github.com/swornagent/sworn/internal/adopt	0.022s
+ok  	github.com/swornagent/sworn/internal/agent	0.010s
+ok  	github.com/swornagent/sworn/internal/bench	0.579s
+ok  	github.com/swornagent/sworn/internal/board	0.008s
+ok  	github.com/swornagent/sworn/internal/config	0.007s
+ok  	github.com/swornagent/sworn/internal/designfit	0.009s
+ok  	github.com/swornagent/sworn/internal/ears	0.008s
+ok  	github.com/swornagent/sworn/internal/git	0.166s
+ok  	github.com/swornagent/sworn/internal/implement	0.136s
+ok  	github.com/swornagent/sworn/internal/journey	0.006s
+ok  	github.com/swornagent/sworn/internal/model	0.211s
+ok  	github.com/swornagent/sworn/internal/prompt	0.003s
+ok  	github.com/swornagent/sworn/internal/reqvalidate	0.011s
+ok  	github.com/swornagent/sworn/internal/reqverify	0.007s
+ok  	github.com/swornagent/sworn/internal/rtm	0.008s
+ok  	github.com/swornagent/sworn/internal/run	0.428s
+ok  	github.com/swornagent/sworn/internal/state	0.005s
+?   	github.com/swornagent/sworn/internal/verdict	[no test files]
+ok  	github.com/swornagent/sworn/internal/verify	0.007s
+```
+
+### Build check
+
+```
+$ go build ./...
+# (no output = clean build)
 ```
 
 ## Reachability artefact
@@ -130,6 +157,7 @@ ok  	github.com/swornagent/sworn/internal/adopt	(cached)
 
 ## Divergence from plan
 
+- `internal/adopt/adopt.go` was updated (not in spec.md Planned touchpoints) — the `Materialise()` function's files list was extended with the `10-customer-journey-validation.md` rule doc entry so that `sworn init` vendors Rule 10's artefact into the target repo. This is a necessary runtime companion to the rule doc's creation — without it, `sworn init` would not materialise the new rule. The planned touchpoints were written assuming rule-registration happens separately; the implementation correctly includes it.
 - The `internal/prompt/planner.md` was updated with journey elicitation guidance as a new section inserted before "Working style notes", rather than a standalone prompt file — this keeps the elicitation guidance co-located with the existing planner prompt.
 - The draft template (`DraftTemplate`) scans the project's file system to produce candidate journeys rather than using an AI model — the model-assisted draft is deferred as provisional per the spec's own acknowledgement.
 
@@ -137,6 +165,8 @@ ok  	github.com/swornagent/sworn/internal/adopt	(cached)
 
 ```
 $ $HOME/.claude/bin/release-verify.sh S11-journey-elicitation 2026-06-16-fidelity-layer
+```
+
 release-verify.sh
   slice:       S11-journey-elicitation
   slice dir:   docs/release/2026-06-16-fidelity-layer/S11-journey-elicitation
@@ -152,10 +182,10 @@ release-verify.sh
 == Status ==
   PASS  status.json is valid JSON
   state: implemented
-  PASS  state is 'implemented' — ready for verifier
+  PASS  state is 'implemented' (eligible for verifier review)
 
 == Diff vs main ==
-  PASS  21 file(s) changed vs main
+  PASS  26 file(s) changed vs main
 
 == Dark-code markers in changed files ==
   PASS  no dark-code markers in changed source files
@@ -168,6 +198,7 @@ release-verify.sh
   PASS  proof.md has section: ## Delivered
   PASS  proof.md has section: ## Not delivered
   PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
 
 == Frontmatter YAML safety ==
   PASS  spec.md frontmatter is strict-YAML safe
@@ -177,4 +208,3 @@ release-verify.sh
   checks failed: 0
 
 FIRST-PASS PASS
-```

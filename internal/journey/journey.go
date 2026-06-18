@@ -271,8 +271,8 @@ func ListJourneys(a *JourneyArtefact) []string {
 //
 // In a future iteration this will be model-driven (
 // "the model drafts candidate journeys from the app"). For now it produces
-// a well-structured template with guidance.func DraftTemplate(projectRoot string) (*JourneyArtefact, error) {
-	a := NewArtefact()
+// a well-structured template with guidance.
+func DraftTemplate(projectRoot string) (*JourneyArtefact, error) {	a := NewArtefact()
 
 	// Scan the project to discover high-level structure.
 	entries := scanProjectStructure(projectRoot)

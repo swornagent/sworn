@@ -49,3 +49,12 @@ description: Implementation log for the journey model, CLI, and gate.
 2. Add `internal/adopt/adopt.go` to proof.md "Divergence from plan" with a one-sentence rationale (e.g. "the Materialise() files list was updated to register rule 10 so `sworn init` vendors the new rule doc").
 
 Slice state → `failed_verification`.
+### 2026-06-20 20:00 — re-implementation (fix violations from round 1)
+
+- **State**: failed_verification → implemented
+- **Violations addressed**:
+  1. **Gate 3 (syntax error)** — `internal/journey/journey.go:274` split the fused comment/function line. The comment `// a well-structured template with guidance.` now terminates on its own line before `func DraftTemplate(...)`.
+  2. **Gate 2 (adopt.go divergence)** — added `internal/adopt/adopt.go` to proof.md "Divergence from plan" with rationale: the `Materialise()` files list was extended to register rule 10 so `sworn init` vendors the new rule doc.
+- **Re-run tests**: all 14 journey unit tests PASS, 9 CLI integration tests PASS, full suite PASS. `go build ./...` exits 0.
+- **Proof.md regenerated** from live repo state with live test output.
+- **Verification result cleared** to `pending` for fresh verifier session.
