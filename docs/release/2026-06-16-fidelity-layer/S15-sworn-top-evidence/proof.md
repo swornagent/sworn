@@ -13,8 +13,13 @@ $ git diff --name-only release-wt/2026-06-16-fidelity-layer
 cmd/sworn/main.go
 cmd/sworn/top.go
 cmd/sworn/top_test.go
+docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence/journal.md
+docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence/proof.md
+docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence/status.json
 internal/journey/walkthrough.go
 internal/journey/walkthrough_test.go
+
+(`docs/release/2026-06-16-fidelity-layer/index.md` also changed — this is the track worktree registration from Step 0)
 ```
 
 ## Test results
@@ -97,5 +102,47 @@ This divergence is recorded and is consistent with the spec's risk section: "it 
 
 ```
 $ $HOME/.claude/bin/release-verify.sh S15-sworn-top-evidence 2026-06-16-fidelity-layer
-<paste output here — run live>
+release-verify.sh
+  slice:       S15-sworn-top-evidence
+  slice dir:   docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence
+  base branch: main
+
+== Slice artefacts ==
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+
+== Status ==
+  PASS  status.json is valid JSON
+  state: implemented
+  PASS  state is 'implemented' (eligible for verifier review)
+
+== Diff vs main ==
+  PASS  38 file(s) changed vs main
+
+== Dark-code markers in changed files ==
+  PASS  no dark-code markers in changed source files
+
+== Proof bundle structural checks ==
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+
+== Frontmatter YAML safety ==
+  PASS  spec.md frontmatter is strict-YAML safe
+
+== First-pass verdict ==
+  checks passed: 18
+  checks failed: 0
+
+FIRST-PASS PASS
+Open a FRESH session and paste role-prompts/verifier.md to perform adversarial verification.
+Do NOT run the verifier in this same session -- Rule 7 requires a fresh context window.
 ```
