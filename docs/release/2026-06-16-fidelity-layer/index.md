@@ -141,6 +141,11 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Recent activity
 
+### 2026-06-25 — S10-no-mock-boundary: FAIL (round 2, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: 1 violation (Gate 2 only). `status.json` `start_commit` is `bfdede8` — the commit that **contains** all the re-implementation's production code changes (`cmd/sworn/main.go`, `internal/run/run.go`, `internal/verify/verify.go`, `internal/verify/verify_test.go`). Running `git diff --name-only bfdede8..HEAD` yields only 3 docs files; none of the planned touchpoints appear in the canonical verifier diff. The proof.md "Files changed" section diffs from `4d866d66` (original `start_commit`), disagreeing with `status.json`. Same pattern as S07/S05/S15 prior round. Gates 1, 3, 4, 5, 6 all PASS: all 12 S10 tests pass fresh; `TestRun_DeclaredBoundaryMockAllowed` asserts rationale contains "Declared boundary mock"; entry points correctly wired; no silent deferrals; all 4 ACs verifiable. Fix: set `start_commit` to `cec70a6e` and update proof.md "Files changed". Next: `/implement-slice S10-no-mock-boundary 2026-06-16-fidelity-layer`.
+
 ### 2026-06-19 — S10-no-mock-boundary: FAIL (round 1, fresh-context)
 
 - **Actor**: verifier (fresh-context session)

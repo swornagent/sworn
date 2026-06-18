@@ -66,6 +66,17 @@ None.
 - **No deferrals** — this slice bans undeclared deferrals and carries none itself.
 
 ## Verifier verdicts received
+
+### `2026-06-25` — verifier verdict: FAIL (round 2, fresh-context)
+
+FAIL: 1 violation
+
+1. **Gate 2 — `start_commit` contains the implementation**: `status.json` records `start_commit: bfdede8de70d42dffecc26328e7d5df4f346e761`. That commit (labeled `docs(release/S10-no-mock-boundary): start re-implementation`) contains all the re-implementation's production code changes (`cmd/sworn/main.go`, `internal/run/run.go`, `internal/verify/verify.go`, `internal/verify/verify_test.go`). Running `git diff --name-only bfdede8..HEAD` yields only 3 docs files (journal.md, proof.md, status.json) — none of the planned touchpoints appear in the canonical verifier diff. The proof.md "Files changed" section diffs from `4d866d66af5b7fe33b1282eef458ea664dd30974` (the original implementation's `start_commit`), which disagrees with `status.json`'s field. The verifier cannot audit implementation scope via the `diff start_commit..HEAD` mechanism. Required fix: set `status.json` `start_commit` to `cec70a6e` (the round-1 FAIL verdict commit, immediately before the re-implementation began) and update proof.md "Files changed" to diff from that commit. Identical pattern to S07 round-1 FAIL, S05 round-4 FAIL, and S15 round-1 FAIL.
+
+Gates 1, 3, 4, 5, 6 all PASS. All 12 S10 tests and all `internal/run/` tests pass fresh. `TestRun_DeclaredBoundaryMockAllowed` asserts rationale contains "Declared boundary mock" and mock type. Entry points correctly wired (`--deferral` flag, `open_deferrals` read in run.go). No silent deferrals in production files. All 4 ACs have verifiable evidence.
+
+Next: `/implement-slice S10-no-mock-boundary 2026-06-16-fidelity-layer` to address 1 violation (update `start_commit` in `status.json` and proof.md "Files changed").
+
 ### `2026-06-19` — verifier verdict: FAIL
 
 FAIL: 2 violations
