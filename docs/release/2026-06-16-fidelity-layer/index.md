@@ -1,11 +1,11 @@
 ---
 title: '2026-06-16-fidelity-layer — release board'
-description: 'Fidelity layer (Baton Rules 8/9/10): requirements fidelity, design fidelity, and customer-journey / system-acceptance validation, as protocol + native sworn enforcement. 15 slices across 4 tracks.'
+description: 'Fidelity layer (Baton Rules 8/9/10): requirements fidelity, design fidelity, and customer-journey / system-acceptance validation, as protocol + native sworn enforcement. 16 slices across 4 tracks.'
 release_worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer
 release_worktree_branch: release-wt/2026-06-16-fidelity-layer
 tracks:
   - id: T1-fidelity-core
-    slices: [S01-rtm-spine, S02-ears-ac-format, S04-requirements-verify-gate, S05-requirements-validate-gate, S07-design-fit-gate, S11-journey-elicitation]
+    slices: [S01-rtm-spine, S02-ears-ac-format, S04-requirements-verify-gate, S05-requirements-validate-gate, S07-design-fit-gate, S11-journey-elicitation, S16-lint-rename]
     depends_on: null
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core
     worktree_branch: track/2026-06-16-fidelity-layer/T1-fidelity-core
@@ -51,7 +51,7 @@ tracks:
 
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
-| `T1-fidelity-core` | S01 → S02 → S04 → S05 → S07 → S11 | — | `track/2026-06-16-fidelity-layer/T1-fidelity-core` | planned |
+| `T1-fidelity-core` | S01 → S02 → S04 → S05 → S07 → S11 → S16 | — | `track/2026-06-16-fidelity-layer/T1-fidelity-core` | planned |
 | `T2-delivery-cutover` | S06 → S10 → S12 → S13 → S14 | T1 | `track/2026-06-16-fidelity-layer/T2-delivery-cutover` | planned |
 | `T3-leaf-gates` | S03 → S08 → S09 | T1 | `track/2026-06-16-fidelity-layer/T3-leaf-gates` | planned |
 | `T4-evidence-surface` | S15 | T1 | `track/2026-06-16-fidelity-layer/T4-evidence-surface` | planned |
@@ -105,6 +105,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S05-requirements-validate-gate` | T1 | Human-owned scenario pos/neg + benefit-hypothesis validation (`sworn reqvalidate`) | planned | human | [spec](./S05-requirements-validate-gate/spec.md) | — |
 | `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | planned | human | [spec](./S07-design-fit-gate/spec.md) | — |
 | `S11-journey-elicitation` | T1 | AI-drafts/human-ratifies critical journeys into a durable artefact (`sworn journeys`) | planned | human | [spec](./S11-journey-elicitation/spec.md) | — |
+| `S16-lint-rename` | T1 | Documentation sweep — rename `sworn ears`→`lint ac` / `sworn rtm`→`lint trace` throughout; restore S02 proof.md | planned | human | [spec](./S16-lint-rename/spec.md) | — |
 | `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | planned | human | [spec](./S06-definition-of-ready/spec.md) | — |
 | `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | planned | human | [spec](./S10-no-mock-boundary/spec.md) | — |
 | `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | planned | human | [spec](./S12-journey-impact-analysis/spec.md) | — |
