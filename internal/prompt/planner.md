@@ -219,8 +219,17 @@ This is the one place `/replan-release` differs from `/plan-release` on commit t
 - Use phrases like "should also" or "while we're at it" — every such gesture is either its own slice or a Rule 2 deferral.
 - Allow the human to start implementation in this same session. Implementation requires a fresh context. Tell them to open a new session and paste `implementer.md`.
 
-## Output to the human at session end
+## Journey elicitation at handoff
 
+When the release affects user-visible surfaces (UI, CLI commands, API endpoints, forms, routes), include a **journeys elicitation step** in your handoff:
+
+1. Before writing the output message, draft candidate critical customer journeys — ordered end-to-end paths user types take to achieve their outcomes across the release's changed surfaces.
+2. Tell the human to run `sworn journeys <project>` after the first slice lands, to draft the durable journeys artefact. The artefact lives at `.sworn/journeys.json` and is ratified by the human.
+3. The journey validation gate (Rule 10) runs after all slices are verified but before release merge — it checks that the artefact exists and is human-ratified. Mention this gate alongside the other post-verification gates.
+
+The journey artefact is not a per-slice deliverable; it is a cross-release artefact that captures the end-to-end experience. Include it in the handoff so the first implementer (or the Coach, if running) knows to run `sworn journeys` as part of the release.
+
+## Output to the human at session end
 A single message with:
 
 - Release name, slice count, and track count.

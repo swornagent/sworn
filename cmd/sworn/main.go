@@ -53,8 +53,13 @@ func main() {
 	case "designfit":
 		// S07-design-fit-gate adds this case (T1-fidelity-core).
 		os.Exit(cmdDesignfit(os.Args[2:]))
-	case "version", "--version", "-v":		fmt.Printf("sworn %s\nbaton-protocol %s\n", version, prompt.BatonVersion())
-	case "help", "--help", "-h":		if len(os.Args) > 2 && os.Args[2] == "run" {
+	case "journeys":
+		// S11-journey-elicitation adds this case (T1-fidelity-core).
+		os.Exit(cmdJourneys(os.Args[2:]))
+	case "version", "--version", "-v":
+		fmt.Printf("sworn %s\nbaton-protocol %s\n", version, prompt.BatonVersion())
+	case "help", "--help", "-h":
+		if len(os.Args) > 2 && os.Args[2] == "run" {
 			cmdRun([]string{"--help"})
 			return
 		}
@@ -117,12 +122,14 @@ func usage() {
 usage:
   sworn bench --task-set <dir> [--models <comma-sep>] [--output <dir>]
   sworn init [--api-key <key>] [--force]
+  sworn journeys [--check] [project-path]
   sworn lint ac <release>
   sworn lint trace <release>
   sworn reqverify <release>
   sworn reqvalidate <release>
   sworn designfit <release>
-  sworn run --task <description> [--implementer-model <m>] [--verifier-model <m>] [--base <branch>] [--retry-cap <n>]  sworn verify --spec <path> --diff <path|-> [--proof <path>] [--verifier-model <provider/model>]
+  sworn run --task <description> [--implementer-model <m>] [--verifier-model <m>] [--base <branch>] [--retry-cap <n>]
+  sworn verify --spec <path> --diff <path|-> [--proof <path>] [--verifier-model <provider/model>]
   sworn version
 bench runs a model benchmark: iterate candidate verifier models against a task set
 of slice specs with known-good diffs, record pass-rate + cost + jurisdiction, and
@@ -130,6 +137,9 @@ pick the safe-hosted default model from data.
 
 init bootstraps SwornAgent in a repo: writes a config file, vendors the Baton
 protocol into docs/baton/, and splices the seven-rule fragment into AGENTS.md.
+journeys drafts critical customer journeys from the project and validates
+their presence + ratification status. See 'sworn journeys --check' for the
+deterministic gate, or 'sworn journeys <project>' for the elicitation loop.
 lint checks a release for structural problems. Targets:
   ac     — classify every acceptance check by EARS pattern; fail closed on any
            free-form check that matches no pattern, naming the slice + line.
@@ -145,7 +155,8 @@ designfit checks every slice in a release for stakes-calibrated design-fit gate
 (Rule 9): fails closed when any Type-1 (high-stakes) choice lacks a recorded
 human decision. No model dispatch needed.
   See 'sworn designfit <release>' for details.
-run executes the full turnkey loop: implement → verify → (on FAIL: retry/escalateup to N) → gated merge on PASS only. See 'sworn run --help' for model resolution
+run executes the full turnkey loop: implement -> verify -> (on FAIL: retry/escalate
+up to N) -> gated merge on PASS only. See 'sworn run --help' for model resolution
 and escalation model defaults.
 
 verify emits a JSON verdict (PASS/FAIL/BLOCKED) and exits 0 only on PASS,

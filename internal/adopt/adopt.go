@@ -101,7 +101,7 @@ production code, and does not consult the implementer for clarification.
 
 State machine: planned → in_progress → implemented → [fresh verifier] →
 verified | failed_verification. The implemented checkpoint exists so no agent
-can shortcut directly to verified.
+can shortcut straight to verified.
 
 Full rule docs: ` + "`docs/baton/`" + `.`
 
@@ -133,7 +133,9 @@ func Materialise(repoRoot string) error {
 		{"baton/rules/06-proof-bundle.md", filepath.Join(rulesDir, "06-proof-bundle.md"), 0644},
 		{"baton/rules/07-adversarial-verification.md", filepath.Join(rulesDir, "07-adversarial-verification.md"), 0644},
 		{"baton/rules/08-requirements-fidelity.md", filepath.Join(rulesDir, "08-requirements-fidelity.md"), 0644},
-		{"baton/rules/09-design-fidelity.md", filepath.Join(rulesDir, "09-design-fidelity.md"), 0644}}
+		{"baton/rules/09-design-fidelity.md", filepath.Join(rulesDir, "09-design-fidelity.md"), 0644},
+		{"baton/rules/10-customer-journey-validation.md", filepath.Join(rulesDir, "10-customer-journey-validation.md"), 0644},
+	}
 	for _, f := range files {
 		data, err := batonFS.ReadFile(f.src)
 		if err != nil {
