@@ -3,10 +3,12 @@
   "slice_id": "S10-no-mock-boundary",
   "release": "2026-06-16-fidelity-layer",
   "track": "T2-delivery-cutover",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "implementer",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-23T12:00:00Z",  "start_commit": "4d866d66af5b7fe33b1282eef458ea664dd30974",  "spec_path": "docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/spec.md",
+  "last_updated_at": "2026-06-23T12:30:00Z",
+  "start_commit": "4d866d66af5b7fe33b1282eef458ea664dd30974",
+  "spec_path": "docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/proof.md",
   "journal_path": "docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/journal.md",
   "planned_files": [
@@ -15,11 +17,21 @@
     "internal/prompt/implementer.md",
     "internal/adopt/baton/rules/10-customer-journey-validation.md"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/verify/verify.go",
+    "internal/verify/verify_test.go",
+    "internal/prompt/implementer.md",
+    "internal/adopt/baton/rules/10-customer-journey-validation.md",
+    "docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/proof.md",
+    "docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/journal.md",
+    "docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/status.json"
+  ],
   "test_commands": [
     "go test ./internal/verify/..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/proof.md"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "pending",

@@ -83,6 +83,38 @@ The gate is additive — it does not replace any existing gate. It runs alongsid
 | Rule 7 — Adversarial Verification | Fresh-context verification of one slice | Rule 10 verifies the end-to-end paths that span slices |
 | Rule 8 — Requirements Fidelity | Need -> AC -> test -> proof horizontal trace | Rule 10 adds the vertical journey trace across the release |
 
+
+## No-mock boundary (S10 enforcement)
+
+**An undeclared mock at a validated boundary is an undeclared Rule-2 deferral and fails closed.** The validated boundaries are: database (DB), authentication (auth), and entitlement (premium/subscription tier). A mock/stub/fake at one of these boundaries is permitted only if declared as a Rule-2 deferral in the slice's `status.json` `open_deferrals` with all three elements (why + tracking + acknowledgement).
+
+### Detection
+
+The `sworn verify` first-pass gate (`internal/verify.CheckBoundaryMocks`) scans the slice's diff for lines that combine:
+1. A mock/stub/fake marker (`mock`, `fake`, `stub`, etc.)
+2. A validated-boundary keyword (`sql.DB`, `auth`, `premium`, etc.)
+
+Lines matching both patterns are flagged. If the mock's boundary + type matches any open deferral (case-insensitive substring match on boundary name + mock/fake/stub keyword), it is treated as declared and surfaced as a known deferral. Otherwise it is an undeclared boundary mock — the gate exits non-zero (FAIL) and names the offending mock + boundary.
+
+### Implementer guidance
+
+An implementer that cannot reach real infrastructure at a validated boundary must **stop and surface the blocker** (record a blocked-on-environment state) rather than mock around it. The implementer role prompt (`internal/prompt/implementer.md`) instructs this under "Hard constraints" — the stop-don't-mock principle is a binding constraint, not advisory.
+
+### Relationship to journey validation
+
+A journey that crosses a validated boundary (every journey touches the DB; most touch auth) must have its boundary mocks declared as deferrals for the verification gate to pass. This prevents silent mock-around in journey integration tests — if a journey test mocks auth at the boundary without declaring it, the slice fails. Journey validation (the artefact) is separate from no-mock enforcement (the gate), but they compose: the journey tells you what to test; the no-mock gate tells you how you must test it (no silent mocking).
+
+### When this applies
+
+- Every slice whose diff introduces, uses, or constructs a mock/stub/fake at a validated boundary.
+- Every implementer session that operates the S10 implementer prompt.
+
+### When this does NOT apply
+
+- Pure unit test mocks that do not touch a validated boundary (e.g. a mock calculator, a mock string formatter). These are internal to the unit and are not flagged.
+- The human walkthrough (S13), where mocks are fully off and real journeys run against real infra — that slice is out of scope for S10.
+
+
 ## Provenance
 
 Rule 10 was introduced in the `2026-06-16-fidelity-layer` release. It closes the cross-slice integration-evidence gap: per-slice verification (Rules 1/6/7) catches within-slice defects, but no artefact captures the end-to-end user path. Journey validation fills that gap with a lightweight, version-controlled artefact that survives release boundaries.

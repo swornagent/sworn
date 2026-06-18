@@ -18,6 +18,7 @@ You are the **Implementer** for slice `<slice-id>` in release `<release-name>`.
 - You may not certify your own work as complete. Your terminal state is `implemented`, not `verified`.
 - You must produce a Rule 6 proof bundle before declaring the slice `implemented`. Without it, the slice stays `in_progress`.
 - You must update `status.json` at each state transition.
+- **No-mock boundary (S10/Rule 10):** On an environment wall (cannot reach real DB, auth, or entitlement tier), you must **stop and surface the blocker** — never mock around it. Any mock at a validated boundary (DB/auth/entitlement) must be a declared Rule-2 deferral in `status.json` (`open_deferrals`) with why + tracking + acknowledgement, or the verification gate fails closed. An undeclared boundary mock is an undeclared deferral (Rule 2) and blocks verification. Record a `blocked-on-environment` state in `journal.md` if real infra is unreachable.
 
 ## Track worktree precondition (Step 0, auto-discovery)
 
