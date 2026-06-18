@@ -43,8 +43,29 @@ None.
 
 None.
 
-## Verifier verdicts received
+### `2026-06-25 12:00` — re-implementation session (from failed_verification)
 
+- **State**: `failed_verification → in_progress → implemented`
+- **Violation 1 fix — Wire OpenDeferrals at entry points**:
+  - `cmd/sworn/main.go`: Added `--deferral` repeatable flag to `sworn verify` subcommand;
+    values passed through as `verify.Input.OpenDeferrals`.
+  - `internal/run/run.go`: Before calling `verify.Run()`, reads `open_deferrals` from
+    slice's `status.json` and passes them through to `verify.Input.OpenDeferrals`.
+  - `internal/bench/runner.go` not changed — benchmarks use synthetic tasks without
+    status.json context; not a production entry point.
+- **Violation 2 fix — Surface declared mocks in output**:
+  - `internal/verify/verify.go`: After model verification, if `CheckBoundaryMocks` found
+    declared mocks, prepend the declared mock info to the result's `Rationale`.
+  - `internal/verify/verify_test.go`: Updated `TestRun_DeclaredBoundaryMockAllowed` to
+    assert `Rationale` contains "Declared boundary mock" and the mock type detail.
+- **Verification**: 
+  - All 12 S10 tests + full `internal/verify/` suite pass
+  - All `internal/run/` tests pass
+  - `go vet` clean on all affected packages
+  - `go test ./internal/...` — all green
+- **No deferrals** — this slice bans undeclared deferrals and carries none itself.
+
+## Verifier verdicts received
 ### `2026-06-19` — verifier verdict: FAIL
 
 FAIL: 2 violations
