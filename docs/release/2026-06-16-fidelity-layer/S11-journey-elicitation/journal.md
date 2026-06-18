@@ -34,6 +34,19 @@ description: Implementation log for the journey model, CLI, and gate.
 
 ## Verifier verdicts received
 
+### 2026-06-20 — FAIL (round 2, fresh-context)
+
+**Verdict**: FAIL
+
+**Violations**:
+
+1. **Gate 2** — `cmd/sworn/journeys_test.go` appears in `git diff --name-only 0535a74..HEAD` but is not mentioned in proof.md "Divergence from plan". The file fulfills the spec's required Rule 1 integration test (`sworn journeys --check` exercised on a fixture project), is the natural companion to `cmd/sworn/journeys.go`, and was absent from the spec's Planned touchpoints — all three points require acknowledgement in the Divergence section.
+
+**Required to address**:
+1. Add `cmd/sworn/journeys_test.go` to proof.md "Divergence from plan" with a one-sentence rationale (e.g. "the integration test file for `cmd/sworn/journeys.go` was added to provide the Rule 1 integration test required by the spec's Required tests section; it was not listed in Planned touchpoints, which named only the command implementation file").
+
+Slice state → `failed_verification`.
+
 ### 2026-06-20 — FAIL (round 1, fresh-context)
 
 **Verdict**: FAIL

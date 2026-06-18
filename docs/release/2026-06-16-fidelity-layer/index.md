@@ -142,6 +142,11 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Recent activity
 
+### 2026-06-20 — S11-journey-elicitation: FAIL (round 2, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Gate 2. `cmd/sworn/journeys_test.go` appears in `git diff --name-only 0535a74..HEAD` but is not mentioned in proof.md "Divergence from plan". The file is the integration test companion to `cmd/sworn/journeys.go` and fulfills the spec's required Rule 1 integration test. Fix: add one sentence to proof.md "Divergence from plan" acknowledging this file. All six other gates pass — all 14 journey-package tests and 9 CLI integration tests green in fresh session; all 5 ACs verifiable; no deferrals. Slice state → `failed_verification`.
+
 ### 2026-06-20 — S11-journey-elicitation: FAIL (round 1, fresh-context)
 
 - **Actor**: verifier (fresh-context session)
