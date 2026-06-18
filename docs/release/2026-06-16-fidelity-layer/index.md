@@ -25,9 +25,9 @@ tracks:
   - id: T4-evidence-surface
     slices: [S15-sworn-top-evidence]
     depends_on: T1-fidelity-core
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T4-evidence-surface
     worktree_branch: track/2026-06-16-fidelity-layer/T4-evidence-surface
-    state: planned
+    state: merged
 ---
 # Release Board: `2026-06-16-fidelity-layer`
 
@@ -51,9 +51,9 @@ tracks:
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
 | `T1-fidelity-core` | S01 → S02 → S04 → S05 → S07 → S11 → S16 | — | `track/2026-06-16-fidelity-layer/T1-fidelity-core` | merged |
-| `T2-delivery-cutover` | S06 → S10 → S12 → S13 → S14 | T1 | `track/2026-06-16-fidelity-layer/T2-delivery-cutover` | planned |
+| `T2-delivery-cutover` | S06 → S10 → S12 → S13 → S14 | T1 | `track/2026-06-16-fidelity-layer/T2-delivery-cutover` | in_progress |
 | `T3-leaf-gates` | S03 → S08 → S09 | T1 | `track/2026-06-16-fidelity-layer/T3-leaf-gates` | planned |
-| `T4-evidence-surface` | S15 | T1 | `track/2026-06-16-fidelity-layer/T4-evidence-surface` | planned |
+| `T4-evidence-surface` | S15 | T1 | `track/2026-06-16-fidelity-layer/T4-evidence-surface` | merged |
 
 ### Touchpoint matrix
 
@@ -105,15 +105,15 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | verified | human | [spec](./S07-design-fit-gate/spec.md) | [proof](./S07-design-fit-gate/proof.md) |
 | `S11-journey-elicitation` | T1 | AI-drafts/human-ratifies critical journeys into a durable artefact (`sworn journeys`) | verified | verifier | [spec](./S11-journey-elicitation/spec.md) | [proof](./S11-journey-elicitation/proof.md) |
 | `S16-lint-rename` | T1 | Documentation sweep — adopt `sworn lint ac` / `sworn lint trace` canonical names throughout release docs; restore S02 proof.md | verified | human | [spec](./S16-lint-rename/spec.md) | [proof](./S16-lint-rename/proof.md) |
-| `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | failed_verification | human | [spec](./S06-definition-of-ready/spec.md) | [proof](./S06-definition-of-ready/proof.md) |
+| `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | implemented | human | [spec](./S06-definition-of-ready/spec.md) | [proof](./S06-definition-of-ready/proof.md) |
 | `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | planned | human | [spec](./S10-no-mock-boundary/spec.md) | — |
 | `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | planned | human | [spec](./S12-journey-impact-analysis/spec.md) | — |
 | `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | planned | human | [spec](./S13-walkthrough-attestation/spec.md) | — |
 | `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | planned | human | [spec](./S14-journey-regression-suite/spec.md) | — |
-| `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | planned | human | [spec](./S03-spec-quality-firstpass/spec.md) | — |
+| `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | failed_verification | human | [spec](./S03-spec-quality-firstpass/spec.md) | — |
 | `S08-design-system-input` | T3 | Design system (tokens + component library) as first-class project input | planned | human | [spec](./S08-design-system-input/spec.md) | — |
 | `S09-design-conformance-audit` | T3 | Deterministic drift first-pass + human cohesion verdict (`sworn designaudit`) | planned | human | [spec](./S09-design-conformance-audit/spec.md) | — |
-| `S15-sworn-top-evidence` | T4 | Read-only journey-validation green-board / kill-list (`sworn top`) | planned | human | [spec](./S15-sworn-top-evidence/spec.md) | — |
+| `S15-sworn-top-evidence` | T4 | Read-only journey-validation green-board / kill-list (`sworn top`) | verified | agent | [spec](./S15-sworn-top-evidence/spec.md) | [proof](./S15-sworn-top-evidence/proof.md) |
 
 ### State legend
 
@@ -129,15 +129,15 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Aggregate state
 
-- Planned: 8
+- Planned: 6 (S08, S09, S10, S12, S13, S14)
 - In progress: 0
-- Implemented (awaiting verification): 0
-- Verified (awaiting merge): 7 (S01, S02, S04, S05, S07, S11, S16)
-- Failed verification: 1 (S06)
+- Implemented (awaiting verification): 1 (S06)
+- Verified: 8 (S01, S02, S04, S05, S07, S11, S15, S16)
+- Failed verification: 1 (S03)
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 3 / In progress: 0 / Merged: 1 (T1: merged at b8521f8)
+**Tracks:** Planned: 1 (T3) / In progress: 1 (T2) / Merged: 2 (T1: b8521f8, T4: ca5b1ea)
 
 ## Recent activity
 
@@ -157,6 +157,21 @@ contributes a distinct `case`. Per the prior release's parallel command registra
   `CheckDoR`, the system does NOT enforce the DoR gate. Gate 5 passes (no TODO/FIXME/deferred
   markers). Protocol entry point (implementer.md Gate 0) is correctly delivered. Next:
   `/implement-slice S06-definition-of-ready 2026-06-16-fidelity-layer` to address 5 violations.
+
+### 2026-06-19 — track `T4-evidence-surface` merged to release-wt (commit ca5b1ea)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 1 verified slice merged: S15-sworn-top-evidence. No drift (0 sibling commits to sync). Track state → merged.
+
+### 2026-06-18 — S15-sworn-top-evidence: PASS (round 2, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: All six gates passed. Both prior FAIL violations fully resolved. `TestTopCmd_MixedStatuses` calls `cmdTop([]string{"test-release", dir})` (the command entry point) — Gate 3 (Rule 1) satisfied. `start_commit` corrected to `e3b0ec2`; `git diff --name-only e3b0ec2..HEAD` shows all 9 files including the 3 planned touchpoints — Gate 2 satisfied. 8 tests green fresh (`-count=1`). `case "top"` wired in `main.go`. Manual smoke step proves kill-list → green-board user path. No deferral markers in production files. All 4 ACs have verifiable evidence. Slice state → `verified`. Track T4-evidence-surface complete. Next: `/merge-track T4-evidence-surface 2026-06-16-fidelity-layer`.
+
+### 2026-06-18 — S15-sworn-top-evidence: FAIL (round 1, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Two violations. (1) **Gate 2**: `start_commit` (`a58733d`) is the implementation commit itself; `git diff --name-only a58733d..HEAD` returns only doc files — no planned touchpoints visible per protocol. proof.md "Not delivered" incorrectly says "None." Fix: set `start_commit` to `e3b0ec2`. (2) **Gate 3**: All 7 tests call `renderEvidenceSurface` directly, bypassing `cmdTop`; spec requires "Rule 1 via the command entry point." Fix: add test calling `cmdTop([]string{...})`. Implementation is functionally correct — both violations are protocol/test-layer. Slice state → `failed_verification`.
 
 ### 2026-06-18 — track `T1-fidelity-core` merged to release-wt (commit b8521f8)
 
