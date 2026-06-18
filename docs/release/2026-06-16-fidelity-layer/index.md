@@ -103,7 +103,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S02-ears-ac-format` | T1 | EARS acceptance-criteria notation + validator (`sworn lint ac`) | verified | human | [spec](./S02-ears-ac-format/spec.md) | [proof](./S02-ears-ac-format/proof.md) |
 | `S04-requirements-verify-gate` | T1 | 29148 quality-characteristic check, fresh-context, fail-closed (`sworn reqverify`) | verified | human | [spec](./S04-requirements-verify-gate/spec.md) | [proof](./S04-requirements-verify-gate/proof.md) |
 | `S05-requirements-validate-gate` | T1 | Human-owned scenario pos/neg + benefit-hypothesis validation (`sworn reqvalidate`) | verified | human | [spec](./S05-requirements-validate-gate/spec.md) | [proof](./S05-requirements-validate-gate/proof.md) |
-| `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | failed_verification | human | [spec](./S07-design-fit-gate/spec.md) | [proof](./S07-design-fit-gate/proof.md) |
+| `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | verified | human | [spec](./S07-design-fit-gate/spec.md) | [proof](./S07-design-fit-gate/proof.md) |
 | `S11-journey-elicitation` | T1 | AI-drafts/human-ratifies critical journeys into a durable artefact (`sworn journeys`) | planned | human | [spec](./S11-journey-elicitation/spec.md) | — |
 | `S16-lint-rename` | T1 | Documentation sweep — rename `sworn ears`→`lint ac` / `sworn rtm`→`lint trace` throughout; restore S02 proof.md | planned | human | [spec](./S16-lint-rename/spec.md) | — |
 | `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | planned | human | [spec](./S06-definition-of-ready/spec.md) | — |
@@ -133,14 +133,19 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 - Planned: 11
 - In progress: 0
 - Implemented (awaiting verification): 0
-- Verified (awaiting merge): 4
-- Failed verification: 1
+- Verified (awaiting merge): 5
+- Failed verification: 0
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** Planned: 3 / In progress: 1 / Merged: 0
 
 ## Recent activity
+
+### 2026-06-18 — S07-design-fit-gate: PASS (round 2, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: All six gates passed. 9 unit tests + 5 CLI integration tests green in fresh session. `sworn designfit` wired in `main.go`; `cmdDesignfit` calls `designfit.Run()` directly. Smoke step output in proof.md consistent with live code behavior. No dark-code markers in changed source files. All 5 ACs have verifiable evidence. Verified at commit `4d78424`. Slice state → `verified`. T1-fidelity-core now has 5/7 slices verified. Next: `/implement-slice S11-journey-elicitation 2026-06-16-fidelity-layer`.
 
 ### 2026-06-18 — S07-design-fit-gate: FAIL (round 1, fresh-context)
 

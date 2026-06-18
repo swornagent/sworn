@@ -74,3 +74,18 @@ Note: Gates 1, 3, 4, 5, 6 all PASS. Implementation is correct — all 9 unit tes
   - **Verification**: git diff --name-only a1b2672..HEAD shows all 15 planned+actual touchpoints.
   - **Tests**: All 14 tests still pass (9 unit + 5 CLI). No regressions.
 - **Decision**: Metadata-only fix per verifier requirements. No code or test changes needed.
+### 2026-06-18 — PASS (round 2, fresh-context)
+
+PASS
+
+Slice: `S07-design-fit-gate`
+Verified against: `4d7842414f16c513e53dc13e3edf6ea074d5a718`
+Verifier session: `fresh, artefact-only`
+
+All 6 gates passed:
+- Gate 1: `sworn designfit` wired in `cmd/sworn/main.go` case "designfit" → `cmdDesignfit`. User-reachable command confirmed.
+- Gate 2: Live `git diff --name-only a1b2672..HEAD` matches proof.md exactly (15 files). Divergences (`cmd/sworn/designfit_test.go`, `internal/adopt/adopt.go`) fully explained in proof.md "Divergence from plan".
+- Gate 3: 9 unit tests (internal/designfit) + 5 CLI integration tests (cmd/sworn, package main, calling `cmdDesignfit` directly) all PASS live in fresh session.
+- Gate 4: Smoke step output captured in proof.md matches live code format exactly; exit 1 on undecided Type-1, exit 0 after decision recorded.
+- Gate 5: No TODO/FIXME/placeholder/XXX/HACK in changed source files. Only "deferred" hit is embedded prose in `internal/adopt/adopt.go` (Baton rule text), not a code marker.
+- Gate 6: All 5 ACs have real, passing evidence references. No unsupported claims.
