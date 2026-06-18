@@ -31,7 +31,8 @@ docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/proof.md
 docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/spec.md
 docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/status.json
 docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/journal.md
-docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/proof.mddocs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/spec.md
+docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/proof.md
+docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/spec.md
 docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/status.json
 docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/journal.md
 docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/proof.md
@@ -50,7 +51,8 @@ docs/release/2026-06-16-fidelity-layer/S16-lint-rename/status.json
 docs/release/2026-06-16-fidelity-layer/S16-lint-rename/journal.md
 docs/release/2026-06-16-fidelity-layer/S16-lint-rename/proof.md
 docs/release/2026-06-16-fidelity-layer/index.md
-docs/release/2026-06-16-fidelity-layer/intake.mdinternal/adopt/adopt.go
+docs/release/2026-06-16-fidelity-layer/intake.md
+internal/adopt/adopt.go
 internal/adopt/baton/rules/08-requirements-fidelity.md
 internal/adopt/baton/rules/09-design-fidelity.md
 internal/adopt/baton/rules/10-customer-journey-validation.md
