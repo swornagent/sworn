@@ -102,7 +102,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S01-rtm-spine` | T1 | 2-D requirements traceability matrix, threaded through artefacts, fail-closed (`sworn lint trace`) | verified | human | [spec](./S01-rtm-spine/spec.md) | [proof](./S01-rtm-spine/proof.md) |
 | `S02-ears-ac-format` | T1 | EARS acceptance-criteria notation + validator (`sworn lint ac`) | verified | human | [spec](./S02-ears-ac-format/spec.md) | [proof](./S02-ears-ac-format/proof.md) |
 | `S04-requirements-verify-gate` | T1 | 29148 quality-characteristic check, fresh-context, fail-closed (`sworn reqverify`) | verified | human | [spec](./S04-requirements-verify-gate/spec.md) | [proof](./S04-requirements-verify-gate/proof.md) |
-| `S05-requirements-validate-gate` | T1 | Human-owned scenario pos/neg + benefit-hypothesis validation (`sworn reqvalidate`) | planned | human | [spec](./S05-requirements-validate-gate/spec.md) | — |
+| `S05-requirements-validate-gate` | T1 | Human-owned scenario pos/neg + benefit-hypothesis validation (`sworn reqvalidate`) | failed_verification | human | [spec](./S05-requirements-validate-gate/spec.md) | [proof](./S05-requirements-validate-gate/proof.md) |
 | `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | planned | human | [spec](./S07-design-fit-gate/spec.md) | — |
 | `S11-journey-elicitation` | T1 | AI-drafts/human-ratifies critical journeys into a durable artefact (`sworn journeys`) | planned | human | [spec](./S11-journey-elicitation/spec.md) | — |
 | `S16-lint-rename` | T1 | Documentation sweep — rename `sworn ears`→`lint ac` / `sworn rtm`→`lint trace` throughout; restore S02 proof.md | planned | human | [spec](./S16-lint-rename/spec.md) | — |
@@ -130,17 +130,25 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Aggregate state
 
-- Planned: 13
+- Planned: 12
 - In progress: 0
 - Implemented (awaiting verification): 0
 - Verified (awaiting merge): 3
-- Failed verification: 0
+- Failed verification: 1
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** Planned: 3 / In progress: 1 / Merged: 0
 
 ## Recent activity
+
+### 2026-06-18 — S05-requirements-validate-gate: FAIL
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Gate 3 (Rule 1). No `cmd/sworn/reqvalidate_test.go` exercises the CLI integration
+  point `cmdReqvalidate()`. Only leaf-level unit tests in `internal/reqvalidate/` exist. The
+  comparable S04 has `cmd/sworn/reqverify_test.go`. Fix: add integration test file calling
+  `cmdReqvalidate()` with fixture release. Slice state → `failed_verification`.
 
 ### 2026-06-18 — S04-requirements-verify-gate: PASS (fifth verdict, fresh-context)
 
