@@ -156,3 +156,48 @@ None.
 ## Divergence from plan
 
 - **`cmd/sworn/reqvalidate_test.go` added beyond planned touchpoints**: The spec's "Planned touchpoints" lists `cmd/sworn/reqvalidate.go` but not a corresponding test file. `cmd/sworn/reqvalidate_test.go` was added to satisfy the Rule 1 CLI integration test requirement (the spec's "Required tests" calls for "Integration: `sworn reqvalidate` exercised on a fixture release (Rule 1)"). This mirrors S04's pattern (`cmd/sworn/reqverify_test.go`) and exercises `cmdReqvalidate()` at the CLI integration point, not just the leaf library.
+
+## First-pass script output
+
+```
+== Slice artefacts ==
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+
+== Status ==
+  PASS  status.json is valid JSON
+  state: implemented
+  PASS  state is 'implemented' (eligible for verifier review)
+
+== Diff vs main ==
+  PASS  4 file(s) changed vs main
+  (first 20)
+    docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/journal.md
+    docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/proof.md
+    docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/status.json
+    docs/release/2026-06-16-fidelity-layer/index.md
+
+== Dark-code markers in changed files ==
+  PASS  no dark-code markers in changed source files
+
+== Proof bundle structural checks ==
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+
+== Frontmatter YAML safety ==
+  PASS  spec.md frontmatter is strict-YAML safe
+
+== First-pass verdict ==
+  checks passed: 18
+  checks failed: 0
+FIRST-PASS PASS
+```
