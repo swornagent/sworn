@@ -40,6 +40,47 @@ None.
 
 ## Verifier verdicts received
 
+### `2026-06-19` — PASS (round 4, fresh-context verifier)
+
+```
+PASS
+
+Slice: `S06-definition-of-ready`
+
+All six gates passed.
+
+Gate 1: implement.Run() calls CheckDoR via TransitionGate at lines 49–66 at the
+design_review → in_progress boundary. implementer.md Gate 0 rewritten from "Spec
+completeness gate" to "Definition of Ready gate". Both native and protocol entry
+points are wired.
+
+Gate 2: All 5 planned touchpoints present and changed. Three unplanned files
+(ready.go, ready_test.go, state_test.go) documented in proof.md "Divergence from
+plan". S15 files (internal/journey/, cmd/sworn/) arrived via T4→release-wt→T2
+forward-merge — not S06 scope; proof.md correctly uses path-filtered diff.
+
+Gate 3: TestRun_DesignReviewBlockedByDoR calls implement.Run() on a DoR-failing
+fixture (orphaned N-99), asserts error mentions "Definition of Ready", "RTM", and
+"N-99", asserts state stays design_review, asserts proof.md not created. All 16
+implement + 13 state tests pass fresh (-count=1).
+
+Gate 4: Reachability artefact is TestRun_DesignReviewBlockedByDoR — names the
+blocked transition through the real entry point with specific RTM failure. Supported
+by TestRun_DesignReviewToInProgress showing the successful full-path transition.
+
+Gate 5: No TODO/FIXME/deferred/placeholder markers in any changed implementation files.
+
+Gate 6: All 5 ACs have verifiable test evidence through both unit (TestCheckDoR_*)
+and integration (TestRun_DesignReviewBlockedByDoR via implement.Run()) coverage.
+All tests pass live.
+
+Environmental note: T2 worktree HEAD was found on main (b9718b3) rather than the T2
+track branch — same recurring issue noted by round-3 verifier. Verifier restored the
+worktree to track/2026-06-16-fidelity-layer/T2-delivery-cutover (883f21b) and
+re-ran all tests before issuing this verdict. Verdict commits made via a secondary
+worktree at /tmp/sworn-t2-verdict due to the HEAD-drift issue.
+```
+
 ### `2026-06-19` — FAIL (fresh-context verifier)
 
 ```

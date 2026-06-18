@@ -105,7 +105,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | verified | human | [spec](./S07-design-fit-gate/spec.md) | [proof](./S07-design-fit-gate/proof.md) |
 | `S11-journey-elicitation` | T1 | AI-drafts/human-ratifies critical journeys into a durable artefact (`sworn journeys`) | verified | verifier | [spec](./S11-journey-elicitation/spec.md) | [proof](./S11-journey-elicitation/proof.md) |
 | `S16-lint-rename` | T1 | Documentation sweep — adopt `sworn lint ac` / `sworn lint trace` canonical names throughout release docs; restore S02 proof.md | verified | human | [spec](./S16-lint-rename/spec.md) | [proof](./S16-lint-rename/proof.md) |
-| `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | failed_verification | human | [spec](./S06-definition-of-ready/spec.md) | [proof](./S06-definition-of-ready/proof.md) |
+| `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | verified | verifier | [spec](./S06-definition-of-ready/spec.md) | [proof](./S06-definition-of-ready/proof.md) |
 | `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | planned | human | [spec](./S10-no-mock-boundary/spec.md) | — |
 | `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | planned | human | [spec](./S12-journey-impact-analysis/spec.md) | — |
 | `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | planned | human | [spec](./S13-walkthrough-attestation/spec.md) | — |
@@ -132,14 +132,27 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 - Planned: 6 (S08, S09, S10, S12, S13, S14)
 - In progress: 0
 - Implemented (awaiting verification): 0
-- Verified: 8 (S01, S02, S04, S05, S07, S11, S15, S16)
-- Failed verification: 2 (S03, S06)
+- Verified: 9 (S01, S02, S04, S05, S06, S07, S11, S15, S16)
+- Failed verification: 1 (S03)
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** Planned: 1 (T3) / In progress: 1 (T2) / Merged: 2 (T1: b8521f8, T4: ca5b1ea)
 
 ## Recent activity
+
+### 2026-06-19 — S06-definition-of-ready: PASS (round 4, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: All six gates passed. Gate 1: `implement.Run()` calls `CheckDoR` via `TransitionGate`
+  at lines 49–66 at the `design_review → in_progress` boundary; `implementer.md` Gate 0 rewritten
+  to "Definition of Ready gate". Gate 3: `TestRun_DesignReviewBlockedByDoR` drives `implement.Run()`
+  through a DoR-failing fixture (orphaned N-99), asserts error names "Definition of Ready", "RTM",
+  "N-99", asserts state stays `design_review`, asserts proof.md not created. 16 implement + 13 state
+  tests pass fresh. Gate 5: zero dark-code markers. Gate 6: all 5 ACs have verifiable evidence. T2
+  track S06 complete; next: `/implement-slice S10-no-mock-boundary 2026-06-16-fidelity-layer`.
+  Environmental note: T2 worktree HEAD-drift to `main` again (recurring issue); verdicts committed
+  via secondary worktree at /tmp/sworn-t2-verdict.
 
 ### 2026-06-19 — S06-definition-of-ready: FAIL (round 3, fresh-context)
 
