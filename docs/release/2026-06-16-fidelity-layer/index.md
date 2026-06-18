@@ -138,11 +138,16 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 - Deferred: 0
 - Shipped: 0
 
-<!-- S05 state: failed_verification (round 3 FAIL — 2026-06-18) -->
+<!-- S05 state: failed_verification (round 4 FAIL — 2026-06-18) -->
 
 **Tracks:** Planned: 3 / In progress: 1 / Merged: 0
 
 ## Recent activity
+
+### 2026-06-18 — S05-requirements-validate-gate: FAIL (round 4)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Gate 2. `start_commit` was reset to `12ef38a` (round-4 docs-only re-implementation commit), so `git diff --name-only 12ef38a..HEAD` shows only 3 doc files. All 7 planned touchpoints absent from diff range; proof.md "Divergence from plan" explains the extra `reqvalidate_test.go` but not why all planned implementation files are absent. Fix: set `start_commit` to `031e1cf` (S04 PASS, immediately before first S05 feat commit `7832963`) — that range shows all planned files, the extra file already explained, no S04 files. Implementation verified correct: 15 unit + 3 CLI integration tests pass, both smoke steps confirmed. Slice state → `failed_verification`.
 
 ### 2026-06-18 — S05-requirements-validate-gate: FAIL (round 3)
 

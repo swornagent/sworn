@@ -138,3 +138,20 @@ data. Minimum tests (mirroring S04's pattern in `cmd/sworn/reqverify_test.go`):
   - **Violation 3** (Gate 4): Added explicit note to proof.md Reachability artefact section that the interactive scenario walk is exercised through `internal/prompt/planner.md` Phase 4 step 7, which instructs the model to draft scenarios and requires human ratification before setting `human_ratified: true`.
   - Reset `start_commit` to `12ef38a` (the session-start commit) so the verifier's diff is scoped to this re-implementation pass.
   - All tests pass: `go test ./cmd/sworn/ -run TestReqvalidateCmd` (3/3 PASS), `go test ./internal/reqvalidate/...` (15/15 PASS), `go vet ./...` (clean).
+
+## Verifier verdicts received (continued)
+
+### 2026-06-18 — verifier verdict: FAIL (round 4)
+
+**Verdict**: FAIL
+
+**Violations:**
+
+1. Gate 2 — `start_commit` (`12ef38a`) was reset to a round-4 docs-only re-implementation commit, causing `git diff --name-only 12ef38a..HEAD` to show only three documentation files (journal.md, proof.md, status.json). All seven planned touchpoints (`internal/reqvalidate/reqvalidate.go`, `internal/reqvalidate/reqvalidate_test.go`, `cmd/sworn/reqvalidate.go`, `cmd/sworn/main.go`, `internal/state/state.go`, `internal/prompt/planner.md`, `internal/adopt/baton/rules/08-requirements-fidelity.md`) are absent from the diff range. proof.md "Divergence from plan" explains the extra `cmd/sworn/reqvalidate_test.go` but provides no explanation for why all planned implementation files are absent from `start_commit..HEAD`.
+
+**Required to address:**
+
+1. In `status.json`, change `start_commit` from `12ef38a28a05cda5b837a78087f3542476cc00eb` to `031e1cf99cbbc51f5c78f1a23c53e782717064ca` (the S04 PASS commit — the commit immediately before the first S05 implementation commit `7832963`). `031e1cf..HEAD` shows all 7 planned touchpoints plus `cmd/sworn/reqvalidate_test.go` (already explained in "Divergence from plan") and no S04 re-implementation files.
+2. Update proof.md "Files changed" to show the output of `git diff --name-only 031e1cf..HEAD`.
+
+**Note:** The implementation is complete and correct. All 15 unit tests and 3 CLI integration tests pass in fresh context. Both smoke steps (fail-closed on real release; exit 0 on fully-validated fixture) verified live. The FAIL is solely on the proof bundle's `start_commit` representation.
