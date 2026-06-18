@@ -100,12 +100,12 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | ID | Track | User outcome | State | Owner | Spec | Proof |
 |---|---|---|---|---|---|---|
 | `S01-rtm-spine` | T1 | 2-D requirements traceability matrix, threaded through artefacts, fail-closed (`sworn lint trace`) | verified | human | [spec](./S01-rtm-spine/spec.md) | [proof](./S01-rtm-spine/proof.md) |
-| `S02-ears-ac-format` | T1 | EARS acceptance-criteria notation + validator (`sworn lint ac`) | verified | human | [spec](./S02-ears-ac-format/spec.md) | [proof](./S02-ears-ac-format/proof.md) |
+| `S02-ears-ac-format` | T1 | EARS acceptance-criteria notation + validator (`sworn lint ac`) | implemented | human | [spec](./S02-ears-ac-format/spec.md) | [proof](./S02-ears-ac-format/proof.md) |
 | `S04-requirements-verify-gate` | T1 | 29148 quality-characteristic check, fresh-context, fail-closed (`sworn reqverify`) | verified | human | [spec](./S04-requirements-verify-gate/spec.md) | [proof](./S04-requirements-verify-gate/proof.md) |
 | `S05-requirements-validate-gate` | T1 | Human-owned scenario pos/neg + benefit-hypothesis validation (`sworn reqvalidate`) | verified | human | [spec](./S05-requirements-validate-gate/spec.md) | [proof](./S05-requirements-validate-gate/proof.md) |
 | `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | verified | human | [spec](./S07-design-fit-gate/spec.md) | [proof](./S07-design-fit-gate/proof.md) |
 | `S11-journey-elicitation` | T1 | AI-drafts/human-ratifies critical journeys into a durable artefact (`sworn journeys`) | verified | verifier | [spec](./S11-journey-elicitation/spec.md) | [proof](./S11-journey-elicitation/proof.md) |
-| `S16-lint-rename` | T1 | Documentation sweep — adopt `sworn lint ac` / `sworn lint trace` canonical names throughout release docs; restore S02 proof.md | planned | human | [spec](./S16-lint-rename/spec.md) | — || `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | planned | human | [spec](./S06-definition-of-ready/spec.md) | — |
+| `S16-lint-rename` | T1 | Documentation sweep — adopt `sworn lint ac` / `sworn lint trace` canonical names throughout release docs; restore S02 proof.md | failed_verification | human | [spec](./S16-lint-rename/spec.md) | [proof](./S16-lint-rename/proof.md) || `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | planned | human | [spec](./S06-definition-of-ready/spec.md) | — |
 | `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | planned | human | [spec](./S10-no-mock-boundary/spec.md) | — |
 | `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | planned | human | [spec](./S12-journey-impact-analysis/spec.md) | — |
 | `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | planned | human | [spec](./S13-walkthrough-attestation/spec.md) | — |
@@ -129,17 +129,22 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Aggregate state
 
-- Planned: 10
+- Planned: 9
 - In progress: 0
-- Implemented (awaiting verification): 0
-- Verified (awaiting merge): 6
-- Failed verification: 0
+- Implemented (awaiting verification): 2 (S02-ears-ac-format, awaiting re-verify; S16-lint-rename addressing violations)
+- Verified (awaiting merge): 5 (S01, S04, S05, S07, S11)
+- Failed verification: 1 (S16-lint-rename)
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** Planned: 3 / In progress: 1 / Merged: 0
 
 ## Recent activity
+
+### 2026-06-18 — S16-lint-rename: FAIL (round 1, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Three violations. (1) **AC N-S16-01**: grep gate produces 8 matches in S16's own artefacts (spec.md ×2, journal.md ×1, proof.md ×5); AC requires zero matches outside `docs/captures/`; proof misstates "only in spec.md". (2) **AC N-S16-03**: S02/proof.md "Files changed" omits `docs/release/2026-06-16-fidelity-layer/S01-rtm-spine/status.json`, which IS in `git diff --name-only cd462364..HEAD` (60 files total; proof lists 57). (3) **AC N-S16-04**: S01-rtm-spine/status.json `actual_files` still contains `cmd/sworn/rtm.go` (line 31) and `cmd/sworn/rtm_test.go` (line 32); AC requires all occurrences in `planned_files` or `actual_files` to be replaced; proof falsely claims no remaining occurrences. Gates 1–5 all PASS: `TestLintAC` and `TestLintTrace` pass, `sworn lint ac 2026-06-16-fidelity-layer` exits 0, no silent deferrals. Board updated: S02 moved `verified → implemented` (S16 reset it; board was stale). Slice state → `failed_verification`. Next: `/implement-slice S16-lint-rename 2026-06-16-fidelity-layer` in a fresh session to address the 3 numbered violations.
 
 ### 2026-06-22 — S11-journey-elicitation: PASS (round 3, fresh-context)
 
