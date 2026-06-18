@@ -111,3 +111,23 @@ All six gates passed:
 - Gate 4: Both smoke steps executed live — pass case (74 ACs, exit 0) and fail case (named violation + exit 1).
 - Gate 5: No TODO/FIXME/deferred/placeholder in changed Go files.
 - Gate 6: All 4 ACs delivered with concrete evidence references.
+
+### 2026-06-18 (round 4) — verifier verdict: PASS
+
+PASS
+
+Slice: `S02-ears-ac-format`
+Verified against: `6280030032`
+Verifier session: `fresh, artefact-only`
+
+Note: status.json was reset from `verified` to `implemented`/`pending` by commit `95cdb86`
+(S16-lint-rename sweep that regenerated the proof.md). Re-verification performed on current
+HEAD confirming the implementation is identical and all gates still pass.
+
+All six gates passed:
+- Gate 1: `case "lint"` in main.go:43-46 → `cmdLint()` → `cmdLintAC()` wired; live binary confirms pass (exit 0, 74 ACs) and fail (exit 1, named violation) cases.
+- Gate 2: All 6 planned touchpoints present in diff; unplanned extra files fully explained in proof.md Divergence from plan.
+- Gate 3: 20 unit tests in internal/ears/ears_test.go + 6 integration tests in cmd/sworn/lint_ac_test.go all pass fresh (-count=1). Rule 1 satisfied — integration tests drive cmdLintAC, not just the ears package.
+- Gate 4: Both smoke steps executed live in this session — pass case (74 ACs, exit 0) and fail case (named violation, exit 1).
+- Gate 5: No TODO/FIXME/deferred/placeholder in source code. planner.md hits are instructional text.
+- Gate 6: All 4 ACs delivered; evidence references point to real, working code confirmed by live test run.

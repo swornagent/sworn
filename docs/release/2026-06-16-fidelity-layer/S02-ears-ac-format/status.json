@@ -3,10 +3,10 @@
   "slice_id": "S02-ears-ac-format",
   "release": "2026-06-16-fidelity-layer",
   "track": "T1-fidelity-core",
-  "state": "implemented",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-22T14:00:00Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-18T12:00:00Z",
   "start_commit": "cd462364f2ed38a357a2625c377ebd8ff373be83",
   "spec_path": "docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S02-ears-ac-format/proof.md",
@@ -38,7 +38,9 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
-    "violations": []
+    "result": "pass",
+    "violations": [],
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-06-18T12:00:00Z"
   }
 }

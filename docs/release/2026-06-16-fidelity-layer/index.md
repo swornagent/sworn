@@ -100,7 +100,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | ID | Track | User outcome | State | Owner | Spec | Proof |
 |---|---|---|---|---|---|---|
 | `S01-rtm-spine` | T1 | 2-D requirements traceability matrix, threaded through artefacts, fail-closed (`sworn lint trace`) | verified | human | [spec](./S01-rtm-spine/spec.md) | [proof](./S01-rtm-spine/proof.md) |
-| `S02-ears-ac-format` | T1 | EARS acceptance-criteria notation + validator (`sworn lint ac`) | implemented | human | [spec](./S02-ears-ac-format/spec.md) | [proof](./S02-ears-ac-format/proof.md) |
+| `S02-ears-ac-format` | T1 | EARS acceptance-criteria notation + validator (`sworn lint ac`) | verified | human | [spec](./S02-ears-ac-format/spec.md) | [proof](./S02-ears-ac-format/proof.md) |
 | `S04-requirements-verify-gate` | T1 | 29148 quality-characteristic check, fresh-context, fail-closed (`sworn reqverify`) | verified | human | [spec](./S04-requirements-verify-gate/spec.md) | [proof](./S04-requirements-verify-gate/proof.md) |
 | `S05-requirements-validate-gate` | T1 | Human-owned scenario pos/neg + benefit-hypothesis validation (`sworn reqvalidate`) | verified | human | [spec](./S05-requirements-validate-gate/spec.md) | [proof](./S05-requirements-validate-gate/proof.md) |
 | `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | verified | human | [spec](./S07-design-fit-gate/spec.md) | [proof](./S07-design-fit-gate/proof.md) |
@@ -131,8 +131,8 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 - Planned: 9
 - In progress: 0
-- Implemented (awaiting verification): 2 (S02-ears-ac-format, awaiting re-verify; S16-lint-rename addressing violations)
-- Verified (awaiting merge): 5 (S01, S04, S05, S07, S11)
+- Implemented (awaiting verification): 0
+- Verified (awaiting merge): 6 (S01, S02, S04, S05, S07, S11)
 - Failed verification: 1 (S16-lint-rename)
 - Deferred: 0
 - Shipped: 0
@@ -140,6 +140,11 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 **Tracks:** Planned: 3 / In progress: 1 / Merged: 0
 
 ## Recent activity
+
+### 2026-06-18 — S02-ears-ac-format: PASS (round 4, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Re-verified after commit `95cdb86` reset status.json from `verified` to `implemented`/`pending` during S16's documentation sweep. All six gates passed on current HEAD `6280030`. 20 unit tests + 6 integration tests green fresh (-count=1). Live binary confirmed: pass case (74 ACs, exit 0) and fail case (named violation, exit 1). All 4 ACs delivered with verifiable evidence. Slice state → `verified`. T1-fidelity-core now has 6/7 slices verified.
 
 ### 2026-06-18 — S16-lint-rename: FAIL (round 1, fresh-context)
 
