@@ -46,4 +46,28 @@ description: Implementation log. Append-only.
 
 ## Verifier verdicts received
 
-- Pending.
+### 2026-06-19 00:15 — FAIL (round 1, fresh-context)
+
+- **Verifier session**: `fresh`
+- **Verdict body**:
+
+  FAIL
+
+  Slice: `S03-spec-quality-firstpass`
+
+  Violations:
+  1. Gate 2 — `cmd/sworn/specquality_test.go` is in the diff but absent from spec planned touchpoints and not documented in proof.md "Divergence from plan."
+     Evidence: `git diff --name-only start_commit` shows `cmd/sworn/specquality_test.go`; spec.md planned touchpoints list `cmd/sworn/specquality.go` only; proof.md "Divergence from plan" mentions only `bin/spec-quality.sh`/gitignore.
+  2. Gate 3 — `go test ./...` output in proof.md is paraphrased (`# all packages pass`); live re-run failed on `internal/specquality: chdir: no such file or directory`.
+     Evidence: proof.md test results section; verifier's live run output.
+  3. Gate 3 — proof.md "First-pass script output" contains a committed unfilled placeholder: `$(cd .../release-verify.sh S03-spec-quality-firstpass 2026-06-16-fidelity-layer)` with note "To be filled after commit." `release-verify.sh` was never run before marking the slice implemented.
+     Evidence: proof.md tail — literal shell-expansion string and "To be filled after commit."
+
+  Required to address:
+  1. Add `cmd/sworn/specquality_test.go` to proof.md "Divergence from plan" with one-sentence explanation (it is the CLI integration test required by spec's "Required tests" section).
+  2. Re-run `go test ./...` from the correctly-checked-out track worktree and replace the paraphrased line with actual full passing output.
+  3. Run `release-verify.sh S03-spec-quality-firstpass 2026-06-16-fidelity-layer` from the track worktree and replace the placeholder section with actual output.
+
+  Note: targeted tests (go test ./internal/specquality/... 14/14 PASS; go test ./cmd/sworn/ -run TestSpecquality 5/5 PASS) and all 5 ACs were verified substantively correct in this session. The violations are proof-bundle completeness gaps.
+
+- **Action taken**: Re-open /implement-slice S03-spec-quality-firstpass 2026-06-16-fidelity-layer in a fresh session to address the 3 numbered violations.

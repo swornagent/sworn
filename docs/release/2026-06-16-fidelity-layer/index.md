@@ -110,7 +110,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | planned | human | [spec](./S12-journey-impact-analysis/spec.md) | — |
 | `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | planned | human | [spec](./S13-walkthrough-attestation/spec.md) | — |
 | `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | planned | human | [spec](./S14-journey-regression-suite/spec.md) | — |
-| `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | planned | human | [spec](./S03-spec-quality-firstpass/spec.md) | — |
+| `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | failed_verification | human | [spec](./S03-spec-quality-firstpass/spec.md) | [proof](./S03-spec-quality-firstpass/proof.md) |
 | `S08-design-system-input` | T3 | Design system (tokens + component library) as first-class project input | planned | human | [spec](./S08-design-system-input/spec.md) | — |
 | `S09-design-conformance-audit` | T3 | Deterministic drift first-pass + human cohesion verdict (`sworn designaudit`) | planned | human | [spec](./S09-design-conformance-audit/spec.md) | — |
 | `S15-sworn-top-evidence` | T4 | Read-only journey-validation green-board / kill-list (`sworn top`) | planned | human | [spec](./S15-sworn-top-evidence/spec.md) | — |
@@ -129,17 +129,22 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Aggregate state
 
-- Planned: 9
+- Planned: 8
 - In progress: 0
 - Implemented (awaiting verification): 0
 - Verified (awaiting merge): 7 (S01, S02, S04, S05, S07, S11, S16)
-- Failed verification: 0
+- Failed verification: 1 (S03)
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** Planned: 3 / In progress: 0 / Merged: 1 (T1: merged at b8521f8)
 
 ## Recent activity
+
+### 2026-06-19 — S03-spec-quality-firstpass: FAIL (round 1, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: 3 violations. (1) Gate 2: `cmd/sworn/specquality_test.go` in diff but not in planned touchpoints and not documented in "Divergence from plan". (2) Gate 3: `go test ./...` output paraphrased in proof.md; live re-run failed on `internal/specquality: chdir no such file`. (3) Gate 3: proof.md "First-pass script output" is a committed unfilled placeholder — `release-verify.sh` was never run. Targeted tests (14 unit + 5 CLI) and all 5 ACs verified correct. Violations are proof-bundle completeness gaps. Slice state → `failed_verification`. Next: `/implement-slice S03-spec-quality-firstpass 2026-06-16-fidelity-layer`.
 
 ### 2026-06-18 — track `T1-fidelity-core` merged to release-wt (commit b8521f8)
 
