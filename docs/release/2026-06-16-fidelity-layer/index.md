@@ -15,18 +15,20 @@ tracks:
     depends_on: T1-fidelity-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T2-delivery-cutover
     worktree_branch: track/2026-06-16-fidelity-layer/T2-delivery-cutover
-    state: in_progress  - id: T3-leaf-gates
+    state: in_progress
+  - id: T3-leaf-gates
     slices: [S03-spec-quality-firstpass, S08-design-system-input, S09-design-conformance-audit]
     depends_on: T1-fidelity-core
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T3-leaf-gates
+    worktree_path:
     worktree_branch: track/2026-06-16-fidelity-layer/T3-leaf-gates
-    state: in_progress  - id: T4-evidence-surface
+    state: planned
+  - id: T4-evidence-surface
     slices: [S15-sworn-top-evidence]
     depends_on: T1-fidelity-core
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T4-evidence-surface
+    worktree_path:
     worktree_branch: track/2026-06-16-fidelity-layer/T4-evidence-surface
-    state: in_progress---
-
+    state: planned
+---
 # Release Board: `2026-06-16-fidelity-layer`
 
 > Frontmatter is the machine-readable registry; the tables below mirror it. Keep them in sync.
