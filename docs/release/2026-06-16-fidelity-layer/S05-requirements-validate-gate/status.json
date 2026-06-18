@@ -3,10 +3,10 @@
   "slice_id": "S05-requirements-validate-gate",
   "release": "2026-06-16-fidelity-layer",
   "track": "T1-fidelity-core",
-  "state": "implemented",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-18T18:30:00Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-18T07:07:54Z",
   "start_commit": "031e1cf99cbbc51f5c78f1a23c53e782717064ca",
   "spec_path": "docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S05-requirements-validate-gate/proof.md",
@@ -35,16 +35,16 @@
     "go test ./cmd/sworn/ -run TestReqvalidateCmd"
   ],
   "reachability_artifacts": [
-    "smoke step: run `sworn reqvalidate <release>` on a fixture with incomplete validation records \u2014 exits 1 naming violations (fail-closed). Smoke confirmed: `sworn reqvalidate test-release` with incomplete fixture returned exit 1.",
-    "smoke step: run `sworn reqvalidate <release>` on a fixture with complete human-ratified records \u2014 exits 0 (pass). Smoke confirmed: `sworn reqvalidate test-release` with fully-validated fixture returned exit 0 with '1 validated, 0 failed \u2014 PASSED'.",
-    "planner session note: the interactive scenario walk is exercised via `internal/prompt/planner.md` Phase 4 step 7 \u2014 model drafts positive/negative scenarios + benefit hypothesis, human ratifies; prompt enforces 'Never auto-set human_ratified'."
+    "smoke step: run `sworn reqvalidate <release>` on a fixture with incomplete validation records — exits 1 naming violations (fail-closed). Smoke confirmed: `sworn reqvalidate test-release` with incomplete fixture returned exit 1.",
+    "smoke step: run `sworn reqvalidate <release>` on a fixture with complete human-ratified records — exits 0 (pass). Smoke confirmed: `sworn reqvalidate test-release` with fully-validated fixture returned exit 0 with '1 validated, 0 failed — PASSED'.",
+    "planner session note: the interactive scenario walk is exercised via `internal/prompt/planner.md` Phase 4 step 7 — model drafts positive/negative scenarios + benefit hypothesis, human ratifies; prompt enforces 'Never auto-set human_ratified'."
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "pass",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": false,
+    "verifier_verdict_at": "2026-06-18T07:07:54Z",
+    "verifier_was_fresh_context": true,
     "violations": []
   }
 }

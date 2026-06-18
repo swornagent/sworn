@@ -168,3 +168,20 @@ data. Minimum tests (mirroring S04's pattern in `cmd/sworn/reqverify_test.go`):
   - Cleared `verification.result` to `pending`, cleared violations.
   - All tests pass: `go test ./internal/reqvalidate/...` (15/15 PASS), `go test ./cmd/sworn/ -run TestReqvalidateCmd` (3/3 PASS), `go vet ./...` (clean).
   - First-pass: 18/18 PASS.
+
+## Verifier verdicts received (continued)
+
+### 2026-06-18T07:07:54Z — verifier verdict: PASS (round 5)
+
+**Verdict**: PASS
+
+All six gates satisfied in a fresh-context session.
+
+- Gate 1: `sworn reqvalidate <release>` is wired in `main.go` case "reqvalidate" → `cmdReqvalidate()` → `reqvalidate.Run()`. Both fail-closed (exit 1, 16 slices named) and pass-case (exit 0, "PASSED") confirmed live against real and fixture releases.
+- Gate 2: All 7 planned touchpoints present. Extra `cmd/sworn/reqvalidate_test.go` and docs/board files explained in proof.md "Divergence from plan".
+- Gate 3: 15 unit tests + 3 CLI integration tests re-run live, all pass. `cmdReqvalidate()` exercised at CLI boundary (Rule 1).
+- Gate 4: Both smoke steps verified live (exit 1 on real release, exit 0 on fully-validated fixture). Planner prompt note present.
+- Gate 5: No TODO/FIXME/deferred/placeholder in any changed source file.
+- Gate 6: All 5 acceptance checks have concrete evidence references. "Not delivered" is empty.
+
+Verified against commit: `bf7e776eb2b5ad20c8f6c2e4681f1b60fa9f8b83`
