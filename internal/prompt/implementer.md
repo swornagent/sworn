@@ -83,17 +83,21 @@ A dirty worktree at session start means the last session didn't land its work, o
 
 This gate must pass before touching code. If you page the human, include the exact `git status --porcelain` output in the page message so they can decide without re-running commands.
 
-### Spec completeness gate (Gate 0)
+### Definition of Ready gate (Gate 0)
 
-Before touching any code, validate the spec has the sections the verifier and release-verify.sh require. A spec that passes this gate prevents the most common FIRST-PASS FAILs. If any check fails, **BLOCK** — do not proceed to implementation. Surface every missing item in a single message so the human can fix the spec in one pass.
+Before touching any code, verify the slice has passed the **Definition of Ready**: the requirements-fidelity gates (RTM trace, requirements-verify, requirements-validate) are green for this slice. A slice that passes this gate is ready for implementation — its spec is traced (needs → ACs → tests), its acceptance criteria are well-formed, and its requirements are human-validated. If the DoR fails, **BLOCK** with the named gate(s) — do not proceed to implementation.
 
-1. **`## Acceptance checks` section** — must exist and contain at least one `- [ ]` checkbox.
-2. **`## Required tests` section** — must exist. This section declares how each AC is tested and is the contract for the proof bundle's "Test results" block. Without it, the implementer cannot know what tests to run, and release-verify.sh has no basis for its Playwright-gate check.
-3. **Playwright opt-in** — if any acceptance check mentions "Playwright", "e2e", or "screenshot", the `## Required tests` section must contain the literal token `playwright-screenshot`. This is NOT optional prose — it is the machine-checked keyword release-verify.sh greps for to allow Playwright output in `proof.md`. Write it as: `- **playwright-screenshot** \`tests/e2e/...\` — <description>. Covers AC<n>.`
-4. **`## Out of scope` section** — must exist (may contain "N/A" if nothing is out of scope, but the section heading is required).
+The DoR check is a programmatic gate in `internal/implement.CheckDoR()` that composes:
+
+1. **RTM (trace completeness)** — the slice's acceptance criteria link to needs, needs are linked to ACs, ACs link to tests, and the slice has a vertical (golden-thread) link.
+2. **Requirements verification** — acceptance criteria are graded against 29148 quality characteristics (singular, unambiguous, complete, consistent, feasible, verifiable, necessary) via a model pass. No characteristic breach on any AC.
+3. **Requirements validation** — the slice carries a human-ratified validation record with positive + negative scenarios and a benefit/alignment hypothesis.
+
+If any gate cannot be evaluated (e.g. no verifier model available), the transition is blocked — fail closed.
+
+**Legacy spec-completeness checks** (section presence) are subsumed by the DoR: the RTM requires spec.md with Acceptance checks + Required tests, and reqvalidate requires the validation record. No separate section-presence check is needed.
 
 ## Server lifecycle
-
 Dev servers (Go API + Next.js) are managed exclusively through `baton-server-start.sh`. **Never run `go run`, `pnpm dev`, `pnpm build`, or any other server-management command directly** — these will fail to set the correct CORS origins, database URL, and port assignments that baton worktrees require.
 
 - **Start**: `~/.claude/bin/baton-server-start.sh <release-name> <track-id> <worktree-path>`. Idempotent — safe to run at the start of every session.
