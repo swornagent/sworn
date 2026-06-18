@@ -142,6 +142,11 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Recent activity
 
+### 2026-06-18 — S04-requirements-verify-gate: FAIL (fourth verdict, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Gate 3 + Gate 6 failures. Gate 3: spec "Required tests" demands "characteristic-breach detection over fixture ACs (non-singular, ambiguous, incomplete)" but only `singular` is tested in both `reqverify_test.go` and `reqverify_test.go` (CLI); no test exercises an `ambiguous` or `incomplete` breach through the model-client seam. Gate 6: proof.md AC 2 evidence misidentifies the test — claims `TestParseGrades_MixedPassFail` "validates that an `ambiguous` characteristic breach is correctly parsed" but the test fixture replies with `FAIL — singular`. Gates 1, 2, 4, 5 all PASS. Fix: (1) add `ambiguous` and `incomplete` fixture AC tests to `internal/reqverify/reqverify_test.go`; (2) update proof.md AC 2 evidence to name the correct test(s).
+
 ### 2026-06-18 — S04-requirements-verify-gate: FAIL (third verdict, fresh-context)
 
 - **Actor**: verifier (fresh-context session)

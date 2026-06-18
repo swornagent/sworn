@@ -200,3 +200,34 @@ Required to address:
   - All 20 unit tests + 8 CLI integration tests pass. `go vet` clean.
   - First-pass: 18/18 PASS.
   - No code changes — documentation-only fix.
+
+## Verifier verdicts received
+
+### 2026-06-18 (fourth fresh-context session) — FAIL
+
+```
+FAIL
+
+Slice: `S04-requirements-verify-gate`
+
+Violations:
+1. Gate 3 — Spec "Required tests" demands characteristic-breach detection over fixture
+   ACs for (non-singular, ambiguous, incomplete); only `singular` is tested.
+   Evidence: `internal/reqverify/reqverify_test.go` and `cmd/sworn/reqverify_test.go`
+   grep for ambiguous/incomplete returns nothing in fixture ACs or model-reply stubs.
+   `TestParseGrades_MixedPassFail` (line 238) and `TestRun_WithViolations` (line 344)
+   both use `FAIL — singular`. No test uses `ambiguous` or `incomplete` as a
+   characteristic breach input.
+
+2. Gate 6 — proof.md AC 2 evidence misidentifies the test: claims
+   `TestParseGrades_MixedPassFail` "validates that an `ambiguous` characteristic
+   breach is correctly parsed" but the test uses `singular`, not `ambiguous`
+   (reqverify_test.go line 238: `FAIL — singular [bundles two distinct actions]`).
+
+Required to address:
+1. Add test cases to `internal/reqverify/reqverify_test.go` that exercise `ambiguous`
+   and `incomplete` characteristic breaches through the model-client seam (fakeVerifier
+   replying with `FAIL — ambiguous [...]` and `FAIL — incomplete [...]`).
+2. Update proof.md AC 2 "Evidence" to reference the actual test(s) that cover the
+   `ambiguous` and `incomplete` breach paths.
+```
