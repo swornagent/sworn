@@ -40,4 +40,72 @@ None.
 
 ## Verifier verdicts received
 
-None yet.
+### `2026-06-19` — FAIL (fresh-context verifier)
+
+```
+FAIL
+
+Slice: `S06-definition-of-ready`
+
+Violations:
+1. Gate 1 — Native entry point not wired: `implement.Run()` does not call
+   `CheckDoR`. No production code calls `CheckDoR` or `TransitionGate` — they
+   have tests only. The implementer start path runs the `design_review →
+   in_progress` transition via `st.State.Transition(state.InProgress)` with
+   no DoR gate. The protocol entry point (implementer.md Gate 0) is delivered;
+   the native/code entry point is not.
+   Evidence: `internal/implement/implement.go` lines 46–58; grep for
+   `CheckDoR` returns only definition + test files.
+
+2. Gate 2 — `internal/state/state_test.go` is in the diff (`+49` lines) but
+   absent from `spec.md` planned touchpoints and not explained in
+   `proof.md` "Divergence from plan".
+   Evidence: `git diff --name-only b9718b3..HEAD` lists the file; Divergence
+   section names only ready.go/ready_test.go and the callback pattern.
+
+3. Gate 3 — Integration test missing. `spec.md` "Required tests" mandates
+   "drive the start-of-implementation path on a fixture slice that fails one
+   DoR gate; assert the transition is refused with the named gate (Rule 1 via
+   the real entry point)." Every test in `ready_test.go` calls `CheckDoR()`
+   directly. No test calls `implement.Run()` or any equivalent real-entry-point
+   invocation with a DoR-failing fixture.
+   Evidence: `ready_test.go` — all 9 DoR tests call `CheckDoR()` directly; no
+   `implement.Run()` call in any DoR test.
+
+4. Gate 4 — Reachability artefact doesn't prove the prescribed user path.
+   Claimed gesture: "TestCheckDoR_* tests exercise each DoR gate through a
+   fake verifier." Prescribed smoke step (spec.md): "attempt `planned →
+   in_progress` on a fixture slice with an orphaned need; observe the blocked
+   transition naming the RTM failure; complete the trace; observe the
+   transition succeed." The claimed artefact demonstrates `CheckDoR` isolation,
+   not a blocked transition in the real workflow.
+   Evidence: `proof.md` "Reachability artefact" vs `spec.md` "Required tests"
+   smoke step.
+
+5. Gate 6 — Evidence for ACs 1–5 overstates delivery. Each AC says "THE
+   SYSTEM SHALL block its `planned → in_progress` transition." The evidence
+   cites `TestCheckDoR_*` tests showing that `CheckDoR` returns a failing
+   result — not that the system's implementer workflow blocks the transition.
+   Since `implement.Run()` never calls `CheckDoR`, the system does NOT block
+   the transition; only the function behaves correctly in isolation.
+   Evidence: `implement.go` — no call to `CheckDoR`; `proof.md` "Delivered"
+   conflates function-level correctness with system-level enforcement.
+
+Required to address:
+1. Wire `CheckDoR` into `implement.Run()` before the `design_review →
+   in_progress` transition (or an equivalent real implementer start path).
+   Use `st.State.TransitionGate(state.InProgress, func() error { ... })` where
+   the gate closure calls `CheckDoR` and returns `DoRErrorSummary(result)` as
+   an error when `!result.Passed`.
+2. Add one sentence to `proof.md` "Divergence from plan" explaining that
+   `internal/state/state_test.go` was extended to cover the new
+   `TransitionGate` method.
+3. Add an integration test (in `implement_test.go` or a new file) that calls
+   `implement.Run()` on a DoR-failing fixture slice and asserts the function
+   returns an error naming the failed gate. This is the Rule 1 integration test
+   the spec requires.
+4. Update the reachability artefact to describe (or reference) the integration
+   test from #3, demonstrating the actual blocked transition.
+5. Update each AC's evidence in "Delivered" to reference the integration test
+   that proves the system blocks the transition.
+```

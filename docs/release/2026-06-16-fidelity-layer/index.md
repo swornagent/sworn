@@ -105,7 +105,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | verified | human | [spec](./S07-design-fit-gate/spec.md) | [proof](./S07-design-fit-gate/proof.md) |
 | `S11-journey-elicitation` | T1 | AI-drafts/human-ratifies critical journeys into a durable artefact (`sworn journeys`) | verified | verifier | [spec](./S11-journey-elicitation/spec.md) | [proof](./S11-journey-elicitation/proof.md) |
 | `S16-lint-rename` | T1 | Documentation sweep — adopt `sworn lint ac` / `sworn lint trace` canonical names throughout release docs; restore S02 proof.md | verified | human | [spec](./S16-lint-rename/spec.md) | [proof](./S16-lint-rename/proof.md) |
-| `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | planned | human | [spec](./S06-definition-of-ready/spec.md) | — |
+| `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | failed_verification | human | [spec](./S06-definition-of-ready/spec.md) | [proof](./S06-definition-of-ready/proof.md) |
 | `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | planned | human | [spec](./S10-no-mock-boundary/spec.md) | — |
 | `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | planned | human | [spec](./S12-journey-impact-analysis/spec.md) | — |
 | `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | planned | human | [spec](./S13-walkthrough-attestation/spec.md) | — |
@@ -129,17 +129,34 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Aggregate state
 
-- Planned: 9
+- Planned: 8
 - In progress: 0
 - Implemented (awaiting verification): 0
 - Verified (awaiting merge): 7 (S01, S02, S04, S05, S07, S11, S16)
-- Failed verification: 0
+- Failed verification: 1 (S06)
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** Planned: 3 / In progress: 0 / Merged: 1 (T1: merged at b8521f8)
 
 ## Recent activity
+
+### 2026-06-19 — S06-definition-of-ready: FAIL (round 1, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: 5 violations. Gate 1: `implement.Run()` does not call `CheckDoR`; the native implementer
+  start path is not wired to the DoR gate — `CheckDoR` and `TransitionGate` have no production
+  callers, only test callers. Gate 2: `internal/state/state_test.go` (+49 lines) is in the diff
+  but not in planned touchpoints and not explained in "Divergence from plan". Gate 3: spec requires
+  an integration test driving `implement.Run()` through a DoR-failing fixture ("Rule 1 via the
+  real entry point"); all tests call `CheckDoR()` directly (unit-level only). Gate 4: reachability
+  artefact describes unit-test exercise of `CheckDoR` in isolation — the prescribed smoke step
+  ("attempt `planned → in_progress` on a fixture slice with an orphaned need; observe the blocked
+  transition") is not demonstrated. Gate 6: evidence for ACs 1–5 conflates `CheckDoR` returning
+  failure results with the system blocking the transition; since `implement.Run()` never calls
+  `CheckDoR`, the system does NOT enforce the DoR gate. Gate 5 passes (no TODO/FIXME/deferred
+  markers). Protocol entry point (implementer.md Gate 0) is correctly delivered. Next:
+  `/implement-slice S06-definition-of-ready 2026-06-16-fidelity-layer` to address 5 violations.
 
 ### 2026-06-18 — track `T1-fidelity-core` merged to release-wt (commit b8521f8)
 
