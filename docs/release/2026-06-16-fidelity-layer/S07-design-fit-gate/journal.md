@@ -1,44 +1,53 @@
 ---
-title: Slice journal template
-description: Implementation log for one slice. Append-only. Visible to verifier as context, but verifier verdict is based on proof.md and repo state, not journal prose.
+title: S07-design-fit-gate journal
+description: Implementation log for the design-fit gate (Rule 9).
 ---
 
-# Journal: `<slice-id>`
-
-> Copy this file to `docs/release/<release-name>/<slice-id>/journal.md`. Append entries chronologically. Do not delete history. Decisions captured here must also land in commit message bodies per Rule 4 — this journal is a working surface, not a substitute for durable capture.
+# Journal: S07-design-fit-gate
 
 ## Session log
 
-### `<YYYY-MM-DD HH:MM>` — `<session start / state transition>`
+### 2026-06-19 12:00 — start implementation
 
-- **State**: `<planned | in_progress | implemented | failed_verification | verified | deferred | shipped>`
+- **State**: planned → in_progress
 - **Notes**:
-  - `<Decisions made>`
-  - `<Trade-offs encountered>`
-  - `<Subagent dispatches and where their outputs landed>`
+  - Started S07-design-fit-gate implementation on track T1-fidelity-core.
+  - Worktree path: `/home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core`
+  - Branch: `track/2026-06-16-fidelity-layer/T1-fidelity-core`
 
-### `<YYYY-MM-DD HH:MM>` — `<next event>`
+### 2026-06-19 12:30 — implementation complete
 
-- ...
+- **State**: in_progress → implemented
+- **Notes**:
+  - **internal/state/state.go**: Added `DesignDecision` type with `StakeClass` (Type-1/Type-2), `DesignDecisions` field on `Status`.
+  - **internal/designfit/designfit.go**: Core logic — reads all slice status.json in a release, checks Type-1 choices for human_decision, checks arch-significant choices are Type-1.
+  - **internal/designfit/designfit_test.go**: 9 unit tests covering all acceptance checks.
+  - **cmd/sworn/designfit.go**: CLI command `sworn designfit <release>`, deterministic (no model dispatch).
+  - **cmd/sworn/designfit_test.go**: 5 CLI integration tests.
+  - **internal/adopt/baton/rules/09-design-fidelity.md**: New Rule 9 doc.
+  - **internal/adopt/baton/VERSION**: Bumped rules-added for Rule 9.
+  - **internal/adopt/adopt.go**: Added 09-design-fidelity.md to Materialise files list.
+  - **internal/prompt/planner.md**: Added design-decision recording step (Step 8) in Phase 4.
+  - **internal/prompt/captain.md**: Added design-fit gate Step 2b to /review-tldr function.
+  - **Decision**: Design-fit is deterministic (no model dispatch), similar to reqvalidate. No model config needed.
+  - **Decision**: The architecturally-significant check is an extra enforcement layer beyond the 5 ACs — a Type-2 with `architecturally_significant: true` fails with a clear message.
+
+- **Reachability smoke test**: Ran `/tmp/sworn-test/sworn designfit smoke-test`:
+  1. Type-1 without decision → exit 1, names "S01-test: Type-1 choice 'database-engine' has no recorded human decision" ✓
+  2. Decision recorded → exit 0 ✓
+  3. Type-2 with noted default → exit 0 ✓
+  4. Arch-significant but Type-2 → exit 1, names "is architecturally-significant but classified as Type-2" ✓
+
+- **First-pass**: 18/18 checks pass.
 
 ## Open questions
 
-\<Anything the implementer needs the human to resolve. Each open question blocks state transition to `implemented` until answered.\>
-
-- ...
+None.
 
 ## Deferrals surfaced
 
-`<Per Rule 2: each deferral needs why + tracking + acknowledgement. Cross-link to GitHub issue or punch-list entry. If empty, write "None" explicitly.>`
-
-- ...
+None.
 
 ## Verifier verdicts received
 
-`<Append every verifier verdict here. Even FAIL verdicts stay — they are part of the slice's history.>`
-
-### `<YYYY-MM-DD HH:MM>` — `<PASS | FAIL | BLOCKED>`
-
-- **Verifier session**: `<fresh / inherited — should always be fresh>`
-- **Verdict body**: `<paste the full verifier output>`
-- **Action taken**: `<how the implementer responded>`
+*Pending — verifier not yet run.*
