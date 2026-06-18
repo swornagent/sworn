@@ -48,6 +48,39 @@ None.
 
 ## Verifier verdicts received
 
+### 2026-06-18 (third fresh-context session) — FAIL
+
+```
+FAIL
+
+Slice: `S04-requirements-verify-gate`
+
+Violations:
+1. Gate 2 — `.gitignore` is in the diff but not listed as a planned touchpoint and not explained
+   in proof.md "Divergence from plan".
+   Evidence: `git diff --name-only 7b0246a3..HEAD` includes `.gitignore` (adds `cmd/sworn/docs/`
+   to the ignore list); spec.md "Planned touchpoints" does not list `.gitignore`; proof.md
+   "Divergence from plan" does not mention it.
+
+2. Gate 2 — Four planned touchpoints absent from the re-implementation diff are not individually
+   accounted for in proof.md "Not delivered".
+   Evidence: spec.md "Planned touchpoints" lists `internal/reqverify/reqverify.go`,
+   `internal/reqverify/reqverify_test.go`, `cmd/sworn/main.go`, and
+   `internal/prompt/requirements-verifier.md`; none appear in `git diff --name-only
+   7b0246a3..HEAD`; proof.md "Not delivered" addresses only
+   `internal/adopt/baton/rules/08-requirements-fidelity.md`; the other four have no entry in
+   "Not delivered" or individual explanation in "Divergence from plan".
+
+Required to address:
+1. Add `.gitignore` to proof.md "Divergence from plan" with a one-sentence explanation.
+2. Add to proof.md "Divergence from plan" (or individual "Not delivered" entries) an explanation
+   for `internal/reqverify/reqverify.go`, `internal/reqverify/reqverify_test.go`,
+   `cmd/sworn/main.go`, and `internal/prompt/requirements-verifier.md` — these were implemented
+   in the first pass (before re-implementation start_commit `7b0246a3`) and required no changes
+   in this re-implementation; the re-implementation scope was limited to the cmd layer
+   (`reqverify.go`, `reqverify_test.go`).
+```
+
 ### 2026-06-18 (second fresh-context session) — FAIL
 
 ```

@@ -142,6 +142,11 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Recent activity
 
+### 2026-06-18 — S04-requirements-verify-gate: FAIL (third verdict, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Gate 2 failure (×2). (1) `.gitignore` appears in the re-implementation diff (adds `cmd/sworn/docs/`) but is not listed as a planned touchpoint and is not explained in proof.md "Divergence from plan". (2) Four planned touchpoints (`internal/reqverify/reqverify.go`, `internal/reqverify/reqverify_test.go`, `cmd/sworn/main.go`, `internal/prompt/requirements-verifier.md`) are absent from the re-implementation diff; proof.md "Not delivered" addresses only `internal/adopt/baton/rules/08-requirements-fidelity.md` — the other four have no entry. Gates 1, 3, 4, 5, 6 all PASS. Fix: (1) add `.gitignore` to proof.md "Divergence from plan" with one sentence; (2) add explanation in "Divergence from plan" for the four files implemented in round 1 and not re-touched.
+
 ### 2026-06-18 — S04-requirements-verify-gate: FAIL (second verdict, fresh-context)
 
 - **Actor**: verifier (fresh-context session)

@@ -3,10 +3,10 @@
   "slice_id": "S04-requirements-verify-gate",
   "release": "2026-06-16-fidelity-layer",
   "track": "T1-fidelity-core",
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-18T15:00:00Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-18T16:30:00Z",
   "start_commit": "7b0246a3e5eb38a00cadd28251b8619e03f6d90e",
   "spec_path": "docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate/proof.md",
@@ -42,10 +42,13 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "fail",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": false,
-    "violations": []
+    "verifier_verdict_at": "2026-06-18T16:30:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "Gate 2 — .gitignore in diff but not in planned touchpoints and not explained in proof.md Divergence from plan",
+      "Gate 2 — four planned touchpoints (internal/reqverify/reqverify.go, internal/reqverify/reqverify_test.go, cmd/sworn/main.go, internal/prompt/requirements-verifier.md) absent from re-implementation diff without individual explanation in Not delivered or Divergence from plan"
+    ]
   }
 }
