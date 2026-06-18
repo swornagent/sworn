@@ -1,44 +1,37 @@
 ---
-title: Slice journal template
-description: Implementation log for one slice. Append-only. Visible to verifier as context, but verifier verdict is based on proof.md and repo state, not journal prose.
+title: Slice journal S11-journey-elicitation
+description: Implementation log for the journey model, CLI, and gate.
 ---
 
-# Journal: `<slice-id>`
-
-> Copy this file to `docs/release/<release-name>/<slice-id>/journal.md`. Append entries chronologically. Do not delete history. Decisions captured here must also land in commit message bodies per Rule 4 — this journal is a working surface, not a substitute for durable capture.
+# Journal: S11-journey-elicitation
 
 ## Session log
 
-### `<YYYY-MM-DD HH:MM>` — `<session start / state transition>`
+### 2026-06-20 10:00 — initial implementation
 
-- **State**: `<planned | in_progress | implemented | failed_verification | verified | deferred | shipped>`
+- **State**: planned → in_progress → implemented
 - **Notes**:
-  - `<Decisions made>`
-  - `<Trade-offs encountered>`
-  - `<Subagent dispatches and where their outputs landed>`
-
-### `<YYYY-MM-DD HH:MM>` — `<next event>`
-
-- ...
+  - Created `internal/journey/journey.go` with the journey model (Journey, JourneyStep, JourneyArtefact) and functions for Load, Save, Check, DraftTemplate
+  - Created `internal/journey/journey_test.go` with 14 tests covering all acceptance checks
+  - Created `cmd/sworn/journeys.go` implementing the `sworn journeys` CLI command with `--check` flag
+  - Created `cmd/sworn/journeys_test.go` with 9 integration tests
+  - Updated `cmd/sworn/main.go` adding `case "journeys"` to the switch and usage text
+  - Created `internal/adopt/baton/rules/10-customer-journey-validation.md` — Rule 10 rule doc
+  - Updated `internal/adopt/baton/VERSION` to include Rule 10
+  - Updated `internal/adopt/adopt.go` to materialise Rule 10's rule doc
+  - Updated `internal/prompt/planner.md` with journey elicitation guidance section
+  - **Trade-off**: DraftTemplate scans file system for now; model-assisted AI draft deferred as provisional per spec
+  - **Trade-off**: Journeys artefact at `.sworn/journeys.json` (JSON, version-controlled) following sworn config pattern
+  - **No subagent dispatches** — single implementer session
 
 ## Open questions
 
-\<Anything the implementer needs the human to resolve. Each open question blocks state transition to `implemented` until answered.\>
-
-- ...
+- None — all spec acceptance checks delivered.
 
 ## Deferrals surfaced
 
-`<Per Rule 2: each deferral needs why + tracking + acknowledgement. Cross-link to GitHub issue or punch-list entry. If empty, write "None" explicitly.>`
-
-- ...
+- **Provisional journey-artefact schema fields** — Why: The exact schema (step granularity, how a step references slices/surfaces) is provisional per spec. Tracking: status.json open_deferrals. Acknowledged: 2026-06-16 by planner.
 
 ## Verifier verdicts received
 
-`<Append every verifier verdict here. Even FAIL verdicts stay — they are part of the slice's history.>`
-
-### `<YYYY-MM-DD HH:MM>` — `<PASS | FAIL | BLOCKED>`
-
-- **Verifier session**: `<fresh / inherited — should always be fresh>`
-- **Verdict body**: `<paste the full verifier output>`
-- **Action taken**: `<how the implementer responded>`
+- *Pending — no verifier session yet.*

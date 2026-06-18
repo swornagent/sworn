@@ -265,14 +265,13 @@ func ListJourneys(a *JourneyArtefact) []string {
 	return out
 }
 
-// DraftTemplate creates an initial JourneyArtefact with placeholder journeys
+// DraftTemplate creates an initial JourneyArtefact with candidate journeys
 // inferred from a scan of the project's source tree. This is the starting
 // point for the human to edit and ratify.
 //
 // In a future iteration this will be model-driven (
 // "the model drafts candidate journeys from the app"). For now it produces
-// a well-structured template with guidance.
-func DraftTemplate(projectRoot string) (*JourneyArtefact, error) {
+// a well-structured template with guidance.func DraftTemplate(projectRoot string) (*JourneyArtefact, error) {
 	a := NewArtefact()
 
 	// Scan the project to discover high-level structure.
