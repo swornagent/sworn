@@ -122,3 +122,43 @@ Required to address:
   - `setupTempRepo` in `implement_test.go` was extended with intake.md, index.md, and validation record for the DoR gate to pass in `TestRun_DesignReviewToInProgress`.
   - Full project test suite: all 19 packages pass.
   - release-verify.sh pending — state now `implemented`.
+
+### `2026-06-19` — FAIL (round 2, fresh-context verifier)
+
+```
+FAIL
+
+Slice: `S06-definition-of-ready`
+
+Violations:
+1. Gate 2 — `internal/implement/ready_test.go` is a new file created by this
+   slice (did not exist at start_commit b9718b3c) but is not properly
+   acknowledged in the proof bundle:
+   (a) Absent from proof.md "Files changed" section (which lists only 3 files:
+       implement.go, implement_test.go, ready.go).
+   (b) Absent from status.json `actual_files` array (which lists 7 files,
+       omitting ready_test.go).
+   (c) Incorrectly described as "existing" in proof.md "Divergence from plan":
+       "in addition to the existing ready_test.go" — but ready_test.go did not
+       exist at start_commit b9718b3c.
+   The file contains 16 tests covering CheckDoR and DoRErrorSummary unit
+   behavior (TestCheckDoR_*, TestDoRErrorSummary_*). It is a substantive new
+   unplanned touchpoint requiring acknowledgment per Gate 2 protocol.
+
+Required to address:
+1. Add `internal/implement/ready_test.go` to proof.md "Files changed" section.
+2. Add `internal/implement/ready_test.go` to status.json `actual_files`.
+3. Replace "in addition to the existing ready_test.go" with a sentence
+   explaining that ready_test.go is a NEW file accompanying ready.go, not a
+   pre-existing file.
+
+Gates 1, 3, 4, 5, 6 all PASS:
+- Gate 1: implement.Run() calls CheckDoR via TransitionGate at
+  design_review→in_progress (lines 49–66 of implement.go). Wiring is live.
+- Gate 3: TestRun_DesignReviewBlockedByDoR drives implement.Run() through
+  a DoR-failing fixture (orphaned N-99). All 29 tests pass fresh (-count=1).
+- Gate 4: Reachability artefact correctly names the real entry point; the
+  round-1 CheckDoR-isolation defect is fixed.
+- Gate 5: Zero TODO/FIXME/deferred/placeholder markers in changed files.
+- Gate 6: All 5 ACs have verifiable test evidence; tests pass live.
+```
