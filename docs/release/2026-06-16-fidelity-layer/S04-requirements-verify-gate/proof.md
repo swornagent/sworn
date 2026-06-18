@@ -153,10 +153,52 @@ None — all acceptance checks are delivered.
 - **internal/prompt/prompt.go** modified to add `RequirementsVerifier()` accessor — not in planned_files, but necessary for embedding the prompt. The planned_files listed `internal/adopt/baton/rules/08-requirements-fidelity.md` which already existed (landed by S16-lint-rename). The verification section in that rule doc is a cross-reference, not code to implement.
 - **cmd/sworn/reqverify_test.go** created — integration tests at the CLI boundary. Not in the original planned_files but needed for Rule 1 reachability coverage.
 - **internal/adopt/baton/rules/08-requirements-fidelity.md** not modified — the verification section of Rule 8 was already authored by the planner/S16. The reqverify package implements its mandate via code, not prose.
-
 ## First-pass script output
 
 ```
 $ BASE_BRANCH=release-wt/2026-06-16-fidelity-layer $HOME/.claude/bin/release-verify.sh S04-requirements-verify-gate 2026-06-16-fidelity-layer
-(reported below — run in worktree context)
+
+release-verify.sh
+  slice:       S04-requirements-verify-gate
+  slice dir:   docs/release/2026-06-16-fidelity-layer/S04-requirements-verify-gate
+  base branch: release-wt/2026-06-16-fidelity-layer
+
+== Slice artefacts ==
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+
+== Status ==
+  PASS  status.json is valid JSON
+  state: implemented
+  PASS  state is 'implemented' (eligible for verifier review)
+
+== Diff vs release-wt/2026-06-16-fidelity-layer ==
+  PASS  32 file(s) changed vs release-wt/2026-06-16-fidelity-layer
+
+== Dark-code markers in changed files ==
+  PASS  no dark-code markers in changed source files
+
+== Proof bundle structural checks ==
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+
+== Frontmatter YAML safety ==
+  PASS  spec.md frontmatter is strict-YAML safe
+
+== First-pass verdict ==
+  checks passed: 18
+  checks failed: 0
+
+FIRST-PASS PASS
+Open a FRESH session and paste role-prompts/verifier.md to perform adversarial verification.
+Do NOT run the verifier in this same session — Rule 7 requires a fresh context window.
 ```
