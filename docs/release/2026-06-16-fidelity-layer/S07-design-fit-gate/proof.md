@@ -13,9 +13,11 @@ $ git diff --name-only a1b2672..HEAD
 cmd/sworn/designfit.go
 cmd/sworn/designfit_test.go
 cmd/sworn/main.go
+docs/release/2026-06-16-fidelity-layer/S07-design-fit-gate/journal.md
+docs/release/2026-06-16-fidelity-layer/S07-design-fit-gate/proof.md
 docs/release/2026-06-16-fidelity-layer/S07-design-fit-gate/status.json
-internal/adopt/adopt.go
-internal/adopt/baton/VERSION
+docs/release/2026-06-16-fidelity-layer/index.md
+internal/adopt/adopt.gointernal/adopt/baton/VERSION
 internal/adopt/baton/rules/09-design-fidelity.md
 internal/designfit/designfit.go
 internal/designfit/designfit_test.go

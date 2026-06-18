@@ -1,55 +1,58 @@
 {
-  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
-  "slice_id": "S07-design-fit-gate",
-  "release": "2026-06-16-fidelity-layer",
-  "track": "T1-fidelity-core",
-  "state": "failed_verification",
-  "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-19T12:00:00Z",
-  "start_commit": "f4a3bfbe6778de3c8ba031babbd4312667be1a07",
-  "spec_path": "docs/release/2026-06-16-fidelity-layer/S07-design-fit-gate/spec.md",
-  "proof_path": "docs/release/2026-06-16-fidelity-layer/S07-design-fit-gate/proof.md",
-  "journal_path": "docs/release/2026-06-16-fidelity-layer/S07-design-fit-gate/journal.md",
-  "planned_files": [
-    "internal/designfit/designfit.go",
-    "internal/designfit/designfit_test.go",
-    "cmd/sworn/designfit.go",
-    "cmd/sworn/main.go",
-    "internal/state/state.go",
-    "internal/prompt/planner.md",
-    "internal/prompt/captain.md",
-    "internal/adopt/baton/rules/09-design-fidelity.md",
-    "internal/adopt/baton/VERSION"
-  ],
-  "actual_files": [
-    "internal/designfit/designfit.go",
-    "internal/designfit/designfit_test.go",
-    "cmd/sworn/designfit.go",
-    "cmd/sworn/designfit_test.go",
-    "cmd/sworn/main.go",
-    "internal/state/state.go",
-    "internal/prompt/planner.md",
-    "internal/prompt/captain.md",
-    "internal/adopt/baton/rules/09-design-fidelity.md",
-    "internal/adopt/baton/VERSION",
-    "internal/adopt/adopt.go"
-  ],
-  "test_commands": [
-    "go test ./internal/designfit/...",
-    "go test ./cmd/sworn/ -run TestDesignfit"
-  ],
-  "reachability_artifacts": [
-    "Reachability smoke step: run '/tmp/sworn-test/sworn designfit smoke-test' with Type-1 choice undecided -> exit 1, names slice+choice; record decision -> exit 0"
-  ],
-  "open_deferrals": [],
-  "verification": {
-    "result": "fail",
-    "verifier_session_id": null,
-    "verifier_verdict_at": "2026-06-18T00:00:00Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      "Gate 2 — start_commit in status.json points to the implementation commit f4a3bfbe (feat(designfit): land S07), not a pre-implementation start commit. git diff --name-only f4a3bfbe..HEAD returns only 3 proof-bundle documentation files; none of the planned touchpoints from spec.md appear in the computed diff scope. Fix: correct start_commit to a1b2672 (the S05 verifier PASS commit, immediately before S07 implementation)."
-    ]
-  }
+    "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+    "slice_id": "S07-design-fit-gate",
+    "release": "2026-06-16-fidelity-layer",
+    "track": "T1-fidelity-core",
+    "state": "implemented",
+    "owner": "human",
+    "last_updated_by": "implementer",
+    "last_updated_at": "2026-06-19T23:00:00Z",
+    "start_commit": "a1b26723268267ac668f7714568a858b12899818",
+    "spec_path": "docs/release/2026-06-16-fidelity-layer/S07-design-fit-gate/spec.md",
+    "proof_path": "docs/release/2026-06-16-fidelity-layer/S07-design-fit-gate/proof.md",
+    "journal_path": "docs/release/2026-06-16-fidelity-layer/S07-design-fit-gate/journal.md",
+    "planned_files": [
+        "internal/designfit/designfit.go",
+        "internal/designfit/designfit_test.go",
+        "cmd/sworn/designfit.go",
+        "cmd/sworn/main.go",
+        "internal/state/state.go",
+        "internal/prompt/planner.md",
+        "internal/prompt/captain.md",
+        "internal/adopt/baton/rules/09-design-fidelity.md",
+        "internal/adopt/baton/VERSION"
+    ],
+    "actual_files": [
+        "internal/designfit/designfit.go",
+        "internal/designfit/designfit_test.go",
+        "cmd/sworn/designfit.go",
+        "cmd/sworn/designfit_test.go",
+        "cmd/sworn/main.go",
+        "internal/state/state.go",
+        "internal/prompt/planner.md",
+        "internal/prompt/captain.md",
+        "internal/adopt/baton/rules/09-design-fidelity.md",
+        "internal/adopt/baton/VERSION",
+        "internal/adopt/adopt.go"
+    ],
+    "test_commands": [
+        "go test ./internal/designfit/...",
+        "go test ./cmd/sworn/ -run TestDesignfit"
+    ],
+    "reachability_artifacts": [
+        "Reachability smoke step: run '/tmp/sworn-test/sworn designfit smoke-test' with Type-1 choice undecided -> exit 1, names slice+choice; record decision -> exit 0"
+    ],
+    "open_deferrals": [],
+    "verification": {
+        "result": "fail",
+        "resolved_at": "2026-06-19T23:00:00Z",
+        "resolved_by": "implementer",
+        "resolution": "corrected start_commit from f4a3bfbe (implementation commit) to a1b2672 (pre-implementation S05 verifier PASS commit)",
+        "verifier_session_id": null,
+        "verifier_verdict_at": "2026-06-18T00:00:00Z",
+        "verifier_was_fresh_context": true,
+        "violations": [
+            "Gate 2 - start_commit in status.json points to the implementation commit f4a3bfbe (feat(designfit): land S07), not a pre-implementation start commit. git diff --name-only f4a3bfbe..HEAD returns only 3 proof-bundle documentation files; none of the planned touchpoints from spec.md appear in the computed diff scope. Fix: correct start_commit to a1b2672 (the S05 verifier PASS commit, immediately before S07 implementation)."
+        ]
+    }
 }

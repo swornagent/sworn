@@ -64,3 +64,13 @@ Required to address:
 1. Correct `start_commit` in `docs/release/2026-06-16-fidelity-layer/S07-design-fit-gate/status.json` from `f4a3bfbe6778de3c8ba031babbd4312667be1a07` to `a1b2672b...` (the last commit before S07 implementation — the S05 verifier PASS commit, `chore(release/2026-06-16-fidelity-layer/S05-requirements-validate-gate): verifier verdict — PASS`). Confirm `git diff --name-only a1b2672..HEAD` then shows all planned implementation touchpoints. This is a metadata-only fix; no production code changes are needed.
 
 Note: Gates 1, 3, 4, 5, 6 all PASS. Implementation is correct — all 9 unit tests and 5 CLI integration tests pass in a fresh session. The sole fix needed is the `start_commit` metadata field.
+### 2026-06-19 23:00 -- re-entry: address verifier FAIL (metadata fix)
+
+- **State**: failed_verification -> in_progress -> implemented
+- **Notes**:
+  - Re-entered to address verifier round-1 FAIL: Gate 2 -- start_commit was set to the implementation commit f4a3bfbe instead of the pre-implementation base a1b2672.
+  - **Fix**: Corrected start_commit in status.json from f4a3bfbe to a1b2672 (S05 verifier PASS commit, immediately before S07 implementation). No production code changes needed.
+  - Updated proof.md "Files changed" section to include all files from a1b2672..HEAD (journal.md, proof.md, index.md were added to the diff listing).
+  - **Verification**: git diff --name-only a1b2672..HEAD shows all 15 planned+actual touchpoints.
+  - **Tests**: All 14 tests still pass (9 unit + 5 CLI). No regressions.
+- **Decision**: Metadata-only fix per verifier requirements. No code or test changes needed.
