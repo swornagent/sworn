@@ -149,6 +149,12 @@ files (disjoint, no change).
 
 ## Recent activity
 
+### 2026-06-20 — S08-design-system-input: FAIL (round 4, fresh-context verifier)
+
+- **Actor**: verifier (fresh-context session)
+- **Result**: FAIL on Gate 2 (×2). All other gates PASS — Gate 1 confirmed (cfg.Validate() is live in cmdVerify/cmdReqverify); tests pass; reachability artefact valid; no silent deferrals; all AC claims have evidence. Gate 2 violations: (1) `cmd/sworn/reqverify.go` is an unplanned touchpoint with no S03 commits — all its in-scope changes are from the S08 Round 3 fix commit `7a76d62` — but is not mentioned in proof.md "Divergence from plan" and is incorrectly attributed to "earlier S03 work" in the "Files changed" note. (2) `cmd/sworn/main.go` has S08-specific changes (cfg.Validate() call, commit `7a76d62`) not acknowledged in "Divergence from plan"; the "Files changed" note implies all main.go changes in scope are S03. Slice state → `failed_verification`.
+- **Next step**: `/implement-slice S08-design-system-input 2026-06-16-fidelity-layer` in a fresh session to address the 3 numbered violations (update "Divergence from plan" for reqverify.go and main.go; correct "Files changed" note attribution).
+
 ### 2026-06-20 — S08-design-system-input: FAIL (round 2, fresh-context verifier)
 
 - **Actor**: verifier (fresh-context session)

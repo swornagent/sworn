@@ -3,7 +3,7 @@
   "slice_id": "S08-design-system-input",
   "release": "2026-06-16-fidelity-layer",
   "track": "T3-leaf-gates",
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "human",
   "last_updated_by": "implementer (round 3 — Gate 1/4/6 fix)",
   "last_updated_at": "2026-06-20T04:30:00Z",  "start_commit": "9b3b637a6afd5563838aa1a665eac3672208926e",
@@ -36,17 +36,12 @@
   "verification": {
     "result": "fail",
     "verifier_session_id": null,
-    "verifier_verdict_at": "2026-06-20T04:30:00Z",
+    "verifier_verdict_at": "2026-06-20T06:00:00Z",
     "verifier_was_fresh_context": true,
     "violations": [
-      "Gate 1: Config.Validate() is never called from any production code path; sworn does not fail closed for a UI-bearing project without a design system",
-      "Gate 4: proof.md reachability artefact automated step 5 falsely claims test verifies Validate() returns ErrNoDesignSystem; manual smoke step falsely claims sworn verify fails closed via Validate()",
-      "Gate 6: proof.md AC1 evidence falsely states TestCmdInit_UIBearingFlag confirms fail-closed behavior; test only verifies ui_bearing: true is stored"
+      "Gate 2: cmd/sworn/reqverify.go is an unplanned touchpoint not explained in Divergence from plan; Files changed note incorrectly attributes it to S03 work (all its in-scope changes are from S08 Round 3 fix commit 7a76d62)",
+      "Gate 2: cmd/sworn/main.go has S08-specific changes (cfg.Validate() call added in Round 3 commit 7a76d62) not acknowledged in Divergence from plan; Files changed note incorrectly implies all main.go changes are S03 scope"
     ],
-    "addressed_in_round": 3,
-    "fix_commits": [
-      "cfg.Validate() wired into cmdReqverify (reqverify.go) and cmdVerify (main.go)",
-      "TestCmdInit_UIBearing_ValidateFailClosed added to init_design_system_test.go",
-      "proof.md Gate 4/6 false claims corrected"
-    ]
-  }}
+    "addressed_in_round": 4,
+    "fix_commits": []
+  }

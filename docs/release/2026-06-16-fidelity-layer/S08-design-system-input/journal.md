@@ -37,7 +37,20 @@
 
 ## Verifier verdicts received
 
-- Pending (slice not yet verified).
+### 2026-06-20 — Round 4 verifier verdict: FAIL
+
+**Verdict**: FAIL
+
+**Violations:**
+
+1. **Gate 2** — `cmd/sworn/reqverify.go` is an unplanned touchpoint not explained in proof.md "Divergence from plan". The "Files changed" parenthetical incorrectly attributes it to "earlier S03 work" — `reqverify.go` has zero S03 commits; all its changes in scope are from the S08 Round 3 fix commit (`7a76d62`).
+
+2. **Gate 2** — `cmd/sworn/main.go` has S08-specific changes (the `cfg.Validate()` call added in Round 3 commit `7a76d62`) that are not acknowledged in "Divergence from plan". The "Files changed" parenthetical classes all of main.go's in-scope changes as S03 scope, which is inaccurate — the file carries both S03 specquality changes and an S08 fail-closed wiring change.
+
+**Required to address:**
+1. Update proof.md "Divergence from plan" to add `cmd/sworn/reqverify.go`: unplanned touchpoint, modified in Round 3 to add `cfg.Validate()` fail-closed wiring for AC1.
+2. Update proof.md "Divergence from plan" to clarify `cmd/sworn/main.go`: the `cfg.Validate()` call added in Round 3 is S08 scope, distinct from the S03 specquality changes also present in this diff range.
+3. Correct proof.md "Files changed" parenthetical note so that `cmd/sworn/reqverify.go` and the S08 portion of `cmd/sworn/main.go` are identified as S08-specific, not attributed to S03 work.
 
 ### 2026-06-20 — Round 2 verifier verdict: FAIL
 
