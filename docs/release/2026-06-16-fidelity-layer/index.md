@@ -118,8 +118,8 @@ files (disjoint, no change).
 | `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | verified | human | [spec](./S12-journey-impact-analysis/spec.md) | [proof](./S12-journey-impact-analysis/proof.md) |
 | `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | verified | human | [spec](./S13-walkthrough-attestation/spec.md) | [proof](./S13-walkthrough-attestation/proof.md) |
 | `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | verified | human | [spec](./S14-journey-regression-suite/spec.md) | [proof](./S14-journey-regression-suite/proof.md) |
-| `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | implemented | human | [spec](./S03-spec-quality-firstpass/spec.md) | [proof](./S03-spec-quality-firstpass/proof.md) |
-| `S08-design-system-input` | T3 | Design system (tokens + component library) as first-class project input | planned | human | [spec](./S08-design-system-input/spec.md) | — |
+| `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | verified | human | [spec](./S03-spec-quality-firstpass/spec.md) | [proof](./S03-spec-quality-firstpass/proof.md) |
+| `S08-design-system-input` | T3 | Design system (tokens + component library) as first-class project input | failed_verification | human | [spec](./S08-design-system-input/spec.md) | [proof](./S08-design-system-input/proof.md) |
 | `S09-design-conformance-audit` | T3 | Deterministic drift first-pass + human cohesion verdict (`sworn designaudit`) | planned | human | [spec](./S09-design-conformance-audit/spec.md) | — |
 | `S15-sworn-top-evidence` | T4 | Read-only journey-validation green-board / kill-list (`sworn top`) | verified | agent | [spec](./S15-sworn-top-evidence/spec.md) | [proof](./S15-sworn-top-evidence/proof.md) |
 
@@ -137,17 +137,32 @@ files (disjoint, no change).
 
 ## Aggregate state
 
-- Planned: 2 (S08, S09)
+- Planned: 1 (S09)
 - In progress: 0
-- Implemented (awaiting verification): 1 (S03)
-- Verified (across tracks): 13 (S01, S02, S04, S05, S06, S07, S10, S11, S12, S13, S14, S15, S16)
-- Failed verification: 0
+- Implemented (awaiting verification): 0
+- Verified (across tracks): 14 (S01, S02, S03, S04, S05, S06, S07, S10, S11, S12, S13, S14, S15, S16)
+- Failed verification: 1 (S08)
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** T3 in_progress / Merged: 3 (T1: b8521f8, T2: 991b035, T4: ca5b1ea)
 
 ## Recent activity
+
+### 2026-06-20 — /replan-release: S08 BLOCKED (round 5) — process-state block, verification.result cleared
+
+- **Actor**: planner (/replan-release)
+- **Trigger**: S08 BLOCKED verdict (round 5, fresh-context verifier) — slice was in state `failed_verification` (not `implemented`) when the verifier ran. The implementer had completed Round 3 code fixes (Gate 1/4/6) but had not addressed Round 4 proof.md documentation gaps before the Round 5 verifier session was opened.
+- **Diagnosis**: NOT a spec defect. The spec is correct and the implementation is functionally sound. The Round 4 Gate 2 violations are proof.md completeness gaps only — both are fixable by the implementer without any spec amendment:
+  1. `cmd/sworn/reqverify.go` is missing from proof.md "Files changed" (it IS in `git diff --name-only 9b3b637..HEAD`; 10 lines of changes) and not acknowledged in "Divergence from plan".
+  2. `cmd/sworn/main.go` has S08-specific changes (the `cfg.Validate()` call in `cmdVerify()` added in Round 3 commit `7a76d62`) not acknowledged in "Divergence from plan"; the parenthetical note incorrectly attributes ALL main.go changes to S03 scope.
+- **Resolution**: `verification.result` cleared from `"blocked"` to `"pending"` on T3 track branch S08 `status.json` (planning-artefact edit). State remains `failed_verification` — the Round 4 violations still need to be addressed by the implementer. Board drift corrected: S03 `implemented` → `verified`; S08 `planned` → `failed_verification`. Spec label drift resolved: `E2E gate type` → `Test gate type` in S08 spec, `E2E gate type` → `Reachability gate type` in S03 spec (accepting T3 track improvements into release-wt). Base branch synced: forward-merged `release/v0.1.0` (8 docs commits for `2026-06-19-safe-parallelism` + `.gitignore` union).
+- **Required next step — IMPLEMENTER MUST DO THIS**: Run `/implement-slice S08-design-system-input 2026-06-16-fidelity-layer` in a fresh session and fix proof.md:
+  1. Add `cmd/sworn/reqverify.go` to the "Files changed" list (it has 10-line S08-scope changes — the `cfg.Validate()` call wiring).
+  2. Add two entries to "Divergence from plan": (a) `cmd/sworn/reqverify.go` — unplanned touchpoint, modified in Round 3 commit `7a76d62` to add `cfg.Validate()` fail-closed wiring for AC1; (b) `cmd/sworn/main.go` — the `cfg.Validate()` call added in `cmdVerify()` in Round 3 is S08 scope, distinct from the S03 `case "specquality"` block also present in this diff range.
+  3. Correct the parenthetical note in "Files changed" to stop attributing `cmd/sworn/reqverify.go` to S03.
+  4. Transition `status.json` state to `implemented`.
+  Then run `/verify-slice S08-design-system-input 2026-06-16-fidelity-layer` in a fresh session.
 
 ### 2026-06-19 — /replan-release: S03 BLOCKED (round 4) — root cause confirmed, T3 status cleared directly
 
