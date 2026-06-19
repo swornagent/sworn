@@ -154,11 +154,6 @@ own `cmd/sworn/<cmd>.go` files (disjoint, no change).
 - **Board drift corrected**: S14 `failed_verification` → `verified` (verified on T2 branch after prior replan; board was stale). S03 `failed_verification` → `implemented` (re-implemented on T3 branch after prior replan; blocked verdict now cleared).
 - **Step 6**: T2 forward-merged cleanly (planning artefacts only). T3 had production-code conflict on `cmd/sworn/main.go` — aborted and fell back to cherry-pick of this session's planner commits (`PLANNER_START_SHA..release-wt/`); production-code merge deferred to next `/implement-slice S03` Step 0.
 
-### 2026-06-19 — S03-spec-quality-firstpass: BLOCKED (round 2, fresh-context)
-
-- **Actor**: verifier (fresh-context session)
-- **Note**: Forward-merge of `release-wt/2026-06-16-fidelity-layer` into `T3-leaf-gates` track worktree conflicted on `cmd/sworn/main.go`. Root cause: both S03 (T3) and S15 (T4, already in release-wt) write to `cmd/sworn/main.go`. The index.md convention states `main.go` is "not a touchpoint collision" (additive case blocks), but the live merge produces a code conflict — the same failure mode that caused silent file deletion at merge `722e658`. Proposed amendment: add `cmd/sworn/main.go` to the touchpoint matrix with a serialisation note, and update `T3-leaf-gates` `depends_on` to include `T4-evidence-surface` (or vice versa). Merge aborted; worktree clean. State unchanged (`implemented`); `verification.result` set to `blocked`. Next: `/replan-release 2026-06-16-fidelity-layer`. Resolved by replan above.
-
 ### 2026-06-19 — /replan-release: S14 BLOCKED resolved (Option A), board drift corrected
 
 - **Actor**: planner (/replan-release)
