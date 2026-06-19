@@ -18,7 +18,7 @@ tracks:
     state: in_progress
   - id: T3-leaf-gates
     slices: [S03-spec-quality-firstpass, S08-design-system-input, S09-design-conformance-audit]
-    depends_on: T1-fidelity-core
+    depends_on: [T1-fidelity-core, T4-evidence-surface]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T3-leaf-gates
     worktree_branch: track/2026-06-16-fidelity-layer/T3-leaf-gates
     state: in_progress
@@ -52,7 +52,7 @@ tracks:
 |---|---|---|---|---|
 | `T1-fidelity-core` | S01 → S02 → S04 → S05 → S07 → S11 → S16 | — | `track/2026-06-16-fidelity-layer/T1-fidelity-core` | merged |
 | `T2-delivery-cutover` | S06 → S10 → S12 → S13 → S14 | T1 | `track/2026-06-16-fidelity-layer/T2-delivery-cutover` | in_progress |
-| `T3-leaf-gates` | S03 → S08 → S09 | T1 | `track/2026-06-16-fidelity-layer/T3-leaf-gates` | in_progress |
+| `T3-leaf-gates` | S03 → S08 → S09 | T1, T4 | `track/2026-06-16-fidelity-layer/T3-leaf-gates` | in_progress |
 | `T4-evidence-surface` | S15 | T1 | `track/2026-06-16-fidelity-layer/T4-evidence-surface` | merged |
 
 ### Touchpoint matrix
@@ -83,16 +83,20 @@ tracks:
 | `internal/config/` | | | ✓ | |
 | `bin/*.sh` (new gate scripts) | | | ✓ | |
 | `cmd/sworn/top.go` (new) | | | | ✓ |
+| `cmd/sworn/main.go` (DOCUMENTED SHARED) | ✓ (multiple cases) | ✓ case "ship" | ✓ case "specquality" | ✓ case "top" |
 | `internal/adopt/baton/rules/08-requirements-fidelity.md` (new) | ✓ | (T1 via dep) | (T1 via dep) | |
 | `internal/adopt/baton/rules/09-design-fidelity.md` (new) | ✓ | | (T1 via dep) | |
 | `internal/adopt/baton/rules/10-customer-journey-validation.md` (new) | ✓ | (T1 via dep) | | |
 
-**Convention (recorded in intake):** `cmd/sworn/main.go` carries an **additive command switch**;
-each command-adding slice (S01 `rtm`, S02 `ears`, S03 `specquality`, S04 `reqverify`, S05
-`reqvalidate`, S07 `designfit`, S09 `designaudit`, S11 `journeys`, S13 `ship`, S15 `top`)
-contributes a distinct `case`. Per the prior release's parallel command registration, this is
-**not** treated as a touchpoint collision. Command *implementations* live in their own
-`cmd/sworn/<cmd>.go` files (disjoint).
+**`cmd/sworn/main.go` — documented shared file (corrected 2026-06-19):** The original
+"Convention" paragraph treated `cmd/sworn/main.go` as collision-free for the parallel set
+{T2, T3, T4} on the basis that each track adds a distinct `case` block. A live merge proved
+otherwise: T4's `case "top"` and T3's `case "specquality"` conflict at the same switch
+insertion point. `cmd/sworn/main.go` is now registered as a **DOCUMENTED SHARED** file per
+track-mode.md Invariant 2 — each track's distinct, non-overlapping `case` symbol is recorded
+above. T3 gains `depends_on: T4-evidence-surface` to serialise the merge order (T4 must be
+in `release-wt` before T3's `/merge-track` runs). Command *implementations* remain in their
+own `cmd/sworn/<cmd>.go` files (disjoint, no change).
 
 ## Slices
 
@@ -110,7 +114,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | verified | human | [spec](./S12-journey-impact-analysis/spec.md) | [proof](./S12-journey-impact-analysis/proof.md) |
 | `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | verified | human | [spec](./S13-walkthrough-attestation/spec.md) | [proof](./S13-walkthrough-attestation/proof.md) |
 | `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | verified | human | [spec](./S14-journey-regression-suite/spec.md) | [proof](./S14-journey-regression-suite/proof.md) |
-| `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | failed_verification | human | [spec](./S03-spec-quality-firstpass/spec.md) | [proof](./S03-spec-quality-firstpass/proof.md) |
+| `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | implemented | human | [spec](./S03-spec-quality-firstpass/spec.md) | [proof](./S03-spec-quality-firstpass/proof.md) |
 | `S08-design-system-input` | T3 | Design system (tokens + component library) as first-class project input | planned | human | [spec](./S08-design-system-input/spec.md) | — |
 | `S09-design-conformance-audit` | T3 | Deterministic drift first-pass + human cohesion verdict (`sworn designaudit`) | planned | human | [spec](./S09-design-conformance-audit/spec.md) | — |
 | `S15-sworn-top-evidence` | T4 | Read-only journey-validation green-board / kill-list (`sworn top`) | verified | agent | [spec](./S15-sworn-top-evidence/spec.md) | [proof](./S15-sworn-top-evidence/proof.md) |
@@ -131,15 +135,24 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 - Planned: 2 (S08, S09)
 - In progress: 0
-- Implemented (awaiting verification): 0
+- Implemented (awaiting verification): 1 (S03)
 - Verified (across tracks): 13 (S01, S02, S04, S05, S06, S07, S10, S11, S12, S13, S14, S15, S16)
-- Failed verification: 1 (S03)
+- Failed verification: 0
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** T2 all slices verified (ready to merge); T3 in_progress / Merged: 2 (T1: b8521f8, T4: ca5b1ea)
 
 ## Recent activity
+
+### 2026-06-19 — /replan-release: S03 BLOCKED resolved, touchpoint matrix corrected, board drift corrected
+
+- **Actor**: planner (/replan-release)
+- **Trigger**: S03 BLOCKED verdict (round 2, fresh-context verifier) — forward-merge of `release-wt` into T3 track branch conflicted on `cmd/sworn/main.go`. Root cause: touchpoint matrix "Convention" paragraph incorrectly classified `cmd/sworn/main.go` as collision-free for parallel tracks {T2, T3, T4}.
+- **Resolution**: Corrected the touchpoint matrix — added `cmd/sworn/main.go (DOCUMENTED SHARED)` row with per-track `case` symbol notation (T3: `case "specquality"`, T4: `case "top"`, T1+T2: remaining cases). Replaced incorrect "Convention" paragraph with the corrected documented-shared-file note. Added `T4-evidence-surface` to T3's `depends_on` to serialise the merge order (T4 must be in `release-wt` before T3's `/merge-track`). T4 is already merged, so T3 is unblocked immediately. No spec changes — S03's implementation is correct; the defect was in the matrix, not the slice contract.
+- **S03 status**: `verification.result` cleared from `"blocked"` to `"pending"`. Slice stays `implemented`; ready for fresh `/verify-slice S03-spec-quality-firstpass`. Next `/implement-slice S03` session must forward-merge `release-wt` into the T3 worktree and resolve the `cmd/sworn/main.go` conflict (keep both `case "specquality"` and `case "top"`) before the verifier runs.
+- **Board drift corrected**: S14 `failed_verification` → `verified` (verified on T2 branch after prior replan; board was stale). S03 `failed_verification` → `implemented` (re-implemented on T3 branch after prior replan; blocked verdict now cleared).
+- **Step 6**: T2 forward-merged cleanly (planning artefacts only). T3 had production-code conflict on `cmd/sworn/main.go` — aborted and fell back to cherry-pick of this session's planner commits (`PLANNER_START_SHA..release-wt/`); production-code merge deferred to next `/implement-slice S03` Step 0.
 
 ### 2026-06-19 — S14-journey-regression-suite: PASS (round 4, fresh-context)
 
