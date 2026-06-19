@@ -1,6 +1,6 @@
 // Package adopt materialises the Baton protocol into a target repo:
 // writing docs/baton/ (rules + VERSION) and splicing the seven-rule
-// fragment into AGENTS.md. Both operations are idempotent.
+// fragment into agent config files. Both operations are idempotent.
 package adopt
 
 import (
@@ -10,19 +10,26 @@ import (
 	"path/filepath"
 	"strings"
 )
+
 //go:embed baton/README.md baton/VERSION baton/rules/*
 var batonFS embed.FS
 
 // BatonSectionHeading is the marker heading that identifies the Baton
-// section in AGENTS.md. It must match the heading used by the splice logic
-// exactly.
+// section in agent config files. It must match the heading used by the
+// splice logic exactly.
 const BatonSectionHeading = "## Engineering Process — Baton"
 
-// batonAGENTSFragment is the seven-rule fragment spliced into AGENTS.md.
-// It is hardcoded as a Go constant (Coach Pin 6) — the rules are stable
-// text from the open Baton protocol and change only at protocol version
-// bumps, which are explicit re-vendor operations. This is the same content
-// as the project's own AGENTS.md ## Engineering Process — Baton section.
+// agentFiles lists the recognized agent-config files that sworn splices
+// the Baton rules section into. AGENTS.md is always created if absent;
+// the others are only spliced if they already exist in the repo.
+var agentFiles = []string{
+	"AGENTS.md",
+	"CLAUDE.md",
+}
+
+// batonAGENTSFragment is the seven-rule fragment spliced into agent config
+// files. It is hardcoded as a Go constant — the rules are stable text from
+// the open Baton protocol and change only at explicit protocol version bumps.
 const batonAGENTSFragment = `## Engineering Process — Baton
 
 This project follows the **Baton** rule-set (see ` + "`docs/baton/`" + ` for
@@ -104,6 +111,25 @@ can shortcut directly to verified.
 
 Full rule docs: ` + "`docs/baton/`" + `.`
 
+// SpliceAction describes what SpliceAgents did (or would do) for one file.
+type SpliceAction int
+
+const (
+	SpliceCreated    SpliceAction = iota // file created with fragment
+	SpliceAppended                       // section appended to existing file
+	SpliceUpdated                        // existing section replaced (force=true)
+	SpliceNoOp                           // section already current; no-op
+	SpliceCustomized                     // section exists and differs; skipped without --force
+	SpliceAbsent                         // optional file absent; skipped
+)
+
+// SpliceResult describes the outcome (or planned outcome) for a single agent
+// config file.
+type SpliceResult struct {
+	File   string
+	Action SpliceAction
+}
+
 // Materialise writes the Baton protocol docs (rules + README + VERSION) into
 // the target repo at <repoRoot>/docs/baton/. Existing files are overwritten
 // with the embedded copies. The VERSION file records the vendored protocol
@@ -116,7 +142,6 @@ func Materialise(repoRoot string) error {
 		return fmt.Errorf("adopt: mkdir %s: %w", rulesDir, err)
 	}
 
-	// Files to materialise (embedded path -> filesystem path).
 	files := []struct {
 		src  string
 		dst  string
@@ -145,38 +170,71 @@ func Materialise(repoRoot string) error {
 	return nil
 }
 
-// SpliceAgents ensures the Baton seven-rule fragment is present in the target
-// repo's AGENTS.md. Behaviour:
-//
-//   - If AGENTS.md does not exist, it is created with the fragment.
-//   - If the heading "## Engineering Process — Baton" is absent, the fragment
-//     is appended.
-//   - If the heading is present, the existing section body (from the heading to
-//     the next same-level or higher heading, or EOF) is replaced with the
-//     embedded fragment. Content before and after the section is preserved.
-//   - If the existing section body is byte-identical to the embedded fragment,
-//     the file is not modified (is a true no-op).
-//
-// On success, returns true if the file was created or modified, false if it
-// was a no-op.
-func SpliceAgents(repoRoot string) (modified bool, err error) {
-	path := filepath.Join(repoRoot, "AGENTS.md")
+// BatonDocsExist reports whether the docs/baton/ directory already exists
+// under repoRoot. Used by callers to determine whether Materialise would
+// create new files or is a no-op update.
+func BatonDocsExist(repoRoot string) bool {
+	_, err := os.Stat(filepath.Join(repoRoot, "docs", "baton"))
+	return err == nil
+}
 
+// PlanSplice scans all candidate agent config files and returns what
+// SpliceAgents would do for each, without writing anything. Use this to
+// present a plan to the user before applying changes.
+func PlanSplice(repoRoot string, force bool) ([]SpliceResult, error) {
+	return runSplice(repoRoot, force, true)
+}
+
+// SpliceAgents ensures the Baton seven-rule fragment is present in all
+// recognized agent config files found in repoRoot. AGENTS.md is always
+// created if absent; other files (CLAUDE.md, etc.) are only spliced if
+// they already exist.
+//
+// If force is false and an existing Baton section has been customized
+// (differs from the embedded fragment), the file is left unchanged and
+// the result carries SpliceCustomized. Pass force=true to overwrite.
+//
+// Returns one SpliceResult per candidate file.
+func SpliceAgents(repoRoot string, force bool) ([]SpliceResult, error) {
+	return runSplice(repoRoot, force, false)
+}
+
+func runSplice(repoRoot string, force, dryRun bool) ([]SpliceResult, error) {
+	var results []SpliceResult
+	for i, name := range agentFiles {
+		mustCreate := i == 0 // only AGENTS.md is created if absent
+		path := filepath.Join(repoRoot, name)
+		action, err := spliceOne(path, force, mustCreate, dryRun)
+		if err != nil {
+			return results, err
+		}
+		results = append(results, SpliceResult{File: name, Action: action})
+	}
+	return results, nil
+}
+
+func spliceOne(path string, force, mustCreate, dryRun bool) (SpliceAction, error) {
 	existing, readErr := os.ReadFile(path)
 	if os.IsNotExist(readErr) {
-		// Create AGENTS.md with the fragment.
-		return true, os.WriteFile(path, []byte(batonAGENTSFragment+"\n"), 0644)
+		if !mustCreate {
+			return SpliceAbsent, nil
+		}
+		if dryRun {
+			return SpliceCreated, nil
+		}
+		return SpliceCreated, os.WriteFile(path, []byte(batonAGENTSFragment+"\n"), 0644)
 	}
 	if readErr != nil {
-		return false, fmt.Errorf("adopt: read %s: %w", path, readErr)
+		return SpliceNoOp, fmt.Errorf("adopt: read %s: %w", path, readErr)
 	}
 
 	content := string(existing)
 	headingIdx := strings.Index(content, BatonSectionHeading)
 
 	if headingIdx < 0 {
-		// Heading not present — append the fragment.
-		// Ensure a blank line separator before appending.
+		if dryRun {
+			return SpliceAppended, nil
+		}
 		sep := "\n"
 		if !strings.HasSuffix(content, "\n\n") {
 			if strings.HasSuffix(content, "\n") {
@@ -186,45 +244,42 @@ func SpliceAgents(repoRoot string) (modified bool, err error) {
 			}
 		}
 		newContent := content + sep + batonAGENTSFragment + "\n"
-		if newContent == content {
-			return false, nil
-		}
-		return true, os.WriteFile(path, []byte(newContent), 0644)
+		return SpliceAppended, os.WriteFile(path, []byte(newContent), 0644)
 	}
 
-	// Heading is present — find the end of the section to replace.
-	// A section ends at the next heading of same or higher level (##) or EOF.
+	// Heading present — locate section bounds.
 	sectionStart := headingIdx
 	bodyStart := headingIdx + len(BatonSectionHeading)
-	// Skip the rest of the heading line (description text after the heading).
 	if nl := strings.IndexByte(content[bodyStart:], '\n'); nl >= 0 {
 		bodyStart += nl + 1
 	}
-
-	// Find the next ## heading at the same or higher level.
 	remaining := content[bodyStart:]
 	nextHeading := strings.Index(remaining, "\n## ")
 	var sectionEnd int
 	if nextHeading >= 0 {
-		sectionEnd = bodyStart + nextHeading + 1 // include the \n before the heading
+		sectionEnd = bodyStart + nextHeading + 1
 	} else {
 		sectionEnd = len(content)
 	}
 
 	oldSection := content[sectionStart:sectionEnd]
-	// Reconstruct the section from the embedded fragment. The fragment begins
-	// with the heading line + "\n\n" + body. Reconstruct exactly.
 	bodyContent := strings.TrimPrefix(batonAGENTSFragment, BatonSectionHeading+"\n\n")
 	newSection := BatonSectionHeading + "\n\n" + bodyContent
 
-	// Normalise trailing newlines for comparison — the file may have gained
-	// an extra trailing newline from a previous write.
 	if strings.TrimRight(oldSection, "\n") == strings.TrimRight(newSection, "\n") {
-		return false, nil // byte-identical (modulo trailing newline), no-op
+		return SpliceNoOp, nil
 	}
-	// Replace the section body.
+
+	// Section differs from embedded fragment — it has been customized.
+	if !force {
+		return SpliceCustomized, nil
+	}
+
+	if dryRun {
+		return SpliceUpdated, nil
+	}
 	newContent := content[:sectionStart] + newSection + content[sectionEnd:]
-	return true, os.WriteFile(path, []byte(newContent), 0644)
+	return SpliceUpdated, os.WriteFile(path, []byte(newContent), 0644)
 }
 
 // BatonDocsFS returns the embedded docs/baton/ filesystem for use by callers
