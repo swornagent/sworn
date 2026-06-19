@@ -18,7 +18,7 @@ tracks:
     state: in_progress
   - id: T3-leaf-gates
     slices: [S03-spec-quality-firstpass, S08-design-system-input, S09-design-conformance-audit]
-    depends_on: [T1-fidelity-core, T4-evidence-surface]
+    depends_on: [T1-fidelity-core, T2-delivery-cutover, T4-evidence-surface]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T3-leaf-gates
     worktree_branch: track/2026-06-16-fidelity-layer/T3-leaf-gates
     state: in_progress
@@ -52,7 +52,7 @@ tracks:
 |---|---|---|---|---|
 | `T1-fidelity-core` | S01 → S02 → S04 → S05 → S07 → S11 → S16 | — | `track/2026-06-16-fidelity-layer/T1-fidelity-core` | merged |
 | `T2-delivery-cutover` | S06 → S10 → S12 → S13 → S14 | T1 | `track/2026-06-16-fidelity-layer/T2-delivery-cutover` | in_progress |
-| `T3-leaf-gates` | S03 → S08 → S09 | T1, T4 | `track/2026-06-16-fidelity-layer/T3-leaf-gates` | in_progress |
+| `T3-leaf-gates` | S03 → S08 → S09 | T1, T2, T4 | `track/2026-06-16-fidelity-layer/T3-leaf-gates` | in_progress |
 | `T4-evidence-surface` | S15 | T1 | `track/2026-06-16-fidelity-layer/T4-evidence-surface` | merged |
 
 ### Touchpoint matrix
@@ -88,15 +88,10 @@ tracks:
 | `internal/adopt/baton/rules/09-design-fidelity.md` (new) | ✓ | | (T1 via dep) | |
 | `internal/adopt/baton/rules/10-customer-journey-validation.md` (new) | ✓ | (T1 via dep) | | |
 
-**`cmd/sworn/main.go` — documented shared file (corrected 2026-06-19):** The original
+**`cmd/sworn/main.go` — documented shared file (corrected 2026-06-19, further corrected 2026-06-19):** The original
 "Convention" paragraph treated `cmd/sworn/main.go` as collision-free for the parallel set
-{T2, T3, T4} on the basis that each track adds a distinct `case` block. A live merge proved
-otherwise: T4's `case "top"` and T3's `case "specquality"` conflict at the same switch
-insertion point. `cmd/sworn/main.go` is now registered as a **DOCUMENTED SHARED** file per
-track-mode.md Invariant 2 — each track's distinct, non-overlapping `case` symbol is recorded
-above. T3 gains `depends_on: T4-evidence-surface` to serialise the merge order (T4 must be
-in `release-wt` before T3's `/merge-track` runs). Command *implementations* remain in their
-own `cmd/sworn/<cmd>.go` files (disjoint, no change).
+{T2, T3, T4} on the basis that each track adds a distinct `case` block. Live merges have proved
+otherwise — twice. Round 2 BLOCKED (verifier) found that T4's `case "top"` and T3's `case "specquality"` conflict; T4 was added to T3's `depends_on`. Round 3 BLOCKED (verifier) found that T2's `case "ship"` (S13, merged to release-wt after T3's session 4 forward-merge) conflicts with T3 — because T3 did not `depends_on` T2. `cmd/sworn/main.go` is registered as a **DOCUMENTED SHARED** file per track-mode.md Invariant 2 — each track's distinct, non-overlapping `case` symbol is recorded above. **T3 must `depends_on` ALL tracks that precede it in merge order for this file: T1, T2, and T4.** As of this correction T3 `depends_on: [T1-fidelity-core, T2-delivery-cutover, T4-evidence-surface]`; both T1, T2, and T4 are already merged, so T3 is immediately unblocked. Command *implementations* remain in their own `cmd/sworn/<cmd>.go` files (disjoint, no change). The next `/implement-slice S03` forward-merge must keep ALL existing `case` blocks (T1's cases, T2's `case "ship":`, T4's `case "top":`) plus T3's `case "specquality":`.
 
 ## Slices
 
@@ -144,6 +139,13 @@ own `cmd/sworn/<cmd>.go` files (disjoint, no change).
 **Tracks:** In progress: 2 (T2, T3) / Merged: 2 (T1: b8521f8, T4: ca5b1ea)
 
 ## Recent activity
+
+### 2026-06-19 — S03-spec-quality-firstpass: BLOCKED (round 3, fresh-context verifier)
+
+- **Actor**: verifier (fresh-context session)
+- **Trigger**: Forward-merge of `release-wt/2026-06-16-fidelity-layer` into `track/2026-06-16-fidelity-layer/T3-leaf-gates` conflicted on `cmd/sworn/main.go`. T2-delivery-cutover (S13-walkthrough-attestation: `case "ship"`) was merged into release-wt after T3's last forward-merge (session 4, 2026-06-19). T3's prior `depends_on: [T1-fidelity-core, T4-evidence-surface]` did not include T2, so T3's `main.go` lacks `case "ship":`.
+- **Board change**: T3 `depends_on` updated from `[T1-fidelity-core, T4-evidence-surface]` to `[T1-fidelity-core, T2-delivery-cutover, T4-evidence-surface]` in frontmatter and Tracks table. T2 is already merged, so T3 is immediately unblocked. `cmd/sworn/main.go` note updated with corrected dependency rule. S03 `verification.result` set to `"blocked"`. Slice state unchanged (`implemented`).
+- **Next step**: `/replan-release 2026-06-16-fidelity-layer` — planner must ratify the T3 `depends_on` correction and arrange the next `/implement-slice S03` session to forward-merge release-wt with correct conflict resolution (keep ALL `case` blocks).
 
 ### 2026-06-19 — /replan-release: S03 BLOCKED resolved, touchpoint matrix corrected, board drift corrected
 

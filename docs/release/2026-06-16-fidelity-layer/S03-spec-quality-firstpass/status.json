@@ -42,11 +42,11 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "blocked",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-06-19T14:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": [],
-    "blocked_reason": null
+    "blocked_reason": "Forward-merge of release-wt/2026-06-16-fidelity-layer into track/2026-06-16-fidelity-layer/T3-leaf-gates conflicted on cmd/sworn/main.go. T2-delivery-cutover (S13: case 'ship') was merged into release-wt after T3's last forward-merge. T3 depends_on does not include T2-delivery-cutover, so T3's main.go lacks case 'ship'. This is the third occurrence of the same pattern; fix: add T2-delivery-cutover to T3 depends_on in index.md."
   }
 }

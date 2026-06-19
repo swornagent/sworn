@@ -85,6 +85,19 @@ description: Implementation log. Append-only.
 
 ## Verifier verdicts received
 
+### 2026-06-19 — BLOCKED (round 3, fresh-context)
+
+- **Verifier session**: fresh
+- **Verdict body**:
+
+  BLOCKED
+
+  Slice: `S03-spec-quality-firstpass`
+  Reason: Forward-merge of `release-wt/2026-06-16-fidelity-layer` into `track/2026-06-16-fidelity-layer/T3-leaf-gates` conflicted on `cmd/sworn/main.go`. T2-delivery-cutover (S13-walkthrough-attestation: `case "ship"`) was merged into release-wt after T3's last forward-merge (session 4, 2026-06-19). T3's `depends_on` is `[T1-fidelity-core, T4-evidence-surface]` — it does NOT depend on T2-delivery-cutover. T3's current `cmd/sworn/main.go` has `case "specquality":` but lacks `case "ship":` (T2's addition at release-wt commits `5d77276` and `5b8d3ce`). The touchpoint matrix records T2→`case "ship"` and T3→`case "specquality"` as parallel tracks writing the same file, but because T3 does not `depends_on` T2, no serialisation guarantee exists. This is the third occurrence of the same missing-depends_on pattern: round 2 BLOCKED (T4 conflict) was fixed by adding T4 to T3's `depends_on`; the same fix is now needed for T2.
+  Proposed `index.md` amendment: Update T3-leaf-gates `depends_on` from `[T1-fidelity-core, T4-evidence-surface]` to `[T1-fidelity-core, T2-delivery-cutover, T4-evidence-surface]`. T2 is already merged (state: merged), so T3 is immediately unblocked. Extend the `cmd/sworn/main.go (DOCUMENTED SHARED)` note to read: "T3 must depend on ALL tracks that precede it in merge order for this file; as of this correction, T3 `depends_on` T1, T2, and T4." The next `/implement-slice S03` session must forward-merge release-wt and resolve the `cmd/sworn/main.go` conflict by keeping ALL existing `case` blocks — T1's cases, T2's `case "ship":`, T4's `case "top":` — plus T3's `case "specquality":`.
+
+- **Action taken**: Merge aborted. State unchanged (`implemented`). `verification.result` set to `blocked`. Next step: `/replan-release 2026-06-16-fidelity-layer`.
+
 ### 2026-06-19 — BLOCKED (round 2, fresh-context)
 
 - **Verifier session**: fresh
