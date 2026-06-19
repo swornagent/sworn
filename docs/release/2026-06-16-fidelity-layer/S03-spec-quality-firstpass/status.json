@@ -41,10 +41,11 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "blocked",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
+    "verifier_verdict_at": "2026-06-19T00:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [],
+    "blocked_reason": "Forward-merge of release-wt/2026-06-16-fidelity-layer into track/2026-06-16-fidelity-layer/T3-leaf-gates conflicted on cmd/sworn/main.go. S15-sworn-top-evidence (T4, already merged into release-wt via commit a58733d) and S03 (T3) both write to cmd/sworn/main.go. The index.md convention claims this is not a touchpoint collision (additive case blocks), but the actual merge produces a code conflict. This is a contract defect in the touchpoint matrix — not fixable by the implementer. Route to /replan-release 2026-06-16-fidelity-layer."
   }
 }

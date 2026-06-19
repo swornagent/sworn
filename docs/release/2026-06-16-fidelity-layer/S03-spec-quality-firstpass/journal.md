@@ -64,6 +64,21 @@ description: Implementation log. Append-only.
 
 ## Verifier verdicts received
 
+### 2026-06-19 — BLOCKED (round 2, fresh-context)
+
+- **Verifier session**: fresh
+- **Verdict body**:
+
+  BLOCKED
+
+  Slice: `S03-spec-quality-firstpass`
+  Reason: Forward-merge of `release-wt/2026-06-16-fidelity-layer` into `track/2026-06-16-fidelity-layer/T3-leaf-gates` conflicted on `cmd/sworn/main.go`. Both `S15-sworn-top-evidence` (T4, already merged into release-wt via commit `a58733d`) and `S03` (T3) write to `cmd/sworn/main.go` with separate `case` additions. The index.md convention states this is "not treated as a touchpoint collision" (additive case blocks, distinct per slice), but the live merge proves a conflict exists. This is a contract defect — the touchpoint matrix incorrectly classifies `cmd/sworn/main.go` as collision-free for the parallel set {T2, T3, T4}.
+  Proposed spec.md/index.md amendment: In the "Touchpoint matrix" section, add `cmd/sworn/main.go` as a shared touchpoint with a note that it is **sequential, not parallel** — each track that adds a `case` must either (a) depend on the prior track that also adds a `case`, or (b) the merge protocol must be made explicit (three-way merge with `ours`/`theirs` strategy documented). The current `T3-leaf-gates` `depends_on: T1-fidelity-core` must be changed to `depends_on: [T1-fidelity-core, T4-evidence-surface]`, or T4 must be moved to depend on T3, to restore the serialisation guarantee. This is the second occurrence of this issue on T3 (prior: merge commit `722e658` silently deleted S03 files; journal 2026-06-27).
+
+- **Action taken**: Merge aborted. State unchanged (`implemented`). `verification.result` set to `blocked`. Next step: `/replan-release 2026-06-16-fidelity-layer`.
+
+
+
 ### 2026-06-19 00:15 — FAIL (round 1, fresh-context)
 
 - **Verifier session**: fresh

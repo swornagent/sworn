@@ -110,7 +110,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | verified | human | [spec](./S12-journey-impact-analysis/spec.md) | [proof](./S12-journey-impact-analysis/proof.md) |
 | `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | verified | human | [spec](./S13-walkthrough-attestation/spec.md) | [proof](./S13-walkthrough-attestation/proof.md) |
 | `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | failed_verification | human | [spec](./S14-journey-regression-suite/spec.md) | [proof](./S14-journey-regression-suite/proof.md) |
-| `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | failed_verification | human | [spec](./S03-spec-quality-firstpass/spec.md) | [proof](./S03-spec-quality-firstpass/proof.md) |
+| `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | blocked (implemented) | human | [spec](./S03-spec-quality-firstpass/spec.md) | [proof](./S03-spec-quality-firstpass/proof.md) |
 | `S08-design-system-input` | T3 | Design system (tokens + component library) as first-class project input | planned | human | [spec](./S08-design-system-input/spec.md) | — |
 | `S09-design-conformance-audit` | T3 | Deterministic drift first-pass + human cohesion verdict (`sworn designaudit`) | planned | human | [spec](./S09-design-conformance-audit/spec.md) | — |
 | `S15-sworn-top-evidence` | T4 | Read-only journey-validation green-board / kill-list (`sworn top`) | verified | agent | [spec](./S15-sworn-top-evidence/spec.md) | [proof](./S15-sworn-top-evidence/proof.md) |
@@ -131,15 +131,21 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 - Planned: 2 (S08, S09)
 - In progress: 0
-- Implemented (awaiting verification): 0
+- Implemented (awaiting verification): 1 (S03 — blocked on touchpoint-matrix defect; routes to /replan-release)
 - Verified (across tracks): 12 (S01, S02, S04, S05, S06, S07, S10, S11, S12, S13, S15, S16)
-- Failed verification: 2 (S03, S14)
+- Failed verification: 1 (S14)
+- Blocked (contract defect, needs /replan-release): 1 (S03)
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** In progress: 2 (T2, T3) / Merged: 2 (T1: b8521f8, T4: ca5b1ea)
 
 ## Recent activity
+
+### 2026-06-19 — S03-spec-quality-firstpass: BLOCKED (round 2, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Forward-merge of `release-wt/2026-06-16-fidelity-layer` into `T3-leaf-gates` track worktree conflicted on `cmd/sworn/main.go`. Root cause: both S03 (T3) and S15 (T4, already in release-wt) write to `cmd/sworn/main.go`. The index.md convention states `main.go` is "not a touchpoint collision" (additive case blocks), but the live merge produces a code conflict — the same failure mode that caused silent file deletion at merge `722e658`. Proposed amendment: add `cmd/sworn/main.go` to the touchpoint matrix with a serialisation note, and update `T3-leaf-gates` `depends_on` to include `T4-evidence-surface` (or vice versa). Merge aborted; worktree clean. State unchanged (`implemented`); `verification.result` set to `blocked`. Next: `/replan-release 2026-06-16-fidelity-layer`.
 
 ### 2026-06-19 — /replan-release: S14 BLOCKED resolved (Option A), board drift corrected
 
