@@ -64,6 +64,9 @@ func main() {
 	case "specquality":
 		// S03-spec-quality-firstpass adds this case (T3-leaf-gates).
 		os.Exit(cmdSpecquality(os.Args[2:]))
+	case "designaudit":
+		// S09-design-conformance-audit adds this case (T3-leaf-gates).
+		os.Exit(cmdDesignaudit(os.Args[2:]))
 	case "top":
 		// S15-sworn-top-evidence adds this case (T4-evidence-surface).
 		// Read-only evidence surface: green-board / kill-list for journey
@@ -155,6 +158,7 @@ usage:
   sworn reqverify <release>
   sworn reqvalidate <release>
   sworn designfit <release>
+  sworn designaudit <project-dir> [--cohesion on-brand|off-brand]
   sworn specquality <release> [--threshold <0.0-1.0>]
   sworn run --task <description> [--implementer-model <m>] [--verifier-model <m>] [--base <branch>] [--retry-cap <n>]
   sworn ship <release> [project-root]

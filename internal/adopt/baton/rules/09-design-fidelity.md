@@ -101,8 +101,50 @@ A project's `config.json` carries an optional `design_system` block:
 `sworn init` prompts for the design system declaration when initialising a
 UI-bearing project. The `--ui-bearing` flag marks the project explicitly.
 
+## Design-system conformance audit
+
+`sworn designaudit <project-dir>` runs a two-layer conformance audit:
+
+### Layer 1 — Deterministic first-pass (machine-check)
+
+Scans UI source files (`.css`, `.scss`, `.ts`, `.tsx`, `.js`, `.jsx`, `.vue`, `.svelte`)
+for three categories of design drift:
+
+| Category | Pattern | Example violation |
+|----------|---------|------------------|
+| **Hardcoded colour** | `color: #ff0000` | Hex literal in CSS property — use `var(--color-primary)` |
+| **Off-scale spacing** | `margin: 17px` | Hard-coded `px`/`rem` value — use `var(--spacing-4)` |
+| **Recreated component** | `function Button()` in app code | Component defined outside the library when a library `Button` exists |
+
+Each violation is reported with `file:line: [kind] message`.
+
+**Sanctioned exceptions:** append `/* sworn-design-allow */` to a line to suppress
+its violation and record a deliberate, human-approved deviation.
+
+### Layer 2 — Human cohesion verdict (human-owned)
+
+The deterministic pass cannot assess whether the overall design **feels on-brand** —
+typography consistency, visual rhythm, spacing coherence. This judgement is human-owned.
+
+Supply it with `--cohesion=on-brand|off-brand`. The system will NOT auto-pass the
+cohesion check; it requires a human-set value to reach exit 0.
+
+### Exit codes
+
+| Condition | Exit code |
+|-----------|-----------|
+| Machine violations found | 1 |
+| Clean pass, no cohesion verdict | 1 (blocked until human sets verdict) |
+| Clean pass + cohesion verdict recorded | 0 |
+| Project is not `ui_bearing` | 0 (exempt) |
+| Config error (no design system declared for UI-bearing project) | 2 |
+
+### CI usage
+
+`bin/design-audit.sh <project-dir>` wraps `sworn designaudit` for first-pass CI use.
+
 ## Out of scope (sibling rules)
 
 - Design-system declaration (tokens + component library) — S08.
-- Design-system conformance audit (no hardcoded hex, token-scale spacing) — S09.- Requirements validation (Rule 8) — design fit assumes the requirement is
+- Requirements validation (Rule 8) — design fit assumes the requirement is
   already validated.

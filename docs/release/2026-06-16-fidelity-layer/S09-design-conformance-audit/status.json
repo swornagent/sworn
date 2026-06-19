@@ -3,11 +3,11 @@
   "slice_id": "S09-design-conformance-audit",
   "release": "2026-06-16-fidelity-layer",
   "track": "T3-leaf-gates",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-20T12:30:00Z",
-  "start_commit": null,
+  "last_updated_at": "2026-06-20T13:00:00Z",
+  "start_commit": "4bf173676831ba1fd1d3a94dec639584038f0abf",
   "spec_path": "docs/release/2026-06-16-fidelity-layer/S09-design-conformance-audit/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S09-design-conformance-audit/proof.md",
   "journal_path": "docs/release/2026-06-16-fidelity-layer/S09-design-conformance-audit/journal.md",
@@ -19,12 +19,23 @@
     "bin/design-audit.sh",
     "internal/adopt/baton/rules/09-design-fidelity.md"
   ],
-  "actual_files": [],
-  "test_commands": [
-    "go test ./internal/designaudit/...",
-    "go test ./cmd/sworn/ -run TestDesignaudit"
+  "actual_files": [
+    "internal/designaudit/designaudit.go",
+    "internal/designaudit/designaudit_test.go",
+    "cmd/sworn/designaudit.go",
+    "cmd/sworn/designaudit_test.go",
+    "cmd/sworn/main.go",
+    "bin/design-audit.sh",
+    "internal/adopt/baton/rules/09-design-fidelity.md"
   ],
-  "reachability_artifacts": [],
+  "test_commands": [
+    "go test ./internal/designaudit/... -v -count=1",
+    "go test ./cmd/sworn/ -run TestDesignaudit -v -count=1"
+  ],
+  "reachability_artifacts": [
+    "integration test: TestDesignauditCmd_HardcodedHex (cmdDesignaudit entry point, Rule 1)",
+    "manual smoke step: sworn designaudit --cohesion=on-brand <fixture-with-hex-violation>"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "pending",
