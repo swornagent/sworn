@@ -3,10 +3,10 @@
   "slice_id": "S13-walkthrough-attestation",
   "release": "2026-06-16-fidelity-layer",
   "track": "T2-delivery-cutover",
-  "state": "implemented",
-  "owner": "implementer",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-26T12:15:00Z",
+  "state": "verified",
+  "owner": "verifier",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-26T13:00:00Z",
   "start_commit": "affb5227a0f94c6a3731f2d1091ca113b500a44d",
   "spec_path": "docs/release/2026-06-16-fidelity-layer/S13-walkthrough-attestation/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S13-walkthrough-attestation/proof.md",
@@ -37,10 +37,10 @@
     "Attestation fields track S11 provisional journey schema, refined via /replan-release (acknowledged 2026-06-16)"
   ],
   "verification": {
-    "result": null,
+    "result": "pass",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-06-26T13:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
   }
 }

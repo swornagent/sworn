@@ -64,3 +64,23 @@ Required to address:
   - `actual_files` updated in status.json to include ship_test.go and the
     consumed model files (walkthrough.go is consumed; index.md was updated).
   - verification.result set to null (ready for fresh verifier).
+
+### 2026-06-26 — PASS (round 2, fresh-context)
+
+PASS
+
+Slice: `S13-walkthrough-attestation`
+Verified against: `488d2173ff0f520835f0e5ad32898d474e3394c1`
+Verifier session: `fresh, artefact-only`
+
+Gate 1: `sworn ship <release>` is wired via `case "ship"` in `cmd/sworn/main.go` → `cmdShip` in `ship.go` → `CheckShipGate` in `shipgate.go`. Real CLI command, no feature flags, not a test fixture only. PASS.
+
+Gate 2: All planned touchpoint deviations (ship_test.go added; internal/state/state.go, internal/journey/journey.go, internal/journey/walkthrough_test.go not changed) are fully accounted for in proof.md "Divergence from plan" — the prior FAIL violations have been resolved. PASS.
+
+Gate 3: `shipgate_test.go` covers all 5 ACs at unit level (same package as the gate); `ship_test.go` exercises `cmdShip` via the actual CLI entry point (Rule 1). Both test suites ran live from the worktree — all pass. PASS.
+
+Gate 4: Reachability artefact is a manual-smoke-step with detailed user-gesture description. `TestShipCmd_UnwalkedJourneyBlocks` (exit 1, names the journey) and `TestShipCmd_AllTouchedAttested` (exit 0) prove the full scenario specified in spec.md. Ran live and observed expected output. PASS.
+
+Gate 5: No TODO/FIXME/deferred/placeholder/XXX/HACK markers in any changed source file. The one documented deferral (provisional S11 schema, `open_deferrals` in status.json) has all three Rule-2 elements. PASS.
+
+Gate 6: All 5 ACs have valid evidence references to real, working test functions. No claimed items outside the spec's acceptance checks. PASS.
