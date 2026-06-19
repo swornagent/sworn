@@ -1,0 +1,40 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S04-sworn-tui",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T2-monitoring",
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-20T00:00:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S04-sworn-tui/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S04-sworn-tui/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S04-sworn-tui/journal.md",
+  "planned_files": [
+    "cmd/sworn/main.go",
+    "cmd/sworn/top.go",
+    "internal/tui/model.go",
+    "internal/tui/releases.go",
+    "internal/tui/board.go",
+    "internal/tui/concurrent.go",
+    "internal/tui/blocked.go",
+    "internal/tui/open_ai.go",
+    "internal/tui/styles.go",
+    "internal/tui/tui_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/tui/...",
+    "go build ./..."
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}
