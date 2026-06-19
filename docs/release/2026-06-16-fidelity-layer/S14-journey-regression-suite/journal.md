@@ -50,8 +50,20 @@ description: Implementation log for S14-journey-regression-suite. Append-only.
   4. Update proof.md Divergence section to document the pre/post gap-count pattern.
 - **Cleared**: `verification.result` reset to `pending` so verifier session starts fresh after re-implementation.
 
-## Open questions
+### 2026-06-26 — implement Option A: exit 1 on pre-codification gaps
 
+- **State**: `failed_verification → in_progress → implemented`
+- **Planner Option A implemented**:
+  1. **`cmdJourneysRegen()` in `journeys.go`**: Captures pre-codification gaps via `RegressionCoverageGaps()` before `CodifyWalkedJourneys()` runs. If any gaps existed at run start, exits 1 after codification — even if all gaps were filled during the same run. Exit 0 only when no gaps existed at start.
+  2. **`TestJourneysRegenCmd_CoverageGapFilled`**: Updated to assert exit 1 (gap at start, filled during run).
+  3. **`TestJourneysRegenCmd_ScaffoldEmission`**: Updated to assert exit 1 (gap scenario).
+  4. **`TestJourneysRegenCmd_UnwalkedJourneyNotCodified`**: Updated to assert exit 1 (J01-walked had no coverage at start).
+  5. **`10-customer-journey-validation.md`**: Coverage check section corrected — "exits non-zero if gaps existed at run start" not "exits non-zero if gaps remain after codification."
+- **All tests pass**: 4 CLI integration tests + 11 unit tests = 0 regressions.
+- **Build + vet**: Clean.
+- **Proof.md**: Updated AC1 evidence, smoke step, reachability artefact descriptions, and divergence section with Option A pre/post gap-count pattern.
+
+## Open questions
 None — deferred scaffold-completeness is already tracked in open_deferrals.
 
 ## Deferrals surfaced

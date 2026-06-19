@@ -103,25 +103,23 @@ ok  	github.com/swornagent/sworn/internal/journey	0.029s
 
 - **Type**: `cli-integration-test`
 - **Evidence**: `cmd/sworn/journeys_regen_test.go` — CLI integration tests call `cmdJourneys([]string{"--regen", ...})` with fixture artefacts, asserting:
-  1. **Coverage gap filled** (`TestJourneysRegenCmd_CoverageGapFilled`): walks a journey through `--regen` with no prior coverage — asserts exit 0, "All coverage gaps filled" message, and scaffold file creation.
+  1. **Coverage gap at start** (`TestJourneysRegenCmd_CoverageGapFilled`): walks a journey through `--regen` with no prior coverage — asserts exit 1 (gaps at run start), scaffold file creation, and stdout indicates generation.
   2. **Full coverage** (`TestJourneysRegenCmd_FullCoverage`): all walked journeys already have coverage — asserts exit 0 and "No new regression scaffolds needed" message.
   3. **Scaffold emission** (`TestJourneysRegenCmd_ScaffoldEmission`): emitted scaffold contains journey steps, package declaration, testing import, and t.Skip marker.
   4. **Un-walked exclusion** (`TestJourneysRegenCmd_UnwalkedJourneyNotCodified`): only walked journeys get scaffolds, un-walked journeys are not codified.
-
   These tests follow the existing pattern (`cmd/sworn/journeys_test.go`, `cmd/sworn/journeys_impact_test.go`) — calling `cmdJourneys()` as a Go function, not compiling a separate binary. The test output above captures all 4 tests passing.
 
 - **Smoke step** (manual): maintainer runs:
   ```sh
   sworn journeys --regen <release> <project-root>
   ```
-  - With a walked, un-covered journey: generates scaffold, reports "All coverage gaps filled during this run", exit 0.
+  - With a walked, un-covered journey: generates scaffold, reports "FAIL: N coverage gap(s) existed at run start", exit 1 (scaffolds generated, commit and re-run).
   - With all journeys covered: "No new regression scaffolds needed", exit 0.
   - Without attestations: all journeys pass as un-walked, exit 0.
-
 ## Delivered
 
-- **AC1 — Gap detection**: WHEN a journey is ratified + walked but flagged for regression with no committed test, THE SYSTEM SHALL exit non-zero and name the gap (or fill it during regen and report).
-  - Evidence: `RegressionCoverageGaps()` in `internal/journey/regression.go`; `cmdJourneysRegen()` gap-check logic in `cmd/sworn/journeys.go`; CLI integration test `TestJourneysRegenCmd_CoverageGapFilled` (exit 0, gap filled and reported); unit test `TestRegressionCoverageGaps_WalkedJourneyNoTest`.
+- **AC1 — Gap detection**: WHEN a journey is ratified + walked but flagged for regression with no committed test, THE SYSTEM SHALL exit non-zero and name the gap.
+  - Evidence: `RegressionCoverageGaps()` in `internal/journey/regression.go`; `cmdJourneysRegen()` cmdJourneysRegen() pre-codification gap capture in `cmd/sworn/journeys.go`; CLI integration test `TestJourneysRegenCmd_CoverageGapFilled` (exit 1, gaps existed at run start; filled during same run); unit test `TestRegressionCoverageGaps_WalkedJourneyNoTest`.
 
 - **AC2 — Scaffold generation**: WHEN `sworn journeys --regen` runs for a walked journey, THE SYSTEM SHALL emit a regression test scaffold whose steps mirror the journey's steps.
   - Evidence: `CodifyJourney()` + `buildScaffold()` in `internal/journey/regression.go`; `TestCodifyJourney_GeneratesScaffold` (unit); `TestJourneysRegenCmd_ScaffoldEmission` (CLI integration with file-system assertion).
@@ -140,6 +138,8 @@ ok  	github.com/swornagent/sworn/internal/journey	0.029s
 
 - **`internal/journey/regression.go` created as a separate file**: The spec's "Planned touchpoints" list `internal/journey/journey.go` and `internal/journey/regression_test.go` for codification + coverage check, but does not list `regression.go`. The codification logic was placed in a new dedicated file (`regression.go`, 238 lines) rather than inlined into `journey.go` (which already contains artefact I/O, drafting, and check logic — adding 238 more lines would have made it ~600 lines). The separation follows Go convention (one concern per file) and mirrors the existing pattern (`impact.go` for impact analysis, `walkthrough.go` for attestation). The `regression_test.go` file covers all tests for both the regression package-level API and the command handler's logic.
 - **Planned `test_commands` adjustment**: The original `status.json` listed `"go test ./cmd/sworn/ -run TestJourneysRegen"` as a planned test command. This has been added as `cmd/sworn/journeys_regen_test.go` (4 CLI integration tests). The `test_commands` field in `status.json` now reflects actual commands.
+
+- **Option A — pre/post gap-count pattern (2026-06-19 planner ratification)**: The verifier BLOCKED on AC1 exit-non-zero — implementation exited 0 when gaps were filled during same run. Planner ratified Option A: sworn journeys --regen SHALL exit non-zero if any coverage gaps existed at run start, even if all gaps filled during same run. Exit 0 only when no gaps at start. Implementation now captures pre-codification gaps before CodifyWalkedJourneys() and exits 1 if any existed. Three gap-scenario tests assert exit 1. Rule doc corrected to 'gaps existed at run start.'
 
 ## First-pass script output
 
