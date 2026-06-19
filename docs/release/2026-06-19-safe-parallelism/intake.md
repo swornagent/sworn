@@ -32,7 +32,7 @@ or a paged notification that something needs their input.
 ## Source of truth
 
 - **Human stakeholder**: Brad (maintainer)
-- **Tracking issue / epic**: TBD — create before first implementation session (Rule 5)
+- **Tracking issue / epic**: [#5 — Epic: safe-parallelism release](https://github.com/swornagent/sworn/issues/5)
 - **Integration branch**: `release/v0.1.0`
 - **Prerequisite release**: `2026-06-16-fidelity-layer` (R2) — must be fully merged before
   R3 implementation begins. R3 planning can proceed in parallel with R2 implementation.

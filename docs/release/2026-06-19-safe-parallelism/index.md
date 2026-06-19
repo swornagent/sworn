@@ -46,7 +46,7 @@ tracks:
 - **Target ship**: uncommitted
 - **Intake**: `intake.md`
 - **Stakeholder**: Brad (maintainer)
-- **Tracking issue**: TBD (create before first implementation session)
+- **Tracking issue**: [#5](https://github.com/swornagent/sworn/issues/5)
 
 ## Tracks
 
