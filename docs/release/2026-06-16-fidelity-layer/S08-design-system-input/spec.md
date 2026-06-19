@@ -66,6 +66,7 @@ no design system; a CLI project explicitly declares none and is exempt.
 - **Reachability artefact**: smoke step — "init a fixture UI-bearing project without a design
   system; observe the failure; declare one; observe it parsed + exposed."
 - **E2E gate type**: `local`.
+- **playwright-screenshot**: N/A — sworn is a CLI tool; no browser interaction.
 
 ## Risks
 

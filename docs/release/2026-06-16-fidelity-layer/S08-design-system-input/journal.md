@@ -1,44 +1,40 @@
----
-title: Slice journal template
-description: Implementation log for one slice. Append-only. Visible to verifier as context, but verifier verdict is based on proof.md and repo state, not journal prose.
----
-
-# Journal: `<slice-id>`
-
-> Copy this file to `docs/release/<release-name>/<slice-id>/journal.md`. Append entries chronologically. Do not delete history. Decisions captured here must also land in commit message bodies per Rule 4 — this journal is a working surface, not a substitute for durable capture.
+# Journal: `S08-design-system-input`
 
 ## Session log
 
-### `<YYYY-MM-DD HH:MM>` — `<session start / state transition>`
+### 2026-06-20 02:49 — start implementation
 
-- **State**: `<planned | in_progress | implemented | failed_verification | verified | deferred | shipped>`
+- **State**: `planned → in_progress`
 - **Notes**:
-  - `<Decisions made>`
-  - `<Trade-offs encountered>`
-  - `<Subagent dispatches and where their outputs landed>`
+  - Set up status.json with state: in_progress and start_commit.
+  - Created track worktree already existed at `/home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T3-leaf-gates`.
 
-### `<YYYY-MM-DD HH:MM>` — `<next event>`
+### 2026-06-20 02:54 — implement design system types and validation
 
-- ...
+- **State**: `in_progress`
+- **Notes**:
+  - Added `DesignSystem` struct with `TokenSource` and `ComponentLibrary` fields to `internal/config/config.go`.
+  - Added `UIBearing` bool and `DesignSystem *DesignSystem` fields to `Config` struct.
+  - Added `Validate()` method to `Config` that returns `ErrNoDesignSystem` when `ui_bearing: true` but no design system declared.
+  - Updated `DefaultConfig()` to set `UIBearing: false, DesignSystem: nil` (sworn is a CLI tool).
+  - Added `PromptDesignSystem()` function in `internal/config/init.go` for interactive prompting.
+  - Updated `cmd/sworn/init.go` to add `--ui-bearing` flag and design system prompting in scan + apply phases.
+  - Updated `internal/adopt/baton/rules/09-design-fidelity.md` with `## Design-system input` section documenting the three-tier concept.
+  - **Key design decisions:**
+    - Design system lives in the same Config struct as verifier settings, not a separate file — keeps the config surface minimal.
+    - The `--ui-bearing` flag marks a project explicitly; without it, `sworn init` assumes CLI (non-UI-bearing).
+    - The `PromptDesignSystem` function is in `internal/config/init.go` (the planned touchpoint) alongside `Scaffold`.
+    - `cmd/sworn/init.go` was an unplanned file but necessary for the init prompting integration.
+    - Token format hint is not mandated in the schema — S09's audit will adapt to format.
 
 ## Open questions
 
-\<Anything the implementer needs the human to resolve. Each open question blocks state transition to `implemented` until answered.\>
-
-- ...
+- None.
 
 ## Deferrals surfaced
 
-`<Per Rule 2: each deferral needs why + tracking + acknowledgement. Cross-link to GitHub issue or punch-list entry. If empty, write "None" explicitly.>`
-
-- ...
+- None.
 
 ## Verifier verdicts received
 
-`<Append every verifier verdict here. Even FAIL verdicts stay — they are part of the slice's history.>`
-
-### `<YYYY-MM-DD HH:MM>` — `<PASS | FAIL | BLOCKED>`
-
-- **Verifier session**: `<fresh / inherited — should always be fresh>`
-- **Verdict body**: `<paste the full verifier output>`
-- **Action taken**: `<how the implementer responded>`
+- Pending (slice not yet verified).
