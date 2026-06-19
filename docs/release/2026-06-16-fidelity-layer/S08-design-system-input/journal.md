@@ -48,3 +48,18 @@
   - **Deferrals**: None — all scope items delivered.
   - **Divergence from plan**: `cmd/sworn/init.go` was an unplanned file, necessary for the init CLI integration. The planned touchpoint `internal/config/init.go` contains the `PromptDesignSystem` function.
   - Ready for adversarial verification. Open a fresh session with `/verify-slice S08-design-system-input 2026-06-16-fidelity-layer`.
+
+### 2026-06-20 03:34 — re-entry: fix Gate 3 (integration test via cmdInit entry point)
+
+- **State**: `failed_verification → in_progress → implemented`
+- **Context**: Previous verifier (round 1, fresh-context) returned FAIL at Gate 3: spec requires "Integration: sworn init on a fixture UI-bearing project prompts for + records the declaration (Rule 1 via the init entry point)." No integration test calling `cmdInit(...)` with `--ui-bearing` existed.
+- **Fix**:
+  - Added `cmd/sworn/init_design_system_test.go` with three tests:
+    - `TestCmdInit_NonInteractive`: verifies `cmdInit([]string{"--yes"})` produces non-UI-bearing config.
+    - `TestCmdInit_UIBearingFlag`: verifies `cmdInit([]string{"--yes", "--ui-bearing"})` produces config with `ui_bearing: true` via the `cmdInit` entry point.
+    - `TestCmdInit_UIBearingOutput`: additional smoke check that config contains `ui_bearing` key.
+  - Updated `status.json`: added `cmd/sworn/init_design_system_test.go` to `actual_files`, added `go test ./cmd/sworn/... -run TestCmdInit` to `test_commands`.
+  - Updated `proof.md`: added integration test output and revised "Delivered" evidence to cite both unit and integration tests.
+- **Worktree note**: The local worktree was stale behind `origin/track/T3-leaf-gates`. Fast-forwarded via `git merge --ff-only` to bring in upstream S08 commits. All existing tests pass.
+- **First-pass script**: Re-run after fix.
+- **State**: Ready for adversarial verification in a fresh session.
