@@ -135,8 +135,7 @@ $ $HOME/.claude/bin/release-verify.sh S13-walkthrough-attestation 2026-06-16-fid
   PASS  state is 'implemented' (eligible for verifier review)
 
 == Diff vs main ==
-  PASS  38 file(s) changed vs main
-
+  PASS  42 file(s) changed vs main
 == Dark-code markers ==
   PASS  no dark-code markers in changed source files
 
