@@ -15,7 +15,7 @@ tracks:
     depends_on: T1-fidelity-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T2-delivery-cutover
     worktree_branch: track/2026-06-16-fidelity-layer/T2-delivery-cutover
-    state: in_progress
+    state: merged
   - id: T3-leaf-gates
     slices: [S03-spec-quality-firstpass, S08-design-system-input, S09-design-conformance-audit]
     depends_on: [T1-fidelity-core, T4-evidence-surface]
@@ -51,7 +51,7 @@ tracks:
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
 | `T1-fidelity-core` | S01 → S02 → S04 → S05 → S07 → S11 → S16 | — | `track/2026-06-16-fidelity-layer/T1-fidelity-core` | merged |
-| `T2-delivery-cutover` | S06 → S10 → S12 → S13 → S14 | T1 | `track/2026-06-16-fidelity-layer/T2-delivery-cutover` | in_progress |
+| `T2-delivery-cutover` | S06 → S10 → S12 → S13 → S14 | T1 | `track/2026-06-16-fidelity-layer/T2-delivery-cutover` | merged |
 | `T3-leaf-gates` | S03 → S08 → S09 | T1, T4 | `track/2026-06-16-fidelity-layer/T3-leaf-gates` | in_progress |
 | `T4-evidence-surface` | S15 | T1 | `track/2026-06-16-fidelity-layer/T4-evidence-surface` | merged |
 
@@ -141,9 +141,14 @@ own `cmd/sworn/<cmd>.go` files (disjoint, no change).
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** T2 all slices verified (ready to merge); T3 in_progress / Merged: 2 (T1: b8521f8, T4: ca5b1ea)
+**Tracks:** T3 in_progress / Merged: 3 (T1: b8521f8, T2: 991b035, T4: ca5b1ea)
 
 ## Recent activity
+
+### 2026-06-19 — track `T2-delivery-cutover` merged to release-wt (commit 991b035)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 5 verified slices merged: S06-definition-of-ready, S10-no-mock-boundary, S12-journey-impact-analysis, S13-walkthrough-attestation, S14-journey-regression-suite. No drift (0 sibling commits to sync). Track state → merged.
 
 ### 2026-06-19 — /replan-release: S03 BLOCKED resolved, touchpoint matrix corrected, board drift corrected
 
