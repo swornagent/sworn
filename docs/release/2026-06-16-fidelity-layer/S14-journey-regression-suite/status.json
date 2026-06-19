@@ -3,17 +3,16 @@
   "slice_id": "S14-journey-regression-suite",
   "release": "2026-06-16-fidelity-layer",
   "track": "T2-delivery-cutover",
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-26T14:30:00Z",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-19T04:00:00Z",
   "start_commit": "ad3433917938da331c7f705ba87319723ab9716a",
   "spec_path": "docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/proof.md",
   "journal_path": "docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/journal.md",
   "planned_files": [
     "internal/journey/journey.go",
-    "internal/journey/regression.go",
     "internal/journey/regression_test.go",
     "cmd/sworn/journeys.go",
     "internal/adopt/baton/rules/10-customer-journey-validation.md"
@@ -36,16 +35,15 @@
     "cmd/sworn/journeys_regen_test.go — 4 CLI integration tests exercising the --regen path with fixture artefacts"
   ],
   "open_deferrals": [
-    "Scaffold-not-complete-oracle: complete journey oracle is project E2E work (why/tracking/ack 2026-06-16)",
-    "Provisional journey-schema detail tracks S11, refined via /replan-release"
+    "Scaffold-not-complete-oracle: complete journey oracle is project E2E work (why/tracking/ack 2026-06-16)"
   ],
   "verification": {
-    "result": "blocked",
+    "result": "pending",
     "verifier_session_id": null,
-    "verifier_verdict_at": "2026-06-26T15:00:00Z",
-    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
     "violations": [
-      "BLOCKED: Gate 3 — AC1 'exit non-zero' requirement and the Required Tests 'coverage-gap failure' test are not satisfiable under the current design. This is the second consecutive verdict naming AC1's exit-non-zero requirement as unmet. The implementer has converged on exit-0 for gap-filled scenarios (journal: 'gaps filled during the same run are reported as success'), contradicting AC1. CodifyWalkedJourneys always sets HasRegression=true, making the exit-1 branch dead code. Route to /replan-release 2026-06-16-fidelity-layer to ratify either Option A (exit 1 when gaps existed at run start) or Option B (exit 0 when gaps filled, remove coverage-gap-failure test requirement)."
+      "Planner ratified Option A (2026-06-19): AC1 exit-non-zero requirement stands. Implementer must: (1) capture pre-codification gap count and exit 1 if any gaps existed at run start, even after filling them; (2) update TestJourneysRegenCmd_CoverageGapFilled to assert exit 1; (3) fix self-contradiction in 10-customer-journey-validation.md Coverage check ('exits non-zero if gaps remain' should be 'exits non-zero if gaps existed at run start')."
     ]
   }
 }

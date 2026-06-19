@@ -19,9 +19,9 @@ tracks:
   - id: T3-leaf-gates
     slices: [S03-spec-quality-firstpass, S08-design-system-input, S09-design-conformance-audit]
     depends_on: T1-fidelity-core
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T3-leaf-gates
     worktree_branch: track/2026-06-16-fidelity-layer/T3-leaf-gates
-    state: planned
+    state: in_progress
   - id: T4-evidence-surface
     slices: [S15-sworn-top-evidence]
     depends_on: T1-fidelity-core
@@ -52,7 +52,7 @@ tracks:
 |---|---|---|---|---|
 | `T1-fidelity-core` | S01 → S02 → S04 → S05 → S07 → S11 → S16 | — | `track/2026-06-16-fidelity-layer/T1-fidelity-core` | merged |
 | `T2-delivery-cutover` | S06 → S10 → S12 → S13 → S14 | T1 | `track/2026-06-16-fidelity-layer/T2-delivery-cutover` | in_progress |
-| `T3-leaf-gates` | S03 → S08 → S09 | T1 | `track/2026-06-16-fidelity-layer/T3-leaf-gates` | planned |
+| `T3-leaf-gates` | S03 → S08 → S09 | T1 | `track/2026-06-16-fidelity-layer/T3-leaf-gates` | in_progress |
 | `T4-evidence-surface` | S15 | T1 | `track/2026-06-16-fidelity-layer/T4-evidence-surface` | merged |
 
 ### Touchpoint matrix
@@ -105,12 +105,12 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | verified | human | [spec](./S07-design-fit-gate/spec.md) | [proof](./S07-design-fit-gate/proof.md) |
 | `S11-journey-elicitation` | T1 | AI-drafts/human-ratifies critical journeys into a durable artefact (`sworn journeys`) | verified | verifier | [spec](./S11-journey-elicitation/spec.md) | [proof](./S11-journey-elicitation/proof.md) |
 | `S16-lint-rename` | T1 | Documentation sweep — adopt `sworn lint ac` / `sworn lint trace` canonical names throughout release docs; restore S02 proof.md | verified | human | [spec](./S16-lint-rename/spec.md) | [proof](./S16-lint-rename/proof.md) |
-| `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | verified | verifier | [spec](./S06-definition-of-ready/spec.md) | [proof](./S06-definition-of-ready/proof.md) |
-| `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | verified | verifier | [spec](./S10-no-mock-boundary/spec.md) | [proof](./S10-no-mock-boundary/proof.md) |
-| `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | verified | verifier | [spec](./S12-journey-impact-analysis/spec.md) | [proof](./S12-journey-impact-analysis/proof.md) |
-| `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | verified | verifier | [spec](./S13-walkthrough-attestation/spec.md) | [proof](./S13-walkthrough-attestation/proof.md) |
-| `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | implemented (verification blocked — awaiting /replan-release) | human | [spec](./S14-journey-regression-suite/spec.md) | [proof](./S14-journey-regression-suite/proof.md) |
-| `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | failed_verification | human | [spec](./S03-spec-quality-firstpass/spec.md) | — |
+| `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | verified | human | [spec](./S06-definition-of-ready/spec.md) | [proof](./S06-definition-of-ready/proof.md) |
+| `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | verified | human | [spec](./S10-no-mock-boundary/spec.md) | [proof](./S10-no-mock-boundary/proof.md) |
+| `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | verified | human | [spec](./S12-journey-impact-analysis/spec.md) | [proof](./S12-journey-impact-analysis/proof.md) |
+| `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | verified | human | [spec](./S13-walkthrough-attestation/spec.md) | [proof](./S13-walkthrough-attestation/proof.md) |
+| `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | failed_verification | human | [spec](./S14-journey-regression-suite/spec.md) | [proof](./S14-journey-regression-suite/proof.md) |
+| `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | failed_verification | human | [spec](./S03-spec-quality-firstpass/spec.md) | [proof](./S03-spec-quality-firstpass/proof.md) |
 | `S08-design-system-input` | T3 | Design system (tokens + component library) as first-class project input | planned | human | [spec](./S08-design-system-input/spec.md) | — |
 | `S09-design-conformance-audit` | T3 | Deterministic drift first-pass + human cohesion verdict (`sworn designaudit`) | planned | human | [spec](./S09-design-conformance-audit/spec.md) | — |
 | `S15-sworn-top-evidence` | T4 | Read-only journey-validation green-board / kill-list (`sworn top`) | verified | agent | [spec](./S15-sworn-top-evidence/spec.md) | [proof](./S15-sworn-top-evidence/proof.md) |
@@ -131,121 +131,20 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 - Planned: 2 (S08, S09)
 - In progress: 0
-- Implemented (awaiting verification): 1 (S14 — verification blocked, awaiting /replan-release)
-- Verified: 12 (S01, S02, S04, S05, S06, S07, S10, S11, S12, S13, S15, S16)
-- Failed verification: 1 (S03)
+- Implemented (awaiting verification): 0
+- Verified (across tracks): 12 (S01, S02, S04, S05, S06, S07, S10, S11, S12, S13, S15, S16)
+- Failed verification: 2 (S03, S14)
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 1 (T3) / In progress: 1 (T2) / Merged: 2 (T1: b8521f8, T4: ca5b1ea)
+**Tracks:** In progress: 2 (T2, T3) / Merged: 2 (T1: b8521f8, T4: ca5b1ea)
 
 ## Recent activity
 
-### 2026-06-26 — S14-journey-regression-suite: BLOCKED (round 2, fresh-context)
+### 2026-06-19 — /replan-release: S14 BLOCKED resolved (Option A), board drift corrected
 
-- **Actor**: verifier (fresh-context session)
-- **Note**: Gate 3 — AC1's "exit non-zero" requirement is the second consecutive unmet verdict (recurrence is evidence per verifier.md). The first FAIL required "(c) exit 1 when a walked journey has no test." The implementer added CLI tests but `TestJourneysRegenCmd_CoverageGapFilled` asserts exit 0. The journal explicitly documents that "gaps filled during the same run are reported as success" — a deliberate design decision contradicting AC1. Technically: `CodifyWalkedJourneys` always sets `HasRegression=true`, making `cmdJourneysRegen`'s exit-1 branch dead code; the "coverage-gap failure" integration test is unachievable without redesigning coverage tracking. Gates 1 (PASS), 2 (PASS), 4 (PASS), 5 (PASS), 6 (PASS). Build, vet, and all 22+ tests green in fresh session. The spec needs planner ratification of either: Option A (exit 1 when gaps existed at run start, spec literal) or Option B (exit 0 when all gaps filled, align spec to implementation). Slice state stays `implemented`. Next: `/replan-release 2026-06-16-fidelity-layer`.
-
-### 2026-06-19 — S14-journey-regression-suite: FAIL (round 1, fresh-context)
-
-- **Actor**: verifier (fresh-context session)
-- **Note**: Three violations. Gate 2: `internal/journey/regression.go` (new file, 238 lines — core codification logic) appears in the diff but is not in planned touchpoints and is not mentioned in proof.md "Divergence from plan". Gate 3: spec "Required tests" explicitly requires a CLI integration test (`sworn journeys --regen <fixture-release>` end-to-end); no test in `cmd/sworn/` covers the `--regen` path; only package-level unit tests exist; proof.md's "Divergence from plan" acknowledges this but lacks a full Rule 2 deferral (tracking reference and human ack are absent); the stated rationale ("requires full binary build + fixture setup") is incorrect given the existing `cmd/sworn/journeys_test.go` pattern. Gate 4: reachability artefact substitutes package-level unit tests ("demonstrated programmatically") for a CLI smoke run; per Rule 1 a unit suite is not a reachability artefact. Gates 1, 5, 6 all PASS: `--regen` correctly wired; no silent deferrals in production files; all 4 ACs have verifiable evidence. Slice state → `failed_verification`. Next: `/implement-slice S14-journey-regression-suite 2026-06-16-fidelity-layer`.
-
-### 2026-06-26 — S13-walkthrough-attestation: PASS (round 2, fresh-context)
-
-- **Actor**: verifier (fresh-context session)
-- **Note**: All six gates passed. `sworn ship <release>` wired end-to-end: `case "ship"` in `main.go` → `cmdShip` → `CheckShipGate` in `shipgate.go`. All 5 ACs covered: `shipgate_test.go` (unit, 7 tests covering AC1–AC5) and `ship_test.go` (integration, 5 tests driving `cmdShip` directly via the CLI entry point). Tests ran live from the worktree, all pass. Reachability artefact: `TestShipCmd_UnwalkedJourneyBlocks` (blocked cutover, names un-walked journey) and `TestShipCmd_AllTouchedAttested` (exit 0, cutover allowed) observed live. No deferral markers. All 4 prior FAIL violations in proof.md "Divergence from plan" fully resolved. Verified at commit `488d2173`. Slice state → `verified`. T2-delivery-cutover: S06 ✓, S10 ✓, S12 ✓, S13 ✓, S14 planned. Next: `/implement-slice S14-journey-regression-suite 2026-06-16-fidelity-layer`.
-
-### 2026-06-19 — S13-walkthrough-attestation: FAIL (round 1, fresh-context)
-
-- **Actor**: verifier (fresh-context session)
-- **Note**: Gate 2 — 3 concrete violations in proof.md "Divergence from plan". (1) `cmd/sworn/ship_test.go` is in the diff but not in planned touchpoints and not mentioned in the divergence section. (2) Planned touchpoints `internal/journey/journey.go` and `internal/journey/walkthrough_test.go` are absent from the diff with no explicit accounting in proof.md (the note about S15's walkthrough.go is only partial). (3) "Divergence from plan" contradictorily leads with "None" while the third bullet acknowledges a real deviation from `internal/state/state.go`. Gates 1, 3, 4, 5, 6 all PASS — `sworn ship` is correctly wired and fail-closed; all 5 ACs pass with named tests; no silent deferrals. Fixes: add `cmd/sworn/ship_test.go` explanation to divergence section; explicitly account for `journey.go` and `walkthrough_test.go` not being touched; remove the contradictory "None" text. Slice state → `failed_verification`. Next: `/implement-slice S13-walkthrough-attestation 2026-06-16-fidelity-layer`.
-
-### 2026-06-19 — S12-journey-impact-analysis: PASS (round 1, fresh-context)
-
-- **Actor**: verifier (fresh-context session)
-- **Note**: All six gates passed. 8 unit tests (`internal/journey/impact_test.go`) + 4 CLI integration tests (`cmd/sworn/journeys_impact_test.go`, invoking `cmdJourneys(...)` directly) green in fresh session. All 4 ACs verified with named test evidence. Manual smoke step in proof.md shows fail-closed on missing/unratified artefact (exit 1) and correct touched-journey set output (exit 0). No silent deferrals in production files. Divergences (new `impact.go` instead of `journey.go`; new `journeys_impact_test.go`; `main.go` docs update) all explained in proof.md. Verified at commit `5d77276`. Slice state → `verified`. T2-delivery-cutover: S06 ✓, S10 ✓, S12 ✓, S13/S14 planned. Next: `/implement-slice S13-walkthrough-attestation 2026-06-16-fidelity-layer`.
-
-### 2026-06-19 — S10-no-mock-boundary: PASS (round 4, fresh-context)
-
-- **Actor**: verifier (fresh-context session)
-- **Note**: All six gates passed. 12 S10 boundary-mock tests pass fresh. CLI confirmed live: undeclared DB mock → FAIL/boundary_mock (exit 1); declared mock with `--deferral` passes through to model dispatch. All 4 ACs verified: AC1 (undeclared fails closed), AC2 (declared allowed + surfaced in rationale), AC3 (implementer.md stop-don't-mock), AC4 (absence fails closed). start_commit (`4d866d6`) now correctly includes all 4 planned touchpoints. `sworn` binary acknowledged as accidentally tracked divergence. Slice state → `verified`. T2-delivery-cutover: S06 ✓, S10 ✓, S12/S13/S14 planned. Next: `/implement-slice S12-journey-impact-analysis 2026-06-16-fidelity-layer`.
-
-### 2026-06-19 — S10-no-mock-boundary: FAIL (round 3, fresh-context)
-
-- **Actor**: verifier (fresh-context session)
-- **Note**: 1 violation (Gate 2 only). `status.json` `start_commit` is `cec70a6` — a "verifier verdict — FAIL" commit (round-1 FAIL verdict), not the `docs: start implementation` commit (`4d866d6`). `git diff --name-only cec70a6..HEAD` omits planned touchpoints `internal/prompt/implementer.md` and `internal/adopt/baton/rules/10-customer-journey-validation.md`; they were delivered in round-1 feat commit `72dfaee` and are correctly updated in the working tree, but fall outside the too-narrow diff range. `proof.md` "Divergence from plan" does not explain their absence. `sworn` binary appears in diff but is not mentioned in "Divergence from plan." Note: the round-2 verifier's instruction to use `cec70a6e` as `start_commit` was incorrect; the correct value is `4d866d6` (the original docs: start implementation commit). Gates 1, 3, 4, 5, 6 all PASS: 12 S10 tests pass fresh; all 4 ACs verified; `--deferral` flag and `open_deferrals` wiring correct. Fix: restore `start_commit` to `4d866d6`; update proof.md "Files changed" and "Divergence from plan" accordingly. Next: `/implement-slice S10-no-mock-boundary 2026-06-16-fidelity-layer`.
-
-### 2026-06-25 — S10-no-mock-boundary: FAIL (round 2, fresh-context)
-
-- **Actor**: verifier (fresh-context session)
-- **Note**: 1 violation (Gate 2 only). `status.json` `start_commit` is `bfdede8` — the commit that **contains** all the re-implementation's production code changes (`cmd/sworn/main.go`, `internal/run/run.go`, `internal/verify/verify.go`, `internal/verify/verify_test.go`). Running `git diff --name-only bfdede8..HEAD` yields only 3 docs files; none of the planned touchpoints appear in the canonical verifier diff. The proof.md "Files changed" section diffs from `4d866d66` (original `start_commit`), disagreeing with `status.json`. Same pattern as S07/S05/S15 prior round. Gates 1, 3, 4, 5, 6 all PASS: all 12 S10 tests pass fresh; `TestRun_DeclaredBoundaryMockAllowed` asserts rationale contains "Declared boundary mock"; entry points correctly wired; no silent deferrals; all 4 ACs verifiable. Fix: set `start_commit` to `cec70a6e` and update proof.md "Files changed". Next: `/implement-slice S10-no-mock-boundary 2026-06-16-fidelity-layer`.
-
-### 2026-06-19 — S10-no-mock-boundary: FAIL (round 1, fresh-context)
-
-- **Actor**: verifier (fresh-context session)
-- **Note**: 2 violations. (1) **AC2 + Rule 1**: `run.go` (line 232) and `cmdVerify` in `main.go` (line 111) both call `verify.Run()` without populating `OpenDeferrals` from `status.json`. The declared-deferral allowance (AC2) is not user-reachable via any real invocation; it is exercised only in unit tests. (2) **AC2 / Required Tests**: spec says "declared mock (with the three components) passes-with-note" but `TestRun_DeclaredBoundaryMockAllowed` only checks `got.Verdict == verdict.Pass` — no test verifies the note/surfacing claim. AC1 (undeclared mocks fail closed), AC3 (implementer guidance), and AC4 (absence fails closed) are all satisfied. All 23 verify-package tests pass fresh. Next: `/implement-slice S10-no-mock-boundary 2026-06-16-fidelity-layer` to address 2 violations.
-
-### 2026-06-19 — S06-definition-of-ready: PASS (round 4, fresh-context)
-
-- **Actor**: verifier (fresh-context session)
-- **Note**: All six gates passed. Gate 1: `implement.Run()` calls `CheckDoR` via `TransitionGate`
-  at lines 49–66 at the `design_review → in_progress` boundary; `implementer.md` Gate 0 rewritten
-  to "Definition of Ready gate". Gate 3: `TestRun_DesignReviewBlockedByDoR` drives `implement.Run()`
-  through a DoR-failing fixture (orphaned N-99), asserts error names "Definition of Ready", "RTM",
-  "N-99", asserts state stays `design_review`, asserts proof.md not created. 16 implement + 13 state
-  tests pass fresh. Gate 5: zero dark-code markers. Gate 6: all 5 ACs have verifiable evidence. T2
-  track S06 complete; next: `/implement-slice S10-no-mock-boundary 2026-06-16-fidelity-layer`.
-  Environmental note: T2 worktree HEAD-drift to `main` again (recurring issue); verdicts committed
-  via secondary worktree at /tmp/sworn-t2-verdict.
-
-### 2026-06-19 — S06-definition-of-ready: FAIL (round 3, fresh-context)
-
-- **Actor**: verifier (fresh-context session)
-- **Note**: 1 violation (Gate 2 only). `status.json` `start_commit` field (`75531ac`) was set to
-  the second FAIL verdict commit (post-implementation) by the round-3 documentation fix, breaking
-  the invariant that `start_commit..HEAD` captures the slice's implementation scope. The verifier-
-  required diff `git diff --name-only 75531ac` returns only docs files (journal.md, proof.md,
-  status.json) — none of the planned touchpoints (implement.go, state.go, etc.). proof.md correctly
-  uses `b9718b3c` with path filters, but protocol requires using `start_commit` from status.json.
-  Fix: update status.json `start_commit` from `75531ac` to `8ace0f6` (the `docs(release/S06): start
-  implementation` commit) and update proof.md "Files changed" to use that base with path filters
-  `-- internal/implement/ internal/state/ internal/prompt/ internal/adopt/baton/`. Gates 1, 3, 4,
-  5, 6 all PASS: implement.Run() calls CheckDoR via TransitionGate (Gate 1);
-  TestRun_DesignReviewBlockedByDoR drives the real entry point with a DoR-failing fixture (Gate 3);
-  reachability artefact names the integration test (Gate 4); zero deferral markers (Gate 5); all 5
-  ACs have verifiable test evidence, 20/20 packages pass (Gate 6). Next:
-  `/implement-slice S06-definition-of-ready 2026-06-16-fidelity-layer` to address 1 violation.
-
-### 2026-06-19 — S06-definition-of-ready: FAIL (round 2, fresh-context)
-
-- **Actor**: verifier (fresh-context session)
-- **Note**: 1 violation (Gate 2 only). `internal/implement/ready_test.go` is a new
-  file created by this slice (not present at start_commit b9718b3c) but is absent from
-  proof.md "Files changed", absent from status.json `actual_files`, and incorrectly
-  described as "existing" in proof.md "Divergence from plan". Gates 1, 3, 4, 5, 6 all
-  PASS: implement.Run() calls CheckDoR via TransitionGate (Gate 1); TestRun_DesignReviewBlockedByDoR
-  drives the real entry point with a DoR-failing fixture (Gate 3); reachability artefact
-  names the integration test (Gate 4); zero deferral markers (Gate 5); all 5 ACs have
-  verifiable test evidence (Gate 6). 29 tests pass fresh. Next:
-  `/implement-slice S06-definition-of-ready 2026-06-16-fidelity-layer` to address 1 violation.
-
-### 2026-06-19 — S06-definition-of-ready: FAIL (round 1, fresh-context)
-
-- **Actor**: verifier (fresh-context session)
-- **Note**: 5 violations. Gate 1: `implement.Run()` does not call `CheckDoR`; the native implementer
-  start path is not wired to the DoR gate — `CheckDoR` and `TransitionGate` have no production
-  callers, only test callers. Gate 2: `internal/state/state_test.go` (+49 lines) is in the diff
-  but not in planned touchpoints and not explained in "Divergence from plan". Gate 3: spec requires
-  an integration test driving `implement.Run()` through a DoR-failing fixture ("Rule 1 via the
-  real entry point"); all tests call `CheckDoR()` directly (unit-level only). Gate 4: reachability
-  artefact describes unit-test exercise of `CheckDoR` in isolation — the prescribed smoke step
-  ("attempt `planned → in_progress` on a fixture slice with an orphaned need; observe the blocked
-  transition") is not demonstrated. Gate 6: evidence for ACs 1–5 conflates `CheckDoR` returning
-  failure results with the system blocking the transition; since `implement.Run()` never calls
-  `CheckDoR`, the system does NOT enforce the DoR gate. Gate 5 passes (no TODO/FIXME/deferred
-  markers). Protocol entry point (implementer.md Gate 0) is correctly delivered. Next:
-  `/implement-slice S06-definition-of-ready 2026-06-16-fidelity-layer` to address 5 violations.
+- **Actor**: planner (/replan-release)
+- **Note**: S14 BLOCKED verdict (2nd consecutive) routed to planner. Human ratified **Option A** — AC1 exit-non-zero requirement stands. S14 transitioned `implemented → failed_verification`; `verification.result` cleared to `pending`; implementer must capture pre-codification gap count and exit 1 when gaps existed at run start. S03 `failed_verification` confirmed as proof-bundle defects (no spec correction needed); routes back to implementer. Board drift corrected: T3 `worktree_path` set (blank → actual path), T3 state `planned → in_progress`, T2 state `planned → in_progress`, T2 verified slices (S06/S10/S12/S13) updated from `planned`. No spec changes this session. No new slices added.
 
 ### 2026-06-19 — track `T4-evidence-surface` merged to release-wt (commit ca5b1ea)
 
@@ -392,10 +291,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Decisions deferred (Rule 2)
 
-- **Track C provisional schema** (S11/S12/S13/S14): journey-artefact field detail is refined via
-  `/replan-release` as the live journey-validation hand-run delivers evidence. **Why**: the
-  hand-run is the source of truth for the journey schema. **Tracking**: intake "Open questions";
-  refined post-hand-run. **Acknowledged**: 2026-06-16.
+- ~~**Track C provisional schema** (S11/S12/S13/S14)~~: **Resolved 2026-06-19** — S11 verified; journey schema settled via hand-run. /replan-release ratified Option A for S14's AC1 exit semantics. No outstanding schema deferral.
 - **S14 scaffold-not-complete-oracle**: sworn emits a structured regression scaffold + coverage
   check per journey, not a complete journey oracle. **Why**: a complete oracle is project-
   specific E2E work. **Tracking**: consuming project's E2E backlog. **Acknowledged**: 2026-06-16.
