@@ -38,3 +38,13 @@
 ## Verifier verdicts received
 
 - Pending (slice not yet verified).
+### 2026-06-20 03:20 — implementation complete, state=implemented
+
+- **State**: `in_progress → implemented`
+- **Notes**:
+  - All four acceptance checks delivered and passing.
+  - First-pass script (release-verify.sh): **23/23 PASS**.
+  - Proof bundle generated from live repo state per Rule 6.
+  - **Deferrals**: None — all scope items delivered.
+  - **Divergence from plan**: `cmd/sworn/init.go` was an unplanned file, necessary for the init CLI integration. The planned touchpoint `internal/config/init.go` contains the `PromptDesignSystem` function.
+  - Ready for adversarial verification. Open a fresh session with `/verify-slice S08-design-system-input 2026-06-16-fidelity-layer`.

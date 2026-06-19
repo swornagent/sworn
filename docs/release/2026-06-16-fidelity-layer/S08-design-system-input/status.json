@@ -6,8 +6,9 @@
   "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-20T03:10:00Z",
-  "start_commit": "9b3b637a6afd5563838aa1a665eac3672208926e",  "spec_path": "docs/release/2026-06-16-fidelity-layer/S08-design-system-input/spec.md",
+  "last_updated_at": "2026-06-20T03:20:00Z",
+  "start_commit": "9b3b637a6afd5563838aa1a665eac3672208926e",
+  "spec_path": "docs/release/2026-06-16-fidelity-layer/S08-design-system-input/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S08-design-system-input/proof.md",
   "journal_path": "docs/release/2026-06-16-fidelity-layer/S08-design-system-input/journal.md",
   "planned_files": [
@@ -27,7 +28,7 @@
     "go test ./internal/config/..."
   ],
   "reachability_artifacts": [
-    "manual smoke step: swear init with --ui-bearing flag"
+    "manual smoke step: sworn init with --ui-bearing flag"
   ],
   "open_deferrals": [],
   "verification": {
