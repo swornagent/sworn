@@ -128,3 +128,15 @@
   - Did NOT modify config.Load() itself to call Validate() — that would break the default config path where CLI projects have ui_bearing:false.
 - **First-pass script**: re-run after all fixes — **23/23 PASS**.
 - **State**: Ready for adversarial verification in a fresh session.
+
+### 2026-06-20 — Round 6: address Round 4/5 violations (proof.md completeness)
+
+- **State**: `failed_verification → in_progress → implemented`
+- **Context**: Round 5 verifier returned BLOCKED (process-state: slice was in `failed_verification`, not `implemented`). Round 4 verifier FAIL cited two Gate 2 violations — proof.md completeness gaps, not implementation defects.
+- **Fixes applied (proof.md only — no production code changes)**:
+  1. Regenerated "Files changed" from live `git diff --name-only 9b3b637a..HEAD` (56 files, up from 25 due to forward-merge artifacts on the track branch since Round 3). Added `cmd/sworn/reqverify.go` which was present in the diff but missing from the prior proof capture.
+  2. Updated "Files changed" parenthetical to correctly identify `cmd/sworn/reqverify.go` as S08-specific (unplanned touchpoint) and to clarify that `cmd/sworn/main.go` carries both S03 specquality changes and an S08-specific `cfg.Validate()` call. Noted `.gitignore` and `docs/release/2026-06-19-safe-parallelism/` as forward-merge artifacts with no S08 logic.
+  3. Updated "Divergence from plan" to explicitly acknowledge `cmd/sworn/reqverify.go` (added in commit `7a76d62` to wire `cfg.Validate()` into `cmdReqverify()` for AC1 fail-closed gate) and the S08-specific portion of `cmd/sworn/main.go` (`cfg.Validate()` in `cmdVerify()`, same commit).
+- **Key decisions**: No production code changes — all violations were proof.md documentation gaps. The implementation itself was correct; the Round 4 verifier could not certify because the proof did not accurately reflect the diff.
+- **First-pass script**: 23/23 PASS after fixes.
+- **State**: `implemented`. Ready for fresh-context adversarial verification.

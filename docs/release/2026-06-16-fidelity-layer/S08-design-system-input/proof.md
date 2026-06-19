@@ -7,12 +7,13 @@ When a maintainer of a UI-bearing project declares a design system in project co
 ## Files changed
 
 ```
-$ git diff --name-only 9b3b637..HEAD
+$ git diff --name-only 9b3b637a6afd5563838aa1a665eac3672208926e
+.gitignore
 bin/spec-quality.sh
 cmd/sworn/init.go
 cmd/sworn/init_design_system_test.go
-cmd/sworn/journeys_regen_test.go
 cmd/sworn/main.go
+cmd/sworn/reqverify.go
 cmd/sworn/specquality.go
 cmd/sworn/specquality_test.go
 docs/release/2026-06-16-fidelity-layer/S03-spec-quality-firstpass/journal.md
@@ -24,6 +25,37 @@ docs/release/2026-06-16-fidelity-layer/S08-design-system-input/proof.md
 docs/release/2026-06-16-fidelity-layer/S08-design-system-input/spec.md
 docs/release/2026-06-16-fidelity-layer/S08-design-system-input/status.json
 docs/release/2026-06-16-fidelity-layer/index.md
+docs/release/2026-06-19-safe-parallelism/S01-process-ownership/spec.md
+docs/release/2026-06-19-safe-parallelism/S01-process-ownership/status.json
+docs/release/2026-06-19-safe-parallelism/S02a-run-refactor/spec.md
+docs/release/2026-06-19-safe-parallelism/S02a-run-refactor/status.json
+docs/release/2026-06-19-safe-parallelism/S02b-concurrent-scheduler/spec.md
+docs/release/2026-06-19-safe-parallelism/S02b-concurrent-scheduler/status.json
+docs/release/2026-06-19-safe-parallelism/S03-verify-under-concurrency/spec.md
+docs/release/2026-06-19-safe-parallelism/S03-verify-under-concurrency/status.json
+docs/release/2026-06-19-safe-parallelism/S04a-tui-foundation/spec.md
+docs/release/2026-06-19-safe-parallelism/S04a-tui-foundation/status.json
+docs/release/2026-06-19-safe-parallelism/S04b-tui-live/spec.md
+docs/release/2026-06-19-safe-parallelism/S04b-tui-live/status.json
+docs/release/2026-06-19-safe-parallelism/S04c-tui-resolution/spec.md
+docs/release/2026-06-19-safe-parallelism/S04c-tui-resolution/status.json
+docs/release/2026-06-19-safe-parallelism/S05-overclaim-benchmark/spec.md
+docs/release/2026-06-19-safe-parallelism/S05-overclaim-benchmark/status.json
+docs/release/2026-06-19-safe-parallelism/S06a-sworn-login-auth/spec.md
+docs/release/2026-06-19-safe-parallelism/S06a-sworn-login-auth/status.json
+docs/release/2026-06-19-safe-parallelism/S06b-sworn-proxy-credits/spec.md
+docs/release/2026-06-19-safe-parallelism/S06b-sworn-proxy-credits/status.json
+docs/release/2026-06-19-safe-parallelism/S07-paging/spec.md
+docs/release/2026-06-19-safe-parallelism/S07-paging/status.json
+docs/release/2026-06-19-safe-parallelism/S08a-mcp-transport/spec.md
+docs/release/2026-06-19-safe-parallelism/S08a-mcp-transport/status.json
+docs/release/2026-06-19-safe-parallelism/S08b-mcp-ops-tools/spec.md
+docs/release/2026-06-19-safe-parallelism/S08b-mcp-ops-tools/status.json
+docs/release/2026-06-19-safe-parallelism/S08c-mcp-plan-tools/spec.md
+docs/release/2026-06-19-safe-parallelism/S08c-mcp-plan-tools/status.json
+docs/release/2026-06-19-safe-parallelism/index.md
+docs/release/2026-06-19-safe-parallelism/intake.md
+docs/release/2026-06-19-safe-parallelism/screenshots/.gitkeep
 internal/adopt/baton/rules/08-requirements-fidelity.md
 internal/adopt/baton/rules/09-design-fidelity.md
 internal/config/config.go
@@ -34,7 +66,7 @@ internal/specquality/specquality.go
 internal/specquality/specquality_test.go
 ```
 
-(S08-specific files: `cmd/sworn/init.go`, `cmd/sworn/init_design_system_test.go`, `internal/adopt/baton/rules/09-design-fidelity.md`, `internal/config/config.go`, `internal/config/config_test.go`, `internal/config/init.go`. The remaining files are from earlier S03 work on the same track.)
+S08-specific source files: `cmd/sworn/init.go`, `cmd/sworn/init_design_system_test.go`, `cmd/sworn/reqverify.go` (unplanned; S08 fail-closed wiring — see Divergence), `internal/adopt/baton/rules/09-design-fidelity.md`, `internal/config/config.go`, `internal/config/config_test.go`, `internal/config/init.go`. `cmd/sworn/main.go` carries both S03 specquality changes and an S08-specific `cfg.Validate()` call — see Divergence. `bin/spec-quality.sh`, `cmd/sworn/specquality.go`, `cmd/sworn/specquality_test.go`, `internal/specquality/`, `internal/prompt/planner.md`, `internal/adopt/baton/rules/08-requirements-fidelity.md`, and the S03 release docs are from earlier S03 work on the same track. `.gitignore` and all `docs/release/2026-06-19-safe-parallelism/` files are forward-merge artifacts that arrived via integration-branch forward-merges after S08 implementation; they contain no S08 logic.
 
 ## Test results
 
@@ -148,11 +180,16 @@ The `TestCmdInit_UIBearingFlag` test calls `cmdInit([]string{"--yes", "--ui-bear
 ## Divergence from plan
 
 - `cmd/sworn/init.go` was an unplanned file but was necessary for the init prompting integration. The planned touchpoint `internal/config/init.go` was created and contains the `PromptDesignSystem` function.
-- `cmd/sworn/init_design_system_test.go` was added to address the verifier's Gate 3 finding.
+- `cmd/sworn/init_design_system_test.go` was added to address the verifier's Gate 3 finding (Rule 1 integration test via `cmdInit` entry point).
+- `cmd/sworn/reqverify.go` was an unplanned touchpoint. Added in Round 3 (commit `7a76d62`) to wire `cfg.Validate()` into `cmdReqverify()`, making `sworn reqverify` exit 2 with `ErrNoDesignSystem` when a `ui_bearing: true` project lacks a design system. This was required to satisfy AC1 (production fail-closed) — the verifier's Gate 1 finding.
+- `cmd/sworn/main.go` carries changes from two slices in this diff range: (a) S03 specquality changes landing via earlier commits, and (b) an S08-specific `cfg.Validate()` call in `cmdVerify()` added in Round 3 (commit `7a76d62`) — making `sworn verify` also exit 2 on the fail-closed condition. The S08 change was required for AC1 (production fail-closed) alongside `reqverify.go`.
 
 ## First-pass script output
 
 ```
 $ release-verify.sh S08-design-system-input 2026-06-16-fidelity-layer
-FIRST-PASS PASS (23/23 — see full output above)
+  checks passed: 23
+  checks failed: 0
+
+FIRST-PASS PASS
 ```
