@@ -139,5 +139,5 @@ The `TestCmdInit_UIBearingFlag` test calls `cmdInit([]string{"--yes", "--ui-bear
 
 ```
 $ release-verify.sh S08-design-system-input 2026-06-16-fidelity-layer
-(first-pass: PASS — run from track worktree)
+FIRST-PASS PASS (23/23 — see full output above)
 ```
