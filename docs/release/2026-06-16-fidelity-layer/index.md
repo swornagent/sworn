@@ -119,7 +119,7 @@ files (disjoint, no change).
 | `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | verified | human | [spec](./S13-walkthrough-attestation/spec.md) | [proof](./S13-walkthrough-attestation/proof.md) |
 | `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | verified | human | [spec](./S14-journey-regression-suite/spec.md) | [proof](./S14-journey-regression-suite/proof.md) |
 | `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | verified | human | [spec](./S03-spec-quality-firstpass/spec.md) | [proof](./S03-spec-quality-firstpass/proof.md) |
-| `S08-design-system-input` | T3 | Design system (tokens + component library) as first-class project input | planned | human | [spec](./S08-design-system-input/spec.md) | — |
+| `S08-design-system-input` | T3 | Design system (tokens + component library) as first-class project input | failed_verification | human | [spec](./S08-design-system-input/spec.md) | [proof](./S08-design-system-input/proof.md) |
 | `S09-design-conformance-audit` | T3 | Deterministic drift first-pass + human cohesion verdict (`sworn designaudit`) | planned | human | [spec](./S09-design-conformance-audit/spec.md) | — |
 | `S15-sworn-top-evidence` | T4 | Read-only journey-validation green-board / kill-list (`sworn top`) | verified | agent | [spec](./S15-sworn-top-evidence/spec.md) | [proof](./S15-sworn-top-evidence/proof.md) |
 
@@ -137,17 +137,23 @@ files (disjoint, no change).
 
 ## Aggregate state
 
-- Planned: 2 (S08, S09)
+- Planned: 1 (S09)
 - In progress: 0
 - Implemented (awaiting verification): 0
 - Verified (across tracks): 14 (S01, S02, S03, S04, S05, S06, S07, S10, S11, S12, S13, S14, S15, S16)
-- Failed verification: 0
+- Failed verification: 1 (S08)
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** T3 in_progress / Merged: 3 (T1: b8521f8, T2: 991b035, T4: ca5b1ea)
 
 ## Recent activity
+
+### 2026-06-20 — S08-design-system-input: FAIL (round 2, fresh-context verifier)
+
+- **Actor**: verifier (fresh-context session)
+- **Result**: FAIL on Gates 1, 4, and 6. Core finding: `Config.Validate()` is defined and unit-tested but never called from any production sworn command — the system does not actually fail closed for a UI-bearing project without a design system. The proof.md reachability artefact contains two false claims: (a) automated smoke step 5 asserts `TestCmdInit_UIBearingFlag` verifies `Validate()` returns `ErrNoDesignSystem`, but the test has no such assertion; (b) manual smoke step claims `sworn verify` fails closed via `Validate()`, but `cmdVerify` does not call `Validate()`. The AC1 evidence in proof.md's Delivered section is consequently false. Slice state → `failed_verification`.
+- **Next step**: `/implement-slice S08-design-system-input 2026-06-16-fidelity-layer` in a fresh session. Wire `cfg.Validate()` into at least one production sworn command, add an integration-level assertion proving fail-closed behavior, and correct proof.md's reachability artefact and AC1 evidence.
 
 ### 2026-06-19 — S03-spec-quality-firstpass: PASS (round 5, fresh-context verifier)
 

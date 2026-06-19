@@ -38,6 +38,24 @@
 ## Verifier verdicts received
 
 - Pending (slice not yet verified).
+
+### 2026-06-20 — Round 2 verifier verdict: FAIL
+
+**Verdict**: FAIL
+
+**Violations:**
+
+1. **Gate 1** — `Config.Validate()` is never called from any production code path. `sworn init --ui-bearing --yes` exits 0 with no design system declared; `sworn verify` does not call `cfg.Validate()`. The spec's user outcome requires sworn to fail closed; no user-observable failure exists.
+
+2. **Gate 4** — Reachability artefact contains two false claims: (a) automated smoke step 5 claims "Verifies `Validate()` returns `ErrNoDesignSystem`" but `TestCmdInit_UIBearingFlag` contains no such assertion; (b) manual smoke step says "subsequent `sworn verify` fails closed via `Validate()`" but `cmdVerify` does not call `Validate()`.
+
+3. **Gate 6** — proof.md's AC1 evidence states "TestCmdInit_UIBearingFlag confirms … `Validate()` fails closed" — the test only verifies `ui_bearing: true` is stored; it does not exercise fail-closed behavior.
+
+**Required to address:**
+1. Wire `cfg.Validate()` into at least one production sworn command so the system actually exits non-zero when `ui_bearing: true` and `design_system == nil`.
+2. Add a real integration-level assertion (or sibling test) that calls `config.Load()` + `Validate()` on the written config and checks for `ErrNoDesignSystem`.
+3. Correct proof.md automated smoke step 5 and manual smoke step to accurately describe the observable failure.
+4. Correct proof.md's AC1 Delivered evidence to remove the false claim about `TestCmdInit_UIBearingFlag` proving fail-closed behavior.
 ### 2026-06-20 03:20 — implementation complete, state=implemented
 
 - **State**: `in_progress → implemented`
