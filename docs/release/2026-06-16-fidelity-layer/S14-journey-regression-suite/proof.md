@@ -145,10 +145,6 @@ ok  	github.com/swornagent/sworn/internal/journey	0.029s
 
 ```
 $ $HOME/.claude/bin/release-verify.sh S14-journey-regression-suite 2026-06-16-fidelity-layer
-```
-
-```
-$ $HOME/.claude/bin/release-verify.sh S14-journey-regression-suite 2026-06-16-fidelity-layer
 release-verify.sh
   slice:       S14-journey-regression-suite
   slice dir:   docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite
@@ -167,11 +163,15 @@ release-verify.sh
   PASS  state is 'implemented' (eligible for verifier review)
 
 == Diff vs main ==
-  PASS  3 file(s) changed vs main
+  PASS  7 file(s) changed vs main
   (first 20)
+    cmd/sworn/journeys.go
+    cmd/sworn/journeys_regen_test.go
     docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/journal.md
     docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/proof.md
     docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/status.json
+    docs/release/2026-06-16-fidelity-layer/index.md
+    internal/adopt/baton/rules/10-customer-journey-validation.md
 
 == Dark-code markers in changed files ==
   PASS  no dark-code markers in changed source files
