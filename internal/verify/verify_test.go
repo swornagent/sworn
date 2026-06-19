@@ -195,3 +195,167 @@ func TestRun_SystemPromptIsStateless(t *testing.T) {	cv := &capturingVerifier{re
 		}
 	}
 }
+// --- S10: No-mock-boundary tests ---
+
+func TestCheckBoundaryMocks_UndeclaredDbMockFails(t *testing.T) {
+	diff := "+func TestSomething(t *testing.T) {\n+	db := &mockDB{}\n+}"
+	report := CheckBoundaryMocks(diff, nil)
+	if len(report.UndeclaredMocks) != 1 {
+		t.Fatalf("want 1 undeclared mock, got %d", len(report.UndeclaredMocks))
+	}
+	if report.UndeclaredMocks[0].Boundary != "db" {
+		t.Fatalf("want db boundary, got %s", report.UndeclaredMocks[0].Boundary)
+	}
+	if len(report.DeclaredMocks) != 0 {
+		t.Fatalf("want 0 declared mocks, got %d", len(report.DeclaredMocks))
+	}
+}
+
+func TestCheckBoundaryMocks_DeclaredDbMockPasses(t *testing.T) {
+	diff := "+func TestSomething(t *testing.T) {\n+	db := &mockDB{}\n+}"
+	deferrals := []string{"db mock for integration tests - S10 boundary"}
+	report := CheckBoundaryMocks(diff, deferrals)
+	if len(report.UndeclaredMocks) != 0 {
+		t.Fatalf("want 0 undeclared mocks, got %d", len(report.UndeclaredMocks))
+	}
+	if len(report.DeclaredMocks) != 1 {
+		t.Fatalf("want 1 declared mock, got %d", len(report.DeclaredMocks))
+	}
+	if report.DeclaredMocks[0].Boundary != "db" {
+		t.Fatalf("want db boundary, got %s", report.DeclaredMocks[0].Boundary)
+	}
+}
+
+func TestCheckBoundaryMocks_NonBoundaryMockNotFlagged(t *testing.T) {
+	diff := "+func TestSomething(t *testing.T) {\n+	calc := newMockCalculator()\n+}"
+	report := CheckBoundaryMocks(diff, nil)
+	if len(report.UndeclaredMocks) != 0 {
+		t.Fatalf("want 0 undeclared mocks for non-boundary, got %d: %v", len(report.UndeclaredMocks), report.UndeclaredMocks)
+	}
+	if len(report.DeclaredMocks) != 0 {
+		t.Fatalf("want 0 declared mocks for non-boundary, got %d", len(report.DeclaredMocks))
+	}
+}
+
+func TestCheckBoundaryMocks_AuthMockUndeclaredFails(t *testing.T) {
+	diff := "+func TestAuth(t *testing.T) {\n+	auth := &mockAuthService{}\n+}"
+	report := CheckBoundaryMocks(diff, nil)
+	if len(report.UndeclaredMocks) != 1 {
+		t.Fatalf("want 1 undeclared mock for auth boundary, got %d", len(report.UndeclaredMocks))
+	}
+	if report.UndeclaredMocks[0].Boundary != "auth" {
+		t.Fatalf("want auth boundary, got %s", report.UndeclaredMocks[0].Boundary)
+	}
+}
+
+func TestCheckBoundaryMocks_EntitlementMockUndeclaredFails(t *testing.T) {
+	diff := "+func TestPremium(t *testing.T) {\n+	premium := &mockPremiumService{}\n+}"
+	report := CheckBoundaryMocks(diff, nil)
+	if len(report.UndeclaredMocks) != 1 {
+		t.Fatalf("want 1 undeclared mock for entitlement boundary, got %d", len(report.UndeclaredMocks))
+	}
+	if report.UndeclaredMocks[0].Boundary != "entitlement" {
+		t.Fatalf("want entitlement boundary, got %s", report.UndeclaredMocks[0].Boundary)
+	}
+}
+
+func TestCheckBoundaryMocks_FakeDbDetected(t *testing.T) {
+	diff := "+func TestSomething(t *testing.T) {\n+	db := fakeDB{}\n+}"
+	report := CheckBoundaryMocks(diff, nil)
+	if len(report.UndeclaredMocks) != 1 {
+		t.Fatalf("want 1 undeclared mock for fake DB, got %d", len(report.UndeclaredMocks))
+	}
+	if report.UndeclaredMocks[0].Boundary != "db" {
+		t.Fatalf("want db boundary, got %s", report.UndeclaredMocks[0].Boundary)
+	}
+}
+
+func TestCheckBoundaryMocks_EmptyDiffReturnsEmpty(t *testing.T) {
+	report := CheckBoundaryMocks("", nil)
+	if len(report.UndeclaredMocks) != 0 {
+		t.Fatalf("want 0 undeclared mocks for empty diff, got %d", len(report.UndeclaredMocks))
+	}
+	if len(report.DeclaredMocks) != 0 {
+		t.Fatalf("want 0 declared mocks for empty diff, got %d", len(report.DeclaredMocks))
+	}
+}
+
+func TestCheckBoundaryMocks_MultipleBoundaryMocksAllFlagged(t *testing.T) {
+	diff := "+func TestBoth(t *testing.T) {\n+	db := &mockDB{}\n+	auth := newMockAuth()\n+}"
+	report := CheckBoundaryMocks(diff, nil)
+	if len(report.UndeclaredMocks) != 2 {
+		t.Fatalf("want 2 undeclared mocks, got %d", len(report.UndeclaredMocks))
+	}
+	boundaries := make(map[string]bool)
+	for _, m := range report.UndeclaredMocks {
+		boundaries[m.Boundary] = true
+	}
+	if !boundaries["db"] {
+		t.Fatal("expected db boundary mock")
+	}
+	if !boundaries["auth"] {
+		t.Fatal("expected auth boundary mock")
+	}
+}
+
+func TestRun_UndeclaredBoundaryMockFailsClosed(t *testing.T) {
+	diff := "+func Test(t *testing.T) {\n+	db := &mockDB{}\n+}"
+	in := Input{
+		SpecPath: writeTmp(t, "spec.md", "must do X"),
+		DiffPath: writeTmp(t, "c.diff", diff),
+		Verifier: fakeVerifier{reply: "PASS - would pass if reached", cost: 0.01},
+	}
+	got := Run(context.Background(), in)
+	if got.Verdict != verdict.Fail {
+		t.Fatalf("want FAIL on undeclared boundary mock, got %s", got.Verdict)
+	}
+	if got.FailedGate != "boundary_mock" {
+		t.Fatalf("want failed_gate=boundary_mock, got %s", got.FailedGate)
+	}
+	if got.ExitCode() != 1 {
+		t.Fatalf("want exit code 1, got %d", got.ExitCode())
+	}
+}
+
+func TestRun_DeclaredBoundaryMockAllowed(t *testing.T) {
+	diff := "+func Test(t *testing.T) {\n+	db := &mockDB{}\n+}"
+	in := Input{
+		SpecPath:      writeTmp(t, "spec.md", "must do X"),
+		DiffPath:      writeTmp(t, "c.diff", diff),
+		Verifier:      fakeVerifier{reply: "PASS - all gates green", cost: 0.01},
+		OpenDeferrals: []string{"db mock for integration tests - S10 boundary"},
+	}
+	got := Run(context.Background(), in)
+	if got.Verdict != verdict.Pass {
+		t.Fatalf("want PASS with declared deferral, got %s", got.Verdict)
+	}
+	// AC2: the declared mock MUST be surfaced in the run output as a known
+	// deferral, not just silently passed through.
+	if !strings.Contains(got.Rationale, "Declared boundary mock") {
+		t.Fatalf("rationale should surface declared mock as known deferral, got: %q", got.Rationale)
+	}
+	if !strings.Contains(got.Rationale, "mockDB") {
+		t.Fatalf("rationale should include mock type detail, got: %q", got.Rationale)
+	}
+}
+func TestCheckBoundaryMocks_StubAuthDetected(t *testing.T) {
+	diff := "+func TestAuth(t *testing.T) {\n+	authStub := &stubAuth{}\n+}"
+	report := CheckBoundaryMocks(diff, nil)
+	if len(report.UndeclaredMocks) != 1 {
+		t.Fatalf("want 1 undeclared stub for auth boundary, got %d", len(report.UndeclaredMocks))
+	}
+	if report.UndeclaredMocks[0].Boundary != "auth" {
+		t.Fatalf("want auth boundary, got %s", report.UndeclaredMocks[0].Boundary)
+	}
+}
+
+func TestCheckBoundaryMocks_StubDbDetected(t *testing.T) {
+	diff := "+func TestDB(t *testing.T) {\n+	var db stubDB\n+}"
+	report := CheckBoundaryMocks(diff, nil)
+	if len(report.UndeclaredMocks) != 1 {
+		t.Fatalf("want 1 undeclared stub for db boundary, got %d", len(report.UndeclaredMocks))
+	}
+	if report.UndeclaredMocks[0].Boundary != "db" {
+		t.Fatalf("want db boundary, got %s", report.UndeclaredMocks[0].Boundary)
+	}
+}

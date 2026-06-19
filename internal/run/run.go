@@ -229,12 +229,20 @@ func Run(ctx context.Context, opts Options) error {
 			return fmt.Errorf("run: write diff temp: %w", err)
 		}
 
+		// Read open_deferrals from status.json for boundary-mock check (S10).
+		status, stErr := state.Read(statusPath)
+		var openDeferrals []string
+		if stErr == nil {
+			openDeferrals = status.OpenDeferrals
+		}
+
 		lastVerdict = verify.Run(ctx, verify.Input{
-			SpecPath:  specPath,
-			DiffPath:  diffPath,
-			ProofPath: filepath.Join(absSliceDir, "proof.md"),
-			Model:     verifierModelID,
-			Verifier:  verifier,
+			SpecPath:      specPath,
+			DiffPath:      diffPath,
+			ProofPath:     filepath.Join(absSliceDir, "proof.md"),
+			Model:         verifierModelID,
+			Verifier:      verifier,
+			OpenDeferrals: openDeferrals,
 		})
 		os.Remove(diffPath)
 

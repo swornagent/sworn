@@ -141,7 +141,7 @@ own `cmd/sworn/<cmd>.go` files (disjoint, no change).
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** In progress: 2 (T2, T3) / Merged: 2 (T1: b8521f8, T4: ca5b1ea)
+**Tracks:** T2 all slices verified (ready to merge); T3 in_progress / Merged: 2 (T1: b8521f8, T4: ca5b1ea)
 
 ## Recent activity
 
@@ -153,6 +153,16 @@ own `cmd/sworn/<cmd>.go` files (disjoint, no change).
 - **S03 status**: `verification.result` cleared from `"blocked"` to `"pending"`. Slice stays `implemented`; ready for fresh `/verify-slice S03-spec-quality-firstpass`. Next `/implement-slice S03` session must forward-merge `release-wt` into the T3 worktree and resolve the `cmd/sworn/main.go` conflict (keep both `case "specquality"` and `case "top"`) before the verifier runs.
 - **Board drift corrected**: S14 `failed_verification` → `verified` (verified on T2 branch after prior replan; board was stale). S03 `failed_verification` → `implemented` (re-implemented on T3 branch after prior replan; blocked verdict now cleared).
 - **Step 6**: T2 forward-merged cleanly (planning artefacts only). T3 had production-code conflict on `cmd/sworn/main.go` — aborted and fell back to cherry-pick of this session's planner commits (`PLANNER_START_SHA..release-wt/`); production-code merge deferred to next `/implement-slice S03` Step 0.
+
+### 2026-06-19 — S14-journey-regression-suite: PASS (round 4, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: All six gates passed. 11 unit tests + 4 CLI integration tests green fresh (`-count=1`). `journey.go`/`regression_test.go` absence from `0874c242..HEAD` is explained (committed at `c924bae` before Option A re-entry; confirmed present and correct). `regression.go` as separate file explained by Go convention. CLI integration tests call `cmdJourneys([]string{"--regen", ...})` — Rule 1 satisfied through command entry point. All 4 ACs verified with direct evidence. No silent deferrals. T2-delivery-cutover now has all 5 slices verified. Slice state → `verified`. Next: `/merge-track T2-delivery-cutover 2026-06-16-fidelity-layer`.
+
+### 2026-06-27 — S14-journey-regression-suite: FAIL (round 3, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Gate 2 (×2). (1) `proof.md` "Files changed" uses base commit `ad34339` but `status.json start_commit = 0874c242` (Option A re-entry start). Verifier-mandated diff `0874c242..HEAD` omits planned touchpoints `internal/journey/journey.go` and `internal/journey/regression_test.go`. (2) Neither "Divergence from plan" nor "Not delivered" explains this absence; investigation shows they were committed at `c924bae` before the re-entry start_commit. Implementation is functionally correct — all 4 ACs met, 11/11 journey-package + 4/4 CLI integration tests pass live, Option A exit-1 logic correct. Both violations are proof bundle bookkeeping defects. Fix: (1) update proof.md "Files changed" to use `0874c242` as base; (2) add explanation to "Divergence from plan" that journey package files are in track ancestry pre-start_commit. Slice state → `failed_verification`. Next: `/implement-slice S14-journey-regression-suite 2026-06-16-fidelity-layer` in a fresh session to address the 2 numbered violations.
 
 ### 2026-06-19 — /replan-release: S14 BLOCKED resolved (Option A), board drift corrected
 
