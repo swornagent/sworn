@@ -1,0 +1,26 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S06a-sworn-login-auth",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T3-commercial",
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-20T00:00:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S06a-sworn-login-auth/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S06a-sworn-login-auth/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S06a-sworn-login-auth/journal.md",
+  "planned_files": ["internal/account/account.go","internal/account/account_test.go","cmd/sworn/login.go","cmd/sworn/account.go","internal/config/config.go","cmd/sworn/main.go"],
+  "actual_files": [],
+  "test_commands": [],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}
