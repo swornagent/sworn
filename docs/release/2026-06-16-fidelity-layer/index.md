@@ -140,6 +140,12 @@ otherwise — twice. Round 2 BLOCKED (verifier) found that T4's `case "top"` and
 
 ## Recent activity
 
+### 2026-06-19 — S03-spec-quality-firstpass: BLOCKED (round 4, fresh-context verifier)
+- **Actor**: verifier (fresh-context session)
+- **Trigger**: Forward-merge of `release-wt/2026-06-16-fidelity-layer` into `track/2026-06-16-fidelity-layer/T3-leaf-gates` conflicted on `cmd/sworn/main.go`. T3 HEAD (ed283dc) has `case "specquality"` and `case "top"` but is missing `case "ship"` (T2-delivery-cutover/S13). Release-wt has `case "ship"` and `case "top"` but not `case "specquality"`. The 2026-06-22 re-implementation session fixed proof-bundle gaps but did NOT forward-merge release-wt to incorporate `case "ship"`. Touchpoint matrix is correct; this is an implementation omission.
+- **Board change**: S03 `verification.result` set to `"blocked"`. State unchanged (`implemented`).
+- **Next step**: `/replan-release 2026-06-16-fidelity-layer` — planner to direct next `/implement-slice S03` session to: (1) forward-merge release-wt as Step 0; (2) resolve `cmd/sworn/main.go` keeping ALL cases (T1 cases + `case "ship"` + `case "specquality"` + `case "top"`); (3) add `"strings"` import if needed by `cmdShip`; (4) re-run tests and re-mark implemented.
+
 ### 2026-06-19 — /replan-release: S03 BLOCKED (round 3) resolved — T3 depends_on T2
 
 - **Actor**: planner (/replan-release)

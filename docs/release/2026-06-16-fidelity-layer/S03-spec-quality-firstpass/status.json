@@ -42,11 +42,11 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "blocked",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-06-19T00:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": [],
-    "blocked_reason": null
+    "blocked_reason": "Forward-merge of release-wt/2026-06-16-fidelity-layer into track/2026-06-16-fidelity-layer/T3-leaf-gates conflicted on cmd/sworn/main.go. T3's HEAD is missing case \"ship\" (landed in release-wt via S13-walkthrough-attestation, T2-delivery-cutover, after the 2026-06-22 re-implementation session). The re-implementation session fixed proof-bundle gaps but did not forward-merge release-wt to incorporate T2's case \"ship\". Touchpoint matrix is correct (T3 depends_on [T1, T2, T4]); the conflict is an implementation omission."
   }
 }

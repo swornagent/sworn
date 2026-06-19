@@ -85,6 +85,19 @@ description: Implementation log. Append-only.
 
 ## Verifier verdicts received
 
+### 2026-06-19 — BLOCKED (round 4, fresh-context)
+
+- **Verifier session**: fresh
+- **Verdict body**:
+
+  BLOCKED
+
+  Slice: `S03-spec-quality-firstpass`
+  Reason: Forward-merge of `release-wt/2026-06-16-fidelity-layer` into `track/2026-06-16-fidelity-layer/T3-leaf-gates` conflicted on `cmd/sworn/main.go`. T3-leaf-gates HEAD (commit `ed283dc`) has `case "specquality"` and `case "top"` but is missing `case "ship"` (S13-walkthrough-attestation, T2-delivery-cutover). Release-wt has `case "ship"` and `case "top"` but not `case "specquality"`. Both inserted different cases at the same location in the switch statement. The 2026-06-22 re-implementation session fixed proof-bundle gaps but did NOT forward-merge release-wt to incorporate T2's `case "ship"`. Touchpoint matrix is already correct (T3 `depends_on: [T1-fidelity-core, T2-delivery-cutover, T4-evidence-surface]`); the conflict is an implementation omission, not a spec defect.
+  Proposed index.md amendment / planner action: No spec change needed — the touchpoint matrix and `depends_on` are correct. The planner's sole action is to direct the next `/implement-slice S03-spec-quality-firstpass 2026-06-16-fidelity-layer` session to perform the forward-merge as its first step, resolve `cmd/sworn/main.go` by keeping ALL existing cases (`case "ship":` from T2, `case "top":` from T4, and all T1 cases) plus T3's `case "specquality":`, add the `"strings"` import if needed by `cmdShip`, ensure `go build ./...` succeeds, re-run all tests, and re-mark implemented.
+
+- **Action taken**: Merge aborted. State unchanged (`implemented`). `verification.result` set to `blocked`. Next step: `/replan-release 2026-06-16-fidelity-layer`.
+
 ### 2026-06-19 — BLOCKED (round 3, fresh-context)
 
 - **Verifier session**: fresh
