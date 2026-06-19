@@ -37,6 +37,24 @@
 
 ## Verifier verdicts received
 
+### 2026-06-20 — Round 6 verifier verdict: PASS
+
+**Verdict**: PASS
+
+**Verified against**: `6aea8ae82d7232ccaff50b686ed83a6625c6fd8a`
+
+**Verifier session**: fresh, artefact-only
+
+**Gates passed**:
+1. Gate 1 — Production fail-closed wiring confirmed: `cfg.Validate()` called in `cmdReqverify()` (reqverify.go) and `cmdVerify()` (main.go); both exit 2 with `ErrNoDesignSystem` when `ui_bearing: true` without `design_system`.
+2. Gate 2 — Diff matches proof.md claims; `cmd/sworn/reqverify.go` and S08 portion of `cmd/sworn/main.go` correctly acknowledged in Divergence from plan; S03 files and forward-merge artifacts correctly identified and explained.
+3. Gate 3 — Both test commands pass in fresh session: `go test ./internal/config/...` (11 tests PASS) + `go test ./cmd/sworn/... -run TestCmdInit` (4 tests PASS). Integration tests call `cmdInit()` entry point — Rule 1 satisfied.
+4. Gate 4 — `TestCmdInit_UIBearing_ValidateFailClosed` is a real integration test calling `cmdInit` + `config.Load()` + `Validate()`, asserting `ErrNoDesignSystem`. Manual smoke step describes production code paths.
+5. Gate 5 — Two `later` hits in informational English; no schema/contract deferrals.
+6. Gate 6 — All four ACs have verifiable evidence in proof.md that matches real, passing code.
+
+**Next step**: `/implement-slice S09-design-conformance-audit 2026-06-16-fidelity-layer` in a fresh session.
+
 ### 2026-06-20 — Round 5 verifier verdict: BLOCKED (process-state check)
 
 **Verdict**: BLOCKED

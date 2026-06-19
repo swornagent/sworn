@@ -119,7 +119,7 @@ files (disjoint, no change).
 | `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | verified | human | [spec](./S13-walkthrough-attestation/spec.md) | [proof](./S13-walkthrough-attestation/proof.md) |
 | `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | verified | human | [spec](./S14-journey-regression-suite/spec.md) | [proof](./S14-journey-regression-suite/proof.md) |
 | `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | verified | human | [spec](./S03-spec-quality-firstpass/spec.md) | [proof](./S03-spec-quality-firstpass/proof.md) |
-| `S08-design-system-input` | T3 | Design system (tokens + component library) as first-class project input | failed_verification | human | [spec](./S08-design-system-input/spec.md) | [proof](./S08-design-system-input/proof.md) |
+| `S08-design-system-input` | T3 | Design system (tokens + component library) as first-class project input | verified | verifier | [spec](./S08-design-system-input/spec.md) | [proof](./S08-design-system-input/proof.md) |
 | `S09-design-conformance-audit` | T3 | Deterministic drift first-pass + human cohesion verdict (`sworn designaudit`) | planned | human | [spec](./S09-design-conformance-audit/spec.md) | — |
 | `S15-sworn-top-evidence` | T4 | Read-only journey-validation green-board / kill-list (`sworn top`) | verified | agent | [spec](./S15-sworn-top-evidence/spec.md) | [proof](./S15-sworn-top-evidence/proof.md) |
 
@@ -140,14 +140,19 @@ files (disjoint, no change).
 - Planned: 1 (S09)
 - In progress: 0
 - Implemented (awaiting verification): 0
-- Verified (across tracks): 14 (S01, S02, S03, S04, S05, S06, S07, S10, S11, S12, S13, S14, S15, S16)
-- Failed verification: 1 (S08)
+- Verified (across tracks): 15 (S01, S02, S03, S04, S05, S06, S07, S08, S10, S11, S12, S13, S14, S15, S16)
+- Failed verification: 0
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** T3 in_progress / Merged: 3 (T1: b8521f8, T2: 991b035, T4: ca5b1ea)
 
 ## Recent activity
+
+### 2026-06-20 — S08-design-system-input: PASS (round 6, fresh-context verifier)
+
+- **Actor**: verifier (fresh-context session)
+- **Result**: PASS — all six gates passed. Tests: 11 unit tests (`go test ./internal/config/... -count=1`) + 4 integration tests (`go test ./cmd/sworn/... -run TestCmdInit -count=1`), all green in fresh session. Gate 1: `cfg.Validate()` confirmed wired into `cmdReqverify()` and `cmdVerify()` — production fail-closed. Gate 2: diff matches proof.md; all unplanned files explained in Divergence from plan. Gate 3: `TestCmdInit_UIBearingFlag` and `TestCmdInit_UIBearing_ValidateFailClosed` call `cmdInit()` entry point (Rule 1 satisfied). Gate 5: two informational `later` hits in comments — no schema/contract deferrals. All 4 ACs have verifiable evidence. Verified at `6aea8ae`. Slice state → `verified`. Next: `/implement-slice S09-design-conformance-audit 2026-06-16-fidelity-layer` in a fresh session.
 
 ### 2026-06-20 — /replan-release: S08 BLOCKED (round 5) — process-state block, verification.result cleared
 

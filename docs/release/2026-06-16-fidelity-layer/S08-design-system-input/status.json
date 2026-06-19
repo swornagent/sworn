@@ -3,7 +3,7 @@
   "slice_id": "S08-design-system-input",
   "release": "2026-06-16-fidelity-layer",
   "track": "T3-leaf-gates",
-  "state": "implemented",
+  "state": "verified",
   "owner": "human",
   "last_updated_by": "planner (/replan-release round 5 — cleared blocked, routes to implementer)",
   "last_updated_at": "2026-06-20T10:00:00Z",
@@ -36,13 +36,10 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "pass",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": [
-      "Gate 2: cmd/sworn/reqverify.go is an unplanned touchpoint not explained in Divergence from plan; Files changed list omits it (it IS in git diff --name-only 9b3b637..HEAD with 10-line S08 cfg.Validate() wiring from commit 7a76d62)",
-      "Gate 2: cmd/sworn/main.go has S08-specific changes (cfg.Validate() call in cmdVerify(), Round 3 commit 7a76d62) not acknowledged in Divergence from plan; parenthetical incorrectly attributes all main.go changes to S03 scope"
-    ]
+    "verifier_verdict_at": "2026-06-20T12:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": []
   }
 }
