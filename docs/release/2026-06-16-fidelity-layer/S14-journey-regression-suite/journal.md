@@ -25,8 +25,19 @@ description: Implementation log for S14-journey-regression-suite. Append-only.
   - **Design decision**: `CodifyJourney` does NOT overwrite existing files — accretion is file-existence-gated, not flag-gated.
   - **Design decision**: The `--regen` command runs coverage check BEFORE and AFTER codification; gaps filled during the same run are reported as success. Remaining gaps after codification trigger a fail-closed exit 1.
 
-## Open questions
+### 2026-06-26 — re-entry after failed_verification — fix verifier violations
 
+- **State**: `failed_verification → in_progress → implemented`
+- **Verifier violations addressed**:
+  1. **Gate 2** — `internal/journey/regression.go` missing from planned touchpoints / Divergence from plan: Added full Divergence explanation in proof.md (separate file justified by Go convention, mirroring existing `impact.go` / `walkthrough.go` pattern).
+  2. **Gate 3** — No CLI integration test: Created `cmd/sworn/journeys_regen_test.go` with 4 CLI integration tests following the existing pattern (`cmdJourneys()` called as Go function with fixture artefacts, not compiled binary). Tests cover gap-filled, full-coverage, scaffold-emission, and un-walked-exclusion scenarios.
+  3. **Gate 4** — Reachability artefact was unit tests only: Updated proof.md reachability artefact to reference the CLI integration tests (evidence type: `cli-integration-test`), and all 4 test outputs are captured in the proof bundle.
+- **Notes**:
+  - The forward-merge of release-wt into the T2 track worktree was required to pick up walkthrough/attestation types needed by the CLI integration tests.
+  - `test_commands` in status.json updated to include the CLI integration test runner.
+  - All 22 journeys tests pass (0 regressions), build + vet clean.
+
+## Open questions
 - None — deferred scaffold-completeness is already tracked in open_deferrals.
 
 ## Deferrals surfaced

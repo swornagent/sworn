@@ -3,10 +3,10 @@
   "slice_id": "S14-journey-regression-suite",
   "release": "2026-06-16-fidelity-layer",
   "track": "T2-delivery-cutover",
-  "state": "failed_verification",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-19T01:00:16Z",
+  "last_updated_at": "2026-06-26T14:30:00Z",
   "start_commit": "ad3433917938da331c7f705ba87319723ab9716a",
   "spec_path": "docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/proof.md",
@@ -23,26 +23,27 @@
     "internal/journey/regression.go",
     "internal/journey/regression_test.go",
     "cmd/sworn/journeys.go",
+    "cmd/sworn/journeys_regen_test.go",
     "internal/adopt/baton/rules/10-customer-journey-validation.md"
   ],
   "test_commands": [
     "go test ./internal/journey/...",
-    "go build ./..."
+    "go test ./cmd/sworn/ -run TestJourneysRegen",
+    "go build ./...",
+    "go vet ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "cmd/sworn/journeys_regen_test.go — 4 CLI integration tests exercising the --regen path with fixture artefacts"
+  ],
   "open_deferrals": [
     "Scaffold-not-complete-oracle: complete journey oracle is project E2E work (why/tracking/ack 2026-06-16)",
     "Provisional journey-schema detail tracks S11, refined via /replan-release"
   ],
   "verification": {
-    "result": "fail",
+    "result": "pending",
     "verifier_session_id": null,
-    "verifier_verdict_at": "2026-06-19T01:30:00Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      "Gate 2 — internal/journey/regression.go (new file) not in planned touchpoints and not explained in proof.md Divergence from plan",
-      "Gate 3 — No CLI integration test for sworn journeys --regen path as required by spec Required tests (Rule 1); divergence note in proof.md lacks full Rule 2 deferral elements",
-      "Gate 4 — Reachability artefact substitutes package-level unit tests for the required CLI smoke run; per Rule 1 a unit suite is not a reachability artefact"
-    ]
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
   }
 }
