@@ -12,3 +12,9 @@ coverage.*
 .DS_Store
 .idea/
 .vscode/
+
+# marketing site — lives in swornagent/internal, not this repo
+/site/
+
+# stray sworn artefacts from running sworn outside repo root
+/cmd/sworn/docs/
