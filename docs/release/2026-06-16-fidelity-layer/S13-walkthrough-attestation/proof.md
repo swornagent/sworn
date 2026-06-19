@@ -77,25 +77,25 @@ Note: The attestation persistence model from S15 (`walkthrough.go`) was used dir
 
 ```
 $ $HOME/.claude/bin/release-verify.sh S13-walkthrough-attestation 2026-06-16-fidelity-layer
-=== Slice artefacts ===
+== Slice artefacts ==
   PASS  slice folder exists
   PASS  spec.md present
   PASS  proof.md present
   PASS  status.json present
   PASS  journal.md present
 
-=== Status ===
+== Status ==
   PASS  status.json is valid JSON
   state: implemented
-  PASS  state is 'implemented' — ready for verifier session
+  PASS  state is 'implemented' (eligible for verifier review)
 
-=== Diff vs main ===
-  PASS  37 file(s) changed vs main
+== Diff vs main ==
+  PASS  38 file(s) changed vs main
 
-=== Dark-code markers ===
+== Dark-code markers ==
   PASS  no dark-code markers in changed source files
 
-=== Proof bundle structural checks ===
+== Proof bundle structural checks ==
   PASS  proof.md has section: ## Scope
   PASS  proof.md has section: ## Files changed
   PASS  proof.md has section: ## Test results
@@ -103,11 +103,11 @@ $ $HOME/.claude/bin/release-verify.sh S13-walkthrough-attestation 2026-06-16-fid
   PASS  proof.md has section: ## Delivered
   PASS  proof.md has section: ## Not delivered
   PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
 
-=== Frontmatter YAML safety ===
+== Frontmatter YAML safety ==
   PASS  spec.md frontmatter is strict-YAML safe
 
 checks passed: 18
 checks failed: 0
-FIRST-PASS PASS
-```
+FIRST-PASS PASS```
