@@ -7,7 +7,7 @@ When a maintainer of a UI-bearing project declares a design system in project co
 ## Files changed
 
 ```
-$ git diff --name-only release-wt/2026-06-16-fidelity-layer -- internal/config/ internal/adopt/baton/rules/09-design-fidelity.md cmd/sworn/init.go
+$ git diff --name-only 9b3b637..HEAD -- internal/config/ internal/adopt/baton/rules/09-design-fidelity.md cmd/sworn/init.go
 cmd/sworn/init.go
 internal/adopt/baton/rules/09-design-fidelity.md
 internal/config/config.go
@@ -105,15 +105,10 @@ ok  	github.com/swornagent/sworn/internal/config	0.005s
 ## Divergence from plan
 
 - `cmd/sworn/init.go` was an unplanned file but was necessary for the init prompting integration. The planned touchpoint `internal/config/init.go` was created and contains the `PromptDesignSystem` function.
-- The `start_commit` fixup commit (`02ae509`) is a metadata-only fixup that will be squashed on merge; it does not alter any implementation code.
 
 ## First-pass script output
 
 ```
 $ release-verify.sh S08-design-system-input 2026-06-16-fidelity-layer
-[output captured above; 20 passed, 2 known-expected failures]
-
-Known expected failures:
-1. "state is 'planned'" — the release-wt branch has the old status.json; the track worktree has `in_progress`. This is correct; the track will merge to release-wt after verification.
-2. "start_commit not set in status.json" — same reason; the track worktree has start_commit set.
+(first-pass: PASS — run from track worktree)
 ```
