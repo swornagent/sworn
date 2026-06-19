@@ -108,7 +108,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | verified | verifier | [spec](./S06-definition-of-ready/spec.md) | [proof](./S06-definition-of-ready/proof.md) |
 | `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | verified | verifier | [spec](./S10-no-mock-boundary/spec.md) | [proof](./S10-no-mock-boundary/proof.md) |
 | `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | verified | verifier | [spec](./S12-journey-impact-analysis/spec.md) | [proof](./S12-journey-impact-analysis/proof.md) |
-| `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | planned | human | [spec](./S13-walkthrough-attestation/spec.md) | — |
+| `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | failed_verification | implementer | [spec](./S13-walkthrough-attestation/spec.md) | [proof](./S13-walkthrough-attestation/proof.md) |
 | `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | planned | human | [spec](./S14-journey-regression-suite/spec.md) | — |
 | `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | failed_verification | human | [spec](./S03-spec-quality-firstpass/spec.md) | — |
 | `S08-design-system-input` | T3 | Design system (tokens + component library) as first-class project input | planned | human | [spec](./S08-design-system-input/spec.md) | — |
@@ -129,17 +129,22 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Aggregate state
 
-- Planned: 4 (S08, S09, S13, S14)
+- Planned: 3 (S08, S09, S14)
 - In progress: 0
 - Implemented (awaiting verification): 0
 - Verified: 11 (S01, S02, S04, S05, S06, S07, S10, S11, S12, S15, S16)
-- Failed verification: 1 (S03)
+- Failed verification: 2 (S03, S13)
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** Planned: 1 (T3) / In progress: 1 (T2) / Merged: 2 (T1: b8521f8, T4: ca5b1ea)
 
 ## Recent activity
+
+### 2026-06-19 — S13-walkthrough-attestation: FAIL (round 1, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Gate 2 — 3 concrete violations in proof.md "Divergence from plan". (1) `cmd/sworn/ship_test.go` is in the diff but not in planned touchpoints and not mentioned in the divergence section. (2) Planned touchpoints `internal/journey/journey.go` and `internal/journey/walkthrough_test.go` are absent from the diff with no explicit accounting in proof.md (the note about S15's walkthrough.go is only partial). (3) "Divergence from plan" contradictorily leads with "None" while the third bullet acknowledges a real deviation from `internal/state/state.go`. Gates 1, 3, 4, 5, 6 all PASS — `sworn ship` is correctly wired and fail-closed; all 5 ACs pass with named tests; no silent deferrals. Fixes: add `cmd/sworn/ship_test.go` explanation to divergence section; explicitly account for `journey.go` and `walkthrough_test.go` not being touched; remove the contradictory "None" text. Slice state → `failed_verification`. Next: `/implement-slice S13-walkthrough-attestation 2026-06-16-fidelity-layer`.
 
 ### 2026-06-19 — S12-journey-impact-analysis: PASS (round 1, fresh-context)
 
