@@ -217,10 +217,9 @@ The walkthrough attestation is deliberately manual (S13). S14 (journey regressio
 
 ### Coverage check
 
-`sworn journeys --regen <release>` performs a coverage check before and after codification. If any walked-pass journey remains without a committed regression test after codification, the command exits non-zero (FAIL) and names each gap. This fail-closed signal forces the release to either:
-- Commit the missing test scaffold (re-run `--regen` to codify it), or
+`sworn journeys --regen <release>` performs a coverage check before codification. If any coverage gaps existed at run start (walked-pass journey without a committed regression test), the command exits non-zero (FAIL) even if those gaps are filled during the same run. This fail-closed signal forces the release to either:
+- Commit the scaffolds and re-run `--regen` (no pre-codification gaps → exit 0), or
 - Explicitly acknowledge the gap as a Rule 2 deferral.
-
 ### Accretive, not regenerated
 
 Previously-codified journeys are never re-generated. The scaffold file existence + `has_regression` flag together define "covered." An existing file is not overwritten, and a journey with `has_regression: true` is not re-processed. This ensures the regression suite is additive across releases — last release's walked journeys are this release's automated coverage.

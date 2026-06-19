@@ -13,10 +13,10 @@ import (
 
 // TestJourneysRegenCmd_CoverageGapFilled verifies AC1 via CLI:
 // WHEN a journey is ratified + walked but flagged for regression with no
-// committed test, sworn journeys --regen generates the scaffold, fills the
-// gap, and reports it (exit 0, "All coverage gaps filled").
-func TestJourneysRegenCmd_CoverageGapFilled(t *testing.T) {
-	dir := t.TempDir()
+// committed test, sworn journeys --regen generates the scaffold but exits 1
+// because gaps existed at run start (Option A: fail-closed on pre-codification
+// state). The message reports the gap was filled but exit is still 1.
+func TestJourneysRegenCmd_CoverageGapFilled(t *testing.T) {	dir := t.TempDir()
 
 	// Create a ratified journeys artefact with one walked-pass journey
 	// that has no regression test.
@@ -67,14 +67,14 @@ func TestJourneysRegenCmd_CoverageGapFilled(t *testing.T) {
 
 	stdout := readAllPipe(t, r)
 
-	// The journey had no test but regen fills it — exit 0, report gap filled.
-	if exit != 0 {
-		t.Errorf("expected exit 0 (gap filled), got %d", exit)
+	// The journey had no test — gaps existed at run start, so exit 1
+	// even though regen fills the gaps (Option A).
+	if exit != 1 {
+		t.Errorf("expected exit 1 (gaps at run start), got %d", exit)
 	}
-	if !strings.Contains(stdout, "All coverage gaps filled") {
-		t.Errorf("expected stdout to indicate gaps filled, got:\n%s", stdout)
+	if !strings.Contains(stdout, "Generated 1 regression test scaffold") {
+		t.Errorf("expected stdout to indicate scaffold generation, got:\n%s", stdout)
 	}
-
 	// Verify the scaffold was created.
 	expectedPath := filepath.Join(dir, "tests", "e2e", "journeys", "journey_j01_verify_flow_test.go")
 	if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
@@ -190,10 +190,9 @@ func TestJourneysRegenCmd_ScaffoldEmission(t *testing.T) {
 	saveAttestations(t, dir, attArtefact)
 
 	exit := cmdJourneys([]string{"--regen", "test-release", dir})
-	if exit != 0 {
-		t.Errorf("expected exit 0 for scaffold emission, got %d", exit)
+	if exit != 1 {
+		t.Errorf("expected exit 1 (gaps at run start), got %d", exit)
 	}
-
 	// The scaffold file should exist at the expected path.
 	expectedPath := filepath.Join(dir, "tests", "e2e", "journeys", "journey_j02_init_setup_test.go")
 	if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
@@ -279,10 +278,9 @@ func TestJourneysRegenCmd_UnwalkedJourneyNotCodified(t *testing.T) {
 	saveAttestations(t, dir, attArtefact)
 
 	exit := cmdJourneys([]string{"--regen", "test-release", dir})
-	if exit != 0 {
-		t.Errorf("expected exit 0, got %d", exit)
+	if exit != 1 {
+		t.Errorf("expected exit 1 (gaps at run start from walked-but-uncovered J01), got %d", exit)
 	}
-
 	// Only the walked journey should get a scaffold.
 	walkedPath := filepath.Join(dir, "tests", "e2e", "journeys", "journey_j01_walked_test.go")
 	unwalkedPath := filepath.Join(dir, "tests", "e2e", "journeys", "journey_j02_unwalked_test.go")

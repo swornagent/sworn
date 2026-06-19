@@ -23,13 +23,14 @@ import (
 // artefact is missing or unratified, 2 on I/O or parse errors.
 //
 // With --regen <release>: codifies every walked-pass journey into an automated
-// regression test scaffold. Exits 0 when all walked journeys have coverage.
-// Exits 1 when one or more walked journeys have no regression test (coverage
-// gap — the command still generates scaffolds for gap journeys, then reports
-// any remaining gaps as a fail-closed error). Exits 2 on I/O or parse errors.//
+// regression test scaffold. Exits 0 when all walked journeys already had
+// regression coverage at run start. Exits 1 when one or more walked journeys
+// lacked coverage at run start — scaffolds are generated but the command
+// exits 1 (fail-closed on pre-codification state, Option A). Exits 2 on I/O
+// or parse errors.
+//
 // Returns exit codes:
-//   0  — success (check passed, impact computed, or elicit+ratify succeeded)
-//   1  — check or impact failed (missing or unratified artefact)
+//   0  — success (check passed, impact computed, or elicit+ratify succeeded)//   1  — check or impact failed (missing or unratified artefact)
 //   2  — unrecoverable error (parse failure, I/O error)
 //   64 — usage error
 func cmdJourneys(args []string) int {
@@ -246,11 +247,11 @@ func asImpactError(err error, target **journey.ImpactError) bool {
 //
 // Exit codes:
 //
-//	0 — success; all walked journeys have regression coverage
-//	1 — one or more walked journeys still lack coverage (reported as gaps)
+//	0 — success; all walked journeys already had regression coverage at run start
+//	1 — one or more walked journeys lacked coverage at run start (scaffolds
+//	    generated; exit 1 even if all gaps were filled during this run)
 //	2 — unrecoverable error (I/O, parse failure, missing artefact)
-func cmdJourneysRegen(projectRoot, releaseName string) int {
-	// 1. Load and verify the journeys artefact.
+func cmdJourneysRegen(projectRoot, releaseName string) int {	// 1. Load and verify the journeys artefact.
 	checkResult, artefact, err := journey.Check(projectRoot)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sworn journeys --regen: %v\n", err)
@@ -309,7 +310,9 @@ func cmdJourneysRegen(projectRoot, releaseName string) int {
 	}
 
 	if len(gaps) > 0 {
-		// Re-check coverage after codification — some gaps may have been filled.
+		// Gaps existed at run start — exit 1 even if all were filled during
+		// this run per AC1 (Option A: fail-closed on pre-codification state).
+		// The re-check distinguishes "some gaps remain" from "all filled".
 		remaining := journey.RegressionCoverageGaps(artefact, attArtefact, projectRoot)
 		if len(remaining) > 0 {
 			fmt.Fprintf(os.Stderr, "FAIL: %d journey(s) flagged for regression with no committed test:\n", len(remaining))
@@ -320,11 +323,16 @@ func cmdJourneysRegen(projectRoot, releaseName string) int {
 			fmt.Fprintln(os.Stderr, "Add a committed test or mark as excluded.")
 			return 1
 		}
-		// All gaps filled during this run.
-		fmt.Println("All coverage gaps filled during this run.")
+		// All gaps filled during this run — but gaps existed at start, so
+		// still exit 1 per AC1 (fail-closed on pre-codification state).
+		fmt.Fprintf(os.Stderr, "FAIL: %d coverage gap(s) existed at run start (all filled during this run).\n", len(gaps))
+		for _, id := range gaps {
+			fmt.Fprintf(os.Stderr, "  - %s\n", id)
+		}
+		fmt.Fprintln(os.Stderr, "Coverage gaps existed at run start — scaffolds were generated. Commit them and re-run.")
+		return 1
 	} else {
 		fmt.Println("Coverage check: all walked journeys have regression coverage.")
 	}
-
 	return 0
 }
