@@ -7,16 +7,32 @@ When a maintainer of a UI-bearing project declares a design system in project co
 ## Files changed
 
 ```
-$ git diff --name-only 9b3b637..HEAD -- internal/config/ internal/adopt/baton/rules/09-design-fidelity.md cmd/sworn/init.go
+$ git diff --name-only 9b3b637..HEAD
+bin/spec-quality.sh
 cmd/sworn/init.go
+cmd/sworn/main.go
+cmd/sworn/specquality.go
+cmd/sworn/specquality_test.go
+docs/release/2026-06-16-fidelity-layer/S03-spec-quality-firstpass/journal.md
+docs/release/2026-06-16-fidelity-layer/S03-spec-quality-firstpass/proof.md
+docs/release/2026-06-16-fidelity-layer/S03-spec-quality-firstpass/spec.md
+docs/release/2026-06-16-fidelity-layer/S03-spec-quality-firstpass/status.json
+docs/release/2026-06-16-fidelity-layer/S08-design-system-input/journal.md
+docs/release/2026-06-16-fidelity-layer/S08-design-system-input/proof.md
+docs/release/2026-06-16-fidelity-layer/S08-design-system-input/spec.md
+docs/release/2026-06-16-fidelity-layer/S08-design-system-input/status.json
+docs/release/2026-06-16-fidelity-layer/index.md
+internal/adopt/baton/rules/08-requirements-fidelity.md
 internal/adopt/baton/rules/09-design-fidelity.md
 internal/config/config.go
 internal/config/config_test.go
 internal/config/init.go
+internal/prompt/planner.md
+internal/specquality/specquality.go
+internal/specquality/specquality_test.go
 ```
 
-Also updated: `docs/release/2026-06-16-fidelity-layer/S08-design-system-input/status.json`, `journal.md`, `proof.md`, and `spec.md`.
-
+(S08-specific files: `cmd/sworn/init.go`, `internal/adopt/baton/rules/09-design-fidelity.md`, `internal/config/config.go`, `internal/config/config_test.go`, `internal/config/init.go`. The remaining files are from earlier S03 work on the same track.)
 ## Test results
 
 ### Go

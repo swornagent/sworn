@@ -229,7 +229,7 @@ func cmdInit(args []string) int {
 				fmt.Fprintf(os.Stderr, "sworn init: write ui_bearing: %v\n", writeErr)
 				return 1
 			}
-			fmt.Printf("  updated  %s (ui_bearing: true — design system deferred; run 'sworn init --ui-bearing --force' to configure)\n", cfgPath)
+			fmt.Printf("  updated  %s (ui_bearing: true — design system not yet configured; run 'sworn init --ui-bearing --force' to configure)\n", cfgPath)
 		}
 	} else if cfgErr == config.ErrConfigExists && *uiBearer {
 		// Config exists; update it with UI-bearing / design system.
@@ -256,7 +256,7 @@ func cmdInit(args []string) int {
 				fmt.Fprintf(os.Stderr, "sworn init: write ui_bearing: %v\n", writeErr)
 				return 1
 			}
-			fmt.Printf("  updated  %s (ui_bearing: true — design system deferred)\n", cfgPath)
+			fmt.Printf("  updated  %s (ui_bearing: true — design system not yet configured)\n", cfgPath)
 		}
 	}
 	// Baton protocol docs
