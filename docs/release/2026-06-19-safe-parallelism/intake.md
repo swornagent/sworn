@@ -351,6 +351,67 @@ shared state surface they all lack.
    script, or an integration test that requires model API keys? Affects which track it
    belongs to and what "verified" means for that slice.
 
+### 2026-06-20 — Dep policy: revised from "zero runtime deps" to "minimal, justified deps"
+
+- **Context**: multi-provider model driver support (Anthropic, Google, Bedrock, OCI)
+  requires provider-official Go SDKs. Reimplementing AWS SigV4, OCI auth, Anthropic
+  SSE handling, and Google genai from stdlib is disproportionate scope and introduces
+  correctness risk (auth bugs, breaking API changes). The "zero runtime dependencies"
+  rule in ADR-0001 / CLAUDE.md was appropriate for the core binary but predates the
+  intentional multi-provider scope of R3.
+- **Decision**: ADR-0004 revises the policy to "minimal, justified deps — each new
+  dependency requires an ADR entry". ADR-0001's stdlib-only constraint is superseded
+  for model driver packages specifically. CLAUDE.md updated to reflect new policy.
+- **Why**: user confirmed ("nonsensical to be hard and fast on that rule now we've
+  expanded the scope of the app"). OpenCode-baseline provider coverage requires 3-4
+  SDK deps; implementing all auth schemes from scratch is not minimal.
+- **Tracking**: S10-provider-foundation commits ADR-0004.
+
+### 2026-06-20 — Multi-provider driver scope: OpenCode baseline
+
+- **Context**: asked which providers need native drivers vs. OAI-compat presets.
+- **Decision**: native drivers for Anthropic (Messages API), Google (Gemini + Vertex),
+  AWS Bedrock (Converse API), Azure OpenAI (api-key variant, no new SDK), OCI
+  Generative AI, and Ollama (native /api/chat). OAI-compat presets (no new code) for
+  OpenAI, DeepSeek, Groq, Mistral, OpenRouter, Cloudflare, GitHub Models.
+  Provider coverage baseline = OpenCode. Enterprise clouds: Bedrock (AWS), Azure (MSFT),
+  Vertex (GCP), OCI all in scope for this release.
+- **Why**: DeepSeek ("insanely low inference prices"), Groq ("ridiculously fast AND cheap"),
+  Mistral ("great indie to support") explicitly called out. Azure/Bedrock/OCI/GCP called
+  out as enterprise-tier support. OpenRouter included (already used in coach project).
+  Ollama native preferred over OAI shim (better feature surface, removes compat overhead).
+- **Tracking**: S10-S16 implement these decisions.
+
+### 2026-06-20 — Per-role model config in config.json
+
+- **Decision**: config.json gains `implementer.model`, `implementer.escalation_models`,
+  `implementer.max_attempts` alongside existing `verifier.model`. `sworn init` prompts
+  for both roles. CLI flags remain and take precedence over config file (existing
+  behaviour preserved).
+- **Why**: user confirmed "include it here". Without config file support, users must set
+  flags or env vars on every run — poor UX for a tool designed for walk-away autonomy.
+- **Tracking**: S09-per-role-model-config (T3 append).
+
+### 2026-06-20 — TUI settings panel for provider / model configuration
+
+- **Decision**: `s` key in the sworn TUI opens a settings panel for provider API keys
+  (written to `~/.sworn/.env`), model per role, escalation list, and max attempts
+  (written to config.json). No manual file editing required for basic setup.
+- **Why**: user explicitly requested "interactive menu to provide API keys via the TUI,
+  and also select the model per role via the TUI as well, set the rotation, max
+  attempts threshold."
+- **Tracking**: S17-tui-provider-config (T6-provider-ux).
+
+### 2026-06-20 — .env file loading for per-provider API keys
+
+- **Decision**: `~/.sworn/.env` (global) and `.env` in CWD (project-local) are loaded
+  at process start via stdlib-only parser; env vars not already set in the process
+  environment are populated. CWD `.env` wins on collision (CWD loaded last or first,
+  implementer to pick one order and document it clearly).
+- **Why**: user requested "env file" as a first-class config layer. Standard developer
+  workflow for managing per-project API keys without exposing them in shell profiles.
+- **Tracking**: S10-provider-foundation implements `internal/model/env.go`.
+
 ## Proposed slice decomposition (confirmed 2026-06-19)
 
 3 tracks; 7 slices. Confirmed via planning session.

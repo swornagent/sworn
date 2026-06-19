@@ -1,0 +1,38 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S17-tui-provider-config",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T6-provider-ux",
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-20T00:00:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S17-tui-provider-config/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S17-tui-provider-config/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S17-tui-provider-config/journal.md",
+  "planned_files": [
+    "internal/tui/settings.go",
+    "internal/tui/settings_test.go",
+    "internal/tui/tui.go",
+    "cmd/sworn/top.go",
+    "internal/config/config.go",
+    "internal/config/config_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/tui/... -run Settings",
+    "go test ./internal/config/... -run Save",
+    "go test ./internal/tui/...",
+    "go build ./..."
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}
