@@ -9,7 +9,7 @@ import (
 	"github.com/swornagent/sworn/internal/journey"
 )
 
-// cmdJourneys implements `sworn journeys [--check] [--impact <release>] [project-path]`.
+// cmdJourneys implements `sworn journeys [--check] [--impact <release>] [--regen <release>] [project-path]`.
 //
 // Without flags: runs the elicitation loop — creates a draft journeys
 // artefact from the project structure, presents it for human ratification.
@@ -22,6 +22,11 @@ import (
 // Exits 0 on success (even with an empty touched set), 1 when the journeys
 // artefact is missing or unratified, 2 on I/O or parse errors.
 //
+// With --regen <release>: codifies every walked-pass journey into an automated
+// regression test scaffold. Exits 0 when all walked journeys have coverage.
+// Exits 1 when one or more walked journeys have no regression test (coverage
+// gap — the command still generates scaffolds for gap journeys, then reports
+// any remaining gaps as a fail-closed error). Exits 2 on I/O or parse errors.//
 // Returns exit codes:
 //   0  — success (check passed, impact computed, or elicit+ratify succeeded)
 //   1  — check or impact failed (missing or unratified artefact)
@@ -31,8 +36,8 @@ func cmdJourneys(args []string) int {
 	fs := flag.NewFlagSet("journeys", flag.ExitOnError)
 	checkOnly := fs.Bool("check", false, "validate artefact presence + ratification (no draft)")
 	impactRelease := fs.String("impact", "", "analyse which journeys a release touches (release name)")
+	regenRelease := fs.String("regen", "", "codify walked journeys into regression test scaffolds (release name)")
 	_ = fs.Parse(args)
-
 	projectRoot := "."
 	if fs.NArg() > 0 {
 		projectRoot = fs.Arg(0)
@@ -53,8 +58,11 @@ func cmdJourneys(args []string) int {
 		return cmdJourneysImpact(absRoot, *impactRelease)
 	}
 
-	return cmdJourneysElicit(absRoot)
-}
+	if *regenRelease != "" {
+		return cmdJourneysRegen(absRoot, *regenRelease)
+	}
+
+	return cmdJourneysElicit(absRoot)}
 // cmdJourneysCheck implements the --check path. It reads the artefact and
 // checks presence + ratification. Exits 0 on pass, 1 on failure.
 func cmdJourneysCheck(projectRoot string) int {
@@ -229,4 +237,94 @@ func asImpactError(err error, target **journey.ImpactError) bool {
 		return asImpactError(e.Unwrap(), target)
 	}
 	return false
+}
+
+// cmdJourneysRegen implements the --regen path.
+// It reads the journeys artefact and attestations, then codifies each
+// walked-pass journey as a regression test scaffold. Previously-codified
+// journeys are preserved (accretive).
+//
+// Exit codes:
+//
+//	0 — success; all walked journeys have regression coverage
+//	1 — one or more walked journeys still lack coverage (reported as gaps)
+//	2 — unrecoverable error (I/O, parse failure, missing artefact)
+func cmdJourneysRegen(projectRoot, releaseName string) int {
+	// 1. Load and verify the journeys artefact.
+	checkResult, artefact, err := journey.Check(projectRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn journeys --regen: %v\n", err)
+		return 2
+	}
+	switch checkResult {
+	case journey.CheckMissing:
+		fmt.Fprintf(os.Stderr, "FAIL: no journeys artefact at %s.\n",
+			journey.JourneyArtefactPath(projectRoot))
+		fmt.Fprintln(os.Stderr, "Run 'sworn journeys <project>' to elicit journeys first (S11).")
+		return 1
+	case journey.CheckUnratified:
+		fmt.Fprintf(os.Stderr, "FAIL: journeys artefact exists but is NOT human-ratified.\n")
+		fmt.Fprintln(os.Stderr, "Ratify the artefact before running regression codification.")
+		return 1
+	}
+
+	// 2. Load attestations.
+	attArtefact, err := journey.LoadAttestations(projectRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn journeys --regen: load attestations: %v\n", err)
+		return 2
+	}
+
+	// 3. Check for coverage gaps BEFORE codification (so we can report). But
+	// we still codify — the fail-closed check is a separate signal.
+	gaps := journey.RegressionCoverageGaps(artefact, attArtefact, projectRoot)
+
+	// 4. Codify walked-pass journeys.
+	generated, err := journey.CodifyWalkedJourneys(artefact, attArtefact, "", projectRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn journeys --regen: codify: %v\n", err)
+		return 2
+	}
+
+	// 5. Save the updated artefact (HasRegression + RegressionTestPath).
+	if err := journey.SaveArtefact(projectRoot, artefact); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn journeys --regen: save artefact: %v\n", err)
+		return 2
+	}
+
+	// Report results.
+	fmt.Printf("Release: %s\n", releaseName)
+	fmt.Printf("Journeys artefact: found and ratified (by %s)\n", artefact.RatifiedBy)
+	fmt.Println()
+
+	if len(generated) > 0 {
+		fmt.Printf("Generated %d regression test scaffold(s):\n", len(generated))
+		for _, g := range generated {
+			fmt.Println("  ", g)
+		}
+		fmt.Println()
+	} else {
+		fmt.Println("No new regression scaffolds needed (all walked journeys already covered).")
+		fmt.Println()
+	}
+
+	if len(gaps) > 0 {
+		// Re-check coverage after codification — some gaps may have been filled.
+		remaining := journey.RegressionCoverageGaps(artefact, attArtefact, projectRoot)
+		if len(remaining) > 0 {
+			fmt.Fprintf(os.Stderr, "FAIL: %d journey(s) flagged for regression with no committed test:\n", len(remaining))
+			for _, id := range remaining {
+				fmt.Fprintf(os.Stderr, "  - %s\n", id)
+			}
+			fmt.Fprintln(os.Stderr, "These journeys have passing walkthroughs but no regression test.")
+			fmt.Fprintln(os.Stderr, "Add a committed test or mark as excluded.")
+			return 1
+		}
+		// All gaps filled during this run.
+		fmt.Println("All coverage gaps filled during this run.")
+	} else {
+		fmt.Println("Coverage check: all walked journeys have regression coverage.")
+	}
+
+	return 0
 }

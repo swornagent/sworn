@@ -198,4 +198,42 @@ The ship gate is fail-closed:
 The walkthrough attestation is deliberately manual (S13). S14 (journey regression suite) is the maturity path that shrinks the manual set over time — as journeys are codified into automated regression tests, fewer require human walkthrough at cutover. The attestation record is designed so a journey can transition from manual-walkthrough-required to regression-covered without schema changes.
 
 
-## ProvenanceRule 10 was introduced in the `2026-06-16-fidelity-layer` release. It closes the cross-slice integration-evidence gap: per-slice verification (Rules 1/6/7) catches within-slice defects, but no artefact captures the end-to-end user path. Journey validation fills that gap with a lightweight, version-controlled artefact that survives release boundaries.
+
+## Regression codification (S14)
+
+**Every walked-pass journey should eventually have an automated regression test.** S14 introduces the `sworn journeys --regen <release>` command that codifies journey steps into structured test scaffolds.
+
+### Codification algorithm
+
+1. **Load** the ratified journeys artefact and attestations from `.sworn/`.
+2. **Collect** journeys with a `walked-pass` attestation status.
+3. **Filter** — journeys already marked `has_regression: true` or whose `regression_test_path` points to a file that exists on disk are skipped (accretive).
+4. **Generate** a Go test scaffold for each un-covered walked journey:
+   - File name: `journey_<sanitised-id>_test.go`
+   - Package: `journey_test`
+   - One test function per journey containing the journey's steps as structured comments and a `t.Skip` marker.
+5. **Mark** the journey's `has_regression: true` and set `regression_test_path` in the artefact.
+6. **Save** the updated artefact.
+
+### Coverage check
+
+`sworn journeys --regen <release>` performs a coverage check before and after codification. If any walked-pass journey remains without a committed regression test after codification, the command exits non-zero (FAIL) and names each gap. This fail-closed signal forces the release to either:
+- Commit the missing test scaffold (re-run `--regen` to codify it), or
+- Explicitly acknowledge the gap as a Rule 2 deferral.
+
+### Accretive, not regenerated
+
+Previously-codified journeys are never re-generated. The scaffold file existence + `has_regression` flag together define "covered." An existing file is not overwritten, and a journey with `has_regression: true` is not re-processed. This ensures the regression suite is additive across releases — last release's walked journeys are this release's automated coverage.
+
+### Default output path
+
+Scaffolds are written to `<project-root>/tests/e2e/journeys/` by default. This path is configurable via an `outputDir` parameter (planned enhancement).
+
+### Relationship to S13 (walkthrough attestation)
+
+The ship gate (S13) currently requires human walkthrough attestations for every touched journey. A journey with `has_regression: true` is still subject to the ship gate — regression coverage does NOT replace the walkthrough. Over future releases, the ship gate may relax requirements for regression-covered journeys (e.g., re-walk only changed surfaces), but that is out of scope for v1 of S14.
+
+
+## Provenance
+
+Rule 10 was introduced in the `2026-06-16-fidelity-layer` release. It closes the cross-slice integration-evidence gap: per-slice verification (Rules 1/6/7) catches within-slice defects, but no artefact captures the end-to-end user path. Journey validation fills that gap with a lightweight, version-controlled artefact that survives release boundaries.
