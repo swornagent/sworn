@@ -12,20 +12,23 @@ When a maintainer runs `sworn journeys --regen <release>` (or as part of cutover
 ## Files changed
 
 ```
-$ git diff --name-only ad34339..HEAD
+$ git diff --name-only 0874c242..HEAD
+cmd/sworn/journeys.go
+cmd/sworn/journeys_regen_test.go
+docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/journal.md
+docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/proof.md
+docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/status.json
+docs/release/2026-06-16-fidelity-layer/index.md
+internal/adopt/baton/rules/10-customer-journey-validation.md
 ```
 
-(new files are listed as untracked/unstaged at proof-generation time; will land in the final `feat(...)` commit)
+(`start_commit` = `0874c242` is the Option A re-entry start; see Divergence from plan for why planned touchpoints `internal/journey/journey.go` and `internal/journey/regression_test.go` are absent from this range.)
 
-### Modified
-- `cmd/sworn/journeys.go` — added `--regen <release>` flag and `cmdJourneysRegen()` handler
-- `internal/journey/journey.go` — added `HasRegression bool` and `RegressionTestPath string` fields to `Journey` struct
-- `docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/status.json` — state transition records
-
-### New
-- `internal/journey/regression.go` — core regression codification + coverage-check logic
-- `internal/journey/regression_test.go` — unit tests for all acceptance checks
-- `cmd/sworn/journeys_regen_test.go` — CLI integration tests for the `--regen` path
+### Modified (Option A re-entry — 0874c242..HEAD)
+- `cmd/sworn/journeys.go` — Option A: pre-codification gap capture; exits 1 when any gap existed at run start
+- `cmd/sworn/journeys_regen_test.go` — updated all gap-scenario test assertions to expect exit 1
+- `internal/adopt/baton/rules/10-customer-journey-validation.md` — corrected Coverage check: "gaps existed at run start" replaces "gaps remain after codification"
+- proof bundle + board artefacts (`journal.md`, `proof.md`, `status.json`, `index.md`)
 
 ## Test results
 
@@ -140,6 +143,8 @@ ok  	github.com/swornagent/sworn/internal/journey	0.029s
 - **Planned `test_commands` adjustment**: The original `status.json` listed `"go test ./cmd/sworn/ -run TestJourneysRegen"` as a planned test command. This has been added as `cmd/sworn/journeys_regen_test.go` (4 CLI integration tests). The `test_commands` field in `status.json` now reflects actual commands.
 
 - **Option A — pre/post gap-count pattern (2026-06-19 planner ratification)**: The verifier BLOCKED on AC1 exit-non-zero — implementation exited 0 when gaps were filled during same run. Planner ratified Option A: sworn journeys --regen SHALL exit non-zero if any coverage gaps existed at run start, even if all gaps filled during same run. Exit 0 only when no gaps at start. Implementation now captures pre-codification gaps before CodifyWalkedJourneys() and exits 1 if any existed. Three gap-scenario tests assert exit 1. Rule doc corrected to 'gaps existed at run start.'
+
+- **`internal/journey/journey.go` and `internal/journey/regression_test.go` absent from `0874c242..HEAD`**: These two planned touchpoints were implemented in the original S14 session (commit `c924bae`, `feat(journey): land S14`), before the Option A re-entry whose `start_commit` is `0874c242`. The Option A fix required changes only to `cmd/sworn/journeys.go` (exit logic), `cmd/sworn/journeys_regen_test.go` (assertion updates), and `internal/adopt/baton/rules/10-customer-journey-validation.md` (doc correction) — `journey.go` and `regression_test.go` needed no further changes. Both files are present and correct in the full `ad34339..HEAD` range.
 
 ## First-pass script output
 
