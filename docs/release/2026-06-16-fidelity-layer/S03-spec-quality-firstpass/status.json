@@ -5,8 +5,8 @@
   "track": "T3-leaf-gates",
   "state": "implemented",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-19T12:00:00Z",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-19T14:00:00Z",
   "start_commit": "49570870ede36461a33698d12f155f6354e7d02a",
   "spec_path": "docs/release/2026-06-16-fidelity-layer/S03-spec-quality-firstpass/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S03-spec-quality-firstpass/proof.md",
@@ -42,11 +42,11 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "blocked",
+    "result": "pending",
     "verifier_session_id": null,
-    "verifier_verdict_at": "2026-06-19T14:00:00Z",
-    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
     "violations": [],
-    "blocked_reason": "Forward-merge of release-wt/2026-06-16-fidelity-layer into track/2026-06-16-fidelity-layer/T3-leaf-gates conflicted on cmd/sworn/main.go. T2-delivery-cutover (S13: case 'ship') was merged into release-wt after T3's last forward-merge. T3 depends_on does not include T2-delivery-cutover, so T3's main.go lacks case 'ship'. This is the third occurrence of the same pattern; fix: add T2-delivery-cutover to T3 depends_on in index.md."
+    "blocked_reason": null
   }
 }

@@ -91,7 +91,7 @@ tracks:
 **`cmd/sworn/main.go` — documented shared file (corrected 2026-06-19, further corrected 2026-06-19):** The original
 "Convention" paragraph treated `cmd/sworn/main.go` as collision-free for the parallel set
 {T2, T3, T4} on the basis that each track adds a distinct `case` block. Live merges have proved
-otherwise — twice. Round 2 BLOCKED (verifier) found that T4's `case "top"` and T3's `case "specquality"` conflict; T4 was added to T3's `depends_on`. Round 3 BLOCKED (verifier) found that T2's `case "ship"` (S13, merged to release-wt after T3's session 4 forward-merge) conflicts with T3 — because T3 did not `depends_on` T2. `cmd/sworn/main.go` is registered as a **DOCUMENTED SHARED** file per track-mode.md Invariant 2 — each track's distinct, non-overlapping `case` symbol is recorded above. **T3 must `depends_on` ALL tracks that precede it in merge order for this file: T1, T2, and T4.** As of this correction T3 `depends_on: [T1-fidelity-core, T2-delivery-cutover, T4-evidence-surface]`; both T1, T2, and T4 are already merged, so T3 is immediately unblocked. Command *implementations* remain in their own `cmd/sworn/<cmd>.go` files (disjoint, no change). The next `/implement-slice S03` forward-merge must keep ALL existing `case` blocks (T1's cases, T2's `case "ship":`, T4's `case "top":`) plus T3's `case "specquality":`.
+otherwise — twice. Round 2 BLOCKED (verifier) found that T4's `case "top"` and T3's `case "specquality"` conflict; T4 was added to T3's `depends_on`. Round 3 BLOCKED (verifier) found that T2's `case "ship"` (S13, merged to release-wt after T3's session 4 forward-merge) conflicts with T3 — because T3 did not `depends_on` T2. `cmd/sworn/main.go` is registered as a **DOCUMENTED SHARED** file per track-mode.md Invariant 2 — each track's distinct, non-overlapping `case` symbol is recorded above. **T3 must `depends_on` ALL tracks that precede it in merge order for this file: T1, T2, and T4.** As of this correction T3 `depends_on: [T1-fidelity-core, T2-delivery-cutover, T4-evidence-surface]`; T1, T2, and T4 are already merged, so T3 is immediately unblocked. Command *implementations* remain in their own `cmd/sworn/<cmd>.go` files (disjoint, no change). The next `/implement-slice S03` forward-merge must keep ALL existing `case` blocks (T1's cases, T2's `case "ship":`, T4's `case "top":`) plus T3's `case "specquality":`.
 
 ## Slices
 
@@ -140,8 +140,15 @@ otherwise — twice. Round 2 BLOCKED (verifier) found that T4's `case "top"` and
 
 ## Recent activity
 
-### 2026-06-19 — S03-spec-quality-firstpass: BLOCKED (round 3, fresh-context verifier)
+### 2026-06-19 — /replan-release: S03 BLOCKED (round 3) resolved — T3 depends_on T2
 
+- **Actor**: planner (/replan-release)
+- **Trigger**: S03 BLOCKED verdict (round 3, fresh-context verifier) — forward-merge of `release-wt` into T3 conflicted on `cmd/sworn/main.go`: T2-delivery-cutover's `case "ship"` (S13) was merged into release-wt after T3's session-4 forward-merge; T3's `depends_on` did not include T2, so T3's `cmd/sworn/main.go` lacked `case "ship"`. Third occurrence of missing-depends_on for this file.
+- **Resolution**: Added `T2-delivery-cutover` to T3's `depends_on` (now `[T1-fidelity-core, T2-delivery-cutover, T4-evidence-surface]`). Updated touchpoint-matrix note to document the full merge-order requirement: T3 must be last. Since T1, T2, and T4 are all merged, T3 is immediately unblocked. No code or spec changes — the implementation is correct; the matrix was incomplete.
+- **S03 status**: `verification.result` cleared from `"blocked"` to `"pending"`. Slice stays `implemented`; ready for fresh `/verify-slice S03-spec-quality-firstpass`. Next `/implement-slice S03` session must forward-merge `release-wt` and keep ALL cases: T1's cases + T2's `case "ship"` + T4's `case "top"` + T3's `case "specquality"`.
+- **Step 6**: T3 had production-code conflict on `cmd/sworn/main.go` — aborted full merge; fell back to cherry-pick of this session's planner commits; production-code merge deferred to next `/implement-slice S03` Step 0.
+
+### 2026-06-19 — S03-spec-quality-firstpass: BLOCKED (round 3, fresh-context verifier) — Resolved by replan above
 - **Actor**: verifier (fresh-context session)
 - **Trigger**: Forward-merge of `release-wt/2026-06-16-fidelity-layer` into `track/2026-06-16-fidelity-layer/T3-leaf-gates` conflicted on `cmd/sworn/main.go`. T2-delivery-cutover (S13-walkthrough-attestation: `case "ship"`) was merged into release-wt after T3's last forward-merge (session 4, 2026-06-19). T3's prior `depends_on: [T1-fidelity-core, T4-evidence-surface]` did not include T2, so T3's `main.go` lacks `case "ship":`.
 - **Board change**: T3 `depends_on` updated from `[T1-fidelity-core, T4-evidence-surface]` to `[T1-fidelity-core, T2-delivery-cutover, T4-evidence-surface]` in frontmatter and Tracks table. T2 is already merged, so T3 is immediately unblocked. `cmd/sworn/main.go` note updated with corrected dependency rule. S03 `verification.result` set to `"blocked"`. Slice state unchanged (`implemented`).
