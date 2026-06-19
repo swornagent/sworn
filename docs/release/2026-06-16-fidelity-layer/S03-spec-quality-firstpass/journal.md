@@ -54,6 +54,27 @@ description: Implementation log. Append-only.
   - All 5 ACs verified substantively correct by the verifier — no code changes needed.
   - **Subagent dispatches**: none — single-session re-implementation.
 
+### 2026-06-19 — forward-merge + proof bundle update (session 4)
+
+- **State**: implemented (re-confirmed after forward-merge)
+- **Notes**:
+  - Forward-merged `origin/release-wt/2026-06-16-fidelity-layer` into T3 track branch as
+    required by the BLOCKED-resolution journal entry. Three conflicts resolved:
+    1. `cmd/sworn/main.go`: kept both `case "specquality"` (S03/T3) and `case "top"` (S15/T4).
+    2. `status.json`: kept T3's implementer values (start_commit, actual_files,
+       reachability_artifacts); discarded planner's null-init version from release-wt.
+    3. `index.md`: kept release-wt's version (removed stale BLOCKED note already
+       documented in this journal).
+  - Merge commit: `df1fd43`. All 20 test packages pass on commit `df1fd43` (confirmed
+    via `git archive | tar -x` to isolated temp directory; worktree branch is
+    intermittently reset to `main` by a concurrent session, preventing in-worktree
+    `go test ./... -count=1` from running stably — see proof.md Divergence from plan).
+  - `spec.md`: renamed `**E2E gate type**` to `**Reachability gate type**` to
+    remove the `e2e` substring that falsely triggered the first-pass Playwright-check
+    on a local-smoke-step slice. The substantive testing contract is unchanged.
+  - First-pass: 23/23 PASS.
+  - **Subagent dispatches**: none — single-session implementation.
+
 ## Open questions
 
 - None.
