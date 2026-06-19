@@ -36,7 +36,7 @@ not a code change from this slice.
 
 ## Test results
 
-### Go
+### Go — targeted unit tests
 
 ```
 $ go test ./internal/specquality/... -v -count=1
@@ -69,7 +69,7 @@ $ go test ./internal/specquality/... -v -count=1
 === RUN   TestPrintCompact
 --- PASS: TestPrintCompact (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/internal/specquality	0.007s
+ok  	github.com/swornagent/sworn/internal/specquality	0.005s
 ```
 
 ### CLI Integration (Rule 1)
@@ -77,24 +77,88 @@ ok  	github.com/swornagent/sworn/internal/specquality	0.007s
 ```
 $ go test ./cmd/sworn/ -run TestSpecquality -v -count=1
 === RUN   TestSpecqualityCmd_MissingReleaseArg
+sworn specquality: release name is required
+usage: sworn specquality <release> [--threshold <0.0-1.0>]
 --- PASS: TestSpecqualityCmd_MissingReleaseArg (0.00s)
 === RUN   TestSpecqualityCmd_NonexistentRelease
+sworn specquality: release directory not found: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T3-leaf-gates/cmd/sworn/docs/release/nonexistent-release-xyz
 --- PASS: TestSpecqualityCmd_NonexistentRelease (0.00s)
 === RUN   TestSpecqualityCmd_Pass
+Spec-quality first-pass report
+==============================
+
+Threshold: 50% completeness
+
+Slice: S01-test-slice
+  Examples: 2
+  Soundness:  100%
+  Completeness: 50%
+  Status: PASS
+
+Overall: PASSED (average completeness: 50%)
+specquality: 1 slices — 1 passed, 0 failed (threshold 50% completeness) — PASSED
 --- PASS: TestSpecqualityCmd_Pass (0.00s)
 === RUN   TestSpecqualityCmd_Fail_NoExamples
+Spec-quality first-pass report
+==============================
+
+Threshold: 50% completeness
+
+Slice: S01-no-examples
+  Examples: 0
+  Soundness:  0%
+  Completeness: 0%
+  Violations:
+    - no acceptance examples found — planner must add structured examples to the ## Acceptance examples section
+
+Overall: FAILED (average completeness: 0%)
+specquality: 1 slices — 0 passed, 1 failed (threshold 50% completeness) — FAILED
 --- PASS: TestSpecqualityCmd_Fail_NoExamples (0.00s)
 === RUN   TestSpecqualityCmd_Fail_LowCompleteness
+Spec-quality first-pass report
+==============================
+
+Threshold: 50% completeness
+
+Slice: S01-vague
+  Examples: 1
+  Soundness:  100%
+  Completeness: 0%
+  Violations:
+    - completeness score 0% is below threshold 50% — acceptance examples do not catch enough output mutations
+
+Overall: FAILED (average completeness: 0%)
+specquality: 1 slices — 0 passed, 1 failed (threshold 50% completeness) — FAILED
 --- PASS: TestSpecqualityCmd_Fail_LowCompleteness (0.00s)
 PASS
 ok  	github.com/swornagent/sworn/cmd/sworn	0.007s
 ```
 
-### Full suite regression
+### Full suite regression (all packages, uncached)
 
 ```
-$ go test ./... 2>&1
-# all packages pass (20 packages as of implementation)
+$ go test ./... -count=1
+ok  	github.com/swornagent/sworn/cmd/sworn	0.070s
+ok  	github.com/swornagent/sworn/internal/adopt	0.022s
+ok  	github.com/swornagent/sworn/internal/agent	0.013s
+ok  	github.com/swornagent/sworn/internal/bench	0.232s
+ok  	github.com/swornagent/sworn/internal/board	0.005s
+ok  	github.com/swornagent/sworn/internal/config	0.017s
+ok  	github.com/swornagent/sworn/internal/designfit	0.011s
+ok  	github.com/swornagent/sworn/internal/ears	0.020s
+ok  	github.com/swornagent/sworn/internal/git	0.183s
+ok  	github.com/swornagent/sworn/internal/implement	0.157s
+ok  	github.com/swornagent/sworn/internal/journey	0.019s
+ok  	github.com/swornagent/sworn/internal/model	0.210s
+ok  	github.com/swornagent/sworn/internal/prompt	0.003s
+ok  	github.com/swornagent/sworn/internal/reqvalidate	0.015s
+ok  	github.com/swornagent/sworn/internal/reqverify	0.014s
+ok  	github.com/swornagent/sworn/internal/rtm	0.012s
+ok  	github.com/swornagent/sworn/internal/run	0.405s
+ok  	github.com/swornagent/sworn/internal/specquality	0.005s
+ok  	github.com/swornagent/sworn/internal/state	0.003s
+?   	github.com/swornagent/sworn/internal/verdict	[no test files]
+ok  	github.com/swornagent/sworn/internal/verify	0.008s
 ```
 
 ## Reachability artefact
@@ -185,12 +249,70 @@ EXIT CODE: 0
 - `bin/spec-quality.sh` requires `git add -f` because the repo `.gitignore`
   ignores `/bin/`. The file is tracked and functional via force-add. This
   does not affect behaviour — it is a build/repo-config quirk.
+- `cmd/sworn/specquality_test.go` is in the diff but was absent from the spec's
+  "Planned touchpoints" section. The spec.md lists only `cmd/sworn/specquality.go`
+  in the planned touchpoints; the test file was added as part of the "Required
+  tests" section (CLI integration tests per Rule 1 reachability gate). The test
+  file provides the `TestSpecqualityCmd_*` tests that exercise the CLI command
+  end-to-end, which is a necessary complement to the unit tests in
+  `internal/specquality/`. This does not affect behaviour or completeness of
+  delivery.
 
 ## First-pass script output
 
 ```
-$(cd /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T3-leaf-gates && $HOME/.claude/bin/release-verify.sh S03-spec-quality-firstpass 2026-06-16-fidelity-layer)
+$ $HOME/.claude/bin/release-verify.sh S03-spec-quality-firstpass 2026-06-16-fidelity-layer
+release-verify.sh
+  slice:       S03-spec-quality-firstpass
+  slice dir:   docs/release/2026-06-16-fidelity-layer/S03-spec-quality-firstpass
+  base branch: main
+
+== Slice artefacts ==
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+
+== Status ==
+  PASS  status.json is valid JSON
+  state: in_progress
+
+== Diff vs main ==
+  PASS  6 file(s) changed vs main
+  (first 20)
+    bin/spec-quality.sh
+    cmd/sworn/specquality.go
+    cmd/sworn/specquality_test.go
+    internal/specquality/specquality.go
+    internal/specquality/specquality_test.go
+    sworn
+
+== Dark-code markers in changed files ==
+  PASS  no dark-code markers in changed source files
+
+== Proof bundle structural checks ==
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+
+== Frontmatter YAML safety ==
+  PASS  spec.md frontmatter is strict-YAML safe
+
+== First-pass verdict ==
+  checks passed: 17
+  checks failed: 1
+
+FIRST-PASS FAIL
+Address the failures above before invoking the LLM verifier session.
 ```
 
-(To be filled after commit — the release-verify.sh reads from the repo-root
-relative path and will show PASS on the committed state.)
+Note: The single remaining failure is `state: in_progress` — the release-verify.sh
+expects `implemented` state before verifier dispatch. This is correct: the slice
+is in re-implementation. Once proof.md is committed and status.json is updated
+to `implemented`, the first-pass will show all green.
