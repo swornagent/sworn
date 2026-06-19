@@ -12,19 +12,20 @@ When a maintainer runs `sworn ship <release>`, sworn fails closed unless every j
 ## Files changed
 
 ```
-$ git diff --name-only start_commit..HEAD -- relative-to-wt
+$ git diff --name-only affb5227a0f94c6a3731f2d1091ca113b500a44d..HEAD
 cmd/sworn/main.go
 cmd/sworn/ship.go
 cmd/sworn/ship_test.go
+docs/release/2026-06-16-fidelity-layer/S13-walkthrough-attestation/journal.md
+docs/release/2026-06-16-fidelity-layer/S13-walkthrough-attestation/proof.md
+docs/release/2026-06-16-fidelity-layer/S13-walkthrough-attestation/status.json
+docs/release/2026-06-16-fidelity-layer/index.md
+internal/adopt/baton/rules/10-customer-journey-validation.md
 internal/journey/shipgate.go
 internal/journey/shipgate_test.go
-internal/adopt/baton/rules/10-customer-journey-validation.md
-docs/release/2026-06-16-fidelity-layer/S13-walkthrough-attestation/status.json
-docs/release/2026-06-16-fidelity-layer/S13-walkthrough-attestation/journal.md
 ```
 
 <small>Note: `affb5227a0f94c6a3731f2d1091ca113b500a44d..HEAD` — the start implementation commit through current HEAD.</small>
-
 ## Test results
 
 ### Go tests — all packages
@@ -64,15 +65,59 @@ No acceptance checks remain undelivered. All 5 ACs are satisfied.
 
 ## Divergence from plan
 
-None. Implementation follows the spec exactly:
-- `cmd/sworn/ship.go` created as planned (new command)
-- `cmd/sworn/main.go` modified with `case "ship"` 
-- `internal/journey/shipgate.go` created with the ship gate (instead of modifying `internal/state/state.go`)
-- `internal/journey/shipgate_test.go` created for unit tests
-- `internal/adopt/baton/rules/10-customer-journey-validation.md` updated with walkthrough attestation section
+The spec's "Planned touchpoints" included several files that were not directly
+modified by this slice, and this slice added files not listed in the plan.
+Every deviation is accounted below.
 
-Note: The attestation persistence model from S15 (`walkthrough.go`) was used directly — attestations are stored at `.sworn/attestations.json` (project-level, not per-release) with per-journey attestation records. This is the correct integration with the existing model.
+### Files in the diff but not in the spec's planned touchpoints
 
+- **`cmd/sworn/ship_test.go`** — Integration-test companion to `ship.go` that
+  exercises `cmdShip` end-to-end (exit codes, fixture releases, attestation
+  loading). Not listed in the original plan because the plan scoped tests to
+  `internal/journey/walkthrough_test.go` and `internal/state/`; in practice,
+  testing the CLI entry point alongside `shipgate_test.go` offered better
+  coverage separation (unit-level gate tests in `internal/journey/`, integration
+  tests through the CLI in `cmd/sworn/`). The spec's "Required tests" section
+  calls for exactly this shape (integration: "drive `sworn ship <fixture-release>`
+  with one un-walked journey").
+
+- **`internal/journey/shipgate.go`** and **`internal/journey/shipgate_test.go`**
+  — The ship gate implementation landed in its own file in the `internal/journey/`
+  package rather than modifying `internal/state/state.go` as the plan suggested.
+  This grouping keeps the attestation/cutover logic co-located with the journey
+  model it validates (same package). The spec's "In scope" lists the cutover
+  gate and walkthrough attestation record; the location is a packaging choice,
+  not a scope deviation.
+
+- **Slice documentation artefacts** (`journal.md`, `proof.md`, `status.json`,
+  `index.md`) — These are required by the release process and are never listed
+  in a slice's planned touchpoints.
+
+### Files in the spec's planned touchpoints but not in the diff
+
+- **`internal/state/state.go`** — Not modified. The ship gate was implemented
+  in `internal/journey/shipgate.go` instead (see above). The `verified -> shipped`
+  transition logic lives there; `internal/state/state.go` was not disturbed.
+
+- **`internal/journey/journey.go`** — Not modified. This file was created by
+  S11 (journey-elicitation, T1-fidelity-core) and defines the core journey model
+  (`Journey`, `Artefact`, etc.). S13 reads the journey model from S11's API but
+  does not modify it — the attestation model is additive in `walkthrough.go`
+  (S15), not in `journey.go`.
+
+- **`internal/journey/walkthrough_test.go`** — Not modified. This file was
+  created by S15 (sworn-top-evidence, T4-evidence-surface) along with
+  `walkthrough.go`. S13 uses the `Attestation`/`AttestationArtefact` model
+  defined there directly via `shipgate.go`; no additional tests were needed in
+  `walkthrough_test.go` because all S13-specific test coverage is in
+  `shipgate_test.go`.
+
+### Summary of spec deviations (none)
+
+The spec's **scope, acceptance checks, and behaviour** are implemented exactly.
+The packaging deviations (file locations, additional test file) are
+implementation choices consistent with the spec's intent. No acceptance check
+is missing or altered.
 ## First-pass script output
 
 ```

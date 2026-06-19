@@ -43,3 +43,24 @@ Required to address:
 2. Explicitly state in proof.md "Divergence from plan" why `internal/journey/journey.go` was not changed (e.g., T1/S11 already created the journey model; nothing additional was needed for S13).
 3. Explicitly state in proof.md "Divergence from plan" why `internal/journey/walkthrough_test.go` was not changed (e.g., S15 already created the attestation model in `walkthrough.go` and `walkthrough_test.go`; S13 uses them directly via `shipgate.go`).
 4. Remove the contradictory "None." leading text from "Divergence from plan" — the section has real divergences and the claim of "None" is false.
+### 2026-06-26 12:00 - re-entry: fix verifier violations (round 2)
+
+- **State**: failed_verification -> in_progress -> implemented
+- **Notes**:
+  - No code changes needed - all 4 verifier violations were in the proof.md
+    "Divergence from plan" section, not in the implementation.
+  - Violation 1 (ship_test.go not explained): Added to "Files in the diff but
+    not in the spec's planned touchpoints" - integration-test companion to
+    ship.go exercising cmdShip end-to-end.
+  - Violation 2 (journey.go not in diff): Added to "Files in the spec's planned
+    touchpoints but not in the diff" - S11 created it, S13 reads it but does
+    not modify it.
+  - Violation 3 (walkthrough_test.go not in diff): Added to same section - S15
+    created it, S13 uses the Attestation model directly.
+  - Violation 4 (contradictory "None"): Replaced with an honest structured
+    section listing every deviation with explanation.
+  - Also surfaced `internal/state/state.go` deviation (spec listed it but
+    implementation went into shipgate.go instead).
+  - `actual_files` updated in status.json to include ship_test.go and the
+    consumed model files (walkthrough.go is consumed; index.md was updated).
+  - verification.result set to null (ready for fresh verifier).
