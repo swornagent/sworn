@@ -6,8 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-)
 
+	"github.com/swornagent/sworn/internal/config"
+)
 // TestCmdInit_NonInteractive verifies that `sworn init --yes` without --ui-bearing
 // produces a config with UIBearing: false (CLI project default) via the entry point.
 func TestCmdInit_NonInteractive(t *testing.T) {
@@ -117,5 +118,41 @@ func TestCmdInit_UIBearingOutput(t *testing.T) {
 
 	if !strings.Contains(string(data), "ui_bearing") {
 		t.Error("config should contain ui_bearing key")
+	}
+}
+// TestCmdInit_UIBearing_ValidateFailClosed verifies that after sworn init --yes --ui-bearing
+// the written config triggers Validate() to return ErrNoDesignSystem — proving the system
+// actually fails closed when ui_bearing is true without a design_system declaration.
+// This is the Gate 1/Gate 4 fix: a real integration-level assertion that calls
+// config.Load() + Validate() on the written config.
+func TestCmdInit_UIBearing_ValidateFailClosed(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	t.Setenv("SWORN_CONFIG_PATH", configPath)
+
+	oldCwd, _ := os.Getwd()
+	defer os.Chdir(oldCwd)
+	os.Chdir(dir)
+
+	exit := cmdInit([]string{"--yes", "--ui-bearing"})
+	if exit != 0 {
+		t.Fatalf("cmdInit --yes --ui-bearing exited %d, want 0", exit)
+	}
+
+	// Load the written config via config.Load() (real load path)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load() after init failed: %v", err)
+	}
+
+	if !cfg.UIBearing {
+		t.Error("expected ui_bearing to be true after --ui-bearing init")
+	}
+
+	// This is the key assertion: Validate() must fail closed.
+	if err := cfg.Validate(); err == nil {
+		t.Error("config.Validate() should return error when ui_bearing=true and design_system=nil, got nil")
+	} else if err != config.ErrNoDesignSystem {
+		t.Errorf("expected ErrNoDesignSystem, got: %v", err)
 	}
 }

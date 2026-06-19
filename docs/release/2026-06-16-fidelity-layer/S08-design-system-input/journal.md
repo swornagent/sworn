@@ -81,3 +81,20 @@
 - **Worktree note**: The local worktree was stale behind `origin/track/T3-leaf-gates`. Fast-forwarded via `git merge --ff-only` to bring in upstream S08 commits. All existing tests pass.
 - **First-pass script**: Re-run after fix.
 - **State**: Ready for adversarial verification in a fresh session.
+### 2026-06-20 — Round 3: fix verifier Gates 1, 4, 6
+
+- **State**: `failed_verification → in_progress → implemented`
+- **Gate 1 fix — production fail-closed wiring**:
+  - Added `cfg.Validate()` call in `cmdReqverify()` (reqverify.go) after `config.Load()` — sworn reqverify now exits 2 with `ErrNoDesignSystem` when ui_bearing=true without design_system.
+  - Added `cfg.Validate()` call in `cmdVerify()` (main.go) after `config.Load()` — sworn verify also exits 2 on fail-closed.
+- **Gate 4/Gate 6 fix — proof.md accuracy**:
+  - Removed false claim from automated smoke step that `TestCmdInit_UIBearingFlag` verifies `Validate()` returns `ErrNoDesignSystem` (it only stores ui_bearing: true).
+  - Added `TestCmdInit_UIBearing_ValidateFailClosed` — a real integration test that calls `config.Load()` + `cfg.Validate()` on the written config and asserts `ErrNoDesignSystem`.
+  - Corrected AC1 evidence to cite the new test and the production wiring, not `TestCmdInit_UIBearingFlag`.
+  - Corrected manual smoke step to reference actual production code paths.
+- **Key design decisions:**
+  - Wired Validate() into both cmdVerify and cmdReqverify because both are production commands that load config; the user outcome says "sworn fails closed" broadly.
+  - Did NOT add Validate() to cmdRun since config loading there is for model resolution — the fail-closed runs through the verify path that cmdRun invokes.
+  - Did NOT modify config.Load() itself to call Validate() — that would break the default config path where CLI projects have ui_bearing:false.
+- **First-pass script**: re-run after all fixes — **23/23 PASS**.
+- **State**: Ready for adversarial verification in a fresh session.

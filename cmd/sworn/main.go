@@ -115,8 +115,14 @@ func cmdVerify(args []string) int {
 		return 2
 	}
 
-	if resolvedModel != "" {
-		var verr error
+	// Validate config invariants: UI-bearing projects must declare a design system.
+	// Sworn fails closed when a project marked UI-bearing has no design system.
+	if err := cfg.Validate(); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn verify: %v\n", err)
+		return 2
+	}
+
+	if resolvedModel != "" {		var verr error
 		v, verr = model.FromEnv(resolvedModel)
 		if verr != nil {
 			fmt.Fprintf(os.Stderr, "sworn verify: %v\n", verr)

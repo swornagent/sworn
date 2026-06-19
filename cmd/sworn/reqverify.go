@@ -37,14 +37,20 @@ func cmdReqverify(args []string) int {
 		fmt.Fprintf(os.Stderr, "sworn reqverify: loading config: %v\n", cfgErr)
 	}
 
+	// Validate config invariants: UI-bearing projects must declare a design system.
+	// Sworn fails closed when a project marked UI-bearing has no design system.
+	if err := cfg.Validate(); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn reqverify: %v\n", err)
+		return 2
+	}
+
 	resolvedModel, err := config.ResolveVerifierModel(*mdl, cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sworn reqverify: %v\n", err)
 		return 2
 	}
 
-	if resolvedModel != "" {
-		var verr error
+	if resolvedModel != "" {		var verr error
 		v, verr = model.FromEnv(resolvedModel)
 		if verr != nil {
 			fmt.Fprintf(os.Stderr, "sworn reqverify: %v\n", verr)

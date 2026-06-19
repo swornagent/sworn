@@ -3,11 +3,10 @@
   "slice_id": "S08-design-system-input",
   "release": "2026-06-16-fidelity-layer",
   "track": "T3-leaf-gates",
-  "state": "failed_verification",
+  "state": "implemented",
   "owner": "human",
-  "last_updated_by": "verifier (round 2)",
-  "last_updated_at": "2026-06-20T04:30:00Z",
-  "start_commit": "9b3b637a6afd5563838aa1a665eac3672208926e",
+  "last_updated_by": "implementer (round 3 — Gate 1/4/6 fix)",
+  "last_updated_at": "2026-06-20T04:30:00Z",  "start_commit": "9b3b637a6afd5563838aa1a665eac3672208926e",
   "spec_path": "docs/release/2026-06-16-fidelity-layer/S08-design-system-input/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S08-design-system-input/proof.md",
   "journal_path": "docs/release/2026-06-16-fidelity-layer/S08-design-system-input/journal.md",
@@ -23,9 +22,10 @@
     "internal/config/init.go",
     "cmd/sworn/init.go",
     "cmd/sworn/init_design_system_test.go",
+    "cmd/sworn/main.go",
+    "cmd/sworn/reqverify.go",
     "internal/adopt/baton/rules/09-design-fidelity.md"
-  ],
-  "test_commands": [
+  ],  "test_commands": [
     "go test ./internal/config/...",
     "go test ./cmd/sworn/... -run TestCmdInit"
   ],
@@ -42,6 +42,11 @@
       "Gate 1: Config.Validate() is never called from any production code path; sworn does not fail closed for a UI-bearing project without a design system",
       "Gate 4: proof.md reachability artefact automated step 5 falsely claims test verifies Validate() returns ErrNoDesignSystem; manual smoke step falsely claims sworn verify fails closed via Validate()",
       "Gate 6: proof.md AC1 evidence falsely states TestCmdInit_UIBearingFlag confirms fail-closed behavior; test only verifies ui_bearing: true is stored"
+    ],
+    "addressed_in_round": 3,
+    "fix_commits": [
+      "cfg.Validate() wired into cmdReqverify (reqverify.go) and cmdVerify (main.go)",
+      "TestCmdInit_UIBearing_ValidateFailClosed added to init_design_system_test.go",
+      "proof.md Gate 4/6 false claims corrected"
     ]
-  }
-}
+  }}
