@@ -3,10 +3,10 @@
   "slice_id": "S03-spec-quality-firstpass",
   "release": "2026-06-16-fidelity-layer",
   "track": "T3-leaf-gates",
-  "state": "planned",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "planner",
-  "last_updated_at": "2026-06-16T09:19:56Z",
+  "last_updated_at": "2026-06-19T10:00:00Z",
   "start_commit": null,
   "spec_path": "docs/release/2026-06-16-fidelity-layer/S03-spec-quality-firstpass/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S03-spec-quality-firstpass/proof.md",
@@ -22,8 +22,9 @@
   ],
   "actual_files": [],
   "test_commands": [
-    "go test ./internal/specquality/...",
-    "go test ./cmd/sworn/ -run TestSpecquality"
+    "go test ./internal/specquality/... -v -count=1",
+    "go test ./cmd/sworn/ -run TestSpecquality -v -count=1",
+    "go test ./... -count=1"
   ],
   "reachability_artifacts": [],
   "open_deferrals": [],
@@ -32,6 +33,7 @@
     "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
-    "violations": []
+    "violations": [],
+    "blocked_reason": null
   }
 }
