@@ -178,6 +178,39 @@ delivers async AND verified. Same PR, different quality bar. This gap is unoccup
 - **Async paging / notifications** (webhook/Slack/email on slice fail): may fit in R3
   as part of `sworn account` or as its own slice; TBD during decomposition.
 
+## Architecture notes
+
+### Orchestration state: two layers
+
+**Layer 1 — Per-slice state (unchanged from today)**
+- `docs/release/.../S<NN>-*/status.json` — git-backed, committed, auditable
+- This is the durable record of each slice's lifecycle; R3 does not change it
+
+**Layer 2 — Orchestration runtime state (new in R3)**
+- Answers: which track is running, which PID owns it, is it alive?
+- Stored in a SQLite database at `.sworn/sworn.db` (git-ignored, ephemeral)
+- Per-track record: `{id, pid, state, current_slice, started_at, release}`
+- Event log table for `sworn top` to render live history
+- ACID transactions prevent two schedulers from racing on track ownership
+- On restart: supervisor reads DB, checks PID liveness (`kill -0`), reaps zombies
+- Credits balance: cached in DB, authoritative source is SwornAgent API
+
+**SQLite driver: `modernc.org/sqlite`** (pure Go, no CGo, no system libsqlite3)
+- Wraps stdlib `database/sql` — the call surface is standard Go
+- Binary grows (~8MB) but no runtime OS dependency; cross-compiles cleanly
+- Requires ADR-0003 to add the dep (exception to ADR-0001's stdlib-only rule)
+
+### Auth command: `sworn login`
+
+- Top-level verb: `sworn login` (handles both new registration and existing accounts
+  via a web/device-code flow)
+- Account management subcommands: `sworn account` (shows credits, email, tier),
+  `sworn account buy` (top up)
+- `sworn logout` — clears stored token
+- Token stored at `~/.config/sworn/credentials.json` (user-local, not git-tracked)
+- Credits balance cached at `~/.config/sworn/credits.json`; refreshed on login and
+  on each `sworn run` invocation
+
 ## Decisions made during planning
 
 ### 2026-06-19 — Release name confirmed: `2026-06-19-safe-parallelism`
@@ -206,6 +239,29 @@ delivers async AND verified. Same PR, different quality bar. This gap is unoccup
 - **Why**: `index.md` on the integration branch is always stale during in-flight work;
   the oracle is status.json on track branches.
 - **Tracking**: planner.md update; meta-task outside R3 scope.
+
+### 2026-06-19 — Auth command UX: `sworn login`
+
+- **Context**: deciding between `sworn login`, `sworn account register`, `sworn auth login`.
+- **Decision**: `sworn login` as the primary verb; `sworn account` as the management
+  subcommand (`sworn account credits`, `sworn account buy`). `sworn logout` clears token.
+- **Why**: single familiar verb; matches gh/vercel/railway convention; handles new
+  registration and existing login transparently via web/device-code flow.
+
+### 2026-06-19 — Orchestration state: SQLite via modernc.org/sqlite
+
+- **Context**: the orchestration runtime state machine (process registry, live track
+  status, PID tracking) needs to support 8+ concurrent tracks. JSON file locking
+  doesn't scale past ~4 concurrent writers without races.
+- **Options**: file-based JSON (zero new deps, scale ceiling ~4-6) vs. SQLite
+  (one new dep, ACID, scales to 8+ concurrent tracks cleanly).
+- **Decision**: SQLite at `.sworn/sworn.db` using `modernc.org/sqlite` (pure Go,
+  no CGo). ADR-0003 required to justify the dep exception to ADR-0001.
+- **Why**: ACID transactions eliminate the race class at the process registry level.
+  Pure-Go SQLite keeps zero *runtime* OS deps (just a larger binary). 8+ concurrent
+  tracks is a real use case; don't build a ceiling into the foundation.
+- **Scope note**: per-slice `status.json` files stay git-backed (unchanged). SQLite
+  is the runtime coordination layer only; the durable audit trail is git.
 
 ### 2026-06-19 — Commercialisation model: credits + managed proxy (not BSL, not SaaS-first)
 
@@ -254,22 +310,33 @@ delivers async AND verified. Same PR, different quality bar. This gap is unoccup
    script, or an integration test that requires model API keys? Affects which track it
    belongs to and what "verified" means for that slice.
 
-## Proposed slice decomposition (draft — not yet confirmed)
+## Proposed slice decomposition (confirmed 2026-06-19)
 
-See Phase 3 conversation for the Scope-Ceiling Bar and Dependency Graph.
+3 tracks; 7 slices. Confirmed via planning session.
 
-- `S01-process-ownership` — process registry + supervisor; reap-on-restart; single-owner
-  identity per slice; safe concurrent implementer isolation
-- `S02-concurrent-scheduler` — `sworn run` launches multiple tracks in parallel; each in
-  its own worktree; scheduler coordinates without sharing state
-- `S03-verify-under-concurrency` — verify gate provably correct at N>1; adversarial fresh-
-  context sessions don't corrupt each other; fail-closed under concurrency
-- `S04-sworn-top-concurrency` — `sworn top` extended to show live concurrent track status,
-  credits consumed, ETA; extends R2's S15 read-only board
-- `S05-overclaim-benchmark` — formal repeatable benchmark: overclaim rate at N=1/2/4;
-  published as a release artefact; launch-gate requirement met
-- `S06-sworn-account` *(TBD — in R3 or post-R3)*: `sworn account register`; opt-in cloud
-  registration; model calls routed through SwornAgent proxy; credit balance in `sworn top`
+**T1-concurrency-core** (no depends_on — goes first)
+- `S01-process-ownership` — ADR-0003 (SQLite dep); `internal/db/` package (schema +
+  migrations); process registry (PID → track ownership); reap-on-restart supervisor;
+  single-owner identity per slice. ~10 files.
+- `S02-concurrent-scheduler` — `sworn run` launches multiple tracks in parallel; each
+  track is a goroutine with its own worktree; scheduler reads board, coordinates via DB.
+  ~9 files.
+- `S03-verify-under-concurrency` — goroutine-safety audit on `internal/verify/`; N-parallel
+  verify tests prove fail-closed at N>1; no global state in the verify path. ~4 files.
+
+**T2-monitoring** (depends_on T1)
+- `S04-sworn-top-concurrency` — extends R2's `sworn top` (S15): live concurrent track
+  status (reads DB), credits consumed, ETA. Bubble Tea extension. ~5 files.
+- `S05-overclaim-benchmark` — repeatable benchmark at N=1/2/4 concurrent tracks;
+  published release artefact; launch-gate requirement. ~5 files.
+
+**T3-commercial** (depends_on T1)
+- `S06-sworn-login` — `sworn login` (device-code/web flow; new + existing accounts);
+  `sworn logout`; `sworn account` (credits, buy); token at `~/.config/sworn/credentials.json`;
+  model calls proxy through SwornAgent when logged in; credit balance in DB + `sworn top`.
+  ~10 files.
+- `S07-paging` — FAIL/BLOCKED events emit webhook/email to registered account endpoint;
+  wires into run.go's FAIL path; configurable via `sworn account` (set webhook URL). ~4 files.
 
 ## Screenshots / references
 
