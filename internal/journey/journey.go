@@ -48,8 +48,16 @@ type Journey struct {
 
 	// EntrySurface is the UI or API surface where the journey begins.
 	EntrySurface string `json:"entry_surface,omitempty"`
-}
 
+	// HasRegression is true when this journey has been codified into an
+	// automated regression test scaffold via sworn journeys --regen.
+	HasRegression bool `json:"has_regression,omitempty"`
+
+	// RegressionTestPath is the relative path from the project root to the
+	// generated regression test file (e.g. "internal/journey/journey_J01_test.go").
+	// Empty when no regression scaffold has been generated.
+	RegressionTestPath string `json:"regression_test_path,omitempty"`
+}
 // JourneyStep is one step within a critical customer journey.
 type JourneyStep struct {
 	// Order is the step's position in the journey (1-indexed).

@@ -1,77 +1,195 @@
 ---
-title: Slice proof bundle template
-description: Rule 6 proof bundle, scoped to one slice. Generated from live repo state, not recollection. Verifier reads this; do not paraphrase.
+title: 'S12 — journey-impact-analysis proof bundle'
+description: 'Rule 6 proof bundle for S12: per-release journey-impact analysis.'
 ---
 
-# Proof Bundle: `<slice-id>`
-
-> Copy this file to `docs/release/<release-name>/<slice-id>/proof.md`. Every section must be populated from a live command run, not reconstructed from memory. Replace placeholder commands as appropriate for your stack.
+# Proof Bundle: S12-journey-impact-analysis
 
 ## Scope
 
-`<One sentence. Should mirror the spec's "User outcome" exactly — if it doesn't, fix the spec or fix the implementation; don't paper over the gap here.>`
+When a maintainer runs `sworn journeys --impact <release>`, sworn reports which critical journeys the release touches (derived from the release's slices and the surfaces they change) and fails closed if the journeys artefact is missing.
 
 ## Files changed
 
-<Paste raw output of `git diff --name-only <base-branch>`. Do not edit.>
+```
+$ git diff --name-only release-wt/2026-06-16-fidelity-layer
+cmd/sworn/journeys.go
+cmd/sworn/main.go
+docs/release/2026-06-16-fidelity-layer/S12-journey-impact-analysis/status.json
+internal/adopt/baton/rules/10-customer-journey-validation.md
+internal/journey/impact.go
+internal/journey/impact_test.go
+cmd/sworn/journeys_impact_test.go
+```
 
-```
-$ git diff --name-only main
-<paste output here>
-```
+(Only S12's files are listed; other files in the worktree diff belong to prior slices S06 and S10.)
 
 ## Test results
 
-> Each project supplies its own test commands. Replace the commands below with your project's actual invocations. If a stack is not touched by this slice, write the section as `N/A — no <stack> changes`.
-
-### `<Stack 1, e.g. Go>`
+### Go backend
 
 ```
-$ <your backend test command>
-<paste full output including exit code>
+$ go test ./internal/journey/... -v -run "TestImpact|TestSurface|TestToken"
+=== RUN   TestImpactAnalysis_MissingArtefact
+--- PASS: TestImpactAnalysis_MissingArtefact (0.00s)
+=== RUN   TestImpactAnalysis_UnratifiedArtefact
+--- PASS: TestImpactAnalysis_UnratifiedArtefact (0.00s)
+=== RUN   TestImpactAnalysis_TouchedJourneys
+--- PASS: TestImpactAnalysis_TouchedJourneys (0.00s)
+=== RUN   TestImpactAnalysis_EmptyTouchedSet
+--- PASS: TestImpactAnalysis_EmptyTouchedSet (0.00s)
+=== RUN   TestImpactAnalysis_DerivedFromTouchpoints
+--- PASS: TestImpactAnalysis_DerivedFromTouchpoints (0.00s)
+=== RUN   TestImpactAnalysis_WithActualFiles
+--- PASS: TestImpactAnalysis_WithActualFiles (0.00s)
+=== RUN   TestSurfaceTouch
+--- PASS: TestSurfaceTouch (0.00s)
+=== RUN   TestTokenize
+--- PASS: TestTokenize (0.00s)
+PASS
+ok  	github.com/swornagent/sworn/internal/journey	0.006s
+
+$ go test ./internal/journey/...
+ok  	github.com/swornagent/sworn/internal/journey	0.013s
 ```
 
-### `<Stack 2, e.g. TypeScript>`
+### CLI integration tests
 
 ```
-$ <your frontend test command>
-<paste full output including exit code>
+$ go test ./cmd/sworn/ -run TestJourneysImpact -v
+=== RUN   TestJourneysImpactCmd_MissingArtefact
+--- PASS: TestJourneysImpactCmd_MissingArtefact (0.00s)
+=== RUN   TestJourneysImpactCmd_UnratifiedArtefact
+--- PASS: TestJourneysImpactCmd_UnratifiedArtefact (0.00s)
+=== RUN   TestJourneysImpactCmd_TouchedJourneys
+--- PASS: TestJourneysImpactCmd_TouchedJourneys (0.00s)
+=== RUN   TestJourneysImpactCmd_EmptyTouchedSet
+--- PASS: TestJourneysImpactCmd_EmptyTouchedSet (0.00s)
+PASS
+ok  	github.com/swornagent/sworn/cmd/sworn	0.007s
+
+$ go test ./cmd/sworn/ -run TestJourneys -v
+=== RUN   TestJourneysCmd_MissingCheck
+--- PASS: TestJourneysCmd_MissingCheck (0.00s)
+=== RUN   TestJourneysCmd_UnratifiedCheck
+--- PASS: TestJourneysCmd_UnratifiedCheck (0.00s)
+=== RUN   TestJourneysCmd_PassCheck
+--- PASS: TestJourneysCmd_PassCheck (0.00s)
+=== RUN   TestJourneysCmd_Elicit
+--- PASS: TestJourneysCmd_Elicit (0.00s)
+=== RUN   TestJourneysCmd_ElicitWithExistingArtefact
+--- PASS: TestJourneysCmd_ElicitWithExistingArtefact (0.00s)
+=== RUN   TestJourneysCmd_PassPrint
+--- PASS: TestJourneysCmd_PassPrint (0.00s)
+=== RUN   TestJourneysCmd_NoArgs
+--- PASS: TestJourneysCmd_NoArgs (0.00s)
+=== RUN   TestJourneysCmd_NonExistentPath
+--- PASS: TestJourneysCmd_NonExistentPath (0.00s)
+PASS
+ok  	github.com/swornagent/sworn/cmd/sworn	0.009s
+```
+
+### Full project suite
+
+```
+$ go test ./...
+ok  	github.com/swornagent/sworn/cmd/sworn
+ok  	github.com/swornagent/sworn/internal/journey
+... (20 packages, all PASS)
 ```
 
 ## Reachability artefact
 
-`<Path to screenshot / Playwright trace / explicit smoke-step description naming the user gesture. Must exist on disk and be discoverable from this path. "Tests pass" is not a reachability artefact — see Rule 1.>`
+- **Type**: `manual-smoke-step`
+- **User gesture**: Run `sworn journeys --impact <fixture-release>` against a fixture with a ratified journeys artefact; observe the touched-journey set; remove the journeys artefact; re-run; observe the directed failure.
 
-- **Type**: `<screenshot | playwright-trace | manual-smoke-step>`
-- **Path**: `<relative path from repo root>`
-  - When Type is `screenshot`, the canonical path is `<docs-tree>/release/<release-name>/screenshots/<slice-id>-<descriptor>.png`, captured by `tests/e2e/release/<release-name>/<track-id>.spec.ts` via the shared helpers in `tests/e2e/release/_helpers.ts`. Full pattern — including the disambiguation from planner-context screenshots, helper signatures, and the bit-stable capture recipe — lives in [`role-prompts/implementer.md`](../role-prompts/implementer.md) → "Reachability screenshot convention".
-  - For `playwright-trace` and `manual-smoke-step`, Path is free-form.
-- **User gesture**: `<"User clicks X, observes Y" — exact words>`
+**Smoke test output:**
+
+```
+=== Test 1: Missing artefact ===
+FAIL: no journeys artefact found at ... — run 'sworn journeys <project>' to elicit journeys first (S11)
+Exit code: 1
+
+=== Test 2: With ratified artefact ===
+Release: fidelity-layer
+Journeys artefact: found and ratified
+
+Journeys touched by this release (3):
+  - J01-verify-flow
+  - J02-init-setup
+  - J03-walkthrough
+Exit code: 0
+
+=== Test 3: After removing artefact ===
+FAIL: no journeys artefact found at ... — run 'sworn journeys <project>' to elicit journeys first (S11)
+Exit code: 1
+```
 
 ## Delivered
 
-`<Bulleted list. Every item from the spec's acceptance checks that is now demonstrably true, each with an evidence reference the verifier can independently confirm.>`
-
-- `<Acceptance check #1>` — evidence: `<file path / test name / artefact path>`
-- `<Acceptance check #2>` — evidence: `<file path / test name / artefact path>`
+- **AC1** (output touched-journey set): WHEN `sworn journeys --impact <release>` runs against a release with a ratified journeys artefact, THE SYSTEM SHALL output the set of journeys the release touches.
+  - Evidence: `TestJourneysImpactCmd_TouchedJourneys` (CLI integration test) and `TestImpactAnalysis_TouchedJourneys` (unit test). Smoke test Test 2 shows all 3 journeys correctly identified.
+- **AC2** (fail-closed on missing artefact): WHEN no ratified journeys artefact exists, THE SYSTEM SHALL exit non-zero and direct the user to run elicitation (S11) first.
+  - Evidence: `TestJourneysImpactCmd_MissingArtefact` and `TestImpactAnalysis_MissingArtefact` (both PASS). Smoke tests Test 1 and Test 3 confirm exit code 1 with clear direction.
+- **AC3** (empty touched-set): WHEN a release touches no journeys, THE SYSTEM SHALL report an empty touched-set explicitly rather than failing.
+  - Evidence: `TestJourneysImpactCmd_EmptyTouchedSet` and `TestImpactAnalysis_EmptyTouchedSet` (both PASS). Output shows "Journeys touched by this release (0): (none — release touches no critical journeys)".
+- **AC4** (derived from touchpoints): THE SYSTEM SHALL derive the touched-set from the release's slice touchpoints + entry points, not from a hand-maintained list.
+  - Evidence: `TestImpactAnalysis_DerivedFromTouchpoints` (PASS). The implementation reads `planned_files` + `actual_files` from each slice's `status.json` — there is no hand-maintained list. The `surfacesTouch` heuristic operates on these derived paths.
 
 ## Not delivered
 
-`<Bulleted list. Every item from the spec's acceptance checks that is NOT demonstrably true. Each must be a Rule 2 deferral: why + tracking + acknowledgement. Empty list is acceptable only if every acceptance check is delivered. Do not omit the section.>`
-
-- `<Item>` — **Why**: `<reason>`. **Tracking**: `<issue link / punch-list entry>`. **Acknowledged**: `<who, when>`.
+None. All 4 acceptance checks are delivered.
 
 ## Divergence from plan
 
-`<Any implementation that differs from the spec's planned touchpoints or approach. Empty is valid but the section must be present and explicit.>`
-
-- `<Divergence description, or "None">`
+- **New file `internal/journey/impact.go`**: The planned_files listed `internal/journey/journey.go` (extending S11's model), but the impact analysis logic needed its own file for clarity. `journey.go` was not modified — S12's code lives entirely in `impact.go` and `impact_test.go`.
+- **New file `cmd/sworn/journeys_impact_test.go`**: The planned_files did not list this, but a separate test file was needed to keep CLI impact tests from mixing with S11's elicitation tests.
+- **`cmd/sworn/main.go` updated**: Usage string and journeys description were updated to document `--impact`. This file was not in `planned_files` but is a necessary documentation surface.
 
 ## First-pass script output
 
-<Paste the output of `scripts/release-verify.sh <slice-id>`. Must show all deterministic checks green before requesting verifier review.>
-
 ```
-$ scripts/release-verify.sh <slice-id>
-<paste output here>
+$ $HOME/.claude/bin/release-verify.sh S12-journey-impact-analysis 2026-06-16-fidelity-layer
+
+release-verify.sh
+  slice:       S12-journey-impact-analysis
+  slice dir:   docs/release/2026-06-16-fidelity-layer/S12-journey-impact-analysis
+  base branch: main
+
+== Slice artefacts ==
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+
+== Status ==
+  PASS  status.json is valid JSON
+  state: implemented
+  PASS  state is 'implemented' (eligible for verifier review)
+
+== Diff vs main ==
+  PASS  30 file(s) changed vs main
+
+== Dark-code markers in changed files ==
+  PASS  no dark-code markers in changed source files
+
+== Proof bundle structural checks ==
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  proof.md contains no unfilled template placeholders
+
+== Frontmatter YAML safety ==
+  PASS  spec.md frontmatter is strict-YAML safe
+
+== First-pass verdict ==
+  checks passed: 18
+  checks failed: 0
+
+FIRST-PASS PASS
 ```

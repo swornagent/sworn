@@ -15,7 +15,7 @@ tracks:
     depends_on: T1-fidelity-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T2-delivery-cutover
     worktree_branch: track/2026-06-16-fidelity-layer/T2-delivery-cutover
-    state: in_progress
+    state: merged
   - id: T3-leaf-gates
     slices: [S03-spec-quality-firstpass, S08-design-system-input, S09-design-conformance-audit]
     depends_on: [T1-fidelity-core, T2-delivery-cutover, T4-evidence-surface]
@@ -51,7 +51,7 @@ tracks:
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
 | `T1-fidelity-core` | S01 → S02 → S04 → S05 → S07 → S11 → S16 | — | `track/2026-06-16-fidelity-layer/T1-fidelity-core` | merged |
-| `T2-delivery-cutover` | S06 → S10 → S12 → S13 → S14 | T1 | `track/2026-06-16-fidelity-layer/T2-delivery-cutover` | in_progress |
+| `T2-delivery-cutover` | S06 → S10 → S12 → S13 → S14 | T1 | `track/2026-06-16-fidelity-layer/T2-delivery-cutover` | merged |
 | `T3-leaf-gates` | S03 → S08 → S09 | T1, T2, T4 | `track/2026-06-16-fidelity-layer/T3-leaf-gates` | in_progress |
 | `T4-evidence-surface` | S15 | T1 | `track/2026-06-16-fidelity-layer/T4-evidence-surface` | merged |
 
@@ -88,10 +88,19 @@ tracks:
 | `internal/adopt/baton/rules/09-design-fidelity.md` (new) | ✓ | | (T1 via dep) | |
 | `internal/adopt/baton/rules/10-customer-journey-validation.md` (new) | ✓ | (T1 via dep) | | |
 
-**`cmd/sworn/main.go` — documented shared file (corrected 2026-06-19, further corrected 2026-06-19):** The original
+**`cmd/sworn/main.go` — documented shared file (corrected 2026-06-19, updated 2026-06-19):** The original
 "Convention" paragraph treated `cmd/sworn/main.go` as collision-free for the parallel set
-{T2, T3, T4} on the basis that each track adds a distinct `case` block. Live merges have proved
-otherwise — twice. Round 2 BLOCKED (verifier) found that T4's `case "top"` and T3's `case "specquality"` conflict; T4 was added to T3's `depends_on`. Round 3 BLOCKED (verifier) found that T2's `case "ship"` (S13, merged to release-wt after T3's session 4 forward-merge) conflicts with T3 — because T3 did not `depends_on` T2. `cmd/sworn/main.go` is registered as a **DOCUMENTED SHARED** file per track-mode.md Invariant 2 — each track's distinct, non-overlapping `case` symbol is recorded above. **T3 must `depends_on` ALL tracks that precede it in merge order for this file: T1, T2, and T4.** As of this correction T3 `depends_on: [T1-fidelity-core, T2-delivery-cutover, T4-evidence-surface]`; T1, T2, and T4 are already merged, so T3 is immediately unblocked. Command *implementations* remain in their own `cmd/sworn/<cmd>.go` files (disjoint, no change). The next `/implement-slice S03` forward-merge must keep ALL existing `case` blocks (T1's cases, T2's `case "ship":`, T4's `case "top":`) plus T3's `case "specquality":`.
+{T2, T3, T4} on the basis that each track adds a distinct `case` block. Two successive live
+merges proved otherwise: (1) T4's `case "top"` vs T3 → fixed by adding T4 to T3's
+`depends_on`; (2) T2's `case "ship"` vs T3 → fixed now by adding T2 to T3's `depends_on`.
+`cmd/sworn/main.go` is a **DOCUMENTED SHARED** file per track-mode.md Invariant 2 — each
+track's distinct, non-overlapping `case` symbol is recorded above. T3 now
+`depends_on: [T1-fidelity-core, T2-delivery-cutover, T4-evidence-surface]` — T3 must be the
+LAST track in `cmd/sworn/main.go` merge order. Since T1, T2, and T4 are all `merged`, T3
+is immediately unblocked. The next `/implement-slice S03` session forward-merges `release-wt`
+and keeps ALL existing `case` blocks: T1's cases + T2's `case "ship"` + T4's `case "top"` +
+T3's `case "specquality"`. Command *implementations* remain in their own `cmd/sworn/<cmd>.go`
+files (disjoint, no change).
 
 ## Slices
 
@@ -136,7 +145,7 @@ otherwise — twice. Round 2 BLOCKED (verifier) found that T4's `case "top"` and
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** In progress: 2 (T2, T3) / Merged: 2 (T1: b8521f8, T4: ca5b1ea)
+**Tracks:** T3 in_progress / Merged: 3 (T1: b8521f8, T2: 991b035, T4: ca5b1ea)
 
 ## Recent activity
 
@@ -145,9 +154,9 @@ otherwise — twice. Round 2 BLOCKED (verifier) found that T4's `case "top"` and
 - **Actor**: planner (/replan-release)
 - **Trigger**: S03 BLOCKED verdict (round 4, fresh-context verifier) — forward-merge of `release-wt` into T3 conflicted on `cmd/sworn/main.go`. T3 branch missing `case "ship"` (T2/S13) that landed in release-wt after T3's 2026-06-27 re-implementation session. Previous Step 6 cherry-pick had propagated the cleared `verification.result` to T3, but the subsequent verifier run hit the same main.go conflict and set it back to `blocked`.
 - **Diagnosis**: NOT a spec defect. Spec is correct. T3 `depends_on: [T1-fidelity-core, T2-delivery-cutover, T4-evidence-surface]` is correct; all three tracks are merged. The issue is purely operational: T3 branch HEAD is missing the production-code forward-merge from release-wt. Every verifier Step 0 hits the same main.go conflict. The cherry-pick cycle (replan clears blocked → verifier sets blocked again) will continue until an implementer session resolves the production-code conflict.
-- **Resolution**: `verification.result` cleared from `"blocked"` to `"pending"` directly in T3 track branch `status.json` (planning-artefact edit within Step 6 remit). This breaks the cherry-pick cycle.
-- **Step 6**: T3 had production-code conflict on `cmd/sworn/main.go` — aborted full merge. Cherry-picked this session's planner commits. Additionally edited T3 `status.json` directly as a planning-artefact edit to clear the BLOCKED state.
-- **Required next step — IMPLEMENTER MUST DO THIS**: Run `/implement-slice S03-spec-quality-firstpass 2026-06-16-fidelity-layer` in a fresh session. Step 0 WILL encounter a merge conflict on `cmd/sworn/main.go`. The implementer MUST resolve it by keeping ALL `case` blocks: T1's existing cases + T2's `case "ship"` + T4's `case "top"` + T3's `case "specquality"`. After resolving: run `go test ./...` to confirm green, update `proof.md` start_commit range to include the merge commit in the diff, mark `implemented`. Then run `/verify-slice S03-spec-quality-firstpass` — the verifier's Step 0 will be a no-op.
+- **Resolution**: `verification.result` cleared from `"blocked"` to `"pending"` directly in T3 track branch `status.json` (planning-artefact edit within Step 6 remit). This breaks the cherry-pick cycle — the status.json on T3 is now set authoritatively by the planner rather than relying on cherry-pick propagation.
+- **Step 6**: T3 had production-code conflict on `cmd/sworn/main.go` — aborted full merge. Cherry-picked this session's planner commits (index.md update). Additionally edited T3 `status.json` directly as a planning-artefact edit to clear the BLOCKED state (distinct from cherry-pick).
+- **Required next step — IMPLEMENTER MUST DO THIS**: Run `/implement-slice S03-spec-quality-firstpass 2026-06-16-fidelity-layer` in a fresh session. Step 0 WILL encounter a merge conflict on `cmd/sworn/main.go`. The implementer MUST resolve it by keeping ALL `case` blocks from both sides: T1's existing cases + T2's `case "ship"` + T4's `case "top"` + T3's `case "specquality"`. After resolving: run `go test ./...` to confirm green, update `proof.md` start_commit range to include the merge commit in the diff, mark `implemented`. Then run `/verify-slice S03-spec-quality-firstpass` in a fresh session — the verifier's Step 0 forward-merge will be a no-op (T3 already up-to-date with release-wt) and verification proceeds.
 
 ### 2026-06-19 — S03-spec-quality-firstpass: BLOCKED (round 4, fresh-context verifier)
 - **Actor**: verifier (fresh-context session) — Resolved by replan above
@@ -167,6 +176,11 @@ otherwise — twice. Round 2 BLOCKED (verifier) found that T4's `case "top"` and
 - **Board change**: T3 `depends_on` updated from `[T1-fidelity-core, T4-evidence-surface]` to `[T1-fidelity-core, T2-delivery-cutover, T4-evidence-surface]` in frontmatter and Tracks table. T2 is already merged, so T3 is immediately unblocked. `cmd/sworn/main.go` note updated with corrected dependency rule. S03 `verification.result` set to `"blocked"`. Slice state unchanged (`implemented`).
 - **Next step**: `/replan-release 2026-06-16-fidelity-layer` — planner must ratify the T3 `depends_on` correction and arrange the next `/implement-slice S03` session to forward-merge release-wt with correct conflict resolution (keep ALL `case` blocks).
 
+### 2026-06-19 — track `T2-delivery-cutover` merged to release-wt (commit 991b035)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 5 verified slices merged: S06-definition-of-ready, S10-no-mock-boundary, S12-journey-impact-analysis, S13-walkthrough-attestation, S14-journey-regression-suite. No drift (0 sibling commits to sync). Track state → merged.
+
 ### 2026-06-19 — /replan-release: S03 BLOCKED resolved, touchpoint matrix corrected, board drift corrected
 
 - **Actor**: planner (/replan-release)
@@ -175,6 +189,16 @@ otherwise — twice. Round 2 BLOCKED (verifier) found that T4's `case "top"` and
 - **S03 status**: `verification.result` cleared from `"blocked"` to `"pending"`. Slice stays `implemented`; ready for fresh `/verify-slice S03-spec-quality-firstpass`. Next `/implement-slice S03` session must forward-merge `release-wt` into the T3 worktree and resolve the `cmd/sworn/main.go` conflict (keep both `case "specquality"` and `case "top"`) before the verifier runs.
 - **Board drift corrected**: S14 `failed_verification` → `verified` (verified on T2 branch after prior replan; board was stale). S03 `failed_verification` → `implemented` (re-implemented on T3 branch after prior replan; blocked verdict now cleared).
 - **Step 6**: T2 forward-merged cleanly (planning artefacts only). T3 had production-code conflict on `cmd/sworn/main.go` — aborted and fell back to cherry-pick of this session's planner commits (`PLANNER_START_SHA..release-wt/`); production-code merge deferred to next `/implement-slice S03` Step 0.
+
+### 2026-06-19 — S14-journey-regression-suite: PASS (round 4, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: All six gates passed. 11 unit tests + 4 CLI integration tests green fresh (`-count=1`). `journey.go`/`regression_test.go` absence from `0874c242..HEAD` is explained (committed at `c924bae` before Option A re-entry; confirmed present and correct). `regression.go` as separate file explained by Go convention. CLI integration tests call `cmdJourneys([]string{"--regen", ...})` — Rule 1 satisfied through command entry point. All 4 ACs verified with direct evidence. No silent deferrals. T2-delivery-cutover now has all 5 slices verified. Slice state → `verified`. Next: `/merge-track T2-delivery-cutover 2026-06-16-fidelity-layer`.
+
+### 2026-06-27 — S14-journey-regression-suite: FAIL (round 3, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Gate 2 (×2). (1) `proof.md` "Files changed" uses base commit `ad34339` but `status.json start_commit = 0874c242` (Option A re-entry start). Verifier-mandated diff `0874c242..HEAD` omits planned touchpoints `internal/journey/journey.go` and `internal/journey/regression_test.go`. (2) Neither "Divergence from plan" nor "Not delivered" explains this absence; investigation shows they were committed at `c924bae` before the re-entry start_commit. Implementation is functionally correct — all 4 ACs met, 11/11 journey-package + 4/4 CLI integration tests pass live, Option A exit-1 logic correct. Both violations are proof bundle bookkeeping defects. Fix: (1) update proof.md "Files changed" to use `0874c242` as base; (2) add explanation to "Divergence from plan" that journey package files are in track ancestry pre-start_commit. Slice state → `failed_verification`. Next: `/implement-slice S14-journey-regression-suite 2026-06-16-fidelity-layer` in a fresh session to address the 2 numbered violations.
 
 ### 2026-06-19 — /replan-release: S14 BLOCKED resolved (Option A), board drift corrected
 

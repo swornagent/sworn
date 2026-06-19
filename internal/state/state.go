@@ -164,3 +164,22 @@ func Write(path string, s *Status) error {
 	}
 	return nil
 }
+
+// TransitionGate checks a state transition through a gate callback.
+// It first validates that the transition from s to next is legal
+// (via s.Transition(next)), then invokes gate. The gate function should
+// return nil when the gate passes, or an error describing the failure.
+// Pass nil to skip the gate.
+//
+// Used by the Definition of Ready (S06) to gate planned→in_progress
+// on RTM + reqverify + reqvalidate passing without creating a dependency
+// from this package to the gate packages.
+func (s State) TransitionGate(next State, gate func() error) error {
+	if err := s.Transition(next); err != nil {
+		return err
+	}
+	if gate != nil {
+		return gate()
+	}
+	return nil
+}

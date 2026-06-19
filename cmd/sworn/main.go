@@ -11,12 +11,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"os"
-
 	"github.com/swornagent/sworn/internal/config"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/verify"
+	"os"
+	"strings"
 )
 
 // version is overridden at build time via -ldflags "-X main.version=...".
@@ -56,6 +56,11 @@ func main() {
 	case "journeys":
 		// S11-journey-elicitation adds this case (T1-fidelity-core).
 		os.Exit(cmdJourneys(os.Args[2:]))
+	case "ship":
+		// S13-walkthrough-attestation adds this case (T2-delivery-cutover).
+		// Gates the verified -> shipped transition on human-walkthrough
+		// attestations for all touched journeys.
+		os.Exit(cmdShip(os.Args[2:]))
 	case "specquality":
 		// S03-spec-quality-firstpass adds this case (T3-leaf-gates).
 		os.Exit(cmdSpecquality(os.Args[2:]))
@@ -79,15 +84,24 @@ func main() {
 	}
 }
 
+// openDeferralsFlag implements flag.Value to accept repeated --deferral flags.
+type openDeferralsFlag []string
+
+func (f *openDeferralsFlag) String() string { return strings.Join(*f, "; ") }
+func (f *openDeferralsFlag) Set(v string) error {
+	*f = append(*f, v)
+	return nil
+}
+
 func cmdVerify(args []string) int {
 	fs := flag.NewFlagSet("verify", flag.ExitOnError)
 	spec := fs.String("spec", "", "path to the spec / acceptance criteria (required)")
 	diff := fs.String("diff", "", "path to the unified diff, or - for stdin (required)")
 	proof := fs.String("proof", "", "path to the proof bundle (optional in this build)")
 	mdl := fs.String("verifier-model", "", "verifier model id (provider/model)")
-	_ = fs.Parse(args)
-
-	// Resolve verifier model with precedence: flag > env > config (Coach Pin 3).
+	var openDeferrals openDeferralsFlag
+	fs.Var(&openDeferrals, "deferral", "declared Rule-2 deferral (repeatable: 'why - tracking - ack')")
+	_ = fs.Parse(args) // Resolve verifier model with precedence: flag > env > config (Coach Pin 3).
 	var v model.Verifier
 	cfg, cfgErr := config.Load()
 	if cfgErr != nil {
@@ -112,32 +126,32 @@ func cmdVerify(args []string) int {
 	// v remains nil when no model is configured -> Unconfigured (fail-closed).
 
 	res := verify.Run(context.Background(), verify.Input{
-		SpecPath:  *spec,
-		DiffPath:  *diff,
-		ProofPath: *proof,
-		Model:     resolvedModel,
-		Verifier:  v,
+		SpecPath:      *spec,
+		DiffPath:      *diff,
+		ProofPath:     *proof,
+		Model:         resolvedModel,
+		Verifier:      v,
+		OpenDeferrals: openDeferrals,
 	})
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(res)
 	return res.ExitCode()
 }
-
 func usage() {
 	fmt.Fprint(os.Stderr, `sworn — SwornAgent's provider-neutral verification core
 
 usage:
   sworn bench --task-set <dir> [--models <comma-sep>] [--output <dir>]
   sworn init [--api-key <key>] [--force]
-  sworn journeys [--check] [project-path]
-  sworn lint ac <release>
+  sworn journeys [--check] [--impact <release>] [project-path]  sworn lint ac <release>
   sworn lint trace <release>
   sworn reqverify <release>
   sworn reqvalidate <release>
   sworn designfit <release>
   sworn specquality <release> [--threshold <0.0-1.0>]
   sworn run --task <description> [--implementer-model <m>] [--verifier-model <m>] [--base <branch>] [--retry-cap <n>]
+  sworn ship <release> [project-root]
   sworn top <release> [project-path]
   sworn verify --spec <path> --diff <path|-> [--proof <path>] [--verifier-model <provider/model>]
   sworn version
@@ -147,10 +161,11 @@ pick the safe-hosted default model from data.
 
 init bootstraps SwornAgent in a repo: writes a config file, vendors the Baton
 protocol into docs/baton/, and splices the seven-rule fragment into AGENTS.md.
-journeys drafts critical customer journeys from the project and validates
-their presence + ratification status. See 'sworn journeys --check' for the
-deterministic gate, or 'sworn journeys <project>' for the elicitation loop.
-lint checks a release for structural problems. Targets:
+journeys drafts critical customer journeys from the project, validates
+their presence + ratification status, and analyses which journeys a release
+touches. See 'sworn journeys --check' for the deterministic gate, 'sworn
+journeys <project>' for the elicitation loop, and 'sworn journeys --impact
+<release>' for per-release journey-impact analysis.lint checks a release for structural problems. Targets:
   ac     — classify every acceptance check by EARS pattern; fail closed on any
            free-form check that matches no pattern, naming the slice + line.
   trace  — build the 2-D requirements traceability matrix; fail closed on any
@@ -172,8 +187,10 @@ any slice falls below the completeness threshold (default 50%).
 run executes the full turnkey loop: implement -> verify -> (on FAIL: retry/escalate
 up to N) -> gated merge on PASS only. See 'sworn run --help' for model resolution
 and escalation model defaults.
-top renders a read-only evidence surface for the active release: the green-board
-or kill-list of journey validation status. See 'sworn top <release>' for details.
+ship validates the human-walkthrough attestation gate (Rule 10/S13): fails
+closed unless every touched journey has a passing human attestation asserting
+real-infra + mocks-off. See 'sworn ship <release>' for details.
+top renders a read-only evidence surface for the active release: the green-boardor kill-list of journey validation status. See 'sworn top <release>' for details.
 
 verify emits a JSON verdict (PASS/FAIL/BLOCKED) and exits 0 only on PASS,
 so a CI required-check blocks the merge by default.

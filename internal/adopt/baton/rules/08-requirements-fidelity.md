@@ -299,3 +299,38 @@ A fully-validated release exits 0 and prints the per-slice summary.
 The two gates are complementary. A spec can be perfectly well-formed (pass
 reqverify) but answer the wrong question (fail reqvalidate), and vice versa.
 Both must pass before a slice enters implementation (Definition of Ready, S06).
+## Definition of Ready
+
+The Definition of Ready (DoR) is the gate that every slice must pass before it
+can transition from `planned` to `in_progress`. It composes the three
+requirements-fidelity checks into a single fail-closed verdict:
+
+1. **Traced** — the RTM verifies the slice has complete traceability: every need
+   links to an acceptance criterion, every acceptance criterion links to a need
+   and a test, and the slice has a vertical golden-thread link (slice → release
+   benefit → org objective or the lightweight floor: slice → release goal).
+2. **Verified** — every acceptance criterion passes the 29148 quality-
+   characteristic check (singular, unambiguous, complete, consistent, feasible,
+   verifiable, necessary) via a fresh-context model pass.
+3. **Validated** — the slice carries a human-ratified validation record with
+   positive + negative scenarios and a benefit/alignment hypothesis.
+
+If any gate fails, the transition is blocked and the failing gate(s) are named.
+If any gate cannot be evaluated (e.g. the RTM cannot build due to a missing
+artefact, or no verifier model is configured), the transition is also blocked —
+fail closed. The slice remains `planned` until all three gates pass.
+
+### Enforcement
+
+The DoR is enforced programmatically by `internal/implement.CheckDoR()`, which
+calls `rtm.Build()`, `reqverify.Run()`, and `reqvalidate.Run()` and filters
+their results to the target slice. The implementer session calls CheckDoR before
+any code is written; if it fails, the slice stays `planned` and the specific
+violations are surfaced.
+
+### Bypass
+
+There is no bypass for the DoR. An explicit human re-plan (/replan-release) is
+the only way to change a spec — never a silent Gate 0 skip. The
+`state.TransitionGate` API enforces this by requiring the gate callback to
+return nil before the transition proceeds.

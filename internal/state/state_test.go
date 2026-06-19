@@ -2,11 +2,12 @@ package state
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
-
 func TestTransition_LegalMoves(t *testing.T) {
 	tests := []struct {
 		from, to State
@@ -156,8 +157,50 @@ func TestWrite_RoundTripPreservesJSONShape(t *testing.T) {
 	}
 }
 
-// TestTransitionFromLiveStatus ensures the state machine accepts every state
-// that appears in a real status.json written by other tools.
+func TestTransitionGate_PassesThroughGate(t *testing.T) {
+	// Gate returns nil — transition should succeed.
+	if err := Planned.TransitionGate(InProgress, func() error {
+		return nil
+	}); err != nil {
+		t.Errorf("Planned → InProgress with passing gate: want nil, got %v", err)
+	}
+}
+
+func TestTransitionGate_GateBlocksTransition(t *testing.T) {
+	err := Planned.TransitionGate(InProgress, func() error {
+		return fmt.Errorf("definition of ready failed: trace incomplete")
+	})
+	if err == nil {
+		t.Fatal("Planned → InProgress with failing gate: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "definition of ready") {
+		t.Errorf("want error mentioning 'definition of ready', got: %v", err)
+	}
+}
+
+func TestTransitionGate_IllegalTransitionBeforeGate(t *testing.T) {
+	// Gate should NOT be called for illegal transitions — state machine
+	// rejects first.
+	gateCalled := false
+	err := Planned.TransitionGate(Verified, func() error {
+		gateCalled = true
+		return nil
+	})
+	if err == nil {
+		t.Fatal("Planned → Verified: want error for illegal transition, got nil")
+	}
+	if gateCalled {
+		t.Error("gate should not be called for illegal transition")
+	}
+}
+
+func TestTransitionGate_NilGateSkipped(t *testing.T) {
+	if err := Planned.TransitionGate(InProgress, nil); err != nil {
+		t.Errorf("Planned → InProgress with nil gate: want nil, got %v", err)
+	}
+}
+
+// TestTransitionFromLiveStatus ensures the state machine accepts every state// that appears in a real status.json written by other tools.
 func TestTransitionFromLiveStatus(t *testing.T) {
 	// The state machine must recognise all states used in real status.json files.
 	for _, s := range []State{Planned, DesignReview, InProgress, Implemented, Verified, FailedVerification} {
