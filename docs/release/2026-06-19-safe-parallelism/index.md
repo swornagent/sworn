@@ -17,7 +17,7 @@ tracks:
     worktree_branch: track/2026-06-19-safe-parallelism/T2-monitoring
     state: planned
   - id: T3-commercial
-    slices: [S06a-sworn-login-auth, S06b-sworn-proxy-credits, S07-paging, S09-per-role-model-config]
+    slices: [S06a-sworn-login-auth, S06b-sworn-proxy-credits, S07-paging, S09-per-role-model-config, S18-consideration-catalog]
     depends_on: T1-concurrency-core
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T3-commercial
@@ -72,7 +72,7 @@ tracks:
 |---|---|---|---|---|
 | `T1-concurrency-core` | S01 → S02a → S02b → S03 | — | `track/.../T1-concurrency-core` | planned |
 | `T2-monitoring` | S04a → S04b → S04c → S05 | T1 | `track/.../T2-monitoring` | planned |
-| `T3-commercial` | S06a → S06b → S07 → S09 | T1 | `track/.../T3-commercial` | planned |
+| `T3-commercial` | S06a → S06b → S07 → S09 → S18 | T1 | `track/.../T3-commercial` | planned |
 | `T4-mcp` | S08a → S08b → S08c | T1 | `track/.../T4-mcp` | planned |
 | `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 | T1 + T3 | `track/.../T5-providers` | planned |
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
@@ -150,6 +150,8 @@ Phase 4:  T6 (after T2 + T5 merge)
 | `cmd/sworn/init.go` | | | ✓ | | | |
 | `internal/config/config.go` | | | ✓ | | | (T3 dep via T5) |
 | `internal/config/config_test.go` | | | ✓ | | | (T3 dep via T5) |
+| `docs/templates/considerations.md` (new) | | | ✓ | | | |
+| `internal/prompt/planner.md` | | | ✓ | | | |
 | `internal/mcp/` (new) | | | | ✓ | | |
 | `cmd/sworn/mcp.go` (new) | | | | ✓ | | |
 | `docs/mcp-setup.md` (new) | | | | ✓ | | |
@@ -158,7 +160,9 @@ Phase 4:  T6 (after T2 + T5 merge)
 - `internal/run/run.go`: S07 adds notification calls; serialised by dep edge
 - `internal/model/client.go`: S06b adds proxy routing; serialised by dep
 - `internal/scheduler/worker.go`: S07 adds notify call; S02b creates it; serialised by dep
-- `cmd/sworn/init.go`: S09 extends init prompts; serialised by T1 dep
+- `cmd/sworn/init.go`: S09 extends model prompts; S18 adds catalog setup prompt; serialised by T1 dep
+- `docs/templates/considerations.md`: S18 adds shipped template; new touchpoint, T3 owns it
+- `internal/prompt/planner.md`: S18 adds Phase 2b consideration audit step; new touchpoint, T3 owns it
 - `internal/config/config.go`: S09 adds implementer fields; T3 owns this file
 
 **T5 `depends_on T1+T3` notes:**
@@ -200,10 +204,11 @@ Phase 4:  T6 (after T2 + T5 merge)
 | `S15-oci-driver` | T5 | OCI Generative AI models work via oci-go-sdk | planned | [spec](./S15-oci-driver/spec.md) |
 | `S16-ollama-driver` | T5 | Ollama native /api/chat endpoint; replaces OAI-compat shim | planned | [spec](./S16-ollama-driver/spec.md) |
 | `S17-tui-provider-config` | T6 | TUI settings panel: provider API keys, model per role, escalation list, max attempts; persists to config.json + ~/.sworn/.env | planned | [spec](./S17-tui-provider-config/spec.md) |
+| `S18-consideration-catalog` | T3 | Typed consideration catalog in docs/considerations.md; planner cross-references dimensions against every slice; sworn init scaffolds starter | planned | [spec](./S18-consideration-catalog/spec.md) |
 
 ## Aggregate state
 
-- Planned: 23
+- Planned: 24
 - In progress: 0
 - Implemented: 0
 - Verified: 0
@@ -213,6 +218,15 @@ Phase 4:  T6 (after T2 + T5 merge)
 **Tracks:** Planned: 6 / In progress: 0 / Merged: 0
 
 ## Recent activity
+
+### 2026-06-20 — replan: consideration catalog added (S18, T3 append)
+
+- **Actor**: planner (human + Claude)
+- **Note**: S18-consideration-catalog appended to T3-commercial. Typed dimension catalog
+  (security/api/data/observability/ui/performance/compliance) at docs/considerations.md;
+  planner prompt gains Phase 2b audit step; sworn init scaffolds starter from shipped
+  template. RAG-backed NFR sources and guided elicitation wizard deferred post-R3 (Rule 2
+  cards in spec). Release now has 24 slices across 6 tracks.
 
 ### 2026-06-20 — replan: provider support + TUI settings added (9 new slices, 2 new tracks)
 
@@ -268,6 +282,8 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - TUI "test this API key" button in S17 (post-R3)
 - Verifier escalation models / cascade (deferred — verifier stays single fixed model per run)
 - Additional providers beyond OpenCode baseline: Together AI, Fireworks, Cohere (post-R3)
+- RAG-backed NFR sources for consideration catalog (post-R3 — see S18 spec Rule 2 card)
+- Guided NFR elicitation wizard when no catalog exists (post-R3 — see S18 spec Rule 2 card)
 
 ## Cross-slice / cross-track notes
 
