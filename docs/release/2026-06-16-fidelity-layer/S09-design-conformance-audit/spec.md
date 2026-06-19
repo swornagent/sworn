@@ -73,9 +73,7 @@ library one — naming each violation with its file + line. A human cohesion jud
 - **Reachability artefact**: smoke step — "run `sworn designaudit <fixture>` with a hardcoded
   hex; observe the named violation + non-zero exit; replace it with a token reference; record
   the human verdict; observe pass."
-- **E2E gate type**: `local`.
-- **playwright-screenshot** not applicable — gate type is `local`; integration tests run as
-  `go test ./cmd/sworn/ -run TestDesignaudit` (no browser, no Playwright).
+- **Test gate type**: `local`.
 
 ## Risks
 
