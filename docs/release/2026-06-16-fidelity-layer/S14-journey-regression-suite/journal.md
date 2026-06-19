@@ -72,6 +72,65 @@ None — deferred scaffold-completeness is already tracked in open_deferrals.
 
 ## Verifier verdicts received
 
+### 2026-06-19 — Verifier verdict: PASS (round 4, fresh-context)
+
+```
+PASS
+
+Slice: `S14-journey-regression-suite`
+
+All six gates satisfied.
+
+1. Gate 1 — Entry point `sworn journeys --regen <release>` is wired in
+   `cmd/sworn/journeys.go` via the `--regen` flag (line 39) routing to
+   `cmdJourneysRegen()` (lines 243–338).
+
+2. Gate 2 — Planned touchpoints vs actual diff (`0874c242..HEAD`):
+   - `cmd/sworn/journeys.go` ✓ (present in diff)
+   - `internal/adopt/baton/rules/10-customer-journey-validation.md` ✓ (present in diff)
+   - `internal/journey/journey.go` and `internal/journey/regression_test.go`:
+     absent from `0874c242..HEAD` but explained in proof.md "Divergence from plan"
+     — both committed at `c924bae` (feat: land S14) before the Option A re-entry
+     start_commit; independently confirmed present and correct (`HasRegression` +
+     `RegressionTestPath` fields in struct; 11 unit tests pass; `c924bae` modifies
+     both files per `git show c924bae --name-only`).
+   - `internal/journey/regression.go` (extra, unplanned): explained by Go
+     convention (238 lines; separate concern from `journey.go`) mirroring the
+     existing `impact.go`/`walkthrough.go` pattern.
+   - `cmd/sworn/journeys_regen_test.go` (extra): CLI integration tests — not in
+     planned touchpoints but is the Rule 1 integration proof required by the spec.
+
+3. Gate 3 — 11 unit tests in `internal/journey/regression_test.go` + 4 CLI
+   integration tests in `cmd/sworn/journeys_regen_test.go` calling
+   `cmdJourneys([]string{"--regen", ...})` directly (Rule 1: entry point). All
+   15 tests run independently PASS (`-count=1`). Build + vet clean.
+
+4. Gate 4 — Reachability artefact: `cmd/sworn/journeys_regen_test.go` four CLI
+   integration tests prove: (a) gap at run start → exit 1, scaffold file created;
+   (b) full coverage at start → exit 0; (c) scaffold content contains journey
+   steps; (d) un-walked journey gets no scaffold. User path fully exercised
+   through `cmdJourneys` entry point.
+
+5. Gate 5 — No TODO/FIXME/deferred/placeholder in any changed source file (grep
+   confirmed empty). Explicit `open_deferrals` entry in `status.json` for the
+   scaffold-not-complete-oracle boundary carries all three Rule 2 elements
+   (Why + Tracking + Acknowledged).
+
+6. Gate 6 — All 4 ACs delivered with verifiable evidence:
+   AC1 (gap detection, exit 1 on pre-codification gaps): `RegressionCoverageGaps()` +
+   pre-codification capture in `cmdJourneysRegen()` + `TestJourneysRegenCmd_CoverageGapFilled`
+   (exit 1) + `TestRegressionCoverageGaps_WalkedJourneyNoTest`.
+   AC2 (scaffold generation): `CodifyJourney()` + `buildScaffold()` +
+   `TestCodifyJourney_GeneratesScaffold` + `TestJourneysRegenCmd_ScaffoldEmission`
+   (file-system assertion).
+   AC3 (accretion): `CodifyWalkedJourneys()` skip-covered + `CodifyJourney()` errors
+   on existing file + `TestCodifyJourney_Idempotent` + `TestCodifyWalkedJourneys_Accretive`
+   + `TestJourneysRegenCmd_FullCoverage`.
+   AC4 (un-walked exclusion): WalkPass filter in both `CodifyWalkedJourneys()` and
+   `RegressionCoverageGaps()` + `TestCodifyWalkedJourneys_UnwalkedNotCodified` +
+   `TestJourneysRegenCmd_UnwalkedJourneyNotCodified`.
+```
+
 ### 2026-06-27 — Verifier verdict: FAIL (round 3, fresh-context)
 
 ```
