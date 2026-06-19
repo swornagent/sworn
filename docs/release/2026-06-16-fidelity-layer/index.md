@@ -149,6 +149,12 @@ files (disjoint, no change).
 
 ## Recent activity
 
+### 2026-06-20 — S08-design-system-input: BLOCKED (round 5, process-state check)
+
+- **Actor**: verifier (fresh-context session)
+- **Result**: BLOCKED — state check. `/verify-slice` invoked while slice is in state `failed_verification`; session start handshake requires `implemented`. This is a process-state block, not a spec defect — the spec is correct and the implementation is functionally sound. Round 4 Gate 2 violations (proof.md completeness gaps for `cmd/sworn/reqverify.go` and S08 portion of `cmd/sworn/main.go`) remain unresolved. Slice state unchanged: `failed_verification`. `verification.result` → `blocked`.
+- **Next step (per protocol)**: `/replan-release 2026-06-16-fidelity-layer`. Planner should validate violations are implementer-fixable (proof.md updates only, no spec amendment), clear `verification.result`, and route to `/implement-slice S08-design-system-input 2026-06-16-fidelity-layer`. No `spec.md` change is needed.
+
 ### 2026-06-20 — S08-design-system-input: FAIL (round 4, fresh-context verifier)
 
 - **Actor**: verifier (fresh-context session)

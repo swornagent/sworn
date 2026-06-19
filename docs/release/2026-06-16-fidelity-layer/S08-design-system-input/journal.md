@@ -37,6 +37,23 @@
 
 ## Verifier verdicts received
 
+### 2026-06-20 — Round 5 verifier verdict: BLOCKED (process-state check)
+
+**Verdict**: BLOCKED
+
+**Reason**: Slice is in state `failed_verification`, expected `implemented`. `/verify-slice` was invoked before the implementer addressed the Round 4 violations. The session start handshake gates on `state == implemented`; that condition is not met.
+
+**Nature of block**: This is a **process-state block**, not a contract defect. The spec is correct and the implementation is functionally sound. The Round 4 violations (see below) are proof.md completeness gaps — both are fixable by the implementer without any planner spec amendment.
+
+**What needs to happen**:
+1. Implementer opens `/implement-slice S08-design-system-input 2026-06-16-fidelity-layer` in a fresh session.
+2. Updates proof.md "Files changed" to include `cmd/sworn/reqverify.go` (it IS in `git diff --name-only 9b3b637..HEAD` but absent from the proof's diff output).
+3. Updates proof.md "Divergence from plan" to acknowledge `cmd/sworn/reqverify.go` (unplanned touchpoint, modified in commit `7a76d62` to add `cfg.Validate()` fail-closed wiring for AC1) and the S08-specific portion of `cmd/sworn/main.go` (the `cfg.Validate()` call, also from `7a76d62`).
+4. Sets `status.json` state back to `implemented`.
+5. Re-invokes `/verify-slice S08-design-system-input 2026-06-16-fidelity-layer` in a fresh session.
+
+**Planner note**: Per protocol this routes to `/replan-release`. The planner's correct action here is to validate that the violations are implementer-fixable (they are — proof.md updates only, no spec amendment needed), clear `verification.result`, and route to `/implement-slice`. No spec.md amendment is required or proposed.
+
 ### 2026-06-20 — Round 4 verifier verdict: FAIL
 
 **Verdict**: FAIL

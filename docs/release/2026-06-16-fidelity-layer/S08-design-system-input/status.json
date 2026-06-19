@@ -34,10 +34,11 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "fail",
+    "result": "blocked",
     "verifier_session_id": null,
-    "verifier_verdict_at": "2026-06-20T06:00:00Z",
+    "verifier_verdict_at": "2026-06-20T08:00:00Z",
     "verifier_was_fresh_context": true,
+    "blocked_reason": "Process-state check: slice is in state 'failed_verification', expected 'implemented'. The Round 4 FAIL violations documented below have not been resolved by the implementer — proof.md 'Divergence from plan' still does not acknowledge cmd/sworn/reqverify.go or the S08-specific portion of cmd/sworn/main.go changes from commit 7a76d62.",
     "violations": [
       "Gate 2: cmd/sworn/reqverify.go is an unplanned touchpoint not explained in Divergence from plan; Files changed note incorrectly attributes it to S03 work (all its in-scope changes are from S08 Round 3 fix commit 7a76d62)",
       "Gate 2: cmd/sworn/main.go has S08-specific changes (cfg.Validate() call added in Round 3 commit 7a76d62) not acknowledged in Divergence from plan; Files changed note incorrectly implies all main.go changes are S03 scope"
