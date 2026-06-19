@@ -47,6 +47,65 @@ description: Implementation log for S14-journey-regression-suite. Append-only.
 
 ## Verifier verdicts received
 
+### 2026-06-26 — Verifier verdict: BLOCKED (round 2, fresh-context)
+
+```
+BLOCKED
+
+Slice: `S14-journey-regression-suite`
+
+Reason: Gate 3 — AC1's "exit non-zero" requirement and the Required Tests'
+"coverage-gap failure" test are not satisfiable under the current design.
+This is the SECOND consecutive verdict naming AC1's exit-non-zero requirement
+as unmet ("recurrence is evidence" per verifier.md).
+
+The first FAIL explicitly required "(c) exit 1 when a walked journey has no
+test." The implementer re-submitted with CLI integration tests but the test
+`TestJourneysRegenCmd_CoverageGapFilled` asserts exit 0 (gap filled), not
+exit 1. The implementer documented in the journal: "gaps filled during the
+same run are reported as success" — a deliberate design decision that
+contradicts AC1's "exit non-zero."
+
+Technical basis: `CodifyWalkedJourneys` sets `j.HasRegression = true` on
+every journey it processes (including newly-generated scaffolds). After
+codification, `RegressionCoverageGaps` sees `HasRegression=true` → remaining
+gaps = 0 → the `if len(remaining) > 0 { return 1 }` branch in
+`cmdJourneysRegen` is dead code. No integration test can trigger exit 1
+without redesigning how codification tracks coverage (planner authority).
+
+The rule document added in this slice (`10-customer-journey-validation.md`
+Coverage check) also contradicts itself and the implementation: it says "exits
+non-zero if gaps remain after codification" while the implementation ensures
+remaining gaps are always 0 after successful codification.
+
+Proposed spec.md amendment (planner must ratify one option):
+
+Option A — Align implementation with spec literal ("exit 1 even when gaps are
+filled"):
+  AC1: "THE SYSTEM SHALL exit 1 from `sworn journeys --regen <release>` when
+  any coverage gap was detected at run start, even if the gap was filled during
+  the run. This fail-closed signal requires the developer to commit generated
+  scaffolds and re-run to confirm coverage (exit 0)."
+  Required tests: "Integration: assert that `--regen` exits 1 when a gap
+  existed at run start (`TestJourneysRegenCmd_CoverageGapFilled` should assert
+  exit 1, not 0). Assert exit 0 only when no gaps existed from the start."
+  `10-customer-journey-validation.md` Coverage check: "The first `--regen` run
+  exits 1 (gaps existed at run start, scaffolds generated). After committing
+  the scaffolds, re-run exits 0 (no gaps from the start)."
+
+Option B — Align spec with implementation ("exit 0 when gaps are filled"):
+  AC1: "THE SYSTEM SHALL exit 0 when all coverage gaps are filled during the
+  run (scaffolds generated and coverage marked). Exit 1 is reserved for when
+  gaps REMAIN after codification (this branch is dead code in v1 — all
+  successful codification sets HasRegression=true and clears the gap)."
+  Required tests: Remove "the coverage-gap failure (Rule 1)" — replace with
+  "assert gap-filled success at exit 0 (AC1 as implemented) and accretive
+  preservation (AC3)."
+  `10-customer-journey-validation.md` Coverage check: Update to reflect that
+  `--regen` exits 0 on successful codification; the exit-1 branch exists for
+  future git-committed-status checking but is not triggered in v1.
+```
+
 ### 2026-06-19 — Verifier verdict: FAIL
 
 ```

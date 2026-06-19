@@ -40,10 +40,12 @@
     "Provisional journey-schema detail tracks S11, refined via /replan-release"
   ],
   "verification": {
-    "result": "pending",
+    "result": "blocked",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
+    "verifier_verdict_at": "2026-06-26T15:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "BLOCKED: Gate 3 — AC1 'exit non-zero' requirement and the Required Tests 'coverage-gap failure' test are not satisfiable under the current design. This is the second consecutive verdict naming AC1's exit-non-zero requirement as unmet. The implementer has converged on exit-0 for gap-filled scenarios (journal: 'gaps filled during the same run are reported as success'), contradicting AC1. CodifyWalkedJourneys always sets HasRegression=true, making the exit-1 branch dead code. Route to /replan-release 2026-06-16-fidelity-layer to ratify either Option A (exit 1 when gaps existed at run start) or Option B (exit 0 when gaps filled, remove coverage-gap-failure test requirement)."
+    ]
   }
 }

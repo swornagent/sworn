@@ -109,7 +109,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | verified | verifier | [spec](./S10-no-mock-boundary/spec.md) | [proof](./S10-no-mock-boundary/proof.md) |
 | `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | verified | verifier | [spec](./S12-journey-impact-analysis/spec.md) | [proof](./S12-journey-impact-analysis/proof.md) |
 | `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | verified | verifier | [spec](./S13-walkthrough-attestation/spec.md) | [proof](./S13-walkthrough-attestation/proof.md) |
-| `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | failed_verification | human | [spec](./S14-journey-regression-suite/spec.md) | [proof](./S14-journey-regression-suite/proof.md) |
+| `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | implemented (verification blocked — awaiting /replan-release) | human | [spec](./S14-journey-regression-suite/spec.md) | [proof](./S14-journey-regression-suite/proof.md) |
 | `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | failed_verification | human | [spec](./S03-spec-quality-firstpass/spec.md) | — |
 | `S08-design-system-input` | T3 | Design system (tokens + component library) as first-class project input | planned | human | [spec](./S08-design-system-input/spec.md) | — |
 | `S09-design-conformance-audit` | T3 | Deterministic drift first-pass + human cohesion verdict (`sworn designaudit`) | planned | human | [spec](./S09-design-conformance-audit/spec.md) | — |
@@ -131,15 +131,20 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 - Planned: 2 (S08, S09)
 - In progress: 0
-- Implemented (awaiting verification): 0
+- Implemented (awaiting verification): 1 (S14 — verification blocked, awaiting /replan-release)
 - Verified: 12 (S01, S02, S04, S05, S06, S07, S10, S11, S12, S13, S15, S16)
-- Failed verification: 2 (S03, S14)
+- Failed verification: 1 (S03)
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** Planned: 1 (T3) / In progress: 1 (T2) / Merged: 2 (T1: b8521f8, T4: ca5b1ea)
 
 ## Recent activity
+
+### 2026-06-26 — S14-journey-regression-suite: BLOCKED (round 2, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Gate 3 — AC1's "exit non-zero" requirement is the second consecutive unmet verdict (recurrence is evidence per verifier.md). The first FAIL required "(c) exit 1 when a walked journey has no test." The implementer added CLI tests but `TestJourneysRegenCmd_CoverageGapFilled` asserts exit 0. The journal explicitly documents that "gaps filled during the same run are reported as success" — a deliberate design decision contradicting AC1. Technically: `CodifyWalkedJourneys` always sets `HasRegression=true`, making `cmdJourneysRegen`'s exit-1 branch dead code; the "coverage-gap failure" integration test is unachievable without redesigning coverage tracking. Gates 1 (PASS), 2 (PASS), 4 (PASS), 5 (PASS), 6 (PASS). Build, vet, and all 22+ tests green in fresh session. The spec needs planner ratification of either: Option A (exit 1 when gaps existed at run start, spec literal) or Option B (exit 0 when all gaps filled, align spec to implementation). Slice state stays `implemented`. Next: `/replan-release 2026-06-16-fidelity-layer`.
 
 ### 2026-06-19 — S14-journey-regression-suite: FAIL (round 1, fresh-context)
 
