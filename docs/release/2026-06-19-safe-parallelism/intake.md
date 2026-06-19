@@ -286,6 +286,47 @@ delivers async AND verified. Same PR, different quality bar. This gap is unoccup
   "Did the code pass tests?" vs. "Did a different model try to prove the code wrong
   against the spec and fail?" are fundamentally different quality bars.
 
+## Product vision (captured 2026-06-19)
+
+**sworn is the engine. Any AI is the interface.**
+
+sworn does not try to be an AI assistant. It is the execution and verification engine --
+autonomous, fail-closed, parallel. Any AI the user prefers (Claude Code, Codex, Cursor,
+Gemini, future tools) connects to sworn via MCP and gets the full capability surface.
+
+Three flows, all MCP-mediated:
+
+**1. Planning intake** (user's AI + sworn MCP planning tools)
+The user runs their planning session in whichever AI tool they prefer, using whatever
+skills they have available (deep-research, brainstorm, domain-specific tools). The AI
+calls sworn MCP planning tools to write artefacts into the repo:
+  `sworn.create_release()` → creates intake.md + release folder
+  `sworn.create_slice()` → writes spec.md + status.json
+  `sworn.set_track()` → updates index.md tracks + touchpoint matrix
+  `sworn.update_intake()` → appends decisions to intake.md
+The sworn MCP server exposes the planner/implementer/verifier role prompts as resources
+(`sworn://prompts/plan` etc.) so any AI can pull and apply them.
+
+**2. Autonomous execution** (sworn runs without AI involvement)
+`sworn run --parallel` runs tracks concurrently. Fully autonomous. No AI driving it --
+sworn's own agent loop (using the user's configured model provider) handles implementation
+and verification. The fail-closed gate is sworn's, not the AI interface's.
+
+**3. Resolution** (user's AI + sworn MCP operations tools)
+When a slice blocks, sworn pages the user (S07). The TUI shows a TL;DR of violations
+and structured options -- no chat interface. "Open in AI" writes a context file and opens
+the user's configured AI tool pre-loaded with spec + violations + diff. The AI calls
+`sworn.get_slice_context()` (full context via MCP), proposes a fix, calls
+`sworn.rerun_slice()`. The AI interface (Claude Code, Codex, etc.) handles the
+conversational layer; sworn handles the execution layer.
+
+**Why this works commercially:**
+Every AI coding tool becomes a potential distribution channel. Claude Code users see
+sworn as a native extension. Codex users see sworn as a plugin (Codex shipped 90+ MCP
+plugins in Apr 2026). Cursor/Windsurf users get the same. sworn doesn't compete with
+these tools -- it completes them by adding verified autonomous execution and a
+shared state surface they all lack.
+
 ## Open questions (must resolve before dependent slices move to in_progress)
 
 1. **Does `sworn account` go in R3 or as an immediate post-R3 launch-gate item?**
@@ -337,6 +378,24 @@ delivers async AND verified. Same PR, different quality bar. This gap is unoccup
   ~10 files.
 - `S07-paging` — FAIL/BLOCKED events emit webhook/email to registered account endpoint;
   wires into run.go's FAIL path; configurable via `sworn account` (set webhook URL). ~4 files.
+
+**T4-mcp** (depends_on T1)
+- `S08-sworn-mcp` — `sworn mcp` subcommand; JSON-RPC over STDIO (MCP transport);
+  Operations tools: `get_board`, `get_blocked`, `get_slice_context` (assembles spec +
+  violations TL;DR + diff + journal), `rerun_slice`, `patch_slice`, `approve_merge`,
+  `defer_slice`, `get_credits`;
+  Planning tools: `create_release`, `create_slice`, `set_track`, `update_intake`;
+  Resources: `sworn://prompts/{plan,implement,verify}`, `sworn://release/{name}/{board,
+  intake}`, `sworn://release/{name}/{slice}/{spec,proof,diff}`;
+  TUI "open in AI" action: writes context file + opens configured AI tool at worktree
+  with MCP server pre-connected. ~12 files.
+
+**T2-monitoring** (depends_on T1) — also updates S04:
+- `S04-sworn-tui` — `sworn` (no args) opens the full management cockpit; releases list,
+  board view, live concurrent track status (reads DB, 1s poll), credits; blocked-slice
+  TL;DR panel (violations extracted from proof bundle, no AI call needed) + structured
+  options: [1] auto-fix+rerun, [2] open in Claude Code, [3] open in Codex, [4] view proof,
+  [5] defer. ~12 files (larger than originally scoped due to TL;DR + options panel).
 
 ## Screenshots / references
 
