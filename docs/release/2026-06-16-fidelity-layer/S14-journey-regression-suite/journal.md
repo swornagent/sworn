@@ -72,6 +72,47 @@ None — deferred scaffold-completeness is already tracked in open_deferrals.
 
 ## Verifier verdicts received
 
+### 2026-06-27 — Verifier verdict: FAIL (round 3, fresh-context)
+
+```
+FAIL
+
+Slice: `S14-journey-regression-suite`
+
+Violations:
+1. Gate 2 — `proof.md` "Files changed" documents `git diff --name-only ad34339..HEAD`
+   but `status.json start_commit = 0874c242dafdd45dff72d639b6b113f59bb6660e` (the
+   Option A re-entry start). Verifier ran `git diff --name-only 0874c242..HEAD` from
+   the worktree per protocol; planned touchpoints `internal/journey/journey.go` and
+   `internal/journey/regression_test.go` are absent from that diff.
+   Evidence: live `git diff --name-only 0874c242..HEAD` returns 6 files — cmd/sworn/journeys.go,
+   cmd/sworn/journeys_regen_test.go, 3 docs files, and the rule doc. No journey
+   package files.
+
+2. Gate 2 — Neither `proof.md` "Divergence from plan" nor "Not delivered" explains
+   why `internal/journey/journey.go` and `internal/journey/regression_test.go`
+   (listed in spec.md "Planned touchpoints") are absent from `start_commit..HEAD`.
+   Investigation confirms they were committed at c924bae (feat: land S14) which
+   predates the Option A re-entry start_commit (0874c242); the proof does not
+   surface this explanation.
+
+Required to address:
+1. Update `proof.md` "Files changed" base commit to `0874c242` (the current
+   `status.json start_commit`). Produce fresh `git diff --stat 0874c242..HEAD`
+   output. Remove the stale "(new files are listed as untracked/unstaged at
+   proof-generation time; will land in the final `feat(...)` commit)" note.
+2. Add to `proof.md` "Divergence from plan": `internal/journey/journey.go` and
+   `internal/journey/regression_test.go` were modified in the original implementation
+   commit (c924bae) which predates the Option A re-entry start_commit (0874c242).
+   They are in the track's linear ancestry and fully implemented (confirmed by
+   `go test ./internal/journey/...` 11/11 PASS). The re-entry start_commit captures
+   only the Option A fix scope.
+
+Note: the implementation is functionally complete — all four ACs are met, all
+tests pass live (11/11 journey-package + 4/4 CLI integration), Option A exit-1
+logic correct. Both violations are proof bundle bookkeeping defects only.
+```
+
 ### 2026-06-26 — Verifier verdict: BLOCKED (round 2, fresh-context)
 
 ```

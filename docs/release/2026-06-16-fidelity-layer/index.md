@@ -141,6 +141,11 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Recent activity
 
+### 2026-06-27 — S14-journey-regression-suite: FAIL (round 3, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Gate 2 (×2). (1) `proof.md` "Files changed" uses base commit `ad34339` but `status.json start_commit = 0874c242` (Option A re-entry start). Verifier-mandated diff `0874c242..HEAD` omits planned touchpoints `internal/journey/journey.go` and `internal/journey/regression_test.go`. (2) Neither "Divergence from plan" nor "Not delivered" explains this absence; investigation shows they were committed at `c924bae` before the re-entry start_commit. Implementation is functionally correct — all 4 ACs met, 11/11 journey-package + 4/4 CLI integration tests pass live, Option A exit-1 logic correct. Both violations are proof bundle bookkeeping defects. Fix: (1) update proof.md "Files changed" to use `0874c242` as base; (2) add explanation to "Divergence from plan" that journey package files are in track ancestry pre-start_commit. Slice state → `failed_verification`. Next: `/implement-slice S14-journey-regression-suite 2026-06-16-fidelity-layer` in a fresh session to address the 2 numbered violations.
+
 ### 2026-06-19 — /replan-release: S14 BLOCKED resolved (Option A), board drift corrected
 
 - **Actor**: planner (/replan-release)
