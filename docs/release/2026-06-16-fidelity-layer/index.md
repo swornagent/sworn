@@ -109,7 +109,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | verified | verifier | [spec](./S10-no-mock-boundary/spec.md) | [proof](./S10-no-mock-boundary/proof.md) |
 | `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | verified | verifier | [spec](./S12-journey-impact-analysis/spec.md) | [proof](./S12-journey-impact-analysis/proof.md) |
 | `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | verified | verifier | [spec](./S13-walkthrough-attestation/spec.md) | [proof](./S13-walkthrough-attestation/proof.md) |
-| `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | planned | human | [spec](./S14-journey-regression-suite/spec.md) | — |
+| `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | failed_verification | human | [spec](./S14-journey-regression-suite/spec.md) | [proof](./S14-journey-regression-suite/proof.md) |
 | `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | failed_verification | human | [spec](./S03-spec-quality-firstpass/spec.md) | — |
 | `S08-design-system-input` | T3 | Design system (tokens + component library) as first-class project input | planned | human | [spec](./S08-design-system-input/spec.md) | — |
 | `S09-design-conformance-audit` | T3 | Deterministic drift first-pass + human cohesion verdict (`sworn designaudit`) | planned | human | [spec](./S09-design-conformance-audit/spec.md) | — |
@@ -129,17 +129,22 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Aggregate state
 
-- Planned: 3 (S08, S09, S14)
+- Planned: 2 (S08, S09)
 - In progress: 0
 - Implemented (awaiting verification): 0
 - Verified: 12 (S01, S02, S04, S05, S06, S07, S10, S11, S12, S13, S15, S16)
-- Failed verification: 1 (S03)
+- Failed verification: 2 (S03, S14)
 - Deferred: 0
 - Shipped: 0
 
 **Tracks:** Planned: 1 (T3) / In progress: 1 (T2) / Merged: 2 (T1: b8521f8, T4: ca5b1ea)
 
 ## Recent activity
+
+### 2026-06-19 — S14-journey-regression-suite: FAIL (round 1, fresh-context)
+
+- **Actor**: verifier (fresh-context session)
+- **Note**: Three violations. Gate 2: `internal/journey/regression.go` (new file, 238 lines — core codification logic) appears in the diff but is not in planned touchpoints and is not mentioned in proof.md "Divergence from plan". Gate 3: spec "Required tests" explicitly requires a CLI integration test (`sworn journeys --regen <fixture-release>` end-to-end); no test in `cmd/sworn/` covers the `--regen` path; only package-level unit tests exist; proof.md's "Divergence from plan" acknowledges this but lacks a full Rule 2 deferral (tracking reference and human ack are absent); the stated rationale ("requires full binary build + fixture setup") is incorrect given the existing `cmd/sworn/journeys_test.go` pattern. Gate 4: reachability artefact substitutes package-level unit tests ("demonstrated programmatically") for a CLI smoke run; per Rule 1 a unit suite is not a reachability artefact. Gates 1, 5, 6 all PASS: `--regen` correctly wired; no silent deferrals in production files; all 4 ACs have verifiable evidence. Slice state → `failed_verification`. Next: `/implement-slice S14-journey-regression-suite 2026-06-16-fidelity-layer`.
 
 ### 2026-06-26 — S13-walkthrough-attestation: PASS (round 2, fresh-context)
 

@@ -36,4 +36,51 @@ description: Implementation log for S14-journey-regression-suite. Append-only.
 
 ## Verifier verdicts received
 
-None yet.
+### 2026-06-19 — Verifier verdict: FAIL
+
+```
+FAIL
+
+Slice: `S14-journey-regression-suite`
+
+Violations:
+1. Gate 2 — `internal/journey/regression.go` (new file, 238 lines) is not in the
+   planned touchpoints and is not mentioned in proof.md "Divergence from plan".
+   Evidence: `git diff --name-only ad34339..HEAD` includes `internal/journey/regression.go`;
+   spec.md "Planned touchpoints" lists `regression_test.go` but not `regression.go`.
+
+2. Gate 3 — spec.md "Required tests" explicitly demands an integration test:
+   "Integration: `sworn journeys --regen <fixture-release>` end-to-end; assert scaffold
+   emission + the coverage-gap failure (Rule 1)." No file in `cmd/sworn/` covers the
+   `--regen` path (only `journeys.go` was changed; no `journeys_regen_test.go` was
+   created). The proof.md "Divergence from plan" acknowledges this absence but does NOT
+   surface it as a full Rule 2 deferral (Why + Tracking + Ack all three are not present —
+   tracking reference and human ack are missing). The rationale given ("requires full binary
+   build + fixture setup") is also incorrect: existing `cmd/sworn/journeys_test.go` and
+   `cmd/sworn/journeys_impact_test.go` call `cmdJourneys()` and `cmdJourneysImpact()` as
+   Go functions without a compiled binary, establishing the pattern.
+
+3. Gate 4 — Reachability artefact in proof.md substitutes package-level unit tests
+   ("The unit tests demonstrate this smoke step programmatically") for the required CLI
+   smoke run. The spec requires: "run `sworn journeys --regen <fixture>` for a walked
+   journey with no test; observe the named gap; generate the scaffold; re-run; observe
+   coverage." No CLI run was performed; no captured CLI output exists on disk. Per Rule 1,
+   "a green typecheck plus green unit suite is not a reachability artefact." The
+   referenced tests (`TestCodifyJourney_GeneratesScaffold`, `TestRegressionCoverageGaps_*`)
+   call package functions at `internal/journey/`, not the `sworn journeys --regen` binary.
+
+Required to address:
+1. Add `internal/journey/regression.go` to proof.md "Divergence from plan" — note that
+   the implementation was placed in a new dedicated file rather than inlined into
+   `journey.go`, and explain why.
+2. Add a CLI-level integration test in `cmd/sworn/` (e.g. `journeys_regen_test.go`)
+   calling `cmdJourneysRegen(projectRoot, releaseName)` or
+   `cmdJourneys([]string{"--regen", releaseName, projectRoot})` with a fixture journeys
+   artefact + attestation that has at least one WalkPass entry. Assert: (a) scaffold file
+   emitted at expected path, (b) exit 0 on full coverage, (c) exit 1 when a walked journey
+   has no test. This follows the existing pattern in journeys_test.go and
+   journeys_impact_test.go (no compiled binary needed).
+3. Update proof.md "Reachability artefact" to reference the CLI integration test output
+   (item 2 above), or capture actual `sworn journeys --regen <fixture>` CLI output to a
+   file and reference that path. The current text does not satisfy Rule 1.
+```
