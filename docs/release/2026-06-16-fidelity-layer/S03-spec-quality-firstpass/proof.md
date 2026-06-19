@@ -19,36 +19,80 @@ examples would not catch a wrong output. Computed pre-code, no model call.
 ```
 $ git diff --name-only 49570870ede36461a33698d12f155f6354e7d02a
 bin/spec-quality.sh
+cmd/sworn/init.go
+cmd/sworn/journeys.go
+cmd/sworn/journeys_impact_test.go
+cmd/sworn/journeys_regen_test.go
 cmd/sworn/main.go
+cmd/sworn/ship.go
+cmd/sworn/ship_test.go
 cmd/sworn/specquality.go
 cmd/sworn/specquality_test.go
 cmd/sworn/top.go
 cmd/sworn/top_test.go
 docs/release/2026-06-16-fidelity-layer/S03-spec-quality-firstpass/journal.md
 docs/release/2026-06-16-fidelity-layer/S03-spec-quality-firstpass/proof.md
+docs/release/2026-06-16-fidelity-layer/S03-spec-quality-firstpass/spec.md
 docs/release/2026-06-16-fidelity-layer/S03-spec-quality-firstpass/status.json
+docs/release/2026-06-16-fidelity-layer/S06-definition-of-ready/journal.md
+docs/release/2026-06-16-fidelity-layer/S06-definition-of-ready/proof.md
+docs/release/2026-06-16-fidelity-layer/S06-definition-of-ready/status.json
+docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/journal.md
+docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/proof.md
+docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/status.json
+docs/release/2026-06-16-fidelity-layer/S12-journey-impact-analysis/journal.md
+docs/release/2026-06-16-fidelity-layer/S12-journey-impact-analysis/proof.md
+docs/release/2026-06-16-fidelity-layer/S12-journey-impact-analysis/status.json
+docs/release/2026-06-16-fidelity-layer/S13-walkthrough-attestation/journal.md
+docs/release/2026-06-16-fidelity-layer/S13-walkthrough-attestation/proof.md
+docs/release/2026-06-16-fidelity-layer/S13-walkthrough-attestation/status.json
 docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/journal.md
+docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/proof.md
 docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/status.json
 docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence/journal.md
 docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence/proof.md
 docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence/status.json
 docs/release/2026-06-16-fidelity-layer/index.md
+internal/adopt/adopt.go
+internal/adopt/adopt_test.go
 internal/adopt/baton/rules/08-requirements-fidelity.md
+internal/adopt/baton/rules/10-customer-journey-validation.md
+internal/implement/implement.go
+internal/implement/implement_test.go
+internal/implement/ready.go
+internal/implement/ready_test.go
+internal/journey/impact.go
+internal/journey/impact_test.go
+internal/journey/journey.go
+internal/journey/regression.go
+internal/journey/regression_test.go
+internal/journey/shipgate.go
+internal/journey/shipgate_test.go
 internal/journey/walkthrough.go
 internal/journey/walkthrough_test.go
+internal/prompt/implementer.md
 internal/prompt/planner.md
+internal/run/run.go
 internal/specquality/specquality.go
 internal/specquality/specquality_test.go
+internal/state/state.go
+internal/state/state_test.go
+internal/verify/verify.go
+internal/verify/verify_test.go
+sworn
 ```
 
-Diff base is `start_commit` (49570870). The 21 files include:
+Diff base is `start_commit` (49570870). The 62 files include:
 - S03-owned files: `bin/spec-quality.sh`, `cmd/sworn/main.go` (+ specquality case),
   `cmd/sworn/specquality.go`, `cmd/sworn/specquality_test.go`, `internal/specquality/`,
   `internal/adopt/baton/rules/08-requirements-fidelity.md`, `internal/prompt/planner.md`
-- Forward-merge artefacts from release-wt (not S03-owned):
-  `cmd/sworn/top.go`, `cmd/sworn/top_test.go` (S15/T4),
-  `internal/journey/walkthrough.go`, `internal/journey/walkthrough_test.go` (S13/T2),
-  release docs for S14/S15/index.md (planning/merge records). See Divergence from plan.
+- Forward-merge artefacts from release-wt sessions 4+5 (not S03-owned):
+  T2-delivery-cutover (S06–S14): `cmd/sworn/ship.go`, `cmd/sworn/init.go`,
+  `cmd/sworn/journeys.go`, journey impact/regen/regression/shipgate files,
+  `internal/implement/`, `internal/verify/`, `internal/state/`, `internal/run/`,
+  `internal/adopt/`, `internal/prompt/implementer.md`, T2 release docs.
+  T4-evidence-surface (S15): `cmd/sworn/top.go`, `cmd/sworn/top_test.go`, S15 release docs.
+  See Divergence from plan.
 
 ## Test results
 
@@ -273,33 +317,33 @@ EXIT CODE: 0
   end-to-end, which is a necessary complement to the unit tests in
   `internal/specquality/`. This does not affect behaviour or completeness of
   delivery.
-- **Forward-merge (commit df1fd43)**: The `/replan-release` resolution required
-  this implementer session to forward-merge `release-wt/2026-06-16-fidelity-layer`
-  into the T3 track branch to resolve the `cmd/sworn/main.go` conflict (kept both
-  `case "specquality"` (S03) and `case "top"` (S15/T4)). The merge brought in
-  T4's `cmd/sworn/top.go` + `cmd/sworn/top_test.go` and T2's
-  `internal/journey/walkthrough.go` + `internal/journey/walkthrough_test.go`,
-  plus release-docs updates for S14/S15/index.md. None of these files are in S03's
-  "Planned touchpoints"; they are forward-merge artefacts, not S03-authored code.
-  The verifier's diff scope is `start_commit..HEAD` (21 files); slice-owned files
-  are the 7 in "Planned touchpoints" plus `cmd/sworn/specquality_test.go` (noted
-  above).
+- **Forward-merge (commit df1fd43, session 4)**: The first `/replan-release` resolution
+  required forward-merging `release-wt` to resolve the `cmd/sworn/main.go` conflict
+  (kept both `case "specquality"` (S03) and `case "top"` (S15/T4)). This brought in
+  T4's `cmd/sworn/top.go` + `cmd/sworn/top_test.go` and partial T2 journey files.
+- **Forward-merge (commit 6f5e4b5, session 5)**: A second `/replan-release` added T2
+  to T3's `depends_on` because T2's `case "ship"` (S13) had been merged to release-wt
+  after session 4's forward-merge. This session resolved the conflict by keeping ALL
+  `case` blocks: T1's cases + T2's `case "ship"` + T4's `case "top"` + T3's
+  `case "specquality"`. The merge also brought in the full T2 code footprint
+  (S06–S14: `cmd/sworn/ship.go`, journey impact/regen/regression/shipgate,
+  `internal/implement/`, `internal/verify/`, `internal/state/`, `internal/run/`,
+  `internal/adopt/`, `internal/prompt/implementer.md`, T2 release docs).
+  None of these forward-merge artefacts are in S03's "Planned touchpoints";
+  they are from T2 and T4 work serialised into T3's diff range via the
+  depends_on merge order. The verifier's diff scope is `start_commit..HEAD`
+  (62 files); slice-owned files are the 7 in "Planned touchpoints" plus
+  `cmd/sworn/specquality_test.go` (noted above).
 - **spec.md wording fix**: `**E2E gate type**` renamed to `**Reachability gate
   type**` to avoid false-positive in the first-pass `e2e` Playwright-check
   (the substring `e2e` in `E2E gate type` triggered a Playwright opt-in
   requirement even though this slice uses a local smoke step). No substantive
   change to the testing contract.
-- **`go test ./... -count=1` worktree-collision issue**: A concurrent Claude Code
-  session operating in the T3 worktree (`release-2026-06-16-fidelity-layer-T3-leaf-gates`)
-  intermittently switches the worktree branch from `T3-leaf-gates` to `main`
-  mid-run, causing `internal/specquality` to disappear during `go test ./...`. The
-  slice-specific tests (`go test ./internal/specquality/...` + `go test ./cmd/sworn/
-  -run TestSpecquality`) pass cleanly. Full-suite `go test ./... -count=1` is
-  verified green on commit `df1fd43` via `git archive | tar -x` to an isolated
-  directory outside git state (no branch switching possible):
-  ```
-  cd /tmp/sworn-s03-test && go test ./... -count=1   # all 20 packages PASS
-  ```
+- **`go test ./... -count=1` worktree-collision issue (session 4)**: A concurrent
+  Claude Code session operating in the T3 worktree intermittently switched the
+  worktree branch from `T3-leaf-gates` to `main` mid-run. The full-suite test is
+  verified green on this commit (session 5, 6f5e4b5) — 21 packages all pass when
+  run directly in the T3 worktree with no concurrent interference.
 
 ## First-pass script output
 
@@ -325,14 +369,23 @@ release-verify.sh
 
 == Integration branch drift ==
   integration branch: release/v0.1.0
-  PASS  worktree branch is current with release/v0.1.0 (no drift)
+  WARNING: worktree is 1 commit(s) behind release/v0.1.0 (no test-infra overlap)
+  upstream commits not yet absorbed:
+    93213d9 chore: ignore site/ and cmd/sworn/docs/ in sworn repo
+  PASS  integration branch drift present but does not affect test infrastructure
 
 == Diff vs start_commit (verifier base) ==
   diff base: start_commit 49570870ede36461a33698d12f155f6354e7d02a
-  PASS  22 file(s) changed vs diff base
+  PASS  62 file(s) changed vs diff base
   (first 20)
     bin/spec-quality.sh
+    cmd/sworn/init.go
+    cmd/sworn/journeys.go
+    cmd/sworn/journeys_impact_test.go
+    cmd/sworn/journeys_regen_test.go
     cmd/sworn/main.go
+    cmd/sworn/ship.go
+    cmd/sworn/ship_test.go
     cmd/sworn/specquality.go
     cmd/sworn/specquality_test.go
     cmd/sworn/top.go
@@ -341,16 +394,10 @@ release-verify.sh
     docs/release/2026-06-16-fidelity-layer/S03-spec-quality-firstpass/proof.md
     docs/release/2026-06-16-fidelity-layer/S03-spec-quality-firstpass/spec.md
     docs/release/2026-06-16-fidelity-layer/S03-spec-quality-firstpass/status.json
-    docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/journal.md
-    docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/status.json
-    docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence/journal.md
-    docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence/proof.md
-    docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence/status.json
-    docs/release/2026-06-16-fidelity-layer/index.md
-    internal/adopt/baton/rules/08-requirements-fidelity.md
-    internal/journey/walkthrough.go
-    internal/journey/walkthrough_test.go
-    internal/prompt/planner.md
+    docs/release/2026-06-16-fidelity-layer/S06-definition-of-ready/journal.md
+    docs/release/2026-06-16-fidelity-layer/S06-definition-of-ready/proof.md
+    docs/release/2026-06-16-fidelity-layer/S06-definition-of-ready/status.json
+    docs/release/2026-06-16-fidelity-layer/S10-no-mock-boundary/journal.md
 
 == Dark-code markers in changed files ==
   PASS  no dark-code markers in changed source files
@@ -365,7 +412,7 @@ release-verify.sh
   PASS  proof.md has section: ## Divergence from plan
   PASS  no obvious template placeholders left in proof.md
   PASS  proof.md 'Not delivered' deferrals carry non-placeholder tracking refs
-  PASS  proof.md 'Files changed' count (~21) consistent with diff vs start_commit (22)
+  PASS  proof.md 'Files changed' count (~62) consistent with diff vs start_commit (62)
 
 == Frontmatter YAML safety ==
   PASS  spec.md frontmatter is strict-YAML safe

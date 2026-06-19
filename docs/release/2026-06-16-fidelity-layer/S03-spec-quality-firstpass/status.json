@@ -30,7 +30,8 @@
     "internal/prompt/planner.md",
     "internal/adopt/baton/rules/08-requirements-fidelity.md",
     "docs/release/2026-06-16-fidelity-layer/S03-spec-quality-firstpass/proof.md",
-    "docs/release/2026-06-16-fidelity-layer/S03-spec-quality-firstpass/status.json"
+    "docs/release/2026-06-16-fidelity-layer/S03-spec-quality-firstpass/status.json",
+    "docs/release/2026-06-16-fidelity-layer/S03-spec-quality-firstpass/journal.md"
   ],
   "test_commands": [
     "go test ./internal/specquality/... -v -count=1",

@@ -54,6 +54,34 @@ description: Implementation log. Append-only.
   - All 5 ACs verified substantively correct by the verifier — no code changes needed.
   - **Subagent dispatches**: none — single-session re-implementation.
 
+### 2026-06-19 — forward-merge + proof bundle update (session 5)
+
+- **State**: implemented (re-confirmed after forward-merge resolving case "ship" conflict)
+- **Notes**:
+  - Forward-merged `origin/release-wt/2026-06-16-fidelity-layer` into T3 track branch
+    (session 5). This was required because the round 4 BLOCKED verdict identified that
+    T2's `case "ship"` (S13/T2, landed in release-wt after session 4) was absent from T3.
+  - Two conflicts resolved:
+    1. `cmd/sworn/main.go`: kept ALL cases — T1's cases + T2's `case "ship"` (new) +
+       T4's `case "top"` + T3's `case "specquality"`. This is the final correct state;
+       T3 is now the last track in merge order for this file per the updated depends_on.
+    2. `index.md`: took release-wt's resolution/step6/required-next-step paragraphs
+       (more complete) while preserving T3-local BLOCKED round 3/4 verifier history
+       entries from HEAD as historical record; took release-wt's T2 state=merged.
+       Also preserved T2-merged history entry from release-wt alongside T3-local
+       BLOCKED round 3 verifier entry.
+  - `internal/adopt/baton/rules/08-requirements-fidelity.md`: auto-merged by git (no
+    conflict markers; accepted).
+  - Merge commit: `6f5e4b5`. All 21 test packages pass directly in the T3 worktree.
+    No worktree-collision issue this session (no concurrent session running).
+  - proof.md updated: "Files changed" now lists 62 files (up from 21 in session 4);
+    "Divergence from plan" documents session 5 forward-merge; "First-pass script output"
+    updated to session 5 output (23/23 PASS, drift warning noted but PASS).
+  - **Key decision**: No production code changes needed — the conflict resolution was
+    purely additive (`case "ship"` kept from release-wt; `case "specquality"` kept from
+    T3). The verifier's next run will find T3 already up-to-date with release-wt.
+  - **Subagent dispatches**: none — single-session.
+
 ### 2026-06-19 — forward-merge + proof bundle update (session 4)
 
 - **State**: implemented (re-confirmed after forward-merge)
