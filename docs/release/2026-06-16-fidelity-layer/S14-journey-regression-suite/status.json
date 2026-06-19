@@ -3,11 +3,11 @@
   "slice_id": "S14-journey-regression-suite",
   "release": "2026-06-16-fidelity-layer",
   "track": "T2-delivery-cutover",
-  "state": "planned",
+  "state": "failed_verification",
   "owner": "human",
   "last_updated_by": "planner",
-  "last_updated_at": "2026-06-16T09:19:56Z",
-  "start_commit": null,
+  "last_updated_at": "2026-06-19T04:00:00Z",
+  "start_commit": "ad3433917938da331c7f705ba87319723ab9716a",
   "spec_path": "docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/proof.md",
   "journal_path": "docs/release/2026-06-16-fidelity-layer/S14-journey-regression-suite/journal.md",
@@ -17,21 +17,33 @@
     "cmd/sworn/journeys.go",
     "internal/adopt/baton/rules/10-customer-journey-validation.md"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/journey/journey.go",
+    "internal/journey/regression.go",
+    "internal/journey/regression_test.go",
+    "cmd/sworn/journeys.go",
+    "cmd/sworn/journeys_regen_test.go",
+    "internal/adopt/baton/rules/10-customer-journey-validation.md"
+  ],
   "test_commands": [
     "go test ./internal/journey/...",
-    "go test ./cmd/sworn/ -run TestJourneysRegen"
+    "go test ./cmd/sworn/ -run TestJourneysRegen",
+    "go build ./...",
+    "go vet ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "cmd/sworn/journeys_regen_test.go — 4 CLI integration tests exercising the --regen path with fixture artefacts"
+  ],
   "open_deferrals": [
-    "Scaffold-not-complete-oracle: complete journey oracle is project E2E work (why/tracking/ack 2026-06-16)",
-    "Provisional journey-schema detail tracks S11, refined via /replan-release"
+    "Scaffold-not-complete-oracle: complete journey oracle is project E2E work (why/tracking/ack 2026-06-16)"
   ],
   "verification": {
     "result": "pending",
     "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
-    "violations": []
+    "violations": [
+      "Planner ratified Option A (2026-06-19): AC1 exit-non-zero requirement stands. Implementer must: (1) capture pre-codification gap count and exit 1 if any gaps existed at run start, even after filling them; (2) update TestJourneysRegenCmd_CoverageGapFilled to assert exit 1; (3) fix self-contradiction in 10-customer-journey-validation.md Coverage check ('exits non-zero if gaps remain' should be 'exits non-zero if gaps existed at run start')."
+    ]
   }
 }

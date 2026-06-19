@@ -19,9 +19,9 @@ tracks:
   - id: T3-leaf-gates
     slices: [S03-spec-quality-firstpass, S08-design-system-input, S09-design-conformance-audit]
     depends_on: T1-fidelity-core
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T3-leaf-gates
     worktree_branch: track/2026-06-16-fidelity-layer/T3-leaf-gates
-    state: planned
+    state: in_progress
   - id: T4-evidence-surface
     slices: [S15-sworn-top-evidence]
     depends_on: T1-fidelity-core
@@ -51,8 +51,8 @@ tracks:
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
 | `T1-fidelity-core` | S01 → S02 → S04 → S05 → S07 → S11 → S16 | — | `track/2026-06-16-fidelity-layer/T1-fidelity-core` | merged |
-| `T2-delivery-cutover` | S06 → S10 → S12 → S13 → S14 | T1 | `track/2026-06-16-fidelity-layer/T2-delivery-cutover` | planned |
-| `T3-leaf-gates` | S03 → S08 → S09 | T1 | `track/2026-06-16-fidelity-layer/T3-leaf-gates` | planned |
+| `T2-delivery-cutover` | S06 → S10 → S12 → S13 → S14 | T1 | `track/2026-06-16-fidelity-layer/T2-delivery-cutover` | in_progress |
+| `T3-leaf-gates` | S03 → S08 → S09 | T1 | `track/2026-06-16-fidelity-layer/T3-leaf-gates` | in_progress |
 | `T4-evidence-surface` | S15 | T1 | `track/2026-06-16-fidelity-layer/T4-evidence-surface` | merged |
 
 ### Touchpoint matrix
@@ -105,12 +105,12 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 | `S07-design-fit-gate` | T1 | Stakes-calibrated human-owned design decision (`sworn designfit`) | verified | human | [spec](./S07-design-fit-gate/spec.md) | [proof](./S07-design-fit-gate/proof.md) |
 | `S11-journey-elicitation` | T1 | AI-drafts/human-ratifies critical journeys into a durable artefact (`sworn journeys`) | verified | verifier | [spec](./S11-journey-elicitation/spec.md) | [proof](./S11-journey-elicitation/proof.md) |
 | `S16-lint-rename` | T1 | Documentation sweep — adopt `sworn lint ac` / `sworn lint trace` canonical names throughout release docs; restore S02 proof.md | verified | human | [spec](./S16-lint-rename/spec.md) | [proof](./S16-lint-rename/proof.md) |
-| `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | planned | human | [spec](./S06-definition-of-ready/spec.md) | — |
-| `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | planned | human | [spec](./S10-no-mock-boundary/spec.md) | — |
-| `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | planned | human | [spec](./S12-journey-impact-analysis/spec.md) | — |
-| `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | planned | human | [spec](./S13-walkthrough-attestation/spec.md) | — |
-| `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | planned | human | [spec](./S14-journey-regression-suite/spec.md) | — |
-| `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | planned | human | [spec](./S03-spec-quality-firstpass/spec.md) | — |
+| `S06-definition-of-ready` | T2 | `planned→in_progress` gated on verified+validated+traced | verified | human | [spec](./S06-definition-of-ready/spec.md) | [proof](./S06-definition-of-ready/proof.md) |
+| `S10-no-mock-boundary` | T2 | Fail-closed on environment; undeclared validated-boundary mock fails | verified | human | [spec](./S10-no-mock-boundary/spec.md) | [proof](./S10-no-mock-boundary/proof.md) |
+| `S12-journey-impact-analysis` | T2 | Per-release touched-journey set = validation scope (`sworn journeys --impact`) | verified | human | [spec](./S12-journey-impact-analysis/spec.md) | [proof](./S12-journey-impact-analysis/proof.md) |
+| `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | verified | human | [spec](./S13-walkthrough-attestation/spec.md) | [proof](./S13-walkthrough-attestation/proof.md) |
+| `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | failed_verification | human | [spec](./S14-journey-regression-suite/spec.md) | [proof](./S14-journey-regression-suite/proof.md) |
+| `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | failed_verification | human | [spec](./S03-spec-quality-firstpass/spec.md) | [proof](./S03-spec-quality-firstpass/proof.md) |
 | `S08-design-system-input` | T3 | Design system (tokens + component library) as first-class project input | planned | human | [spec](./S08-design-system-input/spec.md) | — |
 | `S09-design-conformance-audit` | T3 | Deterministic drift first-pass + human cohesion verdict (`sworn designaudit`) | planned | human | [spec](./S09-design-conformance-audit/spec.md) | — |
 | `S15-sworn-top-evidence` | T4 | Read-only journey-validation green-board / kill-list (`sworn top`) | verified | agent | [spec](./S15-sworn-top-evidence/spec.md) | [proof](./S15-sworn-top-evidence/proof.md) |
@@ -129,17 +129,22 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Aggregate state
 
-- Planned: 6 (S08, S09, S10, S12, S13, S14)
+- Planned: 2 (S08, S09)
 - In progress: 0
-- Implemented (awaiting verification): 1 (S06)
-- Verified (in release-wt): 8 (S01, S02, S04, S05, S07, S11, S16, S15)
-- Failed verification: 1 (S03)
+- Implemented (awaiting verification): 0
+- Verified (across tracks): 12 (S01, S02, S04, S05, S06, S07, S10, S11, S12, S13, S15, S16)
+- Failed verification: 2 (S03, S14)
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 1 (T3) / In progress: 1 (T2) / Merged: 2 (T1: b8521f8, T4: ca5b1ea)
+**Tracks:** In progress: 2 (T2, T3) / Merged: 2 (T1: b8521f8, T4: ca5b1ea)
 
 ## Recent activity
+
+### 2026-06-19 — /replan-release: S14 BLOCKED resolved (Option A), board drift corrected
+
+- **Actor**: planner (/replan-release)
+- **Note**: S14 BLOCKED verdict (2nd consecutive) routed to planner. Human ratified **Option A** — AC1 exit-non-zero requirement stands. S14 transitioned `implemented → failed_verification`; `verification.result` cleared to `pending`; implementer must capture pre-codification gap count and exit 1 when gaps existed at run start. S03 `failed_verification` confirmed as proof-bundle defects (no spec correction needed); routes back to implementer. Board drift corrected: T3 `worktree_path` set (blank → actual path), T3 state `planned → in_progress`, T2 state `planned → in_progress`, T2 verified slices (S06/S10/S12/S13) updated from `planned`. No spec changes this session. No new slices added.
 
 ### 2026-06-19 — track `T4-evidence-surface` merged to release-wt (commit ca5b1ea)
 
@@ -286,10 +291,7 @@ contributes a distinct `case`. Per the prior release's parallel command registra
 
 ## Decisions deferred (Rule 2)
 
-- **Track C provisional schema** (S11/S12/S13/S14): journey-artefact field detail is refined via
-  `/replan-release` as the live journey-validation hand-run delivers evidence. **Why**: the
-  hand-run is the source of truth for the journey schema. **Tracking**: intake "Open questions";
-  refined post-hand-run. **Acknowledged**: 2026-06-16.
+- ~~**Track C provisional schema** (S11/S12/S13/S14)~~: **Resolved 2026-06-19** — S11 verified; journey schema settled via hand-run. /replan-release ratified Option A for S14's AC1 exit semantics. No outstanding schema deferral.
 - **S14 scaffold-not-complete-oracle**: sworn emits a structured regression scaffold + coverage
   check per journey, not a complete journey oracle. **Why**: a complete oracle is project-
   specific E2E work. **Tracking**: consuming project's E2E backlog. **Acknowledged**: 2026-06-16.
