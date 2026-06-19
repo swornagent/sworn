@@ -77,6 +77,12 @@ description: Implementation log. Append-only.
 
 - **Action taken**: Merge aborted. State unchanged (`implemented`). `verification.result` set to `blocked`. Next step: `/replan-release 2026-06-16-fidelity-layer`.
 
+### 2026-06-19 — BLOCKED resolved by /replan-release
+
+- **Actor**: planner (/replan-release)
+- **Resolution**: Touchpoint matrix corrected — `cmd/sworn/main.go` added as DOCUMENTED SHARED row with T3→`case "specquality"`, T4→`case "top"`. T3 `depends_on` updated to `[T1-fidelity-core, T4-evidence-surface]`. T4 is already merged, so T3 is immediately unblocked. `verification.result` cleared from `"blocked"` to `"pending"`.
+- **Next step for implementer**: In the next `/implement-slice S03` session, forward-merge `release-wt/2026-06-16-fidelity-layer` into this T3 worktree and resolve the `cmd/sworn/main.go` conflict (keep both `case "specquality"` and `case "top"`). The production-code merge was deferred from Step 6 because the planner cannot write production code. After resolving, update proof.md if the merge commit affects the diff range, then re-mark `implemented`. Then fresh `/verify-slice S03` — the verifier's forward-merge will be conflict-free.
+
 
 
 ### 2026-06-19 00:15 — FAIL (round 1, fresh-context)
