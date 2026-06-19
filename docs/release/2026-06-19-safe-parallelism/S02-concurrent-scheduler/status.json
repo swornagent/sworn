@@ -1,0 +1,37 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S02-concurrent-scheduler",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T1-concurrency-core",
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-20T00:00:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S02-concurrent-scheduler/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S02-concurrent-scheduler/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S02-concurrent-scheduler/journal.md",
+  "planned_files": [
+    "internal/scheduler/scheduler.go",
+    "internal/scheduler/scheduler_test.go",
+    "internal/scheduler/worker.go",
+    "internal/scheduler/worker_test.go",
+    "internal/run/parallel.go",
+    "internal/run/run.go",
+    "cmd/sworn/run.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test -race ./internal/scheduler/...",
+    "go test -race ./internal/run/..."
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}
