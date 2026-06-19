@@ -7,8 +7,7 @@
   "owner": "human",
   "last_updated_by": "planner",
   "last_updated_at": "2026-06-16T09:19:56Z",
-  "start_commit": "5ba1d58ce47a9909712ab4a7b6a4c97a25705545",
-  "spec_path": "docs/release/2026-06-16-fidelity-layer/S08-design-system-input/spec.md",
+  "start_commit": "2b35bc279ea9c2d4ae5c35ad8e63e8ec9c8fed86",  "spec_path": "docs/release/2026-06-16-fidelity-layer/S08-design-system-input/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S08-design-system-input/proof.md",
   "journal_path": "docs/release/2026-06-16-fidelity-layer/S08-design-system-input/journal.md",
   "planned_files": [
