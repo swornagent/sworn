@@ -149,30 +149,40 @@ files (disjoint, no change).
 
 ## Recent activity
 
+### 2026-06-20 — /replan-release: S08 BLOCKED (round 5) — process-state block, verification.result cleared
+
+- **Actor**: planner (/replan-release)
+- **Trigger**: S08 BLOCKED verdict (round 5, fresh-context verifier) — slice was in state `failed_verification` (not `implemented`) when the verifier ran. The implementer had completed Round 3 code fixes (Gate 1/4/6) but had not addressed Round 4 proof.md documentation gaps before the Round 5 verifier session was opened.
+- **Diagnosis**: NOT a spec defect. The spec is correct and the implementation is functionally sound. The Round 4 Gate 2 violations are proof.md completeness gaps only — both are fixable by the implementer without any spec amendment:
+  1. `cmd/sworn/reqverify.go` is missing from proof.md "Files changed" (it IS in `git diff --name-only 9b3b637..HEAD`; 10 lines of changes) and not acknowledged in "Divergence from plan".
+  2. `cmd/sworn/main.go` has S08-specific changes (the `cfg.Validate()` call in `cmdVerify()` added in Round 3 commit `7a76d62`) not acknowledged in "Divergence from plan"; the parenthetical note incorrectly attributes ALL main.go changes to S03 scope.
+- **Resolution**: `verification.result` cleared from `"blocked"` to `"pending"` on T3 track branch S08 `status.json` (planning-artefact edit). State remains `failed_verification` — the Round 4 violations still need to be addressed by the implementer. Board drift corrected: S03 `implemented` → `verified`; S08 `planned` → `failed_verification`. Spec label drift resolved: `E2E gate type` → `Test gate type` in S08 spec, `E2E gate type` → `Reachability gate type` in S03 spec (accepting T3 track improvements into release-wt). Base branch synced: forward-merged `release/v0.1.0` (8 docs commits for `2026-06-19-safe-parallelism` + `.gitignore` union).
+- **Required next step — IMPLEMENTER MUST DO THIS**: Run `/implement-slice S08-design-system-input 2026-06-16-fidelity-layer` in a fresh session and fix proof.md:
+  1. Add `cmd/sworn/reqverify.go` to the "Files changed" list (it has 10-line S08-scope changes — the `cfg.Validate()` call wiring).
+  2. Add two entries to "Divergence from plan": (a) `cmd/sworn/reqverify.go` — unplanned touchpoint, modified in Round 3 commit `7a76d62` to add `cfg.Validate()` fail-closed wiring for AC1; (b) `cmd/sworn/main.go` — the `cfg.Validate()` call added in `cmdVerify()` in Round 3 is S08 scope, distinct from the S03 `case "specquality"` block also present in this diff range.
+  3. Correct the parenthetical note in "Files changed" to stop attributing `cmd/sworn/reqverify.go` to S03.
+  4. Transition `status.json` state to `implemented`.
+  Then run `/verify-slice S08-design-system-input 2026-06-16-fidelity-layer` in a fresh session.
+
 ### 2026-06-20 — S08-design-system-input: BLOCKED (round 5, process-state check)
 
 - **Actor**: verifier (fresh-context session)
-- **Result**: BLOCKED — state check. `/verify-slice` invoked while slice is in state `failed_verification`; session start handshake requires `implemented`. This is a process-state block, not a spec defect — the spec is correct and the implementation is functionally sound. Round 4 Gate 2 violations (proof.md completeness gaps for `cmd/sworn/reqverify.go` and S08 portion of `cmd/sworn/main.go`) remain unresolved. Slice state unchanged: `failed_verification`. `verification.result` → `blocked`.
-- **Next step (per protocol)**: `/replan-release 2026-06-16-fidelity-layer`. Planner should validate violations are implementer-fixable (proof.md updates only, no spec amendment), clear `verification.result`, and route to `/implement-slice S08-design-system-input 2026-06-16-fidelity-layer`. No `spec.md` change is needed.
+- **Result**: BLOCKED — state check. `/verify-slice` invoked while slice is in state `failed_verification`; session start handshake requires `implemented`. This is a process-state block, not a spec defect — the spec is correct and the implementation is functionally sound. Round 4 Gate 2 violations (proof.md completeness gaps for `cmd/sworn/reqverify.go` and S08 portion of `cmd/sworn/main.go`) remain unresolved. Slice state unchanged: `failed_verification`. `verification.result` → `blocked`. (Resolved above by planner.)
 
 ### 2026-06-20 — S08-design-system-input: FAIL (round 4, fresh-context verifier)
 
 - **Actor**: verifier (fresh-context session)
 - **Result**: FAIL on Gate 2 (×2). All other gates PASS — Gate 1 confirmed (cfg.Validate() is live in cmdVerify/cmdReqverify); tests pass; reachability artefact valid; no silent deferrals; all AC claims have evidence. Gate 2 violations: (1) `cmd/sworn/reqverify.go` is an unplanned touchpoint with no S03 commits — all its in-scope changes are from the S08 Round 3 fix commit `7a76d62` — but is not mentioned in proof.md "Divergence from plan" and is incorrectly attributed to "earlier S03 work" in the "Files changed" note. (2) `cmd/sworn/main.go` has S08-specific changes (cfg.Validate() call, commit `7a76d62`) not acknowledged in "Divergence from plan"; the "Files changed" note implies all main.go changes in scope are S03. Slice state → `failed_verification`.
-- **Next step**: `/implement-slice S08-design-system-input 2026-06-16-fidelity-layer` in a fresh session to address the 3 numbered violations (update "Divergence from plan" for reqverify.go and main.go; correct "Files changed" note attribution).
 
 ### 2026-06-20 — S08-design-system-input: FAIL (round 2, fresh-context verifier)
 
 - **Actor**: verifier (fresh-context session)
-- **Result**: FAIL on Gates 1, 4, and 6. Core finding: `Config.Validate()` is defined and unit-tested but never called from any production sworn command — the system does not actually fail closed for a UI-bearing project without a design system. The proof.md reachability artefact contains two false claims: (a) automated smoke step 5 asserts `TestCmdInit_UIBearingFlag` verifies `Validate()` returns `ErrNoDesignSystem`, but the test has no such assertion; (b) manual smoke step claims `sworn verify` fails closed via `Validate()`, but `cmdVerify` does not call `Validate()`. The AC1 evidence in proof.md's Delivered section is consequently false. Slice state → `failed_verification`.
-- **Next step**: `/implement-slice S08-design-system-input 2026-06-16-fidelity-layer` in a fresh session. Wire `cfg.Validate()` into at least one production sworn command, add an integration-level assertion proving fail-closed behavior, and correct proof.md's reachability artefact and AC1 evidence.
+- **Result**: FAIL on Gates 1, 4, and 6. Core finding: `Config.Validate()` is defined and unit-tested but never called from any production sworn command — the system does not actually fail closed for a UI-bearing project without a design system. Slice state → `failed_verification`.
 
 ### 2026-06-19 — S03-spec-quality-firstpass: PASS (round 5, fresh-context verifier)
 
 - **Actor**: verifier (fresh-context session)
 - **Result**: All 6 gates passed. 14/14 unit tests + 4/4 CLI integration tests green. Smoke step confirmed live (weak examples → exit 1; tightened examples → exit 0). All ACs verified with direct evidence. No silent deferrals. Slice state → `verified`.
-- **Environmental note**: T3 worktree experienced concurrent branch-switching to `main`; all test runs were on `track/2026-06-16-fidelity-layer/T3-leaf-gates` at `f817c8e`, confirmed per run.
-- **Next step**: T3-leaf-gates has further incomplete slices (S08, S09 — planned). Next: `/implement-slice S08-design-system-input 2026-06-16-fidelity-layer`.
 
 ### 2026-06-19 — /replan-release: S03 BLOCKED (round 4) — root cause confirmed, T3 status cleared directly
 
