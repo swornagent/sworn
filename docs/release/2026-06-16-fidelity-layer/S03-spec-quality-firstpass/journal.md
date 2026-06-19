@@ -113,6 +113,26 @@ description: Implementation log. Append-only.
 
 ## Verifier verdicts received
 
+### 2026-06-19 — PASS (round 5, fresh-context)
+
+- **Verifier session**: fresh
+- **Verdict body**:
+
+  PASS
+
+  Slice: `S03-spec-quality-firstpass`
+  Verified against: `f817c8e63b60419e4987f895c49f1f57c94306fd`
+  Verifier session: `fresh, artefact-only`
+
+- **Gate results**:
+  - Gate 1 (user-reachable outcome): PASS — `case "specquality"` in `cmd/sworn/main.go`; `cmdSpecquality` implemented; binary responds correctly to `sworn specquality` invocations (smoke step confirmed live).
+  - Gate 2 (touchpoints match): PASS — all 7 planned touchpoints changed; `cmd/sworn/specquality_test.go` and forward-merge artefacts explained in "Divergence from plan".
+  - Gate 3 (tests exist and pass): PASS — 14/14 unit tests pass (`go test ./internal/specquality/...`); 4/4 CLI integration tests pass (`go test ./cmd/sworn/ -run TestSpecquality`); all 21 packages confirmed green via explicit package list (worktree-collision environmental issue documented; branch confirmed on track at f817c8e during all test runs).
+  - Gate 4 (reachability artefact): PASS — smoke step executed live: Step 1 (weak examples → exit 1, low-completeness violation); Step 2 (tightened examples → exit 0, 67% completeness).
+  - Gate 5 (no silent deferrals): PASS — no TODO/FIXME/deferred/placeholder/XXX/HACK in S03-owned source files; first-pass script confirmed no dark-code markers.
+  - Gate 6 (scope matches): PASS — AC1 (soundness): `TestRun_Fail_UnsoundExpectation` + `computeSoundness()`; AC2 (threshold gate): `TestSpecqualityCmd_Fail_LowCompleteness` + smoke exit 1; AC3 (pass case): `TestSpecqualityCmd_Pass` + smoke exit 0; AC4 (deterministic/no model): stdlib-only imports confirmed; AC5 (missing examples): `TestSpecqualityCmd_Fail_NoExamples`.
+- **Environmental note**: The T3 worktree experienced intermittent branch switching to `main` by a concurrent session (exactly as documented in proof.md). All test runs and the smoke step were executed with the worktree on `track/2026-06-16-fidelity-layer/T3-leaf-gates` at `f817c8e`, confirmed before and after each command. The `go test ./...` race was mitigated by running all packages as explicit targets.
+
 ### 2026-06-19 — BLOCKED (round 4, fresh-context)
 
 - **Verifier session**: fresh
