@@ -151,5 +151,51 @@ Exit codes:
 The impact result is consumed by S13 (walkthrough attestation) and S14 (journey regression suite) to determine the release's validation scope.
 
 
-## Provenance
-Rule 10 was introduced in the `2026-06-16-fidelity-layer` release. It closes the cross-slice integration-evidence gap: per-slice verification (Rules 1/6/7) catches within-slice defects, but no artefact captures the end-to-end user path. Journey validation fills that gap with a lightweight, version-controlled artefact that survives release boundaries.
+## Walkthrough attestation (S13)
+
+**A release cannot ship unless every touched journey carries a human-walkthrough attestation.** The human who walks the journey is the acceptance authority: the model (software) may load/save attestation records but cannot author the human attestation's attested-by field.
+
+### Attestation record
+
+Each walkthrough attestation records:
+
+- **journey_id** — the journey this attestation covers (e.g. `J01-verify-flow`)
+- **walked_by** — the human who walked this journey (mandatory; model cannot set)
+- **walked_at** — ISO 8601 timestamp when the walkthrough was performed
+- **real_infra** — boolean assertion that the walkthrough used real infrastructure
+- **mocks_off** — boolean assertion that no mocks/stubs were present at validated boundaries
+- **passed** — whether the walkthrough passed or failed
+- **notes** — free-form observations (optional)
+
+### Storage
+
+Attestations are stored per-release at `<project-root>/.sworn/attestations/<release-name>.json`. A human edits this file to record walkthroughs. The file is version-controlled alongside the journeys artefact.
+
+### Ship gate
+
+`sworn ship <release>` is a deterministic, fail-closed gate that checks:
+
+1. The journeys artefact exists and is human-ratified.
+2. The release's validation scope (touched journeys, computed by S12 impact analysis).
+3. Every touched journey has an attestation with all required fields.
+
+The gate exits:
+- **0** — all touched journeys have complete, passing human attestations; the release may proceed to cutover.
+- **1** — one or more journeys are un-walked, incomplete, or have failed attestations; each is named in the kill-list.
+- **2** — unrecoverable error (I/O or parse failure).
+
+### Fail-closed semantics
+
+The ship gate is fail-closed:
+- A journey with **no attestation** blocks cutover (un-walked).
+- A journey whose attestation is **missing the human-walked-by field** blocks cutover (model cannot author attestations).
+- A journey whose attestation **lacks real_infra or mocks_off** blocks cutover.
+- A journey whose attestation records a **failed walkthrough** blocks cutover.
+- Only a complete, passing attestation for every touched journey allows cutover.
+
+### Relationship to S14
+
+The walkthrough attestation is deliberately manual (S13). S14 (journey regression suite) is the maturity path that shrinks the manual set over time — as journeys are codified into automated regression tests, fewer require human walkthrough at cutover. The attestation record is designed so a journey can transition from manual-walkthrough-required to regression-covered without schema changes.
+
+
+## ProvenanceRule 10 was introduced in the `2026-06-16-fidelity-layer` release. It closes the cross-slice integration-evidence gap: per-slice verification (Rules 1/6/7) catches within-slice defects, but no artefact captures the end-to-end user path. Journey validation fills that gap with a lightweight, version-controlled artefact that survives release boundaries.

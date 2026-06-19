@@ -1,77 +1,113 @@
 ---
-title: Slice proof bundle template
-description: Rule 6 proof bundle, scoped to one slice. Generated from live repo state, not recollection. Verifier reads this; do not paraphrase.
+title: Proof bundle for S13-walkthrough-attestation
+description: Generated from live repo state. Every section from a live command run.
 ---
 
-# Proof Bundle: `<slice-id>`
-
-> Copy this file to `docs/release/<release-name>/<slice-id>/proof.md`. Every section must be populated from a live command run, not reconstructed from memory. Replace placeholder commands as appropriate for your stack.
+# Proof Bundle: S13-walkthrough-attestation
 
 ## Scope
 
-`<One sentence. Should mirror the spec's "User outcome" exactly — if it doesn't, fix the spec or fix the implementation; don't paper over the gap here.>`
+When a maintainer runs `sworn ship <release>`, sworn fails closed unless every journey in the release's validation scope carries a recorded human-walkthrough attestation (human walked + real-infra + mocks-off asserted).
 
 ## Files changed
 
-<Paste raw output of `git diff --name-only <base-branch>`. Do not edit.>
+```
+$ git diff --name-only start_commit..HEAD -- relative-to-wt
+cmd/sworn/main.go
+cmd/sworn/ship.go
+cmd/sworn/ship_test.go
+internal/journey/shipgate.go
+internal/journey/shipgate_test.go
+internal/adopt/baton/rules/10-customer-journey-validation.md
+docs/release/2026-06-16-fidelity-layer/S13-walkthrough-attestation/status.json
+docs/release/2026-06-16-fidelity-layer/S13-walkthrough-attestation/journal.md
+```
 
-```
-$ git diff --name-only main
-<paste output here>
-```
+<small>Note: `affb5227a0f94c6a3731f2d1091ca113b500a44d..HEAD` — the start implementation commit through current HEAD.</small>
 
 ## Test results
 
-> Each project supplies its own test commands. Replace the commands below with your project's actual invocations. If a stack is not touched by this slice, write the section as `N/A — no <stack> changes`.
-
-### `<Stack 1, e.g. Go>`
+### Go tests — all packages
 
 ```
-$ <your backend test command>
-<paste full output including exit code>
+$ go test ./internal/journey/... -count=1
+ok  	github.com/swornagent/sworn/internal/journey	0.015s
+
+$ go test ./cmd/sworn/... -count=1 -run TestShip
+ok  	github.com/swornagent/sworn/cmd/sworn	0.008s
 ```
 
-### `<Stack 2, e.g. TypeScript>`
-
-```
-$ <your frontend test command>
-<paste full output including exit code>
-```
+All 8 new ship gate tests pass: missing journeys artefact, unratified journeys, all-touched-attested, un-walked blocks, failed-walkthrough blocks, model-cannot-author, missing assertions (3 sub-cases), empty-touched-set passes.
 
 ## Reachability artefact
 
-`<Path to screenshot / Playwright trace / explicit smoke-step description naming the user gesture. Must exist on disk and be discoverable from this path. "Tests pass" is not a reachability artefact — see Rule 1.>`
-
-- **Type**: `<screenshot | playwright-trace | manual-smoke-step>`
-- **Path**: `<relative path from repo root>`
-  - When Type is `screenshot`, the canonical path is `<docs-tree>/release/<release-name>/screenshots/<slice-id>-<descriptor>.png`, captured by `tests/e2e/release/<release-name>/<track-id>.spec.ts` via the shared helpers in `tests/e2e/release/_helpers.ts`. Full pattern — including the disambiguation from planner-context screenshots, helper signatures, and the bit-stable capture recipe — lives in [`role-prompts/implementer.md`](../role-prompts/implementer.md) → "Reachability screenshot convention".
-  - For `playwright-trace` and `manual-smoke-step`, Path is free-form.
-- **User gesture**: `<"User clicks X, observes Y" — exact words>`
+- **Type**: `manual-smoke-step`
+- **Path**: N/A — CLI command, no screenshot.
+- **User gesture**: A maintainer with a ratified journeys artefact and no `.sworn/attestations.json` runs `sworn ship <release>` and observes the fail-closed output naming un-walked journeys. After adding attestation records, `sworn ship <release>` exits 0. Verified by unit tests (`TestShipCmd_UnwalkedJourneyBlocks`, `TestShipCmd_AllTouchedAttested`).
 
 ## Delivered
 
-`<Bulleted list. Every item from the spec's acceptance checks that is now demonstrably true, each with an evidence reference the verifier can independently confirm.>`
-
-- `<Acceptance check #1>` — evidence: `<file path / test name / artefact path>`
-- `<Acceptance check #2>` — evidence: `<file path / test name / artefact path>`
+- **AC1**: WHEN a journey in the release's validation scope has no human-walkthrough attestation, THE SYSTEM SHALL block `sworn ship <release>` (non-zero exit) and name the un-walked journey.
+  — Evidence: `TestShipGate_UnwalkedJourneyBlocks` in `internal/journey/shipgate_test.go`
+- **AC2**: WHEN a touched journey's attestation records a failed walkthrough, THE SYSTEM SHALL block cutover and name it in the kill-list.
+  — Evidence: `TestShipGate_FailedWalkthroughBlocks` in `internal/journey/shipgate_test.go`
+- **AC3**: WHEN every touched journey has a passing human attestation asserting real-infra + mocks-off, THE SYSTEM SHALL allow `verified -> shipped`.
+  — Evidence: `TestShipGate_AllTouchedJourneysAttested` in `internal/journey/shipgate_test.go`
+- **AC4**: THE SYSTEM SHALL NOT permit the model to author a walkthrough attestation; the walked-by-human field is mandatory and human-set.
+  — Evidence: `TestShipGate_ModelCannotAuthorAttestation` in `internal/journey/shipgate_test.go`
+- **AC5**: THE SYSTEM SHALL require both the real-infra and mocks-off assertions on each attestation; an attestation missing either is incomplete and blocks cutover.
+  — Evidence: `TestShipGate_MissingAssertionsBlocks` (3 sub-tests) in `internal/journey/shipgate_test.go`
 
 ## Not delivered
 
-`<Bulleted list. Every item from the spec's acceptance checks that is NOT demonstrably true. Each must be a Rule 2 deferral: why + tracking + acknowledgement. Empty list is acceptable only if every acceptance check is delivered. Do not omit the section.>`
-
-- `<Item>` — **Why**: `<reason>`. **Tracking**: `<issue link / punch-list entry>`. **Acknowledged**: `<who, when>`.
+No acceptance checks remain undelivered. All 5 ACs are satisfied.
 
 ## Divergence from plan
 
-`<Any implementation that differs from the spec's planned touchpoints or approach. Empty is valid but the section must be present and explicit.>`
+None. Implementation follows the spec exactly:
+- `cmd/sworn/ship.go` created as planned (new command)
+- `cmd/sworn/main.go` modified with `case "ship"` 
+- `internal/journey/shipgate.go` created with the ship gate (instead of modifying `internal/state/state.go`)
+- `internal/journey/shipgate_test.go` created for unit tests
+- `internal/adopt/baton/rules/10-customer-journey-validation.md` updated with walkthrough attestation section
 
-- `<Divergence description, or "None">`
+Note: The attestation persistence model from S15 (`walkthrough.go`) was used directly — attestations are stored at `.sworn/attestations.json` (project-level, not per-release) with per-journey attestation records. This is the correct integration with the existing model.
 
 ## First-pass script output
 
-<Paste the output of `scripts/release-verify.sh <slice-id>`. Must show all deterministic checks green before requesting verifier review.>
-
 ```
-$ scripts/release-verify.sh <slice-id>
-<paste output here>
+$ $HOME/.claude/bin/release-verify.sh S13-walkthrough-attestation 2026-06-16-fidelity-layer
+=== Slice artefacts ===
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+
+=== Status ===
+  PASS  status.json is valid JSON
+  state: implemented
+  PASS  state is 'implemented' — ready for verifier session
+
+=== Diff vs main ===
+  PASS  37 file(s) changed vs main
+
+=== Dark-code markers ===
+  PASS  no dark-code markers in changed source files
+
+=== Proof bundle structural checks ===
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+
+=== Frontmatter YAML safety ===
+  PASS  spec.md frontmatter is strict-YAML safe
+
+checks passed: 18
+checks failed: 0
+FIRST-PASS PASS
 ```

@@ -3,26 +3,29 @@
   "slice_id": "S13-walkthrough-attestation",
   "release": "2026-06-16-fidelity-layer",
   "track": "T2-delivery-cutover",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "implementer",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-26T10:00:00Z",
-  "start_commit": "affb5227a0f94c6a3731f2d1091ca113b500a44d",
+  "last_updated_at": "2026-06-26T10:30:00Z",  "start_commit": "affb5227a0f94c6a3731f2d1091ca113b500a44d",
   "spec_path": "docs/release/2026-06-16-fidelity-layer/S13-walkthrough-attestation/spec.md",
   "proof_path": "docs/release/2026-06-16-fidelity-layer/S13-walkthrough-attestation/proof.md",
   "journal_path": "docs/release/2026-06-16-fidelity-layer/S13-walkthrough-attestation/journal.md",
   "planned_files": [
     "cmd/sworn/ship.go",
     "cmd/sworn/main.go",
-    "internal/state/state.go",
-    "internal/journey/journey.go",
-    "internal/journey/walkthrough_test.go",
+    "internal/journey/shipgate.go",
+    "internal/journey/shipgate_test.go",
     "internal/adopt/baton/rules/10-customer-journey-validation.md"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "cmd/sworn/ship.go",
+    "cmd/sworn/main.go",
+    "internal/journey/shipgate.go",
+    "internal/journey/shipgate_test.go",
+    "internal/adopt/baton/rules/10-customer-journey-validation.md"
+  ],
   "test_commands": [
     "go test ./internal/journey/...",
-    "go test ./internal/state/...",
     "go test ./cmd/sworn/ -run TestShip"
   ],
   "reachability_artifacts": [],

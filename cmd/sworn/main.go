@@ -56,6 +56,11 @@ func main() {
 	case "journeys":
 		// S11-journey-elicitation adds this case (T1-fidelity-core).
 		os.Exit(cmdJourneys(os.Args[2:]))
+	case "ship":
+		// S13-walkthrough-attestation adds this case (T2-delivery-cutover).
+		// Gates the verified -> shipped transition on human-walkthrough
+		// attestations for all touched journeys.
+		os.Exit(cmdShip(os.Args[2:]))
 	case "top":
 		// S15-sworn-top-evidence adds this case (T4-evidence-surface).
 		// Read-only evidence surface: green-board / kill-list for journey
@@ -142,6 +147,7 @@ usage:
   sworn reqvalidate <release>
   sworn designfit <release>
   sworn run --task <description> [--implementer-model <m>] [--verifier-model <m>] [--base <branch>] [--retry-cap <n>]
+  sworn ship <release> [project-root]
   sworn top <release> [project-path]
   sworn verify --spec <path> --diff <path|-> [--proof <path>] [--verifier-model <provider/model>]
   sworn version
@@ -173,8 +179,10 @@ human decision. No model dispatch needed.
 run executes the full turnkey loop: implement -> verify -> (on FAIL: retry/escalate
 up to N) -> gated merge on PASS only. See 'sworn run --help' for model resolution
 and escalation model defaults.
-top renders a read-only evidence surface for the active release: the green-board
-or kill-list of journey validation status. See 'sworn top <release>' for details.
+ship validates the human-walkthrough attestation gate (Rule 10/S13): fails
+closed unless every touched journey has a passing human attestation asserting
+real-infra + mocks-off. See 'sworn ship <release>' for details.
+top renders a read-only evidence surface for the active release: the green-boardor kill-list of journey validation status. See 'sworn top <release>' for details.
 
 verify emits a JSON verdict (PASS/FAIL/BLOCKED) and exits 0 only on PASS,
 so a CI required-check blocks the merge by default.

@@ -1,44 +1,27 @@
----
-title: Slice journal template
-description: Implementation log for one slice. Append-only. Visible to verifier as context, but verifier verdict is based on proof.md and repo state, not journal prose.
----
-
-# Journal: `<slice-id>`
-
-> Copy this file to `docs/release/<release-name>/<slice-id>/journal.md`. Append entries chronologically. Do not delete history. Decisions captured here must also land in commit message bodies per Rule 4 — this journal is a working surface, not a substitute for durable capture.
+# Journal: S13-walkthrough-attestation
 
 ## Session log
 
-### `<YYYY-MM-DD HH:MM>` — `<session start / state transition>`
+### 2026-06-26 10:00 — session start
 
-- **State**: `<planned | in_progress | implemented | failed_verification | verified | deferred | shipped>`
+- **State**: planned → in_progress
 - **Notes**:
-  - `<Decisions made>`
-  - `<Trade-offs encountered>`
-  - `<Subagent dispatches and where their outputs landed>`
-
-### `<YYYY-MM-DD HH:MM>` — `<next event>`
-
-- ...
+  - Created `internal/journey/shipgate.go` with `CheckShipGate` and `ShipGateResult`, using the existing `Attestation`/`AttestationArtefact` model from S15's `walkthrough.go`.
+  - Created `cmd/sworn/ship.go` — the `sworn ship <release> [project-root]` command.
+  - Updated `cmd/sworn/main.go` — added `case "ship"` dispatch and usage text.
+  - Updated `internal/adopt/baton/rules/10-customer-journey-validation.md` — added walkthrough attestation section documenting the ship gate.
+  - All attestation completeness checks (WalkPass, WalkedBy non-empty, RealInfra=true, MocksOff=true) are enforced by `attestationComplete()`.
+  - The ship gate reuses S12's impact analysis to determine touched journeys and S15's attestation loading.
+  - Removed the earlier conflicted `attestation.go` that had a different model — integrated with the existing `walkthrough.go` model instead.
 
 ## Open questions
 
-\<Anything the implementer needs the human to resolve. Each open question blocks state transition to `implemented` until answered.\>
-
-- ...
+- None.
 
 ## Deferrals surfaced
 
-`<Per Rule 2: each deferral needs why + tracking + acknowledgement. Cross-link to GitHub issue or punch-list entry. If empty, write "None" explicitly.>`
-
-- ...
+- Provisional attestation fields track S11 journey schema — refined via /replan-release (acknowledged 2026-06-16).
 
 ## Verifier verdicts received
 
-`<Append every verifier verdict here. Even FAIL verdicts stay — they are part of the slice's history.>`
-
-### `<YYYY-MM-DD HH:MM>` — `<PASS | FAIL | BLOCKED>`
-
-- **Verifier session**: `<fresh / inherited — should always be fresh>`
-- **Verdict body**: `<paste the full verifier output>`
-- **Action taken**: `<how the implementer responded>`
+None yet.
