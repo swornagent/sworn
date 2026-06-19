@@ -52,3 +52,57 @@ func Scaffold(force bool) (path string, existed bool, err error) {
 	}
 	return p, false, nil
 }
+
+// PromptDesignSystem returns a DesignSystem populated from interactive prompts
+// (or defaults, in non-interactive mode). When the project is UI-bearing and
+// no existing DesignSystem is set, the caller should use this to collect the
+// declaration. Returns nil when nonInteractive is true and there is no current
+// DesignSystem, indicating the user chose not to configure one now.
+//
+// In interactive mode, the prompts ask for:
+//   - The design tokens source (e.g. "tokens.json", "design/tokens/")
+//   - The component library location (e.g. "packages/ui", "src/components")
+func PromptDesignSystem(current *DesignSystem, nonInteractive bool) (*DesignSystem, error) {
+	if nonInteractive {
+		if current != nil {
+			return current, nil
+		}
+		return nil, nil
+	}
+
+	ds := &DesignSystem{}
+	if current != nil {
+		ds.TokenSource = current.TokenSource
+		ds.ComponentLibrary = current.ComponentLibrary
+	}
+
+	fmt.Println()
+	fmt.Println("Design system configuration (for UI-bearing projects):")
+	fmt.Println()
+
+	if ds.TokenSource == "" {
+		fmt.Print("  Design tokens source (e.g. tokens.json): ")
+		var tokenSrc string
+		if _, err := fmt.Scanln(&tokenSrc); err != nil {
+			// User entered nothing or non-interactive; leave empty.
+			tokenSrc = ""
+		}
+		ds.TokenSource = tokenSrc
+	}
+
+	if ds.ComponentLibrary == "" {
+		fmt.Print("  Component library location (e.g. packages/ui): ")
+		var compLib string
+		if _, err := fmt.Scanln(&compLib); err != nil {
+			compLib = ""
+		}
+		ds.ComponentLibrary = compLib
+	}
+
+	// If both are still empty after prompting, the user declined to provide them.
+	if ds.TokenSource == "" && ds.ComponentLibrary == "" {
+		return nil, nil
+	}
+
+	return ds, nil
+}

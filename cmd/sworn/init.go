@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -10,14 +11,13 @@ import (
 	"github.com/swornagent/sworn/internal/adopt"
 	"github.com/swornagent/sworn/internal/config"
 )
-
 func cmdInit(args []string) int {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
 	apiKey := fs.String("api-key", "", "API key for the default provider (openai); overrides prompting")
 	force := fs.Bool("force", false, "overwrite existing config and customized Baton sections")
 	yes := fs.Bool("yes", false, "skip confirmation prompt (non-interactive)")
+	uiBearer := fs.Bool("ui-bearing", false, "mark project as UI-bearing (requires design system declaration)")
 	_ = fs.Parse(args)
-
 	repoRoot, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sworn init: cannot determine working directory: %v\n", err)
@@ -71,10 +71,24 @@ func cmdInit(args []string) int {
 		})
 	}
 
+	// Design system declaration (S08) — check current project config.
+	existingCfg, _ := config.Load()
+	if existingCfg.UIBearing && existingCfg.DesignSystem == nil {
+		informational = append(informational, change{
+			label:  "design_system",
+			warn:   true,
+			reason: "ui_bearing is true but no design_system declared — run with --ui-bearing to configure",
+		})
+	} else if !existingCfg.UIBearing && !*yes {
+		informational = append(informational, change{
+			label:  "design_system",
+			reason: "project is not UI-bearing (use --ui-bearing to declare design system)",
+		})
+	}
+
 	// Agent config files
 	spliceResults, err := adopt.PlanSplice(repoRoot, *force)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "sworn init: %v\n", err)
+	if err != nil {		fmt.Fprintf(os.Stderr, "sworn init: %v\n", err)
 		return 1
 	}
 	for _, r := range spliceResults {
@@ -180,6 +194,71 @@ func cmdInit(args []string) int {
 		fmt.Printf("  created  %s\n", cfgPath)
 	}
 
+	// Design system prompt (S08): ask about UI-bearing and design system.
+	// This runs after the config file exists so we can re-load and modify it.
+	if cfgErr == nil && !cfgExisted {
+		ds, err := config.PromptDesignSystem(existingCfg.DesignSystem, *yes)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "sworn init: design system prompt: %v\n", err)
+			return 1
+		}
+		if ds != nil {
+			// Re-load the config (just created by Scaffold) and add design system.
+			cfg, loadErr := config.Load()
+			if loadErr != nil {
+				fmt.Fprintf(os.Stderr, "sworn init: re-load config: %v\n", loadErr)
+				return 1
+			}
+			cfg.UIBearing = *uiBearer || true
+			cfg.DesignSystem = ds
+			if writeErr := writeConfig(cfgPath, &cfg); writeErr != nil {
+				fmt.Fprintf(os.Stderr, "sworn init: write design system: %v\n", writeErr)
+				return 1
+			}
+			fmt.Printf("  updated  %s (design system: token_source=%s, component_library=%s)\n",
+				cfgPath, ds.TokenSource, ds.ComponentLibrary)
+		} else if *uiBearer {
+			// User explicitly wants UI-bearing but didn't provide design system.
+			cfg, loadErr := config.Load()
+			if loadErr != nil {
+				fmt.Fprintf(os.Stderr, "sworn init: re-load config: %v\n", loadErr)
+				return 1
+			}
+			cfg.UIBearing = true
+			if writeErr := writeConfig(cfgPath, &cfg); writeErr != nil {
+				fmt.Fprintf(os.Stderr, "sworn init: write ui_bearing: %v\n", writeErr)
+				return 1
+			}
+			fmt.Printf("  updated  %s (ui_bearing: true — design system deferred; run 'sworn init --ui-bearing --force' to configure)\n", cfgPath)
+		}
+	} else if cfgErr == config.ErrConfigExists && *uiBearer {
+		// Config exists; update it with UI-bearing / design system.
+		cfg, loadErr := config.Load()
+		if loadErr != nil {
+			fmt.Fprintf(os.Stderr, "sworn init: load existing config: %v\n", loadErr)
+			return 1
+		}
+		ds, err := config.PromptDesignSystem(cfg.DesignSystem, *yes)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "sworn init: design system prompt: %v\n", err)
+			return 1
+		}
+		cfg.UIBearing = true
+		if ds != nil {
+			cfg.DesignSystem = ds
+			if writeErr := writeConfig(cfgPath, &cfg); writeErr != nil {
+				fmt.Fprintf(os.Stderr, "sworn init: write design system: %v\n", writeErr)
+				return 1
+			}
+			fmt.Printf("  updated  %s (ui_bearing: true, design_system configured)\n", cfgPath)
+		} else {
+			if writeErr := writeConfig(cfgPath, &cfg); writeErr != nil {
+				fmt.Fprintf(os.Stderr, "sworn init: write ui_bearing: %v\n", writeErr)
+				return 1
+			}
+			fmt.Printf("  updated  %s (ui_bearing: true — design system deferred)\n", cfgPath)
+		}
+	}
 	// Baton protocol docs
 	if err := adopt.Materialise(repoRoot); err != nil {
 		fmt.Fprintf(os.Stderr, "sworn init: %v\n", err)
@@ -225,4 +304,14 @@ func promptAPIKey() string {
 		return ""
 	}
 	return strings.TrimSpace(key)
+}
+
+// writeConfig marshals cfg and writes it to path with mode 0600.
+func writeConfig(path string, cfg *config.Config) error {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	data = append(data, '\n')
+	return os.WriteFile(path, data, 0600)
 }

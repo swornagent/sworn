@@ -59,9 +59,50 @@ Each design decision is recorded as an entry in `status.json`:
 }
 ```
 
+## Design-system input
+
+Design fidelity requires a declared source of truth. Every UI-bearing project
+must declare its design system in its sworn project config before design
+conformance can be audited (S09).
+
+The design system is a **three-tier concept**:
+
+| Tier | Name | Role | Example |
+|------|------|------|---------|
+| Umbrella | **Design system** | The whole declared input — token source + component library | `design_system` in `config.json` |
+| Atoms | **Design tokens** | The named-value source of truth (colours, spacing, typography) | `tokens.json` (W3C DTCG), CSS custom properties, JS theme object |
+| Reusables | **Component library** | The coded, reusable UI components | `packages/ui/`, `src/components/` |
+
+### Schema
+
+A project's `config.json` carries an optional `design_system` block:
+
+```json
+{
+  "ui_bearing": true,
+  "design_system": {
+    "token_source": "tokens.json",
+    "component_library": "packages/ui"
+  }
+}
+```
+
+### Enforcement
+
+- `ui_bearing: true` with no `design_system` block = fail closed (design
+  conformance cannot proceed without a declared source of truth).
+- `ui_bearing: false` or absent = design system not applicable (CLI projects
+  and non-UI tools are exempt).
+- The format hint for tokens is not mandated here — S09's audit adapts to
+  the project's token format (DTCG JSON, CSS vars, JS themes).
+
+### Discovery
+
+`sworn init` prompts for the design system declaration when initialising a
+UI-bearing project. The `--ui-bearing` flag marks the project explicitly.
+
 ## Out of scope (sibling rules)
 
 - Design-system declaration (tokens + component library) — S08.
-- Design-system conformance audit (no hardcoded hex, token-scale spacing) — S09.
-- Requirements validation (Rule 8) — design fit assumes the requirement is
+- Design-system conformance audit (no hardcoded hex, token-scale spacing) — S09.- Requirements validation (Rule 8) — design fit assumes the requirement is
   already validated.

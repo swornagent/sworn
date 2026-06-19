@@ -13,14 +13,59 @@ import (
 
 // Config is the sworn runtime configuration. All model selections are
 // "provider/model" strings (e.g. "openai/gpt-4.1") as used by model.FromEnv.
+//
+// For UI-bearing projects, the DesignSystem field declares the project's
+// design tokens source and component library, used by sworn designaudit (S09)
+// for design conformance checking.
 type Config struct {
 	Version  int          `json:"version"`
 	Verifier ModelSetting `json:"verifier"`
+
+	// UIBearing marks the project as UI-bearing. When true, a DesignSystem
+	// declaration is required or sworn will fail closed. When false (or absent),
+	// design-system requirements do not apply (CLI projects are exempt).
+	UIBearing bool `json:"ui_bearing,omitempty"`
+
+	// DesignSystem declares the project's design system: the umbrella (this
+	// struct), the design tokens source of truth (TokenSource), and the coded
+	// component library (ComponentLibrary). Required when UIBearing is true.
+	DesignSystem *DesignSystem `json:"design_system,omitempty"`
 }
 
+// DesignSystem represents a project's design system declaration.
+// The three concepts are distinguished:
+//   - DesignSystem (the umbrella struct)
+//   - TokenSource (design tokens — the named-value source of truth)
+//   - ComponentLibrary (the coded reusables)
+//
+// TokenSource and ComponentLibrary may be paths (relative to the project root),
+// package names, or source URIs depending on the project's token format. S09's
+// audit adapts to the declared format.
+type DesignSystem struct {
+	TokenSource      string `json:"token_source"`
+	ComponentLibrary string `json:"component_library"`
+}
+
+// ErrNoDesignSystem is returned by Validate when a UI-bearing project has no
+// DesignSystem declaration. Callers should surface this as a fail-closed error.
+var ErrNoDesignSystem = fmt.Errorf(
+	"ui_bearing is true but no design_system declared — " +
+		"a design system (token source + component library) is required " +
+		"for design conformance; run 'sworn init' to configure",
+)
 // ModelSetting holds a single role's model selection.
 type ModelSetting struct {
 	Model string `json:"model"`
+}
+
+// Validate checks config invariants. It returns ErrNoDesignSystem when a
+// UI-bearing project has no DesignSystem declaration. Unit-bearing projects
+// (ui_bearing: false) are exempt.
+func (c Config) Validate() error {
+	if c.UIBearing && c.DesignSystem == nil {
+		return ErrNoDesignSystem
+	}
+	return nil
 }
 
 // DefaultConfig returns the safe-hosted default configuration. The default model
@@ -29,14 +74,19 @@ type ModelSetting struct {
 // This default is a provisional safe-hosted selection. The production default
 // will be ratified by the S10-benchmark-dogfood slice (tracked in this release
 // board). If the benchmark picks a different model, the default changes there.
-func DefaultConfig() Config {	return Config{
+//
+// By default, UIBearing is false — sworn itself is a CLI tool. UI-bearing
+// projects must set UIBearing to true and declare a DesignSystem.
+func DefaultConfig() Config {
+	return Config{
 		Version: 1,
 		Verifier: ModelSetting{
 			Model: "openai/gpt-4.1",
 		},
+		UIBearing:    false,
+		DesignSystem: nil,
 	}
 }
-
 // Path returns the config file path, respecting env-var overrides:
 //
 //	$SWORN_CONFIG_PATH — exact path to config.json
