@@ -95,3 +95,16 @@ Run `sworn top` (no args) — same TUI launches.
 - `go.mod`/`go.sum` added to `planned_files` (Coach Pin 1) — not in original spec's planned touchpoints
 - ADR-0004 created for dep policy compliance (Coach Pin 2)
 - `sworn top` error message changed from `"sworn top: release name is required"` with exit 64 to launching the TUI when no release arg given
+## First-pass script output
+
+```
+release-verify.sh S04a-tui-foundation 2026-06-19-safe-parallelism
+FIRST-PASS PASS — 23 checks passed, 0 failed
+State: implemented (eligible for verifier review)
+Diff base: start_commit 04e4c90, 14 files changed
+All proof bundle structural checks: PASS
+All dark-code marker checks: PASS
+All frontmatter YAML checks: PASS
+```
+
+**Verdict**: Ready for adversarial verification in a fresh context session.

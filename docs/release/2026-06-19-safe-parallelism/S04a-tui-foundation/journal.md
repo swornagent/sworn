@@ -30,8 +30,11 @@
 ### Skeptic panel
 - Runtime does not support parallel subagent dispatch — panel skipped. Noted `skeptic_panel: skipped — runtime does not support subagent dispatch`.
 
-### Open items
-- None — slice implementation complete
+### First-pass verification script
+- `release-verify.sh S04a-tui-foundation 2026-06-19-safe-parallelism` → **PASS** (23/23 checks)
+- Result captured in proof.md "First-pass script output" section
+
+### Open items- None — slice implementation complete
 
 ### Deferrals
 - Live concurrent status from SQLite DB — deferred to S04b (spec §Out of scope)
