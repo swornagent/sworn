@@ -3,11 +3,12 @@
   "slice_id": "S02a-run-refactor",
   "release": "2026-06-19-safe-parallelism",
   "track": "T1-concurrency-core",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "implementer",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-20T11:00:00Z",
-  "start_commit": "0aaa4b1",  "spec_path": "docs/release/2026-06-19-safe-parallelism/S02a-run-refactor/spec.md",
+  "start_commit": "0aaa4b1",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S02a-run-refactor/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S02a-run-refactor/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S02a-run-refactor/journal.md",
   "planned_files": [
@@ -33,4 +34,5 @@
     "verifier_verdict_at": "",
     "verifier_was_fresh_context": true,
     "violations": []
-  }}
+  }
+}

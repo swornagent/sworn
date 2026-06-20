@@ -43,3 +43,18 @@
 - **Touchpoints clean**: Only `internal/run/run.go` (refactor),
   `internal/run/slice.go` (new), `internal/run/run_test.go` (add tests) —
   no cross-track touchpoint collisions.
+---
+
+## 2026-06-20 — fix pass (address verifier FAIL)
+
+- **Actor**: implementer (second session)
+- **Note**: Re-entered after verifier FAIL verdict. Addressed both violations:
+  1. Set `start_commit` to `0aaa4b1` in status.json (the design TL;DR commit,
+     immediately before the feat commit `3cefd09`).
+  2. Renamed `TestRunSlice_Pass` -> `TestRunSlice` and
+     `TestRunSlice_Fail` -> `TestRunSliceFail` to match spec AC-3 and AC-4 names.
+  3. Cleared stale `verification.result` from status.json.
+  4. Updated proof.md "Divergence from plan" to document both divergences.
+
+- **Test results**: 11/11 pass; `go vet` clean; `go test -race ./internal/run/...` clean.
+- **Skeptic panel**: skipped — runtime does not support subagent dispatch.
