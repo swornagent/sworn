@@ -68,7 +68,6 @@ See `status.json.design_decisions`.
 - Adversarial verification (Rule 7) via `/verify-slice S23-memory-config 2026-06-19-safe-parallelism`
 
 ## 2026-06-21 — Verifier verdicts received
-
 ### Verifier verdict — FAIL
 
 **Gates checked (priority order):**
@@ -94,3 +93,33 @@ Required to address:
 2. Rewrite `TestAPIKeyEnvNotLeaked` to call `cmdMemoryStatus([]string{})` with stdout redirected to a captured buffer (e.g. `os.Pipe()` applied to `os.Stdout`), then assert: (a) captured output contains `TEST_MEMORY_API_KEY`, and (b) captured output does NOT contain `sk-secret-value-12345`. Run with `-race`.
 
 Next step: `/implement-slice S23-memory-config 2026-06-19-safe-parallelism` in a fresh session to address the numbered violations.
+
+## 2026-06-27 — Re-entry: address verifier violations (failed_verification → implemented)
+**State transition:** `failed_verification` → `in_progress` → `implemented`
+
+### Violation 1: proof.md "Divergence from plan: None" incorrect
+
+**Fix:** Updated `proof.md#divergence-from-plan` to acknowledge `cmd/sworn/memory_test.go` was added per Coach pin in design review (acknowledged in journal.md 2026-06-27). The file is implied by the Required tests section but was missing from spec.md Planned touchpoints.
+
+### Violation 2: TestAPIKeyEnvNotLeaked is a stub
+
+**Fix (config_test.go):** Rewrote `TestAPIKeyEnvNotLeaked` (line 175+) to:
+- Assert that `cfg.Embedding.APIKeyEnv` stores the env var name, not the value
+- Marshal config to JSON and assert: env var name present, raw key value absent
+- Reference the CLI-layer test in `memory_test.go` as the stdout-level coverage
+
+**Fix (memory_test.go):** Rewrote `TestCmdMemory_Status_SetAPIKey` to:
+- Capture stdout via `os.Pipe()`
+- Assert output contains the env var name `TEST_SWORN_MEMORY_KEY`
+- Assert output does NOT contain the raw key value `sk-super-secret-value`
+
+### Verification
+- `go test -race ./internal/memory/...` — PASS (8/8)
+- `go test -race ./cmd/sworn/...` — PASS (4/4)
+- `go build ./...` — PASS
+- `release-verify.sh S23-memory-config 2026-06-19-safe-parallelism` — PASS (23/23)
+- Skeptic panel: skipped — runtime does not support subagent dispatch
+
+### Pending
+- Adversarial verification (Rule 7) via `/verify-slice S23-memory-config 2026-06-19-safe-parallelism`
+

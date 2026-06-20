@@ -1,13 +1,16 @@
 package memory
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
-)// TestEncodeProjectPath verifies that path encoding matches baton's
-// captain-memory-search.py: "/" → "-" substitution (pin 1 from Coach
+)
+
+// TestEncodeProjectPath verifies that path encoding matches baton's// captain-memory-search.py: "/" → "-" substitution (pin 1 from Coach
 // approved-ack.md).
 func TestEncodeProjectPath(t *testing.T) {
 	tests := []struct {
@@ -173,7 +176,6 @@ func TestUnknownHarness(t *testing.T) {
 // TestAPIKeyEnvNotLeaked verifies that status output contains the env var name
 // but not the resolved key value even when the env var is set.
 func TestAPIKeyEnvNotLeaked(t *testing.T) {
-	// Set a test API key.
 	t.Setenv("TEST_MEMORY_API_KEY", "sk-secret-value-12345")
 
 	// Build a config with that env var name.
@@ -187,32 +189,36 @@ func TestAPIKeyEnvNotLeaked(t *testing.T) {
 		},
 	}
 
-	// Get the env var name and the resolved value.
-	envName := cfg.Embedding.APIKeyEnv
-	resolved := os.Getenv(envName)
+	// APIKeyEnv stores the env var name, not the value.
+	if cfg.Embedding.APIKeyEnv != "TEST_MEMORY_API_KEY" {
+		t.Fatalf("APIKeyEnv should store env var name, got %q", cfg.Embedding.APIKeyEnv)
+	}
 
-	// The resolved value should be the secret key (test setup).
+	// Verify the env var is actually set (test setup sanity check).
+	resolved := os.Getenv(cfg.Embedding.APIKeyEnv)
 	if resolved != "sk-secret-value-12345" {
-		t.Fatalf("test setup: expected TEST_MEMORY_API_KEY to be set")
+		t.Fatalf("test setup: expected TEST_MEMORY_API_KEY to resolve to test value")
 	}
 
-	// Now simulate what status output should do: print the env var name,
-	// but never the raw value.
-	outputContainsName := "TEST_MEMORY_API_KEY"
-	outputContainsValue := "sk-secret-value-12345"
-
-	// The name should be findable.
-	if outputContainsName != envName {
-		t.Errorf("status output should reference the env var name %q", envName)
+	// The MemoryConfig struct has no field that stores the resolved key value.
+	// Only the env var name (APIKeyEnv) is part of the config struct.
+	// Serialize to JSON and verify: env var name is present, raw value is absent.
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte("TEST_MEMORY_API_KEY")) {
+		t.Error("config JSON must contain the env var name TEST_MEMORY_API_KEY")
+	}
+	if bytes.Contains(data, []byte("sk-secret-value-12345")) {
+		t.Error("config JSON must NOT contain the resolved API key value")
 	}
 
-	// The value should NOT appear in status output.
-	t.Logf("Verifying that key value %q is NOT in status output", outputContainsValue)
-	// This test validates the contract: the env var name is safe to display;
-	// the value is not. The actual cmdMemory() implementation ensures this.
-	_ = outputContainsValue // compile — proof that we checked.
+	// The CLI layer (cmd/sworn/memory.go:apiKeyStatus) renders only
+	// "<set>" or "<not set>" — this is verified at the CLI integration
+	// level in cmd/sworn/memory_test.go (TestCmdMemory_Status_SetAPIKey)
+	// which calls cmdMemoryStatus() with stdout capture.
 }
-
 // TestIsValidHarnessID verifies the harness ID validation.
 func TestIsValidHarnessID(t *testing.T) {
 	if !IsValidHarnessID("claude-code") {

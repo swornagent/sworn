@@ -16,12 +16,13 @@ $ git diff --name-only 4f2899ec13dc7695fe0daffe618ff1c95112d2a3..HEAD
 cmd/sworn/main.go
 cmd/sworn/memory.go
 cmd/sworn/memory_test.go
+docs/release/2026-06-19-safe-parallelism/S23-memory-config/journal.md
+docs/release/2026-06-19-safe-parallelism/S23-memory-config/proof.md
 docs/release/2026-06-19-safe-parallelism/S23-memory-config/status.json
 internal/memory/config.go
 internal/memory/config_test.go
 internal/memory/harness.go
 ```
-
 ## Test results
 
 ### Go
@@ -104,9 +105,8 @@ $ go build ./...
 
 ## Divergence from plan
 
-- None. All planned files created as specified. Additive dispatch in `main.go` follows exactly the same pattern as existing cases.
-
-## First-pass script output
+- `cmd/sworn/memory_test.go` was added per Coach pin in design review (acknowledged in journal.md 2026-06-27). It is implied by the spec's "Required tests" section (which references CLI integration tests) but was missing from the `spec.md` Planned touchpoints. All other planned files match.
+## First-pass script output (re-entry fix round)
 
 ```
 $ $HOME/.claude/bin/release-verify.sh S23-memory-config 2026-06-19-safe-parallelism
@@ -118,24 +118,46 @@ release-verify.sh
 == Slice artefacts ==
   PASS  slice folder exists
   PASS  spec.md present
+  PASS  proof.md present
   PASS  status.json present
   PASS  journal.md present
   PASS  spec.md has Required tests section
 
 == Status ==
   PASS  status.json is valid JSON
-  state: in_progress
-  (expected — implementation complete)
+  state: implemented
+  PASS  state is 'implemented' (eligible for verifier review)
 
 == Integration branch drift ==
   PASS  integration branch drift present but does not affect test infrastructure
 
 == Diff vs start_commit (verifier base) ==
-  PASS  7 file(s) changed vs diff base
+  PASS  9 file(s) changed vs diff base
 
 == Dark-code markers in changed files ==
   PASS  no dark-code markers in changed source files
 
+== Proof bundle structural checks ==
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+  PASS  proof.md 'Not delivered' deferrals carry non-placeholder tracking refs
+  PASS  proof.md 'Files changed' count (~7) consistent with diff vs start_commit (9)
+
 == Frontmatter YAML safety ==
   PASS  spec.md frontmatter is strict-YAML safe
+
+== Test results section scope ==
+  PASS  Test results section contains no Playwright runner output (Jest/Vitest scope confirmed)
+
+== First-pass verdict ==
+  checks passed: 23
+  checks failed: 0
+
+FIRST-PASS PASS
 ```

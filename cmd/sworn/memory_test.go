@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
-
 // TestCmdMemory_Status_NoConfig verifies that sworn memory status exits 0
 // with no config file and shows "using defaults".
 func TestCmdMemory_Status_NoConfig(t *testing.T) {
@@ -108,12 +110,40 @@ func TestCmdMemory_Status_SetAPIKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Capture stdout.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origStdout := os.Stdout
+	os.Stdout = w
+
 	code := cmdMemoryStatus([]string{})
+
+	// Restore stdout and read captured output.
+	w.Close()
+	os.Stdout = origStdout
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatal(err)
+	}
+	r.Close()
+	output := buf.String()
+
 	if code != 0 {
 		t.Errorf("expected exit code 0, got %d", code)
 	}
-}
 
+	// Output must contain the env var name.
+	if !strings.Contains(output, "TEST_SWORN_MEMORY_KEY") {
+		t.Errorf("output should contain env var name TEST_SWORN_MEMORY_KEY, got:\n%s", output)
+	}
+
+	// Output must NOT contain the raw key value.
+	if strings.Contains(output, "sk-super-secret-value") {
+		t.Errorf("output must not contain the raw API key value, got:\n%s", output)
+	}
+}
 // TestCmdMemory_Status_UnknownHarness verifies that an unknown harness ID
 // triggers an error exit.
 func TestCmdMemory_Status_UnknownHarness(t *testing.T) {
