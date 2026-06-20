@@ -233,7 +233,7 @@ Phase 4:  T6 (after T2 + T5)
 |---|---|---|---|---|
 | `S01-process-ownership` | T1 | SQLite registry + reap-on-restart; single-owner identity | verified | [spec](./S01-process-ownership/spec.md) |
 | `S02a-run-refactor` | T1 | `run.RunSlice()` exported; callable from goroutine; no regression | verified | [spec](./S02a-run-refactor/spec.md) |
-| `S02b-concurrent-scheduler` | T1 | `sworn run --parallel` launches all independent tracks concurrently | failed_verification | [spec](./S02b-concurrent-scheduler/spec.md) |
+| `S02b-concurrent-scheduler` | T1 | `sworn run --parallel` launches all independent tracks concurrently | verified | [spec](./S02b-concurrent-scheduler/spec.md) |
 | `S03-verify-under-concurrency` | T1 | Verify gate goroutine-safe and fail-closed at N>1 | planned | [spec](./S03-verify-under-concurrency/spec.md) |
 | `S04a-tui-foundation` | T2 | `sworn` (no args) shows releases list + board view with navigation | planned | [spec](./S04a-tui-foundation/spec.md) |
 | `S04b-tui-live` | T2 | Live concurrent track status from DB (1s poll) + credit balance in header | planned | [spec](./S04b-tui-live/spec.md) |
@@ -270,8 +270,8 @@ Phase 4:  T6 (after T2 + T5)
 - In progress: 0
 - Design review: 0
 - Implemented: 0
-- Verified: 2
-- Failed verification: 1
+- Verified: 3
+- Failed verification: 0
 - Deferred: 0
 
 **Tracks:** Planned: 8 / In progress: 1 / Merged: 0
@@ -279,6 +279,13 @@ Phase 4:  T6 (after T2 + T5)
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice).
 
 ## Recent activity
+
+### 2026-06-21 — S02b verifier verdict: PASS (round 5)
+
+- **Verifier**: fresh-context session, artefact-only inputs
+- **Slice**: S02b-concurrent-scheduler → state: **verified** (SHA ac62587)
+- **All six gates passed.** `sworn run --parallel` wired end-to-end; `TestCmdRun_Parallel` proves full CLI path; concurrency/failure-cascade/dependency-ordering proven by test suite; no silent deferrals; all delivered items verified.
+- **Next**: `/implement-slice S03-verify-under-concurrency 2026-06-19-safe-parallelism` in a fresh session.
 
 ### 2026-06-21 — S02b verifier verdict: FAIL (round 4, 2 violations)
 

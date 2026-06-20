@@ -213,3 +213,28 @@ Two verifier violations addressed:
 - Skeptic panel: skipped — runtime does not support subagent dispatch
 - Proof.md updated with round 5 fix details (divergence §8, delivered §, reachability artefact)
 - Next: `/verify-slice S02b-concurrent-scheduler 2026-06-19-safe-parallelism` in a fresh terminal
+- Next: `/verify-slice S02b-concurrent-scheduler 2026-06-19-safe-parallelism` in a fresh terminal
+
+## 2026-06-21 — Verifier verdicts received
+
+### Verifier verdict: PASS (round 5)
+
+PASS
+
+Slice: `S02b-concurrent-scheduler`
+Verified against: `ac62587`
+Verifier session: `fresh, artefact-only`
+
+**Gate results:**
+1. **Gate 1 — User-reachable outcome** ✓ `sworn run --parallel --release <name>` wired in `cmd/sworn/run.go` lines 63–90; dispatches to `RunParallel()` with DB handle, `RunSliceFn` closure, and release name.
+2. **Gate 2 — Planned touchpoints** ✓ All spec touchpoints present; extra files (`track.go`, `run_test.go`, `parallel_test.go`) documented in proof.md Divergence.
+3. **Gate 3 — Required tests** ✓ All required test functionality present (scheduler: `TestBuildPlan_DependencyOrdering`, `TestBuildPlan_FailurePropagation`, `TestBuildPlan_AllSucceed`; worker: `TestRunTrack_MaterialisesWorktree`, `TestRunTrack_MultiSliceOrdering`); idiomatic Go naming documented in Divergence §5; all tests pass with `-race`.
+4. **Gate 4 — Reachability artefact** ✓ `TestCmdRun_Parallel` exercises full `cmdRun()` path; both `[T1] starting` and `[T2] starting` before either `done`; exit 0.
+5. **Gate 5 — No silent deferrals** ✓ Zero TODO/FIXME/deferred/placeholder/XXX/HACK in production files.
+6. **Gate 6 — Claimed scope matches implemented scope** ✓ All delivered items verified against live repo state.
+
+**Note:** Worktree at record path was found checked out to `main` instead of the track branch. Verifier switched it to `track/2026-06-19-safe-parallelism/T1-concurrency-core` (SHA `ac62587`) — the branch exists locally and remotely. An external process appears to periodically reset the worktree to `main`; this is an environmental issue, not a slice defect. All slice-specific packages tested atomically on the track branch; all pass.
+
+**State transition:** `implemented` → `verified`
+
+**Next:** `/implement-slice S03-verify-under-concurrency 2026-06-19-safe-parallelism` in a fresh session.
