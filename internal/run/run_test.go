@@ -566,8 +566,7 @@ func setupFixtureSlice(t *testing.T) (worktreeRoot, specPath, statusPath string,
 	return dir, specPath, statusPath, func() {}
 }
 
-func TestRunSlice_Pass(t *testing.T) {
-	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
+func TestRunSlice(t *testing.T) {	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
 
 	impl := stdoutAgent("hello from RunSlice")
 
@@ -607,8 +606,7 @@ func TestRunSlice_Pass(t *testing.T) {
 	}
 }
 
-func TestRunSlice_Fail(t *testing.T) {
-	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
+func TestRunSliceFail(t *testing.T) {	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
 
 	impl := stdoutAgent("should not pass")
 
