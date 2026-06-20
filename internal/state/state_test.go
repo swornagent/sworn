@@ -2,11 +2,12 @@ package state
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
-
 func TestTransition_LegalMoves(t *testing.T) {
 	tests := []struct {
 		from, to State
@@ -30,13 +31,13 @@ func TestTransition_IllegalMoves(t *testing.T) {
 	tests := []struct {
 		from, to State
 	}{
-		{Planned, Verified},           // skip every gate
-		{Planned, Implemented},        // skip in_progress
-		{InProgress, Verified},        // skip implemented
-		{Verified, InProgress},        // terminal → non-terminal
+		{Planned, Verified},            // skip every gate
+		{Planned, Implemented},         // skip in_progress
+		{InProgress, Verified},         // skip implemented
+		{Verified, InProgress},         // terminal → non-terminal
 		{Verified, FailedVerification}, // terminal
-		{DesignReview, Verified},      // skip everything
-		{Implemented, Planned},        // backward
+		{DesignReview, Verified},       // skip everything
+		{Implemented, Planned},         // backward
 		{FailedVerification, Verified}, // skip implemented
 	}
 	for _, tt := range tests {
@@ -57,21 +58,21 @@ func TestReadWrite_RoundTrip(t *testing.T) {
 	path := filepath.Join(dir, "status.json")
 
 	orig := Status{
-		Schema:          "https://example.com/schemas/baton/slice-status-v1.json",
-		SliceID:         "S05-state-and-git",
-		Release:         "2026-06-15-e2e-turnkey-loop",
-		Track:           "T2-orchestration",
-		State:           InProgress,
-		Owner:           "human",
-		LastUpdatedBy:   "implementer",
-		LastUpdatedAt:   "2026-06-16T00:00:00Z",
-		StartCommit:     "abc123",
-		SpecPath:        "docs/release/x/S05/spec.md",
-		ProofPath:       "docs/release/x/S05/proof.md",
-		JournalPath:     "docs/release/x/S05/journal.md",
-		PlannedFiles:    []string{"internal/state/", "internal/git/"},
-		ActualFiles:     []string{"internal/state/state.go"},
-		TestCommands:    []string{"go test ./..."},
+		Schema:                "https://example.com/schemas/baton/slice-status-v1.json",
+		SliceID:               "S05-state-and-git",
+		Release:               "2026-06-15-e2e-turnkey-loop",
+		Track:                 "T2-orchestration",
+		State:                 InProgress,
+		Owner:                 "human",
+		LastUpdatedBy:         "implementer",
+		LastUpdatedAt:         "2026-06-16T00:00:00Z",
+		StartCommit:           "abc123",
+		SpecPath:              "docs/release/x/S05/spec.md",
+		ProofPath:             "docs/release/x/S05/proof.md",
+		JournalPath:           "docs/release/x/S05/journal.md",
+		PlannedFiles:          []string{"internal/state/", "internal/git/"},
+		ActualFiles:           []string{"internal/state/state.go"},
+		TestCommands:          []string{"go test ./..."},
 		ReachabilityArtifacts: []string{"proof.md"},
 		Verification: Verification{
 			Result: "pending",
@@ -156,13 +157,88 @@ func TestWrite_RoundTripPreservesJSONShape(t *testing.T) {
 	}
 }
 
-// TestTransitionFromLiveStatus ensures the state machine accepts every state
-// that appears in a real status.json written by other tools.
+func TestTransitionGate_PassesThroughGate(t *testing.T) {
+	// Gate returns nil — transition should succeed.
+	if err := Planned.TransitionGate(InProgress, func() error {
+		return nil
+	}); err != nil {
+		t.Errorf("Planned → InProgress with passing gate: want nil, got %v", err)
+	}
+}
+
+func TestTransitionGate_GateBlocksTransition(t *testing.T) {
+	err := Planned.TransitionGate(InProgress, func() error {
+		return fmt.Errorf("definition of ready failed: trace incomplete")
+	})
+	if err == nil {
+		t.Fatal("Planned → InProgress with failing gate: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "definition of ready") {
+		t.Errorf("want error mentioning 'definition of ready', got: %v", err)
+	}
+}
+
+func TestTransitionGate_IllegalTransitionBeforeGate(t *testing.T) {
+	// Gate should NOT be called for illegal transitions — state machine
+	// rejects first.
+	gateCalled := false
+	err := Planned.TransitionGate(Verified, func() error {
+		gateCalled = true
+		return nil
+	})
+	if err == nil {
+		t.Fatal("Planned → Verified: want error for illegal transition, got nil")
+	}
+	if gateCalled {
+		t.Error("gate should not be called for illegal transition")
+	}
+}
+
+func TestTransitionGate_NilGateSkipped(t *testing.T) {
+	if err := Planned.TransitionGate(InProgress, nil); err != nil {
+		t.Errorf("Planned → InProgress with nil gate: want nil, got %v", err)
+	}
+}
+
+// TestTransitionFromLiveStatus ensures the state machine accepts every state// that appears in a real status.json written by other tools.
 func TestTransitionFromLiveStatus(t *testing.T) {
 	// The state machine must recognise all states used in real status.json files.
 	for _, s := range []State{Planned, DesignReview, InProgress, Implemented, Verified, FailedVerification} {
 		if _, ok := allowedTransitions[s]; !ok {
 			t.Errorf("state %q is not in allowedTransitions — a live status.json may carry it", s)
 		}
+	}
+}
+
+// TestTraceFieldsRoundTrip ensures the RTM trace fields (need_ids,
+// release_benefit, org_objective) survive a write-read cycle.
+func TestTraceFieldsRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "status.json")
+
+	orig := Status{
+		SliceID:        "S01-rtm-spine",
+		State:          Planned,
+		NeedIDs:        []string{"N-01", "N-02"},
+		ReleaseBenefit: "The release delivers value.",
+		OrgObjective:   "Become the standard.",
+	}
+	if err := Write(path, &orig); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	if len(got.NeedIDs) != 2 || got.NeedIDs[0] != "N-01" || got.NeedIDs[1] != "N-02" {
+		t.Errorf("NeedIDs: want [N-01 N-02], got %v", got.NeedIDs)
+	}
+	if got.ReleaseBenefit != "The release delivers value." {
+		t.Errorf("ReleaseBenefit: want %q, got %q", "The release delivers value.", got.ReleaseBenefit)
+	}
+	if got.OrgObjective != "Become the standard." {
+		t.Errorf("OrgObjective: want %q, got %q", "Become the standard.", got.OrgObjective)
 	}
 }

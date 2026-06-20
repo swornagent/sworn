@@ -104,6 +104,17 @@ Common memory domains to scan for:
 - Workspace self-evident state ([[feedback_workspace_self_evident]])
 - Placeholder tracking smell ([[feedback_placeholder_tracking_smell]])
 
+### Step 2b — Design-fit gate (Rule 9) check
+
+Read the slice's `status.json` `design_decisions` field. For each design decision:
+
+- **Architecturally-significant choice classified as Type-2** → pin `[mechanical]`: "Design Decision '<choice>' is architecturally-significant but classified as Type-2. Must be Type-1 per Rule 9. Fix the classification before code."
+- **Type-1 choice with no recorded human decision** → pin `[mechanical]`: "Design Decision '<choice>' is Type-1 but has no recorded human decision. The human must decide before code — the model cannot commit to a high-stakes choice on its own."
+- **Design TL;DR omits a decision the spec requires** → pin `[escalate]`: "Spec requires a decision on '<topic>' (per spec ACs / risks). Design.md does not address it. Coach, is this a deliberate deferral or an oversight?"
+- **Design TL;DR makes a Type-1-equivalent choice with no options or trade-offs** → pin `[escalate]`: "Design Decision '<choice>' is effectively Type-1 (shapes the whole / hard to reverse) but is presented as a single option. Rule 9 requires at least two options with trade-offs and prior art for Type-1 choices."
+
+Also confirm that `sworn designfit <release>` would pass on this slice’s current `status.json`. If `design_decisions` are incomplete, flag it here and in the suggested ack reply.
+
 ### Step 3 — Inference detection in §1–5
 
 Surface claims dressed as facts:

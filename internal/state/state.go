@@ -21,11 +21,11 @@ import (
 type State string
 
 const (
-	Planned           State = "planned"
-	DesignReview      State = "design_review"
-	InProgress        State = "in_progress"
-	Implemented       State = "implemented"
-	Verified          State = "verified"
+	Planned            State = "planned"
+	DesignReview       State = "design_review"
+	InProgress         State = "in_progress"
+	Implemented        State = "implemented"
+	Verified           State = "verified"
 	FailedVerification State = "failed_verification"
 )
 
@@ -55,41 +55,91 @@ func (s State) Transition(next State) error {
 	return fmt.Errorf("state: illegal transition %s → %s", s, next)
 }
 
+// ValidationRecord holds the human-ratified requirements validation for one
+// slice: scenarios (positive AND negative) and the benefit/alignment hypothesis.
+// Populated by the planner during /plan-release or /replan-release. The
+// human_ratified flag is mandatory — model-only validation is not a pass.
+// See docs/baton/rules/08-requirements-fidelity.md "Validated".
+type ValidationRecord struct {
+	HumanRatified      bool     `json:"human_ratified"`
+	RatifiedBy         string   `json:"ratified_by,omitempty"`
+	RatifiedAt         string   `json:"ratified_at,omitempty"`
+	PositiveScenarios  []string `json:"positive_scenarios,omitempty"`
+	NegativeScenarios  []string `json:"negative_scenarios,omitempty"`
+	BenefitHypothesis  string   `json:"benefit_hypothesis,omitempty"`
+	ReleaseBenefitLink string   `json:"release_benefit_link,omitempty"`
+}
+
 // Verification holds the per-slice verification record (verdict, session
 // metadata, violations). It mirrors the nested "verification" object in
 // status.json.
-type Verification struct {
-	Result              string   `json:"result,omitempty"`
-	VerifierSessionID   *string  `json:"verifier_session_id,omitempty"`
-	VerifierVerdictAt   *string  `json:"verifier_verdict_at,omitempty"`
-	VerifierWasFreshContext *bool `json:"verifier_was_fresh_context,omitempty"`
-	Violations          []string `json:"violations,omitempty"`
+type Verification struct {	Result                  string   `json:"result,omitempty"`
+	VerifierSessionID       *string  `json:"verifier_session_id,omitempty"`
+	VerifierVerdictAt       *string  `json:"verifier_verdict_at,omitempty"`
+	VerifierWasFreshContext *bool    `json:"verifier_was_fresh_context,omitempty"`
+	Violations              []string `json:"violations,omitempty"`
+}
+
+// StakeClass classifies a design decision by its stakes = reversibility x blast-radius.
+// Type-1 (high stakes / hard-to-reverse) requires a recorded human decision.
+// Type-2 (low stakes / reversible) may proceed with a noted default.
+// See docs/baton/rules/09-design-fidelity.md.
+type StakeClass string
+
+const (
+	Type1 StakeClass = "Type-1"
+	Type2 StakeClass = "Type-2"
+)
+
+// DesignDecision records one design choice for a slice. Populated by the
+// planner during design and consumed by `sworn designfit <release>` for
+// fail-closed enforcement (Rule 9).
+//
+// A Type-1 choice with no HumanDecision is a violation — the model cannot
+// commit to an architecturally-significant choice on its own.
+type DesignDecision struct {
+	Choice                    string     `json:"choice"`
+	StakeClass                StakeClass `json:"stake_class"`
+	Options                   []string   `json:"options,omitempty"`
+	HumanDecision             string     `json:"human_decision,omitempty"`
+	Rationale                 string     `json:"rationale,omitempty"`
+	ArchitecturallySignificant bool       `json:"architecturally_significant,omitempty"`
 }
 
 // Status is the full status.json payload for a slice.
-type Status struct {
-	Schema              string       `json:"$schema"`
-	SliceID             string       `json:"slice_id"`
-	Release             string       `json:"release"`
-	Track               string       `json:"track"`
-	State               State        `json:"state"`
-	Owner               string       `json:"owner,omitempty"`
-	LastUpdatedBy       string       `json:"last_updated_by,omitempty"`
-	LastUpdatedAt       string       `json:"last_updated_at,omitempty"`
-	StartCommit         string       `json:"start_commit,omitempty"`
-	SpecPath            string       `json:"spec_path,omitempty"`
-	ProofPath           string       `json:"proof_path,omitempty"`
-	JournalPath         string       `json:"journal_path,omitempty"`
-	PlannedFiles        []string     `json:"planned_files,omitempty"`
-	ActualFiles         []string     `json:"actual_files,omitempty"`
-	TestCommands        []string     `json:"test_commands,omitempty"`
-	ReachabilityArtifacts []string   `json:"reachability_artifacts,omitempty"`
-	OpenDeferrals       []string     `json:"open_deferrals,omitempty"`
-	Verification        Verification `json:"verification"`
-	ReleaseBase         string       `json:"release_base,omitempty"`
-}
-
-// Read parses a status.json file at path and returns the Status. It returns
+type Status struct {	Schema                string       `json:"$schema"`
+	SliceID               string       `json:"slice_id"`
+	Release               string       `json:"release"`
+	Track                 string       `json:"track"`
+	State                 State        `json:"state"`
+	Owner                 string       `json:"owner,omitempty"`
+	LastUpdatedBy         string       `json:"last_updated_by,omitempty"`
+	LastUpdatedAt         string       `json:"last_updated_at,omitempty"`
+	StartCommit           string       `json:"start_commit,omitempty"`
+	SpecPath              string       `json:"spec_path,omitempty"`
+	ProofPath             string       `json:"proof_path,omitempty"`
+	JournalPath           string       `json:"journal_path,omitempty"`
+	PlannedFiles          []string     `json:"planned_files,omitempty"`
+	ActualFiles           []string     `json:"actual_files,omitempty"`
+	TestCommands          []string     `json:"test_commands,omitempty"`
+	ReachabilityArtifacts []string     `json:"reachability_artifacts,omitempty"`
+	OpenDeferrals         []string     `json:"open_deferrals,omitempty"`
+	Verification          Verification `json:"verification"`
+	ReleaseBase           string       `json:"release_base,omitempty"`
+	// Horizontal trace: need ids this slice's acceptance checks satisfy.
+	// Populated by the planner during spec authoring; consumed by the RTM
+	// (internal/rtm) to build the need -> AC link.
+	NeedIDs []string `json:"need_ids,omitempty"`
+	// Vertical trace (golden thread): the release benefit this slice
+	// contributes to, and the optional org objective. The release goal
+	// (from intake.md) is the lightweight floor — when present, every slice
+	// satisfies the vertical trace via slice -> release goal without an
+	// explicit release_benefit. Org objective is opt-in for enterprise depth.
+	ReleaseBenefit string          `json:"release_benefit,omitempty"`
+	OrgObjective   string          `json:"org_objective,omitempty"`
+	Validation      ValidationRecord `json:"validation,omitempty"`
+	DesignDecisions []DesignDecision  `json:"design_decisions,omitempty"`
+}// Read parses a status.json file at path and returns the Status. It returns
 // an error if the file cannot be read or is not valid JSON.
 func Read(path string) (*Status, error) {
 	data, err := os.ReadFile(path)
@@ -111,6 +161,25 @@ func Write(path string, s *Status) error {
 	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("state: write %s: %w", path, err)
+	}
+	return nil
+}
+
+// TransitionGate checks a state transition through a gate callback.
+// It first validates that the transition from s to next is legal
+// (via s.Transition(next)), then invokes gate. The gate function should
+// return nil when the gate passes, or an error describing the failure.
+// Pass nil to skip the gate.
+//
+// Used by the Definition of Ready (S06) to gate planned→in_progress
+// on RTM + reqverify + reqvalidate passing without creating a dependency
+// from this package to the gate packages.
+func (s State) TransitionGate(next State, gate func() error) error {
+	if err := s.Transition(next); err != nil {
+		return err
+	}
+	if gate != nil {
+		return gate()
 	}
 	return nil
 }

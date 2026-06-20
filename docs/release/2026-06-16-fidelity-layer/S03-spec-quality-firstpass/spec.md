@@ -77,7 +77,7 @@ i.e. its acceptance examples would not catch a wrong output. Computed pre-code, 
 - **Reachability artefact**: smoke step — "run `sworn specquality <fixture>` on a slice whose
   examples miss a mutation; observe the low-completeness failure; tighten the examples; observe
   pass."
-- **E2E gate type**: `local`.
+- **Reachability gate type**: `local` (manual-smoke-step; smoke step described above).
 
 ## Risks
 

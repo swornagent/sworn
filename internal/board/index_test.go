@@ -123,3 +123,69 @@ func TestLiveReleaseBoardsAreValid(t *testing.T) {
 		}
 	}
 }
+
+func TestParseVerticalTrace(t *testing.T) {
+	tests := []struct {
+		name   string
+		text   string
+		wantBF string
+		wantOB string
+	}{
+		{
+			name: "both fields present",
+			text: `---
+title: Board
+release_benefit: The release delivers value.
+org_objective: Become the standard.
+tracks:
+  - id: T1
+    slices: []
+    worktree_branch: b
+---
+
+body`,
+			wantBF: "The release delivers value.",
+			wantOB: "Become the standard.",
+		},
+		{
+			name: "only release_benefit",
+			text: `---
+title: Board
+release_benefit: Value only.
+tracks:
+  - id: T1
+    slices: []
+    worktree_branch: b
+---
+
+body`,
+			wantBF: "Value only.",
+			wantOB: "",
+		},
+		{
+			name: "neither field (solo floor)",
+			text: `---
+title: Board
+tracks:
+  - id: T1
+    slices: []
+    worktree_branch: b
+---
+
+body`,
+			wantBF: "",
+			wantOB: "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			vt := ParseVerticalTrace(tc.text)
+			if vt.ReleaseBenefit != tc.wantBF {
+				t.Errorf("ReleaseBenefit: want %q, got %q", tc.wantBF, vt.ReleaseBenefit)
+			}
+			if vt.OrgObjective != tc.wantOB {
+				t.Errorf("OrgObjective: want %q, got %q", tc.wantOB, vt.OrgObjective)
+			}
+		})
+	}
+}

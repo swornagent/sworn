@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -163,6 +164,158 @@ func TestScaffoldWithForce(t *testing.T) {
 	}
 	if cfg.Verifier.Model != "openai/gpt-4.1" {
 		t.Errorf("after force overwrite: model = %q, want openai/gpt-4.1", cfg.Verifier.Model)
+	}
+}
+
+// --- S08 design system tests ---
+
+func TestValidate_uiBearingWithoutDesignSystem(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     Config
+		wantErr bool
+	}{
+		{
+			name:    "ui_bearing true without design_system fails closed",
+			cfg:     Config{Version: 1, UIBearing: true, DesignSystem: nil},
+			wantErr: true,
+		},
+		{
+			name: "ui_bearing true with design_system succeeds",
+			cfg: Config{
+				Version:    1,
+				UIBearing:  true,
+				DesignSystem: &DesignSystem{
+					TokenSource:      "tokens.json",
+					ComponentLibrary: "packages/ui",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name:    "ui_bearing false without design_system succeeds (exempt)",
+			cfg:     Config{Version: 1, UIBearing: false, DesignSystem: nil},
+			wantErr: false,
+		},
+		{
+			name:    "default config (not ui-bearing) succeeds",
+			cfg:     DefaultConfig(),
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr = %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidate_uiBearingErrorText(t *testing.T) {
+	// AC1: UI-bearing without design system fails closed with a clear message.
+	err := Config{Version: 1, UIBearing: true}.Validate()
+	if err == nil {
+		t.Fatal("expected error for ui_bearing without design_system")
+	}
+	msg := err.Error()
+	if !contains(msg, "ui_bearing") || !contains(msg, "design_system") {
+		t.Errorf("error should mention ui_bearing and design_system, got: %s", msg)
+	}
+}
+
+func TestDesignSystem_DistinguishesThreeConcepts(t *testing.T) {
+	// AC4: schema distinguishes design system (umbrella), token source (atoms),
+	// component library (reusables).
+	ds := &DesignSystem{
+		TokenSource:      "src/design/tokens.json",
+		ComponentLibrary: "packages/ui",
+	}
+
+	// The DesignSystem struct itself IS the umbrella.
+	// TokenSource and ComponentLibrary are its fields.
+	if ds.TokenSource != "src/design/tokens.json" {
+		t.Errorf("TokenSource = %q, want src/design/tokens.json", ds.TokenSource)
+	}
+	if ds.ComponentLibrary != "packages/ui" {
+		t.Errorf("ComponentLibrary = %q, want packages/ui", ds.ComponentLibrary)
+	}
+
+	// Validate through Config as well.
+	cfg := Config{
+		Version:      1,
+		UIBearing:    true,
+		DesignSystem: ds,
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("valid config should validate: %v", err)
+	}
+}
+
+func TestDesignSystem_JSONRoundTrip(t *testing.T) {
+	// AC3: valid design_system parses and exposes token source + component library.
+	src := `{"version":1,"ui_bearing":true,"design_system":{"token_source":"tokens/dtcg.json","component_library":"packages/react-ui"}}`
+	var cfg Config
+	if err := json.Unmarshal([]byte(src), &cfg); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if !cfg.UIBearing {
+		t.Error("UIBearing should be true")
+	}
+	if cfg.DesignSystem == nil {
+		t.Fatal("DesignSystem should not be nil")
+	}
+	if cfg.DesignSystem.TokenSource != "tokens/dtcg.json" {
+		t.Errorf("TokenSource = %q, want tokens/dtcg.json", cfg.DesignSystem.TokenSource)
+	}
+	if cfg.DesignSystem.ComponentLibrary != "packages/react-ui" {
+		t.Errorf("ComponentLibrary = %q, want packages/react-ui", cfg.DesignSystem.ComponentLibrary)
+	}
+
+	// Round-trip: marshal and unmarshal again.
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var cfg2 Config
+	if err := json.Unmarshal(data, &cfg2); err != nil {
+		t.Fatalf("Round-trip Unmarshal: %v", err)
+	}
+	if !cfg2.UIBearing {
+		t.Error("Round-trip: UIBearing lost")
+	}
+	if cfg2.DesignSystem == nil || cfg2.DesignSystem.TokenSource != "tokens/dtcg.json" {
+		t.Error("Round-trip: DesignSystem lost")
+	}
+}
+
+func TestDefaultConfig_NotUIBearing(t *testing.T) {
+	// sworn itself is a CLI tool — default should not be UI-bearing.
+	cfg := DefaultConfig()
+	if cfg.UIBearing {
+		t.Error("DefaultConfig should have UIBearing = false")
+	}
+	if cfg.DesignSystem != nil {
+		t.Error("DefaultConfig should have DesignSystem = nil")
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("DefaultConfig should validate: %v", err)
+	}
+}
+
+func TestDesignSystem_OmitEmptyOnFalse(t *testing.T) {
+	// A non-UI-bearing config should not emit ui_bearing or design_system in JSON.
+	cfg := DefaultConfig()
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if contains(string(data), "ui_bearing") {
+		t.Errorf("non-UI-bearing config should not contain ui_bearing in JSON: %s", data)
+	}
+	if contains(string(data), "design_system") {
+		t.Errorf("non-UI-bearing config should not contain design_system in JSON: %s", data)
 	}
 }
 

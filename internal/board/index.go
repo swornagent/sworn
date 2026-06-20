@@ -105,6 +105,33 @@ type trackEntry struct {
 	hasBranch bool
 }
 
+// VerticalTrace holds the golden-thread fields parsed from index.md
+// frontmatter: the release benefit and the optional org objective. These
+// are the vertical trace fields the RTM (internal/rtm) consumes.
+type VerticalTrace struct {
+	ReleaseBenefit string
+	OrgObjective   string
+}
+
+// ParseVerticalTrace extracts the release_benefit and org_objective fields
+// from index.md frontmatter. Returns empty strings for absent fields (the
+// solo/small-team floor has no org objective — that is valid).
+func ParseVerticalTrace(text string) VerticalTrace {
+	vt := VerticalTrace{}
+	if m := reFrontmatterField.FindStringSubmatch(text); m != nil {
+		vt.ReleaseBenefit = strings.TrimSpace(m[1])
+	}
+	if m := reOrgObjective.FindStringSubmatch(text); m != nil {
+		vt.OrgObjective = strings.TrimSpace(m[1])
+	}
+	return vt
+}
+
+var (
+	reFrontmatterField = regexp.MustCompile(`(?m)^\s*release_benefit\s*:\s*(.+)$`)
+	reOrgObjective     = regexp.MustCompile(`(?m)^\s*org_objective\s*:\s*(.+)$`)
+)
+
 // parseTracks walks the frontmatter body and collects one entry per `- id:`
 // line, recording whether each track declares a slices list and a branch. An
 // index (not a pointer) tracks the current entry so a slice re-allocation on
