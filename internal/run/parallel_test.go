@@ -439,3 +439,84 @@ tracks:
 		t.Fatalf("RunParallel: %v", parallelErr)
 	}
 }
+
+// TestRunParallel_DependentTrackRunsAfterSuccess exercises AC-2 success path:
+// T1 (phase 0) passes → T2 (depends_on T1, phase 1) must run and pass.
+// Verifier Fix 2: prior tests only covered the failure cascade; this proves
+// the success path where a dependent track actually RUNS after its dependency.
+func TestRunParallel_DependentTrackRunsAfterSuccess(t *testing.T) {
+	tmpDir := t.TempDir()
+	releaseDir := filepath.Join(tmpDir, "docs", "release", "test-dep-success")
+	os.MkdirAll(releaseDir, 0o755)
+
+	os.MkdirAll(filepath.Join(tmpDir, "docs", "release", "test-dep-success", "S01-t1-slice"), 0o755)
+	os.WriteFile(filepath.Join(tmpDir, "docs", "release", "test-dep-success", "S01-t1-slice", "spec.md"), []byte("# t1"), 0o644)
+	os.WriteFile(filepath.Join(tmpDir, "docs", "release", "test-dep-success", "S01-t1-slice", "status.json"), []byte(`{"state":"implemented"}`), 0o644)
+	os.MkdirAll(filepath.Join(tmpDir, "docs", "release", "test-dep-success", "S02-t2-slice"), 0o755)
+	os.WriteFile(filepath.Join(tmpDir, "docs", "release", "test-dep-success", "S02-t2-slice", "spec.md"), []byte("# t2"), 0o644)
+	os.WriteFile(filepath.Join(tmpDir, "docs", "release", "test-dep-success", "S02-t2-slice", "status.json"), []byte(`{"state":"implemented"}`), 0o644)
+
+	indexContent := `---
+title: Test Dep Success
+release_worktree_path: ` + tmpDir + `
+tracks:
+  - id: T1
+    slices: [S01-t1-slice]
+    depends_on: null
+    worktree_path: ` + tmpDir + `
+    worktree_branch: track/test/T1
+    state: planned
+  - id: T2
+    slices: [S02-t2-slice]
+    depends_on: [T1]
+    worktree_path: ` + tmpDir + `
+    worktree_branch: track/test/T2
+    state: planned
+---
+
+# Test
+`
+	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0o644)
+
+	// Track which tracks had RunSliceFn called.
+	var mu sync.Mutex
+	called := make(map[string]bool)
+
+	runSliceFn := func(ctx context.Context, worktreeRoot, specPath, statusPath string) error {
+		sliceID := filepath.Base(filepath.Dir(specPath))
+		mu.Lock()
+		called[sliceID] = true
+		mu.Unlock()
+		return nil
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+
+	opts := ParallelOptions{
+		ReleaseName:   "test-dep-success",
+		WorkspaceRoot: tmpDir,
+		DB:            db,
+		RunSliceFn:    runSliceFn,
+		ProjectDir:    "sworn",
+	}
+
+	err = RunParallel(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("RunParallel: expected nil (all pass), got: %v", err)
+	}
+
+	// Assert T2's slice was actually called (not skipped).
+	if !called["S02-t2-slice"] {
+		t.Error("T2's slice (S02-t2-slice) was not called — dependent track was skipped despite T1 passing")
+	}
+	if !called["S01-t1-slice"] {
+		t.Error("T1's slice (S01-t1-slice) was not called")
+	}
+}

@@ -102,13 +102,15 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 
 	// ── Fan out per phase ───────────────────────────────────────────────
 	var outcomeMap sync.Map
-	phaseCtx := ctx
+	// failCtx propagates cancellation to subsequent phases when any track fails.
+	// Each phase derives its own phaseCtx from failCtx so dependent tracks only
+	// skip when a dependency actually failed — not when the previous phase's
+	// goroutines were cleaned up.
+	failCtx, failCancel := context.WithCancel(ctx)
+	defer failCancel()
 
 	for _, phase := range plan.Phases {
-		// Create a cancel scope for this phase's goroutines.
-		var phaseCancel context.CancelFunc
-		phaseCtx, phaseCancel = context.WithCancel(phaseCtx)
-
+		phaseCtx, phaseCancel := context.WithCancel(failCtx)
 		var wg sync.WaitGroup
 
 		for _, trackInfo := range phase.Tracks {
@@ -138,10 +140,9 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 				outcomeMap.Store(t.ID, result)
 
 				if result == scheduler.TrackFail {
-					phaseCancel()
+					failCancel()
 				}
-			}()
-		}
+			}()		}
 
 		wg.Wait()
 		phaseCancel()
