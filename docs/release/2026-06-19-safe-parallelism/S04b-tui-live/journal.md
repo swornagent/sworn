@@ -2,7 +2,8 @@
 
 ## State transitions
 
-- **2026-06-28**: `design_review → in_progress` — Coach approved design via `approved-ack.md` (6 pins, PROCEED). Captain verdict: all 6 pins mechanical; pins 5 and 6 (Q2/Q3) closed by spec. Implemented per approved-ack directives.
+- **2026-06-28**: `design_review -> in_progress` — Coach approved design via `approved-ack.md` (6 pins, PROCEED). Captain verdict: all 6 pins mechanical; pins 5 and 6 (Q2/Q3) closed by spec. Implemented per approved-ack directives.
+- **2026-06-28**: `in_progress -> implemented` — Proof bundle generated, release-verify.sh first-pass PASS (23/23). Skeptic panel skipped — runtime does not support subagent dispatch.
 
 ## Decisions
 
@@ -24,8 +25,14 @@
 
 ## Deferrals
 
-- Blocked-slice TL;DR panel — deferred to S04c (spec §Out of scope, acknowledged by Coach in design review)
-- Notification of state changes — deferred to S07 (spec §Out of scope)
-- Credits purchase flow — deferred to S06b (spec §Out of scope)
-- Web dashboard — deferred (spec §Out of scope)
+- Blocked-slice TL;DR panel — deferred to S04c (spec Out of scope, acknowledged by Coach in design review)
+- Notification of state changes — deferred to S07 (spec Out of scope)
+- Credits purchase flow — deferred to S06b (spec Out of scope)
+- Web dashboard — deferred (spec Out of scope)
 - Mouse support — deferred (same pattern as S04a)
+
+## Summary
+
+- 14 tests pass (5 existing + 9 new)
+- All 6 Coach pins addressed inline during implementation
+- First-pass verification: PASS (23/23)
