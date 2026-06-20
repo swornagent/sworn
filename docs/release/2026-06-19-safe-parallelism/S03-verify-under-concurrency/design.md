@@ -40,3 +40,19 @@ No user-visible change. Under `sworn run --parallel` with N≥2 concurrent verif
 ## §6. Open questions for the Coach
 
 None. The audit is unambiguous, the test design is straightforward, and the spec acceptance checks are complete. The only decision (which concurrency patterns to use — `sync.WaitGroup` + `sync.Mutex` for result collection) is a mechanical one well within implementer discretion.
+
+---
+
+## Design reviewer notes (from design gate)
+
+**Audit results:**
+
+| File | Goroutine-safe? | Notes |
+|---|---|---|
+| `internal/verify/verify.go` | ✅ | `systemPrompt`, `knownBoundaryPatterns`, `mockMarkerPatterns` all init-once, read-only. |
+| `internal/verdict/verdict.go` | ✅ | Types + constants + value-receiver method on `Result`. No mutable state. |
+| `internal/model/oai.go` | ✅ | `modelPricing` map init-once, read-only. `http.DefaultClient` goroutine-safe per Go docs. |
+| `internal/model/client.go` | ✅ | Interface + sentinel error only. No state. |
+| `internal/prompt/prompt.go` | ✅ | All vars set in `init()` from embed.FS; read-only thereafter. |
+
+**Design review verdict: PROCEED.**

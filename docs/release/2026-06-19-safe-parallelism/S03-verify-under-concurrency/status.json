@@ -7,6 +7,8 @@
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-27T00:00:00Z",
+  "design_review_verdict": "PROCEED",
+  "design_review_path": "docs/release/2026-06-19-safe-parallelism/S03-verify-under-concurrency/design.md",
   "start_commit": "2abea65be9835bfefc21b66a39086f1ea5b28297",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S03-verify-under-concurrency/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S03-verify-under-concurrency/proof.md",
