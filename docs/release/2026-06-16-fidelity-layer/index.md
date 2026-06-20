@@ -21,7 +21,7 @@ tracks:
     depends_on: [T1-fidelity-core, T2-delivery-cutover, T4-evidence-surface]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T3-leaf-gates
     worktree_branch: track/2026-06-16-fidelity-layer/T3-leaf-gates
-    state: in_progress
+    state: merged
   - id: T4-evidence-surface
     slices: [S15-sworn-top-evidence]
     depends_on: T1-fidelity-core
@@ -52,7 +52,7 @@ tracks:
 |---|---|---|---|---|
 | `T1-fidelity-core` | S01 → S02 → S04 → S05 → S07 → S11 → S16 | — | `track/2026-06-16-fidelity-layer/T1-fidelity-core` | merged |
 | `T2-delivery-cutover` | S06 → S10 → S12 → S13 → S14 | T1 | `track/2026-06-16-fidelity-layer/T2-delivery-cutover` | merged |
-| `T3-leaf-gates` | S03 → S08 → S09 | T1, T2, T4 | `track/2026-06-16-fidelity-layer/T3-leaf-gates` | in_progress |
+| `T3-leaf-gates` | S03 → S08 → S09 | T1, T2, T4 | `track/2026-06-16-fidelity-layer/T3-leaf-gates` | merged |
 | `T4-evidence-surface` | S15 | T1 | `track/2026-06-16-fidelity-layer/T4-evidence-surface` | merged |
 
 ### Touchpoint matrix
@@ -145,9 +145,14 @@ files (disjoint, no change).
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** T3 in_progress (all slices verified — ready for /merge-track) / Merged: 3 (T1: b8521f8, T2: 991b035, T4: ca5b1ea)
+**Tracks:** Merged: 4 (T1: b8521f8, T2: 991b035, T4: ca5b1ea, T3: e6985ba)
 
 ## Recent activity
+
+### 2026-06-20 — track `T3-leaf-gates` merged to release-wt (commit e6985ba)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 3 verified slices merged: S03-spec-quality-firstpass, S08-design-system-input, S09-design-conformance-audit. No drift (0 sibling commits to sync). Track state → merged.
 
 ### 2026-06-20 — S09-design-conformance-audit: PASS (round 1, fresh-context verifier)
 
