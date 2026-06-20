@@ -3,23 +3,61 @@
   "slice_id": "S04a-tui-foundation",
   "release": "2026-06-19-safe-parallelism",
   "track": "T2-monitoring",
-  "state": "design_review",
+  "state": "in_progress",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-21T00:00:00Z",  "start_commit": null,
+  "last_updated_at": "2026-06-21T00:00:00Z",
+  "start_commit": null,
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S04a-tui-foundation/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S04a-tui-foundation/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S04a-tui-foundation/journal.md",
-  "planned_files": ["cmd/sworn/main.go","cmd/sworn/top.go","internal/tui/model.go","internal/tui/releases.go","internal/tui/board.go","internal/tui/styles.go","internal/tui/tui_test.go"],
+  "planned_files": ["cmd/sworn/main.go","cmd/sworn/top.go","internal/tui/model.go","internal/tui/tui.go","internal/tui/releases.go","internal/tui/board.go","internal/tui/styles.go","internal/tui/tui_test.go","go.mod","go.sum"],
   "actual_files": [],
   "test_commands": [],
   "reachability_artifacts": [],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "",
     "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
     "violations": []
-  }
+  },
+  "design_decisions": [
+    {
+      "choice": "no-args-behaviour",
+      "stake_class": "Type-2",
+      "options": ["usage()+exit(64)", "tui.Run()"],
+      "human_decision": "tui.Run()",
+      "rationale": "Minimal and additive — the only change is routing len(os.Args)<2 to tui.Run() instead of usage()+exit(64)"
+    },
+    {
+      "choice": "top-alias-behaviour",
+      "stake_class": "Type-2",
+      "options": ["always TUI", "TUI only without arg, evidence surface with arg"],
+      "human_decision": "TUI only without arg, evidence surface with arg",
+      "rationale": "Preserves sworn top <release> evidence surface behaviour; only exposes TUI when no release arg given"
+    },
+    {
+      "choice": "data-source",
+      "stake_class": "Type-2",
+      "options": ["git rev-parse --show-toplevel + filepath.Glob", "hardcoded path", "config file"],
+      "human_decision": "git rev-parse --show-toplevel + filepath.Glob",
+      "rationale": "Works from any subdirectory; no config needed; consistent with other tools"
+    },
+    {
+      "choice": "state-machine-pattern",
+      "stake_class": "Type-2",
+      "options": ["custom event bus", "tea.Model pattern with viewState enum"],
+      "human_decision": "tea.Model pattern with viewState enum",
+      "rationale": "Standard Bubble Tea pattern; no custom middleware needed for two-view state machine"
+    },
+    {
+      "choice": "test-strategy",
+      "stake_class": "Type-2",
+      "options": ["tea.NewProgram in tests", "pure model-state Update() calls"],
+      "human_decision": "pure model-state Update() calls",
+      "rationale": "Bubble Tea's tea.NewProgram requires a real TTY; model-state tests are portable and deterministic"
+    }
+  ]
 }
