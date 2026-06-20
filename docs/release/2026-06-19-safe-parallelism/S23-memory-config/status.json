@@ -3,7 +3,7 @@
   "slice_id": "S23-memory-config",
   "release": "2026-06-19-safe-parallelism",
   "track": "T8-memory",
-  "state": "design_review",
+  "state": "in_progress",
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-27T10:00:00Z",
@@ -16,6 +16,7 @@
     "internal/memory/harness.go",
     "internal/memory/config_test.go",
     "cmd/sworn/memory.go",
+    "cmd/sworn/memory_test.go",
     "cmd/sworn/main.go"
   ],
   "actual_files": [],
@@ -24,12 +25,47 @@
     "go build ./..."
   ],
   "reachability_artifacts": [],
-  "open_deferrals": [],
+  "open_deferrals": [
+    "Cross-track touchpoint: cmd/sworn/main.go is an additive merge point shared with T3 (S06a-sworn-login-auth) and T4 (S08a-mcp-transport). Merge coordinator must ensure 3-way additive merge preserves all three `case` statements."
+  ],
   "verification": {
-    "result": "pending",
+    "result": "",
     "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
     "violations": []
-  }
+  },
+  "design_decisions": [
+    {
+      "choice": "Config merge: arrays replaced (not appended)",
+      "stake_class": "Type-1",
+      "options": ["append", "replace"],
+      "human_decision": "replace — project override should be a complete declaration, not an append. Acked via approved-ack.md 2026-06-27.",
+      "rationale": "An explicit project override should be a complete declaration. S24/S25 consumers read the merged result; an accidental global leak is worse than a missing harness.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Claude Code path encoding: / → - substitution",
+      "stake_class": "Type-2",
+      "rationale": "Matches baton captain-memory-search.py exactly. Cross-platform: Windows \\\\ normalised to / via filepath.ToSlash before encoding."
+    },
+    {
+      "choice": "Embedding provider config in memory.json not main config",
+      "stake_class": "Type-1",
+      "options": ["memory.json", "config.json"],
+      "human_decision": "memory.json — orthogonal to model selection for verification. Acked via approved-ack.md 2026-06-27.",
+      "rationale": "Embedding config is orthogonal to model selection for verification (which lives in main config.json). S24 reads embedding config from MemoryConfig.Embedding directly.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Harness paths: existence-on-disk as boolean, not size/mtime",
+      "stake_class": "Type-2",
+      "rationale": "S23 is about 'is my config ready to build?', not statistical analysis. S24 reads the same paths."
+    },
+    {
+      "choice": "API key sentinel: '<set>' / '<not set>', never raw value",
+      "stake_class": "Type-2",
+      "rationale": "Prevents accidental key exposure in shell history, screenshots, or log capture. Verifier AC-4 gates on this."
+    }
+  ]
 }
