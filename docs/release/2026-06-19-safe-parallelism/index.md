@@ -259,19 +259,19 @@ Phase 4:  T6 (after T2 + T5)
 | `S20-mcp-catalog-tools` | T7 | 8 MCP tools: plan_release (unified), get_induction_status, get_considerations, search_decisions, record_decision, check_design_system, update_design_system, record_architecture_pattern | planned | [spec](./S20-mcp-catalog-tools/spec.md) |
 | `S21-canonical-baton` | T3 | Baton protocol embedded in binary (internal/prompt/baton/); sworn init writes minimal MCP-pointer AGENTS.md instead of per-repo Baton copy; ADR-0005 | planned | [spec](./S21-canonical-baton/spec.md) |
 | `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | planned | [spec](./S22-sworn-doctor/spec.md) |
-| `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | planned | [spec](./S23-memory-config/spec.md) |
+| `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | failed_verification | [spec](./S23-memory-config/spec.md) |
 | `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | planned | [spec](./S24-memory-engine/spec.md) |
 | `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | planned | [spec](./S25-memory-search/spec.md) |
 | `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | planned | [spec](./S26-telemetry/spec.md) |
 
 ## Aggregate state
 
-- Planned: 28
+- Planned: 27
 - In progress: 0
 - Design review: 0
 - Implemented: 0
 - Verified: 4
-- Failed verification: 0
+- Failed verification: 1
 - Deferred: 0
 
 **Tracks:** Planned: 8 / Ready to merge: 0 / Merged: 1
@@ -279,6 +279,15 @@ Phase 4:  T6 (after T2 + T5)
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice).
 
 ## Recent activity
+
+### 2026-06-21 — S23 verifier verdict: FAIL (2 violations)
+
+- **Actor**: verifier (fresh context, Rule 7 compliant)
+- **Slice**: S23-memory-config → state: **failed_verification**
+- **Violation 1 (Gate 2)**: `proof.md` claims "Divergence from plan: None" but `cmd/sworn/memory_test.go` is in the diff and absent from `spec.md` Planned touchpoints. Coach pin in `journal.md` documented the addition; proof bundle must call it out.
+- **Violation 2 (Gate 3)**: `TestAPIKeyEnvNotLeaked` (`internal/memory/config_test.go:175`) is a stub — never calls `cmdMemoryStatus()`, never captures stdout, `_ = outputContainsValue` (line 213) is a no-op. Spec requires this test to verify the key value is absent from output.
+- **Tests that do pass**: `go test -race -count=1 ./internal/memory/...` PASS; `go test -race -count=1 ./cmd/sworn/...` PASS; `go build ./...` PASS.
+- **Next**: `/implement-slice S23-memory-config 2026-06-19-safe-parallelism` in a fresh session to address both violations.
 
 ### 2026-06-21 — track `T1-concurrency-core` merged to release-wt (commit 581b6a9)
 
