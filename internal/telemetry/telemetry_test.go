@@ -42,8 +42,17 @@ func TestIsEnabled_Sentinel(t *testing.T) {
 	}
 }
 
-func TestIsEnabled_OptedIn_NoOverrides(t *testing.T) {
+func TestIsEnabled_Neither(t *testing.T) {
 	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	// No sentinel files exist — IsEnabled() should return false
+	// (telemetry disabled: consent not yet given; init not run).
+	if IsEnabled() {
+		t.Error("IsEnabled() = true; want false when no sentinel files exist (init not run)")
+	}
+}
+
+func TestIsEnabled_OptedIn_NoOverrides(t *testing.T) {	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 	cfgDir := filepath.Join(dir, ".config", "sworn")
 	if err := os.MkdirAll(cfgDir, 0700); err != nil {
@@ -242,8 +251,8 @@ func TestFireNonBlocking(t *testing.T) {
 	start := time.Now()
 	Fire("run", "", "0.1.0", 100, 0)
 	elapsed := time.Since(start)
-	if elapsed > 100*time.Millisecond {
-		t.Errorf("Fire() took %v; want < 100ms (should be non-blocking)", elapsed)
+	if elapsed > 10*time.Millisecond {
+		t.Errorf("Fire() took %v; want < 10ms (should be non-blocking, per AC8)", elapsed)
 	}
 }
 
