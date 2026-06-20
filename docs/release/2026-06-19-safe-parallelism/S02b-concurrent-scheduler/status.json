@@ -3,12 +3,11 @@
   "slice_id": "S02b-concurrent-scheduler",
   "release": "2026-06-19-safe-parallelism",
   "track": "T1-concurrency-core",
-  "state": "failed_verification",
+  "state": "in_progress",
   "owner": "human",
-  "last_updated_by": "verifier",
-  "last_updated_at": "2026-06-27T12:00:00Z",
-  "start_commit": "a774be52d77b03e7e61642284c9d3fbe4872cfdc",
-  "spec_path": "docs/release/2026-06-19-safe-parallelism/S02b-concurrent-scheduler/spec.md",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-01T00:00:00Z",
+  "start_commit": "71b9bef557c1b0d5b84f2a231dc1e2f4a9bb85ed",  "spec_path": "docs/release/2026-06-19-safe-parallelism/S02b-concurrent-scheduler/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S02b-concurrent-scheduler/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S02b-concurrent-scheduler/journal.md",
   "planned_files": [
@@ -43,19 +42,5 @@
   "reachability_artifacts": [
     "docs/release/2026-06-19-safe-parallelism/S02b-concurrent-scheduler/proof.md (Reachability artefact section)"
   ],
-  "open_deferrals": [],
-  "verification": {
-    "result": "fail",
-    "verifier_session_id": null,
-    "verifier_verdict_at": "2026-06-27T12:00:00Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      "Gate 3: TestWorkerMaterialisesWorktree (required by spec) absent; worktree materialisation branch (worker.go:94-121) is untested — all worker tests supply a pre-existing WorktreePath",
-      "Gate 3: TestWorkerCallsRunSlice (required by spec) absent; TestRunTrack_AllSlicesPass only asserts called-count=1 for a single slice, not per-slice ordering across multiple slices",
-      "Gate 3: AC-3 failure cascade (T1 fails → T3 skipped, T2 completes normally) has no functional test — fakeRunSliceFail and fakeRunSliceTrackFail in parallel_test.go both return nil and are never called in any test",
-      "Gate 3: 'fake workers with controllable timing channels' (Required tests) not implemented; AC-1 concurrency assertion has zero timing/channel coverage",
-      "Gate 2: internal/run/parallel_test.go (new) and sworn binary (Bin 10286108→16462831) in committed diff but absent from proof.md Files changed and not explained in Divergence from plan",
-      "Gate 4: Reachability artefact shows commented expected output with generic path placeholder; claims 2-track fixture but command targets real 9-track release board; no captured actual output proves smoke step was executed"
-    ]
-  }
+  "open_deferrals": []
 }

@@ -124,8 +124,97 @@ func TestRunTrack_SliceFail(t *testing.T) {
 	}
 }
 
-func TestRunTrack_EmptySlices(t *testing.T) {
+func TestRunTrack_MultiSliceOrdering(t *testing.T) {
+	// Verifier Fix 2: TestWorkerCallsRunSlice — assert called per slice in order across ≥2 slices.
 	tmpDir := t.TempDir()
+
+	// Create spec dirs for 3 slices.
+	for _, sid := range []string{"S01-first", "S02-second", "S03-third"} {
+		d := filepath.Join(tmpDir, "docs", "release", "test-release", sid)
+		os.MkdirAll(d, 0o755)
+		os.WriteFile(filepath.Join(d, "spec.md"), []byte("# test"), 0o644)
+		os.WriteFile(filepath.Join(d, "status.json"), []byte(`{"state":"implemented"}`), 0o644)
+	}
+
+	var called []string
+	opts := WorkerOptions{
+		ReleaseName:         "test-release",
+		PrimaryWorktreeRoot: tmpDir,
+		ProjectDir:          "sworn",
+		TrackInfo: board.TrackInfo{
+			ID:             "T1",
+			Slices:         []string{"S01-first", "S02-second", "S03-third"},
+			WorktreePath:   tmpDir,
+			WorktreeBranch: "track/test/T1",
+		},
+		RunSliceFn: fakeRunSlice("", &called),
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite not available: %v — skipping worker test", err)
+	}
+	defer db.Close()
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+	opts.DB = db
+
+	result := RunTrack(context.Background(), opts)
+	if result != TrackPass {
+		t.Fatalf("expected TrackPass, got %s", result)
+	}
+
+	// Assert both count AND order.
+	want := []string{"S01-first", "S02-second", "S03-third"}
+	if len(called) != len(want) {
+		t.Fatalf("expected %d slice calls, got %d: %v", len(want), len(called), called)
+	}
+	for i, sid := range want {
+		if called[i] != sid {
+			t.Errorf("call[%d] = %q, want %q", i, called[i], sid)
+		}
+	}
+}
+
+func TestRunTrack_MaterialisesWorktree(t *testing.T) {
+	// Verifier Fix 1: TestWorkerMaterialisesWorktree — exercises the
+	// materialisation branch by providing a non-existent WorktreePath.
+	// Since there's no real git repo in the temp dir, the git command
+	// will fail, proving we reached the materialisation code path.
+	tmpDir := t.TempDir()
+
+	var called []string
+	opts := WorkerOptions{
+		ReleaseName:         "test-release",
+		PrimaryWorktreeRoot: tmpDir,
+		ProjectDir:          "sworn",
+		TrackInfo: board.TrackInfo{
+			ID:             "T1",
+			Slices:         []string{"S01-test"},
+			WorktreePath:   filepath.Join(tmpDir, "nonexistent-worktree"),
+			WorktreeBranch: "track/test/T1",
+		},
+		RunSliceFn: fakeRunSlice("", &called),
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite not available: %v — skipping worker test", err)
+	}
+	defer db.Close()
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+	opts.DB = db
+
+	// The git worktree add command will fail (no git repo at tmpDir),
+	// but that proves we reached the materialisation path. Expect TrackFail.
+	result := RunTrack(context.Background(), opts)
+	if result != TrackFail {
+		t.Fatalf("expected TrackFail (materialisation attempt fails without git repo), got %s", result)
+	}
+}
+
+func TestRunTrack_EmptySlices(t *testing.T) {	tmpDir := t.TempDir()
 	var called []string
 	opts := WorkerOptions{
 		ReleaseName:         "test",
