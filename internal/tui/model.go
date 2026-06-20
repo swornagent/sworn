@@ -13,6 +13,7 @@ type viewState int
 const (
 	viewReleases viewState = iota
 	viewBoard
+	viewLive
 	viewQuit
 )
 
@@ -32,13 +33,22 @@ type Model struct {
 	// Error message (shown when something fails).
 	errMsg string
 
+	// Credit balance (loaded at startup from ~/.config/sworn/credits.json).
+	creditBalance string
+
 	// Composed components (exported for S04b/S04c).
 	Releases *ReleasesList
 	Board    *BoardView
+
+	// S04b: Live is the concurrent status view. Non-nil only when the user
+	// has navigated to a release with live tracks (or pressed l from board).
+	Live *LiveView
 }
 
-// Init implements tea.Model.
+// Init implements tea.Model. Loads the credit balance at startup.
 func (m *Model) Init() tea.Cmd {
+	bal, _ := CreditFileBalance()
+	m.creditBalance = bal
 	return nil
 }
 
@@ -57,6 +67,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) View() string {
 	if m.state == viewQuit {
 		return ""
+	}
+
+	// Live view replaces the two-pane layout entirely.
+	if m.state == viewLive {
+		body := m.Live.View()
+		body += "\n" + m.renderCreditBar()
+		help := m.renderHelp()
+		return body + "\n" + help
 	}
 
 	left := m.Releases.View()
@@ -102,6 +120,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		return m.handleReleasesKey(msg)
 	case viewBoard:
 		return m.handleBoardKey(msg)
+	case viewLive:
+		return m.handleLiveKey(msg)
 	}
 	return m, nil
 }
@@ -124,6 +144,16 @@ func (m *Model) handleReleasesKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 				m.errMsg = err.Error()
 			}
 			m.state = viewBoard
+
+			// Auto-transition to live view if tracks are in-progress.
+			if HasInProgressTracks(m.repoRoot, sel.ID) {
+				lv, err := StartLiveView(m.repoRoot, sel.ID)
+				if err == nil {
+					m.Live = lv
+					m.state = viewLive
+					return m, lv.Init()
+				}
+			}
 		}
 	case "esc":
 	}
@@ -135,6 +165,37 @@ func (m *Model) handleBoardKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.state = viewReleases
+		return m, nil
+	case "l":
+		// Switch to live view if available.
+		if m.Live != nil {
+			m.state = viewLive
+			return m, m.Live.Init()
+		}
+		// If no LiveView yet, try to start one for the current release.
+		if m.Board.ReleaseName != "" {
+			lv, err := StartLiveView(m.repoRoot, m.Board.ReleaseName)
+			if err != nil {
+				m.errMsg = err.Error()
+				return m, nil
+			}
+			m.Live = lv
+			m.state = viewLive
+			return m, lv.Init()
+		}
+	}
+	return m, nil
+}
+
+// handleLiveKey handles keyboard input in the live view.
+func (m *Model) handleLiveKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.state = viewReleases
+		return m, nil
+	case "b":
+		m.state = viewBoard
+		return m, nil
 	}
 	return m, nil
 }
@@ -143,15 +204,25 @@ func (m *Model) handleBoardKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 func (m *Model) renderHelp() string {
 	if m.showHelp {
 		return HelpBar.Render(`
-? help     ↑/k up     ↓/j down     enter select     esc back     q quit`)
+	? help     ↑/k up     ↓/j down     enter select     l live     b board     esc back     q quit`)
 	}
 	return HelpBar.Render(fmt.Sprintf(
-		"%s help  %s up  %s down  %s select  %s back  %s quit",
+		"%s help  %s up  %s down  %s select  %s live  %s board  %s back  %s quit",
 		HelpKey.Render("?"),
 		HelpKey.Render("↑/k"),
 		HelpKey.Render("↓/j"),
 		HelpKey.Render("enter"),
+		HelpKey.Render("l"),
+		HelpKey.Render("b"),
 		HelpKey.Render("esc"),
 		HelpKey.Render("q"),
 	))
+}
+
+// renderCreditBar renders the credit balance line for the live view.
+func (m *Model) renderCreditBar() string {
+	return lipgloss.NewStyle().
+		Foreground(colDim).
+		Padding(0, 2).
+		Render(fmt.Sprintf("Credits: %s", m.creditBalance))
 }

@@ -4,11 +4,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/swornagent/sworn/internal/db"
 	"github.com/swornagent/sworn/internal/state"
 )
-
 // TestReleasesListPopulates verifies that given a fixture docs/release/ directory
 // with two index.md files, the releases list model contains exactly those two entries.
 func TestReleasesListPopulates(t *testing.T) {
@@ -180,6 +181,360 @@ func TestQuit(t *testing.T) {
 	}
 }
 
+// TestConcurrentStatusPoll verifies that the LiveView polls the DB correctly
+// on tick and populates track rows. It uses a real SQLite database in a temp dir.
+func TestConcurrentStatusPoll(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a sworn DB with a track in in_progress state.
+	dbPath := db.DefaultPath(dir)
+	conn, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer conn.Close()
+
+	_, err = conn.Exec(
+		"INSERT INTO tracks (id, release, state, current_slice, started_at) VALUES (?, ?, ?, ?, ?)",
+		"T1-engine", "test-release", "in_progress", "S02-oai-model-client", "2026-06-20T10:00:00Z",
+	)
+	if err != nil {
+		t.Fatalf("insert track: %v", err)
+	}
+
+	// Create LiveView pointing at the same DB.
+	lv, err := StartLiveView(dir, "test-release")
+	if err != nil {
+		t.Fatalf("StartLiveView: %v", err)
+	}
+	defer lv.Close()
+
+	// Verify initial poll populated rows.
+	if len(lv.Rows) != 1 {
+		t.Fatalf("expected 1 track row, got %d", len(lv.Rows))
+	}
+	if lv.Rows[0].ID != "T1-engine" {
+		t.Errorf("expected track ID T1-engine, got %q", lv.Rows[0].ID)
+	}
+	if lv.Rows[0].CurrentSlice != "S02-oai-model-client" {
+		t.Errorf("expected current_slice S02-oai-model-client, got %q", lv.Rows[0].CurrentSlice)
+	}
+	if lv.Rows[0].State != "in_progress" {
+		t.Errorf("expected state in_progress, got %q", lv.Rows[0].State)
+	}
+	if lv.Rows[0].Elapsed == "" || lv.Rows[0].Elapsed == "—" {
+		t.Errorf("expected non-empty elapsed time, got %q", lv.Rows[0].Elapsed)
+	}
+
+	// Advance one tick.
+	tickCount := lv.TickCount
+	lv2, _ := lv.Update(tickMsg{})
+	if lv2.TickCount <= tickCount {		t.Errorf("expected TickCount to increase after tick, was %d now %d", tickCount, lv2.TickCount)
+	}
+
+	// Rows should still be populated after tick.
+	if len(lv2.Rows) != 1 {
+		t.Fatalf("expected 1 track row after tick, got %d", len(lv2.Rows))
+	}
+}
+
+// TestAutoTransitionToLive verifies that when a release has in-progress tracks
+// in the DB, pressing Enter auto-transitions to viewLive.
+func TestAutoTransitionToLive(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create release structure.
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+	createIndex(t, dir, "test-release", "Test Release")
+
+	// Create a sworn DB with in-progress track.
+	dbPath := db.DefaultPath(dir)
+	conn, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	_, err = conn.Exec(
+		"INSERT INTO tracks (id, release, state, current_slice, started_at) VALUES (?, ?, ?, ?, ?)",
+		"T1-engine", "test-release", "in_progress", "S01-first", "2026-06-20T10:00:00Z",
+	)
+	if err != nil {
+		t.Fatalf("insert track: %v", err)
+	}
+	conn.Close()
+
+	m := &Model{
+		state:    viewReleases,
+		repoRoot: dir,
+		Releases: &ReleasesList{},
+		Board:    &BoardView{},
+	}
+	if err := m.Releases.LoadReleases(dir); err != nil {
+		t.Fatalf("LoadReleases: %v", err)
+	}
+
+	// Press Enter to select the release.
+	upd, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m2 := upd.(*Model)
+
+	// Should auto-transition to live view.
+	if m2.state != viewLive {
+		t.Fatalf("expected viewLive after Enter (has in-progress tracks), got %d", m2.state)
+	}
+	if m2.Live == nil {
+		t.Fatal("expected Live to be non-nil after auto-transition")
+	}
+	if m2.Live.ReleaseName != "test-release" {
+		t.Fatalf("expected Live release test-release, got %q", m2.Live.ReleaseName)
+	}
+}
+
+// TestAutoTransitionNoTracks verifies that when a release has NO in-progress tracks,
+// pressing Enter goes to board view (no auto-transition).
+func TestAutoTransitionNoTracks(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create release structure with a sliced status but no SQLite DB.
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+	indexContent := `---
+tracks:
+  - id: T1-core
+    slices: [S01-first]
+    depends_on:
+    state: in_progress
+---`
+	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-core")
+
+	m := &Model{
+		state:    viewReleases,
+		repoRoot: dir,
+		Releases: &ReleasesList{},
+		Board:    &BoardView{},
+	}
+	if err := m.Releases.LoadReleases(dir); err != nil {
+		t.Fatalf("LoadReleases: %v", err)
+	}
+
+	// Press Enter to select the release.
+	upd, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m2 := upd.(*Model)
+
+	// Should stay on board view (no DB with in-progress tracks).
+	if m2.state != viewBoard {
+		t.Fatalf("expected viewBoard after Enter (no in-progress tracks), got %d", m2.state)
+	}
+}
+
+// TestLiveBoardToggle verifies that pressing l in board view and b in live view
+// toggles correctly between the two views.
+func TestLiveBoardToggle(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create release structure.
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+	createIndex(t, dir, "test-release", "Test Release")
+
+	// Create a sworn DB with in-progress track.
+	dbPath := db.DefaultPath(dir)
+	conn, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	_, err = conn.Exec(
+		"INSERT INTO tracks (id, release, state, current_slice, started_at) VALUES (?, ?, ?, ?, ?)",
+		"T1-engine", "test-release", "in_progress", "S01-first", "2026-06-20T10:00:00Z",
+	)
+	if err != nil {
+		t.Fatalf("insert track: %v", err)
+	}
+	conn.Close()
+
+	m := &Model{
+		state:    viewReleases,
+		repoRoot: dir,
+		Releases: &ReleasesList{},
+		Board:    &BoardView{},
+	}
+	if err := m.Releases.LoadReleases(dir); err != nil {
+		t.Fatalf("LoadReleases: %v", err)
+	}
+
+	// Press Enter to auto-transition to live view.
+	upd, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m2 := upd.(*Model)
+	if m2.state != viewLive {
+		t.Fatalf("expected viewLive, got %d", m2.state)
+	}
+
+	// Press b to go back to board.
+	upd, _ = m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+	m3 := upd.(*Model)
+	if m3.state != viewBoard {
+		t.Fatalf("expected viewBoard after b, got %d", m3.state)
+	}
+
+	// Press l to go back to live.
+	upd, _ = m3.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	m4 := upd.(*Model)
+	if m4.state != viewLive {
+		t.Fatalf("expected viewLive after l, got %d", m4.state)
+	}
+
+	// Press Esc to go back to releases.
+	upd, _ = m4.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("esc")})
+	m5 := upd.(*Model)
+	if m5.state != viewReleases {
+		t.Fatalf("expected viewReleases after Esc from live, got %d", m5.state)
+	}
+}
+
+// TestCreditBalanceDisplayed verifies that when a credits file exists with balance 42,
+// the CreditFileBalance function returns "42".
+func TestCreditBalanceDisplayed(t *testing.T) {
+	// Create a temporary home directory.
+	tmpHome := t.TempDir()
+	creditDir := filepath.Join(tmpHome, ".config", "sworn")
+	os.MkdirAll(creditDir, 0o755)
+	creditFile := filepath.Join(creditDir, "credits.json")
+	os.WriteFile(creditFile, []byte(`{"balance": 42}`), 0644)
+
+	// Temporarily override HOME.
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	bal, ok := CreditFileBalance()
+	if !ok {
+		t.Fatal("expected CreditFileBalance to return ok=true")
+	}
+	if bal != "42" {
+		t.Errorf("expected balance '42', got %q", bal)
+	}
+}
+
+// TestCreditBalanceAbsent verifies that when no credits file exists,
+// CreditFileBalance returns "–" and ok=false.
+func TestCreditBalanceAbsent(t *testing.T) {
+	// Create a temporary home directory with no credits file.
+	tmpHome := t.TempDir()
+
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpHome)
+	defer os.Setenv("HOME", origHome)
+
+	bal, ok := CreditFileBalance()
+	if ok {
+		t.Fatal("expected CreditFileBalance to return ok=false when no file")
+	}
+	if bal != "–" {
+		t.Errorf("expected balance '–', got %q", bal)
+	}
+}
+
+// TestLiveViewClose verifies that Close() cleans up the connection.
+func TestLiveViewClose(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a sworn DB.
+	dbPath := db.DefaultPath(dir)
+	conn, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer conn.Close()
+
+	_, err = conn.Exec(
+		"INSERT INTO tracks (id, release, state, current_slice, started_at) VALUES (?, ?, ?, ?, ?)",
+		"T1-engine", "test-release", "in_progress", "S01-first", "2026-06-20T10:00:00Z",
+	)
+	if err != nil {
+		t.Fatalf("insert track: %v", err)
+	}
+
+	lv, err := StartLiveView(dir, "test-release")
+	if err != nil {
+		t.Fatalf("StartLiveView: %v", err)
+	}
+
+	if err := lv.Close(); err != nil {
+		t.Errorf("Close: %v", err)
+	}
+}
+
+// TestElapsedTimeFormatting verifies the computeElapsed function formats
+// durations correctly.
+func TestElapsedTimeFormatting(t *testing.T) {
+	// Use a fixed now time.
+	now := mustParseTime(t, "2026-06-20T10:05:30Z")
+	tests := []struct {
+		startedAt string
+		expected  string
+	}{
+		{"", "—"},
+		{"2026-06-20T10:05:25Z", "5s"},
+		{"2026-06-20T10:04:00Z", "1m30s"},
+		{"2026-06-20T10:00:00Z", "5m30s"},
+		{"2026-06-20T09:00:00Z", "1h5m30s"},
+	}
+
+	for _, tc := range tests {
+		got := computeElapsed(tc.startedAt, now)
+		if got != tc.expected {
+			t.Errorf("computeElapsed(%q) = %q, want %q", tc.startedAt, got, tc.expected)
+		}
+	}
+}
+
+// TestHasInProgressTracks verifies the DB query function.
+func TestHasInProgressTracks(t *testing.T) {
+	dir := t.TempDir()
+
+	// No DB yet.
+	if HasInProgressTracks(dir, "test-release") {
+		t.Fatal("expected false when no DB exists")
+	}
+
+	// Create DB with no in-progress tracks.
+	dbPath := db.DefaultPath(dir)
+	conn, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	_, err = conn.Exec(
+		"INSERT INTO tracks (id, release, state, current_slice, started_at) VALUES (?, ?, ?, ?, ?)",
+		"T1-engine", "test-release", "verified", "S01-first", "2026-06-20T10:00:00Z",
+	)
+	if err != nil {
+		t.Fatalf("insert track: %v", err)
+	}
+	conn.Close()
+
+	if HasInProgressTracks(dir, "test-release") {
+		t.Fatal("expected false when no in-progress tracks")
+	}
+
+	// Add an in-progress track and re-check.
+	conn, err = db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	_, err = conn.Exec(
+		"INSERT INTO tracks (id, release, state, current_slice, started_at) VALUES (?, ?, ?, ?, ?)",
+		"T2-engine", "test-release", "in_progress", "S02-second", "2026-06-20T10:00:00Z",
+	)
+	if err != nil {
+		t.Fatalf("insert track: %v", err)
+	}
+	conn.Close()
+
+	if !HasInProgressTracks(dir, "test-release") {
+		t.Fatal("expected true after adding in-progress track")
+	}
+}
+
 // Helpers.
 
 func fixtureReleaseDir(dir string) {
@@ -193,6 +548,7 @@ func createIndex(t *testing.T, root string, releaseID, title string) {
 	content := "---\ntitle: " + title + "\n---\n"
 	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(content), 0644)
 }
+
 func createSliceStatus(t *testing.T, releaseDir, sliceID, sliceState, track string) {
 	t.Helper()
 	sliceDir := filepath.Join(releaseDir, sliceID)
@@ -217,4 +573,13 @@ func checkSlice(t *testing.T, bv *BoardView, sliceID, expectedState string) {
 	if si.State != expectedState {
 		t.Errorf("slice %s: expected state %q, got %q", sliceID, expectedState, si.State)
 	}
+}
+
+func mustParseTime(t *testing.T, s string) time.Time {
+	t.Helper()
+	parsed, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		t.Fatalf("parse time: %v", err)
+	}
+	return parsed
 }

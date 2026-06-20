@@ -3,8 +3,11 @@
 // and a board view (tracks + slice states) in the right pane.
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"strings"
 
+	"github.com/charmbracelet/lipgloss"
+)
 var (
 	// Colour palette.
 	colPrimary   = lipgloss.Color("#7C3AED") // purple-600
@@ -77,10 +80,23 @@ var (
 		Foreground(colAccent).
 		Bold(true)
 
+	// Live view (concurrent status).
+	LiveTitle = lipgloss.NewStyle().
+			Foreground(colAccent).
+			Bold(true).
+			Padding(0, 1)
+
+	LiveRow = lipgloss.NewStyle().
+			Foreground(colText).
+			Padding(0, 1)
+
+	DividerLine = lipgloss.NewStyle().
+			Foreground(colMuted).
+			Render(strings.Repeat("─", 70))
+
 	// Generic.
 	Divider      = lipgloss.NewStyle().Foreground(colMuted).Render("─")
-	EmptyMessage = lipgloss.NewStyle().Foreground(colMuted).Italic(true).Padding(0, 2)
-)
+	EmptyMessage = lipgloss.NewStyle().Foreground(colMuted).Italic(true).Padding(0, 2))
 
 // StateColor renders a slice state string with the correct colour.
 func StateColor(state string) string {
