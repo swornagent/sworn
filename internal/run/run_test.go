@@ -141,9 +141,13 @@ func setupTestRepo(t *testing.T) (workspaceRoot string, cleanup func()) {
 	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# test\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	runCmd(t, dir, "git", "add", "README.md")
+	// Add .gitignore with .sworn/ so the process registry DB doesn't
+	// interfere with git operations during test.
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("/.sworn/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runCmd(t, dir, "git", "add", "README.md", ".gitignore")
 	runCmd(t, dir, "git", "commit", "-m", "initial commit")
-
 	return dir, func() {}
 }
 

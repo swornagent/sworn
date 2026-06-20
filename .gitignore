@@ -18,3 +18,6 @@ coverage.*
 
 # stray sworn artefacts from running sworn outside repo root
 /cmd/sworn/docs/
+
+# SQLite process registry database (all directories)
+.sworn/

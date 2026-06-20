@@ -10,6 +10,7 @@ package run
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,15 +18,15 @@ import (
 	"time"
 
 	"github.com/swornagent/sworn/internal/agent"
+	"github.com/swornagent/sworn/internal/db"
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/implement"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/state"
+	"github.com/swornagent/sworn/internal/supervisor"
 	"github.com/swornagent/sworn/internal/verdict"
 	"github.com/swornagent/sworn/internal/verify"
-)
-
-// DefaultEscalationModels is the default model escalation path when none is
+)// DefaultEscalationModels is the default model escalation path when none is
 // provided. Each entry is a "provider/model" ID suitable for model.FromEnv.
 // The list runs from cheapest to most capable; on retry the next model is used.
 var DefaultEscalationModels = []string{
@@ -71,8 +72,20 @@ type Options struct {
 	// NewVerifier is a factory for creating a model.Verifier from a model ID.
 	// When nil, model.FromEnv is used (production path). Tests inject fakes.
 	NewVerifier func(modelID string) (model.Verifier, error)
-}
 
+	// DBPath is the path to the SQLite database. If empty, the default
+	// (.sworn/sworn.db under WorkspaceRoot) is used.
+	DBPath string
+
+	// DB is an already-opened database handle. When set, DBPath is ignored.
+	// When nil, the run loop opens (or creates) the database at DBPath.
+	DB *sql.DB
+
+	// Supervisor is the process supervisor for track ownership. When nil,
+	// the run loop creates one from the database. When set, DB must also
+	// be set (or the supervisor must use its own connection).
+	Supervisor *supervisor.Supervisor
+}
 // Run executes the sworn run turnkey loop. It returns nil only when the
 // implementation passed verification and was merged.
 func Run(ctx context.Context, opts Options) error {
@@ -99,6 +112,22 @@ func Run(ctx context.Context, opts Options) error {
 
 	repo := git.New(workspaceRoot)
 
+	// ── Open database and initialise supervisor ───────────────────────
+	var database *sql.DB
+	if opts.DB != nil {
+		database = opts.DB
+	} else {
+		dbPath := opts.DBPath
+		if dbPath == "" {
+			dbPath = db.DefaultPath(workspaceRoot)
+		}
+		database, err = db.Open(dbPath)
+		if err != nil {
+			return fmt.Errorf("run: open database: %w", err)
+		}
+		defer database.Close()
+	}
+
 	// ── Create auto-generated release + slice ─────────────────────────
 	releaseDir, sliceDir, err := setupSlice(workspaceRoot, opts.Task)
 	if err != nil {
@@ -108,6 +137,30 @@ func Run(ctx context.Context, opts Options) error {
 	specPath := filepath.Join(absSliceDir, "spec.md")
 	statusPath := filepath.Join(absSliceDir, "status.json")
 
+	// Extract the release name from the generated release dir.
+	releaseName := filepath.Base(releaseDir)
+
+	// ── Supervisor acquire/release ────────────────────────────────────
+	var sup *supervisor.Supervisor
+	if opts.Supervisor != nil {
+		sup = opts.Supervisor
+	} else {
+		sup = supervisor.New(database, releaseName)
+	}
+
+	// Reap any stale rows from previous crashed sessions.
+	if reaped, reapErr := sup.Reap(); reapErr != nil {
+		fmt.Fprintf(os.Stderr, "sworn run: reap warning: %v\n", reapErr)
+	} else if reaped > 0 {
+		fmt.Fprintf(os.Stderr, "sworn run: reaped %d stale track(s)\n", reaped)
+	}
+
+	// Acquire ownership for this track. The task-based single-slice mode
+	// uses a synthetic single-track ID "S01-task".
+	if err := sup.Acquire("S01-task"); err != nil {
+		return fmt.Errorf("run: acquire track: %w", err)
+	}
+	defer sup.MustRelease("S01-task", supervisor.StateDone)
 	// ── Branch off base ──────────────────────────────────────────────
 	featureBranch := sanitiseBranch(opts.Task)
 
