@@ -28,6 +28,18 @@ func main() {
 		os.Exit(64)
 	}
 	switch os.Args[1] {
+	case "login":
+		// S06a-sworn-login-auth adds this case (T3-commercial).
+		// Additive dispatch only — no structural changes to the switch.
+		os.Exit(cmdLogin(os.Args[2:]))
+	case "logout":
+		// S06a-sworn-login-auth adds this case (T3-commercial).
+		// Additive dispatch only.
+		os.Exit(cmdLogout(os.Args[2:]))
+	case "account":
+		// S06a-sworn-login-auth adds this case (T3-commercial).
+		// Additive dispatch only.
+		os.Exit(cmdAccount(os.Args[2:]))
 	case "init":
 		// S08-init-config adds this case (T3-turnkey-ux).
 		os.Exit(cmdInit(os.Args[2:]))
@@ -155,6 +167,9 @@ usage:
   sworn init [--api-key <key>] [--force]
   sworn journeys [--check] [--impact <release>] [project-path]  sworn lint ac <release>
   sworn lint trace <release>
+  sworn login
+  sworn logout
+  sworn account
   sworn reqverify <release>
   sworn reqvalidate <release>
   sworn designfit <release>
@@ -171,6 +186,10 @@ pick the safe-hosted default model from data.
 
 init bootstraps SwornAgent in a repo: writes a config file, vendors the Baton
 protocol into docs/baton/, and splices the seven-rule fragment into AGENTS.md.
+login authenticates with SwornAgent via device-code OAuth2 flow and stores
+credentials locally.
+logout removes the stored credentials file.
+account displays the authenticated user's email and tier.
 journeys drafts critical customer journeys from the project, validates
 their presence + ratification status, and analyses which journeys a release
 touches. See 'sworn journeys --check' for the deterministic gate, 'sworn

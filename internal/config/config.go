@@ -87,8 +87,14 @@ func DefaultConfig() Config {
 		DesignSystem: nil,
 	}
 }
-// Path returns the config file path, respecting env-var overrides:
-//
+// ConfigDir returns the directory containing the config file.
+// It is a thin wrapper around filepath.Dir(Path()) — one line.
+// Added by S06a-sworn-login-auth (T3-commercial).
+func ConfigDir() string {
+	return filepath.Dir(Path())
+}
+
+// Path returns the config file path, respecting env-var overrides://
 //	$SWORN_CONFIG_PATH — exact path to config.json
 //	$SWORN_HOME        — config directory (joined with "config.json")
 //	default             — XDG-compatible: $HOME/.config/sworn/config.json on Linux,
