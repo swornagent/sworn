@@ -181,3 +181,35 @@ Required to address:
 
 1. Fix `RunParallel` at `parallel.go:110`: change `context.WithCancel(phaseCtx)` to `context.WithCancel(ctx)` so each phase derives its cancel scope from the original parent context rather than the previous (cancelled) `phaseCtx`.
 2. Add `TestRunParallel_DependentTrackRunsAfterSuccess` (or equivalent) in `parallel_test.go`: 2-track fixture, T1 (phase 0) passes, T2 (`depends_on: T1`, phase 1) must run and pass. Assert T2's `RunSliceFn` is called.
+
+## 2026-07-01 — Round 5 (context-chain fix + AC-2 success path test)
+
+### State transition: failed_verification → in_progress
+
+Two verifier violations addressed:
+
+1. **Context-chain bug (Violation 1)**: Replaced `phaseCtx` chaining with a separate `failCtx` pattern at `parallel.go:103-113`:
+   - `failCtx, failCancel := context.WithCancel(ctx)` — cross-phase failure propagation
+   - Each phase derives `phaseCtx` from `failCtx` (not the previous `phaseCtx`)
+   - On track failure: `failCancel()` (was `phaseCancel()`) — cancels `failCtx`, which cascades to all subsequent phases
+   - After `wg.Wait()`: `phaseCancel()` — cleanup for the current phase's goroutine scope
+   - This preserves both AC-3 (failure cascade) and fixes AC-2 (success path)
+
+2. **Missing success-path test (Violation 2)**: Added `TestRunParallel_DependentTrackRunsAfterSuccess` to `parallel_test.go` — 2-track fixture, T1 (phase 0) independent, T2 (phase 1, depends_on T1). Custom `runSliceFn` with mutex-tracked `called` map proves T2's slice IS called (not skipped). Assert `RunParallel` returns nil.
+
+### Implementation notes
+
+- All 7 `TestRunParallel_*` tests pass with `-race`
+- Failure cascade test unchanged — still passes
+- Success path test output confirms ordering: "[T1] done" before "[T2] starting"
+- No production code changes beyond `parallel.go:103-113` and `parallel.go:143`
+- `start_commit` preserved at `821edf2`
+### State transition: in_progress → implemented
+
+- All 7 `TestRunParallel_*` tests pass with `-race`
+- All board, scheduler, run, cmd packages pass with `-race`
+- Full `internal/...` test suite passes
+- First-pass `release-verify.sh`: **23/23 PASS**
+- Skeptic panel: skipped — runtime does not support subagent dispatch
+- Proof.md updated with round 5 fix details (divergence §8, delivered §, reachability artefact)
+- Next: `/verify-slice S02b-concurrent-scheduler 2026-06-19-safe-parallelism` in a fresh terminal

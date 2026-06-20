@@ -150,6 +150,22 @@ sworn run --parallel: loaded 3 tracks in 2 phases
 
 This proves: AC-3 (T1 fails → T3 skipped, T2 completes normally), AC-4 (error returned when any track fails).
 
+### Test: TestRunParallel_DependentTrackRunsAfterSuccess (AC-2, round 5)
+
+```
+sworn run --parallel: loaded 2 tracks in 2 phases
+[T1] starting
+[T1] running slice S01-t1-slice
+[T1] done
+[T2] starting
+[T2] running slice S02-t2-slice
+[T2] done
+[T1] result: PASS
+[T2] result: PASS
+RunParallel: all 2 tracks PASS (skipped: 0)
+```
+
+This proves AC-2: T1 passes → T2 (depends_on T1, phase 1) RUNS and passes — not skipped. Assertions: T2's `RunSliceFn` IS called (tracked via mutex-guarded `called` map), `RunParallel` returns nil.
 ### Test: TestRunTrack_MaterialisesWorktree
 
 ```
@@ -176,7 +192,7 @@ Proves the worktree materialisation branch (line 94-121 in worker.go) is exercis
   - `TestRunParallel_Basic` — 2-track fixture all pass
   - `TestRunParallel_FailureCascade` — T1 fail → T3 skipped, T2 passes (Verifier Fix 3)
   - `TestRunParallel_TimingConcurrency` — both tracks start before either completes (Verifier Fix 4)
-  - `TestRunParallel_ReleaseWorktreePathMissing` — error when path absent
+  - `TestRunParallel_DependentTrackRunsAfterSuccess` — AC-2 success path, dependent track runs after dependency passes (Verifier Fix, round 5)  - `TestRunParallel_ReleaseWorktreePathMissing` — error when path absent
   - `TestRunParallel_NoTracks` — error when no tracks
   - `TestRunParallel_MissingIndex` — error when index.md missing
 - `cmd/sworn/run.go`: Added `--parallel` and `--release` flags. In parallel mode, opens the database, creates a `RunSliceFn` closure wrapping `RunSlice()`, and calls `RunParallel()`. Single-slice mode unchanged.
@@ -209,7 +225,8 @@ Proves the worktree materialisation branch (line 94-121 in worker.go) is exercis
 6. **Forward-merge artefacts in diff range** — The diff base `821edf2..HEAD` includes 6 files from other slices and track merges... (same as prior round).
 
 7. **Round 3: TestCmdRun_Parallel (Gate 4 fix)** — Added `TestCmdRun_Parallel` to `cmd/sworn/run_test.go`, exercising the full CLI entry path through `cmdRun()` (lines 63‑90 of `run.go`). Also added `_ "modernc.org/sqlite"` import to `cmd/sworn/run_test.go` (not in original spec touchpoints) so the sqlite driver is registered for `openDefaultDB()` in tests. This addresses the verifier's Gate 4 violation — prior rounds proved `RunParallel()` directly; this round proves the CLI entry path is reachable.
-## First-pass script output
+
+8. **Round 5: context-chain fix (Gate 3+AC-2)** — Replaced `phaseCtx` chaining with a separate `failCtx` pattern at `parallel.go:103-113`. Prior code: `phaseCtx, phaseCancel = context.WithCancel(phaseCtx)` derived each phase's context from the previous (cancelled) phaseCtx, silently skipping dependent tracks in the success path. New code: `failCtx, failCancel := context.WithCancel(ctx)` for cross-phase failure propagation; each phase derives `phaseCtx` from `failCtx`. On track failure, `failCancel()` propagates to all subsequent phases. After `wg.Wait()`, `phaseCancel()` cleans up the local goroutine scope. Added `TestRunParallel_DependentTrackRunsAfterSuccess` proving the success path. No other production code changes.## First-pass script output
 
 ```
 $ $HOME/.claude/bin/release-verify.sh S02b-concurrent-scheduler 2026-06-19-safe-parallelism
