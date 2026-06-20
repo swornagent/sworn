@@ -146,3 +146,26 @@ No production code changes — all fixes are proof.md only.
 
 `skeptic_panel: skipped — runtime does not support subagent dispatch`
 (no Agent/Workflow subagent primitive available in current tooling).
+
+---
+
+## Verifier verdicts received (continued)
+
+### 2026-06-20 — Verifier session 3 (fresh context)
+
+**Verdict**: PASS
+
+**Verified against**: `2e1ac6e6f780092e2a345f98dde7b0c30bdc2007`
+
+**Verifier session**: fresh, artefact-only
+
+**Gate results**:
+
+- **Gate 1 (User-reachable outcome)**: PASS — `sworn run --task` → `cmd/sworn/run.go:cmdRun()` (line 121) → `run.Run()` → `sup.Reap()` (line 152) + `sup.Acquire("S01-task")` (line 160) + `defer sup.MustRelease("S01-task", StateDone)` (line 163). Entry point wired and user-reachable.
+- **Gate 2 (Touchpoints)**: PASS — `cmd/sworn/run.go` not changed (integration in `internal/run/run.go` instead); documented in proof.md Divergence #2. `.gitignore` + `internal/run/run.go` + `internal/run/run_test.go` additions all documented.
+- **Gate 3 (Required tests)**: PASS — all five required tests (`TestReapOnRestart`, `TestSingleOwnerEnforcement`, `TestPIDLiveness`, `TestSchemaCreationIdempotent`, `TestConcurrentWrites`) present, in diff, and confirmed PASS with `-race` in fresh run.
+- **Gate 4 (Reachability artefact)**: PASS — proof.md documents 7-step exact-command smoke procedure matching spec's "Document exact commands in proof.md" requirement. User gesture (run → kill → re-run observing "reaped N stale track(s)") explicitly documented.
+- **Gate 5 (No silent deferrals)**: PASS — "deferred" hits are in ADR-0003 documentation for Windows support and schema versioning; both are explicitly Out of Scope in spec Risks section. No TODO/FIXME/placeholder in production code.
+- **Gate 6 (Claimed scope)**: PASS — all delivered items verified against live repo: ADR-0003, `internal/db/` (Open, DefaultPath, tracks/events/schema_version tables, WAL, SetMaxOpenConns(1)), `internal/supervisor/` (Reap, Acquire, Release, MustRelease, pidAlive), `internal/run/run.go` supervisor integration, `.sworn/` in .gitignore, build passes.
+
+**Next step**: `/implement-slice S02a-run-refactor 2026-06-19-safe-parallelism` in a fresh session.

@@ -230,7 +230,7 @@ Phase 4:  T6 (after T2 + T5)
 
 | ID | Track | User outcome | State | Spec |
 |---|---|---|---|---|
-| `S01-process-ownership` | T1 | SQLite registry + reap-on-restart; single-owner identity | failed_verification | [spec](./S01-process-ownership/spec.md) |
+| `S01-process-ownership` | T1 | SQLite registry + reap-on-restart; single-owner identity | verified | [spec](./S01-process-ownership/spec.md) |
 | `S02a-run-refactor` | T1 | `run.RunSlice()` exported; callable from goroutine; no regression | planned | [spec](./S02a-run-refactor/spec.md) |
 | `S02b-concurrent-scheduler` | T1 | `sworn run --parallel` launches all independent tracks concurrently | planned | [spec](./S02b-concurrent-scheduler/spec.md) |
 | `S03-verify-under-concurrency` | T1 | Verify gate goroutine-safe and fail-closed at N>1 | planned | [spec](./S03-verify-under-concurrency/spec.md) |
@@ -268,8 +268,8 @@ Phase 4:  T6 (after T2 + T5)
 - Planned: 31
 - In progress: 0
 - Implemented: 0
-- Verified: 0
-- Failed verification: 1
+- Verified: 1
+- Failed verification: 0
 - Deferred: 0
 
 **Tracks:** Planned: 8 / In progress: 1 / Merged: 0
@@ -277,6 +277,13 @@ Phase 4:  T6 (after T2 + T5)
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice).
 
 ## Recent activity
+
+### 2026-06-20 — S01 verifier verdict: PASS
+
+- **Actor**: verifier (fresh context, session 3)
+- **Slice**: S01-process-ownership → state: verified
+- **All six gates passed.** Entry point wired (`sworn run --task` → `run.Run()` → `supervisor.Reap()/Acquire()`); touchpoint divergences documented; all required tests pass with `-race`; proof.md documents exact crash-and-reap smoke commands; no silent deferrals in code; all delivered items verified against live repo.
+- **Next**: `/implement-slice S02a-run-refactor 2026-06-19-safe-parallelism` in a fresh session.
 
 ### 2026-06-20 — S01 verifier verdict: FAIL (Gate 4 + Gate 6)
 
