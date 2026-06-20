@@ -7,9 +7,9 @@ tracks:
   - id: T1-concurrency-core
     slices: [S01-process-ownership, S02a-run-refactor, S02b-concurrent-scheduler, S03-verify-under-concurrency]
     depends_on: null
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T1-concurrency-core
     worktree_branch: track/2026-06-19-safe-parallelism/T1-concurrency-core
-    state: planned
+    state: in_progress
   - id: T2-monitoring
     slices: [S04a-tui-foundation, S04b-tui-live, S04c-tui-resolution, S05-overclaim-benchmark]
     depends_on: T1-concurrency-core
