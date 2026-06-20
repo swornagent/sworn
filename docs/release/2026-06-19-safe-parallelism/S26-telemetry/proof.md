@@ -12,6 +12,7 @@ cmd/sworn/main.go
 cmd/sworn/telemetry.go
 docs/release/2026-06-19-safe-parallelism/S26-telemetry/design.md
 docs/release/2026-06-19-safe-parallelism/S26-telemetry/journal.md
+docs/release/2026-06-19-safe-parallelism/S26-telemetry/proof.md
 docs/release/2026-06-19-safe-parallelism/S26-telemetry/status.json
 internal/telemetry/telemetry.go
 internal/telemetry/telemetry_test.go
@@ -19,24 +20,27 @@ internal/telemetry/telemetry_test.go
 
 Plus `cmd/sworn/telemetry.go` and `internal/telemetry/telemetry.go` and `internal/telemetry/telemetry_test.go` are new files (not just renamed).
 
+Note: the tracked binary `sworn` that was committed in the original implementation was removed via `git rm --cached sworn` (part of the V1 fix addressing verifier Gate 2 violation). `.gitignore` has `/sworn` to prevent re-addition.
+
 ## Test results
 
 ### Go
 
 ```
 $ go test -race ./internal/telemetry/...
-ok  	github.com/swornagent/sworn/internal/telemetry	1.223s
+ok  	github.com/swornagent/sworn/internal/telemetry	1.227s
 ```
 
-All 18 tests pass with no data races:
+All 19 tests pass with no data races:
 
 - TestIsEnabled_EnvVar — PASS
 - TestIsEnabled_Sentinel — PASS
+- TestIsEnabled_Neither — PASS (newly added per Gate 3 violation fix)
 - TestIsEnabled_OptedIn_NoOverrides — PASS
 - TestInstallIDIdempotent — PASS
 - TestInstallIDWriteFailure — PASS
 - TestFireSchema — PASS
-- TestFireNonBlocking — PASS
+- TestFireNonBlocking — PASS (threshold tightened to 10ms per AC8)
 - TestFireSilentOnError — PASS
 - TestFireTelemetryMetaCommandExcluded — PASS
 - TestShowDisclosure_FirstRun — PASS
@@ -69,10 +73,11 @@ $ go build ./cmd/sworn/...
 - AC5 — `sworn telemetry status` prints `telemetry: enabled` or `telemetry: disabled` and the mechanism. Evidence: `cmd/sworn/telemetry.go` → `telemetryStatus()`.
 - AC6 — `SWORN_NO_TELEMETRY=1 sworn run --task "x"` completes without firing any HTTP request even when `.telemetry-enabled` exists. Evidence: `TestIsEnabled_EnvVar` (env var wins).
 - AC7 — A successful telemetry event POSTed to `httptest.NewServer` contains exactly the fields in the schema and no others. Evidence: `TestFireSchema` (validates exact field set via JSON marshal/unmarshal of event struct + full HTTP flow validation).
-- AC8 — `sworn run` exits within 100ms of the run completing regardless of whether the telemetry endpoint is reachable (non-blocking confirmed). Evidence: `TestFireNonBlocking` (5s server sleep, Fire() returns in <100ms).
+- AC8 — `sworn run` exits within 10ms of the run completing regardless of whether the telemetry endpoint is reachable (non-blocking confirmed). Evidence: `TestFireNonBlocking` (5s server sleep, Fire() returns in <10ms).
 - AC9 — `install-id` file contains a valid UUIDv4; running `sworn` twice produces the same install-id. Evidence: `TestInstallIDIdempotent` (same UUID on repeated calls, file written once).
 - AC10 — If `~/.config/sworn/` cannot be created, sworn runs normally and telemetry fires with `install_id: ""`; no panic. Evidence: `TestInstallIDWriteFailure` (returns "" without panic).
 - AC11 — `go test -race ./internal/telemetry/...` passes. Evidence: full test suite above.
+- AC (new, implicit from Gate 3 fix) — `TestIsEnabled_Neither`: no sentinel files exist → `IsEnabled()` returns false (telemetry disabled until init runs). Evidence: `TestIsEnabled_Neither`.
 
 ## Not delivered
 
@@ -84,6 +89,7 @@ $ go build ./cmd/sworn/...
 - **Config path**: Changed from `os.UserConfigDir()` (design §2.2, initial proposal) to hardcoded `~/.config/sworn/` per Coach Pin 5 option (a), matching spec ACs exactly. Updated in implementation.
 - **Fire() signature**: Added `swornVersion string` parameter (Coach Pin 8 option (a)) — `Fire(cmd, sub, swornVersion string, durationMS int64, exitCode int)` — so the caller in `cmd/sworn/main.go` passes the build-time version, avoiding circular imports.
 - **Meta-command exclusion**: Coach Pin 4 option (a) — only `sworn telemetry *` is excluded from firing; `sworn version` and `sworn help` still fire (spec was silent on this).
+- **TestFireNonBlocking threshold**: Tightened from 100ms to 10ms to match spec AC8 ("sworn run exits within 10ms"). The spec's Required Tests section originally said <100ms; the AC is binding. The goroutine launch overhead is well under 1ms in practice, so 10ms is a generous margin.
 
 ## First-pass script output
 

@@ -54,6 +54,44 @@
 
 **Violation 2 (Gate 3 — required test absent):** Spec names `TestIsEnabled_Neither` as a required test (no env var, no sentinel → `IsEnabled()` returns false). journal.md Flag (a) notes "Renamed TestIsEnabled_Neither → TestIsEnabled_OptedIn_NoOverrides," but the renamed test covers a different path — it tests `.telemetry-enabled` present → true (case 3 in the logic). Case 4 (neither sentinel file exists → `IsEnabled()` returns false) — the "init not run → telemetry disabled" default — is covered by no test. Fix: add `TestIsEnabled_Neither` (or equivalent) that creates a clean temp home with no sentinel files and asserts `IsEnabled() == false`.
 
-**Violation 3 (Gate 6 — claimed scope vs spec threshold):** Spec AC8 states "sworn run exits within 10ms." `TestFireNonBlocking` uses a 100ms threshold (10× more permissive). proof.md claims AC8 delivered against 100ms, not 10ms, without listing this in "Divergence from plan." The spec's `Required tests` section also says 100ms (internal contradiction), but the AC is the primary gate. Fix: either tighten the test to ≤10ms, or document the threshold divergence in proof.md "Divergence from plan" with rationale (goroutine-launch overhead in practice is ≪10ms; the test margin is deliberately conservative).
+**Violation 3 (Gate 6 — claimed scope vs spec threshold):** Spec AC8 states "sworn run exits within 10ms." `TestFireNonBlocking` uses a 100ms threshold (10x more permissive). proof.md claims AC8 delivered against 100ms, not 10ms, without listing this in "Divergence from plan." The spec's `Required tests` section also says 100ms (internal contradiction), but the AC is the primary gate. Fix: either tighten the test to ≤10ms, or document the threshold divergence in proof.md "Divergence from plan" with rationale (goroutine-launch overhead in practice is ≪10ms; the test margin is deliberately conservative).
 
 - **Next**: `/implement-slice S26-telemetry 2026-06-19-safe-parallelism` in a fresh session to address all 3 violations.
+
+## Session 2: Re-entry — address verifier violations (2026-06-28)
+
+### State transitions
+- `failed_verification` → `in_progress` (commit e5759fa)
+  - Re-entering implementation per verifier verdict; design unchanged
+  - Cleared stale verification.result
+  - Preserved start_commit (6593323)
+  - Re-entry triggered via `/implement-slice S26-telemetry 2026-06-19-safe-parallelism`
+
+### Violations addressed
+
+**V1 (Gate 2 — tracked binary `sworn`):**
+- Ran `git rm --cached sworn` to remove the binary from git tracking
+- Verified: `git ls-files sworn` returns error (not tracked)
+- `.gitignore` already has `/sworn` to prevent re-addition
+
+**V2 (Gate 3 — missing `TestIsEnabled_Neither`):**
+- Added `TestIsEnabled_Neither` before existing `TestIsEnabled_OptedIn_NoOverrides`
+- Test creates a clean temp home dir with no sentinel files, asserts `IsEnabled() == false`
+- This covers case 4 (no consent yet → telemetry disabled)
+
+**V3 (Gate 6 — AC8 10ms threshold):**
+- Tightened `TestFireNonBlocking` threshold from 100ms to 10ms
+- Updated proof.md AC8 claim and Divergence from plan
+- Goroutine launch overhead is <1ms in practice; 10ms is a generous margin
+
+### Commit
+- `f46ea72 fix(telemetry): address verifier violations — rm tracked binary, add TestIsEnabled_Neither, tighten Fire latency to 10ms`
+
+### Test results
+- `go test -race ./internal/telemetry/...` — PASS (19 tests, 1 added)
+- `go build ./...` — compiles
+- `go test ./...` — all existing tests pass
+
+### Open items (unchanged from Session 1)
+- AC1/AC2 remain deferred to T3/S09
+- api.sworn.sh/v1/events backend not yet live
