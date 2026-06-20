@@ -21,8 +21,8 @@ internal/tui/releases.go
 internal/tui/styles.go
 internal/tui/tui.go
 internal/tui/tui_test.go
-```## Test results
-
+```
+## Test results
 ```
 $ go test ./internal/tui/... -v -count=1
 === RUN   TestReleasesListPopulates
