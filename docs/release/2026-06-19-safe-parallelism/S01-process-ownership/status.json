@@ -3,10 +3,10 @@
   "slice_id": "S01-process-ownership",
   "release": "2026-06-19-safe-parallelism",
   "track": "T1-concurrency-core",
-  "state": "failed_verification",
+  "state": "in_progress",
   "owner": "agent",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-20T00:00:00Z",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-06-26T00:00:00Z",
   "start_commit": "57f37028b0561ea964a84c2da7aee4fd47cd2c9b",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S01-process-ownership/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S01-process-ownership/proof.md",
@@ -43,13 +43,10 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "fail",
+    "result": "",
     "verifier_session_id": null,
-    "verifier_verdict_at": "2026-06-20T00:00:00Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      "Gate 4 — proof.md reachability artefact lacks required exact smoke-step commands (crash-and-reap cycle); spec requires them to be documented in proof.md",
-      "Gate 6 — proof.md Delivered claims cmd/sworn/run.go was updated but it is not in the git diff; actual supervisor integration is in internal/run/run.go; replan required this correction before re-verification"
-    ]
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": false,
+    "violations": []
   }
 }
