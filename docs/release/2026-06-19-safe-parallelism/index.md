@@ -280,6 +280,14 @@ Phase 4:  T6 (after T2 + T5)
 
 ## Recent activity
 
+### 2026-06-21 — S02b verifier verdict: FAIL (round 4, 2 violations)
+
+- **Actor**: verifier (fresh context, Rule 7 compliant)
+- **Slice**: S02b-concurrent-scheduler → state: failed_verification
+- **Violation 1 (Gate 3 + AC-2)**: Context-chain bug in `RunParallel` (`parallel.go:110`): `phaseCtx, phaseCancel = context.WithCancel(phaseCtx)` derives each phase's context from the previous (cancelled) phase context. After phase 0 completes and `phaseCancel()` is called, phase 1's context is immediately cancelled. All dependent tracks (phase 1+) are skipped with "depends_on failed (phase barrier)" even when their dependencies PASS. Verified: T1 passes → T2 (depends_on T1) is SKIPPED. Fix: `context.WithCancel(ctx)` at `parallel.go:110`.
+- **Violation 2 (Gate 3)**: No test covers the AC-2 success path. All existing tests use single-phase plans (no deps exercised). The bug persisted through 4 rounds because no test placed a dependent track in phase 1 with a passing dependency.
+- **Next**: `/implement-slice S02b-concurrent-scheduler 2026-06-19-safe-parallelism` in a fresh session. Fix: (1) change `context.WithCancel(phaseCtx)` → `context.WithCancel(ctx)` at `parallel.go:110`; (2) add `TestRunParallel_DependentTrackRunsAfterSuccess` in `parallel_test.go`.
+
 ### 2026-06-21 — S02b verifier verdict: FAIL (round 3, 1 violation)
 
 - **Actor**: verifier (fresh context, Rule 7 compliant)

@@ -162,3 +162,22 @@ The prior round-2 fix substituted unit-test output from `TestRunParallel_TimingC
 - Proof.md updated with CLI reachability artefact
 - Skeptic panel: skipped — runtime does not support subagent dispatch
 - Next: `/verify-slice S02b-concurrent-scheduler 2026-06-19-safe-parallelism` in a fresh terminal
+
+## Verifier verdicts received (round 4)
+
+### 2026-06-21 — Verifier verdict: FAIL
+
+FAIL
+
+Slice: `S02b-concurrent-scheduler`
+
+Violations:
+
+1. **Gate 3 + AC-2 — context-chain bug silently skips dependent tracks in the success path**: `RunParallel` uses `phaseCtx, phaseCancel = context.WithCancel(phaseCtx)` at `parallel.go:110`. After phase 0 completes and `phaseCancel()` is called at line 147, `phaseCtx` holds the now-cancelled phase-0 context. Phase 1's context is derived from this cancelled parent, making it immediately cancelled. All tracks in phase 1 (and beyond) are skipped with "[T] skipped: depends_on failed (phase barrier)" — even when every phase-0 track PASSED. Verified with a fresh test: T1 passes, T2 (`depends_on: T1`) is SKIPPED; `RunParallel` reports "all 2 tracks PASS (skipped: 1)." The fix is to derive each phase's context from `ctx` (the original parent), not from the previous phase's (cancelled) `phaseCtx`. Spec AC-2 ("T3 does not log starting until T1 logs done") requires T3 to START and RUN after T1 completes — instead it is silently skipped.
+
+2. **Gate 3 — no test covers the AC-2 success path**: The test suite verifies the failure cascade (T1 fails → T3 skipped) but has no test for the success path (T1 passes → T2/T3 runs). `TestRunParallel_FailureCascade` and `TestRunParallel_TimingConcurrency` both use single-phase plans (all tracks independent, no `depends_on`). No test places a dependent track in phase 1 and asserts it RUNS after its dependency passes. The bug persisted through four rounds because this case was never exercised.
+
+Required to address:
+
+1. Fix `RunParallel` at `parallel.go:110`: change `context.WithCancel(phaseCtx)` to `context.WithCancel(ctx)` so each phase derives its cancel scope from the original parent context rather than the previous (cancelled) `phaseCtx`.
+2. Add `TestRunParallel_DependentTrackRunsAfterSuccess` (or equivalent) in `parallel_test.go`: 2-track fixture, T1 (phase 0) passes, T2 (`depends_on: T1`, phase 1) must run and pass. Assert T2's `RunSliceFn` is called.
