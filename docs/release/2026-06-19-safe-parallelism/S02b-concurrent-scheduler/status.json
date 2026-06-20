@@ -3,10 +3,10 @@
   "slice_id": "S02b-concurrent-scheduler",
   "release": "2026-06-19-safe-parallelism",
   "track": "T1-concurrency-core",
-  "state": "failed_verification",
+  "state": "in_progress",
   "owner": "human",
-  "last_updated_by": "verifier",
-  "last_updated_at": "2026-06-21T00:00:00Z",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-06-27T00:00:00Z",
   "start_commit": "821edf2",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S02b-concurrent-scheduler/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S02b-concurrent-scheduler/proof.md",
@@ -46,11 +46,5 @@
     "docs/release/2026-06-19-safe-parallelism/S02b-concurrent-scheduler/proof.md (Reachability artefact section)"
   ],
   "open_deferrals": [],
-  "verification": {
-    "result": "fail",
-    "violations": [
-      "Gate 4 — No binary invocation or cmdRun()-level test for --parallel flag path in cmd/sworn/run.go. Spec prescribes smoke step 'sworn run --parallel --release <fixture>'; proof substitutes unit test output from TestRunParallel_TimingConcurrency (calls RunParallel() directly, bypasses CLI entry point). cmdRun() lines 63-91 (DB open, RunSliceFn closure, RunParallel dispatch) unproven."
-    ],
-    "verifier_was_fresh_context": true,
-    "verifier_verdict_at": "2026-06-21T00:00:00Z"
-  }}
+  "verification": {}
+}
