@@ -1,7 +1,7 @@
 ---
 title: 'Release board — 2026-06-19-safe-parallelism'
 description: 'R3 — safe parallelism: concurrent multi-track delivery, fail-closed verify gate under concurrency, sworn TUI cockpit, overclaim benchmark, sworn login credits on-ramp, webhook paging, and MCP server for AI-driven planning + resolution.'
-release_worktree_path:
+release_worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism
 release_worktree_branch: release-wt/2026-06-19-safe-parallelism
 tracks:
   - id: T1-concurrency-core
