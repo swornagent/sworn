@@ -52,6 +52,12 @@ tracks:
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T8-memory
     state: planned
+  - id: T9-telemetry
+    slices: [S26-telemetry]
+    depends_on: T1-concurrency-core
+    worktree_path:
+    worktree_branch: track/2026-06-19-safe-parallelism/T9-telemetry
+    state: planned
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
@@ -90,12 +96,13 @@ tracks:
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
 | `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | planned |
 | `T8-memory` | S23 → S24 → S25 | T1 | `track/.../T8-memory` | planned |
+| `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | planned |
 
 ### Execution order
 
 ```
 Phase 1:  T1 (sequential)
-Phase 2:  T2, T3, T4, T8 (parallel after T1)
+Phase 2:  T2, T3, T4, T8, T9 (parallel after T1)
 Phase 3:  T5 (after T1 + T3)
           T7 (after T3 + T4; may run in parallel with T5)
 Phase 4:  T6 (after T2 + T5)
@@ -108,8 +115,8 @@ Phase 4:  T6 (after T2 + T5)
 > `(dep)` notation means the track writes this file only after the named dependency merges
 > — the dep-edge serialises writes so they are not truly concurrent.
 
-| File / surface | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 |
-|---|---|---|---|---|---|---|------|---|
+| File / surface | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+|---|---|---|---|---|---|---|------|---|---|
 | `docs/adr/0003-sqlite-orchestration-state.md` | ✓ | | | | |  |
 | `docs/adr/0004-dep-policy-minimal-justified.md` (new) | | | | | ✓ |  |
 | `CLAUDE.md` | | | | | ✓ |  |
@@ -183,8 +190,9 @@ Phase 4:  T6 (after T2 + T5)
 | `docs/templates/agents.md` (new) | | | ✓ | | | | |
 | `cmd/sworn/mcp.go` (new) | | | | ✓ | |  |
 | `docs/mcp-setup.md` (new) | | | | ✓ | |  |
-| `internal/memory/` (new) | | | | | | | ✓ |
-| `cmd/sworn/memory.go` (new) | | | | | | | ✓ |
+| `internal/memory/` (new) | | | | | | | ✓ | |
+| `cmd/sworn/memory.go` (new) | | | | | | | ✓ | |
+| `internal/telemetry/` (new) | | | | | | | | ✓ |
 
 **T3 `depends_on T1` notes:**
 - `internal/run/run.go`: S07 adds notification calls; serialised by dep edge
@@ -253,21 +261,34 @@ Phase 4:  T6 (after T2 + T5)
 | `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | planned | [spec](./S23-memory-config/spec.md) |
 | `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | planned | [spec](./S24-memory-engine/spec.md) |
 | `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | planned | [spec](./S25-memory-search/spec.md) |
+| `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | planned | [spec](./S26-telemetry/spec.md) |
 
 ## Aggregate state
 
-- Planned: 30
+- Planned: 31
 - In progress: 0
 - Implemented: 1
 - Verified: 0
 - Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 7 / In progress: 1 / Merged: 0
+**Tracks:** Planned: 8 / In progress: 1 / Merged: 0
 
-> Note: T3 now has 7 slices; T4 now has 4 slices; T8 is new (3 slices).
+> Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice).
 
 ## Recent activity
+
+### 2026-06-20 — replan: T9-telemetry added (S26; anonymous usage telemetry)
+
+- **Actor**: planner (Claude)
+- **Note**: Added T9-telemetry (depends T1, parallel Phase 2). Single slice S26:
+  anonymous command telemetry to api.sworn.sh/v1/events. Schema: cmd, sub,
+  duration_ms, exit_code, sworn_version, os/arch, anonymous install_id (UUIDv4).
+  No code/paths/content collected. Opt-out via SWORN_NO_TELEMETRY env var or
+  ~/.config/sworn/.no-telemetry sentinel file. First-run disclosure on stderr.
+  Client fails silently if api.sworn.sh is unreachable (ships ready; backend
+  goes live separately). No new external deps (stdlib net/http only). cmd/sworn/
+  main.go wrap is additive. Release now 32 slices across 9 tracks.
 
 ### 2026-06-20 — replan: T8-memory added (S23/S24/S25; cross-harness semantic memory search)
 
@@ -428,6 +449,12 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - **T8 `depends_on T1`**: S24 uses `modernc.org/sqlite` from go.mod (added by S01).
   T8 starts after T1 merges. `internal/memory/` is entirely new; no collision with
   any other track. `cmd/sworn/memory.go` is new; additive dispatch to `main.go` only.
+- **T9 `depends_on T1`**: `internal/telemetry/` is entirely new. `cmd/sworn/main.go`
+  touch is additive (wrap dispatch + disclosure call). No collision with any track.
+  T9 can start immediately after T1 merges, parallel with T2/T3/T4/T8.
+- **S26 `api.sworn.sh` backend**: endpoint may not be live at R3 ship time.
+  `Fire()` silently drops on any network error — no user impact. Telemetry begins
+  flowing once the SwornAgent backend endpoint is deployed.
 - **S25 touches `~/.claude/bin/captain-memory-search.py`**: This is a baton install
   file, not in the repo. S25 spec documents the shim update as an out-of-tree
   deliverable; the implementer applies it to the local baton install and notes the
