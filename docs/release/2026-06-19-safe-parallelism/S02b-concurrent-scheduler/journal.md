@@ -104,3 +104,20 @@ Violations:
 Required to address:
 1. Change `start_commit` in status.json from `d9ff1b1` to `821edf2` (the original round-1 start commit that immediately precedes the core implementation commit `5bb3666`). With `821edf2..HEAD` as the diff range, all planned touchpoints and both rounds of test additions appear in scope.
 2. Update proof.md "Files changed" to accurately list all files changed from `821edf2..HEAD`, removing the false claim about `d9ff1b1` content. The updated section should enumerate the core implementation files (from `5bb3666`) alongside the test additions (from `d9ff1b1`) and the proof updates.
+## 2026-07-01 — Third session (start_commit fix)
+
+### State transition: failed_verification → in_progress
+
+Verifier violation (Gate 2 — single issue) addressed:
+
+1. **start_commit fix** (Violation 1): Changed `start_commit` from `d9ff1b1` to `821edf2` in status.json. With `821edf2..HEAD`, all planned touchpoints (scheduler.go, worker.go, parallel.go, track.go, run.go, and all test files) are captured in the diff range (14 commits).
+2. **proof.md fix** (Violation 2): Rewrote "Files changed" section to accurately enumerate all files from `821edf2..HEAD` and removed the false claim about `d9ff1b1` containing core implementation files. Added note about non-slice files in the diff range.
+
+No code changes needed — all implementation and tests were correct in round 2. The only issue was the start_commit pointer and matching proof.md prose.
+
+### State transition: in_progress → implemented
+- All tests pass with `-race` across all packages
+- First-pass `release-verify.sh`: **PASS**
+- Proof.md updated with accurate Files-changed section
+- Skeptic panel: skipped — runtime does not support subagent dispatch
+- Next: `/verify-slice S02b-concurrent-scheduler 2026-06-19-safe-parallelism` in a fresh terminal

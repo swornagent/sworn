@@ -3,12 +3,9 @@
   "slice_id": "S02b-concurrent-scheduler",
   "release": "2026-06-19-safe-parallelism",
   "track": "T1-concurrency-core",
-  "state": "failed_verification",
-  "owner": "human",
+  "state": "implemented",  "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-01T00:00:00Z",
-  "start_commit": "d9ff1b1",
-  "spec_path": "docs/release/2026-06-19-safe-parallelism/S02b-concurrent-scheduler/spec.md",
+  "last_updated_at": "2026-07-01T03:00:00Z",  "start_commit": "821edf2",  "spec_path": "docs/release/2026-06-19-safe-parallelism/S02b-concurrent-scheduler/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S02b-concurrent-scheduler/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S02b-concurrent-scheduler/journal.md",
   "planned_files": [
@@ -47,11 +44,8 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "fail",
-    "violations": [
-      "Gate 2 — start_commit d9ff1b1 captures only re-implementation test additions; planned touchpoints (scheduler.go, worker.go, parallel.go, track.go, run.go, scheduler_test.go) were committed in 5bb3666 which predates d9ff1b1. git diff --name-only d9ff1b1 shows only docs/prompt/binary files. proof.md falsely claims core files are in d9ff1b1. Fix: change start_commit to 821edf2 and update proof.md Files-changed section."
-    ],
-    "verifier_was_fresh_context": true,
-    "verifier_verdict_at": "2026-07-01T00:00:00Z"
-  }
-}
+    "result": "",
+    "violations": [],
+    "verifier_was_fresh_context": false,
+    "verifier_verdict_at": ""
+  }}
