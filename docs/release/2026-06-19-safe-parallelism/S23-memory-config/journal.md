@@ -38,3 +38,31 @@ See `status.json.design_decisions`.
 
 - `cmd/sworn/main.go` shared with T3 (S06a-sworn-login-auth) and T4 (S08a-mcp-transport) — additive merge only.
 - `internal/memory/` package is exclusive to T8-memory.
+## 2026-06-27 — Implementation complete
+
+**State transition:** `in_progress` → `implemented`
+
+### Files created
+- `internal/memory/config.go` — MemoryConfig struct, Load(), Defaults(), EncodeProjectPath(), mergeOverrides(), validateHarnesses(), error types
+- `internal/memory/harness.go` — HarnessInfo struct, ListHarnesses(), HarnessMemoryPath(), harnessDisplayName()
+- `internal/memory/config_test.go` — 8 tests: TestEncodeProjectPath, TestLoadMerge, TestDefaultsAutoDetect, TestUnknownHarness, TestAPIKeyEnvNotLeaked, TestIsValidHarnessID, TestIsValidEmbeddingProvider, TestHarnessMemoryPath
+- `cmd/sworn/memory.go` — cmdMemory() + cmdMemoryStatus() CLI entry points
+- `cmd/sworn/memory_test.go` — 4 integration tests: TestCmdMemory_Status_NoConfig, TestCmdMemory_Status_WithConfig, TestCmdMemory_Status_SetAPIKey, TestCmdMemory_Status_UnknownHarness
+
+### Files edited
+- `cmd/sworn/main.go` — added `case "memory":` dispatch (additive; 3-way merge touchpoint)
+- `docs/release/2026-06-19-safe-parallelism/S23-memory-config/status.json` — updated state, design_decisions, open_deferrals, start_commit, actual_files, verification cleared
+
+### Verification
+- `go test -race ./internal/memory/...` — PASS
+- `go test -race ./cmd/sworn/...` — PASS
+- `go build ./...` — PASS
+- `release-verify.sh S23-memory-config 2026-06-19-safe-parallelism` — all deterministic checks PASS
+
+### Reachability
+- `sworn memory status` with no config file: shows "using defaults" + auto-detected Claude Code path
+- `sworn memory status` with project config: shows loaded file, configured harnesses, embedding provider, index path
+- `sworn memory status` with unknown harness: error message listing known IDs
+
+### Pending
+- Adversarial verification (Rule 7) via `/verify-slice S23-memory-config 2026-06-19-safe-parallelism`
