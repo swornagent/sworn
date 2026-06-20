@@ -239,7 +239,7 @@ Phase 4:  T6 (after T2 + T5)
 | `S04b-tui-live` | T2 | Live concurrent track status from DB (1s poll) + credit balance in header | planned | [spec](./S04b-tui-live/spec.md) |
 | `S04c-tui-resolution` | T2 | Blocked slice TL;DR panel + options + open in Claude Code / Codex | planned | [spec](./S04c-tui-resolution/spec.md) |
 | `S05-overclaim-benchmark` | T2 | Overclaim rate flat at N=1/2/4; published benchmark artefact | planned | [spec](./S05-overclaim-benchmark/spec.md) |
-| `S06a-sworn-login-auth` | T3 | `sworn login` device-code flow; credentials file; `sworn logout` | planned | [spec](./S06a-sworn-login-auth/spec.md) |
+| `S06a-sworn-login-auth` | T3 | `sworn login` device-code flow; credentials file; `sworn logout` | failed_verification | [spec](./S06a-sworn-login-auth/spec.md) |
 | `S06b-sworn-proxy-credits` | T3 | Model calls route via SwornAgent proxy; `sworn account buy`; credit display | planned | [spec](./S06b-sworn-proxy-credits/spec.md) |
 | `S07-paging` | T3 | FAIL/BLOCKED fires webhook + email; developer paged without watching terminal | planned | [spec](./S07-paging/spec.md) |
 | `S08a-mcp-transport` | T4 | `sworn mcp` JSON-RPC server; initialize handshake; tools scaffold | planned | [spec](./S08a-mcp-transport/spec.md) |
@@ -266,19 +266,29 @@ Phase 4:  T6 (after T2 + T5)
 
 ## Aggregate state
 
-- Planned: 28
-- In progress: 0
+- Planned: 23
+- In progress: 4
 - Design review: 0
 - Implemented: 0
 - Verified: 4
-- Failed verification: 0
+- Failed verification: 1
 - Deferred: 0
 
-**Tracks:** Planned: 8 / Ready to merge: 0 / Merged: 1
+**Tracks:** Planned: 4 / In progress: 4 / Ready to merge: 0 / Merged: 1
 
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice).
 
 ## Recent activity
+
+### 2026-06-21 — S06a verifier verdict: FAIL (round 1, 3 violations)
+
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **Slice**: S06a-sworn-login-auth → state: **failed_verification** (commit 4123974)
+- **Violation 1 (Gate 3)**: Required reachability smoke step not executed. Spec lists "smoke step against a staging SwornAgent auth endpoint (or a locally-run stub). Document the stub command and output in proof.md" as a Required Test. All commands in proof.md are commented out with placeholder content (`# package main`, `# etc.`). No captured output of `sworn login` against a mock server.
+- **Violation 2 (Gate 3)**: AC2 directory mode 0700 not verified. TestSaveCreatesDir creates a fresh directory but only checks existence. TestSaveMode0600 checks mode on a pre-existing TempDir (os.MkdirAll is a no-op on existing dirs).
+- **Violation 3 (Gate 6)**: Proof.md AC2 evidence references TestSaveCreatesDir as proving mode 0700, but the test only verifies existence.
+- **All other gates (1, 2, 5) passed.** Implementation is functionally correct; `go test -v ./internal/account/...` 10/10 PASS; `go test ./...` all packages pass; `go vet ./...` clean; all six touchpoints wired.
+- **Next**: `/implement-slice S06a-sworn-login-auth 2026-06-19-safe-parallelism` in a fresh session to address the 3 violations.
 
 ### 2026-06-21 — track `T1-concurrency-core` merged to release-wt (commit 581b6a9)
 

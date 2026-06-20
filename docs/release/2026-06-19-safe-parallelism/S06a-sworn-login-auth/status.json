@@ -3,10 +3,10 @@
   "slice_id": "S06a-sworn-login-auth",
   "release": "2026-06-19-safe-parallelism",
   "track": "T3-commercial",
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-21T12:00:00Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-21T14:00:00Z",
   "start_commit": "a7ff5844ab30b65b24d94c462456efa6f9669b59",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S06a-sworn-login-auth/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S06a-sworn-login-auth/proof.md",
@@ -17,10 +17,14 @@
   "reachability_artifacts": ["go test -v -count=1 ./internal/account/... (PASS: 10/10)","go build ./... (PASS)"],
   "open_deferrals": [],
   "verification": {
-    "result": "",
+    "result": "fail",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
+    "verifier_verdict_at": "2026-06-21T14:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "Gate 3 — Required reachability smoke step not executed. Spec lists smoke step as a Required Test; all commands in proof.md are commented out with placeholder content; no output of running `sworn login` against a mock server is captured.",
+      "Gate 3 — AC2 directory mode 0700 not verified. TestSaveCreatesDir creates a fresh directory but only checks existence. TestSaveMode0600 checks mode on a pre-existing TempDir where os.MkdirAll is a no-op.",
+      "Gate 6 — Proof.md AC2 evidence says 'TestSaveCreatesDir creates subdirectory and verifies existence'; AC2 requires mode 0700 verification; cited test only checks existence."
+    ]
   }
 }

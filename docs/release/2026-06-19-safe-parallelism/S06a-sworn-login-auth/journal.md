@@ -53,3 +53,22 @@ Production files created:
 Files touched:
 - `internal/config/config.go` — added ConfigDir() helper
 - `cmd/sworn/main.go` — added login, logout, account dispatch cases (additive only)
+
+## Verifier verdicts received
+
+### 2026-06-21 — FAIL (round 1)
+
+**Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+**Verified at commit**: 4123974
+
+**Verdict**: FAIL
+
+Violations:
+1. Gate 3 — Required reachability smoke step not executed. Spec lists "Reachability artefact: smoke step against a staging SwornAgent auth endpoint (or a locally-run stub). Document the stub command and output in proof.md" under Required Tests. All smoke step commands in proof.md are commented out with placeholder content (`# package main`, `# etc.`, `# EOF`). No actual output of running `sworn login` against a mock server is captured.
+2. Gate 3 — AC2 ("~/.config/sworn/ directory is created with mode 0700 if it does not exist") is not verified by any test on a freshly-created directory. TestSaveCreatesDir creates a fresh directory (`filepath.Join(t.TempDir(), "subdir", "sworn")`) but only checks existence — no mode assertion. TestSaveMode0600 checks mode on a pre-existing TempDir where os.MkdirAll is a no-op on the existing dir; the mode check passes trivially on the TempDir's pre-existing permissions, not on a directory Save() created.
+3. Gate 6 — Proof.md AC2 evidence says "TestSaveCreatesDir creates subdirectory and verifies existence." AC2 requires mode 0700 verification; the cited test only checks existence. Claimed scope doesn't match implemented evidence.
+
+Required to address:
+1. Run `sworn login` against a locally-run mock stub HTTP server; capture the actual terminal output (device code printed, verification URL printed, "Logged in as" message). Document both the mock server command and the `sworn login` output in proof.md's Reachability artefact section.
+2. Add a directory mode assertion to TestSaveCreatesDir: after verifying the directory exists, assert `info.Mode().Perm() == 0700` for the freshly-created directory. Alternatively, update TestSaveMode0600 to use a nested subdirectory path so os.MkdirAll actually creates it.
+3. Update proof.md AC2 evidence to reference the mode assertion.
