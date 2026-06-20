@@ -28,6 +28,10 @@ All diagnostic logs go to stderr; stdout is reserved for the protocol.
 	}
 
 	server := mcp.New()
+	// Register operations tools (S08b) — get_board, get_blocked, get_slice_context,
+	// rerun_slice, patch_slice, approve_merge, defer_slice, get_credits, list_releases.
+	// Planning tools (S08c) register here in a later slice.
+	mcp.RegisterOpsTools(server, ".")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
