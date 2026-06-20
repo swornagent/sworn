@@ -1,6 +1,6 @@
 ---
 title: 'S22-sworn-doctor — prompt integrity checks and legacy Baton artifact detection'
-description: 'sworn doctor verifies the structural integrity of all embedded role prompts and Baton protocol docs, warns on legacy per-repo Baton artifacts (docs/baton/, old-style AGENTS.md splice), and optionally checks the developer''s ~/.claude/baton/ for sync with the embedded canonical version. Surfaces actionable repair steps, not just errors.'
+description: 'sworn doctor verifies embedded prompt integrity, warns on legacy Baton artifacts, checks dependency version freshness (sworn''s own deps and the project dependency catalog), and optionally syncs ~/.claude/baton/. Surfaces actionable repair steps with specific commands.'
 ---
 
 # Slice: `S22-sworn-doctor`
@@ -37,8 +37,10 @@ For each embedded prompt (`planner.md`, `implementer.md`, `verifier.md`, `captai
   (defined as a constant in doctor.go):
   - `planner.md`: must contain `## Phase 1`, `## Phase 2`, `## Phase 3`, `## Phase 4`,
     `## Re-planning a release in flight`
-  - `implementer.md`: must contain `## Deviation check` (added by S19)
-  - `verifier.md`: must contain `## Catalog conformance check` (added by S19)
+  - `implementer.md`: must contain `## Dependency discipline` and `## Deviation check`
+    (both added by S19); "Dependency discipline" must appear before "Deviation check"
+  - `verifier.md`: must contain `## Catalog conformance check` and the phrase
+    "independently query the package registry" (adversarial dep check, added by S19)
   - `baton/rules.md`: must contain all 7 rule headings
   - `baton/track-mode.md`: must contain `## The safety invariants`
 - Version check: `internal/prompt/baton/VERSION.txt` must exist and be parseable as
@@ -79,6 +81,33 @@ Runs only if `~/.claude/baton/` exists on the developer's machine:
 - If `~/.claude/baton/` is absent: no warning (it's optional; only developers who use
   slash commands need it).
 
+**Check group 4 — Dependency version freshness**
+
+Runs if a `go.mod` / `package.json` / `requirements.txt` is found in the current
+working directory AND `docs/considerations.md` exists with a `[dependencies]` section:
+
+- **Project pins vs. catalog**: for each entry in `[dependencies].project_pinned`,
+  check that the version in `project_pinned` still matches what the project's dependency
+  file actually has pinned. If they diverged (e.g., `go.mod` was updated but induction
+  was not re-run):
+  `[WARN] docs/considerations.md [dependencies].project_pinned is stale for
+  <module>: catalog says v1.0.0 but go.mod has v1.2.0. Run 'sworn induction --update'
+  to sync.`
+
+- **sworn's own deps** (Go only): run `go list -m -u ./...` in the sworn repo itself.
+  For each dep where a newer **major** version is available:
+  `[WARN] <module>: v1.x.y installed, v2.x.y available — major version upgrade
+  available. Review release notes before upgrading.`
+  Minor/patch-level newer versions do not trigger a warning (too noisy in practice).
+
+- **Empty catalog pins with a dependency file present**:
+  `[WARN] go.mod found but [dependencies].project_pinned is empty in
+  docs/considerations.md. Run 'sworn induction' to populate it — implementers need
+  this to know which versions are already pinned.`
+
+- If the registry is unreachable: skip the `go list -m -u` check and print
+  `[WARN] Registry unreachable — sworn dep freshness check skipped.`
+
 **`--fix` flag** — applies safe auto-repairs without confirmation:
 - Removes `docs/baton/` if present (after printing what it's removing)
 - Backs up `AGENTS.md` to `AGENTS.md.bak` and rewrites with minimal template if legacy
@@ -111,8 +140,17 @@ commands and want their local Baton to match the binary.
 
 ## Acceptance checks
 
-- [ ] `sworn doctor` on a clean repo (S21-initialized, no legacy artifacts) prints all
-  group 1 checks as `[OK]` and exits 0
+- [ ] `sworn doctor` on a clean repo (S21-initialized, no legacy artifacts, catalog
+  populated by induction) prints all group 1 checks as `[OK]`, group 4 shows no
+  stale pins, exits 0
+- [ ] Group 4: if `[dependencies].project_pinned` lists a module at a version that
+  differs from the actual `go.mod` entry, prints `[WARN]` naming the diverged module
+  and suggesting `sworn induction --update`
+- [ ] Group 4: if `[dependencies].project_pinned` is empty but `go.mod` exists,
+  prints `[WARN]` suggesting `sworn induction` to populate it
+- [ ] Group 4: if registry is unreachable (simulated by overriding the check
+  function in tests), prints `[WARN] Registry unreachable — sworn dep freshness check
+  skipped` and exits 0 (not 1 — unreachability is not a broken binary)
 - [ ] `sworn doctor` on a repo with `docs/baton/` present prints `[WARN] docs/baton/
   exists — legacy` for group 2; exits 0 (WARN does not trigger non-zero exit)
 - [ ] `sworn doctor` with a corrupt embedded prompt (simulated in test by length check)
@@ -146,6 +184,14 @@ commands and want their local Baton to match the binary.
     assert embedded files written there; exit 0
   - `TestDoctorNoBatonHomeNoWarn`: no `~/.claude/baton/`; assert group 3 section
     absent from output entirely
+  - `TestDoctorGroup4StalePins`: temp dir with go.mod pinning module@v1.0.0 but
+    catalog says v1.2.0; assert WARN naming the diverged module
+  - `TestDoctorGroup4EmptyPins`: temp dir with go.mod but empty project_pinned; assert
+    WARN suggesting sworn induction
+  - `TestDoctorGroup4RegistryUnreachable`: mock the registry check to fail; assert
+    WARN printed and exit 0 (not 1)
+  - `TestDoctorGroup4VerifierHeadings`: assert implementer.md heading check requires
+    "Dependency discipline" and it appears before "Deviation check"
 - **Reachability artefact**: run `sworn doctor` in this repo after S21 lands;
   capture full output; all checks OK. Document in proof.md.
 

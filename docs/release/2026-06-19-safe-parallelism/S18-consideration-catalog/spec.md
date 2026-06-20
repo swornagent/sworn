@@ -56,6 +56,36 @@ Built-in typed dimensions (each section has `required_for` and `core_checks`):
 | `[ui]` | ui | WCAG 2.1 AA, keyboard nav, responsive, design system consultation |
 | `[performance]` | api, ui | latency SLOs, memory ceiling, cold-start, pagination |
 | `[compliance]` | data, api | GDPR data subject rights, SOC2 controls, audit log |
+| `[dependencies]` | all | registry-first version selection; project pin respect; no training-data version inference |
+
+The `[dependencies]` dimension is structurally different from the others: it is both a
+**check** (are the right version selection rules being followed?) and a **record**
+(what are the currently-pinned versions for this project?). Its catalog section:
+
+```yaml
+## [dependencies]
+required_for: all
+source_of_truth: go.mod | package.json | requirements.txt | Cargo.toml
+core_checks:
+  - If a library is already in the project dependency file, use that exact version — no upgrade or downgrade without explicit instruction
+  - If a library is NEW to the project, query the package registry at implementation time to get the current latest stable version — never infer a version from training data
+  - Record every new dep version choice in docs/decisions.md
+registry_commands:
+  go:     "go get <module>@latest  (then read the resolved version from go.mod)"
+  npm:    "npm view <package> version"
+  pip:    "pip index versions <package> 2>/dev/null | head -1"
+  cargo:  "cargo search <crate> --limit 1"
+project_pinned:
+  # Populated automatically by sworn induction (Phase 0) from the project's dependency
+  # files. Updated by sworn induction --update after each release.
+  # Example entries (implementer reads this before touching any dependency file):
+  # - module: github.com/anthropics/anthropic-sdk-go
+  #   version: v1.2.0
+  #   pinned_by: go.mod
+  # - module: "@radix-ui/react-dialog"
+  #   version: "^1.0.5"
+  #   pinned_by: package.json
+```
 
 ### `docs/decisions.md` — decision registry
 
@@ -149,8 +179,10 @@ Overwrite guard: if either file already exists, prompt before overwriting.
 
 ## Acceptance checks
 
-- [ ] `docs/templates/considerations.md` exists with all seven typed dimensions,
-  the `design_system` frontmatter section, and the `architecture.patterns` array
+- [ ] `docs/templates/considerations.md` exists with all eight typed dimensions
+  (including `[dependencies]`), the `design_system` frontmatter section, the
+  `architecture.patterns` array, and the `project_pinned` array with commented
+  example entries and `registry_commands` for Go, npm, pip, and cargo
 - [ ] `docs/templates/decisions.md` exists with the documented entry format and
   three example entries (one per type: design, architecture, data)
 - [ ] `sworn init` (y) creates both `docs/considerations.md` and `docs/decisions.md`;
