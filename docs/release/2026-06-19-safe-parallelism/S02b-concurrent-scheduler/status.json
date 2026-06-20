@@ -3,7 +3,7 @@
   "slice_id": "S02b-concurrent-scheduler",
   "release": "2026-06-19-safe-parallelism",
   "track": "T1-concurrency-core",
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-01T00:00:00Z",
@@ -45,5 +45,13 @@
   "reachability_artifacts": [
     "docs/release/2026-06-19-safe-parallelism/S02b-concurrent-scheduler/proof.md (Reachability artefact section)"
   ],
-  "open_deferrals": []
+  "open_deferrals": [],
+  "verification": {
+    "result": "fail",
+    "violations": [
+      "Gate 2 — start_commit d9ff1b1 captures only re-implementation test additions; planned touchpoints (scheduler.go, worker.go, parallel.go, track.go, run.go, scheduler_test.go) were committed in 5bb3666 which predates d9ff1b1. git diff --name-only d9ff1b1 shows only docs/prompt/binary files. proof.md falsely claims core files are in d9ff1b1. Fix: change start_commit to 821edf2 and update proof.md Files-changed section."
+    ],
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-01T00:00:00Z"
+  }
 }

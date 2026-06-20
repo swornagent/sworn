@@ -280,6 +280,14 @@ Phase 4:  T6 (after T2 + T5)
 
 ## Recent activity
 
+### 2026-07-01 — S02b verifier verdict: FAIL (round 2, 1 violation)
+
+- **Actor**: verifier (fresh context, Rule 7 compliant)
+- **Slice**: S02b-concurrent-scheduler → state: failed_verification
+- **Violation 1 (Gate 2)**: `start_commit` in status.json is `d9ff1b1` (re-implementation start), but planned touchpoints (scheduler.go, worker.go, parallel.go, track.go, run.go, scheduler_test.go) were committed in round-1 commit `5bb3666` which predates `d9ff1b1`. `git diff --name-only d9ff1b1` shows only docs/prompt/binary files, not the planned implementation files. proof.md "Files changed" falsely claims these files "were committed in start_commit `d9ff1b1`" — only parallel_test.go and worker_test.go were in that commit.
+- **Note**: All tests pass with -race. Gate 1, 3, 4, 5, 6 all pass. The implementation is functionally correct; only the proof.md accuracy and start_commit value are at issue.
+- **Next**: `/implement-slice S02b-concurrent-scheduler 2026-06-19-safe-parallelism` in a fresh session to fix start_commit (→ 821edf2) and update proof.md "Files changed."
+
 ### 2026-06-27 — S02b verifier verdict: FAIL (6 violations)
 
 - **Actor**: verifier (fresh context, Rule 7 compliant)

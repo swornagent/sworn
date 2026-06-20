@@ -89,3 +89,18 @@ All 6 verifier violations addressed:
 - Proof.md updated with reachability artefacts from actual test output
 - Skeptic panel: skipped — runtime does not support subagent dispatch
 - Next: `/verify-slice S02b-concurrent-scheduler 2026-06-19-safe-parallelism` in a fresh terminal
+
+## Verifier verdicts received (round 2)
+
+### 2026-07-01 — Verifier verdict: FAIL
+
+FAIL
+
+Slice: `S02b-concurrent-scheduler`
+
+Violations:
+1. Gate 2 — `start_commit` in status.json is `d9ff1b1` (the re-implementation start), but all planned touchpoints (`internal/scheduler/scheduler.go`, `internal/scheduler/worker.go`, `internal/run/parallel.go`, `internal/board/track.go`, `cmd/sworn/run.go`, `internal/scheduler/scheduler_test.go`) were committed in round-1 commit `5bb3666`, which predates `d9ff1b1`. As a result, `git diff --name-only d9ff1b1` shows only docs, prompt, and binary files — not the planned implementation touchpoints. proof.md "Files changed" falsely claims "The core implementation files (worker.go, worker_test.go, parallel.go, parallel_test.go, etc.) were committed in the re-implementation start_commit `d9ff1b1`." In reality, `d9ff1b1` changed only `status.json`, `internal/run/parallel_test.go`, `internal/scheduler/worker_test.go`, and the `sworn` binary. No planned touchpoints appear in `d9ff1b1..HEAD`. proof.md "Not delivered" does not explain their absence.
+
+Required to address:
+1. Change `start_commit` in status.json from `d9ff1b1` to `821edf2` (the original round-1 start commit that immediately precedes the core implementation commit `5bb3666`). With `821edf2..HEAD` as the diff range, all planned touchpoints and both rounds of test additions appear in scope.
+2. Update proof.md "Files changed" to accurately list all files changed from `821edf2..HEAD`, removing the false claim about `d9ff1b1` content. The updated section should enumerate the core implementation files (from `5bb3666`) alongside the test additions (from `d9ff1b1`) and the proof updates.
