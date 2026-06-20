@@ -85,7 +85,7 @@ All 6 verifier violations addressed:
 
 ### State transition: in_progress → implemented
 - All tests pass with `-race` across all packages
-- First-pass `release-verify.sh`: waiting to run
+- First-pass `release-verify.sh`: **23/23 PASS**
 - Proof.md updated with reachability artefacts from actual test output
 - Skeptic panel: skipped — runtime does not support subagent dispatch
 - Next: `/verify-slice S02b-concurrent-scheduler 2026-06-19-safe-parallelism` in a fresh terminal
