@@ -3,10 +3,10 @@
   "slice_id": "S01-process-ownership",
   "release": "2026-06-19-safe-parallelism",
   "track": "T1-concurrency-core",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "agent",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-26T22:00:00Z",
+  "last_updated_at": "2026-06-26T22:30:00Z",
   "start_commit": "57f37028b0561ea964a84c2da7aee4fd47cd2c9b",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S01-process-ownership/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S01-process-ownership/proof.md",
@@ -21,13 +21,26 @@
     "go.mod",
     "go.sum"
   ],
-  "actual_files": [],
+  "actual_files": [
+    ".gitignore",
+    "docs/adr/0003-sqlite-orchestration-state.md",
+    "go.mod",
+    "go.sum",
+    "internal/db/db.go",
+    "internal/db/db_test.go",
+    "internal/run/run.go",
+    "internal/run/run_test.go",
+    "internal/supervisor/supervisor.go",
+    "internal/supervisor/supervisor_test.go"
+  ],
   "test_commands": [
     "go test -race ./internal/db/...",
     "go test -race ./internal/supervisor/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "manual-smoke-step: sworn run --task on startup reaps stale rows and acquires track ownership"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "pending",
