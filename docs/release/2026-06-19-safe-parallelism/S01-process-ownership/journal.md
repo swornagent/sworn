@@ -94,3 +94,25 @@ After the planner ratifies the amendment, the implementer must also correct the 
 - Correct `proof.md` "Delivered": move the supervisor-wiring description from
   `cmd/sworn/run.go` to `internal/run/run.go`, and move it to "Divergence from plan"
   since that file was not in the planned touchpoints.
+
+---
+
+## Verifier verdicts received (continued)
+
+### 2026-06-20 — Verifier session 2 (fresh context)
+
+**Verdict**: FAIL
+
+**Gates passed**: Gate 1 (entry point wired), Gate 2 (touchpoint divergence documented), Gate 3 (all required tests present and pass with -race), Gate 5 (no silent deferrals in code; ADR deferral has Why + Tracking).
+
+**Violations**:
+
+1. **Gate 4** — Reachability artefact does not satisfy spec requirement. The spec (post-replan) requires: "run `sworn run --task '...'`; confirm `.sworn/sworn.db` created; kill the process; re-run; confirm stale row reaped and run proceeds. Document exact commands in `proof.md`." The proof.md instead says "Path: N/A — process-registry is a backend infrastructure layer" and cites only unit tests. No exact commands are documented, and the required crash-and-reap smoke cycle is absent.
+
+2. **Gate 6** — The proof.md "Delivered" section claims "**`cmd/sworn/run.go` updated** — DB opened at `.sworn/sworn.db` under workspace root; supervisor.Reap() called at startup; supervisor.Acquire() before implement loop; supervisor.MustRelease() deferred." `cmd/sworn/run.go` is NOT in the git diff and was not changed. The replan (2026-06-20) explicitly required this to be corrected before the next verification attempt; it was not corrected. The actual supervisor integration is in `internal/run/run.go`.
+
+**Required to address**:
+1. Add a reachability artefact to proof.md documenting exact smoke-step commands: (a) run `sworn run --task "..."` briefly, (b) kill the process, (c) re-run and confirm "reaped N stale track(s)" is printed to stderr. Exact commands must be present (not paraphrased).
+2. Correct proof.md "Delivered": replace the `cmd/sworn/run.go` bullet with `internal/run/run.go` (which IS in the diff and contains the supervisor integration). Optionally: move the description to "Divergence from plan" to explain the file substitution from the spec's planned `cmd/sworn/run.go`.
+
+**Next step**: `/implement-slice S01-process-ownership 2026-06-19-safe-parallelism` in a fresh session to address violations 1 and 2.

@@ -230,7 +230,7 @@ Phase 4:  T6 (after T2 + T5)
 
 | ID | Track | User outcome | State | Spec |
 |---|---|---|---|---|
-| `S01-process-ownership` | T1 | SQLite registry + reap-on-restart; single-owner identity | implemented | [spec](./S01-process-ownership/spec.md) |
+| `S01-process-ownership` | T1 | SQLite registry + reap-on-restart; single-owner identity | failed_verification | [spec](./S01-process-ownership/spec.md) |
 | `S02a-run-refactor` | T1 | `run.RunSlice()` exported; callable from goroutine; no regression | planned | [spec](./S02a-run-refactor/spec.md) |
 | `S02b-concurrent-scheduler` | T1 | `sworn run --parallel` launches all independent tracks concurrently | planned | [spec](./S02b-concurrent-scheduler/spec.md) |
 | `S03-verify-under-concurrency` | T1 | Verify gate goroutine-safe and fail-closed at N>1 | planned | [spec](./S03-verify-under-concurrency/spec.md) |
@@ -267,9 +267,9 @@ Phase 4:  T6 (after T2 + T5)
 
 - Planned: 31
 - In progress: 0
-- Implemented: 1
+- Implemented: 0
 - Verified: 0
-- Failed verification: 0
+- Failed verification: 1
 - Deferred: 0
 
 **Tracks:** Planned: 8 / In progress: 1 / Merged: 0
@@ -277,6 +277,14 @@ Phase 4:  T6 (after T2 + T5)
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice).
 
 ## Recent activity
+
+### 2026-06-20 — S01 verifier verdict: FAIL (Gate 4 + Gate 6)
+
+- **Actor**: verifier (fresh session)
+- **Slice**: S01-process-ownership → state: failed_verification
+- **Gate 4**: proof.md reachability artefact lacks required exact smoke-step commands (crash-and-reap cycle); spec requires them documented in proof.md.
+- **Gate 6**: proof.md "Delivered" claims `cmd/sworn/run.go` was updated but it is not in the diff; actual supervisor integration is in `internal/run/run.go`. Replan explicitly required this correction before re-verification; it was not applied.
+- **Next**: `/implement-slice S01-process-ownership 2026-06-19-safe-parallelism` to address both violations.
 
 ### 2026-06-20 — replan: T9-telemetry added (S26; anonymous usage telemetry)
 
