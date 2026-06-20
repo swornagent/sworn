@@ -232,7 +232,7 @@ Phase 4:  T6 (after T2 + T5)
 |---|---|---|---|---|
 | `S01-process-ownership` | T1 | SQLite registry + reap-on-restart; single-owner identity | verified | [spec](./S01-process-ownership/spec.md) |
 | `S02a-run-refactor` | T1 | `run.RunSlice()` exported; callable from goroutine; no regression | verified | [spec](./S02a-run-refactor/spec.md) |
-| `S02b-concurrent-scheduler` | T1 | `sworn run --parallel` launches all independent tracks concurrently | design_review | [spec](./S02b-concurrent-scheduler/spec.md) |
+| `S02b-concurrent-scheduler` | T1 | `sworn run --parallel` launches all independent tracks concurrently | failed_verification | [spec](./S02b-concurrent-scheduler/spec.md) |
 | `S03-verify-under-concurrency` | T1 | Verify gate goroutine-safe and fail-closed at N>1 | planned | [spec](./S03-verify-under-concurrency/spec.md) |
 | `S04a-tui-foundation` | T2 | `sworn` (no args) shows releases list + board view with navigation | planned | [spec](./S04a-tui-foundation/spec.md) |
 | `S04b-tui-live` | T2 | Live concurrent track status from DB (1s poll) + credit balance in header | planned | [spec](./S04b-tui-live/spec.md) |
@@ -267,10 +267,10 @@ Phase 4:  T6 (after T2 + T5)
 
 - Planned: 29
 - In progress: 0
-- Design review: 1
+- Design review: 0
 - Implemented: 0
 - Verified: 2
-- Failed verification: 0
+- Failed verification: 1
 - Deferred: 0
 
 **Tracks:** Planned: 8 / In progress: 1 / Merged: 0
@@ -278,6 +278,18 @@ Phase 4:  T6 (after T2 + T5)
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice).
 
 ## Recent activity
+
+### 2026-06-27 — S02b verifier verdict: FAIL (6 violations)
+
+- **Actor**: verifier (fresh context, Rule 7 compliant)
+- **Slice**: S02b-concurrent-scheduler → state: failed_verification
+- **Violation 1 (Gate 3)**: `TestWorkerMaterialisesWorktree` absent; worktree materialisation branch untested.
+- **Violation 2 (Gate 3)**: `TestWorkerCallsRunSlice` absent; single-slice count assert only.
+- **Violation 3 (Gate 3)**: AC-3 failure cascade has no functional test — both fake-fail helpers return nil and are never called.
+- **Violation 4 (Gate 3)**: "fake workers with controllable timing channels" not implemented; AC-1 concurrency assertion has zero coverage.
+- **Violation 5 (Gate 2)**: `parallel_test.go` and `sworn` binary in committed diff but absent from proof.md and unexplained in Divergence from plan.
+- **Violation 6 (Gate 4)**: Reachability artefact shows commented expected output with inconsistent fixture (2 tracks vs. real 9-track board); smoke step not demonstrably executed.
+- **Next**: `/implement-slice S02b-concurrent-scheduler 2026-06-19-safe-parallelism` in a fresh session to address all 6 violations.
 
 ### 2026-06-20 — board reconciliation: T1 slice states corrected from oracle
 
