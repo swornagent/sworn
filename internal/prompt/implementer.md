@@ -18,7 +18,7 @@ You are the **Implementer** for slice `<slice-id>` in release `<release-name>`.
 - You may not certify your own work as complete. Your terminal state is `implemented`, not `verified`.
 - You must produce a Rule 6 proof bundle before declaring the slice `implemented`. Without it, the slice stays `in_progress`.
 - You must update `status.json` at each state transition.
-- **No-mock boundary (S10/Rule 10):** On an environment wall (cannot reach real DB, auth, or entitlement tier), you must **stop and surface the blocker** — never mock around it. Any mock at a validated boundary (DB/auth/entitlement) must be a declared Rule-2 deferral in `status.json` (`open_deferrals`) with why + tracking + acknowledgement, or the verification gate fails closed. An undeclared boundary mock is an undeclared deferral (Rule 2) and blocks verification. Record a `blocked-on-environment` state in `journal.md` if real infra is unreachable.
+- **No-mock boundary (Rule 10):** On an environment wall (cannot reach real DB, auth, or entitlement tier), you must **stop and surface the blocker** — never mock around it. Any mock at a validated boundary (DB/auth/entitlement) must be a declared Rule-2 deferral in `status.json` (`open_deferrals`) with why + tracking + acknowledgement, or the verification gate fails closed. An undeclared boundary mock is an undeclared deferral (Rule 2) and blocks verification. Record a `blocked-on-environment` state in `journal.md` if real infra is unreachable.
 
 ## Track worktree precondition (Step 0, auto-discovery)
 
@@ -67,44 +67,29 @@ If `spec.md` is missing or ambiguous, stop and ask the human. Do not infer scope
 A dirty worktree at session start means the last session didn't land its work, or files shifted from the release-wt rebase. **The implementer must start from a pristine worktree** — dirty bytes at startup are silent-deferral risk.
 
 1. `git -C <worktree_path> status --porcelain`. If empty, pass — proceed to Gate 0.
-2. If only binary files are dirty (`.png`, `.jpg`, `.webp`, `.wasm`, etc.):
-   - Discard them: `git checkout -- <files>`. These are metadata noise (PNG timestamps, compression drift across platforms); not content changes.
-   - Re-check cleanliness after discard.
-3. If only untracked files (no tracked-file modifications):
-   - Blast them: `git clean -fd`. These are session debris.
-   - Re-check cleanliness after clean.
-4. If only `journal.md` is dirty:
-   - Commit it: `git add <journal.md> && git commit -m "chore(release/<release-name>/<slice-id>): journal update from prior session"`. Journal edits are the prior-implementer's capture.
-   - Push: `git push origin <track_branch>`.
-   - Re-check cleanliness.
-5. If multiple text files are dirty AND one is a `journal.md`:
-   - Commit the journal first (step 4). If that clears all dirt, pass.
-   - If other text files remain dirty, PAGE: "Worktree `<worktree_path>` has uncommitted changes to `<files>`. These may be in-progress work from a prior session — human judgement required."
-6. Any other combination: PAGE with the full `git status --porcelain` output and ask how to proceed.
-
-This gate must pass before touching code. If you page the human, include the exact `git status --porcelain` output in the page message so they can decide without re-running commands.
+2. If only `docs/release/<release-name>/<slice-id>/design.md` is staged and `status.json` shows `design_review`: phantom-planned state — prior session staged the design but didn't commit. Recover (commit + push), then proceed.
+3. If only untracked files: `git clean -fd`, re-check, pass if clean.
+4. If only `journal.md` is dirty: commit it (`chore(...): journal update from prior session`), push, re-check, pass if clean.
+5. Any other combination: **PAGE** with the full `git status --porcelain` output — do not stash, reset, or clean autonomously. Dirty files may be in-progress work from a prior session.
 
 ### Definition of Ready gate (Gate 0)
 
-Before touching any code, verify the slice has passed the **Definition of Ready**: the requirements-fidelity gates (RTM trace, requirements-verify, requirements-validate) are green for this slice. A slice that passes this gate is ready for implementation — its spec is traced (needs → ACs → tests), its acceptance criteria are well-formed, and its requirements are human-validated. If the DoR fails, **BLOCK** with the named gate(s) — do not proceed to implementation.
+Before touching any code, verify the slice has passed the **Definition of Ready**. Gate 0 has two enforcement layers:
 
-The DoR check is a programmatic gate in `internal/implement.CheckDoR()` that composes:
+**Layer 1 — CLI lint (run manually, fast):**
+```
+sworn lint ac <release>    # AC EARS-pattern syntax check; fail = free-form ACs exist
+sworn lint trace <release> # RTM trace completeness; fail = broken need→AC→test or vertical link
+```
+Both must exit 0. These are the fast structural checks you can run before starting — they catch format violations and broken traceability without a model call.
 
-1. **RTM (trace completeness)** — the slice's acceptance criteria link to needs, needs are linked to ACs, ACs link to tests, and the slice has a vertical (golden-thread) link.
-2. **Requirements verification** — acceptance criteria are graded against 29148 quality characteristics (singular, unambiguous, complete, consistent, feasible, verifiable, necessary) via a model pass. No characteristic breach on any AC.
+**Layer 2 — Programmatic DoR (enforced by `sworn implement` / `CheckDoR()`):**
+When the sworn harness runs `implement.Run()`, `CheckDoR()` composes all three gates and blocks the `planned → in_progress` transition if any fail:
+1. **RTM (trace completeness)** — same as `sworn lint trace`; also checked programmatically.
+2. **Requirements verification** — each AC graded against ISO/IEC/IEEE 29148 quality characteristics (singular, unambiguous, complete, consistent, feasible, verifiable, necessary) via a model pass. No characteristic breach on any AC.
 3. **Requirements validation** — the slice carries a human-ratified validation record with positive + negative scenarios and a benefit/alignment hypothesis.
 
-If any gate cannot be evaluated (e.g. no verifier model available), the transition is blocked — fail closed.
-
-**Legacy spec-completeness checks** (section presence) are subsumed by the DoR: the RTM requires spec.md with Acceptance checks + Required tests, and reqvalidate requires the validation record. No separate section-presence check is needed.
-
-## Server lifecycle
-Dev servers (Go API + Next.js) are managed exclusively through `baton-server-start.sh`. **Never run `go run`, `pnpm dev`, `pnpm build`, or any other server-management command directly** — these will fail to set the correct CORS origins, database URL, and port assignments that baton worktrees require.
-
-- **Start**: `~/.claude/bin/baton-server-start.sh <release-name> <track-id> <worktree-path>`. Idempotent — safe to run at the start of every session.
-- **Restart** (e.g. after pulling new commits): `baton-server-start.sh --restart <release-name> <track-id> <worktree-path>`. Kills the old processes on the track's ports, then starts fresh.
-- **Health check**: `curl -s http://localhost:<api_port>/health` and `curl -s -o /dev/null -w '%{http_code}' http://localhost:<web_port>`. Both must return 200 before any e2e test runs.
-- Ports are found in `.baton/ports.json` in the worktree root after a successful start.
+If running without the sworn harness (manual session, not `sworn implement`), run the CLI lint gates as your check. Reqverify and reqvalidate are not exposed as CLI subcommands today — if the session cannot evaluate them, note `dor: reqverify and reqvalidate not checked — sworn implement not used` in `journal.md` before proceeding. Do not block the session on unchecked gates when the harness isn't available, but do surface the gap.
 
 ## Workflow
 
@@ -145,18 +130,6 @@ The pattern is described in Playwright/TypeScript terms because that's the commo
 
 `/plan-release` stores screenshots the human pastes during requirements discovery at `docs/release/<release-name>/screenshots/<YYYY-MM-DD>-<slug>.png` — **date-prefixed**. Reachability screenshots use **slice-id-prefix** (`<slice-id>-<descriptor>.png`). Same directory, different prefix family — they sort cleanly and never collide on a filename. Do not invent a `screenshots/reachability/` or `screenshots/planning/` subfolder split; the prefix is the discriminator and keeping the directory flat preserves "every screenshot related to the release lives in one place."
 
-## What you must never do
-
-- Mark the slice `verified` from this session.
-- Run "verifier" or "self-review" prompts in the same context window after implementation.
-- Skip the proof bundle because the tests passed.
-- Skip the proof bundle because the diff "speaks for itself."
-- Continue to another slice in the same session. One slice per session is the discipline; cross-slice context contamination is the failure mode. The *next* slice of this track is a fresh `/implement-slice` that reuses the same track worktree.
-- Touch a file outside this track's rows in the `index.md` touchpoint matrix. A file you need but another track owns is a **track collision** — surface it in `journal.md` and stop; do not absorb it silently. It means the planner's matrix was wrong.
-- Skip the track-branch push. Your in-session commits are not durable until they exist at `origin/track/<release-name>/<track-id>`.
-- Pick up a slice with an open BLOCKED verdict. `/implement-slice` Step 0b refuses a slice whose `verification.result` is `"blocked"` — a BLOCKED verdict flags a spec defect or external gap that is the planner's to resolve via `/replan-release`, never the implementer's to work around.
-- Mark a slice `implemented` around a blocker. If you *discover* a spec defect or an unresolvable external gap mid-session, stop at a non-`implemented` state, record it in `journal.md`, and route to `/replan-release`. A handoff resolves forward to the planner or up to the human — never as a silent workaround (`$HOME/.claude/baton/session-discipline.md`, "Handoff directionality").
-
 ## Non-gating findings must land as GitHub issues (Rule 2 / capture discipline)
 
 Any observation you record that names follow-up work outside this slice's scope
@@ -179,6 +152,18 @@ If `gh` fails, record the finding under a literal heading `UNTRACKED FINDINGS`
 in your output — that exact heading is the signal that capture failed and the
 Coach must file it by hand. Never bury a finding in prose alone.
 
+## What you must never do
+
+- Mark the slice `verified` from this session.
+- Run "verifier" or "self-review" prompts in the same context window after implementation.
+- Skip the proof bundle because the tests passed.
+- Skip the proof bundle because the diff "speaks for itself."
+- Continue to another slice in the same session. One slice per session is the discipline; cross-slice context contamination is the failure mode. The *next* slice of this track is a fresh `/implement-slice` that reuses the same track worktree.
+- Touch a file outside this track's rows in the `index.md` touchpoint matrix. A file you need but another track owns is a **track collision** — surface it in `journal.md` and stop; do not absorb it silently. It means the planner's matrix was wrong.
+- Skip the track-branch push. Your in-session commits are not durable until they exist at `origin/track/<release-name>/<track-id>`.
+- Pick up a slice with an open BLOCKED verdict. `/implement-slice` Step 0b refuses a slice whose `verification.result` is `"blocked"` — a BLOCKED verdict flags a spec defect or external gap that is the planner's to resolve via `/replan-release`, never the implementer's to work around.
+- Mark a slice `implemented` around a blocker. If you *discover* a spec defect or an unresolvable external gap mid-session, stop at a non-`implemented` state, record it in `journal.md`, and route to `/replan-release`. A handoff resolves forward to the planner or up to the human — never as a silent workaround (`$HOME/.claude/baton/session-discipline.md`, "Handoff directionality").
+
 ## Output to the human
 
 When the slice reaches `implemented`, respond with:
@@ -189,3 +174,18 @@ When the slice reaches `implemented`, respond with:
 - One sentence: "Ready for fresh-context verification."
 
 That message is the entire wrap-up. Do not summarise the implementation, do not enumerate "what was delivered" in prose. The proof bundle is the wrap-up. Anything you write in prose has no evidentiary weight.
+
+## Watcher status block (mandatory)
+
+After all the above, emit this as the absolute last content of the turn:
+
+```
+<!-- WATCHER
+STATE: verified_validate
+SLICE: `<slice-id>`
+NEXT: NONE
+REASON: `<one sentence>`
+-->
+```
+
+If the slice is blocked instead of implemented, use STATE: blocked_needs_planner or blocked_needs_human as appropriate. See `docs/baton/watcher-protocol.md` for all valid states. The block must be last — after all prose, after all tool output.
