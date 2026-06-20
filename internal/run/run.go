@@ -20,12 +20,9 @@ import (
 	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/db"
 	"github.com/swornagent/sworn/internal/git"
-	"github.com/swornagent/sworn/internal/implement"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/state"
 	"github.com/swornagent/sworn/internal/supervisor"
-	"github.com/swornagent/sworn/internal/verdict"
-	"github.com/swornagent/sworn/internal/verify"
 )// DefaultEscalationModels is the default model escalation path when none is
 // provided. Each entry is a "provider/model" ID suitable for model.FromEnv.
 // The list runs from cheapest to most capable; on retry the next model is used.
@@ -193,170 +190,39 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("run: write start_commit: %w", err)
 	}
 
-	// ── Build escalation list ────────────────────────────────────────
-	escalationModels := opts.EscalationModels
-	if opts.ImplementerModel != "" {
-		escalationModels = append([]string{opts.ImplementerModel}, escalationModels...)
-	}
-	if len(escalationModels) == 0 {
-		escalationModels = DefaultEscalationModels
-	}
-
-	// Determine retry cap. RetryCap < 0 means "use default" (all models).
-	retryCap := opts.RetryCap
-	if retryCap < 0 {
-		retryCap = len(escalationModels) - 1
-		if retryCap < 0 {
-			retryCap = 0
+	// ── Run the implement→verify retry loop ────────────────────────
+	err = RunSlice(ctx, workspaceRoot, specPath, statusPath, RunSliceOptions{
+		ImplementerModel: opts.ImplementerModel,
+		VerifierModel:    opts.VerifierModel,
+		EscalationModels: opts.EscalationModels,
+		RetryCap:         opts.RetryCap,
+		NewAgent:         opts.NewAgent,
+		NewVerifier:      opts.NewVerifier,
+	})
+	if err != nil {
+		// Re-wrap Blocked errors to preserve the run: prefix for
+		// existing tests that check "verification blocked".
+		if IsBlocked(err) {
+			return fmt.Errorf("run: %s", err)
 		}
-	}
-
-	maxAttempts := retryCap + 1
-	if maxAttempts > len(escalationModels) {
-		maxAttempts = len(escalationModels)
-	}
-	var lastVerdict verdict.Result
-
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		// Reset slice state for retry (implement.Run rejects "implemented").
-		if attempt > 0 {
-			st, err := state.Read(statusPath)
-			if err != nil {
-				return fmt.Errorf("run: read status for retry reset: %w", err)
-			}
-			st.State = state.InProgress
-			st.LastUpdatedBy = "run-loop"
-			st.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
-			st.Verification = state.Verification{}
-			if err := state.Write(statusPath, st); err != nil {
-				return fmt.Errorf("run: reset status for retry: %w", err)
-			}
-		}
-
-		implModelID := escalationModels[attempt]
-		implAgent, err := opts.NewAgent(implModelID)
-		if err != nil {
-			return fmt.Errorf("run: create implementer agent for %q: %w", implModelID, err)
-		}
-
-		// ── Implement ────────────────────────────────────────────
-		fmt.Fprintf(os.Stderr, "sworn run: attempt %d/%d — implementing with %s\n",
-			attempt+1, maxAttempts, implModelID)
-
-		if err := implement.Run(ctx, workspaceRoot, specPath, implAgent); err != nil {
-			fmt.Fprintf(os.Stderr, "sworn run: implementer error: %v\n", err)
-			if attempt+1 < maxAttempts {
-				fmt.Fprintf(os.Stderr, "sworn run: escalating implementer model for retry\n")
-				continue
-			}
-			return fmt.Errorf("run: implementer failed after %d attempts: %w", maxAttempts, err)
-		}
-
-		// ── Commit agent changes ─────────────────────────────────
-		// implement.Run leaves changes in the working tree; commit them
-		// so the diff for verification captures the agent's work.
-		if err := repo.Stage("."); err != nil {
-			return fmt.Errorf("run: stage agent changes: %w", err)
-		}
-		if err := repo.Commit(fmt.Sprintf("feat(run): implementation attempt %d", attempt+1)); err != nil {
-			return fmt.Errorf("run: commit agent changes: %w", err)
-		}
-
-		// ── Compute diff ─────────────────────────────────────────
-		diff, err := repo.DiffRange(startCommit, "HEAD")
-		if err != nil {
-			return fmt.Errorf("run: compute diff: %w", err)
-		}
-
-		// ── Verify ───────────────────────────────────────────────
-		verifierModelID := opts.VerifierModel
-		verifier, err := opts.NewVerifier(verifierModelID)
-		if err != nil {
-			return fmt.Errorf("run: create verifier for %q: %w", verifierModelID, err)
-		}
-
-		fmt.Fprintf(os.Stderr, "sworn run: verifying with %s\n", verifierModelID)
-
-		diffPath, err := writeTempFile(workspaceRoot, "sworn-diff-*.patch", diff)
-		if err != nil {
-			return fmt.Errorf("run: write diff temp: %w", err)
-		}
-
-		// Read open_deferrals from status.json for boundary-mock check (S10).
-		status, stErr := state.Read(statusPath)
-		var openDeferrals []string
-		if stErr == nil {
-			openDeferrals = status.OpenDeferrals
-		}
-
-		lastVerdict = verify.Run(ctx, verify.Input{
-			SpecPath:      specPath,
-			DiffPath:      diffPath,
-			ProofPath:     filepath.Join(absSliceDir, "proof.md"),
-			Model:         verifierModelID,
-			Verifier:      verifier,
-			OpenDeferrals: openDeferrals,
-		})
-		os.Remove(diffPath)
-
-		fmt.Fprintf(os.Stderr, "sworn run: verdict %s (cost $%.4f)\n",
-			lastVerdict.Verdict, lastVerdict.CostUSD)
-		if lastVerdict.Rationale != "" {
-			fmt.Fprintf(os.Stderr, "sworn run: rationale: %s\n", lastVerdict.Rationale)
-		}
-
-		switch lastVerdict.Verdict {
-		case verdict.Pass:
-			// ── Transition implemented → verified (Pin 2) ────────────
-			st, err := state.Read(statusPath)
-			if err != nil {
-				return fmt.Errorf("run: read status for verified transition: %w", err)
-			}
-			if err := st.State.Transition(state.Verified); err != nil {
-				return fmt.Errorf("run: transition to verified: %w", err)
-			}
-			st.State = state.Verified
-			st.LastUpdatedBy = "run-loop"
-			st.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
-			if err := state.Write(statusPath, st); err != nil {
-				return fmt.Errorf("run: write verified status: %w", err)
-			}
-
-			// ── Gated merge on PASS only (AC1) ──────────────────────
-			if err := repo.Stage("."); err != nil {
-				return fmt.Errorf("run: stage for merge: %w", err)
-			}
-			if err := repo.Commit("chore(run): verified — merge to " + opts.Base); err != nil {
-				return fmt.Errorf("run: commit verified state: %w", err)
-			}
-			if err := repo.Checkout(opts.Base); err != nil {
-				return fmt.Errorf("run: checkout base for merge: %w", err)
-			}
-			if err := repo.Merge(featureBranch); err != nil {
-				return fmt.Errorf("run: merge into %s: %w", opts.Base, err)
-			}
-			fmt.Fprintf(os.Stderr, "sworn run: merged %s into %s (PASS)\n", featureBranch, opts.Base)
-			return nil
-
-		case verdict.Blocked:
-			return fmt.Errorf("run: verification blocked: %s", lastVerdict.Rationale)
-
-		case verdict.Inconclusive:
-			fallthrough
-		default:
-			if attempt+1 < maxAttempts {
-				fmt.Fprintf(os.Stderr, "sworn run: verification failed — retrying with escalated implementer model\n")
-				continue
-			}
-		}
+		return fmt.Errorf("run: %w", err)
 	}
 
-	return fmt.Errorf(
-		"run: verification failed after %d attempts (last verdict: %s). "+
-			"Escalate to human. Branch %q left unmerged on %s.",
-		maxAttempts, lastVerdict.Verdict, featureBranch, opts.Base,
-	)
-}
+	// ── Gated merge on PASS only ──────────────────────────────────
+	if err := repo.Stage("."); err != nil {
+		return fmt.Errorf("run: stage for merge: %w", err)
+	}
+	if err := repo.Commit("chore(run): verified — merge to " + opts.Base); err != nil {
+		return fmt.Errorf("run: commit verified state: %w", err)
+	}
+	if err := repo.Checkout(opts.Base); err != nil {
+		return fmt.Errorf("run: checkout base for merge: %w", err)
+	}
+	if err := repo.Merge(featureBranch); err != nil {
+		return fmt.Errorf("run: merge into %s: %w", opts.Base, err)
+	}
+	fmt.Fprintf(os.Stderr, "sworn run: merged %s into %s (PASS)\n", featureBranch, opts.Base)
+	return nil}
 
 // setupSlice creates a release directory and a single-slice directory with
 // auto-generated spec.md and status.json (Pin 3). Returns the release dir and
@@ -448,23 +314,6 @@ func sanitiseBranch(task string) string {
 	return name
 }
 
-func writeTempFile(dir, pattern, content string) (string, error) {
-	f, err := os.CreateTemp(dir, pattern)
-	if err != nil {
-		return "", err
-	}
-	path := f.Name()
-	if _, err := f.WriteString(content); err != nil {
-		f.Close()
-		os.Remove(path)
-		return "", err
-	}
-	if err := f.Close(); err != nil {
-		os.Remove(path)
-		return "", err
-	}
-	return path, nil
-}
 
 func newAgentFromModel(modelID string) (agent.Agent, error) {
 	v, err := model.FromEnv(modelID)

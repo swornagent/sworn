@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
+	"time"
 	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/state"
@@ -488,5 +488,169 @@ func TestRun_VerifyToolCallLeakBlocks(t *testing.T) {
 	log := runCmd(t, workspaceRoot, "git", "log", "--oneline", "-1")
 	if strings.Contains(log, "merge:") {
 		t.Fatal("unexpected merge commit on main after tool-call BLOCKED")
+	}
+}
+// ---------------------------------------------------------------------------
+// RunSlice tests (S02a)
+// ---------------------------------------------------------------------------
+
+// setupFixtureSlice creates a temp git repo with an initial commit, then
+// writes a fixture spec.md and status.json in a slice directory. It returns
+// the worktree root, spec path, status path, and a cleanup function.
+func setupFixtureSlice(t *testing.T) (worktreeRoot, specPath, statusPath string, cleanup func()) {
+	t.Helper()
+	dir := t.TempDir()
+
+	runCmd(t, dir, "git", "init", "-b", "main")
+	runCmd(t, dir, "git", "config", "user.email", "test@swornagent.dev")
+	runCmd(t, dir, "git", "config", "user.name", "sworn test")
+
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runCmd(t, dir, "git", "add", "README.md")
+	runCmd(t, dir, "git", "commit", "-m", "initial commit")
+
+	// Create slice directory.
+	sliceDir := filepath.Join(dir, "docs", "release", "test-release", "S01-task")
+	if err := os.MkdirAll(sliceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	specPath = filepath.Join(sliceDir, "spec.md")
+	statusPath = filepath.Join(sliceDir, "status.json")
+
+	// Write a minimal spec.
+	if err := os.WriteFile(specPath, []byte("# Test slice\n\nWrite a hello file.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write status.json with start_commit set.
+	startCommit := strings.TrimSpace(runCmd(t, dir, "git", "rev-parse", "HEAD"))
+
+	st := &state.Status{
+		Schema:        "https://example.com/schemas/baton/slice-status-v1.json",
+		SliceID:       "S01-task",
+		Release:       "test-release",
+		Track:         "",
+		State:         state.InProgress,
+		Owner:         "test",
+		LastUpdatedBy: "setup",
+		LastUpdatedAt: time.Now().UTC().Format(time.RFC3339),
+		StartCommit:   startCommit,
+		SpecPath:      "docs/release/test-release/S01-task/spec.md",
+		ProofPath:     "docs/release/test-release/S01-task/proof.md",
+		JournalPath:   "docs/release/test-release/S01-task/journal.md",
+		PlannedFiles:  []string{},
+		TestCommands:  []string{"go test ./..."},
+		Verification:  state.Verification{},
+		ReleaseBase:   "main",
+	}
+	if err := state.Write(statusPath, st); err != nil {
+		t.Fatal(err)
+	}
+
+	// Stage and commit the fixture so start_commit captures the slice state.
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "fixture slice")
+
+	// Update start_commit to point to this commit.
+	startCommit2 := strings.TrimSpace(runCmd(t, dir, "git", "rev-parse", "HEAD"))
+	st.StartCommit = startCommit2
+	if err := state.Write(statusPath, st); err != nil {
+		t.Fatal(err)
+	}
+	_ = runCmd(t, dir, "git", "add", statusPath)
+	_ = runCmd(t, dir, "git", "commit", "-m", "set start_commit")
+
+	return dir, specPath, statusPath, func() {}
+}
+
+func TestRunSlice_Pass(t *testing.T) {
+	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
+
+	impl := stdoutAgent("hello from RunSlice")
+
+	verifier := &fakeVerifier{
+		verdicts: []verdict.Result{
+			{Verdict: verdict.Pass, Rationale: "all good"},
+		},
+	}
+
+	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
+		VerifierModel:    "fake/verifier",
+		RetryCap:         0,
+		EscalationModels: []string{"fake/impl"},
+		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
+		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
+	})
+	if err != nil {
+		t.Fatalf("RunSlice() error: %v", err)
+	}
+
+	// Verify the implementation file was created.
+	data, err := os.ReadFile(filepath.Join(worktreeRoot, "output.txt"))
+	if err != nil {
+		t.Fatalf("output.txt not created: %v", err)
+	}
+	if string(data) != "hello from RunSlice" {
+		t.Fatalf("expected 'hello from RunSlice', got %q", string(data))
+	}
+
+	// Verify status.json is verified.
+	st, err := state.Read(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.State != state.Verified {
+		t.Fatalf("expected state verified, got %q", st.State)
+	}
+}
+
+func TestRunSlice_Fail(t *testing.T) {
+	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
+
+	impl := stdoutAgent("should not pass")
+
+	verifier := &fakeVerifier{
+		verdicts: []verdict.Result{
+			{Verdict: verdict.Fail, Rationale: "missing test"},
+			{Verdict: verdict.Fail, Rationale: "still missing"},
+		},
+	}
+
+	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
+		VerifierModel:    "fake/verifier",
+		RetryCap:         1,
+		EscalationModels: []string{"fake/impl1", "fake/impl2"},
+		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
+		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !IsFailed(err) {
+		t.Fatalf("expected IsFailed(err)=true, got false: %v", err)
+	}
+
+	// Verify status.json is failed_verification.
+	st, err := state.Read(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.State != state.FailedVerification {
+		t.Fatalf("expected state failed_verification, got %q", st.State)
+	}
+}
+
+func TestRunSlice_MissingVerifierModel(t *testing.T) {
+	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
+
+	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{})
+	if err == nil {
+		t.Fatal("expected error for missing VerifierModel, got nil")
+	}
+	if !strings.Contains(err.Error(), "VerifierModel is required") {
+		t.Fatalf("expected VerifierModel required, got: %v", err)
 	}
 }
