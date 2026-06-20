@@ -17,7 +17,7 @@ tracks:
     worktree_branch: track/2026-06-19-safe-parallelism/T2-monitoring
     state: planned
   - id: T3-commercial
-    slices: [S06a-sworn-login-auth, S06b-sworn-proxy-credits, S07-paging, S09-per-role-model-config, S18-consideration-catalog]
+    slices: [S06a-sworn-login-auth, S06b-sworn-proxy-credits, S07-paging, S09-per-role-model-config, S18-consideration-catalog, S19-sworn-induction]
     depends_on: T1-concurrency-core
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T3-commercial
@@ -39,6 +39,12 @@ tracks:
     depends_on: [T2-monitoring, T5-providers]
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T6-provider-ux
+    state: planned
+  - id: T7-mcp-extensions
+    slices: [S20-mcp-catalog-tools]
+    depends_on: [T3-commercial, T4-mcp]
+    worktree_path:
+    worktree_branch: track/2026-06-19-safe-parallelism/T7-mcp-extensions
     state: planned
 ---
 
@@ -65,25 +71,27 @@ tracks:
 
 ## Tracks
 
-> T1 goes first. T2, T3, T4 run in parallel after T1. T5 starts after T1+T3 merge.
-> T6 starts after T2+T5 merge.
+> T1 goes first. T2, T3, T4 run in parallel after T1. T5 and T7 start after T3 merges
+> (T5 also needs T1; T7 also needs T4). T6 starts after T2 + T5 merge.
 
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
 | `T1-concurrency-core` | S01 → S02a → S02b → S03 | — | `track/.../T1-concurrency-core` | planned |
 | `T2-monitoring` | S04a → S04b → S04c → S05 | T1 | `track/.../T2-monitoring` | planned |
-| `T3-commercial` | S06a → S06b → S07 → S09 → S18 | T1 | `track/.../T3-commercial` | planned |
+| `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 | T1 | `track/.../T3-commercial` | planned |
 | `T4-mcp` | S08a → S08b → S08c | T1 | `track/.../T4-mcp` | planned |
 | `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 | T1 + T3 | `track/.../T5-providers` | planned |
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
+| `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | planned |
 
 ### Execution order
 
 ```
 Phase 1:  T1 (sequential)
 Phase 2:  T2, T3, T4 (parallel after T1)
-Phase 3:  T5 (after T1 + T3 merge; may overlap late T2/T4)
-Phase 4:  T6 (after T2 + T5 merge)
+Phase 3:  T5 (after T1 + T3)
+          T7 (after T3 + T4; may run in parallel with T5)
+Phase 4:  T6 (after T2 + T5)
 ```
 
 ### Touchpoint matrix
@@ -93,68 +101,75 @@ Phase 4:  T6 (after T2 + T5 merge)
 > `(dep)` notation means the track writes this file only after the named dependency merges
 > — the dep-edge serialises writes so they are not truly concurrent.
 
-| File / surface | T1 | T2 | T3 | T4 | T5 | T6 |
-|---|---|---|---|---|---|---|
-| `docs/adr/0003-sqlite-orchestration-state.md` | ✓ | | | | | |
-| `docs/adr/0004-dep-policy-minimal-justified.md` (new) | | | | | ✓ | |
-| `CLAUDE.md` | | | | | ✓ | |
-| `internal/db/` (new) | ✓ | | | | | |
-| `internal/supervisor/` (new) | ✓ | | | | | |
-| `internal/run/run.go` | ✓ | | (T1 dep) | | | |
-| `internal/run/slice.go` (new) | ✓ | | | | | |
-| `internal/run/parallel.go` (new) | ✓ | | | | | |
-| `internal/run/run_test.go` | ✓ | | | | | |
-| `internal/scheduler/` (new) | ✓ | | | | | |
-| `internal/scheduler/worker.go` (new, in T1) | ✓ | | (T1 dep) | | | |
-| `internal/verify/verify.go` | ✓ | | | | | |
-| `internal/verify/concurrent_test.go` (new) | ✓ | | | | | |
-| `internal/verdict/verdict.go` | ✓ | | | | | |
-| `internal/model/oai.go` | ✓ | | | | | |
-| `internal/model/client.go` | ✓ | | (T1 dep) | | | |
-| `internal/model/env.go` (new) | | | | | ✓ | |
-| `internal/model/env_test.go` (new) | | | | | ✓ | |
-| `internal/model/provider.go` (new) | | | | | ✓ | |
-| `internal/model/provider_test.go` (new) | | | | | ✓ | |
-| `internal/model/anthropic.go` (new) | | | | | ✓ | |
-| `internal/model/anthropic_test.go` (new) | | | | | ✓ | |
-| `internal/model/google.go` (new) | | | | | ✓ | |
-| `internal/model/google_test.go` (new) | | | | | ✓ | |
-| `internal/model/bedrock.go` (new) | | | | | ✓ | |
-| `internal/model/bedrock_test.go` (new) | | | | | ✓ | |
-| `internal/model/azure.go` (new) | | | | | ✓ | |
-| `internal/model/azure_test.go` (new) | | | | | ✓ | |
-| `internal/model/oci.go` (new) | | | | | ✓ | |
-| `internal/model/oci_test.go` (new) | | | | | ✓ | |
-| `internal/model/ollama.go` (new) | | | | | ✓ | |
-| `internal/model/ollama_test.go` (new) | | | | | ✓ | |
-| `cmd/sworn/run.go` | ✓ | | (T1 dep) | | (T1+T3 dep) | |
-| `go.mod`, `go.sum` | ✓ | | | | (T1 dep) | |
-| `cmd/sworn/main.go` (DOCUMENTED SHARED — additive dispatch) | ✓ | ✓ | ✓ | ✓ | | |
-| `cmd/sworn/top.go` | | ✓ | | | | (T2 dep) |
-| `internal/tui/` (new) | | ✓ | | | | |
-| `internal/tui/settings.go` (new) | | | | | | ✓ |
-| `internal/tui/settings_test.go` (new) | | | | | | ✓ |
-| `internal/tui/tui.go` (new, in T2) | | ✓ | | | | (T2 dep) |
-| `internal/bench/overclaim.go` (new) | | ✓ | | | | |
-| `internal/bench/overclaim_test.go` (new) | | ✓ | | | | |
-| `cmd/sworn/bench.go` | | ✓ | | | | |
-| `docs/benchmark/overclaim-concurrent-1to4.md` (new) | | ✓ | | | | |
-| `internal/account/account.go` (new) | | | ✓ | | | |
-| `internal/account/proxy.go` (new) | | | ✓ | | | |
-| `internal/account/notify.go` (new) | | | ✓ | | | |
-| `internal/account/account_test.go` (new) | | | ✓ | | | |
-| `internal/account/proxy_test.go` (new) | | | ✓ | | | |
-| `internal/account/notify_test.go` (new) | | | ✓ | | | |
-| `cmd/sworn/login.go` (new) | | | ✓ | | | |
-| `cmd/sworn/account.go` (new) | | | ✓ | | | |
-| `cmd/sworn/init.go` | | | ✓ | | | |
-| `internal/config/config.go` | | | ✓ | | | (T3 dep via T5) |
-| `internal/config/config_test.go` | | | ✓ | | | (T3 dep via T5) |
-| `docs/templates/considerations.md` (new) | | | ✓ | | | |
-| `internal/prompt/planner.md` | | | ✓ | | | |
+| File / surface | T1 | T2 | T3 | T4 | T5 | T6 | T7 |
+|---|---|---|---|---|---|---|------|
+| `docs/adr/0003-sqlite-orchestration-state.md` | ✓ | | | | |  |
+| `docs/adr/0004-dep-policy-minimal-justified.md` (new) | | | | | ✓ |  |
+| `CLAUDE.md` | | | | | ✓ |  |
+| `internal/db/` (new) | ✓ | | | | |  |
+| `internal/supervisor/` (new) | ✓ | | | | |  |
+| `internal/run/run.go` | ✓ | | (T1 dep) | | |  |
+| `internal/run/slice.go` (new) | ✓ | | | | |  |
+| `internal/run/parallel.go` (new) | ✓ | | | | |  |
+| `internal/run/run_test.go` | ✓ | | | | |  |
+| `internal/scheduler/` (new) | ✓ | | | | |  |
+| `internal/scheduler/worker.go` (new, in T1) | ✓ | | (T1 dep) | | |  |
+| `internal/verify/verify.go` | ✓ | | | | |  |
+| `internal/verify/concurrent_test.go` (new) | ✓ | | | | |  |
+| `internal/verdict/verdict.go` | ✓ | | | | |  |
+| `internal/model/oai.go` | ✓ | | | | |  |
+| `internal/model/client.go` | ✓ | | (T1 dep) | | |  |
+| `internal/model/env.go` (new) | | | | | ✓ |  |
+| `internal/model/env_test.go` (new) | | | | | ✓ |  |
+| `internal/model/provider.go` (new) | | | | | ✓ |  |
+| `internal/model/provider_test.go` (new) | | | | | ✓ |  |
+| `internal/model/anthropic.go` (new) | | | | | ✓ |  |
+| `internal/model/anthropic_test.go` (new) | | | | | ✓ |  |
+| `internal/model/google.go` (new) | | | | | ✓ |  |
+| `internal/model/google_test.go` (new) | | | | | ✓ |  |
+| `internal/model/bedrock.go` (new) | | | | | ✓ |  |
+| `internal/model/bedrock_test.go` (new) | | | | | ✓ |  |
+| `internal/model/azure.go` (new) | | | | | ✓ |  |
+| `internal/model/azure_test.go` (new) | | | | | ✓ |  |
+| `internal/model/oci.go` (new) | | | | | ✓ |  |
+| `internal/model/oci_test.go` (new) | | | | | ✓ |  |
+| `internal/model/ollama.go` (new) | | | | | ✓ |  |
+| `internal/model/ollama_test.go` (new) | | | | | ✓ |  |
+| `cmd/sworn/run.go` | ✓ | | (T1 dep) | | (T1+T3 dep) |  |
+| `go.mod`, `go.sum` | ✓ | | | | (T1 dep) |  |
+| `cmd/sworn/main.go` (DOCUMENTED SHARED — additive dispatch) | ✓ | ✓ | ✓ | ✓ | |  |
+| `cmd/sworn/top.go` | | ✓ | | | | (T2 dep)  |
+| `internal/tui/` (new) | | ✓ | | | |  |
+| `internal/tui/settings.go` (new) | | | | | | ✓  |
+| `internal/tui/settings_test.go` (new) | | | | | | ✓  |
+| `internal/tui/tui.go` (new, in T2) | | ✓ | | | | (T2 dep)  |
+| `internal/bench/overclaim.go` (new) | | ✓ | | | |  |
+| `internal/bench/overclaim_test.go` (new) | | ✓ | | | |  |
+| `cmd/sworn/bench.go` | | ✓ | | | |  |
+| `docs/benchmark/overclaim-concurrent-1to4.md` (new) | | ✓ | | | |  |
+| `internal/account/account.go` (new) | | | ✓ | | |  |
+| `internal/account/proxy.go` (new) | | | ✓ | | |  |
+| `internal/account/notify.go` (new) | | | ✓ | | |  |
+| `internal/account/account_test.go` (new) | | | ✓ | | |  |
+| `internal/account/proxy_test.go` (new) | | | ✓ | | |  |
+| `internal/account/notify_test.go` (new) | | | ✓ | | |  |
+| `cmd/sworn/login.go` (new) | | | ✓ | | |  |
+| `cmd/sworn/account.go` (new) | | | ✓ | | |  |
+| `cmd/sworn/init.go` | | | ✓ | | |  |
+| `internal/config/config.go` | | | ✓ | | | (T3 dep via T5)  |
+| `internal/config/config_test.go` | | | ✓ | | | (T3 dep via T5)  |
+| `docs/templates/considerations.md` (new) | | | ✓ | | | | |
+| `docs/templates/decisions.md` (new) | | | ✓ | | | | |
+| `internal/prompt/planner.md` | | | ✓ | | | | |
+| `internal/prompt/implementer.md` | | | ✓ | | | | |
+| `internal/prompt/verifier.md` | | | ✓ | | | | |
+| `cmd/sworn/induction.go` (new) | | | ✓ | | | | |
+| `cmd/sworn/induction_test.go` (new) | | | ✓ | | | | |
 | `internal/mcp/` (new) | | | | ✓ | | |
-| `cmd/sworn/mcp.go` (new) | | | | ✓ | | |
-| `docs/mcp-setup.md` (new) | | | | ✓ | | |
+| `internal/mcp/catalog.go` (new) | | | | | | | ✓ |
+| `internal/mcp/catalog_test.go` (new) | | | | | | | ✓ |
+| `cmd/sworn/mcp.go` (new) | | | | ✓ | |  |
+| `docs/mcp-setup.md` (new) | | | | ✓ | |  |
 
 **T3 `depends_on T1` notes:**
 - `internal/run/run.go`: S07 adds notification calls; serialised by dep edge
@@ -162,7 +177,18 @@ Phase 4:  T6 (after T2 + T5 merge)
 - `internal/scheduler/worker.go`: S07 adds notify call; S02b creates it; serialised by dep
 - `cmd/sworn/init.go`: S09 extends model prompts; S18 adds catalog setup prompt; serialised by T1 dep
 - `docs/templates/considerations.md`: S18 adds shipped template; new touchpoint, T3 owns it
-- `internal/prompt/planner.md`: S18 adds Phase 2b consideration audit step; new touchpoint, T3 owns it
+- `internal/prompt/planner.md`: S18 adds Phase 2b (DRY gate + design consultation + arch conformance); T3 owns it
+- `internal/prompt/implementer.md`: S19 adds deviation check step; T3 owns it
+- `internal/prompt/verifier.md`: S19 adds catalog conformance check (undocumented deviation = FAIL); T3 owns it
+- `docs/templates/decisions.md`: S18 adds decision registry template; T3 owns it
+- `cmd/sworn/induction.go`: S19 adds one-time induction command; T3 owns it
+- `internal/mcp/catalog.go`, `catalog_test.go`: S20 in T7; new files in T4's directory but T7 depends on T4 (already merged) — no conflict
+
+**T7 `depends_on T3+T4` notes:**
+- `internal/mcp/catalog.go` calls functions from packages T3 built (internal/config/,
+  docs/considerations.md + docs/decisions.md paths); T7 starts after T3 merges — safe
+- `plan_release` in S20 calls T4's internal `createRelease` function from S08c;
+  T7 starts after T4 merges — safe
 - `internal/config/config.go`: S09 adds implementer fields; T3 owns this file
 
 **T5 `depends_on T1+T3` notes:**
@@ -204,20 +230,33 @@ Phase 4:  T6 (after T2 + T5 merge)
 | `S15-oci-driver` | T5 | OCI Generative AI models work via oci-go-sdk | planned | [spec](./S15-oci-driver/spec.md) |
 | `S16-ollama-driver` | T5 | Ollama native /api/chat endpoint; replaces OAI-compat shim | planned | [spec](./S16-ollama-driver/spec.md) |
 | `S17-tui-provider-config` | T6 | TUI settings panel: provider API keys, model per role, escalation list, max attempts; persists to config.json + ~/.sworn/.env | planned | [spec](./S17-tui-provider-config/spec.md) |
-| `S18-consideration-catalog` | T3 | Typed consideration catalog in docs/considerations.md; planner cross-references dimensions against every slice; sworn init scaffolds starter | planned | [spec](./S18-consideration-catalog/spec.md) |
+| `S18-consideration-catalog` | T3 | Typed consideration catalog + decision registry; planner Phase 2b (DRY gate, design consultation, arch conformance, capture); sworn init scaffolds both templates | planned | [spec](./S18-consideration-catalog/spec.md) |
+| `S19-sworn-induction` | T3 | `sworn induction` one-time repo onboarding (design system + architecture discovery); implementer + verifier prompts gain deviation-surfacing steps | planned | [spec](./S19-sworn-induction/spec.md) |
+| `S20-mcp-catalog-tools` | T7 | 8 MCP tools: plan_release (unified), get_induction_status, get_considerations, search_decisions, record_decision, check_design_system, update_design_system, record_architecture_pattern | planned | [spec](./S20-mcp-catalog-tools/spec.md) |
 
 ## Aggregate state
 
-- Planned: 24
+- Planned: 26
 - In progress: 0
 - Implemented: 0
 - Verified: 0
 - Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 6 / In progress: 0 / Merged: 0
+**Tracks:** Planned: 7 / In progress: 0 / Merged: 0
 
 ## Recent activity
+
+### 2026-06-20 — replan: induction + MCP catalog tools (S19 T3, S20 T7-new; S18 revised)
+
+- **Actor**: planner (human + Claude)
+- **Note**: S18 revised (adds decision registry docs/decisions.md, full design consultation
+  + architecture conformance pattern in planner Phase 2b, DRY gate). S19 added to T3:
+  `sworn induction` one-time repo onboarding; implementer + verifier prompts gain
+  deviation-surfacing steps (undocumented deviation = BLOCKED/FAIL). New T7-mcp-extensions
+  track (depends T3+T4) with S20: 8 MCP tools for catalog/decision management + unified
+  plan_release tool (replaces create_release from S08c; S08c now implements createRelease
+  as an internal function called by S20's plan_release). 26 slices across 7 tracks.
 
 ### 2026-06-20 — replan: consideration catalog added (S18, T3 append)
 
@@ -284,6 +323,10 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - Additional providers beyond OpenCode baseline: Together AI, Fireworks, Cohere (post-R3)
 - RAG-backed NFR sources for consideration catalog (post-R3 — see S18 spec Rule 2 card)
 - Guided NFR elicitation wizard when no catalog exists (post-R3 — see S18 spec Rule 2 card)
+- Semantic/vector search on decisions.md (post-R3 — see S20 spec Rule 2 card)
+- Multi-language architecture pattern inference beyond Go (post-R3 — see S19 spec deferral)
+- Azure Entra ID / managed identity auth in S14 (post-R3)
+- CI lint for catalog conformance (post-R3 — S19 adds role prompt enforcement; automated lint deferred)
 
 ## Cross-slice / cross-track notes
 

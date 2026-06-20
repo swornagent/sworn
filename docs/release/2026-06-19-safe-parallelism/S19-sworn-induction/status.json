@@ -1,0 +1,39 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S19-sworn-induction",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T3-commercial",
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-20T00:00:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S19-sworn-induction/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S19-sworn-induction/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S19-sworn-induction/journal.md",
+  "planned_files": [
+    "cmd/sworn/induction.go",
+    "cmd/sworn/induction_test.go",
+    "cmd/sworn/main.go",
+    "internal/prompt/implementer.md",
+    "internal/prompt/verifier.md"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./cmd/sworn/... -run Induction",
+    "go test ./internal/prompt/... -run Implementer",
+    "go test ./internal/prompt/... -run Verifier",
+    "go build ./..."
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [
+    "Multi-language pattern inference beyond Go — post-R3"
+  ],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}

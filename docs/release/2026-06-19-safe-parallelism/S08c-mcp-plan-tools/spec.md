@@ -19,13 +19,17 @@ the developer running any CLI commands or copying template files manually.
 
 ## In scope
 
-Four planning tools registered via `server.RegisterTool()`:
+Three planning tools registered via `server.RegisterTool()`:
 
-1. **`create_release`** `(name: string, goal: string, tracking_issue?: string)` →
-   creates `docs/release/<name>/` directory; writes `intake.md` from the template with
-   `goal` filled into the "Release goal" section and `tracking_issue` into "Source of
-   truth"; writes `index.md` from the template with minimal frontmatter; creates
-   `screenshots/.gitkeep`; returns paths created. Errors if the directory already exists.
+> Note: the originally-planned `create_release` tool is superseded by `plan_release`
+> in S20-mcp-catalog-tools (T7), which adds detection logic (new vs. existing release).
+> S08c implements `create_release` as an internal function used by S20's `plan_release`;
+> it is not exposed as a public MCP tool from this slice.
+
+1. *(internal)* **`createRelease`** `(name, goal, tracking_issue)` — creates
+   `docs/release/<name>/` directory; writes `intake.md` with `goal` and `tracking_issue`;
+   writes `index.md` from template; creates `screenshots/.gitkeep`; returns paths.
+   Called by S20's `plan_release`; not a registered MCP tool in this slice.
 
 2. **`create_slice`** `(release: string, slice_id: string, spec_content: string, track_id: string)` →
    creates `docs/release/<release>/<slice_id>/` directory; writes `spec.md` with
@@ -78,9 +82,9 @@ and an example planning workflow.
 
 ## Acceptance checks
 
-- [ ] `create_release("test-mcp-release", "test goal")` creates the expected directory
-  structure with intake.md containing "test goal" and index.md from template; cleans
-  up after test
+- [ ] Internal `createRelease("test-mcp-release", "test goal")` creates the expected
+  directory structure with intake.md containing "test goal" and index.md from template;
+  cleans up after test; function is callable from S20's plan_release handler
 - [ ] `create_slice("test-mcp-release", "S01-foo", "# spec content", "T1")` creates
   spec.md with the provided content and status.json with state=planned and track=T1
 - [ ] `set_track` with a valid slices list updates the index.md frontmatter and Tracks
@@ -93,12 +97,13 @@ and an example planning workflow.
 - [ ] `resources/read sworn://release/{name}/{slice}/proof` for a slice with no proof.md
   returns empty string (not an error)
 - [ ] `docs/mcp-setup.md` exists and contains Claude Code JSON config block
-- [ ] `go test ./internal/mcp/...` covers all 4 planning tools and resource reads
+- [ ] `go test ./internal/mcp/...` covers all 3 registered planning tools, the internal
+  createRelease function, and resource reads
 
 ## Required tests
 
 - **Unit**: `internal/mcp/tools_test.go` (extend)
-  — `TestCreateRelease`: call create_release; assert files created; cleanup
+  — `TestCreateRelease`: call internal createRelease; assert files created; cleanup
   — `TestCreateSliceDuplicate`: call create_slice twice with same id; assert error on
     second call (not silent overwrite)
   — `TestSetTrackValidation`: set_track with non-existent slice_id; assert error returned

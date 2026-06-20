@@ -1,189 +1,196 @@
 ---
-title: 'S18-consideration-catalog — typed consideration catalog for requirements elicitation and solution design'
-description: 'A project-level consideration catalog (docs/considerations.md) defines typed dimensions — security, api, data, observability, ui, performance, compliance — that the planner must cross-reference against every slice spec. sworn init scaffolds a starter catalog from a shipped template. The embedded planner prompt gains a mandatory Phase 2b step to consult the catalog and surface uncovered dimensions as acceptance checks or explicit N/A notes.'
+title: 'S18-consideration-catalog — typed consideration catalog, decision registry, and planner consultation pattern'
+description: 'Defines two project-level files — docs/considerations.md (typed NFR dimensions, design system location, architecture patterns) and docs/decisions.md (cross-release DRY decision registry). The embedded planner prompt gains Phase 2b: check the registry before asking anything, run design/flow/architecture consultation, capture every resolution back to the registry. sworn init scaffolds both templates.'
 ---
 
 # Slice: `S18-consideration-catalog`
 
 ## User outcome
 
-A project maintainer runs `sworn init` and is prompted to set up a consideration catalog;
-they choose yes and get a typed starter at `docs/considerations.md`. In every subsequent
-`/plan-release` or `/replan-release` session, the planner automatically checks each
-slice against the enabled dimensions — a UI slice gets accessibility checks, an API slice
-gets rate-limiting and backward-compat checks, a data slice gets migration and residency
-checks — and either adds a falsifiable acceptance check or writes an explicit one-liner
-N/A justification. Nothing falls through silently.
+A project maintainer runs `sworn init`, opts into the catalog, and gets two files:
+`docs/considerations.md` (typed dimensions + design system + architecture patterns) and
+`docs/decisions.md` (empty decision registry). In every subsequent planning session the
+planner checks the registry before asking any design question — if a prior answer exists
+it surfaces it for confirmation rather than starting from scratch. For new UI, data, or
+flow decisions, the planner presents three options with a recommendation and captures the
+chosen answer to the registry so it is never asked again.
 
 ## Entry point
 
-`sworn init` (catalog setup) and any `/plan-release` or `/replan-release` session
-(the planner reads the catalog during Phase 2b and applies it in Phase 4 spec writing).
-Verifiable by: running `sworn init`, confirming `docs/considerations.md` is created;
-then running `/plan-release` on a scratch release, confirming the planner's spec output
-includes dimension-sourced acceptance checks or explicit N/A notes.
+`sworn init` (scaffold) and every `/plan-release` or `/replan-release` session (Phase 2b
+reads both files and applies them). Verifiable by: running `sworn init`; confirming both
+files created; running a planning session on a fixture release; confirming the planner
+surfaces prior decisions from the registry rather than re-asking.
 
 ## In scope
 
-### Catalog format — `docs/considerations.md`
+### `docs/considerations.md` — catalog format
 
-A Markdown file with YAML frontmatter and typed dimension sections. The planner reads it
-as a document; no binary parsing required.
+YAML frontmatter plus typed dimension sections. Shipped template at
+`docs/templates/considerations.md`.
 
 Frontmatter:
 ```yaml
 ---
 version: 1
 project: <name>
+design_system:
+  location: ''          # URL, Figma link, npm package, or path — filled by sworn induction
+  framework: ''         # shadcn | storybook | figma | tailwind | custom | none
+  component_library: '' # e.g. @repo/ui, @radix-ui, etc.
+architecture:
+  language: ''
+  patterns: []          # list of {pattern, location, intent} — filled by sworn induction
 enabled_dimensions: [security, api, data, observability, ui, performance, compliance]
 ---
 ```
 
-Each dimension section follows the pattern:
-```markdown
-## [security]
-**Required for**: all slices
-**Checks to apply**:
-- Auth/authz: does this slice expose or consume an authenticated surface?
-- Injection: are user-supplied strings ever interpolated into commands, queries, or paths?
-- Secrets: are any credentials, tokens, or keys handled? Are they masked in logs?
-- Data exposure: can this slice inadvertently leak PII or credentials in error messages?
-**When N/A**: pure refactor with no new I/O surface and no credential handling.
-```
+Built-in typed dimensions (each section has `required_for` and `core_checks`):
 
-Built-in dimension set (shipped in the template, all enabled by default, all editable):
-
-| Dimension | `required_for` default | Core questions |
+| Dimension | Default `required_for` | Focus |
 |---|---|---|
 | `[security]` | all | auth, injection, secrets, data exposure |
 | `[api]` | api, data | rate limiting, error shapes, versioning, backward compat |
-| `[data]` | data | schema migration, data residency, encryption at rest, retention |
-| `[observability]` | all | logging (no key leakage), metrics, tracing, alerting |
-| `[ui]` | ui | WCAG 2.1 AA, keyboard nav, responsive, screen reader |
+| `[data]` | data | schema migration, residency, encryption, retention |
+| `[observability]` | all | structured logging (no secret leakage), metrics, tracing |
+| `[ui]` | ui | WCAG 2.1 AA, keyboard nav, responsive, design system consultation |
 | `[performance]` | api, ui | latency SLOs, memory ceiling, cold-start, pagination |
 | `[compliance]` | data, api | GDPR data subject rights, SOC2 controls, audit log |
 
-The developer adds or removes sections, edits `required_for`, and adds project-specific
-notes. The planner applies the enabled sections; disabled sections are skipped.
+### `docs/decisions.md` — decision registry
 
-### Planner prompt update — `internal/prompt/planner.md`
+Append-only project-level log of every design, architecture, and data decision made
+across all releases. Shipped template at `docs/templates/decisions.md`.
 
-Add **Phase 2b — Consideration catalog audit** immediately after Phase 2 discovery and
-before Phase 3 decomposition:
-
-```
-### Phase 2b — Consideration catalog audit
-
-If `docs/considerations.md` exists in the project root:
-
-1. Read it.
-2. For each enabled dimension, determine whether it applies to the work being planned
-   based on its `required_for` field and the nature of the slices being discussed.
-3. For each applicable dimension, either:
-   a. Add a falsifiable acceptance check to the relevant slice's spec (Phase 4), or
-   b. Write an explicit one-liner N/A justification in the spec's "Out of scope" section.
-   "N/A" without a reason is not acceptable — it is a silent deferral.
-4. If `docs/considerations.md` does not exist, note it once to the human:
-   "No consideration catalog found at docs/considerations.md. Run 'sworn init' to
-   scaffold one, or proceed without it." Do not block planning.
+Format per entry:
+```markdown
+## <YYYY-MM-DD> — <Short decision title>
+- **Type**: design | architecture | data | flow | deviation
+- **Release**: <release-name> (slice <slice-id>)
+- **Decision**: <one sentence — what was chosen>
+- **Rationale**: <why this option over the alternatives>
+- **Applies to**: <free text — when future slices should re-use this decision>
+- **Overrides**: <link to prior decision if this supersedes one>
 ```
 
-### `sworn init` update — `cmd/sworn/init.go`
+### Planner Phase 2b — consideration audit
 
-After the existing model prompts (added by S09), add:
+Inserted into `internal/prompt/planner.md` immediately after Phase 2 discovery,
+before Phase 3 decomposition. The step has four sub-steps executed in order:
+
+**2b-i. Registry check (DRY gate).** For each design question the planner is about to
+ask: search `docs/decisions.md` for a prior answer. If found, surface it:
+"In <release>, we decided <decision> because <rationale> — apply the same here?
+[yes / no / yes but note a deviation]." If the user says yes, skip the question and
+note the reuse. If no, generate fresh options and capture the new decision. Never ask
+a question that has an existing registry answer without surfacing it first.
+
+**2b-ii. Design consultation** (for slices introducing a new UI surface, data model
+change, or user-facing flow). For each:
+
+- *UI component*: check `design_system.location` in the catalog.
+  - Affordance exists → recommend it; done.
+  - Close but not quite (existing component that needs extension) → three options:
+    (a) reuse as-is with workaround, (b) extend with a new variant,
+    (c) build new following design system conventions. Recommend one.
+  - Missing → three design options + recommendation. Additionally: flag the gap as
+    a design system addition to track. Record the proposed addition as a follow-on
+    item in `intake.md` (not absorbed into this slice's scope). The implementing
+    slice's acceptance check states "component is built to the proposed addition spec."
+  - If `design_system.location` is blank: block and ask the human to run
+    `sworn induction` before proceeding.
+- *Data model*: three schema options (extend existing, new entity with relation,
+  denormalise for reads). Options framed as migration risk / query complexity / schema
+  alignment tradeoff. Recommendation explicit.
+- *User-facing flow*: three options described as user journeys ("user does X then Y")
+  — not implementation topology. Recommendation explicit.
+
+In all cases: chosen option must have a verification method (screenshot, assertion, or
+smoke step) before the consultation closes.
+
+**2b-iii. Architecture conformance.** For every slice: check `architecture.patterns`
+in the catalog and the referenced source files.
+- Does the proposed approach conform? If yes, note the pattern in the spec.
+- If no: surface the tension — name the norm, state its intent, describe the deviation,
+  and ask the human to make a conscious resolution before the spec is written.
+- Is the norm itself best practice? If not, say so and propose the better approach for
+  the new code. Do not retouch existing code; state the divergence explicitly as a
+  conscious acceptance.
+
+**2b-iv. Capture.** Every resolution from steps i–iii is written to `docs/decisions.md`
+before the session ends. Partial sessions write partial entries; entries are never left
+in conversation context only.
+
+### `sworn init` update
+
+After the model prompts added by S09, add:
 
 ```
-Set up a consideration catalog? (y/n) [y]:
-  → y: copy docs/templates/considerations.md → docs/considerations.md
-        print: "Catalog created at docs/considerations.md — edit dimensions to fit your project."
-  → n: skip; print: "You can run 'sworn init --considerations' later to set one up."
+Set up consideration catalog? (y/n) [y]:
+  y → copy docs/templates/considerations.md → docs/considerations.md
+      copy docs/templates/decisions.md      → docs/decisions.md
+      print: "Templates created. Run 'sworn induction' to populate them fully."
+  n → skip; print hint to run 'sworn induction' later
+Overwrite guard: if either file already exists, prompt before overwriting.
 ```
-
-### Template file — `docs/templates/considerations.md`
-
-The canonical template shipped in the sworn repo; `sworn init` copies it verbatim to
-the project's `docs/considerations.md`. Contains all seven built-in dimensions with
-their default `required_for` settings, example `required_for` overrides, and
-instructional comments explaining how to add project-specific dimensions.
 
 ## Out of scope
 
-- RAG-backed NFR discovery: connecting to external knowledge sources (internal wikis,
-  regulatory document stores, third-party NFR databases) to auto-suggest considerations.
-  (Deferred — see Rule 2 card below.)
-- Guided NFR elicitation flow when no catalog exists: interactive wizard that asks about
-  the project's domain, scale, and compliance profile to derive a starter catalog.
-  (Deferred — see Rule 2 card below.)
-- Per-slice consideration overrides (overriding `required_for` at the individual slice
-  level): post-R3.
-- Automated CI enforcement of catalog coverage (a script that checks every spec for
-  dimension coverage): post-R3.
-- MCP tool for catalog management (`sworn.update_considerations`): post-R3.
-
-### Rule 2 deferral — RAG-backed NFR sources and guided elicitation
-
-- **What**: (1) A guided wizard that, when no catalog exists, asks the developer about
-  their project's domain, compliance environment, and scale to synthesise a tailored
-  starter catalog. (2) RAG sources — the ability to point sworn at internal wikis,
-  regulatory document stores, or standard NFR libraries (ISO 25010, OWASP ASVS) so the
-  planner can auto-suggest dimension content and checks grounded in authoritative sources.
-- **Why deferred**: The guided wizard needs a conversational design session to get right
-  (asking the wrong questions produces a worse catalog than the template). RAG integration
-  requires a retrieval pipeline and connectivity design (file system, HTTP, MCP resource
-  server?) that is its own release scope.
-- **Tracking**: post-R3 issue — "Guided NFR elicitation + RAG-backed consideration
-  catalog". Acknowledged: 2026-06-20 planning session.
+- `sworn induction` command that actively discovers and populates the catalog (S19)
+- Implementer and verifier prompt updates for deviation surfacing (S19)
+- MCP tools for catalog and decision registry management (S20)
 
 ## Planned touchpoints
 
-- `docs/templates/considerations.md` (new — shipped template)
-- `internal/prompt/planner.md` (modify — add Phase 2b consideration audit step)
-- `cmd/sworn/init.go` (modify — add catalog setup prompt; serialised by S09 in T3)
+- `docs/templates/considerations.md` (new — catalog template)
+- `docs/templates/decisions.md` (new — decision registry template)
+- `internal/prompt/planner.md` (modify — add Phase 2b)
+- `cmd/sworn/init.go` (modify — scaffold both templates; S09 lands first)
 
 ## Acceptance checks
 
-- [ ] `docs/templates/considerations.md` exists in the repo with all seven built-in
-  dimensions, each with `required_for`, at least three core questions, and an example
-  N/A condition
-- [ ] `sworn init` (with "y" to catalog prompt) creates `docs/considerations.md` as a
-  verbatim copy of the template; subsequent `sworn init` with file already present
-  prompts "catalog already exists, overwrite? (y/n)" rather than silently overwriting
-- [ ] `sworn init` (with "n" to catalog prompt) does not create `docs/considerations.md`
-  and prints the "run later" hint
-- [ ] `internal/prompt/planner.md` contains the Phase 2b section describing the
-  catalog audit step; the phrase "docs/considerations.md" appears verbatim
-- [ ] A `/plan-release` session on a project with a catalog containing `[security]`
-  (required_for: all) produces specs that either include a security-sourced acceptance
-  check or an explicit one-liner N/A justification — verified by running a test
-  planning session on a fixture release (documented in proof.md)
-- [ ] `go build ./...` passes with no new external deps
+- [ ] `docs/templates/considerations.md` exists with all seven typed dimensions,
+  the `design_system` frontmatter section, and the `architecture.patterns` array
+- [ ] `docs/templates/decisions.md` exists with the documented entry format and
+  three example entries (one per type: design, architecture, data)
+- [ ] `sworn init` (y) creates both `docs/considerations.md` and `docs/decisions.md`;
+  subsequent run prompts overwrite guard; (n) creates neither
+- [ ] `internal/prompt/planner.md` contains Phase 2b with all four sub-steps;
+  the phrase "Registry check" and "Design consultation" and "Architecture conformance"
+  and "Capture" all appear verbatim as sub-step headings
+- [ ] Phase 2b's DRY gate is explicit: "search docs/decisions.md before asking any
+  design question" appears in the planner prompt
+- [ ] Phase 2b's design system gap flow is explicit: missing affordance → track as
+  follow-on in intake.md, not absorbed into current slice scope
+- [ ] Phase 2b's architecture conformance is explicit: undocumented deviation requires
+  human resolution before spec is written
+- [ ] `go test ./internal/prompt/... -run Planner` passes; test asserts Phase 2b
+  headings present in planner.md content
+- [ ] `go build ./...` passes; no new external deps
 
 ## Required tests
 
-- **Unit** `cmd/sworn/init_test.go` (extend existing or new):
-  - `TestInitCreatesCatalog`: run init with catalog prompt answered "y" against a temp
-    dir; assert `docs/considerations.md` created and is non-empty
-  - `TestInitSkipsCatalog`: run init with "n"; assert file not created
-  - `TestInitCatalogOverwritePrompt`: run init twice with "y" both times; second run
-    prompts overwrite; answer "n"; file unchanged
-- **Planner prompt test** `internal/prompt/prompt_test.go` (extend):
-  - `TestPlannerPromptContainsCatalogStep`: `Planner()` return value contains the string
-    "Phase 2b" and "docs/considerations.md"
-- **Reachability artefact**: smoke step — run `sworn init` in a temp dir; confirm
-  `docs/considerations.md` created; cat the first 10 lines; confirm `[security]` present.
-  Document in proof.md as explicit smoke step with exact commands.
+- **Unit** `internal/prompt/prompt_test.go` (extend):
+  - `TestPlannerHasPhase2b`: assert all four sub-step headings in `Planner()` return value
+  - `TestPlannerPhase2bDRYGate`: assert phrase "docs/decisions.md" in planner prompt
+- **Unit** `cmd/sworn/init_test.go` (extend):
+  - `TestInitCreatesBothTemplates`: y → both files created
+  - `TestInitSkipsBoth`: n → neither created
+  - `TestInitOverwriteGuard`: both files exist; prompt overwrite; answer n; files unchanged
+- **Reachability artefact**: `sworn init` smoke step — run with y; confirm both files
+  created; cat first 5 lines of each; confirm frontmatter present.
 
 ## Risks
 
-- `internal/prompt/planner.md` is embedded in the binary. Editing it changes the
-  planner's behaviour globally for all users of the binary. The Phase 2b addition must
-  be written carefully — it must not make planning sessions significantly slower for
-  projects without a catalog (the "file not found → skip with one note" branch must
-  be the fast path).
-- The template shipped with the binary is a point-in-time default. Projects customise
-  their own `docs/considerations.md`; sworn updates do not overwrite existing catalogs.
-  `sworn init --considerations` is the explicit refresh path.
+- Phase 2b in planner.md must keep the "file not found → one note, don't block" branch
+  as the fast path for projects without a catalog. Heavy blocking on missing files would
+  make sworn unusable without a fully configured catalog.
+- The three-option consultation adds session length. The acceptance check for "chosen
+  option must have a verification method" must not create an infinite loop where the
+  planner refuses to proceed; it should warn once and continue if the human accepts the
+  gap.
 
 ## Deferrals allowed?
 
-The RAG and guided wizard deferral is explicitly Rule 2 above. No other deferrals.
+No. S19 (induction command) depends on the catalog format defined here. S20 (MCP tools)
+depends on the decisions.md format defined here.
