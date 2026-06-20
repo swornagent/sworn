@@ -9,7 +9,7 @@ tracks:
     depends_on: null
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T1-concurrency-core
     worktree_branch: track/2026-06-19-safe-parallelism/T1-concurrency-core
-    state: ready_to_merge
+    state: merged
   - id: T2-monitoring
     slices: [S04a-tui-foundation, S04b-tui-live, S04c-tui-resolution, S05-overclaim-benchmark]
     depends_on: T1-concurrency-core
@@ -88,7 +88,7 @@ tracks:
 
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
-| `T1-concurrency-core` | S01 → S02a → S02b → S03 | — | `track/.../T1-concurrency-core` | ready_to_merge |
+| `T1-concurrency-core` | S01 → S02a → S02b → S03 | — | `track/.../T1-concurrency-core` | merged |
 | `T2-monitoring` | S04a → S04b → S04c → S05 | T1 | `track/.../T2-monitoring` | planned |
 | `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 | `track/.../T3-commercial` | planned |
 | `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | planned |
@@ -274,11 +274,16 @@ Phase 4:  T6 (after T2 + T5)
 - Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 8 / Ready to merge: 1 / Merged: 0
+**Tracks:** Planned: 8 / Ready to merge: 0 / Merged: 1
 
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice).
 
 ## Recent activity
+
+### 2026-06-21 — track `T1-concurrency-core` merged to release-wt (commit 581b6a9)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 4 verified slices merged: S01-process-ownership, S02a-run-refactor, S02b-concurrent-scheduler, S03-verify-under-concurrency. Track state → merged.
 
 ### 2026-06-21 — S03 verifier verdict: PASS (round 1)
 
