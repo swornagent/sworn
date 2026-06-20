@@ -2,8 +2,13 @@
 // $0 first-pass, then an adversarial fresh-context model verification. It is
 // provider-neutral and host-neutral — it operates only on the spec -> diff
 // (-> proof) triple and a Verifier, never on a git host or a specific model.
+//
+// Goroutine-safety: stateless by construction — no package-level mutable vars
+// that are written during Run(); each Run call is independent and uses only
+// local state. systemPrompt, knownBoundaryPatterns, and mockMarkerPatterns are
+// initialised at program start and are read-only thereafter (concurrent reads
+// are safe in Go). Verified by S03 concurrent_test.go under -race.
 package verify
-
 import (
 	"context"
 	"fmt"
