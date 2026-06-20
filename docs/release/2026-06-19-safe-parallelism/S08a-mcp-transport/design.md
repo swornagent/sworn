@@ -31,9 +31,9 @@ implemented"`.
 
 4. **Tool handler signature.** `RegisterTool(name string, inputSchema json.RawMessage, handler ToolHandler)`
    where `ToolHandler` is `func(ctx context.Context, params json.RawMessage) (*ToolResult, error)`.
-   The handler map is `map[string]ToolHandler`. For now no tools are registered; S08b and
-   S08c supply them.
-
+   `ToolResult` maps to MCP 2024-11-05 wire shape: `ToolResult{IsError bool; Content []ContentItem}`,
+   `ContentItem{Type string; Text string}`. The handler map is `map[string]ToolHandler`. For now
+   no tools are registered; S08b and S08c supply them.
 5. **Non-exported server type.** `New()` constructor returns a pointer to an unexported
    `server` struct. Only `Run(ctx)` and `RegisterTool(...)` are the public API. Keeps the
    surface small for a package with two downstream consumers (S08b, S08c).
