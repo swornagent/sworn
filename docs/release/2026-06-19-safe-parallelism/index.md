@@ -9,7 +9,7 @@ tracks:
     depends_on: null
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T1-concurrency-core
     worktree_branch: track/2026-06-19-safe-parallelism/T1-concurrency-core
-    state: in_progress
+    state: ready_to_merge
   - id: T2-monitoring
     slices: [S04a-tui-foundation, S04b-tui-live, S04c-tui-resolution, S05-overclaim-benchmark]
     depends_on: T1-concurrency-core
@@ -88,7 +88,7 @@ tracks:
 
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
-| `T1-concurrency-core` | S01 → S02a → S02b → S03 | — | `track/.../T1-concurrency-core` | in_progress |
+| `T1-concurrency-core` | S01 → S02a → S02b → S03 | — | `track/.../T1-concurrency-core` | ready_to_merge |
 | `T2-monitoring` | S04a → S04b → S04c → S05 | T1 | `track/.../T2-monitoring` | planned |
 | `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 | `track/.../T3-commercial` | planned |
 | `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | planned |
@@ -233,8 +233,8 @@ Phase 4:  T6 (after T2 + T5)
 |---|---|---|---|---|
 | `S01-process-ownership` | T1 | SQLite registry + reap-on-restart; single-owner identity | verified | [spec](./S01-process-ownership/spec.md) |
 | `S02a-run-refactor` | T1 | `run.RunSlice()` exported; callable from goroutine; no regression | verified | [spec](./S02a-run-refactor/spec.md) |
-| `S02b-concurrent-scheduler` | T1 | `sworn run --parallel` launches all independent tracks concurrently | design_review | [spec](./S02b-concurrent-scheduler/spec.md) |
-| `S03-verify-under-concurrency` | T1 | Verify gate goroutine-safe and fail-closed at N>1 | planned | [spec](./S03-verify-under-concurrency/spec.md) |
+| `S02b-concurrent-scheduler` | T1 | `sworn run --parallel` launches all independent tracks concurrently | verified | [spec](./S02b-concurrent-scheduler/spec.md) |
+| `S03-verify-under-concurrency` | T1 | Verify gate goroutine-safe and fail-closed at N>1 | verified | [spec](./S03-verify-under-concurrency/spec.md) |
 | `S04a-tui-foundation` | T2 | `sworn` (no args) shows releases list + board view with navigation | planned | [spec](./S04a-tui-foundation/spec.md) |
 | `S04b-tui-live` | T2 | Live concurrent track status from DB (1s poll) + credit balance in header | planned | [spec](./S04b-tui-live/spec.md) |
 | `S04c-tui-resolution` | T2 | Blocked slice TL;DR panel + options + open in Claude Code / Codex | planned | [spec](./S04c-tui-resolution/spec.md) |
@@ -266,19 +266,70 @@ Phase 4:  T6 (after T2 + T5)
 
 ## Aggregate state
 
-- Planned: 29
+- Planned: 28
 - In progress: 0
-- Design review: 1
+- Design review: 0
 - Implemented: 0
-- Verified: 2
+- Verified: 4
 - Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 8 / In progress: 1 / Merged: 0
+**Tracks:** Planned: 8 / Ready to merge: 1 / Merged: 0
 
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice).
 
 ## Recent activity
+
+### 2026-06-21 — S03 verifier verdict: PASS (round 1)
+
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **Slice**: S03-verify-under-concurrency → state: **verified** (SHA ed4919d)
+- **All six gates passed.** `verify.Run()` wired in `internal/run/slice.go:183`; both concurrent tests pass under `-race`; `go test -race -count=10` zero races; no silent deferrals; all 6 ACs delivered with evidence.
+- **T1-concurrency-core is complete.** All slices (S01, S02a, S02b, S03) are now verified. T1 state → ready_to_merge.
+- **Next**: `/merge-track T1-concurrency-core` in a fresh session, then `/merge-release 2026-06-19-safe-parallelism` once every track is merged.
+
+### 2026-06-21 — S02b verifier verdict: PASS (round 5)
+
+- **Verifier**: fresh-context session, artefact-only inputs
+- **Slice**: S02b-concurrent-scheduler → state: **verified** (SHA ac62587)
+- **All six gates passed.** `sworn run --parallel` wired end-to-end; `TestCmdRun_Parallel` proves full CLI path; concurrency/failure-cascade/dependency-ordering proven by test suite; no silent deferrals; all delivered items verified.
+- **Next**: `/implement-slice S03-verify-under-concurrency 2026-06-19-safe-parallelism` in a fresh session.
+
+### 2026-06-21 — S02b verifier verdict: FAIL (round 4, 2 violations)
+
+- **Actor**: verifier (fresh context, Rule 7 compliant)
+- **Slice**: S02b-concurrent-scheduler → state: failed_verification
+- **Violation 1 (Gate 3 + AC-2)**: Context-chain bug in `RunParallel` (`parallel.go:110`): `phaseCtx, phaseCancel = context.WithCancel(phaseCtx)` derives each phase's context from the previous (cancelled) phase context. After phase 0 completes and `phaseCancel()` is called, phase 1's context is immediately cancelled. All dependent tracks (phase 1+) are skipped with "depends_on failed (phase barrier)" even when their dependencies PASS. Verified: T1 passes → T2 (depends_on T1) is SKIPPED. Fix: `context.WithCancel(ctx)` at `parallel.go:110`.
+- **Violation 2 (Gate 3)**: No test covers the AC-2 success path. All existing tests use single-phase plans (no deps exercised). The bug persisted through 4 rounds because no test placed a dependent track in phase 1 with a passing dependency.
+- **Next**: `/implement-slice S02b-concurrent-scheduler 2026-06-19-safe-parallelism` in a fresh session. Fix: (1) change `context.WithCancel(phaseCtx)` → `context.WithCancel(ctx)` at `parallel.go:110`; (2) add `TestRunParallel_DependentTrackRunsAfterSuccess` in `parallel_test.go`.
+
+### 2026-06-21 — S02b verifier verdict: FAIL (round 3, 1 violation)
+
+- **Actor**: verifier (fresh context, Rule 7 compliant)
+- **Slice**: S02b-concurrent-scheduler → state: failed_verification
+- **Violation 1 (Gate 4)**: Spec prescribes "smoke step — `sworn run --parallel --release <fixture>`" as the reachability artefact. Proof substitutes unit test output from `TestRunParallel_TimingConcurrency` (which calls `RunParallel()` directly). The `cmdRun()` entry point in `cmd/sworn/run.go:63-91` (DB open, RunSliceFn closure, RunParallel dispatch) is exercised by no test and no documented binary invocation.
+- **All other gates (1, 2, 3, 5, 6) passed.** Tests all pass with `-race` (fresh run verified). Implementation is functionally correct.
+- **Next**: `/implement-slice S02b-concurrent-scheduler 2026-06-19-safe-parallelism` in a fresh session. Fix: either run the binary against a fixture and paste actual stderr output into proof.md, OR add `TestCmdRun_Parallel` in `cmd/sworn/run_test.go` invoking `cmdRun()` with `--parallel`.
+
+### 2026-07-01 — S02b verifier verdict: FAIL (round 2, 1 violation)
+
+- **Actor**: verifier (fresh context, Rule 7 compliant)
+- **Slice**: S02b-concurrent-scheduler → state: failed_verification
+- **Violation 1 (Gate 2)**: `start_commit` in status.json is `d9ff1b1` (re-implementation start), but planned touchpoints (scheduler.go, worker.go, parallel.go, track.go, run.go, scheduler_test.go) were committed in round-1 commit `5bb3666` which predates `d9ff1b1`. `git diff --name-only d9ff1b1` shows only docs/prompt/binary files, not the planned implementation files. proof.md "Files changed" falsely claims these files "were committed in start_commit `d9ff1b1`" — only parallel_test.go and worker_test.go were in that commit.
+- **Note**: All tests pass with -race. Gate 1, 3, 4, 5, 6 all pass. The implementation is functionally correct; only the proof.md accuracy and start_commit value are at issue.
+- **Next**: `/implement-slice S02b-concurrent-scheduler 2026-06-19-safe-parallelism` in a fresh session to fix start_commit (→ 821edf2) and update proof.md "Files changed."
+
+### 2026-06-27 — S02b verifier verdict: FAIL (6 violations)
+
+- **Actor**: verifier (fresh context, Rule 7 compliant)
+- **Slice**: S02b-concurrent-scheduler → state: failed_verification
+- **Violation 1 (Gate 3)**: `TestWorkerMaterialisesWorktree` absent; worktree materialisation branch untested.
+- **Violation 2 (Gate 3)**: `TestWorkerCallsRunSlice` absent; single-slice count assert only.
+- **Violation 3 (Gate 3)**: AC-3 failure cascade has no functional test — both fake-fail helpers return nil and are never called.
+- **Violation 4 (Gate 3)**: "fake workers with controllable timing channels" not implemented; AC-1 concurrency assertion has zero coverage.
+- **Violation 5 (Gate 2)**: `parallel_test.go` and `sworn` binary in committed diff but absent from proof.md and unexplained in Divergence from plan.
+- **Violation 6 (Gate 4)**: Reachability artefact shows commented expected output with inconsistent fixture (2 tracks vs. real 9-track board); smoke step not demonstrably executed.
+- **Next**: `/implement-slice S02b-concurrent-scheduler 2026-06-19-safe-parallelism` in a fresh session to address all 6 violations.
 
 ### 2026-06-20 — board reconciliation: T1 slice states corrected from oracle
 
@@ -291,6 +342,37 @@ Phase 4:  T6 (after T2 + T5)
   Planned 31 → 29; Implemented 1 → 0; Verified 0 → 2; Design review: 1 added.
   No spec changes. Replan trigger: `/replan-release` invoked while S02b was in
   `design_review` state; correct next step is `/design-review S02b-concurrent-scheduler`.
+
+### 2026-06-20 — S02a verifier verdict: PASS
+
+- **Actor**: verifier (fresh context, Rule 7 compliant)
+- **Slice**: S02a-run-refactor → state: verified
+- **All six gates passed.** `RunSlice()` exported and wired; 12/12 tests pass with `-race`; state transitions verified live; no deferrals; `Run()` regression suite clean.
+- **Next**: `/implement-slice S02b-concurrent-scheduler 2026-06-19-safe-parallelism` in a fresh session.
+
+### 2026-06-20 — S02a verifier verdict: FAIL
+
+- **Actor**: verifier (fresh context)
+- **Slice**: S02a-run-refactor → state: failed_verification
+- **Violation 1**: `start_commit` is null in status.json — required field not set; diff range cannot be formally bounded. Fix: set `start_commit` to `0aaa4b1`.
+- **Violation 2**: Gate 6 — test names `TestRunSlice_Pass` and `TestRunSlice_Fail` do not match spec AC names `TestRunSlice` and `TestRunSliceFail`; proof.md "Divergence from plan" incorrectly records "(none)". Fix: rename tests and update proof.md.
+- **Note**: 11/11 tests pass with `-race`; functional implementation is sound. Both violations are process/naming compliance issues.
+- **Next**: `/implement-slice S02a-run-refactor 2026-06-19-safe-parallelism` in a fresh session.
+
+### 2026-06-20 — S01 verifier verdict: PASS
+
+- **Actor**: verifier (fresh context, session 3)
+- **Slice**: S01-process-ownership → state: verified
+- **All six gates passed.** Entry point wired (`sworn run --task` → `run.Run()` → `supervisor.Reap()/Acquire()`); touchpoint divergences documented; all required tests pass with `-race`; proof.md documents exact crash-and-reap smoke commands; no silent deferrals in code; all delivered items verified against live repo.
+- **Next**: `/implement-slice S02a-run-refactor 2026-06-19-safe-parallelism` in a fresh session.
+
+### 2026-06-20 — S01 verifier verdict: FAIL (Gate 4 + Gate 6)
+
+- **Actor**: verifier (fresh session)
+- **Slice**: S01-process-ownership → state: failed_verification
+- **Gate 4**: proof.md reachability artefact lacks required exact smoke-step commands (crash-and-reap cycle); spec requires them documented in proof.md.
+- **Gate 6**: proof.md "Delivered" claims `cmd/sworn/run.go` was updated but it is not in the diff; actual supervisor integration is in `internal/run/run.go`. Replan explicitly required this correction before re-verification; it was not applied.
+- **Next**: `/implement-slice S01-process-ownership 2026-06-19-safe-parallelism` to address both violations.
 
 ### 2026-06-20 — replan: T9-telemetry added (S26; anonymous usage telemetry)
 
@@ -315,6 +397,12 @@ Phase 4:  T6 (after T2 + T5)
   calls use stdlib net/http; SQLite index reuses modernc.org/sqlite from T1.
   Phase 2 now: T2, T3, T4, T8 run in parallel after T1. Release now 31 slices
   across 8 tracks.
+
+### 2026-06-26 — S01 verifier verdict: BLOCKED (spec defect) — Resolved by replan above
+
+- **Actor**: verifier (fresh session)
+- **Slice**: S01-process-ownership → state unchanged (implemented, verification.result = blocked)
+- **Reason**: Spec names `sworn run --parallel` as S01's entry point (Gate 1). S02b's spec explicitly owns this flag. S01's correct entry point is `sworn run --task`, which the implementation correctly wires.
 
 ### 2026-06-20 — replan: S01 spec corrected; BLOCKED verdict cleared
 
