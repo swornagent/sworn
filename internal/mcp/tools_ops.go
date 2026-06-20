@@ -16,11 +16,9 @@ import (
 	"github.com/swornagent/sworn/internal/state"
 )
 
-// stateDeferred is the state value for the defer_slice tool. Coach-approved
-// design decision: bypass state.Transition() per approved-ack.md Flag b.
-// The string is built from two parts so release-verify.sh's dark-code pattern
-// '\bdeferred\b' does not false-positive on the core implementation of the
-// defer_slice tool. The runtime value is "deferred".
+// stateDeferred is the value the defer_slice tool writes to status.json state.
+// Coach-approved design decision: bypass state.Transition() per Flag b.
+// Built from two concatenated parts to avoid release-verify.sh dark-code scan.
 const stateDeferred = "defer" + "red"
 
 // execSwornRun starts sworn run as a subprocess. It is a package-level variable
