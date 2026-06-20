@@ -14,7 +14,8 @@
   "planned_files": [
     "internal/telemetry/telemetry.go",
     "internal/telemetry/telemetry_test.go",
-    "cmd/sworn/main.go"
+    "cmd/sworn/main.go",
+    "cmd/sworn/telemetry.go"
   ],
   "actual_files": [],
   "test_commands": [
