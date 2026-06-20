@@ -14,6 +14,7 @@ import (
 	"github.com/swornagent/sworn/internal/config"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/prompt"
+	"github.com/swornagent/sworn/internal/tui"
 	"github.com/swornagent/sworn/internal/verify"
 	"os"
 	"strings"
@@ -24,8 +25,12 @@ var version = "0.0.0-dev"
 
 func main() {
 	if len(os.Args) < 2 {
-		usage()
-		os.Exit(64)
+		// No subcommand — launch TUI.
+		if err := tui.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "sworn: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 	switch os.Args[1] {
 	case "init":
@@ -125,7 +130,8 @@ func cmdVerify(args []string) int {
 		return 2
 	}
 
-	if resolvedModel != "" {		var verr error
+	if resolvedModel != "" {
+		var verr error
 		v, verr = model.FromEnv(resolvedModel)
 		if verr != nil {
 			fmt.Fprintf(os.Stderr, "sworn verify: %v\n", verr)

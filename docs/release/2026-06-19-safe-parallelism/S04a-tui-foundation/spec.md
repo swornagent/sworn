@@ -76,9 +76,9 @@ launches the Bubble Tea TUI.
     the board view model contains those states after `board.Load()`
   — `TestKeyNavigation`: simulate `j`, `k`, `Enter`, `Esc` keypresses on the model;
     assert correct view transitions
-- **Reachability artefact**: run `sworn` (no args) in this repo; navigate to the
+- **Reachability artefact** (terminal observation): run `sworn` (no args) in this repo; navigate to the
   `2026-06-19-safe-parallelism` release; observe board view renders S01–S08 in
-  `planned` state. Document terminal screenshot path or describe exact observation
+  `planned` state. Document the exact terminal observation
   in proof.md.
 
 ## Risks
