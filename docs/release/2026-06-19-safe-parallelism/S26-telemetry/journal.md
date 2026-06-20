@@ -42,3 +42,18 @@
 - AC1/AC2 (sworn init consent) will be verified when T3/S09 lands the init flow wiring
 - api.sworn.sh/v1/events backend is not yet live — telemetry silently drops on connection refused
 - TestFireSchema uses HTTP transport rewriting (not httptest on the real URL) which is correct for client-side verification
+
+## Verifier verdicts received
+
+### Round 1 — 2026-06-21: FAIL (3 violations)
+
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **Slice**: S26-telemetry → state: **failed_verification**
+
+**Violation 1 (Gate 2 — touchpoints mismatch + proof.md inaccurate):** The committed diff `start_commit..HEAD` includes the binary `sworn` (16 MB ELF, committed in `2da8599`). `3f496d1 chore: remove tracked sworn binary from repo` is present in the T9 branch's history, meaning the removal was already processed before implementation began and the implementer re-added it. The spec's planned touchpoints do not include the binary; `.gitignore` has `/sworn`. proof.md's "Files changed" section omits `sworn`, making the proof inconsistent with the live committed diff. Fix: `git rm --cached sworn && git commit` before re-submitting.
+
+**Violation 2 (Gate 3 — required test absent):** Spec names `TestIsEnabled_Neither` as a required test (no env var, no sentinel → `IsEnabled()` returns false). journal.md Flag (a) notes "Renamed TestIsEnabled_Neither → TestIsEnabled_OptedIn_NoOverrides," but the renamed test covers a different path — it tests `.telemetry-enabled` present → true (case 3 in the logic). Case 4 (neither sentinel file exists → `IsEnabled()` returns false) — the "init not run → telemetry disabled" default — is covered by no test. Fix: add `TestIsEnabled_Neither` (or equivalent) that creates a clean temp home with no sentinel files and asserts `IsEnabled() == false`.
+
+**Violation 3 (Gate 6 — claimed scope vs spec threshold):** Spec AC8 states "sworn run exits within 10ms." `TestFireNonBlocking` uses a 100ms threshold (10× more permissive). proof.md claims AC8 delivered against 100ms, not 10ms, without listing this in "Divergence from plan." The spec's `Required tests` section also says 100ms (internal contradiction), but the AC is the primary gate. Fix: either tighten the test to ≤10ms, or document the threshold divergence in proof.md "Divergence from plan" with rationale (goroutine-launch overhead in practice is ≪10ms; the test margin is deliberately conservative).
+
+- **Next**: `/implement-slice S26-telemetry 2026-06-19-safe-parallelism` in a fresh session to address all 3 violations.

@@ -262,16 +262,16 @@ Phase 4:  T6 (after T2 + T5)
 | `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | planned | [spec](./S23-memory-config/spec.md) |
 | `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | planned | [spec](./S24-memory-engine/spec.md) |
 | `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | planned | [spec](./S25-memory-search/spec.md) |
-| `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | planned | [spec](./S26-telemetry/spec.md) |
+| `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | failed_verification | [spec](./S26-telemetry/spec.md) |
 
 ## Aggregate state
 
-- Planned: 28
+- Planned: 27
 - In progress: 0
 - Design review: 0
 - Implemented: 0
 - Verified: 4
-- Failed verification: 0
+- Failed verification: 1
 - Deferred: 0
 
 **Tracks:** Planned: 8 / Ready to merge: 0 / Merged: 1
@@ -279,6 +279,15 @@ Phase 4:  T6 (after T2 + T5)
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice).
 
 ## Recent activity
+
+### 2026-06-21 — S26 verifier verdict: FAIL (round 1, 3 violations)
+
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **Slice**: S26-telemetry → state: **failed_verification**
+- **Violation 1 (Gate 2)**: `sworn` binary (16 MB ELF) committed in `2da8599`; absent from spec planned touchpoints; `3f496d1` (binary removal) is already in T9 branch history. proof.md "Files changed" omits it.
+- **Violation 2 (Gate 3)**: `TestIsEnabled_Neither` absent. journal Flag (a) renamed it to `TestIsEnabled_OptedIn_NoOverrides` but that test covers case 3 (opted-in → true), not case 4 (neither sentinel → false). The "init not run → disabled" path is untested.
+- **Violation 3 (Gate 6)**: Spec AC8 says "within 10ms"; `TestFireNonBlocking` uses 100ms threshold; proof claims AC8 at 100ms without documenting the divergence.
+- **Next**: `/implement-slice S26-telemetry 2026-06-19-safe-parallelism` in a fresh session.
 
 ### 2026-06-21 — track `T1-concurrency-core` merged to release-wt (commit 581b6a9)
 
