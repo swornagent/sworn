@@ -44,8 +44,11 @@ func main() {
 		// S01-rtm-spine / S02-ears-ac-format add this case (T1-fidelity-core).
 		// Dispatches to: lint ac <release>, lint trace <release>.
 		os.Exit(cmdLint(os.Args[2:]))
-	case "reqverify":
-		// S04-requirements-verify-gate adds this case (T1-fidelity-core).
+	case "memory":
+		// S23-memory-config adds this case (T8-memory).
+		// 3-way additive merge touchpoint with T3 (S06a) and T4 (S08a).
+		os.Exit(cmdMemory(os.Args[2:]))
+	case "reqverify":		// S04-requirements-verify-gate adds this case (T1-fidelity-core).
 		os.Exit(cmdReqverify(os.Args[2:]))
 	case "reqvalidate":
 		// S05-requirements-validate-gate adds this case (T1-fidelity-core).
