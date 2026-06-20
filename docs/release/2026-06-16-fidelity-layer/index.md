@@ -120,7 +120,7 @@ files (disjoint, no change).
 | `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | verified | human | [spec](./S14-journey-regression-suite/spec.md) | [proof](./S14-journey-regression-suite/proof.md) |
 | `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | verified | human | [spec](./S03-spec-quality-firstpass/spec.md) | [proof](./S03-spec-quality-firstpass/proof.md) |
 | `S08-design-system-input` | T3 | Design system (tokens + component library) as first-class project input | verified | verifier | [spec](./S08-design-system-input/spec.md) | [proof](./S08-design-system-input/proof.md) |
-| `S09-design-conformance-audit` | T3 | Deterministic drift first-pass + human cohesion verdict (`sworn designaudit`) | planned | human | [spec](./S09-design-conformance-audit/spec.md) | — |
+| `S09-design-conformance-audit` | T3 | Deterministic drift first-pass + human cohesion verdict (`sworn designaudit`) | verified | human | [spec](./S09-design-conformance-audit/spec.md) | [proof](./S09-design-conformance-audit/proof.md) |
 | `S15-sworn-top-evidence` | T4 | Read-only journey-validation green-board / kill-list (`sworn top`) | verified | agent | [spec](./S15-sworn-top-evidence/spec.md) | [proof](./S15-sworn-top-evidence/proof.md) |
 
 ### State legend
@@ -137,17 +137,22 @@ files (disjoint, no change).
 
 ## Aggregate state
 
-- Planned: 1 (S09)
+- Planned: 0
 - In progress: 0
 - Implemented (awaiting verification): 0
-- Verified (across tracks): 15 (S01, S02, S03, S04, S05, S06, S07, S08, S10, S11, S12, S13, S14, S15, S16)
+- Verified (across tracks): 16 (S01, S02, S03, S04, S05, S06, S07, S08, S09, S10, S11, S12, S13, S14, S15, S16)
 - Failed verification: 0
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** T3 in_progress / Merged: 3 (T1: b8521f8, T2: 991b035, T4: ca5b1ea)
+**Tracks:** T3 in_progress (all slices verified — ready for /merge-track) / Merged: 3 (T1: b8521f8, T2: 991b035, T4: ca5b1ea)
 
 ## Recent activity
+
+### 2026-06-20 — S09-design-conformance-audit: PASS (round 1, fresh-context verifier)
+
+- **Actor**: verifier (fresh-context session)
+- **Result**: PASS — all six gates passed. 11 unit tests (`go test ./internal/designaudit/... -v -count=1`) + 5 integration tests (`go test ./cmd/sworn/ -run TestDesignaudit -v -count=1`), all green in fresh session. Gate 1: `case "designaudit"` wired in `main.go:67–69` → `cmdDesignaudit`. Gate 2: all 6 planned touchpoints in diff; `cmd/sworn/designaudit_test.go` extra file explained in Divergence; `spec.md` trivial label correction explained. Gate 3: integration tests call `cmdDesignaudit` directly — Rule 1 satisfied through command entry point. Gate 4: reachability artefact describes user gesture with explicit hex violation → non-zero exit (file+line named) and pass path (token reference + `--cohesion=on-brand` → exit 0). Gate 5: no deferral markers in changed source. Gate 6: all 5 ACs have verifiable evidence. Verified at `79ef47f`. Slice state → `verified`. T3-leaf-gates now has 3/3 slices verified — track complete. Next: `/merge-track T3-leaf-gates 2026-06-16-fidelity-layer`, then `/merge-release 2026-06-16-fidelity-layer`.
 
 ### 2026-06-20 — S08-design-system-input: PASS (round 6, fresh-context verifier)
 

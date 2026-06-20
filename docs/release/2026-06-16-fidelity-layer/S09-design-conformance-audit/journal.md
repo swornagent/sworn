@@ -38,4 +38,18 @@ description: Implementation log for S09-design-conformance-audit
 
 ## Verifier verdicts received
 
-`<none yet>`
+### 2026-06-20 — PASS (round 1, fresh-context verifier)
+
+PASS
+
+Slice: `S09-design-conformance-audit`
+Verified against: `79ef47f45a8f5e1e06314cc4d8dcedcc902cb2d2`
+Verifier session: `fresh, artefact-only`
+
+All six gates passed.
+- Gate 1: `case "designaudit"` wired in `cmd/sworn/main.go:67–69` → `cmdDesignaudit` in `cmd/sworn/designaudit.go`. User-reachable, no feature flag.
+- Gate 2: All 6 planned touchpoints in diff. One extra file (`cmd/sworn/designaudit_test.go`) explained in proof.md "Divergence from plan"; `spec.md` trivial label correction also explained.
+- Gate 3: Unit tests (11 cases) + integration tests (5 cases calling `cmdDesignaudit` directly — Rule 1 satisfied). All re-run live, all green.
+- Gate 4: Reachability artefact describes user gesture (hex violation → non-zero exit with file+line; token reference + cohesion → exit 0) with specific test names and output.
+- Gate 5: No TODO/FIXME/deferred/placeholder/XXX/HACK in changed source files.
+- Gate 6: All 5 ACs have verifiable evidence with specific file paths and test names.
