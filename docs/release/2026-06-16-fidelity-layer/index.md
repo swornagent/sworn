@@ -149,6 +149,11 @@ files (disjoint, no change).
 
 ## Recent activity
 
+### 2026-06-20 — release merged to release/v0.1.0 (commit 1b41a26)
+
+- **Actor**: release integrator (/merge-release)
+- **Note**: 16 verified slices merged. Slices remain in `verified` state until release/v0.1.0 ships to production; at that point each slice's `status.json` flips to `shipped`. Branch `release-wt/2026-06-16-fidelity-layer` retained; remove with `git branch -D release-wt/2026-06-16-fidelity-layer` once you're sure no more work belongs to this release.
+
 ### 2026-06-20 — track `T3-leaf-gates` merged to release-wt (commit e6985ba)
 
 - **Actor**: track integrator (/merge-track)
