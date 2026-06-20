@@ -79,7 +79,7 @@ until stdin is closed.
   Claude calls `tools/list` (returns empty or stub list). CLI smoke test (terminal
   log) in proof.md.
 - **CLI smoke test**: `echo '...' | sworn mcp` verifies initialize handshake.
-  Covers AC1–5. No Playwright needed (CLI-only feature).
+  Covers AC1–5.
 
 ## Risks
 
