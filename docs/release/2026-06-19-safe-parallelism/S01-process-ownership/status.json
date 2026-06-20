@@ -43,10 +43,13 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
+    "result": "blocked",
+    "verifier_session_id": "fresh-context-2026-06-26",
+    "verifier_verdict_at": "2026-06-26T23:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "Gate 1 — spec names 'sworn run --parallel' as entry point; that flag is S02b scope (S02b spec explicitly owns it). S01's correct entry point is 'sworn run --task'.",
+      "Gate 6 (subsumed) — proof.md 'Delivered' falsely claims cmd/sworn/run.go was updated; git diff confirms it was not changed."
+    ]
   }
 }

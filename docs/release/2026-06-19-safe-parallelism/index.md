@@ -213,7 +213,7 @@ Phase 4:  T6 (after T2 + T5)
 
 | ID | Track | User outcome | State | Spec |
 |---|---|---|---|---|
-| `S01-process-ownership` | T1 | SQLite registry + reap-on-restart; single-owner identity | planned | [spec](./S01-process-ownership/spec.md) |
+| `S01-process-ownership` | T1 | SQLite registry + reap-on-restart; single-owner identity | blocked (spec defect) | [spec](./S01-process-ownership/spec.md) |
 | `S02a-run-refactor` | T1 | `run.RunSlice()` exported; callable from goroutine; no regression | planned | [spec](./S02a-run-refactor/spec.md) |
 | `S02b-concurrent-scheduler` | T1 | `sworn run --parallel` launches all independent tracks concurrently | planned | [spec](./S02b-concurrent-scheduler/spec.md) |
 | `S03-verify-under-concurrency` | T1 | Verify gate goroutine-safe and fail-closed at N>1 | planned | [spec](./S03-verify-under-concurrency/spec.md) |
@@ -256,6 +256,13 @@ Phase 4:  T6 (after T2 + T5)
 > Note: T3 now has 7 slices; T4 now has 4 slices.
 
 ## Recent activity
+
+### 2026-06-26 — S01 verifier verdict: BLOCKED (spec defect)
+
+- **Actor**: verifier (fresh session)
+- **Slice**: S01-process-ownership → state unchanged (implemented, verification.result = blocked)
+- **Reason**: Spec names `sworn run --parallel` as S01's entry point (Gate 1). S02b's spec explicitly owns this flag (`sworn run --parallel --release <name>`, reads release board, concurrent scheduler). S01's correct entry point is `sworn run --task`, which the implementation correctly wires.
+- **Next step**: `/replan-release 2026-06-19-safe-parallelism` — planner corrects "User outcome", "Entry point", and reachability artefact to use `sworn run --task`. Secondary fix: implementer corrects false `cmd/sworn/run.go` "Delivered" claim in proof.md.
 
 ### 2026-06-20 — replan: canonical Baton + sworn doctor (S21 T3, S22 T4; S08c fixed)
 

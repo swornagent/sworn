@@ -46,3 +46,24 @@ None — this slice is the foundation for T1 and has no open deferrals.
 ### Out-of-scope discoveries
 
 None — implementation stayed within planned touchpoints.
+
+---
+
+## Verifier verdicts received
+
+### 2026-06-26 — Verifier session 1
+
+**Verdict**: BLOCKED
+
+**Reason**: S01 spec names `sworn run --parallel` as the entry point and reachability smoke step entry point (Gate 1). S02b's spec (`S02b-concurrent-scheduler`) explicitly owns this flag: "Entry point: `sworn run --parallel --release <release-name>` flag combination on `cmd/sworn/run.go`" — it requires `--release` (not `--task`), reads the release board, and launches concurrent track goroutines. An implementer cannot add a meaningful `--parallel` entry point for S01 without implementing S02b's concurrent scheduler (out of scope) or creating a misleading stub that won't match what S02b builds. The correct S01 entry point is `sworn run --task` (which the implementation correctly wires).
+
+Secondary Gate 6 finding (not independently FAIL-able — subsumed in BLOCKED): `proof.md` "Delivered" falsely claims `cmd/sworn/run.go` was updated ("DB opened at .sworn/sworn.db under workspace root; supervisor.Reap() called at startup…"). `git diff --name-only <start_commit>` does not include `cmd/sworn/run.go`; the supervisor setup is entirely in `internal/run/run.go`.
+
+**Proposed spec.md amendment** (for planner to ratify):
+1. "User outcome": Replace `sworn run --parallel` with `sworn run --task` — "A developer running `sworn run --task` after a previous crashed session finds stale worker processes automatically detected and reaped, ownership cleanly reassigned, and the run proceeds as if starting fresh."
+2. "Entry point": Replace "`sworn run --parallel` at startup — the supervisor reads…" with "`sworn run --task` at startup — the supervisor reads `.sworn/sworn.db`, checks registered PIDs for liveness (`kill(pid, 0)`), and reaps any dead entries before the implement loop begins."
+3. "Required tests" reachability artefact: Replace "run `sworn run --parallel` on a fixture release" with "run `sworn run --task '…'`; kill the process; re-run; confirm stale row reaped and run proceeds. Document exact commands in `proof.md`."
+
+After the planner ratifies the amendment, the implementer must also correct the false `cmd/sworn/run.go` claim in `proof.md` "Delivered" (move the integration explanation to "Divergence from plan" and accurately attribute the supervisor wiring to `internal/run/run.go`).
+
+**Next step**: `/replan-release 2026-06-19-safe-parallelism`
