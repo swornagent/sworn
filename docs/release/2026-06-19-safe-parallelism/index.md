@@ -13,21 +13,21 @@ tracks:
   - id: T2-monitoring
     slices: [S04a-tui-foundation, S04b-tui-live, S04c-tui-resolution, S05-overclaim-benchmark]
     depends_on: T1-concurrency-core
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T2-monitoring
     worktree_branch: track/2026-06-19-safe-parallelism/T2-monitoring
-    state: planned
+    state: in_progress
   - id: T3-commercial
     slices: [S06a-sworn-login-auth, S06b-sworn-proxy-credits, S07-paging, S09-per-role-model-config, S18-consideration-catalog, S19-sworn-induction, S21-canonical-baton]
     depends_on: T1-concurrency-core
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T3-commercial
     worktree_branch: track/2026-06-19-safe-parallelism/T3-commercial
-    state: planned
+    state: in_progress
   - id: T4-mcp
     slices: [S08a-mcp-transport, S08b-mcp-ops-tools, S08c-mcp-plan-tools, S22-sworn-doctor]
     depends_on: T1-concurrency-core
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T4-mcp
     worktree_branch: track/2026-06-19-safe-parallelism/T4-mcp
-    state: planned
+    state: in_progress
   - id: T5-providers
     slices: [S10-provider-foundation, S11-anthropic-driver, S12-google-driver, S13-bedrock-driver, S14-azure-driver, S15-oci-driver, S16-ollama-driver]
     depends_on: [T1-concurrency-core, T3-commercial]
@@ -49,15 +49,15 @@ tracks:
   - id: T8-memory
     slices: [S23-memory-config, S24-memory-engine, S25-memory-search]
     depends_on: T1-concurrency-core
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T8-memory
     worktree_branch: track/2026-06-19-safe-parallelism/T8-memory
-    state: planned
+    state: in_progress
   - id: T9-telemetry
     slices: [S26-telemetry]
     depends_on: T1-concurrency-core
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T9-telemetry
     worktree_branch: track/2026-06-19-safe-parallelism/T9-telemetry
-    state: planned
+    state: in_progress
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
