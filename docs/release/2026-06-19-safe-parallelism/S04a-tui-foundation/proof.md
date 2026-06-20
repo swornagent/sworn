@@ -7,14 +7,21 @@
 ## Files changed
 
 ```
-cmd/sworn/main.go           — route len(os.Args)<2 to tui.Run()
-cmd/sworn/top.go            — delegate to tui.Run() when no release arg given
-docs/release/.../S04a-tui-foundation/spec.md — clarify reachability artefact is terminal observation (not Playwright)
-docs/release/.../S04a-tui-foundation/status.json — state transition, design_decisions, planned/actual files
-go.mod                      — added bubbletea v1.3.10, lipgloss v1.1.0, yaml.v3
-go.sum                      — lock file for new deps
-```
-## Test results
+cmd/sworn/main.go
+cmd/sworn/top.go
+docs/release/.../S04a-tui-foundation/journal.md
+docs/release/.../S04a-tui-foundation/proof.md
+docs/release/.../S04a-tui-foundation/spec.md
+docs/release/.../S04a-tui-foundation/status.json
+go.mod
+go.sum
+internal/tui/board.go
+internal/tui/model.go
+internal/tui/releases.go
+internal/tui/styles.go
+internal/tui/tui.go
+internal/tui/tui_test.go
+```## Test results
 
 ```
 $ go test ./internal/tui/... -v -count=1
