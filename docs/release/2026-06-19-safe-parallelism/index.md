@@ -17,13 +17,13 @@ tracks:
     worktree_branch: track/2026-06-19-safe-parallelism/T2-monitoring
     state: planned
   - id: T3-commercial
-    slices: [S06a-sworn-login-auth, S06b-sworn-proxy-credits, S07-paging, S09-per-role-model-config, S18-consideration-catalog, S19-sworn-induction]
+    slices: [S06a-sworn-login-auth, S06b-sworn-proxy-credits, S07-paging, S09-per-role-model-config, S18-consideration-catalog, S19-sworn-induction, S21-canonical-baton]
     depends_on: T1-concurrency-core
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T3-commercial
     state: planned
   - id: T4-mcp
-    slices: [S08a-mcp-transport, S08b-mcp-ops-tools, S08c-mcp-plan-tools]
+    slices: [S08a-mcp-transport, S08b-mcp-ops-tools, S08c-mcp-plan-tools, S22-sworn-doctor]
     depends_on: T1-concurrency-core
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T4-mcp
@@ -78,8 +78,8 @@ tracks:
 |---|---|---|---|---|
 | `T1-concurrency-core` | S01 → S02a → S02b → S03 | — | `track/.../T1-concurrency-core` | planned |
 | `T2-monitoring` | S04a → S04b → S04c → S05 | T1 | `track/.../T2-monitoring` | planned |
-| `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 | T1 | `track/.../T3-commercial` | planned |
-| `T4-mcp` | S08a → S08b → S08c | T1 | `track/.../T4-mcp` | planned |
+| `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 | `track/.../T3-commercial` | planned |
+| `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | planned |
 | `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 | T1 + T3 | `track/.../T5-providers` | planned |
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
 | `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | planned |
@@ -163,11 +163,17 @@ Phase 4:  T6 (after T2 + T5)
 | `internal/prompt/planner.md` | | | ✓ | | | | |
 | `internal/prompt/implementer.md` | | | ✓ | | | | |
 | `internal/prompt/verifier.md` | | | ✓ | | | | |
+| `internal/prompt/prompt.go` | | | ✓ | | | | |
+| `internal/prompt/baton/` (new) | | | ✓ | | | | |
 | `cmd/sworn/induction.go` (new) | | | ✓ | | | | |
 | `cmd/sworn/induction_test.go` (new) | | | ✓ | | | | |
 | `internal/mcp/` (new) | | | | ✓ | | |
 | `internal/mcp/catalog.go` (new) | | | | | | | ✓ |
 | `internal/mcp/catalog_test.go` (new) | | | | | | | ✓ |
+| `cmd/sworn/doctor.go` (new) | | | | ✓ | | | |
+| `cmd/sworn/doctor_test.go` (new) | | | | ✓ | | | |
+| `docs/adr/0005-canonical-baton.md` (new) | | | ✓ | | | | |
+| `docs/templates/agents.md` (new) | | | ✓ | | | | |
 | `cmd/sworn/mcp.go` (new) | | | | ✓ | |  |
 | `docs/mcp-setup.md` (new) | | | | ✓ | |  |
 
@@ -233,10 +239,12 @@ Phase 4:  T6 (after T2 + T5)
 | `S18-consideration-catalog` | T3 | Typed consideration catalog + decision registry; planner Phase 2b (DRY gate, design consultation, arch conformance, capture); sworn init scaffolds both templates | planned | [spec](./S18-consideration-catalog/spec.md) |
 | `S19-sworn-induction` | T3 | `sworn induction` one-time repo onboarding (design system + architecture discovery); implementer + verifier prompts gain deviation-surfacing steps | planned | [spec](./S19-sworn-induction/spec.md) |
 | `S20-mcp-catalog-tools` | T7 | 8 MCP tools: plan_release (unified), get_induction_status, get_considerations, search_decisions, record_decision, check_design_system, update_design_system, record_architecture_pattern | planned | [spec](./S20-mcp-catalog-tools/spec.md) |
+| `S21-canonical-baton` | T3 | Baton protocol embedded in binary (internal/prompt/baton/); sworn init writes minimal MCP-pointer AGENTS.md instead of per-repo Baton copy; ADR-0005 | planned | [spec](./S21-canonical-baton/spec.md) |
+| `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | planned | [spec](./S22-sworn-doctor/spec.md) |
 
 ## Aggregate state
 
-- Planned: 26
+- Planned: 28
 - In progress: 0
 - Implemented: 0
 - Verified: 0
@@ -245,7 +253,23 @@ Phase 4:  T6 (after T2 + T5)
 
 **Tracks:** Planned: 7 / In progress: 0 / Merged: 0
 
+> Note: T3 now has 7 slices; T4 now has 4 slices.
+
 ## Recent activity
+
+### 2026-06-20 — replan: canonical Baton + sworn doctor (S21 T3, S22 T4; S08c fixed)
+
+- **Actor**: planner (human + Claude)
+- **Note**: Identified seam between binary-embedded prompts, Baton on developer machines,
+  and per-repo Baton copies. Resolution: binary IS canonical Baton. S21 embeds full
+  Baton protocol at internal/prompt/baton/ (go:embed); rewrites sworn init to stop
+  writing docs/baton/ and stop splicing AGENTS.md — minimal MCP-pointer AGENTS.md
+  written instead; ADR-0005 documents the architecture; user prompt overrides deferred
+  post-launch. S22 (T4) adds sworn doctor: embedded prompt integrity checks, legacy
+  artifact detection (docs/baton/, old-style AGENTS.md splice) with --fix, optional
+  ~/.claude/baton/ sync with --sync-baton. S08c spec fixed: sworn://prompts/* and
+  new sworn://baton/* resources now explicitly read from internal/prompt/ embed, NOT
+  from $HOME/.claude/baton/. 28 slices across 7 tracks.
 
 ### 2026-06-20 — replan: induction + MCP catalog tools (S19 T3, S20 T7-new; S18 revised)
 
@@ -327,6 +351,8 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - Multi-language architecture pattern inference beyond Go (post-R3 — see S19 spec deferral)
 - Azure Entra ID / managed identity auth in S14 (post-R3)
 - CI lint for catalog conformance (post-R3 — S19 adds role prompt enforcement; automated lint deferred)
+- User prompt overrides / project-level Baton customisation (post-launch — see ADR-0005 in S21)
+- Slash-command harness migration to read via sworn://prompts/* MCP resources (post-launch)
 
 ## Cross-slice / cross-track notes
 

@@ -48,10 +48,17 @@ Three planning tools registered via `server.RegisterTool()`:
 
 MCP Resources (registered via `server.RegisterResource()`):
 
-- `sworn://prompts/plan` → full text of the embedded planner role prompt
-  (`internal/prompt/` embed or direct file read from `$HOME/.claude/baton/role-prompts/planner.md`)
-- `sworn://prompts/implement` → implementer role prompt
-- `sworn://prompts/verify` → verifier role prompt
+> All prompt and Baton resources are served from the binary's `internal/prompt/`
+> embed — NOT from `$HOME/.claude/baton/`. The binary is the canonical source.
+> If the embed is absent or corrupted, the resource returns an error; it does not
+> fall back to the filesystem.
+
+- `sworn://prompts/plan` → `internal/prompt/planner.md` (embed)
+- `sworn://prompts/implement` → `internal/prompt/implementer.md` (embed)
+- `sworn://prompts/verify` → `internal/prompt/verifier.md` (embed)
+- `sworn://baton/rules` → `internal/prompt/baton/rules.md` (embed; full Baton protocol)
+- `sworn://baton/track-mode` → `internal/prompt/baton/track-mode.md` (embed)
+- `sworn://baton/version` → `internal/prompt/baton/VERSION.txt` (embed; Baton version string)
 - `sworn://release/{name}/board` → content of `docs/release/<name>/index.md`
 - `sworn://release/{name}/intake` → content of `docs/release/<name>/intake.md`
 - `sworn://release/{name}/{slice}/spec` → content of the slice's `spec.md`
@@ -90,8 +97,12 @@ and an example planning workflow.
 - [ ] `set_track` with a valid slices list updates the index.md frontmatter and Tracks
   table; `set_track` with a non-existent slice_id returns an error (not a panic)
 - [ ] `update_intake` appends content under the correct section heading
-- [ ] `resources/read sworn://prompts/plan` returns non-empty content matching the
-  planner.md role prompt (or embedded equivalent)
+- [ ] `resources/read sworn://prompts/plan` returns non-empty content from the
+  `internal/prompt/` embed — NOT from `$HOME/.claude/baton/` (verified by checking
+  that the resource works when `$HOME/.claude/baton/` does not exist)
+- [ ] `resources/read sworn://baton/rules` returns non-empty content from the
+  `internal/prompt/baton/rules.md` embed
+- [ ] `resources/read sworn://baton/version` returns a parseable version string
 - [ ] `resources/read sworn://release/2026-06-19-safe-parallelism/board` returns the
   content of this release's index.md
 - [ ] `resources/read sworn://release/{name}/{slice}/proof` for a slice with no proof.md
@@ -119,10 +130,11 @@ and an example planning workflow.
 
 ## Risks
 
-- The role prompt files live at `$HOME/.claude/baton/role-prompts/` which is outside
-  the repo. The MCP server must read them at runtime from this path, not embed them
-  (embedding would make the binary repo-specific). If the path doesn't exist, return
-  a descriptive error: "Baton role prompts not found at <path> — is Baton installed?"
+- Role prompts and Baton docs are served from the `internal/prompt/` embed, NOT from
+  `$HOME/.claude/baton/`. The embed is compiled in at build time; there is no runtime
+  filesystem fallback. If the embed is somehow absent (should never happen in a correctly
+  built binary), return a clear error: "sworn://prompts/plan: embedded prompt not found
+  — this is a binary build error; please reinstall sworn."
 - `set_track` rewrites the index.md frontmatter. YAML frontmatter generation must
   produce strict-YAML-safe output (single-quoted strings per the planner.md convention).
   Test with a slice title containing a colon-space.
