@@ -90,6 +90,20 @@ All 6 verifier violations addressed:
 - Skeptic panel: skipped — runtime does not support subagent dispatch
 - Next: `/verify-slice S02b-concurrent-scheduler 2026-06-19-safe-parallelism` in a fresh terminal
 
+## Verifier verdicts received (round 3)
+
+### 2026-06-21 — Verifier verdict: FAIL
+
+FAIL
+
+Slice: `S02b-concurrent-scheduler`
+
+Violations:
+1. Gate 4 — The spec prescribes "smoke step — `sworn run --parallel --release <fixture>` on a 2-track fixture; observe both `[T1]` and `[T2]` prefixes in stderr output. Document in proof.md." The proof substitutes output from `TestRunParallel_TimingConcurrency`, a unit test that calls `RunParallel()` directly from `internal/run/parallel_test.go`. No test exercises `cmdRun()` in `cmd/sworn/run.go` with the `--parallel` flag, and no documented binary invocation appears in proof.md. The `cmdRun()` entry point (lines 63–91 of `cmd/sworn/run.go`: `--parallel` flag gate, `openDefaultDB()`, `RunSliceFn` closure construction, `RunParallel()` dispatch) is therefore unproven. This is the same root issue the round-1 verifier raised as Violation 6 ("no captured actual output proves the smoke step was executed"). The round-2 fix replaced placeholder comments with unit test output, but unit test output calling `RunParallel()` directly is not equivalent to running the binary through its CLI entry point.
+
+Required to address:
+1. Either (a) run `sworn run --parallel --release <fixture>` against a real on-disk fixture (a temp directory with `docs/release/<name>/index.md` listing ≥2 independent tracks with valid `worktree_path` values), capture the actual stderr output, and paste it verbatim into proof.md with the invocation command used; OR (b) add a `TestCmdRun_Parallel` test in `cmd/sworn/run_test.go` that calls `cmdRun([]string{"--parallel", "--release", "<fixture-name>", ...})` with a fixture on disk and asserts the parallel entry path is reached (exit not 64) and that `RunParallel` is invoked.
+
 ## Verifier verdicts received (round 2)
 
 ### 2026-07-01 — Verifier verdict: FAIL

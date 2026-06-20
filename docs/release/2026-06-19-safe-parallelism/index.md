@@ -280,6 +280,14 @@ Phase 4:  T6 (after T2 + T5)
 
 ## Recent activity
 
+### 2026-06-21 — S02b verifier verdict: FAIL (round 3, 1 violation)
+
+- **Actor**: verifier (fresh context, Rule 7 compliant)
+- **Slice**: S02b-concurrent-scheduler → state: failed_verification
+- **Violation 1 (Gate 4)**: Spec prescribes "smoke step — `sworn run --parallel --release <fixture>`" as the reachability artefact. Proof substitutes unit test output from `TestRunParallel_TimingConcurrency` (which calls `RunParallel()` directly). The `cmdRun()` entry point in `cmd/sworn/run.go:63-91` (DB open, RunSliceFn closure, RunParallel dispatch) is exercised by no test and no documented binary invocation.
+- **All other gates (1, 2, 3, 5, 6) passed.** Tests all pass with `-race` (fresh run verified). Implementation is functionally correct.
+- **Next**: `/implement-slice S02b-concurrent-scheduler 2026-06-19-safe-parallelism` in a fresh session. Fix: either run the binary against a fixture and paste actual stderr output into proof.md, OR add `TestCmdRun_Parallel` in `cmd/sworn/run_test.go` invoking `cmdRun()` with `--parallel`.
+
 ### 2026-07-01 — S02b verifier verdict: FAIL (round 2, 1 violation)
 
 - **Actor**: verifier (fresh context, Rule 7 compliant)
