@@ -40,6 +40,11 @@ func main() {
 	case "bench":
 		// S10-benchmark-dogfood adds this case (T4-proof).
 		os.Exit(cmdBench(os.Args[2:]))
+	case "mcp":
+		// S08a-mcp-transport adds this case (T4-mcp).
+		// Starts an MCP 2024-11-05 server over stdio. Disjoint from all
+		// other commands — reads from stdin with no filesystem dependency.
+		os.Exit(cmdMcp(os.Args[2:]))
 	case "lint":
 		// S01-rtm-spine / S02-ears-ac-format add this case (T1-fidelity-core).
 		// Dispatches to: lint ac <release>, lint trace <release>.
@@ -153,6 +158,7 @@ func usage() {
 usage:
   sworn bench --task-set <dir> [--models <comma-sep>] [--output <dir>]
   sworn init [--api-key <key>] [--force]
+  sworn mcp
   sworn journeys [--check] [--impact <release>] [project-path]  sworn lint ac <release>
   sworn lint trace <release>
   sworn reqverify <release>
@@ -171,6 +177,10 @@ pick the safe-hosted default model from data.
 
 init bootstraps SwornAgent in a repo: writes a config file, vendors the Baton
 protocol into docs/baton/, and splices the seven-rule fragment into AGENTS.md.
+
+mcp starts an MCP 2024-11-05 JSON-RPC 2.0 server over stdio for AI-tool
+integration. Reads line-delimited JSON from stdin, writes responses to stdout.
+
 journeys drafts critical customer journeys from the project, validates
 their presence + ratification status, and analyses which journeys a release
 touches. See 'sworn journeys --check' for the deterministic gate, 'sworn
