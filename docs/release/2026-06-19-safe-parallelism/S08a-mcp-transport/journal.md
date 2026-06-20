@@ -28,3 +28,17 @@
 - **First-pass**: 23/23 PASS (FIRST-PASS PASS)
 - **Skeptic panel**: skipped — runtime does not support subagent dispatch
 - **Open deferrals**: none
+
+## 2026-06-21 — Verifier verdict: PASS (round 1)
+
+- **Actor**: verifier (fresh-context session, Rule 7 compliant)
+- **State**: `implemented` → `verified`
+- **Verified against**: `fb35263ea9eac3fb4a93f618beb99e245409e91a`
+- **All six gates passed.**
+  - Gate 1: `sworn mcp` subcommand wired in `cmd/sworn/main.go:43-47`; `cmdMcp()` creates `mcp.New()` and calls `server.Run(ctx, os.Stdin, os.Stdout)`. Production code, not a test fixture.
+  - Gate 2: All four planned touchpoints present in diff; extra files are baton artefacts only.
+  - Gate 3: All 5 spec-named tests present and passing (11/11 live re-run, 0.005s). Tests use `io.Pipe` to exercise the integration point (`Run` loop), not leaf functions.
+  - Gate 4: `manual-smoke-step` reachability artefact documented in proof.md with exact user gesture and observed output. CLI-only feature; no browser required.
+  - Gate 5: No `TODO`/`FIXME`/`deferred`/`placeholder`/`XXX`/`HACK` markers in changed source files. "later slices" references in comments are forward documentation with explicit slice IDs.
+  - Gate 6: All 6 ACs delivered with evidence. Extra tests (TestServerContextCancellation, TestResourcesList, TestPromptsList) disclosed in Divergence from plan — additive, not substituting.
+- **Next**: `/implement-slice S08b-mcp-ops-tools 2026-06-19-safe-parallelism` in a fresh session.

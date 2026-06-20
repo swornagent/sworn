@@ -91,7 +91,7 @@ tracks:
 | `T1-concurrency-core` | S01 → S02a → S02b → S03 | — | `track/.../T1-concurrency-core` | merged |
 | `T2-monitoring` | S04a → S04b → S04c → S05 | T1 | `track/.../T2-monitoring` | planned |
 | `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 | `track/.../T3-commercial` | planned |
-| `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | planned |
+| `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | in_progress |
 | `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 | T1 + T3 | `track/.../T5-providers` | planned |
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
 | `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | planned |
@@ -242,7 +242,7 @@ Phase 4:  T6 (after T2 + T5)
 | `S06a-sworn-login-auth` | T3 | `sworn login` device-code flow; credentials file; `sworn logout` | planned | [spec](./S06a-sworn-login-auth/spec.md) |
 | `S06b-sworn-proxy-credits` | T3 | Model calls route via SwornAgent proxy; `sworn account buy`; credit display | planned | [spec](./S06b-sworn-proxy-credits/spec.md) |
 | `S07-paging` | T3 | FAIL/BLOCKED fires webhook + email; developer paged without watching terminal | planned | [spec](./S07-paging/spec.md) |
-| `S08a-mcp-transport` | T4 | `sworn mcp` JSON-RPC server; initialize handshake; tools scaffold | planned | [spec](./S08a-mcp-transport/spec.md) |
+| `S08a-mcp-transport` | T4 | `sworn mcp` JSON-RPC server; initialize handshake; tools scaffold | verified | [spec](./S08a-mcp-transport/spec.md) |
 | `S08b-mcp-ops-tools` | T4 | 9 ops tools: get_board, get_blocked, get_slice_context, rerun, patch, merge, defer | planned | [spec](./S08b-mcp-ops-tools/spec.md) |
 | `S08c-mcp-plan-tools` | T4 | 4 planning tools + resources + prompts + mcp-setup.md | planned | [spec](./S08c-mcp-plan-tools/spec.md) |
 | `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | planned | [spec](./S09-per-role-model-config/spec.md) |
@@ -266,19 +266,26 @@ Phase 4:  T6 (after T2 + T5)
 
 ## Aggregate state
 
-- Planned: 28
+- Planned: 27
 - In progress: 0
 - Design review: 0
 - Implemented: 0
-- Verified: 4
+- Verified: 5
 - Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 8 / Ready to merge: 0 / Merged: 1
+**Tracks:** Planned: 7 / Ready to merge: 0 / Merged: 1
 
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice).
 
 ## Recent activity
+
+### 2026-06-21 — S08a verifier verdict: PASS (round 1)
+
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **Slice**: S08a-mcp-transport → state: **verified** (SHA fb35263)
+- **All six gates passed.** `sworn mcp` subcommand wired in `cmd/sworn/main.go`; MCP JSON-RPC 2.0 server in `internal/mcp/server.go`; 11/11 tests pass via `io.Pipe` roundtrips exercising the `Run` loop; CLI smoke-step artefact documented; no silent deferrals; all 6 ACs delivered.
+- **Next**: `/implement-slice S08b-mcp-ops-tools 2026-06-19-safe-parallelism` in a fresh session.
 
 ### 2026-06-21 — track `T1-concurrency-core` merged to release-wt (commit 581b6a9)
 
