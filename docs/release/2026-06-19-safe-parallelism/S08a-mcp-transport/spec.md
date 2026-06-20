@@ -76,7 +76,10 @@ until stdin is closed.
     and returns content (not error)
 - **Reachability artefact**: configure `sworn mcp` in Claude Code's MCP settings;
   open Claude Code; confirm no connection errors; ask "list sworn tools" and observe
-  Claude calls `tools/list` (returns empty or stub list). Screenshot or log in proof.md.
+  Claude calls `tools/list` (returns empty or stub list). CLI smoke test (terminal
+  log) in proof.md.
+- **CLI smoke test**: `echo '...' | sworn mcp` verifies initialize handshake.
+  Covers AC1–5. No Playwright needed (CLI-only feature).
 
 ## Risks
 
