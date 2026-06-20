@@ -41,3 +41,20 @@
 - Blocked-slice TL;DR panel — deferred to S04c (spec §Out of scope)
 - Credits display — deferred to S04b (spec §Out of scope)
 - Mouse support — deferred (spec §Out of scope)
+
+## Verifier verdicts received
+
+### 2026-06-21 — Fresh-context verifier session
+
+**Verdict: PASS**
+
+All six gates satisfied:
+
+1. **User-reachable outcome** — `main.go:27-34` routes `len(os.Args)<2` to `tui.Run()`; entry point wired to user-reachable binary.
+2. **Planned touchpoints** — all 7 planned files present in diff; `internal/tui/tui.go` + `go.mod`/`go.sum` divergence explained in proof.
+3. **Required tests** — 5 model-state tests pass (`go test ./internal/tui/... -v -count=1`); `TestReleasesListPopulates`, `TestBoardViewShowsSlices`, `TestKeyNavigation`, `TestHelpToggle`, `TestQuit` all PASS.
+4. **Reachability artefact** — smoke procedure names user gestures (`sworn` no-args, j/k, Enter, Esc, q) and expected outcome; binary builds and routes correctly.
+5. **No silent deferrals** — no TODO/FIXME/placeholder markers in changed files; "Not delivered" items cite spec §Out of scope with Rule 2 tracking.
+6. **Claimed scope** — all deliverables verified in diff; minor proof miscounts source files (4 stated vs 5 actual) but divergence (tui.go) noted explicitly.
+
+Build: `go build ./...` clean. `go vet ./...` clean. `sworn designfit 2026-06-19-safe-parallelism` PASS (32 slices).

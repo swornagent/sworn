@@ -3,10 +3,10 @@
   "slice_id": "S04a-tui-foundation",
   "release": "2026-06-19-safe-parallelism",
   "track": "T2-monitoring",
-  "state": "implemented",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-21T00:00:00Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-21T12:00:00Z",
   "start_commit": "04e4c90",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S04a-tui-foundation/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S04a-tui-foundation/proof.md",
@@ -17,10 +17,10 @@
   "reachability_artifacts": ["Run `sworn` (no args) in repo root to launch TUI; navigate releases list with j/k, select with Enter, observe board view; `sworn top` (no args) same behaviour. Verified by model-state unit tests + build success."],
   "open_deferrals": [],
   "verification": {
-    "result": "",
+    "result": "pass",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-06-21T12:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
   },
   "design_decisions": [

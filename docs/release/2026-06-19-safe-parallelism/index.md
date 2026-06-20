@@ -235,7 +235,7 @@ Phase 4:  T6 (after T2 + T5)
 | `S02a-run-refactor` | T1 | `run.RunSlice()` exported; callable from goroutine; no regression | verified | [spec](./S02a-run-refactor/spec.md) |
 | `S02b-concurrent-scheduler` | T1 | `sworn run --parallel` launches all independent tracks concurrently | verified | [spec](./S02b-concurrent-scheduler/spec.md) |
 | `S03-verify-under-concurrency` | T1 | Verify gate goroutine-safe and fail-closed at N>1 | verified | [spec](./S03-verify-under-concurrency/spec.md) |
-| `S04a-tui-foundation` | T2 | `sworn` (no args) shows releases list + board view with navigation | planned | [spec](./S04a-tui-foundation/spec.md) |
+| `S04a-tui-foundation` | T2 | `sworn` (no args) shows releases list + board view with navigation | verified | [spec](./S04a-tui-foundation/spec.md) |
 | `S04b-tui-live` | T2 | Live concurrent track status from DB (1s poll) + credit balance in header | planned | [spec](./S04b-tui-live/spec.md) |
 | `S04c-tui-resolution` | T2 | Blocked slice TL;DR panel + options + open in Claude Code / Codex | planned | [spec](./S04c-tui-resolution/spec.md) |
 | `S05-overclaim-benchmark` | T2 | Overclaim rate flat at N=1/2/4; published benchmark artefact | planned | [spec](./S05-overclaim-benchmark/spec.md) |
@@ -266,11 +266,11 @@ Phase 4:  T6 (after T2 + T5)
 
 ## Aggregate state
 
-- Planned: 28
+- Planned: 27
 - In progress: 0
 - Design review: 0
 - Implemented: 0
-- Verified: 4
+- Verified: 5
 - Failed verification: 0
 - Deferred: 0
 
@@ -279,6 +279,13 @@ Phase 4:  T6 (after T2 + T5)
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice).
 
 ## Recent activity
+
+### 2026-06-21 — S04a verifier verdict: PASS (round 1)
+
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **Slice**: S04a-tui-foundation → state: **verified**
+- **All six gates passed.** `sworn` no-args → `tui.Run()` wired at `main.go:27-34`; `sworn top` no-arg → TUI at `top.go:28-35`; 5 model-state tests pass (`go test ./internal/tui/...`); reachability artefact names user gestures and TUI outcome; no silent deferrals; all deliverables verified in diff. `go build ./...` and `go vet ./...` clean.
+- **Next**: `/implement-slice S04b-tui-live 2026-06-19-safe-parallelism` in a fresh session.
 
 ### 2026-06-21 — track `T1-concurrency-core` merged to release-wt (commit 581b6a9)
 
