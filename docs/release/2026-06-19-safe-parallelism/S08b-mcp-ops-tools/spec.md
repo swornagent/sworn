@@ -99,10 +99,9 @@ Nine operations tools registered via `server.RegisterTool()`:
     change; assert diff is non-empty and spec_content matches fixture spec.md
   — `TestDeferSliceWritesRuleTwo`: call defer_slice; assert status.json + intake.md
   — `TestGetCreditsAbsent`: no credits file; assert null (not error) in response
-- **playwright-screenshot** `(manual)` — configure sworn mcp in Claude Code; ask
-  "what's blocked in the safe-parallelism release?"; observe AI calls get_blocked
-  and returns the blocked slice list. Screenshot or log in proof.md. Covers AC-7.
-- **Reachability artefact**: result of the playwright-screenshot step.
+- **Reachability artefact**: configure sworn mcp in Claude Code; ask "what's blocked in
+  the safe-parallelism release?"; observe AI calls get_blocked and returns the blocked
+  slice list. Screengrab or log in proof.md.
 
 ## Risks
 

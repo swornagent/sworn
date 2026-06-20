@@ -246,8 +246,8 @@ func TestDeferSliceWritesRuleTwo(t *testing.T) {
 	args := json.RawMessage(`{"release": "test-release-d", "slice_id": "S01-defer-me", "reason": "blocked on backend"}`)
 	text := toolText(t, w, r, "defer_slice", args)
 
-	if !strings.Contains(text, "deferred") {
-		t.Errorf("defer_slice response missing 'deferred', got: %s", text)
+	if !strings.Contains(text, string(stateDeferred)) {
+		t.Errorf("defer_slice response missing stateDeferred, got: %s", text)
 	}
 	if !strings.Contains(text, "blocked on backend") {
 		t.Errorf("defer_slice response missing reason, got: %s", text)
@@ -258,8 +258,8 @@ func TestDeferSliceWritesRuleTwo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read status after defer: %v", err)
 	}
-	if string(s.State) != "deferred" {
-		t.Errorf("status.state = %q, want %q", s.State, "deferred")
+	if string(s.State) != string(stateDeferred) {
+		t.Errorf("status.state = %q, want %q", s.State, stateDeferred)
 	}
 
 	// Verify open_deferrals contains the reason
