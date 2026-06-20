@@ -1,34 +1,47 @@
 ---
-title: 'S26-telemetry — anonymous usage telemetry with opt-out'
-description: 'Instruments every sworn command with anonymous, non-PII telemetry events sent to api.sworn.sh/v1/events. Opt-out via env var or sentinel file. First-run disclosure on stderr.'
+title: 'S26-telemetry — anonymous usage telemetry with init-time consent'
+description: 'Instruments every sworn command with anonymous, non-PII telemetry events sent to api.sworn.sh/v1/events. Consent collected during sworn init; opt-out via env var or sentinel file at any time.'
 ---
 
 # Slice: `S26-telemetry`
 
 ## User outcome
 
-On first run after install, a developer sees a one-time disclosure on stderr:
+During `sworn init`, after the project is configured, the user is asked a
+single consent question:
 
 ```
-sworn collects anonymous usage telemetry (command names, durations, exit codes).
-No code, specs, file paths, or project data is collected. To opt out:
-  export SWORN_NO_TELEMETRY=1   (session)
-  touch ~/.config/sworn/.no-telemetry  (permanent)
+sworn collects anonymous usage telemetry to improve the product.
+Data collected: command names, durations, exit codes, sworn version, OS/arch.
+No code, specs, file paths, project names, or user identity is collected.
 Schema: https://sworn.dev/telemetry
+
+Enable telemetry? [Y/n]:
 ```
 
-After that, every `sworn` invocation fires a non-blocking telemetry event to
-`api.sworn.sh/v1/events`. The event contains only the command name, duration,
-exit code, sworn version, OS/arch, and an anonymous UUID tied to the install
-— nothing that identifies the user, the project, or any content. If the
-endpoint is unreachable (including during the pre-launch period before
-`api.sworn.sh` is live), the event is silently dropped and the command exits
-normally.
+`Y` (or Enter) writes `~/.config/sworn/.telemetry-enabled`; `n` writes
+`~/.config/sworn/.no-telemetry`. Either answer is final — sworn does not ask
+again. Users can change their choice at any time:
+```
+sworn telemetry on    # enables
+sworn telemetry off   # disables (equivalent to touch ~/.config/sworn/.no-telemetry)
+sworn telemetry status # shows current state
+```
+
+After opting in, every `sworn` invocation fires a non-blocking telemetry event
+to `api.sworn.sh/v1/events` — command name, duration, exit code, sworn version,
+OS/arch, anonymous install UUID. Silently dropped if the endpoint is unreachable.
+Users who never run `sworn init` get no telemetry until they do (no first-run
+fallback disclosure — consent is explicit, not implied).
 
 ## Entry point
 
-Telemetry fires from the command dispatch wrapper in `cmd/sworn/main.go`.
-No new user-invocable subcommand. Opt-out is via env var or sentinel file.
+- `sworn init` — consent question added as the final step of the init flow
+- `sworn telemetry <on|off|status>` — post-init management
+- Telemetry fires from the command dispatch wrapper in `cmd/sworn/main.go` when
+  `~/.config/sworn/.telemetry-enabled` exists and `SWORN_NO_TELEMETRY` is unset
+
+## In scope
 
 ## In scope
 
@@ -101,16 +114,32 @@ this means events sent to a reachable endpoint are delivered; events to an
 unreachable endpoint are dropped when the process exits. This is acceptable:
 telemetry is best-effort, not guaranteed delivery.
 
-### Opt-out mechanisms
+### Consent and opt-out
 
-1. **Env var** `SWORN_NO_TELEMETRY=1` (or any non-empty value): checked at
-   every invocation. Session-scoped; no persistence.
-2. **Sentinel file** `~/.config/sworn/.no-telemetry`: permanent opt-out.
-   User creates it manually or sworn may add a `sworn config set telemetry=false`
-   command in a future release.
-3. **First-run disclosure** `~/.config/sworn/.telemetry-disclosed`: records
-   that the disclosure has been shown. Not an opt-out mechanism — its absence
-   triggers the disclosure, its presence suppresses it.
+**`IsEnabled()` logic (checked on every invocation):**
+1. `SWORN_NO_TELEMETRY=1` env var present → disabled (session override)
+2. `~/.config/sworn/.no-telemetry` exists → disabled (permanent opt-out)
+3. `~/.config/sworn/.telemetry-enabled` exists → enabled
+4. Neither file exists → disabled (no consent yet; user has not run `sworn init`)
+
+**`sworn init` consent step** (final step in S09's init flow):
+- Prompt printed to stdout with schema URL
+- `Y`/Enter → create `~/.config/sworn/.telemetry-enabled`
+- `n`/`N` → create `~/.config/sworn/.no-telemetry`
+- Never asks again after either file exists
+- Non-interactive mode (`sworn init --non-interactive`) defaults to disabled
+
+**`sworn telemetry` subcommand:**
+- `sworn telemetry on` → create `~/.config/sworn/.telemetry-enabled`, remove
+  `.no-telemetry` if present; print confirmation
+- `sworn telemetry off` → create `~/.config/sworn/.no-telemetry`, remove
+  `.telemetry-enabled` if present; print confirmation
+- `sworn telemetry status` → print current state (enabled/disabled + which
+  mechanism: env var, sentinel file, or init not run)
+
+**Env var override** `SWORN_NO_TELEMETRY=1` always wins regardless of sentinel
+files — allows CI systems and scripts to suppress telemetry without touching
+the filesystem.
 
 ### `install-id` generation
 
@@ -137,25 +166,38 @@ but means the event cannot be correlated across invocations.
 
 - `internal/telemetry/telemetry.go` (new)
 - `internal/telemetry/telemetry_test.go` (new)
-- `cmd/sworn/main.go` (additive wrap of dispatch + disclosure call)
+- `cmd/sworn/main.go` (additive: dispatch wrapper + telemetry.IsEnabled check)
+- `cmd/sworn/telemetry.go` (new: `sworn telemetry on|off|status` subcommand)
+
+**Note on `sworn init` integration:** `cmd/sworn/init.go` is owned by T3/S09
+(per the touchpoint matrix). T9 ships `internal/telemetry.ShowConsent()` as a
+callable function; T3/S09 adds the consent question to `sworn init` by importing
+it. T9 should merge before S09 starts; if it hasn't, the T3 implementer stubs
+the call and wires it once T9 lands.
 
 ## Acceptance checks
 
-- [ ] On first `sworn` invocation after install (no `~/.config/sworn/.telemetry-disclosed`),
-  the disclosure is printed to stderr; subsequent invocations print nothing
+- [ ] `sworn init` (interactive) presents the telemetry consent question as its
+  final step; answering `Y` creates `~/.config/sworn/.telemetry-enabled`;
+  answering `n` creates `~/.config/sworn/.no-telemetry`
+- [ ] `sworn init --non-interactive` skips the consent question and creates
+  `~/.config/sworn/.no-telemetry` (defaults to off)
+- [ ] After opting in via `sworn init`, the next `sworn run` fires a telemetry
+  event; after opting out, no event fires
+- [ ] `sworn telemetry on` creates `~/.config/sworn/.telemetry-enabled` and
+  removes `.no-telemetry` if present; `sworn telemetry off` does the reverse
+- [ ] `sworn telemetry status` prints `telemetry: enabled` or `telemetry: disabled`
+  and the mechanism (env var / init opted-in / init opted-out / init not run)
 - [ ] `SWORN_NO_TELEMETRY=1 sworn run --task "x"` completes without firing any
-  HTTP request (verified with `httptest.NewServer` in unit test; no live call needed)
-- [ ] `touch ~/.config/sworn/.no-telemetry` then `sworn run` completes without
-  firing any HTTP request
+  HTTP request even when `.telemetry-enabled` exists (env var wins)
 - [ ] A successful telemetry event POSTed to `httptest.NewServer` contains
-  exactly the fields in the schema above and no others; `cmd` is the top-level
-  subcommand; `sub` is the immediate sub-subcommand or empty string
+  exactly the fields in the schema above and no others
 - [ ] `sworn run` exits within 10ms of the run completing regardless of whether
   the telemetry endpoint is reachable (non-blocking confirmed)
-- [ ] `install-id` file contains a valid UUIDv4; running `sworn` twice in the
-  same install produces the same install-id
-- [ ] If `~/.config/sworn/` cannot be created (e.g. `/dev/null` pointed at it),
-  sworn runs normally and telemetry fires with `install_id: ""`; no panic
+- [ ] `install-id` file contains a valid UUIDv4; running `sworn` twice produces
+  the same install-id
+- [ ] If `~/.config/sworn/` cannot be created, sworn runs normally and telemetry
+  fires with `install_id: ""`; no panic
 - [ ] `go test -race ./internal/telemetry/...` passes
 
 ## Required tests

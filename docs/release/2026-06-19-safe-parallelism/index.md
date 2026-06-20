@@ -193,6 +193,7 @@ Phase 4:  T6 (after T2 + T5)
 | `internal/memory/` (new) | | | | | | | ✓ | |
 | `cmd/sworn/memory.go` (new) | | | | | | | ✓ | |
 | `internal/telemetry/` (new) | | | | | | | | ✓ |
+| `cmd/sworn/telemetry.go` (new) | | | | | | | | ✓ |
 
 **T3 `depends_on T1` notes:**
 - `internal/run/run.go`: S07 adds notification calls; serialised by dep edge
@@ -508,6 +509,12 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - **T9 `depends_on T1`**: `internal/telemetry/` is entirely new. `cmd/sworn/main.go`
   touch is additive (wrap dispatch + disclosure call). No collision with any track.
   T9 can start immediately after T1 merges, parallel with T2/T3/T4/T8.
+- **T9 → T3/S09 soft dependency**: T9 ships `internal/telemetry.ShowConsent()`; T3/S09
+  adds the consent question to `sworn init` by importing it. T9 should merge before S09
+  starts. If T9 is still in flight when S09 begins, the T3 implementer stubs the call
+  and wires it in a follow-up commit once T9 lands (still within T3's worktree, no new
+  touchpoint). This soft dep is not enforced via `depends_on` (that would delay T9 until
+  T3 completes, which inverts the flow) — it is a best-effort merge ordering preference.
 - **S26 `api.sworn.sh` backend**: endpoint may not be live at R3 ship time.
   `Fire()` silently drops on any network error — no user impact. Telemetry begins
   flowing once the SwornAgent backend endpoint is deployed.
