@@ -134,8 +134,81 @@ work. The design choices that keep it lightweight:
 - A release with no declared needs (the RTM reports an empty matrix and
   exits 0 — no needs means no traces to break).
 
-## Provenance
+## Spec-quality metric — pre-code soundness + completeness
 
+Before a spec reaches verification or validation, `sworn specquality <release>`
+provides a deterministic, pre-code first-pass: soundness + completeness metrics
+computed from a slice's **acceptance examples** alone, with no source code and
+no model call.
+
+### Acceptance examples
+
+Every spec SHOULD include a `## Acceptance examples` section with one or more
+**input → expected-output** pairs per acceptance check. These are the data the
+metric operates on. Two formats are accepted:
+
+**Structured** (preferred for complex specs):
+```
+## Acceptance examples
+
+- name: "whole-ears-pass"
+  input: "a release where every AC matches an EARS pattern"
+  expected: "sworn lint ac exits 0 and prints per-pattern distribution"
+
+- name: "free-form-fail"
+  input: "a release with at least one free-form AC"
+  expected: "sworn lint ac exits 1 naming the slice and line"
+```
+
+**Shorthand** (for simple cases where input/expected is clear):
+```
+## Acceptance examples
+
+- valid ears release → exits 0
+- free-form ac present → exits 1
+```
+
+### Soundness
+
+For each example, `specquality` checks that the expected output is consistent
+with the acceptance criteria — the criteria must not reject a valid output.
+This is a limited deterministic check: it flags contradictions like "expects
+failure where criteria describe only a pass case" or "references commands not
+mentioned in the criteria."
+
+### Completeness (mutation analysis)
+
+For each example, `specquality` applies deterministic mutation operators to the
+expected output (flip exit codes, negate assertions, remove keywords, change
+case) and checks what fraction the criteria would reject. The completeness
+score is `caught / total`. Below the configurable threshold (default 50%),
+the gate fails closed.
+
+### Enforcement
+
+`sworn specquality <release> [--threshold <0.0-1.0>]` iterates every slice in
+a release, computes soundness + completeness from each slice's acceptance
+examples, and fails closed (exit non-zero) on:
+
+- **Missing examples** — a slice with no `## Acceptance examples` section
+- **Unsound example** — expected output contradicts the criteria
+- **Low completeness** — below the threshold (default 0.5 / 50%)
+
+A fully passing release prints per-slice scores and exits 0.
+
+### Relationship to verify and validate
+
+| Gate | What it checks | When | Owner | Tool |
+|---|---|---|---|---|
+| **Spec-quality** (S03) | Soundness + completeness of acceptance examples | Pre-code, pre-verification | Deterministic | `sworn specquality` |
+| **Verify** (S04) | Quality characteristics per 29148 | After spec-quality passes | Model (fresh context) | `sworn reqverify` |
+| **Validate** (S05) | Scenarios + benefit (sense-check) | After verify passes | Human | `sworn reqvalidate` |
+
+The three gates form a pipeline: spec-quality is the cheapest (deterministic,
+no model, no human), so it runs first. A spec with no acceptance examples or
+low completeness never reaches model-based verification.
+
+## Provenance
 Rule 8 was introduced in the `2026-06-16-fidelity-layer` release. It closes
 the "front half" fidelity gap identified during the v0.5.0 release cycle: the
 delivery rules (1/6/7) verify code against spec, but nothing verified the

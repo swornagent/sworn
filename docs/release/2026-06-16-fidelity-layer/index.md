@@ -119,8 +119,8 @@ files (disjoint, no change).
 | `S13-walkthrough-attestation` | T2 | `sworn ship` blocks →shipped without passing human journey walkthroughs | verified | human | [spec](./S13-walkthrough-attestation/spec.md) | [proof](./S13-walkthrough-attestation/proof.md) |
 | `S14-journey-regression-suite` | T2 | Walked journeys accrete into automated regression tests (`sworn journeys --regen`) | verified | human | [spec](./S14-journey-regression-suite/spec.md) | [proof](./S14-journey-regression-suite/proof.md) |
 | `S03-spec-quality-firstpass` | T3 | Deterministic pre-code soundness + completeness from acceptance examples (`sworn specquality`) | verified | human | [spec](./S03-spec-quality-firstpass/spec.md) | [proof](./S03-spec-quality-firstpass/proof.md) |
-| `S08-design-system-input` | T3 | Design system (tokens + component library) as first-class project input | failed_verification | human | [spec](./S08-design-system-input/spec.md) | [proof](./S08-design-system-input/proof.md) |
-| `S09-design-conformance-audit` | T3 | Deterministic drift first-pass + human cohesion verdict (`sworn designaudit`) | planned | human | [spec](./S09-design-conformance-audit/spec.md) | — |
+| `S08-design-system-input` | T3 | Design system (tokens + component library) as first-class project input | verified | verifier | [spec](./S08-design-system-input/spec.md) | [proof](./S08-design-system-input/proof.md) |
+| `S09-design-conformance-audit` | T3 | Deterministic drift first-pass + human cohesion verdict (`sworn designaudit`) | verified | human | [spec](./S09-design-conformance-audit/spec.md) | [proof](./S09-design-conformance-audit/proof.md) |
 | `S15-sworn-top-evidence` | T4 | Read-only journey-validation green-board / kill-list (`sworn top`) | verified | agent | [spec](./S15-sworn-top-evidence/spec.md) | [proof](./S15-sworn-top-evidence/proof.md) |
 
 ### State legend
@@ -137,17 +137,27 @@ files (disjoint, no change).
 
 ## Aggregate state
 
-- Planned: 1 (S09)
+- Planned: 0
 - In progress: 0
 - Implemented (awaiting verification): 0
-- Verified (across tracks): 14 (S01, S02, S03, S04, S05, S06, S07, S10, S11, S12, S13, S14, S15, S16)
-- Failed verification: 1 (S08)
+- Verified (across tracks): 16 (S01, S02, S03, S04, S05, S06, S07, S08, S09, S10, S11, S12, S13, S14, S15, S16)
+- Failed verification: 0
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** T3 in_progress / Merged: 3 (T1: b8521f8, T2: 991b035, T4: ca5b1ea)
+**Tracks:** T3 in_progress (all slices verified — ready for /merge-track) / Merged: 3 (T1: b8521f8, T2: 991b035, T4: ca5b1ea)
 
 ## Recent activity
+
+### 2026-06-20 — S09-design-conformance-audit: PASS (round 1, fresh-context verifier)
+
+- **Actor**: verifier (fresh-context session)
+- **Result**: PASS — all six gates passed. 11 unit tests (`go test ./internal/designaudit/... -v -count=1`) + 5 integration tests (`go test ./cmd/sworn/ -run TestDesignaudit -v -count=1`), all green in fresh session. Gate 1: `case "designaudit"` wired in `main.go:67–69` → `cmdDesignaudit`. Gate 2: all 6 planned touchpoints in diff; `cmd/sworn/designaudit_test.go` extra file explained in Divergence; `spec.md` trivial label correction explained. Gate 3: integration tests call `cmdDesignaudit` directly — Rule 1 satisfied through command entry point. Gate 4: reachability artefact describes user gesture with explicit hex violation → non-zero exit (file+line named) and pass path (token reference + `--cohesion=on-brand` → exit 0). Gate 5: no deferral markers in changed source. Gate 6: all 5 ACs have verifiable evidence. Verified at `79ef47f`. Slice state → `verified`. T3-leaf-gates now has 3/3 slices verified — track complete. Next: `/merge-track T3-leaf-gates 2026-06-16-fidelity-layer`, then `/merge-release 2026-06-16-fidelity-layer`.
+
+### 2026-06-20 — S08-design-system-input: PASS (round 6, fresh-context verifier)
+
+- **Actor**: verifier (fresh-context session)
+- **Result**: PASS — all six gates passed. Tests: 11 unit tests (`go test ./internal/config/... -count=1`) + 4 integration tests (`go test ./cmd/sworn/... -run TestCmdInit -count=1`), all green in fresh session. Gate 1: `cfg.Validate()` confirmed wired into `cmdReqverify()` and `cmdVerify()` — production fail-closed. Gate 2: diff matches proof.md; all unplanned files explained in Divergence from plan. Gate 3: `TestCmdInit_UIBearingFlag` and `TestCmdInit_UIBearing_ValidateFailClosed` call `cmdInit()` entry point (Rule 1 satisfied). Gate 5: two informational `later` hits in comments — no schema/contract deferrals. All 4 ACs have verifiable evidence. Verified at `6aea8ae`. Slice state → `verified`. Next: `/implement-slice S09-design-conformance-audit 2026-06-16-fidelity-layer` in a fresh session.
 
 ### 2026-06-20 — /replan-release: S08 BLOCKED (round 5) — process-state block, verification.result cleared
 
@@ -164,6 +174,26 @@ files (disjoint, no change).
   4. Transition `status.json` state to `implemented`.
   Then run `/verify-slice S08-design-system-input 2026-06-16-fidelity-layer` in a fresh session.
 
+### 2026-06-20 — S08-design-system-input: BLOCKED (round 5, process-state check)
+
+- **Actor**: verifier (fresh-context session)
+- **Result**: BLOCKED — state check. `/verify-slice` invoked while slice is in state `failed_verification`; session start handshake requires `implemented`. This is a process-state block, not a spec defect — the spec is correct and the implementation is functionally sound. Round 4 Gate 2 violations (proof.md completeness gaps for `cmd/sworn/reqverify.go` and S08 portion of `cmd/sworn/main.go`) remain unresolved. Slice state unchanged: `failed_verification`. `verification.result` → `blocked`. (Resolved above by planner.)
+
+### 2026-06-20 — S08-design-system-input: FAIL (round 4, fresh-context verifier)
+
+- **Actor**: verifier (fresh-context session)
+- **Result**: FAIL on Gate 2 (×2). All other gates PASS — Gate 1 confirmed (cfg.Validate() is live in cmdVerify/cmdReqverify); tests pass; reachability artefact valid; no silent deferrals; all AC claims have evidence. Gate 2 violations: (1) `cmd/sworn/reqverify.go` is an unplanned touchpoint with no S03 commits — all its in-scope changes are from the S08 Round 3 fix commit `7a76d62` — but is not mentioned in proof.md "Divergence from plan" and is incorrectly attributed to "earlier S03 work" in the "Files changed" note. (2) `cmd/sworn/main.go` has S08-specific changes (cfg.Validate() call, commit `7a76d62`) not acknowledged in "Divergence from plan"; the "Files changed" note implies all main.go changes in scope are S03. Slice state → `failed_verification`.
+
+### 2026-06-20 — S08-design-system-input: FAIL (round 2, fresh-context verifier)
+
+- **Actor**: verifier (fresh-context session)
+- **Result**: FAIL on Gates 1, 4, and 6. Core finding: `Config.Validate()` is defined and unit-tested but never called from any production sworn command — the system does not actually fail closed for a UI-bearing project without a design system. Slice state → `failed_verification`.
+
+### 2026-06-19 — S03-spec-quality-firstpass: PASS (round 5, fresh-context verifier)
+
+- **Actor**: verifier (fresh-context session)
+- **Result**: All 6 gates passed. 14/14 unit tests + 4/4 CLI integration tests green. Smoke step confirmed live (weak examples → exit 1; tightened examples → exit 0). All ACs verified with direct evidence. No silent deferrals. Slice state → `verified`.
+
 ### 2026-06-19 — /replan-release: S03 BLOCKED (round 4) — root cause confirmed, T3 status cleared directly
 
 - **Actor**: planner (/replan-release)
@@ -173,6 +203,10 @@ files (disjoint, no change).
 - **Step 6**: T3 had production-code conflict on `cmd/sworn/main.go` — aborted full merge. Cherry-picked this session's planner commits (index.md update). Additionally edited T3 `status.json` directly as a planning-artefact edit to clear the BLOCKED state (distinct from cherry-pick).
 - **Required next step — IMPLEMENTER MUST DO THIS**: Run `/implement-slice S03-spec-quality-firstpass 2026-06-16-fidelity-layer` in a fresh session. Step 0 WILL encounter a merge conflict on `cmd/sworn/main.go`. The implementer MUST resolve it by keeping ALL `case` blocks from both sides: T1's existing cases + T2's `case "ship"` + T4's `case "top"` + T3's `case "specquality"`. After resolving: run `go test ./...` to confirm green, update `proof.md` start_commit range to include the merge commit in the diff, mark `implemented`. Then run `/verify-slice S03-spec-quality-firstpass` in a fresh session — the verifier's Step 0 forward-merge will be a no-op (T3 already up-to-date with release-wt) and verification proceeds.
 
+### 2026-06-19 — S03-spec-quality-firstpass: BLOCKED (round 4, fresh-context verifier)
+- **Actor**: verifier (fresh-context session) — Resolved by replan above
+- **Trigger**: Forward-merge of `release-wt/2026-06-16-fidelity-layer` into `track/2026-06-16-fidelity-layer/T3-leaf-gates` conflicted on `cmd/sworn/main.go`. T3 HEAD (ed283dc) has `case "specquality"` and `case "top"` but is missing `case "ship"` (T2-delivery-cutover/S13). Release-wt has `case "ship"` and `case "top"` but not `case "specquality"`. The 2026-06-22 re-implementation session fixed proof-bundle gaps but did NOT forward-merge release-wt to incorporate `case "ship"`. Touchpoint matrix is correct; this is an implementation omission.
+
 ### 2026-06-19 — /replan-release: S03 BLOCKED (round 3) resolved — T3 depends_on T2
 
 - **Actor**: planner (/replan-release)
@@ -180,6 +214,12 @@ files (disjoint, no change).
 - **Resolution**: Added `T2-delivery-cutover` to T3's `depends_on` (now `[T1-fidelity-core, T2-delivery-cutover, T4-evidence-surface]`). Updated touchpoint-matrix note to document the full merge-order requirement: T3 must be last. Since T1, T2, and T4 are all merged, T3 is immediately unblocked. No code or spec changes — the implementation is correct; the matrix was incomplete.
 - **S03 status**: `verification.result` cleared from `"blocked"` to `"pending"`. Slice stays `implemented`; ready for fresh `/verify-slice S03-spec-quality-firstpass`. Next `/implement-slice S03` session must forward-merge `release-wt` and keep ALL cases: T1's cases + T2's `case "ship"` + T4's `case "top"` + T3's `case "specquality"`.
 - **Step 6**: T3 had production-code conflict on `cmd/sworn/main.go` — aborted full merge; fell back to cherry-pick of this session's planner commits; production-code merge deferred to next `/implement-slice S03` Step 0.
+
+### 2026-06-19 — S03-spec-quality-firstpass: BLOCKED (round 3, fresh-context verifier) — Resolved by replan above
+- **Actor**: verifier (fresh-context session)
+- **Trigger**: Forward-merge of `release-wt/2026-06-16-fidelity-layer` into `track/2026-06-16-fidelity-layer/T3-leaf-gates` conflicted on `cmd/sworn/main.go`. T2-delivery-cutover (S13-walkthrough-attestation: `case "ship"`) was merged into release-wt after T3's last forward-merge (session 4, 2026-06-19). T3's prior `depends_on: [T1-fidelity-core, T4-evidence-surface]` did not include T2, so T3's `main.go` lacks `case "ship":`.
+- **Board change**: T3 `depends_on` updated from `[T1-fidelity-core, T4-evidence-surface]` to `[T1-fidelity-core, T2-delivery-cutover, T4-evidence-surface]` in frontmatter and Tracks table. T2 is already merged, so T3 is immediately unblocked. `cmd/sworn/main.go` note updated with corrected dependency rule. S03 `verification.result` set to `"blocked"`. Slice state unchanged (`implemented`).
+- **Next step**: `/replan-release 2026-06-16-fidelity-layer` — planner must ratify the T3 `depends_on` correction and arrange the next `/implement-slice S03` session to forward-merge release-wt with correct conflict resolution (keep ALL `case` blocks).
 
 ### 2026-06-19 — track `T2-delivery-cutover` merged to release-wt (commit 991b035)
 

@@ -61,6 +61,12 @@ func main() {
 		// Gates the verified -> shipped transition on human-walkthrough
 		// attestations for all touched journeys.
 		os.Exit(cmdShip(os.Args[2:]))
+	case "specquality":
+		// S03-spec-quality-firstpass adds this case (T3-leaf-gates).
+		os.Exit(cmdSpecquality(os.Args[2:]))
+	case "designaudit":
+		// S09-design-conformance-audit adds this case (T3-leaf-gates).
+		os.Exit(cmdDesignaudit(os.Args[2:]))
 	case "top":
 		// S15-sworn-top-evidence adds this case (T4-evidence-surface).
 		// Read-only evidence surface: green-board / kill-list for journey
@@ -112,8 +118,14 @@ func cmdVerify(args []string) int {
 		return 2
 	}
 
-	if resolvedModel != "" {
-		var verr error
+	// Validate config invariants: UI-bearing projects must declare a design system.
+	// Sworn fails closed when a project marked UI-bearing has no design system.
+	if err := cfg.Validate(); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn verify: %v\n", err)
+		return 2
+	}
+
+	if resolvedModel != "" {		var verr error
 		v, verr = model.FromEnv(resolvedModel)
 		if verr != nil {
 			fmt.Fprintf(os.Stderr, "sworn verify: %v\n", verr)
@@ -146,6 +158,8 @@ usage:
   sworn reqverify <release>
   sworn reqvalidate <release>
   sworn designfit <release>
+  sworn designaudit <project-dir> [--cohesion on-brand|off-brand]
+  sworn specquality <release> [--threshold <0.0-1.0>]
   sworn run --task <description> [--implementer-model <m>] [--verifier-model <m>] [--base <branch>] [--retry-cap <n>]
   sworn ship <release> [project-root]
   sworn top <release> [project-path]
@@ -176,6 +190,10 @@ designfit checks every slice in a release for stakes-calibrated design-fit gate
 (Rule 9): fails closed when any Type-1 (high-stakes) choice lacks a recorded
 human decision. No model dispatch needed.
   See 'sworn designfit <release>' for details.
+specquality computes soundness + completeness metrics from every slice's
+acceptance examples, with no source code and no model call. Fails closed when
+any slice falls below the completeness threshold (default 50%).
+  See 'sworn specquality <release> [--threshold <0.0-1.0>]' for details.
 run executes the full turnkey loop: implement -> verify -> (on FAIL: retry/escalate
 up to N) -> gated merge on PASS only. See 'sworn run --help' for model resolution
 and escalation model defaults.
