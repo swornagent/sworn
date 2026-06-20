@@ -1,0 +1,40 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S24-memory-engine",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T8-memory",
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-20T00:00:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S24-memory-engine/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S24-memory-engine/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S24-memory-engine/journal.md",
+  "planned_files": [
+    "internal/memory/embed.go",
+    "internal/memory/embed_voyage.go",
+    "internal/memory/embed_oai.go",
+    "internal/memory/embed_ollama.go",
+    "internal/memory/embed_test.go",
+    "internal/memory/index.go",
+    "internal/memory/index_test.go",
+    "internal/memory/discover.go",
+    "internal/memory/discover_test.go",
+    "cmd/sworn/memory.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test -race ./internal/memory/...",
+    "go build ./..."
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}

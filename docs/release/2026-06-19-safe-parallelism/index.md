@@ -1,6 +1,6 @@
 ---
 title: 'Release board — 2026-06-19-safe-parallelism'
-description: 'R3 — safe parallelism: concurrent multi-track delivery, fail-closed verify gate under concurrency, sworn TUI cockpit, overclaim benchmark, sworn login credits on-ramp, webhook paging, MCP server for AI-driven planning + resolution, and multi-provider model support with TUI settings.'
+description: 'R3 — safe parallelism: concurrent multi-track delivery, fail-closed verify gate under concurrency, sworn TUI cockpit, overclaim benchmark, sworn login credits on-ramp, webhook paging, MCP server for AI-driven planning + resolution, multi-provider model support with TUI settings, and cross-harness semantic memory search.'
 release_worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism
 release_worktree_branch: release-wt/2026-06-19-safe-parallelism
 tracks:
@@ -46,6 +46,12 @@ tracks:
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T7-mcp-extensions
     state: planned
+  - id: T8-memory
+    slices: [S23-memory-config, S24-memory-engine, S25-memory-search]
+    depends_on: T1-concurrency-core
+    worktree_path:
+    worktree_branch: track/2026-06-19-safe-parallelism/T8-memory
+    state: planned
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
@@ -83,12 +89,13 @@ tracks:
 | `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 | T1 + T3 | `track/.../T5-providers` | planned |
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
 | `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | planned |
+| `T8-memory` | S23 → S24 → S25 | T1 | `track/.../T8-memory` | planned |
 
 ### Execution order
 
 ```
 Phase 1:  T1 (sequential)
-Phase 2:  T2, T3, T4 (parallel after T1)
+Phase 2:  T2, T3, T4, T8 (parallel after T1)
 Phase 3:  T5 (after T1 + T3)
           T7 (after T3 + T4; may run in parallel with T5)
 Phase 4:  T6 (after T2 + T5)
@@ -101,8 +108,8 @@ Phase 4:  T6 (after T2 + T5)
 > `(dep)` notation means the track writes this file only after the named dependency merges
 > — the dep-edge serialises writes so they are not truly concurrent.
 
-| File / surface | T1 | T2 | T3 | T4 | T5 | T6 | T7 |
-|---|---|---|---|---|---|---|------|
+| File / surface | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 |
+|---|---|---|---|---|---|---|------|---|
 | `docs/adr/0003-sqlite-orchestration-state.md` | ✓ | | | | |  |
 | `docs/adr/0004-dep-policy-minimal-justified.md` (new) | | | | | ✓ |  |
 | `CLAUDE.md` | | | | | ✓ |  |
@@ -176,6 +183,8 @@ Phase 4:  T6 (after T2 + T5)
 | `docs/templates/agents.md` (new) | | | ✓ | | | | |
 | `cmd/sworn/mcp.go` (new) | | | | ✓ | |  |
 | `docs/mcp-setup.md` (new) | | | | ✓ | |  |
+| `internal/memory/` (new) | | | | | | | ✓ |
+| `cmd/sworn/memory.go` (new) | | | | | | | ✓ |
 
 **T3 `depends_on T1` notes:**
 - `internal/run/run.go`: S07 adds notification calls; serialised by dep edge
@@ -241,21 +250,36 @@ Phase 4:  T6 (after T2 + T5)
 | `S20-mcp-catalog-tools` | T7 | 8 MCP tools: plan_release (unified), get_induction_status, get_considerations, search_decisions, record_decision, check_design_system, update_design_system, record_architecture_pattern | planned | [spec](./S20-mcp-catalog-tools/spec.md) |
 | `S21-canonical-baton` | T3 | Baton protocol embedded in binary (internal/prompt/baton/); sworn init writes minimal MCP-pointer AGENTS.md instead of per-repo Baton copy; ADR-0005 | planned | [spec](./S21-canonical-baton/spec.md) |
 | `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | planned | [spec](./S22-sworn-doctor/spec.md) |
+| `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | planned | [spec](./S23-memory-config/spec.md) |
+| `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | planned | [spec](./S24-memory-engine/spec.md) |
+| `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | planned | [spec](./S25-memory-search/spec.md) |
 
 ## Aggregate state
 
-- Planned: 27
+- Planned: 30
 - In progress: 0
 - Implemented: 1
 - Verified: 0
 - Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 6 / In progress: 1 / Merged: 0
+**Tracks:** Planned: 7 / In progress: 1 / Merged: 0
 
-> Note: T3 now has 7 slices; T4 now has 4 slices.
+> Note: T3 now has 7 slices; T4 now has 4 slices; T8 is new (3 slices).
 
 ## Recent activity
+
+### 2026-06-20 — replan: T8-memory added (S23/S24/S25; cross-harness semantic memory search)
+
+- **Actor**: planner (Claude)
+- **Note**: Added T8-memory (depends T1, parallel with T2/T3/T4). Three sequential
+  slices: S23-memory-config (config schema + harness path discovery + `sworn memory
+  status`), S24-memory-engine (embedding adapter for voyage-code-3/oai-compat/ollama
+  + SQLite vector index + `sworn memory build`), S25-memory-search (`sworn memory
+  search` + captain-memory-search.py shim). No new external deps: embedding API
+  calls use stdlib net/http; SQLite index reuses modernc.org/sqlite from T1.
+  Phase 2 now: T2, T3, T4, T8 run in parallel after T1. Release now 31 slices
+  across 8 tracks.
 
 ### 2026-06-20 — replan: S01 spec corrected; BLOCKED verdict cleared
 
@@ -395,3 +419,10 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
   T5 and T6 do not need new top-level commands; they touch existing files only.
 - **R2 S15 (`sworn top`) coordination**: S04a absorbs/extends `cmd/sworn/top.go`.
   R3 implementation gates on R2 being merged; no parallel-edit risk.
+- **T8 `depends_on T1`**: S24 uses `modernc.org/sqlite` from go.mod (added by S01).
+  T8 starts after T1 merges. `internal/memory/` is entirely new; no collision with
+  any other track. `cmd/sworn/memory.go` is new; additive dispatch to `main.go` only.
+- **S25 touches `~/.claude/bin/captain-memory-search.py`**: This is a baton install
+  file, not in the repo. S25 spec documents the shim update as an out-of-tree
+  deliverable; the implementer applies it to the local baton install and notes the
+  path in `proof.md`.
