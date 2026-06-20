@@ -9,7 +9,7 @@ tracks:
     depends_on: null
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T1-concurrency-core
     worktree_branch: track/2026-06-19-safe-parallelism/T1-concurrency-core
-    state: in_progress
+    state: ready_to_merge
   - id: T2-monitoring
     slices: [S04a-tui-foundation, S04b-tui-live, S04c-tui-resolution, S05-overclaim-benchmark]
     depends_on: T1-concurrency-core
@@ -88,7 +88,7 @@ tracks:
 
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
-| `T1-concurrency-core` | S01 → S02a → S02b → S03 | — | `track/.../T1-concurrency-core` | in_progress |
+| `T1-concurrency-core` | S01 → S02a → S02b → S03 | — | `track/.../T1-concurrency-core` | ready_to_merge |
 | `T2-monitoring` | S04a → S04b → S04c → S05 | T1 | `track/.../T2-monitoring` | planned |
 | `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 | `track/.../T3-commercial` | planned |
 | `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | planned |
@@ -234,7 +234,7 @@ Phase 4:  T6 (after T2 + T5)
 | `S01-process-ownership` | T1 | SQLite registry + reap-on-restart; single-owner identity | verified | [spec](./S01-process-ownership/spec.md) |
 | `S02a-run-refactor` | T1 | `run.RunSlice()` exported; callable from goroutine; no regression | verified | [spec](./S02a-run-refactor/spec.md) |
 | `S02b-concurrent-scheduler` | T1 | `sworn run --parallel` launches all independent tracks concurrently | verified | [spec](./S02b-concurrent-scheduler/spec.md) |
-| `S03-verify-under-concurrency` | T1 | Verify gate goroutine-safe and fail-closed at N>1 | planned | [spec](./S03-verify-under-concurrency/spec.md) |
+| `S03-verify-under-concurrency` | T1 | Verify gate goroutine-safe and fail-closed at N>1 | verified | [spec](./S03-verify-under-concurrency/spec.md) |
 | `S04a-tui-foundation` | T2 | `sworn` (no args) shows releases list + board view with navigation | planned | [spec](./S04a-tui-foundation/spec.md) |
 | `S04b-tui-live` | T2 | Live concurrent track status from DB (1s poll) + credit balance in header | planned | [spec](./S04b-tui-live/spec.md) |
 | `S04c-tui-resolution` | T2 | Blocked slice TL;DR panel + options + open in Claude Code / Codex | planned | [spec](./S04c-tui-resolution/spec.md) |
@@ -266,19 +266,27 @@ Phase 4:  T6 (after T2 + T5)
 
 ## Aggregate state
 
-- Planned: 29
+- Planned: 28
 - In progress: 0
 - Design review: 0
 - Implemented: 0
-- Verified: 3
+- Verified: 4
 - Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 8 / In progress: 1 / Merged: 0
+**Tracks:** Planned: 8 / Ready to merge: 1 / Merged: 0
 
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice).
 
 ## Recent activity
+
+### 2026-06-21 — S03 verifier verdict: PASS (round 1)
+
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **Slice**: S03-verify-under-concurrency → state: **verified** (SHA ed4919d)
+- **All six gates passed.** `verify.Run()` wired in `internal/run/slice.go:183`; both concurrent tests pass under `-race`; `go test -race -count=10` zero races; no silent deferrals; all 6 ACs delivered with evidence.
+- **T1-concurrency-core is complete.** All slices (S01, S02a, S02b, S03) are now verified. T1 state → ready_to_merge.
+- **Next**: `/merge-track T1-concurrency-core` in a fresh session, then `/merge-release 2026-06-19-safe-parallelism` once every track is merged.
 
 ### 2026-06-21 — S02b verifier verdict: PASS (round 5)
 
