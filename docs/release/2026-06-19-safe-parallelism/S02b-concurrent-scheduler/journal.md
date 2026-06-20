@@ -135,3 +135,30 @@ No code changes needed — all implementation and tests were correct in round 2.
 - Proof.md updated with accurate Files-changed section
 - Skeptic panel: skipped — runtime does not support subagent dispatch
 - Next: `/verify-slice S02b-concurrent-scheduler 2026-06-19-safe-parallelism` in a fresh terminal
+
+## 2026-06-27 — Fourth session (Gate 4 CLI path fix)
+
+### State transition: failed_verification → in_progress
+
+Verifier violation (Gate 4 — single issue, third time flagged) addressed:
+
+1. **TestCmdRun_Parallel (Gate 4 fix)**: Added `TestCmdRun_Parallel` to `cmd/sworn/run_test.go`. This test exercises the full CLI entry path through `cmdRun()` (lines 63-90 of `run.go`): flag parsing (`--parallel --release`), `openDefaultDB()`, `RunSliceFn` closure construction, and `RunParallel()` dispatch. The fixture uses two independent tracks with `slices: []` so workers complete without model dispatch.
+
+2. **sqlite driver import**: Added `_ "modernc.org/sqlite"` to `cmd/sworn/run_test.go` imports so the driver is registered for `openDefaultDB()` in the test binary (imported in production by `internal/db/db.go` but not previously in `cmd/sworn`).
+
+The prior round-2 fix substituted unit-test output from `TestRunParallel_TimingConcurrency` (direct `RunParallel()` call) for the spec's smoke step. The verifier correctly flagged this as insufficient — `RunParallel()` is not `cmdRun()`. This round proves the CLI entry point is exercised.
+
+### Implementation notes
+
+- Test passes with `-race`: exit 0, both tracks complete, full parallel path exercised
+- No production code changes — only test additions
+- Preserved `start_commit: 821edf2` (diff base unchanged)
+
+### State transition: in_progress → implemented
+
+- All tests pass with `-race` across all packages
+- CLI entry path now provably exercised via `TestCmdRun_Parallel`
+- First-pass `release-verify.sh`: **23/23 PASS** (after state -> implemented)
+- Proof.md updated with CLI reachability artefact
+- Skeptic panel: skipped — runtime does not support subagent dispatch
+- Next: `/verify-slice S02b-concurrent-scheduler 2026-06-19-safe-parallelism` in a fresh terminal

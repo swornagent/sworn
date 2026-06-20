@@ -1,9 +1,13 @@
 package main
 
 import (
+	"database/sql"
+	"os"
+	"path/filepath"
 	"testing"
-)
 
+	_ "modernc.org/sqlite"
+)
 func TestCmdRun_MissingTask(t *testing.T) {
 	exit := cmdRun([]string{})
 	if exit != 64 {
@@ -49,4 +53,106 @@ func TestCmdRun_EscalationModelsFlag(t *testing.T) {
 func TestCmdRun_UsageContainsEscalationInfo(t *testing.T) {
 	// Verify that --help output documents the model escalation mapping (Pin 5).
 	t.Skip("verify manually: sworn run --help documents escalation models")
+}
+
+// TestCmdRun_Parallel exercises the --parallel CLI entry path in cmdRun().
+// It proves that:
+//   - Flag parsing succeeds (exit != 64)
+//   - openDefaultDB() is called and returns a valid handle
+//   - RunSliceFn closure is constructed
+//   - RunParallel() is invoked (exercised end-to-end with empty-slice tracks)
+//
+// The fixture uses tracks with slices: [] so the worker goroutine completes
+// immediately without calling RunSlice() — no real model dispatch occurs.
+//
+// Verifier Fix (Gate 4): prior rounds passed unit tests calling RunParallel()
+// directly; this test exercises the full CLI entry path through cmdRun()
+// (lines 63‑90 of run.go) that the spec's smoke step requires.
+func TestCmdRun_Parallel(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Save and restore working directory.  cmdRun → openDefaultDB uses
+	// os.Getwd() to construct the DB path, and RunParallel uses "." as
+	// WorkspaceRoot to find docs/release/<name>/index.md.
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	// ── Pre-create the DB schema ──────────────────────────────────────────
+	// openDefaultDB() opens .sworn/sworn.db in the current directory.  The
+	// supervisor needs the tracks and events tables to exist before workers
+	// call Acquire/Release.
+	os.MkdirAll(".sworn", 0o755)
+	db, err := sql.Open("sqlite", ".sworn/sworn.db")
+	if err != nil {
+		t.Fatalf("open pre-schema db: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`); err != nil {
+		db.Close()
+		t.Fatalf("create tracks: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`); err != nil {
+		db.Close()
+		t.Fatalf("create events: %v", err)
+	}
+	db.Close()
+
+	// ── Release-board fixture ─────────────────────────────────────────────
+	// Two independent tracks (T1, T2), both with empty slice lists.  Workers
+	// will start, acquire supervisor ownership, find no slices to run, release
+	// with StateDone, and return TrackPass.  No RunSliceFn invocation needed.
+	releaseDir := filepath.Join("docs", "release", "test-parallel-cmd")
+	if err := os.MkdirAll(releaseDir, 0o755); err != nil {
+		t.Fatalf("mkdir release dir: %v", err)
+	}
+
+	indexContent := `---
+title: Test Parallel CLI
+release_worktree_path: ` + tmpDir + `
+tracks:
+  - id: T1
+    slices: []
+    depends_on: null
+    worktree_path: ` + tmpDir + `
+    worktree_branch: track/test/T1
+    state: planned
+  - id: T2
+    slices: []
+    depends_on: null
+    worktree_path: ` + tmpDir + `
+    worktree_branch: track/test/T2
+    state: planned
+---
+
+# Test
+`
+	if err := os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0o644); err != nil {
+		t.Fatalf("write index.md: %v", err)
+	}
+
+	// ── Environment ───────────────────────────────────────────────────────
+	// SWORN_VERIFIER_MODEL must be set so the verifier-resolution gate
+	// (line 47‑51 of run.go) passes.  SWORN_DB_DRIVER ensures the sqlite
+	// driver is selected.
+	t.Setenv("SWORN_VERIFIER_MODEL", "openai/gpt-4o")
+	t.Setenv("SWORN_DB_DRIVER", "sqlite")
+
+	// ── Invoke the CLI entry path ────────────────────────────────────────
+	exit := cmdRun([]string{"--parallel", "--release", "test-parallel-cmd"})
+
+	// Flag parsing must succeed — exit 64 means --release was not parsed.
+	if exit == 64 {
+		t.Error("expected --parallel --release flag parsing to succeed (exit != 64)")
+	}
+
+	// With empty-slice tracks, RunParallel returns nil → cmdRun returns 0.
+	// Non-zero means the parallel path hit an error (DB, fixture, etc.).
+	if exit != 0 {
+		t.Errorf("expected exit 0 (parallel path exercised), got %d", exit)
+	}
 }
