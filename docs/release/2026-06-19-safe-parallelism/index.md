@@ -88,7 +88,7 @@ tracks:
 
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
-| `T1-concurrency-core` | S01 → S02a → S02b → S03 | — | `track/.../T1-concurrency-core` | planned |
+| `T1-concurrency-core` | S01 → S02a → S02b → S03 | — | `track/.../T1-concurrency-core` | in_progress |
 | `T2-monitoring` | S04a → S04b → S04c → S05 | T1 | `track/.../T2-monitoring` | planned |
 | `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 | `track/.../T3-commercial` | planned |
 | `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | planned |
@@ -232,7 +232,7 @@ Phase 4:  T6 (after T2 + T5)
 |---|---|---|---|---|
 | `S01-process-ownership` | T1 | SQLite registry + reap-on-restart; single-owner identity | verified | [spec](./S01-process-ownership/spec.md) |
 | `S02a-run-refactor` | T1 | `run.RunSlice()` exported; callable from goroutine; no regression | verified | [spec](./S02a-run-refactor/spec.md) |
-| `S02b-concurrent-scheduler` | T1 | `sworn run --parallel` launches all independent tracks concurrently | planned | [spec](./S02b-concurrent-scheduler/spec.md) |
+| `S02b-concurrent-scheduler` | T1 | `sworn run --parallel` launches all independent tracks concurrently | design_review | [spec](./S02b-concurrent-scheduler/spec.md) |
 | `S03-verify-under-concurrency` | T1 | Verify gate goroutine-safe and fail-closed at N>1 | planned | [spec](./S03-verify-under-concurrency/spec.md) |
 | `S04a-tui-foundation` | T2 | `sworn` (no args) shows releases list + board view with navigation | planned | [spec](./S04a-tui-foundation/spec.md) |
 | `S04b-tui-live` | T2 | Live concurrent track status from DB (1s poll) + credit balance in header | planned | [spec](./S04b-tui-live/spec.md) |
@@ -265,8 +265,9 @@ Phase 4:  T6 (after T2 + T5)
 
 ## Aggregate state
 
-- Planned: 30
+- Planned: 29
 - In progress: 0
+- Design review: 1
 - Implemented: 0
 - Verified: 2
 - Failed verification: 0
@@ -277,6 +278,18 @@ Phase 4:  T6 (after T2 + T5)
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice).
 
 ## Recent activity
+
+### 2026-06-20 — board reconciliation: T1 slice states corrected from oracle
+
+- **Actor**: planner (Claude)
+- **Note**: index.md body tables were stale vs. branch reality. Corrected:
+  S01 `implemented` → `verified` (verifier PASS on T1 branch); S02a `planned` →
+  `verified` (verifier PASS on T1 branch); S02b `planned` → `design_review`
+  (implementer escalated: design.md committed, awaiting Captain ack).
+  T1 Tracks table row corrected `planned` → `in_progress`. Aggregate state updated:
+  Planned 31 → 29; Implemented 1 → 0; Verified 0 → 2; Design review: 1 added.
+  No spec changes. Replan trigger: `/replan-release` invoked while S02b was in
+  `design_review` state; correct next step is `/design-review S02b-concurrent-scheduler`.
 
 ### 2026-06-20 — S02a verifier verdict: PASS
 
