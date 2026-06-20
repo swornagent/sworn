@@ -142,3 +142,7 @@ After the planner ratifies the amendment, the implementer must also correct the 
 - `status.json`: transitioned to `in_progress`, cleared stale `verification.result`
 
 No production code changes — all fixes are proof.md only.
+### Skeptic panel
+
+`skeptic_panel: skipped — runtime does not support subagent dispatch`
+(no Agent/Workflow subagent primitive available in current tooling).
