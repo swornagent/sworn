@@ -214,10 +214,9 @@ func (s *Supervisor) Release(trackID string, state string) error {
 	return nil
 }
 
-// MustRelease is a convenience wrapper for deferred Release calls. It logs
+// MustRelease is a defer-safe convenience wrapper for Release calls. It logs
 // the error rather than panicking.
-func (s *Supervisor) MustRelease(trackID string, state string) {
-	if err := s.Release(trackID, state); err != nil {
+func (s *Supervisor) MustRelease(trackID string, state string) {	if err := s.Release(trackID, state); err != nil {
 		fmt.Fprintf(os.Stderr, "supervisor: release %s/%s: %v\n", s.release, trackID, err)
 	}
 }

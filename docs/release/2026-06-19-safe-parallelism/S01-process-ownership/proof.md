@@ -2,7 +2,7 @@
 
 ## Scope
 
-A developer starting `sworn run --parallel` after a previous crashed session finds stale
+A developer running `sworn run --task` after a previous crashed session finds stale
 worker processes automatically detected and reaped, ownership cleanly reassigned, and no
 corrupted slice state — the run proceeds as if starting fresh.
 
@@ -11,7 +11,19 @@ corrupted slice state — the run proceeds as if starting fresh.
 ```
 .gitignore
 docs/adr/0003-sqlite-orchestration-state.md
+docs/release/2026-06-19-safe-parallelism/S01-process-ownership/journal.md
+docs/release/2026-06-19-safe-parallelism/S01-process-ownership/proof.md
+docs/release/2026-06-19-safe-parallelism/S01-process-ownership/spec.md
 docs/release/2026-06-19-safe-parallelism/S01-process-ownership/status.json
+docs/release/2026-06-19-safe-parallelism/S23-memory-config/spec.md
+docs/release/2026-06-19-safe-parallelism/S23-memory-config/status.json
+docs/release/2026-06-19-safe-parallelism/S24-memory-engine/spec.md
+docs/release/2026-06-19-safe-parallelism/S24-memory-engine/status.json
+docs/release/2026-06-19-safe-parallelism/S25-memory-search/spec.md
+docs/release/2026-06-19-safe-parallelism/S25-memory-search/status.json
+docs/release/2026-06-19-safe-parallelism/S26-telemetry/spec.md
+docs/release/2026-06-19-safe-parallelism/S26-telemetry/status.json
+docs/release/2026-06-19-safe-parallelism/index.md
 go.mod
 go.sum
 internal/db/db.go
@@ -22,6 +34,10 @@ internal/supervisor/supervisor.go
 internal/supervisor/supervisor_test.go
 ```
 
+Note: S23-S26 spec/status.json and index.md appear in the diff because they were
+added by replan forward-merges into this track branch, not by this slice's
+implementation. S01's own production changes are in internal/db/, internal/supervisor/,
+internal/run/, go.mod/go.sum, .gitignore, and docs/adr/.
 ## Test results
 
 ### Go backend
@@ -83,14 +99,23 @@ $ go build ./...
 ## Reachability artefact
 
 - **Type**: `manual-smoke-step`
-- **Path**: N/A — process-registry is a backend infrastructure layer. The
-  supervisor is exercised by unit tests (TestReapOnRestart, TestSingleOwnerEnforcement,
-  TestConcurrentAcquireRace) that simulate the "crashed session" and "reap-on-restart"
-  scenarios. The integration in `internal/run/run.go` opens the DB, reaps stale rows,
-  acquires the track, and defers release on exit.
-- **User gesture**: `sworn run --task "..."` — on startup, the supervisor reaps stale
-  rows acquired by a previous crashed process and acquires clean ownership. The `.sworn/sworn.db`
-  file is created at the workspace root and is git-ignored.
+- **Steps** (exact commands per spec):
+  1. From the repo root, build the binary: `go build -o bin/sworn ./cmd/sworn`
+  2. Create a temporary workspace: `mkdir -p /tmp/sworn-smoke && cd /tmp/sworn-smoke && git init`
+  3. Copy the binary: `cp /path/to/sworn-repo/bin/sworn ./sworn`
+  4. Run `sworn run --task "test reachability"` in the foreground, wait 2 seconds for startup
+  5. Kill the process with SIGKILL: `kill -9 $(pgrep -f "sworn run")` (simulates a crash)
+  6. Re-run `sworn run --task "test reachability"` and observe stderr output:
+     `sworn run: reaped N stale track(s)` (confirms reap-on-restart works)
+  7. Confirm `.sworn/sworn.db` exists: `sqlite3 .sworn/sworn.db .tables` should show
+     `tracks` and `events`
+
+The supervisor's core crash-and-reap scenario is exercised by unit tests
+(`TestReapOnRestart` — populates a stale row with a dead PID, calls Reap(), asserts
+the row is removed). The full two-process crash-and-reap cycle requires a running
+sworn binary with an API key configured and a connected model; it cannot run in
+unit-test isolation without mocking. The unit tests cover the identical logic path
+(pidAlive + delete) that the production crash-reap uses.
 
 ## Delivered
 
@@ -110,11 +135,12 @@ $ go build ./...
   - `MustRelease()` — deferred-safe wrapper
 - **`go build ./...` succeeds** with `modernc.org/sqlite` as the only new external dep.
 - **.sworn/ in .gitignore** — AC-7: `.sworn/` pattern added (non-anchored for all directories).
-- **`cmd/sworn/run.go` updated** — DB opened at `.sworn/sworn.db` under workspace root;
-  supervisor.Reap() called at startup; supervisor.Acquire() before implement loop;
-  supervisor.MustRelease() deferred.
+- **`internal/run/run.go` supervisor integration** — DB opened at `.sworn/sworn.db`
+  under workspace root; supervisor.Reap() called at startup before implement loop;
+  supervisor.Acquire() for "S01-task" before implement loop; supervisor.MustRelease()
+  deferred with `StateDone`.
 - **`internal/run/run.go` Options** — `DBPath`, `DB`, `Supervisor` fields added for
-  testability and future `--parallel` integration.
+  testability and future concurrent-track integration.
 - **`internal/run/run_test.go` updated** — `.gitignore` with `.sworn/` added to
   test repo setup so DB file doesn't confuse git operations.
 - **All tests pass with `go test -race`** — zero data race detector findings.
@@ -125,42 +151,78 @@ All acceptance checks delivered. No open deferrals for this slice.
 
 ## Divergence from plan
 
-1. **`internal/run/run.go` Options struct** — Added `DBPath`, `DB`, `Supervisor` fields
+1. **Diff includes replan forward-merge artefacts** — The `start_commit` diff includes
+   S23-S26 spec/status.json and index.md from replan forward-merges. These files are not
+   S01's production changes and were added by earlier `git merge release-wt/2026-06-19-safe-parallelism`
+   commits on this track branch. S01's own changes are in internal/db/, internal/supervisor/,
+   internal/run/, go.mod/go.sum, .gitignore, and docs/adr/.
+2. **Supervisor wiring in `internal/run/run.go` (not `cmd/sworn/run.go`)** — The spec's   planned touchpoints listed `cmd/sworn/run.go` as the integration site for the supervisor.
+   The actual supervisor wiring lives in `internal/run/run.go`, which is the package that
+   `cmd/sworn/run.go` delegates to. This is a cleaner separation: `cmd/sworn/run.go` handles
+   CLI flag parsing only, while the business logic (DB open, supervisor Acquire/Release,
+   implement loop) lives in `internal/run/run.go`. The implementation is functionally
+   equivalent to the spec's intent.
+2. **`internal/run/run.go` Options struct** — Added `DBPath`, `DB`, `Supervisor` fields
    to support DB/supervisor injection. The spec didn't specify the exact API shape but
    the integration hook is implemented as described: supervisor.Acquire/Release around
    the run loop.
-2. **Supervisor uses transaction** — The Acquire function uses a transaction-based
+3. **Supervisor uses transaction** — The Acquire function uses a transaction-based
    INSERT-first pattern for race safety, rather than the simpler "query then insert"
    described in the spec. This was necessary for correct concurrent behaviour.
-3. **Reap collects into memory** — Added intermediate buffer to avoid nested
+4. **Reap collects into memory** — Added intermediate buffer to avoid nested
    query+exec anti-pattern. Not specified in the spec but required for correct
    operation with SetMaxOpenConns(1).
 
 ## First-pass script output
 
 ```
-$ ~/.claude/bin/release-verify.sh S01-process-ownership
+$ ~/.claude/bin/release-verify.sh S01-process-ownership 2026-06-19-safe-parallelism
   slice:       S01-process-ownership
   slice dir:   docs/release/2026-06-19-safe-parallelism/S01-process-ownership
   base branch: main
 
-Slice artefacts:
+== Slice artefacts ==
   PASS  slice folder exists
   PASS  spec.md present
-  PASS  proof.md present  (now written)
+  PASS  proof.md present
   PASS  status.json present
-  PASS  journal.md present (now written)
+  PASS  journal.md present
   PASS  spec.md has Required tests section
 
-Status:
+== Status ==
   PASS  status.json is valid JSON
-  PASS  state: implemented (after update)
+  state: in_progress (resolved to implemented)
 
-Diff vs start_commit:
-  PASS  11 file(s) changed vs diff base
+== Integration branch drift ==
+  PASS  worktree branch is current with release/v0.1.0 (no drift)
 
-Dark-code markers:
-  PASS  no dark-code markers (false-positive flag on MustRelease comment resolved)
+== Diff vs start_commit (verifier base) ==
+  PASS  23 file(s) changed vs diff base
 
-All checks green.
+== Dark-code markers in changed files ==
+  PASS  no dark-code markers in changed source files
+
+== Proof bundle structural checks ==
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+  PASS  proof.md 'Not delivered' deferrals carry non-placeholder tracking refs
+  PASS  proof.md 'Files changed' count (~23) consistent with diff vs start_commit (23)
+
+== Frontmatter YAML safety ==
+  PASS  spec.md frontmatter is strict-YAML safe
+
+== Test results section scope ==
+  PASS  Test results section contains no Playwright runner output
+
+== First-pass verdict ==
+  checks passed: 22
+  checks failed: 0
+
+FIRST-PASS GREEN — all deterministic gates pass.
 ```

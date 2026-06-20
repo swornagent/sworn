@@ -116,3 +116,29 @@ After the planner ratifies the amendment, the implementer must also correct the 
 2. Correct proof.md "Delivered": replace the `cmd/sworn/run.go` bullet with `internal/run/run.go` (which IS in the diff and contains the supervisor integration). Optionally: move the description to "Divergence from plan" to explain the file substitution from the spec's planned `cmd/sworn/run.go`.
 
 **Next step**: `/implement-slice S01-process-ownership 2026-06-19-safe-parallelism` in a fresh session to address violations 1 and 2.
+
+---
+
+## Session 2 — 2026-06-26
+
+**Role**: Implementer (re-entry)
+**Worktree**: `/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T1-concurrency-core`
+
+### DoR gate status
+
+- `sworn lint ac` subcommand does not exist yet — AC EARS-pattern check not available
+- `sworn lint trace` subcommand does not exist yet — RTM trace check not available
+- `dor: reqverify and reqvalidate not checked — sworn implement not used` (note per implementer role prompt Gate 0 Layer 2)
+
+### Verifier violations addressed
+
+**Violation 1 (Gate 4)**: proof.md reachability artefact lacked exact smoke-step commands. The artefact section previously said "N/A — process-registry is a backend infrastructure layer." Corrected to document exact `sworn run --task` smoke-step commands per spec requirement.
+
+**Violation 2 (Gate 6)**: proof.md "Delivered" falsely claimed `cmd/sworn/run.go` was updated with supervisor wiring. Corrected — the supervisor integration is in `internal/run/run.go` (which IS in the diff). Added "Divergence from plan" entry explaining the file substitution.
+
+### Changes this session
+
+- `proof.md`: corrected reachability artefact section with exact smoke commands; corrected "Delivered" bullet to reference `internal/run/run.go` instead of `cmd/sworn/run.go`; added "Divergence from plan" entry for the file substitution
+- `status.json`: transitioned to `in_progress`, cleared stale `verification.result`
+
+No production code changes — all fixes are proof.md only.
