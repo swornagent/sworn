@@ -100,4 +100,50 @@ No deferrals. All 9 tools are implemented and tested.
 
 ## First-pass script output
 
-See release-verify.sh output below.
+```
+$ bash release-verify.sh S08b-mcp-ops-tools 2026-06-19-safe-parallelism
+
+== Slice artefacts ==
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+  PASS  spec.md has Required tests section
+
+== Status ==
+  PASS  status.json is valid JSON
+  state: implemented
+  PASS  state is 'implemented' (eligible for verifier review)
+
+== Integration branch drift ==
+  PASS  integration branch drift present but does not affect test infrastructure
+
+== Diff vs start_commit (verifier base) ==
+  PASS  8 file(s) changed vs diff base
+
+== Dark-code markers in changed files ==
+  PASS  no dark-code markers in changed source files
+
+== Proof bundle structural checks ==
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+  PASS  proof.md 'Not delivered' deferrals carry non-placeholder tracking refs
+
+== Frontmatter YAML safety ==
+  PASS  spec.md frontmatter is strict-YAML safe
+
+== Test results section scope ==
+  PASS  Test results section contains no Playwright runner output
+
+== First-pass verdict ==
+  checks passed: 22
+  checks failed: 0
+FIRST-PASS PASS
+```
