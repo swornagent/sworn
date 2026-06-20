@@ -213,7 +213,7 @@ Phase 4:  T6 (after T2 + T5)
 
 | ID | Track | User outcome | State | Spec |
 |---|---|---|---|---|
-| `S01-process-ownership` | T1 | SQLite registry + reap-on-restart; single-owner identity | blocked (spec defect) | [spec](./S01-process-ownership/spec.md) |
+| `S01-process-ownership` | T1 | SQLite registry + reap-on-restart; single-owner identity | implemented | [spec](./S01-process-ownership/spec.md) |
 | `S02a-run-refactor` | T1 | `run.RunSlice()` exported; callable from goroutine; no regression | planned | [spec](./S02a-run-refactor/spec.md) |
 | `S02b-concurrent-scheduler` | T1 | `sworn run --parallel` launches all independent tracks concurrently | planned | [spec](./S02b-concurrent-scheduler/spec.md) |
 | `S03-verify-under-concurrency` | T1 | Verify gate goroutine-safe and fail-closed at N>1 | planned | [spec](./S03-verify-under-concurrency/spec.md) |
@@ -244,25 +244,35 @@ Phase 4:  T6 (after T2 + T5)
 
 ## Aggregate state
 
-- Planned: 28
+- Planned: 27
 - In progress: 0
-- Implemented: 0
+- Implemented: 1
 - Verified: 0
 - Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 7 / In progress: 0 / Merged: 0
+**Tracks:** Planned: 6 / In progress: 1 / Merged: 0
 
 > Note: T3 now has 7 slices; T4 now has 4 slices.
 
 ## Recent activity
 
-### 2026-06-26 — S01 verifier verdict: BLOCKED (spec defect)
+### 2026-06-26 — S01 verifier verdict: BLOCKED (spec defect) — Resolved by replan above
 
 - **Actor**: verifier (fresh session)
 - **Slice**: S01-process-ownership → state unchanged (implemented, verification.result = blocked)
-- **Reason**: Spec names `sworn run --parallel` as S01's entry point (Gate 1). S02b's spec explicitly owns this flag (`sworn run --parallel --release <name>`, reads release board, concurrent scheduler). S01's correct entry point is `sworn run --task`, which the implementation correctly wires.
-- **Next step**: `/replan-release 2026-06-19-safe-parallelism` — planner corrects "User outcome", "Entry point", and reachability artefact to use `sworn run --task`. Secondary fix: implementer corrects false `cmd/sworn/run.go` "Delivered" claim in proof.md.
+- **Reason**: Spec names `sworn run --parallel` as S01's entry point (Gate 1). S02b's spec explicitly owns this flag. S01's correct entry point is `sworn run --task`, which the implementation correctly wires.
+
+### 2026-06-20 — replan: S01 spec corrected; BLOCKED verdict cleared
+
+- **Actor**: planner (Claude)
+- **Note**: Verifier returned BLOCKED on S01. Primary defect: spec named `sworn run
+  --parallel` as entry point (that flag is S02b scope); implementation correctly uses
+  `sworn run --task`. Spec amended throughout. Gate 6 (subsumed): `proof.md` falsely
+  attributes supervisor integration to `cmd/sworn/run.go`; actual file is
+  `internal/run/run.go`. Proof correction deferred to implementer before next
+  verification attempt. `verification.result` cleared to `pending`; state stays
+  `implemented`. S01 row corrected from `planned` to `implemented` in board.
 
 ### 2026-06-20 — replan: canonical Baton + sworn doctor (S21 T3, S22 T4; S08c fixed)
 

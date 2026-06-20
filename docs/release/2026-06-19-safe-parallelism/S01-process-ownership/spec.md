@@ -7,15 +7,15 @@ description: 'SQLite-backed process registry with reap-on-restart and single-own
 
 ## User outcome
 
-A developer starting `sworn run --parallel` after a previous crashed session finds stale
+A developer running `sworn run --task` after a previous crashed session finds stale
 worker processes automatically detected and reaped, ownership cleanly reassigned, and no
 corrupted slice state — the run proceeds as if starting fresh.
 
 ## Entry point
 
-`sworn run --parallel` at startup — the supervisor reads `.sworn/sworn.db`, checks
+`sworn run --task` at startup — the supervisor reads `.sworn/sworn.db`, checks
 registered PIDs for liveness (`kill(pid, 0)`), and reaps any dead entries before the
-scheduler launches new workers.
+implement loop begins.
 
 ## In scope
 
@@ -86,9 +86,9 @@ scheduler launches new workers.
   — `TestSchemaCreationIdempotent`: open, close, re-open; no error, same schema
   — `TestConcurrentWrites`: 8 goroutines insert rows concurrently; all succeed; no
     corruption; final row count matches insertion count
-- **Reachability artefact**: smoke step — run `sworn run --parallel` on a fixture release;
-  confirm `.sworn/sworn.db` created; kill the process; re-run; confirm stale row reaped
-  and run proceeds. Document exact commands in `proof.md`.
+- **Reachability artefact**: smoke step — run `sworn run --task '...'`; confirm
+  `.sworn/sworn.db` created; kill the process; re-run; confirm stale row reaped and run
+  proceeds. Document exact commands in `proof.md`.
 
 ## Risks
 
