@@ -133,7 +133,7 @@ func setupTestRepo(t *testing.T) (workspaceRoot string, cleanup func()) {
 	t.Helper()
 	dir := t.TempDir()
 
-	runCmd(t, dir, "git", "init")
+	runCmd(t, dir, "git", "init", "-b", "main")
 	runCmd(t, dir, "git", "config", "user.email", "test@swornagent.dev")
 	runCmd(t, dir, "git", "config", "user.name", "sworn test")
 

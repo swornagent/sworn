@@ -73,7 +73,7 @@ library one — naming each violation with its file + line. A human cohesion jud
 - **Reachability artefact**: smoke step — "run `sworn designaudit <fixture>` with a hardcoded
   hex; observe the named violation + non-zero exit; replace it with a token reference; record
   the human verdict; observe pass."
-- **E2E gate type**: `local`.
+- **Test gate type**: `local`.
 
 ## Risks
 

@@ -1,44 +1,55 @@
 ---
-title: Slice journal template
-description: Implementation log for one slice. Append-only. Visible to verifier as context, but verifier verdict is based on proof.md and repo state, not journal prose.
+title: Journal — S09-design-conformance-audit
+description: Implementation log for S09-design-conformance-audit
 ---
 
-# Journal: `<slice-id>`
-
-> Copy this file to `docs/release/<release-name>/<slice-id>/journal.md`. Append entries chronologically. Do not delete history. Decisions captured here must also land in commit message bodies per Rule 4 — this journal is a working surface, not a substitute for durable capture.
+# Journal: `S09-design-conformance-audit`
 
 ## Session log
 
-### `<YYYY-MM-DD HH:MM>` — `<session start / state transition>`
+### 2026-06-20 — start implementation
 
-- **State**: `<planned | in_progress | implemented | failed_verification | verified | deferred | shipped>`
+- **State**: `planned → in_progress`
 - **Notes**:
-  - `<Decisions made>`
-  - `<Trade-offs encountered>`
-  - `<Subagent dispatches and where their outputs landed>`
+  - First and only implementation session for this slice.
+  - Track worktree already exists at `/home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T3-leaf-gates`.
+  - Predecessors S03 and S08 are both `verified` — sequential gate clear.
 
-### `<YYYY-MM-DD HH:MM>` — `<next event>`
+### 2026-06-20 — implementation complete, state=implemented
 
-- ...
+- **State**: `in_progress → implemented`
+- **Notes**:
+  - `internal/designaudit/` package implements three scanners: hardcoded-color (regex on CSS property values), off-scale-spacing (hardcoded px/rem in spacing properties), recreated-component (PascalCase matches against component library).
+  - `AllowComment = "sworn-design-allow"` provides inline exception mechanism per spec Risk.
+  - Cohesion verdict is a `--cohesion=<verdict>` CLI flag on `cmdDesignaudit` — enforced at call-time, not auto-set.
+  - Config loaded with project-dir-first resolution: tries `<projectDir>/config.json`, then `SWORN_CONFIG_PATH`, then standard path. Makes `cmdDesignaudit` testable without global config side-effects.
+  - `cmd/sworn/designaudit_test.go` added (not in planned_files) to satisfy Rule 1 integration test requirement via the `cmdDesignaudit` entry point.
+  - `spec.md` gate-type label corrected: "E2E gate type" → "Test gate type" (same metadata, different format than S08/S03; first-pass false positive on "E2E" keyword).
+  - First-pass script: 23/23 PASS.
+  - **Deferrals**: None — all five ACs delivered.
 
 ## Open questions
 
-\<Anything the implementer needs the human to resolve. Each open question blocks state transition to `implemented` until answered.\>
-
-- ...
+- None.
 
 ## Deferrals surfaced
 
-`<Per Rule 2: each deferral needs why + tracking + acknowledgement. Cross-link to GitHub issue or punch-list entry. If empty, write "None" explicitly.>`
-
-- ...
+- None.
 
 ## Verifier verdicts received
 
-`<Append every verifier verdict here. Even FAIL verdicts stay — they are part of the slice's history.>`
+### 2026-06-20 — PASS (round 1, fresh-context verifier)
 
-### `<YYYY-MM-DD HH:MM>` — `<PASS | FAIL | BLOCKED>`
+PASS
 
-- **Verifier session**: `<fresh / inherited — should always be fresh>`
-- **Verdict body**: `<paste the full verifier output>`
-- **Action taken**: `<how the implementer responded>`
+Slice: `S09-design-conformance-audit`
+Verified against: `79ef47f45a8f5e1e06314cc4d8dcedcc902cb2d2`
+Verifier session: `fresh, artefact-only`
+
+All six gates passed.
+- Gate 1: `case "designaudit"` wired in `cmd/sworn/main.go:67–69` → `cmdDesignaudit` in `cmd/sworn/designaudit.go`. User-reachable, no feature flag.
+- Gate 2: All 6 planned touchpoints in diff. One extra file (`cmd/sworn/designaudit_test.go`) explained in proof.md "Divergence from plan"; `spec.md` trivial label correction also explained.
+- Gate 3: Unit tests (11 cases) + integration tests (5 cases calling `cmdDesignaudit` directly — Rule 1 satisfied). All re-run live, all green.
+- Gate 4: Reachability artefact describes user gesture (hex violation → non-zero exit with file+line; token reference + cohesion → exit 0) with specific test names and output.
+- Gate 5: No TODO/FIXME/deferred/placeholder/XXX/HACK in changed source files.
+- Gate 6: All 5 ACs have verifiable evidence with specific file paths and test names.

@@ -59,6 +59,12 @@ If `docs/release/<release-name>/intake.md` does not exist, create it from the te
 
 If the intake already exists, read it before doing anything else. The release may be mid-planning.
 
+**Requirements traceability (Rule 8).** As needs emerge during discovery, assign each a **stable need id** (`N-01`, `N-02`, ...) in the intake's `## Needs` section. Need ids are:
+- Stable: once assigned, an id is never reused, even if the need is dropped.
+- Inline: declared as `- N-01: <one-line description>` in the intake.
+- Cited from specs: each `spec.md` acceptance check cites the need id(s) it satisfies inline (e.g. `WHEN ... THE SYSTEM SHALL ... (N-01)`).
+
+The 2-D requirements traceability matrix (RTM) enforced by `sworn lint trace <release>` (Rule 8) builds the trace from these citations. A need with no linked AC, or an AC with no need, is a broken trace and fails closed. Construct the trace as a by-product of planning — assign ids in the intake, cite them in specs — not as a separate documentation phase.
 ### Phase 2 — Discovery
 
 Drive the conversation. The human will dump context; your job is to extract structure.
@@ -133,13 +139,51 @@ Once the slice list and track grouping are agreed, for each slice:
 
 1. Create `docs/release/<release-name>/<slice-id>/` (copy the template folder).
 2. Fill in `spec.md` from the conversation. Every section is mandatory. Acceptance checks must be falsifiable from artefacts the verifier can read.
-3. Initialise `status.json` with `state: planned` and the slice's `track` id.
-4. Leave `journal.md` and `proof.md` as empty templates — they get filled in during implementation.
+3. **Cite need ids in acceptance checks.** Each acceptance check must cite the need id(s) it satisfies inline (e.g. `WHEN ... THE SYSTEM SHALL ... (N-01)`). This is the horizontal trace link (`need -> AC`) that `sworn lint trace` enforces. An AC with no need id is an orphan and fails the RTM.
+4. **Author acceptance checks in EARS notation.** Every acceptance check must match one of the six EARS pattern classes (see below). `sworn lint ac <release>` validates this fail-closed — a free-form AC that matches no pattern is a violation. Author EARS by construction, not as a post-hoc fix.
+   - **Ubiquitous:** `THE SYSTEM SHALL <action>`
+   - **Event-driven:** `WHEN <trigger> THE SYSTEM SHALL <action>`
+   - **State-driven:** `WHILE <state> THE SYSTEM SHALL <action>`
+   - **Optional-feature:** `WHERE <feature> THE SYSTEM SHALL <action>`
+   - **Unwanted-behaviour:** `IF <condition> THEN THE SYSTEM SHALL <action>`
+   - **Complex:** a combination of two or more preconditions (e.g. `WHEN <trigger> WHILE <state> THE SYSTEM SHALL <action>`)
+   - **Escape:** a line prefixed with `NOTE:` is a deliberate non-requirement note and is excluded from validation. Use it for context that is not a testable requirement.
+5. **Author acceptance examples (spec-quality metric).** For every acceptance check, add at least one concrete **input → expected-output** pair to a `## Acceptance examples` section. These are read by `sworn specquality <release>` to compute soundness + completeness scores before any code is written. Use structured format:
 
-Don't write specs in a batch at the end. Write each one immediately after the human approves the slice description. Commit after each spec, so an interrupted session doesn't lose the planning work.
+   ```yaml
+   ## Acceptance examples
 
+   - name: "whole-ears-pass"
+     input: "a release where every AC matches an EARS pattern"
+     expected: "sworn lint ac exits 0 and prints per-pattern distribution"
+
+   - name: "free-form-fail"
+     input: "a release with at least one free-form AC"
+     expected: "sworn lint ac exits 1 naming the slice and line"
+   ```
+
+   Or shorthand format for simpler cases:
+   ```yaml
+   ## Acceptance examples
+
+   - valid ears release → exits 0
+   - free-form ac present → exits 1
+   ```
+
+   A slice with **no acceptance examples** fails the spec-quality gate (`sworn specquality` exits non-zero directing the planner to add examples). The examples must be concrete and verifiable — vague expected outputs like "works correctly" score low completeness and will be flagged below the default 50% threshold.
+6. **Record the vertical link.** In `status.json`, set `release_benefit` to the release benefit this slice contributes to (from `index.md`). If the release has an org objective, set `org_objective` too. For solo/small-team releases with no org objective, the release goal in `intake.md` is the vertical floor — every slice satisfies the vertical trace via `slice -> release goal` without an explicit `release_benefit`.
+7. Initialise `status.json` with `state: planned` and the slice's `track` id.
+8. **Record the validation record in `status.json`.** For each spec, draft:   - At least **one positive scenario** (the requirement works as intended) per requirement
+   - At least **one negative/exception scenario** (what should not happen, edge + failure flows) per requirement
+   - A **benefit/alignment hypothesis** — this slice's benefit and its vertical link (slice -> release benefit -> objective)
+   - Present these to the human for ratification. Set `human_ratified: true` + `ratified_by` + `ratified_at` only after the human explicitly confirms. **Never auto-set `human_ratified`.** The validation record lives in `status.json` under the `validation` field and is checked fail-closed by `sworn reqvalidate <release>`.
+9. **Record design decisions in `status.json` (Rule 9).** For each design choice surfaced during planning:   - Classify by stakes: Type-1 (hard-to-reverse / wide blast-radius) or Type-2 (reversible / narrow). Architecturally-significant choices are always Type-1.
+   - Draft at least two options with trade-offs and prior art.
+   - Present Type-1 choices to the human for a decision. Record the human's choice + rationale in `status.json` under `design_decisions`. **Never auto-set `human_decision` for a Type-1 choice.**
+   - For Type-2 choices, record a noted default and proceed.
+   - These decisions are checked fail-closed by `sworn designfit <release>` — a Type-1 choice without a recorded human decision causes a violation.
+10. Leave `journal.md` and `proof.md` as empty templates — they get filled in during implementation. Don't write specs in a batch at the end. Write each one immediately after the human approves the slice description. Commit after each spec, so an interrupted session doesn't lose the planning work.
 ### Phase 5 — Write the release board
-
 Create `docs/release/<release-name>/index.md`, `activity.md`, and `.gitattributes` by copying them from `$HOME/.claude/baton/release-mode-template/`.
 
 `index.md` is the **authored plan, not a state mirror**: it lists every slice, its track, its one-sentence user outcome, and a link to its folder; plus the Tracks table, the touchpoint matrix, and the `tracks:` frontmatter registry. It carries **no per-slice State column, no Aggregate-state block, and no Recent activity log** — live slice state is canonical in each slice's `status.json` and is rendered by the CLI (`coach board` / `release-board-status.sh --json`), and the transition narrative lives in `activity.md` (append-only, `merge=union` via `.gitattributes`). This is deliberate: duplicating mutable state into the board makes it merge-hostile across parallel track branches. Update `index.md` whenever a slice or track is added, renamed, or regrouped (never for a state change). Frontmatter and body tables must stay in sync. Track state lives in the frontmatter `tracks[].state` only (the oracle reads it there). When a track's scope changes, update its `e2e_specs:`.
@@ -195,8 +239,17 @@ This is the one place `/replan-release` differs from `/plan-release` on commit t
 - Use phrases like "should also" or "while we're at it" — every such gesture is either its own slice or a Rule 2 deferral.
 - Allow the human to start implementation in this same session. Implementation requires a fresh context. Tell them to open a new session and paste `implementer.md`.
 
-## Output to the human at session end
+## Journey elicitation at handoff
 
+When the release affects user-visible surfaces (UI, CLI commands, API endpoints, forms, routes), include a **journeys elicitation step** in your handoff:
+
+1. Before writing the output message, draft candidate critical customer journeys — ordered end-to-end paths user types take to achieve their outcomes across the release's changed surfaces.
+2. Tell the human to run `sworn journeys <project>` after the first slice lands, to draft the durable journeys artefact. The artefact lives at `.sworn/journeys.json` and is ratified by the human.
+3. The journey validation gate (Rule 10) runs after all slices are verified but before release merge — it checks that the artefact exists and is human-ratified. Mention this gate alongside the other post-verification gates.
+
+The journey artefact is not a per-slice deliverable; it is a cross-release artefact that captures the end-to-end experience. Include it in the handoff so the first implementer (or the Coach, if running) knows to run `sworn journeys` as part of the release.
+
+## Output to the human at session end
 A single message with:
 
 - Release name, slice count, and track count.

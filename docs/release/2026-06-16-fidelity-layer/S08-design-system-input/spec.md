@@ -65,7 +65,7 @@ no design system; a CLI project explicitly declares none and is exempt.
   declaration (Rule 1 via the init entry point).
 - **Reachability artefact**: smoke step — "init a fixture UI-bearing project without a design
   system; observe the failure; declare one; observe it parsed + exposed."
-- **E2E gate type**: `local`.
+- **Test gate type**: `local`.
 
 ## Risks
 
