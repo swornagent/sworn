@@ -3,10 +3,10 @@
   "slice_id": "S02a-run-refactor",
   "release": "2026-06-19-safe-parallelism",
   "track": "T1-concurrency-core",
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "implementer",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-20T10:24:49Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-20T11:00:00Z",
   "start_commit": null,
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S02a-run-refactor/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S02a-run-refactor/proof.md",
@@ -29,10 +29,13 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "fail",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
+    "verifier_verdict_at": "2026-06-20T11:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "start_commit is null — implementer did not record the required start_commit field; verifier cannot formally bound the diff to this slice. Fix: set start_commit to 0aaa4b1 (the commit immediately before the feat commit).",
+      "Gate 6 — test names diverge from spec AC names without acknowledgement: spec requires TestRunSlice and TestRunSliceFail; implementation has TestRunSlice_Pass and TestRunSlice_Fail. proof.md Divergence from plan incorrectly states none. Fix: rename tests to match spec AC names and update proof.md."
+    ]
   }
 }

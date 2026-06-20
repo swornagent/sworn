@@ -1,5 +1,19 @@
 # Journal — S02a-run-refactor
 
+## Verifier verdicts received
+
+### 2026-06-20 — verifier verdict: FAIL
+
+- **Actor**: verifier (fresh context, Rule 7 compliant)
+- **Verdict**: FAIL
+- **Violations**:
+  1. `start_commit` is null in status.json — the implementer did not record this required field; the verifier cannot formally bound the diff to this slice. Fix: set `start_commit` to the commit SHA immediately before the implementation feat commit (`0aaa4b1` — the design TL;DR commit is the correct boundary).
+  2. Gate 6 — Test names diverge from spec AC names without acknowledgement. Spec requires `TestRunSlice` and `TestRunSliceFail`; implementation has `TestRunSlice_Pass` and `TestRunSlice_Fail`. proof.md "Divergence from plan" incorrectly records "(none)". Fix: rename the two tests to match the spec's named ACs and update proof.md "Divergence from plan" to acknowledge any intentional divergences.
+- **Tests**: 11/11 pass with `-race` (verified independently). The functional implementation is sound; both violations are process/naming compliance issues an implementer can resolve without planner authority.
+- **Next**: `/implement-slice S02a-run-refactor 2026-06-19-safe-parallelism` in a fresh session to address both violations.
+
+---
+
 ## 2026-06-20 — implementation
 
 - **Actor**: implementer (Claude)

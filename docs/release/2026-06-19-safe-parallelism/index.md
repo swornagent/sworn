@@ -231,7 +231,7 @@ Phase 4:  T6 (after T2 + T5)
 | ID | Track | User outcome | State | Spec |
 |---|---|---|---|---|
 | `S01-process-ownership` | T1 | SQLite registry + reap-on-restart; single-owner identity | verified | [spec](./S01-process-ownership/spec.md) |
-| `S02a-run-refactor` | T1 | `run.RunSlice()` exported; callable from goroutine; no regression | planned | [spec](./S02a-run-refactor/spec.md) |
+| `S02a-run-refactor` | T1 | `run.RunSlice()` exported; callable from goroutine; no regression | failed_verification | [spec](./S02a-run-refactor/spec.md) |
 | `S02b-concurrent-scheduler` | T1 | `sworn run --parallel` launches all independent tracks concurrently | planned | [spec](./S02b-concurrent-scheduler/spec.md) |
 | `S03-verify-under-concurrency` | T1 | Verify gate goroutine-safe and fail-closed at N>1 | planned | [spec](./S03-verify-under-concurrency/spec.md) |
 | `S04a-tui-foundation` | T2 | `sworn` (no args) shows releases list + board view with navigation | planned | [spec](./S04a-tui-foundation/spec.md) |
@@ -265,11 +265,11 @@ Phase 4:  T6 (after T2 + T5)
 
 ## Aggregate state
 
-- Planned: 31
+- Planned: 30
 - In progress: 0
 - Implemented: 0
 - Verified: 1
-- Failed verification: 0
+- Failed verification: 1
 - Deferred: 0
 
 **Tracks:** Planned: 8 / In progress: 1 / Merged: 0
@@ -277,6 +277,15 @@ Phase 4:  T6 (after T2 + T5)
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice).
 
 ## Recent activity
+
+### 2026-06-20 — S02a verifier verdict: FAIL
+
+- **Actor**: verifier (fresh context)
+- **Slice**: S02a-run-refactor → state: failed_verification
+- **Violation 1**: `start_commit` is null in status.json — required field not set; diff range cannot be formally bounded. Fix: set `start_commit` to `0aaa4b1`.
+- **Violation 2**: Gate 6 — test names `TestRunSlice_Pass` and `TestRunSlice_Fail` do not match spec AC names `TestRunSlice` and `TestRunSliceFail`; proof.md "Divergence from plan" incorrectly records "(none)". Fix: rename tests and update proof.md.
+- **Note**: 11/11 tests pass with `-race`; functional implementation is sound. Both violations are process/naming compliance issues.
+- **Next**: `/implement-slice S02a-run-refactor 2026-06-19-safe-parallelism` in a fresh session.
 
 ### 2026-06-20 — S01 verifier verdict: PASS
 
