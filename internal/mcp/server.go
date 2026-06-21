@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 )
+
 // ---- MCP 2024-11-05 wire types ----
 
 // ToolResult is the response payload for a tools/call request.
@@ -38,6 +39,7 @@ type ResourceHandler func(ctx context.Context, uri string) (string, error)
 
 // PromptHandler processes a prompts/get request. Implemented by S08c.
 type PromptHandler func(ctx context.Context, name string, arguments map[string]string) (string, error)
+
 // ---- JSON-RPC 2.0 wire types ----
 
 type jsonRPCRequest struct {
@@ -71,10 +73,10 @@ const (
 // Server is an MCP JSON-RPC 2.0 server over stdio. Create with New(), then Run().
 type Server struct {
 	mu        sync.Mutex
-	tools     map[string]ToolHandler            // name -> handler
-	schemas   map[string]json.RawMessage        // name -> input schema
-	resources map[string]ResourceHandler        // uri/pattern -> handler
-	prompts   map[string]PromptHandler          // name -> handler
+	tools     map[string]ToolHandler     // name -> handler
+	schemas   map[string]json.RawMessage // name -> input schema
+	resources map[string]ResourceHandler // uri/pattern -> handler
+	prompts   map[string]PromptHandler   // name -> handler
 }
 
 // New creates a new MCP server with no registered tools.
@@ -86,6 +88,7 @@ func New() *Server {
 		prompts:   make(map[string]PromptHandler),
 	}
 }
+
 // RegisterTool registers a tool handler and its input schema. Handlers are
 // invoked by tools/call requests. S08b and S08c call this from their init.
 func (s *Server) RegisterTool(name string, inputSchema json.RawMessage, handler ToolHandler) {
@@ -108,6 +111,7 @@ func (s *Server) RegisterPrompt(name string, handler PromptHandler) {
 	defer s.mu.Unlock()
 	s.prompts[name] = handler
 }
+
 // Run starts the MCP server, reading JSON-RPC 2.0 requests from r (typically
 // stdin) and writing responses to w (typically stdout). It blocks until r
 // returns EOF or ctx is cancelled.
@@ -192,6 +196,7 @@ func (s *Server) Run(ctx context.Context, r io.Reader, w io.Writer) error {
 		}
 	}
 }
+
 // methodHandler processes a single JSON-RPC request and writes a response.
 type methodHandler func(ctx context.Context, req *jsonRPCRequest, enc *json.Encoder, logger *log.Logger)
 
@@ -207,6 +212,7 @@ func (s *Server) buildMethodHandlers() map[string]methodHandler {
 		"prompts/get":    s.handlePromptsGet,
 	}
 }
+
 // ---- Handlers ----
 
 type initializeResult struct {
@@ -227,7 +233,7 @@ func (s *Server) handleInitialize(ctx context.Context, req *jsonRPCRequest, enc 
 	resp := jsonRPCResponse{
 		JSONRPC: "2.0",
 		ID:      req.ID,
-		Result:  mustMarshal(initializeResult{
+		Result: mustMarshal(initializeResult{
 			ProtocolVersion: "2024-11-05",
 			Capabilities:    capabilities,
 			ServerInfo: serverInfo{
@@ -491,6 +497,7 @@ func (s *Server) handlePromptsGet(ctx context.Context, req *jsonRPCRequest, enc 
 	}
 	_ = enc.Encode(resp)
 }
+
 // ---- Helpers ----
 
 func (s *Server) writeError(enc *json.Encoder, id json.RawMessage, code int, message string) {

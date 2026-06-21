@@ -15,14 +15,14 @@ import (
 var fs embed.FS
 
 var (
-	verifier              string
-	implementer           string
-	planner               string
-	captain               string
-	verifyStateless       string
-	requirementsVerifier  string
-	batonVer              string
-	trackMode             string
+	verifier             string
+	implementer          string
+	planner              string
+	captain              string
+	verifyStateless      string
+	requirementsVerifier string
+	batonVer             string
+	trackMode            string
 )
 
 func init() {
@@ -33,7 +33,7 @@ func init() {
 	verifyStateless = mustRead("verify-stateless.md")
 	requirementsVerifier = mustRead("requirements-verifier.md")
 	trackMode = mustRead("baton/track-mode.md")
-	batonVer = strings.TrimSpace(mustRead("VERSION.txt"))	// Strip the comment line(s) — version is the last non-empty line.
+	batonVer = strings.TrimSpace(mustRead("VERSION.txt")) // Strip the comment line(s) — version is the last non-empty line.
 	if lines := strings.Split(batonVer, "\n"); len(lines) > 0 {
 		for i := len(lines) - 1; i >= 0; i-- {
 			if ln := strings.TrimSpace(lines[i]); ln != "" && !strings.HasPrefix(ln, "#") {

@@ -52,22 +52,22 @@ func RegisterPlanTools(s *Server, repoRoot string) {
 
 		statusPath := filepath.Join(sliceDir, "status.json")
 		sObj := state.Status{
-			Schema:        "https://example.com/schemas/baton/slice-status-v1.json",
-			SliceID:       p.SliceID,
-			Release:       p.Release,
-			Track:         p.TrackID,
-			State:         "planned",
-			Owner:         "human",
-			LastUpdatedBy: "create_slice",
-			LastUpdatedAt: time.Now().UTC().Format(time.RFC3339),
-			SpecPath:      filepath.Join("docs", "release", p.Release, p.SliceID, "spec.md"),
-			ProofPath:     filepath.Join("docs", "release", p.Release, p.SliceID, "proof.md"),
-			JournalPath:   filepath.Join("docs", "release", p.Release, p.SliceID, "journal.md"),
-			PlannedFiles:  []string{},
-			ActualFiles:   []string{},
-			TestCommands:  []string{},
+			Schema:                "https://example.com/schemas/baton/slice-status-v1.json",
+			SliceID:               p.SliceID,
+			Release:               p.Release,
+			Track:                 p.TrackID,
+			State:                 "planned",
+			Owner:                 "human",
+			LastUpdatedBy:         "create_slice",
+			LastUpdatedAt:         time.Now().UTC().Format(time.RFC3339),
+			SpecPath:              filepath.Join("docs", "release", p.Release, p.SliceID, "spec.md"),
+			ProofPath:             filepath.Join("docs", "release", p.Release, p.SliceID, "proof.md"),
+			JournalPath:           filepath.Join("docs", "release", p.Release, p.SliceID, "journal.md"),
+			PlannedFiles:          []string{},
+			ActualFiles:           []string{},
+			TestCommands:          []string{},
 			ReachabilityArtifacts: []string{},
-			OpenDeferrals: []string{},
+			OpenDeferrals:         []string{},
 			Verification: state.Verification{
 				Result: "pending",
 			},
@@ -387,7 +387,8 @@ activity.md            merge=union
 
 - _(activity entries appended below by implementer / verifier / merge steps)_
 `, "BACKTICK", "`")
-	if err := os.WriteFile(activityPath, []byte(activityContent), 0644); err != nil {		return nil, fmt.Errorf("failed to write activity.md: %w", err)
+	if err := os.WriteFile(activityPath, []byte(activityContent), 0644); err != nil {
+		return nil, fmt.Errorf("failed to write activity.md: %w", err)
 	}
 	// Copy index.md
 	indexPath := filepath.Join(releaseDir, "index.md")
