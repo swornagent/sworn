@@ -3,12 +3,10 @@
   "slice_id": "S29-lint-deps",
   "release": "2026-06-19-safe-parallelism",
   "track": "T12-harness-hardening",
-  "state": "in_progress",
-  "owner": "human",
+  "state": "implemented",  "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-27T14:30:00Z",
-  "start_commit": null,
-  "spec_path": "docs/release/2026-06-19-safe-parallelism/S29-lint-deps/spec.md",
+  "start_commit": "8c85353",  "spec_path": "docs/release/2026-06-19-safe-parallelism/S29-lint-deps/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S29-lint-deps/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S29-lint-deps/journal.md",
   "planned_files": [
@@ -23,13 +21,18 @@
     {"choice": "Undeclared dep detection: filter changed files for go.mod/go.sum, check against planned_files set", "stake_class": "Type-2", "rationale": "simple set membership; consistent with how the verifier's Gate 2 works"},
     {"choice": "Error message format: 'undeclared dependency file(s): go.mod, go.sum'", "stake_class": "Type-2", "rationale": "names the specific files so the user knows exactly what to add to planned_files"}
   ],
-  "actual_files": [],
-  "test_commands": [
+  "actual_files": [
+    "internal/lint/deps.go",
+    "internal/lint/deps_test.go",
+    "cmd/sworn/lint.go",
+    "internal/prompt/planner.md"
+  ],  "test_commands": [
     "go test ./internal/lint/... -run Deps",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
-  "open_deferrals": [],
+  "reachability_artifacts": [
+    "manual-smoke-step: sworn lint deps --base HEAD~2 S01-test test-rel → exit 1, 'undeclared dependency file(s): go.mod' (fixture temp repo)"
+  ],  "open_deferrals": [],
   "verification": {
     "result": "",
     "verifier_session_id": null,

@@ -39,3 +39,25 @@ None yet.
 Partial internal/lint/deps.go from a crashed dispatch was cleared (backup at /tmp/T12-S29-partial-lint-200255). Worktree
   clean. Start S29 fresh per spec + approved-ack.md: derive release from status.Release for the start_commit-null fallback, and populate
   design_decisions before in_progress. Use os.ReadFile, not deprecated io/ioutil.
+
+## 2026-06-27 — design_review → in_progress → implemented
+
+**Captain pins addressed (approved-ack.md):**
+1. CheckDeps null-fallback: derives `"release-wt/" + st.Release` from `status.Release` via `internal/state.Read`. No extra caller parameter needed.
+2. design_decisions populated with `{choice, stake_class, rationale}` shape (4 Type-2 decisions).
+
+**Flag (a) addressed:** `cmdLint` usage strings updated to include `deps` target with `[--base <ref>] <slice-id> <release>` arg shape.
+
+**Implementation decisions:**
+- Rewrote `internal/lint/deps.go` from scratch (WIP from crashed dispatch had a local Status struct, 4-space indent, three-dot diff). Now uses `internal/state.Read` for status.json parsing, tabs, two-dot diff (`baseRef..HEAD`).
+- Added `--base` flag to `cmdLintDeps` for testability (spec Risks section calls this out).
+- Tests create temp git repos with real commits to exercise the diff logic end-to-end.
+- Sorted undeclared file names in error message for deterministic output.
+
+**Trade-offs:**
+- Two-dot diff (`baseRef..HEAD`) vs three-dot (`baseRef...HEAD`): two-dot captures exactly the commits on the current branch since baseRef, which is what we want for "what did this slice change." Three-dot would show changes since the merge base, which could include upstream changes.
+- Using `internal/state.Read` instead of a local struct: consistent with the rest of the codebase, but couples `internal/lint` to `internal/state`. This is fine — `internal/rtm` and `internal/ears` are leaf packages and `internal/state` is a core package with no dependencies on them.
+
+**Skeptic panel:** skipped — runtime does not support subagent dispatch.
+
+**Reachability:** verified via `bin/sworn lint deps` against three fixture temp repos (undeclared → exit 1, declared → exit 0, no-change → exit 0).
