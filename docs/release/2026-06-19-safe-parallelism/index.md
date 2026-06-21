@@ -144,6 +144,12 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 > tool-specific (`internal/designfit/`, `cmd/sworn/lint.go`) plus prompt files
 > (`captain.md`/`planner.md`/`verifier.md`) shared only with T10 — which depends on T12,
 > so those writes are sequential, not parallel.
+> **Cross-slice dependency (S08c → S21):** `internal/prompt/baton/rules.md` is created by
+> `S21-canonical-baton` (T3). `S08c-mcp-plan-tools` (T4) serves it via the `sworn://baton/rules`
+> MCP resource, so S08c's rules resource depends on S21's output. Resolution (Captain Pin 2,
+> Coach 2026-06-21): **defer that resource as a Rule-2 deferral until S21 lands** — do not add a
+> hard T4→T3 dependency that would serialise the tracks. (Exactly the consumer↔creator edge
+> S30-lint-touchpoints is meant to surface at plan time.)
 
 | File / surface | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |---|---|---|---|---|---|---|------|---|---|
@@ -209,7 +215,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `internal/prompt/implementer.md` | | | ✓ | | | | |
 | `internal/prompt/verifier.md` | | | ✓ | | | | |
 | `internal/prompt/prompt.go` | | | ✓ | | | | |
-| `internal/prompt/baton/` (new) | | | ✓ | | | | |
+| `internal/prompt/baton/` (new — created by S21/T3; read by S08c/T4 via `sworn://baton/rules`, deferred) | | | ✓ | (T3 dep) | | | | |
 | `cmd/sworn/induction.go` (new) | | | ✓ | | | | |
 | `cmd/sworn/induction_test.go` (new) | | | ✓ | | | | |
 | `internal/mcp/` (new) | | | | ✓ | | |
