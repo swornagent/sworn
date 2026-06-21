@@ -332,6 +332,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 > S34 appended to T2. Release now **45 slices across 12 tracks**.
 
 ## Recent activity
+- 2026-06-21 S06a-sworn-login-auth: verified (PASS, Round 3)
 
 ### 2026-06-21 — replan: harness-hardening batch (S29–S36) from the trial-log harvest
 

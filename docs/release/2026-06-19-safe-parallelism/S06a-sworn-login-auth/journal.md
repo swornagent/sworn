@@ -110,3 +110,21 @@ account cases in the old main() vs T9's dispatch() extraction). Resolved: kept T
 dispatch() structure, ported `case "login"/"logout"/"account": return cmdX(args[2:])`.
 go build clean. verification.result → pending, state → implemented for re-verify. (Same
 systemic conflict as T2 + T8; S30-lint-touchpoints will catch this class at plan time.)
+
+## Verifier verdicts received
+
+### Round 3 — 2026-06-21
+
+**PASS**
+
+All six gates pass:
+- Gate 1: `sworn login`, `sworn logout`, `sworn account` are dispatched from `main.go`'s `dispatch()` to `cmdLogin`/`cmdLogout`/`cmdAccount`. Smoke step confirms all three user paths work.
+- Gate 2: All 6 planned touchpoints present. Extra code files in diff (`telemetry.go`, `git.go`, etc.) are forward-merge artifacts from T9/T11 via release-wt merge commits — not S06a scope.
+- Gate 3: 10/10 tests in `internal/account/account_test.go` pass live. All 5 spec-required tests present and passing. Full suite (27 packages) green. `go vet` clean.
+- Gate 4: Smoke step re-run live. `sworn login` with mock server prints device code + URL, polls, writes credentials, prints "Logged in as developer@example.com". Dir mode 0700, file mode 0600. `sworn account` prints Email + Tier. `sworn logout` removes file and is a no-op on second call. `sworn account` (not logged in) prints expected message.
+- Gate 5: No TODO/FIXME/deferred/placeholder hits on user-reachable code paths. `Tier: "free"` hardcode is a documented default per spec (DeviceCodeFlow returns only token+email).
+- Gate 6: All 7 ACs delivered with verifiable evidence. Proof.md "Not delivered" is empty.
+
+Note: The `usage()` function was not updated to mention `login`/`logout`/`account`, but no acceptance check requires this. The dispatch is wired and the commands work.
+
+Verifier: fresh context session, no implementer context loaded.
