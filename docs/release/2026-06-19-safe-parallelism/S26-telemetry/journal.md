@@ -154,3 +154,24 @@ Fix: update proof.md "Files changed" to match `git diff --name-only <start_commi
 ### Pre-verification skeptic panel
 - **Result**: skipped - runtime does not support subagent dispatch
 - The deterministic first-pass script PASSed (22/23 checks; the sole FAIL was expected state `in_progress`)
+
+## Verifier verdicts received (continued)
+
+### Round 3 — 2026-06-21: PASS
+
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **Slice**: S26-telemetry → state: **verified**
+
+**Gate 1 (User-reachable outcome):** `sworn telemetry` wired in `dispatch()` at main.go:103; `ShowDisclosure` at main.go:30; `Fire` at main.go:49. Smoke test (binary built from worktree) confirmed disclosure text on stderr when no sentinel files present. PASS.
+
+**Gate 2 (Planned touchpoints):** All 4 spec-listed files changed (`internal/telemetry/telemetry.go`, `internal/telemetry/telemetry_test.go`, `cmd/sworn/main.go`, `cmd/sworn/telemetry.go`). All extra files are forward-merge planning artefacts or verifier-cycle artefacts, each documented in proof.md Divergence section. PASS.
+
+**Gate 3 (Required tests):** All 10 spec-required tests present. 9 additional tests beyond minimum. All 19 tests pass under `go test -race ./internal/telemetry/...`. No data races. PASS.
+
+**Gate 4 (Reachability artefact):** Built binary from worktree source. Ran `sworn version` against clean config dir (no sentinel files); disclosure text appeared on stderr before version output. PASS.
+
+**Gate 5 (No silent deferrals):** Grep of implementation files — zero TODO/FIXME/deferred/placeholder markers. AC1/AC2 deferrals carry all three Rule-2 fields (why: `init.go` owned by T3/S09; tracking: S09-per-role-model-config; ack: Coach review 2026-06-21). PASS.
+
+**Gate 6 (Claimed scope matches implemented scope):** AC3–AC11 each reference a named test or function. AC1/AC2 properly in "Not delivered" with valid Rule-2 deferral. PASS.
+
+- **Next**: T9-telemetry has only one slice (S26) which is now verified. Run `/merge-track T9-telemetry 2026-06-19-safe-parallelism` in a fresh session.
