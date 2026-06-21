@@ -1,0 +1,33 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S28-git-dir-guard",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T11-infra-safety",
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-21T00:00:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S28-git-dir-guard/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S28-git-dir-guard/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S28-git-dir-guard/journal.md",
+  "planned_files": [
+    "internal/git/git.go",
+    "internal/git/git_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/git/...",
+    "go build ./...",
+    "go vet ./internal/git/..."
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}
