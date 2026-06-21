@@ -33,3 +33,9 @@ None.
 ## Verifier verdicts received
 
 None yet.
+
+## Coach note — 2026-06-21 20:09 AEST
+
+Partial internal/lint/deps.go from a crashed dispatch was cleared (backup at /tmp/T12-S29-partial-lint-200255). Worktree
+  clean. Start S29 fresh per spec + approved-ack.md: derive release from status.Release for the start_commit-null fallback, and populate
+  design_decisions before in_progress. Use os.ReadFile, not deprecated io/ioutil.
