@@ -30,3 +30,17 @@ None.
 ## Verifier verdicts received
 
 *(None yet.)*
+
+## 2026-06-28 — implement
+
+**State transition**: `design_review` → `in_progress` → `implemented`.
+
+Implemented the empty-Dir guard per spec. Captain review had 2 mechanical pins:
+1. `t.Chdir()` not `os.Chdir()` — applied in `TestEmptyDirDoesNotTouchCwd`
+2. `design_decisions` in `status.json` — all 5 decisions Type-2
+
+Caller audit: all 3 production callers (`internal/run/slice.go`, `internal/run/run.go`, `internal/implement/implement.go`) pass explicit paths — no callers fixed.
+
+Skeptic panel: skipped — runtime does not support subagent dispatch.
+
+All 4 ACs delivered. Guard covers all 9 methods through `run()`. commit 584e9d9.
