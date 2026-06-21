@@ -58,6 +58,12 @@ tracks:
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T9-telemetry
     worktree_branch: track/2026-06-19-safe-parallelism/T9-telemetry
     state: in_progress
+  - id: T10-public-readiness
+    slices: [S27-public-readiness-scrub]
+    depends_on: [T1-concurrency-core, T2-monitoring, T3-commercial, T4-mcp, T5-providers, T6-provider-ux, T7-mcp-extensions, T8-memory, T9-telemetry]
+    worktree_path:
+    worktree_branch: track/2026-06-19-safe-parallelism/T10-public-readiness
+    state: planned
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
@@ -89,14 +95,15 @@ tracks:
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
 | `T1-concurrency-core` | S01 → S02a → S02b → S03 | — | `track/.../T1-concurrency-core` | merged |
-| `T2-monitoring` | S04a → S04b → S04c → S05 | T1 | `track/.../T2-monitoring` | planned |
-| `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 | `track/.../T3-commercial` | planned |
-| `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | planned |
+| `T2-monitoring` | S04a → S04b → S04c → S05 | T1 | `track/.../T2-monitoring` | in_progress |
+| `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 | `track/.../T3-commercial` | in_progress |
+| `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | in_progress |
 | `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 | T1 + T3 | `track/.../T5-providers` | planned |
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
 | `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | planned |
-| `T8-memory` | S23 → S24 → S25 | T1 | `track/.../T8-memory` | planned |
-| `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | planned |
+| `T8-memory` | S23 → S24 → S25 | T1 | `track/.../T8-memory` | in_progress |
+| `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | in_progress |
+| `T10-public-readiness` | S27 | all (T1–T9) | `track/.../T10-public-readiness` | planned |
 
 ### Execution order
 
@@ -106,6 +113,7 @@ Phase 2:  T2, T3, T4, T8, T9 (parallel after T1)
 Phase 3:  T5 (after T1 + T3)
           T7 (after T3 + T4; may run in parallel with T5)
 Phase 4:  T6 (after T2 + T5)
+Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before launch)
 ```
 
 ### Touchpoint matrix
@@ -114,6 +122,9 @@ Phase 4:  T6 (after T2 + T5)
 > `cmd/sworn/main.go` is a **documented shared file** (additive dispatch only).
 > `(dep)` notation means the track writes this file only after the named dependency merges
 > — the dep-edge serialises writes so they are not truly concurrent.
+> `T10-public-readiness` (S27) is omitted from the columns below: it depends on every
+> other track and runs strictly last (Phase 5), so its wide touchpoints — comment scrubs
+> and prompt-text edits across many files — collide with nothing in parallel.
 
 | File / surface | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |---|---|---|---|---|---|---|------|---|---|
@@ -239,7 +250,7 @@ Phase 4:  T6 (after T2 + T5)
 | `S04b-tui-live` | T2 | Live concurrent track status from DB (1s poll) + credit balance in header | planned | [spec](./S04b-tui-live/spec.md) |
 | `S04c-tui-resolution` | T2 | Blocked slice TL;DR panel + options + open in Claude Code / Codex | planned | [spec](./S04c-tui-resolution/spec.md) |
 | `S05-overclaim-benchmark` | T2 | Overclaim rate flat at N=1/2/4; published benchmark artefact | planned | [spec](./S05-overclaim-benchmark/spec.md) |
-| `S06a-sworn-login-auth` | T3 | `sworn login` device-code flow; credentials file; `sworn logout` | failed_verification | [spec](./S06a-sworn-login-auth/spec.md) |
+| `S06a-sworn-login-auth` | T3 | `sworn login` device-code flow; credentials file; `sworn logout` | planned | [spec](./S06a-sworn-login-auth/spec.md) |
 | `S06b-sworn-proxy-credits` | T3 | Model calls route via SwornAgent proxy; `sworn account buy`; credit display | planned | [spec](./S06b-sworn-proxy-credits/spec.md) |
 | `S07-paging` | T3 | FAIL/BLOCKED fires webhook + email; developer paged without watching terminal | planned | [spec](./S07-paging/spec.md) |
 | `S08a-mcp-transport` | T4 | `sworn mcp` JSON-RPC server; initialize handshake; tools scaffold | planned | [spec](./S08a-mcp-transport/spec.md) |
@@ -263,32 +274,33 @@ Phase 4:  T6 (after T2 + T5)
 | `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | planned | [spec](./S24-memory-engine/spec.md) |
 | `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | planned | [spec](./S25-memory-search/spec.md) |
 | `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | planned | [spec](./S26-telemetry/spec.md) |
+| `S27-public-readiness-scrub` | T10 | Make repo + binary public-safe: generalise embedded role prompts (keep Captain/Coach, strip coach-loop coupling), scrub dogfood provenance comments + fired/GetFired + coach-loop refs. Final launch gate. | planned | [spec](./S27-public-readiness-scrub/spec.md) |
 
 ## Aggregate state
 
-- Planned: 23
-- In progress: 4
+- Planned: 28
+- In progress: 0
 - Design review: 0
 - Implemented: 0
 - Verified: 4
-- Failed verification: 1
+- Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 4 / In progress: 4 / Ready to merge: 0 / Merged: 1
+**Tracks:** Planned: 8 / Ready to merge: 0 / Merged: 1
 
-> Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice).
+> Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice);
+> T10 new (1 slice: S27, the final public-readiness gate). Release now **33 slices across 10 tracks**.
 
 ## Recent activity
 
-### 2026-06-21 — S06a verifier verdict: FAIL (round 1, 3 violations)
+### 2026-06-21 — replan: S21 re-scoped + S27 added (public-readiness gate)
 
-- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
-- **Slice**: S06a-sworn-login-auth → state: **failed_verification** (commit 4123974)
-- **Violation 1 (Gate 3)**: Required reachability smoke step not executed. Spec lists "smoke step against a staging SwornAgent auth endpoint (or a locally-run stub). Document the stub command and output in proof.md" as a Required Test. All commands in proof.md are commented out with placeholder content (`# package main`, `# etc.`). No captured output of `sworn login` against a mock server.
-- **Violation 2 (Gate 3)**: AC2 directory mode 0700 not verified. TestSaveCreatesDir creates a fresh directory but only checks existence. TestSaveMode0600 checks mode on a pre-existing TempDir (os.MkdirAll is a no-op on existing dirs).
-- **Violation 3 (Gate 6)**: Proof.md AC2 evidence references TestSaveCreatesDir as proving mode 0700, but the test only verifies existence.
-- **All other gates (1, 2, 5) passed.** Implementation is functionally correct; `go test -v ./internal/account/...` 10/10 PASS; `go test ./...` all packages pass; `go vet ./...` clean; all six touchpoints wired.
-- **Next**: `/implement-slice S06a-sworn-login-auth 2026-06-19-safe-parallelism` in a fresh session to address the 3 violations.
+- **Actor**: planner (`/replan-release`)
+- **S21-canonical-baton re-scoped**: embed **10 rules** (not 7), built from the in-repo canonical `internal/adopt/baton/rules/` (`01`–`10`) instead of "verbatim from `~/.claude/baton/`" (stale at 7, would drop Rules 8/9/10). The role-prompt generalisation the verbatim copy would have leaked is split out to S27.
+- **S27-public-readiness-scrub added** in new track **T10-public-readiness** (depends on every track; runs last — the launch gate): generalise the embedded role prompts (keep Captain/Coach, strip coach-loop/`--auto-ack`/`approved-ack`/S21-stall/project-memory; operationally intact), scrub the 8 dogfood provenance comments, the `fired`/GetFired leak, and `coach-loop` references across source + release artefacts.
+- **Base sync**: release-wt forward-merged `release/v0.1.0` to pick up the no-mock→Rule-10 reconciliation (`5139882`).
+- **Release now 33 slices across 10 tracks.**
+- **Staleness note**: the per-slice State column and the Aggregate-state block remain stale vs the board oracle (known release-wt/track-branch lag); `release-board-status.sh` is authoritative. Not fully reconciled in this pass.
 
 ### 2026-06-21 — track `T1-concurrency-core` merged to release-wt (commit 581b6a9)
 
