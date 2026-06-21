@@ -311,8 +311,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | verified | [spec](./S26-telemetry/spec.md) |
 | `S27-public-readiness-scrub` | T10 | Make repo + binary public-safe: generalise embedded role prompts (keep Captain/Coach, strip coach-loop coupling), scrub dogfood provenance comments + fired/GetFired + coach-loop refs. Final launch gate. | planned | [spec](./S27-public-readiness-scrub/spec.md) |
 | `S28-git-dir-guard` | T11 | internal/git fails closed on empty Repo.Dir so a git op can't run on the ambient worktree (fixes workers writing to main, sworn#6) + regression test | verified | [spec](./S28-git-dir-guard/spec.md) |
-| `S29-lint-deps` | T12 | `sworn lint deps` — go.mod/go.sum diff vs planned_files, fail-closed; planner auto-adds dep files | planned | [spec](./S29-lint-deps/spec.md) |
-| `S30-lint-touchpoints` | T12 | `sworn lint touchpoints` — design files/pkgs vs planned_files + collision matrix + migration-number collision | planned | [spec](./S30-lint-touchpoints/spec.md) |
+| `S29-lint-deps` | T12 | `sworn lint deps` — go.mod/go.sum diff vs planned_files, fail-closed; planner auto-adds dep files | verified | [spec](./S29-lint-deps/spec.md) || `S30-lint-touchpoints` | T12 | `sworn lint touchpoints` — design files/pkgs vs planned_files + collision matrix + migration-number collision | planned | [spec](./S30-lint-touchpoints/spec.md) |
 | `S31-lint-symbols` | T12 | `sworn lint symbols` — grep back-ticked design identifiers against the live codebase | planned | [spec](./S31-lint-symbols/spec.md) |
 | `S32-designfit-decisions-gate` | T12 | `sworn designfit` fails closed when Type-1 work is declared but `design_decisions` is empty | planned | [spec](./S32-designfit-decisions-gate/spec.md) |
 | `S33-spec-template-hardening` | T12 | spec/prompt hardening: Risk-cites-`file:line`, pure-engine two-commit note, dynamic-CORS note, + verifier watcher-block cleanup | planned | [spec](./S33-spec-template-hardening/spec.md) |
@@ -349,8 +348,14 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 
 ## Recent activity
 
-### 2026-06-21 — replan: new track T13-sworn-role-parity (S45/S46/S47)
+### 2026-06-27 — S29 verifier verdict: PASS
 
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **Slice**: S29-lint-deps → state: **verified**
+- **All six gates passed.** `sworn lint deps` wired through main.go → cmdLint → cmdLintDeps; 3/3 tests PASS; build+vet clean; planner.md Phase 4 step 7 adds dependency-files checklist; no silent deferrals; all 4 acceptance checks delivered.
+- **Next**: `/implement-slice S30-lint-touchpoints 2026-06-19-safe-parallelism` in a fresh session. (Track T12-harness-hardening continues.)
+
+### 2026-06-21 — replan: new track T13-sworn-role-parity (S45/S46/S47)
 - **Actor**: planner (`/replan-release`)
 - **Directive**: sworn must mirror the coach-loop's roles — forward-only, no regressions. Losing captain / TL;DR-review / orchestrator is going backwards. See the parity capture (`internal-docs/captures/2026-06-21-sworn-coach-loop-role-parity.md`).
 - **New track `T13-sworn-role-parity`** (depends_on T12 — both touch `internal/run`, so serialized): **S45-design-tldr** (`sworn run` emits the §1–6 design TL;DR before code), **S46-captain-review** (captain agent reviews the TL;DR, emits classified pins, gates implement — the in-product `/design-review`), **S47-orchestrator-recovery** (intelligent triage on non-PASS: resolve-in-place / escalate / halt, + BLOCKED resolvability — the in-product orchestrator; builds on S44).

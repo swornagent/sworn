@@ -32,8 +32,17 @@ None.
 
 ## Verifier verdicts received
 
-None yet.
+### 2026-06-27 — PASS
 
+All six gates passed:
+- Gate 1 (User-reachable): `sworn lint deps` wired through `main.go` → `cmdLint` → `cmdLintDeps`.
+- Gate 2 (Touchpoints): 4 planned touchpoints match 4 changed code files; merge noise from forward-merge is excluded.
+- Gate 3 (Tests): `TestDepsUndeclaredFails`, `TestDepsDeclaredPasses`, `TestDepsNoChangePasses` all PASS; `go build ./...` and `go vet ./internal/lint/...` clean.
+- Gate 4 (Reachability): manual smoke step output shows exit 1 with "undeclared dependency file(s): go.mod" matching spec.
+- Gate 5 (Silent deferrals): no TODO/FIXME/placeholder/hack in any changed file.
+- Gate 6 (Claimed scope): all 4 Delivered items match acceptance checks with verifiable evidence.
+
+Forward-merged 9 commits from release-wt/2026-06-19-safe-parallelism before verification (drift gate). Slice's actual scope from two feat commits: `cmd/sworn/lint.go`, `internal/lint/deps.go`, `internal/lint/deps_test.go`, `internal/prompt/planner.md`.
 ## Coach note — 2026-06-21 20:09 AEST
 
 Partial internal/lint/deps.go from a crashed dispatch was cleared (backup at /tmp/T12-S29-partial-lint-200255). Worktree

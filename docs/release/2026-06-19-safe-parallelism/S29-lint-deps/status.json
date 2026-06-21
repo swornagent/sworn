@@ -3,10 +3,9 @@
   "slice_id": "S29-lint-deps",
   "release": "2026-06-19-safe-parallelism",
   "track": "T12-harness-hardening",
-  "state": "implemented",  "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-27T14:30:00Z",
-  "start_commit": "8c85353",  "spec_path": "docs/release/2026-06-19-safe-parallelism/S29-lint-deps/spec.md",
+  "state": "verified",  "owner": "human",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-27T16:00:00Z",  "start_commit": "8c85353",  "spec_path": "docs/release/2026-06-19-safe-parallelism/S29-lint-deps/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S29-lint-deps/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S29-lint-deps/journal.md",
   "planned_files": [
@@ -34,10 +33,9 @@
     "manual-smoke-step: sworn lint deps --base HEAD~2 S01-test test-rel → exit 1, 'undeclared dependency file(s): go.mod' (fixture temp repo)"
   ],  "open_deferrals": [],
   "verification": {
-    "result": "",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "result": "pass",
+    "verifier_session_id": "fresh-artefact-only",
+    "verifier_verdict_at": "2026-06-27T16:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
-  }
-}
+  }}
