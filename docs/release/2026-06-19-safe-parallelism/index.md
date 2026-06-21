@@ -297,7 +297,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S21-canonical-baton` | T3 | Baton protocol embedded in binary (internal/prompt/baton/); sworn init writes minimal MCP-pointer AGENTS.md instead of per-repo Baton copy; ADR-0005 | planned | [spec](./S21-canonical-baton/spec.md) |
 | `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | planned | [spec](./S22-sworn-doctor/spec.md) |
 | `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | planned | [spec](./S23-memory-config/spec.md) |
-| `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | failed_verification | [spec](./S24-memory-engine/spec.md) |
+| `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | verified | [spec](./S24-memory-engine/spec.md) |
 | `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | planned | [spec](./S25-memory-search/spec.md) |
 | `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | verified | [spec](./S26-telemetry/spec.md) |
 | `S27-public-readiness-scrub` | T10 | Make repo + binary public-safe: generalise embedded role prompts (keep Captain/Coach, strip coach-loop coupling), scrub dogfood provenance comments + fired/GetFired + coach-loop refs. Final launch gate. | planned | [spec](./S27-public-readiness-scrub/spec.md) |
@@ -320,7 +320,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 - In progress: 0
 - Design review: 0
 - Implemented: 0
-- Verified: 6
+- Verified: 7
 - Failed verification: 0
 - Deferred: 1
 
@@ -332,6 +332,13 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 > S34 appended to T2. Release now **45 slices across 12 tracks**.
 
 ## Recent activity
+
+### 2026-06-21 — S24-memory-engine verifier PASS (round 3)
+
+- **Slice**: S24-memory-engine → state: **verified**
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant); verified against `40cb8d6`
+- **All six gates passed.** 18/18 tests pass fresh (`go clean -testcache && go test -race ./internal/memory/... -v`). Voyage batch splitting verified (150 texts → embeddings[128][0]==0.0 confirms two-request batching). Auth header + key-from-env tested. Discover tests cover Claude Code MEMORY.md parsing, `---` flat-file splitting, custom paths. Full pipeline demonstrated via Ollama reachability artefact (3 entries indexed, change detection, --force). No silent deferrals in S24 files. All Gate 2 non-planned files fully explained as forward-merge noise (S26/S28/T12 replan content).
+- **Next**: `/implement-slice S25-memory-search 2026-06-19-safe-parallelism` in a fresh session.
 
 ### 2026-06-21 — S24-memory-engine verifier FAIL (round 2)
 

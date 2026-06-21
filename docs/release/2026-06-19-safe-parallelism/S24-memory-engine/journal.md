@@ -34,6 +34,38 @@
 
 ## Verifier verdicts received
 
+### 2026-06-21 — Verdict: PASS (round 3)
+
+**Verifier:** fresh-context session, artefact-only inputs (Rule 7 compliant)
+**Verified against:** `40cb8d6` (HEAD after drift-gate forward-merge)
+
+**Gate 1 — User-reachable outcome exists:** PASS
+`case "memory"` dispatches to `cmdMemory()` in `cmd/sworn/main.go:106`. `cmdMemoryBuild()` is fully implemented — discovers entries, opens index, embeds, upserts, prints summary. No stubs.
+
+**Gate 2 — Planned touchpoints match actual diff:** PASS
+All 10 planned files present in `git diff --name-only d441b4c..HEAD`. Non-planned files fully accounted for in "Divergence from plan": `cmd/sworn/main.go` (dispatch case porting, forward-merge resolution); `cmd/sworn/telemetry.go`, `internal/telemetry/*`, `internal/git/*` (S26/S28 forward-merge noise, already-verified slices); `docs/release/**` + `.gitignore` (docs-only from two release-wt syncs). Every non-planned file has a clean causal explanation.
+
+**Gate 3 — Required tests exist and exercise the integration point:** PASS
+All 18 tests pass fresh (`go clean -testcache && go test -race ./internal/memory/... -v`). Voyage batch splitting verified: 150 texts → `embeddings[128][0] == 0.0` confirms second batch started at index 0 (FAIL if single-request). Auth header and key-from-env tested. `TestUpsertAndRetrieve`, `TestChangeDetection` (row count stays 1), `TestCosine` (4 subcases), `TestEmbeddingEncoding` (round-trip BLOB). `TestDiscoverClaudeCode`, `TestDiscoverFlatFile` (`---` splitting into 2 entries, path fragments `#0`/`#1`), `TestDiscoverCustomPath`. All httptest.NewServer fakes; no live API calls.
+
+**Gate 4 — Reachability artefact proves the user path:** PASS
+proof.md shows live `./sworn memory build` output: "Indexed 3 entries (3 new, 0 unchanged) via nomic-embed-text in 129ms"; re-run "0 new, 3 unchanged" (change detection); `--force` "3 new". Consistent with spec user outcome. Provider and count present.
+
+**Gate 5 — No silent deferrals:** PASS
+`grep -rn "TODO|FIXME|deferred|later|placeholder|XXX|HACK"` over S24 implementation files returned nothing. "Not delivered" items have all three Rule 2 elements (why, tracking, acknowledgement).
+
+**Gate 6 — Claimed scope matches implemented scope:** PASS
+All four Delivered items verified against files and test names. Not-delivered items (index pruning, TUI progress) are in spec's "Deferrals allowed?" section; all carry Rule 2 cards with planner acknowledgement.
+
+```
+PASS
+
+Slice: `S24-memory-engine`
+Verified against: `40cb8d6`
+Verifier session: `fresh, artefact-only`
+```
+
+
 ### 2026-06-21 — Verdict: FAIL (round 2)
 
 **Verifier:** fresh-context session, artefact-only inputs (Rule 7 compliant)
