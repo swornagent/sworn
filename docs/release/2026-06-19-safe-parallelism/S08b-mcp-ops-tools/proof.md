@@ -10,54 +10,52 @@ through these tools.
 ## Files changed (vs start_commit 6e21bf0)
 
 ```
-cmd/sworn/mcp.go           |   4 +  — add RegisterOpsTools() call
-internal/mcp/context.go    | 182 +  — AssembleSliceContext + helpers
-internal/mcp/tools_ops.go  | 587 +  — 9 tool handlers + RegisterOpsTools
-internal/mcp/tools_test.go | 458 +  — tests for all 9 tools
+cmd/sworn/mcp.go                                          |   4 +  — RegisterOpsTools call
+internal/mcp/context.go                                   | 189 +  — AssembleSliceContext + helpers + extractField fix
+internal/mcp/tools_ops.go                                 | 592 +  — 9 tool handlers + RegisterOpsTools
+internal/mcp/tools_test.go                                | 562 +  — tests for all 9 tools + git repo fixtures
+docs/release/2026-06-19-safe-parallelism/S08b-mcp-ops-tools/proof.md  | proof bundle (this file)
+docs/release/2026-06-19-safe-parallelism/S08b-mcp-ops-tools/journal.md | session journal
 ```
 
-4 files changed, 1231 insertions.
+Key changes this round (addressing verifier violations):
+- `internal/mcp/context.go`: Fixed `extractField()` to correctly parse quoted JSON values (was leaving trailing quotes)
+- `internal/mcp/tools_test.go`: `TestGetSliceContext` now uses a real temporary git repository to verify non-empty diff; `TestDeferSliceWritesRuleTwo` now asserts intake.md content
+- `proof.md`: Reachability artefact replaced with actual `get_blocked` invocation output
 
 ## Test results
 
 ```
 $ go test ./internal/mcp/... -count=1 -timeout 60s
-ok  github.com/swornagent/sworn/internal/mcp  0.033s
+ok  github.com/swornagent/sworn/internal/mcp  0.067s
 
 $ go test ./... -count=1 -timeout 120s
 ... all 26 packages pass ...
 ```
 
-All 19 tests pass (10 existing server tests + 9 new ops tool tests). Full suite
-green across 26 packages.
+All 21 tests pass (10 existing server tests + 9 new ops tool tests + 2 git repo integration helpers). Full suite green across 26 packages.
 
 ## Reachability artefact
 
-MCP server `tools/list` returns all 9 registered ops tools:
+An MCP client initializes a `sworn mcp` server pointed at a fixture release with
+one `failed_verification` slice, then calls `get_blocked`:
 
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 2,
-  "result": {
-    "tools": [
-      {"name": "get_board", ...},
-      {"name": "get_blocked", ...},
-      {"name": "get_slice_context", ...},
-      {"name": "rerun_slice", ...},
-      {"name": "patch_slice", ...},
-      {"name": "approve_merge", ...},
-      {"name": "defer_slice", ...},
-      {"name": "get_credits", ...},
-      {"name": "list_releases", ...}
-    ]
-  }
-}
+```
+$ cd /tmp/sworn-reachability-test
+$ printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test-client","version":"0"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_blocked","arguments":{}}}' | sworn mcp
+
+Response (initialize):
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{},"resources":{"listChanged":false},"prompts":{}},"serverInfo":{"name":"sworn-mcp","version":"0.1.0"}}}
+
+Response (get_blocked):
+{"jsonrpc":"2.0","id":2,"result":{"isError":false,"content":[{"type":"text","text":"Release: test-reach\n  Track: T1-engine\n  Slice: S02-fail\n  State: failed_verification\n  Worktree: /tmp/wt/T1-engine\n  Violations:\nFAIL: Gate 3 — missing spec coverage\n**Violation 1:** missing spec content\n**Violation 2:** test does not verify non-empty diff\n"}]}}
 ```
 
-A client that completes the initialize handshake receives all 9 tool
-registrations in the tools/list response.
-
+The `get_blocked` tool returns the failed slice ID, its track, state, worktree
+path, and violations parsed from proof.md — exactly the user gesture the spec
+requires. An AI assistant connected to `sworn mcp` can call `get_blocked` and
+receive this complete picture without navigating worktrees manually.
 ## Delivered
 
 - **get_board**: reads index.md frontmatter via `board.ParseTracks()`, reads

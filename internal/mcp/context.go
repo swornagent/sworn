@@ -139,16 +139,23 @@ func extractField(jsonData, key string) string {
 	// Skip colon and whitespace
 	rest = strings.TrimSpace(strings.TrimPrefix(rest, ":"))
 	rest = strings.TrimSpace(rest)
-	// Strip surrounding quotes
-	rest = strings.Trim(rest, `"`)
-	// Stop at comma, newline, or closing brace
-	end := strings.IndexAny(rest, ",\n}")
-	if end >= 0 {
-		rest = rest[:end]
+	// Strip surrounding quotes — handle "value" (leading + trailing quote)
+	rest = strings.TrimSpace(rest)
+	if strings.HasPrefix(rest, `"`) {
+		rest = rest[1:]
+		// Find the closing quote (before next delimiter)
+		if end := strings.Index(rest, `"`); end >= 0 {
+			rest = rest[:end]
+		}
+	} else {
+		// Fallback for unquoted values: stop at comma, newline, or closing brace
+		end := strings.IndexAny(rest, ",\n}")
+		if end >= 0 {
+			rest = rest[:end]
+		}
 	}
 	return strings.TrimSpace(rest)
 }
-
 // runDiff runs git diff in the given worktree. On any error (non-zero exit,
 // missing worktree, etc.) it returns diff="" and a descriptive diff_note.
 // This is the Pin 1 safe-wrapping implementation.

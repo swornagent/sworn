@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/swornagent/sworn/internal/state"
-)
-// ---- Fixture helpers ----
+)// ---- Fixture helpers ----
 
 type fixtureRelease struct {
 	Root   string // temp dir root
@@ -51,6 +51,15 @@ func (fr *fixtureRelease) writeSliceFile(t *testing.T, sliceID, filename, conten
 	}
 }
 
+// writeIndexContent writes a raw index.md file from the given body content.
+func (fr *fixtureRelease) writeIndexContent(t *testing.T, body string) {
+	t.Helper()
+	content := fmt.Sprintf("---\n%s---\n\nRelease board.\n", body)
+	path := filepath.Join(fr.Dir, "index.md")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write index.md: %v", err)
+	}
+}
 func (fr *fixtureRelease) writeSlice(t *testing.T, sliceID, spec string) {
 	t.Helper()
 	fr.writeSliceFile(t, sliceID, "spec.md", spec)
@@ -103,8 +112,65 @@ func writeOpsIndex(t *testing.T, dir, name string, trackSlices map[string][]stri
 	}
 }
 
-// ---- Test helpers ----
+// ---- Git repo helpers ----
 
+// gitRepoFixture holds a real git repository used for diff testing.
+type gitRepoFixture struct {
+	Dir         string // temp dir with the git repo
+	StartCommit string // hash of the first commit (base)
+}
+
+// setupGitRepo creates a temporary git repository with an initial commit and
+// a second commit, returning the repo dir and the initial commit hash. Tests
+// can use StartCommit as the diff base and expect feature.go in the diff output.
+func setupGitRepo(t *testing.T) *gitRepoFixture {
+	t.Helper()
+	dir := t.TempDir()
+
+	runCmd(t, dir, "git", "init")
+	runCmd(t, dir, "git", "config", "user.name", "test")
+	runCmd(t, dir, "git", "config", "user.email", "test@test")
+
+	// Create initial commit (base)
+	if err := os.WriteFile(filepath.Join(dir, "base.txt"), []byte("base content\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "initial commit")
+	startCommit := runCmdOutput(t, dir, "git", "rev-parse", "HEAD")
+
+	// Create a second commit — the diff we expect to see
+	if err := os.WriteFile(filepath.Join(dir, "feature.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "add feature.go")
+
+	return &gitRepoFixture{Dir: dir, StartCommit: strings.TrimSpace(startCommit)}
+}
+
+func runCmd(t *testing.T, dir, name string, args ...string) {
+	t.Helper()
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s %v failed: %v\noutput: %s", name, args, err, string(out))
+	}
+}
+
+func runCmdOutput(t *testing.T, dir, name string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("%s %v failed: %v", name, args, err)
+	}
+	return string(out)
+}
+
+// ---- Test helpers ----
 func opsToolRoundTrip(t *testing.T, repoRoot string) (stdinWriter io.Writer, stdoutReader *bufio.Reader, cleanup func()) {
 	t.Helper()
 	w, r, s := testRoundTrip(t)
@@ -208,13 +274,36 @@ Some other text.`)
 
 func TestGetSliceContext(t *testing.T) {
 	fr := setupFixtureRelease(t, "test-release-c")
-	trackSlices := map[string][]string{
-		"T1-engine": {"S01-test-slice"},
-	}
-	writeOpsIndex(t, fr.Dir, "test-release-c", trackSlices)
-	fr.writeSlice(t, "S01-test-slice", "# S01-test-slice\n\nSome spec content.")
-	fr.writeStatus(t, "S01-test-slice", `"state": "in_progress", "start_commit": "abc123"`)
+	gitFixture := setupGitRepo(t)
 
+	// Build index.md with worktree_path pointing to the real git repo
+	var b strings.Builder
+	b.WriteString("tracks:\n")
+	b.WriteString("  - id: T1-engine\n")
+	b.WriteString("    slices: [S01-test-slice]\n")
+	b.WriteString("    depends_on: null\n")
+	fmt.Fprintf(&b, "    worktree_path: %s\n", gitFixture.Dir)
+	b.WriteString("    worktree_branch: track/x/T1-engine\n")
+	b.WriteString("    state: in_progress\n")
+	b.WriteString("release_worktree_path: /tmp/release-wt\n")
+	b.WriteString("release_worktree_branch: release-wt/x\n")
+	fr.writeIndexContent(t, b.String())
+
+	fr.writeSlice(t, "S01-test-slice", "# S01-test-slice\n\nSome spec content.")
+	// Write status.json directly with exact JSON to avoid writeStatus quoting issues
+	statusJSON := fmt.Sprintf(`{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S01-test-slice",
+  "release": "test-release-c",
+  "track": "T1",
+  "state": "in_progress",
+  "start_commit": "%s",
+  "owner": "test",
+  "last_updated_by": "test",
+  "last_updated_at": "2026-06-28T00:00:00Z",
+  "verification": {"result": ""}
+}`, gitFixture.StartCommit)
+	fr.writeSliceFile(t, "S01-test-slice", "status.json", statusJSON)
 	w, r, cleanup := opsToolRoundTrip(t, fr.Root)
 	defer cleanup()
 
@@ -227,11 +316,14 @@ func TestGetSliceContext(t *testing.T) {
 	if !strings.Contains(text, "Some spec content") {
 		t.Errorf("get_slice_context response missing spec content, got: %s", text)
 	}
-	if !strings.Contains(text, "start_commit") {
-		t.Errorf("get_slice_context response missing start_commit, got: %s", text)
+	if !strings.Contains(text, gitFixture.StartCommit) {
+		t.Errorf("get_slice_context response missing start_commit %q, got: %s", gitFixture.StartCommit, text)
+	}
+	// Verify non-empty diff — the real git repo has feature.go added after start_commit
+	if !strings.Contains(text, "feature.go") {
+		t.Errorf("get_slice_context should include diff with feature.go, got: %s", text)
 	}
 }
-
 func TestDeferSliceWritesRuleTwo(t *testing.T) {
 	fr := setupFixtureRelease(t, "test-release-d")
 	trackSlices := map[string][]string{
@@ -273,8 +365,20 @@ func TestDeferSliceWritesRuleTwo(t *testing.T) {
 	if !found {
 		t.Errorf("open_deferrals should contain reason, got: %v", s.OpenDeferrals)
 	}
-}
 
+	// Verify intake.md was written at release level
+	intakePath := filepath.Join(fr.Dir, "intake.md")
+	intakeData, err := os.ReadFile(intakePath)
+	if err != nil {
+		t.Fatalf("read intake.md: %v", err)
+	}
+	if !strings.Contains(string(intakeData), "blocked on backend") {
+		t.Errorf("intake.md should contain the deferral reason, got: %s", string(intakeData))
+	}
+	if !strings.Contains(string(intakeData), "S01-defer-me") {
+		t.Errorf("intake.md should reference the slice ID, got: %s", string(intakeData))
+	}
+}
 func TestGetCreditsAbsent(t *testing.T) {
 	fr := setupFixtureRelease(t, "test-credits")
 	trackSlices := map[string][]string{

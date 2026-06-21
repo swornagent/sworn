@@ -62,9 +62,36 @@ None. All 9 tools implemented with full test coverage.
 | Round | Date | Verdict | Verifier |
 |-------|------|---------|----------|
 | 1 | 2026-06-21 | FAIL | fresh-context verifier |
+| 2 | 2026-06-21 | addressed | implementer (re-entry) |
+
+### Round 2 — Re-entry (addressing Round 1 violations)
+
+Re-entered slice in `failed_verification` state. Three violations addressed:
+
+1. **TestGetSliceContext — non-empty diff**: Added `setupGitRepo()` helper that creates a
+   real temporary git repository with two commits (base + feature.go). `start_commit` is
+   set to the first commit hash; `worktree_path` in index.md points to the real git dir.
+   The test now asserts the response contains "feature.go" in the diff.
+
+2. **TestDeferSliceWritesRuleTwo — intake.md assertion**: Added assertions after the tool
+   call that read `intake.md` from the release directory and verify it contains the
+   deferral reason ("blocked on backend") and the slice ID ("S01-defer-me").
+
+3. **Reachability artefact**: Replaced `tools/list` registration JSON with the actual
+   output of a running `sworn mcp` server calling `get_blocked` against a fixture with
+   a `failed_verification` slice. The response includes slice ID, track, state, worktree
+   path, and violations extracted from proof.md.
+
+Also fixed a production bug discovered during re-entry: `extractField()` in `context.go`
+used `strings.Trim(rest, "\"")` which only stripped quotes from leading/trailing edges
+of the entire remaining string, not the value itself. A value like `"hash",\n...` would
+have its leading quote removed (`hash",\n...`) but the trailing quote before the comma
+was never trimmed, producing `hash"` as the extracted value. This caused `git diff` to
+receive a malformed revision argument and fail. Fixed by explicitly checking for a
+leading `"`, slicing it off, then finding the closing quote before the delimiter using
+`strings.Index()`.
 
 ### Round 1 — FAIL
-
 ```
 FAIL
 

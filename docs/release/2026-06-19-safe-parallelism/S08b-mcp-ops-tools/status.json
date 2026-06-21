@@ -3,10 +3,10 @@
   "slice_id": "S08b-mcp-ops-tools",
   "release": "2026-06-19-safe-parallelism",
   "track": "T4-mcp",
-  "state": "failed_verification",
+  "state": "implemented",
   "owner": "human",
-  "last_updated_by": "verifier",
-  "last_updated_at": "2026-06-21T12:55:00Z",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-06-21T13:10:00Z",
   "start_commit": "6e21bf0c4d9867210d63adb77cebe8fe8fbb2dac",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S08b-mcp-ops-tools/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S08b-mcp-ops-tools/proof.md",
@@ -14,17 +14,13 @@
   "planned_files": ["internal/mcp/tools_ops.go","internal/mcp/context.go","internal/mcp/tools_test.go"],
   "actual_files": ["cmd/sworn/mcp.go","internal/mcp/context.go","internal/mcp/tools_ops.go","internal/mcp/tools_test.go","docs/release/2026-06-19-safe-parallelism/S08b-mcp-ops-tools/proof.md","docs/release/2026-06-19-safe-parallelism/S08b-mcp-ops-tools/journal.md"],
   "test_commands": ["go test ./internal/mcp/... -count=1 -timeout 60s","go test ./... -count=1 -timeout 120s"],
-  "reachability_artifacts": ["MCP server tools/list returns all 9 registered ops tools"],
+  "reachability_artifacts": ["sworn mcp get_blocked returns failed slice with violations extracted from proof.md"],
   "open_deferrals": [],
   "verification": {
-    "result": "fail",
+    "result": "",
     "verifier_session_id": null,
-    "verifier_verdict_at": "2026-06-21T12:55:00Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      "Gate 3 — TestGetSliceContext does not verify non-empty diff (AC #3): fixture worktree_path /tmp/wt/T1-engine non-existent; runDiff returns diff:'' always; test only checks 'start_commit' JSON key, not diff content",
-      "Gate 3 — TestDeferSliceWritesRuleTwo does not verify intake.md written (AC #4): test checks status.json and open_deferrals but never reads or asserts intake.md content",
-      "Gate 4 — Reachability artefact shows tools/list registration JSON, not the spec-required user gesture (ask Claude what's blocked → get_blocked invoked → blocked slice list returned)"
-    ]
+    "verifier_verdict_at": "",
+    "verifier_was_fresh_context": false,
+    "violations": []
   }
 }
