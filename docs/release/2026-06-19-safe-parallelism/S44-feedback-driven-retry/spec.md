@@ -39,6 +39,19 @@ fix that; sworn throws the feedback away.
   into the implementer's user prompt (ahead of the spec), so the agent prioritises the named
   failures.
 - First attempt (attempt 0) passes empty feedback — no behavioural change to the happy path.
+- **Provider-error retry policy (consumes S10's `model.Error{Kind}` — `depends_on S10`)** —
+  added at replan 2026-06-21 (Coach decision). The verifier-FAIL feedback above handles a
+  *verdict* FAIL; this handles a *dispatch* error (the model call itself failing, e.g. 402/429).
+  In `RunSlice`, classify a dispatch error before deciding the retry:
+  - **Terminal** (`model.IsTerminal` — Auth/Credits): not resolvable by re-implementing or
+    escalating to the next model (every escalation slot hits the same account-level 402/401).
+    Fail fast — surface `Error.UserMessage()` and stop; do **not** consume the model-escalation
+    budget.
+  - **Transient** (`model.IsTransient` — RateLimit/Upstream): retry on the **same** model with
+    a bounded backoff rather than burning an escalation slot.
+  - Orthogonal to the FAIL-feedback path: a verifier FAIL still escalates-with-feedback; a
+    provider error classifies-and-routes. (This is the sworn-side analogue of the coach-loop
+    hardening shipped 2026-06-21.)
 
 ## Out of scope
 
@@ -48,6 +61,8 @@ fix that; sworn throws the feedback away.
   verifier's prose + violations, not the prior code.
 - An intelligent recovery/triage layer for BLOCKED verdicts — that is the larger
   design-capture item, tracked separately.
+- The error-taxonomy type and HTTP classification itself (`model.Error`, `ClassifyHTTP`,
+  `IsTerminal`/`IsTransient`) — that is **S10-provider-foundation**; S44 only consumes it.
 
 ## Planned touchpoints
 
@@ -65,6 +80,12 @@ fix that; sworn throws the feedback away.
 - [ ] Attempt 0 receives empty feedback — happy-path prompt unchanged (regression guard)
 - [ ] A FAIL→PASS scenario works end to end: fake agent that only succeeds when the feedback
   block is present reaches `verified` on attempt 2
+- [ ] A terminal dispatch error (`model.Error` Kind=Credits or Auth) does NOT escalate
+  through the model list — `RunSlice` surfaces `UserMessage()` and stops (assert the
+  escalation index does not advance past the failing model; assert the user-facing message
+  reaches the caller)
+- [ ] A transient dispatch error (Kind=RateLimit) retries on the **same** model without
+  consuming an escalation slot (assert the model used on the next attempt is unchanged)
 - [ ] `go test -race ./internal/run/... ./internal/implement/...` passes
 
 ## Required tests
