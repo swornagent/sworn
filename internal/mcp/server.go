@@ -12,9 +12,9 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 	"sync"
 )
-
 // ---- MCP 2024-11-05 wire types ----
 
 // ToolResult is the response payload for a tools/call request.
@@ -33,6 +33,11 @@ type ContentItem struct {
 // ToolHandler processes a tools/call request. Implemented by S08b and S08c.
 type ToolHandler func(ctx context.Context, params json.RawMessage) (*ToolResult, error)
 
+// ResourceHandler processes a resources/read request. Implemented by S08c.
+type ResourceHandler func(ctx context.Context, uri string) (string, error)
+
+// PromptHandler processes a prompts/get request. Implemented by S08c.
+type PromptHandler func(ctx context.Context, name string, arguments map[string]string) (string, error)
 // ---- JSON-RPC 2.0 wire types ----
 
 type jsonRPCRequest struct {
@@ -65,19 +70,22 @@ const (
 
 // Server is an MCP JSON-RPC 2.0 server over stdio. Create with New(), then Run().
 type Server struct {
-	mu      sync.Mutex
-	tools   map[string]ToolHandler            // name -> handler
-	schemas map[string]json.RawMessage        // name -> input schema
+	mu        sync.Mutex
+	tools     map[string]ToolHandler            // name -> handler
+	schemas   map[string]json.RawMessage        // name -> input schema
+	resources map[string]ResourceHandler        // uri/pattern -> handler
+	prompts   map[string]PromptHandler          // name -> handler
 }
 
 // New creates a new MCP server with no registered tools.
 func New() *Server {
 	return &Server{
-		tools:   make(map[string]ToolHandler),
-		schemas: make(map[string]json.RawMessage),
+		tools:     make(map[string]ToolHandler),
+		schemas:   make(map[string]json.RawMessage),
+		resources: make(map[string]ResourceHandler),
+		prompts:   make(map[string]PromptHandler),
 	}
 }
-
 // RegisterTool registers a tool handler and its input schema. Handlers are
 // invoked by tools/call requests. S08b and S08c call this from their init.
 func (s *Server) RegisterTool(name string, inputSchema json.RawMessage, handler ToolHandler) {
@@ -87,6 +95,19 @@ func (s *Server) RegisterTool(name string, inputSchema json.RawMessage, handler 
 	s.schemas[name] = inputSchema
 }
 
+// RegisterResource registers a resource handler for a URI or pattern.
+func (s *Server) RegisterResource(uri string, handler ResourceHandler) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.resources[uri] = handler
+}
+
+// RegisterPrompt registers a prompt handler.
+func (s *Server) RegisterPrompt(name string, handler PromptHandler) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.prompts[name] = handler
+}
 // Run starts the MCP server, reading JSON-RPC 2.0 requests from r (typically
 // stdin) and writing responses to w (typically stdout). It blocks until r
 // returns EOF or ctx is cancelled.
@@ -176,15 +197,16 @@ type methodHandler func(ctx context.Context, req *jsonRPCRequest, enc *json.Enco
 
 func (s *Server) buildMethodHandlers() map[string]methodHandler {
 	return map[string]methodHandler{
-		"initialize":    s.handleInitialize,
-		"initialized":   s.handleInitialized,
-		"tools/list":    s.handleToolsList,
-		"tools/call":    s.handleToolsCall,
+		"initialize":     s.handleInitialize,
+		"initialized":    s.handleInitialized,
+		"tools/list":     s.handleToolsList,
+		"tools/call":     s.handleToolsCall,
 		"resources/list": s.handleResourcesList,
-		"prompts/list":  s.handlePromptsList,
+		"resources/read": s.handleResourcesRead,
+		"prompts/list":   s.handlePromptsList,
+		"prompts/get":    s.handlePromptsGet,
 	}
 }
-
 // ---- Handlers ----
 
 type initializeResult struct {
@@ -305,19 +327,170 @@ func (s *Server) handleResourcesList(ctx context.Context, req *jsonRPCRequest, e
 	_ = enc.Encode(resp)
 }
 
-type promptsListResult struct {
-	Prompts []json.RawMessage `json:"prompts"`
+type resourceContent struct {
+	URI      string `json:"uri"`
+	MimeType string `json:"mimeType,omitempty"`
+	Text     string `json:"text,omitempty"`
 }
 
-func (s *Server) handlePromptsList(ctx context.Context, req *jsonRPCRequest, enc *json.Encoder, logger *log.Logger) {
+type resourcesReadResult struct {
+	Contents []resourceContent `json:"contents"`
+}
+
+func (s *Server) handleResourcesRead(ctx context.Context, req *jsonRPCRequest, enc *json.Encoder, logger *log.Logger) {
+	var params struct {
+		URI string `json:"uri"`
+	}
+	if err := json.Unmarshal(req.Params, &params); err != nil || params.URI == "" {
+		s.writeError(enc, req.ID, codeInvalidRequest, "Invalid resources/read params")
+		return
+	}
+
+	s.mu.Lock()
+	var handler ResourceHandler
+	var matchedKey string
+	for pattern, h := range s.resources {
+		if pattern == params.URI {
+			handler = h
+			matchedKey = pattern
+			break
+		}
+		if strings.HasSuffix(pattern, "/") && strings.HasPrefix(params.URI, pattern) {
+			if handler == nil || len(pattern) > len(matchedKey) {
+				handler = h
+				matchedKey = pattern
+			}
+		}
+	}
+	s.mu.Unlock()
+
+	if handler == nil {
+		s.writeError(enc, req.ID, -32000, fmt.Sprintf("resource %q not found", params.URI))
+		return
+	}
+
+	content, err := handler(ctx, params.URI)
+	if err != nil {
+		s.writeError(enc, req.ID, -32000, err.Error())
+		return
+	}
+
+	mimeType := "text/markdown"
+	if strings.HasSuffix(params.URI, "version") || strings.HasSuffix(params.URI, ".txt") {
+		mimeType = "text/plain"
+	}
+
 	resp := jsonRPCResponse{
 		JSONRPC: "2.0",
 		ID:      req.ID,
-		Result:  mustMarshal(promptsListResult{Prompts: []json.RawMessage{}}),
+		Result: mustMarshal(resourcesReadResult{
+			Contents: []resourceContent{
+				{
+					URI:      params.URI,
+					MimeType: mimeType,
+					Text:     content,
+				},
+			},
+		}),
 	}
 	_ = enc.Encode(resp)
 }
 
+type promptInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+type promptsListResult struct {
+	Prompts []promptInfo `json:"prompts"`
+}
+
+func (s *Server) handlePromptsList(ctx context.Context, req *jsonRPCRequest, enc *json.Encoder, logger *log.Logger) {
+	s.mu.Lock()
+	prompts := make([]promptInfo, 0, len(s.prompts))
+	for name := range s.prompts {
+		desc := ""
+		switch name {
+		case "planner":
+			desc = "Baton planner role prompt"
+		case "implementer":
+			desc = "Baton implementer role prompt"
+		case "verifier":
+			desc = "Baton verifier role prompt"
+		}
+		prompts = append(prompts, promptInfo{
+			Name:        name,
+			Description: desc,
+		})
+	}
+	s.mu.Unlock()
+
+	resp := jsonRPCResponse{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result:  mustMarshal(promptsListResult{Prompts: prompts}),
+	}
+	_ = enc.Encode(resp)
+}
+
+type promptMessageContent struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type promptMessage struct {
+	Role    string               `json:"role"`
+	Content promptMessageContent `json:"content"`
+}
+
+type promptsGetResult struct {
+	Description string          `json:"description,omitempty"`
+	Messages    []promptMessage `json:"messages"`
+}
+
+func (s *Server) handlePromptsGet(ctx context.Context, req *jsonRPCRequest, enc *json.Encoder, logger *log.Logger) {
+	var params struct {
+		Name      string            `json:"name"`
+		Arguments map[string]string `json:"arguments,omitempty"`
+	}
+	if err := json.Unmarshal(req.Params, &params); err != nil || params.Name == "" {
+		s.writeError(enc, req.ID, codeInvalidRequest, "Invalid prompts/get params")
+		return
+	}
+
+	s.mu.Lock()
+	handler, ok := s.prompts[params.Name]
+	s.mu.Unlock()
+
+	if !ok {
+		s.writeError(enc, req.ID, -32000, fmt.Sprintf("prompt %q not found", params.Name))
+		return
+	}
+
+	content, err := handler(ctx, params.Name, params.Arguments)
+	if err != nil {
+		s.writeError(enc, req.ID, -32000, err.Error())
+		return
+	}
+
+	resp := jsonRPCResponse{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result: mustMarshal(promptsGetResult{
+			Description: fmt.Sprintf("Baton %s role prompt", params.Name),
+			Messages: []promptMessage{
+				{
+					Role: "user",
+					Content: promptMessageContent{
+						Type: "text",
+						Text: content,
+					},
+				},
+			},
+		}),
+	}
+	_ = enc.Encode(resp)
+}
 // ---- Helpers ----
 
 func (s *Server) writeError(enc *json.Encoder, id json.RawMessage, code int, message string) {

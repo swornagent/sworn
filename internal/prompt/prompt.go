@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-//go:embed verifier.md implementer.md planner.md captain.md verify-stateless.md requirements-verifier.md VERSION.txt
+//go:embed verifier.md implementer.md planner.md captain.md verify-stateless.md requirements-verifier.md VERSION.txt baton/track-mode.md
 var fs embed.FS
 
 var (
@@ -22,6 +22,7 @@ var (
 	verifyStateless       string
 	requirementsVerifier  string
 	batonVer              string
+	trackMode             string
 )
 
 func init() {
@@ -31,8 +32,8 @@ func init() {
 	captain = mustRead("captain.md")
 	verifyStateless = mustRead("verify-stateless.md")
 	requirementsVerifier = mustRead("requirements-verifier.md")
-	batonVer = strings.TrimSpace(mustRead("VERSION.txt"))
-	// Strip the comment line(s) — version is the last non-empty line.
+	trackMode = mustRead("baton/track-mode.md")
+	batonVer = strings.TrimSpace(mustRead("VERSION.txt"))	// Strip the comment line(s) — version is the last non-empty line.
 	if lines := strings.Split(batonVer, "\n"); len(lines) > 0 {
 		for i := len(lines) - 1; i >= 0; i-- {
 			if ln := strings.TrimSpace(lines[i]); ln != "" && !strings.HasPrefix(ln, "#") {
@@ -76,3 +77,6 @@ func Captain() string { return captain }
 
 // BatonVersion returns the vendored Baton protocol version string (e.g. "v1.0.0").
 func BatonVersion() string { return batonVer }
+
+// TrackMode returns the embedded Baton track-mode.md content.
+func TrackMode() string { return trackMode }

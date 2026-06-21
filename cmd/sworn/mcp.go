@@ -32,6 +32,9 @@ All diagnostic logs go to stderr; stdout is reserved for the protocol.
 	// rerun_slice, patch_slice, approve_merge, defer_slice, get_credits, list_releases.
 	// Planning tools (S08c) register here in a later slice.
 	mcp.RegisterOpsTools(server, ".")
+	mcp.RegisterPlanTools(server, ".")
+	mcp.RegisterResources(server, ".")
+	mcp.RegisterPrompts(server)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
