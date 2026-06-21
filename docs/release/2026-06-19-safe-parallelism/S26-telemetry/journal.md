@@ -58,6 +58,33 @@
 
 - **Next**: `/implement-slice S26-telemetry 2026-06-19-safe-parallelism` in a fresh session to address all 3 violations.
 
+## Verifier verdicts received (continued)
+
+### Round 2 — 2026-06-21: FAIL (2 violations)
+
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **Slice**: S26-telemetry → state: **failed_verification**
+
+**Violation 1 (Gate 2 — out-of-scope touchpoint-matrix file modified on T9 track):**
+Commit `5139882` (`docs(rules): tie no-mock boundary to Rule 10 as its enforcement, not a separate rule`) landed on the T9-telemetry track branch during the implementation window (i.e., within `start_commit..HEAD`). It modified two files not in S26-telemetry's planned touchpoints:
+- `internal/prompt/implementer.md` — the release board touchpoint matrix (index.md) explicitly assigns this file to **T3** (`S19 adds deviation check step`). T9 modifying it constitutes a touchpoint-matrix violation (track-mode invariant 2). When T3 eventually touches this file, this commit will appear as noise in the merge delta or risk a conflict.
+- `internal/adopt/baton/rules/10-customer-journey-validation.md` — not listed in any track's planned touchpoints.
+
+Neither file is mentioned in proof.md "Files changed" (which lists only 8 files for a 21-file actual diff) or in proof.md "Divergence from plan".
+
+Fix: either (a) cherry-pick `5139882` off the T9 branch and onto the integration branch (preferred — restores clean touchpoints), or (b) update proof.md "Files changed" to reflect the full diff and add a "Divergence from plan" entry explaining `5139882` as an editorial commit that landed in the T9 window, acknowledge the T3-owned-file modification, and confirm T3 can still merge cleanly.
+
+**Violation 2 (Gate 2 — proof.md "Files changed" is materially stale):**
+proof.md "Files changed" lists 8 files. The live diff (`start_commit..HEAD`, non-merge commits) spans 21 entries including S21-canonical-baton planning artefacts (from replan commit `d4f886b`), `approved-ack.md` deletion, S27 specs, and the harness docs from violation 1. The "Divergence from plan" section explains four implementation-shape changes but nothing about the out-of-scope commits committed to the T9 branch during the implementation window. A proof bundle whose "Files changed" section diverges materially from the live diff fails Gate 2.
+
+Fix: update proof.md "Files changed" to match `git diff --name-only <start_commit>`, and add a "Divergence from plan" entry for each unexplained file group.
+
+**Gates 1, 3, 4, 5, 6: all PASS.** Tests (19/19) pass with `-race`. Build clean. `sworn telemetry on|off|status` and `main.go` dispatch wrapper are fully wired. `ShowConsent()` exported for T3/S09. Reachability artefact (manual smoke step) documented. No silent deferral markers in production code.
+
+- **Next**: `/implement-slice S26-telemetry 2026-06-19-safe-parallelism` in a fresh session to address both violations.
+
+---
+
 ## Session 2: Re-entry — address verifier violations (2026-06-28)
 
 ### State transitions
