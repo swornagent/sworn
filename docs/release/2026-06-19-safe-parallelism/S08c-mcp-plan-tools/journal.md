@@ -25,3 +25,9 @@ Flags: dropped "MCP SDK" language (server is bespoke); `prompts/list` will enume
 prompts post-`handlePromptsList` update.
 
 Next: Captain re-review of the revised design; Coach issues a fresh ack/decline.
+
+## Coach note — 2026-06-21 20:09 AEST
+
+Worktree conflict resolved out-of-band: release-wt synced into T4 (commit cd87709). The systemic cmd/sworn/main.go
+  conflict is fixed — mcp case ported into dispatch(); go build + go vet clean; S26/S28/S39/S40/S41 now present. Worktree is clean. Proceed with
+  implementation against the clean tree per approved-ack.md.
