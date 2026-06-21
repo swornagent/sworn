@@ -64,10 +64,11 @@ See `status.json.design_decisions`.
 - `sworn memory status` with project config: shows loaded file, configured harnesses, embedding provider, index path
 - `sworn memory status` with unknown harness: error message listing known IDs
 
-### Pending
+### Pending (cleared)
 - Adversarial verification (Rule 7) via `/verify-slice S23-memory-config 2026-06-19-safe-parallelism`
 
-## 2026-06-21 — Verifier verdicts received
+## 2026-06-21 — Verifier verdicts received (round 1 — FAIL)
+
 ### Verifier verdict — FAIL
 
 **Gates checked (priority order):**
@@ -120,6 +121,23 @@ Next step: `/implement-slice S23-memory-config 2026-06-19-safe-parallelism` in a
 - `release-verify.sh S23-memory-config 2026-06-19-safe-parallelism` — PASS (23/23)
 - Skeptic panel: skipped — runtime does not support subagent dispatch
 
-### Pending
+### Pending (cleared)
 - Adversarial verification (Rule 7) via `/verify-slice S23-memory-config 2026-06-19-safe-parallelism`
 
+## 2026-06-21 — Verifier verdict (round 2 — PASS)
+
+**Worktree note:** T8-memory worktree was on `main` at session start (wrong branch). Restored to `track/2026-06-19-safe-parallelism/T8-memory` at `9cb6349` via `git checkout`. Drift gate had merged 1 `release-wt/` commit (S28 docs). All verification ran from the correct branch.
+
+**Gate 1:** PASS — `cmd/sworn/main.go` `case "memory":` → `cmdMemory()` → `cmdMemoryStatus()`; additive dispatch confirmed in diff.
+
+**Gate 2:** PASS — 6 Go source files match 5 planned touchpoints plus acknowledged `memory_test.go`; extra non-Go files in diff are docs/markdown from base sync merge (`32b9054`) and replan commits, not S23 production code.
+
+**Gate 3:** PASS — all 4 unit tests and 4 CLI integration tests present and passing. `TestAPIKeyEnvNotLeaked` is a real test (JSON marshal assertion, no raw key in output). `TestCmdMemory_Status_SetAPIKey` captures stdout via `os.Pipe()` and asserts no raw key value. Both prior FAIL violations fully addressed.
+
+**Gate 4:** PASS — `proof.md#reachability-artefact` covers three user gestures with captured output.
+
+**Gate 5:** PASS — zero dark-code markers in S23 Go source files.
+
+**Gate 6:** PASS — all 6 ACs have verifiable evidence; "Not delivered: None" confirmed.
+
+**Verdict: PASS**
