@@ -79,3 +79,16 @@ None. All acceptance checks are addressed.
 skeptic_panel: skipped — runtime does not support subagent dispatch (no Agent
 tool available in this session). The panel is an accelerant, not a gate; the
 real verifier (Rule 7) is the backstop regardless.
+
+## Verifier verdicts received
+
+### Verdict: PASS — 2026-06-21T13:08:50Z
+
+Fresh-context verifier session (Rule 7). All six gates passed:
+
+1. **User-reachable outcome exists**: `model.FromEnv` proxy routing in `config.go`, `sworn account`/`buy` wired in `main.go:111-112`.
+2. **Planned touchpoints match actual changed files**: Divergences (`config.go` not `client.go`; `oai.go`, `oai_test.go`, `run/run.go`, `api-contract.md`) all explained in proof.md and grounded in spec requirements.
+3. **Required tests exist and exercise the integration point**: 9 spec-named test functions all present, all pass (`go test ./internal/account/...` + `go test ./internal/model/...` = 100% PASS).
+4. **Reachability artefact**: `TestFromEnvUsesProxy` exercises full path: credentials → `account.Load` → `account.Endpoint` → `FromEnv` → `OAI{BaseURL: proxyURL}` → `Verify()` → HTTP request to mock proxy.
+5. **No silent deferrals or placeholder logic**: Zero TODO/FIXME/deferred/placeholder in changed production code.
+6. **Claimed scope matches implemented scope**: Every Delivered item in proof.md verified against source code; all acceptance checks covered by passing tests.
