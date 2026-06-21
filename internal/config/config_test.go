@@ -46,7 +46,7 @@ func TestLoadNotExistReturnsDefault(t *testing.T) {
 }
 
 func TestResolveVerifierModel(t *testing.T) {
-	cfg := Config{Version: 1, Verifier: ModelSetting{Model: "openai/gpt-4.1"}}
+	cfg := Config{Version: 1, Verifier: ModelSetting{Model: "anthropic/claude-sonnet-4-6"}}
 
 	t.Run("flag wins", func(t *testing.T) {
 		m, err := ResolveVerifierModel("anthropic/claude-sonnet-4-20250514", cfg)
@@ -74,7 +74,7 @@ func TestResolveVerifierModel(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if m != "openai/gpt-4.1" {
+		if m != "anthropic/claude-sonnet-4-6" {
 			t.Errorf("got %q", m)
 		}
 	})
@@ -162,8 +162,8 @@ func TestScaffoldWithForce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Verifier.Model != "openai/gpt-4.1" {
-		t.Errorf("after force overwrite: model = %q, want openai/gpt-4.1", cfg.Verifier.Model)
+	if cfg.Verifier.Model != "anthropic/claude-sonnet-4-6" {
+		t.Errorf("after force overwrite: model = %q, want anthropic/claude-sonnet-4-6", cfg.Verifier.Model)
 	}
 }
 
