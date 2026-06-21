@@ -153,9 +153,11 @@ func TestSaveLoadCredentials(t *testing.T) {
 }
 
 // TestSaveMode0600 verifies the credentials file is written with mode 0600
-// (user-readable only) and the directory is created with mode 0700.
+// (user-readable only) and a freshly-created directory gets mode 0700.
 func TestSaveMode0600(t *testing.T) {
-	dir := t.TempDir()
+	// Use a nested subdirectory so os.MkdirAll actually creates a fresh directory
+	// (t.TempDir() already exists). This tests the actual 0700 creation path.
+	dir := filepath.Join(t.TempDir(), "subdir", "sworn")
 
 	creds := Credentials{
 		Token:     "tok_mode_test",
@@ -168,32 +170,29 @@ func TestSaveMode0600(t *testing.T) {
 		t.Fatalf("Save failed: %v", err)
 	}
 
+	// Check credentials file mode (AC2 part 1)
 	path := filepath.Join(dir, "credentials.json")
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("stat credentials file: %v", err)
 	}
-
-	mode := info.Mode().Perm()
-	if mode != 0600 {
+	if mode := info.Mode().Perm(); mode != 0600 {
 		t.Errorf("credentials.json mode: got %o, want 0600", mode)
 	}
 
-	// Check directory mode
+	// Check directory was freshly created with mode 0700 (AC2 part 2)
 	dirInfo, err := os.Stat(dir)
 	if err != nil {
 		t.Fatalf("stat dir: %v", err)
 	}
-	dirMode := dirInfo.Mode().Perm()
-	// Go's TempDir may not preserve the exact mode; check it's at least 0700-ish
-	if dirMode&0700 != 0700 {
-		t.Errorf("dir mode: got %o, want owner rwx", dirMode)
+	if dirMode := dirInfo.Mode().Perm(); dirMode != 0700 {
+		t.Errorf("dir mode: got %o, want 0700", dirMode)
 	}
 }
-
-// TestSaveCreatesDir verifies Save creates the directory if it doesn't exist.
+// TestSaveCreatesDir verifies Save creates the directory if it doesn't exist
+// and that the newly-created directory has mode 0700 (AC2).
 func TestSaveCreatesDir(t *testing.T) {
-	// Use a non-existent subdirectory within TempDir
+	// Use a non-existent subdirectory within TempDir so os.MkdirAll must create it
 	dir := filepath.Join(t.TempDir(), "subdir", "sworn")
 
 	creds := Credentials{
@@ -207,9 +206,16 @@ func TestSaveCreatesDir(t *testing.T) {
 		t.Fatalf("Save (create dir) failed: %v", err)
 	}
 
-	// Verify the directory exists
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
+	// Verify the directory exists and has mode 0700 (AC2)
+	info, err := os.Stat(dir)
+	if os.IsNotExist(err) {
 		t.Fatal("Save did not create the directory")
+	}
+	if err != nil {
+		t.Fatalf("stat dir: %v", err)
+	}
+	if mode := info.Mode().Perm(); mode != 0700 {
+		t.Errorf("dir mode: got %o, want 0700", mode)
 	}
 
 	// Verify the file exists
@@ -218,7 +224,6 @@ func TestSaveCreatesDir(t *testing.T) {
 		t.Fatal("credentials.json was not created")
 	}
 }
-
 // TestLoadMissingFile verifies Load returns nil, nil when no file exists.
 func TestLoadMissingFile(t *testing.T) {
 	dir := t.TempDir()
