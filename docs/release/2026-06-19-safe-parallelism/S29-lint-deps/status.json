@@ -3,10 +3,10 @@
   "slice_id": "S29-lint-deps",
   "release": "2026-06-19-safe-parallelism",
   "track": "T12-harness-hardening",
-  "state": "design_review",
+  "state": "in_progress",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-21T00:00:00Z",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-06-27T14:30:00Z",
   "start_commit": null,
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S29-lint-deps/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S29-lint-deps/proof.md",
@@ -18,10 +18,10 @@
     "internal/prompt/planner.md"
   ],
   "design_decisions": [
-    {"id": "D1", "type": "type_2", "summary": "CheckDeps null-fallback ref construction"},
-    {"id": "D2", "type": "type_2", "summary": "Git diff command uses baseRef...HEAD"},
-    {"id": "D3", "type": "type_2", "summary": "Undeclared dep detection logic"},
-    {"id": "D4", "type": "type_2", "summary": "Error message format for undeclared files"}
+    {"choice": "CheckDeps derives release from status.Release for start_commit-null fallback", "stake_class": "Type-2", "rationale": "status.json already carries the release field; deriving the fallback ref from it avoids adding a caller parameter"},
+    {"choice": "Git diff uses two-dot baseRef..HEAD to list changed files", "stake_class": "Type-2", "rationale": "two-dot diff against start_commit captures exactly the slice's own commits"},
+    {"choice": "Undeclared dep detection: filter changed files for go.mod/go.sum, check against planned_files set", "stake_class": "Type-2", "rationale": "simple set membership; consistent with how the verifier's Gate 2 works"},
+    {"choice": "Error message format: 'undeclared dependency file(s): go.mod, go.sum'", "stake_class": "Type-2", "rationale": "names the specific files so the user knows exactly what to add to planned_files"}
   ],
   "actual_files": [],
   "test_commands": [
@@ -31,7 +31,7 @@
   "reachability_artifacts": [],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "",
     "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
