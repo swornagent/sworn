@@ -1,6 +1,6 @@
 ---
 title: 'S21-canonical-baton — embed full Baton protocol in binary; rewrite sworn init to remove per-repo Baton copy'
-description: 'The complete Baton protocol (7 rules + track-mode + session-discipline + role prompts) moves into internal/prompt/baton/ as a go:embed. sworn init stops writing docs/baton/ and stops splicing AGENTS.md; it writes a minimal MCP-pointer AGENTS.md template instead. ADR-0005 documents the architecture. User prompt overrides deferred post-launch.'
+description: 'The complete Baton protocol (10 rules + track-mode + session-discipline + role prompts) moves into internal/prompt/baton/ as a go:embed. sworn init stops writing docs/baton/ and stops splicing AGENTS.md; it writes a minimal MCP-pointer AGENTS.md template instead. ADR-0005 documents the architecture. User prompt overrides deferred post-launch.'
 ---
 
 # Slice: `S21-canonical-baton`
@@ -33,7 +33,7 @@ not install from it or depend on it):
 
 ```
 internal/prompt/baton/
-  rules.md           — all 7 rules in one file (or 7 separate files, implementer's choice)
+  rules.md           — all 10 rules in one file (or 10 separate files, implementer's choice)
   track-mode.md      — track-mode documentation
   session-discipline.md
   brainstorm-patterns.md
@@ -45,9 +45,21 @@ The existing `internal/prompt/` embed is extended to include the `baton/` subdir
 individual Baton doc files. `BatonAll() map[string]string` returns all files for
 MCP resource listing.
 
-These files are populated by copying from the current canonical Baton sources at
-`~/.claude/baton/` or `$HOME/.claude/baton/`. The implementer copies them verbatim;
-no content editing. The VERSION.txt (current Baton version) is also embedded.
+**Rule docs — the in-repo canonical set, all ten.** `rules.md` is built from the
+repo's canonical rule docs at `internal/adopt/baton/rules/` (`01`–`10`) — **all ten
+rules, not seven**. These include Rule 8 (Requirements Fidelity), Rule 9 (Design
+Fidelity), and Rule 10 (Customer Journey Validation, with the no-mock boundary as
+Rule 10's enforcement). Do **NOT** source the rule set from `~/.claude/baton/` — that
+local install is stale at seven rules and would silently drop 8/9/10.
+
+The other protocol docs (`track-mode.md`, `session-discipline.md`,
+`brainstorm-patterns.md`) are copied from the canonical Baton sources; `VERSION.txt`
+(current Baton version) is also embedded.
+
+No public-unsafe content is introduced here — the rule docs carry no
+internal/orchestration references. The role-prompt generalisation (the embedded
+`captain.md` etc.) and the wider codebase scrub are owned by the final
+public-readiness slice (`S27-public-readiness-scrub`), which runs last before launch.
 
 ### `sworn init` rewrite — `cmd/sworn/init.go`
 
@@ -162,6 +174,9 @@ Documents:
 
 - [ ] `internal/prompt/baton/` exists with at minimum `rules.md`, `track-mode.md`,
   and `README.md`; `prompt.Baton("rules.md")` returns non-empty content
+- [ ] `rules.md` carries all **ten** rules — `prompt.Baton("rules.md")` includes the
+  rule names "Requirements Fidelity" (8), "Design Fidelity" (9), and "Customer Journey
+  Validation" (10); it must not silently embed only the legacy seven
 - [ ] `go build ./...` passes; `internal/prompt/baton/` is embedded (verified by
   checking `go:embed` directive in prompt.go includes the baton/ path)
 - [ ] `sworn init` on a clean directory does NOT create `docs/baton/`
@@ -181,6 +196,9 @@ Documents:
 - **Unit** `internal/prompt/prompt_test.go` (extend):
   - `TestBatonRulesNonEmpty`: `Baton("rules.md")` returns string of length > 100
   - `TestBatonAllKeys`: `BatonAll()` map contains "rules.md" and "track-mode.md"
+  - `TestBatonRulesHasAllTen`: `Baton("rules.md")` contains "Requirements Fidelity",
+    "Design Fidelity", and "Customer Journey Validation" — guards against embedding the
+    stale seven-rule set
   - `TestBatonMissingFile`: `Baton("nonexistent.md")` returns error (not panic)
 - **Unit** `cmd/sworn/init_test.go` (extend):
   - `TestInitCreatesAgentsMD`: fresh dir → AGENTS.md created; contains
