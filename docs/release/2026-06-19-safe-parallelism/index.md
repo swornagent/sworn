@@ -289,9 +289,9 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S07-paging` | T3 | FAIL/BLOCKED fires webhook + email; developer paged without watching terminal | planned | [spec](./S07-paging/spec.md) |
 | `S08a-mcp-transport` | T4 | `sworn mcp` JSON-RPC server; initialize handshake; tools scaffold | planned | [spec](./S08a-mcp-transport/spec.md) |
 | `S08b-mcp-ops-tools` | T4 | 9 ops tools: get_board, get_blocked, get_slice_context, rerun, patch, merge, defer | planned | [spec](./S08b-mcp-ops-tools/spec.md) |
-| `S08c-mcp-plan-tools` | T4 | 4 planning tools + resources + prompts + mcp-setup.md | verified | [spec](./S08c-mcp-plan-tools/spec.md) |
+| `S08c-mcp-plan-tools` | T4 | 4 planning tools + resources + prompts + mcp-setup.md | planned | [spec](./S08c-mcp-plan-tools/spec.md) |
 | `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | planned | [spec](./S09-per-role-model-config/spec.md) |
-| `S10-provider-foundation` | T5 | ADR 0004 + provider router + OAI-compat presets (8 providers) + .env file loading | planned | [spec](./S10-provider-foundation/spec.md) |
+| `S10-provider-foundation` | T5 | ADR 0004 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | planned | [spec](./S10-provider-foundation/spec.md) |
 | `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | planned | [spec](./S11-anthropic-driver/spec.md) |
 | `S12-google-driver` | T5 | Google Gemini and Vertex AI models work as verifier and implementer | planned | [spec](./S12-google-driver/spec.md) |
 | `S13-bedrock-driver` | T5 | AWS Bedrock models work via Converse API; IAM auth | planned | [spec](./S13-bedrock-driver/spec.md) |
@@ -324,7 +324,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S41-build-bin-target` | T12 | canonical `make build` → `bin/sworn` + `docs/build.md` run-from-root convention; stops `cmd/sworn/.sworn` + `docs/release/run-*` worktree clutter | planned | [spec](./S41-build-bin-target/spec.md) |
 | `S42-implement-step-timeout` | T12 | `sworn run` bounds each implement attempt with a context deadline; a hung implementer is cancelled and escalates to the next model instead of hanging forever | planned | [spec](./S42-implement-step-timeout/spec.md) |
 | `S43-agent-loop-natural-stop` | T12 | agent loop terminates on the model's natural stop (no tool calls) instead of spinning to the turn cap; salvages work from empty-final-text models (gpt-oss-class) by letting proof-from-diff + verifier judge | planned | [spec](./S43-agent-loop-natural-stop/spec.md) |
-| `S44-feedback-driven-retry` | T12 | on verify FAIL, feed the verifier's rationale + violations into the next implement attempt's prompt instead of blind re-running — retry resolves the named problem | planned | [spec](./S44-feedback-driven-retry/spec.md) |
+| `S44-feedback-driven-retry` | T12 | on verify FAIL, feed the verifier's rationale + violations into the next implement attempt's prompt instead of blind re-running; + provider-error retry policy (terminal→fail-fast, transient→backoff) consuming S10's `model.Error{Kind}` (depends_on S10) | planned | [spec](./S44-feedback-driven-retry/spec.md) |
 | `S45-design-tldr` | T13 | `sworn run` generates a design TL;DR (§1–6) before implementation — restores the pre-code design artefact for the captain to review | planned | [spec](./S45-design-tldr/spec.md) |
 | `S46-captain-review` | T13 | captain agent reviews the TL;DR + live code, emits classified pins, writes review.md, and gates implement (proceed if no escalate pins, else halt+surface) — the in-product `/design-review` | planned | [spec](./S46-captain-review/spec.md) |
 | `S47-orchestrator-recovery` | T13 | on non-PASS, intelligent triage chooses resolve-in-place / escalate / halt and assesses BLOCKED resolvability — the in-product orchestrator | planned | [spec](./S47-orchestrator-recovery/spec.md) |
@@ -332,11 +332,11 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 
 ## Aggregate state
 
-- Planned: 26
+- Planned: 27
 - In progress: 0
 - Design review: 0
 - Implemented: 0
-- Verified: 7
+- Verified: 6
 - Failed verification: 0
 - Deferred: 1
 
@@ -349,11 +349,13 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 
 ## Recent activity
 
-### 2026-06-21 — verifier verdict: S08c-mcp-plan-tools PASS
+### 2026-06-21 — replan: provider-error taxonomy (re-scope S10 + S44)
 
-- **Actor**: verifier (`/verify-slice`)
-- **Verdict**: PASS — all 6 gates pass. 38 tests, go vet clean, gofmt clean. One declared deferral (`sworn://baton/rules` → S21-canonical-baton) with full Rule 2 compliance.
-- **Next**: `/merge-track T4-mcp` — S08c is the last in-progress slice in T4.
+- **Actor**: planner (`/replan-release`)
+- **Trigger**: live coach-loop run hit an OpenRouter 402 (out of credits) that masked as a cryptic "stream error" and then retry-looped. The bash harness was hardened (error surfacing, terminal-PAGE, retry cap, captain rotation); this replan brings the same robustness to **sworn the product** so a user running dry / with a bad key gets an actionable error, not a raw provider dump or a silent spin. Coach decision: land it in S10 (foundation) + S44 (consumer), not a new slice.
+- **S10-provider-foundation re-scoped** (still planned, T5): adds a typed `model.Error{Kind}` taxonomy (`internal/model/errors.go`) — `ClassifyHTTP` maps 401/403→Auth, 402→Credits, 429→RateLimit, 5xx→Upstream; `IsTerminal`/`IsTransient`; `UserMessage()`. `oai.go` returns `*model.Error` on non-2xx (still satisfies `error`); `run.go` prints `UserMessage()`. New touchpoints: `internal/model/errors.go(+_test)`, `oai.go` (modify).
+- **S44-feedback-driven-retry re-scoped** (still planned, T12 tail; **now depends_on S10**): adds a provider-error retry policy consuming the taxonomy — terminal (Auth/Credits) → fail fast, no model escalation; transient (RateLimit/Upstream) → backoff on the same model. Orthogonal to the existing verifier-FAIL-feedback path. Cross-track dep recorded here (schema has no per-slice `depends_on` field); both slices are planned/not-started so sequencing is clean.
+- **No new slices, no new tracks** — re-scope of two planned slices only. Release count unchanged (53 slices / 13 tracks).
 
 ### 2026-06-21 — replan: new track T13-sworn-role-parity (S45/S46/S47)
 
