@@ -43,3 +43,19 @@ Test results: `go test ./internal/bench/...` PASS (0.406s). `go test -race` PASS
 First-pass `release-verify.sh`: PASS (23/23 checks green).
 
 No deferrals. No divergences from plan. Skeptic panel skipped (runtime does not support subagent dispatch in this session).
+
+## Verifier verdicts received
+
+### 2026-06-28 — Verifier verdict: PASS
+
+- **Actor**: verifier (`/verify-slice`)
+- **Fresh context**: yes (Rule 7 compliant, artefact-only inputs)
+- **Verdict**: PASS — All six gates passed.
+  - Gate 1: Entry point `sworn bench overclaim` wired through `cmd/sworn/main.go` → `cmdBench` → `cmdBenchOverclaim` → `bench.RunOverclaimBenchmark`.
+  - Gate 2: All 4 planned touchpoints present in implementer diff. Drift-merge noise (S10/S44 spec.md, index.md) correctly identified as expected exception.
+  - Gate 3: `go test ./internal/bench/...` PASS (0.423s), `go test -race` PASS (2.176s), `go vet` clean. All 12 tests pass.
+  - Gate 4: Reachability artefact `docs/benchmark/overclaim-concurrent-1to4.md` exists (936 bytes). Determinism confirmed — 5× identical MD5 `60e3079241c07430ae5282901669e987`.
+  - Gate 5: No TODOs/FIXMEs/deferred/placeholders in changed source files.
+  - Gate 6: All 6 ACs delivered with concrete evidence references. `--publish` writes correct output.
+- **Verified against**: commit `bb24fdd`
+- **Next step**: `/implement-slice S34-tui-merge-actor 2026-06-19-safe-parallelism` in a fresh session (next incomplete slice in T2-monitoring).
