@@ -64,6 +64,12 @@ tracks:
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T10-public-readiness
     state: planned
+  - id: T11-infra-safety
+    slices: [S28-git-dir-guard]
+    depends_on: T1-concurrency-core
+    worktree_path:
+    worktree_branch: track/2026-06-19-safe-parallelism/T11-infra-safety
+    state: planned
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
@@ -104,12 +110,13 @@ tracks:
 | `T8-memory` | S23 → S24 → S25 | T1 | `track/.../T8-memory` | in_progress |
 | `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | in_progress |
 | `T10-public-readiness` | S27 | all (T1–T9) | `track/.../T10-public-readiness` | planned |
+| `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | planned |
 
 ### Execution order
 
 ```
 Phase 1:  T1 (sequential)
-Phase 2:  T2, T3, T4, T8, T9 (parallel after T1)
+Phase 2:  T2, T3, T4, T8, T9, T11 (parallel after T1 — T11 is the sworn#6 safety fix, dispatch early)
 Phase 3:  T5 (after T1 + T3)
           T7 (after T3 + T4; may run in parallel with T5)
 Phase 4:  T6 (after T2 + T5)
@@ -275,6 +282,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | planned | [spec](./S25-memory-search/spec.md) |
 | `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | planned | [spec](./S26-telemetry/spec.md) |
 | `S27-public-readiness-scrub` | T10 | Make repo + binary public-safe: generalise embedded role prompts (keep Captain/Coach, strip coach-loop coupling), scrub dogfood provenance comments + fired/GetFired + coach-loop refs. Final launch gate. | planned | [spec](./S27-public-readiness-scrub/spec.md) |
+| `S28-git-dir-guard` | T11 | internal/git fails closed on empty Repo.Dir so a git op can't run on the ambient worktree (fixes workers writing to main, sworn#6) + regression test | planned | [spec](./S28-git-dir-guard/spec.md) |
 
 ## Aggregate state
 
@@ -289,7 +297,8 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 **Tracks:** Planned: 8 / Ready to merge: 0 / Merged: 1
 
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice);
-> T10 new (1 slice: S27, the final public-readiness gate). Release now **33 slices across 10 tracks**.
+> T10 new (1 slice: S27, the final public-readiness gate); T11 new (1 slice: S28, the
+> sworn#6 git-dir safety fix). Release now **34 slices across 11 tracks**.
 
 ## Recent activity
 
@@ -299,7 +308,8 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 - **S21-canonical-baton re-scoped**: embed **10 rules** (not 7), built from the in-repo canonical `internal/adopt/baton/rules/` (`01`–`10`) instead of "verbatim from `~/.claude/baton/`" (stale at 7, would drop Rules 8/9/10). The role-prompt generalisation the verbatim copy would have leaked is split out to S27.
 - **S27-public-readiness-scrub added** in new track **T10-public-readiness** (depends on every track; runs last — the launch gate): generalise the embedded role prompts (keep Captain/Coach, strip coach-loop/`--auto-ack`/`approved-ack`/S21-stall/project-memory; operationally intact), scrub the 8 dogfood provenance comments, the `fired`/GetFired leak, and `coach-loop` references across source + release artefacts.
 - **Base sync**: release-wt forward-merged `release/v0.1.0` to pick up the no-mock→Rule-10 reconciliation (`5139882`).
-- **Release now 33 slices across 10 tracks.**
+- **S28-git-dir-guard added** in new track **T11-infra-safety** (depends on T1; dispatch early) — the in-repo structural fix for **sworn#6** (workers writing to `main`): `internal/git.run()` fails closed on empty `Repo.Dir` + regression test. Harness defence-in-depth (a coach-loop post-dispatch worktree-branch guard) landed separately in `~/.claude/bin/coach-loop`.
+- **Release now 34 slices across 11 tracks.**
 - **Staleness note**: the per-slice State column and the Aggregate-state block remain stale vs the board oracle (known release-wt/track-branch lag); `release-board-status.sh` is authoritative. Not fully reconciled in this pass.
 
 ### 2026-06-21 — track `T1-concurrency-core` merged to release-wt (commit 581b6a9)
