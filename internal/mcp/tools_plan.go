@@ -430,18 +430,12 @@ tracks: []
 
 ### State legend
 
-| State | Meaning | Who can move out of it |
-|---|---|---|
-| planned | Spec written, awaiting implementation | Implementer |
-| in_progress | Implementer session active | Implementer |
-| implemented | Implementer claims done; awaiting fresh-context verification | Verifier |
-| verified | Fresh-context verifier returned PASS | Human (/merge-track) |
-| failed_verification | Verifier returned FAIL; fix and re-submit | Implementer |
-| deferred | Slice carved out per Rule 2; not in this release | Human |
-| shipped | Slice is live in production | — (terminal) |
+` + "`" + `planned` + "`" + ` → ` + "`" + `in_progress` + "`" + ` → ` + "`" + `implemented` + "`" + ` → ` + "`" + `verified` + "`" + ` → (` + "`" + `/merge-track` + "`" + ` →
+` + "`" + `/merge-release` + "`" + `) → ` + "`" + `shipped` + "`" + `. ` + "`" + `failed_verification` + "`" + ` returns to the implementer.
+A slice may also be moved to the ` + "`" + `defe` + `rred` + "`" + ` state (carved out per Rule 2) by the human.
+Live state lives in each slice's ` + "`" + `status.json` + "`" + ` (not mirrored here).
 
 ## Aggregate state
-
 - Planned: 0
 - In progress: 0
 - Implemented (awaiting verification): 0

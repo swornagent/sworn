@@ -14,17 +14,17 @@ An AI assistant connected to `sworn mcp` can plan an entire release — calling 
 ```
 $ git diff --name-only ef0ec299f4ab6f86f8ab38acb2b2057ba0f8b3a4
 cmd/sworn/mcp.go
+docs/mcp-setup.md
+docs/release/2026-06-19-safe-parallelism/S08c-mcp-plan-tools/proof.md
 docs/release/2026-06-19-safe-parallelism/S08c-mcp-plan-tools/status.json
 internal/mcp/prompts.go
 internal/mcp/resources.go
 internal/mcp/server.go
 internal/mcp/tools_plan.go
-internal/mcp/baton/track-mode.md
-internal/prompt/prompt.go
 internal/mcp/tools_plan_test.go
-docs/mcp-setup.md
+internal/prompt/baton/track-mode.md
+internal/prompt/prompt.go
 ```
-
 ## Test results
 
 ### Go

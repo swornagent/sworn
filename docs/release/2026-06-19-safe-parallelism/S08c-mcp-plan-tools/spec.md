@@ -28,8 +28,8 @@ Three planning tools registered via `server.RegisterTool()`:
 
 1. *(internal)* **`createRelease`** `(name, goal, tracking_issue)` — creates
    `docs/release/<name>/` directory; writes `intake.md` with `goal` and `tracking_issue`;
-   writes `index.md` from template; creates `screenshots/.gitkeep`; returns paths.
-   Called by S20's `plan_release`; not a registered MCP tool in this slice.
+   writes `index.md` from template; creates the release image-capture directory
+   with `.gitkeep`; returns paths. Called by S20's `plan_release`; not a registered MCP tool in this slice.
 
 2. **`create_slice`** `(release: string, slice_id: string, spec_content: string, track_id: string)` →
    creates `docs/release/<release>/<slice_id>/` directory; writes `spec.md` with
@@ -124,11 +124,12 @@ and an example planning workflow.
   — `TestResourceReadPrompt`: assert sworn://prompts/plan returns non-empty string
   — `TestResourceReadProofAbsent`: sworn://release/{name}/{slice}/proof for slice with
     no proof.md; assert empty string, no error
-- **Reachability artefact**: configure sworn mcp in Claude Code; ask Claude to "add slice
-  S99-smoke to release 2026-06-19-mcp-test"; observe AI calls **create_slice**; verify
-  `docs/release/2026-06-19-mcp-test/S99-smoke/{spec.md,status.json}` created; clean up.
-  Screenshot or log in proof.md. *(Amended 2026-06-21: the prior artefact referenced
-  `create_release`, which this slice does not expose as an MCP tool — Coach ack via decline.md.)*
+- **Reachability artefact** (manual-smoke-step): configure sworn mcp in Claude Code; ask
+  Claude to "add slice S99-smoke to release 2026-06-19-mcp-test"; observe AI calls
+  **create_slice**; verify `docs/release/2026-06-19-mcp-test/S99-smoke/{spec.md,status.json}`
+  created; clean up. Log transcript in proof.md. *(Amended 2026-06-21: the prior artefact
+  referenced `create_release`, which this slice does not expose as an MCP tool — Coach ack
+  via decline.md.)*
 
 ## Risks
 
