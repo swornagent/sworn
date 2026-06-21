@@ -122,3 +122,35 @@ Fix: update proof.md "Files changed" to match `git diff --name-only <start_commi
 ### Open items (unchanged from Session 1)
 - AC1/AC2 remain deferred to T3/S09
 - api.sworn.sh/v1/events backend not yet live
+---
+
+## Session 3: Re-entry - address Round 2 verifier violations (2026-06-29)
+
+### State transitions
+- `failed_verification` -> `in_progress`
+  - Re-entering implementation per Round 2 verifier verdict; design unchanged
+  - Cleared stale verification.result
+  - Preserved start_commit (6593323)
+  - Re-entry triggered via `/implement-slice S26-telemetry 2026-06-19-safe-parallelism`
+
+### Violations addressed
+
+**V1 (Gate 2 - commit 5139882 modified T3-owned files on T9 branch):**
+- Commit 5139882 ("docs(rules): tie no-mock boundary to Rule 10 as its enforcement") was NOT authored by the T9 implementer - it was picked up from the integration base `release/v0.1.0` via forward-merge 32b9054. The two files it touched (`internal/prompt/implementer.md`, `internal/adopt/baton/rules/10-customer-journey-validation.md`) are cross-project editorial updates that reach every active track via base sync.
+- Fix: Added detailed explanation in proof.md "Divergence from plan" -> "Out-of-scope files on T9 branch" documenting each file group, its provenance (merge commit), and why it is not T9 implementation work.
+
+**V2 (Gate 2 - proof.md "Files changed" lists 8 but diff is 21 files):**
+- Updated proof.md "Files changed" to show the full 21-entry diff with a note that 12 files are planning artefacts from forward-merges.
+- Added the "Out-of-scope files on T9 branch" subsection in "Divergence from plan" with per-group provenance.
+
+### Test results (unchanged from Session 2)
+- `go test -race ./internal/telemetry/...` - PASS (19 tests, no races)
+- `go build ./...` - compiles
+
+### Open items (unchanged)
+- AC1/AC2 remain deferred to T3/S09
+- api.sworn.sh/v1/events backend not yet live
+
+### Pre-verification skeptic panel
+- **Result**: skipped - runtime does not support subagent dispatch
+- The deterministic first-pass script PASSed (22/23 checks; the sole FAIL was expected state `in_progress`)
