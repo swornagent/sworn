@@ -18,6 +18,7 @@ type ReleaseInfo struct {
 	TrackCount  int
 	SliceStates map[string]int // state -> count, for aggregation
 }
+
 // ReleasesList is a Bubble Tea component embedded in the root model.
 // It holds all discovered releases and a cursor for navigation.
 type ReleasesList struct {
@@ -77,7 +78,7 @@ func parseReleaseIndex(path string) (ReleaseInfo, error) {
 	var info ReleaseInfo
 	// Set ID from the directory name (parent of index.md).
 	info.ID = filepath.Base(filepath.Dir(path))
-	frontmatter, _, _ := strings.Cut(string(data), "---")	// Walk past opening ---.
+	frontmatter, _, _ := strings.Cut(string(data), "---") // Walk past opening ---.
 	if trimmed := strings.TrimSpace(frontmatter); trimmed == "" {
 		// First --- at start: find second ---
 		rest := string(data)
