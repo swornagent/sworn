@@ -115,9 +115,20 @@ func StateColor(state string) string {
 		return SliceStateDone(state)
 	case "failed_verification":
 		return SliceStateFailed(state)
-	case "blocked":
+	case "deferred":
 		return SliceStateBlocked(state)
 	default:
 		return SliceStatePlanned(state)
 	}
+}
+
+// SliceStateColor renders a slice's state with the correct colour, considering
+// the verification result. A slice at state "implemented" with
+// verification.result == "blocked" is shown in the blocked colour, not the
+// done colour.
+func SliceStateColor(state, verificationResult string) string {
+	if state == "implemented" && verificationResult == "blocked" {
+		return SliceStateBlocked("blocked")
+	}
+	return StateColor(state)
 }

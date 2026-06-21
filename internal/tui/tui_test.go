@@ -855,3 +855,124 @@ tracks:
 		t.Errorf("expected Blocked slice ID 'S01-first', got %q", m3.Blocked.sliceID)
 	}
 }
+
+// TestBoardEnterTransitionsToBlockedOnImplementedBlockedVerdict verifies Pin 1:
+// a slice at state "implemented" with verification.result == "blocked" also
+// transitions to the blocked panel when Enter is pressed. BLOCKED verdicts
+// leave the slice at "implemented" — they are NOT "failed_verification".
+func TestBoardEnterTransitionsToBlockedOnImplementedBlockedVerdict(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	indexContent := `---
+title: Test Release
+tracks:
+  - id: T1-core
+    slices: [S01-blocked]
+    state: in_progress
+---`
+	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+
+	// Create a slice at "implemented" with verification.result == "blocked"
+	sliceDir := filepath.Join(releaseDir, "S01-blocked")
+	os.MkdirAll(sliceDir, 0o755)
+	st := &state.Status{
+		SliceID: "S01-blocked",
+		State:   state.Implemented,
+		Track:   "T1-core",
+		Verification: state.Verification{
+			Result: "blocked",
+		},
+	}
+	if err := state.Write(filepath.Join(sliceDir, "status.json"), st); err != nil {
+		t.Fatal(err)
+	}
+
+	m := &Model{
+		state:    viewReleases,
+		repoRoot: dir,
+		Releases: &ReleasesList{},
+		Board:    &BoardView{},
+	}
+	if err := m.Releases.LoadReleases(dir); err != nil {
+		t.Fatalf("LoadReleases: %v", err)
+	}
+
+	// Enter to select release → board view
+	upd, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m2 := upd.(*Model)
+	if m2.state != viewBoard {
+		t.Fatalf("expected viewBoard state, got %d", m2.state)
+	}
+
+	// Enter on the implemented+blocked slice → should go to blocked panel
+	upd2, _ := m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m3 := upd2.(*Model)
+	if m3.state != viewBlocked {
+		t.Fatalf("expected viewBlocked state after Enter on implemented+blocked slice, got %d", m3.state)
+	}
+	if m3.Blocked == nil {
+		t.Fatal("expected Blocked view to be loaded")
+	}
+	if m3.Blocked.sliceID != "S01-blocked" {
+		t.Errorf("expected Blocked slice ID 'S01-blocked', got %q", m3.Blocked.sliceID)
+	}
+}
+
+// TestBlockedPanelViewProof verifies that pressing [4] on the blocked panel
+// opens a scrollable view of the raw proof.md content, and Esc returns to
+// the options panel.
+func TestBlockedPanelViewProof(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	indexContent := `---
+title: Test Release
+tracks:
+  - id: T1-core
+    slices: [S01-first]
+    state: in_progress
+---`
+	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+
+	createSliceStatus(t, releaseDir, "S01-first", "failed_verification", "T1-core")
+
+	// Write a proof.md
+	proofContent := `# Proof Bundle
+
+## Not delivered
+- Something was not delivered
+`
+	os.WriteFile(filepath.Join(releaseDir, "S01-first", "proof.md"), []byte(proofContent), 0644)
+
+	bv, err := LoadBlockedView(dir, "test-release", "S01-first")
+	if err != nil {
+		t.Fatalf("LoadBlockedView: %v", err)
+	}
+
+	// Press [4] to view proof
+	bv2, _ := bv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("4")})
+	if !bv2.viewingProof {
+		t.Fatal("expected viewingProof=true after pressing [4]")
+	}
+
+	// View should contain the raw proof content
+	view := bv2.View()
+	if !strings.Contains(view, "Proof Bundle") {
+		t.Errorf("expected proof view to contain 'Proof Bundle', got: %s", view)
+	}
+
+	// Press Esc to return to options
+	bv3, _ := bv2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("esc")})
+	if bv3.viewingProof {
+		t.Fatal("expected viewingProof=false after Esc")
+	}
+
+	// View should now show the options menu
+	view = bv3.View()
+	if !strings.Contains(view, "Resolution Options") {
+		t.Errorf("expected options menu after Esc, got: %s", view)
+	}
+}

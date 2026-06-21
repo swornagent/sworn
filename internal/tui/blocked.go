@@ -14,6 +14,7 @@ import (
 	"github.com/swornagent/sworn/internal/state"
 	"gopkg.in/yaml.v3"
 )
+
 // BlockedView is a Bubble Tea component for resolving blocked/failed slices.
 type BlockedView struct {
 	repoRoot     string
@@ -31,6 +32,7 @@ type BlockedView struct {
 	message      string
 	errMessage   string
 }
+
 // ExtractViolations parses proof.md content and extracts bullet points under
 // "## Violations" or "## Not delivered" sections.
 func ExtractViolations(proofContent string) []string {
@@ -241,7 +243,8 @@ func (b *BlockedView) Update(msg tea.Msg) (*BlockedView, tea.Cmd) {
 			ti.Focus()
 			b.deferInput = ti
 			b.message = ""
-			b.errMessage = ""		}
+			b.errMessage = ""
+		}
 	}
 
 	return b, nil

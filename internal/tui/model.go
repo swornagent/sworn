@@ -198,7 +198,11 @@ func (m *Model) handleBoardKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		if len(m.Board.orderedSlices) > 0 {
 			sliceID := m.Board.orderedSlices[m.Board.Cursor]
 			si, ok := m.Board.Slices[sliceID]
-			if ok && (si.State == "failed_verification" || si.State == "blocked") {
+			// Pin 1: check BOTH failed_verification AND implemented+blocked verdict.
+			// A BLOCKED verifier verdict leaves the slice at state "implemented"
+			// with verification.result == "blocked" — it is NOT "failed_verification".
+			if ok && (si.State == "failed_verification" ||
+				(si.State == "implemented" && si.VerificationResult == "blocked")) {
 				bv, err := LoadBlockedView(m.repoRoot, m.Board.ReleaseName, sliceID)
 				if err != nil {
 					m.errMsg = err.Error()

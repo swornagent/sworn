@@ -21,9 +21,10 @@ type TrackInfo struct {
 
 // SliceBoardInfo holds live state data for one slice on the board.
 type SliceBoardInfo struct {
-	ID            string
-	State         string
-	LastUpdatedAt string
+	ID                 string
+	State              string
+	LastUpdatedAt      string
+	VerificationResult string // from status.json verification.result (e.g. "blocked")
 }
 
 // BoardView is a Bubble Tea component embedded in the root model.
@@ -93,9 +94,10 @@ func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
 			lastUp = "—"
 		}
 		b.Slices[entry.Name()] = SliceBoardInfo{
-			ID:            entry.Name(),
-			State:         string(st.State),
-			LastUpdatedAt: formatLastUpdated(lastUp),
+			ID:                 entry.Name(),
+			State:              string(st.State),
+			LastUpdatedAt:      formatLastUpdated(lastUp),
+			VerificationResult: st.Verification.Result,
 		}
 	}
 
@@ -166,7 +168,7 @@ func (b *BoardView) View() string {
 			if !ok {
 				si = SliceBoardInfo{ID: sliceID, State: "unknown", LastUpdatedAt: "—"}
 			}
-			sliceState := StateColor(si.State)
+			sliceState := SliceStateColor(si.State, si.VerificationResult)
 			line := fmt.Sprintf("  %s  %s  (%s)", sliceID, sliceState, si.LastUpdatedAt)
 			if len(b.orderedSlices) > 0 && b.Cursor >= 0 && b.Cursor < len(b.orderedSlices) && b.orderedSlices[b.Cursor] == sliceID {
 				sb.WriteString(BoardItemSelected.Render("▸" + line[1:]))
