@@ -146,7 +146,7 @@ $ go vet ./...
 - **Path**: documented below (no screenshot; backend-only slice with mock proxy)
 - **User gesture**: "Developer runs `sworn login` (mock auth), then `sworn run --task 'hello'` with a mock proxy server; assert in logs that the request went to the mock proxy URL. Run `sworn account` and check credit balance is printed. Run `sworn account buy 20` and assert openBrowser is called with `https://swornagent.com/credits/buy?n=20`."
 
-The reachability is proven by `TestFromEnvUsesProxy` in `internal/model/oai_test.go`, which sets up a mock proxy server, writes sworn credentials, calls `FromEnv("openai/gpt-4.1")`, dispatches a `Verify()` request, and asserts the proxy server received the request. This exercises the full integration path: `account.Load()` → `account.Endpoint()` → `OAI{BaseURL: proxyURL}` → `Verify()` → HTTP request to proxy.
+The reachability is proven by `TestFromEnvUsesProxy` in `internal/model/oai_test.go`, which sets up a mock proxy server, writes sworn credentials, calls `FromEnv("openai/gpt-4.1")`, dispatches a `Verify()` request, and asserts the proxy server received the request. This exercises the full integration path: `account.Load()` -> `account.Endpoint()` -> `OAI{BaseURL: proxyURL}` -> `Verify()` -> HTTP request to proxy.
 
 The `sworn account buy 20` path is proven by `cmdAccountBuy` in `cmd/sworn/account.go` which constructs `https://swornagent.com/credits/buy?n=20` and calls `account.OpenBrowser()`. The URL construction is tested via the integer parsing and format string at lines 60-67.
 
@@ -187,24 +187,27 @@ release-verify.sh
   PASS  slice folder exists
   PASS  spec.md present
   PASS  proof.md present
-  PASS  journal.md present
   PASS  status.json present
+  PASS  journal.md present
   PASS  spec.md has Required tests section
 
 == Status ==
   PASS  status.json is valid JSON
   state: implemented
+  PASS  state is 'implemented' (eligible for verifier review)
 
 == Integration branch drift ==
   integration branch: release/v0.1.0
   PASS  worktree branch is current with release/v0.1.0 (no drift)
 
 == Diff vs start_commit (verifier base) ==
-  PASS  12 file(s) changed vs diff base
+  diff base: start_commit 9571422cee599952ae2ce04098b57f1f6d262971
+  PASS  13 file(s) changed vs diff base
   (first 20)
     cmd/sworn/account.go
     docs/api-contract.md
     docs/release/2026-06-19-safe-parallelism/S06b-sworn-proxy-credits/journal.md
+    docs/release/2026-06-19-safe-parallelism/S06b-sworn-proxy-credits/proof.md
     docs/release/2026-06-19-safe-parallelism/S06b-sworn-proxy-credits/status.json
     internal/account/account.go
     internal/account/account_test.go
@@ -216,22 +219,31 @@ release-verify.sh
     internal/run/run.go
 
 == Dark-code markers in changed files ==
-  PASS  no dark-code markers found
+  PASS  no dark-code markers in changed source files
 
 == Proof bundle structural checks ==
-  PASS  proof.md has Scope section
-  PASS  proof.md has Files changed section
-  PASS  proof.md has Test results section
-  PASS  proof.md has Reachability artefact section
-  PASS  proof.md has Delivered section
-  PASS  proof.md has Not delivered section
-  PASS  proof.md has Divergence from plan section
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+  PASS  proof.md 'Not delivered' deferrals carry non-placeholder tracking refs
+  PASS  proof.md 'Files changed' count (~12) consistent with diff vs start_commit (13)
 
 == Frontmatter YAML safety ==
   PASS  spec.md frontmatter is strict-YAML safe
 
 == Test results section scope ==
-  PASS  proof.md test results section cites go test commands
-```
+  PASS  Test results section contains no Playwright runner output (Jest/Vitest scope confirmed)
 
-Note: the first-pass script output above is the expected result after status.json is updated to `implemented` and proof.md is committed. The actual script run from the worktree may differ due to the script reading from the primary repo. The script was run; its output showed FAIL on proof.md missing and state=planned (stale primary-repo reads) which are resolved by this commit.
+== First-pass verdict ==
+  checks passed: 23
+  checks failed: 0
+
+FIRST-PASS PASS
+Open a FRESH session and paste role-prompts/verifier.md to perform adversarial verification.
+Do NOT run the verifier in this same session — Rule 7 requires a fresh context window.
+```
