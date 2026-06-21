@@ -261,7 +261,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S06b-sworn-proxy-credits` | T3 | Model calls route via SwornAgent proxy; `sworn account buy`; credit display | planned | [spec](./S06b-sworn-proxy-credits/spec.md) |
 | `S07-paging` | T3 | FAIL/BLOCKED fires webhook + email; developer paged without watching terminal | planned | [spec](./S07-paging/spec.md) |
 | `S08a-mcp-transport` | T4 | `sworn mcp` JSON-RPC server; initialize handshake; tools scaffold | planned | [spec](./S08a-mcp-transport/spec.md) |
-| `S08b-mcp-ops-tools` | T4 | 9 ops tools: get_board, get_blocked, get_slice_context, rerun, patch, merge, defer | failed_verification | [spec](./S08b-mcp-ops-tools/spec.md) |
+| `S08b-mcp-ops-tools` | T4 | 9 ops tools: get_board, get_blocked, get_slice_context, rerun, patch, merge, defer | verified | [spec](./S08b-mcp-ops-tools/spec.md) |
 | `S08c-mcp-plan-tools` | T4 | 4 planning tools + resources + prompts + mcp-setup.md | planned | [spec](./S08c-mcp-plan-tools/spec.md) |
 | `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | planned | [spec](./S09-per-role-model-config/spec.md) |
 | `S10-provider-foundation` | T5 | ADR 0004 + provider router + OAI-compat presets (8 providers) + .env file loading | planned | [spec](./S10-provider-foundation/spec.md) |
@@ -301,6 +301,13 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 > sworn#6 git-dir safety fix). Release now **34 slices across 11 tracks**.
 
 ## Recent activity
+
+### 2026-06-21 — S08b verifier verdict: PASS (round 3, all 6 gates)
+
+- **Slice**: S08b-mcp-ops-tools → state: verified
+- **Verified commit**: 532ccdb (merge of forward-sync into track/2026-06-19-safe-parallelism/T4-mcp)
+- **Tests**: go test ./internal/mcp/... — 20/20 PASS; go test ./... — 26/26 packages PASS
+- **Next**: `/implement-slice S08c-mcp-plan-tools 2026-06-19-safe-parallelism` in a fresh session.
 
 ### 2026-06-21 — S08b verifier verdict: FAIL (round 1, 3 violations)
 

@@ -130,3 +130,24 @@ Required to address:
    capture the log or screenshot showing the blocked slice list response, and
    replace the tools/list JSON in proof.md with this user-path demonstration.
 ```
+### Round 3 — PASS (2026-06-21)
+
+| 3 | 2026-06-21 | PASS | fresh-context verifier |
+
+```
+PASS
+
+Slice: `S08b-mcp-ops-tools`
+Verified against: `532ccdb`
+Verifier session: fresh, artefact-only
+```
+
+Gate results:
+- **Gate 1**: `RegisterOpsTools` wired in `cmd/sworn/mcp.go`; all 9 tools reachable via `tools/call` on the MCP server.
+- **Gate 2**: Planned touchpoints (tools_ops.go, context.go, tools_test.go) all present; `cmd/sworn/mcp.go` change documented in "Delivered"; other diff files are release-board noise from forward-merges.
+- **Gate 3**: All 5 spec-required tests exist and pass (`go test ./internal/mcp/... -count=1` — 20 tests PASS); `TestGetSliceContext` uses a real git repo with non-empty diff; `TestDeferSliceWritesRuleTwo` verifies intake.md content.
+- **Gate 4**: Reachability artefact shows actual `sworn mcp` `get_blocked` invocation returning violations for a failed slice — correct user-gesture demonstration.
+- **Gate 5**: No TODO/FIXME/placeholder in production code; "later" hits in comments reference explicitly out-of-scope S08c; `stateDeferred` concatenation acknowledged in journal.
+- **Gate 6**: All 9 tools delivered with verifiable evidence references (file + test name + artefact).
+
+Full suite: `go test ./... -count=1 -timeout 120s` — 26 packages PASS.
