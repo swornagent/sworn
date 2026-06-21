@@ -69,7 +69,7 @@ tracks:
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T11-infra-safety
     worktree_branch: track/2026-06-19-safe-parallelism/T11-infra-safety
-    state: ready_to_merge
+    state: merged
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
@@ -110,7 +110,7 @@ tracks:
 | `T8-memory` | S23 → S24 → S25 | T1 | `track/.../T8-memory` | in_progress |
 | `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
 | `T10-public-readiness` | S27 | all (T1–T9) | `track/.../T10-public-readiness` | planned |
-| `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | ready_to_merge |
+| `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
 
 ### Execution order
 
@@ -286,21 +286,26 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 
 ## Aggregate state
 
-- Planned: 28
+- Planned: 27
 - In progress: 0
 - Design review: 0
 - Implemented: 0
-- Verified: 5
+- Verified: 6
 - Failed verification: 0
-- Deferred: 0
+- Deferred: 1
 
-**Tracks:** Planned: 8 / Ready to merge: 0 / Merged: 2
+**Tracks:** Planned: 8 / Ready to merge: 0 / Merged: 3
 
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice);
 > T10 new (1 slice: S27, the final public-readiness gate); T11 new (1 slice: S28, the
 > sworn#6 git-dir safety fix). Release now **34 slices across 11 tracks**.
 
 ## Recent activity
+
+### 2026-06-21 — track `T11-infra-safety` merged to release-wt (commit d242687)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 1 verified slice merged: S28-git-dir-guard. Track state → merged. (Forward-merged release-wt into track worktree before integration; 18 sibling commits reconciled, tests re-run green.)
 
 ### 2026-06-21 — S28 verifier verdict: PASS (round 1)
 
