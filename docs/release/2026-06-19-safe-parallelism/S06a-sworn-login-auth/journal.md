@@ -56,6 +56,19 @@ Files touched:
 
 ## Verifier verdicts received
 
+### 2026-06-21 — BLOCKED (round 2)
+
+**Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+**Verdict**: BLOCKED
+
+**Reason**: Step 0 drift gate failed. Forward-merge of `release-wt/2026-06-19-safe-parallelism` into `track/2026-06-19-safe-parallelism/T3-commercial` produced a code conflict on `cmd/sworn/main.go`. S26-telemetry (T9, already merged to release-wt) extracted `main()` into a `dispatch()` function returning int — converting every `os.Exit(cmdXxx(os.Args[2:]))` call to `return cmdXxx(args[2:])` with telemetry wrapping. S06a's implementation adds `case "login"`, `case "logout"`, `case "account"` using the old `os.Exit(cmdLogin(os.Args[2:]))` pattern in `main()`. The patterns are structurally incompatible — touchpoint-matrix invariant 4 violated. Merge was aborted cleanly.
+
+**Proposed spec.md amendment**: Add the following constraint to S06a's spec under "Planned touchpoints" and "Implementation notes":
+
+> `cmd/sworn/main.go` — Note: S26-telemetry (T9) has refactored `main()` into `dispatch(args []string) int` before this track can be forward-merged. Cases must be added to `dispatch()` using `return cmdLogin(args[2:])` (not `os.Exit(cmdLogin(os.Args[2:]))` in `main()`). The existing implementation must be adapted; this is a mechanical refactor with no logic change.
+
+**Next step**: `/replan-release 2026-06-19-safe-parallelism` — the planner must ratify the amendment and coordinate the merge-order conflict. Do NOT `/implement-slice` or re-run `/verify-slice` without the replan.
+
 ### 2026-06-21 — FAIL (round 1)
 
 **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)

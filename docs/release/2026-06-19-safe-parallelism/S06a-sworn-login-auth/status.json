@@ -39,12 +39,10 @@
   "open_deferrals": [],
   "verification": {
     "verifier_session_id": null,
-    "verifier_verdict_at": "2026-06-21T14:00:00Z",
+    "verifier_verdict_at": "2026-06-21T16:00:00Z",
     "verifier_was_fresh_context": true,
-    "violations": [
-      "Gate 3 — Required reachability smoke step not executed. Spec lists smoke step as a Required Test; all commands in proof.md are commented out with placeholder content; no output of running `sworn login` against a mock server is captured.",
-      "Gate 3 — AC2 directory mode 0700 not verified. TestSaveCreatesDir creates a fresh directory but only checks existence. TestSaveMode0600 checks mode on a pre-existing TempDir where os.MkdirAll is a no-op.",
-      "Gate 6 — Proof.md AC2 evidence says 'TestSaveCreatesDir creates subdirectory and verifies existence'; AC2 requires mode 0700 verification; cited test only checks existence."
-    ]
+    "result": "blocked",
+    "blocked_reason": "Forward-merge of release-wt/2026-06-19-safe-parallelism into track/2026-06-19-safe-parallelism/T3-commercial conflicted on cmd/sworn/main.go (code conflict, not docs-only). S26-telemetry (T9) introduced a dispatch() extraction refactor — converting os.Exit(cmdXxx(os.Args[2:])) calls in main() to return cmdXxx(args[2:]) in dispatch() — which is structurally incompatible with S06a's additive case additions using the old pattern. Touchpoint-matrix invariant 4 violated. Route: /replan-release 2026-06-19-safe-parallelism.",
+    "violations": []
   }
 }

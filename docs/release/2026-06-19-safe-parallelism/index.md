@@ -293,6 +293,14 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 
 ## Recent activity
 
+### 2026-06-21 — S06a verifier verdict: BLOCKED (round 2)
+
+- **Actor**: verifier (fresh context, Rule 7 compliant)
+- **Slice**: S06a-sworn-login-auth → state: **implemented** (unchanged; verification.result = blocked)
+- **Reason**: Step 0 drift gate failed. Forward-merge of `release-wt/2026-06-19-safe-parallelism` into `track/.../T3-commercial` conflicted on `cmd/sworn/main.go` (code conflict). S26-telemetry (T9, already merged to release-wt) refactored `main()` into `dispatch()` returning int; S06a's cases use the old `os.Exit(cmdXxx(os.Args[2:]))` pattern — structurally incompatible. Touchpoint-matrix invariant 4 violated.
+- **Proposed amendment**: S06a spec must note that cases must target `dispatch()` using `return cmdXxx(args[2:])` (not `os.Exit` in `main()`).
+- **Next**: `/replan-release 2026-06-19-safe-parallelism` — planner to ratify amendment and coordinate merge-order conflict.
+
 ### 2026-06-21 — replan: S21 re-scoped + S27 added (public-readiness gate)
 
 - **Actor**: planner (`/replan-release`)
