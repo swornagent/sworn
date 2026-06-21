@@ -1,7 +1,8 @@
 # build output
 /bin/
 /dist/
-/sworn   # root-level built binary only; a bare `sworn` also ignores cmd/sworn/
+# root-level built binary (anchored so a bare `sworn` doesn't also ignore cmd/sworn/)
+/sworn
 
 # go
 *.test
