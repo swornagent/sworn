@@ -34,6 +34,32 @@
 
 ## Verifier verdicts received
 
+### 2026-06-21 — Verdict: FAIL (round 2)
+
+**Verifier:** fresh-context session, artefact-only inputs (Rule 7 compliant)
+**Verified against:** `dfa666cef8e277de98f74125d1972823f6b79e79`
+
+**Gate 2 — Planned touchpoints vs actual diff**
+
+`start_commit` in `status.json` is `16c0a8b` — the coach-ack commit (`chore: coach ack — approved Captain suggested reply`), **not** the start-implementation commit (`d441b4c`, `docs(...): start implementation`).
+
+As a result, `git diff --name-only 16c0a8b` includes 6 files not in `spec.md` "Planned touchpoints":
+- `cmd/sworn/main.go` (S26-telemetry)
+- `cmd/sworn/telemetry.go` (S26-telemetry)
+- `internal/telemetry/telemetry.go` (S26-telemetry)
+- `internal/telemetry/telemetry_test.go` (S26-telemetry)
+- `internal/git/git.go` (S28-git-dir-guard)
+- `internal/git/git_test.go` (S28-git-dir-guard)
+
+`proof.md` "Divergence from plan" says "None" — this is inconsistent with the actual diff from `start_commit`.
+
+**Gates 1, 3, 4, 5, 6 all pass.** The S24 implementation itself is correct. The failure is solely on Gate 2 due to the wrong `start_commit` boundary.
+
+**Required fix:**
+Set `start_commit` in `status.json` to `d441b4c` (the `docs(...): start implementation` commit). With the correct boundary, `git diff --name-only d441b4c..HEAD` shows only S24 planned files plus expected docs artefacts. Proof.md "Divergence from plan: None" would then be accurate.
+
+
+
 ### 2026-06-21 — Verdict: BLOCKED (round 1)
 
 **Verifier:** fresh-context session, artefact-only inputs (Rule 7 compliant)

@@ -297,7 +297,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S21-canonical-baton` | T3 | Baton protocol embedded in binary (internal/prompt/baton/); sworn init writes minimal MCP-pointer AGENTS.md instead of per-repo Baton copy; ADR-0005 | planned | [spec](./S21-canonical-baton/spec.md) |
 | `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | planned | [spec](./S22-sworn-doctor/spec.md) |
 | `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | planned | [spec](./S23-memory-config/spec.md) |
-| `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | planned | [spec](./S24-memory-engine/spec.md) |
+| `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | failed_verification | [spec](./S24-memory-engine/spec.md) |
 | `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | planned | [spec](./S25-memory-search/spec.md) |
 | `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | verified | [spec](./S26-telemetry/spec.md) |
 | `S27-public-readiness-scrub` | T10 | Make repo + binary public-safe: generalise embedded role prompts (keep Captain/Coach, strip coach-loop coupling), scrub dogfood provenance comments + fired/GetFired + coach-loop refs. Final launch gate. | planned | [spec](./S27-public-readiness-scrub/spec.md) |
@@ -331,6 +331,17 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 > S34 appended to T2. Release now **44 slices across 12 tracks**.
 
 ## Recent activity
+
+### 2026-06-21 — S24-memory-engine verifier FAIL (round 2)
+
+- **Slice**: S24-memory-engine → state: **failed_verification**
+- **Gate failed**: Gate 2 — planned touchpoints vs actual diff
+- **Violation**: `start_commit` is `16c0a8b` (coach-ack commit) not `d441b4c` (start-implementation commit). `git diff --name-only 16c0a8b` includes 6 S26/S28 files not in planned touchpoints. `proof.md` "Divergence from plan" says "None" without acknowledging these files.
+- **Fix**: Set `start_commit` to `d441b4c` in status.json; update proof.md "Files changed" to match.
+- **Gates 1, 3, 4, 5, 6 all pass** — S24 implementation is correct.
+- **Next step**: `/implement-slice S24-memory-engine 2026-06-19-safe-parallelism` (fix start_commit + proof.md)
+
+
 
 ### 2026-06-21 — replan: harness-hardening batch (S29–S36) from the trial-log harvest
 
