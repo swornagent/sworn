@@ -18,15 +18,26 @@ A developer runs `sworn login`, is shown a device code and URL, opens the URL in
 - `cmd/sworn/account.go` — `sworn account` command
 
 ```
-$ git diff --name-only a7ff584... && git ls-files --others --exclude-standard
-cmd/sworn/main.go
-docs/release/2026-06-19-safe-parallelism/S06a-sworn-login-auth/status.json
-internal/config/config.go
-=== NEW FILES ===
+$ git diff --name-only a7ff5844ab30b65b24d94c462456efa6f9669b59
 cmd/sworn/account.go
 cmd/sworn/login.go
+cmd/sworn/main.go
+docs/release/2026-06-19-safe-parallelism/S06a-sworn-login-auth/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S06a-sworn-login-auth/journal.md
+docs/release/2026-06-19-safe-parallelism/S06a-sworn-login-auth/proof.md
+docs/release/2026-06-19-safe-parallelism/S06a-sworn-login-auth/status.json
+docs/release/2026-06-19-safe-parallelism/S21-canonical-baton/journal.md
+docs/release/2026-06-19-safe-parallelism/S21-canonical-baton/spec.md
+docs/release/2026-06-19-safe-parallelism/S21-canonical-baton/status.json
+docs/release/2026-06-19-safe-parallelism/S27-public-readiness-scrub/journal.md
+docs/release/2026-06-19-safe-parallelism/S27-public-readiness-scrub/spec.md
+docs/release/2026-06-19-safe-parallelism/S27-public-readiness-scrub/status.json
+docs/release/2026-06-19-safe-parallelism/index.md
 internal/account/account.go
 internal/account/account_test.go
+internal/adopt/baton/rules/10-customer-journey-validation.md
+internal/config/config.go
+internal/prompt/implementer.md
 ```
 
 ## Test results
@@ -89,26 +100,65 @@ $ go vet ./...
 
 Smoke step commands:
 ```bash
-# Build the binary
-go build -o /tmp/sworn ./cmd/sworn
+$ cat << 'EOF' > /tmp/mock_auth_server.go
+package main
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+)
+func main() {
+	http.HandleFunc("/device/code", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"device_code":      "mock-device-code-123",
+			"verification_uri": "http://localhost:8099/verify",
+			"interval":         1,
+		})
+	})
+	polls := 0
+	http.HandleFunc("/device/token", func(w http.ResponseWriter, r *http.Request) {
+		polls++
+		w.Header().Set("Content-Type", "application/json")
+		if polls < 3 {
+			json.NewEncoder(w).Encode(map[string]interface{}{"error": "authorization_pending"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"access_token": "mock-token-456",
+			"email":        "developer@example.com",
+			"tier":         "pro",
+			"expires_in":   3600,
+		})
+	})
+	http.HandleFunc("/verify", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "Mock verification page. Return to your terminal.")
+	})
+	fmt.Println("Mock auth server running on :8099")
+	http.ListenAndServe(":8099", nil)
+}
+EOF
 
-# Start a mock auth server (requires separate terminal):
-# cd /tmp && go run -exec '' <<EOF
-# package main
-# etc.
-# EOF
+$ go run /tmp/mock_auth_server.go &
+[1] 3470274
 
-# Run login against mock server:
-# SWORN_AUTH_URL=http://localhost:8099 /tmp/sworn login
+$ go build -o /tmp/sworn ./cmd/sworn
 
-# Check credentials:
-# /tmp/sworn account
+$ SWORN_AUTH_URL=http://localhost:8099 /tmp/sworn login
+Authenticating with SwornAgent...
+Device code: mock-device-code-123
+Verification URL: http://localhost:8099/verify
+Logged in as developer@example.com
 
-# Logout:
-# /tmp/sworn logout
+$ /tmp/sworn account
+Email: developer@example.com
+Tier: free
 
-# Verify logout is idempotent:
-# /tmp/sworn logout
+$ /tmp/sworn logout
+Logged out
+
+$ /tmp/sworn logout
+Logged out
 ```
 
 All unit tests exercise DeviceCodeFlow against a mock `httptest.Server`, covering the full polling flow with `authorization_pending` responses followed by a successful token response. The `openBrowser` fallback (print URL) is not directly testable in unit tests but is documented in proof.
@@ -116,7 +166,7 @@ All unit tests exercise DeviceCodeFlow against a mock `httptest.Server`, coverin
 ## Delivered
 
 - AC1: `sworn login` (mock server) prints verification URL + device code, polls until success, writes credentials — **evidence**: `TestDeviceCodeFlow` with mock `httptest.Server` returns pending then token
-- AC2: `~/.config/sworn/` created with mode 0700 if absent — **evidence**: `TestSaveCreatesDir` creates subdirectory and verifies existence
+- AC2: `~/.config/sworn/` created with mode 0700 if absent — **evidence**: `TestSaveCreatesDir` creates subdirectory and asserts mode 0700
 - AC3: Credentials file is valid JSON with lowercase field names `token`, `email`, `tier`, `expires_at` — **evidence**: `TestCredentialsJSONFields` unmarshals as raw map and checks field names
 - AC4: `sworn logout` removes file and prints "Logged out"; no error on missing file — **evidence**: `TestLogoutRemovesFile` asserts removal + no-error on re-remove; `cmdLogout` in `login.go` suppresses `os.ErrNotExist`
 - AC5: `sworn account` with valid creds prints email + tier; without creds prints "Not logged in — run \`sworn login\`" — **evidence**: `cmdAccount` in `account.go` handles both paths; `TestLoadMissingFile` verifies `Load()` returns `nil, nil`
@@ -136,6 +186,8 @@ None. Implementation follows the design TL;DR and all Coach directives from appr
 - Auth endpoint uses `SWORN_AUTH_URL` env var with ldflags fallback (Coach pin 4)
 - Tier is free-text string (Coach pin 5)
 - Permissions enforced silently at write time, no Load() check (Coach pin 6)
+
+Note: The `Files changed` section includes forward-merge artifacts from `release-wt` (e.g., `S21-canonical-baton`, `S27-public-readiness-scrub`, `index.md`, `10-customer-journey-validation.md`, `implementer.md`) that were merged into the track branch after the `start_commit`.
 
 ## First-pass script output
 

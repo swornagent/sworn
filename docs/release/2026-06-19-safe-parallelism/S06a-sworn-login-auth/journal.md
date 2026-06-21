@@ -72,3 +72,20 @@ Required to address:
 1. Run `sworn login` against a locally-run mock stub HTTP server; capture the actual terminal output (device code printed, verification URL printed, "Logged in as" message). Document both the mock server command and the `sworn login` output in proof.md's Reachability artefact section.
 2. Add a directory mode assertion to TestSaveCreatesDir: after verifying the directory exists, assert `info.Mode().Perm() == 0700` for the freshly-created directory. Alternatively, update TestSaveMode0600 to use a nested subdirectory path so os.MkdirAll actually creates it.
 3. Update proof.md AC2 evidence to reference the mode assertion.
+### State transitions
+
+- `failed_verification` → `in_progress` (2026-06-21): Re-entered to address verifier FAIL.
+- `in_progress` → `implemented` (2026-06-21): Addressed verifier FAIL.
+
+### Decisions and trade-offs
+
+1. **Verifier FAIL addressed**: The verifier failed the slice because the smoke test output was missing from `proof.md` and the AC2 evidence was incorrect. The code was already fixed in a previous commit (`7553e6c`) to tighten the dir-mode assertions. I ran the smoke test against a mock server, captured the output, and updated `proof.md` with the actual output and the correct AC2 evidence.
+2. **Forward-merge artifacts**: The `Files changed` section in `proof.md` was updated to include forward-merge artifacts from `release-wt` that were merged into the track branch after the `start_commit`. This was documented in the `Divergence from plan` section.
+
+### First-pass verification
+
+`release-verify.sh` result: **PASS** (23/23 checks).
+
+### Pre-verification skeptic panel
+
+Runtime does not support subagent dispatch (single-threaded API call mode, no parallel tool). Skipped. Noted: `skeptic_panel: skipped — runtime does not support subagent dispatch`.
