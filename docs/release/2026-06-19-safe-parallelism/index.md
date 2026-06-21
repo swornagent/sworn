@@ -71,7 +71,7 @@ tracks:
     worktree_branch: track/2026-06-19-safe-parallelism/T11-infra-safety
     state: merged
   - id: T12-harness-hardening
-    slices: [S29-lint-deps, S30-lint-touchpoints, S31-lint-symbols, S32-designfit-decisions-gate, S33-spec-template-hardening, S35-mutation-guard, S36-captain-resolve-dirty-worktree, S37-telemetry-tui-exclusion, S38-verifier-blocked-violations, S41-build-bin-target, S42-implement-step-timeout, S43-agent-loop-natural-stop]
+    slices: [S29-lint-deps, S30-lint-touchpoints, S31-lint-symbols, S32-designfit-decisions-gate, S33-spec-template-hardening, S35-mutation-guard, S36-captain-resolve-dirty-worktree, S37-telemetry-tui-exclusion, S38-verifier-blocked-violations, S41-build-bin-target, S42-implement-step-timeout, S43-agent-loop-natural-stop, S44-feedback-driven-retry]
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T12-harness-hardening
     worktree_branch: track/2026-06-19-safe-parallelism/T12-harness-hardening
@@ -117,7 +117,7 @@ tracks:
 | `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
 | `T10-public-readiness` | S27 | all (T1–T9) | `track/.../T10-public-readiness` | planned |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
-| `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 | T1 | `track/.../T12-harness-hardening` | in_progress |
+| `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | in_progress |
 
 ### Execution order
 
@@ -316,6 +316,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S41-build-bin-target` | T12 | canonical `make build` → `bin/sworn` + `docs/build.md` run-from-root convention; stops `cmd/sworn/.sworn` + `docs/release/run-*` worktree clutter | planned | [spec](./S41-build-bin-target/spec.md) |
 | `S42-implement-step-timeout` | T12 | `sworn run` bounds each implement attempt with a context deadline; a hung implementer is cancelled and escalates to the next model instead of hanging forever | planned | [spec](./S42-implement-step-timeout/spec.md) |
 | `S43-agent-loop-natural-stop` | T12 | agent loop terminates on the model's natural stop (no tool calls) instead of spinning to the turn cap; salvages work from empty-final-text models (gpt-oss-class) by letting proof-from-diff + verifier judge | planned | [spec](./S43-agent-loop-natural-stop/spec.md) |
+| `S44-feedback-driven-retry` | T12 | on verify FAIL, feed the verifier's rationale + violations into the next implement attempt's prompt instead of blind re-running — retry resolves the named problem | planned | [spec](./S44-feedback-driven-retry/spec.md) |
 | `S39-openai-responses-provider` | T5 | first-class OpenAI provider via /v1/responses (reasoning_effort + tool-calls + built-in web_search) + a cross-provider WebSearch/WebFetch agent tool — fixes gpt-5.x support + 'more than 6 tools' | planned | [spec](./S39-openai-responses-provider/spec.md) |
 
 ## Aggregate state
@@ -333,9 +334,15 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice);
 > T10 new (1 slice: S27, the final public-readiness gate); T11 new (1 slice: S28, the
 > sworn#6 git-dir safety fix); T12 new (7 harness-hardening slices from the trial-log harvest);
-> S34 appended to T2. Release now **49 slices across 12 tracks** (S40→T8, S41/S42/S43→T12 — 2026-06-21 hygiene + run-reliability replans).
+> S34 appended to T2. Release now **50 slices across 12 tracks** (S40→T8, S41–S44→T12 — 2026-06-21 hygiene + run-reliability replans).
 
 ## Recent activity
+
+### 2026-06-21 — replan: S44-feedback-driven-retry (resolve, don't blind-retry)
+
+- **Actor**: planner (`/replan-release`)
+- **S44-feedback-driven-retry → T12 tail** (after S43): on a verifier FAIL, `RunSlice` clears `status.json` verification (`slice.go:123`) and re-implements with the next model but never passes the verifier's rationale to the implementer — a blind retry. S44 preserves the rationale + violations and injects them into the next implement attempt's prompt, so retry resolves the named failure instead of re-deriving from the spec. Most direct embodiment of "don't fail what an intelligent agent could resolve." Touches T1-owned `internal/run` + `internal/implement` (merged → no collision).
+- **Release now 50 slices across 12 tracks.** (First of the sworn↔coach-loop role-parity work — see the parity capture; captain/design-review + orchestrator/interpreter slices to follow.)
 
 ### 2026-06-21 — replan: S43-agent-loop-natural-stop (salvage empty-final-text work)
 
