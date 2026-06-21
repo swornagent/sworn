@@ -36,3 +36,23 @@
 - 14 tests pass (5 existing + 9 new)
 - All 6 Coach pins addressed inline during implementation
 - First-pass verification: PASS (23/23)
+
+## Verifier verdicts received
+
+### 2026-06-28 — verifier verdict: FAIL (2 violations)
+
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **Slice**: S04b-tui-live → state: `failed_verification`
+
+**Violation 1 (Gate 1 + Gate 3 — CRITICAL): `Model.Update()` drops `tickMsg`; live view is static after initial poll.**
+`internal/tui/model.go` lines 56–64: `Update()` handles only `tea.KeyMsg` and `tea.WindowSizeMsg`; all other messages fall to `return m, nil`. Bubble Tea delivers `tickMsg` to the root model when the tick fires — since there is no `tickMsg` case, the message is silently dropped. The tick chain (started by `lv.Init()`) terminates after its first fire. The DB is polled only once, synchronously, during `StartLiveView`; the live view shows stale data forever.
+Spec acceptance check #2 — "The concurrent status table updates its elapsed time column every ~1 second" — is not met in the running TUI.
+Rule 1 violation: `TestConcurrentStatusPoll` calls `lv.Update(tickMsg{})` **directly on `LiveView`**, bypassing `Model.Update()`. The leaf-level test passes while the integration path (model receives tick → forwards to LiveView) is broken and untested.
+
+**Violation 2 (Gate 2): `internal/tui/styles.go` changed but not in spec's planned touchpoints, and proof.md "Divergence from plan" does not mention it.**
+The file adds `LiveTitle`, `LiveRow`, and `DividerLine` styles consumed by `concurrent.go`. The change is legitimate but undisclosed in "Divergence from plan" as required by Gate 2.
+
+**Required to address:**
+1. Add a `tickMsg` case to `Model.Update()` (or a delegating else-branch) that forwards the message to `m.Live.Update(msg)` when `m.state == viewLive && m.Live != nil`, and chains the returned `tea.Cmd` so the next tick is scheduled.
+2. Add an integration-level test that sends `tickMsg{}` through `Model.Update()` (not directly to `LiveView.Update()`), and asserts both that `m.Live.TickCount` increases and that `m.Live.Rows` is populated.
+3. Add a brief entry in proof.md "Divergence from plan" for `styles.go` (touches not in planned touchpoints; adds `LiveTitle`, `LiveRow`, `DividerLine` styles for the live view).

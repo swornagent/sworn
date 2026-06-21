@@ -254,7 +254,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S02b-concurrent-scheduler` | T1 | `sworn run --parallel` launches all independent tracks concurrently | verified | [spec](./S02b-concurrent-scheduler/spec.md) |
 | `S03-verify-under-concurrency` | T1 | Verify gate goroutine-safe and fail-closed at N>1 | verified | [spec](./S03-verify-under-concurrency/spec.md) |
 | `S04a-tui-foundation` | T2 | `sworn` (no args) shows releases list + board view with navigation | planned | [spec](./S04a-tui-foundation/spec.md) |
-| `S04b-tui-live` | T2 | Live concurrent track status from DB (1s poll) + credit balance in header | planned | [spec](./S04b-tui-live/spec.md) |
+| `S04b-tui-live` | T2 | Live concurrent track status from DB (1s poll) + credit balance in header | failed_verification | [spec](./S04b-tui-live/spec.md) |
 | `S04c-tui-resolution` | T2 | Blocked slice TL;DR panel + options + open in Claude Code / Codex | planned | [spec](./S04c-tui-resolution/spec.md) |
 | `S05-overclaim-benchmark` | T2 | Overclaim rate flat at N=1/2/4; published benchmark artefact | planned | [spec](./S05-overclaim-benchmark/spec.md) |
 | `S06a-sworn-login-auth` | T3 | `sworn login` device-code flow; credentials file; `sworn logout` | planned | [spec](./S06a-sworn-login-auth/spec.md) |
@@ -301,6 +301,14 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 > sworn#6 git-dir safety fix). Release now **34 slices across 11 tracks**.
 
 ## Recent activity
+
+### 2026-06-28 — S04b-tui-live verifier verdict: FAIL (2 violations)
+
+- **Actor**: verifier (fresh context, Rule 7 compliant)
+- **Slice**: S04b-tui-live → state: `failed_verification`
+- **Violation 1 (Gate 1 + Gate 3 — CRITICAL)**: `Model.Update()` (`model.go:56–64`) has no `tickMsg` case — the tick chain terminates after `Init()`'s first fire, DB is polled only once synchronously. Spec acceptance check #2 ("updates every ~1 second") is not met. `TestConcurrentStatusPoll` tests tick via `lv.Update(tickMsg{})` directly on `LiveView`, bypassing `Model.Update()` — Rule 1 violation.
+- **Violation 2 (Gate 2)**: `internal/tui/styles.go` changed (adds `LiveTitle`, `LiveRow`, `DividerLine`) but absent from spec's planned touchpoints and undocumented in proof.md "Divergence from plan".
+- **Next**: `/implement-slice S04b-tui-live 2026-06-19-safe-parallelism` in a fresh session.
 
 ### 2026-06-21 — replan: S21 re-scoped + S27 added (public-readiness gate)
 
