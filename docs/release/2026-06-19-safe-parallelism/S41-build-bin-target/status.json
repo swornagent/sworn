@@ -1,0 +1,35 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S41-build-bin-target",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T12-harness-hardening",
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-21T00:00:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S41-build-bin-target/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S41-build-bin-target/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S41-build-bin-target/journal.md",
+  "planned_files": [
+    "Makefile",
+    "docs/build.md"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "make build",
+    "go build ./..."
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [
+    "sworn cwd-relative state-dir resolution (cmd/sworn/internal/config) — deferred; Makefile+doc convention fixes observed clutter (Rule 2, Coach ack 2026-06-21)",
+    "reachability smoke-step prompt wording (internal/prompt/*) — deferred to S33-spec-template-hardening to avoid T3 prompt-ownership collision"
+  ],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}
