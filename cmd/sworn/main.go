@@ -103,6 +103,9 @@ func dispatch(args []string) int {
 	case "top":
 		// S15-sworn-top-evidence adds this case (T4-evidence-surface).
 		return cmdTop(args[2:])
+	case "doctor":
+		// S22-sworn-doctor adds this case (T4-mcp).
+		return cmdDoctor(args[2:])
 	case "telemetry":
 		// S26-telemetry adds this case (T9-telemetry).
 		return cmdTelemetry(args[2:])
@@ -202,9 +205,9 @@ usage:
   sworn ship <release> [project-root]
   sworn telemetry on|off|status
   sworn top <release> [project-path]
+  sworn doctor [--fix] [--sync-baton]
   sworn verify --spec <path> --diff <path|-> [--proof <path>] [--verifier-model <provider/model>]
-  sworn version
-bench runs a model benchmark: iterate candidate verifier models against a task set
+  sworn versionbench runs a model benchmark: iterate candidate verifier models against a task set
 of slice specs with known-good diffs, record pass-rate + cost + jurisdiction, and
 pick the safe-hosted default model from data.
 
@@ -247,5 +250,8 @@ or kill-list of journey validation status. See 'sworn top <release>' for details
 
 verify emits a JSON verdict (PASS/FAIL/BLOCKED) and exits 0 only on PASS,
 so a CI required-check blocks the merge by default.
+doctor runs health checks: embedded prompt integrity, legacy Baton artifact
+detection, local Baton sync, and dependency version freshness. Exits 0 if
+clean (WARN-only), 1 on any ERROR, 2 if --fix applied changes.
 `)
 }
