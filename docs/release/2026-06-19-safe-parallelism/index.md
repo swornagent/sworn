@@ -71,7 +71,7 @@ tracks:
     worktree_branch: track/2026-06-19-safe-parallelism/T11-infra-safety
     state: merged
   - id: T12-harness-hardening
-    slices: [S29-lint-deps, S30-lint-touchpoints, S31-lint-symbols, S32-designfit-decisions-gate, S33-spec-template-hardening, S35-mutation-guard, S36-captain-resolve-dirty-worktree, S37-telemetry-tui-exclusion, S38-verifier-blocked-violations, S41-build-bin-target, S42-implement-step-timeout]
+    slices: [S29-lint-deps, S30-lint-touchpoints, S31-lint-symbols, S32-designfit-decisions-gate, S33-spec-template-hardening, S35-mutation-guard, S36-captain-resolve-dirty-worktree, S37-telemetry-tui-exclusion, S38-verifier-blocked-violations, S41-build-bin-target, S42-implement-step-timeout, S43-agent-loop-natural-stop]
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T12-harness-hardening
     worktree_branch: track/2026-06-19-safe-parallelism/T12-harness-hardening
@@ -117,7 +117,7 @@ tracks:
 | `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
 | `T10-public-readiness` | S27 | all (T1–T9) | `track/.../T10-public-readiness` | planned |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
-| `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 | T1 | `track/.../T12-harness-hardening` | in_progress |
+| `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 | T1 | `track/.../T12-harness-hardening` | in_progress |
 
 ### Execution order
 
@@ -315,6 +315,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S38-verifier-blocked-violations` | T12 | a BLOCKED verdict must populate `status.json` violations (not just journal prose) + a gate rejecting blocked-with-empty-violations — fixes blank REPLAN pages | planned | [spec](./S38-verifier-blocked-violations/spec.md) |
 | `S41-build-bin-target` | T12 | canonical `make build` → `bin/sworn` + `docs/build.md` run-from-root convention; stops `cmd/sworn/.sworn` + `docs/release/run-*` worktree clutter | planned | [spec](./S41-build-bin-target/spec.md) |
 | `S42-implement-step-timeout` | T12 | `sworn run` bounds each implement attempt with a context deadline; a hung implementer is cancelled and escalates to the next model instead of hanging forever | planned | [spec](./S42-implement-step-timeout/spec.md) |
+| `S43-agent-loop-natural-stop` | T12 | agent loop terminates on the model's natural stop (no tool calls) instead of spinning to the turn cap; salvages work from empty-final-text models (gpt-oss-class) by letting proof-from-diff + verifier judge | planned | [spec](./S43-agent-loop-natural-stop/spec.md) |
 | `S39-openai-responses-provider` | T5 | first-class OpenAI provider via /v1/responses (reasoning_effort + tool-calls + built-in web_search) + a cross-provider WebSearch/WebFetch agent tool — fixes gpt-5.x support + 'more than 6 tools' | planned | [spec](./S39-openai-responses-provider/spec.md) |
 
 ## Aggregate state
@@ -332,9 +333,15 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice);
 > T10 new (1 slice: S27, the final public-readiness gate); T11 new (1 slice: S28, the
 > sworn#6 git-dir safety fix); T12 new (7 harness-hardening slices from the trial-log harvest);
-> S34 appended to T2. Release now **48 slices across 12 tracks** (S40→T8, S41/S42→T12 — 2026-06-21 hygiene + run-reliability replans).
+> S34 appended to T2. Release now **49 slices across 12 tracks** (S40→T8, S41/S42/S43→T12 — 2026-06-21 hygiene + run-reliability replans).
 
 ## Recent activity
+
+### 2026-06-21 — replan: S43-agent-loop-natural-stop (salvage empty-final-text work)
+
+- **Actor**: planner (`/replan-release`)
+- **S43-agent-loop-natural-stop → T12 tail** (after S42): the agent loop (`internal/agent/agent.go:111`) returns cleanly only on text+no-tool-calls; a model that finishes its work then stops with empty content + no tool calls (gpt-oss-class) spins to `MaxTurns` and errors, discarding the diff and forcing a blind model escalation. S43 treats "no tool calls" as terminal regardless of content — sworn judges ground truth (proof built from `git diff`, not prose), so the verifier decides PASS/FAIL over the actual work. In-product analogue of the coach-loop's force-summary, but simpler (nothing downstream consumes the agent's prose). Touches T1-owned `internal/agent` (T1 merged → no collision).
+- **Release now 49 slices across 12 tracks.**
 
 ### 2026-06-21 — replan: S42-implement-step-timeout (run-loop reliability)
 
