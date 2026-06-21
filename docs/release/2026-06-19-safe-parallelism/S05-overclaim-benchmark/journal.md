@@ -28,3 +28,18 @@ Coach approved design TL;DR via `approved-ack.md` with 5 mechanical pins and 3 f
 - D3: Ground truth stored in status.json `owner` field ("PASS" or "FAIL").
 - D4: Overclaim rate = overclaims / total slices (not / FAIL slices). Spec is explicit: 4/12 = 33.3%.
 - D5: `--publish` writes the file but does not auto-commit. The implementer session commits the artefact.
+### State transition: in_progress → implemented
+
+All 6 acceptance checks delivered:
+- AC1: `sworn bench overclaim` runs to completion without live API calls (all mock).
+- AC2: Output includes a table with rows for N=1, N=2, N=4 with overclaim/underclaim counts and rates.
+- AC3: Overclaim rate is 0% at N=1, N=2, N=4 on the deterministic fixture.
+- AC4: Running `sworn bench overclaim` 5× produces identical output (md5sum verified).
+- AC5: `sworn bench overclaim --publish` writes valid Markdown to `docs/benchmark/overclaim-concurrent-1to4.md`.
+- AC6: `go test ./internal/bench/...` covers overclaim rate calculation (7 tests, all pass).
+
+Test results: `go test ./internal/bench/...` PASS (0.406s). `go test -race` PASS (2.324s). `go vet` clean. `gofmt` clean.
+
+First-pass `release-verify.sh`: PASS (23/23 checks green).
+
+No deferrals. No divergences from plan. Skeptic panel skipped (runtime does not support subagent dispatch in this session).
