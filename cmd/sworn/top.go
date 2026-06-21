@@ -7,14 +7,16 @@ import (
 	"path/filepath"
 
 	"github.com/swornagent/sworn/internal/journey"
+	"github.com/swornagent/sworn/internal/tui"
 )
 
 // cmdTop implements `sworn top <release> [project-path]`.
 //
-// It renders a read-only evidence surface for the active release:
-// each critical journey in scope with its walkthrough validation status,
-// assembled into a green-board when all pass or a kill-list when any
-// fail or are un-walked.
+// With no release argument, it launches the TUI (same as `sworn` with no args).
+// With a release argument, it renders a read-only evidence surface for the
+// active release: each critical journey in scope with its walkthrough
+// validation status, assembled into a green-board when all pass or a kill-list
+// when any fail or are un-walked.
 //
 // This is strictly read-only — no state transitions, no artefact writes.
 // Returns exit 0 on green-board, 1 on kill-list, 2 on unrecoverable error,
@@ -24,11 +26,13 @@ func cmdTop(args []string) int {
 	_ = fs.Parse(args)
 
 	if fs.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "sworn top: release name is required")
-		fmt.Fprintln(os.Stderr, "usage: sworn top <release> [project-path]")
-		return 64
+		// No release arg — launch TUI instead of rendering evidence surface.
+		if err := tui.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "sworn top: %v\n", err)
+			return 1
+		}
+		return 0
 	}
-
 	releaseName := fs.Arg(0)
 	projectRoot := "."
 	if fs.NArg() > 1 {

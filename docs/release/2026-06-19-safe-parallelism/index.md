@@ -280,9 +280,8 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S03-verify-under-concurrency` | T1 | Verify gate goroutine-safe and fail-closed at N>1 | verified | [spec](./S03-verify-under-concurrency/spec.md) |
 | `S04a-tui-foundation` | T2 | `sworn` (no args) shows releases list + board view with navigation | planned | [spec](./S04a-tui-foundation/spec.md) |
 | `S04b-tui-live` | T2 | Live concurrent track status from DB (1s poll) + credit balance in header | planned | [spec](./S04b-tui-live/spec.md) |
-| `S04c-tui-resolution` | T2 | Blocked slice TL;DR panel + options + open in Claude Code / Codex | planned | [spec](./S04c-tui-resolution/spec.md) |
-| `S05-overclaim-benchmark` | T2 | Overclaim rate flat at N=1/2/4; published benchmark artefact | planned | [spec](./S05-overclaim-benchmark/spec.md) |
-| `S06a-sworn-login-auth` | T3 | `sworn login` device-code flow; credentials file; `sworn logout` | planned | [spec](./S06a-sworn-login-auth/spec.md) |
+| `S04c-tui-resolution` | T2 | Blocked slice TL;DR panel + options + open in Claude Code / Codex | verified | [spec](./S04c-tui-resolution/spec.md) |
+| `S05-overclaim-benchmark` | T2 | Overclaim rate flat at N=1/2/4; published benchmark artefact | verified | [spec](./S05-overclaim-benchmark/spec.md) || `S06a-sworn-login-auth` | T3 | `sworn login` device-code flow; credentials file; `sworn logout` | planned | [spec](./S06a-sworn-login-auth/spec.md) |
 | `S06b-sworn-proxy-credits` | T3 | Model calls route via SwornAgent proxy; `sworn account buy`; credit display | planned | [spec](./S06b-sworn-proxy-credits/spec.md) |
 | `S07-paging` | T3 | FAIL/BLOCKED fires webhook + email; developer paged without watching terminal | planned | [spec](./S07-paging/spec.md) |
 | `S08a-mcp-transport` | T4 | `sworn mcp` JSON-RPC server; initialize handshake; tools scaffold | planned | [spec](./S08a-mcp-transport/spec.md) |
@@ -313,8 +312,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S31-lint-symbols` | T12 | `sworn lint symbols` — grep back-ticked design identifiers against the live codebase | planned | [spec](./S31-lint-symbols/spec.md) |
 | `S32-designfit-decisions-gate` | T12 | `sworn designfit` fails closed when Type-1 work is declared but `design_decisions` is empty | planned | [spec](./S32-designfit-decisions-gate/spec.md) |
 | `S33-spec-template-hardening` | T12 | spec/prompt hardening: Risk-cites-`file:line`, pure-engine two-commit note, dynamic-CORS note, + verifier watcher-block cleanup | planned | [spec](./S33-spec-template-hardening/spec.md) |
-| `S34-tui-merge-actor` | T2 | render the `merge:<track>` actor as a distinct row in the TUI live view + release board | planned | [spec](./S34-tui-merge-actor/spec.md) |
-| `S35-mutation-guard` | T12 | Captain check + Baton-rule clause for process-global mutation (cwd/git-state/os.Chdir) — the sworn#6 class | planned | [spec](./S35-mutation-guard/spec.md) |
+| `S34-tui-merge-actor` | T2 | render the `merge:<track>` actor as a distinct row in the TUI live view + release board | verified | [spec](./S34-tui-merge-actor/spec.md) || `S35-mutation-guard` | T12 | Captain check + Baton-rule clause for process-global mutation (cwd/git-state/os.Chdir) — the sworn#6 class | planned | [spec](./S35-mutation-guard/spec.md) |
 | `S36-captain-resolve-dirty-worktree` | T12 | Captain auto-resolves dirty track worktrees (commit-by-default, record the diff+resolution, never page the Coach) | planned | [spec](./S36-captain-resolve-dirty-worktree/spec.md) |
 | `S37-telemetry-tui-exclusion` | T12 | no-args/TUI launch no longer fires a junk telemetry event (empty cmd + session-length); exclusion in `telemetry.Fire()`, not the shared main.go (sworn#7) | planned | [spec](./S37-telemetry-tui-exclusion/spec.md) |
 | `S38-verifier-blocked-violations` | T12 | a BLOCKED verdict must populate `status.json` violations (not just journal prose) + a gate rejecting blocked-with-empty-violations — fixes blank REPLAN pages | planned | [spec](./S38-verifier-blocked-violations/spec.md) |
@@ -329,11 +327,11 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 
 ## Aggregate state
 
-- Planned: 31
+- Planned: 30
 - In progress: 0
 - Design review: 3
-- Implemented: 1
-- Verified: 18
+- Implemented: 0
+- Verified: 19
 - Failed verification: 0
 - Deferred: 0
 
@@ -345,7 +343,32 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 
 ## Recent activity
 
+### 2026-06-28 — verifier verdict: PASS (S34-tui-merge-actor)
+
+- **Actor**: verifier (`/verify-slice`)
+- **Verdict**: PASS — All six gates passed. Entry points `internal/tui/concurrent.go` (live view) and `internal/tui/board.go` (board view) wired through `LiveView.poll()`/`View()` and `BoardView.LoadBoard()`/`View()`. 27/27 tests pass; go build/vet clean. Merge actor rows rendered with `MergeRowStyle` (amber, bold) in live view; `⟪merge⟫` badge on board track headers. No silent deferrals.
+- **Next step**: T2-monitoring now has all slices verified. Run `/merge-track T2-monitoring`, then `/merge-release 2026-06-19-safe-parallelism` once every track in the release has merged.
+
+### 2026-06-28 — verifier verdict: PASS (S05-overclaim-benchmark)
+- **Actor**: verifier (`/verify-slice`)
+- **Verdict**: PASS — All six gates passed. Entry point `sworn bench overclaim` wired from `cmd/sworn/main.go` → `cmdBench` → `bench.RunOverclaimBenchmark`. 12/12 tests pass; go vet clean; race detector clean; determinism confirmed (5× identical MD5). Verified against commit `bb24fdd`.
+- **Next step**: `/implement-slice S34-tui-merge-actor 2026-06-19-safe-parallelism` in a fresh session (next incomplete slice in T2-monitoring).
+
+### 2026-06-28 — verifier verdict: PASS (S04c-tui-resolution)
+
+- **Actor**: verifier (`/verify-slice`)
+- **Verdict**: PASS — All six gates passed. Entry point fully wired from `cmd/sworn` to `viewBlocked`. All 7 tests pass. Two deferrals acknowledged with Rule 2 compliance. Verified against commit `041382b`.
+- **Next step**: `/implement-slice S05-overclaim-benchmark 2026-06-19-safe-parallelism` in a fresh session (next incomplete slice in T2-monitoring).
+
+### 2026-06-28 — verifier verdict: FAIL (S04c-tui-resolution)
+
+- **Actor**: verifier (`/verify-slice`)
+- **Verdict**: FAIL — Gate 2 violation: `internal/tui/board.go`, `internal/tui/styles.go`, `internal/state/state.go` changed but not in spec.md "Planned touchpoints" and not explained in proof.md "Divergence from plan". All other gates (1, 3–6) pass. Tests: 21/21 PASS, go vet: clean.
+- **Next step**: `/implement-slice S04c-tui-resolution 2026-06-19-safe-parallelism` in a fresh session. Add the three files to spec.md Planned touchpoints OR document them in proof.md Divergence from plan.
+
 ### 2026-06-28 — track `T4-mcp` merged to release-wt (commit 732265d)
+
+### 2026-06-21 — replan: provider-error taxonomy (re-scope S10 + S44)
 
 - **Actor**: track integrator (/merge-track)
 - **Note**: 4 verified slices merged: S08a-mcp-transport, S08b-mcp-ops-tools, S08c-mcp-plan-tools, S22-sworn-doctor. Track state -> merged.
@@ -356,7 +379,6 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 - **S10-provider-foundation re-scoped** (still planned, T5): adds a typed `model.Error{Kind}` taxonomy (`internal/model/errors.go`) — `ClassifyHTTP` maps 401/403→Auth, 402→Credits, 429→RateLimit, 5xx→Upstream; `IsTerminal`/`IsTransient`; `UserMessage()`. `oai.go` returns `*model.Error` on non-2xx (still satisfies `error`); `run.go` prints `UserMessage()`. New touchpoints: `internal/model/errors.go(+_test)`, `oai.go` (modify).
 - **S44-feedback-driven-retry re-scoped** (still planned, T12 tail; **now depends_on S10**): adds a provider-error retry policy consuming the taxonomy — terminal (Auth/Credits) → fail fast, no model escalation; transient (RateLimit/Upstream) → backoff on the same model. Orthogonal to the existing verifier-FAIL-feedback path. Cross-track dep recorded here (schema has no per-slice `depends_on` field); both slices are planned/not-started so sequencing is clean.
 - **No new slices, no new tracks** — re-scope of two planned slices only. Release count unchanged (53 slices / 13 tracks).
-
 ### 2026-06-21 — replan: new track T13-sworn-role-parity (S45/S46/S47)
 
 - **Actor**: planner (`/replan-release`)

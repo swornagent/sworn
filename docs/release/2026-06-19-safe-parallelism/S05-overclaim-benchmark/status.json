@@ -3,11 +3,11 @@
   "slice_id": "S05-overclaim-benchmark",
   "release": "2026-06-19-safe-parallelism",
   "track": "T2-monitoring",
-  "state": "planned",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-20T00:00:00Z",
-  "start_commit": null,
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-28T22:00:00Z",
+  "start_commit": "29c13e42f1b81c84a67454ca92ef307ecc847533",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S05-overclaim-benchmark/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S05-overclaim-benchmark/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S05-overclaim-benchmark/journal.md",
@@ -17,7 +17,12 @@
     "cmd/sworn/bench.go",
     "docs/benchmark/overclaim-concurrent-1to4.md"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/bench/overclaim.go",
+    "internal/bench/overclaim_test.go",
+    "cmd/sworn/bench.go",
+    "docs/benchmark/overclaim-concurrent-1to4.md"
+  ],
   "test_commands": [
     "go test ./internal/bench/...",
     "sworn bench overclaim"
@@ -27,10 +32,10 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "pass",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-06-28T22:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
   }
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/telemetry"
+	"github.com/swornagent/sworn/internal/tui"
 	"github.com/swornagent/sworn/internal/verify"
 	"os"
 	"strings"
@@ -56,8 +57,12 @@ func main() {
 // Does NOT call os.Exit — the caller (main) handles that after telemetry.
 func dispatch(args []string) int {
 	if len(args) < 2 {
-		usage()
-		return 64
+		// No subcommand — launch the TUI (S04, T2-monitoring).
+		if err := tui.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "sworn: %v\n", err)
+			return 1
+		}
+		return 0
 	}
 	switch args[1] {
 	case "init":
