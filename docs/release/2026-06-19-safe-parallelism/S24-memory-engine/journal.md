@@ -81,3 +81,26 @@ per the verifier's proposed fix: forward-merged release-wt and ported
 verification.result cleared to pending; state → implemented for re-verify.
 (Same systemic conflict as T2/S04c and T3/S06a — T9's dispatch extraction vs every
 track's added case; S30-lint-touchpoints will catch this class at plan time.)
+
+## 2026-06-21 — implementer re-entry: corrected Gate 2 start_commit + honest Divergence
+
+Round-1 FAIL was Gate 2 only (Gates 1, 3, 4, 5, 6 passed; the S24 code is unchanged).
+Two corrections, no production-code change:
+
+1. **`start_commit` 16c0a8b → d441b4c.** `16c0a8b` was the coach-ack commit; the
+   start-implementation commit is `d441b4c`. This is a one-time correction of a *wrong*
+   boundary, NOT a re-entry overwrite of a correct one (cf. the S02b round-2 regression
+   that the implement-slice re-entry guard was added to prevent) — the verifier explicitly
+   directed it.
+2. **proof.md "Files changed" + "Divergence from plan" rewritten from live state.** The
+   verifier's prescribed one-line fix ("set start_commit to d441b4c") was based on the
+   pre-re-merge graph; it is now insufficient because two forward-merges of release-wt
+   (`761b8bf`, `dfa666c`) landed *after* d441b4c, so `d441b4c..HEAD` still carries the 6
+   S26/S28 code files + 46 replan/other-slice docs. Rather than chase an impossible "clean"
+   boundary, proof.md now lists the S24 footprint explicitly and accounts for every
+   inherited file under Divergence (main.go = dispatch resolution; the rest = forward-merge
+   content from already-verified slices). The diff and the proof are now consistent — which
+   is what Gate 2 actually checks.
+
+`go test -race ./internal/memory/...` ok; `go build ./...` clean. state → implemented,
+verification.result → pending. Ready for fresh-context re-verify.
