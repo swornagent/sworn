@@ -1,78 +1,113 @@
-# Captain review — S08c-mcp-plan-tools
+# Captain review — S08c-mcp-plan-tools (Round 2)
 Date: 2026-06-21
-Design commit: 8799676ae619979a3f3ccabdf3d41f2f6e650bc5
+Design commit: 756f937585c0bc3a8e589c6bd5febfb797c087f2
 
-> **Drift note:** T4-mcp track is 29 commits behind `release-wt/` (from T9-telemetry and T11-infra-safety merges). These tracks are orthogonal to MCP tooling; S08c's spec/design are unaffected. Review proceeded.
+> **Round 2 re-review.** Round 1 (2026-06-21) surfaced 6 pins (3 mech, 1 mem, 2 esc);
+> Coach declined (see `decline.md`). Implementer revised design.md to address all 6 pins
+> (see design §7 Pin resolutions). This review assesses the revised design only.
+>
+> **Drift note:** T4-mcp track is 36 commits behind `release-wt/` (T9-telemetry,
+> T11-infra-safety, T12-harness-hardening merges). These tracks are orthogonal to MCP
+> tooling; S08c's spec and design are unaffected by those commits. Review proceeded.
+
+## Round 1 pin closures (all 6 resolved)
+
+| Pin | Resolution |
+|-----|------------|
+| Pin 1 server dispatch gap | §3 explicitly adds `RegisterResource`/`RegisterPrompt` + `resources/read`/`prompts/get` to server.go; design §7.1 confirms this with exact API names |
+| Pin 2 baton/rules source | §4 deferral with full Rule-2 compliance (why: source not yet built; tracking: S21-canonical-baton; ack: Coach 2026-06-21) |
+| Pin 3 baton/ dir missing | §3 creates `internal/prompt/baton/`; vendors `track-mode.md`; serves baton/version from existing `internal/prompt/VERSION.txt` (no duplicate) |
+| Pin 4 yaml.v3 ADR | Decision 2 chooses stdlib/strings — no new dep, no ADR needed |
+| Pin 5 cmd/sworn/mcp.go missing | Added to §3 and status.json planned_files; wiring point confirmed |
+| Pin 6 spec reachability | §5 amended to `create_slice` demo; spec Required Tests reachability updated accordingly |
 
 ## Pins
 
-1. `[mechanical]` §3 — `resources/read` and `prompts/get` absent from server dispatch; no `RegisterResource`/`RegisterPrompt` API on `Server`
-   What I observed: `server.go`'s `buildMethodHandlers()` dispatches `resources/list` and `prompts/list` but has no `"resources/read"` or `"prompts/get"` entries. No `RegisterResource()` or `RegisterPrompt()` method exists on the `Server` struct. Design §3 plans `resources.go` and `prompts.go` but says nothing about extending `server.go`.
-   What to ask: Before implementing resources.go/prompts.go, add to server.go: (a) `RegisterResource(uri string, handler ResourceHandler)` and `RegisterPrompt(name string, handler PromptHandler)` registration methods, (b) `"resources/read"` and `"prompts/get"` entries in `buildMethodHandlers()`, (c) update `handlePromptsList` to enumerate registered prompts. Without these, every `resources/read` and `prompts/get` call returns JSON-RPC "Method not found" — the entire resource/prompt system ships silent-broken.
+1. `[mechanical]` §3 — spec-prescribed embed-absent error text not named in resources.go plan
+   What I observed: Spec Risks says "If the embed is somehow absent... return a clear error:
+   'sworn://prompts/plan: embedded prompt not found — this is a binary build error; please
+   reinstall sworn.'" Design Decision 5 says "if the embed is absent or corrupted, the resource
+   returns an error" but gives no message format. The spec prescribes a specific error string
+   that includes the URI prefix and a "binary build error; please reinstall sworn" suffix.
+   What to ask the implementer: In `resources.go`, when `embeddedFS.ReadFile(path)` returns an
+   error (or the embedded file is not found), return the spec-prescribed format:
+   `"sworn://<uri>: embedded prompt not found — this is a binary build error; please reinstall sworn."`
+   Apply inline during implementation.
 
-2. `[escalate]` §3 — `sworn://baton/rules` → `internal/prompt/baton/rules.md` but no source file exists
-   What I observed: Spec maps `sworn://baton/rules` to `internal/prompt/baton/rules.md` ("full Baton protocol"). Neither `internal/prompt/baton/` nor any `rules.md` file exists in the repo or at `~/.claude/baton/` — baton rules are split across individual files (`adversarial-verification.md`, `no-silent-deferrals.md`, `proof-bundle.md`, etc.; `~/.claude/baton/README.md` is 139 lines describing the system but is not a consolidated protocol document). No single combined "full Baton protocol" document exists anywhere.
-   What to ask: Coach must decide: (a) create a new combined `internal/prompt/baton/rules.md` from the individual baton rule files (author it as part of this slice), (b) use an existing file as-is (`README.md` or `AGENTS-fragment.md`), (c) defer `sworn://baton/rules` post-R3 with Rule 2 compliance and amend the spec accordingly. Neither the design nor the spec identifies a source — implementer cannot proceed on this resource without a decision.
+2. `[mechanical]` §3 — colon-space YAML safety test missing from test plan
+   What I observed: Spec Risks prescribes "Test with a slice title containing a colon-space"
+   for the `set_track` YAML frontmatter path. Design §3 names `TestSetTrackValidation` (tests
+   non-existent slice_id) but does not name a colon-space test. The `set_track` handler
+   manipulates raw YAML frontmatter via stdlib strings; a slice title like "My tool: setup" in
+   the slices list must round-trip without corrupting the frontmatter. No test name covers this.
+   What to ask the implementer: Add a test case (e.g. `TestSetTrackColon`) to `tools_test.go`
+   that calls `set_track` with a slice whose ID or title contains "colon: space" and asserts
+   the resulting `index.md` frontmatter is valid YAML. Apply inline during implementation.
 
-3. `[mechanical]` §3 + §2.5 — `internal/prompt/baton/` directory missing; `track-mode.md` and `VERSION.txt` need sourcing
-   What I observed: Spec maps `sworn://baton/track-mode` → `internal/prompt/baton/track-mode.md` and `sworn://baton/version` → `internal/prompt/baton/VERSION.txt`. The directory `internal/prompt/baton/` does not exist in the repo. Source for `track-mode.md` exists at `~/.claude/baton/track-mode.md` (vendoring needed). `VERSION.txt` already exists at `internal/prompt/VERSION.txt` — the spec references a separate copy at `baton/VERSION.txt` which would either duplicate it or point to the same file. Design §2 Decision 5 says "go:embed in internal/prompt/embed.go (or similar)" without addressing baton/ subdirectory creation or the VERSION.txt duplication question.
-   What to ask: Create `internal/prompt/baton/` directory; vendor `~/.claude/baton/track-mode.md` there; decide whether to create a `baton/VERSION.txt` symlink/copy or serve `sworn://baton/version` from the existing `internal/prompt/VERSION.txt` via the resource handler (and update the spec path reference accordingly). Update the go:embed directive.
-
-4. `[memory-cited]` §2 Decision 2 — `gopkg.in/yaml.v3` new runtime dep not covered by ADR
-   What I observed: Decision 2 proposes `gopkg.in/yaml.v3` for YAML frontmatter parsing in `set_track`. `grep yaml go.mod go.sum` returns no matches — yaml.v3 is completely absent from the module graph. Per [[project_dep_policy]], each new dep requires an ADR commit before it appears in go.mod. No ADR for yaml.v3 is mentioned in the design.
-   What to ask: Either (a) write a brief ADR entry (analogous to ADR-0004) before adding yaml.v3 to go.mod, or (b) implement frontmatter manipulation using stdlib strings — index.md's frontmatter is narrow in scope (known key set, single-quoted scalar values), making a targeted regex/replacement approach viable without a full YAML parser. Option (b) avoids a new dep entirely.
-   Citation: [[project_dep_policy]]
-
-5. `[mechanical]` §3 — `cmd/sworn/mcp.go` missing from planned_files
-   What I observed: `cmd/sworn/mcp.go` already contains the comment "Planning tools (S08c) register here in a later slice" at the `mcp.RegisterOpsTools(...)` call site in `cmdMcp()`. This file must be edited in S08c to add the planning tool registration call (analogous to `mcp.RegisterOpsTools`). Design §3 says "internal/mcp/mcp.go (or similar)" — `internal/mcp/mcp.go` does not exist; the actual wiring point is `cmd/sworn/mcp.go`. It is absent from both design §3 and status.json `planned_files`.
-   What to ask: Add `cmd/sworn/mcp.go` to §3 and status.json `planned_files`. The registration call (`mcp.RegisterPlanTools(server, ".")` or equivalent) goes there, following the S08b pattern.
-
-6. `[escalate]` Spec reachability artefact contradicts the in-scope section
-   What I observed: Required Tests reachability says "configure sworn mcp in Claude Code; ask Claude to 'create a new sworn release'; observe AI calls create_release." But the spec's In Scope section explicitly states: "`createRelease` is not exposed as a public MCP tool from this slice." A connected AI cannot call an unexposed internal function via MCP. The spec contradicts itself on its own reachability artefact.
-   What to ask: Coach must amend the spec's reachability artefact to a feasible demo. The technically correct substitute is: connect Claude Code to `sworn mcp`; ask AI to "add slice S99-test to release 2026-06-19-mcp-test"; observe AI calls `create_slice`; verify `docs/release/2026-06-19-mcp-test/S99-test/` is created; clean up. Or a simpler `update_intake` demo. Whichever is chosen, Required Tests must be amended via `/replan-release`.
+3. `[memory-cited]` §2 Decision 2 — stdlib over yaml.v3 confirmed; §6 question resolved by memory
+   What I observed: Decision 2 cites [[project_dep_policy]] for the no-yaml.v3 pick. Memory
+   [[feedback_dep_justification_test]] explicitly records the Coach's decision for this exact
+   slice: "S08c → DON'T add yaml.v3, use stdlib (not justified)" — sworn-authored narrow
+   frontmatter, general YAML parser risks key-reordering/comment stripping, new module family
+   for one function. Decision aligns. The §6 open question ("yaml.v3 vs stdlib — Confirm, or
+   direct me to add yaml.v3 behind an ADR") is fully answered by this memory; no human decision
+   needed. Ack confirms the citation is correct.
+   Citation: [[feedback_dep_justification_test]], [[project_dep_policy]]
 
 ---
 
 ## Summary
 
-Pins: 6 total — 3 [mechanical], 1 [memory-cited], 2 [escalate]
-Critical pins: Pin 1 (resources/read + prompts/get dispatch gap — ALL resource/prompt serving ships silent-broken without this fix); Pin 2 (rules.md source undefined — blocks the baton/rules resource entirely); Pin 3 (baton/ dir missing — go:embed references non-existent files, compile-time panic)
+Pins: 3 total — 2 [mechanical], 1 [memory-cited], 0 [escalate]
+Critical pins: None. Pin 1 applies to a defensive code path (embed absent in a correctly built
+binary — should never happen); Pin 2 is a missing test name. Neither causes the feature to ship
+broken, but both would surface as Verifier findings.
 
 ## Smaller flags (not pins, worth one-line ack)
 
-(a) Design §2 Decision 4 uses "where supported by the MCP SDK" language — but sworn's MCP server is a bespoke implementation with no third-party SDK. The "if SDK requires exact matches" branch is dead; implement dynamic path matching in the resource handler directly.
+(a) **S21 file overlap.** `S21-canonical-baton` (T3, planned) lists `internal/prompt/baton/track-mode.md`
+    and `internal/prompt/prompt.go` in its planned_files — both also in S08c. T4-mcp merges before
+    T3-commercial, so S21 will find `track-mode.md` already exists (S08c's vendored copy) and will
+    overwrite it with the canonical version. `prompt.go` edits are additive and will merge cleanly.
+    No action needed for S08c; note for the S21 Implementer to expect the file pre-existing.
 
-(b) `handleResourcesList` returns an empty list. Spec defers dynamic listing post-R3, so this is acceptable — but confirm `prompts/list` is updated to enumerate registered prompts (spec includes prompts/list as in-scope).
+(b) **`status.json` `test_commands` is empty.** Populate (e.g. `"go test ./internal/mcp/... -count=1 -timeout 60s"`)
+    before transitioning to `in_progress`.
 
-(c) Drift: T4-mcp is 29 commits behind release-wt/. Not a spec-staleness risk (drift is from T9/T11, orthogonal domains), but the Implementer's forward-merge step before code is still required.
+(c) **Forward-merge required.** T4-mcp is 36 commits behind `release-wt/`. Implementer must
+    `git merge release-wt/2026-06-19-safe-parallelism` into the track branch before writing code.
 
 ## Suggested ack reply
 <!-- Coach-extractable section: `coach ack <slice>` reads everything between
      this heading and the next ## heading (or EOF). Keep this content
      verbatim-pasteable into the Implementer session — no surrounding prose. -->
 
-Design looks structurally sound but has 3 critical mechanical gaps and 2 spec-level questions that need Coach decisions first. 6 pins total:
+Clean Round 2. All 6 Round-1 pins are resolved; 3 lightweight new pins to apply inline + 3 flags:
 
-1. **Server dispatch gap (critical).** Before implementing resources.go/prompts.go, extend server.go: add `RegisterResource()` and `RegisterPrompt()` registration methods, add `"resources/read"` and `"prompts/get"` to `buildMethodHandlers()`, and update `handlePromptsList` to enumerate registered prompts. Pattern mirrors how `RegisterTool` works.
+1. **Embed-absent error text (apply inline).** In `resources.go`, when an embedded file is not
+   found, return the spec-prescribed format: `"sworn://<uri>: embedded prompt not found — this is
+   a binary build error; please reinstall sworn."` (Spec Risks, first bullet.)
 
-2. **`sworn://baton/rules` source (escalate — Coach decides first).** No `rules.md` exists anywhere. Do not create this resource until Coach resolves Pin 2. If deferred, mark with Rule 2 compliance.
+2. **Colon-space test (apply inline).** Add `TestSetTrackColon` (or similar) to `tools_test.go`:
+   call `set_track` with a slice whose title or ID contains `"colon: space"`; assert the resulting
+   `index.md` frontmatter is valid YAML. (Spec Risks, second bullet.)
 
-3. **`internal/prompt/baton/` directory (critical — apply inline).** Create `internal/prompt/baton/`; vendor `~/.claude/baton/track-mode.md` there; decide on `baton/VERSION.txt` vs reusing `internal/prompt/VERSION.txt` via the handler. Update go:embed directive.
+3. **yaml.v3 decision (memory-cited, no change needed).** Decision 2 (stdlib over yaml.v3) aligns
+   with [[feedback_dep_justification_test]] — Coach's recorded call for this exact slice. §6 yaml.v3
+   question is answered; proceed with stdlib. No ADR needed.
 
-4. **yaml.v3 ADR (apply inline).** Before adding yaml.v3 to go.mod: either write a brief ADR entry or use stdlib strings for frontmatter manipulation (simpler frontmatter structure makes this viable). See [[project_dep_policy]].
+Flags: (a) S21 will find `track-mode.md` pre-existing (expected — it overwrites with canonical);
+(b) populate `test_commands` in status.json before in_progress;
+(c) forward-merge `release-wt/` before writing code (36 commits ahead, orthogonal domain).
 
-5. **`cmd/sworn/mcp.go` to planned_files (apply inline).** Add `cmd/sworn/mcp.go` to status.json planned_files and §3. The "Planning tools (S08c) register here" comment in that file is the wiring point.
+§2 decisions 1 (CreateRelease exported), 3 (update_intake append-or-create), 4 (bespoke path matching), 5 (go:embed extended) ack — sound.
+§4 deferrals (baton/rules→S21, resources/list→post-R3, create_release MCP tool→S20) ack — Rule-2 compliant.
+§6 open question (yaml.v3) ack — resolved by memory, no human decision needed.
 
-6. **Spec reachability (escalate — Coach decides first).** Required Tests reachability mentions `create_release` via MCP, but it's not a registered tool. Do not write the reachability section in proof.md against this artefact — wait for Coach to amend the spec.
-
-Flags: (a) drop "MCP SDK" language in §2 Decision 4 — the server is bespoke, use dynamic path matching directly; (b) confirm prompts/list handler reflects registered prompts.
-
-§2 decisions 1 (CreateRelease exported), 3 (update_intake append), and 5 (go:embed for prompts) ack — sound.
-
-Address pins 1, 3, 4, 5 inline during implementation. Hold on pins 2 and 6 pending Coach decisions. Once Coach resolves, proceed to in_progress.
+Address pins 1 and 2 inline during implementation. Pin 3 is a confirmation, no code change. Proceed to in_progress.
 
 <!-- CAPTAIN-VERDICT
-DECISION: NEEDS_COACH
+DECISION: PROCEED
 CONSTITUTIONAL: no
-REASON: Pins 2 and 6 require Coach authority — Pin 2 (source of rules.md has no single right answer: create new doc, use existing file, or defer post-R3) and Pin 6 (spec reachability references a non-existent MCP tool, spec must be amended before implementer can write the proof artefact).
+REASON: All 3 Round-2 pins are apply-inline corrections (spec error text, missing test name, memory-cited confirmation). No design rethink or Coach authority needed; the two Round-1 escalations were resolved by the Coach's decline and are properly reflected in the revised design.
 -->
