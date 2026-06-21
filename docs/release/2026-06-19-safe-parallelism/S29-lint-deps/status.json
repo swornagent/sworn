@@ -17,6 +17,12 @@
     "cmd/sworn/lint.go",
     "internal/prompt/planner.md"
   ],
+  "design_decisions": [
+    {"id": "D1", "type": "type_2", "summary": "CheckDeps null-fallback ref construction"},
+    {"id": "D2", "type": "type_2", "summary": "Git diff command uses baseRef...HEAD"},
+    {"id": "D3", "type": "type_2", "summary": "Undeclared dep detection logic"},
+    {"id": "D4", "type": "type_2", "summary": "Error message format for undeclared files"}
+  ],
   "actual_files": [],
   "test_commands": [
     "go test ./internal/lint/... -run Deps",
