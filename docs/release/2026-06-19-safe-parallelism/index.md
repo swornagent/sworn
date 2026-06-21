@@ -58,6 +58,12 @@ tracks:
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T9-telemetry
     worktree_branch: track/2026-06-19-safe-parallelism/T9-telemetry
     state: in_progress
+  - id: T10-public-readiness
+    slices: [S27-public-readiness-scrub]
+    depends_on: [T1-concurrency-core, T2-monitoring, T3-commercial, T4-mcp, T5-providers, T6-provider-ux, T7-mcp-extensions, T8-memory, T9-telemetry]
+    worktree_path:
+    worktree_branch: track/2026-06-19-safe-parallelism/T10-public-readiness
+    state: planned
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
@@ -89,14 +95,15 @@ tracks:
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
 | `T1-concurrency-core` | S01 → S02a → S02b → S03 | — | `track/.../T1-concurrency-core` | merged |
-| `T2-monitoring` | S04a → S04b → S04c → S05 | T1 | `track/.../T2-monitoring` | planned |
-| `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 | `track/.../T3-commercial` | planned |
-| `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | planned |
+| `T2-monitoring` | S04a → S04b → S04c → S05 | T1 | `track/.../T2-monitoring` | in_progress |
+| `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 | `track/.../T3-commercial` | in_progress |
+| `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | in_progress |
 | `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 | T1 + T3 | `track/.../T5-providers` | planned |
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
 | `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | planned |
-| `T8-memory` | S23 → S24 → S25 | T1 | `track/.../T8-memory` | planned |
-| `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | planned |
+| `T8-memory` | S23 → S24 → S25 | T1 | `track/.../T8-memory` | in_progress |
+| `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | in_progress |
+| `T10-public-readiness` | S27 | all (T1–T9) | `track/.../T10-public-readiness` | planned |
 
 ### Execution order
 
@@ -106,6 +113,7 @@ Phase 2:  T2, T3, T4, T8, T9 (parallel after T1)
 Phase 3:  T5 (after T1 + T3)
           T7 (after T3 + T4; may run in parallel with T5)
 Phase 4:  T6 (after T2 + T5)
+Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before launch)
 ```
 
 ### Touchpoint matrix
@@ -114,6 +122,9 @@ Phase 4:  T6 (after T2 + T5)
 > `cmd/sworn/main.go` is a **documented shared file** (additive dispatch only).
 > `(dep)` notation means the track writes this file only after the named dependency merges
 > — the dep-edge serialises writes so they are not truly concurrent.
+> `T10-public-readiness` (S27) is omitted from the columns below: it depends on every
+> other track and runs strictly last (Phase 5), so its wide touchpoints — comment scrubs
+> and prompt-text edits across many files — collide with nothing in parallel.
 
 | File / surface | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |---|---|---|---|---|---|---|------|---|---|
@@ -262,32 +273,34 @@ Phase 4:  T6 (after T2 + T5)
 | `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | planned | [spec](./S23-memory-config/spec.md) |
 | `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | planned | [spec](./S24-memory-engine/spec.md) |
 | `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | planned | [spec](./S25-memory-search/spec.md) |
-| `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | failed_verification | [spec](./S26-telemetry/spec.md) |
+| `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | planned | [spec](./S26-telemetry/spec.md) |
+| `S27-public-readiness-scrub` | T10 | Make repo + binary public-safe: generalise embedded role prompts (keep Captain/Coach, strip coach-loop coupling), scrub dogfood provenance comments + fired/GetFired + coach-loop refs. Final launch gate. | planned | [spec](./S27-public-readiness-scrub/spec.md) |
 
 ## Aggregate state
 
-- Planned: 27
+- Planned: 28
 - In progress: 0
 - Design review: 0
 - Implemented: 0
 - Verified: 4
-- Failed verification: 1
+- Failed verification: 0
 - Deferred: 0
 
 **Tracks:** Planned: 8 / Ready to merge: 0 / Merged: 1
 
-> Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice).
+> Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice);
+> T10 new (1 slice: S27, the final public-readiness gate). Release now **33 slices across 10 tracks**.
 
 ## Recent activity
 
-### 2026-06-21 — S26 verifier verdict: FAIL (round 1, 3 violations)
+### 2026-06-21 — replan: S21 re-scoped + S27 added (public-readiness gate)
 
-- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
-- **Slice**: S26-telemetry → state: **failed_verification**
-- **Violation 1 (Gate 2)**: `sworn` binary (16 MB ELF) committed in `2da8599`; absent from spec planned touchpoints; `3f496d1` (binary removal) is already in T9 branch history. proof.md "Files changed" omits it.
-- **Violation 2 (Gate 3)**: `TestIsEnabled_Neither` absent. journal Flag (a) renamed it to `TestIsEnabled_OptedIn_NoOverrides` but that test covers case 3 (opted-in → true), not case 4 (neither sentinel → false). The "init not run → disabled" path is untested.
-- **Violation 3 (Gate 6)**: Spec AC8 says "within 10ms"; `TestFireNonBlocking` uses 100ms threshold; proof claims AC8 at 100ms without documenting the divergence.
-- **Next**: `/implement-slice S26-telemetry 2026-06-19-safe-parallelism` in a fresh session.
+- **Actor**: planner (`/replan-release`)
+- **S21-canonical-baton re-scoped**: embed **10 rules** (not 7), built from the in-repo canonical `internal/adopt/baton/rules/` (`01`–`10`) instead of "verbatim from `~/.claude/baton/`" (stale at 7, would drop Rules 8/9/10). The role-prompt generalisation the verbatim copy would have leaked is split out to S27.
+- **S27-public-readiness-scrub added** in new track **T10-public-readiness** (depends on every track; runs last — the launch gate): generalise the embedded role prompts (keep Captain/Coach, strip coach-loop/`--auto-ack`/`approved-ack`/S21-stall/project-memory; operationally intact), scrub the 8 dogfood provenance comments, the `fired`/GetFired leak, and `coach-loop` references across source + release artefacts.
+- **Base sync**: release-wt forward-merged `release/v0.1.0` to pick up the no-mock→Rule-10 reconciliation (`5139882`).
+- **Release now 33 slices across 10 tracks.**
+- **Staleness note**: the per-slice State column and the Aggregate-state block remain stale vs the board oracle (known release-wt/track-branch lag); `release-board-status.sh` is authoritative. Not fully reconciled in this pass.
 
 ### 2026-06-21 — track `T1-concurrency-core` merged to release-wt (commit 581b6a9)
 
