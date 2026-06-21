@@ -71,7 +71,7 @@ tracks:
     worktree_branch: track/2026-06-19-safe-parallelism/T11-infra-safety
     state: merged
   - id: T12-harness-hardening
-    slices: [S29-lint-deps, S30-lint-touchpoints, S31-lint-symbols, S32-designfit-decisions-gate, S33-spec-template-hardening, S35-mutation-guard, S36-captain-resolve-dirty-worktree, S37-telemetry-tui-exclusion]
+    slices: [S29-lint-deps, S30-lint-touchpoints, S31-lint-symbols, S32-designfit-decisions-gate, S33-spec-template-hardening, S35-mutation-guard, S36-captain-resolve-dirty-worktree, S37-telemetry-tui-exclusion, S38-verifier-blocked-violations]
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T12-harness-hardening
     worktree_branch: track/2026-06-19-safe-parallelism/T12-harness-hardening
@@ -117,7 +117,7 @@ tracks:
 | `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
 | `T10-public-readiness` | S27 | all (T1–T9) | `track/.../T10-public-readiness` | planned |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
-| `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 | T1 | `track/.../T12-harness-hardening` | planned |
+| `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 | T1 | `track/.../T12-harness-hardening` | planned |
 
 ### Execution order
 
@@ -144,6 +144,12 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 > tool-specific (`internal/designfit/`, `cmd/sworn/lint.go`) plus prompt files
 > (`captain.md`/`planner.md`/`verifier.md`) shared only with T10 — which depends on T12,
 > so those writes are sequential, not parallel.
+> **Cross-slice dependency (S08c → S21):** `internal/prompt/baton/rules.md` is created by
+> `S21-canonical-baton` (T3). `S08c-mcp-plan-tools` (T4) serves it via the `sworn://baton/rules`
+> MCP resource, so S08c's rules resource depends on S21's output. Resolution (Captain Pin 2,
+> Coach 2026-06-21): **defer that resource as a Rule-2 deferral until S21 lands** — do not add a
+> hard T4→T3 dependency that would serialise the tracks. (Exactly the consumer↔creator edge
+> S30-lint-touchpoints is meant to surface at plan time.)
 
 | File / surface | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |---|---|---|---|---|---|---|------|---|---|
@@ -209,7 +215,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `internal/prompt/implementer.md` | | | ✓ | | | | |
 | `internal/prompt/verifier.md` | | | ✓ | | | | |
 | `internal/prompt/prompt.go` | | | ✓ | | | | |
-| `internal/prompt/baton/` (new) | | | ✓ | | | | |
+| `internal/prompt/baton/` (new — created by S21/T3; read by S08c/T4 via `sworn://baton/rules`, deferred) | | | ✓ | (T3 dep) | | | | |
 | `cmd/sworn/induction.go` (new) | | | ✓ | | | | |
 | `cmd/sworn/induction_test.go` (new) | | | ✓ | | | | |
 | `internal/mcp/` (new) | | | | ✓ | | |
@@ -305,6 +311,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S35-mutation-guard` | T12 | Captain check + Baton-rule clause for process-global mutation (cwd/git-state/os.Chdir) — the sworn#6 class | planned | [spec](./S35-mutation-guard/spec.md) |
 | `S36-captain-resolve-dirty-worktree` | T12 | Captain auto-resolves dirty track worktrees (commit-by-default, record the diff+resolution, never page the Coach) | planned | [spec](./S36-captain-resolve-dirty-worktree/spec.md) |
 | `S37-telemetry-tui-exclusion` | T12 | no-args/TUI launch no longer fires a junk telemetry event (empty cmd + session-length); exclusion in `telemetry.Fire()`, not the shared main.go (sworn#7) | planned | [spec](./S37-telemetry-tui-exclusion/spec.md) |
+| `S38-verifier-blocked-violations` | T12 | a BLOCKED verdict must populate `status.json` violations (not just journal prose) + a gate rejecting blocked-with-empty-violations — fixes blank REPLAN pages | planned | [spec](./S38-verifier-blocked-violations/spec.md) |
 
 ## Aggregate state
 
@@ -321,7 +328,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice);
 > T10 new (1 slice: S27, the final public-readiness gate); T11 new (1 slice: S28, the
 > sworn#6 git-dir safety fix); T12 new (7 harness-hardening slices from the trial-log harvest);
-> S34 appended to T2. Release now **43 slices across 12 tracks**.
+> S34 appended to T2. Release now **44 slices across 12 tracks**.
 
 ## Recent activity
 
@@ -332,7 +339,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 - **S34-tui-merge-actor** appended to T2's tail: render the `merge:<track>` actor (now emitted by the coach-loop merge-tag) in the TUI live view + board.
 - **S36** added per Coach direction: dirty worktrees are only worker-caused, so the Captain auto-resolves (commit-by-default, record diff+resolution) rather than paging.
 - **Also landed live this session** (outside the release tree): coach-loop merge-actor tag + post-dispatch worktree-flip guard (sworn#6); verifier `## Status block` watcher-wrapper removed (metadata kept). 10 fired latent bugs filed at `firedau/fired#968–977`.
-- **Release now 43 slices across 12 tracks.** Lightweight add — T12 is a new planned track and S34 appends to T2's tail, so no cross-track forward-merge was needed.
+- **Release now 44 slices across 12 tracks.** Lightweight add — T12 is a new planned track and S34 appends to T2's tail, so no cross-track forward-merge was needed.
 
 ### 2026-06-21 — track `T11-infra-safety` merged to release-wt (commit d242687)
 
