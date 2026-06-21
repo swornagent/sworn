@@ -976,3 +976,229 @@ tracks:
 		t.Errorf("expected options menu after Esc, got: %s", view)
 	}
 }
+
+// TestLiveViewRendersMergeActorRow verifies that a live-status snapshot with
+// a merge:<track> acquired event renders a distinct, highlighted merge row
+// in the live concurrent-status view.
+func TestLiveViewRendersMergeActorRow(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a sworn DB with a merge:T1-engine acquired event.
+	dbPath := db.DefaultPath(dir)
+	conn, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer conn.Close()
+
+	_, err = conn.Exec(
+		"INSERT INTO events (track_id, release, event, detail, ts) VALUES (?, ?, ?, ?, ?)",
+		"merge:T1-engine", "test-release", "acquired", "PID 12345", "2026-06-28T12:00:00Z",
+	)
+	if err != nil {
+		t.Fatalf("insert event: %v", err)
+	}
+
+	lv, err := StartLiveView(dir, "test-release")
+	if err != nil {
+		t.Fatalf("StartLiveView: %v", err)
+	}
+	defer lv.Close()
+
+	// Verify the merge row is present.
+	var mergeRow *TrackRow
+	for i := range lv.Rows {
+		if lv.Rows[i].IsMerge && lv.Rows[i].ID == "merge:T1-engine" {
+			mergeRow = &lv.Rows[i]
+			break
+		}
+	}
+	if mergeRow == nil {
+		t.Fatalf("expected a merge:T1-engine row in lv.Rows, got: %+v", lv.Rows)
+	}
+	if mergeRow.State != "merging" {
+		t.Errorf("expected merge row state 'merging', got %q", mergeRow.State)
+	}
+
+	// Verify the rendered view contains the merge row.
+	view := lv.View()
+	if !strings.Contains(view, "merge:T1-engine") {
+		t.Errorf("expected view to contain 'merge:T1-engine', got:\n%s", view)
+	}
+}
+
+// TestLiveViewNoMergeActorNoRow verifies that a snapshot with only
+// worker/coordinator actors (no merge events) renders no merge row.
+func TestLiveViewNoMergeActorNoRow(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a sworn DB with a regular track but no merge events.
+	dbPath := db.DefaultPath(dir)
+	conn, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer conn.Close()
+
+	_, err = conn.Exec(
+		"INSERT INTO tracks (id, release, state, current_slice, started_at) VALUES (?, ?, ?, ?, ?)",
+		"T1-engine", "test-release", "in_progress", "S01-first", "2026-06-20T10:00:00Z",
+	)
+	if err != nil {
+		t.Fatalf("insert track: %v", err)
+	}
+
+	lv, err := StartLiveView(dir, "test-release")
+	if err != nil {
+		t.Fatalf("StartLiveView: %v", err)
+	}
+	defer lv.Close()
+
+	// No merge rows should be present.
+	for _, row := range lv.Rows {
+		if row.IsMerge {
+			t.Errorf("expected no merge rows, found: %+v", row)
+		}
+	}
+
+	// View should not contain "merge:".
+	view := lv.View()
+	if strings.Contains(view, "merge:") {
+		t.Errorf("expected view to NOT contain 'merge:', got:\n%s", view)
+	}
+}
+
+// TestLiveViewNoMergeActorAfterRelease verifies that a merge:<track> actor
+// whose most-recent event is 'released-done' (not 'acquired') does NOT render
+// a merge row. This is the critical test for the MAX(id) subquery pattern —
+// a naive WHERE event='acquired' query would show stale completed merges.
+func TestLiveViewNoMergeActorAfterRelease(t *testing.T) {
+	dir := t.TempDir()
+
+	dbPath := db.DefaultPath(dir)
+	conn, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer conn.Close()
+
+	// Insert acquired first, then released-done — the merge is complete.
+	_, err = conn.Exec(
+		"INSERT INTO events (track_id, release, event, detail, ts) VALUES (?, ?, ?, ?, ?)",
+		"merge:T1-engine", "test-release", "acquired", "PID 12345", "2026-06-28T12:00:00Z",
+	)
+	if err != nil {
+		t.Fatalf("insert acquired event: %v", err)
+	}
+	_, err = conn.Exec(
+		"INSERT INTO events (track_id, release, event, detail, ts) VALUES (?, ?, ?, ?, ?)",
+		"merge:T1-engine", "test-release", "released-done", "PID 12345", "2026-06-28T12:05:00Z",
+	)
+	if err != nil {
+		t.Fatalf("insert released-done event: %v", err)
+	}
+
+	lv, err := StartLiveView(dir, "test-release")
+	if err != nil {
+		t.Fatalf("StartLiveView: %v", err)
+	}
+	defer lv.Close()
+
+	// No merge rows should be present — the latest event is released-done.
+	for _, row := range lv.Rows {
+		if row.IsMerge {
+			t.Errorf("expected no merge rows after release, found: %+v", row)
+		}
+	}
+
+	view := lv.View()
+	if strings.Contains(view, "merge:T1-engine") {
+		t.Errorf("expected view to NOT contain 'merge:T1-engine' after release, got:\n%s", view)
+	}
+}
+
+// TestBoardViewShowsMergeBadge verifies that the board view renders a merge
+// badge next to a track header when that track has an active merge in flight.
+// This test sets up both a filesystem fixture (index.md + status.json) AND
+// a SQLite DB with a merge:T1-core acquired event.
+func TestBoardViewShowsMergeBadge(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	indexContent := `---
+tracks:
+  - id: T1-core
+    slices: [S01-first]
+    depends_on:
+    state: in_progress
+---`
+	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+	createSliceStatus(t, releaseDir, "S01-first", "in_progress", "T1-core")
+
+	// Create a sworn DB with a merge:T1-core acquired event.
+	dbPath := db.DefaultPath(dir)
+	conn, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer conn.Close()
+	_, err = conn.Exec(
+		"INSERT INTO events (track_id, release, event, detail, ts) VALUES (?, ?, ?, ?, ?)",
+		"merge:T1-core", "test-release", "acquired", "PID 99999", "2026-06-28T12:00:00Z",
+	)
+	if err != nil {
+		t.Fatalf("insert event: %v", err)
+	}
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(dir, "test-release"); err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+
+	if !bv.MergeActive["T1-core"] {
+		t.Errorf("expected MergeActive[T1-core]=true, got: %v", bv.MergeActive)
+	}
+
+	view := bv.View()
+	if !strings.Contains(view, "T1-core") {
+		t.Errorf("expected view to contain 'T1-core', got:\n%s", view)
+	}
+	if !strings.Contains(view, "merge") {
+		t.Errorf("expected view to contain merge badge 'merge', got:\n%s", view)
+	}
+}
+
+// TestBoardViewNoMergeBadge verifies that the board view does NOT render a
+// merge badge when no active merges exist.
+func TestBoardViewNoMergeBadge(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	indexContent := `---
+tracks:
+  - id: T1-core
+    slices: [S01-first]
+    depends_on:
+    state: in_progress
+---`
+	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+	createSliceStatus(t, releaseDir, "S01-first", "in_progress", "T1-core")
+
+	// No DB created — no merge events.
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(dir, "test-release"); err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+
+	if len(bv.MergeActive) != 0 {
+		t.Errorf("expected no active merges, got: %v", bv.MergeActive)
+	}
+
+	view := bv.View()
+	if strings.Contains(view, "merge") {
+		t.Errorf("expected view to NOT contain 'merge', got:\n%s", view)
+	}
+}

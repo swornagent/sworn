@@ -16,11 +16,12 @@ import (
 
 // TrackRow holds live state for one track row in the concurrent status view.
 type TrackRow struct {
-	ID          string
+	ID           string
 	CurrentSlice string
-	State       string
-	StartedAt   string
-	Elapsed     string // computed relative time, updated each tick
+	State        string
+	StartedAt    string
+	Elapsed      string // computed relative time, updated each tick
+	IsMerge      bool   // true for merge:<track> actor rows
 }
 
 // tickMsg is delivered every ~1 second to trigger a DB re-poll.
@@ -84,6 +85,50 @@ func HasInProgressTracks(repoRoot, releaseName string) bool {
 	return err == nil && count > 0
 }
 
+// ActiveMerges returns the track_ids of all active merge actors for the given
+// release. A merge actor is "active" if its most-recent event in the events
+// table is 'acquired' (not 'released-*'). The query uses a MAX(id) subquery to
+// find the latest event per merge:* track_id, then filters for 'acquired'.
+//
+// Returns nil (not an error) if the DB doesn't exist or no active merges are
+// found. The board view calls this to render merge badges on track headers.
+func ActiveMerges(repoRoot, releaseName string) []string {
+	dbPath := db.DefaultPath(repoRoot)
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		return nil
+	}
+
+	conn, err := db.Open(dbPath)
+	if err != nil {
+		return nil
+	}
+	defer conn.Close()
+
+	rows, err := conn.Query(
+		`SELECT track_id FROM events
+		 WHERE id IN (
+		   SELECT MAX(id) FROM events
+		   WHERE release = ? AND track_id LIKE 'merge:%'
+		   GROUP BY track_id
+		 ) AND event = 'acquired'`,
+		releaseName,
+	)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var merges []string
+	for rows.Next() {
+		var trackID string
+		if err := rows.Scan(&trackID); err != nil {
+			continue
+		}
+		merges = append(merges, trackID)
+	}
+	return merges
+}
+
 // Init implements tea.Component. It starts the first tick.
 func (lv *LiveView) Init() tea.Cmd {
 	return lv.tickCmd()
@@ -135,10 +180,13 @@ func (lv *LiveView) View() string {
 		}
 		line := fmt.Sprintf("%-14s %-20s %-12s %s",
 			row.ID, sliceDisplay, stateDisplay, row.Elapsed)
-		sb.WriteString(LiveRow.Render(line))
+		if row.IsMerge {
+			sb.WriteString(MergeRowStyle.Render(line))
+		} else {
+			sb.WriteString(LiveRow.Render(line))
+		}
 		sb.WriteString("\n")
 	}
-
 	return sb.String()
 }
 
@@ -150,7 +198,8 @@ func (lv *LiveView) Close() error {
 	return nil
 }
 
-// poll queries the DB for all non-planned tracks of the selected release.
+// poll queries the DB for all non-planned tracks of the selected release,
+// plus any active merge:<track> actors from the events table.
 func (lv *LiveView) poll() error {
 	if lv.conn == nil {
 		return fmt.Errorf("live: no connection")
@@ -175,6 +224,38 @@ func (lv *LiveView) poll() error {
 		tr.Elapsed = computeElapsed(tr.StartedAt, now)
 		results = append(results, tr)
 	}
+
+	// Query active merge:<track> actors from the events table.
+	// A merge actor is active if its most-recent event is 'acquired'.
+	mergeRows, err := lv.conn.Query(
+		`SELECT e.track_id, e.detail, e.ts FROM events e
+		 WHERE e.id IN (
+		   SELECT MAX(id) FROM events
+		   WHERE release = ? AND track_id LIKE 'merge:%'
+		   GROUP BY track_id
+		 ) AND e.event = 'acquired'`,
+		lv.ReleaseName,
+	)
+	if err == nil {
+		for mergeRows.Next() {
+			var tr TrackRow
+			var detail, ts string
+			if err := mergeRows.Scan(&tr.ID, &detail, &ts); err != nil {
+				continue
+			}
+			tr.IsMerge = true
+			tr.State = "merging"
+			tr.CurrentSlice = detail
+			if tr.CurrentSlice == "" {
+				tr.CurrentSlice = "—"
+			}
+			tr.StartedAt = ts
+			tr.Elapsed = computeElapsed(ts, now)
+			results = append(results, tr)
+		}
+		mergeRows.Close()
+	}
+
 	lv.Rows = results
 	return rows.Err()
 }

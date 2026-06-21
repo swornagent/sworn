@@ -95,6 +95,17 @@ var (
 		Foreground(colText).
 		Padding(0, 1)
 
+	// MergeRowStyle is the style for merge-actor rows in the live view.
+	// Visually distinct from worker/coordinator rows: amber, bold.
+	MergeRowStyle = lipgloss.NewStyle().
+			Foreground(colWarn).
+			Bold(true).
+			Padding(0, 1)
+
+	// MergeBadge is the board-view merge indicator appended to track headers.
+	MergeBadge = lipgloss.NewStyle().
+			Foreground(colWarn).
+			Bold(true)
 	DividerLine = lipgloss.NewStyle().
 			Foreground(colMuted).
 			Render(strings.Repeat("─", 70))

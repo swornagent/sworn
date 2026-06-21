@@ -34,8 +34,9 @@ type BoardView struct {
 	Tracks        []TrackInfo
 	Slices        map[string]SliceBoardInfo // slice ID -> live data
 	Loaded        bool
-	Cursor        int      // index of the selected slice in orderedSlices
-	orderedSlices []string // slice IDs in display order
+	Cursor        int             // index of the selected slice in orderedSlices
+	orderedSlices []string        // slice IDs in display order
+	MergeActive   map[string]bool // track IDs with an active merge in flight
 }
 
 // LoadBoard reads the selected release's index.md and all slice status.json files.
@@ -116,6 +117,17 @@ func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
 	}
 
 	b.Loaded = true
+
+	// Populate MergeActive from the events table.
+	b.MergeActive = map[string]bool{}
+	for _, mergeTrackID := range ActiveMerges(repoRoot, releaseName) {
+		// mergeTrackID is "merge:<track-id>"; extract the track-id part.
+		trackID := strings.TrimPrefix(mergeTrackID, "merge:")
+		if trackID != mergeTrackID { // prefix was found
+			b.MergeActive[trackID] = true
+		}
+	}
+
 	return nil
 }
 
@@ -160,9 +172,12 @@ func (b *BoardView) View() string {
 
 	for _, track := range b.Tracks {
 		stateCol := StateColor(track.State)
-		sb.WriteString(TrackHeader.Render(fmt.Sprintf("▸ %s  [%s]", track.ID, stateCol)))
+		header := fmt.Sprintf("▸ %s  [%s]", track.ID, stateCol)
+		if b.MergeActive[track.ID] {
+			header += " " + MergeBadge.Render("⟪merge⟫")
+		}
+		sb.WriteString(TrackHeader.Render(header))
 		sb.WriteString("\n")
-
 		for _, sliceID := range track.Slices {
 			si, ok := b.Slices[sliceID]
 			if !ok {
