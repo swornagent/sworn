@@ -170,6 +170,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `cmd/sworn/run.go` | ✓ | | (T1 dep) | | (T1+T3 dep) |  |
 | `go.mod`, `go.sum` | ✓ | | | | (T1 dep) |  |
 | `cmd/sworn/main.go` (DOCUMENTED SHARED — additive dispatch) | ✓ | ✓ | ✓ | ✓ | |  |
+| `docs/release/<rel>/.captain-trial-log.md` (DOCUMENTED SHARED — Captain review log, append-only: every track's design reviews add one row per slice) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `cmd/sworn/top.go` | | ✓ | | | | (T2 dep)  |
 | `internal/tui/` (new) | | ✓ | | | |  |
 | `internal/tui/settings.go` (new) | | | | | | ✓  |
