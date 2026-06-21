@@ -14,76 +14,109 @@ import (
 	"github.com/swornagent/sworn/internal/config"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/prompt"
+	"github.com/swornagent/sworn/internal/telemetry"
 	"github.com/swornagent/sworn/internal/verify"
 	"os"
 	"strings"
+	"time"
 )
 
 // version is overridden at build time via -ldflags "-X main.version=...".
 var version = "0.0.0-dev"
 
 func main() {
-	if len(os.Args) < 2 {
-		usage()
-		os.Exit(64)
+	// ShowDisclosure prints the one-time telemetry disclosure if the user
+	// is in a neutral state. It only prints on the first invocation.
+	telemetry.ShowDisclosure(os.Stderr)
+
+	start := time.Now()
+	exitCode := dispatch(os.Args)
+
+	// Determine cmd and sub for telemetry.
+	// cmd = os.Args[1] (the top-level subcommand), sub = os.Args[2] if present.
+	cmd, sub := "", ""
+	if len(os.Args) > 1 {
+		cmd = os.Args[1]
 	}
-	switch os.Args[1] {
+	if len(os.Args) > 2 {
+		sub = os.Args[2]
+	}
+
+	// Fire telemetry event. Non-blocking — runs in a goroutine.
+	// Meta-command exclusion: sworn telemetry * is excluded from firing
+	// telemetry events (Coach Pin 4, option (a)). This is handled
+	// inside telemetry.Fire().
+	telemetry.Fire(cmd, sub, version, time.Since(start).Milliseconds(), exitCode)
+
+	os.Exit(exitCode)
+}
+
+// dispatch parses os.Args and dispatches to the appropriate subcommand.
+// Returns exit code (0 for success, non-zero for errors).
+// Does NOT call os.Exit — the caller (main) handles that after telemetry.
+func dispatch(args []string) int {
+	if len(args) < 2 {
+		usage()
+		return 64
+	}
+	switch args[1] {
 	case "init":
 		// S08-init-config adds this case (T3-turnkey-ux).
-		os.Exit(cmdInit(os.Args[2:]))
+		return cmdInit(args[2:])
 	case "verify":
-		os.Exit(cmdVerify(os.Args[2:]))
+		return cmdVerify(args[2:])
 	case "run":
 		// S07-run-loop adds this case (T2-orchestration).
 		// Disjoint from "init": both are additive to the switch.
-		os.Exit(cmdRun(os.Args[2:]))
+		return cmdRun(args[2:])
 	case "bench":
 		// S10-benchmark-dogfood adds this case (T4-proof).
-		os.Exit(cmdBench(os.Args[2:]))
+		return cmdBench(args[2:])
 	case "lint":
 		// S01-rtm-spine / S02-ears-ac-format add this case (T1-fidelity-core).
 		// Dispatches to: lint ac <release>, lint trace <release>.
-		os.Exit(cmdLint(os.Args[2:]))
+		return cmdLint(args[2:])
 	case "reqverify":
 		// S04-requirements-verify-gate adds this case (T1-fidelity-core).
-		os.Exit(cmdReqverify(os.Args[2:]))
+		return cmdReqverify(args[2:])
 	case "reqvalidate":
 		// S05-requirements-validate-gate adds this case (T1-fidelity-core).
-		os.Exit(cmdReqvalidate(os.Args[2:]))
+		return cmdReqvalidate(args[2:])
 	case "designfit":
 		// S07-design-fit-gate adds this case (T1-fidelity-core).
-		os.Exit(cmdDesignfit(os.Args[2:]))
+		return cmdDesignfit(args[2:])
 	case "journeys":
 		// S11-journey-elicitation adds this case (T1-fidelity-core).
-		os.Exit(cmdJourneys(os.Args[2:]))
+		return cmdJourneys(args[2:])
 	case "ship":
 		// S13-walkthrough-attestation adds this case (T2-delivery-cutover).
-		// Gates the verified -> shipped transition on human-walkthrough
-		// attestations for all touched journeys.
-		os.Exit(cmdShip(os.Args[2:]))
+		return cmdShip(args[2:])
 	case "specquality":
 		// S03-spec-quality-firstpass adds this case (T3-leaf-gates).
-		os.Exit(cmdSpecquality(os.Args[2:]))
+		return cmdSpecquality(args[2:])
 	case "designaudit":
 		// S09-design-conformance-audit adds this case (T3-leaf-gates).
-		os.Exit(cmdDesignaudit(os.Args[2:]))
+		return cmdDesignaudit(args[2:])
 	case "top":
 		// S15-sworn-top-evidence adds this case (T4-evidence-surface).
-		// Read-only evidence surface: green-board / kill-list for journey
-		// validation status. Strictly read-only — no state transitions.
-		os.Exit(cmdTop(os.Args[2:]))
+		return cmdTop(args[2:])
+	case "telemetry":
+		// S26-telemetry adds this case (T9-telemetry).
+		return cmdTelemetry(args[2:])
 	case "version", "--version", "-v":
 		fmt.Printf("sworn %s\nbaton-protocol %s\n", version, prompt.BatonVersion())
+		return 0
 	case "help", "--help", "-h":
-		if len(os.Args) > 2 && os.Args[2] == "run" {
+		if len(args) > 2 && args[2] == "run" {
 			cmdRun([]string{"--help"})
-			return
+			return 0
 		}
 		usage()
+		return 0
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", args[1])
 		usage()
-		os.Exit(64)
+		return 64
 	}
 }
 
@@ -125,7 +158,8 @@ func cmdVerify(args []string) int {
 		return 2
 	}
 
-	if resolvedModel != "" {		var verr error
+	if resolvedModel != "" {
+		var verr error
 		v, verr = model.FromEnv(resolvedModel)
 		if verr != nil {
 			fmt.Fprintf(os.Stderr, "sworn verify: %v\n", verr)
@@ -153,7 +187,8 @@ func usage() {
 usage:
   sworn bench --task-set <dir> [--models <comma-sep>] [--output <dir>]
   sworn init [--api-key <key>] [--force]
-  sworn journeys [--check] [--impact <release>] [project-path]  sworn lint ac <release>
+  sworn journeys [--check] [--impact <release>] [project-path]
+  sworn lint ac <release>
   sworn lint trace <release>
   sworn reqverify <release>
   sworn reqvalidate <release>
@@ -162,6 +197,7 @@ usage:
   sworn specquality <release> [--threshold <0.0-1.0>]
   sworn run --task <description> [--implementer-model <m>] [--verifier-model <m>] [--base <branch>] [--retry-cap <n>]
   sworn ship <release> [project-root]
+  sworn telemetry on|off|status
   sworn top <release> [project-path]
   sworn verify --spec <path> --diff <path|-> [--proof <path>] [--verifier-model <provider/model>]
   sworn version
@@ -175,7 +211,8 @@ journeys drafts critical customer journeys from the project, validates
 their presence + ratification status, and analyses which journeys a release
 touches. See 'sworn journeys --check' for the deterministic gate, 'sworn
 journeys <project>' for the elicitation loop, and 'sworn journeys --impact
-<release>' for per-release journey-impact analysis.lint checks a release for structural problems. Targets:
+<release>' for per-release journey-impact analysis.
+lint checks a release for structural problems. Targets:
   ac     — classify every acceptance check by EARS pattern; fail closed on any
            free-form check that matches no pattern, naming the slice + line.
   trace  — build the 2-D requirements traceability matrix; fail closed on any
@@ -200,7 +237,10 @@ and escalation model defaults.
 ship validates the human-walkthrough attestation gate (Rule 10/S13): fails
 closed unless every touched journey has a passing human attestation asserting
 real-infra + mocks-off. See 'sworn ship <release>' for details.
-top renders a read-only evidence surface for the active release: the green-boardor kill-list of journey validation status. See 'sworn top <release>' for details.
+telemetry manages anonymous usage telemetry: on (opt in), off (opt out), status
+(display current setting). Telemetry is opt-in only, collected during sworn init.
+top renders a read-only evidence surface for the active release: the green-board
+or kill-list of journey validation status. See 'sworn top <release>' for details.
 
 verify emits a JSON verdict (PASS/FAIL/BLOCKED) and exits 0 only on PASS,
 so a CI required-check blocks the merge by default.

@@ -57,7 +57,7 @@ tracks:
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T9-telemetry
     worktree_branch: track/2026-06-19-safe-parallelism/T9-telemetry
-    state: in_progress
+    state: ready_to_merge
   - id: T10-public-readiness
     slices: [S27-public-readiness-scrub]
     depends_on: [T1-concurrency-core, T2-monitoring, T3-commercial, T4-mcp, T5-providers, T6-provider-ux, T7-mcp-extensions, T8-memory, T9-telemetry]
@@ -108,7 +108,7 @@ tracks:
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
 | `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | planned |
 | `T8-memory` | S23 → S24 → S25 | T1 | `track/.../T8-memory` | in_progress |
-| `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | in_progress |
+| `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | ready_to_merge |
 | `T10-public-readiness` | S27 | all (T1–T9) | `track/.../T10-public-readiness` | planned |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | planned |
 
@@ -280,7 +280,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | planned | [spec](./S23-memory-config/spec.md) |
 | `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | planned | [spec](./S24-memory-engine/spec.md) |
 | `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | planned | [spec](./S25-memory-search/spec.md) |
-| `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | planned | [spec](./S26-telemetry/spec.md) |
+| `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | verified | [spec](./S26-telemetry/spec.md) |
 | `S27-public-readiness-scrub` | T10 | Make repo + binary public-safe: generalise embedded role prompts (keep Captain/Coach, strip coach-loop coupling), scrub dogfood provenance comments + fired/GetFired + coach-loop refs. Final launch gate. | planned | [spec](./S27-public-readiness-scrub/spec.md) |
 | `S28-git-dir-guard` | T11 | internal/git fails closed on empty Repo.Dir so a git op can't run on the ambient worktree (fixes workers writing to main, sworn#6) + regression test | planned | [spec](./S28-git-dir-guard/spec.md) |
 
@@ -290,17 +290,33 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 - In progress: 0
 - Design review: 0
 - Implemented: 0
-- Verified: 4
+- Verified: 5
 - Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 8 / Ready to merge: 0 / Merged: 1
+**Tracks:** Planned: 8 / Ready to merge: 1 / Merged: 1
 
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice);
 > T10 new (1 slice: S27, the final public-readiness gate); T11 new (1 slice: S28, the
 > sworn#6 git-dir safety fix). Release now **34 slices across 11 tracks**.
 
 ## Recent activity
+
+### 2026-06-21 — S26 verifier verdict: PASS (round 3)
+
+- **Actor**: verifier (fresh context, Rule 7 compliant)
+- **Slice**: S26-telemetry → state: **verified**
+- **All six gates passed.** 19/19 tests pass with `-race`. `sworn telemetry on|off|status` and `main.go` dispatch wrapper fully wired. Smoke test confirmed disclosure text on stderr against clean config dir. Proof.md accurately reflects full 21-file diff with per-group provenance for forward-merge artefacts. AC1/AC2 deferrals carry all three Rule-2 fields.
+- **T9-telemetry is complete.** S26 is the only slice; track state → ready_to_merge.
+- **Next**: `/merge-track T9-telemetry 2026-06-19-safe-parallelism` in a fresh session.
+
+### 2026-06-21 — S26 verifier verdict: FAIL (round 2, 2 violations)
+
+- **Actor**: verifier (fresh context, Rule 7 compliant)
+- **Slice**: S26-telemetry → state: **failed_verification**
+- **Violation 1 (Gate 2)**: Commit `5139882` landed on T9 track and modified `internal/prompt/implementer.md` (T3-owned per touchpoint matrix) and `internal/adopt/baton/rules/10-customer-journey-validation.md` (not in any planned touchpoints). Neither file appears in proof.md "Files changed" or "Divergence from plan".
+- **Violation 2 (Gate 2)**: proof.md "Files changed" lists 8 files; actual diff spans 21 entries. S21 replan artefacts (`d4f886b`), `approved-ack.md` deletion, S27 specs are all committed to T9 track but unexplained in proof.md. All other gates (1, 3, 4, 5, 6) PASS; 19/19 tests pass with -race.
+- **Next**: `/implement-slice S26-telemetry 2026-06-19-safe-parallelism` in a fresh session.
 
 ### 2026-06-21 — replan: S21 re-scoped + S27 added (public-readiness gate)
 
