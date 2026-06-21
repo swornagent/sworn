@@ -254,7 +254,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S02b-concurrent-scheduler` | T1 | `sworn run --parallel` launches all independent tracks concurrently | verified | [spec](./S02b-concurrent-scheduler/spec.md) |
 | `S03-verify-under-concurrency` | T1 | Verify gate goroutine-safe and fail-closed at N>1 | verified | [spec](./S03-verify-under-concurrency/spec.md) |
 | `S04a-tui-foundation` | T2 | `sworn` (no args) shows releases list + board view with navigation | planned | [spec](./S04a-tui-foundation/spec.md) |
-| `S04b-tui-live` | T2 | Live concurrent track status from DB (1s poll) + credit balance in header | failed_verification | [spec](./S04b-tui-live/spec.md) |
+| `S04b-tui-live` | T2 | Live concurrent track status from DB (1s poll) + credit balance in header | verified | [spec](./S04b-tui-live/spec.md) |
 | `S04c-tui-resolution` | T2 | Blocked slice TL;DR panel + options + open in Claude Code / Codex | planned | [spec](./S04c-tui-resolution/spec.md) |
 | `S05-overclaim-benchmark` | T2 | Overclaim rate flat at N=1/2/4; published benchmark artefact | planned | [spec](./S05-overclaim-benchmark/spec.md) |
 | `S06a-sworn-login-auth` | T3 | `sworn login` device-code flow; credentials file; `sworn logout` | planned | [spec](./S06a-sworn-login-auth/spec.md) |
@@ -301,6 +301,13 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 > sworn#6 git-dir safety fix). Release now **34 slices across 11 tracks**.
 
 ## Recent activity
+
+### 2026-06-21 — S04b-tui-live verifier verdict: PASS (round 2)
+
+- **Actor**: verifier (fresh context, Rule 7 compliant)
+- **Slice**: S04b-tui-live → state: **verified** (SHA b53ba53)
+- **All six gates passed.** `viewLive` wired in `model.go`; `l`/`b` toggle and auto-transition verified; `TestModelTickForwarding` confirms tickMsg propagates through `Model.Update()` (Rule 1 integration satisfied); all 15 tests pass on fresh run; no silent deferrals in production code; all 5 acceptance checks delivered with evidence. Prior FAIL violations (tickMsg drop + styles.go undisclosed) confirmed resolved.
+- **Next**: `/implement-slice S04c-tui-resolution 2026-06-19-safe-parallelism` in a fresh session.
 
 ### 2026-06-28 — S04b-tui-live verifier verdict: FAIL (2 violations)
 

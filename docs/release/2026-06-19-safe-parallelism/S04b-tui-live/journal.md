@@ -64,3 +64,16 @@ The file adds `LiveTitle`, `LiveRow`, and `DividerLine` styles consumed by `conc
 - **Status updated**: `failed_verification -> implemented`, verification result cleared (stale from prior round).
 - **Re-implementation session**: 2026-06-28 implementer on track T2-monitoring worktree.
 - **15 tests pass** (5 existing + 10 new).
+### 2026-06-21 — verifier verdict: PASS
+
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **Slice**: S04b-tui-live → state: `verified`
+- **Verified against**: `b53ba535672b29aee77630945b1563acfa02dbf8`
+
+All six gates passed:
+- **Gate 1**: `viewLive` state wired in root `model.go`; auto-transition through `handleReleasesKey` when `HasInProgressTracks` returns true; `l` key in `handleBoardKey`. Entry point is live user-reachable code.
+- **Gate 2**: All 3 planned touchpoints changed. `styles.go` addition disclosed in Divergence from plan. Forward-merged docs files (S21, S27, S28, index.md, implementer.md, rules/10-...) are Step-0 drift-gate noise, not slice scope.
+- **Gate 3**: All 4 required tests present and passing. `TestModelTickForwarding` sends `tickMsg` through `Model.Update()` (not just `LiveView.Update()`) — Rule 1 satisfied. 15/15 PASS on re-run.
+- **Gate 4**: Proof names explicit user gestures (navigate to release, observe auto-transition, toggle b/l). Tests are integration-level (real SQLite, root Model path) — not just "tests pass."
+- **Gate 5**: No TODO/FIXME/deferred markers in production code. All deferrals carry why/tracking/acknowledged.
+- **Gate 6**: All 5 acceptance checks verifiable from code and test evidence.
