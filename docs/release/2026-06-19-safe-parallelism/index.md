@@ -15,8 +15,7 @@ tracks:
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T2-monitoring
     worktree_branch: track/2026-06-19-safe-parallelism/T2-monitoring
-    state: in_progress
-  - id: T3-commercial
+    state: merged  - id: T3-commercial
     slices: [S06a-sworn-login-auth, S06b-sworn-proxy-credits, S07-paging, S09-per-role-model-config, S18-consideration-catalog, S19-sworn-induction, S21-canonical-baton]
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T3-commercial
@@ -112,8 +111,7 @@ tracks:
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
 | `T1-concurrency-core` | S01 → S02a → S02b → S03 | — | `track/.../T1-concurrency-core` | merged |
-| `T2-monitoring` | S04a → S04b → S04c → S05 → S34 | T1 | `track/.../T2-monitoring` | in_progress |
-| `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 | `track/.../T3-commercial` | in_progress |
+| `T2-monitoring` | S04a → S04b → S04c → S05 → S34 | T1 | `track/.../T2-monitoring` | merged || `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 | `track/.../T3-commercial` | in_progress |
 | `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | merged || `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 → S39 | T1 + T3 | `track/.../T5-providers` | planned |
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
 | `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | planned |
@@ -278,9 +276,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S02a-run-refactor` | T1 | `run.RunSlice()` exported; callable from goroutine; no regression | verified | [spec](./S02a-run-refactor/spec.md) |
 | `S02b-concurrent-scheduler` | T1 | `sworn run --parallel` launches all independent tracks concurrently | verified | [spec](./S02b-concurrent-scheduler/spec.md) |
 | `S03-verify-under-concurrency` | T1 | Verify gate goroutine-safe and fail-closed at N>1 | verified | [spec](./S03-verify-under-concurrency/spec.md) |
-| `S04a-tui-foundation` | T2 | `sworn` (no args) shows releases list + board view with navigation | planned | [spec](./S04a-tui-foundation/spec.md) |
-| `S04b-tui-live` | T2 | Live concurrent track status from DB (1s poll) + credit balance in header | planned | [spec](./S04b-tui-live/spec.md) |
-| `S04c-tui-resolution` | T2 | Blocked slice TL;DR panel + options + open in Claude Code / Codex | verified | [spec](./S04c-tui-resolution/spec.md) |
+| `S04a-tui-foundation` | T2 | `sworn` (no args) shows releases list + board view with navigation | verified | [spec](./S04a-tui-foundation/spec.md) || `S04b-tui-live` | T2 | Live concurrent track status from DB (1s poll) + credit balance in header | verified | [spec](./S04b-tui-live/spec.md) || `S04c-tui-resolution` | T2 | Blocked slice TL;DR panel + options + open in Claude Code / Codex | verified | [spec](./S04c-tui-resolution/spec.md) |
 | `S05-overclaim-benchmark` | T2 | Overclaim rate flat at N=1/2/4; published benchmark artefact | verified | [spec](./S05-overclaim-benchmark/spec.md) || `S06a-sworn-login-auth` | T3 | `sworn login` device-code flow; credentials file; `sworn logout` | planned | [spec](./S06a-sworn-login-auth/spec.md) |
 | `S06b-sworn-proxy-credits` | T3 | Model calls route via SwornAgent proxy; `sworn account buy`; credit display | planned | [spec](./S06b-sworn-proxy-credits/spec.md) |
 | `S07-paging` | T3 | FAIL/BLOCKED fires webhook + email; developer paged without watching terminal | planned | [spec](./S07-paging/spec.md) |
@@ -327,24 +323,27 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 
 ## Aggregate state
 
-- Planned: 30
+- Planned: 28
 - In progress: 0
 - Design review: 3
 - Implemented: 0
-- Verified: 19
+- Verified: 21
 - Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 5 / In progress: 4 / Merged: 4
-> Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice);
-> T10 new (1 slice: S27, the final public-readiness gate); T11 new (1 slice: S28, the
+**Tracks:** Planned: 5 / In progress: 3 / Merged: 5
+> Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice);> T10 new (1 slice: S27, the final public-readiness gate); T11 new (1 slice: S28, the
 > sworn#6 git-dir safety fix); T12 new (7 harness-hardening slices from the trial-log harvest);
 > S34 appended to T2. Release now **53 slices across 13 tracks** (S40→T8, S41–S44→T12, S45–S47→new T13 — 2026-06-21 hygiene + run-reliability + role-parity replans).
 
 ## Recent activity
 
-### 2026-06-28 — verifier verdict: PASS (S34-tui-merge-actor)
+### 2026-06-28 — track `T2-monitoring` merged to release-wt (commit 3faa5d0)
 
+- **Actor**: track integrator (/merge-track)
+- **Note**: 5 verified slices merged: S04a-tui-foundation, S04b-tui-live, S04c-tui-resolution, S05-overclaim-benchmark, S34-tui-merge-actor. Track state -> merged.
+
+### 2026-06-28 — verifier verdict: PASS (S34-tui-merge-actor)
 - **Actor**: verifier (`/verify-slice`)
 - **Verdict**: PASS — All six gates passed. Entry points `internal/tui/concurrent.go` (live view) and `internal/tui/board.go` (board view) wired through `LiveView.poll()`/`View()` and `BoardView.LoadBoard()`/`View()`. 27/27 tests pass; go build/vet clean. Merge actor rows rendered with `MergeRowStyle` (amber, bold) in live view; `⟪merge⟫` badge on board track headers. No silent deferrals.
 - **Next step**: T2-monitoring now has all slices verified. Run `/merge-track T2-monitoring`, then `/merge-release 2026-06-19-safe-parallelism` once every track in the release has merged.
