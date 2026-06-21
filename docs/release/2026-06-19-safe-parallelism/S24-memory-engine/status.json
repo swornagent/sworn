@@ -45,8 +45,10 @@
   "open_deferrals": [],
   "verification": {
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-06-21T00:00:00Z",
+    "verifier_was_fresh_context": true,
+    "result": "blocked",
+    "block_reason": "forward-merge of release-wt/2026-06-19-safe-parallelism into track/2026-06-19-safe-parallelism/T8-memory conflicted on cmd/sworn/main.go — T9-telemetry's dispatch() refactor conflicts with S23-memory-config's additive memory case; planner must resolve merge conflict on T8-memory branch",
     "violations": []
   },
   "design_decisions": [

@@ -302,6 +302,15 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 
 ## Recent activity
 
+### 2026-06-21 — S24-memory-engine verifier verdict: BLOCKED (round 1)
+
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **Slice**: S24-memory-engine → state: **implemented** (unchanged — BLOCKED leaves state untouched)
+- **Reason**: Forward-merge of `release-wt/2026-06-19-safe-parallelism` into `track/2026-06-19-safe-parallelism/T8-memory` conflicted on `cmd/sworn/main.go`. T9-telemetry (S26, merged to release-wt) restructured `main.go` from a direct switch in `main()` to a `dispatch()` function — a non-additive structural change. S23-memory-config added `case "memory"` in the original `main()` structure. The two changes conflict and cannot be auto-merged.
+- **Note**: S24's own touchpoints (`internal/memory/`, `cmd/sworn/memory.go`) are NOT involved — conflict originates from S23's prior `main.go` edit.
+- **Proposed resolution**: Planner must resolve `cmd/sworn/main.go` conflict on T8-memory branch by placing S23's `case "memory": return cmdMemory(args[2:])` inside T9's `dispatch()` function, then committing the resolution.
+- **Next**: `/replan-release 2026-06-19-safe-parallelism`
+
 ### 2026-06-21 — S23-memory-config verifier verdict: PASS (round 2)
 
 - **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)

@@ -31,3 +31,17 @@
 
 **Skeptic panel:**
 - skipped — runtime does not support subagent dispatch.
+
+## Verifier verdicts received
+
+### 2026-06-21 — Verdict: BLOCKED (round 1)
+
+**Verifier:** fresh-context session, artefact-only inputs (Rule 7 compliant)
+
+**Reason:** Forward-merge of `release-wt/2026-06-19-safe-parallelism` into `track/2026-06-19-safe-parallelism/T8-memory` conflicted on `cmd/sworn/main.go`. T9-telemetry (S26, merged to release-wt) restructured `main.go` from a direct switch in `main()` to a `dispatch()` function with telemetry wrapping — a non-additive structural change. S23-memory-config (earlier slice on T8-memory) added `case "memory": os.Exit(cmdMemory(os.Args[2:]))` in the original `main()` structure. These two changes conflict and cannot be auto-merged.
+
+**Note:** S24's own `planned_files`/`actual_files` do NOT include `cmd/sworn/main.go` — this conflict originates from S23's prior work on the track branch.
+
+**Proposed resolution (for planner):** No spec.md change is required. The planner must resolve the `cmd/sworn/main.go` merge conflict on branch `track/2026-06-19-safe-parallelism/T8-memory`. Fix: place S23's `case "memory": return cmdMemory(args[2:])` inside T9's `dispatch()` function (changing `os.Args[2:]` → `args[2:]`), then commit the resolution. After that, re-verify S24 in a fresh session.
+
+**Next step:** `/replan-release 2026-06-19-safe-parallelism`
