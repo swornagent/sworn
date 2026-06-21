@@ -29,7 +29,7 @@ tracks:
     worktree_branch: track/2026-06-19-safe-parallelism/T4-mcp
     state: in_progress
   - id: T5-providers
-    slices: [S10-provider-foundation, S11-anthropic-driver, S12-google-driver, S13-bedrock-driver, S14-azure-driver, S15-oci-driver, S16-ollama-driver]
+    slices: [S10-provider-foundation, S11-anthropic-driver, S12-google-driver, S13-bedrock-driver, S14-azure-driver, S15-oci-driver, S16-ollama-driver, S39-openai-responses-provider]
     depends_on: [T1-concurrency-core, T3-commercial]
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T5-providers
@@ -47,7 +47,7 @@ tracks:
     worktree_branch: track/2026-06-19-safe-parallelism/T7-mcp-extensions
     state: planned
   - id: T8-memory
-    slices: [S23-memory-config, S24-memory-engine, S25-memory-search]
+    slices: [S23-memory-config, S24-memory-engine, S25-memory-search, S40-memory-test-hygiene]
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T8-memory
     worktree_branch: track/2026-06-19-safe-parallelism/T8-memory
@@ -60,7 +60,7 @@ tracks:
     state: merged
   - id: T10-public-readiness
     slices: [S27-public-readiness-scrub]
-    depends_on: [T1-concurrency-core, T2-monitoring, T3-commercial, T4-mcp, T5-providers, T6-provider-ux, T7-mcp-extensions, T8-memory, T9-telemetry, T11-infra-safety, T12-harness-hardening]
+    depends_on: [T1-concurrency-core, T2-monitoring, T3-commercial, T4-mcp, T5-providers, T6-provider-ux, T7-mcp-extensions, T8-memory, T9-telemetry, T11-infra-safety, T12-harness-hardening, T13-sworn-role-parity]
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T10-public-readiness
     state: planned
@@ -71,11 +71,17 @@ tracks:
     worktree_branch: track/2026-06-19-safe-parallelism/T11-infra-safety
     state: merged
   - id: T12-harness-hardening
-    slices: [S29-lint-deps, S30-lint-touchpoints, S31-lint-symbols, S32-designfit-decisions-gate, S33-spec-template-hardening, S35-mutation-guard, S36-captain-resolve-dirty-worktree, S37-telemetry-tui-exclusion, S38-verifier-blocked-violations]
+    slices: [S29-lint-deps, S30-lint-touchpoints, S31-lint-symbols, S32-designfit-decisions-gate, S33-spec-template-hardening, S35-mutation-guard, S36-captain-resolve-dirty-worktree, S37-telemetry-tui-exclusion, S38-verifier-blocked-violations, S41-build-bin-target, S42-implement-step-timeout, S43-agent-loop-natural-stop, S44-feedback-driven-retry]
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T12-harness-hardening
     worktree_branch: track/2026-06-19-safe-parallelism/T12-harness-hardening
     state: in_progress
+  - id: T13-sworn-role-parity
+    slices: [S45-design-tldr, S46-captain-review, S47-orchestrator-recovery]
+    depends_on: T12-harness-hardening
+    worktree_path:
+    worktree_branch: track/2026-06-19-safe-parallelism/T13-sworn-role-parity
+    state: planned
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
@@ -110,20 +116,22 @@ tracks:
 | `T2-monitoring` | S04a → S04b → S04c → S05 → S34 | T1 | `track/.../T2-monitoring` | in_progress |
 | `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 | `track/.../T3-commercial` | in_progress |
 | `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | in_progress |
-| `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 | T1 + T3 | `track/.../T5-providers` | planned |
+| `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 → S39 | T1 + T3 | `track/.../T5-providers` | planned |
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
 | `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | planned |
-| `T8-memory` | S23 → S24 → S25 | T1 | `track/.../T8-memory` | in_progress |
+| `T8-memory` | S23 → S24 → S25 → S40 | T1 | `track/.../T8-memory` | in_progress |
 | `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
 | `T10-public-readiness` | S27 | all (T1–T9) | `track/.../T10-public-readiness` | planned |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
-| `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 | T1 | `track/.../T12-harness-hardening` | planned |
+| `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | in_progress |
+| `T13-sworn-role-parity` | S45 → S46 → S47 | T12 | `track/.../T13-sworn-role-parity` | planned |
 
 ### Execution order
 
 ```
 Phase 1:  T1 (sequential)
 Phase 2:  T2, T3, T4, T8, T9, T11, T12 (parallel after T1 — T11/T12 are harness-hardening, dispatch early)
+          T13 (after T12 — serial; product role parity, shares internal/run with T12)
 Phase 3:  T5 (after T1 + T3)
           T7 (after T3 + T4; may run in parallel with T5)
 Phase 4:  T6 (after T2 + T5)
@@ -299,6 +307,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | planned | [spec](./S23-memory-config/spec.md) |
 | `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | planned | [spec](./S24-memory-engine/spec.md) |
 | `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | planned | [spec](./S25-memory-search/spec.md) |
+| `S40-memory-test-hygiene` | T8 | memory tests use `t.TempDir()`; removes stray `test-fixture/` + root `fake_ollama.go` so `go test ./internal/memory/...` leaves git clean | planned | [spec](./S40-memory-test-hygiene/spec.md) |
 | `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | verified | [spec](./S26-telemetry/spec.md) |
 | `S27-public-readiness-scrub` | T10 | Make repo + binary public-safe: generalise embedded role prompts (keep Captain/Coach, strip coach-loop coupling), scrub dogfood provenance comments + fired/GetFired + coach-loop refs. Final launch gate. | planned | [spec](./S27-public-readiness-scrub/spec.md) |
 | `S28-git-dir-guard` | T11 | internal/git fails closed on empty Repo.Dir so a git op can't run on the ambient worktree (fixes workers writing to main, sworn#6) + regression test | verified | [spec](./S28-git-dir-guard/spec.md) |
@@ -312,6 +321,14 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S36-captain-resolve-dirty-worktree` | T12 | Captain auto-resolves dirty track worktrees (commit-by-default, record the diff+resolution, never page the Coach) | planned | [spec](./S36-captain-resolve-dirty-worktree/spec.md) |
 | `S37-telemetry-tui-exclusion` | T12 | no-args/TUI launch no longer fires a junk telemetry event (empty cmd + session-length); exclusion in `telemetry.Fire()`, not the shared main.go (sworn#7) | planned | [spec](./S37-telemetry-tui-exclusion/spec.md) |
 | `S38-verifier-blocked-violations` | T12 | a BLOCKED verdict must populate `status.json` violations (not just journal prose) + a gate rejecting blocked-with-empty-violations — fixes blank REPLAN pages | planned | [spec](./S38-verifier-blocked-violations/spec.md) |
+| `S41-build-bin-target` | T12 | canonical `make build` → `bin/sworn` + `docs/build.md` run-from-root convention; stops `cmd/sworn/.sworn` + `docs/release/run-*` worktree clutter | planned | [spec](./S41-build-bin-target/spec.md) |
+| `S42-implement-step-timeout` | T12 | `sworn run` bounds each implement attempt with a context deadline; a hung implementer is cancelled and escalates to the next model instead of hanging forever | planned | [spec](./S42-implement-step-timeout/spec.md) |
+| `S43-agent-loop-natural-stop` | T12 | agent loop terminates on the model's natural stop (no tool calls) instead of spinning to the turn cap; salvages work from empty-final-text models (gpt-oss-class) by letting proof-from-diff + verifier judge | planned | [spec](./S43-agent-loop-natural-stop/spec.md) |
+| `S44-feedback-driven-retry` | T12 | on verify FAIL, feed the verifier's rationale + violations into the next implement attempt's prompt instead of blind re-running — retry resolves the named problem | planned | [spec](./S44-feedback-driven-retry/spec.md) |
+| `S45-design-tldr` | T13 | `sworn run` generates a design TL;DR (§1–6) before implementation — restores the pre-code design artefact for the captain to review | planned | [spec](./S45-design-tldr/spec.md) |
+| `S46-captain-review` | T13 | captain agent reviews the TL;DR + live code, emits classified pins, writes review.md, and gates implement (proceed if no escalate pins, else halt+surface) — the in-product `/design-review` | planned | [spec](./S46-captain-review/spec.md) |
+| `S47-orchestrator-recovery` | T13 | on non-PASS, intelligent triage chooses resolve-in-place / escalate / halt and assesses BLOCKED resolvability — the in-product orchestrator | planned | [spec](./S47-orchestrator-recovery/spec.md) |
+| `S39-openai-responses-provider` | T5 | first-class OpenAI provider via /v1/responses (reasoning_effort + tool-calls + built-in web_search) + a cross-provider WebSearch/WebFetch agent tool — fixes gpt-5.x support + 'more than 6 tools' | planned | [spec](./S39-openai-responses-provider/spec.md) |
 
 ## Aggregate state
 
@@ -328,9 +345,44 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice);
 > T10 new (1 slice: S27, the final public-readiness gate); T11 new (1 slice: S28, the
 > sworn#6 git-dir safety fix); T12 new (7 harness-hardening slices from the trial-log harvest);
-> S34 appended to T2. Release now **44 slices across 12 tracks**.
+> S34 appended to T2. Release now **53 slices across 13 tracks** (S40→T8, S41–S44→T12, S45–S47→new T13 — 2026-06-21 hygiene + run-reliability + role-parity replans).
 
 ## Recent activity
+
+### 2026-06-21 — replan: new track T13-sworn-role-parity (S45/S46/S47)
+
+- **Actor**: planner (`/replan-release`)
+- **Directive**: sworn must mirror the coach-loop's roles — forward-only, no regressions. Losing captain / TL;DR-review / orchestrator is going backwards. See the parity capture (`internal-docs/captures/2026-06-21-sworn-coach-loop-role-parity.md`).
+- **New track `T13-sworn-role-parity`** (depends_on T12 — both touch `internal/run`, so serialized): **S45-design-tldr** (`sworn run` emits the §1–6 design TL;DR before code), **S46-captain-review** (captain agent reviews the TL;DR, emits classified pins, gates implement — the in-product `/design-review`), **S47-orchestrator-recovery** (intelligent triage on non-PASS: resolve-in-place / escalate / halt, + BLOCKED resolvability — the in-product orchestrator; builds on S44).
+- **Gap closed**: sworn had the captain's *known catches* as deterministic gates (S29–S33, S35) and the embedded `captain.md`, but not the captain's *judgment* in the loop, nor an intelligent recovery orchestrator. T13 restores both.
+- **Ripple (tracked separately)**: the MCP surface (T4) and the TUI (T2) will need parity updates to expose/render the new roles + states — to be sliced next.
+- **Release now 53 slices across 13 tracks.**
+
+### 2026-06-21 — replan: S44-feedback-driven-retry (resolve, don't blind-retry)
+
+- **Actor**: planner (`/replan-release`)
+- **S44-feedback-driven-retry → T12 tail** (after S43): on a verifier FAIL, `RunSlice` clears `status.json` verification (`slice.go:123`) and re-implements with the next model but never passes the verifier's rationale to the implementer — a blind retry. S44 preserves the rationale + violations and injects them into the next implement attempt's prompt, so retry resolves the named failure instead of re-deriving from the spec. Most direct embodiment of "don't fail what an intelligent agent could resolve." Touches T1-owned `internal/run` + `internal/implement` (merged → no collision).
+- **Release now 50 slices across 12 tracks.** (First of the sworn↔coach-loop role-parity work — see the parity capture; captain/design-review + orchestrator/interpreter slices to follow.)
+
+### 2026-06-21 — replan: S43-agent-loop-natural-stop (salvage empty-final-text work)
+
+- **Actor**: planner (`/replan-release`)
+- **S43-agent-loop-natural-stop → T12 tail** (after S42): the agent loop (`internal/agent/agent.go:111`) returns cleanly only on text+no-tool-calls; a model that finishes its work then stops with empty content + no tool calls (gpt-oss-class) spins to `MaxTurns` and errors, discarding the diff and forcing a blind model escalation. S43 treats "no tool calls" as terminal regardless of content — sworn judges ground truth (proof built from `git diff`, not prose), so the verifier decides PASS/FAIL over the actual work. In-product analogue of the coach-loop's force-summary, but simpler (nothing downstream consumes the agent's prose). Touches T1-owned `internal/agent` (T1 merged → no collision).
+- **Release now 49 slices across 12 tracks.**
+
+### 2026-06-21 — replan: S42-implement-step-timeout (run-loop reliability)
+
+- **Actor**: planner (`/replan-release`)
+- **S42-implement-step-timeout → T12 tail** (after S41): the `internal/run/slice.go` escalation loop already advances `escalationModels[attempt]` on an `implement.Run` error, but nothing bounds the implement step — `cmd/sworn/run.go` passes `context.Background()`, `internal/model/oai.go` defaults to `http.DefaultClient` (no timeout). A hung implementer (model API stall / agent infinite loop) blocks the run forever and never escalates. S42 wraps each attempt in `context.WithTimeout`; the model call already honours ctx cancellation, so a deadline-exceeded return flows into the existing escalate path. Touches T1-owned `internal/run` files (T1 merged → no in-flight collision). This is the in-product version of the gap that pinned `gpt-oss-120b` at slot-1 in the coach-loop (whose rotation only counts verifier FAILs); the coach-loop is **not** being changed — the logic belongs in sworn.
+- **Release now 48 slices across 12 tracks.**
+
+### 2026-06-21 — replan: two worktree-hygiene slices (S40, S41) from the cleanup session
+
+- **Actor**: planner (`/replan-release`)
+- **Base-sync (Step 1)**: forward-merged `release/v0.1.0` into release-wt cleanly — pulled `4c47ac5` (gpt-4.1→claude-sonnet-4-6 default).
+- **S40-memory-test-hygiene → T8 tail** (after S25): the memory tests write `test-fixture/` + a root `fake_ollama.go` into the tree instead of `t.TempDir()`, tripping the Gate -1 cleanliness check on T8 (a `.gitignore test-fixture/` stopgap landed at `5d1b7c4`). Placed in **T8, not T12** — it edits `internal/memory/*_test.go`, which the touchpoint matrix assigns to T8; a T12 placement would collide.
+- **S41-build-bin-target → T12 tail** (after S38): canonical `make build` → `bin/sworn` + a new `docs/build.md` run-from-repo-root convention, so sworn run-state stops cluttering `cmd/sworn/` (the recurring `cmd/sworn/.sworn` + `docs/release/run-*`). Documented in a new `docs/build.md` rather than `AGENTS.md` (owned by S21/T3, S22/T4) to stay collision-free. Defers the in-code state-dir resolution and the prompt smoke-step wording (the latter to S33).
+- **Release now 47 slices across 12 tracks.** Both slices append to non-started tails; Step 6 forward-merged release-wt into the in-flight tracks (T2/T3/T4/T8/T12).
 
 ### 2026-06-21 — replan: harness-hardening batch (S29–S36) from the trial-log harvest
 
@@ -339,7 +391,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 - **S34-tui-merge-actor** appended to T2's tail: render the `merge:<track>` actor (now emitted by the coach-loop merge-tag) in the TUI live view + board.
 - **S36** added per Coach direction: dirty worktrees are only worker-caused, so the Captain auto-resolves (commit-by-default, record diff+resolution) rather than paging.
 - **Also landed live this session** (outside the release tree): coach-loop merge-actor tag + post-dispatch worktree-flip guard (sworn#6); verifier `## Status block` watcher-wrapper removed (metadata kept). 10 fired latent bugs filed at `firedau/fired#968–977`.
-- **Release now 44 slices across 12 tracks.** Lightweight add — T12 is a new planned track and S34 appends to T2's tail, so no cross-track forward-merge was needed.
+- **Release now 45 slices across 12 tracks.** Lightweight add — T12 is a new planned track and S34 appends to T2's tail, so no cross-track forward-merge was needed.
 
 ### 2026-06-21 — track `T11-infra-safety` merged to release-wt (commit d242687)
 
