@@ -69,7 +69,7 @@ tracks:
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T11-infra-safety
     worktree_branch: track/2026-06-19-safe-parallelism/T11-infra-safety
-    state: in_progress
+    state: ready_to_merge
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
@@ -110,7 +110,7 @@ tracks:
 | `T8-memory` | S23 → S24 → S25 | T1 | `track/.../T8-memory` | in_progress |
 | `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | in_progress |
 | `T10-public-readiness` | S27 | all (T1–T9) | `track/.../T10-public-readiness` | planned |
-| `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | planned |
+| `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | ready_to_merge |
 
 ### Execution order
 
@@ -282,7 +282,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | planned | [spec](./S25-memory-search/spec.md) |
 | `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | planned | [spec](./S26-telemetry/spec.md) |
 | `S27-public-readiness-scrub` | T10 | Make repo + binary public-safe: generalise embedded role prompts (keep Captain/Coach, strip coach-loop coupling), scrub dogfood provenance comments + fired/GetFired + coach-loop refs. Final launch gate. | planned | [spec](./S27-public-readiness-scrub/spec.md) |
-| `S28-git-dir-guard` | T11 | internal/git fails closed on empty Repo.Dir so a git op can't run on the ambient worktree (fixes workers writing to main, sworn#6) + regression test | planned | [spec](./S28-git-dir-guard/spec.md) |
+| `S28-git-dir-guard` | T11 | internal/git fails closed on empty Repo.Dir so a git op can't run on the ambient worktree (fixes workers writing to main, sworn#6) + regression test | verified | [spec](./S28-git-dir-guard/spec.md) |
 
 ## Aggregate state
 
@@ -301,6 +301,14 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 > sworn#6 git-dir safety fix). Release now **34 slices across 11 tracks**.
 
 ## Recent activity
+
+### 2026-06-21 — S28 verifier verdict: PASS (round 1)
+
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **Slice**: S28-git-dir-guard → state: **verified**
+- **All six gates passed.** `Repo.run()` guard fires before exec on empty Dir; `TestRunRejectsEmptyDir` and `TestEmptyDirDoesNotTouchCwd` both PASS; 11/11 full suite PASS; `go build ./...` + `go vet ./internal/git/...` clean; no silent deferrals; all 4 ACs delivered.
+- **T11-infra-safety is complete.** S28 is its only slice; track state → ready_to_merge.
+- **Next**: `/merge-track T11-infra-safety 2026-06-19-safe-parallelism` in a fresh session.
 
 ### 2026-06-21 — replan: S21 re-scoped + S27 added (public-readiness gate)
 
