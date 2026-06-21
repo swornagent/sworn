@@ -200,8 +200,89 @@ func TestDiffRange_Empty(t *testing.T) {
 		t.Errorf("DiffRange base==HEAD: want empty diff, got %q", diff)
 	}
 }
-func TestMerge(t *testing.T) {
+func TestRunRejectsEmptyDir(t *testing.T) {
+	// A Repo with no Dir must fail on every mutating method.
+	// (AC1: Checkout, Branch, Commit — these are representative;
+	//  the guard is in run() so all 9 methods are covered.)
+	r := &Repo{} // zero Dir
+
+	// Checkout
+	err := r.Checkout("main")
+	if err == nil {
+		t.Fatal("Checkout on empty-Dir Repo: expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "empty Repo.Dir") {
+		t.Errorf("Checkout error: want mention of 'empty Repo.Dir', got: %v", err)
+	}
+
+	// Branch
+	err = r.Branch("feature")
+	if err == nil {
+		t.Fatal("Branch on empty-Dir Repo: expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "empty Repo.Dir") {
+		t.Errorf("Branch error: want mention of 'empty Repo.Dir', got: %v", err)
+	}
+
+	// Commit (AC1 requires Commit be exercised)
+	err = r.Commit("test message")
+	if err == nil {
+		t.Fatal("Commit on empty-Dir Repo: expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "empty Repo.Dir") {
+		t.Errorf("Commit error: want mention of 'empty Repo.Dir', got: %v", err)
+	}
+}
+
+func TestEmptyDirDoesNotTouchCwd(t *testing.T) {
+	// Create a temp git repo and chdir into it. Then call a mutating op on a
+	// zero-Dir Repo. Assert: (1) the guard error is returned, (2) the temp
+	// repo's HEAD and branch are unchanged — proving the ambient cwd was
+	// never touched by the git binary.
 	r := setupRepo(t)
+	writeFile(t, r.Dir, "marker.txt", "initial content")
+	r.Stage("marker.txt")
+	r.Commit("initial")
+	originalRef, err := r.RevParse("HEAD")
+	if err != nil {
+		t.Fatalf("rev-parse HEAD before: %v", err)
+	}
+
+	// Chdir into the temp repo so we can detect ambient git operations.
+	// t.Chdir (Go ≥1.24) restores cwd on test exit and marks the test
+	// parallel-unsafe.
+	t.Chdir(r.Dir)
+
+	// Call a mutating op on a zero-Dir Repo — should fail with guard error.
+	zero := &Repo{}
+	err = zero.Checkout("main")
+	if err == nil {
+		t.Fatal("zero-Dir Checkout: expected guard error, got nil")
+	}
+	if !strings.Contains(err.Error(), "empty Repo.Dir") {
+		t.Errorf("error: want mention of 'empty Repo.Dir', got: %v", err)
+	}
+
+	// Verify the temp repo was NOT touched — HEAD unchanged.
+	currentRef, err := r.RevParse("HEAD")
+	if err != nil {
+		t.Fatalf("rev-parse HEAD after: %v", err)
+	}
+	if currentRef != originalRef {
+		t.Errorf("HEAD changed from %s to %s — the ambient repo was mutated", originalRef, currentRef)
+	}
+
+	// Verify the branch is still the original (no checkout).
+	branchOut, err := r.run("rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		t.Fatalf("rev-parse --abbrev-ref HEAD: %v", err)
+	}
+	if strings.TrimSpace(branchOut) != "main" {
+		t.Errorf("branch changed to %q after zero-Dir operation", strings.TrimSpace(branchOut))
+	}
+}
+
+func TestMerge(t *testing.T) {	r := setupRepo(t)
 	writeFile(t, r.Dir, "f.txt", "base")
 	r.Stage("f.txt")
 	r.Commit("initial on main")

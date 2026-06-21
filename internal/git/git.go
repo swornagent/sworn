@@ -89,7 +89,17 @@ func (r *Repo) Merge(branch string) error {
 
 // run executes a git command in r.Dir and returns stdout (trimmed). On
 // non-zero exit it returns stderr as the error.
+//
+// It refuses to run when Dir is empty — executing git in the ambient cwd
+// is the root cause of sworn#6 (track workers flipping the calling worktree
+// to main). Every mutating method funnels through this single chokepoint,
+// so one guard protects all mutation paths.
 func (r *Repo) run(args ...string) (string, error) {
+	if r.Dir == "" {
+		return "", fmt.Errorf("git %s: refusing to run with empty Repo.Dir "+
+			"(would operate on the ambient working directory / calling worktree)",
+			strings.Join(args, " "))
+	}
 	cmd := exec.Command("git", args...)
 	cmd.Dir = r.Dir
 	out, err := cmd.Output()
