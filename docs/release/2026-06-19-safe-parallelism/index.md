@@ -27,8 +27,7 @@ tracks:
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T4-mcp
     worktree_branch: track/2026-06-19-safe-parallelism/T4-mcp
-    state: in_progress
-  - id: T5-providers
+    state: merged  - id: T5-providers
     slices: [S10-provider-foundation, S11-anthropic-driver, S12-google-driver, S13-bedrock-driver, S14-azure-driver, S15-oci-driver, S16-ollama-driver, S39-openai-responses-provider]
     depends_on: [T1-concurrency-core, T3-commercial]
     worktree_path:
@@ -115,8 +114,7 @@ tracks:
 | `T1-concurrency-core` | S01 → S02a → S02b → S03 | — | `track/.../T1-concurrency-core` | merged |
 | `T2-monitoring` | S04a → S04b → S04c → S05 → S34 | T1 | `track/.../T2-monitoring` | in_progress |
 | `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 | `track/.../T3-commercial` | in_progress |
-| `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | in_progress |
-| `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 → S39 | T1 + T3 | `track/.../T5-providers` | planned |
+| `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | merged || `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 → S39 | T1 + T3 | `track/.../T5-providers` | planned |
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
 | `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | planned |
 | `T8-memory` | S23 → S24 → S25 → S40 | T1 | `track/.../T8-memory` | in_progress |
@@ -302,8 +300,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S19-sworn-induction` | T3 | `sworn induction` one-time repo onboarding (design system + architecture discovery); implementer + verifier prompts gain deviation-surfacing steps | planned | [spec](./S19-sworn-induction/spec.md) |
 | `S20-mcp-catalog-tools` | T7 | 8 MCP tools: plan_release (unified), get_induction_status, get_considerations, search_decisions, record_decision, check_design_system, update_design_system, record_architecture_pattern | planned | [spec](./S20-mcp-catalog-tools/spec.md) |
 | `S21-canonical-baton` | T3 | Baton protocol embedded in binary (internal/prompt/baton/); sworn init writes minimal MCP-pointer AGENTS.md instead of per-repo Baton copy; ADR-0005 | planned | [spec](./S21-canonical-baton/spec.md) |
-| `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | planned | [spec](./S22-sworn-doctor/spec.md) |
-| `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | planned | [spec](./S23-memory-config/spec.md) |
+| `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | verified | [spec](./S22-sworn-doctor/spec.md) || `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | planned | [spec](./S23-memory-config/spec.md) |
 | `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | planned | [spec](./S24-memory-engine/spec.md) |
 | `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | planned | [spec](./S25-memory-search/spec.md) |
 | `S40-memory-test-hygiene` | T8 | memory tests use `t.TempDir()`; removes stray `test-fixture/` + root `fake_ollama.go` so `go test ./internal/memory/...` leaves git clean | planned | [spec](./S40-memory-test-hygiene/spec.md) |
@@ -331,16 +328,15 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 
 ## Aggregate state
 
-- Planned: 25
+- Planned: 31
 - In progress: 0
-- Design review: 0
-- Implemented: 0
-- Verified: 8
+- Design review: 3
+- Implemented: 1
+- Verified: 18
 - Failed verification: 0
-- Deferred: 1
+- Deferred: 0
 
-**Tracks:** Planned: 8 / Ready to merge: 0 / Merged: 3
-
+**Tracks:** Planned: 5 / In progress: 4 / Merged: 4
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice);
 > T10 new (1 slice: S27, the final public-readiness gate); T11 new (1 slice: S28, the
 > sworn#6 git-dir safety fix); T12 new (7 harness-hardening slices from the trial-log harvest);
@@ -366,8 +362,14 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 - **Verdict**: FAIL — Gate 2 violation: `internal/tui/board.go`, `internal/tui/styles.go`, `internal/state/state.go` changed but not in spec.md "Planned touchpoints" and not explained in proof.md "Divergence from plan". All other gates (1, 3–6) pass. Tests: 21/21 PASS, go vet: clean.
 - **Next step**: `/implement-slice S04c-tui-resolution 2026-06-19-safe-parallelism` in a fresh session. Add the three files to spec.md Planned touchpoints OR document them in proof.md Divergence from plan.
 
+### 2026-06-28 — track `T4-mcp` merged to release-wt (commit 732265d)
+
 ### 2026-06-21 — replan: provider-error taxonomy (re-scope S10 + S44)
 
+- **Actor**: track integrator (/merge-track)
+- **Note**: 4 verified slices merged: S08a-mcp-transport, S08b-mcp-ops-tools, S08c-mcp-plan-tools, S22-sworn-doctor. Track state -> merged.
+
+### 2026-06-21 — replan: provider-error taxonomy (re-scope S10 + S44)
 - **Actor**: planner (`/replan-release`)
 - **Trigger**: live coach-loop run hit an OpenRouter 402 (out of credits) that masked as a cryptic "stream error" and then retry-looped. The bash harness was hardened (error surfacing, terminal-PAGE, retry cap, captain rotation); this replan brings the same robustness to **sworn the product** so a user running dry / with a bad key gets an actionable error, not a raw provider dump or a silent spin. Coach decision: land it in S10 (foundation) + S44 (consumer), not a new slice.
 - **S10-provider-foundation re-scoped** (still planned, T5): adds a typed `model.Error{Kind}` taxonomy (`internal/model/errors.go`) — `ClassifyHTTP` maps 401/403→Auth, 402→Credits, 429→RateLimit, 5xx→Upstream; `IsTerminal`/`IsTransient`; `UserMessage()`. `oai.go` returns `*model.Error` on non-2xx (still satisfies `error`); `run.go` prints `UserMessage()`. New touchpoints: `internal/model/errors.go(+_test)`, `oai.go` (modify).
@@ -747,3 +749,9 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
   file, not in the repo. S25 spec documents the shim update as an out-of-tree
   deliverable; the implementer applies it to the local baton install and notes the
   path in `proof.md`.
+
+### 2026-06-28 — S22-sworn-doctor verified
+
+- **Actor**: verifier (`/verify-slice`)
+- **Verdict**: PASS — all six verification gates passed. `sworn doctor` runs cleanly with all expected OK/WARN output, exit 0. 12/12 tests pass, `go build ./...` clean.
+- **State**: S22 → verified. T4-mcp now has all 4 slices verified (S08a, S08b, S08c, S22). Track ready for `/merge-track T4-mcp`.
