@@ -303,8 +303,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S19-sworn-induction` | T3 | `sworn induction` one-time repo onboarding (design system + architecture discovery); implementer + verifier prompts gain deviation-surfacing steps | planned | [spec](./S19-sworn-induction/spec.md) |
 | `S20-mcp-catalog-tools` | T7 | 8 MCP tools: plan_release (unified), get_induction_status, get_considerations, search_decisions, record_decision, check_design_system, update_design_system, record_architecture_pattern | planned | [spec](./S20-mcp-catalog-tools/spec.md) |
 | `S21-canonical-baton` | T3 | Baton protocol embedded in binary (internal/prompt/baton/); sworn init writes minimal MCP-pointer AGENTS.md instead of per-repo Baton copy; ADR-0005 | planned | [spec](./S21-canonical-baton/spec.md) |
-| `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | planned | [spec](./S22-sworn-doctor/spec.md) |
-| `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | planned | [spec](./S23-memory-config/spec.md) |
+| `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | verified | [spec](./S22-sworn-doctor/spec.md) || `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | planned | [spec](./S23-memory-config/spec.md) |
 | `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | planned | [spec](./S24-memory-engine/spec.md) |
 | `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | planned | [spec](./S25-memory-search/spec.md) |
 | `S40-memory-test-hygiene` | T8 | memory tests use `t.TempDir()`; removes stray `test-fixture/` + root `fake_ollama.go` so `go test ./internal/memory/...` leaves git clean | planned | [spec](./S40-memory-test-hygiene/spec.md) |
@@ -332,11 +331,11 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 
 ## Aggregate state
 
-- Planned: 27
+- Planned: 26
 - In progress: 0
 - Design review: 0
 - Implemented: 0
-- Verified: 6
+- Verified: 7
 - Failed verification: 0
 - Deferred: 1
 
@@ -731,3 +730,9 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
   file, not in the repo. S25 spec documents the shim update as an out-of-tree
   deliverable; the implementer applies it to the local baton install and notes the
   path in `proof.md`.
+
+### 2026-06-28 — S22-sworn-doctor verified
+
+- **Actor**: verifier (`/verify-slice`)
+- **Verdict**: PASS — all six verification gates passed. `sworn doctor` runs cleanly with all expected OK/WARN output, exit 0. 12/12 tests pass, `go build ./...` clean.
+- **State**: S22 → verified. T4-mcp now has all 4 slices verified (S08a, S08b, S08c, S22). Track ready for `/merge-track T4-mcp`.

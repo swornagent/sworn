@@ -56,3 +56,18 @@ None.
 ## Verifier verdicts received
 
 *(None yet.)*
+### Verdict 1 — 2026-06-28 (fresh session, artefact-only)
+
+**PASS**
+
+Slice: `S22-sworn-doctor`
+Verified against: `b79b578` (track/2026-06-19-safe-parallelism/T4-mcp, post forward-merge of release-wt)
+Verifier session: fresh, artefact-only
+
+All six verification gates passed:
+1. User-reachable outcome: `sworn doctor` wired through `main.go` dispatch → `cmdDoctor()`
+2. Planned touchpoints match actual changed files: `cmd/sworn/doctor.go`, `cmd/sworn/doctor_test.go`, `cmd/sworn/main.go`; `internal/adopt/adopt.go` is a minor supporting change documented in Delivered
+3. Required tests exist and exercise integration point: 12/12 pass, `go build ./...` clean
+4. Reachability artefact: live `sworn doctor` run produces all expected OK/WARN output, exit 0
+5. No silent deferrals: No TODOs/FIXMEs/HACKs in changed code; one accepted deferral (MCP pointer check) with full Rule 2 compliance
+6. Claimed scope matches implemented scope: All Delivered items have evidence references; all spec acceptance checks covered by tests or reachability artefact
