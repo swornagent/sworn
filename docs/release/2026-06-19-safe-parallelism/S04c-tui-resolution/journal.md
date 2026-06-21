@@ -26,4 +26,4 @@ Coach approved the design with 5 pins (approved-ack.md). All pins addressed:
 - Fixed Pin 1 (BLOCKED-state detection) — `handleBoardKey` was checking `si.State == "blocked"` which is never a state value. Now checks both conditions.
 - Added `VerificationResult` to `SliceBoardInfo` and `SliceStateColor` helper.
 - Added `TestBoardEnterTransitionsToBlockedOnImplementedBlockedVerdict` and `TestBlockedPanelViewProof` tests.
-- Ran gofmt on all touched files.
+- Ran gofmt on all touched files.- skeptic_panel: skipped -- runtime does not support subagent dispatch (single Claude Code session, no parallel Agent tool).
