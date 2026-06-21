@@ -11,7 +11,7 @@ tracks:
     worktree_branch: track/2026-06-19-safe-parallelism/T1-concurrency-core
     state: merged
   - id: T2-monitoring
-    slices: [S04a-tui-foundation, S04b-tui-live, S04c-tui-resolution, S05-overclaim-benchmark]
+    slices: [S04a-tui-foundation, S04b-tui-live, S04c-tui-resolution, S05-overclaim-benchmark, S34-tui-merge-actor]
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T2-monitoring
     worktree_branch: track/2026-06-19-safe-parallelism/T2-monitoring
@@ -60,7 +60,7 @@ tracks:
     state: merged
   - id: T10-public-readiness
     slices: [S27-public-readiness-scrub]
-    depends_on: [T1-concurrency-core, T2-monitoring, T3-commercial, T4-mcp, T5-providers, T6-provider-ux, T7-mcp-extensions, T8-memory, T9-telemetry]
+    depends_on: [T1-concurrency-core, T2-monitoring, T3-commercial, T4-mcp, T5-providers, T6-provider-ux, T7-mcp-extensions, T8-memory, T9-telemetry, T11-infra-safety, T12-harness-hardening]
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T10-public-readiness
     state: planned
@@ -70,6 +70,12 @@ tracks:
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T11-infra-safety
     worktree_branch: track/2026-06-19-safe-parallelism/T11-infra-safety
     state: merged
+  - id: T12-harness-hardening
+    slices: [S29-lint-deps, S30-lint-touchpoints, S31-lint-symbols, S32-designfit-decisions-gate, S33-spec-template-hardening, S35-mutation-guard, S36-captain-resolve-dirty-worktree]
+    depends_on: T1-concurrency-core
+    worktree_path:
+    worktree_branch: track/2026-06-19-safe-parallelism/T12-harness-hardening
+    state: planned
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
@@ -101,7 +107,7 @@ tracks:
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
 | `T1-concurrency-core` | S01 → S02a → S02b → S03 | — | `track/.../T1-concurrency-core` | merged |
-| `T2-monitoring` | S04a → S04b → S04c → S05 | T1 | `track/.../T2-monitoring` | in_progress |
+| `T2-monitoring` | S04a → S04b → S04c → S05 → S34 | T1 | `track/.../T2-monitoring` | in_progress |
 | `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 | `track/.../T3-commercial` | in_progress |
 | `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | in_progress |
 | `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 | T1 + T3 | `track/.../T5-providers` | planned |
@@ -111,12 +117,13 @@ tracks:
 | `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
 | `T10-public-readiness` | S27 | all (T1–T9) | `track/.../T10-public-readiness` | planned |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
+| `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 | T1 | `track/.../T12-harness-hardening` | planned |
 
 ### Execution order
 
 ```
 Phase 1:  T1 (sequential)
-Phase 2:  T2, T3, T4, T8, T9, T11 (parallel after T1 — T11 is the sworn#6 safety fix, dispatch early)
+Phase 2:  T2, T3, T4, T8, T9, T11, T12 (parallel after T1 — T11/T12 are harness-hardening, dispatch early)
 Phase 3:  T5 (after T1 + T3)
           T7 (after T3 + T4; may run in parallel with T5)
 Phase 4:  T6 (after T2 + T5)
@@ -132,6 +139,11 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 > `T10-public-readiness` (S27) is omitted from the columns below: it depends on every
 > other track and runs strictly last (Phase 5), so its wide touchpoints — comment scrubs
 > and prompt-text edits across many files — collide with nothing in parallel.
+> `T11-infra-safety` (S28) and `T12-harness-hardening` (S29–S33, S35, S36) are likewise
+> omitted: T11 touches only `internal/git/`; T12's files are new (`internal/lint/`) or
+> tool-specific (`internal/designfit/`, `cmd/sworn/lint.go`) plus prompt files
+> (`captain.md`/`planner.md`/`verifier.md`) shared only with T10 — which depends on T12,
+> so those writes are sequential, not parallel.
 
 | File / surface | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |---|---|---|---|---|---|---|------|---|---|
@@ -284,6 +296,14 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | verified | [spec](./S26-telemetry/spec.md) |
 | `S27-public-readiness-scrub` | T10 | Make repo + binary public-safe: generalise embedded role prompts (keep Captain/Coach, strip coach-loop coupling), scrub dogfood provenance comments + fired/GetFired + coach-loop refs. Final launch gate. | planned | [spec](./S27-public-readiness-scrub/spec.md) |
 | `S28-git-dir-guard` | T11 | internal/git fails closed on empty Repo.Dir so a git op can't run on the ambient worktree (fixes workers writing to main, sworn#6) + regression test | verified | [spec](./S28-git-dir-guard/spec.md) |
+| `S29-lint-deps` | T12 | `sworn lint deps` — go.mod/go.sum diff vs planned_files, fail-closed; planner auto-adds dep files | planned | [spec](./S29-lint-deps/spec.md) |
+| `S30-lint-touchpoints` | T12 | `sworn lint touchpoints` — design files/pkgs vs planned_files + collision matrix + migration-number collision | planned | [spec](./S30-lint-touchpoints/spec.md) |
+| `S31-lint-symbols` | T12 | `sworn lint symbols` — grep back-ticked design identifiers against the live codebase | planned | [spec](./S31-lint-symbols/spec.md) |
+| `S32-designfit-decisions-gate` | T12 | `sworn designfit` fails closed when Type-1 work is declared but `design_decisions` is empty | planned | [spec](./S32-designfit-decisions-gate/spec.md) |
+| `S33-spec-template-hardening` | T12 | spec/prompt hardening: Risk-cites-`file:line`, pure-engine two-commit note, dynamic-CORS note, + verifier watcher-block cleanup | planned | [spec](./S33-spec-template-hardening/spec.md) |
+| `S34-tui-merge-actor` | T2 | render the `merge:<track>` actor as a distinct row in the TUI live view + release board | planned | [spec](./S34-tui-merge-actor/spec.md) |
+| `S35-mutation-guard` | T12 | Captain check + Baton-rule clause for process-global mutation (cwd/git-state/os.Chdir) — the sworn#6 class | planned | [spec](./S35-mutation-guard/spec.md) |
+| `S36-captain-resolve-dirty-worktree` | T12 | Captain auto-resolves dirty track worktrees (commit-by-default, record the diff+resolution, never page the Coach) | planned | [spec](./S36-captain-resolve-dirty-worktree/spec.md) |
 
 ## Aggregate state
 
@@ -299,9 +319,19 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice);
 > T10 new (1 slice: S27, the final public-readiness gate); T11 new (1 slice: S28, the
-> sworn#6 git-dir safety fix). Release now **34 slices across 11 tracks**.
+> sworn#6 git-dir safety fix); T12 new (7 harness-hardening slices from the trial-log harvest);
+> S34 appended to T2. Release now **42 slices across 12 tracks**.
 
 ## Recent activity
+
+### 2026-06-21 — replan: harness-hardening batch (S29–S36) from the trial-log harvest
+
+- **Actor**: planner (`/replan-release`)
+- **New track `T12-harness-hardening`** (depends T1; dispatch early): **S29-lint-deps**, **S30-lint-touchpoints**, **S31-lint-symbols**, **S32-designfit-decisions-gate**, **S33-spec-template-hardening**, **S35-mutation-guard**, **S36-captain-resolve-dirty-worktree**. Each hardens the automation against a recurring class the Captain design-gate has been catching by hand (186-review harvest at `internal-docs/captures/2026-06-21-captain-trial-log-harvest.md`).
+- **S34-tui-merge-actor** appended to T2's tail: render the `merge:<track>` actor (now emitted by the coach-loop merge-tag) in the TUI live view + board.
+- **S36** added per Coach direction: dirty worktrees are only worker-caused, so the Captain auto-resolves (commit-by-default, record diff+resolution) rather than paging.
+- **Also landed live this session** (outside the release tree): coach-loop merge-actor tag + post-dispatch worktree-flip guard (sworn#6); verifier `## Status block` watcher-wrapper removed (metadata kept). 10 fired latent bugs filed at `firedau/fired#968–977`.
+- **Release now 42 slices across 12 tracks.** Lightweight add — T12 is a new planned track and S34 appends to T2's tail, so no cross-track forward-merge was needed.
 
 ### 2026-06-21 — track `T11-infra-safety` merged to release-wt (commit d242687)
 

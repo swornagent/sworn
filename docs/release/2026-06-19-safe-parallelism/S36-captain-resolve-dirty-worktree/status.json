@@ -1,0 +1,31 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S36-captain-resolve-dirty-worktree",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T12-harness-hardening",
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-21T00:00:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S36-captain-resolve-dirty-worktree/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S36-captain-resolve-dirty-worktree/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S36-captain-resolve-dirty-worktree/journal.md",
+  "planned_files": [
+    "internal/prompt/captain.md"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/prompt/...",
+    "go build ./..."
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}
