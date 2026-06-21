@@ -289,7 +289,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S07-paging` | T3 | FAIL/BLOCKED fires webhook + email; developer paged without watching terminal | planned | [spec](./S07-paging/spec.md) |
 | `S08a-mcp-transport` | T4 | `sworn mcp` JSON-RPC server; initialize handshake; tools scaffold | planned | [spec](./S08a-mcp-transport/spec.md) |
 | `S08b-mcp-ops-tools` | T4 | 9 ops tools: get_board, get_blocked, get_slice_context, rerun, patch, merge, defer | planned | [spec](./S08b-mcp-ops-tools/spec.md) |
-| `S08c-mcp-plan-tools` | T4 | 4 planning tools + resources + prompts + mcp-setup.md | planned | [spec](./S08c-mcp-plan-tools/spec.md) |
+| `S08c-mcp-plan-tools` | T4 | 4 planning tools + resources + prompts + mcp-setup.md | verified | [spec](./S08c-mcp-plan-tools/spec.md) |
 | `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | planned | [spec](./S09-per-role-model-config/spec.md) |
 | `S10-provider-foundation` | T5 | ADR 0004 + provider router + OAI-compat presets (8 providers) + .env file loading | planned | [spec](./S10-provider-foundation/spec.md) |
 | `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | planned | [spec](./S11-anthropic-driver/spec.md) |
@@ -332,11 +332,11 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 
 ## Aggregate state
 
-- Planned: 27
+- Planned: 26
 - In progress: 0
 - Design review: 0
 - Implemented: 0
-- Verified: 6
+- Verified: 7
 - Failed verification: 0
 - Deferred: 1
 
@@ -348,6 +348,12 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 > S34 appended to T2. Release now **53 slices across 13 tracks** (S40→T8, S41–S44→T12, S45–S47→new T13 — 2026-06-21 hygiene + run-reliability + role-parity replans).
 
 ## Recent activity
+
+### 2026-06-21 — verifier verdict: S08c-mcp-plan-tools PASS
+
+- **Actor**: verifier (`/verify-slice`)
+- **Verdict**: PASS — all 6 gates pass. 38 tests, go vet clean, gofmt clean. One declared deferral (`sworn://baton/rules` → S21-canonical-baton) with full Rule 2 compliance.
+- **Next**: `/merge-track T4-mcp` — S08c is the last in-progress slice in T4.
 
 ### 2026-06-21 — replan: new track T13-sworn-role-parity (S45/S46/S47)
 

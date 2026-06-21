@@ -72,3 +72,22 @@ Runtime supports subagent dispatch. Three read-only skeptics dispatched:
 
 ### Deferral carried forward
 - `sworn://baton/rules` MCP resource — DEFERRED to S21-canonical-baton. **Acknowledged**: Coach, 2026-06-21 (`decline.md`).
+## Verifier verdicts received
+
+### Verdict: PASS — 2026-06-21T23:45:00Z (fresh context)
+
+All 6 gates pass:
+
+1. **User-reachable outcome exists** — `sworn mcp` → stdio JSON-RPC → `tools/call`, `resources/read`, `prompts/get`; wired in `cmd/sworn/mcp.go` lines 35-37 with `RegisterPlanTools`, `RegisterResources`, `RegisterPrompts`. Smoke test transcript in proof.md confirms full stdio round-trip.
+
+2. **Planned touchpoints match actual changed files** — PASS with note: 4 additional files (`internal/mcp/server.go`, `cmd/sworn/mcp.go`, `internal/prompt/prompt.go`, `internal/prompt/baton/track-mode.md`) are necessary infrastructure for the planned tools/resources/prompts — not scope creep. The spec describes outcomes that inherently require these changes. `tools_plan_test.go` matches the spec's `tools_test.go (extend)` intent.
+
+3. **Required tests exist and exercise the integration point** — 38 tests pass through full MCP stdio round-trip (`testRoundTrip` / `callTool` / `resourceRoundTrip` / `promptRoundTrip`). All spec-required tests present and passing. `go vet` clean, `gofmt` clean.
+
+4. **Reachability artefact proves the user path** — Manual smoke test transcript in proof.md: built binary, sent JSON-RPC over stdio, `create_slice` created files on disk, `resources/read` returned correct content, `prompts/get` returned non-empty planner prompt, absent proof returned empty string. Files verified on disk.
+
+5. **No silent deferrals or placeholder logic** — One declared deferral (`sworn://baton/rules` → S21-canonical-baton) with full Rule 2 compliance (why + tracking + Coach ack). No undeclared TODO/FIXME/deferred/placeholder/hack/kludge/temp/stub in production files.
+
+6. **Claimed scope matches implemented scope** — All 15 Delivered items have verifiable evidence references; each maps to a specific file + passing test. The single Not Delivered item is properly deferred.
+
+Next step: `/merge-track T4-mcp` — S08c is the last in-progress slice in T4 (S22-sworn-doctor is still planned). The track-merger will determine readiness.
