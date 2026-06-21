@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/swornagent/sworn/internal/ears"
+	"github.com/swornagent/sworn/internal/lint"
 	"github.com/swornagent/sworn/internal/rtm"
 )
 
@@ -16,10 +17,12 @@ import (
 //
 //	ac     — classify every AC by EARS pattern; fail closed on free-form checks
 //	trace  — build the 2-D requirements traceability matrix; fail closed on broken traces
+//	deps   — check that go.mod/go.sum changes are declared in planned_files; fail closed on undeclared
 func cmdLint(args []string) int {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "sworn lint: target required")
 		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace> <release>")
+		fmt.Fprintln(os.Stderr, "       sworn lint deps [--base <ref>] <slice-id> <release>")
 		return 64
 	}
 	switch args[0] {
@@ -27,9 +30,12 @@ func cmdLint(args []string) int {
 		return cmdLintAC(args[1:])
 	case "trace":
 		return cmdLintTrace(args[1:])
+	case "deps":
+		return cmdLintDeps(args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "sworn lint: unknown target %q (known: ac, trace)\n", args[0])
+		fmt.Fprintf(os.Stderr, "sworn lint: unknown target %q (known: ac, trace, deps)\n", args[0])
 		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace> <release>")
+		fmt.Fprintln(os.Stderr, "       sworn lint deps [--base <ref>] <slice-id> <release>")
 		return 64
 	}
 }
@@ -119,6 +125,45 @@ func cmdLintTrace(args []string) int {
 
 	fmt.Printf("\nAll traces verified. %d needs, %d acceptance criteria, %d tests, %d slices.\n",
 		len(m.Needs), len(m.ACs), len(m.Tests), len(m.Slices))
+	return 0
+}
+
+// cmdLintDeps implements `sworn lint deps <slice-id> <release>`.
+//
+// Checks that go.mod / go.sum changes in the slice's diff are declared in the
+// slice's status.json planned_files. Fails closed (exit 1) when a changed dep
+// file is undeclared, naming the offending file(s).
+func cmdLintDeps(args []string) int {
+	fs := flag.NewFlagSet("lint deps", flag.ExitOnError)
+	baseRef := fs.String("base", "", "base ref for git diff (defaults to start_commit or release-wt/<release>)")
+	_ = fs.Parse(args)
+
+	if fs.NArg() < 2 {
+		fmt.Fprintln(os.Stderr, "sworn lint deps: slice-id and release name are required")
+		fmt.Fprintln(os.Stderr, "usage: sworn lint deps [--base <ref>] <slice-id> <release>")
+		return 64
+	}
+	sliceID := fs.Arg(0)
+	releaseName := fs.Arg(1)
+
+	releaseDir, err := resolveReleaseDir(releaseName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint deps: %v\n", err)
+		return 2
+	}
+
+	sliceDir := filepath.Join(releaseDir, sliceID)
+	if _, err := os.Stat(sliceDir); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint deps: slice directory not found: %s\n", sliceDir)
+		return 2
+	}
+
+	if err := lint.CheckDeps(sliceDir, *baseRef); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint deps: %v\n", err)
+		return 1
+	}
+
+	fmt.Printf("deps: all dependency files declared in planned_files for %s\n", sliceID)
 	return 0
 }
 

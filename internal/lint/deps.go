@@ -1,89 +1,86 @@
+// Package lint implements the `sworn lint` sub-targets that perform
+// mechanical, pre-verification checks on release slices. Each target is
+// fail-closed: exit 0 only when the check passes, non-zero on any violation.
+//
+// The deps target verifies that go.mod / go.sum changes in a slice's diff are
+// declared in that slice's status.json planned_files.
 package lint
 
 import (
-    "encoding/json"
-    "errors"
-    "fmt"
-    "os"
-    "os/exec"
-    "path/filepath"
-    "strings"
+	"fmt"
+	"os/exec"
+	"sort"
+	"strings"
+
+	"github.com/swornagent/sworn/internal/state"
 )
 
-type Status struct {
-    SliceID      string   `json:"slice_id"`
-    Release      string   `json:"release"`
-    PlannedFiles []string `json:"planned_files"`
-    StartCommit  *string  `json:"start_commit"`
+// depFiles is the set of Go dependency files that, if changed, must appear in
+// a slice's planned_files.
+var depFiles = map[string]bool{
+	"go.mod": true,
+	"go.sum": true,
 }
 
-// readStatus reads the status.json for the given slice directory.
-func readStatus(sliceDir string) (*Status, error) {
-    data, err := os.ReadFile(filepath.Join(sliceDir, "status.json"))
-    if err != nil {
-        return nil, err
-    }
-    var s Status
-    if err := json.Unmarshal(data, &s); err != nil {
-        return nil, err
-    }
-    return &s, nil
-}
-
-// CheckDeps verifies that any changes to go.mod or go.sum since baseRef are declared in planned_files.
-// If baseRef is empty, it falls back to the slice's start_commit; if that is nil, it uses "release-wt/<release>".
+// CheckDeps verifies that any changes to go.mod or go.sum since baseRef are
+// declared in the slice's status.json planned_files. If baseRef is empty, it
+// falls back to the slice's start_commit; if start_commit is also empty, it
+// derives "release-wt/<release>" from the status.json release field.
+//
+// Returns nil if no dependency files changed, or if all changed dep files are
+// declared in planned_files. Returns an error naming the undeclared file(s)
+// otherwise.
 func CheckDeps(sliceDir string, baseRef string) error {
-    status, err := readStatus(sliceDir)
-    if err != nil {
-        return fmt.Errorf("reading status.json: %w", err)
-    }
+	st, err := state.Read(sliceDir + "/status.json")
+	if err != nil {
+		return fmt.Errorf("lint deps: reading status.json: %w", err)
+	}
 
-    // Determine the base reference.
-    if baseRef == "" {
-        if status.StartCommit != nil && *status.StartCommit != "" {
-            baseRef = *status.StartCommit
-        } else {
-            baseRef = fmt.Sprintf("release-wt/%s", status.Release)
-        }
-    }
+	// Determine the base reference.
+	if baseRef == "" {
+		if st.StartCommit != "" {
+			baseRef = st.StartCommit
+		} else {
+			baseRef = "release-wt/" + st.Release
+		}
+	}
 
-    // Run git diff to list changed files.
-    cmd := exec.Command("git", "diff", "--name-only", baseRef+"...HEAD")
-    cmd.Dir = sliceDir // run from slice directory (repo root is parent of docs)
-    out, err := cmd.Output()
-    if err != nil {
-        // git diff returns non-zero if there is no diff? Actually it returns 0.
-        // If command fails, propagate.
-        return fmt.Errorf("git diff failed: %w", err)
-    }
-    changed := strings.Fields(string(out))
+	// Run git diff to list changed files. Use two-dot diff to capture exactly
+	// the commits on the current branch since baseRef.
+	cmd := exec.Command("git", "diff", "--name-only", baseRef+"..HEAD")
+	cmd.Dir = sliceDir
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("lint deps: git diff %s..HEAD: %w", baseRef, err)
+	}
+	changed := strings.Fields(string(out))
 
-    // Determine if go.mod or go.sum changed.
-    var depChanges []string
-    for _, f := range changed {
-        if f == "go.mod" || f == "go.sum" {
-            depChanges = append(depChanges, f)
-        }
-    }
-    if len(depChanges) == 0 {
-        // No dependency changes – pass.
-        return nil
-    }
+	// Filter for dependency files.
+	var depChanges []string
+	for _, f := range changed {
+		if depFiles[f] {
+			depChanges = append(depChanges, f)
+		}
+	}
+	if len(depChanges) == 0 {
+		return nil
+	}
 
-    // Build a set of planned files for quick lookup.
-    plannedSet := make(map[string]struct{}, len(status.PlannedFiles))
-    for _, p := range status.PlannedFiles {
-        plannedSet[p] = struct{}{}
-    }
+	// Build a set of planned files for quick lookup.
+	plannedSet := make(map[string]bool, len(st.PlannedFiles))
+	for _, p := range st.PlannedFiles {
+		plannedSet[p] = true
+	}
 
-    var undeclared []string
-    for _, d := range depChanges {
-        if _, ok := plannedSet[d]; !ok {
-            undeclared = append(undeclared, d)
-        }
-    }
-    if len(undeclared) > 0 {
-        return errors.New("undeclared dependency file(s): " + strings.Join(undeclared, ", "))
-    }
-    return nil
+	var undeclared []string
+	for _, d := range depChanges {
+		if !plannedSet[d] {
+			undeclared = append(undeclared, d)
+		}
+	}
+	if len(undeclared) > 0 {
+		sort.Strings(undeclared)
+		return fmt.Errorf("undeclared dependency file(s): %s", strings.Join(undeclared, ", "))
+	}
+	return nil
 }
