@@ -157,16 +157,55 @@ $ BASE_BRANCH=release-wt/2026-06-19-safe-parallelism release-verify.sh S04c-tui-
 == Status ==
   PASS  status.json is valid JSON
   state: implemented
+  PASS  state is implemented (eligible for verifier review)
+
+== Integration branch drift ==
+  integration branch: release/v0.1.0
+  PASS  worktree branch is current with release/v0.1.0 (no drift)
 
 == Diff vs start_commit (verifier base) ==
   diff base: start_commit 83e38dd14e85460a26cc03970aee731d6aff1abd
-  PASS  11 file(s) changed vs diff base
+  PASS  13 file(s) changed vs diff base
 
 == Dark-code markers in changed files ==
-  (false positives on "deferred" — legitimate state name, not TODO markers)
+  FAIL  dark-code markers found in changed source files (must be Rule 2 deferrals)
+  hits:
+    internal/state/state.go: Deferred State = "deferred"
+    internal/tui/blocked.go: b.message = "Slice deferred successfully!"
+    internal/tui/model.go: // Reload board to reflect any state changes (e.g. deferred)
+    internal/tui/styles.go: case "deferred":
+    internal/tui/tui_test.go: t.Errorf("expected state 'deferred', got %q", st.State)
+
+== Proof bundle structural checks ==
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+  PASS  proof.md Not delivered deferrals carry non-placeholder tracking refs
+  PASS  proof.md Files changed count (~11) consistent with diff vs start_commit (13)
 
 == Frontmatter YAML safety ==
   PASS  spec.md frontmatter is strict-YAML safe
+
+== Test results section scope ==
+  PASS  Test results section contains no Playwright runner output
+
+== First-pass verdict ==
+  checks passed: 22
+  checks failed: 1
+
+FIRST-PASS FAIL
 ```
 
-Note: dark-code marker hits are false positives — the word "deferred" is a legitimate state name (`state.Deferred`), not a TODO/deferred comment marker. The script's heuristic matches any line containing "deferred" regardless of context.
+**Dark-code marker false positive analysis:** The single FAIL is a known false positive. The script DARK_PATTERNS regex includes deferred, which matches the canonical Baton state name Deferred / "deferred". All 5 hits are legitimate uses of the state name in code:
+- internal/state/state.go: Deferred State = "deferred" -- the state constant definition
+- internal/tui/blocked.go: "Slice deferred successfully!" -- user-facing success message
+- internal/tui/model.go: comment about state changes -- documentation
+- internal/tui/styles.go: case "deferred": -- switch case for state colour rendering
+- internal/tui/tui_test.go: test assertion on state value
+
+None of these are TODO/FIXME/HACK markers. The word "deferred" is the protocol-defined state name, not a dark-code deferral comment.
