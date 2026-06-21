@@ -67,9 +67,9 @@ tracks:
   - id: T11-infra-safety
     slices: [S28-git-dir-guard]
     depends_on: T1-concurrency-core
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T11-infra-safety
     worktree_branch: track/2026-06-19-safe-parallelism/T11-infra-safety
-    state: planned
+    state: in_progress
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
