@@ -13,10 +13,10 @@ import (
 
 // TrackInfo holds data about one track from the index.md frontmatter.
 type TrackInfo struct {
-	ID       string   `yaml:"id"`
-	Slices   []string `yaml:"slices"`
-	Depends  string   `yaml:"depends_on"`
-	State    string   `yaml:"state"`
+	ID      string   `yaml:"id"`
+	Slices  []string `yaml:"slices"`
+	Depends string   `yaml:"depends_on"`
+	State   string   `yaml:"state"`
 }
 
 // SliceBoardInfo holds live state data for one slice on the board.
@@ -29,10 +29,12 @@ type SliceBoardInfo struct {
 // BoardView is a Bubble Tea component embedded in the root model.
 // It displays the board view for a selected release.
 type BoardView struct {
-	ReleaseName string
-	Tracks      []TrackInfo
-	Slices      map[string]SliceBoardInfo // slice ID -> live data
-	Loaded      bool
+	ReleaseName   string
+	Tracks        []TrackInfo
+	Slices        map[string]SliceBoardInfo // slice ID -> live data
+	Loaded        bool
+	Cursor        int      // index of the selected slice in orderedSlices
+	orderedSlices []string // slice IDs in display order
 }
 
 // LoadBoard reads the selected release's index.md and all slice status.json files.
@@ -97,6 +99,20 @@ func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
 		}
 	}
 
+	// Populate orderedSlices in display order.
+	b.orderedSlices = nil
+	for _, track := range b.Tracks {
+		for _, sliceID := range track.Slices {
+			b.orderedSlices = append(b.orderedSlices, sliceID)
+		}
+	}
+	if b.Cursor >= len(b.orderedSlices) {
+		b.Cursor = len(b.orderedSlices) - 1
+	}
+	if b.Cursor < 0 {
+		b.Cursor = 0
+	}
+
 	b.Loaded = true
 	return nil
 }
@@ -152,7 +168,11 @@ func (b *BoardView) View() string {
 			}
 			sliceState := StateColor(si.State)
 			line := fmt.Sprintf("  %s  %s  (%s)", sliceID, sliceState, si.LastUpdatedAt)
-			sb.WriteString(SliceItem.Render(line))
+			if len(b.orderedSlices) > 0 && b.Cursor >= 0 && b.Cursor < len(b.orderedSlices) && b.orderedSlices[b.Cursor] == sliceID {
+				sb.WriteString(BoardItemSelected.Render("▸" + line[1:]))
+			} else {
+				sb.WriteString(SliceItem.Render(line))
+			}
 			sb.WriteString("\n")
 		}
 		sb.WriteString("\n")

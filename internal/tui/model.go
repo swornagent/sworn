@@ -14,6 +14,7 @@ const (
 	viewReleases viewState = iota
 	viewBoard
 	viewLive
+	viewBlocked
 	viewQuit
 )
 
@@ -43,6 +44,9 @@ type Model struct {
 	// S04b: Live is the concurrent status view. Non-nil only when the user
 	// has navigated to a release with live tracks (or pressed l from board).
 	Live *LiveView
+
+	// S04c: Blocked is the blocked/failed slice resolution view.
+	Blocked *BlockedView
 }
 
 // Init implements tea.Model. Loads the credit balance at startup.
@@ -72,6 +76,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
+
 // View implements tea.Model.
 func (m *Model) View() string {
 	if m.state == viewQuit {
@@ -86,6 +91,10 @@ func (m *Model) View() string {
 		return body + "\n" + help
 	}
 
+	// Blocked view replaces the two-pane layout entirely.
+	if m.state == viewBlocked && m.Blocked != nil {
+		return m.Blocked.View()
+	}
 	left := m.Releases.View()
 	right := m.Board.View()
 
@@ -100,7 +109,7 @@ func (m *Model) View() string {
 			Foreground(colFail).
 			Bold(true).
 			Padding(0, 2)
-		body += "\n" + errStyle.Render("Error: " + m.errMsg)
+		body += "\n" + errStyle.Render("Error: "+m.errMsg)
 	}
 
 	help := m.renderHelp()
@@ -131,6 +140,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		return m.handleBoardKey(msg)
 	case viewLive:
 		return m.handleLiveKey(msg)
+	case viewBlocked:
+		return m.handleBlockedKey(msg)
 	}
 	return m, nil
 }
@@ -175,6 +186,29 @@ func (m *Model) handleBoardKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	case "esc":
 		m.state = viewReleases
 		return m, nil
+	case "j", "down":
+		if m.Board.Cursor < len(m.Board.orderedSlices)-1 {
+			m.Board.Cursor++
+		}
+	case "k", "up":
+		if m.Board.Cursor > 0 {
+			m.Board.Cursor--
+		}
+	case "enter":
+		if len(m.Board.orderedSlices) > 0 {
+			sliceID := m.Board.orderedSlices[m.Board.Cursor]
+			si, ok := m.Board.Slices[sliceID]
+			if ok && (si.State == "failed_verification" || si.State == "blocked") {
+				bv, err := LoadBlockedView(m.repoRoot, m.Board.ReleaseName, sliceID)
+				if err != nil {
+					m.errMsg = err.Error()
+					return m, nil
+				}
+				m.Blocked = bv
+				m.state = viewBlocked
+				return m, nil
+			}
+		}
 	case "l":
 		// Switch to live view if available.
 		if m.Live != nil {
@@ -205,6 +239,24 @@ func (m *Model) handleLiveKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	case "b":
 		m.state = viewBoard
 		return m, nil
+	}
+	return m, nil
+}
+
+// handleBlockedKey handles keyboard input in the blocked view.
+func (m *Model) handleBlockedKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
+	if m.Blocked != nil {
+		if msg.String() == "esc" && !m.Blocked.viewingProof && !m.Blocked.deferring {
+			m.state = viewBoard
+			// Reload board to reflect any state changes (e.g. deferred)
+			if err := m.Board.LoadBoard(m.repoRoot, m.Board.ReleaseName); err != nil {
+				m.errMsg = err.Error()
+			}
+			return m, nil
+		}
+		bm, cmd := m.Blocked.Update(msg)
+		m.Blocked = bm
+		return m, cmd
 	}
 	return m, nil
 }

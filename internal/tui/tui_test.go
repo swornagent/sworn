@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -664,4 +665,193 @@ func mustParseTime(t *testing.T, s string) time.Time {
 		t.Fatalf("parse time: %v", err)
 	}
 	return parsed
+}
+
+func TestBlockedPanelExtractsViolations(t *testing.T) {
+	proofContent := `---
+title: Proof Bundle
+---
+
+## Violations
+- Violation 1: spec mismatch
+- Violation 2: test failed
+
+## Not delivered
+- Deferral 1: out of scope
+`
+	violations := ExtractViolations(proofContent)
+	if len(violations) != 3 {
+		t.Fatalf("expected 3 violations, got %d: %v", len(violations), violations)
+	}
+	if violations[0] != "Violation 1: spec mismatch" {
+		t.Errorf("expected 'Violation 1: spec mismatch', got %q", violations[0])
+	}
+	if violations[1] != "Violation 2: test failed" {
+		t.Errorf("expected 'Violation 2: test failed', got %q", violations[1])
+	}
+	if violations[2] != "Deferral 1: out of scope" {
+		t.Errorf("expected 'Deferral 1: out of scope', got %q", violations[2])
+	}
+}
+
+func TestOpenAIWritesContextFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	spec := "Spec content"
+	violations := "Violation 1\nViolation 2"
+	diff := "Git diff content"
+
+	path, err := WriteContextFile(tmpDir, spec, violations, diff)
+	if err != nil {
+		t.Fatalf("WriteContextFile: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading context file: %v", err)
+	}
+
+	content := string(data)
+	if !strings.Contains(content, "Spec content") {
+		t.Errorf("expected context file to contain spec content")
+	}
+	if !strings.Contains(content, "Violation 1") {
+		t.Errorf("expected context file to contain violations")
+	}
+	if !strings.Contains(content, "Git diff content") {
+		t.Errorf("expected context file to contain diff")
+	}
+}
+
+func TestLaunchMissingTool(t *testing.T) {
+	os.Setenv("SWORN_CLAUDE_CODE_CMD", "non-existent-command-12345")
+	defer os.Unsetenv("SWORN_CLAUDE_CODE_CMD")
+
+	err := LaunchClaudeCode("/tmp")
+	if err == nil {
+		t.Fatal("expected error when launching missing tool, got nil")
+	}
+
+	bv := &BlockedView{
+		sliceID:      "S01-test",
+		releaseName:  "test-release",
+		worktreePath: "/tmp",
+		violations:   []string{"Violation 1"},
+	}
+
+	bv2, _ := bv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	if !strings.Contains(bv2.message, "Claude Code not found") {
+		t.Errorf("expected message to contain 'Claude Code not found', got %q", bv2.message)
+	}
+}
+
+func TestDeferWritesRuleTwo(t *testing.T) {
+	tmpDir := t.TempDir()
+	releaseDir := filepath.Join(tmpDir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	indexContent := `---
+tracks:
+  - id: T1-core
+    slices: [S01-first]
+    worktree_path: ` + tmpDir + `
+---`
+	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+
+	createSliceStatus(t, releaseDir, "S01-first", "failed_verification", "T1-core")
+
+	bv, err := LoadBlockedView(tmpDir, "test-release", "S01-first")
+	if err != nil {
+		t.Fatalf("LoadBlockedView: %v", err)
+	}
+
+	bv2, _ := bv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("5")})
+	if !bv2.deferring {
+		t.Fatal("expected deferring=true")
+	}
+
+	reason := "Not enough time"
+	for _, r := range reason {
+		bv2, _ = bv2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+
+	bv3, _ := bv2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if bv3.deferring {
+		t.Fatal("expected deferring=false after confirm")
+	}
+	if bv3.errMessage != "" {
+		t.Fatalf("unexpected error: %s", bv3.errMessage)
+	}
+
+	st, err := state.Read(filepath.Join(releaseDir, "S01-first", "status.json"))
+	if err != nil {
+		t.Fatalf("reading status.json: %v", err)
+	}
+	if st.State != state.Deferred {
+		t.Errorf("expected state 'deferred', got %q", st.State)
+	}
+
+	intakeData, err := os.ReadFile(filepath.Join(releaseDir, "intake.md"))
+	if err != nil {
+		t.Fatalf("reading intake.md: %v", err)
+	}
+	intakeContent := string(intakeData)
+	if !strings.Contains(intakeContent, "S01-first") {
+		t.Errorf("expected intake.md to contain slice ID")
+	}
+	if !strings.Contains(intakeContent, "Not enough time") {
+		t.Errorf("expected intake.md to contain reason")
+	}
+	if !strings.Contains(intakeContent, "Why") {
+		t.Errorf("expected intake.md to contain 'Why'")
+	}
+	if !strings.Contains(intakeContent, "Acknowledged") {
+		t.Errorf("expected intake.md to contain 'Acknowledged'")
+	}
+}
+
+func TestBoardEnterTransitionsToBlocked(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	createIndex(t, dir, "test-release", "Test Release")
+
+	indexContent := `---
+title: Test Release
+tracks:
+  - id: T1-core
+    slices: [S01-first]
+    state: in_progress
+---`
+	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+
+	createSliceStatus(t, releaseDir, "S01-first", "failed_verification", "T1-core")
+
+	m := &Model{
+		state:    viewReleases,
+		repoRoot: dir,
+		Releases: &ReleasesList{},
+		Board:    &BoardView{},
+	}
+	if err := m.Releases.LoadReleases(dir); err != nil {
+		t.Fatalf("LoadReleases: %v", err)
+	}
+
+	upd, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m2 := upd.(*Model)
+	if m2.state != viewBoard {
+		t.Fatalf("expected viewBoard state, got %d", m2.state)
+	}
+
+	upd2, _ := m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m3 := upd2.(*Model)
+	if m3.state != viewBlocked {
+		t.Fatalf("expected viewBlocked state after Enter on failed slice, got %d", m3.state)
+	}
+	if m3.Blocked == nil {
+		t.Fatal("expected Blocked view to be loaded")
+	}
+	if m3.Blocked.sliceID != "S01-first" {
+		t.Errorf("expected Blocked slice ID 'S01-first', got %q", m3.Blocked.sliceID)
+	}
 }

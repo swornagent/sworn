@@ -8,19 +8,20 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 )
+
 var (
 	// Colour palette.
-	colPrimary   = lipgloss.Color("#7C3AED") // purple-600
-	colAccent    = lipgloss.Color("#10B981") // emerald-500
-	colWarn      = lipgloss.Color("#F59E0B") // amber-500
-	colFail      = lipgloss.Color("#EF4444") // red-500
-	colMuted     = lipgloss.Color("#6B7280") // gray-500
-	colText      = lipgloss.Color("#E5E7EB") // gray-200
-	colDim       = lipgloss.Color("#9CA3AF") // gray-400
-	colBg        = lipgloss.Color("#1F2937") // gray-800
-	colBgSel     = lipgloss.Color("#374151") // gray-700
-	colBorder    = lipgloss.Color("#4B5563") // gray-600
-	colHelpBg    = lipgloss.Color("#111827") // gray-900
+	colPrimary = lipgloss.Color("#7C3AED") // purple-600
+	colAccent  = lipgloss.Color("#10B981") // emerald-500
+	colWarn    = lipgloss.Color("#F59E0B") // amber-500
+	colFail    = lipgloss.Color("#EF4444") // red-500
+	colMuted   = lipgloss.Color("#6B7280") // gray-500
+	colText    = lipgloss.Color("#E5E7EB") // gray-200
+	colDim     = lipgloss.Color("#9CA3AF") // gray-400
+	colBg      = lipgloss.Color("#1F2937") // gray-800
+	colBgSel   = lipgloss.Color("#374151") // gray-700
+	colBorder  = lipgloss.Color("#4B5563") // gray-600
+	colHelpBg  = lipgloss.Color("#111827") // gray-900
 
 	// Release list pane.
 	ReleaseListStyle = lipgloss.NewStyle().
@@ -63,11 +64,15 @@ var (
 			Foreground(colText).
 			Padding(0, 0)
 
-	SliceStatePlanned  = lipgloss.NewStyle().Foreground(colMuted).Render
-	SliceStateActive   = lipgloss.NewStyle().Foreground(colAccent).Bold(true).Render
-	SliceStateDone     = lipgloss.NewStyle().Foreground(colAccent).Render
-	SliceStateFailed   = lipgloss.NewStyle().Foreground(colFail).Render
-	SliceStateBlocked  = lipgloss.NewStyle().Foreground(colWarn).Render
+	BoardItemSelected = SliceItem.Copy().
+				Background(colBgSel).
+				Foreground(colAccent).
+				Bold(true)
+	SliceStatePlanned = lipgloss.NewStyle().Foreground(colMuted).Render
+	SliceStateActive  = lipgloss.NewStyle().Foreground(colAccent).Bold(true).Render
+	SliceStateDone    = lipgloss.NewStyle().Foreground(colAccent).Render
+	SliceStateFailed  = lipgloss.NewStyle().Foreground(colFail).Render
+	SliceStateBlocked = lipgloss.NewStyle().Foreground(colWarn).Render
 
 	// Help bar.
 	HelpBar = lipgloss.NewStyle().
@@ -87,8 +92,8 @@ var (
 			Padding(0, 1)
 
 	LiveRow = lipgloss.NewStyle().
-			Foreground(colText).
-			Padding(0, 1)
+		Foreground(colText).
+		Padding(0, 1)
 
 	DividerLine = lipgloss.NewStyle().
 			Foreground(colMuted).
@@ -96,7 +101,8 @@ var (
 
 	// Generic.
 	Divider      = lipgloss.NewStyle().Foreground(colMuted).Render("─")
-	EmptyMessage = lipgloss.NewStyle().Foreground(colMuted).Italic(true).Padding(0, 2))
+	EmptyMessage = lipgloss.NewStyle().Foreground(colMuted).Italic(true).Padding(0, 2)
+)
 
 // StateColor renders a slice state string with the correct colour.
 func StateColor(state string) string {
