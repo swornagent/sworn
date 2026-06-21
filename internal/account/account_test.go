@@ -189,6 +189,7 @@ func TestSaveMode0600(t *testing.T) {
 		t.Errorf("dir mode: got %o, want 0700", dirMode)
 	}
 }
+
 // TestSaveCreatesDir verifies Save creates the directory if it doesn't exist
 // and that the newly-created directory has mode 0700 (AC2).
 func TestSaveCreatesDir(t *testing.T) {
@@ -224,6 +225,7 @@ func TestSaveCreatesDir(t *testing.T) {
 		t.Fatal("credentials.json was not created")
 	}
 }
+
 // TestLoadMissingFile verifies Load returns nil, nil when no file exists.
 func TestLoadMissingFile(t *testing.T) {
 	dir := t.TempDir()
@@ -371,6 +373,7 @@ func TestLoadNonexistentDir(t *testing.T) {
 		t.Fatal("expected nil credentials for nonexistent dir")
 	}
 }
+
 // TestFetchCredits verifies that FetchCredits queries the credits API,
 // parses the integer credit count, and writes the cache file.
 func TestFetchCredits(t *testing.T) {

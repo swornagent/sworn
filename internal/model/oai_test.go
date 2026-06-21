@@ -3,7 +3,6 @@ package model
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +12,7 @@ import (
 	"testing"
 	"time"
 )
+
 func fakeServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(handler)
@@ -296,9 +296,12 @@ func TestFromEnv(t *testing.T) {
 			for _, k := range []string{
 				"SWORN_OPENAI_API_KEY", "SWORN_OPENAI_BASE_URL", "SWORN_OPENAI_MODEL",
 				"SWORN_AZURE_API_KEY", "SWORN_AZURE_BASE_URL", "SWORN_AZURE_MODEL",
+				"SWORN_DIRECT", "SWORN_PROXY_URL",
 			} {
 				t.Setenv(k, "")
 			}
+			// Point config to an empty dir so no real credentials interfere.
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 			for k, v := range tt.env {
 				t.Setenv(k, v)
 			}
@@ -320,6 +323,23 @@ func TestFromEnv(t *testing.T) {
 
 // --- S06b proxy routing tests ---
 
+// writeTestCreds writes a credentials file into a temp config dir and sets
+// XDG_CONFIG_HOME so configDir() resolves to it. configDir() appends "/sworn"
+// to the XDG base, so the file lands at <dir>/sworn/credentials.json.
+func writeTestCreds(t *testing.T, dir string) {
+	t.Helper()
+	swornDir := filepath.Join(dir, "sworn")
+	if err := os.MkdirAll(swornDir, 0700); err != nil {
+		t.Fatalf("mkdir %s: %v", swornDir, err)
+	}
+	credsJSON := `{"token":"tok_proxy","email":"user@example.com","tier":"pro","expires_at":"2030-01-01T00:00:00Z"}`
+	credsPath := filepath.Join(swornDir, "credentials.json")
+	if err := os.WriteFile(credsPath, []byte(credsJSON), 0600); err != nil {
+		t.Fatalf("writing credentials: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", dir)
+}
+
 // TestFromEnvUsesProxy verifies that when sworn credentials are present,
 // FromEnv routes through the proxy URL (not the direct provider URL).
 func TestFromEnvUsesProxy(t *testing.T) {
@@ -337,17 +357,8 @@ func TestFromEnvUsesProxy(t *testing.T) {
 	// Set SWORN_PROXY_URL to the mock proxy.
 	t.Setenv("SWORN_PROXY_URL", proxySrv.URL)
 
-	// Write credentials file.
-	credsDir := t.TempDir()
-	credsPath := filepath.Join(credsDir, "credentials.json")
-	credsJSON := fmt.Sprintf(`{"token":"tok_proxy","email":"user@example.com","tier":"pro","expires_at":"2030-01-01T00:00:00Z"}`)
-	if err := os.WriteFile(credsPath, []byte(credsJSON), 0600); err != nil {
-		t.Fatalf("writing credentials: %v", err)
-	}
-
-	// Override the credentials path by setting HOME (Linux) so configDir
-	// resolves to our temp dir.
-	t.Setenv("XDG_CONFIG_HOME", credsDir)
+	// Write credentials file into a temp config dir.
+	writeTestCreds(t, t.TempDir())
 
 	// Clear direct provider key to ensure we're using proxy, not direct.
 	t.Setenv("SWORN_OPENAI_API_KEY", "")
@@ -390,19 +401,13 @@ func TestFromEnvBypassProxy(t *testing.T) {
 
 	t.Setenv("SWORN_PROXY_URL", proxySrv.URL)
 
-	// Write credentials file.
-	credsDir := t.TempDir()
-	credsJSON := `{"token":"tok_proxy","email":"user@example.com","tier":"pro","expires_at":"2030-01-01T00:00:00Z"}`
-	if err := os.WriteFile(filepath.Join(credsDir, "credentials.json"), []byte(credsJSON), 0600); err != nil {
-		t.Fatalf("writing credentials: %v", err)
-	}
-	t.Setenv("XDG_CONFIG_HOME", credsDir)
+	// Write credentials file into a temp config dir.
+	writeTestCreds(t, t.TempDir())
 
 	// Set SWORN_DIRECT=1 and provider key + base URL.
 	t.Setenv("SWORN_DIRECT", "1")
 	t.Setenv("SWORN_OPENAI_API_KEY", "sk-direct")
 	t.Setenv("SWORN_OPENAI_BASE_URL", providerSrv.URL)
-
 	v, err := FromEnv("openai/gpt-4.1")
 	if err != nil {
 		t.Fatalf("FromEnv failed: %v", err)
@@ -427,17 +432,11 @@ func TestFromEnvProxyDefaultHost(t *testing.T) {
 	// Ensure SWORN_PROXY_URL is unset.
 	t.Setenv("SWORN_PROXY_URL", "")
 
-	// Write credentials file.
-	credsDir := t.TempDir()
-	credsJSON := `{"token":"tok_proxy","email":"user@example.com","tier":"pro","expires_at":"2030-01-01T00:00:00Z"}`
-	if err := os.WriteFile(filepath.Join(credsDir, "credentials.json"), []byte(credsJSON), 0600); err != nil {
-		t.Fatalf("writing credentials: %v", err)
-	}
-	t.Setenv("XDG_CONFIG_HOME", credsDir)
+	// Write credentials file into a temp config dir.
+	writeTestCreds(t, t.TempDir())
 
 	t.Setenv("SWORN_OPENAI_API_KEY", "")
 	t.Setenv("SWORN_DIRECT", "")
-
 	v, err := FromEnv("openai/gpt-4.1")
 	if err != nil {
 		t.Fatalf("FromEnv failed: %v", err)
@@ -468,17 +467,11 @@ func TestFromEnvProxyOverrideWarns(t *testing.T) {
 
 	t.Setenv("SWORN_PROXY_URL", "http://localhost:12345")
 
-	// Write credentials file.
-	credsDir := t.TempDir()
-	credsJSON := `{"token":"tok_proxy","email":"user@example.com","tier":"pro","expires_at":"2030-01-01T00:00:00Z"}`
-	if err := os.WriteFile(filepath.Join(credsDir, "credentials.json"), []byte(credsJSON), 0600); err != nil {
-		t.Fatalf("writing credentials: %v", err)
-	}
-	t.Setenv("XDG_CONFIG_HOME", credsDir)
+	// Write credentials file into a temp config dir.
+	writeTestCreds(t, t.TempDir())
 
 	t.Setenv("SWORN_OPENAI_API_KEY", "")
 	t.Setenv("SWORN_DIRECT", "")
-
 	v, err := FromEnv("openai/gpt-4.1")
 	if err != nil {
 		t.Fatalf("FromEnv failed: %v", err)
@@ -527,19 +520,13 @@ func TestFromEnvInsufficientCredits(t *testing.T) {
 
 	t.Setenv("SWORN_PROXY_URL", proxySrv.URL)
 
-	// Write credentials file.
-	credsDir := t.TempDir()
-	credsJSON := `{"token":"tok_proxy","email":"user@example.com","tier":"pro","expires_at":"2030-01-01T00:00:00Z"}`
-	if err := os.WriteFile(filepath.Join(credsDir, "credentials.json"), []byte(credsJSON), 0600); err != nil {
-		t.Fatalf("writing credentials: %v", err)
-	}
-	t.Setenv("XDG_CONFIG_HOME", credsDir)
+	// Write credentials file into a temp config dir.
+	writeTestCreds(t, t.TempDir())
 
 	// Set provider key + URL so a fallback *could* happen if the code were buggy.
 	t.Setenv("SWORN_OPENAI_API_KEY", "sk-direct")
 	t.Setenv("SWORN_OPENAI_BASE_URL", providerSrv.URL)
 	t.Setenv("SWORN_DIRECT", "")
-
 	v, err := FromEnv("openai/gpt-4.1")
 	if err != nil {
 		t.Fatalf("FromEnv failed: %v", err)

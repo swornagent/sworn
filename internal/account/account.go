@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 )
+
 // Credentials represents a stored SwornAgent authentication session.
 // Fields are tagged for JSON serialisation to match the file format.
 //
@@ -62,7 +63,8 @@ func OpenBrowser(urlStr string) {
 // openBrowser tries to open a URL in the system browser, falling back to
 // printing the URL to stderr. Platform-specific commands are tried in order:
 // xdg-open (Linux), open (macOS), start (Windows). See spec Risks section.
-func openBrowser(urlStr string) {	switch runtime.GOOS {
+func openBrowser(urlStr string) {
+	switch runtime.GOOS {
 	case "darwin":
 		if err := exec.Command("open", urlStr).Start(); err == nil {
 			return
@@ -241,6 +243,7 @@ func IsLoggedIn(creds *Credentials) bool {
 	}
 	return time.Now().Before(creds.ExpiresAt)
 }
+
 // CreditsPath returns the full path to the credits cache JSON file.
 func CreditsPath() string {
 	return filepath.Join(configDir(), "credits.json")

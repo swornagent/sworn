@@ -91,6 +91,7 @@ func FromEnv(modelID string) (Verifier, error) {
 		APIKey:  key,
 	}, nil
 }
+
 // parseModelID splits "provider/model" into its parts. The first "/" is the
 // separator; model names that contain "/" are not yet handled (flag for S10).
 func parseModelID(modelID string) (provider, model string, err error) {

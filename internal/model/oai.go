@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/swornagent/sworn/internal/account"
-)// OAI dispatches a single /chat/completions call to an OpenAI-compatible
+) // OAI dispatches a single /chat/completions call to an OpenAI-compatible
 // endpoint. It implements Verifier via stdlib net/http + encoding/json
 // (zero third-party dependencies per AGENTS.md).
 //
