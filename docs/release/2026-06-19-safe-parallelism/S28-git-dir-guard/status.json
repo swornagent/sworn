@@ -1,0 +1,39 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S28-git-dir-guard",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T11-infra-safety",
+  "state": "verified",  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-21T00:00:00Z",  "design_decisions": [
+    {"id": "D1", "type": "type_2", "summary": "Guard in run() not New()"},
+    {"id": "D2", "type": "type_2", "summary": "Error includes git args"},
+    {"id": "D3", "type": "type_2", "summary": "Test uses t.Chdir"},
+    {"id": "D4", "type": "type_2", "summary": "No callers need fixing"},
+    {"id": "D5", "type": "type_2", "summary": "Error not panic"}
+  ],
+  "start_commit": "b7425e9018433225232d82bcb361f82276af2c6d",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S28-git-dir-guard/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S28-git-dir-guard/proof.md",  "journal_path": "docs/release/2026-06-19-safe-parallelism/S28-git-dir-guard/journal.md",
+  "planned_files": [
+    "internal/git/git.go",
+    "internal/git/git_test.go"
+  ],
+  "actual_files": [
+    "internal/git/git.go",
+    "internal/git/git_test.go"
+  ],  "test_commands": [
+    "go test ./internal/git/...",
+    "go build ./...",
+    "go vet ./internal/git/..."
+  ],
+  "reachability_artifacts": [
+    "go test -count=1 -v -run 'TestRunRejectsEmptyDir|TestEmptyDirDoesNotTouchCwd' ./internal/git/..."
+  ],  "open_deferrals": [],
+  "verification": {
+    "result": "pass",    "verifier_session_id": null,
+    "verifier_verdict_at": "2026-06-21T12:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": []
+  }
+}

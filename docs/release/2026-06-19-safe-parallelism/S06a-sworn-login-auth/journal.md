@@ -102,3 +102,11 @@ Required to address:
 ### Pre-verification skeptic panel
 
 Runtime does not support subagent dispatch (single-threaded API call mode, no parallel tool). Skipped. Noted: `skeptic_panel: skipped — runtime does not support subagent dispatch`.
+
+## 2026-06-21 — planner cleared BLOCKED (cmd/sworn/main.go conflict resolved)
+
+Verifier BLOCKED on the cmd/sworn/main.go forward-merge conflict (S06a's login/logout/
+account cases in the old main() vs T9's dispatch() extraction). Resolved: kept T9's
+dispatch() structure, ported `case "login"/"logout"/"account": return cmdX(args[2:])`.
+go build clean. verification.result → pending, state → implemented for re-verify. (Same
+systemic conflict as T2 + T8; S30-lint-touchpoints will catch this class at plan time.)
