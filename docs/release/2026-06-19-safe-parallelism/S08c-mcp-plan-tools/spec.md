@@ -56,7 +56,7 @@ MCP Resources (registered via `server.RegisterResource()`):
 - `sworn://prompts/plan` → `internal/prompt/planner.md` (embed)
 - `sworn://prompts/implement` → `internal/prompt/implementer.md` (embed)
 - `sworn://prompts/verify` → `internal/prompt/verifier.md` (embed)
-- `sworn://baton/rules` → `internal/prompt/baton/rules.md` (embed; full Baton protocol)
+- `sworn://baton/rules` → **DEFERRED to S21-canonical-baton** — source `internal/prompt/baton/rules.md` is not yet built; Rule-2 deferral (see design §4), Coach ack 2026-06-21. Not served by S08c.
 - `sworn://baton/track-mode` → `internal/prompt/baton/track-mode.md` (embed)
 - `sworn://baton/version` → `internal/prompt/baton/VERSION.txt` (embed; Baton version string)
 - `sworn://release/{name}/board` → content of `docs/release/<name>/index.md`
@@ -100,8 +100,9 @@ and an example planning workflow.
 - [ ] `resources/read sworn://prompts/plan` returns non-empty content from the
   `internal/prompt/` embed — NOT from `$HOME/.claude/baton/` (verified by checking
   that the resource works when `$HOME/.claude/baton/` does not exist)
-- [ ] `resources/read sworn://baton/rules` returns non-empty content from the
-  `internal/prompt/baton/rules.md` embed
+- [ ] *(DEFERRED to S21 — out of scope for S08c)* `resources/read sworn://baton/rules`
+  returns non-empty content from the `internal/prompt/baton/rules.md` embed (source built by
+  S21-canonical-baton; Rule-2 deferral, Coach ack 2026-06-21)
 - [ ] `resources/read sworn://baton/version` returns a parseable version string
 - [ ] `resources/read sworn://release/2026-06-19-safe-parallelism/board` returns the
   content of this release's index.md
@@ -123,10 +124,11 @@ and an example planning workflow.
   — `TestResourceReadPrompt`: assert sworn://prompts/plan returns non-empty string
   — `TestResourceReadProofAbsent`: sworn://release/{name}/{slice}/proof for slice with
     no proof.md; assert empty string, no error
-- **Reachability artefact**: configure sworn mcp in Claude Code; ask Claude to "create
-  a new sworn release called 2026-06-20-mcp-test with goal 'test the MCP planning
-  tools'"; observe AI calls create_release; verify directory created in `docs/release/`;
-  clean up. Screenshot or log in proof.md.
+- **Reachability artefact**: configure sworn mcp in Claude Code; ask Claude to "add slice
+  S99-smoke to release 2026-06-19-mcp-test"; observe AI calls **create_slice**; verify
+  `docs/release/2026-06-19-mcp-test/S99-smoke/{spec.md,status.json}` created; clean up.
+  Screenshot or log in proof.md. *(Amended 2026-06-21: the prior artefact referenced
+  `create_release`, which this slice does not expose as an MCP tool — Coach ack via decline.md.)*
 
 ## Risks
 
