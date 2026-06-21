@@ -261,7 +261,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S06b-sworn-proxy-credits` | T3 | Model calls route via SwornAgent proxy; `sworn account buy`; credit display | planned | [spec](./S06b-sworn-proxy-credits/spec.md) |
 | `S07-paging` | T3 | FAIL/BLOCKED fires webhook + email; developer paged without watching terminal | planned | [spec](./S07-paging/spec.md) |
 | `S08a-mcp-transport` | T4 | `sworn mcp` JSON-RPC server; initialize handshake; tools scaffold | planned | [spec](./S08a-mcp-transport/spec.md) |
-| `S08b-mcp-ops-tools` | T4 | 9 ops tools: get_board, get_blocked, get_slice_context, rerun, patch, merge, defer | planned | [spec](./S08b-mcp-ops-tools/spec.md) |
+| `S08b-mcp-ops-tools` | T4 | 9 ops tools: get_board, get_blocked, get_slice_context, rerun, patch, merge, defer | failed_verification | [spec](./S08b-mcp-ops-tools/spec.md) |
 | `S08c-mcp-plan-tools` | T4 | 4 planning tools + resources + prompts + mcp-setup.md | planned | [spec](./S08c-mcp-plan-tools/spec.md) |
 | `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | planned | [spec](./S09-per-role-model-config/spec.md) |
 | `S10-provider-foundation` | T5 | ADR 0004 + provider router + OAI-compat presets (8 providers) + .env file loading | planned | [spec](./S10-provider-foundation/spec.md) |
@@ -301,6 +301,16 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 > sworn#6 git-dir safety fix). Release now **34 slices across 11 tracks**.
 
 ## Recent activity
+
+### 2026-06-21 — S08b verifier verdict: FAIL (round 1, 3 violations)
+
+- **Actor**: verifier (fresh context, Rule 7 compliant)
+- **Slice**: S08b-mcp-ops-tools → state: failed_verification
+- **Violation 1 (Gate 3)**: `TestGetSliceContext` does not verify a non-empty `diff` field. Fixture worktree_path is `/tmp/wt/T1-engine` (non-existent); `runDiff` always returns `diff:""` + `diff_note`. Test only checks for `"start_commit"` as a JSON key. AC #3 requires "non-empty spec_content, violations, **and diff** for a fixture slice with a known start_commit and **worktree with uncommitted changes**."
+- **Violation 2 (Gate 3)**: `TestDeferSliceWritesRuleTwo` does not verify `intake.md` was written. Test checks `status.json` and `open_deferrals` but never reads `docs/release/test-release-d/intake.md`. AC #4 requires "appends a deferral block to intake.md containing the reason string."
+- **Violation 3 (Gate 4)**: Reachability artefact shows `tools/list` registration JSON, not the spec-required user gesture. Spec requires "configure sworn mcp in Claude Code; ask 'what's blocked?'; observe AI calls get_blocked and returns the blocked slice list. Screengrab or log in proof.md."
+- **All other gates (1, 2, 5, 6) passed.** Tests all pass (19/19 including full suite 26 packages). Implementation is functionally correct.
+- **Next**: `/implement-slice S08b-mcp-ops-tools 2026-06-19-safe-parallelism` in a fresh session to address all 3 violations.
 
 ### 2026-06-21 — replan: S21 re-scoped + S27 added (public-readiness gate)
 

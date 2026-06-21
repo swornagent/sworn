@@ -56,3 +56,50 @@ Skipped — runtime does not support subagent dispatch.
 ## Deferrals
 
 None. All 9 tools implemented with full test coverage.
+
+## Verifier verdicts received
+
+| Round | Date | Verdict | Verifier |
+|-------|------|---------|----------|
+| 1 | 2026-06-21 | FAIL | fresh-context verifier |
+
+### Round 1 — FAIL
+
+```
+FAIL
+
+Slice: `S08b-mcp-ops-tools`
+
+Violations:
+1. Gate 3 — `TestGetSliceContext` does not verify a non-empty `diff` field.
+   Evidence: `internal/mcp/tools_test.go:209-233` — fixture worktree_path is
+   `/tmp/wt/T1-engine` (non-existent at test time), so `runDiff` always returns
+   `diff: ""` + `diff_note`. The test asserts only that `"start_commit"` appears
+   as a JSON key in the output — not that `diff` is non-empty. AC #3 requires
+   "non-empty spec_content, violations, and diff for a fixture slice with a known
+   start_commit and worktree with uncommitted changes."
+
+2. Gate 3 — `TestDeferSliceWritesRuleTwo` does not verify `intake.md` is written.
+   Evidence: `internal/mcp/tools_test.go:235-276` — the test checks `status.json`
+   state and `open_deferrals` but never reads or asserts content of
+   `docs/release/test-release-d/intake.md`. AC #4 requires "appends a deferral
+   block to intake.md containing the reason string."
+
+3. Gate 4 — Reachability artefact does not demonstrate the spec-required user gesture.
+   Evidence: `proof.md` "Reachability artefact" section — provides a `tools/list`
+   JSON response showing tool registration, not a demonstration of `get_blocked`
+   being invoked and returning the blocked slice list. Spec requires "configure
+   sworn mcp in Claude Code; ask 'what's blocked in the safe-parallelism release?';
+   observe AI calls get_blocked and returns the blocked slice list. Screengrab or
+   log in proof.md."
+
+Required to address:
+1. Extend `TestGetSliceContext` to use a real temporary git repository — git init,
+   make a commit as start_commit, add a file change, set worktree_path to the real
+   temp git dir, and assert the returned `diff` field is non-empty.
+2. Extend `TestDeferSliceWritesRuleTwo` to read intake.md from the fixture root
+   after calling defer_slice and assert it contains "blocked on backend".
+3. Run sworn mcp connected to Claude Code (or an MCP client), invoke get_blocked,
+   capture the log or screenshot showing the blocked slice list response, and
+   replace the tools/list JSON in proof.md with this user-path demonstration.
+```

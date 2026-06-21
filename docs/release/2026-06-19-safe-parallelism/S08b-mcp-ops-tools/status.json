@@ -3,10 +3,10 @@
   "slice_id": "S08b-mcp-ops-tools",
   "release": "2026-06-19-safe-parallelism",
   "track": "T4-mcp",
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-28T00:00:00Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-21T12:55:00Z",
   "start_commit": "6e21bf0c4d9867210d63adb77cebe8fe8fbb2dac",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S08b-mcp-ops-tools/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S08b-mcp-ops-tools/proof.md",
@@ -17,10 +17,14 @@
   "reachability_artifacts": ["MCP server tools/list returns all 9 registered ops tools"],
   "open_deferrals": [],
   "verification": {
-    "result": "",
+    "result": "fail",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
+    "verifier_verdict_at": "2026-06-21T12:55:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "Gate 3 — TestGetSliceContext does not verify non-empty diff (AC #3): fixture worktree_path /tmp/wt/T1-engine non-existent; runDiff returns diff:'' always; test only checks 'start_commit' JSON key, not diff content",
+      "Gate 3 — TestDeferSliceWritesRuleTwo does not verify intake.md written (AC #4): test checks status.json and open_deferrals but never reads or asserts intake.md content",
+      "Gate 4 — Reachability artefact shows tools/list registration JSON, not the spec-required user gesture (ask Claude what's blocked → get_blocked invoked → blocked slice list returned)"
+    ]
   }
 }
