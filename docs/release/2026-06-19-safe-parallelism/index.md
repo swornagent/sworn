@@ -57,7 +57,7 @@ tracks:
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T9-telemetry
     worktree_branch: track/2026-06-19-safe-parallelism/T9-telemetry
-    state: ready_to_merge
+    state: merged
   - id: T10-public-readiness
     slices: [S27-public-readiness-scrub]
     depends_on: [T1-concurrency-core, T2-monitoring, T3-commercial, T4-mcp, T5-providers, T6-provider-ux, T7-mcp-extensions, T8-memory, T9-telemetry]
@@ -108,7 +108,7 @@ tracks:
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
 | `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | planned |
 | `T8-memory` | S23 → S24 → S25 | T1 | `track/.../T8-memory` | in_progress |
-| `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | ready_to_merge |
+| `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
 | `T10-public-readiness` | S27 | all (T1–T9) | `track/.../T10-public-readiness` | planned |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | planned |
 
@@ -294,13 +294,18 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 - Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 8 / Ready to merge: 1 / Merged: 1
+**Tracks:** Planned: 8 / Ready to merge: 0 / Merged: 2
 
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice);
 > T10 new (1 slice: S27, the final public-readiness gate); T11 new (1 slice: S28, the
 > sworn#6 git-dir safety fix). Release now **34 slices across 11 tracks**.
 
 ## Recent activity
+
+### 2026-06-21 — track `T9-telemetry` merged to release-wt (commit ee4b729)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 1 verified slice merged: S26-telemetry. Track state → merged.
 
 ### 2026-06-21 — S26 verifier verdict: PASS (round 3)
 
