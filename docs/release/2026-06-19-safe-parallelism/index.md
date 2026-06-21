@@ -73,9 +73,9 @@ tracks:
   - id: T12-harness-hardening
     slices: [S29-lint-deps, S30-lint-touchpoints, S31-lint-symbols, S32-designfit-decisions-gate, S33-spec-template-hardening, S35-mutation-guard, S36-captain-resolve-dirty-worktree, S37-telemetry-tui-exclusion]
     depends_on: T1-concurrency-core
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T12-harness-hardening
     worktree_branch: track/2026-06-19-safe-parallelism/T12-harness-hardening
-    state: planned
+    state: in_progress
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
