@@ -86,6 +86,8 @@ The gate is additive — it does not replace any existing gate. It runs alongsid
 
 ## No-mock boundary (S10 enforcement)
 
+Journey validation exists to prove the *assembled system actually works end-to-end*. A journey walked over a mocked boundary proves nothing — the mock answers however the test author wired it to, not however the real system would. So the no-mock boundary is **constitutive of Rule 10, not a detachable add-on**: it is the enforcement that makes a walked journey count as proof. (It also reads as a Rule-2 concern — an undeclared mock is a silent deferral — but its home is here, because the failure it prevents is a journey that lies about working.)
+
 **An undeclared mock at a validated boundary is an undeclared Rule-2 deferral and fails closed.** The validated boundaries are: database (DB), authentication (auth), and entitlement (premium/subscription tier). A mock/stub/fake at one of these boundaries is permitted only if declared as a Rule-2 deferral in the slice's `status.json` `open_deferrals` with all three elements (why + tracking + acknowledgement).
 
 ### Detection
@@ -102,7 +104,7 @@ An implementer that cannot reach real infrastructure at a validated boundary mus
 
 ### Relationship to journey validation
 
-A journey that crosses a validated boundary (every journey touches the DB; most touch auth) must have its boundary mocks declared as deferrals for the verification gate to pass. This prevents silent mock-around in journey integration tests — if a journey test mocks auth at the boundary without declaring it, the slice fails. Journey validation (the artefact) is separate from no-mock enforcement (the gate), but they compose: the journey tells you what to test; the no-mock gate tells you how you must test it (no silent mocking).
+A journey that crosses a validated boundary (every journey touches the DB; most touch auth) must run that crossing against real infra, or declare the mock as a deferral, for the verification gate to pass. The artefact (the journey) and the gate (no-mock) are not two rules that happen to compose — they are one rule's two faces: the journey says *what* end-to-end path must work; the no-mock gate guarantees the walk that proves it didn't cheat at the boundary. A journey whose boundary is mocked is a journey that hasn't been validated at all, regardless of a green test.
 
 ### When this applies
 
