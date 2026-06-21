@@ -282,8 +282,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S03-verify-under-concurrency` | T1 | Verify gate goroutine-safe and fail-closed at N>1 | verified | [spec](./S03-verify-under-concurrency/spec.md) |
 | `S04a-tui-foundation` | T2 | `sworn` (no args) shows releases list + board view with navigation | planned | [spec](./S04a-tui-foundation/spec.md) |
 | `S04b-tui-live` | T2 | Live concurrent track status from DB (1s poll) + credit balance in header | planned | [spec](./S04b-tui-live/spec.md) |
-| `S04c-tui-resolution` | T2 | Blocked slice TL;DR panel + options + open in Claude Code / Codex | planned | [spec](./S04c-tui-resolution/spec.md) |
-| `S05-overclaim-benchmark` | T2 | Overclaim rate flat at N=1/2/4; published benchmark artefact | planned | [spec](./S05-overclaim-benchmark/spec.md) |
+| `S04c-tui-resolution` | T2 | Blocked slice TL;DR panel + options + open in Claude Code / Codex | failed_verification | [spec](./S04c-tui-resolution/spec.md) || `S05-overclaim-benchmark` | T2 | Overclaim rate flat at N=1/2/4; published benchmark artefact | planned | [spec](./S05-overclaim-benchmark/spec.md) |
 | `S06a-sworn-login-auth` | T3 | `sworn login` device-code flow; credentials file; `sworn logout` | planned | [spec](./S06a-sworn-login-auth/spec.md) |
 | `S06b-sworn-proxy-credits` | T3 | Model calls route via SwornAgent proxy; `sworn account buy`; credit display | planned | [spec](./S06b-sworn-proxy-credits/spec.md) |
 | `S07-paging` | T3 | FAIL/BLOCKED fires webhook + email; developer paged without watching terminal | planned | [spec](./S07-paging/spec.md) |
@@ -332,12 +331,12 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 
 ## Aggregate state
 
-- Planned: 27
+- Planned: 26
 - In progress: 0
 - Design review: 0
 - Implemented: 0
 - Verified: 6
-- Failed verification: 0
+- Failed verification: 1
 - Deferred: 1
 
 **Tracks:** Planned: 8 / Ready to merge: 0 / Merged: 3
@@ -348,6 +347,12 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 > S34 appended to T2. Release now **53 slices across 13 tracks** (S40→T8, S41–S44→T12, S45–S47→new T13 — 2026-06-21 hygiene + run-reliability + role-parity replans).
 
 ## Recent activity
+
+### 2026-06-28 — verifier verdict: FAIL (S04c-tui-resolution)
+
+- **Actor**: verifier (`/verify-slice`)
+- **Verdict**: FAIL — Gate 2 violation: `internal/tui/board.go`, `internal/tui/styles.go`, `internal/state/state.go` changed but not in spec.md "Planned touchpoints" and not explained in proof.md "Divergence from plan". All other gates (1, 3–6) pass. Tests: 21/21 PASS, go vet: clean.
+- **Next step**: `/implement-slice S04c-tui-resolution 2026-06-19-safe-parallelism` in a fresh session. Add the three files to spec.md Planned touchpoints OR document them in proof.md Divergence from plan.
 
 ### 2026-06-21 — replan: new track T13-sworn-role-parity (S45/S46/S47)
 

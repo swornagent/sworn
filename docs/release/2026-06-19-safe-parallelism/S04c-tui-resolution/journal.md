@@ -27,3 +27,18 @@ Coach approved the design with 5 pins (approved-ack.md). All pins addressed:
 - Added `VerificationResult` to `SliceBoardInfo` and `SliceStateColor` helper.
 - Added `TestBoardEnterTransitionsToBlockedOnImplementedBlockedVerdict` and `TestBlockedPanelViewProof` tests.
 - Ran gofmt on all touched files.- skeptic_panel: skipped -- runtime does not support subagent dispatch (single Claude Code session, no parallel Agent tool).
+
+## Verifier verdicts received
+
+### Verdict: FAIL (2026-06-28)
+
+Slice: `S04c-tui-resolution`
+
+Violations:
+1. Gate 2 — `internal/tui/board.go`, `internal/tui/styles.go`, and `internal/state/state.go` changed but not in spec.md "Planned touchpoints" and not explained in proof.md "Divergence from plan" (which states "None")
+   Evidence: `git diff --name-only start_commit..HEAD` shows these files; proof.md "Divergence from plan" section
+
+Required to address:
+1. Add `internal/tui/board.go`, `internal/tui/styles.go`, and `internal/state/state.go` to spec.md "Planned touchpoints" OR document them in proof.md "Divergence from plan" with rationale for each
+
+All other gates (1, 3–6) pass. Tests: 21/21 PASS. go vet: clean.
