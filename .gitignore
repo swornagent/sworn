@@ -1,6 +1,7 @@
 # build output
 /bin/
 /dist/
+# root-level built binary (anchored so a bare `sworn` doesn't also ignore cmd/sworn/)
 /sworn
 
 # go
@@ -18,6 +19,12 @@ coverage.*
 
 # stray sworn artefacts from running sworn outside repo root
 /cmd/sworn/docs/
+# scratch state/run dirs sworn writes relative to cwd (e.g. when run from cmd/sworn)
+cmd/sworn/.sworn/
 
 # SQLite process registry database (all directories)
 .sworn/
+
+# test scratch written into the tree — tests should use t.TempDir() instead;
+# ignored defensively so a stray fixture dir never trips the cleanliness gate
+test-fixture/
