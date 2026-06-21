@@ -14,9 +14,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
-
 // Credentials represents a stored SwornAgent authentication session.
 // Fields are tagged for JSON serialisation to match the file format.
 //
@@ -50,11 +50,19 @@ func CredentialsPath() string {
 	return filepath.Join(configDir(), "credentials.json")
 }
 
+// OpenBrowser tries to open a URL in the system browser, falling back to
+// printing the URL to stderr. Platform-specific commands are tried in order:
+// xdg-open (Linux), open (macOS), start (Windows). See spec Risks section.
+//
+// Exported so cmd/sworn can reuse it for `sworn account buy` (S06b).
+func OpenBrowser(urlStr string) {
+	openBrowser(urlStr)
+}
+
 // openBrowser tries to open a URL in the system browser, falling back to
 // printing the URL to stderr. Platform-specific commands are tried in order:
 // xdg-open (Linux), open (macOS), start (Windows). See spec Risks section.
-func openBrowser(urlStr string) {
-	switch runtime.GOOS {
+func openBrowser(urlStr string) {	switch runtime.GOOS {
 	case "darwin":
 		if err := exec.Command("open", urlStr).Start(); err == nil {
 			return
@@ -232,4 +240,88 @@ func IsLoggedIn(creds *Credentials) bool {
 		return false
 	}
 	return time.Now().Before(creds.ExpiresAt)
+}
+// CreditsPath returns the full path to the credits cache JSON file.
+func CreditsPath() string {
+	return filepath.Join(configDir(), "credits.json")
+}
+
+// creditsResponse is the JSON response from the credits API endpoint.
+type creditsResponse struct {
+	Credits int `json:"credits"`
+}
+
+// FetchCredits queries the SwornAgent account API for the current credit
+// balance and caches the result in ~/.config/sworn/credits.json. It uses
+// the provided context for timeout control so it can be called non-blocking
+// from `sworn run` startup without delaying the main flow.
+//
+// The credit unit is an integer count (Coach ack pin A). The
+// credit→token→currency conversion rate is a backend concern, out of scope
+// for this slice.
+func FetchCredits(ctx context.Context, creds *Credentials) (int, error) {
+	if creds == nil || creds.Token == "" {
+		return 0, fmt.Errorf("account: not logged in")
+	}
+
+	// Derive the API host from the proxy default host (same compiled-in
+	// pattern). SWORN_PROXY_URL override applies for testing.
+	host := defaultProxyHost
+	if override := os.Getenv("SWORN_PROXY_URL"); override != "" {
+		host = strings.TrimRight(override, "/")
+	}
+
+	creditsURL := host + "/account/credits"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, creditsURL, nil)
+	if err != nil {
+		return 0, fmt.Errorf("account: build credits request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+creds.Token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("account: fetch credits: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("account: credits API returned HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, fmt.Errorf("account: reading credits response: %w", err)
+	}
+
+	var cr creditsResponse
+	if err := json.Unmarshal(body, &cr); err != nil {
+		return 0, fmt.Errorf("account: parsing credits response: %w", err)
+	}
+
+	// Cache the result.
+	cachePath := CreditsPath()
+	cacheDir := filepath.Dir(cachePath)
+	if err := os.MkdirAll(cacheDir, 0700); err != nil {
+		return cr.Credits, fmt.Errorf("account: creating cache dir: %w", err)
+	}
+	cacheData, _ := json.MarshalIndent(cr, "", "  ")
+	_ = os.WriteFile(cachePath, cacheData, 0600)
+
+	return cr.Credits, nil
+}
+
+// LoadCachedCredits reads the cached credit balance from
+// ~/.config/sworn/credits.json. Returns 0, false if the cache is absent
+// or unparseable.
+func LoadCachedCredits() (int, bool) {
+	data, err := os.ReadFile(CreditsPath())
+	if err != nil {
+		return 0, false
+	}
+	var cr creditsResponse
+	if err := json.Unmarshal(data, &cr); err != nil {
+		return 0, false
+	}
+	return cr.Credits, true
 }

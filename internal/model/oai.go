@@ -8,9 +8,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
-)
 
-// OAI dispatches a single /chat/completions call to an OpenAI-compatible
+	"github.com/swornagent/sworn/internal/account"
+)// OAI dispatches a single /chat/completions call to an OpenAI-compatible
 // endpoint. It implements Verifier via stdlib net/http + encoding/json
 // (zero third-party dependencies per AGENTS.md).
 //
@@ -178,6 +178,12 @@ func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (str
 		return "", 0, fmt.Errorf("model: read response: %w", err)
 	}
 
+	// 402 Payment Required — insufficient credits (Coach ack pin C).
+	// Never silently downgrade to a direct provider call.
+	if resp.StatusCode == http.StatusPaymentRequired {
+		return "", 0, account.ErrInsufficientCredits
+	}
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", 0, fmt.Errorf("model: HTTP %d: %s", resp.StatusCode, trimBody(body, 200))
 	}
@@ -194,8 +200,7 @@ func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (str
 	return cr.Choices[0].Message.Content, cost, nil
 }
 
-// Chat sends a multi-message conversation (possibly with tool definitions
-// and tool-call history) to /chat/completions. It returns the full
+// Chat sends a multi-message conversation (possibly with tool definitions// and tool-call history) to /chat/completions. It returns the full
 // ChatResponse so the caller can inspect tool_calls and finish_reason.
 // Cost is the sum of all Chat calls in the loop — tracked by the caller.
 //
@@ -236,6 +241,11 @@ func (c *OAI) Chat(ctx context.Context, messages []ChatMessage, tools []ToolDef)
 		return nil, fmt.Errorf("model: read response: %w", err)
 	}
 
+	// 402 Payment Required — insufficient credits (Coach ack pin C).
+	if resp.StatusCode == http.StatusPaymentRequired {
+		return nil, account.ErrInsufficientCredits
+	}
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("model: HTTP %d: %s", resp.StatusCode, trimBody(body, 200))
 	}
@@ -250,7 +260,6 @@ func (c *OAI) Chat(ctx context.Context, messages []ChatMessage, tools []ToolDef)
 
 	return &cr, nil
 }
-
 func computeCost(model string, usage *UsageBlock) float64 {
 	p, ok := modelPricing[model]
 	if !ok || usage == nil {

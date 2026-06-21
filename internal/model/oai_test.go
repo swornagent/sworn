@@ -3,12 +3,16 @@ package model
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
-
 func fakeServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(handler)
@@ -311,5 +315,280 @@ func TestFromEnv(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// --- S06b proxy routing tests ---
+
+// TestFromEnvUsesProxy verifies that when sworn credentials are present,
+// FromEnv routes through the proxy URL (not the direct provider URL).
+func TestFromEnvUsesProxy(t *testing.T) {
+	// Set up a mock proxy server that records requests.
+	var proxyHit bool
+	proxySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxyHit = true
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(oaiResp([]struct{ content string }{{"PASS"}}, &UsageBlock{
+			PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15,
+		}))
+	}))
+	defer proxySrv.Close()
+
+	// Set SWORN_PROXY_URL to the mock proxy.
+	t.Setenv("SWORN_PROXY_URL", proxySrv.URL)
+
+	// Write credentials file.
+	credsDir := t.TempDir()
+	credsPath := filepath.Join(credsDir, "credentials.json")
+	credsJSON := fmt.Sprintf(`{"token":"tok_proxy","email":"user@example.com","tier":"pro","expires_at":"2030-01-01T00:00:00Z"}`)
+	if err := os.WriteFile(credsPath, []byte(credsJSON), 0600); err != nil {
+		t.Fatalf("writing credentials: %v", err)
+	}
+
+	// Override the credentials path by setting HOME (Linux) so configDir
+	// resolves to our temp dir.
+	t.Setenv("XDG_CONFIG_HOME", credsDir)
+
+	// Clear direct provider key to ensure we're using proxy, not direct.
+	t.Setenv("SWORN_OPENAI_API_KEY", "")
+	t.Setenv("SWORN_DIRECT", "")
+
+	v, err := FromEnv("openai/gpt-4.1")
+	if err != nil {
+		t.Fatalf("FromEnv failed: %v", err)
+	}
+
+	// Dispatch a request through the verifier to confirm it hits the proxy.
+	_, _, err = v.Verify(context.Background(), "system", "user")
+	if err != nil {
+		t.Fatalf("Verify failed: %v", err)
+	}
+
+	if !proxyHit {
+		t.Error("expected request to hit the proxy server, but it did not")
+	}
+}
+
+// TestFromEnvBypassProxy verifies that SWORN_DIRECT=1 bypasses the proxy
+// and sends requests to the provider URL even when credentials are present.
+func TestFromEnvBypassProxy(t *testing.T) {
+	var proxyHit, providerHit bool
+
+	proxySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxyHit = true
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(oaiResp([]struct{ content string }{{"PASS"}}, nil))
+	}))
+	defer proxySrv.Close()
+
+	providerSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		providerHit = true
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(oaiResp([]struct{ content string }{{"PASS"}}, nil))
+	}))
+	defer providerSrv.Close()
+
+	t.Setenv("SWORN_PROXY_URL", proxySrv.URL)
+
+	// Write credentials file.
+	credsDir := t.TempDir()
+	credsJSON := `{"token":"tok_proxy","email":"user@example.com","tier":"pro","expires_at":"2030-01-01T00:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(credsDir, "credentials.json"), []byte(credsJSON), 0600); err != nil {
+		t.Fatalf("writing credentials: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", credsDir)
+
+	// Set SWORN_DIRECT=1 and provider key + base URL.
+	t.Setenv("SWORN_DIRECT", "1")
+	t.Setenv("SWORN_OPENAI_API_KEY", "sk-direct")
+	t.Setenv("SWORN_OPENAI_BASE_URL", providerSrv.URL)
+
+	v, err := FromEnv("openai/gpt-4.1")
+	if err != nil {
+		t.Fatalf("FromEnv failed: %v", err)
+	}
+
+	_, _, err = v.Verify(context.Background(), "system", "user")
+	if err != nil {
+		t.Fatalf("Verify failed: %v", err)
+	}
+
+	if proxyHit {
+		t.Error("proxy should NOT be hit when SWORN_DIRECT=1")
+	}
+	if !providerHit {
+		t.Error("provider should be hit when SWORN_DIRECT=1")
+	}
+}
+
+// TestFromEnvProxyDefaultHost (pin B) verifies that when SWORN_PROXY_URL is
+// unset, the bearer token is sent only to the compiled-in default host.
+func TestFromEnvProxyDefaultHost(t *testing.T) {
+	// Ensure SWORN_PROXY_URL is unset.
+	t.Setenv("SWORN_PROXY_URL", "")
+
+	// Write credentials file.
+	credsDir := t.TempDir()
+	credsJSON := `{"token":"tok_proxy","email":"user@example.com","tier":"pro","expires_at":"2030-01-01T00:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(credsDir, "credentials.json"), []byte(credsJSON), 0600); err != nil {
+		t.Fatalf("writing credentials: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", credsDir)
+
+	t.Setenv("SWORN_OPENAI_API_KEY", "")
+	t.Setenv("SWORN_DIRECT", "")
+
+	v, err := FromEnv("openai/gpt-4.1")
+	if err != nil {
+		t.Fatalf("FromEnv failed: %v", err)
+	}
+
+	oai, ok := v.(*OAI)
+	if !ok {
+		t.Fatalf("expected *OAI, got %T", v)
+	}
+
+	// The base URL should start with the compiled-in default host.
+	if !strings.HasPrefix(oai.BaseURL, "https://api.swornagent.com") {
+		t.Errorf("expected base URL to use compiled-in default host, got %q", oai.BaseURL)
+	}
+	// The API key should be the sworn token, not a provider key.
+	if oai.APIKey != "tok_proxy" {
+		t.Errorf("expected API key to be the sworn token, got %q", oai.APIKey)
+	}
+}
+
+// TestFromEnvProxyOverrideWarns (pin B) verifies that when SWORN_PROXY_URL
+// is set, a stderr warning is emitted about non-default credential routing.
+func TestFromEnvProxyOverrideWarns(t *testing.T) {
+	// Capture stderr.
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	t.Setenv("SWORN_PROXY_URL", "http://localhost:12345")
+
+	// Write credentials file.
+	credsDir := t.TempDir()
+	credsJSON := `{"token":"tok_proxy","email":"user@example.com","tier":"pro","expires_at":"2030-01-01T00:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(credsDir, "credentials.json"), []byte(credsJSON), 0600); err != nil {
+		t.Fatalf("writing credentials: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", credsDir)
+
+	t.Setenv("SWORN_OPENAI_API_KEY", "")
+	t.Setenv("SWORN_DIRECT", "")
+
+	v, err := FromEnv("openai/gpt-4.1")
+	if err != nil {
+		t.Fatalf("FromEnv failed: %v", err)
+	}
+
+	// Restore stderr and read captured output.
+	w.Close()
+	os.Stderr = oldStderr
+	captured, _ := io.ReadAll(r)
+
+	oai, ok := v.(*OAI)
+	if !ok {
+		t.Fatalf("expected *OAI, got %T", v)
+	}
+
+	// The base URL should use the override host.
+	if !strings.HasPrefix(oai.BaseURL, "http://localhost:12345") {
+		t.Errorf("expected base URL to use override host, got %q", oai.BaseURL)
+	}
+
+	// A stderr warning should have been emitted.
+	warning := string(captured)
+	if !strings.Contains(warning, "SWORN_PROXY_URL") || !strings.Contains(warning, "warning") {
+		t.Errorf("expected stderr warning about SWORN_PROXY_URL, got %q", warning)
+	}
+}
+
+// TestFromEnvInsufficientCredits (pin C) verifies that when the proxy
+// returns 402, the client returns ErrInsufficientCredits and does not
+// fall back to a direct provider call.
+func TestFromEnvInsufficientCredits(t *testing.T) {
+	var providerHit bool
+
+	proxySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusPaymentRequired)
+		w.Write([]byte(`{"error":"insufficient credits"}`))
+	}))
+	defer proxySrv.Close()
+
+	providerSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		providerHit = true
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(oaiResp([]struct{ content string }{{"PASS"}}, nil))
+	}))
+	defer providerSrv.Close()
+
+	t.Setenv("SWORN_PROXY_URL", proxySrv.URL)
+
+	// Write credentials file.
+	credsDir := t.TempDir()
+	credsJSON := `{"token":"tok_proxy","email":"user@example.com","tier":"pro","expires_at":"2030-01-01T00:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(credsDir, "credentials.json"), []byte(credsJSON), 0600); err != nil {
+		t.Fatalf("writing credentials: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", credsDir)
+
+	// Set provider key + URL so a fallback *could* happen if the code were buggy.
+	t.Setenv("SWORN_OPENAI_API_KEY", "sk-direct")
+	t.Setenv("SWORN_OPENAI_BASE_URL", providerSrv.URL)
+	t.Setenv("SWORN_DIRECT", "")
+
+	v, err := FromEnv("openai/gpt-4.1")
+	if err != nil {
+		t.Fatalf("FromEnv failed: %v", err)
+	}
+
+	_, _, err = v.Verify(context.Background(), "system", "user")
+	if err == nil {
+		t.Fatal("expected error for 402, got nil")
+	}
+
+	// Error message should point to `sworn account buy`.
+	if !strings.Contains(err.Error(), "sworn account buy") {
+		t.Errorf("expected error to mention 'sworn account buy', got %q", err.Error())
+	}
+
+	// Provider should NOT have been hit (no silent fallback).
+	if providerHit {
+		t.Error("provider should NOT be hit on 402 — no silent fallback")
+	}
+}
+
+// TestFromEnvNoCredsUnchanged verifies that with no credentials file,
+// FromEnv behaviour is unchanged from before this slice (direct to provider
+// or error if no API key).
+func TestFromEnvNoCredsUnchanged(t *testing.T) {
+	// Point config to an empty dir (no credentials file).
+	credsDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", credsDir)
+
+	t.Setenv("SWORN_PROXY_URL", "")
+	t.Setenv("SWORN_DIRECT", "")
+	t.Setenv("SWORN_OPENAI_API_KEY", "sk-test")
+
+	v, err := FromEnv("openai/gpt-4.1")
+	if err != nil {
+		t.Fatalf("FromEnv failed: %v", err)
+	}
+
+	oai, ok := v.(*OAI)
+	if !ok {
+		t.Fatalf("expected *OAI, got %T", v)
+	}
+
+	// Should use the direct provider URL, not the proxy.
+	if !strings.HasPrefix(oai.BaseURL, "https://api.openai.com") {
+		t.Errorf("expected direct provider URL, got %q", oai.BaseURL)
+	}
+	// API key should be the provider key, not a sworn token.
+	if oai.APIKey != "sk-test" {
+		t.Errorf("expected provider API key, got %q", oai.APIKey)
 	}
 }
