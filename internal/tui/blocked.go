@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/swornagent/sworn/internal/state"
 	"gopkg.in/yaml.v3"
 )
-
 // BlockedView is a Bubble Tea component for resolving blocked/failed slices.
 type BlockedView struct {
 	repoRoot     string
@@ -27,11 +27,10 @@ type BlockedView struct {
 	// UI state
 	viewingProof bool
 	deferring    bool
-	deferInput   string
+	deferInput   textinput.Model
 	message      string
 	errMessage   string
 }
-
 // ExtractViolations parses proof.md content and extracts bullet points under
 // "## Violations" or "## Not delivered" sections.
 func ExtractViolations(proofContent string) []string {
@@ -173,14 +172,9 @@ func (b *BlockedView) Update(msg tea.Msg) (*BlockedView, tea.Cmd) {
 			switch msg.String() {
 			case "esc":
 				b.deferring = false
-				b.deferInput = ""
-			case "backspace":
-				if len(b.deferInput) > 0 {
-					b.deferInput = b.deferInput[:len(b.deferInput)-1]
-				}
 			case "enter":
-				if strings.TrimSpace(b.deferInput) != "" {
-					if err := b.deferSlice(b.deferInput); err != nil {
+				if strings.TrimSpace(b.deferInput.Value()) != "" {
+					if err := b.deferSlice(b.deferInput.Value()); err != nil {
 						b.errMessage = err.Error()
 					} else {
 						b.message = "Slice deferred successfully!"
@@ -188,14 +182,11 @@ func (b *BlockedView) Update(msg tea.Msg) (*BlockedView, tea.Cmd) {
 					}
 				}
 			default:
-				if len(msg.Runes) > 0 {
-					b.deferInput += string(msg.Runes)
-				}
+				b.deferInput, _ = b.deferInput.Update(msg)
 			}
 		}
 		return b, nil
 	}
-
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -245,10 +236,12 @@ func (b *BlockedView) Update(msg tea.Msg) (*BlockedView, tea.Cmd) {
 			b.viewingProof = true
 		case "5":
 			b.deferring = true
-			b.deferInput = ""
+			ti := textinput.New()
+			ti.Placeholder = "One-line reason for deferring..."
+			ti.Focus()
+			b.deferInput = ti
 			b.message = ""
-			b.errMessage = ""
-		}
+			b.errMessage = ""		}
 	}
 
 	return b, nil
@@ -296,12 +289,11 @@ func (b *BlockedView) View() string {
 		sb.WriteString(lipgloss.NewStyle().Foreground(colWarn).Bold(true).Render("Defer Slice: " + b.sliceID))
 		sb.WriteString("\n\n")
 		sb.WriteString("Enter a one-line reason for deferring this slice:\n")
-		sb.WriteString(lipgloss.NewStyle().Foreground(colAccent).Render("> " + b.deferInput + "█"))
+		sb.WriteString(lipgloss.NewStyle().Foreground(colAccent).Render("> " + b.deferInput.View()))
 		sb.WriteString("\n\n")
 		sb.WriteString(lipgloss.NewStyle().Foreground(colDim).Render("Press Enter to confirm, Esc to cancel."))
 		return sb.String()
 	}
-
 	var sb strings.Builder
 	sb.WriteString(lipgloss.NewStyle().Foreground(colFail).Bold(true).Render("Blocked Slice Resolution: " + b.sliceID))
 	sb.WriteString("\n\n")
