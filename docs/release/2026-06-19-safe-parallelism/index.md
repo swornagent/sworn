@@ -312,8 +312,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S31-lint-symbols` | T12 | `sworn lint symbols` — grep back-ticked design identifiers against the live codebase | planned | [spec](./S31-lint-symbols/spec.md) |
 | `S32-designfit-decisions-gate` | T12 | `sworn designfit` fails closed when Type-1 work is declared but `design_decisions` is empty | planned | [spec](./S32-designfit-decisions-gate/spec.md) |
 | `S33-spec-template-hardening` | T12 | spec/prompt hardening: Risk-cites-`file:line`, pure-engine two-commit note, dynamic-CORS note, + verifier watcher-block cleanup | planned | [spec](./S33-spec-template-hardening/spec.md) |
-| `S34-tui-merge-actor` | T2 | render the `merge:<track>` actor as a distinct row in the TUI live view + release board | planned | [spec](./S34-tui-merge-actor/spec.md) |
-| `S35-mutation-guard` | T12 | Captain check + Baton-rule clause for process-global mutation (cwd/git-state/os.Chdir) — the sworn#6 class | planned | [spec](./S35-mutation-guard/spec.md) |
+| `S34-tui-merge-actor` | T2 | render the `merge:<track>` actor as a distinct row in the TUI live view + release board | verified | [spec](./S34-tui-merge-actor/spec.md) || `S35-mutation-guard` | T12 | Captain check + Baton-rule clause for process-global mutation (cwd/git-state/os.Chdir) — the sworn#6 class | planned | [spec](./S35-mutation-guard/spec.md) |
 | `S36-captain-resolve-dirty-worktree` | T12 | Captain auto-resolves dirty track worktrees (commit-by-default, record the diff+resolution, never page the Coach) | planned | [spec](./S36-captain-resolve-dirty-worktree/spec.md) |
 | `S37-telemetry-tui-exclusion` | T12 | no-args/TUI launch no longer fires a junk telemetry event (empty cmd + session-length); exclusion in `telemetry.Fire()`, not the shared main.go (sworn#7) | planned | [spec](./S37-telemetry-tui-exclusion/spec.md) |
 | `S38-verifier-blocked-violations` | T12 | a BLOCKED verdict must populate `status.json` violations (not just journal prose) + a gate rejecting blocked-with-empty-violations — fixes blank REPLAN pages | planned | [spec](./S38-verifier-blocked-violations/spec.md) |
@@ -328,11 +327,11 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 
 ## Aggregate state
 
-- Planned: 31
+- Planned: 30
 - In progress: 0
 - Design review: 3
-- Implemented: 1
-- Verified: 18
+- Implemented: 0
+- Verified: 19
 - Failed verification: 0
 - Deferred: 0
 
@@ -344,8 +343,13 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 
 ## Recent activity
 
-### 2026-06-28 — verifier verdict: PASS (S05-overclaim-benchmark)
+### 2026-06-28 — verifier verdict: PASS (S34-tui-merge-actor)
 
+- **Actor**: verifier (`/verify-slice`)
+- **Verdict**: PASS — All six gates passed. Entry points `internal/tui/concurrent.go` (live view) and `internal/tui/board.go` (board view) wired through `LiveView.poll()`/`View()` and `BoardView.LoadBoard()`/`View()`. 27/27 tests pass; go build/vet clean. Merge actor rows rendered with `MergeRowStyle` (amber, bold) in live view; `⟪merge⟫` badge on board track headers. No silent deferrals.
+- **Next step**: T2-monitoring now has all slices verified. Run `/merge-track T2-monitoring`, then `/merge-release 2026-06-19-safe-parallelism` once every track in the release has merged.
+
+### 2026-06-28 — verifier verdict: PASS (S05-overclaim-benchmark)
 - **Actor**: verifier (`/verify-slice`)
 - **Verdict**: PASS — All six gates passed. Entry point `sworn bench overclaim` wired from `cmd/sworn/main.go` → `cmdBench` → `bench.RunOverclaimBenchmark`. 12/12 tests pass; go vet clean; race detector clean; determinism confirmed (5× identical MD5). Verified against commit `bb24fdd`.
 - **Next step**: `/implement-slice S34-tui-merge-actor 2026-06-19-safe-parallelism` in a fresh session (next incomplete slice in T2-monitoring).

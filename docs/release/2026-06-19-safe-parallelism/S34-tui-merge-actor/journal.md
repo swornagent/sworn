@@ -35,8 +35,23 @@ None.
 
 ## Verifier verdicts received
 
-None yet.
+### 2026-06-28 — PASS
 
+**Verifier role active. No prior implementer context loaded.** Fresh session loading only spec.md, proof.md, status.json, and live repo state from the track worktree.
+
+**Gate 1: User-reachable outcome exists** — PASS. Entry points `internal/tui/concurrent.go` (live view) and `internal/tui/board.go` (board view) are wired through `LiveView.poll()`/`View()` and `BoardView.LoadBoard()`/`View()` respectively — both are real user-facing TUI surfaces, not intermediate functions.
+
+**Gate 2: Planned touchpoints match actual changed files** — PASS. Planned: `concurrent.go`, `board.go`, `tui_test.go`. Actual adds `styles.go` (natural home for the distinct lipgloss style/badge the spec calls for) and `releases.go`/`tui.go` (gofmt-only whitespace normalisation; no functional change). The styles.go addition is logically required by the planned touchpoints — the existing styles pattern predates this slice.
+
+**Gate 3: Required tests exist and exercise the integration point** — PASS. All 5 merge-actor tests (`TestLiveViewRendersMergeActorRow`, `TestLiveViewNoMergeActorNoRow`, `TestLiveViewNoMergeActorAfterRelease`, `TestBoardViewShowsMergeBadge`, `TestBoardViewNoMergeBadge`) exercise through real TUI components (`StartLiveView`/`View()`, `BoardView.LoadBoard()`/`View()`), not leaf functions. Re-ran: 27/27 PASS, `go build ./...` exit 0, `go vet ./internal/tui/...` exit 0.
+
+**Gate 4: Reachability artefact proves the user path** — PASS. Tests render through actual TUI `View()` methods from DB fixtures — the full data-to-render path is exercised. User gesture: "Developer opens `sworn` TUI, selects a release with active merge, observes amber-bold `merge:<track>` row in live view and `⟪merge⟫` badge on board track headers."
+
+**Gate 5: No silent deferrals or placeholder logic** — PASS. Zero dark-code markers (TODO/FIXME/deferred/placeholder/hack/workaround) in any changed file under `internal/tui/`.
+
+**Gate 6: Claimed scope matches implemented scope** — PASS. All 5 acceptance checks have verifiable evidence references in proof.md. Not-delivered list is empty. Divergences are gofmt-only (documented) and an additive test (Pin 2, documented).
+
+**Verdict: PASS**
 ## 2026-06-28 — implemented
 
 ### Design review outcome
