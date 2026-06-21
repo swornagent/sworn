@@ -42,3 +42,37 @@ Required to address:
 1. Add `internal/tui/board.go`, `internal/tui/styles.go`, and `internal/state/state.go` to spec.md "Planned touchpoints" OR document them in proof.md "Divergence from plan" with rationale for each
 
 All other gates (1, 3–6) pass. Tests: 21/21 PASS. go vet: clean.
+
+## Session: 2026-06-28 (re-entry to address Gate 2 violation)
+
+### Violation addressed
+The verifier FAIL was purely a documentation gap: three files changed but not
+listed in spec.md "Planned touchpoints" and proof.md "Divergence from plan"
+said "None." No code changes were needed — the existing code is correct and
+all tests pass (22/22). The fix was to document each divergence with rationale
+in proof.md "Divergence from plan":
+
+1. **`internal/state/state.go`** — `Deferred` state constant + transitions needed
+   for acceptance check 5 (defer action writes `state: deferred`). Also gofmt fixes.
+2. **`internal/tui/board.go`** — `VerificationResult` field, `Cursor`/`orderedSlices`
+   for navigation, `SliceStateColor` call. Required by design review Pins 1 & 2.
+3. **`internal/tui/styles.go`** — `BoardItemSelected` style, `SliceStateColor`
+   function, `deferred` case. Required by Pins 1 & 2 + acceptance check 5.
+
+Also updated proof.md "Files changed" to list all 27 files in the diff (including
+forward-merge artefacts from S42–S47 and index.md, which are not this slice's work).
+
+### Decisions
+- Documented divergences in proof.md rather than amending spec.md "Planned
+  touchpoints" — the spec is the planner's contract and should not be retroactively
+  edited by the implementer. The proof bundle's "Divergence from plan" section is
+  the correct place for this documentation.
+- Carried forward both open deferrals verbatim with their Coach acknowledgements
+  intact (Rule 2 compliance).
+
+### Test results
+- `go test ./internal/tui/... -v`: 22/22 PASS
+- `go vet ./internal/tui/...`: clean
+- `go test ./...`: all packages PASS
+
+- skeptic_panel: skipped — runtime does not support subagent dispatch (single Claude Code session, no parallel Agent tool).

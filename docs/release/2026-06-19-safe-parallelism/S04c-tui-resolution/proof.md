@@ -8,7 +8,23 @@ A developer sees a blocked slice in the `sworn` TUI, presses `Enter`, and is sho
 
 ```
 docs/adr/0005-tui-dep-bubbles.md
+docs/release/2026-06-19-safe-parallelism/S04c-tui-resolution/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S04c-tui-resolution/journal.md
+docs/release/2026-06-19-safe-parallelism/S04c-tui-resolution/proof.md
 docs/release/2026-06-19-safe-parallelism/S04c-tui-resolution/status.json
+docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/spec.md
+docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/status.json
+docs/release/2026-06-19-safe-parallelism/S43-agent-loop-natural-stop/spec.md
+docs/release/2026-06-19-safe-parallelism/S43-agent-loop-natural-stop/status.json
+docs/release/2026-06-19-safe-parallelism/S44-feedback-driven-retry/spec.md
+docs/release/2026-06-19-safe-parallelism/S44-feedback-driven-retry/status.json
+docs/release/2026-06-19-safe-parallelism/S45-design-tldr/spec.md
+docs/release/2026-06-19-safe-parallelism/S45-design-tldr/status.json
+docs/release/2026-06-19-safe-parallelism/S46-captain-review/spec.md
+docs/release/2026-06-19-safe-parallelism/S46-captain-review/status.json
+docs/release/2026-06-19-safe-parallelism/S47-orchestrator-recovery/spec.md
+docs/release/2026-06-19-safe-parallelism/S47-orchestrator-recovery/status.json
+docs/release/2026-06-19-safe-parallelism/index.md
 go.mod
 go.sum
 internal/state/state.go
@@ -20,6 +36,17 @@ internal/tui/styles.go
 internal/tui/tui_test.go
 ```
 
+**Slice-owned files** (this slice's production code + artefacts):
+`docs/adr/0005-tui-dep-bubbles.md`, `go.mod`, `go.sum`, `internal/state/state.go`,
+`internal/tui/blocked.go`, `internal/tui/board.go`, `internal/tui/model.go`,
+`internal/tui/open_ai.go`, `internal/tui/styles.go`, `internal/tui/tui_test.go`,
+plus this slice's own `status.json`, `proof.md`, `journal.md`, `approved-ack.md`.
+
+**Forward-merge artefacts** (not this slice's work — landed via release-wt forward-merges
+into the track branch): `docs/release/2026-06-19-safe-parallelism/index.md` and the
+`S42`–`S47` spec.md + status.json files. These are planner-added slices from other tracks
+that merged into `release-wt/2026-06-19-safe-parallelism` and were forward-merged into
+this track branch. They are not part of S04c's implementation.
 ## Test results
 
 ```
@@ -69,9 +96,8 @@ $ go test ./internal/tui/... -v
 === RUN   TestBlockedPanelViewProof
 --- PASS: TestBlockedPanelViewProof (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/internal/tui	0.300s
+ok  	github.com/swornagent/sworn/internal/tui	(cached)
 ```
-
 ```
 $ go vet ./internal/tui/...
 (clean)
@@ -79,34 +105,34 @@ $ go vet ./internal/tui/...
 
 ```
 $ go test ./...
-ok  	github.com/swornagent/sworn/cmd/sworn	0.477s
+ok  	github.com/swornagent/sworn/cmd/sworn	0.373s
 ok  	github.com/swornagent/sworn/internal/adopt	(cached)
 ok  	github.com/swornagent/sworn/internal/agent	(cached)
-ok  	github.com/swornagent/sworn/internal/bench	0.267s
-ok  	github.com/swornagent/sworn/internal/board	(cached)
-ok  	github.com/swornagent/sworn/internal/config	0.009s
+ok  	github.com/swornagent/sworn/internal/bench	(cached)
+ok  	github.com/swornagent/sworn/internal/board	0.004s
+ok  	github.com/swornagent/sworn/internal/config	(cached)
 ok  	github.com/swornagent/sworn/internal/db	(cached)
 ok  	github.com/swornagent/sworn/internal/designaudit	(cached)
 ok  	github.com/swornagent/sworn/internal/designfit	(cached)
 ok  	github.com/swornagent/sworn/internal/ears	(cached)
-ok  	github.com/swornagent/sworn/internal/git	0.203s
-ok  	github.com/swornagent/sworn/internal/implement	0.176s
-ok  	github.com/swornagent/sworn/internal/journey	0.023s
+ok  	github.com/swornagent/sworn/internal/git	(cached)
+ok  	github.com/swornagent/sworn/internal/implement	(cached)
+ok  	github.com/swornagent/sworn/internal/journey	(cached)
 ok  	github.com/swornagent/sworn/internal/model	(cached)
 ok  	github.com/swornagent/sworn/internal/prompt	(cached)
 ok  	github.com/swornagent/sworn/internal/reqvalidate	(cached)
-ok  	github.com/swornagent/sworn/internal/reqverify	0.013s
+ok  	github.com/swornagent/sworn/internal/reqverify	(cached)
 ok  	github.com/swornagent/sworn/internal/rtm	(cached)
-ok  	github.com/swornagent/sworn/internal/run	1.335s
-ok  	github.com/swornagent/sworn/internal/scheduler	0.019s
+ok  	github.com/swornagent/sworn/internal/run	(cached)
+ok  	github.com/swornagent/sworn/internal/scheduler	(cached)
 ok  	github.com/swornagent/sworn/internal/specquality	(cached)
 ok  	github.com/swornagent/sworn/internal/state	(cached)
-ok  	github.com/swornagent/sworn/internal/supervisor	0.706s
-ok  	github.com/swornagent/sworn/internal/telemetry	0.215s
-ok  	github.com/swornagent/sworn/internal/tui	0.533s
-ok  	github.com/swornagent/sworn/internal/verify	0.018s
+ok  	github.com/swornagent/sworn/internal/supervisor	(cached)
+ok  	github.com/swornagent/sworn/internal/telemetry	(cached)
+ok  	github.com/swornagent/sworn/internal/tui	0.395s
+?   	github.com/swornagent/sworn/internal/verdict	[no test files]
+ok  	github.com/swornagent/sworn/internal/verify	(cached)
 ```
-
 ## Reachability artefact
 
 Smoke step (manual): with a fixture slice in `failed_verification` state, run `sworn top`, navigate to the slice using j/k, press Enter, observe the blocked panel with violations extracted from proof.md, press `[4]` to view the full proof, press Esc to return, press `[2]` to verify the context file is written to `.sworn-context.md`.
@@ -139,7 +165,47 @@ The blocked panel is reachable through the TUI integration point (`cmd/sworn` �
 
 ## Divergence from plan
 
-None. All acceptance checks addressed. Pin 1 fix applied during re-entry session — the initial implementation checked `si.State == "blocked"` (never a state value); fixed to check both `failed_verification` and `implemented` + `verification.result == "blocked"`.
+Three files were changed but not listed in spec.md "Planned touchpoints." Each
+change is a necessary consequence of the feature scope and is documented here
+per Gate 2:
+
+1. **`internal/state/state.go`** — Added `Deferred` state constant (`State = "deferred"`)
+   and corresponding transitions in `allowedTransitions` (from `Planned`, `DesignReview`,
+   `InProgress`, `Implemented`, `FailedVerification` → `Deferred`; `Deferred` → `InProgress`).
+   **Rationale:** Acceptance check 5 requires pressing `[5]` (defer) to write `state: deferred`
+   to `status.json`. The `Deferred` state must exist in the state machine for the transition
+   to be legal via `state.Transition()`. Without this, the defer action would write an
+   invalid state. Also fixed gofmt issues (misaligned struct fields, missing newline at EOF).
+
+2. **`internal/tui/board.go`** — Added `VerificationResult` field to `SliceBoardInfo`
+   (populated from `status.json` `verification.result`), `Cursor` and `orderedSlices`
+   fields to `BoardView` for keyboard navigation, and `SliceStateColor` call in `View()`
+   to correctly colour slices with `verification.result == "blocked"`.
+   **Rationale:** Design review Pin 1 required detecting BLOCKED-state slices (state
+   `implemented` + `verification.result == "blocked"`) for the Enter-to-blocked-panel
+   transition. Pin 2 required board cursor navigation (j/k selection). Both are necessary
+   for the acceptance check "Selecting a `failed_verification` slice and pressing Enter
+   transitions to the blocked panel" to work correctly, including the `implemented` +
+   `blocked` case. Also fixed gofmt (missing newline at EOF).
+
+3. **`internal/tui/styles.go`** — Added `BoardItemSelected` style for cursor highlight,
+   `SliceStateColor` function (considers `verification.result` for colour), `deferred`
+   case in `StateColor` switch, and fixed gofmt issues (misaligned variable declarations,
+   missing closing paren on `EmptyMessage`, missing newline at EOF).
+   **Rationale:** Design review Pin 1 required correct colour rendering of BLOCKED-state
+   slices. Pin 2 required a visual selection indicator. The `deferred` state colour is
+   needed because acceptance check 5 transitions a slice to `deferred`, which must render
+   correctly on the board. The gofmt fixes were necessary because the file had pre-existing
+   formatting violations that `go vet` / `gofmt` would flag.
+
+All other acceptance checks addressed. Pin 1 fix applied during re-entry session — the
+initial implementation checked `si.State == "blocked"` (never a state value); fixed to
+check both `failed_verification` and `implemented` + `verification.result == "blocked"`.
+
+**Forward-merge artefacts:** The diff vs `start_commit` includes `docs/release/.../index.md`
+and `S42`–`S47` spec.md + status.json files. These are planner-added slices from other
+tracks that merged into `release-wt/2026-06-19-safe-parallelism` and were forward-merged
+into this track branch. They are not part of S04c's implementation.
 
 ## First-pass script output
 
@@ -165,7 +231,7 @@ $ BASE_BRANCH=release-wt/2026-06-19-safe-parallelism release-verify.sh S04c-tui-
 
 == Diff vs start_commit (verifier base) ==
   diff base: start_commit 83e38dd14e85460a26cc03970aee731d6aff1abd
-  PASS  13 file(s) changed vs diff base
+  PASS  27 file(s) changed vs diff base
 
 == Dark-code markers in changed files ==
   FAIL  dark-code markers found in changed source files (must be Rule 2 deferrals)
@@ -186,7 +252,7 @@ $ BASE_BRANCH=release-wt/2026-06-19-safe-parallelism release-verify.sh S04c-tui-
   PASS  proof.md has section: ## Divergence from plan
   PASS  no obvious template placeholders left in proof.md
   PASS  proof.md Not delivered deferrals carry non-placeholder tracking refs
-  PASS  proof.md Files changed count (~11) consistent with diff vs start_commit (13)
+  PASS  proof.md Files changed count (27) consistent with diff vs start_commit (27)
 
 == Frontmatter YAML safety ==
   PASS  spec.md frontmatter is strict-YAML safe
@@ -201,11 +267,15 @@ $ BASE_BRANCH=release-wt/2026-06-19-safe-parallelism release-verify.sh S04c-tui-
 FIRST-PASS FAIL
 ```
 
-**Dark-code marker false positive analysis:** The single FAIL is a known false positive. The script DARK_PATTERNS regex includes deferred, which matches the canonical Baton state name Deferred / "deferred". All 5 hits are legitimate uses of the state name in code:
-- internal/state/state.go: Deferred State = "deferred" -- the state constant definition
-- internal/tui/blocked.go: "Slice deferred successfully!" -- user-facing success message
-- internal/tui/model.go: comment about state changes -- documentation
-- internal/tui/styles.go: case "deferred": -- switch case for state colour rendering
-- internal/tui/tui_test.go: test assertion on state value
+**Dark-code marker false positive analysis:** The single FAIL is a known false
+positive. The script DARK_PATTERNS regex includes `deferred`, which matches the
+canonical Baton state name `Deferred` / `"deferred"`. All 5 hits are legitimate
+uses of the state name in code:
+- `internal/state/state.go`: `Deferred State = "deferred"` — the state constant definition
+- `internal/tui/blocked.go`: `"Slice deferred successfully!"` — user-facing success message
+- `internal/tui/model.go`: comment about state changes — documentation
+- `internal/tui/styles.go`: `case "deferred":` — switch case for state colour rendering
+- `internal/tui/tui_test.go`: test assertion on state value
 
-None of these are TODO/FIXME/HACK markers. The word "deferred" is the protocol-defined state name, not a dark-code deferral comment.
+None of these are TODO/FIXME/HACK markers. The word "deferred" is the
+protocol-defined state name, not a dark-code deferral comment.
