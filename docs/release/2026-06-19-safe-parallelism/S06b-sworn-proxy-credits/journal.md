@@ -74,3 +74,8 @@ the planned_files list in status.json is incomplete.
 ### Deferrals
 
 None. All acceptance checks are addressed.
+### Pre-verification skeptic panel
+
+skeptic_panel: skipped — runtime does not support subagent dispatch (no Agent
+tool available in this session). The panel is an accelerant, not a gate; the
+real verifier (Rule 7) is the backstop regardless.
