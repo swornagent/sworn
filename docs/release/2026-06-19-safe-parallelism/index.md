@@ -11,7 +11,7 @@ tracks:
     worktree_branch: track/2026-06-19-safe-parallelism/T1-concurrency-core
     state: merged
   - id: T2-monitoring
-    slices: [S04a-tui-foundation, S04b-tui-live, S04c-tui-resolution, S05-overclaim-benchmark]
+    slices: [S04a-tui-foundation, S04b-tui-live, S04c-tui-resolution, S05-overclaim-benchmark, S34-tui-merge-actor]
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T2-monitoring
     worktree_branch: track/2026-06-19-safe-parallelism/T2-monitoring
@@ -57,10 +57,10 @@ tracks:
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T9-telemetry
     worktree_branch: track/2026-06-19-safe-parallelism/T9-telemetry
-    state: in_progress
+    state: merged
   - id: T10-public-readiness
     slices: [S27-public-readiness-scrub]
-    depends_on: [T1-concurrency-core, T2-monitoring, T3-commercial, T4-mcp, T5-providers, T6-provider-ux, T7-mcp-extensions, T8-memory, T9-telemetry]
+    depends_on: [T1-concurrency-core, T2-monitoring, T3-commercial, T4-mcp, T5-providers, T6-provider-ux, T7-mcp-extensions, T8-memory, T9-telemetry, T11-infra-safety, T12-harness-hardening]
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T10-public-readiness
     state: planned
@@ -69,7 +69,13 @@ tracks:
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T11-infra-safety
     worktree_branch: track/2026-06-19-safe-parallelism/T11-infra-safety
-    state: in_progress
+    state: merged
+  - id: T12-harness-hardening
+    slices: [S29-lint-deps, S30-lint-touchpoints, S31-lint-symbols, S32-designfit-decisions-gate, S33-spec-template-hardening, S35-mutation-guard, S36-captain-resolve-dirty-worktree]
+    depends_on: T1-concurrency-core
+    worktree_path:
+    worktree_branch: track/2026-06-19-safe-parallelism/T12-harness-hardening
+    state: planned
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
@@ -101,22 +107,23 @@ tracks:
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
 | `T1-concurrency-core` | S01 → S02a → S02b → S03 | — | `track/.../T1-concurrency-core` | merged |
-| `T2-monitoring` | S04a → S04b → S04c → S05 | T1 | `track/.../T2-monitoring` | in_progress |
+| `T2-monitoring` | S04a → S04b → S04c → S05 → S34 | T1 | `track/.../T2-monitoring` | in_progress |
 | `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 | `track/.../T3-commercial` | in_progress |
 | `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | in_progress |
 | `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 | T1 + T3 | `track/.../T5-providers` | planned |
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
 | `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | planned |
 | `T8-memory` | S23 → S24 → S25 | T1 | `track/.../T8-memory` | in_progress |
-| `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | in_progress |
+| `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
 | `T10-public-readiness` | S27 | all (T1–T9) | `track/.../T10-public-readiness` | planned |
-| `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | planned |
+| `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
+| `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 | T1 | `track/.../T12-harness-hardening` | planned |
 
 ### Execution order
 
 ```
 Phase 1:  T1 (sequential)
-Phase 2:  T2, T3, T4, T8, T9, T11 (parallel after T1 — T11 is the sworn#6 safety fix, dispatch early)
+Phase 2:  T2, T3, T4, T8, T9, T11, T12 (parallel after T1 — T11/T12 are harness-hardening, dispatch early)
 Phase 3:  T5 (after T1 + T3)
           T7 (after T3 + T4; may run in parallel with T5)
 Phase 4:  T6 (after T2 + T5)
@@ -132,6 +139,11 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 > `T10-public-readiness` (S27) is omitted from the columns below: it depends on every
 > other track and runs strictly last (Phase 5), so its wide touchpoints — comment scrubs
 > and prompt-text edits across many files — collide with nothing in parallel.
+> `T11-infra-safety` (S28) and `T12-harness-hardening` (S29–S33, S35, S36) are likewise
+> omitted: T11 touches only `internal/git/`; T12's files are new (`internal/lint/`) or
+> tool-specific (`internal/designfit/`, `cmd/sworn/lint.go`) plus prompt files
+> (`captain.md`/`planner.md`/`verifier.md`) shared only with T10 — which depends on T12,
+> so those writes are sequential, not parallel.
 
 | File / surface | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |---|---|---|---|---|---|---|------|---|---|
@@ -170,6 +182,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `cmd/sworn/run.go` | ✓ | | (T1 dep) | | (T1+T3 dep) |  |
 | `go.mod`, `go.sum` | ✓ | | | | (T1 dep) |  |
 | `cmd/sworn/main.go` (DOCUMENTED SHARED — additive dispatch) | ✓ | ✓ | ✓ | ✓ | |  |
+| `docs/release/<rel>/.captain-trial-log.md` (DOCUMENTED SHARED — Captain review log, append-only: every track's design reviews add one row per slice) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `cmd/sworn/top.go` | | ✓ | | | | (T2 dep)  |
 | `internal/tui/` (new) | | ✓ | | | |  |
 | `internal/tui/settings.go` (new) | | | | | | ✓  |
@@ -254,7 +267,7 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S02b-concurrent-scheduler` | T1 | `sworn run --parallel` launches all independent tracks concurrently | verified | [spec](./S02b-concurrent-scheduler/spec.md) |
 | `S03-verify-under-concurrency` | T1 | Verify gate goroutine-safe and fail-closed at N>1 | verified | [spec](./S03-verify-under-concurrency/spec.md) |
 | `S04a-tui-foundation` | T2 | `sworn` (no args) shows releases list + board view with navigation | planned | [spec](./S04a-tui-foundation/spec.md) |
-| `S04b-tui-live` | T2 | Live concurrent track status from DB (1s poll) + credit balance in header | verified | [spec](./S04b-tui-live/spec.md) |
+| `S04b-tui-live` | T2 | Live concurrent track status from DB (1s poll) + credit balance in header | planned | [spec](./S04b-tui-live/spec.md) |
 | `S04c-tui-resolution` | T2 | Blocked slice TL;DR panel + options + open in Claude Code / Codex | planned | [spec](./S04c-tui-resolution/spec.md) |
 | `S05-overclaim-benchmark` | T2 | Overclaim rate flat at N=1/2/4; published benchmark artefact | planned | [spec](./S05-overclaim-benchmark/spec.md) |
 | `S06a-sworn-login-auth` | T3 | `sworn login` device-code flow; credentials file; `sworn logout` | planned | [spec](./S06a-sworn-login-auth/spec.md) |
@@ -280,42 +293,79 @@ Phase 5:  T10 (after ALL tracks merge — final public-readiness gate before lau
 | `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | planned | [spec](./S23-memory-config/spec.md) |
 | `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | planned | [spec](./S24-memory-engine/spec.md) |
 | `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | planned | [spec](./S25-memory-search/spec.md) |
-| `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | planned | [spec](./S26-telemetry/spec.md) |
+| `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | verified | [spec](./S26-telemetry/spec.md) |
 | `S27-public-readiness-scrub` | T10 | Make repo + binary public-safe: generalise embedded role prompts (keep Captain/Coach, strip coach-loop coupling), scrub dogfood provenance comments + fired/GetFired + coach-loop refs. Final launch gate. | planned | [spec](./S27-public-readiness-scrub/spec.md) |
-| `S28-git-dir-guard` | T11 | internal/git fails closed on empty Repo.Dir so a git op can't run on the ambient worktree (fixes workers writing to main, sworn#6) + regression test | planned | [spec](./S28-git-dir-guard/spec.md) |
+| `S28-git-dir-guard` | T11 | internal/git fails closed on empty Repo.Dir so a git op can't run on the ambient worktree (fixes workers writing to main, sworn#6) + regression test | verified | [spec](./S28-git-dir-guard/spec.md) |
+| `S29-lint-deps` | T12 | `sworn lint deps` — go.mod/go.sum diff vs planned_files, fail-closed; planner auto-adds dep files | planned | [spec](./S29-lint-deps/spec.md) |
+| `S30-lint-touchpoints` | T12 | `sworn lint touchpoints` — design files/pkgs vs planned_files + collision matrix + migration-number collision | planned | [spec](./S30-lint-touchpoints/spec.md) |
+| `S31-lint-symbols` | T12 | `sworn lint symbols` — grep back-ticked design identifiers against the live codebase | planned | [spec](./S31-lint-symbols/spec.md) |
+| `S32-designfit-decisions-gate` | T12 | `sworn designfit` fails closed when Type-1 work is declared but `design_decisions` is empty | planned | [spec](./S32-designfit-decisions-gate/spec.md) |
+| `S33-spec-template-hardening` | T12 | spec/prompt hardening: Risk-cites-`file:line`, pure-engine two-commit note, dynamic-CORS note, + verifier watcher-block cleanup | planned | [spec](./S33-spec-template-hardening/spec.md) |
+| `S34-tui-merge-actor` | T2 | render the `merge:<track>` actor as a distinct row in the TUI live view + release board | planned | [spec](./S34-tui-merge-actor/spec.md) |
+| `S35-mutation-guard` | T12 | Captain check + Baton-rule clause for process-global mutation (cwd/git-state/os.Chdir) — the sworn#6 class | planned | [spec](./S35-mutation-guard/spec.md) |
+| `S36-captain-resolve-dirty-worktree` | T12 | Captain auto-resolves dirty track worktrees (commit-by-default, record the diff+resolution, never page the Coach) | planned | [spec](./S36-captain-resolve-dirty-worktree/spec.md) |
 
 ## Aggregate state
 
-- Planned: 28
+- Planned: 27
 - In progress: 0
 - Design review: 0
 - Implemented: 0
-- Verified: 4
+- Verified: 6
 - Failed verification: 0
-- Deferred: 0
+- Deferred: 1
 
-**Tracks:** Planned: 8 / Ready to merge: 0 / Merged: 1
+**Tracks:** Planned: 8 / Ready to merge: 0 / Merged: 3
 
 > Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice);
 > T10 new (1 slice: S27, the final public-readiness gate); T11 new (1 slice: S28, the
-> sworn#6 git-dir safety fix). Release now **34 slices across 11 tracks**.
+> sworn#6 git-dir safety fix); T12 new (7 harness-hardening slices from the trial-log harvest);
+> S34 appended to T2. Release now **42 slices across 12 tracks**.
 
 ## Recent activity
 
-### 2026-06-21 — S04b-tui-live verifier verdict: PASS (round 2)
+### 2026-06-21 — replan: harness-hardening batch (S29–S36) from the trial-log harvest
+
+- **Actor**: planner (`/replan-release`)
+- **New track `T12-harness-hardening`** (depends T1; dispatch early): **S29-lint-deps**, **S30-lint-touchpoints**, **S31-lint-symbols**, **S32-designfit-decisions-gate**, **S33-spec-template-hardening**, **S35-mutation-guard**, **S36-captain-resolve-dirty-worktree**. Each hardens the automation against a recurring class the Captain design-gate has been catching by hand (186-review harvest at `internal-docs/captures/2026-06-21-captain-trial-log-harvest.md`).
+- **S34-tui-merge-actor** appended to T2's tail: render the `merge:<track>` actor (now emitted by the coach-loop merge-tag) in the TUI live view + board.
+- **S36** added per Coach direction: dirty worktrees are only worker-caused, so the Captain auto-resolves (commit-by-default, record diff+resolution) rather than paging.
+- **Also landed live this session** (outside the release tree): coach-loop merge-actor tag + post-dispatch worktree-flip guard (sworn#6); verifier `## Status block` watcher-wrapper removed (metadata kept). 10 fired latent bugs filed at `firedau/fired#968–977`.
+- **Release now 42 slices across 12 tracks.** Lightweight add — T12 is a new planned track and S34 appends to T2's tail, so no cross-track forward-merge was needed.
+
+### 2026-06-21 — track `T11-infra-safety` merged to release-wt (commit d242687)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 1 verified slice merged: S28-git-dir-guard. Track state → merged. (Forward-merged release-wt into track worktree before integration; 18 sibling commits reconciled, tests re-run green.)
+
+### 2026-06-21 — S28 verifier verdict: PASS (round 1)
+
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **Slice**: S28-git-dir-guard → state: **verified**
+- **All six gates passed.** `Repo.run()` guard fires before exec on empty Dir; `TestRunRejectsEmptyDir` and `TestEmptyDirDoesNotTouchCwd` both PASS; 11/11 full suite PASS; `go build ./...` + `go vet ./internal/git/...` clean; no silent deferrals; all 4 ACs delivered.
+- **T11-infra-safety is complete.** S28 is its only slice; track state → ready_to_merge.
+- **Next**: `/merge-track T11-infra-safety 2026-06-19-safe-parallelism` in a fresh session.
+
+### 2026-06-21 — track `T9-telemetry` merged to release-wt (commit ee4b729)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 1 verified slice merged: S26-telemetry. Track state → merged.
+
+### 2026-06-21 — S26 verifier verdict: PASS (round 3)
 
 - **Actor**: verifier (fresh context, Rule 7 compliant)
-- **Slice**: S04b-tui-live → state: **verified** (SHA b53ba53)
-- **All six gates passed.** `viewLive` wired in `model.go`; `l`/`b` toggle and auto-transition verified; `TestModelTickForwarding` confirms tickMsg propagates through `Model.Update()` (Rule 1 integration satisfied); all 15 tests pass on fresh run; no silent deferrals in production code; all 5 acceptance checks delivered with evidence. Prior FAIL violations (tickMsg drop + styles.go undisclosed) confirmed resolved.
-- **Next**: `/implement-slice S04c-tui-resolution 2026-06-19-safe-parallelism` in a fresh session.
+- **Slice**: S26-telemetry → state: **verified**
+- **All six gates passed.** 19/19 tests pass with `-race`. `sworn telemetry on|off|status` and `main.go` dispatch wrapper fully wired. Smoke test confirmed disclosure text on stderr against clean config dir. Proof.md accurately reflects full 21-file diff with per-group provenance for forward-merge artefacts. AC1/AC2 deferrals carry all three Rule-2 fields.
+- **T9-telemetry is complete.** S26 is the only slice; track state → ready_to_merge.
+- **Next**: `/merge-track T9-telemetry 2026-06-19-safe-parallelism` in a fresh session.
 
-### 2026-06-28 — S04b-tui-live verifier verdict: FAIL (2 violations)
+### 2026-06-21 — S26 verifier verdict: FAIL (round 2, 2 violations)
 
 - **Actor**: verifier (fresh context, Rule 7 compliant)
-- **Slice**: S04b-tui-live → state: `failed_verification`
-- **Violation 1 (Gate 1 + Gate 3 — CRITICAL)**: `Model.Update()` (`model.go:56–64`) has no `tickMsg` case — the tick chain terminates after `Init()`'s first fire, DB is polled only once synchronously. Spec acceptance check #2 ("updates every ~1 second") is not met. `TestConcurrentStatusPoll` tests tick via `lv.Update(tickMsg{})` directly on `LiveView`, bypassing `Model.Update()` — Rule 1 violation.
-- **Violation 2 (Gate 2)**: `internal/tui/styles.go` changed (adds `LiveTitle`, `LiveRow`, `DividerLine`) but absent from spec's planned touchpoints and undocumented in proof.md "Divergence from plan".
-- **Next**: `/implement-slice S04b-tui-live 2026-06-19-safe-parallelism` in a fresh session.
+- **Slice**: S26-telemetry → state: **failed_verification**
+- **Violation 1 (Gate 2)**: Commit `5139882` landed on T9 track and modified `internal/prompt/implementer.md` (T3-owned per touchpoint matrix) and `internal/adopt/baton/rules/10-customer-journey-validation.md` (not in any planned touchpoints). Neither file appears in proof.md "Files changed" or "Divergence from plan".
+- **Violation 2 (Gate 2)**: proof.md "Files changed" lists 8 files; actual diff spans 21 entries. S21 replan artefacts (`d4f886b`), `approved-ack.md` deletion, S27 specs are all committed to T9 track but unexplained in proof.md. All other gates (1, 3, 4, 5, 6) PASS; 19/19 tests pass with -race.
+- **Next**: `/implement-slice S26-telemetry 2026-06-19-safe-parallelism` in a fresh session.
 
 ### 2026-06-21 — replan: S21 re-scoped + S27 added (public-readiness gate)
 
