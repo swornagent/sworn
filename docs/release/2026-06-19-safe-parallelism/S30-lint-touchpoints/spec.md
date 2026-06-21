@@ -36,6 +36,19 @@ exit 0.
     by more than one slice/track that is not acknowledged (cross-slice collision);
   - detects duplicate migration numbers across slices (same `NNNNNN` migration id in
     two slices' planned files).
+  - **additive-invariant check for documented-shared files.** A file the matrix marks
+    "DOCUMENTED SHARED — additive …" (e.g. `cmd/sworn/main.go`, "additive dispatch only")
+    may be touched by multiple tracks ONLY additively. Flag a slice whose design implies
+    a **non-additive** (restructuring) edit to such a file — moving/re-wrapping existing
+    code, not just appending. **This is a coordination signal, not a flat reject:** a
+    legitimate cross-cutting concern can *require* restructuring a shared file — e.g.
+    S26/T9-telemetry had to extract `dispatch()` and wrap every case to capture exit code
+    + timing, a necessary non-additive change. The right outcome is a *plan-time
+    coordination decision* (which track owns the restructure; the others port their
+    additions onto the new shape), surfaced before code — exactly the
+    `cmd/sworn/main.go` merge that conflicted at integration on 2026-06-21 (T9 dispatch
+    extraction vs T2 no-args TUI launch). Report the non-additive edit + the other tracks
+    sharing the file; the Coach/planner decides ownership.
 - Fail closed (exit 1) on any undeclared touchpoint or unacknowledged collision.
 
 ## Out of scope
