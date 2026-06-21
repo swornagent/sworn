@@ -63,6 +63,25 @@ with the correct base URL and API key.
 - **`cmd/sworn/run.go`**: replace `&model.OAI{...}` instantiation with
   `model.NewClient(modelID, model.ProviderConfigFromEnv())` call (serialised via T1+T3 dep)
 - `ErrDriverNotRegistered` sentinel error in `internal/model/provider.go`
+- **`internal/model/errors.go`** (new) — typed provider-error taxonomy so callers can
+  distinguish terminal from transient failures instead of string-matching opaque errors
+  (replan 2026-06-21, Coach decision: see `docs/release/2026-06-19-safe-parallelism/intake.md`):
+  - `type ErrorKind int` with `KindOther, KindAuth, KindCredits, KindRateLimit, KindUpstream, KindTransient`
+  - `type Error struct { Kind ErrorKind; Status int; Provider, Model, Message string; Err error }`
+    implementing `error` and `Unwrap()` (so existing `err != nil` callers are unaffected)
+  - `ClassifyHTTP(status int, body []byte) ErrorKind` — 401/403→Auth, 402→Credits,
+    429→RateLimit, 5xx→Upstream, else Other; lifts the provider's JSON `error.message` when present
+  - `IsTerminal(err) bool` (Auth/Credits — retrying never helps) and
+    `IsTransient(err) bool` (RateLimit/Upstream/Transient — backoff may help)
+  - `(*Error).UserMessage() string` — actionable per Kind (Credits → "out of credits — run
+    `sworn account buy` or top up your provider"; Auth → "provider rejected credentials —
+    check the API key for <provider>")
+- **`internal/model/oai.go`** (modify) — on non-2xx, return a `*model.Error` built from
+  `ClassifyHTTP(resp.StatusCode, body)` instead of the opaque `fmt.Errorf("model: HTTP %d: %s")`.
+  Still satisfies `error`, so `Verify`/`Chat` callers that only check `err != nil` keep working.
+- **`cmd/sworn/run.go`** (modify) — when a model call fails, unwrap via
+  `errors.As(err, &*model.Error)` and print `UserMessage()` so the user sees actionable
+  guidance, not raw provider JSON.
 
 ## Out of scope
 
@@ -71,6 +90,8 @@ with the correct base URL and API key.
 - TUI settings screen (S17)
 - Adding provider SDK deps to go.mod — each driver slice adds its own dep
 - Per-provider base URL config in config.json (env var + default is sufficient for now)
+- Run-loop retry policy by error Kind (terminal fail-fast vs transient backoff) — that
+  consumes this taxonomy and lands in **S44-feedback-driven-retry** (which now `depends_on` S10)
 
 ## Planned touchpoints
 
@@ -80,7 +101,10 @@ with the correct base URL and API key.
 - `internal/model/env_test.go` (new)
 - `internal/model/provider.go` (new)
 - `internal/model/provider_test.go` (new)
-- `cmd/sworn/run.go` (modify — use NewClient; serialised by T1+T3 dep)
+- `internal/model/errors.go` (new — typed error taxonomy)
+- `internal/model/errors_test.go` (new)
+- `internal/model/oai.go` (modify — return *model.Error on non-2xx)
+- `cmd/sworn/run.go` (modify — use NewClient + print Error.UserMessage; serialised by T1+T3 dep)
 
 ## Acceptance checks
 
@@ -100,6 +124,13 @@ with the correct base URL and API key.
 - [ ] `NewClient("anthropic/claude-sonnet-4-6", cfg)` returns `ErrDriverNotRegistered` —
   the native driver is not yet registered; the error message names the slice that adds it
 - [ ] `NewClient("unknown/model", cfg)` returns `ErrDriverNotRegistered`
+- [ ] `model.ClassifyHTTP` maps 401/403→KindAuth, 402→KindCredits, 429→KindRateLimit,
+  503→KindUpstream, 418→KindOther (table-driven)
+- [ ] `model.IsTerminal` is true for Auth/Credits and false for RateLimit/Upstream/Transient;
+  `model.IsTransient` is the converse
+- [ ] `oai.go` returns a `*model.Error` on a non-2xx response (verified via test server
+  returning 402 with a JSON error body; assert `errors.As` yields Kind=KindCredits and
+  `UserMessage()` mentions `sworn account buy`); a plain `err != nil` check still passes
 - [ ] `go test ./internal/model/...` passes with zero failures; no new external deps in
   go.mod (`go build ./...` succeeds without `go get`)
 - [ ] A smoke run with `GROQ_API_KEY` set and verifier model `groq/llama-3.3-70b`
@@ -127,6 +158,12 @@ with the correct base URL and API key.
   - `TestNewClient_Unknown`: unknown prefix returns `ErrDriverNotRegistered`
   - `TestProviderConfigFromEnv`: set env vars for a subset of providers; assert fields
     populated correctly; assert `SWORN_OPENAI_API_KEY` maps to `OpenAIKey`
+- **Unit** `internal/model/errors_test.go`:
+  - `TestClassifyHTTP`: table-driven status→Kind mapping (401,402,403,429,500,503,418)
+  - `TestIsTerminalIsTransient`: Auth/Credits terminal; RateLimit/Upstream/Transient transient
+  - `TestErrorUserMessage`: Credits message names `sworn account buy`; Auth names the provider key
+  - `TestOAIReturnsTypedError`: test server returns 402 JSON error → `oai.Verify` error
+    unwraps (`errors.As`) to `*model.Error{Kind:KindCredits}`
 - **Reachability artefact**: smoke step — set `GROQ_API_KEY` in `~/.sworn/.env`; run
   `sworn run` on a fixture release with `verifier.model = "groq/llama-3.3-70b"`; observe
   HTTP request going to `api.groq.com`. Acceptable alternative: test-server integration
