@@ -1,0 +1,20 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S37-telemetry-tui-exclusion",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T12-harness-hardening",
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-21T00:00:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S37-telemetry-tui-exclusion/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S37-telemetry-tui-exclusion/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S37-telemetry-tui-exclusion/journal.md",
+  "planned_files": ["internal/telemetry/telemetry.go", "internal/telemetry/telemetry_test.go"],
+  "actual_files": [],
+  "test_commands": ["go test ./internal/telemetry/...", "go build ./..."],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []}
+}
