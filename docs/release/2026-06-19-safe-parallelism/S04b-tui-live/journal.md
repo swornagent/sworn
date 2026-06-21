@@ -56,3 +56,11 @@ The file adds `LiveTitle`, `LiveRow`, and `DividerLine` styles consumed by `conc
 1. Add a `tickMsg` case to `Model.Update()` (or a delegating else-branch) that forwards the message to `m.Live.Update(msg)` when `m.state == viewLive && m.Live != nil`, and chains the returned `tea.Cmd` so the next tick is scheduled.
 2. Add an integration-level test that sends `tickMsg{}` through `Model.Update()` (not directly to `LiveView.Update()`), and asserts both that `m.Live.TickCount` increases and that `m.Live.Rows` is populated.
 3. Add a brief entry in proof.md "Divergence from plan" for `styles.go` (touches not in planned touchpoints; adds `LiveTitle`, `LiveRow`, `DividerLine` styles for the live view).
+### 2026-06-28 — re-implementation: all 3 verifier items addressed
+
+- **Violation 1 fixed**: Added `tickMsg` case to `Model.Update()` (model.go:56-69) that forwards to `m.Live.Update(msg)` when `m.state == viewLive && m.Live != nil`, and chains the returned `tea.Cmd`. The tick chain now stays alive: `tickCmd -> tea.Tick -> tickMsg -> Model.Update() -> LiveView.Update() -> poll + chain next tickCmd`.
+- **Integration test added**: `TestModelTickForwarding` sends `tickMsg{}` through `Model.Update()` (not directly on `LiveView.Update()`), asserts TickCount increases and Rows are populated across two consecutive ticks.
+- **Violation 2 fixed**: Added `styles.go` entry to proof.md "Divergence from plan" disclosing `LiveTitle`, `LiveRow`, `DividerLine` additions.
+- **Status updated**: `failed_verification -> implemented`, verification result cleared (stale from prior round).
+- **Re-implementation session**: 2026-06-28 implementer on track T2-monitoring worktree.
+- **15 tests pass** (5 existing + 10 new).

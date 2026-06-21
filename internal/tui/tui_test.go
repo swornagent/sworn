@@ -10,6 +10,7 @@ import (
 	"github.com/swornagent/sworn/internal/db"
 	"github.com/swornagent/sworn/internal/state"
 )
+
 // TestReleasesListPopulates verifies that given a fixture docs/release/ directory
 // with two index.md files, the releases list model contains exactly those two entries.
 func TestReleasesListPopulates(t *testing.T) {
@@ -229,7 +230,8 @@ func TestConcurrentStatusPoll(t *testing.T) {
 	// Advance one tick.
 	tickCount := lv.TickCount
 	lv2, _ := lv.Update(tickMsg{})
-	if lv2.TickCount <= tickCount {		t.Errorf("expected TickCount to increase after tick, was %d now %d", tickCount, lv2.TickCount)
+	if lv2.TickCount <= tickCount {
+		t.Errorf("expected TickCount to increase after tick, was %d now %d", tickCount, lv2.TickCount)
 	}
 
 	// Rows should still be populated after tick.
@@ -431,6 +433,86 @@ func TestCreditBalanceAbsent(t *testing.T) {
 	}
 	if bal != "–" {
 		t.Errorf("expected balance '–', got %q", bal)
+	}
+}
+
+// TestModelTickForwarding verifies that tickMsg sent through Model.Update()
+// reaches LiveView, increments TickCount, and re-polls DB rows.
+// This is the integration-level test the spec requires — it exercises the
+// tick through the root Model.Update(), not directly on LiveView.Update().
+func TestModelTickForwarding(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create release structure.
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+	createIndex(t, dir, "test-release", "Test Release")
+
+	// Create a sworn DB with an in-progress track.
+	dbPath := db.DefaultPath(dir)
+	conn, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	_, err = conn.Exec(
+		"INSERT INTO tracks (id, release, state, current_slice, started_at) VALUES (?, ?, ?, ?, ?)",
+		"T1-engine", "test-release", "in_progress", "S02-oai-model-client", "2026-06-20T10:00:00Z",
+	)
+	if err != nil {
+		t.Fatalf("insert track: %v", err)
+	}
+	conn.Close()
+
+	m := &Model{
+		state:    viewReleases,
+		repoRoot: dir,
+		Releases: &ReleasesList{},
+		Board:    &BoardView{},
+	}
+	if err := m.Releases.LoadReleases(dir); err != nil {
+		t.Fatalf("LoadReleases: %v", err)
+	}
+
+	// Step 1: Press Enter to auto-transition to live view.
+	upd, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m2 := upd.(*Model)
+
+	if m2.state != viewLive {
+		t.Fatalf("expected viewLive after Enter (has in-progress tracks), got %d", m2.state)
+	}
+	if m2.Live == nil {
+		t.Fatal("expected Live to be non-nil after auto-transition")
+	}
+	initialTickCount := m2.Live.TickCount
+	if len(m2.Live.Rows) == 0 {
+		t.Fatal("expected Live.Rows to be populated after initial poll")
+	}
+
+	// Step 2: Send a tickMsg through Model.Update() — this must reach LiveView
+	// via the tickMsg case in Model.Update(), not directly via LiveView.Update().
+	upd2, _ := m2.Update(tickMsg{})
+	m3 := upd2.(*Model)
+
+	if m3.Live.TickCount <= initialTickCount {
+		t.Errorf("expected TickCount to increase after tickMsg sent through Model.Update(), "+
+			"was %d now %d", initialTickCount, m3.Live.TickCount)
+	}
+	if len(m3.Live.Rows) == 0 {
+		t.Fatal("expected Live.Rows to be populated after tick through Model.Update()")
+	}
+	if m3.Live.Rows[0].ID != "T1-engine" {
+		t.Errorf("expected track ID T1-engine, got %q", m3.Live.Rows[0].ID)
+	}
+
+	// Step 3: Send a second tick to verify the chain stays alive (tick-command
+	// returned by Live.Update() is consumed by Bubble Tea and produces the
+	// next tickMsg, which our test sends manually).
+	beforeSecondTick := m3.Live.TickCount
+	upd3, _ := m3.Update(tickMsg{})
+	m4 := upd3.(*Model)
+	if m4.Live.TickCount <= beforeSecondTick {
+		t.Errorf("expected TickCount to increase after second tick, "+
+			"was %d now %d", beforeSecondTick, m4.Live.TickCount)
 	}
 }
 

@@ -59,10 +59,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	case tea.WindowSizeMsg:
 		return m, nil
+	case tickMsg:
+		// Forward tickMsg to LiveView when in live view. This keeps the poll
+		// chain alive — LiveView.Update() increments TickCount, polls the DB,
+		// and returns a new tickCmd that fires the next tickMsg.
+		if m.state == viewLive && m.Live != nil {
+			lm, cmd := m.Live.Update(msg)
+			m.Live = lm
+			return m, cmd
+		}
+		return m, nil
 	}
 	return m, nil
 }
-
 // View implements tea.Model.
 func (m *Model) View() string {
 	if m.state == viewQuit {
