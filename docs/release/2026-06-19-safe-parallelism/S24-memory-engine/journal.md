@@ -45,3 +45,13 @@
 **Proposed resolution (for planner):** No spec.md change is required. The planner must resolve the `cmd/sworn/main.go` merge conflict on branch `track/2026-06-19-safe-parallelism/T8-memory`. Fix: place S23's `case "memory": return cmdMemory(args[2:])` inside T9's `dispatch()` function (changing `os.Args[2:]` → `args[2:]`), then commit the resolution. After that, re-verify S24 in a fresh session.
 
 **Next step:** `/replan-release 2026-06-19-safe-parallelism`
+
+## 2026-06-21 — planner cleared BLOCKED (cmd/sworn/main.go conflict resolved)
+
+The verifier BLOCKED on a cmd/sworn/main.go forward-merge conflict (S23's
+`case "memory"` in the old main() vs T9's dispatch() extraction). Planner resolved
+per the verifier's proposed fix: forward-merged release-wt and ported
+`case "memory": return cmdMemory(args[2:])` into T9's dispatch(). go build clean.
+verification.result cleared to pending; state → implemented for re-verify.
+(Same systemic conflict as T2/S04c and T3/S06a — T9's dispatch extraction vs every
+track's added case; S30-lint-touchpoints will catch this class at plan time.)
