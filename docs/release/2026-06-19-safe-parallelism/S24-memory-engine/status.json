@@ -3,11 +3,11 @@
   "slice_id": "S24-memory-engine",
   "release": "2026-06-19-safe-parallelism",
   "track": "T8-memory",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "implementer",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-29T00:00:00Z",
-  "start_commit": null,
+  "start_commit": "16c0a8b",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S24-memory-engine/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S24-memory-engine/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S24-memory-engine/journal.md",
@@ -23,12 +23,25 @@
     "internal/memory/discover_test.go",
     "cmd/sworn/memory.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/memory/embed.go",
+    "internal/memory/embed_voyage.go",
+    "internal/memory/embed_oai.go",
+    "internal/memory/embed_ollama.go",
+    "internal/memory/embed_test.go",
+    "internal/memory/index.go",
+    "internal/memory/index_test.go",
+    "internal/memory/discover.go",
+    "internal/memory/discover_test.go",
+    "cmd/sworn/memory.go"
+  ],
   "test_commands": [
     "go test -race ./internal/memory/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "sworn memory build output in proof.md"
+  ],
   "open_deferrals": [],
   "verification": {
     "verifier_session_id": null,
