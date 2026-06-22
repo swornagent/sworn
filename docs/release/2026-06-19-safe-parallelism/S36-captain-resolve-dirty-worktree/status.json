@@ -3,7 +3,7 @@
   "slice_id": "S36-captain-resolve-dirty-worktree",
   "release": "2026-06-19-safe-parallelism",
   "track": "T12-harness-hardening",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-04T00:00:00Z",
@@ -15,12 +15,19 @@
     "internal/prompt/captain.md",
     "internal/prompt/prompt_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/prompt/captain.md",
+    "internal/prompt/prompt_test.go",
+    "docs/release/2026-06-19-safe-parallelism/S36-captain-resolve-dirty-worktree/status.json",
+    "docs/release/2026-06-19-safe-parallelism/S36-captain-resolve-dirty-worktree/proof.md"
+  ],
   "test_commands": [
     "go test ./internal/prompt/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "proof.md — TestCaptain_ResolveDirtyWorktree pass + walkthrough trace through captain.md resolve-dirty-worktree function"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "",
