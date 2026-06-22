@@ -3,12 +3,11 @@
   "slice_id": "S10-provider-foundation",
   "release": "2026-06-19-safe-parallelism",
   "track": "T5-providers",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-23T04:30:00Z",
-  "start_commit": null,
-  "spec_path": "docs/release/2026-06-19-safe-parallelism/S10-provider-foundation/spec.md",
+  "last_updated_at": "2026-06-23T05:00:00Z",
+  "start_commit": "d4f0987",  "spec_path": "docs/release/2026-06-19-safe-parallelism/S10-provider-foundation/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S10-provider-foundation/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S10-provider-foundation/journal.md",
   "planned_files": [
@@ -24,13 +23,27 @@
     "internal/model/config.go",
     "cmd/sworn/run.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "docs/adr/0007-dep-policy-minimal-justified.md",
+    "CLAUDE.md",
+    "internal/model/env.go",
+    "internal/model/env_test.go",
+    "internal/model/provider.go",
+    "internal/model/provider_test.go",
+    "internal/model/errors.go",
+    "internal/model/errors_test.go",
+    "internal/model/oai.go",
+    "internal/model/oai_test.go",
+    "internal/model/config.go",
+    "cmd/sworn/run.go"
+  ],
   "test_commands": [
     "go test ./internal/model/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
-  "open_deferrals": [],
+  "reachability_artifacts": [
+    "go test ./internal/model/... (httptest.Server-based integration tests)"
+  ],  "open_deferrals": [],
   "verification": {
     "result": "",
     "verifier_session_id": null,
