@@ -82,3 +82,11 @@
 
 **Deferral carried forward:**
 - SwornAgent `/api/notify` endpoint: acknowledged Coach 2026-06-22, tracking SwornAgent backend backlog
+
+## 2026-07-03: Planner replan — stale BLOCKED cleared (Step 2b)
+
+**State:** `verification.result` `blocked` → `pending`; `state` stays `implemented`. `start_commit` and `actual_files` preserved.
+
+**Why:** The BLOCKED verdict (`verifier-S07-paging-2026-07-01`) was a cross-track collision on `cmd/sworn/main.go`, NOT a spec defect — the verifier said so explicitly, and S07's spec never references `main.go`. The demanded structural fix already merged: `T15-cli-registry / S51-cli-command-registry` replaced the `main.go` dispatch switch with a self-registration command registry and is verified + merged into `release-wt` (release-wt `main.go` now has 0 `case` lines). The verdict was therefore stale; this branch is 51 commits behind and simply had not picked it up.
+
+**Next step — implementer, NOT verifier** (return-to-sender is not a legal handoff): `/implement-slice S07-paging`. Its Step 0 forward-merges `release-wt` (brings in S51's registry), resolves the `main.go` conflict by converting this branch's `login`/`logout`/`account` switch cases into `command.Register(...)` calls in their own `cmd/sworn/*.go` files (the other 18 verbs are already centrally registered by S51's `commands.go`), commits, then `/verify-slice S07-paging`. No spec change.
