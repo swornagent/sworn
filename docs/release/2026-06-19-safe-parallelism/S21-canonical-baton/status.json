@@ -3,25 +3,26 @@
   "slice_id": "S21-canonical-baton",
   "release": "2026-06-19-safe-parallelism",
   "track": "T3-commercial",
-  "state": "design_review",  "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-21T00:00:00Z",
+  "state": "in_progress",
+  "owner": "human",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-05T23:00:00Z",
   "start_commit": null,
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S21-canonical-baton/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S21-canonical-baton/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S21-canonical-baton/journal.md",
   "planned_files": [
     "internal/prompt/baton/rules.md",
-    "internal/prompt/baton/track-mode.md",
     "internal/prompt/baton/session-discipline.md",
     "internal/prompt/baton/brainstorm-patterns.md",
     "internal/prompt/baton/README.md",
     "internal/prompt/baton/VERSION.txt",
     "internal/prompt/prompt.go",
+    "internal/prompt/prompt_test.go",
     "cmd/sworn/init.go",
     "cmd/sworn/init_test.go",
     "docs/templates/agents.md",
-    "docs/adr/0005-canonical-baton.md"
+    "docs/adr/0008-canonical-baton.md"
   ],
   "actual_files": [],
   "test_commands": [
@@ -30,12 +31,19 @@
     "go build ./..."
   ],
   "reachability_artifacts": [],
+  "design_decisions": [
+    {"id": 1, "type": "Type-2", "summary": "Single-file rules.md for embed, not separate files — simpler embed path; BatonAll() returns single rules.md plus supporting docs"},
+    {"id": 2, "type": "Type-2", "summary": "Keep adopt package intact — doctor.go depends on BatonDocsFS(), BatonSectionHeading, and AgentsFragment()"},
+    {"id": 3, "type": "Type-2", "summary": "Legacy detection uses ## Engineering Process — Baton heading string (adopt.BatonSectionHeading constant), not <!-- baton:start -->"},
+    {"id": 4, "type": "Type-2", "summary": "AGENTS.md template lives at docs/templates/agents.md — mirrors existing consideration/decision catalog pattern"},
+    {"id": 5, "type": "Type-2", "summary": "BatonAll() returns map[string]string keyed by filename for MCP resource listing consumption"}
+  ],
   "open_deferrals": [
-    "User prompt overrides — post-launch (see ADR-0005)",
+    "User prompt overrides — post-launch (see ADR-0008)",
     "Slash-command harness migration to read via sworn MCP — post-launch"
   ],
   "verification": {
-    "result": "pending",
+    "result": "",
     "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
