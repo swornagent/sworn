@@ -120,3 +120,39 @@
 
 **Deferral carried forward:**
 - SwornAgent `/api/notify` endpoint: acknowledged Coach 2026-06-22, tracking SwornAgent backend backlog
+
+## 2026-07-01: Re-entry #3 — verifier-FAIL remediation (two violations)
+
+**State transition:** `implemented` → `in_progress` (remediation) → `implemented`
+
+**Why re-entry:** Fresh-context verifier returned FAIL with two concrete violations:
+1. Missing `internal/run/` integration test exercising the FAIL→Notify wiring in `slice.go` (spec Required tests → Integration; AC1). The wiring existed but no test referenced `account.Notifier`/`Notify`/webhook.
+2. AC5 unsupported by test evidence — `cmdAccountSetWebhook`/`cmdAccountNotifications` existed in `cmd/sworn/account.go` but no test invoked either subcommand. WebhookURL → Save → Load → notifications round-trip untested.
+
+**Fixes applied:**
+
+1. **Testability seam — `run.Notifier` interface** (`internal/run/slice.go`): Changed `RunSliceOptions.Notifier` from concrete `*account.Notifier` to a one-method interface `Notifier { Notify(ctx, account.NotifyEvent) }` declared in the consumer package. `*account.Notifier` satisfies it implicitly (same signature). Rationale: the spec's Required Integration test demands injecting a failing mock verifier + asserting `notifier.Notify` is called — without a consumer-side seam, the test cannot supply a recording fake without a live `*account.Notifier` + httptest. `run.Options.Notifier` and `RunParallelOptions.Notifier` remain `*account.Notifier` (assign into the interface at call sites). Production behaviour unchanged.
+
+2. **Integration test — FAIL→Notify** (`internal/run/run_test.go::TestRunSlice_FailNotifiesOnce`): injects a failing `fakeVerifier` (returns FAIL on both attempts) + a recording `fakeNotifier` via the seam; runs `RunSlice`; asserts `Notify` called exactly once with `State == "failed_verification"`, `SliceID == "S01-task"`, `Release == "test-release"`, `WorktreePath == worktreeRoot`, non-empty `ViolationsSummary`, and the status.json state actually transitioned to `failed_verification`. Covers AC1 + the slice.go:264-275 FAIL wiring the verifier cited.
+
+3. **Integration test — BLOCKED→Notify** (`internal/run/run_test.go::TestRunSlice_BlockedNotifies`): injects a BLOCKED `fakeVerifier`; asserts `Notify` called exactly once with `State == "blocked"`, correct `SliceID`, and `ViolationsSummary == "BLOCKED: spec missing required section"`. Covers the slice.go:222-239 BLOCKED wiring the verifier cited as the second transition.
+
+4. **Integration test — nil-notifier no-op** (`internal/run/run_test.go::TestRunSlice_NilNotifierNoOp`): guards the nil-notifier production path does not panic.
+
+5. **CLI round-trip test** (`cmd/sworn/account_test.go::TestAccountSetWebhookThenNotifications`): drives `cmdAccountSetWebhook` then `cmdAccountNotifications` via their CLI entry functions with an isolated `XDG_CONFIG_HOME` tmpdir; asserts exit 0 for both, on-disk `WebhookURL` round-trip via `account.Load` (Save → Load), and the URL appears in captured stdout (AC5).
+
+6. **CLI persistence test** (`cmd/sworn/account_test.go::TestAccountSetWebhook_PersistsAcrossLoad`): asserts the `webhook_url` JSON key survives Save → raw-file read.
+
+7. **CLI edge cases** (`TestAccountNotifications_NoWebhook`, `TestAccountSetWebhook_MissingURL`): empty-config message + usage error exit 64.
+
+**Validation (live repo state):**
+- `go test ./internal/account/...` — PASS (10.132s)
+- `go test ./internal/run/...` — PASS (1.344s); 3 new S07 integration tests pass
+- `go test ./cmd/sworn/...` — PASS (0.326s); 4 new S07 CLI tests pass
+- `go vet ./...` — clean (exit 0)
+- `gofmt -l` on changed files — clean
+
+**State left at `implemented`; `verification.result` left `pending` (not flipped to PASS).** Fresh verifier re-dispatch required (Rule 7).
+
+**Deferral carried forward:**
+- SwornAgent `/api/notify` endpoint: acknowledged Coach 2026-06-22, tracking SwornAgent backend backlog

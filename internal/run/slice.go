@@ -46,7 +46,20 @@ type RunSliceOptions struct {
 
 	// Notifier is the notification dispatcher for FAIL/BLOCKED verdicts.
 	// When nil, notifications are skipped (test path).
-	Notifier *account.Notifier
+	//
+	// This is a one-method interface seam so internal/run tests can inject a
+	// recording fake without depending on a live *account.Notifier. The
+	// production *account.Notifier satisfies it implicitly (S07-paging AC1
+	// integration test).
+	Notifier Notifier
+}
+
+// Notifier is the one-method seam for dispatching FAIL/BLOCKED notifications.
+// *account.Notifier satisfies it; tests supply fakes. Declared in the consumer
+// package (internal/run) rather than account so the test injection point lives
+// next to the wiring it exercises (Rule 1 reachability).
+type Notifier interface {
+	Notify(ctx context.Context, event account.NotifyEvent)
 }
 
 // RunSlice executes the implement→verify retry loop for one slice in an

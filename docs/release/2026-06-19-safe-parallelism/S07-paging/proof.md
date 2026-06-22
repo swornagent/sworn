@@ -8,6 +8,7 @@ FAIL/BLOCKED webhook + email notification: when a slice enters `failed_verificat
 
 ```
 cmd/sworn/account.go
+cmd/sworn/account_test.go
 cmd/sworn/commands.go
 cmd/sworn/commands_test.go
 cmd/sworn/login.go
@@ -73,11 +74,12 @@ internal/memory/search.go
 internal/memory/search_test.go
 internal/run/parallel.go
 internal/run/run.go
+internal/run/run_test.go
 internal/run/slice.go
 internal/scheduler/worker.go
 ```
 
-**S07-owned files** (the subset this slice directly touches): `cmd/sworn/account.go`, `cmd/sworn/login.go`, `cmd/sworn/run.go`, `internal/account/{account,account_test,notify,notify_test}.go`, `internal/run/{parallel,run,slice}.go`, `internal/scheduler/worker.go`.
+**S07-owned files** (the subset this slice directly touches): `cmd/sworn/{account,account_test}.go`, `cmd/sworn/login.go`, `cmd/sworn/run.go`, `internal/account/{account,account_test,notify,notify_test}.go`, `internal/run/{parallel,run,run_test,slice}.go`, `internal/scheduler/worker.go`.
 
 **Forward-merge artifacts** (brought in by merging `release-wt/2026-06-19-safe-parallelism` to resolve the stale BLOCKED on `cmd/sworn/main.go`): `cmd/sworn/{main,commands,commands_test,verify,memory,memory_test}.go`, `internal/command/{registry,registry_test}.go`, `internal/memory/*`, and the S23/S24/S25/S40/S51 slice docs. These are owned by other tracks (T15-cli-registry, T8-memory) and are not S07 scope; they enter the diff because the start_commit predates the merge.
 
@@ -86,10 +88,10 @@ internal/scheduler/worker.go
 ### `go test ./internal/account/... ./internal/run/... ./internal/scheduler/... ./cmd/sworn/... -count=1`
 
 ```
-ok  	github.com/swornagent/sworn/internal/account	10.142s
-ok  	github.com/swornagent/sworn/internal/run	1.175s
-ok  	github.com/swornagent/sworn/internal/scheduler	0.018s
-ok  	github.com/swornagent/sworn/cmd/sworn	0.324s
+ok  	github.com/swornagent/sworn/internal/account	10.132s
+ok  	github.com/swornagent/sworn/internal/run	1.344s
+ok  	github.com/swornagent/sworn/internal/scheduler	0.016s
+ok  	github.com/swornagent/sworn/cmd/sworn	0.326s
 ```
 
 ### `go test ./internal/account/... -v -count=1`
@@ -150,7 +152,7 @@ sworn notify: webhook delivery failed after 3 attempts
 === RUN   TestNotifyWithAccount_ExpiredToken
 --- PASS: TestNotifyWithAccount_ExpiredToken (0.00s)
 === RUN   TestNotifyWebhook_TimeoutContext
-sworn notify: webhook POST attempt 1/3: Post "http://127.0.0.1:45511": context deadline exceeded
+sworn notify: webhook POST attempt 1/3: Post "http://127.0.0.1:39063": context deadline exceeded
 --- PASS: TestNotifyWebhook_TimeoutContext (0.10s)
 === RUN   TestViolationsSummary_FromFile
 --- PASS: TestViolationsSummary_FromFile (0.00s)
@@ -170,16 +172,32 @@ warning: SWORN_PROXY_URL is set — sworn credentials will be routed to http://l
 === RUN   TestProxyEndpointModelIDEscaped
 --- PASS: TestProxyEndpointModelIDEscaped (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/internal/account	10.128s
+ok  	github.com/swornagent/sworn/internal/account	10.125s
 ```
 
 ### `go test ./internal/run/... -v -count=1`
 
 ```
 === RUN   TestExtractFrontmatter
+=== RUN   TestExtractFrontmatter/simple_frontmatter
+=== RUN   TestExtractFrontmatter/no_frontmatter
+=== RUN   TestExtractFrontmatter/empty_frontmatter
+=== RUN   TestExtractFrontmatter/trailing_whitespace_on_---_lines
+=== RUN   TestExtractFrontmatter/single_line_(too_short)
 --- PASS: TestExtractFrontmatter (0.00s)
+    --- PASS: TestExtractFrontmatter/simple_frontmatter (0.00s)
+    --- PASS: TestExtractFrontmatter/no_frontmatter (0.00s)
+    --- PASS: TestExtractFrontmatter/empty_frontmatter (0.00s)
+    --- PASS: TestExtractFrontmatter/trailing_whitespace_on_---_lines (0.00s)
+    --- PASS: TestExtractFrontmatter/single_line_(too_short) (0.00s)
 === RUN   TestExtractReleaseWorktreePath
+=== RUN   TestExtractReleaseWorktreePath/simple_path
+=== RUN   TestExtractReleaseWorktreePath/no_path
+=== RUN   TestExtractReleaseWorktreePath/quoted_path
 --- PASS: TestExtractReleaseWorktreePath (0.00s)
+    --- PASS: TestExtractReleaseWorktreePath/simple_path (0.00s)
+    --- PASS: TestExtractReleaseWorktreePath/no_path (0.00s)
+    --- PASS: TestExtractReleaseWorktreePath/quoted_path (0.00s)
 === RUN   TestDirExists
 --- PASS: TestDirExists (0.00s)
 === RUN   TestRunParallel_Basic
@@ -197,32 +215,40 @@ ok  	github.com/swornagent/sworn/internal/account	10.128s
 === RUN   TestRunParallel_DependentTrackRunsAfterSuccess
 --- PASS: TestRunParallel_DependentTrackRunsAfterSuccess (0.00s)
 === RUN   TestRun_PassPath_Merges
---- PASS: TestRun_PassPath_Merges (0.12s)
+--- PASS: TestRun_PassPath_Merges (0.14s)
 === RUN   TestRun_FailPath_NoMerge
---- PASS: TestRun_FailPath_NoMerge (0.13s)
+--- PASS: TestRun_FailPath_NoMerge (0.17s)
 === RUN   TestRun_FailThenPass_RetrySucceeds
---- PASS: TestRun_FailThenPass_RetrySucceeds (0.13s)
+--- PASS: TestRun_FailThenPass_RetrySucceeds (0.17s)
 === RUN   TestRun_Blocked_StopsImmediately
---- PASS: TestRun_Blocked_StopsImmediately (0.09s)
+--- PASS: TestRun_Blocked_StopsImmediately (0.10s)
 === RUN   TestSanitiseBranch
 --- PASS: TestSanitiseBranch (0.00s)
 === RUN   TestRun_MissingTask
 --- PASS: TestRun_MissingTask (0.00s)
 === RUN   TestRun_VerifyMarkdownPass
---- PASS: TestRun_VerifyMarkdownPass (0.13s)
+--- PASS: TestRun_VerifyMarkdownPass (0.14s)
 === RUN   TestRun_VerifyStatelessPromptWired
 --- PASS: TestRun_VerifyStatelessPromptWired (0.13s)
 === RUN   TestRun_VerifyToolCallLeakBlocks
---- PASS: TestRun_VerifyToolCallLeakBlocks (0.12s)
+--- PASS: TestRun_VerifyToolCallLeakBlocks (0.09s)
 === RUN   TestRunSlice
---- PASS: TestRunSlice (0.06s)
+--- PASS: TestRunSlice (0.04s)
 === RUN   TestRunSliceFail
 --- PASS: TestRunSliceFail (0.07s)
 === RUN   TestRunSlice_MissingVerifierModel
 --- PASS: TestRunSlice_MissingVerifierModel (0.03s)
+=== RUN   TestRunSlice_FailNotifiesOnce
+--- PASS: TestRunSlice_FailNotifiesOnce (0.07s)
+=== RUN   TestRunSlice_BlockedNotifies
+--- PASS: TestRunSlice_BlockedNotifies (0.04s)
+=== RUN   TestRunSlice_NilNotifierNoOp
+--- PASS: TestRunSlice_NilNotifierNoOp (0.05s)
 PASS
-ok  	github.com/swornagent/sworn/internal/run	1.027s
+ok  	github.com/swornagent/sworn/internal/run	1.259s
 ```
+
+The three new S07-paging integration tests (`TestRunSlice_FailNotifiesOnce`, `TestRunSlice_BlockedNotifies`, `TestRunSlice_NilNotifierNoOp`) exercise the FAIL→Notify and BLOCKED→Notify wiring in `slice.go` through the `RunSlice` integration point via the `run.Notifier` interface seam.
 
 ### `go test ./internal/scheduler/... -v -count=1`
 
@@ -256,12 +282,24 @@ ok  	github.com/swornagent/sworn/internal/run	1.027s
 === RUN   TestRunTrack_EmptySlices
 --- PASS: TestRunTrack_EmptySlices (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/internal/scheduler	0.017s
+ok  	github.com/swornagent/sworn/internal/scheduler	0.018s
 ```
 
-### `go test ./cmd/sworn/... -v -count=1` (registry tests — key subset)
+### `go test ./cmd/sworn/... -v -count=1` (S07 account CLI round-trip + registry tests — key subset)
 
 ```
+=== RUN   TestAccountSetWebhookThenNotifications
+Webhook URL set to: https://hooks.example.com/sworn
+--- PASS: TestAccountSetWebhookThenNotifications (0.00s)
+=== RUN   TestAccountSetWebhook_PersistsAcrossLoad
+Webhook URL set to: https://hooks.example.com/sworn-2
+--- PASS: TestAccountSetWebhook_PersistsAcrossLoad (0.00s)
+=== RUN   TestAccountNotifications_NoWebhook
+--- PASS: TestAccountNotifications_NoWebhook (0.00s)
+=== RUN   TestAccountSetWebhook_MissingURL
+Usage: sworn account set-webhook <url>
+  url = webhook endpoint to POST notifications to
+--- PASS: TestAccountSetWebhook_MissingURL (0.00s)
 === RUN   TestEveryVerbResolves
 --- PASS: TestEveryVerbResolves (0.00s)
 === RUN   TestUnknownVerbNotFound
@@ -273,15 +311,21 @@ ok  	github.com/swornagent/sworn/internal/scheduler	0.017s
 === RUN   TestDispatchResolves
 --- PASS: TestDispatchResolves (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/cmd/sworn	0.324s
+ok  	github.com/swornagent/sworn/cmd/sworn	0.326s
 ```
 
-`TestEveryVerbResolves` now covers 26 verbs (23 from release-wt + `account`, `login`, `logout` from T3). All resolve with non-empty Summary and non-nil Run.
+The four new S07-paging CLI tests in `cmd/sworn/account_test.go` drive `cmdAccountSetWebhook` + `cmdAccountNotifications` through their CLI entry functions and assert the WebhookURL → Save → Load → stdout round-trip (AC5). `TestEveryVerbResolves` covers 26 verbs (23 from release-wt + `account`, `login`, `logout` from T3). All resolve with non-empty Summary and non-nil Run.
 
 ### `go vet ./...`
 
 ```
 (clean — no output, exit 0)
+```
+
+### `gofmt -l` (changed files)
+
+```
+(no output — all changed files formatted)
 ```
 
 ## Reachability artefact
@@ -313,7 +357,13 @@ ok  	github.com/swornagent/sworn/cmd/sworn	0.324s
 - [x] Expired token skip — `IsLoggedIn()` check prevents API call with expired token
 - [x] Notifier threaded through single-slice `run.Run()` path — `run.Options.Notifier` → `RunSliceOptions.Notifier`
 - [x] Notifier threaded through parallel `RunParallel()` path — CLI creates notifier before mode dispatch, shared by both paths
-- [x] Unit tests (27 account, 21 run, 14 scheduler = 62 total): all PASS
+- [x] **Integration test — FAIL→Notify** (`internal/run/run_test.go::TestRunSlice_FailNotifiesOnce`) — injects a failing `fakeVerifier` + recording `fakeNotifier` via the `run.Notifier` interface seam; asserts `Notify` called exactly once with `State == "failed_verification"`, `SliceID == "S01-task"`, `Release == "test-release"`, and non-empty `ViolationsSummary` (spec Required tests → Integration; AC1)
+- [x] **Integration test — BLOCKED→Notify** (`internal/run/run_test.go::TestRunSlice_BlockedNotifies`) — injects a BLOCKED `fakeVerifier`; asserts `Notify` called exactly once with `State == "blocked"` and the correct `SliceID` (covers the second wiring the verifier cited at slice.go:222-239)
+- [x] **Integration test — nil-notifier no-op** (`internal/run/run_test.go::TestRunSlice_NilNotifierNoOp`) — guards the nil-notifier production path does not panic
+- [x] **CLI round-trip test — set-webhook/notifications** (`cmd/sworn/account_test.go::TestAccountSetWebhookThenNotifications`) — drives `cmdAccountSetWebhook` then `cmdAccountNotifications` via their CLI entry functions with an isolated `XDG_CONFIG_HOME` tmpdir; asserts exit 0, on-disk `WebhookURL` round-trip (Save → Load), and the URL appears in captured stdout (AC5)
+- [x] **CLI persistence test** (`cmd/sworn/account_test.go::TestAccountSetWebhook_PersistsAcrossLoad`) — asserts the `webhook_url` JSON key survives Save → raw-file read
+- [x] Testability seam — `run.Notifier` one-method interface in `internal/run/slice.go` so tests inject a recording fake without a live `*account.Notifier`; production `*account.Notifier` satisfies it implicitly
+- [x] Unit + integration tests (27 account, 24 run, 14 scheduler, 9+ cmd/sworn account/registry): all PASS
 
 ## Not delivered
 
@@ -327,6 +377,7 @@ ok  	github.com/swornagent/sworn/cmd/sworn	0.324s
 - **Re-entry (2026-07-01):** Single-slice `run.Run()` path was not wired for notifications (only `RunParallel` was). Added `Notifier` field to `run.Options`, threaded through to `RunSlice`, and hoisted notifier creation in `cmd/sworn/run.go` to serve both modes.
 - **Re-entry (2026-07-01 #2):** Proof bundle refreshed from live repo state. Tests re-run: all 62 pass, `go vet` clean. No code changes needed.
 - **Forward-merge convergence (2026-06-22):** The journal's prescribed Step 0 — forward-merge `release-wt/2026-06-19-safe-parallelism` to bring in S51-cli-command-registry, resolving the stale BLOCKED on `cmd/sworn/main.go`. T3's `login`/`logout`/`account` switch cases converted to `command.Register(...)` calls via `init()` in `cmd/sworn/login.go` and `cmd/sworn/account.go`. release-wt's `main.go` (registry-based dispatch) adopted; release-wt's `verify.go`, `commands.go`, `commands_test.go`, `internal/command/registry.go` brought in via merge. `expectedVerbs` in `commands_test.go` extended with `account`, `login`, `logout`. No S07 feature code touched. This was not a spec divergence — it was the journal-prescribed convergence task.
+- **Testability seam (2026-07-01, verifier-FAIL remediation):** Added a one-method `run.Notifier` interface in `internal/run/slice.go` (consumer package) and changed `RunSliceOptions.Notifier` from concrete `*account.Notifier` to the interface. Rationale: the spec's Required tests → Integration line demands an `internal/run/` integration test that injects a failing mock verifier and asserts `notifier.Notify` is called — without a seam in the consumer package, the test cannot supply a recording fake without a live `*account.Notifier` + httptest server. `*account.Notifier` satisfies the interface implicitly (same `Notify(ctx, account.NotifyEvent)` signature), so production behaviour is unchanged; `run.Options.Notifier` and `RunParallelOptions.Notifier` remain typed `*account.Notifier` and assign into the interface field at the call site. This is a testability refactor, not a contract change.
 
 ## First-pass script output
 
@@ -351,11 +402,14 @@ release-verify.sh
 
 == Integration branch drift ==
   integration branch: release/v0.1.0
-  PASS  worktree branch is current with release/v0.1.0 (no drift)
+  WARNING: worktree is 1 commit(s) behind release/v0.1.0 (no test-infra overlap)
+  upstream commits not yet absorbed:
+    5512f73 docs(captures): record the cmd/sworn/main.go touchpoint-collision coach-loop pause
+  PASS  integration branch drift present but does not affect test infrastructure
 
 == Diff vs start_commit (verifier base) ==
   diff base: start_commit a7681c4f2efa8aa31c52a750674c026984f18670
-  PASS  68 file(s) changed vs diff base
+  PASS  69 file(s) changed vs diff base
 
 == Dark-code markers in changed files ==
   PASS  no dark-code markers in changed source files
@@ -370,7 +424,7 @@ release-verify.sh
   PASS  proof.md has section: ## Divergence from plan
   PASS  no obvious template placeholders left in proof.md
   PASS  proof.md 'Not delivered' deferrals carry non-placeholder tracking refs
-  PASS  proof.md 'Files changed' count (~68) consistent with diff vs start_commit (68)
+  PASS  proof.md 'Files changed' count (~70) consistent with diff vs start_commit (69)
 
 == Frontmatter YAML safety ==
   PASS  spec.md frontmatter is strict-YAML safe
