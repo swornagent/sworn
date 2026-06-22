@@ -3,37 +3,64 @@
   "slice_id": "S19-sworn-induction",
   "release": "2026-06-19-safe-parallelism",
   "track": "T3-commercial",
-  "state": "planned",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-20T00:00:00Z",
-  "start_commit": null,
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-05T08:00:00Z",  "start_commit": "7db0d0e770fe4854a81e2e01c8b35d460c756c12",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S19-sworn-induction/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S19-sworn-induction/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S19-sworn-induction/journal.md",
   "planned_files": [
     "cmd/sworn/induction.go",
     "cmd/sworn/induction_test.go",
-    "cmd/sworn/main.go",
     "internal/prompt/implementer.md",
     "internal/prompt/verifier.md"
   ],
-  "actual_files": [],
+  "design_decisions": [
+    {
+      "type": "Type-2",
+      "choice": "Phase 0 go.mod parsing: line-by-line, no module resolution. Parse go.mod as a text file line-by-line; do not shell out to go mod download or resolve transitive deps. Rationale: Phase 0 is about project-pinned direct deps, and go.mod is trivially parseable as text."
+    },
+    {
+      "type": "Type-2",
+      "choice": "Pattern inference: read one file from cmd/, internal/, and test dirs. Heuristic, not AST analysis; surfaces proposed patterns with edit/skip option."
+    },
+    {
+      "type": "Type-2",
+      "choice": "considerations.md format: stdlib string manipulation for the frontmatter, no YAML library. Stdlib is sufficient for simple list structures. Acked by Coach per feedback_dep_justification_test precedent (same call as S08c)."
+    },
+    {
+      "type": "Type-2",
+      "choice": "Idempotent mode detection: check if considerations.md exists with non-empty architecture.patterns (or file exists with content). Trigger: architecture.patterns non-empty means skip Phase 1, deduplicate patterns. Updated from design.md \u00a72.Decision4 per Captain pin 3 to match spec AC5."
+    },
+    {
+      "type": "Type-2",
+      "choice": "Prompt modifications: inject new sections at specific positions. For implementer.md, insert 'Dependency discipline' and 'Deviation check' sections after '## Workflow' heading and before '1. Update status.json' step. For verifier.md, insert 'Catalog conformance check' after existing gates. Structural inserts detected by heading anchors."
+    }
+  ],
+  "actual_files": [
+    "cmd/sworn/induction.go",
+    "cmd/sworn/induction_test.go",
+    "internal/prompt/implementer.md",
+    "internal/prompt/prompt_test.go",
+    "internal/prompt/verifier.md"
+  ],
   "test_commands": [
     "go test ./cmd/sworn/... -run Induction",
-    "go test ./internal/prompt/... -run Implementer",
-    "go test ./internal/prompt/... -run Verifier",
+    "go test ./internal/prompt/... -run 'TestImplementerHasDeviationCheck|TestImplementerHasDependencyDiscipline'",
+    "go test ./internal/prompt/... -run TestVerifierHasCatalogConformance",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "manual-smoke-step: sworn induction in test repo with piped stdin"
+  ],
   "open_deferrals": [
-    "Multi-language pattern inference beyond Go — post-R3"
+    "Multi-language pattern inference beyond Go \u2014 post-R3. **Acknowledged**: Coach, 2026-06-20"
   ],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "result": "pass",
+    "verifier_session_id": "verifier-S19-sworn-induction-2026-07-05",
+    "verifier_verdict_at": "2026-07-05T08:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
-  }
-}
+  }}

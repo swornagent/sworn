@@ -108,3 +108,100 @@ func TestBatonVersion_NonEmpty(t *testing.T) {
 		t.Fatal("BatonVersion() returned empty string")
 	}
 }
+func TestPlannerHasPhase2b(t *testing.T) {
+	got := Planner()
+	headings := []string{
+		"Registry check",
+		"Design consultation",
+		"Architecture conformance",
+		"Capture",
+	}
+	for _, h := range headings {
+		if !strings.Contains(got, h) {
+			t.Errorf("Planner() missing Phase 2b heading %q", h)
+		}
+	}
+}
+
+func TestPlannerPhase2bDRYGate(t *testing.T) {
+	got := Planner()
+	if !strings.Contains(got, "docs/decisions.md") {
+		t.Errorf("Planner() missing DRY gate reference to docs/decisions.md")
+	}
+}
+
+func TestPlannerPhase2bFastPath(t *testing.T) {
+	got := Planner()
+	if !strings.Contains(got, "do not block") {
+		t.Errorf("Planner() missing fast-path guard: 'do not block' for missing catalog files")
+	}
+}
+
+func TestImplementerHasDeviationCheck(t *testing.T) {
+	got := Implementer()
+	if !strings.Contains(got, "Deviation check") {
+		t.Errorf("Implementer() missing 'Deviation check' heading")
+	}
+}
+
+func TestImplementerHasDependencyDiscipline(t *testing.T) {
+	got := Implementer()
+	if !strings.Contains(got, "Dependency discipline") {
+		t.Errorf("Implementer() missing 'Dependency discipline' heading")
+	}
+}
+
+func TestVerifierHasCatalogConformance(t *testing.T) {
+	got := Verifier()
+	if !strings.Contains(got, "Catalog conformance check") {
+		t.Errorf("Verifier() missing 'Catalog conformance check' heading")
+	}
+}
+
+// --- Baton protocol embed tests (S21-canonical-baton) ---
+
+func TestBatonRulesNonEmpty(t *testing.T) {
+	got, err := Baton("rules.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) < 100 {
+		t.Errorf("Baton(\"rules.md\") returned %d bytes, want > 100", len(got))
+	}
+}
+
+func TestBatonAllKeys(t *testing.T) {
+	all := BatonAll()
+	required := []string{"rules.md", "track-mode.md", "session-discipline.md", "brainstorm-patterns.md", "README.md", "VERSION.txt"}
+	for _, k := range required {
+		if v, ok := all[k]; !ok {
+			t.Errorf("BatonAll() missing key %q", k)
+		} else if strings.TrimSpace(v) == "" {
+			t.Errorf("BatonAll()[%q] is empty", k)
+		}
+	}
+}
+
+func TestBatonRulesHasAllTen(t *testing.T) {
+	got, err := Baton("rules.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain := []string{
+		"Requirements Fidelity",
+		"Design Fidelity",
+		"Customer Journey Validation",
+	}
+	for _, token := range mustContain {
+		if !strings.Contains(got, token) {
+			t.Errorf("Baton(\"rules.md\") missing rule name %q — stale seven-rule set?", token)
+		}
+	}
+}
+
+func TestBatonMissingFile(t *testing.T) {
+	_, err := Baton("nonexistent.md")
+	if err == nil {
+		t.Fatal("Baton(\"nonexistent.md\") returned nil error, want error")
+	}
+}

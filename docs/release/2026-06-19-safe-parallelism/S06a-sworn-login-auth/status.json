@@ -3,24 +3,46 @@
   "slice_id": "S06a-sworn-login-auth",
   "release": "2026-06-19-safe-parallelism",
   "track": "T3-commercial",
-  "state": "planned",
-  "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-20T00:00:00Z",
-  "start_commit": null,
+  "state": "verified",
+  "owner": "verifier",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-21T16:30:00Z",
+  "start_commit": "a7ff5844ab30b65b24d94c462456efa6f9669b59",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S06a-sworn-login-auth/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S06a-sworn-login-auth/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S06a-sworn-login-auth/journal.md",
-  "planned_files": ["internal/account/account.go","internal/account/account_test.go","cmd/sworn/login.go","cmd/sworn/account.go","internal/config/config.go","cmd/sworn/main.go"],
-  "actual_files": [],
-  "test_commands": [],
-  "reachability_artifacts": [],
+  "planned_files": [
+    "internal/account/account.go",
+    "internal/account/account_test.go",
+    "cmd/sworn/login.go",
+    "cmd/sworn/account.go",
+    "internal/config/config.go",
+    "cmd/sworn/main.go"
+  ],
+  "actual_files": [
+    "internal/account/account.go",
+    "internal/account/account_test.go",
+    "cmd/sworn/login.go",
+    "cmd/sworn/account.go",
+    "internal/config/config.go",
+    "cmd/sworn/main.go"
+  ],
+  "test_commands": [
+    "go test -v -count=1 ./internal/account/...",
+    "go test -count=1 ./...",
+    "go vet ./..."
+  ],
+  "reachability_artifacts": [
+    "go test -v -count=1 ./internal/account/... (PASS: 10/10)",
+    "go build ./... (PASS)"
+  ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-06-21T16:30:00Z",
+    "verifier_was_fresh_context": true,
+    "result": "pass",
+    "blocked_reason": "Forward-merge of release-wt/2026-06-19-safe-parallelism into track/2026-06-19-safe-parallelism/T3-commercial conflicted on cmd/sworn/main.go (code conflict, not docs-only). S26-telemetry (T9) introduced a dispatch() extraction refactor \u2014 converting os.Exit(cmdXxx(os.Args[2:])) calls in main() to return cmdXxx(args[2:]) in dispatch() \u2014 which is structurally incompatible with S06a's additive case additions using the old pattern. Touchpoint-matrix invariant 4 violated. Route: /replan-release 2026-06-19-safe-parallelism.",
     "violations": []
   }
 }

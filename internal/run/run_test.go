@@ -3,16 +3,18 @@ package run
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
-	"testing"
-	"time"
+	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/state"
 	"github.com/swornagent/sworn/internal/verdict"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
 )
 
 // ---------------------------------------------------------------------------
@@ -490,6 +492,7 @@ func TestRun_VerifyToolCallLeakBlocks(t *testing.T) {
 		t.Fatal("unexpected merge commit on main after tool-call BLOCKED")
 	}
 }
+
 // ---------------------------------------------------------------------------
 // RunSlice tests (S02a)
 // ---------------------------------------------------------------------------
@@ -566,7 +569,8 @@ func setupFixtureSlice(t *testing.T) (worktreeRoot, specPath, statusPath string,
 	return dir, specPath, statusPath, func() {}
 }
 
-func TestRunSlice(t *testing.T) {	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
+func TestRunSlice(t *testing.T) {
+	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
 
 	impl := stdoutAgent("hello from RunSlice")
 
@@ -606,7 +610,8 @@ func TestRunSlice(t *testing.T) {	worktreeRoot, specPath, statusPath, _ := setup
 	}
 }
 
-func TestRunSliceFail(t *testing.T) {	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
+func TestRunSliceFail(t *testing.T) {
+	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
 
 	impl := stdoutAgent("should not pass")
 
@@ -650,5 +655,189 @@ func TestRunSlice_MissingVerifierModel(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "VerifierModel is required") {
 		t.Fatalf("expected VerifierModel required, got: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// S07-paging — FAIL/BLOCKED notifier integration (Required tests → Integration)
+// ---------------------------------------------------------------------------
+
+// fakeNotifier is a recording Notifier seam fake. It captures every Notify
+// call so the integration test can assert the run loop fires the webhook on a
+// FAIL or BLOCKED verdict transition with the correct payload. It implements
+// the run.Notifier interface (one method).
+type fakeNotifier struct {
+	mu      sync.Mutex
+	calls   []account.NotifyEvent
+	webhook bool // mirrors account.Notifier's "has webhook" behaviour
+}
+
+func (f *fakeNotifier) Notify(_ context.Context, event account.NotifyEvent) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, event)
+}
+
+func (f *fakeNotifier) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
+func (f *fakeNotifier) lastCall() (account.NotifyEvent, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.calls) == 0 {
+		return account.NotifyEvent{}, false
+	}
+	return f.calls[len(f.calls)-1], true
+}
+
+// TestRunSlice_FailNotifiesOnce is the S07-paging Required Integration test
+// (spec "Required tests → Integration": inject a failing mock verifier; assert
+// notifier.Notify is called exactly once with the correct slice ID). It
+// exercises the FAIL→failed_verification wiring in slice.go (the path the
+// verifier cited at slice.go:264-275) through the integration point that owns
+// the affordance — RunSlice — using the run.Notifier interface seam.
+func TestRunSlice_FailNotifiesOnce(t *testing.T) {
+	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
+
+	impl := stdoutAgent("should not pass")
+
+	// Failing verifier — FAILs every attempt so the retry loop exhausts and
+	// transitions to failed_verification, firing the FAIL notifier.
+	verifier := &fakeVerifier{
+		verdicts: []verdict.Result{
+			{Verdict: verdict.Fail, Rationale: "missing test"},
+			{Verdict: verdict.Fail, Rationale: "still missing"},
+		},
+	}
+
+	notifier := &fakeNotifier{webhook: true}
+
+	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
+		VerifierModel:    "fake/verifier",
+		RetryCap:         1,
+		EscalationModels: []string{"fake/impl1", "fake/impl2"},
+		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
+		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
+		Notifier:         notifier,
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !IsFailed(err) {
+		t.Fatalf("expected IsFailed(err)=true, got false: %v", err)
+	}
+
+	// AC1: Notify called exactly once with State == "failed_verification" and
+	// the correct slice ID (and Release/Track from status.json).
+	if got := notifier.count(); got != 1 {
+		t.Fatalf("Notify called %d times, want exactly 1", got)
+	}
+
+	ev, ok := notifier.lastCall()
+	if !ok {
+		t.Fatal("no Notify event recorded")
+	}
+	if ev.SliceID != "S01-task" {
+		t.Errorf("SliceID = %q, want %q", ev.SliceID, "S01-task")
+	}
+	if ev.Release != "test-release" {
+		t.Errorf("Release = %q, want %q", ev.Release, "test-release")
+	}
+	if ev.State != "failed_verification" {
+		t.Errorf("State = %q, want %q", ev.State, "failed_verification")
+	}
+	if ev.WorktreePath != worktreeRoot {
+		t.Errorf("WorktreePath = %q, want %q", ev.WorktreePath, worktreeRoot)
+	}
+	if ev.ViolationsSummary == "" {
+		t.Error("ViolationsSummary must not be empty on FAIL")
+	}
+
+	// The state must have actually transitioned (the notify fires AFTER the
+	// state write, so this also guards ordering).
+	st, err := state.Read(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.State != state.FailedVerification {
+		t.Fatalf("status state = %q, want failed_verification", st.State)
+	}
+}
+
+// TestRunSlice_BlockedNotifies exercises the BLOCKED wiring (slice.go:222-239)
+// that the verifier cited as the second transition. It asserts Notify is
+// called exactly once with State == "blocked" and the correct slice ID.
+func TestRunSlice_BlockedNotifies(t *testing.T) {
+	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
+
+	impl := stdoutAgent("blocked test")
+
+	// BLOCKED verifier — the run loop returns immediately on the first attempt.
+	verifier := &fakeVerifier{
+		verdicts: []verdict.Result{
+			{Verdict: verdict.Blocked, Rationale: "spec missing required section"},
+		},
+	}
+
+	notifier := &fakeNotifier{webhook: true}
+
+	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
+		VerifierModel:    "fake/verifier",
+		RetryCap:         0,
+		EscalationModels: []string{"fake/impl"},
+		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
+		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
+		Notifier:         notifier,
+	})
+	if err == nil {
+		t.Fatal("expected error for BLOCKED, got nil")
+	}
+	if !IsBlocked(err) {
+		t.Fatalf("expected IsBlocked(err)=true, got false: %v", err)
+	}
+
+	// Notify called exactly once with State == "blocked".
+	if got := notifier.count(); got != 1 {
+		t.Fatalf("Notify called %d times, want exactly 1", got)
+	}
+
+	ev, ok := notifier.lastCall()
+	if !ok {
+		t.Fatal("no Notify event recorded")
+	}
+	if ev.SliceID != "S01-task" {
+		t.Errorf("SliceID = %q, want %q", ev.SliceID, "S01-task")
+	}
+	if ev.State != "blocked" {
+		t.Errorf("State = %q, want %q", ev.State, "blocked")
+	}
+	if ev.ViolationsSummary != "BLOCKED: spec missing required section" {
+		t.Errorf("ViolationsSummary = %q, want %q", ev.ViolationsSummary, "BLOCKED: spec missing required section")
+	}
+}
+
+// TestRunSlice_NilNotifierNoOp confirms the nil-notifier path does not panic
+// (production callers may pass nil when no webhook/account is configured).
+func TestRunSlice_NilNotifierNoOp(t *testing.T) {
+	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
+
+	impl := stdoutAgent("nil notifier test")
+	verifier := &fakeVerifier{
+		verdicts: []verdict.Result{{Verdict: verdict.Pass, Rationale: "ok"}},
+	}
+
+	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
+		VerifierModel:    "fake/verifier",
+		RetryCap:         0,
+		EscalationModels: []string{"fake/impl"},
+		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
+		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
+		Notifier:         nil, // no notifier — must not panic
+	})
+	if err != nil {
+		t.Fatalf("RunSlice error: %v", err)
 	}
 }

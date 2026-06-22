@@ -20,9 +20,10 @@ func TestCmdInit_NonInteractive(t *testing.T) {
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
 
+	setupTemplates(dir)
+
 	exit := cmdInit([]string{"--yes"})
-	if exit != 0 {
-		t.Fatalf("cmdInit --yes exited %d, want 0", exit)
+	if exit != 0 {		t.Fatalf("cmdInit --yes exited %d, want 0", exit)
 	}
 
 	data, err := os.ReadFile(configPath)
@@ -59,9 +60,10 @@ func TestCmdInit_UIBearingFlag(t *testing.T) {
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
 
+	setupTemplates(dir)
+
 	exit := cmdInit([]string{"--yes", "--ui-bearing"})
-	if exit != 0 {
-		t.Fatalf("cmdInit --yes --ui-bearing exited %d, want 0", exit)
+	if exit != 0 {		t.Fatalf("cmdInit --yes --ui-bearing exited %d, want 0", exit)
 	}
 
 	data, err := os.ReadFile(configPath)
@@ -106,9 +108,10 @@ func TestCmdInit_UIBearingOutput(t *testing.T) {
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
 
+	setupTemplates(dir)
+
 	exit := cmdInit([]string{"--yes", "--ui-bearing"})
-	if exit != 0 {
-		t.Fatalf("cmdInit --yes --ui-bearing exited %d, want 0", exit)
+	if exit != 0 {		t.Fatalf("cmdInit --yes --ui-bearing exited %d, want 0", exit)
 	}
 
 	data, err := os.ReadFile(configPath)
@@ -134,9 +137,10 @@ func TestCmdInit_UIBearing_ValidateFailClosed(t *testing.T) {
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
 
+	setupTemplates(dir)
+
 	exit := cmdInit([]string{"--yes", "--ui-bearing"})
-	if exit != 0 {
-		t.Fatalf("cmdInit --yes --ui-bearing exited %d, want 0", exit)
+	if exit != 0 {		t.Fatalf("cmdInit --yes --ui-bearing exited %d, want 0", exit)
 	}
 
 	// Load the written config via config.Load() (real load path)

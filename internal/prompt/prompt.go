@@ -1,6 +1,9 @@
 // Package prompt embeds the Baton role prompts (planner, implementer, verifier,
-// captain) into the sworn binary via go:embed. The prompts are vendored verbatim
-// from the open Baton protocol (~/.claude/baton/role-prompts/).
+// captain) and the full Baton protocol documents (rules, track-mode,
+// session-discipline, brainstorm-patterns) into the sworn binary via go:embed.
+// The prompts are vendored verbatim from the open Baton protocol
+// (~/.claude/baton/role-prompts/). The baton/ subdirectory contains the
+// canonical Baton protocol documents served via sworn://baton/* MCP resources.
 //
 // Vendored Baton protocol version is recorded in VERSION.txt and surfaced by
 // `sworn version`.
@@ -8,10 +11,11 @@ package prompt
 
 import (
 	"embed"
+	"fmt"
 	"strings"
 )
 
-//go:embed verifier.md implementer.md planner.md captain.md verify-stateless.md requirements-verifier.md VERSION.txt baton/track-mode.md
+//go:embed verifier.md implementer.md planner.md captain.md verify-stateless.md requirements-verifier.md VERSION.txt baton/*
 var fs embed.FS
 
 var (
@@ -80,3 +84,43 @@ func BatonVersion() string { return batonVer }
 
 // TrackMode returns the embedded Baton track-mode.md content.
 func TrackMode() string { return trackMode }
+
+// Baton returns the content of a single Baton protocol document from the
+// embedded baton/ subdirectory. name is the filename relative to baton/
+// (e.g. "rules.md", "track-mode.md"). Returns an error if the file does
+// not exist.
+func Baton(name string) (string, error) {
+	b, err := fs.ReadFile("baton/" + name)
+	if err != nil {
+		return "", fmt.Errorf("baton: %s not found in embed: %w", name, err)
+	}
+	return string(b), nil
+}
+
+// BatonAll returns all embedded Baton protocol documents keyed by filename.
+// The map includes every file in the baton/ subdirectory: "rules.md",
+// "track-mode.md", "session-discipline.md", "brainstorm-patterns.md",
+// "README.md", "VERSION.txt".
+func BatonAll() map[string]string {
+	entries, err := fs.ReadDir("baton")
+	if err != nil {
+		// The baton/ directory must exist in the embed — this is a
+		// build-time invariant enforced by the go:embed directive.
+		panic("prompt: baton/ directory not found in embed: " + err.Error())
+	}
+	out := make(map[string]string, len(entries))
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		b, err := fs.ReadFile("baton/" + e.Name())
+		if err != nil {
+			// Skip unreadable files rather than panicking — a
+			// corrupted embed is better surfaced as a missing
+			// key than as a binary crash.
+			continue
+		}
+		out[e.Name()] = string(b)
+	}
+	return out
+}

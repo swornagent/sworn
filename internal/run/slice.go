@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/implement"
@@ -42,6 +43,23 @@ type RunSliceOptions struct {
 	// NewVerifier is a factory for creating a model.Verifier from a model ID.
 	// When nil, model.FromEnv is used (production path).
 	NewVerifier func(modelID string) (model.Verifier, error)
+
+	// Notifier is the notification dispatcher for FAIL/BLOCKED verdicts.
+	// When nil, notifications are skipped (test path).
+	//
+	// This is a one-method interface seam so internal/run tests can inject a
+	// recording fake without depending on a live *account.Notifier. The
+	// production *account.Notifier satisfies it implicitly (S07-paging AC1
+	// integration test).
+	Notifier Notifier
+}
+
+// Notifier is the one-method seam for dispatching FAIL/BLOCKED notifications.
+// *account.Notifier satisfies it; tests supply fakes. Declared in the consumer
+// package (internal/run) rather than account so the test injection point lives
+// next to the wiring it exercises (Rule 1 reachability).
+type Notifier interface {
+	Notify(ctx context.Context, event account.NotifyEvent)
 }
 
 // RunSlice executes the implement→verify retry loop for one slice in an
@@ -215,8 +233,24 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			return nil
 
 		case verdict.Blocked:
+			if opts.Notifier != nil {
+				stNotify, _ := state.Read(statusPath)
+				if stNotify != nil {
+					summary := lastVerdict.Rationale
+					if len(summary) > 200 {
+						summary = summary[:197] + "..."
+					}
+					opts.Notifier.Notify(ctx, account.NotifyEvent{
+						Release:           stNotify.Release,
+						Track:             stNotify.Track,
+						SliceID:           stNotify.SliceID,
+						State:             "blocked",
+						ViolationsSummary: summary,
+						WorktreePath:      worktreeRoot,
+					})
+				}
+			}
 			return fmt.Errorf("RunSlice: verification blocked: %s", lastVerdict.Rationale)
-
 		case verdict.Inconclusive:
 			fallthrough
 		default:
@@ -239,12 +273,26 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		// for the caller (e.g. for checkout or further git operations).
 		_ = repo.Stage(statusPath)
 		_ = repo.Commit("chore(run): transition to failed_verification")
+
+		// Notify on FAIL verdict after state is written.
+		if opts.Notifier != nil {
+			summary := account.ViolationsSummary(proofPath, len(st.Verification.Violations))
+			opts.Notifier.Notify(ctx, account.NotifyEvent{
+				Release:           st.Release,
+				Track:             st.Track,
+				SliceID:           st.SliceID,
+				State:             "failed_verification",
+				ViolationsSummary: summary,
+				WorktreePath:      worktreeRoot,
+			})
+		}
 	}
 	return fmt.Errorf(
 		"RunSlice: verification failed after %d attempts (last verdict: %s). "+
 			"Escalate to human. Slice reached failed_verification on worktree %s.",
 		maxAttempts, lastVerdict.Verdict, worktreeRoot,
-	)}
+	)
+}
 
 // writeTempFile writes content to a temporary file in dir matching pattern.
 func writeTempFile(dir, pattern, content string) (string, error) {

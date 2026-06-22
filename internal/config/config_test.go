@@ -327,3 +327,190 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
+// --- S09 implementer model config tests ---
+
+func TestResolveImplementerModel_FlagWins(t *testing.T) {
+	cfg := DefaultConfig()
+	m, err := ResolveImplementerModel("openai/gpt-4.1", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m != "openai/gpt-4.1" {
+		t.Errorf("got %q, want openai/gpt-4.1", m)
+	}
+}
+
+func TestResolveImplementerModel_EnvFallback(t *testing.T) {
+	t.Setenv("SWORN_IMPLEMENTER_MODEL", "openai/gpt-4o-mini")
+	cfg := Config{Version: 1}
+	m, err := ResolveImplementerModel("", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m != "openai/gpt-4o-mini" {
+		t.Errorf("got %q, want openai/gpt-4o-mini", m)
+	}
+}
+
+func TestResolveImplementerModel_ConfigFallback(t *testing.T) {
+	cfg := Config{
+		Version: 1,
+		Implementer: ModelSetting{
+			Model: "openai/gpt-4o",
+		},
+	}
+	m, err := ResolveImplementerModel("", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m != "openai/gpt-4o" {
+		t.Errorf("got %q, want openai/gpt-4o", m)
+	}
+}
+
+func TestResolveImplementerModel_EscalationFallback(t *testing.T) {
+	cfg := Config{
+		Version: 1,
+		Implementer: ModelSetting{
+			EscalationModels: []string{"openai/o3-mini", "openai/o3"},
+		},
+	}
+	m, err := ResolveImplementerModel("", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m != "openai/o3-mini" {
+		t.Errorf("got %q, want openai/o3-mini (first escalation)", m)
+	}
+}
+
+func TestResolveImplementerModel_Error(t *testing.T) {
+	cfg := Config{Version: 1}
+	_, err := ResolveImplementerModel("", cfg)
+	if err == nil {
+		t.Fatal("expected error when no implementer model is configured")
+	}
+	msg := err.Error()
+	if !contains(msg, "sworn init") {
+		t.Errorf("error should mention 'sworn init', got: %s", msg)
+	}
+	if !contains(msg, "SWORN_IMPLEMENTER_MODEL") {
+		t.Errorf("error should mention SWORN_IMPLEMENTER_MODEL, got: %s", msg)
+	}
+}
+
+func TestResolveEscalationModels_FlagWins(t *testing.T) {
+	cfg := DefaultConfig()
+	flag := []string{"custom/model1", "custom/model2"}
+	got := ResolveEscalationModels(flag, cfg)
+	if len(got) != 2 || got[0] != "custom/model1" || got[1] != "custom/model2" {
+		t.Errorf("got %v, want [custom/model1 custom/model2]", got)
+	}
+}
+
+func TestResolveEscalationModels_EnvParsed(t *testing.T) {
+	t.Setenv("SWORN_ESCALATION_MODELS", "a/b, c/d , e/f")
+	cfg := Config{Version: 1}
+	got := ResolveEscalationModels(nil, cfg)
+	if len(got) != 3 || got[0] != "a/b" || got[1] != "c/d" || got[2] != "e/f" {
+		t.Errorf("got %v, want [a/b c/d e/f]", got)
+	}
+}
+
+func TestResolveEscalationModels_ConfigUsed(t *testing.T) {
+	cfg := Config{
+		Version: 1,
+		Implementer: ModelSetting{
+			EscalationModels: []string{"cfg/model1", "cfg/model2"},
+		},
+	}
+	got := ResolveEscalationModels(nil, cfg)
+	if len(got) != 2 || got[0] != "cfg/model1" || got[1] != "cfg/model2" {
+		t.Errorf("got %v, want [cfg/model1 cfg/model2]", got)
+	}
+}
+
+func TestResolveEscalationModels_DefaultFallback(t *testing.T) {
+	cfg := Config{Version: 1}
+	got := ResolveEscalationModels(nil, cfg)
+	if len(got) != 4 {
+		t.Errorf("got %d entries, want 4 (DefaultEscalationModels)", len(got))
+	}
+	if got[0] != "openai/gpt-4o-mini" {
+		t.Errorf("first entry = %q, want openai/gpt-4o-mini", got[0])
+	}
+}
+
+func TestResolveMaxAttempts_FlagWins(t *testing.T) {
+	cfg := Config{
+		Version: 1,
+		Implementer: ModelSetting{MaxAttempts: 3},
+	}
+	n := ResolveMaxAttempts(5, cfg)
+	if n != 5 {
+		t.Errorf("got %d, want 5 (flag)", n)
+	}
+}
+
+func TestResolveMaxAttempts_ConfigUsed(t *testing.T) {
+	cfg := Config{
+		Version: 1,
+		Implementer: ModelSetting{MaxAttempts: 7},
+	}
+	n := ResolveMaxAttempts(-1, cfg)
+	if n != 7 {
+		t.Errorf("got %d, want 7 (config)", n)
+	}
+}
+
+func TestResolveMaxAttempts_DefaultFallback(t *testing.T) {
+	cfg := Config{Version: 1}
+	n := ResolveMaxAttempts(-1, cfg)
+	if n != 3 {
+		t.Errorf("got %d, want 3 (default)", n)
+	}
+}
+
+func TestConfigRoundTrip_ImplementerFields(t *testing.T) {
+	cfg := Config{
+		Version: 1,
+		Verifier: ModelSetting{
+			Model: "anthropic/claude-sonnet-4-6",
+		},
+		Implementer: ModelSetting{
+			Model:            "openai/gpt-4o-mini",
+			EscalationModels: []string{"openai/gpt-4o", "openai/o3"},
+			MaxAttempts:      4,
+		},
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var cfg2 Config
+	if err := json.Unmarshal(data, &cfg2); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if cfg2.Implementer.Model != "openai/gpt-4o-mini" {
+		t.Errorf("Model = %q", cfg2.Implementer.Model)
+	}
+	if len(cfg2.Implementer.EscalationModels) != 2 {
+		t.Errorf("EscalationModels len = %d, want 2", len(cfg2.Implementer.EscalationModels))
+	}
+	if cfg2.Implementer.MaxAttempts != 4 {
+		t.Errorf("MaxAttempts = %d, want 4", cfg2.Implementer.MaxAttempts)
+	}
+}
+
+func TestDefaultConfig_ImplementerDefaults(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Implementer.Model != "openai/gpt-4o-mini" {
+		t.Errorf("Implementer.Model = %q, want openai/gpt-4o-mini", cfg.Implementer.Model)
+	}
+	if len(cfg.Implementer.EscalationModels) != 2 {
+		t.Errorf("Implementer.EscalationModels len = %d, want 2", len(cfg.Implementer.EscalationModels))
+	}
+	if cfg.Implementer.MaxAttempts != 3 {
+		t.Errorf("Implementer.MaxAttempts = %d, want 3", cfg.Implementer.MaxAttempts)
+	}
+}
