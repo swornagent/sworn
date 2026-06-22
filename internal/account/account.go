@@ -24,12 +24,12 @@ import (
 // Approval note (Coach, approved-ack.md pin 1): json struct tags are required
 // for AC3 compliance. Tier is free-text per Coach decision (approved-ack.md pin 5).
 type Credentials struct {
-	Token     string    `json:"token"`
-	Email     string    `json:"email"`
-	Tier      string    `json:"tier"`
-	ExpiresAt time.Time `json:"expires_at"`
+	Token      string    `json:"token"`
+	Email      string    `json:"email"`
+	Tier       string    `json:"tier"`
+	WebhookURL string    `json:"webhook_url,omitempty"`
+	ExpiresAt  time.Time `json:"expires_at"`
 }
-
 // configDir returns the platform-appropriate config directory for sworn.
 // On Linux: $HOME/.config/sworn, on macOS: $HOME/Library/Application Support/sworn.
 // Uses os.UserConfigDir() for correct XDG/macOS resolution.

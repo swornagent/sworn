@@ -8,15 +8,17 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/board"
-	"github.com/swornagent/sworn/internal/supervisor")
+	"github.com/swornagent/sworn/internal/supervisor"
+)
 
 // TrackResult is the outcome of a single worker goroutine.
 type TrackResult string
 
 const (
-	TrackPass   TrackResult = "pass"
-	TrackFail   TrackResult = "fail"
+	TrackPass    TrackResult = "pass"
+	TrackFail    TrackResult = "fail"
 	TrackSkipped TrackResult = "skipped"
 )
 
@@ -45,6 +47,10 @@ type WorkerOptions struct {
 
 	// ProjectDir is the project directory name used for worktree naming.
 	ProjectDir string
+
+	// Notifier is the notification dispatcher for track-level failures.
+	// When nil, notifications are skipped.
+	Notifier *account.Notifier
 }
 
 // RunTrack executes one track's slices sequentially in its own worktree.
@@ -141,6 +147,24 @@ func RunTrack(ctx context.Context, opts WorkerOptions) TrackResult {
 
 		if err := opts.RunSliceFn(ctx, workRoot, specPath, statusPath); err != nil {
 			fmt.Fprintf(os.Stderr, "[%s] slice %s failed: %v\n", trackID, sliceID, err)
+
+			// Notify on track-level failure (slice-level BLOCKED/FAIL already
+			// handled by RunSlice; this covers unexpected/implementation errors).
+			if opts.Notifier != nil {
+				summary := err.Error()
+				if len(summary) > 200 {
+					summary = summary[:197] + "..."
+				}
+				opts.Notifier.Notify(ctx, account.NotifyEvent{
+					Release:           opts.ReleaseName,
+					Track:             trackID,
+					SliceID:           sliceID,
+					State:             "track_failed",
+					ViolationsSummary: summary,
+					WorktreePath:      trackWorktreePath,
+				})
+			}
+
 			releaseTrack(supervisor.StateFailed)
 			return TrackFail
 		}

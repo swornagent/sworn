@@ -10,9 +10,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/board"
-	"github.com/swornagent/sworn/internal/scheduler"
-)
+	"github.com/swornagent/sworn/internal/scheduler")
 
 // ParallelOptions configures the RunParallel concurrent execution.
 type ParallelOptions struct {
@@ -32,8 +32,11 @@ type ParallelOptions struct {
 	// ProjectDir is the base name of the project directory, used for
 	// worktree naming conventions.
 	ProjectDir string
-}
 
+	// Notifier is the notification dispatcher for track-level failures.
+	// When nil, notifications are skipped.
+	Notifier *account.Notifier
+}
 // RunParallel reads the release board, builds an execution plan, and runs
 // all tracks concurrently according to their depends_on edges.
 //
@@ -134,8 +137,8 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 					ProjectDir:          opts.ProjectDir,
 					DB:                  opts.DB,
 					RunSliceFn:          opts.RunSliceFn,
+					Notifier:            opts.Notifier,
 				}
-
 				result := scheduler.RunTrack(phaseCtx, workerOpts)
 				outcomeMap.Store(t.ID, result)
 

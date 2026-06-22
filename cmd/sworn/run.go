@@ -6,8 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/run"
 )
 
@@ -68,20 +70,31 @@ func cmdRun(args []string) int {
 		}
 		defer database.Close()
 
+		// Load credentials for the notifier.
+		credsDir := filepath.Dir(account.CredentialsPath())
+		creds, _ := account.Load(credsDir)
+
+		var webhookURL string
+		if creds != nil {
+			webhookURL = creds.WebhookURL
+		}
+		notifier := account.NewNotifier(webhookURL, creds)
+
 		runSliceFn := func(ctx context.Context, worktreeRoot, specPath, statusPath string) error {
 			return run.RunSlice(ctx, worktreeRoot, specPath, statusPath, run.RunSliceOptions{
 				ImplementerModel: impl,
 				VerifierModel:    verifier,
 				EscalationModels: escalationModels,
+				Notifier:         notifier,
 			})
 		}
-
 		err = run.RunParallel(context.Background(), run.ParallelOptions{
 			ReleaseName:   *releaseName,
 			WorkspaceRoot: ".",
 			DB:            database,
 			RunSliceFn:    runSliceFn,
 			ProjectDir:    "sworn",
+			Notifier:      notifier,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "sworn run: parallel: %v\n", err)
@@ -105,6 +118,7 @@ func cmdRun(args []string) int {
 	}
 	return 0
 }
+
 // resolveVerifierModel resolves the verifier model with precedence:
 // flag > env > config.
 func resolveVerifierModel(flagVal string) string {

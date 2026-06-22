@@ -5,21 +5,27 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/swornagent/sworn/internal/account"
 )
 
-// cmdAccount implements `sworn account` and `sworn account buy <N>`.
-// It loads credentials and displays the user's email, tier, and credit
-// balance. If not logged in (no credentials file or expired), it prints
-// a message and exits successfully.
+// cmdAccount implements `sworn account` and its subcommands:
 //
-// `sworn account buy <N>` opens the billing page in the browser to
-// purchase N credits (Coach ack pin A — integer credit unit).
+//	sworn account                — display email, tier, credits
+//	sworn account buy <N>        — open billing page for N credits
+//	sworn account set-webhook <url> — store webhook URL
+//	sworn account notifications  — show webhook URL + email status
 func cmdAccount(args []string) int {
-	// Subcommand: account buy <N>
-	if len(args) > 0 && args[0] == "buy" {
-		return cmdAccountBuy(args[1:])
+	if len(args) > 0 {
+		switch args[0] {
+		case "buy":
+			return cmdAccountBuy(args[1:])
+		case "set-webhook":
+			return cmdAccountSetWebhook(args[1:])
+		case "notifications":
+			return cmdAccountNotifications(args[1:])
+		}
 	}
 
 	dir := filepath.Dir(account.CredentialsPath())
@@ -66,5 +72,75 @@ func cmdAccountBuy(args []string) int {
 	buyURL := fmt.Sprintf("https://swornagent.com/credits/buy?n=%d", n)
 	account.OpenBrowser(buyURL)
 	fmt.Fprintf(os.Stderr, "Opening billing page: %s\n", buyURL)
+	return 0
+}
+
+// cmdAccountSetWebhook implements `sworn account set-webhook <url>`.
+// It stores the webhook URL in the credentials file. If the credentials
+// file does not exist (not logged in), it creates a minimal file with
+// just the webhook URL.
+func cmdAccountSetWebhook(args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: sworn account set-webhook <url>")
+		fmt.Fprintln(os.Stderr, "  url = webhook endpoint to POST notifications to")
+		return 64
+	}
+
+	webhookURL := strings.TrimSpace(args[0])
+	if webhookURL == "" {
+		fmt.Fprintln(os.Stderr, "Error: webhook URL must not be empty")
+		return 64
+	}
+
+	dir := filepath.Dir(account.CredentialsPath())
+	creds, err := account.Load(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading credentials: %v\n", err)
+		return 1
+	}
+
+	if creds == nil {
+		creds = &account.Credentials{}
+	}
+	creds.WebhookURL = webhookURL
+
+	if err := account.Save(*creds, dir); err != nil {
+		fmt.Fprintf(os.Stderr, "Error saving webhook URL: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintf(os.Stderr, "Webhook URL set to: %s\n", webhookURL)
+	return 0
+}
+
+// cmdAccountNotifications implements `sworn account notifications`.
+// It prints the current webhook URL and whether email notifications
+// are enabled (account is logged in).
+func cmdAccountNotifications(args []string) int {
+	dir := filepath.Dir(account.CredentialsPath())
+	creds, err := account.Load(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading credentials: %v\n", err)
+		return 1
+	}
+
+	if creds == nil {
+		fmt.Println("Not logged in — run `sworn login`")
+		fmt.Println("No webhook configured — run `sworn account set-webhook <url>`")
+		return 0
+	}
+
+	if creds.WebhookURL != "" {
+		fmt.Printf("Webhook URL: %s\n", creds.WebhookURL)
+	} else {
+		fmt.Println("No webhook configured — run `sworn account set-webhook <url>`")
+	}
+
+	if account.IsLoggedIn(creds) {
+		fmt.Printf("Email notifications: enabled (sent to %s)\n", creds.Email)
+	} else {
+		fmt.Println("Email notifications: disabled (not logged in)")
+	}
+
 	return 0
 }
