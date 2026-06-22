@@ -3,18 +3,16 @@
   "slice_id": "S35-mutation-guard",
   "release": "2026-06-19-safe-parallelism",
   "track": "T12-harness-hardening",
-  "state": "planned",
+  "state": "design_review",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-21T00:00:00Z",
-  "start_commit": null,
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-03T02:00:00Z",  "start_commit": null,
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S35-mutation-guard/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S35-mutation-guard/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S35-mutation-guard/journal.md",
   "planned_files": [
     "internal/prompt/captain.md",
-    "internal/adopt/baton/rules/02-no-silent-deferrals.md"
-  ],
+    "internal/adopt/baton/rules/11-process-global-mutation.md"  ],
   "actual_files": [],
   "test_commands": [
     "go build ./..."
