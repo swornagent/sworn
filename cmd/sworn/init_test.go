@@ -6,16 +6,20 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/swornagent/sworn/internal/adopt"
 )
 
-// setupCatalogTemplates creates minimal template files in the temp directory's
-// docs/templates/ so that materialiseCatalog can read them.
-func setupCatalogTemplates(dir string) {
+// setupTemplates creates minimal template files in the temp directory's
+// docs/templates/ so that materialiseCatalog and createAgentsMD can read them.
+func setupTemplates(dir string) {
 	os.MkdirAll(filepath.Join(dir, "docs/templates"), 0755)
 	os.WriteFile(filepath.Join(dir, "docs/templates/considerations.md"),
 		[]byte("# template considerations content\n"), 0644)
 	os.WriteFile(filepath.Join(dir, "docs/templates/decisions.md"),
 		[]byte("# template decisions content\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "docs/templates/agents.md"),
+		[]byte("# AGENTS.md\n\nThis repository uses [sworn](https://swornagent.com) for autonomous release management.\n\nConnect via `sworn://baton/rules`.\n"), 0644)
 }
 
 // setupMinimalConfig writes a minimal config.json to the given directory so
@@ -57,7 +61,7 @@ func TestInitCreatesBothTemplates(t *testing.T) {
 	configPath := filepath.Join(dir, "config.json")
 	t.Setenv("SWORN_CONFIG_PATH", configPath)
 
-	setupCatalogTemplates(dir)
+	setupTemplates(dir)
 
 	oldCwd, _ := os.Getwd()
 	defer os.Chdir(oldCwd)
@@ -96,7 +100,7 @@ func TestInitSkipsBoth(t *testing.T) {
 	t.Setenv("SWORN_CONFIG_PATH", configPath)
 
 	setupMinimalConfig(dir)
-	setupCatalogTemplates(dir)
+	setupTemplates(dir)
 
 	oldCwd, _ := os.Getwd()
 	defer os.Chdir(oldCwd)
@@ -141,10 +145,14 @@ func TestInitOverwriteGuard(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "docs/considerations.md"), []byte(originalConsiderations), 0644)
 	os.WriteFile(filepath.Join(dir, "docs/decisions.md"), []byte(originalDecisions), 0644)
 
-	// Pre-create template source files.
+	// Pre-create template source files (including agents.md for AGENTS.md creation).
 	os.MkdirAll(filepath.Join(dir, "docs/templates"), 0755)
 	os.WriteFile(filepath.Join(dir, "docs/templates/considerations.md"), []byte("# template considerations"), 0644)
 	os.WriteFile(filepath.Join(dir, "docs/templates/decisions.md"), []byte("# template decisions"), 0644)
+	os.WriteFile(filepath.Join(dir, "docs/templates/agents.md"), []byte("# AGENTS.md\n"), 0644)
+
+	// Pre-create AGENTS.md (non-legacy) so it doesn't show up in planned changes.
+	os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("# My AGENTS.md\n"), 0644)
 
 	// Flow: proceed (y), catalog-accept (y), overwrite-1 (n), overwrite-2 (n).
 	cleanup := feedStdinFromString(t, "y\ny\nn\nn\n")
@@ -166,5 +174,150 @@ func TestInitOverwriteGuard(t *testing.T) {
 	if strings.TrimSpace(string(gotDecisions)) != strings.TrimSpace(originalDecisions) {
 		t.Errorf("decisions.md was overwritten — got %q, want %q",
 			strings.TrimSpace(string(gotDecisions)), originalDecisions)
+	}
+}
+
+// --- S21-canonical-baton init tests ---
+
+// TestInitCreatesAgentsMD verifies that sworn init --yes on a fresh dir:
+// - creates AGENTS.md from the MCP-pointer template
+// - does NOT create docs/baton/
+func TestInitCreatesAgentsMD(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	t.Setenv("SWORN_CONFIG_PATH", configPath)
+
+	setupTemplates(dir)
+
+	oldCwd, _ := os.Getwd()
+	defer os.Chdir(oldCwd)
+	os.Chdir(dir)
+
+	exit := cmdInit([]string{"--yes"})
+	if exit != 0 {
+		t.Fatalf("cmdInit --yes exited %d, want 0", exit)
+	}
+
+	// AGENTS.md must exist and contain the MCP reference.
+	agentsPath := filepath.Join(dir, "AGENTS.md")
+	data, err := os.ReadFile(agentsPath)
+	if err != nil {
+		t.Fatalf("AGENTS.md was not created: %v", err)
+	}
+	if !strings.Contains(string(data), "sworn://baton/rules") {
+		t.Errorf("AGENTS.md does not contain 'sworn://baton/rules':\n%s", string(data))
+	}
+
+	// docs/baton/ must NOT exist.
+	batonDir := filepath.Join(dir, "docs", "baton")
+	if _, err := os.Stat(batonDir); !os.IsNotExist(err) {
+		t.Errorf("docs/baton/ was created, but sworn init should no longer create it")
+	}
+}
+
+// TestInitSkipsExistingAgentsMD verifies AGENTS.md already present (non-legacy)
+// is left unchanged.
+func TestInitSkipsExistingAgentsMD(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	t.Setenv("SWORN_CONFIG_PATH", configPath)
+
+	setupMinimalConfig(dir)
+	setupTemplates(dir)
+
+	oldCwd, _ := os.Getwd()
+	defer os.Chdir(oldCwd)
+	os.Chdir(dir)
+
+	// Pre-create a non-legacy AGENTS.md.
+	original := "# My custom AGENTS.md\n\nNo Baton content here.\n"
+	os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(original), 0644)
+
+	cleanup := feedStdinFromString(t, "y\nn\n")
+	defer cleanup()
+
+	exit := cmdInit([]string{})
+	if exit != 0 {
+		t.Fatalf("cmdInit exited %d, want 0", exit)
+	}
+
+	// Verify AGENTS.md is unchanged.
+	got, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != original {
+		t.Errorf("AGENTS.md was modified:\ngot:  %q\nwant: %q", string(got), original)
+	}
+}
+
+// TestInitWarnsLegacyBaton verifies a legacy Baton-spliced AGENTS.md prints
+// a migration warning and is NOT overwritten.
+func TestInitWarnsLegacyBaton(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	t.Setenv("SWORN_CONFIG_PATH", configPath)
+
+	setupMinimalConfig(dir)
+	setupTemplates(dir)
+
+	oldCwd, _ := os.Getwd()
+	defer os.Chdir(oldCwd)
+	os.Chdir(dir)
+
+	// Pre-create a legacy AGENTS.md with the Baton section heading.
+	legacyContent := "# My AGENTS.md\n\n" + adopt.BatonSectionHeading + "\n\nSome baton rules here.\n"
+	os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(legacyContent), 0644)
+
+	cleanup := feedStdinFromString(t, "y\nn\n")
+	defer cleanup()
+
+	exit := cmdInit([]string{})
+	if exit != 0 {
+		t.Fatalf("cmdInit exited %d, want 0 (warning is not an error)", exit)
+	}
+
+	// Verify AGENTS.md is unchanged.
+	got, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != legacyContent {
+		t.Errorf("AGENTS.md was modified for legacy content:\ngot:  %q\nwant: %q", string(got), legacyContent)
+	}
+}
+
+// TestInitDoesNotSpliceClaude verifies CLAUDE.md is NOT modified by init.
+func TestInitDoesNotSpliceClaude(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	t.Setenv("SWORN_CONFIG_PATH", configPath)
+
+	setupMinimalConfig(dir)
+	setupTemplates(dir)
+
+	oldCwd, _ := os.Getwd()
+	defer os.Chdir(oldCwd)
+	os.Chdir(dir)
+
+	// Pre-create a CLAUDE.md.
+	original := "# CLAUDE.md\n\nCustom content.\n"
+	os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte(original), 0644)
+
+	cleanup := feedStdinFromString(t, "y\nn\n")
+	defer cleanup()
+
+	exit := cmdInit([]string{})
+	if exit != 0 {
+		t.Fatalf("cmdInit exited %d, want 0", exit)
+	}
+
+	// Verify CLAUDE.md is unchanged.
+	got, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != original {
+		t.Errorf("CLAUDE.md was modified by init:\ngot:  %q\nwant: %q", string(got), original)
 	}
 }

@@ -64,20 +64,6 @@ func cmdInit(args []string) int {
 		_ = os.Remove(cfgPath)
 	}
 
-	// Baton protocol docs
-	batonExist := adopt.BatonDocsExist(repoRoot)
-	if !batonExist {
-		planned = append(planned, change{
-			label:  "docs/baton/",
-			reason: "Baton protocol docs not present — will write 7 rule files + README + VERSION",
-		})
-	} else {
-		informational = append(informational, change{
-			label:  "docs/baton/",
-			reason: "already present — will refresh to current protocol version",
-		})
-	}
-
 	// Design system declaration (S08) — check current project config.
 	existingCfg, _ := config.Load()
 	if existingCfg.UIBearing && existingCfg.DesignSystem == nil {
@@ -93,49 +79,34 @@ func cmdInit(args []string) int {
 		})
 	}
 
-	// Agent config files
-	spliceResults, err := adopt.PlanSplice(repoRoot, *force)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "sworn init: %v\n", err)
+	// AGENTS.md
+	agentsPath := filepath.Join(repoRoot, "AGENTS.md")
+	agentsData, agentsReadErr := os.ReadFile(agentsPath)
+	if os.IsNotExist(agentsReadErr) {
+		// AGENTS.md does not exist — will be created from template.
+		planned = append(planned, change{
+			label:  "AGENTS.md",
+			reason: "does not exist — will be created from MCP-pointer template",
+		})
+	} else if agentsReadErr != nil {
+		fmt.Fprintf(os.Stderr, "sworn init: read AGENTS.md: %v\n", agentsReadErr)
 		return 1
+	} else if strings.Contains(string(agentsData), adopt.BatonSectionHeading) {
+		// Legacy Baton splice detected — warn and skip.
+		informational = append(informational, change{
+			label: "AGENTS.md",
+			warn:  true,
+			reason: "contains legacy Baton content — run 'sworn doctor' to migrate\n" +
+				"          (AGENTS.md left unchanged)",
+		})
+	} else {
+		informational = append(informational, change{
+			label:  "AGENTS.md",
+			reason: "already present and up-to-date — no changes (use --force to overwrite)",
+		})
 	}
-	for _, r := range spliceResults {
-		switch r.Action {
-		case adopt.SpliceCreated:
-			planned = append(planned, change{
-				label:  r.File,
-				reason: "file does not exist — will be created with Baton rules section",
-			})
-		case adopt.SpliceAppended:
-			planned = append(planned, change{
-				label:  r.File,
-				reason: "Baton section missing — will append rules to existing file",
-			})
-		case adopt.SpliceUpdated:
-			planned = append(planned, change{
-				label:  r.File,
-				warn:   true,
-				reason: "Baton section is customized — will overwrite with current protocol text (--force)",
-			})
-		case adopt.SpliceNoOp:
-			informational = append(informational, change{
-				label:  r.File,
-				reason: "Baton section already current — no changes",
-			})
-		case adopt.SpliceCustomized:
-			informational = append(informational, change{
-				label: r.File,
-				warn:  true,
-				reason: "Baton section has been customized — leaving unchanged\n" +
-					"          (re-run with --force to overwrite with current protocol text)",
-			})
-		case adopt.SpliceAbsent:
-			informational = append(informational, change{
-				label:  r.File,
-				reason: "not found — skipping (only spliced if the file already exists)",
-			})
-		}
-	}
+	// Store for apply phase.
+	_ = agentsData
 
 	// Print plan
 	labelWidth := 22
@@ -281,34 +252,21 @@ func cmdInit(args []string) int {
 			fmt.Printf("  updated  %s (ui_bearing: true — design system not yet configured)\n", cfgPath)
 		}
 	}
-	// Baton protocol docs
-	if err := adopt.Materialise(repoRoot); err != nil {
-		fmt.Fprintf(os.Stderr, "sworn init: %v\n", err)
-		return 1
-	}
-	if !batonExist {
-		fmt.Println("  created  docs/baton/ (rules + README + VERSION)")
-	} else {
-		fmt.Println("  updated  docs/baton/ (refreshed to current protocol version)")
-	}
 
-	// Agent config files
-	applied, err := adopt.SpliceAgents(repoRoot, *force)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "sworn init: %v\n", err)
-		return 1
-	}
-	for _, r := range applied {
-		switch r.Action {
-		case adopt.SpliceCreated:
-			fmt.Printf("  created  %s\n", r.File)
-		case adopt.SpliceAppended:
-			fmt.Printf("  updated  %s (Baton section appended)\n", r.File)
-		case adopt.SpliceUpdated:
-			fmt.Printf("  updated  %s (Baton section replaced)\n", r.File)
-		case adopt.SpliceCustomized:
-			fmt.Printf("  skipped  %s (customized — use --force to overwrite)\n", r.File)
+	// AGENTS.md — create from MCP-pointer template if it does not exist.
+	if os.IsNotExist(agentsReadErr) {
+		if err := createAgentsMD(repoRoot); err != nil {
+			fmt.Fprintf(os.Stderr, "sworn init: %v\n", err)
+			return 1
 		}
+		fmt.Println("  created  AGENTS.md (MCP-pointer template)")
+	} else if agentsReadErr == nil && *force && !strings.Contains(string(agentsData), adopt.BatonSectionHeading) {
+		// --force with a non-legacy AGENTS.md: overwrite with template.
+		if err := createAgentsMD(repoRoot); err != nil {
+			fmt.Fprintf(os.Stderr, "sworn init: %v\n", err)
+			return 1
+		}
+		fmt.Println("  updated  AGENTS.md (overwritten with MCP-pointer template via --force)")
 	}
 
 	// --- Consideration catalog prompt ---
@@ -331,8 +289,24 @@ func cmdInit(args []string) int {
 
 done:
 	fmt.Println()
-	fmt.Println("Done. Run 'sworn verify' to verify your first change.")
+	fmt.Println("Done. Connect your AI to sworn mcp to get the Baton protocol and role prompts. Run 'sworn doctor' to verify your setup.")
 	return 0
+}
+
+// createAgentsMD writes the MCP-pointer AGENTS.md from the embedded template
+// at docs/templates/agents.md.
+func createAgentsMD(repoRoot string) error {
+	templatePath := filepath.Join(repoRoot, "docs", "templates", "agents.md")
+	targetPath := filepath.Join(repoRoot, "AGENTS.md")
+
+	data, err := os.ReadFile(templatePath)
+	if err != nil {
+		return fmt.Errorf("read AGENTS.md template: %w", err)
+	}
+	if err := os.WriteFile(targetPath, data, 0644); err != nil {
+		return fmt.Errorf("write AGENTS.md: %w", err)
+	}
+	return nil
 }
 
 // materialiseCatalog copies the consideration catalog and decision registry
