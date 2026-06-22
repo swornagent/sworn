@@ -7,7 +7,7 @@
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-04T00:00:00Z",
-  "start_commit": "85730cb9fab49494e30219477aa3416e3d22210f",
+  "start_commit": "64fa91bde30fbc0d3dadf199272e9e6f96af3484",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S36-captain-resolve-dirty-worktree/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S36-captain-resolve-dirty-worktree/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S36-captain-resolve-dirty-worktree/journal.md",
