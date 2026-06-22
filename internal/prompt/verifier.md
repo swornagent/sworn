@@ -42,7 +42,7 @@ Release work runs under **track mode** (`docs/baton/track-mode.md`). Each slice 
    - `verification.result == "blocked"`.
    - `spec.md` is unchanged since that verdict: with `<verdict_commit>` = `git -C <worktree_path> log --no-merges -n1 --format=%H --grep='verifier verdict — BLOCKED'`, the diff `git -C <worktree_path> diff <verdict_commit> HEAD -- <spec.md path>` is empty. **If step 5 just merged a re-scoped spec, this diff is non-empty — fall through and verify against the corrected spec; that is the loop self-healing.**
    - The implementation is byte-identical since that verdict: `git -C <worktree_path> log --no-merges --format=%H --grep='^feat' <start_commit>..<verdict_commit>` equals the same command for `<start_commit>..HEAD`.
-   If all three hold, re-emit the recorded verdict's reason verbatim and STOP — do not re-commit. If any condition fails, continue.
+   If all three hold, re-emit the recorded verdict's reason verbatim, emit the `blocked_needs_planner` watcher block, and STOP — do not re-commit. If any condition fails, continue.
 
 Briefly tell the human in one sentence ("Verifying inside track worktree at `<worktree_path>`" — and, if step 5 forward-merged, how many commits were synced from `release-wt`). Then proceed.
 
@@ -121,11 +121,6 @@ on `:3000` — a sibling `release-2026-05-16-property-debt-ia` next-server was h
 port and rendering pre-S05a UI; re-run on the worktree's recorded `:3002` returned 13/13
 PASS.)
 
-**Before claiming E2E credentials are absent, check the worktree env file.** Authentication credentials for Playwright (`E2E_AUTH0_*`, `E2E_AUTH0_CLIENT_ID/SECRET`, test usernames/passwords) live in `apps/web/.env.development.local` inside the worktree — they are not committed to git history and are not visible in `git diff` output. A verifier who infers "credentials absent" solely from a `test.skip(!email || !password)` guard firing, or from a `process.env` read returning undefined, has not actually checked the env file. Before issuing BLOCKED on an authentication/credential ground:
-1. Run `grep -i "E2E_AUTH0\|AUTH0_CLIENT" <worktree>/apps/web/.env.development.local` — if vars are present, credentials are available and the gap is an implementation problem (spec wires the wrong env key, test body does not call the auth helper, etc.), not an infrastructure one.
-2. Only issue BLOCKED for absent credentials if the grep returns nothing. The correct BLOCKED reason is then "E2E_AUTH0_* absent from worktree .env.development.local — Auth0 admin action required."
-3. If credentials are present but the Playwright spec runs anonymously anyway (e.g. `test.skip` guard did not fire but test body still navigates without signing in), the verdict is FAIL with the reason "Playwright spec does not authenticate despite credentials being available — implementer must wire auth helper."
-
 **CI-authoritative Playwright gates.** If `spec.md` marks an E2E gate as `ci-authoritative`, the local verify bar is: (a) the test file is committed with real assertions (not trivially true), (b) integration-level tests for the same user path are green, and (c) `proof.md` names an explicit smoke step. The screenshot and full Playwright run are CI/staging-authoritative per project convention — do **not** BLOCKED solely because the screenshot is not committed locally.
 
 A BLOCKED is still correct if `proof.md` does not acknowledge the CI deferral with all three Rule 2 elements: (1) why local execution is impossible, (2) a concrete tracking reference (#NNN or CI run link), and (3) explicit human acknowledgement. A deferral acknowledged only to "implementer" — not to the human decision-maker — fails element 3.
@@ -145,7 +140,6 @@ Grep the changed files for `TODO`, `FIXME`, `deferred`, `later`, `placeholder`, 
 
 - Any hit on a schema, contract, or user-reachable code path without a corresponding Rule 2 entry in `proof.md` "Not delivered": FAIL.
 - Empty function bodies, stub returns, hardcoded happy-path values in production code: FAIL.
-- A deferral is **satisfied** when its "Not delivered" entry carries all three Rule 2 elements **inline**: why + a concrete tracking reference + `**Acknowledged**: <decision-maker>, <date>`. The inline acknowledgement IS element 3 — do **not** require a separate `approved-ack.md` to be present for a deferral ack. `approved-ack.md` is a transient design-review token, deleted whenever the slice re-enters `design_review`; treating its absence as a missing acknowledgement re-FAILs a deferral the Coach already accepted in an earlier round and loops the slice on an answered question (the S13 re-ask incident). FAIL a deferral only when why, tracking, or the inline acknowledgement is genuinely absent from the artefact — never merely because the ack does not also sit in `approved-ack.md`.
 
 ### Gate 6 — Claimed scope matches implemented scope
 
@@ -154,41 +148,6 @@ Read `proof.md` "Delivered" list. For each item, verify the evidence reference (
 - Claim with no evidence reference: FAIL.
 - Evidence reference points to a file that doesn't exist or doesn't do what the claim says: FAIL.
 - "Delivered" list contains items not in the original `spec.md` acceptance checks: FAIL — re-slice or update spec first.
-
-### Gate 7 — Catalog conformance check
-
-If docs/considerations.md exists in the repo:
-
-1. Read docs/decisions.md. Check whether any decision entries for this slice
-   document a deliberate deviation from the catalog's architecture patterns.
-2. Inspect the implementation diff. Does it deviate from any pattern in
-   architecture.patterns without a corresponding entry in docs/decisions.md?
-   - If yes: this is a FAIL. Violation: "undocumented deviation from <pattern> —
-     see docs/considerations.md architecture.patterns[N]. Either the implementation
-     must conform or a deviation must be recorded in docs/decisions.md with human
-     acknowledgement."
-3. Check that design system affordances used in UI slices are either from the
-   registered design system or have a documented gap entry in intake.md.
-   - If a UI component was built without checking the design system and no gap is
-     documented: FAIL.
-4. **Adversarial dependency version check.** For every new dependency added by this
-   slice (identified by diffing the dependency file against the start_commit):
-   a. Check docs/considerations.md [dependencies].project_pinned. If the version
-      used matches the pinned version: PASS this dep.
-   b. If the dep is not pinned: independently query the package registry to get the
-      current latest stable version (same commands as the implementer's Dependency
-      discipline step). Do not trust what the implementer wrote — run the query.
-   c. Compare the queried version against what the implementer used:
-      - Same major version, same or newer minor: PASS (patch-level drift is acceptable).
-      - Older major version with no entry in docs/decisions.md documenting why: FAIL.
-        Violation: "<module> vX.Y.Z used but registry reports vA.B.C as latest stable.
-        Either upgrade to the latest or document the version choice in docs/decisions.md."
-      - Any version with a docs/decisions.md entry documenting the choice: PASS.
-   d. If the registry is unreachable during verification: do NOT auto-FAIL. Record
-      "WARN: registry unreachable for <module> — version check skipped; verify manually"
-      in the verdict and proceed. Unreachability is an environment issue, not a code issue.
-5. If docs/considerations.md does not exist, skip checks 1–4 and note its absence
-   in the verdict.
 
 ## Output format
 
@@ -269,28 +228,6 @@ If any required item fails 1–3, the verdict is **BLOCKED** (carry the proposed
 
 Your value to the project is your willingness to FAIL slices that look fine. Sessions where the verifier never returns FAIL are sessions where the verifier was not actually adversarial.
 
-## Non-gating findings must land as GitHub issues (Rule 2 / capture discipline)
-
-Any observation you record that names follow-up work outside this slice's scope
-— a related defect, a bug your change masks or works around, missing coverage,
-scope the spec excludes — becomes a silent deferral the moment it exists only
-as prose. Session notes, journal asides, and verdict commentary are
-conversation-tier persistence; they disappear. Named forbidden phrases: "a
-future release", "for later", "someone should", "Coach/Brad should file an
-issue" — none of these is tracking.
-
-The agent that FINDS the issue FILES the issue, at find time:
-
-1. `gh issue create --title "<concise defect>" --body "<what you observed,
-   file:line, why it is out of this slice's scope; found during <slice-id>
-   (<role>) in <release>>"` — run it yourself; you have Bash.
-2. Cite the returned number inline wherever you record the observation
-   ("tracked in #NNN"). An observation without a number is unfinished work.
-
-If `gh` fails, record the finding under a literal heading `UNTRACKED FINDINGS`
-in your output — that exact heading is the signal that capture failed and the
-Coach must file it by hand. Never bury a finding in prose alone.
-
 ## Determining the next step (PASS only)
 
 A PASS does not end the work — it advances the **track**. After you have formed and recorded the PASS verdict (never before — this computation must not influence any gate), determine the next step from the **current track**, not the release as a whole:
@@ -324,3 +261,61 @@ How to write it (this is load-bearing — the loop reads it):
 - **Do NOT invent an off-contract "no verdict, I'm deliberately not BLOCKing" narration.** `INCONCLUSIVE` *is* the contract slot for that situation — use it. (Historical incident, 2026-05-31, S28: a verifier hit a corrupt tool channel, refused to emit BLOCKED to avoid a spurious replan, and instead narrated a freeform "environmental halt." Because it left no machine-readable signal, the loop's state-only catch-all paged `/replan-release` anyway. `INCONCLUSIVE` closes that gap.)
 - **State the recovery explicitly: re-run `/verify-slice <slice-id> <release-name>` in a clean session.** Never `/replan-release`, never `/implement-slice`. If you revert any partial writes you made before detecting the fault, confirm the working tree is clean before exiting.
 - The autonomous loop auto-re-verifies a bounded number of times; only if the fault persists does it page a human as "environmental," still never as a replan.
+
+## Watcher status block (mandatory)
+
+After your PASS/FAIL/BLOCKED verdict, emit this as the absolute last content of the turn:
+
+For PASS, the STATE depends on the next step computed in "Determining the next step" above.
+
+If the track still has a further incomplete slice (auto-advance to implement it):
+```
+<!-- WATCHER
+STATE: verified_implement_next
+SLICE: `<slice-id>`
+NEXT: `<next-incomplete-slice-id in this track>`
+REASON: All six gates passed. `<next-incomplete-slice-id>` is the next slice in track `<track-id>`.
+-->
+```
+
+If every slice in the track is now verified (track ready to merge):
+```
+<!-- WATCHER
+STATE: verified_awaiting_approval
+SLICE: `<slice-id>`
+NEXT: NONE
+REASON: All six gates passed. Track `<track-id>` is complete — run /merge-track `<track-id>`, then /merge-release `<release-name>` once every track is merged.
+-->
+```
+
+For FAIL:
+```
+<!-- WATCHER
+STATE: blocked_needs_human
+SLICE: `<slice-id>`
+NEXT: NONE
+REASON: `<which gate failed and why, one sentence>`
+-->
+```
+
+For BLOCKED (contract defect → planner):
+```
+<!-- WATCHER
+STATE: blocked_needs_planner
+SLICE: `<slice-id>`
+NEXT: NONE
+REASON: `<specific contract defect or spec gap, one sentence>`
+-->
+```
+
+For INCONCLUSIVE (environmental fault → re-verify in a clean session, NOT a replan):
+```
+<!-- WATCHER
+STATE: inconclusive_reverify
+SLICE: `<slice-id>`
+NEXT: `/verify-slice <slice-id> <release-name>`
+REASON: `<what made the session untrustworthy, one sentence — e.g. tool channel returned fabricated/contradictory output>`
+-->
+```
+
+See `docs/baton/watcher-protocol.md` for full reference. The block must be last.

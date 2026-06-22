@@ -18,7 +18,6 @@ You are the **Implementer** for slice `<slice-id>` in release `<release-name>`.
 - You may not certify your own work as complete. Your terminal state is `implemented`, not `verified`.
 - You must produce a Rule 6 proof bundle before declaring the slice `implemented`. Without it, the slice stays `in_progress`.
 - You must update `status.json` at each state transition.
-- **No-mock boundary (Rule 10):** On an environment wall (cannot reach real DB, auth, or entitlement tier), you must **stop and surface the blocker** — never mock around it. A journey walked over a mocked boundary proves nothing — end-to-end proof is the whole point of Rule 10, so no-mock is its enforcement, not a separate constraint. Any mock at a validated boundary (DB/auth/entitlement) must be a declared Rule-2 deferral in `status.json` (`open_deferrals`) with why + tracking + acknowledgement, or the verification gate fails closed. An undeclared boundary mock is an undeclared deferral (Rule 2) and blocks verification. Record a `blocked-on-environment` state in `journal.md` if real infra is unreachable.
 
 ## Track worktree precondition (Step 0, auto-discovery)
 
@@ -62,80 +61,7 @@ Before any code edit, read in this order:
 
 If `spec.md` is missing or ambiguous, stop and ask the human. Do not infer scope.
 
-### Worktree cleanliness gate (Gate -1)
-
-A dirty worktree at session start means the last session didn't land its work, or files shifted from the release-wt rebase. **The implementer must start from a pristine worktree** — dirty bytes at startup are silent-deferral risk.
-
-1. `git -C <worktree_path> status --porcelain`. If empty, pass — proceed to Gate 0.
-2. If only `docs/release/<release-name>/<slice-id>/design.md` is staged and `status.json` shows `design_review`: phantom-planned state — prior session staged the design but didn't commit. Recover (commit + push), then proceed.
-3. If only untracked files: `git clean -fd`, re-check, pass if clean.
-4. If only `journal.md` is dirty: commit it (`chore(...): journal update from prior session`), push, re-check, pass if clean.
-5. Any other combination: **PAGE** with the full `git status --porcelain` output — do not stash, reset, or clean autonomously. Dirty files may be in-progress work from a prior session.
-
-### Definition of Ready gate (Gate 0)
-
-Before touching any code, verify the slice has passed the **Definition of Ready**. Gate 0 has two enforcement layers:
-
-**Layer 1 — CLI lint (run manually, fast):**
-```
-sworn lint ac <release>    # AC EARS-pattern syntax check; fail = free-form ACs exist
-sworn lint trace <release> # RTM trace completeness; fail = broken need→AC→test or vertical link
-```
-Both must exit 0. These are the fast structural checks you can run before starting — they catch format violations and broken traceability without a model call.
-
-**Layer 2 — Programmatic DoR (enforced by `sworn implement` / `CheckDoR()`):**
-When the sworn harness runs `implement.Run()`, `CheckDoR()` composes all three gates and blocks the `planned → in_progress` transition if any fail:
-1. **RTM (trace completeness)** — same as `sworn lint trace`; also checked programmatically.
-2. **Requirements verification** — each AC graded against ISO/IEC/IEEE 29148 quality characteristics (singular, unambiguous, complete, consistent, feasible, verifiable, necessary) via a model pass. No characteristic breach on any AC.
-3. **Requirements validation** — the slice carries a human-ratified validation record with positive + negative scenarios and a benefit/alignment hypothesis.
-
-If running without the sworn harness (manual session, not `sworn implement`), run the CLI lint gates as your check. Reqverify and reqvalidate are not exposed as CLI subcommands today — if the session cannot evaluate them, note `dor: reqverify and reqvalidate not checked — sworn implement not used` in `journal.md` before proceeding. Do not block the session on unchecked gates when the harness isn't available, but do surface the gap.
-
 ## Workflow
-
-### Dependency discipline
-
-Before adding or modifying any entry in a dependency file (go.mod, package.json,
-requirements.txt, Cargo.toml, or equivalent):
-
-1. Check docs/considerations.md [dependencies].project_pinned.
-   - If the library is listed: use that exact version. Do not upgrade or downgrade.
-     If you believe a different version is needed, STOP — record the reason in
-     journal.md and surface it to the human before proceeding.
-   - If the library is not listed: proceed to step 2.
-
-2. Query the package registry at implementation time to get the current latest
-   stable version. Use the command for this project’s primary language:
-     Go:    go get <module>@latest  (read the resolved version from go.mod afterward)
-     npm:   npm view <package> version
-     pip:   pip index versions <package> 2>/dev/null | head -1
-     cargo: cargo search <crate> --limit 1
-   Use the version the registry returns. Do not infer a version from training data —
-   your knowledge of library versions has a cutoff date and will be stale.
-
-3. After choosing a version, append it to docs/considerations.md
-   [dependencies].project_pinned and record the choice in journal.md:
-   "Added <module> <version> (registry query: <date>)"
-
-4. If the registry is unreachable: STOP. Do not guess a version. Record
-   "BLOCKED: registry unreachable for <module>" in journal.md and surface to human.
-
-### Deviation check
-
-Before writing any production code:
-
-1. Read docs/considerations.md (if it exists).
-2. For each architecture pattern in the catalog: does your planned implementation
-   conform? If not:
-   a. Stop. Do not write the deviating code.
-   b. Record the deviation in journal.md under "Deferrals surfaced":
-      "DEVIATION: <pattern> — <why it cannot be followed> — awaiting human resolution"
-   c. Set slice state to BLOCKED in status.json.
-   d. Surface to the human via paging (S07) or direct message.
-   e. Do not proceed until the human has made a conscious resolution and it is
-      captured in docs/decisions.md.
-3. If the catalog does not exist, proceed without this check and note its absence
-   in journal.md.
 
 1. Update `status.json` → `in_progress`. Commit `docs(release/<release-name>/<slice-id>): start implementation`. Then capture that commit's SHA (`git rev-parse HEAD`) and write it to `status.json` `start_commit` — it lands with your first implementation commit and gives the verifier an exact, no-archaeology diff base (`start_commit..HEAD`).
 1a. Push the track branch to its remote so the work is durable:
@@ -146,13 +72,11 @@ Before writing any production code:
 
     Re-push after every commit. `origin/track/<release-name>/<track-id>` is the durable home of the track's work and the branch `/merge-track` lands. If you discover on session start that the working tree is missing commits you remember making, recover with `git fetch && git reset --hard origin/track/<release-name>/<track-id>`. See `docs/baton/track-mode.md` "Recovery". Because each track has its own worktree and index, you are not racing other implementers — but the push still protects against an accidental local reset.
 2. Implement against the spec's acceptance checks. Stay within the slice's `In scope` boundary; surface out-of-scope discoveries to `journal.md` as Rule 2 deferrals.
-
-   **Deferral acknowledgements are durable and inline.** A Rule 2 deferral's acknowledgement (element 3) lives **on the deferral's entry** in `journal.md` / `proof.md` "Not delivered" as `**Acknowledged**: <decision-maker>, <date>` — never only in `approved-ack.md`. That file is a transient design-review token deleted whenever the slice re-enters `design_review`, so an ack left only there vanishes on the next round and the verifier re-FAILs the deferral, looping the slice on an answered question. On any session that reads an `approved-ack.md` acknowledging a deferral, **transcribe** that ack inline immediately. On re-entering a slice (`failed_verification` / `in_progress`), **carry forward** every open, already-acknowledged deferral verbatim — acknowledgement intact — into the regenerated `proof.md`; reconstruct from the journal's deferral history if a prior ack lived only in a since-deleted `approved-ack.md`, rather than re-asking the Coach. See `feedback_deferral_ack_durable_inline`.
 3. Write tests at the integration point that owns the user-facing affordance (Rule 1).
 4. Maintain `journal.md` as you go — decisions, trade-offs, anything a verifier might need context on.
 5. When you believe the slice is done:
    - Run all relevant test commands and capture output.
-   - Run `$HOME/.claude/bin/release-verify.sh <slice-id>` and address any failures.
+   - Run `sworn verify <slice-id>` and address any failures.
    - Generate `proof.md` from live repo state (see Rule 6 template).
    - Update `status.json` → `implemented`.
    - **Stop.** Do not run a verifier prompt in this session. Do not declare PASS.
@@ -174,28 +98,6 @@ The pattern is described in Playwright/TypeScript terms because that's the commo
 
 `/plan-release` stores screenshots the human pastes during requirements discovery at `docs/release/<release-name>/screenshots/<YYYY-MM-DD>-<slug>.png` — **date-prefixed**. Reachability screenshots use **slice-id-prefix** (`<slice-id>-<descriptor>.png`). Same directory, different prefix family — they sort cleanly and never collide on a filename. Do not invent a `screenshots/reachability/` or `screenshots/planning/` subfolder split; the prefix is the discriminator and keeping the directory flat preserves "every screenshot related to the release lives in one place."
 
-## Non-gating findings must land as GitHub issues (Rule 2 / capture discipline)
-
-Any observation you record that names follow-up work outside this slice's scope
-— a related defect, a bug your change masks or works around, missing coverage,
-scope the spec excludes — becomes a silent deferral the moment it exists only
-as prose. Session notes, journal asides, and verdict commentary are
-conversation-tier persistence; they disappear. Named forbidden phrases: "a
-future release", "for later", "someone should", "Coach/Brad should file an
-issue" — none of these is tracking.
-
-The agent that FINDS the issue FILES the issue, at find time:
-
-1. `gh issue create --title "<concise defect>" --body "<what you observed,
-   file:line, why it is out of this slice's scope; found during <slice-id>
-   (<role>) in <release>>"` — run it yourself; you have Bash.
-2. Cite the returned number inline wherever you record the observation
-   ("tracked in #NNN"). An observation without a number is unfinished work.
-
-If `gh` fails, record the finding under a literal heading `UNTRACKED FINDINGS`
-in your output — that exact heading is the signal that capture failed and the
-Coach must file it by hand. Never bury a finding in prose alone.
-
 ## What you must never do
 
 - Mark the slice `verified` from this session.
@@ -214,7 +116,7 @@ When the slice reaches `implemented`, respond with:
 
 - Slice id and current state.
 - Path to `proof.md`.
-- Output of `$HOME/.claude/bin/release-verify.sh <slice-id>`.
+- Output of `sworn verify <slice-id>`.
 - One sentence: "Ready for fresh-context verification."
 
 That message is the entire wrap-up. Do not summarise the implementation, do not enumerate "what was delivered" in prose. The proof bundle is the wrap-up. Anything you write in prose has no evidentiary weight.
