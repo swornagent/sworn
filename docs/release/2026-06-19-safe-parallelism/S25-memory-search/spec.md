@@ -1,6 +1,6 @@
 ---
-title: 'S25-memory-search — sworn memory search + captain integration'
-description: 'sworn memory search <query> returns semantically similar memory entries from the index. Replaces captain-memory-search.py with a sworn-binary shim that preserves the existing coach-loop output contract.'
+title: 'S25-memory-search — sworn memory search'
+description: 'sworn memory search <query> returns semantically similar memory entries from the index. Single-query CLI; no shim changes in this slice.'
 ---
 
 # Slice: `S25-memory-search`
@@ -10,19 +10,13 @@ description: 'sworn memory search <query> returns semantically similar memory en
 A developer or the coach-loop running `sworn memory search "encryption at rest
 decisions"` receives a ranked list of relevant memory entries from the
 configured index, with titles, harness source, and similarity scores.
-The existing `captain-memory-search.py` is replaced by a thin shim that
-delegates to `sworn memory search --json`, preserving the output contract
-the coach-loop reads today. Captain's `/design-review` sessions now use
-sworn's semantic search rather than the Python script, and work on any
-machine — with or without local Ollama — by routing to the configured
+Captain's `/design-review` sessions use sworn's semantic search, and work on
+any machine — with or without local Ollama — by routing to the configured
 cloud provider.
 
 ## Entry point
 
 `sworn memory search <query> [--top-k N] [--json] [--harness <id>]`
-
-Also: `~/.claude/bin/captain-memory-search.py` updated to be a thin shim
-that calls `sworn memory search "$@" --json` and passes through stdout/stderr.
 
 ## In scope
 
@@ -57,9 +51,10 @@ Flow:
 
 `cmd/sworn/memory.go` (extend — add `search` subcommand):
 - Loads config (S23)
+- Checks index file exists BEFORE opening (Pin 3 — no zombie empty DB)
 - Opens index at configured path (S24)
 - Constructs embedder (S24)
-- Calls `Search()`
+- Calls `Search()` with `input_type: "query"` for Voyage (Pin 4)
 - Human-readable output (default): table with rank, score, harness, title,
   first 120 chars of content
 - JSON output (`--json`): array of `Result` objects
@@ -69,23 +64,10 @@ Flow:
 
 ### captain-memory-search.py shim
 
-Update `~/.claude/bin/captain-memory-search.py`:
-```python
-#!/usr/bin/env python3
-"""Thin shim: delegates to sworn memory search. Preserves coach-loop contract."""
-import subprocess, sys, os
-result = subprocess.run(
-    ["sworn", "memory", "search", "--json", "--top-k", "10"] + sys.argv[1:],
-    capture_output=False
-)
-sys.exit(result.returncode)
-```
-
-The shim preserves exact output format (JSON array) so the coach-loop needs
-no changes. The `--batch` and `--rebuild-only` flags from the original Python
-script map to `sworn memory build` — the shim does not implement them; callers
-that used `--batch` should call `sworn memory build` directly. Document the
-migration in a one-paragraph note at the top of the shim.
+**Deferred.** The Python shim is NOT updated in S25 (per Coach directive on
+Pin 2). It will be replaced or deleted by the T14-baton-integration track
+after in-process batching lands in S46 (captain-review). S25 delivers
+single-query `sworn memory search` only; `--batch` support is handled in S46.
 
 ## Out of scope
 
@@ -93,9 +75,8 @@ migration in a one-paragraph note at the top of the shim.
   for <50K entries)
 - Reranking (post-R3)
 - Filtering by date or similarity threshold (post-R3)
-- Updating `captain-memory-search.py` to handle `--batch`/`--rebuild-only`
-  (those flags now route to `sworn memory build`; coach-loop uses `sworn memory
-  search` directly)
+- Updating `captain-memory-search.py` (deferred to T14-baton-integration)
+- `--batch` search mode (deferred to S46 captain-review)
 - Semantic diff across two queries (post-R3)
 
 ## Planned touchpoints
@@ -103,7 +84,6 @@ migration in a one-paragraph note at the top of the shim.
 - `internal/memory/search.go` (new)
 - `internal/memory/search_test.go` (new)
 - `cmd/sworn/memory.go` (extend — add `search` subcommand)
-- `~/.claude/bin/captain-memory-search.py` (update to shim)
 
 ## Acceptance checks
 
@@ -115,10 +95,10 @@ migration in a one-paragraph note at the top of the shim.
   entries sourced from the claude-code harness
 - [ ] `sworn memory search` with no index file (S24 never run) exits non-zero
   with a clear message: "No memory index found. Run `sworn memory build` first."
-- [ ] `captain-memory-search.py` with a query argument delegates to
-  `sworn memory search --json` and exits with the same code
-- [ ] `captain-memory-search.py --batch` prints a migration notice and exits 0
-  (does not fail; tells user to run `sworn memory build` instead)
+- [ ] `captain-memory-search.py` shim — **DEFERRED** to T14-baton-integration
+  (per Coach directive on Pin 2). Not in S25 scope.
+- [ ] `captain-memory-search.py --batch` migration — **DEFERRED** to T14-baton-integration
+  (per Coach directive on Pin 2). Not in S25 scope.
 - [ ] `go test -race ./internal/memory/...` passes
 - [ ] Search results are deterministic for the same query and index
   (cosine similarity is pure float arithmetic, no randomness)
@@ -149,10 +129,12 @@ migration in a one-paragraph note at the top of the shim.
   different similarity scores if the embedding is re-computed. **Mitigation**:
   embeddings are stored and retrieved from the DB; query embedding is freshly
   computed at search time — this is by design, not a bug.
-- Coach-loop `captain-memory-search.py --batch` calls will break after the
-  shim is deployed. **Mitigation**: shim catches `--batch` and `--rebuild-only`
-  flags and prints a migration message (`sworn memory build`) before exiting 0.
-  Coach-loop does not use `--batch` in the current version per captain-handbook §5.
+- Coach-loop `captain-memory-search.py --batch` calls will break if the shim
+  is replaced without `--batch` support. **Mitigation**: the Python shim is
+  NOT updated in this slice (per Coach directive). It will be replaced/deleted
+  by the T14-baton-integration track after in-process batching lands in S46
+  (captain-review). S25 delivers single-query `sworn memory search` only;
+  `--batch` support is handled in S46.
 
 ## Deferrals allowed?
 
