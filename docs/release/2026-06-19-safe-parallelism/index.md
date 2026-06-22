@@ -201,13 +201,15 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > S22/T4, already merged — S49 adds a Baton-pin check) plus the documented-shared additive
 > `cmd/sworn/main.go`. T5 touches only `internal/model/**`+`go.mod`+`cmd/sworn/run.go`; T7
 > only `internal/mcp/**`+`internal/config/**` — disjoint from T14. No parallel collision.
-> **ADR-number-collision finding (flagged this replan, not yet fixed):** the matrix rows
-> `docs/adr/0004-dep-policy-minimal-justified.md` (S10) and `docs/adr/0005-canonical-baton.md`
-> (S21) name ADR numbers that are now **already taken** on `release/v0.1.0` by
-> `0004-tui-deps-bubbletea-lipgloss.md` and `0005-tui-dep-bubbles.md` (landed by T2). S10's and
-> S21's specs must pick the next free numbers at implement time (S10→0007, S21→0008, after this
-> replan's 0006). Surfaced to the Coach; S10/S21 are `planned`/not-started so the fix is a
-> one-line spec edit each — left to the owning slice rather than silently renumbered here.
+> **ADR-number-collision finding (flagged 2026-06-21, RESOLVED 2026-06-23):** the original matrix
+> rows named `docs/adr/0004-dep-policy-minimal-justified.md` (S10) and
+> `docs/adr/0005-canonical-baton.md` (S21), but `0004`/`0005` were already taken on
+> `release/v0.1.0` by `0004-tui-deps-bubbletea-lipgloss.md` and `0005-tui-dep-bubbles.md` (landed
+> by T2). The owning slices renumbered at implement time — **S10 → `0007-dep-policy-minimal-justified.md`**
+> (implemented) and **S21 → `0008-canonical-baton.md`** (verified). The matrix rows below and
+> S10's `status.json` `planned_files` are corrected to `0007`/`0008` to match the shipped reality.
+> The stale `0004` reference in S10's spec acceptance check was the defect behind S10's BLOCKED
+> verdict — corrected this replan.
 > **Cross-slice dependency (S08c → S21):** `internal/prompt/baton/rules.md` is created by
 > `S21-canonical-baton` (T3). `S08c-mcp-plan-tools` (T4) serves it via the `sworn://baton/rules`
 > MCP resource, so S08c's rules resource depends on S21's output. Resolution (Captain Pin 2,
@@ -218,7 +220,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | File / surface | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |---|---|---|---|---|---|---|------|---|---|
 | `docs/adr/0003-sqlite-orchestration-state.md` | ✓ | | | | |  |
-| `docs/adr/0004-dep-policy-minimal-justified.md` (new) | | | | | ✓ |  |
+| `docs/adr/0007-dep-policy-minimal-justified.md` (new) | | | | | ✓ |  |
 | `CLAUDE.md` | | | | | ✓ |  |
 | `internal/db/` (new) | ✓ | | | | |  |
 | `internal/supervisor/` (new) | ✓ | | | | |  |
@@ -289,7 +291,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `internal/mcp/catalog_test.go` (new) | | | | | | | ✓ |
 | `cmd/sworn/doctor.go` (new) | | | | ✓ | | | |
 | `cmd/sworn/doctor_test.go` (new) | | | | ✓ | | | |
-| `docs/adr/0005-canonical-baton.md` (new) | | | ✓ | | | | |
+| `docs/adr/0008-canonical-baton.md` (new) | | | ✓ | | | | |
 | `docs/templates/agents.md` (new) | | | ✓ | | | | |
 | `cmd/sworn/mcp.go` (new) | | | | ✓ | |  |
 | `docs/mcp-setup.md` (new) | | | | ✓ | |  |
@@ -413,7 +415,8 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S08a-mcp-transport` | T4 | `sworn mcp` JSON-RPC server; initialize handshake; tools scaffold | verified | [spec](./S08a-mcp-transport/spec.md) |
 | `S08b-mcp-ops-tools` | T4 | 9 ops tools: get_board, get_blocked, get_slice_context, rerun, patch, merge, defer | verified | [spec](./S08b-mcp-ops-tools/spec.md) |
 | `S08c-mcp-plan-tools` | T4 | 4 planning tools + resources + prompts + mcp-setup.md | verified | [spec](./S08c-mcp-plan-tools/spec.md) |
-| `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | verified | [spec](./S09-per-role-model-config/spec.md) || `S10-provider-foundation` | T5 | ADR 0004 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | planned | [spec](./S10-provider-foundation/spec.md) |
+| `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | verified | [spec](./S09-per-role-model-config/spec.md) |
+| `S10-provider-foundation` | T5 | ADR 0007 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | implemented | [spec](./S10-provider-foundation/spec.md) |
 | `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | planned | [spec](./S11-anthropic-driver/spec.md) |
 | `S12-google-driver` | T5 | Google Gemini and Vertex AI models work as verifier and implementer | planned | [spec](./S12-google-driver/spec.md) |
 | `S13-bedrock-driver` | T5 | AWS Bedrock models work via Converse API; IAM auth | planned | [spec](./S13-bedrock-driver/spec.md) |
@@ -487,6 +490,25 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > Merged (8): T1, T2, T3, T4, T8, T9, T11, T15. In progress (1): T12-harness-hardening (head: S42-implement-step-timeout). Planned (8): T5, T6, T7, T10, T13, T14, T16, T17.
 
 ## Recent activity
+
+### 2026-06-23 — replan: resolve S10-provider-foundation BLOCKED (stale ADR ref) + ADR-number reconciliation
+
+- **Actor**: planner (human + Claude)
+- **Trigger**: `/verify-slice` returned **BLOCKED** on S10 — gates 1–5 passed, but an acceptance
+  check read "updated text references ADR-0004". ADR-0004 is the **TUI-deps** ADR
+  (`0004-tui-deps-bubbletea-lipgloss.md`); the dep-policy ADR is **`0007-dep-policy-minimal-justified.md`**.
+  The implementation (CLAUDE.md) correctly cites ADR-0007 — changing it to 0004 would be wrong, so
+  no legal implementer fix existed. Routed to the planner.
+- **Ground truth checked**: `docs/adr/` on T5 confirms `0004` = tui-deps, `0007` = dep-policy,
+  `0008` = canonical-baton. This closes the **ADR-number-collision finding** flagged 2026-06-21
+  (S10's planned `0004-dep-policy` and S21's `0005-canonical-baton` collided with merged TUI ADRs;
+  the implementations renumbered to 0007/0008 but the board/spec lagged — the stale-spec ↔ verify loop).
+- **Spec drift found**: T5's S10 spec was *ahead* of release-wt (Coach had partially fixed
+  0004→0007 in the body at start_commit, leaving the AC + two refs stale); release-wt was fully stale.
+- **Resolution**: corrected **all** dep-policy ADR refs in S10's spec to `0007`; fixed S10
+  `status.json` `planned_files` + the matrix rows (`0007-dep-policy`, `0008-canonical-baton`) and the
+  collision note. S10 `verification.result` cleared to `pending`, `state` → `implemented` (gates 1–5
+  already pass; ready for a fresh `/verify-slice`).
 
 ### 2026-06-23 — replan: resolve S42-implement-step-timeout BLOCKED (touchpoint correction)
 
