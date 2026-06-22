@@ -41,8 +41,27 @@ None.
 
 ## Verifier verdicts received
 
-None yet.
+### 2026-07-03 — PASS
 
+PASS
+
+Slice: `S35-mutation-guard`
+Verified against: `e239c20` (track branch HEAD)
+Verifier session: fresh, artefact-only
+
+All six gates passed:
+
+1. **Gate 1 (User-reachable outcome):** Captain Step 7 exists at `captain.md` lines 157-200; Baton Rule 11 exists at `internal/adopt/baton/rules/11-process-global-mutation.md`. Both are directly readable — the prompt/rule prose is the user-reachable artefact.
+
+2. **Gate 2 (Planned touchpoints vs actual):** Both planned files changed (`captain.md`, `rules/11-process-global-mutation.md`). Extra files (`adopt.go`, `doctor.go`, `doctor_test.go`) are mechanical registrations explained in proof.md divergence section.
+
+3. **Gate 3 (Required tests):** `go build ./...` passes. Doc-content grep checks (`Process-global mutation guard` in captain.md → 1; `Guaranteed restore` in rule clause → 1) both return correct counts.
+
+4. **Gate 4 (Reachability artefact):** Verbatim Captain Step 7 and Rule 11 clause quoted in proof.md. For a prompt/rule change, the prose is the reachability artefact per spec.
+
+5. **Gate 5 (No silent deferrals):** Grep on changed files for TODO/FIXME/etc. returned zero hits in slice-authored content. All matches are pre-existing captain.md memory-domain lists and vendored baton rule text.
+
+6. **Gate 6 (Claimed scope):** All 8 delivered items have verifiable evidence on disk. All 5 acceptance checks satisfied.
 ## 2026-07-03 — implemented
 
 Entered at `design_review` with Coach-approved ack (PROCEED). Captain pin: 1

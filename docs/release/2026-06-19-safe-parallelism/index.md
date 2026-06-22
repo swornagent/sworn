@@ -393,8 +393,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S31-lint-symbols` | T12 | `sworn lint symbols` — grep back-ticked design identifiers against the live codebase | verified | [spec](./S31-lint-symbols/spec.md) |
 | `S32-designfit-decisions-gate` | T12 | `sworn designfit` fails closed when Type-1 work is declared but `design_decisions` is empty | verified | [spec](./S32-designfit-decisions-gate/spec.md) |
 | `S33-spec-template-hardening` | T12 | spec/prompt hardening: Risk-cites-`file:line`, pure-engine two-commit note, dynamic-CORS note, + verifier watcher-block cleanup | verified | [spec](./S33-spec-template-hardening/spec.md) || `S34-tui-merge-actor` | T2 | render the `merge:<track>` actor as a distinct row in the TUI live view + release board | verified | [spec](./S34-tui-merge-actor/spec.md) |
-| `S35-mutation-guard` | T12 | Captain check + Baton-rule clause for process-global mutation (cwd/git-state/os.Chdir) — the sworn#6 class | planned | [spec](./S35-mutation-guard/spec.md) |
-| `S36-captain-resolve-dirty-worktree` | T12 | Captain auto-resolves dirty track worktrees (commit-by-default, record the diff+resolution, never page the Coach) | planned | [spec](./S36-captain-resolve-dirty-worktree/spec.md) |
+| `S35-mutation-guard` | T12 | Captain check + Baton-rule clause for process-global mutation (cwd/git-state/os.Chdir) — the sworn#6 class | verified | [spec](./S35-mutation-guard/spec.md) || `S36-captain-resolve-dirty-worktree` | T12 | Captain auto-resolves dirty track worktrees (commit-by-default, record the diff+resolution, never page the Coach) | planned | [spec](./S36-captain-resolve-dirty-worktree/spec.md) |
 | `S37-telemetry-tui-exclusion` | T12 | no-args/TUI launch no longer fires a junk telemetry event (empty cmd + session-length); exclusion in `telemetry.Fire()`, not the shared main.go (sworn#7) | planned | [spec](./S37-telemetry-tui-exclusion/spec.md) |
 | `S38-verifier-blocked-violations` | T12 | a BLOCKED verdict must populate `status.json` violations (not just journal prose) + a gate rejecting blocked-with-empty-violations — fixes blank REPLAN pages | planned | [spec](./S38-verifier-blocked-violations/spec.md) |
 | `S41-build-bin-target` | T12 | canonical `make build` → `bin/sworn` + `docs/build.md` run-from-root convention; stops `cmd/sworn/.sworn` + `docs/release/run-*` worktree clutter | planned | [spec](./S41-build-bin-target/spec.md) |
@@ -438,8 +437,13 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 
 ## Recent activity
 
-### 2026-07-03 — S33-spec-template-hardening verified
+### 2026-07-03 — S35-mutation-guard verified
 
+- **Actor**: verifier (`/verify-slice`)
+- **Verdict**: PASS — all six gates passed. Captain Step 7 present at `captain.md:157-200`; Baton Rule 11 at `rules/11-process-global-mutation.md` (105 lines); `go build ./...` clean; doc-content grep checks pass; no silent deferrals; mechanical registrations (`adopt.go`, `doctor.go`, `doctor_test.go`) explained in divergence section.
+- **Next**: `/implement-slice S36-captain-resolve-dirty-worktree 2026-06-19-safe-parallelism` (next in T12-harness-hardening).
+
+### 2026-07-03 — S33-spec-template-hardening verified
 - **Actor**: verifier (`/verify-slice`)
 - **Verdict**: PASS — all six gates passed. Three planner rules (Risk-cites-code, shape-pin/two-commit, dynamic-CORS + memory-stale) confirmed present in `internal/prompt/planner.md:186-190`; WATCHER cleanup confirmed in `internal/prompt/implementer.md:178`. No Go changes; `go build ./...` clean.
 - **Next**: `/implement-slice S35-mutation-guard 2026-06-19-safe-parallelism` (next in T12-harness-hardening).
