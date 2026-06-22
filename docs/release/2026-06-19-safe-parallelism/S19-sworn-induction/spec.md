@@ -199,9 +199,8 @@ If docs/considerations.md exists in the repo:
 
 ## Planned touchpoints
 
-- `cmd/sworn/induction.go` (new — induction command)
+- `cmd/sworn/induction.go` (new — induction command; **self-registers** the `induction` verb via `init()` → `command.Register(...)`, the S51 registry — does NOT edit `cmd/sworn/main.go`)
 - `cmd/sworn/induction_test.go` (new)
-- `cmd/sworn/main.go` (DOCUMENTED SHARED — additive dispatch for `induction` verb)
 - `internal/prompt/implementer.md` (modify — add deviation check step)
 - `internal/prompt/verifier.md` (modify — add catalog conformance check)
 
@@ -280,8 +279,11 @@ If docs/considerations.md exists in the repo:
 - The verifier's catalog conformance check adds a new FAIL trigger. This must be
   carefully worded so the verifier does not FAIL a slice simply because the catalog is
   absent or the deviation was documented. The check must be conditional and clear.
-- `cmd/sworn/main.go` is a DOCUMENTED SHARED file. S19 adds only an additive
-  `case "induction"` dispatch entry.
+- `cmd/sworn/main.go` is **owned solely by T15-cli-registry** (S51 command registry). S19 must
+  NOT edit it: the `induction` verb self-registers from `cmd/sworn/induction.go` via `init()`
+  calling `command.Register(...)`. (T15 must have merged into release-wt before S19 starts so the
+  `internal/command` package is present — guaranteed since S19 is late in T3 and T15 dispatches in
+  Phase 2.)
 
 ## Deferrals allowed?
 

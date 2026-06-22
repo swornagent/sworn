@@ -20,8 +20,9 @@ drift from upstream and the one-time "scrub of script refs" is no longer a manua
 
 ## Entry point
 
-`sworn baton vendor` — a new subcommand dispatched from `cmd/sworn/main.go` →
-`cmd/sworn/baton.go` → `internal/baton`. Reachable from the CLI on any checkout.
+`sworn baton vendor` — a new subcommand **self-registered** from `cmd/sworn/baton.go`
+(`init()` → `command.Register(...)`, the S51/T15 registry) →
+`internal/baton`. Reachable from the CLI on any checkout. (Does NOT edit `cmd/sworn/main.go`.)
 `--check` (dry-run) prints the transform diff without writing.
 
 ## Background
@@ -56,9 +57,9 @@ This slice `depends_on S21-canonical-baton`: S21 establishes the full embed layo
     the source is a vendored snapshot directory (committed under the package or read
     from a configured path); fetching a tag over the network is **out of scope**
     (see Out of scope) — the pin is by tag string, the snapshot is the bytes.
-- New `cmd/sworn/baton.go` — `sworn baton vendor [--check]` subcommand; usage text.
-- `cmd/sworn/main.go` — additive dispatch case for `baton` (documented-shared file,
-  additive only).
+- New `cmd/sworn/baton.go` — `sworn baton vendor [--check]` subcommand; usage text; **self-registers
+  the `baton` verb** via `init()` → `command.Register(...)` (S51/T15 registry). Does NOT edit
+  `cmd/sworn/main.go` — that file is owned solely by T15-cli-registry.
 - Tests for the transform map (every row + the fail-closed guard) and for `Vendor`
   writing a transformed embed from a fixture source.
 
@@ -84,8 +85,7 @@ This slice `depends_on S21-canonical-baton`: S21 establishes the full embed layo
 - `internal/baton/source.go` (new)
 - `internal/baton/vendor_test.go` (new)
 - `internal/baton/transform_test.go` (new)
-- `cmd/sworn/baton.go` (new)
-- `cmd/sworn/main.go` (additive dispatch case — documented shared)
+- `cmd/sworn/baton.go` (new — self-registers the `baton` verb via the S51/T15 `command` registry; `main.go` NOT touched)
 - `internal/adopt/baton/**`, `internal/prompt/baton/**` (write targets — created/owned
   by S21/T3; T14 `depends_on T3` so these are sequential, not concurrent)
 
