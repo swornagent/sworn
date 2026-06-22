@@ -32,8 +32,33 @@ None.
 
 ## Verifier verdicts received
 
-None yet.
+### 2026-06-29 — VERDICT: PASS
 
+**Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant).
+**Verdict**: PASS — all six gates satisfied.
+
+- **Gate 1 (User-reachable outcome)**: PASS. `sworn lint symbols` dispatches
+  through `cmd/sworn/lint.go` → `cmdLintSymbols` → `lint.CheckSymbols`. CLI
+  invocation confirmed (exit 3 with unresolved symbols on stderr).
+- **Gate 2 (Planned touchpoints match actual)**: PASS. Planned:
+  `internal/lint/symbols.go`, `internal/lint/symbols_test.go`, `cmd/sworn/lint.go`.
+  Actual (impl commit `acd8b1d`): exactly those three + `status.json` (doc update).
+  Memory files in the broader diff are from the T8-memory forward-merge, not this
+  slice.
+- **Gate 3 (Required tests exist and pass)**: PASS. 9 test functions in
+  `symbols_test.go`, all PASS. `go build ./...` and `go vet ./internal/lint/...`
+  clean.
+- **Gate 4 (Reachability artefact)**: PASS. CLI invocation `sworn lint symbols
+  S31-lint-symbols 2026-06-19-safe-parallelism` produces exit 3 with unresolved
+  symbols on stderr.
+- **Gate 5 (No silent deferrals)**: PASS. Zero dark-code markers
+  (TODO/FIXME/deferred/placeholder) in changed Go files.
+- **Gate 6 (Claimed scope matches implemented)**: PASS. All five Delivered items
+  map to spec acceptance checks with verifiable evidence: CLI invocation (exit 3),
+  test functions (TestSymbolsResolvedQuiet, TestSymbolsAllResolvedExitZero,
+  TestSymbolsUnresolvedWarns), build + vet clean.
+
+**Next**: `/implement-slice S32-designfit-decisions-gate 2026-06-19-safe-parallelism` in a fresh session (next incomplete slice in T12-harness-hardening).
 ## 2026-06-29 — implemented
 
 Design accepted by Coach (PROCEED, 3 pins + 2 flags). Implementation

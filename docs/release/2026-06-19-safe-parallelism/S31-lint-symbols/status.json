@@ -3,11 +3,10 @@
   "slice_id": "S31-lint-symbols",
   "release": "2026-06-19-safe-parallelism",
   "track": "T12-harness-hardening",
-  "state": "implemented",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-29T00:00:00Z",
-  "start_commit": "76b1880c7331d13e9fc2b3868b0f92d183d18648",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-29T01:00:00Z",  "start_commit": "76b1880c7331d13e9fc2b3868b0f92d183d18648",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S31-lint-symbols/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S31-lint-symbols/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S31-lint-symbols/journal.md",
@@ -32,13 +31,12 @@
     "Unit: internal/lint/symbols_test.go (9 test functions, all PASS)"
   ],  "open_deferrals": [],
   "verification": {
-    "result": "",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "result": "pass",
+    "verifier_session_id": "2026-06-29-verifier",
+    "verifier_verdict_at": "2026-06-29T01:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
-  },
-  "design_decisions": [
+  },  "design_decisions": [
     {
       "choice": "Advisory exit code 3 — distinct from the hard-fail exit 1 used by deps/touchpoints/ac/trace and the I/O error exit 2.",
       "stake_class": "Type-2",
