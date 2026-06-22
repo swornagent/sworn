@@ -9,8 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
-
 // Config is the sworn runtime configuration. All model selections are
 // "provider/model" strings (e.g. "openai/gpt-4.1") as used by model.FromEnv.
 //
@@ -18,8 +18,9 @@ import (
 // design tokens source and component library, used by sworn designaudit (S09)
 // for design conformance checking.
 type Config struct {
-	Version  int          `json:"version"`
-	Verifier ModelSetting `json:"verifier"`
+	Version     int          `json:"version"`
+	Verifier    ModelSetting `json:"verifier"`
+	Implementer ModelSetting `json:"implementer,omitempty"`
 
 	// UIBearing marks the project as UI-bearing. When true, a DesignSystem
 	// declaration is required or sworn will fail closed. When false (or absent),
@@ -31,7 +32,6 @@ type Config struct {
 	// component library (ComponentLibrary). Required when UIBearing is true.
 	DesignSystem *DesignSystem `json:"design_system,omitempty"`
 }
-
 // DesignSystem represents a project's design system declaration.
 // The three concepts are distinguished:
 //   - DesignSystem (the umbrella struct)
@@ -53,11 +53,14 @@ var ErrNoDesignSystem = fmt.Errorf(
 		"a design system (token source + component library) is required " +
 		"for design conformance; run 'sworn init' to configure",
 )
-// ModelSetting holds a single role's model selection.
+// ModelSetting holds a single role's model selection, escalation path, and
+// retry cap. EscalationModels and MaxAttempts are only meaningful for the
+// implementer role; the verifier ignores them (single-model, no retry).
 type ModelSetting struct {
-	Model string `json:"model"`
+	Model            string   `json:"model"`
+	EscalationModels []string `json:"escalation_models,omitempty"`
+	MaxAttempts      int      `json:"max_attempts,omitempty"`
 }
-
 // Validate checks config invariants. It returns ErrNoDesignSystem when a
 // UI-bearing project has no DesignSystem declaration. Unit-bearing projects
 // (ui_bearing: false) are exempt.
@@ -81,11 +84,15 @@ func DefaultConfig() Config {
 		Verifier: ModelSetting{
 			Model: "anthropic/claude-sonnet-4-6",
 		},
+		Implementer: ModelSetting{
+			Model:            "openai/gpt-4o-mini",
+			EscalationModels: []string{"openai/gpt-4o", "openai/o3"},
+			MaxAttempts:      3,
+		},
 		UIBearing:    false,
 		DesignSystem: nil,
 	}
-}
-// ConfigDir returns the directory containing the config file.
+}// ConfigDir returns the directory containing the config file.
 // It is a thin wrapper around filepath.Dir(Path()) — one line.
 // Added by S06a-sworn-login-auth (T3-commercial).
 func ConfigDir() string {
@@ -161,4 +168,87 @@ func ResolveVerifierModel(flagModel string, cfg Config) (string, error) {
 		"verifier model not configured — run 'sworn init' to scaffold a config file (%s) or set $SWORN_VERIFIER_MODEL",
 		Path(),
 	)
+}
+// DefaultEscalationModels is the programmatic fallback when no escalation
+// models are configured via flag, env, or config. Each entry is a
+// "provider/model" ID suitable for model.FromEnv.
+var DefaultEscalationModels = []string{
+	"openai/gpt-4o-mini",
+	"openai/gpt-4o",
+	"openai/o3-mini",
+	"openai/o3",
+}
+
+// ResolveImplementerModel returns the implementer model ID from the first
+// available source, in precedence order:
+//
+//  1. --implementer-model flag
+//  2. $SWORN_IMPLEMENTER_MODEL env var
+//  3. config file (implementer.model)
+//  4. first entry of config file implementer.escalation_models
+//
+// Returns an error when no source provides a model.
+func ResolveImplementerModel(flagModel string, cfg Config) (string, error) {
+	if flagModel != "" {
+		return flagModel, nil
+	}
+	if env := os.Getenv("SWORN_IMPLEMENTER_MODEL"); env != "" {
+		return env, nil
+	}
+	if cfg.Implementer.Model != "" {
+		return cfg.Implementer.Model, nil
+	}
+	if len(cfg.Implementer.EscalationModels) > 0 {
+		return cfg.Implementer.EscalationModels[0], nil
+	}
+	return "", fmt.Errorf(
+		"implementer model not configured — run 'sworn init' to scaffold a config file (%s) or set $SWORN_IMPLEMENTER_MODEL",
+		Path(),
+	)
+}
+
+// ResolveEscalationModels returns the ordered escalation model list from the
+// first available source, in precedence order:
+//
+//  1. --escalation-models flag (passed as a pre-parsed []string)
+//  2. $SWORN_ESCALATION_MODELS env var (comma-separated)
+//  3. config file (implementer.escalation_models)
+//  4. DefaultEscalationModels
+//
+// The returned slice is the raw configured value — no dedup, no filtering
+// (S44-feedback-driven-retry inherits it via run.Options.EscalationModels).
+func ResolveEscalationModels(flagModels []string, cfg Config) []string {
+	if len(flagModels) > 0 {
+		return flagModels
+	}
+	if env := os.Getenv("SWORN_ESCALATION_MODELS"); env != "" {
+		var models []string
+		for _, m := range strings.Split(env, ",") {
+			m = strings.TrimSpace(m)
+			if m != "" {
+				models = append(models, m)
+			}
+		}
+		return models
+	}
+	if len(cfg.Implementer.EscalationModels) > 0 {
+		return cfg.Implementer.EscalationModels
+	}
+	return DefaultEscalationModels
+}
+
+// ResolveMaxAttempts returns the maximum retry count from the first available
+// source, in precedence order:
+//
+//  1. --retry-cap flag (>0)
+//  2. config file (implementer.max_attempts >0)
+//  3. default 3
+func ResolveMaxAttempts(flagN int, cfg Config) int {
+	if flagN > 0 {
+		return flagN
+	}
+	if cfg.Implementer.MaxAttempts > 0 {
+		return cfg.Implementer.MaxAttempts
+	}
+	return 3
 }

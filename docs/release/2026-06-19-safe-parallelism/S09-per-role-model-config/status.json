@@ -13,16 +13,16 @@
     {"id": "D4", "type": "type_2", "summary": "Replace ad-hoc resolveVerifierModel in run.go with config.ResolveVerifierModel"},
     {"id": "D5", "type": "type_2", "summary": "sworn init re-prompts only on fresh scaffold; existing config preserved"}
   ],
-  "start_commit": null,  "spec_path": "docs/release/2026-06-19-safe-parallelism/S09-per-role-model-config/spec.md",
-  "proof_path": "docs/release/2026-06-19-safe-parallelism/S09-per-role-model-config/proof.md",
+  "start_commit": "62caf95",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S09-per-role-model-config/spec.md",  "proof_path": "docs/release/2026-06-19-safe-parallelism/S09-per-role-model-config/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S09-per-role-model-config/journal.md",
   "planned_files": [
     "internal/config/config.go",
     "internal/config/config_test.go",
+    "internal/config/init.go",
     "cmd/sworn/run.go",
     "cmd/sworn/init.go"
-  ],
-  "actual_files": [],
+  ],  "actual_files": [],
   "test_commands": [
     "go test ./internal/config/...",
     "go build ./..."

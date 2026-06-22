@@ -231,8 +231,23 @@ func cmdInit(args []string) int {
 			}
 			fmt.Printf("  updated  %s (ui_bearing: true — design system not yet configured; run 'sworn init --ui-bearing --force' to configure)\n", cfgPath)
 		}
-	} else if cfgErr == config.ErrConfigExists && *uiBearer {
-		// Config exists; update it with UI-bearing / design system.
+
+		// Implementer model prompt (S09): collect implementer model + escalation + retry cap.
+		// When --yes is set, defaults are used without prompting (Coach Pin 2).
+		cfg, loadErr := config.Load()
+		if loadErr != nil {
+			fmt.Fprintf(os.Stderr, "sworn init: re-load config: %v\n", loadErr)
+			return 1
+		}
+		impl := config.PromptImplementer(cfg.Implementer, *yes)
+		cfg.Implementer = impl
+		if writeErr := writeConfig(cfgPath, &cfg); writeErr != nil {
+			fmt.Fprintf(os.Stderr, "sworn init: write implementer config: %v\n", writeErr)
+			return 1
+		}
+		fmt.Printf("  updated  %s (implementer: model=%s, escalation_models=%v, max_attempts=%d)\n",
+			cfgPath, impl.Model, impl.EscalationModels, impl.MaxAttempts)
+	} else if cfgErr == config.ErrConfigExists && *uiBearer {		// Config exists; update it with UI-bearing / design system.
 		cfg, loadErr := config.Load()
 		if loadErr != nil {
 			fmt.Fprintf(os.Stderr, "sworn init: load existing config: %v\n", loadErr)
