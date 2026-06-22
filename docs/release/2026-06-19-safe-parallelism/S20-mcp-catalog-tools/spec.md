@@ -164,6 +164,8 @@ embed, which was already updated by S18 and S19.
 - `TestUpdateDesignSystem_Writes`: call then read back; assert fields match
 - `TestRecordArchPattern_Idempotent`: call twice with same pattern; assert only one entry
 
+- **manual-smoke-step** `sworn mcp` → connect Claude Code, call `get_induction_status`. Covers AC1-AC2 (plan_release), AC3-AC4 (induction_status), AC5 (considerations), AC6-AC7 (search_decisions), AC8 (record_decision), AC9-AC10 (check_design_system/update_design_system), AC11 (record_architecture_pattern).
+
 **Reachability artefact**: connect Claude Code to `sworn mcp`; ask "what's the induction
 status of this repo?"; observe AI calls `get_induction_status`; confirm it reads and
 reports the actual catalog state. Screenshot in proof.md.
