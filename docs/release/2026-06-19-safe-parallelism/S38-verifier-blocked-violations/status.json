@@ -3,11 +3,10 @@
   "slice_id": "S38-verifier-blocked-violations",
   "release": "2026-06-19-safe-parallelism",
   "track": "T12-harness-hardening",
-  "state": "implemented",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-05T04:30:00Z",
-  "start_commit": "93fb61e589dcb640c18da5e49ea1d393577a3d19",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-05T06:00:00Z",  "start_commit": "93fb61e589dcb640c18da5e49ea1d393577a3d19",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S38-verifier-blocked-violations/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S38-verifier-blocked-violations/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S38-verifier-blocked-violations/journal.md",
@@ -30,13 +29,12 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "result": "pass",
+    "verifier_session_id": "fresh-context-20260705",
+    "verifier_verdict_at": "2026-07-05T06:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
-  },
-  "design_decisions": [
+  },  "design_decisions": [
     {
       "choice": "Gate location: Go unit in internal/verify/ (sworn repo) + bash check in $HOME/.claude/bin/release-verify.sh (baton-owned). scripts/release-verify.sh does not exist in sworn; the baton copy is the canonical first-pass gate.",
       "stake_class": "Type-2",

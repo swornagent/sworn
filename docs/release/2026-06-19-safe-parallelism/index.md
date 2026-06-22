@@ -421,8 +421,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S32-designfit-decisions-gate` | T12 | `sworn designfit` fails closed when Type-1 work is declared but `design_decisions` is empty | verified | [spec](./S32-designfit-decisions-gate/spec.md) |
 | `S33-spec-template-hardening` | T12 | spec/prompt hardening: Risk-cites-`file:line`, pure-engine two-commit note, dynamic-CORS note, + verifier watcher-block cleanup | verified | [spec](./S33-spec-template-hardening/spec.md) || `S34-tui-merge-actor` | T2 | render the `merge:<track>` actor as a distinct row in the TUI live view + release board | verified | [spec](./S34-tui-merge-actor/spec.md) |
 | `S35-mutation-guard` | T12 | Captain check + Baton-rule clause for process-global mutation (cwd/git-state/os.Chdir) — the sworn#6 class | verified | [spec](./S35-mutation-guard/spec.md) || `S36-captain-resolve-dirty-worktree` | T12 | Captain auto-resolves dirty track worktrees (commit-by-default, record the diff+resolution, never page the Coach) | planned | [spec](./S36-captain-resolve-dirty-worktree/spec.md) |
-| `S37-telemetry-tui-exclusion` | T12 | no-args/TUI launch no longer fires a junk telemetry event (empty cmd + session-length); exclusion in `telemetry.Fire()`, not the shared main.go (sworn#7) | verified | [spec](./S37-telemetry-tui-exclusion/spec.md) || `S38-verifier-blocked-violations` | T12 | a BLOCKED verdict must populate `status.json` violations (not just journal prose) + a gate rejecting blocked-with-empty-violations — fixes blank REPLAN pages | planned | [spec](./S38-verifier-blocked-violations/spec.md) |
-| `S41-build-bin-target` | T12 | canonical `make build` → `bin/sworn` + `docs/build.md` run-from-root convention; stops `cmd/sworn/.sworn` + `docs/release/run-*` worktree clutter | planned | [spec](./S41-build-bin-target/spec.md) |
+| `S37-telemetry-tui-exclusion` | T12 | no-args/TUI launch no longer fires a junk telemetry event (empty cmd + session-length); exclusion in `telemetry.Fire()`, not the shared main.go (sworn#7) | verified | [spec](./S37-telemetry-tui-exclusion/spec.md) || `S38-verifier-blocked-violations` | T12 | a BLOCKED verdict must populate `status.json` violations (not just journal prose) + a gate rejecting blocked-with-empty-violations — fixes blank REPLAN pages | verified | [spec](./S38-verifier-blocked-violations/spec.md) || `S41-build-bin-target` | T12 | canonical `make build` → `bin/sworn` + `docs/build.md` run-from-root convention; stops `cmd/sworn/.sworn` + `docs/release/run-*` worktree clutter | planned | [spec](./S41-build-bin-target/spec.md) |
 | `S42-implement-step-timeout` | T12 | `sworn run` bounds each implement attempt with a context deadline; a hung implementer is cancelled and escalates to the next model instead of hanging forever | planned | [spec](./S42-implement-step-timeout/spec.md) |
 | `S43-agent-loop-natural-stop` | T12 | agent loop terminates on the model's natural stop (no tool calls) instead of spinning to the turn cap; salvages work from empty-final-text models (gpt-oss-class) by letting proof-from-diff + verifier judge | planned | [spec](./S43-agent-loop-natural-stop/spec.md) |
 | `S44-feedback-driven-retry` | T12 | on verify FAIL, feed the verifier's rationale + violations into the next implement attempt's prompt instead of blind re-running; + provider-error retry policy (terminal→fail-fast, transient→backoff) consuming S10's `model.Error{Kind}` (depends_on S10) | planned | [spec](./S44-feedback-driven-retry/spec.md) |
@@ -457,17 +456,17 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > S07 `planned` despite `implemented`). Three duplicate rows (S22/S23/S24) and several
 > `||`-collapsed physical lines repaired.
 
-- Planned: 29
+- Planned: 28
 - In progress: 0
 - Implemented: 0
 - Design review: 0
-- Verified: 27
+- Verified: 28
 - Failed verification: 0
 - Deferred: 0
 
 **Tracks:** Planned: 6 / In progress: 2 / Merged: 7
 > Merged (7): T1, T2, T4, T8, T9, T11, T15. In progress (2): T3-commercial (head: S07-paging),
-> T12-harness-hardening (head: S33-spec-template-hardening). Planned (6): T5, T6, T7, T10, T13, T14.
+> T12-harness-hardening (head: S38-verifier-blocked-violations). Planned (6): T5, T6, T7, T10, T13, T14.
 
 ## Recent activity
 
@@ -476,6 +475,11 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 - **Actor**: verifier (`/verify-slice`)
 - **Verdict**: PASS — all six gates passed. `cmd == ""` early-return in `Fire()` mirrors existing `cmd == "telemetry"` pattern. Two new tests (empty-cmd no-op + real-cmd guard) both PASS. No silent deferrals, no `cmd/sworn/main.go` touched, 21/21 telemetry tests green.
 - **Next**: `/implement-slice S38-verifier-blocked-violations 2026-06-19-safe-parallelism` (next in T12-harness-hardening).
+
+### 2026-07-05 — S38-verifier-blocked-violations verified
+- **Actor**: verifier (`/verify-slice`)
+- **Verdict**: PASS — all six gates passed. verifier.md line 277 adds BLOCKED-violations requirement; `ValidateBlockedViolations()` exported Go function with 3 sub-tests (empty=fails, populated=passes, non-blocked=passes); 28/28 tests green; `go build` clean; no silent deferrals; baton copies updated.
+- **Next**: `/implement-slice S41-build-bin-target 2026-06-19-safe-parallelism` (next in T12-harness-hardening).
 
 ### 2026-07-03 — S35-mutation-guard verified
 - **Actor**: verifier (`/verify-slice`)

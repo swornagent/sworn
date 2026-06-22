@@ -22,8 +22,18 @@ None.
 
 ## Verifier verdicts received
 
-*(None yet.)*
+### 2026-07-05 — PASS (fresh-context verifier)
 
+**Verdict:** PASS — all six gates passed.
+
+- **Gate 1** (user-reachable outcome): `internal/prompt/verifier.md` line 277 adds BLOCKED-violations requirement; `ValidateBlockedViolations()` is an exported Go function with unit tests.
+- **Gate 2** (touchpoints match): 3 planned files match actual changes; 3 S38 docs files expected; remaining files are drift-merge noise.
+- **Gate 3** (tests exercise integration point): 3 sub-tests pass, full verify suite 28/28 PASS. `go build ./...` clean.
+- **Gate 4** (reachability artefact): test output in proof.md matches live run — empty-violations fails, populated passes, non-blocked passes.
+- **Gate 5** (no silent deferrals): grep clean for TODO/FIXME/deferred/placeholder in changed code.
+- **Gate 6** (claimed scope matches): all 5 delivered items verified — prompt change, baton command update, validate function, test coverage, build clean.
+
+**Next:** `/implement-slice S41-build-bin-target 2026-06-19-safe-parallelism` (next in T12-harness-hardening).
 ## 2026-07-05 — implemented (design_review → in_progress → implemented)
 
 Coach approved design via `approved-ack.md` (PROCEED, 4 pins). All pins applied:
