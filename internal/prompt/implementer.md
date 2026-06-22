@@ -93,6 +93,50 @@ If running without the sworn harness (manual session, not `sworn implement`), ru
 
 ## Workflow
 
+### Dependency discipline
+
+Before adding or modifying any entry in a dependency file (go.mod, package.json,
+requirements.txt, Cargo.toml, or equivalent):
+
+1. Check docs/considerations.md [dependencies].project_pinned.
+   - If the library is listed: use that exact version. Do not upgrade or downgrade.
+     If you believe a different version is needed, STOP — record the reason in
+     journal.md and surface it to the human before proceeding.
+   - If the library is not listed: proceed to step 2.
+
+2. Query the package registry at implementation time to get the current latest
+   stable version. Use the command for this project’s primary language:
+     Go:    go get <module>@latest  (read the resolved version from go.mod afterward)
+     npm:   npm view <package> version
+     pip:   pip index versions <package> 2>/dev/null | head -1
+     cargo: cargo search <crate> --limit 1
+   Use the version the registry returns. Do not infer a version from training data —
+   your knowledge of library versions has a cutoff date and will be stale.
+
+3. After choosing a version, append it to docs/considerations.md
+   [dependencies].project_pinned and record the choice in journal.md:
+   "Added <module> <version> (registry query: <date>)"
+
+4. If the registry is unreachable: STOP. Do not guess a version. Record
+   "BLOCKED: registry unreachable for <module>" in journal.md and surface to human.
+
+### Deviation check
+
+Before writing any production code:
+
+1. Read docs/considerations.md (if it exists).
+2. For each architecture pattern in the catalog: does your planned implementation
+   conform? If not:
+   a. Stop. Do not write the deviating code.
+   b. Record the deviation in journal.md under "Deferrals surfaced":
+      "DEVIATION: <pattern> — <why it cannot be followed> — awaiting human resolution"
+   c. Set slice state to BLOCKED in status.json.
+   d. Surface to the human via paging (S07) or direct message.
+   e. Do not proceed until the human has made a conscious resolution and it is
+      captured in docs/decisions.md.
+3. If the catalog does not exist, proceed without this check and note its absence
+   in journal.md.
+
 1. Update `status.json` → `in_progress`. Commit `docs(release/<release-name>/<slice-id>): start implementation`. Then capture that commit's SHA (`git rev-parse HEAD`) and write it to `status.json` `start_commit` — it lands with your first implementation commit and gives the verifier an exact, no-archaeology diff base (`start_commit..HEAD`).
 1a. Push the track branch to its remote so the work is durable:
 

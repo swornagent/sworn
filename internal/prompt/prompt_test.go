@@ -136,3 +136,24 @@ func TestPlannerPhase2bFastPath(t *testing.T) {
 		t.Errorf("Planner() missing fast-path guard: 'do not block' for missing catalog files")
 	}
 }
+
+func TestImplementerHasDeviationCheck(t *testing.T) {
+	got := Implementer()
+	if !strings.Contains(got, "Deviation check") {
+		t.Errorf("Implementer() missing 'Deviation check' heading")
+	}
+}
+
+func TestImplementerHasDependencyDiscipline(t *testing.T) {
+	got := Implementer()
+	if !strings.Contains(got, "Dependency discipline") {
+		t.Errorf("Implementer() missing 'Dependency discipline' heading")
+	}
+}
+
+func TestVerifierHasCatalogConformance(t *testing.T) {
+	got := Verifier()
+	if !strings.Contains(got, "Catalog conformance check") {
+		t.Errorf("Verifier() missing 'Catalog conformance check' heading")
+	}
+}
