@@ -42,10 +42,10 @@
     "SwornAgent /api/notify endpoint: server-side not built yet; client POST implemented with mock tests. Acknowledged: Coach, 2026-06-22. Tracking: SwornAgent backend backlog."
   ],
   "verification": {
-    "result": "",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
-  }
-}
+    "result": "blocked",
+    "verifier_session_id": "verifier-S07-paging-2026-07-01",
+    "verifier_verdict_at": "2026-07-01T01:30:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [],
+    "blocked_reason": "forward-merge of release-wt/2026-06-19-safe-parallelism into track/2026-06-19-safe-parallelism/T3-commercial conflicted on cmd/sworn/main.go — both T3-commercial and T8-memory (merged) touched this file. The touchpoint matrix was wrong (track-mode invariant 4). Route to /replan-release 2026-06-19-safe-parallelism to re-group."
+  }}

@@ -27,9 +27,19 @@
 
 **Dor:** reqverify and reqvalidate not checked — sworn implement not used.
 
-## Verification
-- `verification.result`: pending
-## 2026-07-01: Re-entry — fix single-slice notification path
+## Verifier verdicts received
+
+### BLOCKED — 2026-07-01T01:30:00Z (fresh context)
+
+**Verdict: BLOCKED**
+
+**Reason:** Forward-merge of `release-wt/2026-06-19-safe-parallelism` into `track/2026-06-19-safe-parallelism/T3-commercial` conflicted on `cmd/sworn/main.go`. Both T3-commercial (S06a-auth, S08a-mcp, S22-doctor, S26-telemetry) and T8-memory (S23-memory-config, already merged into release-wt) touched this file. The touchpoint matrix was wrong (track-mode invariant 4).
+
+**Proposed spec amendment for planner:** None — this is a cross-track collision, not a spec defect. Re-plan must either:
+1. Move the colliding slice(s) to the same track, or
+2. Split the shared file (`cmd/sworn/main.go`) into per-track registration surfaces so each track owns a disjoint file.
+
+**Next step:** `/replan-release 2026-06-19-safe-parallelism`## 2026-07-01: Re-entry — fix single-slice notification path
 
 **State transition:** `implemented` → `in_progress` → `implemented`
 
