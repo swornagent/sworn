@@ -213,6 +213,46 @@ delivers async AND verified. Same PR, different quality bar. This gap is unoccup
 
 ## Decisions made during planning
 
+### 2026-06-23 — Replan: orchestration-core port (T17) from the port-fidelity audit
+
+- **Context**: a 7-dimension port-fidelity audit (`internal-docs/captures/2026-06-23-port-fidelity-audit/`;
+  reference = the leading-edge coach loop in `~/.claude/baton/` + `~/.claude/bin`) found sworn
+  faithfully ported the **workflow plane** (status.json state machine, worktree isolation,
+  verifier verdict contract, per-role routing — exactly what getfired exercises across 32
+  releases) but NOT the **orchestration plane**.
+- **Findings driving the scope**:
+  - The git-ref, ownership-resolved **oracle reader** (`lib/release-board.mjs` /
+    `captain-route.sh`) was never ported — sworn's `state.Read` is a single working-tree
+    `os.ReadFile`; `internal/board` parses only `index.md` (the plan). This is the exact stale-read
+    that misled the planner (see "oracle-check mandatory", 2026-06-19).
+  - The deterministic **router** (`captain-route.sh`, 655 lines, no LLM) — the router + oracle
+    reader + design-review/Gate-re-entry/merge state machine in one file — has no Go equivalent;
+    `RunParallel` is a static-DAG executor, not the reference's resumable poll-and-route loop.
+  - The **watcher-protocol** (`watcher-protocol.md`) was verified **DORMANT** against the two
+    live coach loops: no `agent-watcher` process, `coach-loop` has zero `WATCHER` references,
+    `events.jsonl` is token telemetry. Agents emit `WATCHER_STATUS` blocks but nothing consumes
+    them. **Explicitly NOT ported.** The live router is `captain-route.sh` + `dispatch_and_interpret`.
+- **Decision (track)**: new track **T17-orchestration-core** (`depends_on T1 + T12`), not appended
+  to T13 — keeps the foundational port disentangled from T13's role-prompt parity.
+- **Decision (slices)**:
+  - **S57-oracle-reader** — `internal/board` git-ref ownership-resolved status reader (the keystone
+    the router, TUI, and rollup read through). Its own slice because it's reusable, per Coach.
+  - **S58-slice-router** — `internal/router` deterministic `captain-route.sh` port; verified by a
+    golden parity test against the bash original (the literal oracle of correctness).
+  - **S59-scheduler-relayer** — re-layer the `RunParallel` worker to poll-and-route (resumable +
+    dynamic) while keeping dependency resolution, worktree isolation, supervisor ownership.
+    Wrap-vs-replace is the design-review pin.
+- **Decision (re-scope)**: `S47-orchestrator-recovery` (T13) consumes the S58 router for
+  lifecycle/BLOCKED routing, keeping only the intra-run escalation budget; **T13 gains
+  `depends_on T17`**. No duplicated decision logic.
+- **Deferred (Rule 2, audit P1)**: release-level circuit breaker / global cost ceiling (absent in
+  both codebases); `runtime-drivers.md` dispatch-boundary conformance of `internal/model/*`;
+  dirty-tree auto-WIP-commit (S36) wiring; paging into the assembly branch (S07 is T3-only). Each
+  tracked in the audit convergence report; not in T17's landing scope.
+- **Do NOT port**: the interpreter as a free-text verdict parser — sworn returns typed
+  `verdict.Result`; per `runtime-drivers.md` the interpreter is a bounded-inference tier, reconciled
+  there, not reintroduced.
+
 ### 2026-06-23 — Replan: cost angle added to T16 (S55 + S56)
 
 - **Context**: maintainer wants cost-aware routing plus full per-role economics — implementer,
