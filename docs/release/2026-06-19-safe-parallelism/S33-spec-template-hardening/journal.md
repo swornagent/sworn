@@ -80,3 +80,16 @@ touchpoints.
 ## Verifier verdicts received
 
 None yet.
+### 2026-07-03 — PASS
+
+Slice: \`S33-spec-template-hardening\`
+Verified against: \`348f2d2a0f831983b43d0bee76d8046b69d493e4\`
+Verifier session: fresh, artefact-only
+
+All six gates passed:
+1. User-reachable outcome — three rules present in \`internal/prompt/planner.md:186-190\`, WATCHER cleaned in \`internal/prompt/implementer.md:178\`.
+2. Planned touchpoints match — \`planner.md\` + \`implementer.md\` (Coach-ratified divergence), \`status.json\` bookkeeping.
+3. Required tests — doc-content grep confirmed all three rules; \`go build ./...\` exit 0.
+4. Reachability artefact — three rule blocks quoted from \`planner.md:186-191\`.
+5. No silent deferrals — zero TODO/FIXME/HACK/placeholder hits; open deferral (external template) is Rule-2 compliant (why + tracking + Coach acknowledgement).
+6. Claimed scope — all five Delivered items map to spec acceptance checks with live evidence.
