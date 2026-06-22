@@ -7,7 +7,7 @@
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-05T00:00:00Z",
-  "start_commit": null,
+  "start_commit": "7db0d0e770fe4854a81e2e01c8b35d460c756c12",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S19-sworn-induction/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S19-sworn-induction/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S19-sworn-induction/journal.md",
@@ -32,7 +32,7 @@
     },
     {
       "type": "Type-2",
-      "choice": "Idempotent mode detection: check if considerations.md exists with non-empty architecture.patterns (or file exists with content). Trigger: architecture.patterns non-empty means skip Phase 1, deduplicate patterns. Updated from design.md §2.Decision4 per Captain pin 3 to match spec AC5."
+      "choice": "Idempotent mode detection: check if considerations.md exists with non-empty architecture.patterns (or file exists with content). Trigger: architecture.patterns non-empty means skip Phase 1, deduplicate patterns. Updated from design.md \u00a72.Decision4 per Captain pin 3 to match spec AC5."
     },
     {
       "type": "Type-2",
@@ -48,7 +48,7 @@
   ],
   "reachability_artifacts": [],
   "open_deferrals": [
-    "Multi-language pattern inference beyond Go — post-R3. **Acknowledged**: Coach, 2026-06-20"
+    "Multi-language pattern inference beyond Go \u2014 post-R3. **Acknowledged**: Coach, 2026-06-20"
   ],
   "verification": {
     "result": "",
