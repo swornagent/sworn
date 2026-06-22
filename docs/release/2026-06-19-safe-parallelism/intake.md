@@ -213,6 +213,27 @@ delivers async AND verified. Same PR, different quality bar. This gap is unoccup
 
 ## Decisions made during planning
 
+### 2026-06-22 — Replan: verdict-ledger track (T16) added
+
+- **Context**: maintainer wants to turn sworn's verifier verdicts into a durable, queryable
+  "private eval" corpus — the eval-as-strategic-IP idea (Handshake/Satya post). Observation:
+  sworn already produces eval-grade signal (spec acceptance checks = rubric, Rule 7 verifier =
+  LLM-as-judge, PASS/FAIL/BLOCKED = scored outcome) and discards it per slice.
+- **Decision**: add track **T16-verdict-ledger** (S52 projection → S53 CLI → S54 routing),
+  `depends_on [T6, T12, T13]`.
+- **Decision (ledger home)**: git-tracked repo-level `docs/ledger/verdicts.jsonl`, projected
+  from `status.json` across all releases — NOT the anonymous remote S26 telemetry.
+- **Decision (capture)**: S52 adds `verification.model` + `verification.attempt` to status
+  (the only data the board lacks) at the settled verdict-record site, so routing has
+  model-vs-outcome evidence; this drives the T12+T13 dependency.
+- **Decision (S54 scope)**: wire the recommendation into S09's `ResolveImplementerModel`
+  (history-backed default), with flag/env override still winning and a thin/absent corpus
+  leaving S09 unchanged. Chosen over advisory-only despite the later landing.
+- **Why**: closes the gap the post names — the harness measures quality but throws the
+  measurement away. Harvesting it is mostly projection of fields that already exist.
+- **Deferred (Rule 2)**: verifier-model capture; cost-aware routing (awaits S06b billing;
+  `Record` reserves a `v:2` cost field); TUI ledger surface.
+
 ### 2026-06-19 — Release name confirmed: `2026-06-19-safe-parallelism`
 
 - **Context**: command was invoked as `/plan-release R3 for sworn`; parser took "for"
