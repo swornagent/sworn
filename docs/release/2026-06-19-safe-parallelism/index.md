@@ -30,9 +30,9 @@ tracks:
   - id: T5-providers
     slices: [S10-provider-foundation, S11-anthropic-driver, S12-google-driver, S13-bedrock-driver, S14-azure-driver, S15-oci-driver, S16-ollama-driver, S39-openai-responses-provider]
     depends_on: [T1-concurrency-core, T3-commercial]
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T5-providers
     worktree_branch: track/2026-06-19-safe-parallelism/T5-providers
-    state: planned
+    state: in_progress
   - id: T6-provider-ux
     slices: [S17-tui-provider-config]
     depends_on: [T2-monitoring, T5-providers]
@@ -84,9 +84,9 @@ tracks:
   - id: T14-baton-integration
     slices: [S48-baton-vendor, S49-baton-version, S50-baton-governance]
     depends_on: [T3-commercial, T15-cli-registry]
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T14-baton-integration
     worktree_branch: track/2026-06-19-safe-parallelism/T14-baton-integration
-    state: planned
+    state: in_progress
   - id: T15-cli-registry
     slices: [S51-cli-command-registry]
     depends_on: T1-concurrency-core
