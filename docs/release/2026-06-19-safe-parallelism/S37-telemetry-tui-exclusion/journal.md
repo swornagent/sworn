@@ -47,3 +47,17 @@ artifacts: state=in_progress (now implemente d) and dark-code false positives
 ## Verifier verdicts received
 
 *(None yet.)*
+### 2026-07-04 — PASS
+
+**Actor**: verifier (fresh session `/verify-slice`)
+
+**Verdict**: **PASS** — all six gates satisfied:
+
+1. **User-reachable outcome exists** (`cmd/sworn/main.go:37-49`: `cmd=""` when no args; `telemetry.Fire(cmd, ...)` at line 49).
+2. **Planned touchpoints match actual changed files** — `internal/telemetry/telemetry.go` + `internal/telemetry/telemetry_test.go` (docs artefacts are expected noise).
+3. **Required tests exist and exercise the integration point** — `TestFireSkipsEmptyCmd` PASS, `TestFireStillFiresRealCmd` PASS, `TestFireTelemetryMetaCommandExcluded` PASS; all exercise `Fire()` directly.
+4. **Reachability artefact proves the user path** — `go test ./internal/telemetry/... -v` confirms all 21 tests PASS including the two new tests.
+5. **No silent deferrals or placeholder logic** — zero TODO/FIXME/deferred/placeholder/hack/XXX hits in changed files.
+6. **Claimed scope matches implemented scope** — all four acceptance checks have verifiable evidence references.
+
+**Next**: `/implement-slice S38-verifier-blocked-violations 2026-06-19-safe-parallelism` (next in T12-harness-hardening).

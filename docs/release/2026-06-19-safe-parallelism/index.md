@@ -394,8 +394,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S32-designfit-decisions-gate` | T12 | `sworn designfit` fails closed when Type-1 work is declared but `design_decisions` is empty | verified | [spec](./S32-designfit-decisions-gate/spec.md) |
 | `S33-spec-template-hardening` | T12 | spec/prompt hardening: Risk-cites-`file:line`, pure-engine two-commit note, dynamic-CORS note, + verifier watcher-block cleanup | verified | [spec](./S33-spec-template-hardening/spec.md) || `S34-tui-merge-actor` | T2 | render the `merge:<track>` actor as a distinct row in the TUI live view + release board | verified | [spec](./S34-tui-merge-actor/spec.md) |
 | `S35-mutation-guard` | T12 | Captain check + Baton-rule clause for process-global mutation (cwd/git-state/os.Chdir) — the sworn#6 class | verified | [spec](./S35-mutation-guard/spec.md) || `S36-captain-resolve-dirty-worktree` | T12 | Captain auto-resolves dirty track worktrees (commit-by-default, record the diff+resolution, never page the Coach) | planned | [spec](./S36-captain-resolve-dirty-worktree/spec.md) |
-| `S37-telemetry-tui-exclusion` | T12 | no-args/TUI launch no longer fires a junk telemetry event (empty cmd + session-length); exclusion in `telemetry.Fire()`, not the shared main.go (sworn#7) | planned | [spec](./S37-telemetry-tui-exclusion/spec.md) |
-| `S38-verifier-blocked-violations` | T12 | a BLOCKED verdict must populate `status.json` violations (not just journal prose) + a gate rejecting blocked-with-empty-violations — fixes blank REPLAN pages | planned | [spec](./S38-verifier-blocked-violations/spec.md) |
+| `S37-telemetry-tui-exclusion` | T12 | no-args/TUI launch no longer fires a junk telemetry event (empty cmd + session-length); exclusion in `telemetry.Fire()`, not the shared main.go (sworn#7) | verified | [spec](./S37-telemetry-tui-exclusion/spec.md) || `S38-verifier-blocked-violations` | T12 | a BLOCKED verdict must populate `status.json` violations (not just journal prose) + a gate rejecting blocked-with-empty-violations — fixes blank REPLAN pages | planned | [spec](./S38-verifier-blocked-violations/spec.md) |
 | `S41-build-bin-target` | T12 | canonical `make build` → `bin/sworn` + `docs/build.md` run-from-root convention; stops `cmd/sworn/.sworn` + `docs/release/run-*` worktree clutter | planned | [spec](./S41-build-bin-target/spec.md) |
 | `S42-implement-step-timeout` | T12 | `sworn run` bounds each implement attempt with a context deadline; a hung implementer is cancelled and escalates to the next model instead of hanging forever | planned | [spec](./S42-implement-step-timeout/spec.md) |
 | `S43-agent-loop-natural-stop` | T12 | agent loop terminates on the model's natural stop (no tool calls) instead of spinning to the turn cap; salvages work from empty-final-text models (gpt-oss-class) by letting proof-from-diff + verifier judge | planned | [spec](./S43-agent-loop-natural-stop/spec.md) |
@@ -437,8 +436,13 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 
 ## Recent activity
 
-### 2026-07-03 — S35-mutation-guard verified
+### 2026-07-04 — S37-telemetry-tui-exclusion verified
 
+- **Actor**: verifier (`/verify-slice`)
+- **Verdict**: PASS — all six gates passed. `cmd == ""` early-return in `Fire()` mirrors existing `cmd == "telemetry"` pattern. Two new tests (empty-cmd no-op + real-cmd guard) both PASS. No silent deferrals, no `cmd/sworn/main.go` touched, 21/21 telemetry tests green.
+- **Next**: `/implement-slice S38-verifier-blocked-violations 2026-06-19-safe-parallelism` (next in T12-harness-hardening).
+
+### 2026-07-03 — S35-mutation-guard verified
 - **Actor**: verifier (`/verify-slice`)
 - **Verdict**: PASS — all six gates passed. Captain Step 7 present at `captain.md:157-200`; Baton Rule 11 at `rules/11-process-global-mutation.md` (105 lines); `go build ./...` clean; doc-content grep checks pass; no silent deferrals; mechanical registrations (`adopt.go`, `doctor.go`, `doctor_test.go`) explained in divergence section.
 - **Next**: `/implement-slice S36-captain-resolve-dirty-worktree 2026-06-19-safe-parallelism` (next in T12-harness-hardening).
