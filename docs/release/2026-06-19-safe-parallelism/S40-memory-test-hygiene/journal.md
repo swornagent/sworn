@@ -14,3 +14,9 @@ acceptance checks are the contract; they pass. No new code is needed to
 satisfy them.
 
 **Deferrals:** None.
+
+**Skeptic panel:** skipped — runtime does not support subagent dispatch.
+
+**Release-verify.sh:** 23/23 first-pass PASS. Slice transitioned straight to
+`implemented` with zero production-code changes; all ACs were already met by
+S24/S25.
