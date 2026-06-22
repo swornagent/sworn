@@ -60,7 +60,7 @@ tracks:
     state: merged
   - id: T10-public-readiness
     slices: [S27-public-readiness-scrub]
-    depends_on: [T1-concurrency-core, T2-monitoring, T3-commercial, T4-mcp, T5-providers, T6-provider-ux, T7-mcp-extensions, T8-memory, T9-telemetry, T11-infra-safety, T12-harness-hardening, T13-sworn-role-parity, T14-baton-integration]
+    depends_on: [T1-concurrency-core, T2-monitoring, T3-commercial, T4-mcp, T5-providers, T6-provider-ux, T7-mcp-extensions, T8-memory, T9-telemetry, T11-infra-safety, T12-harness-hardening, T13-sworn-role-parity, T14-baton-integration, T16-verdict-ledger]
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T10-public-readiness
     state: planned
@@ -94,6 +94,12 @@ tracks:
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T15-cli-registry
     worktree_branch: track/2026-06-19-safe-parallelism/T15-cli-registry
     state: merged
+  - id: T16-verdict-ledger
+    slices: [S52-ledger-projection, S53-ledger-cli, S54-ledger-routing]
+    depends_on: [T6-provider-ux, T12-harness-hardening, T13-sworn-role-parity]
+    worktree_path:
+    worktree_branch: track/2026-06-19-safe-parallelism/T16-verdict-ledger
+    state: planned
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
@@ -133,12 +139,13 @@ tracks:
 | `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | planned |
 | `T8-memory` | S23 → S24 → S25 → S40 | T1 | `track/.../T8-memory` | merged |
 | `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
-| `T10-public-readiness` | S27 | all (T1–T9) | `track/.../T10-public-readiness` | planned |
+| `T10-public-readiness` | S27 | all tracks (incl. T16) | `track/.../T10-public-readiness` | planned |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
 | `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | in_progress |
 | `T13-sworn-role-parity` | S45 → S46 → S47 | T12 | `track/.../T13-sworn-role-parity` | planned |
 | `T14-baton-integration` | S48 → S49 → S50 | T3 + T15 | `track/.../T14-baton-integration` | planned |
 | `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged |
+| `T16-verdict-ledger` | S52 → S53 → S54 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | planned |
 
 ### Execution order
 
@@ -150,7 +157,9 @@ Phase 3:  T5 (after T1 + T3)
           T7 (after T3 + T4; may run in parallel with T5)
           T14 (after T3 — needs S21's embed as its vendor target; parallel with T5/T7)
 Phase 4:  T6 (after T2 + T5)
-Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate before launch)
+Phase 5:  T16 (after T6 + T12 + T13 — harvests the settled verdict pipeline:
+          config.go via the T3→T5→T6 chain, slice.go/state.go via the T12→T13 chain)
+Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate before launch)
 ```
 
 ### Touchpoint matrix
@@ -314,6 +323,25 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 - `cmd/sworn/top.go`: T2 owns it; T6 modifies it after T2 merges
 - `internal/config/config.go`: T3 owns it; T6 adds Save() after T3 merges (via T5 dep chain)
 
+**T16 `depends_on T6+T12+T13` notes (replan 2026-06-22 — verdict ledger):**
+- New, fully T16-owned surfaces (no other column): `internal/ledger/` (ledger.go, query.go,
+  routing.go + tests), `cmd/sworn/ledger.go` (+ test), `docs/ledger/verdicts.jsonl` (the
+  git-tracked corpus). `cmd/sworn/ledger.go` self-registers via a per-file `init()` (S51/T15
+  registry pattern) — it does **not** touch `cmd/sworn/commands.go`, so no shared-file
+  collision (the failure mode the 2026-06-22 `main.go` capture recorded).
+- `internal/config/config.go` (S54): T3 owns it; the T3→T5→T6 chain serialises every other
+  writer (S09, S17). T16 `depends_on T6` (the chain tail), so S54's `ResolveImplementerModel`
+  edit lands after all of them — never parallel. Not a documented-shared file; a `/merge-track`
+  conflict here is a planner error (invariant 4).
+- `internal/run/slice.go` + `internal/state/state.go` (S52): the verdict-record site is
+  rewritten by S47/T13 (triage call) and touched by S42–S44/T12. T16 `depends_on T12+T13`
+  serialises S52's `verification.model`/`attempt` capture after that whole chain. If S47
+  relocates the verdict outcome into `internal/orchestrator/triage.go`, S52 persists from
+  there instead (noted in the spec's Risks).
+- Runtime-parallel tracks when T16 runs: T7 (`internal/mcp/`) and T14 (`internal/prompt/baton/`,
+  `internal/adopt/`) — both touchpoint-disjoint from every T16 surface. T10 runs after T16
+  (added to T10 `depends_on`).
+
 ## Slices
 
 | ID | Track | User outcome | State | Spec |
@@ -375,6 +403,9 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 | `S49-baton-version` | T14 | reconcile the Baton pin from a raw SHA to a **semver tag** across `VERSION`+`VERSION.txt`; `sworn version` reports "on Baton vX.Y.Z"; `sworn doctor` fails the pin if it's a SHA not a tag | planned | [spec](./S49-baton-version/spec.md) |
 | `S50-baton-governance` | T14 | `sworn baton diff` divergence check (embed vs upstream pin) + `docs/baton-governance.md` PR-up process note + ADR-0006; protocol changes found in sworn dev must PR upstream, never silently fork | planned | [spec](./S50-baton-governance/spec.md) |
 | `S51-cli-command-registry` | T15 | command registry replaces the `cmd/sworn/main.go` dispatch switch; new subcommands self-register from their own file; `main.go` owned by one track — ends the recurring touchpoint collision | verified | [spec](./S51-cli-command-registry/spec.md) |
+| `S52-ledger-projection` | T16 | Projects every slice's verdict into an append-only `docs/ledger/verdicts.jsonl`; captures implementer model + attempt; backfills the whole board on first sync | planned | [spec](./S52-ledger-projection/spec.md) |
+| `S53-ledger-cli` | T16 | `sworn ledger sync` harvests the board; `sworn ledger report` shows pass-rate by model × slice-kind, attempts-to-pass, gate-failure histogram | planned | [spec](./S53-ledger-cli/spec.md) |
+| `S54-ledger-routing` | T16 | `sworn ledger recommend <kind>` + S09's `ResolveImplementerModel` defaults to the highest measured pass-rate model for the slice kind (flag/env still win; thin corpus = unchanged) | planned | [spec](./S54-ledger-routing/spec.md) |
 
 ## Aggregate state
 
@@ -988,3 +1019,32 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - **Actor**: verifier (`/verify-slice`)
 - **Verdict**: PASS — all six verification gates passed. `sworn doctor` runs cleanly with all expected OK/WARN output, exit 0. 12/12 tests pass, `go build ./...` clean.
 - **State**: S22 → verified. T4-mcp now has all 4 slices verified (S08a, S08b, S08c, S22). Track ready for `/merge-track T4-mcp`.
+
+### 2026-06-22 — replan: verdict-ledger track (T16) added
+
+- **Actor**: planner (`/replan-release`)
+- **Replan trigger**: maintainer request to turn sworn's verifier verdicts into a durable,
+  queryable "private eval" corpus (the eval-as-strategic-IP idea). Not a BLOCKED handoff —
+  pure new scope. The harness already produces eval-grade verdicts (spec acceptance checks =
+  rubric, Rule 7 verifier = LLM-as-judge, PASS/FAIL/BLOCKED = scored outcome); it just
+  discards them after each slice closes.
+- **Added**: track **T16-verdict-ledger** = S52-ledger-projection → S53-ledger-cli →
+  S54-ledger-routing. `depends_on [T6, T12, T13]`.
+- **Design calls**:
+  - Ledger is a **pure projection over `status.json`** (pull-based `sworn ledger sync`), not
+    a push-hook in the run loop — so it backfills the whole existing board and stays nearly
+    self-contained. Corpus is git-tracked at repo-level `docs/ledger/verdicts.jsonl` (spans
+    all releases), NOT the anonymous remote S26 telemetry.
+  - `slice_kind` is derived from the track id (no edits to existing `status.json` files).
+  - S52 adds `verification.model` + `verification.attempt` (the one thing status.json lacks)
+    so S54 routing has model-vs-outcome data; captured at the settled verdict-record site,
+    hence the T12+T13 dependency.
+  - S54 wires the recommendation into S09's `ResolveImplementerModel`; flag/env still win and
+    a thin/absent corpus leaves S09 byte-for-byte unchanged.
+- **Deferred (Rule 2, in specs)**: verifier-model capture; cost-aware routing (awaits S06b
+  billing; `Record` reserves a `v:2` cost field); a TUI ledger surface.
+- **Touchpoints**: T16-owned surfaces are new (`internal/ledger/`, `cmd/sworn/ledger.go`,
+  `docs/ledger/`); the three shared files (`config.go`, `slice.go`, `state.go`) are serialised
+  by the T6 and T12→T13 chains — see the "T16 depends_on T6+T12+T13 notes" block above.
+- **State**: S52/S53/S54 → planned. T16 worktree created by its first `/implement-slice`
+  once T6, T12, T13 have merged.
