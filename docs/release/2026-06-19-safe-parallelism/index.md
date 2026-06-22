@@ -52,7 +52,8 @@ tracks:
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T8-memory
     worktree_branch: track/2026-06-19-safe-parallelism/T8-memory
     state: merged
-  - id: T9-telemetry    slices: [S26-telemetry]
+  - id: T9-telemetry
+    slices: [S26-telemetry]
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T9-telemetry
     worktree_branch: track/2026-06-19-safe-parallelism/T9-telemetry
@@ -83,9 +84,15 @@ tracks:
     state: planned
   - id: T14-baton-integration
     slices: [S48-baton-vendor, S49-baton-version, S50-baton-governance]
-    depends_on: T3-commercial
+    depends_on: [T3-commercial, T15-cli-registry]
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T14-baton-integration
+    state: planned
+  - id: T15-cli-registry
+    slices: [S51-cli-command-registry]
+    depends_on: T1-concurrency-core
+    worktree_path:
+    worktree_branch: track/2026-06-19-safe-parallelism/T15-cli-registry
     state: planned
 ---
 
@@ -129,13 +136,14 @@ tracks:
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
 | `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | in_progress |
 | `T13-sworn-role-parity` | S45 → S46 → S47 | T12 | `track/.../T13-sworn-role-parity` | planned |
-| `T14-baton-integration` | S48 → S49 → S50 | T3 | `track/.../T14-baton-integration` | planned |
+| `T14-baton-integration` | S48 → S49 → S50 | T3 + T15 | `track/.../T14-baton-integration` | planned |
+| `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | planned |
 
 ### Execution order
 
 ```
 Phase 1:  T1 (sequential)
-Phase 2:  T2, T3, T4, T8, T9, T11, T12 (parallel after T1 — T11/T12 are harness-hardening, dispatch early)
+Phase 2:  T2, T3, T4, T8, T9, T11, T12, T15 (parallel after T1 — T11/T12 harness-hardening + T15 CLI registry dispatch early)
           T13 (after T12 — serial; product role parity, shares internal/run with T12)
 Phase 3:  T5 (after T1 + T3)
           T7 (after T3 + T4; may run in parallel with T5)
@@ -147,7 +155,15 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 ### Touchpoint matrix
 
 > No row may carry `✓` in more than one column in the same parallel phase.
-> `cmd/sworn/main.go` is a **documented shared file** (additive dispatch only).
+> **`cmd/sworn/main.go` is NO LONGER a documented shared file** (2026-06-22 replan). The
+> "additive dispatch only" exception failed: additive `case` insertions into one contiguous
+> `switch` collide in git, which paged the coach loop on the release-wt→T3 forward-merge for
+> S07-paging. `S51-cli-command-registry` (track **T15-cli-registry**) replaces the switch with
+> a self-registration command registry, making `main.go` **owned solely by T15**. Going forward,
+> a track adding a top-level CLI command **self-registers from its own `cmd/sworn/<verb>.go`**
+> via `init()` calling `command.Register(...)` — it never edits `main.go` or `commands.go`. The
+> three new files `internal/command/`, `cmd/sworn/main.go`, and `cmd/sworn/commands.go` are
+> T15-owned; the `lint touchpoints` gate (S30) enforces single-track ownership of `main.go`.
 > `(dep)` notation means the track writes this file only after the named dependency merges
 > — the dep-edge serialises writes so they are not truly concurrent.
 > `T10-public-readiness` (S27) is omitted from the columns below: it depends on every
@@ -218,7 +234,9 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 | `internal/model/ollama_test.go` (new) | | | | | ✓ |  |
 | `cmd/sworn/run.go` | ✓ | | (T1 dep) | | (T1+T3 dep) |  |
 | `go.mod`, `go.sum` | ✓ | | | | (T1 dep) |  |
-| `cmd/sworn/main.go` (DOCUMENTED SHARED — additive dispatch) | ✓ | ✓ | ✓ | ✓ | |  |
+| `cmd/sworn/main.go` (T15-owned — registry dispatch loop, no per-track edits) | | | | | |  |
+| `internal/command/` (new — command registry; T15-owned) | | | | | |  |
+| `cmd/sworn/commands.go` (new — central registration of pre-existing verbs; T15-owned) | | | | | |  |
 | `docs/release/<rel>/.captain-trial-log.md` (DOCUMENTED SHARED — Captain review log, append-only: every track's design reviews add one row per slice) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `cmd/sworn/top.go` | | ✓ | | | | (T2 dep)  |
 | `internal/tui/` (new) | | ✓ | | | |  |
@@ -332,7 +350,10 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 | `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | verified | [spec](./S26-telemetry/spec.md) |
 | `S27-public-readiness-scrub` | T10 | Make repo + binary public-safe: generalise embedded role prompts (keep Captain/Coach, strip coach-loop coupling), scrub dogfood provenance comments + fired/GetFired + coach-loop refs. Final launch gate. | planned | [spec](./S27-public-readiness-scrub/spec.md) |
 | `S28-git-dir-guard` | T11 | internal/git fails closed on empty Repo.Dir so a git op can't run on the ambient worktree (fixes workers writing to main, sworn#6) + regression test | verified | [spec](./S28-git-dir-guard/spec.md) |
-| `S29-lint-deps` | T12 | `sworn lint deps` — go.mod/go.sum diff vs planned_files, fail-closed; planner auto-adds dep files | **verified** | [spec](./S29-lint-deps/spec.md) || `S30-lint-touchpoints` | T12 | `sworn lint touchpoints` — design files/pkgs vs planned_files + collision matrix + migration-number collision | **verified** | [spec](./S30-lint-touchpoints/spec.md) || `S31-lint-symbols` | T12 | `sworn lint symbols` — grep back-ticked design identifiers against the live codebase | **verified** | [spec](./S31-lint-symbols/spec.md) || `S32-designfit-decisions-gate` | T12 | `sworn designfit` fails closed when Type-1 work is declared but `design_decisions` is empty | planned | [spec](./S32-designfit-decisions-gate/spec.md) |
+| `S29-lint-deps` | T12 | `sworn lint deps` — go.mod/go.sum diff vs planned_files, fail-closed; planner auto-adds dep files | planned | [spec](./S29-lint-deps/spec.md) |
+| `S30-lint-touchpoints` | T12 | `sworn lint touchpoints` — design files/pkgs vs planned_files + collision matrix + migration-number collision | planned | [spec](./S30-lint-touchpoints/spec.md) |
+| `S31-lint-symbols` | T12 | `sworn lint symbols` — grep back-ticked design identifiers against the live codebase | planned | [spec](./S31-lint-symbols/spec.md) |
+| `S32-designfit-decisions-gate` | T12 | `sworn designfit` fails closed when Type-1 work is declared but `design_decisions` is empty | planned | [spec](./S32-designfit-decisions-gate/spec.md) |
 | `S33-spec-template-hardening` | T12 | spec/prompt hardening: Risk-cites-`file:line`, pure-engine two-commit note, dynamic-CORS note, + verifier watcher-block cleanup | planned | [spec](./S33-spec-template-hardening/spec.md) |
 | `S34-tui-merge-actor` | T2 | render the `merge:<track>` actor as a distinct row in the TUI live view + release board | verified | [spec](./S34-tui-merge-actor/spec.md) || `S35-mutation-guard` | T12 | Captain check + Baton-rule clause for process-global mutation (cwd/git-state/os.Chdir) — the sworn#6 class | planned | [spec](./S35-mutation-guard/spec.md) |
 | `S36-captain-resolve-dirty-worktree` | T12 | Captain auto-resolves dirty track worktrees (commit-by-default, record the diff+resolution, never page the Coach) | planned | [spec](./S36-captain-resolve-dirty-worktree/spec.md) |
@@ -349,37 +370,75 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 | `S48-baton-vendor` | T14 | `sworn baton vendor` — semver-pinned vendor of upstream Baton + bash→sworn transform over rules AND role-prompts (strips `release-verify.sh`/`release-board-status.sh`/`captain-memory-search.py`… → sworn-native commands); reproduces the sworn-native embed (subsumes the one-time scrub) | planned | [spec](./S48-baton-vendor/spec.md) |
 | `S49-baton-version` | T14 | reconcile the Baton pin from a raw SHA to a **semver tag** across `VERSION`+`VERSION.txt`; `sworn version` reports "on Baton vX.Y.Z"; `sworn doctor` fails the pin if it's a SHA not a tag | planned | [spec](./S49-baton-version/spec.md) |
 | `S50-baton-governance` | T14 | `sworn baton diff` divergence check (embed vs upstream pin) + `docs/baton-governance.md` PR-up process note + ADR-0006; protocol changes found in sworn dev must PR upstream, never silently fork | planned | [spec](./S50-baton-governance/spec.md) |
+| `S51-cli-command-registry` | T15 | command registry replaces the `cmd/sworn/main.go` dispatch switch; new subcommands self-register from their own file; `main.go` owned by one track — ends the recurring touchpoint collision | planned | [spec](./S51-cli-command-registry/spec.md) |
 
 ## Aggregate state
 
-- Planned: 31
+> Reconciled from the board oracle (`release-board-status.sh --json`, authoritative) this
+> replan, 2026-06-22. 51 slices across 15 tracks.
+
+- Planned: 25
 - In progress: 0
-- Design review: 3
-- Implemented: 0
-- Verified: 7
-- Verified: 21
+- Implemented: 2
+- Verified: 24
 - Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 6 / In progress: 2 / Merged: 6> Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice);> T10 new (1 slice: S27, the final public-readiness gate); T11 new (1 slice: S28, the
-> sworn#6 git-dir safety fix); T12 new (7 harness-hardening slices from the trial-log harvest);
-> S34 appended to T2. **T14-baton-integration new (3 slices: S48/S49/S50 — Baton↔sworn protocol
-> sync, 2026-06-22 replan).** Release now **56 slices across 14 tracks** (S40→T8, S41–S44→T12,
-> S45–S47→T13, S48–S50→new T14).
-> Per-slice State column in the table above and these counts lag the board oracle
-> (`release-board-status.sh --json` is authoritative — e.g. S25/S30 are `design_review` on
-> their track branches); not fully reconciled this pass.
+**Tracks:** Planned: 7 / In progress: 2 / Merged: 6
+
+> **T15-cli-registry new** (1 slice: S51-cli-command-registry — CLI command registry replacing
+> the `cmd/sworn/main.go` dispatch switch; 2026-06-22 replan, unblocks the coach-loop pause on
+> S07-paging). Implemented (awaiting verify): S07-paging (T3), S32-designfit-decisions-gate (T12).
+> The per-slice State column in the slice table above still lags the oracle for some rows (e.g.
+> historical `design_review` states on track branches); the counts here are oracle-reconciled,
+> the table rows are not fully re-rendered this pass.
 
 ## Recent activity
 
-### 2026-06-29 — S31-lint-symbols verified ✓
+### 2026-06-22 — replan: new track T15-cli-registry (S51) — unblock the coach-loop main.go collision
 
-- **Actor**: verifier (`/verify-slice`)
-- **Slice**: `S31-lint-symbols` — **PASS** (all six gates)
-- **State**: implemented → **verified**
-- **Track impact**: T12-harness-hardening now has 3/13 verified (S29 + S30 + S31)
+- **Actor**: planner (`/replan-release`)
+- **Trigger (diagnosed from journals + verify log, not just the oracle)**: the coach loop paused
+  on T3-commercial's `S07-paging` verify. The worker summary said "verify INCONCLUSIVE … (env
+  issue?)", but S07's `status.json` on the track branch is `state: implemented`,
+  `verification.result: ""`, `blocked: null` — i.e. a genuine **INCONCLUSIVE** (no spec defect,
+  **Step 2b does not apply**; S07 is sound). The real cause: forward-merging `release-wt` into the
+  in-flight T3 branch **conflicts on `cmd/sworn/main.go`**, so verify can't run. The matrix had
+  declared `main.go` a *DOCUMENTED SHARED* file ("additive dispatch only"), but additive `case`
+  insertions into one contiguous `switch` collide in git — the same conflict was hand-resolved on
+  the T2/T4/T8 syncs before it finally paged here. Only **T3** actually conflicts today (+7/-3,
+  its `login`/`account` cases); T12 does not touch `main.go`.
+- **New track `T15-cli-registry`** (`depends_on T1`; Phase 2, dispatch early — merges before the
+  remaining `main.go` work): **S51-cli-command-registry** introduces an `internal/command`
+  registry, reduces `cmd/sworn/main.go` to a registry-lookup dispatch loop, and registers the 19
+  pre-existing verbs centrally in a new T15-owned `cmd/sworn/commands.go`. Touchpoints are all new
+  files or `main.go` — **disjoint from every in-flight track** (a per-file `init()` migration was
+  rejected because it would have collided with T3 on `run.go`/`memory.go` and T12 on `lint.go`,
+  merely relocating the conflict).
+- **`cmd/sworn/main.go` ownership → T15 (sole).** Matrix row + the documented-shared note rewritten:
+  going forward a track adding a CLI command **self-registers from its own `cmd/sworn/<verb>.go`**
+  and never edits `main.go`/`commands.go`. Enforced by the `lint touchpoints` gate (S30).
+- **S07 unblock mechanism (Coach-ratified)**: no spec change to S07. Once S51 merges to `release-wt`,
+  T3's next `S07-paging` implement re-entry forward-merges it, resolves `main.go` by converting its
+  `login`/`account` cases into `command.Register(...)` calls in their own files, then re-verifies.
+- **Not-started specs corrected to prevent recurrence**: `S19-sworn-induction` (T3),
+  `S48-baton-vendor` and `S49-baton-version` (T14) had `main.go` as a planned touchpoint; their
+  touchpoints now register from their own command files. `T14-baton-integration` gains
+  `depends_on T15-cli-registry` (it needs `internal/command` present to register `sworn baton`).
+- **Base sync (Step 1)**: `release-wt` already current with `release/v0.1.0` (0 behind).
+- **Aggregate state reconciled** from the oracle: 51 slices / 15 tracks (was a drifted 56/14 note).
+- Stray untracked `.captain-trial-log.md` at the worktree root noted (harness scratch; not committed).
+
+### 2026-06-22 — S25-memory-search verifier PASS
+
+- **Slice**: S25-memory-search → state: **verified**
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **All six gates passed.** 26/26 tests pass race-clean. CLI reachability verified live: `sworn memory search` exits 64 (usage), `sworn memory search "test query"` exits 1 (no index). Zero dark-code markers. Extra touchpoint files (embed_voyage.go, index.go) explained by EmbedQuery() + AllEntries() infrastructure. 4 deferrals carry Rule 2 cards.
+- **Next**: `/implement-slice S40-memory-test-hygiene 2026-06-19-safe-parallelism` in a fresh session (next incomplete slice in T8-memory).
+
 
 ### 2026-06-29 — S40-memory-test-hygiene verifier PASS
+
 - **Slice**: S40-memory-test-hygiene → state: **verified**
 - **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
 - **All six gates passed.** Scope was pre-delivered by S24/S25 — memory tests already use `t.TempDir()` and `httptest.NewServer`. 26/26 tests pass with `-race`; `git status --porcelain` is empty; `fake_ollama.go` does not exist. Zero dark-code markers.
@@ -390,19 +449,6 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 - **Actor**: track integrator (/merge-track)
 - **Note**: 4 verified slices merged: S23-memory-config, S24-memory-engine, S25-memory-search, S40-memory-test-hygiene. Track state -> merged.
 
-### 2026-06-28 — S30-lint-touchpoints verified ✓
-
-- **Actor**: verifier (`/verify-slice`)
-- **Slice**: `S30-lint-touchpoints` — **PASS** (all six gates)
-- **State**: implemented → **verified**
-- **Track impact**: T12-harness-hardening now has 2/13 verified (S29 + S30)
-
-### 2026-06-22 — S25-memory-search verifier PASS
-
-- **Slice**: S25-memory-search → state: **verified**
-- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
-- **All six gates passed.** 26/26 tests pass race-clean. CLI reachability verified live: `sworn memory search` exits 64 (usage), `sworn memory search "test query"` exits 1 (no index). Zero dark-code markers. Extra touchpoint files (embed_voyage.go, index.go) explained by EmbedQuery() + AllEntries() infrastructure. 4 deferrals carry Rule 2 cards.
-- **Next**: `/implement-slice S40-memory-test-hygiene 2026-06-19-safe-parallelism` in a fresh session (next incomplete slice in T8-memory).
 ### 2026-06-22 — replan: new track T14-baton-integration (S48/S49/S50) + frontmatter repair
 - **Actor**: planner (`/replan-release`)
 - **Directive**: establish the Baton↔SwornAgent architecture as deliverable scope. Baton is
