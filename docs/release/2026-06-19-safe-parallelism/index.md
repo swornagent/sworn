@@ -465,12 +465,16 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 **Tracks:** Planned: 8 / In progress: 1 / Merged: 8
 > Merged (8): T1, T2, T3, T4, T8, T9, T11, T15. In progress (1): T12-harness-hardening (head: S42-implement-step-timeout). Planned (8): T5, T6, T7, T10, T13, T14, T16, T17.## Recent activity
 
+### 2026-07-07 — track `T3-commercial` merged to release-wt (commit 82fc388)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 7 verified slices merged: S06a-sworn-login-auth, S06b-sworn-proxy-credits, S07-paging, S09-per-role-model-config, S18-consideration-catalog, S19-sworn-induction, S21-canonical-baton. Track state -> merged.
+
 ### 2026-07-06 — S21-canonical-baton verifier PASS (T3-commercial complete)
 
 - **Actor**: verifier (fresh context, artefact-only)
 - **Verdict**: All six gates passed. Gate 1: `sworn init` wired to cmdInit; `sworn mcp` serves baton/rules. Gate 2: 6/6 planned touchpoints present; init_design_system_test.go adaptation documented. Gate 3: 16/16 tests re-run and PASS (5 Baton + 11 Init). Gate 4: Manual smoke test — AGENTS.md created with `sworn://baton/rules`, no docs/baton/. Gate 5: Zero TODO/FIXME/placeholder in changed source files. Gate 6: All 14 Delivered items verified.
 - **Track**: T3-commercial is now complete — all 7 slices verified. Next: `/merge-track T3-commercial`, then `/merge-release 2026-06-19-safe-parallelism` once every track is merged.
-
 ### 2026-07-05 — S19-sworn-induction verifier PASS
 - **Actor**: verifier (fresh context, artefact-only)
 - **Verdict**: All six gates passed. Gate 1: `sworn induction` CLI functional end-to-end. Gate 2: 4/4 planned files + expected test extension. Gate 3: All 11 tests re-run and PASS. Gate 4: Smoke-executed + idempotent mode confirmed. Gate 5: Zero TODO/FIXME/placeholder. Gate 6: All 13 Delivered items verified.
