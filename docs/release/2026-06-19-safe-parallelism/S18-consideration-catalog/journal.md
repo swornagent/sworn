@@ -54,3 +54,11 @@ All 7 tests pass (4 planner + 3 init):
 - `TestInitSkipsBoth` — `n` creates neither
 - `TestInitOverwriteGuard` — `n` to overwrite preserves original content
 - `go build ./...` — no new dependencies (stdlib only)
+### Skeptic panel
+
+skeptic_panel: skipped — runtime does not support subagent dispatch (no Agent/Workflow tool available).
+Real verifier (Rule 7) is the backstop.
+
+### First-pass verification
+
+23/24 checks PASS. 1 known false positive: "screenshot" in spec body text (Phase 2b planner description), not in any AC. Documented in proof.md per feedback_release_verify_darkcode_docs_glob.
