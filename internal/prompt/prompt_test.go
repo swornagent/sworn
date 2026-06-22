@@ -103,8 +103,19 @@ func TestVerifyStateless_NotAgenticVerifier(t *testing.T) {
 	}
 }
 
-func TestBatonVersion_NonEmpty(t *testing.T) {
-	if got := BatonVersion(); got == "" {
+func TestCaptain_ResolveDirtyWorktree(t *testing.T) {
+	got := Captain()
+	if !strings.Contains(got, "resolve-dirty-worktree") {
+		t.Errorf("Captain() missing resolve-dirty-worktree function name")
+	}
+	if !strings.Contains(got, "commits the work by default") {
+		t.Errorf("Captain() missing commits-the-work-by-default rule for dirty worktree resolution")
+	}
+	if !strings.Contains(got, "Discard only if clearly wrong") {
+		t.Errorf("Captain() missing Discard-only-if-clearly-wrong guard")
+	}
+}
+func TestBatonVersion_NonEmpty(t *testing.T) {	if got := BatonVersion(); got == "" {
 		t.Fatal("BatonVersion() returned empty string")
 	}
 }
