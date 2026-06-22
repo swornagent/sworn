@@ -15,9 +15,11 @@ can never ship claiming a protocol version it can't name.
 
 ## Entry point
 
-- `sworn version` (`cmd/sworn/main.go:117` case) — already prints
-  `baton-protocol %s` via `prompt.BatonVersion()`; reframed to the semver "on Baton"
-  line.
+- `sworn version` (the `version` command registered via the S51/T15 `command` registry) —
+  already prints `baton-protocol %s` via `prompt.BatonVersion()`; reframed to the semver "on
+  Baton" line **by changing `baton.Version()` / `prompt.BatonVersion()` (both S49-owned), NOT by
+  editing `cmd/sworn/main.go` or `cmd/sworn/commands.go`** (those are T15-owned). The version
+  command handler is unchanged.
 - `sworn doctor` (`cmd/sworn/doctor.go`, owned by S22/T4 — **merged**, so this is a
   sequential additive edit) — gains the pin-is-a-tag check.
 
@@ -71,9 +73,9 @@ than re-deriving from raw files in two places.
 - `internal/adopt/baton/VERSION` (SHA → semver tag; T3/S21-owned, sequential via dep)
 - `internal/prompt/VERSION.txt` (agree with the tag; T3-owned, sequential via dep)
 - `internal/prompt/prompt.go` (`BatonVersion()` delegates to `baton.Version()`)
-- `internal/baton/version.go` (new — `Version`, `IsSemverTag`)
+- `internal/baton/version.go` (new — `Version`, `IsSemverTag`; the version-string source the
+  `version` command renders — reframing happens here, not in `main.go`/`commands.go`)
 - `internal/baton/version_test.go` (new)
-- `cmd/sworn/main.go` (version output reframed — documented shared, additive/edit)
 - `cmd/sworn/doctor.go` (pin-is-a-tag check; S22/T4 merged — sequential)
 - `cmd/sworn/doctor_test.go` (the new check)
 

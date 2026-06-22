@@ -1,0 +1,37 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S51-cli-command-registry",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T15-cli-registry",
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-22T06:45:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S51-cli-command-registry/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S51-cli-command-registry/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S51-cli-command-registry/journal.md",
+  "planned_files": [
+    "internal/command/registry.go",
+    "internal/command/registry_test.go",
+    "cmd/sworn/main.go",
+    "cmd/sworn/commands.go",
+    "cmd/sworn/commands_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/command/...",
+    "go test ./cmd/sworn/...",
+    "go build ./...",
+    "go vet ./..."
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}

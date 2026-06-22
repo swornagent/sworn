@@ -51,7 +51,7 @@ tracks:
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T8-memory
     worktree_branch: track/2026-06-19-safe-parallelism/T8-memory
-    state: in_progress
+    state: merged
   - id: T9-telemetry
     slices: [S26-telemetry]
     depends_on: T1-concurrency-core
@@ -84,9 +84,15 @@ tracks:
     state: planned
   - id: T14-baton-integration
     slices: [S48-baton-vendor, S49-baton-version, S50-baton-governance]
-    depends_on: T3-commercial
+    depends_on: [T3-commercial, T15-cli-registry]
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T14-baton-integration
+    state: planned
+  - id: T15-cli-registry
+    slices: [S51-cli-command-registry]
+    depends_on: T1-concurrency-core
+    worktree_path:
+    worktree_branch: track/2026-06-19-safe-parallelism/T15-cli-registry
     state: planned
 ---
 
@@ -125,19 +131,19 @@ tracks:
 | `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 → S39 | T1 + T3 | `track/.../T5-providers` | planned |
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
 | `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | planned |
-| `T8-memory` | S23 → S24 → S25 → S40 | T1 | `track/.../T8-memory` | in_progress |
-| `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
+| `T8-memory` | S23 → S24 → S25 → S40 | T1 | `track/.../T8-memory` | merged || `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
 | `T10-public-readiness` | S27 | all (T1–T9) | `track/.../T10-public-readiness` | planned |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
 | `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | in_progress |
 | `T13-sworn-role-parity` | S45 → S46 → S47 | T12 | `track/.../T13-sworn-role-parity` | planned |
-| `T14-baton-integration` | S48 → S49 → S50 | T3 | `track/.../T14-baton-integration` | planned |
+| `T14-baton-integration` | S48 → S49 → S50 | T3 + T15 | `track/.../T14-baton-integration` | planned |
+| `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | planned |
 
 ### Execution order
 
 ```
 Phase 1:  T1 (sequential)
-Phase 2:  T2, T3, T4, T8, T9, T11, T12 (parallel after T1 — T11/T12 are harness-hardening, dispatch early)
+Phase 2:  T2, T3, T4, T8, T9, T11, T12, T15 (parallel after T1 — T11/T12 harness-hardening + T15 CLI registry dispatch early)
           T13 (after T12 — serial; product role parity, shares internal/run with T12)
 Phase 3:  T5 (after T1 + T3)
           T7 (after T3 + T4; may run in parallel with T5)
@@ -149,7 +155,15 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 ### Touchpoint matrix
 
 > No row may carry `✓` in more than one column in the same parallel phase.
-> `cmd/sworn/main.go` is a **documented shared file** (additive dispatch only).
+> **`cmd/sworn/main.go` is NO LONGER a documented shared file** (2026-06-22 replan). The
+> "additive dispatch only" exception failed: additive `case` insertions into one contiguous
+> `switch` collide in git, which paged the coach loop on the release-wt→T3 forward-merge for
+> S07-paging. `S51-cli-command-registry` (track **T15-cli-registry**) replaces the switch with
+> a self-registration command registry, making `main.go` **owned solely by T15**. Going forward,
+> a track adding a top-level CLI command **self-registers from its own `cmd/sworn/<verb>.go`**
+> via `init()` calling `command.Register(...)` — it never edits `main.go` or `commands.go`. The
+> three new files `internal/command/`, `cmd/sworn/main.go`, and `cmd/sworn/commands.go` are
+> T15-owned; the `lint touchpoints` gate (S30) enforces single-track ownership of `main.go`.
 > `(dep)` notation means the track writes this file only after the named dependency merges
 > — the dep-edge serialises writes so they are not truly concurrent.
 > `T10-public-readiness` (S27) is omitted from the columns below: it depends on every
@@ -220,7 +234,9 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 | `internal/model/ollama_test.go` (new) | | | | | ✓ |  |
 | `cmd/sworn/run.go` | ✓ | | (T1 dep) | | (T1+T3 dep) |  |
 | `go.mod`, `go.sum` | ✓ | | | | (T1 dep) |  |
-| `cmd/sworn/main.go` (DOCUMENTED SHARED — additive dispatch) | ✓ | ✓ | ✓ | ✓ | |  |
+| `cmd/sworn/main.go` (T15-owned — registry dispatch loop, no per-track edits) | | | | | |  |
+| `internal/command/` (new — command registry; T15-owned) | | | | | |  |
+| `cmd/sworn/commands.go` (new — central registration of pre-existing verbs; T15-owned) | | | | | |  |
 | `docs/release/<rel>/.captain-trial-log.md` (DOCUMENTED SHARED — Captain review log, append-only: every track's design reviews add one row per slice) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `cmd/sworn/top.go` | | ✓ | | | | (T2 dep)  |
 | `internal/tui/` (new) | | ✓ | | | |  |
@@ -325,10 +341,12 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 | `S19-sworn-induction` | T3 | `sworn induction` one-time repo onboarding (design system + architecture discovery); implementer + verifier prompts gain deviation-surfacing steps | planned | [spec](./S19-sworn-induction/spec.md) |
 | `S20-mcp-catalog-tools` | T7 | 8 MCP tools: plan_release (unified), get_induction_status, get_considerations, search_decisions, record_decision, check_design_system, update_design_system, record_architecture_pattern | planned | [spec](./S20-mcp-catalog-tools/spec.md) |
 | `S21-canonical-baton` | T3 | Baton protocol embedded in binary (internal/prompt/baton/); sworn init writes minimal MCP-pointer AGENTS.md instead of per-repo Baton copy; ADR-0005 | planned | [spec](./S21-canonical-baton/spec.md) |
+| `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | planned | [spec](./S22-sworn-doctor/spec.md) |
+| `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | planned | [spec](./S23-memory-config/spec.md) |
+| `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | verified | [spec](./S24-memory-engine/spec.md) |
 | `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | verified | [spec](./S22-sworn-doctor/spec.md) || `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | planned | [spec](./S23-memory-config/spec.md) |
 | `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | planned | [spec](./S24-memory-engine/spec.md) |
-| `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | planned | [spec](./S25-memory-search/spec.md) |
-| `S40-memory-test-hygiene` | T8 | memory tests use `t.TempDir()`; removes stray `test-fixture/` + root `fake_ollama.go` so `go test ./internal/memory/...` leaves git clean | planned | [spec](./S40-memory-test-hygiene/spec.md) |
+| `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | verified | [spec](./S25-memory-search/spec.md) || `S40-memory-test-hygiene` | T8 | memory tests use `t.TempDir()`; removes stray `test-fixture/` + root `fake_ollama.go` so `go test ./internal/memory/...` leaves git clean | verified | [spec](./S40-memory-test-hygiene/spec.md) |
 | `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | verified | [spec](./S26-telemetry/spec.md) |
 | `S27-public-readiness-scrub` | T10 | Make repo + binary public-safe: generalise embedded role prompts (keep Captain/Coach, strip coach-loop coupling), scrub dogfood provenance comments + fired/GetFired + coach-loop refs. Final launch gate. | planned | [spec](./S27-public-readiness-scrub/spec.md) |
 | `S28-git-dir-guard` | T11 | internal/git fails closed on empty Repo.Dir so a git op can't run on the ambient worktree (fixes workers writing to main, sworn#6) + regression test | verified | [spec](./S28-git-dir-guard/spec.md) |
@@ -352,31 +370,86 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 | `S48-baton-vendor` | T14 | `sworn baton vendor` — semver-pinned vendor of upstream Baton + bash→sworn transform over rules AND role-prompts (strips `release-verify.sh`/`release-board-status.sh`/`captain-memory-search.py`… → sworn-native commands); reproduces the sworn-native embed (subsumes the one-time scrub) | planned | [spec](./S48-baton-vendor/spec.md) |
 | `S49-baton-version` | T14 | reconcile the Baton pin from a raw SHA to a **semver tag** across `VERSION`+`VERSION.txt`; `sworn version` reports "on Baton vX.Y.Z"; `sworn doctor` fails the pin if it's a SHA not a tag | planned | [spec](./S49-baton-version/spec.md) |
 | `S50-baton-governance` | T14 | `sworn baton diff` divergence check (embed vs upstream pin) + `docs/baton-governance.md` PR-up process note + ADR-0006; protocol changes found in sworn dev must PR upstream, never silently fork | planned | [spec](./S50-baton-governance/spec.md) |
+| `S51-cli-command-registry` | T15 | command registry replaces the `cmd/sworn/main.go` dispatch switch; new subcommands self-register from their own file; `main.go` owned by one track — ends the recurring touchpoint collision | planned | [spec](./S51-cli-command-registry/spec.md) |
 
 ## Aggregate state
 
-- Planned: 31
+> Reconciled from the board oracle (`release-board-status.sh --json`, authoritative) this
+> replan, 2026-06-22. 51 slices across 15 tracks.
+
+- Planned: 25
 - In progress: 0
-- Design review: 3
-- Implemented: 0
-- Verified: 21
+- Implemented: 2
+- Verified: 24
 - Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 6 / In progress: 3 / Merged: 5
-> Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice);> T10 new (1 slice: S27, the final public-readiness gate); T11 new (1 slice: S28, the
-> sworn#6 git-dir safety fix); T12 new (7 harness-hardening slices from the trial-log harvest);
-> S34 appended to T2. **T14-baton-integration new (3 slices: S48/S49/S50 — Baton↔sworn protocol
-> sync, 2026-06-22 replan).** Release now **56 slices across 14 tracks** (S40→T8, S41–S44→T12,
-> S45–S47→T13, S48–S50→new T14).
-> Per-slice State column in the table above and these counts lag the board oracle
-> (`release-board-status.sh --json` is authoritative — e.g. S25/S30 are `design_review` on
-> their track branches); not fully reconciled this pass.
+**Tracks:** Planned: 7 / In progress: 2 / Merged: 6
+
+> **T15-cli-registry new** (1 slice: S51-cli-command-registry — CLI command registry replacing
+> the `cmd/sworn/main.go` dispatch switch; 2026-06-22 replan, unblocks the coach-loop pause on
+> S07-paging). Implemented (awaiting verify): S07-paging (T3), S32-designfit-decisions-gate (T12).
+> The per-slice State column in the slice table above still lags the oracle for some rows (e.g.
+> historical `design_review` states on track branches); the counts here are oracle-reconciled,
+> the table rows are not fully re-rendered this pass.
 
 ## Recent activity
 
-### 2026-06-22 — replan: new track T14-baton-integration (S48/S49/S50) + frontmatter repair
+### 2026-06-22 — replan: new track T15-cli-registry (S51) — unblock the coach-loop main.go collision
 
+- **Actor**: planner (`/replan-release`)
+- **Trigger (diagnosed from journals + verify log, not just the oracle)**: the coach loop paused
+  on T3-commercial's `S07-paging` verify. The worker summary said "verify INCONCLUSIVE … (env
+  issue?)", but S07's `status.json` on the track branch is `state: implemented`,
+  `verification.result: ""`, `blocked: null` — i.e. a genuine **INCONCLUSIVE** (no spec defect,
+  **Step 2b does not apply**; S07 is sound). The real cause: forward-merging `release-wt` into the
+  in-flight T3 branch **conflicts on `cmd/sworn/main.go`**, so verify can't run. The matrix had
+  declared `main.go` a *DOCUMENTED SHARED* file ("additive dispatch only"), but additive `case`
+  insertions into one contiguous `switch` collide in git — the same conflict was hand-resolved on
+  the T2/T4/T8 syncs before it finally paged here. Only **T3** actually conflicts today (+7/-3,
+  its `login`/`account` cases); T12 does not touch `main.go`.
+- **New track `T15-cli-registry`** (`depends_on T1`; Phase 2, dispatch early — merges before the
+  remaining `main.go` work): **S51-cli-command-registry** introduces an `internal/command`
+  registry, reduces `cmd/sworn/main.go` to a registry-lookup dispatch loop, and registers the 19
+  pre-existing verbs centrally in a new T15-owned `cmd/sworn/commands.go`. Touchpoints are all new
+  files or `main.go` — **disjoint from every in-flight track** (a per-file `init()` migration was
+  rejected because it would have collided with T3 on `run.go`/`memory.go` and T12 on `lint.go`,
+  merely relocating the conflict).
+- **`cmd/sworn/main.go` ownership → T15 (sole).** Matrix row + the documented-shared note rewritten:
+  going forward a track adding a CLI command **self-registers from its own `cmd/sworn/<verb>.go`**
+  and never edits `main.go`/`commands.go`. Enforced by the `lint touchpoints` gate (S30).
+- **S07 unblock mechanism (Coach-ratified)**: no spec change to S07. Once S51 merges to `release-wt`,
+  T3's next `S07-paging` implement re-entry forward-merges it, resolves `main.go` by converting its
+  `login`/`account` cases into `command.Register(...)` calls in their own files, then re-verifies.
+- **Not-started specs corrected to prevent recurrence**: `S19-sworn-induction` (T3),
+  `S48-baton-vendor` and `S49-baton-version` (T14) had `main.go` as a planned touchpoint; their
+  touchpoints now register from their own command files. `T14-baton-integration` gains
+  `depends_on T15-cli-registry` (it needs `internal/command` present to register `sworn baton`).
+- **Base sync (Step 1)**: `release-wt` already current with `release/v0.1.0` (0 behind).
+- **Aggregate state reconciled** from the oracle: 51 slices / 15 tracks (was a drifted 56/14 note).
+- Stray untracked `.captain-trial-log.md` at the worktree root noted (harness scratch; not committed).
+
+### 2026-06-22 — S25-memory-search verifier PASS
+
+- **Slice**: S25-memory-search → state: **verified**
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **All six gates passed.** 26/26 tests pass race-clean. CLI reachability verified live: `sworn memory search` exits 64 (usage), `sworn memory search "test query"` exits 1 (no index). Zero dark-code markers. Extra touchpoint files (embed_voyage.go, index.go) explained by EmbedQuery() + AllEntries() infrastructure. 4 deferrals carry Rule 2 cards.
+- **Next**: `/implement-slice S40-memory-test-hygiene 2026-06-19-safe-parallelism` in a fresh session (next incomplete slice in T8-memory).
+
+
+### 2026-06-29 — S40-memory-test-hygiene verifier PASS
+
+- **Slice**: S40-memory-test-hygiene → state: **verified**
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **All six gates passed.** Scope was pre-delivered by S24/S25 — memory tests already use `t.TempDir()` and `httptest.NewServer`. 26/26 tests pass with `-race`; `git status --porcelain` is empty; `fake_ollama.go` does not exist. Zero dark-code markers.
+- **Next**: `/merge-track T8-memory` (S40 is the last slice in T8 — track complete), then `/merge-release 2026-06-19-safe-parallelism` once every track is merged.
+
+### 2026-06-29 — track `T8-memory` merged to release-wt (commit a9512c2)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 4 verified slices merged: S23-memory-config, S24-memory-engine, S25-memory-search, S40-memory-test-hygiene. Track state -> merged.
+
+### 2026-06-22 — replan: new track T14-baton-integration (S48/S49/S50) + frontmatter repair
 - **Actor**: planner (`/replan-release`)
 - **Directive**: establish the Baton↔SwornAgent architecture as deliverable scope. Baton is
   the open protocol (clonable/usable without sworn); SwornAgent is the all-Go product that
@@ -491,6 +564,22 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 - **S40-memory-test-hygiene → T8 tail** (after S25): the memory tests write `test-fixture/` + a root `fake_ollama.go` into the tree instead of `t.TempDir()`, tripping the Gate -1 cleanliness check on T8 (a `.gitignore test-fixture/` stopgap landed at `5d1b7c4`). Placed in **T8, not T12** — it edits `internal/memory/*_test.go`, which the touchpoint matrix assigns to T8; a T12 placement would collide.
 - **S41-build-bin-target → T12 tail** (after S38): canonical `make build` → `bin/sworn` + a new `docs/build.md` run-from-repo-root convention, so sworn run-state stops cluttering `cmd/sworn/` (the recurring `cmd/sworn/.sworn` + `docs/release/run-*`). Documented in a new `docs/build.md` rather than `AGENTS.md` (owned by S21/T3, S22/T4) to stay collision-free. Defers the in-code state-dir resolution and the prompt smoke-step wording (the latter to S33).
 - **Release now 47 slices across 12 tracks.** Both slices append to non-started tails; Step 6 forward-merged release-wt into the in-flight tracks (T2/T3/T4/T8/T12).
+
+### 2026-06-21 — S24-memory-engine verifier PASS (round 3)
+
+- **Slice**: S24-memory-engine → state: **verified**
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant); verified against `40cb8d6`
+- **All six gates passed.** 18/18 tests pass fresh (`go clean -testcache && go test -race ./internal/memory/... -v`). Voyage batch splitting verified (150 texts → embeddings[128][0]==0.0 confirms two-request batching). Auth header + key-from-env tested. Discover tests cover Claude Code MEMORY.md parsing, `---` flat-file splitting, custom paths. Full pipeline demonstrated via Ollama reachability artefact (3 entries indexed, change detection, --force). No silent deferrals in S24 files. All Gate 2 non-planned files fully explained as forward-merge noise (S26/S28/T12 replan content).
+- **Next**: `/implement-slice S25-memory-search 2026-06-19-safe-parallelism` in a fresh session.
+
+### 2026-06-21 — S24-memory-engine verifier FAIL (round 2)
+
+- **Slice**: S24-memory-engine → state: **failed_verification**
+- **Gate failed**: Gate 2 — planned touchpoints vs actual diff
+- **Violation**: `start_commit` is `16c0a8b` (coach-ack commit) not `d441b4c` (start-implementation commit). `git diff --name-only 16c0a8b` includes 6 S26/S28 files not in planned touchpoints. `proof.md` "Divergence from plan" says "None" without acknowledging these files.
+- **Fix**: Set `start_commit` to `d441b4c` in status.json; update proof.md "Files changed" to match.
+- **Gates 1, 3, 4, 5, 6 all pass** — S24 implementation is correct.
+- **Next step**: `/implement-slice S24-memory-engine 2026-06-19-safe-parallelism` (fix start_commit + proof.md)
 
 ### 2026-06-21 — replan: harness-hardening batch (S29–S36) from the trial-log harvest
 
