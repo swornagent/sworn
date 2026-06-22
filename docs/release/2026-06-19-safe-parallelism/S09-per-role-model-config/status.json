@@ -3,12 +3,17 @@
   "slice_id": "S09-per-role-model-config",
   "release": "2026-06-19-safe-parallelism",
   "track": "T3-commercial",
-  "state": "design_review",
+  "state": "in_progress",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-20T00:00:00Z",
-  "start_commit": null,
-  "spec_path": "docs/release/2026-06-19-safe-parallelism/S09-per-role-model-config/spec.md",
+  "last_updated_by": "implementer",  "last_updated_at": "2026-06-20T00:00:00Z",
+  "design_decisions": [
+    {"id": "D1", "type": "type_2", "summary": "Shared ModelSetting struct adds EscalationModels+MaxAttempts; verifier ignores them"},
+    {"id": "D2", "type": "type_2", "summary": "Config defaults differ from run.DefaultEscalationModels (2 vs 4 entries)"},
+    {"id": "D3", "type": "type_2", "summary": "Escalation fallback uses cfg.Implementer.EscalationModels[0] for initial model"},
+    {"id": "D4", "type": "type_2", "summary": "Replace ad-hoc resolveVerifierModel in run.go with config.ResolveVerifierModel"},
+    {"id": "D5", "type": "type_2", "summary": "sworn init re-prompts only on fresh scaffold; existing config preserved"}
+  ],
+  "start_commit": null,  "spec_path": "docs/release/2026-06-19-safe-parallelism/S09-per-role-model-config/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S09-per-role-model-config/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S09-per-role-model-config/journal.md",
   "planned_files": [
@@ -25,10 +30,9 @@
   "reachability_artifacts": [],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "",
     "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
     "violations": []
-  }
-}
+  }}
