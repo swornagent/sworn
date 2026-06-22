@@ -7,7 +7,7 @@
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-04T18:15:00Z",
-  "start_commit": "0daa67301bed96e77a4342bffcb2329da9be4343",
+  "start_commit": "0daa67343a3f33b2061b728e9c3a8e28d3614546",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S37-telemetry-tui-exclusion/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S37-telemetry-tui-exclusion/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S37-telemetry-tui-exclusion/journal.md",
