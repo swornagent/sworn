@@ -7,8 +7,7 @@
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-03T00:00:00Z",
-  "start_commit": null,
-  "spec_path": "docs/release/2026-06-19-safe-parallelism/S33-spec-template-hardening/spec.md",
+  "start_commit": "348f2d2a0f831983b43d0bee76d8046b69d493e4",  "spec_path": "docs/release/2026-06-19-safe-parallelism/S33-spec-template-hardening/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S33-spec-template-hardening/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S33-spec-template-hardening/journal.md",
   "planned_files": [
