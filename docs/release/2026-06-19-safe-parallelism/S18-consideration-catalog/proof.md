@@ -14,12 +14,14 @@ Define two project-level template files — `docs/considerations.md` (typed NFR 
 ```
 cmd/sworn/init.go
 cmd/sworn/init_test.go                   (new)
+docs/release/2026-06-19-safe-parallelism/S18-consideration-catalog/journal.md
+docs/release/2026-06-19-safe-parallelism/S18-consideration-catalog/proof.md
+docs/release/2026-06-19-safe-parallelism/S18-consideration-catalog/status.json
 docs/templates/considerations.md         (new)
 docs/templates/decisions.md              (new)
 internal/prompt/planner.md
 internal/prompt/prompt_test.go
 ```
-
 ## Test results
 
 ### `go test ./internal/prompt/... -run Planner`
