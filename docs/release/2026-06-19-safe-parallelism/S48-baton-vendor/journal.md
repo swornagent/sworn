@@ -13,3 +13,17 @@
 - **Pin 2**: Filed GitHub issue #11 — "sworn baton vendor: network fetch support for Baton semver tag" — the correct Rule 2 tracking home for the network-fetch deferral. Updated design.md §4 tracking reference from `S49-baton-version` to `GitHub issue #11`.
 - Pin 3 (memory-cited): Ack confirmed — design aligns with [[project_baton_sworn_architecture]]; no action.
 - Coach flags noted for later: (a) populate `design_decisions` in status.json before transitioning to implemented; (b) forward-handoff comment in baton.go for S50's `sworn baton diff`.
+
+## 2026-07-07 — Session 3: Implementation
+
+- Implemented `internal/baton/transform.go` with regex-based single-table derive-both pattern (6 ADR-0006 replacements + fail-closed guard).
+- Implemented `internal/baton/source.go` with explicit file mapping (Baton source → SwornAgent embed).
+- Implemented `internal/baton/vendor.go` with Vendor() orchestrator + --check support + unified diff.
+- Implemented `cmd/sworn/baton.go` self-registering via S51/T15 command registry.
+- Wrote 14 tests: transform (8 subtests + rules/prompts + fail-closed + idempotent + same-table), vendor (write + idempotent + --check + unmapped guard), source validation.
+- Ran `sworn baton vendor ~/projects/baton` — transformed real embed files (10 files changed).
+- `go build ./...` clean. `go test -race ./internal/baton/...` all passing.
+- Divergence from design: regex-based transform (not pure substring) to handle path-prefixed references (scripts/, bin/, $HOME/.claude/bin/).
+- Coach flags addressed: design_decisions populated (5 Type-2), forward-handoff comment in baton.go.
+- Network fetch deferral: tracked at GitHub issue #11, acknowledged by Coach.
+- State transition: `in_progress` → `implemented`.

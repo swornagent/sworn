@@ -3,13 +3,17 @@
   "slice_id": "S48-baton-vendor",
   "release": "2026-06-19-safe-parallelism",
   "track": "T14-baton-integration",
-  "state": "in_progress",  "owner": "human",
+  "state": "implemented",
+  "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-07T00:00:00Z",  "start_commit": "e13f27daed9beddf53f8d3fa7b164a3b89cee798",
+  "last_updated_at": "2026-07-07T00:00:00Z",
+  "start_commit": "e13f27daed9beddf53f8d3fa7b164a3b89cee798",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S48-baton-vendor/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S48-baton-vendor/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S48-baton-vendor/journal.md",
-  "depends_on": ["S21-canonical-baton"],
+  "depends_on": [
+    "S21-canonical-baton"
+  ],
   "planned_files": [
     "internal/baton/vendor.go",
     "internal/baton/transform.go",
@@ -17,18 +21,88 @@
     "internal/baton/vendor_test.go",
     "internal/baton/transform_test.go",
     "cmd/sworn/baton.go"
-  ],  "actual_files": [],
+  ],
+  "actual_files": [
+    "internal/baton/transform.go",
+    "internal/baton/transform_test.go",
+    "internal/baton/source.go",
+    "internal/baton/vendor.go",
+    "internal/baton/vendor_test.go",
+    "internal/baton/testdata/fixture/claude/baton/reachability-gate.md",
+    "internal/baton/testdata/fixture/claude/baton/no-silent-deferrals.md",
+    "internal/baton/testdata/fixture/claude/baton/capture-discipline.md",
+    "internal/baton/testdata/fixture/claude/baton/commit-messages-as-capture.md",
+    "internal/baton/testdata/fixture/claude/baton/session-discipline.md",
+    "internal/baton/testdata/fixture/claude/baton/proof-bundle.md",
+    "internal/baton/testdata/fixture/claude/baton/adversarial-verification.md",
+    "internal/baton/testdata/fixture/claude/baton/requirements-fidelity.md",
+    "internal/baton/testdata/fixture/claude/baton/design-fidelity.md",
+    "internal/baton/testdata/fixture/claude/baton/customer-journey-validation.md",
+    "internal/baton/testdata/fixture/claude/baton/README.md",
+    "internal/baton/testdata/fixture/claude/baton/role-prompts/implementer.md",
+    "internal/baton/testdata/fixture/claude/baton/role-prompts/planner.md",
+    "internal/baton/testdata/fixture/claude/baton/role-prompts/verifier.md",
+    "internal/baton/testdata/fixture/claude/baton/track-mode.md",
+    "internal/baton/testdata/fixture/claude/baton/brainstorm-patterns.md",
+    "cmd/sworn/baton.go",
+    "internal/adopt/baton/README.md",
+    "internal/adopt/baton/rules/07-adversarial-verification.md",
+    "internal/adopt/baton/rules/08-requirements-fidelity.md",
+    "internal/adopt/baton/rules/09-design-fidelity.md",
+    "internal/adopt/baton/rules/10-customer-journey-validation.md",
+    "internal/prompt/baton/README.md",
+    "internal/prompt/baton/rules.md",
+    "internal/prompt/implementer.md",
+    "internal/prompt/planner.md",
+    "internal/prompt/verifier.md"
+  ],
   "test_commands": [
     "go test -race ./internal/baton/... ./cmd/sworn/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
-  "open_deferrals": [],
+  "reachability_artifacts": [
+    "sworn baton vendor --check exit 0 with transform diff"
+  ],
+  "open_deferrals": [
+    {
+      "what": "Network fetch of Baton semver tag",
+      "why": "S48 MVP is vendored snapshot on disk",
+      "tracking": "GitHub issue #11",
+      "acknowledged": "Coach, 2026-06-23 (approved-ack.md)"
+    }
+  ],
   "verification": {
     "result": "",
     "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
     "violations": []
-  }
+  },
+  "design_decisions": [
+    {
+      "id": 1,
+      "type": "Type-2",
+      "summary": "Single-table derive-both pattern \u2014 substitution map and fail-closed guard token list derived from one Go data structure"
+    },
+    {
+      "id": 2,
+      "type": "Type-2",
+      "summary": "Explicit file mapping, not recursive glob \u2014 hand-maintained source_relpath\u2192dest_abs_path map"
+    },
+    {
+      "id": 3,
+      "type": "Type-2",
+      "summary": "Transform is string\u2192string, file-format agnostic \u2014 regex-based replacement, no markdown parsing"
+    },
+    {
+      "id": 4,
+      "type": "Type-2",
+      "summary": "Source is a directory path, not a tag \u2014 MVP reads from filesystem; network fetch deferred (issue #11)"
+    },
+    {
+      "id": 5,
+      "type": "Type-2",
+      "summary": "Registration in baton.go own init() \u2014 follows S51 pattern of per-file self-registration"
+    }
+  ]
 }
