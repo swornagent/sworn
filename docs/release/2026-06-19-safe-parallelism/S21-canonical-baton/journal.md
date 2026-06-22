@@ -28,8 +28,18 @@ None.
 
 ## Verifier verdicts received
 
-*(None yet.)*
+### 2026-07-06 — PASS (verifier)
 
+All six gates passed:
+
+1. **Gate 1 — User-reachable outcome exists**: `sworn init` wired to `cmdInit` via `commands.go:14`; `sworn mcp` serves `sworn://baton/rules` from embed.
+2. **Gate 2 — Planned touchpoints match actual changed files**: All 6 planned touchpoints present in diff. `init_design_system_test.go` minor adaptation (+`setupTemplates(dir)` calls) related to init rewrite. ADR 0005→0008 documented.
+3. **Gate 3 — Required tests exist and exercise the integration point**: All 16 required tests pass. `go test ./internal/prompt/... -run Baton` — 5/5 PASS. `go test ./cmd/sworn/... -run Init` — 11/11 PASS. `go build ./...` — PASS.
+4. **Gate 4 — Reachability artefact proves the user path**: Manual smoke test documented in proof.md — `sworn init --yes` creates AGENTS.md with `sworn://baton/rules`, no `docs/baton/` directory.
+5. **Gate 5 — No silent deferrals or placeholder logic**: Zero TODOs/FIXMEs/deferred/placeholder in changed source files. Deferrals documented with all 3 Rule 2 elements.
+6. **Gate 6 — Claimed scope matches implemented scope**: All 14 delivered items have verifiable evidence. `rules.md` carries all 10 rules confirmed.
+
+Track T3-commercial is now complete — all 7 slices verified.
 ## 2026-07-06 — implemented (S21-canonical-baton)
 
 **State transition**: design_review → in_progress → implemented.
