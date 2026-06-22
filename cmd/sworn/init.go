@@ -13,7 +13,8 @@ import (
 	"github.com/swornagent/sworn/internal/config"
 )
 
-func cmdInit(args []string) int {	fs := flag.NewFlagSet("init", flag.ExitOnError)
+func cmdInit(args []string) int {
+	fs := flag.NewFlagSet("init", flag.ExitOnError)
 	apiKey := fs.String("api-key", "", "API key for the default provider (openai); overrides prompting")
 	force := fs.Bool("force", false, "overwrite existing config and customized Baton sections")
 	yes := fs.Bool("yes", false, "skip confirmation prompt (non-interactive)")
@@ -25,7 +26,7 @@ func cmdInit(args []string) int {	fs := flag.NewFlagSet("init", flag.ExitOnError
 	in := bufio.NewReader(os.Stdin)
 
 	repoRoot, err := os.Getwd()
-		if err != nil {
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "sworn init: cannot determine working directory: %v\n", err)
 		return 1
 	}
@@ -94,7 +95,8 @@ func cmdInit(args []string) int {	fs := flag.NewFlagSet("init", flag.ExitOnError
 
 	// Agent config files
 	spliceResults, err := adopt.PlanSplice(repoRoot, *force)
-	if err != nil {		fmt.Fprintf(os.Stderr, "sworn init: %v\n", err)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn init: %v\n", err)
 		return 1
 	}
 	for _, r := range spliceResults {
@@ -122,8 +124,8 @@ func cmdInit(args []string) int {	fs := flag.NewFlagSet("init", flag.ExitOnError
 			})
 		case adopt.SpliceCustomized:
 			informational = append(informational, change{
-				label:  r.File,
-				warn:   true,
+				label: r.File,
+				warn:  true,
 				reason: "Baton section has been customized — leaving unchanged\n" +
 					"          (re-run with --force to overwrite with current protocol text)",
 			})
@@ -171,7 +173,7 @@ func cmdInit(args []string) int {	fs := flag.NewFlagSet("init", flag.ExitOnError
 	if !*yes {
 		fmt.Print("Proceed? [Y/n]: ")
 		resp, _ := in.ReadString('\n')
-			resp = strings.TrimSpace(strings.ToLower(resp))
+		resp = strings.TrimSpace(strings.ToLower(resp))
 		if resp != "" && resp != "y" && resp != "yes" {
 			fmt.Println("Aborted. No changes made.")
 			return 0
@@ -252,7 +254,7 @@ func cmdInit(args []string) int {	fs := flag.NewFlagSet("init", flag.ExitOnError
 		}
 		fmt.Printf("  updated  %s (implementer: model=%s, escalation_models=%v, max_attempts=%d)\n",
 			cfgPath, impl.Model, impl.EscalationModels, impl.MaxAttempts)
-	} else if cfgErr == config.ErrConfigExists && *uiBearer {		// Config exists; update it with UI-bearing / design system.
+	} else if cfgErr == config.ErrConfigExists && *uiBearer { // Config exists; update it with UI-bearing / design system.
 		cfg, loadErr := config.Load()
 		if loadErr != nil {
 			fmt.Fprintf(os.Stderr, "sworn init: load existing config: %v\n", loadErr)
@@ -317,13 +319,13 @@ func cmdInit(args []string) int {	fs := flag.NewFlagSet("init", flag.ExitOnError
 		fmt.Print("Set up consideration catalog? (y/n) [y]: ")
 		resp, _ := in.ReadString('\n')
 		resp = strings.TrimSpace(strings.ToLower(resp))
-			if resp == "n" || resp == "no" {
+		if resp == "n" || resp == "no" {
 			fmt.Println("  skipped  catalog — run 'sworn induction' later to set it up")
 			goto done
 		}
 	}
 	if err := materialiseCatalog(repoRoot, in); err != nil {
-			fmt.Fprintf(os.Stderr, "sworn init: catalog: %v\n", err)
+		fmt.Fprintf(os.Stderr, "sworn init: catalog: %v\n", err)
 		return 1
 	}
 
@@ -367,7 +369,7 @@ func materialiseCatalog(repoRoot string, in *bufio.Reader) error {
 		}
 
 		data, err := os.ReadFile(srcPath)
-			if err != nil {
+		if err != nil {
 			return fmt.Errorf("read template %s: %w", t.src, err)
 		}
 		if err := os.WriteFile(dstPath, data, 0644); err != nil {
