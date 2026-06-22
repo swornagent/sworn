@@ -78,7 +78,7 @@ tracks:
     state: in_progress
   - id: T13-sworn-role-parity
     slices: [S45-design-tldr, S46-captain-review, S47-orchestrator-recovery]
-    depends_on: T12-harness-hardening
+    depends_on: [T12-harness-hardening, T17-orchestration-core]
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T13-sworn-role-parity
     state: planned
@@ -99,6 +99,12 @@ tracks:
     depends_on: [T6-provider-ux, T12-harness-hardening, T13-sworn-role-parity]
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T16-verdict-ledger
+    state: planned
+  - id: T17-orchestration-core
+    slices: [S57-oracle-reader, S58-slice-router, S59-scheduler-relayer]
+    depends_on: [T1-concurrency-core, T12-harness-hardening]
+    worktree_path:
+    worktree_branch: track/2026-06-19-safe-parallelism/T17-orchestration-core
     state: planned
 ---
 
@@ -142,17 +148,19 @@ tracks:
 | `T10-public-readiness` | S27 | all tracks (incl. T16) | `track/.../T10-public-readiness` | planned |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
 | `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | in_progress |
-| `T13-sworn-role-parity` | S45 → S46 → S47 | T12 | `track/.../T13-sworn-role-parity` | planned |
+| `T13-sworn-role-parity` | S45 → S46 → S47 | T12 + T17 | `track/.../T13-sworn-role-parity` | planned |
 | `T14-baton-integration` | S48 → S49 → S50 | T3 + T15 | `track/.../T14-baton-integration` | planned |
 | `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged |
 | `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | planned |
+| `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 | `track/.../T17-orchestration-core` | planned |
 
 ### Execution order
 
 ```
 Phase 1:  T1 (sequential)
 Phase 2:  T2, T3, T4, T8, T9, T11, T12, T15 (parallel after T1 — T11/T12 harness-hardening + T15 CLI registry dispatch early)
-          T13 (after T12 — serial; product role parity, shares internal/run with T12)
+          T17 (after T1 + T12 — orchestration-core port: oracle reader + router + scheduler re-layer; S59 shares internal/run + internal/scheduler with T12, so serial after T12)
+          T13 (after T12 + T17 — product role parity; S47 consumes the T17 router; shares internal/run with T12)
 Phase 3:  T5 (after T1 + T3)
           T7 (after T3 + T4; may run in parallel with T5)
           T14 (after T3 — needs S21's embed as its vendor target; parallel with T5/T7)
@@ -349,6 +357,25 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
   `internal/adopt/`) — both touchpoint-disjoint from every T16 surface. T10 runs after T16
   (added to T10 `depends_on`).
 
+**T17 `depends_on T1+T12` notes (replan 2026-06-23 — orchestration-core port):**
+> Ported from the 2026-06-23 port-fidelity audit.
+> The audit found sworn captured the workflow plane (status.json state machine, worktree isolation,
+> verifier contract) but NOT the orchestration plane: the git-ref oracle reader and the
+> deterministic router (`captain-route.sh`) were never ported, and `RunParallel` is a static-DAG
+> executor rather than the reference's resumable poll-and-route loop.
+- New, fully T17-owned namespaces: `internal/router/` (router.go + tests), `cmd/sworn/route.go`
+  (+ test), `cmd/sworn/board.go` (+ test). `route.go`/`board.go` self-register via per-file
+  `init()` (S51/T15 registry) — they do NOT touch `cmd/sworn/commands.go` or `main.go`.
+- `internal/board/oracle.go` (S57, new file in the R2 `internal/board` package): adds the git-ref
+  ownership-resolved status reader. No in-flight track writes `internal/board`; safe.
+- `internal/run/parallel.go` + `internal/scheduler/worker.go` (S59): re-layered to poll-and-route.
+  These are T1-owned (merged) and also touched by T12 (S42–S44 run-loop changes, on
+  `run.go`/`slice.go`/`agent.go`). T17 `depends_on T12` serialises S59 strictly after T12 merges —
+  never parallel. A `/merge-track` conflict here is a planner-ordering error (invariant 4).
+- Re-scoped **S47/T13 consumes S58** (the router), so **T13 `depends_on T17`**; the router lands
+  before S47 wires it in. T16 already `depends_on T12+T13`, so S52/S55's verdict-record edits
+  (`slice.go`) stay serialised after the whole T12→T17→T13 chain — one extra hop, no new collision.
+
 ## Slices
 
 | ID | Track | User outcome | State | Spec |
@@ -401,7 +428,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S44-feedback-driven-retry` | T12 | on verify FAIL, feed the verifier's rationale + violations into the next implement attempt's prompt instead of blind re-running; + provider-error retry policy (terminal→fail-fast, transient→backoff) consuming S10's `model.Error{Kind}` (depends_on S10) | planned | [spec](./S44-feedback-driven-retry/spec.md) |
 | `S45-design-tldr` | T13 | `sworn run` generates a design TL;DR (§1–6) before implementation — restores the pre-code design artefact for the captain to review | planned | [spec](./S45-design-tldr/spec.md) |
 | `S46-captain-review` | T13 | captain agent reviews the TL;DR + live code, emits classified pins, writes review.md, and gates implement (proceed if no escalate pins, else halt+surface) — the in-product `/design-review` | planned | [spec](./S46-captain-review/spec.md) |
-| `S47-orchestrator-recovery` | T13 | on non-PASS, intelligent triage chooses resolve-in-place / escalate / halt and assesses BLOCKED resolvability — the in-product orchestrator | planned | [spec](./S47-orchestrator-recovery/spec.md) |
+| `S47-orchestrator-recovery` | T13 | on non-PASS, intra-run triage chooses resolve-in-place / escalate / halt, then commits state and delegates lifecycle routing (BLOCKED→replan, fail→redesign/implement) to the S58 router (re-scoped 2026-06-23) | planned | [spec](./S47-orchestrator-recovery/spec.md) |
 | `S39-openai-responses-provider` | T5 | first-class OpenAI provider via /v1/responses (reasoning_effort + tool-calls + built-in web_search) + a cross-provider WebSearch/WebFetch agent tool — fixes gpt-5.x support + 'more than 6 tools' | planned | [spec](./S39-openai-responses-provider/spec.md) |
 | `S48-baton-vendor` | T14 | `sworn baton vendor` — semver-pinned vendor of upstream Baton + bash→sworn transform over rules AND role-prompts (strips `release-verify.sh`/`release-board-status.sh`/`captain-memory-search.py`… → sworn-native commands); reproduces the sworn-native embed (subsumes the one-time scrub) | planned | [spec](./S48-baton-vendor/spec.md) |
 | `S49-baton-version` | T14 | reconcile the Baton pin from a raw SHA to a **semver tag** across `VERSION`+`VERSION.txt`; `sworn version` reports "on Baton vX.Y.Z"; `sworn doctor` fails the pin if it's a SHA not a tag | planned | [spec](./S49-baton-version/spec.md) |
@@ -412,9 +439,17 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S54-ledger-routing` | T16 | `sworn ledger recommend <kind>` + S09's `ResolveImplementerModel` defaults to the highest measured pass-rate model for the slice kind (flag/env still win; thin corpus = unchanged) | planned | [spec](./S54-ledger-routing/spec.md) |
 | `S55-ledger-multirole-cost` | T16 | Record `v:2` captures per-role `{model, cost_usd}` for every dispatch (implementer, verifier, captain, orchestrator-hook) — cost from local token-pricing, not S06b billing | planned | [spec](./S55-ledger-multirole-cost/spec.md) |
 | `S56-ledger-cost-routing` | T16 | `--optimize cost\|quality\|balanced`: cheapest model clearing a pass-rate floor; `report` gains cost-per-pass + per-role quality (captain-miss, verifier-overturn) | planned | [spec](./S56-ledger-cost-routing/spec.md) |
+| `S57-oracle-reader` | T17 | `sworn board` reads every slice's authoritative status.json from git refs (track branch > release-wt > worktree), ownership-resolved — the honest board reader the router/TUI/rollup read through | planned | [spec](./S57-oracle-reader/spec.md) |
+| `S58-slice-router` | T17 | `sworn route <slice> <release>` computes the next command purely from committed status.json — the deterministic captain-route.sh port (state machine + design-review/Gate-re-entry/merge) | planned | [spec](./S58-slice-router/spec.md) |
+| `S59-scheduler-relayer` | T17 | `sworn run --parallel` workers poll the router each step (poll-and-route) instead of a static slice list — resumable, dynamic; keeps dependency resolution + worktree isolation + supervisor ownership | planned | [spec](./S59-scheduler-relayer/spec.md) |
 
 ## Aggregate state
 
+> **STALE — the board oracle (`release-board-status.sh --json`) is authoritative; run it for live
+> counts.** This hand-maintained block predates the T16-verdict-ledger and T17-orchestration-core
+> additions (now **17 tracks**) and is not reconciled per-replan. Counts below are a historical
+> snapshot only.
+>
 > Reconciled from the board oracle (`release-board-status.sh --json`, authoritative) this
 > replan, 2026-07-03. **57 slices across 15 tracks.** Slice-table State column above
 > re-rendered from the oracle this pass (it had lagged: S06a/S06b/S08a/S08b/S08c/S22 and
@@ -452,6 +487,28 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 - **Verdict**: PASS — all six gates passed. Three planner rules (Risk-cites-code, shape-pin/two-commit, dynamic-CORS + memory-stale) confirmed present in `internal/prompt/planner.md:186-190`; WATCHER cleanup confirmed in `internal/prompt/implementer.md:178`. No Go changes; `go build ./...` clean.
 - **Next**: `/implement-slice S35-mutation-guard 2026-06-19-safe-parallelism` (next in T12-harness-hardening).
 
+### 2026-06-23 — replan: add T17-orchestration-core (router/oracle/loop port from fidelity audit)
+
+- **Actor**: planner (`/replan-release`)
+- **Trigger (net-new scope, not a stalled slice)**: the 2026-06-23 port-fidelity audit
+  found sworn captured the workflow plane
+  (status.json state machine, worktree isolation, verifier contract) but NOT the orchestration
+  plane — the git-ref oracle reader and the deterministic router (`captain-route.sh`) were never
+  ported, and `RunParallel` is a static-DAG executor rather than the reference's resumable
+  poll-and-route loop. The watcher-protocol was verified DORMANT against two live coach loops
+  (no consumer; `coach-loop` routes via `captain-route.sh`), so it is explicitly NOT ported.
+- **Added**: track **T17-orchestration-core** (`depends_on T1 + T12`) with three slices —
+  `S57-oracle-reader` (git-ref ownership-resolved `internal/board` reader),
+  `S58-slice-router` (`internal/router` deterministic `captain-route.sh` port),
+  `S59-scheduler-relayer` (re-layer `RunParallel` worker to poll-and-route; wrap-vs-replace is the
+  design-review pin). S59 collides with T12's run-loop work (`internal/run`/`internal/scheduler`),
+  hence `depends_on T12`.
+- **Re-scoped**: `S47-orchestrator-recovery` (T13) → consumes the S58 router for lifecycle/BLOCKED
+  routing, keeping only the intra-run escalation budget; **T13 gains `depends_on T17`**.
+- **Decomposition decisions (Coach, this session)**: new track (not appended to T13); oracle
+  reader as its own slice (reusable by router/TUI/rollup); re-scope S47 to consume the router.
+- **Board oracle reconciliation**: clean — no ghost slices, no pending specs, no blocked/failed
+  slices; no existing in-flight spec re-scoped, so no `/verify`↔`/replan` drift introduced.
 ### 2026-07-03 — replan: resolve S07-paging stale BLOCKED (main.go fix already merged via T15)
 
 - **Actor**: planner (`/replan-release`)
