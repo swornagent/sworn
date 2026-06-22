@@ -23,8 +23,19 @@ None.
 
 ## Verifier verdicts received
 
-*(None yet.)*
+### 2026-07-04T00:00:00Z — PASS (verifier, fresh context)
 
+**Verdict:** PASS
+
+All six gates passed:
+- **Gate 1**: User-reachable — `captain.md` resolve-dirty-worktree function is embedded via `prompt.Captain()`, dispatched by the loop.
+- **Gate 2**: Planned touchpoints match — `captain.md` + `prompt_test.go` changed; docs only are expected artefacts.
+- **Gate 3**: Required tests exist — `TestCaptain_ResolveDirtyWorktree` verifies embedded prompt content; all 12 tests pass.
+- **Gate 4**: Reachability artefact — walkthrough traces full resolution path through captain prompt.
+- **Gate 5**: No silent deferrals — zero TODO/FIXME/deferred/placeholder/XXX/HACK hits in diff.
+- **Gate 6**: Claimed scope matches — all 4 ACs verified against captain.md and test content.
+
+**Next:** S37-telemetry-tui-exclusion is the next incomplete slice in T12-harness-hardening.
 ## 2026-07-04 — implemented
 
 State transition: `design_review` → `in_progress` → `implemented`.
