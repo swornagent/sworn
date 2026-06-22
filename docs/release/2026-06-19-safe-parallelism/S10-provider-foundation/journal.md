@@ -79,3 +79,24 @@ updated text references ADR-0007
 - `oai.go` returns `*model.Error` on non-2xx; `errors.As` yields KindCredits for 402 (TestNewProviderError)
 - `cmd/sworn/run.go` calls `LoadDotEnv()` and `printModelError(err)` as specified
 - No silent deferrals in changed source files
+
+## Planner correction — 2026-06-23 (replan resolving the BLOCKED verdict)
+
+**Actor**: planner (`/replan-release`)
+
+The verifier BLOCKED on a spec acceptance-check inconsistency: the AC read "updated text
+references ADR-0004", but ADR-0004 is the TUI-deps ADR (`0004-tui-deps-bubbletea-lipgloss.md`);
+the dep-policy ADR is `0007-dep-policy-minimal-justified.md`. Ground truth (`docs/adr/`) confirms
+0004 = tui-deps, 0007 = dep-policy, 0008 = canonical-baton. The implementation correctly cites
+ADR-0007, so there was no legal implementer fix — a spec defect, owned by the planner.
+
+This was the tail of the ADR-number-collision flagged 2026-06-21 (S10's planned `0004-dep-policy`
+collided with the merged TUI ADR-0004; the implementation renumbered to 0007 but the spec AC + two
+other refs lagged — partially fixed by Coach at start_commit, leaving the AC stale).
+
+**Resolution**: all dep-policy ADR references in this spec corrected to 0007 (description, body,
+CLAUDE.md text, the blocking AC, the env note, planned-touchpoint, AC-committed line); index.md
+matrix rows + S10 `planned_files` corrected to 0007/0008; the collision note marked RESOLVED.
+`verification.result` cleared to `pending`, `state` kept `implemented` (gates 1-5 already passed).
+`start_commit` preserved. Next: a fresh `/verify-slice S10-provider-foundation` — no code change
+required, the implementation already satisfies the corrected spec.

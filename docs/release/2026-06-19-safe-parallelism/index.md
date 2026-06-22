@@ -22,7 +22,8 @@ tracks:
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T3-commercial
     worktree_branch: track/2026-06-19-safe-parallelism/T3-commercial
     state: merged
-  - id: T4-mcp    slices: [S08a-mcp-transport, S08b-mcp-ops-tools, S08c-mcp-plan-tools, S22-sworn-doctor]
+  - id: T4-mcp
+    slices: [S08a-mcp-transport, S08b-mcp-ops-tools, S08c-mcp-plan-tools, S22-sworn-doctor]
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T4-mcp
     worktree_branch: track/2026-06-19-safe-parallelism/T4-mcp
@@ -200,13 +201,15 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > S22/T4, already merged — S49 adds a Baton-pin check) plus the documented-shared additive
 > `cmd/sworn/main.go`. T5 touches only `internal/model/**`+`go.mod`+`cmd/sworn/run.go`; T7
 > only `internal/mcp/**`+`internal/config/**` — disjoint from T14. No parallel collision.
-> **ADR-number-collision finding (flagged this replan, not yet fixed):** the matrix rows
-> `docs/adr/0004-dep-policy-minimal-justified.md` (S10) and `docs/adr/0005-canonical-baton.md`
-> (S21) name ADR numbers that are now **already taken** on `release/v0.1.0` by
-> `0004-tui-deps-bubbletea-lipgloss.md` and `0005-tui-dep-bubbles.md` (landed by T2). S10's and
-> S21's specs must pick the next free numbers at implement time (S10→0007, S21→0008, after this
-> replan's 0006). Surfaced to the Coach; S10/S21 are `planned`/not-started so the fix is a
-> one-line spec edit each — left to the owning slice rather than silently renumbered here.
+> **ADR-number-collision finding (flagged 2026-06-21, RESOLVED 2026-06-23):** the original matrix
+> rows named `docs/adr/0004-dep-policy-minimal-justified.md` (S10) and
+> `docs/adr/0005-canonical-baton.md` (S21), but `0004`/`0005` were already taken on
+> `release/v0.1.0` by `0004-tui-deps-bubbletea-lipgloss.md` and `0005-tui-dep-bubbles.md` (landed
+> by T2). The owning slices renumbered at implement time — **S10 → `0007-dep-policy-minimal-justified.md`**
+> (implemented) and **S21 → `0008-canonical-baton.md`** (verified). The matrix rows below and
+> S10's `status.json` `planned_files` are corrected to `0007`/`0008` to match the shipped reality.
+> The stale `0004` reference in S10's spec acceptance check was the defect behind S10's BLOCKED
+> verdict — corrected this replan.
 > **Cross-slice dependency (S08c → S21):** `internal/prompt/baton/rules.md` is created by
 > `S21-canonical-baton` (T3). `S08c-mcp-plan-tools` (T4) serves it via the `sworn://baton/rules`
 > MCP resource, so S08c's rules resource depends on S21's output. Resolution (Captain Pin 2,
@@ -217,7 +220,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | File / surface | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |---|---|---|---|---|---|---|------|---|---|
 | `docs/adr/0003-sqlite-orchestration-state.md` | ✓ | | | | |  |
-| `docs/adr/0004-dep-policy-minimal-justified.md` (new) | | | | | ✓ |  |
+| `docs/adr/0007-dep-policy-minimal-justified.md` (new) | | | | | ✓ |  |
 | `CLAUDE.md` | | | | | ✓ |  |
 | `internal/db/` (new) | ✓ | | | | |  |
 | `internal/supervisor/` (new) | ✓ | | | | |  |
@@ -248,7 +251,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `internal/model/oci_test.go` (new) | | | | | ✓ |  |
 | `internal/model/ollama.go` (new) | | | | | ✓ |  |
 | `internal/model/ollama_test.go` (new) | | | | | ✓ |  |
-| `cmd/sworn/run.go` | ✓ | | (T1 dep) | | (T1+T3 dep) |  |
+| `cmd/sworn/run.go` (DOCUMENTED SHARED — additive flag/wiring per track; see T12 notes) | ✓ | | (T1 dep) | | (T1+T3 dep) |  |
 | `go.mod`, `go.sum` | ✓ | | | | (T1 dep) |  |
 | `cmd/sworn/main.go` (T15-owned — registry dispatch loop, no per-track edits) | | | | | | ✓ |
 | `internal/command/` (new — command registry; T15-owned) | | | | | | ✓ |
@@ -288,7 +291,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `internal/mcp/catalog_test.go` (new) | | | | | | | ✓ |
 | `cmd/sworn/doctor.go` (new) | | | | ✓ | | | |
 | `cmd/sworn/doctor_test.go` (new) | | | | ✓ | | | |
-| `docs/adr/0005-canonical-baton.md` (new) | | | ✓ | | | | |
+| `docs/adr/0008-canonical-baton.md` (new) | | | ✓ | | | | |
 | `docs/templates/agents.md` (new) | | | ✓ | | | | |
 | `cmd/sworn/mcp.go` (new) | | | | ✓ | |  |
 | `docs/mcp-setup.md` (new) | | | | ✓ | |  |
@@ -328,6 +331,26 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 - `internal/tui/tui.go`: T2 creates it; T6 adds `s` key binding after T2 merges
 - `cmd/sworn/top.go`: T2 owns it; T6 modifies it after T2 merges
 - `internal/config/config.go`: T3 owns it; T6 adds Save() after T3 merges (via T5 dep chain)
+
+**T12 `depends_on T1` notes (replan 2026-06-23 — S42 run-loop touchpoints):**
+- `cmd/sworn/run.go` is now a **DOCUMENTED SHARED** file. S10 (T5) adds `LoadDotEnv()` +
+  `printModelError()`; S42 (T12) adds the `--implement-timeout` flag + `SWORN_IMPLEMENT_TIMEOUT`
+  env + the `ImplementTimeout` option wiring. The two edits are additive and region-separable
+  (error surfacing vs flag registration), so `/merge-track` reconciles them regardless of merge
+  order — whichever track merges second forward-merges and integrates the other's additive block.
+  This supersedes the earlier T5 note's assumption that T5 was the only in-flight writer of this
+  file. Chosen over a `T12 depends_on T5` edge because T12 is near-complete (10 slices verified)
+  and T5 is barely started — serialising the finished track behind the unstarted one is backwards.
+- `internal/run/run.go`, `internal/run/slice.go`: T1-owned and **merged**. S42 threads
+  `ImplementTimeout` through `Options`/`SliceOptions` and wraps each attempt in
+  `context.WithTimeout`. Only T12 writes these while in-flight (T13/T16/T17 are planned and
+  `depends_on T12`), so this is integration-on-top-of-merged-T1, not a parallel collision; the
+  implementer's `/implement-slice` Step 0 forward-merges `release-wt` to resolve it.
+- `internal/config/config.go`: **explicitly NOT an S42 touchpoint.** The default timeout stays a
+  named constant (`DefaultImplementTimeout`) in `internal/run/slice.go`. An earlier implementation
+  attempt put it in `config.go` (a T3-merged / planned-T6 / planned-T16 file); that deviation is
+  rejected — keeping the constant in `slice.go` removes the collision entirely, and the
+  config-file timeout tier is deferred (precedence is flag > env > default).
 
 **T16 `depends_on T6+T12+T13` notes (replan 2026-06-22 — verdict ledger):**
 - New, fully T16-owned surfaces (no other column): `internal/ledger/` (ledger.go, query.go,
@@ -392,7 +415,8 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S08a-mcp-transport` | T4 | `sworn mcp` JSON-RPC server; initialize handshake; tools scaffold | verified | [spec](./S08a-mcp-transport/spec.md) |
 | `S08b-mcp-ops-tools` | T4 | 9 ops tools: get_board, get_blocked, get_slice_context, rerun, patch, merge, defer | verified | [spec](./S08b-mcp-ops-tools/spec.md) |
 | `S08c-mcp-plan-tools` | T4 | 4 planning tools + resources + prompts + mcp-setup.md | verified | [spec](./S08c-mcp-plan-tools/spec.md) |
-| `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | verified | [spec](./S09-per-role-model-config/spec.md) || `S10-provider-foundation` | T5 | ADR 0007 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | implemented (blocked — spec AC says ADR-0004, should be ADR-0007; see verification.violations) | [spec](./S10-provider-foundation/spec.md) |
+| `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | verified | [spec](./S09-per-role-model-config/spec.md) |
+| `S10-provider-foundation` | T5 | ADR 0007 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | implemented | [spec](./S10-provider-foundation/spec.md) |
 | `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | planned | [spec](./S11-anthropic-driver/spec.md) |
 | `S12-google-driver` | T5 | Google Gemini and Vertex AI models work as verifier and implementer | planned | [spec](./S12-google-driver/spec.md) |
 | `S13-bedrock-driver` | T5 | AWS Bedrock models work via Converse API; IAM auth | planned | [spec](./S13-bedrock-driver/spec.md) |
@@ -420,7 +444,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S37-telemetry-tui-exclusion` | T12 | no-args/TUI launch no longer fires a junk telemetry event (empty cmd + session-length); exclusion in `telemetry.Fire()`, not the shared main.go (sworn#7) | planned | [spec](./S37-telemetry-tui-exclusion/spec.md) |
 | `S38-verifier-blocked-violations` | T12 | a BLOCKED verdict must populate `status.json` violations (not just journal prose) + a gate rejecting blocked-with-empty-violations — fixes blank REPLAN pages | planned | [spec](./S38-verifier-blocked-violations/spec.md) |
 | `S41-build-bin-target` | T12 | canonical `make build` → `bin/sworn` + `docs/build.md` run-from-root convention; stops `cmd/sworn/.sworn` + `docs/release/run-*` worktree clutter | planned | [spec](./S41-build-bin-target/spec.md) |
-| `S42-implement-step-timeout` | T12 | `sworn run` bounds each implement attempt with a context deadline; a hung implementer is cancelled and escalates to the next model instead of hanging forever | planned | [spec](./S42-implement-step-timeout/spec.md) |
+| `S42-implement-step-timeout` | T12 | `sworn run` bounds each implement attempt with a context deadline; a hung implementer is cancelled and escalates to the next model instead of hanging forever | failed_verification | [spec](./S42-implement-step-timeout/spec.md) |
 | `S43-agent-loop-natural-stop` | T12 | agent loop terminates on the model's natural stop (no tool calls) instead of spinning to the turn cap; salvages work from empty-final-text models (gpt-oss-class) by letting proof-from-diff + verifier judge | planned | [spec](./S43-agent-loop-natural-stop/spec.md) |
 | `S44-feedback-driven-retry` | T12 | on verify FAIL, feed the verifier's rationale + violations into the next implement attempt's prompt instead of blind re-running; + provider-error retry policy (terminal→fail-fast, transient→backoff) consuming S10's `model.Error{Kind}` (depends_on S10) | planned | [spec](./S44-feedback-driven-retry/spec.md) |
 | `S45-design-tldr` | T13 | `sworn run` generates a design TL;DR (§1–6) before implementation — restores the pre-code design artefact for the captain to review | planned | [spec](./S45-design-tldr/spec.md) |
@@ -454,24 +478,63 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > S07 `planned` despite `implemented`). Three duplicate rows (S22/S23/S24) and several
 > `||`-collapsed physical lines repaired.
 
-- Planned: 26
+- Planned: 27
 - In progress: 0
-- Implemented: 1
+- Implemented: 0
 - Design review: 1
 - Verified: 28
 - Failed verification: 0
 - Deferred: 0
 
 **Tracks:** Planned: 8 / In progress: 1 / Merged: 8
-> Merged (8): T1, T2, T3, T4, T8, T9, T11, T15. In progress (1): T12-harness-hardening (head: S42-implement-step-timeout). Planned (8): T5, T6, T7, T10, T13, T14, T16, T17.## Recent activity
+> Merged (8): T1, T2, T3, T4, T8, T9, T11, T15. In progress (1): T12-harness-hardening (head: S42-implement-step-timeout). Planned (8): T5, T6, T7, T10, T13, T14, T16, T17.
 
-### 2026-06-23 — S10-provider-foundation verifier BLOCKED (T5-providers)
+## Recent activity
 
-- **Actor**: verifier (fresh context, artefact-only)
-- **Verdict**: BLOCKED — gates 1–5 pass; gate 6 blocked on internal spec inconsistency.
-- **Finding**: Acceptance check line 115 says "updated text references ADR-0004" but ADR-0004 is `0004-tui-deps-bubbletea-lipgloss.md` (TUI deps, unrelated). The spec body correctly says "ADR 0007". Coach pin 1 at start_commit updated the spec body/description but missed this AC. The implementation correctly references ADR-0007 — the remediation (referencing ADR-0004) is not a legal implementer fix.
-- **Proposed amendment**: In spec.md acceptance checks, change "updated text references ADR-0004" → "updated text references ADR-0007".
-- **Next**: `/replan-release 2026-06-19-safe-parallelism` — planner ratifies the spec AC fix, clears verification.result, then `/verify-slice S10-provider-foundation 2026-06-19-safe-parallelism` re-runs.
+### 2026-06-23 — replan: resolve S10-provider-foundation BLOCKED (stale ADR ref) + ADR-number reconciliation
+
+- **Actor**: planner (human + Claude)
+- **Trigger**: `/verify-slice` returned **BLOCKED** on S10 — gates 1–5 passed, but an acceptance
+  check read "updated text references ADR-0004". ADR-0004 is the **TUI-deps** ADR
+  (`0004-tui-deps-bubbletea-lipgloss.md`); the dep-policy ADR is **`0007-dep-policy-minimal-justified.md`**.
+  The implementation (CLAUDE.md) correctly cites ADR-0007 — changing it to 0004 would be wrong, so
+  no legal implementer fix existed. Routed to the planner.
+- **Ground truth checked**: `docs/adr/` on T5 confirms `0004` = tui-deps, `0007` = dep-policy,
+  `0008` = canonical-baton. This closes the **ADR-number-collision finding** flagged 2026-06-21
+  (S10's planned `0004-dep-policy` and S21's `0005-canonical-baton` collided with merged TUI ADRs;
+  the implementations renumbered to 0007/0008 but the board/spec lagged — the stale-spec ↔ verify loop).
+- **Spec drift found**: T5's S10 spec was *ahead* of release-wt (Coach had partially fixed
+  0004→0007 in the body at start_commit, leaving the AC + two refs stale); release-wt was fully stale.
+- **Resolution**: corrected **all** dep-policy ADR refs in S10's spec to `0007`; fixed S10
+  `status.json` `planned_files` + the matrix rows (`0007-dep-policy`, `0008-canonical-baton`) and the
+  collision note. S10 `verification.result` cleared to `pending`, `state` → `implemented` (gates 1–5
+  already pass; ready for a fresh `/verify-slice`).
+
+### 2026-06-23 — replan: resolve S42-implement-step-timeout BLOCKED (touchpoint correction)
+
+- **Actor**: planner (human + Claude)
+- **Trigger**: `/verify-slice` returned **BLOCKED** on S42 — its Step-0 forward-merge of
+  `release-wt` into `track/.../T12-harness-hardening` conflicted on `cmd/sworn/run.go`,
+  `internal/config/config.go`, `internal/run/run.go`. Verdict framing: touchpoint matrix wrong
+  (invariant 4); proposed `/replan-release`.
+- **Diagnosis**: three of four conflicts (`run.go`, `slice.go`, `config.go`) are against
+  **already-merged** T1/T3 work — normal integration the implementer resolves at Step 0, not a
+  parallel race. The `config.go` conflict was **self-inflicted**: the implementer moved
+  `DefaultImplementTimeout` into `config.go`, deviating from the spec (the constant belongs in
+  `slice.go`). The one genuine in-flight collision is `cmd/sworn/run.go`, shared by S10 (T5,
+  in_progress) and S42 (T12) — and unrecorded for T12 in the matrix.
+- **Decision A (run.go collision)** — declare `cmd/sworn/run.go` **DOCUMENTED SHARED** (additive
+  flag/wiring per track), not a `T12 depends_on T5` edge: T12 is near-complete and T5 barely
+  started, so serialising the finished track behind the unstarted one is backwards. T5 and T12
+  stay parallel; `/merge-track` reconciles. See the new T12 notes block in the matrix section.
+- **Decision B (config.go deviation)** — enforce the spec: the default stays a named constant in
+  `slice.go`; S42 drops `config.go` entirely. The config-file timeout tier is deferred
+  (precedence becomes flag > env > default). Spec amended with explicit out-of-scope + Rule 2 card.
+- **Outcome**: S42 `verification.result` cleared to `pending`, `state` → `failed_verification`;
+  the implementer re-enters to forward-merge `release-wt`, move the constant back to `slice.go`,
+  drop the config tier, and re-prove. Also repaired two `index.md` defects: the collapsed
+  `T4-mcp` frontmatter line (`id:` + `slices:` on one line — the oracle was reading T4-mcp with
+  an empty slice list) and the `## Recent activity` header glued onto the tracks note.
 
 ### 2026-07-07 — track `T3-commercial` merged to release-wt (commit 82fc388)
 
