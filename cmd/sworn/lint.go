@@ -19,12 +19,14 @@ import (
 //	trace       — build the 2-D requirements traceability matrix; fail closed on broken traces
 //	deps        — check that go.mod/go.sum changes are declared in planned_files; fail closed on undeclared
 //	touchpoints — reconcile design file/package refs against planned_files + collision matrix; fail closed
+//	symbols     — grep backtick identifiers from design.md against live codebase; advisory warn-only
 func cmdLint(args []string) int {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "sworn lint: target required")
-		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints> <release>")
+		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint deps [--base <ref>] <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint touchpoints <slice-id> <release>")
+		fmt.Fprintln(os.Stderr, "       sworn lint symbols <slice-id> <release>")
 		return 64
 	}
 	switch args[0] {
@@ -36,16 +38,17 @@ func cmdLint(args []string) int {
 		return cmdLintDeps(args[1:])
 	case "touchpoints":
 		return cmdLintTouchpoints(args[1:])
+	case "symbols":
+		return cmdLintSymbols(args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "sworn lint: unknown target %q (known: ac, trace, deps, touchpoints)\n", args[0])
-		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints> <release>")
+		fmt.Fprintf(os.Stderr, "sworn lint: unknown target %q (known: ac, trace, deps, touchpoints, symbols)\n", args[0])
+		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint deps [--base <ref>] <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint touchpoints <slice-id> <release>")
+		fmt.Fprintln(os.Stderr, "       sworn lint symbols <slice-id> <release>")
 		return 64
 	}
-}
-// cmdLintAC implements `sworn lint ac <release>`.
-//
+} // cmdLintAC implements `sworn lint ac <release>`.
 // Classifies every acceptance check in every slice's spec.md by EARS pattern
 // and fails closed (non-zero exit) on any free-form check that matches no
 // pattern, naming the slice + the offending line. A release whose every AC is
@@ -210,9 +213,55 @@ func cmdLintTouchpoints(args []string) int {
 	return 0
 }
 
+// cmdLintSymbols implements `sworn lint symbols <slice-id> <release>`.
+//
+// Extracts backtick-quoted identifiers from the slice's design.md, greps each
+// against the live codebase (excluding docs/), and reports unresolved symbols
+// as advisory warnings. Exit code 3 on unresolved symbols (advisory, distinct
+// from the hard-fail exit 1 and I/O error exit 2); exit 0 when all resolve.
+func cmdLintSymbols(args []string) int {
+	fs := flag.NewFlagSet("lint symbols", flag.ExitOnError)
+	_ = fs.Parse(args)
+
+	if fs.NArg() < 2 {
+		fmt.Fprintln(os.Stderr, "sworn lint symbols: slice-id and release name are required")
+		fmt.Fprintln(os.Stderr, "usage: sworn lint symbols <slice-id> <release>")
+		return 64
+	}
+	sliceID := fs.Arg(0)
+	releaseName := fs.Arg(1)
+
+	releaseDir, err := resolveReleaseDir(releaseName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint symbols: %v\n", err)
+		return 2
+	}
+
+	sliceDir := filepath.Join(releaseDir, sliceID)
+	if _, err := os.Stat(sliceDir); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint symbols: slice directory not found: %s\n", sliceDir)
+		return 2
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint symbols: get cwd: %v\n", err)
+		return 2
+	}
+
+	if err := lint.CheckSymbols(sliceDir, cwd); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint symbols: %v\n", err)
+		return 3
+	}
+
+	fmt.Printf("symbols: all identifiers in %s resolve against the live codebase\n", sliceID)
+	return 0
+}
+
 // resolveReleaseDir returns the absolute path to docs/release/<name> relative
 // to the current working directory, or an error if the directory does not exist.
-func resolveReleaseDir(name string) (string, error) {	cwd, err := os.Getwd()
+func resolveReleaseDir(name string) (string, error) {
+	cwd, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("get cwd: %w", err)
 	}
