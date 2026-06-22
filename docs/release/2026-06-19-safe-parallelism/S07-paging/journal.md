@@ -54,3 +54,21 @@
 - SwornAgent `/api/notify` endpoint: acknowledged Coach 2026-06-22, tracking SwornAgent backend backlog
 
 **Files changed this session:** `internal/run/run.go` (+Notifier field in Options, +thread through to RunSliceOptions), `cmd/sworn/run.go` (hoisted notifier creation, added to single-slice path), `status.json`, `proof.md`, `journal.md`
+## 2026-07-01: Re-entry #2 — proof bundle refresh
+
+**State transition:** `implemented` → `in_progress` → `implemented`
+
+**Why re-entry:** Coach re-dispatched S07-paging. No code changes needed — pure proof bundle refresh.
+
+**Actions:**
+- Fixed stale local `track/.../T3-commercial` branch (was at `5a9f88a` design_review, synced to `091b08f`)
+- Switched worktree from `release-...-T3-commercial` to `track/2026-06-19-safe-parallelism/T3-commercial`
+- Re-ran all 62 tests across three packages: 27 account, 21 run, 14 scheduler — all PASS
+- `go vet` clean across all packages
+- Proof bundle regenerated from live repo state (13 files in diff, current test output)
+- `release-verify.sh`: 22 PASS, 0 FAIL (first-pass green)
+- Skeptic panel: skipped — runtime does not support subagent dispatch
+- DoR: reqverify and reqvalidate not checked — sworn implement not used
+
+**Deferral carried forward:**
+- SwornAgent `/api/notify` endpoint: acknowledged Coach 2026-06-22, tracking SwornAgent backend backlog

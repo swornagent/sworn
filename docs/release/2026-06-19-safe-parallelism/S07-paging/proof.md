@@ -48,6 +48,9 @@ Verification URL: https://example.com/device
 === RUN   TestIsLoggedIn/expired
 === RUN   TestIsLoggedIn/valid
 --- PASS: TestIsLoggedIn (0.00s)
+    --- PASS: TestIsLoggedIn/nil (0.00s)
+    --- PASS: TestIsLoggedIn/expired (0.00s)
+    --- PASS: TestIsLoggedIn/valid (0.00s)
 === RUN   TestCredentialsJSONFields
 --- PASS: TestCredentialsJSONFields (0.00s)
 === RUN   TestLogoutRemovesFile
@@ -79,10 +82,10 @@ sworn notify: webhook delivery failed after 3 attempts
 === RUN   TestNotifyWithAccount_ExpiredToken
 --- PASS: TestNotifyWithAccount_ExpiredToken (0.00s)
 === RUN   TestNotifyWebhook_TimeoutContext
-sworn notify: webhook POST attempt 1/3: Post "http://127.0.0.1:32925": context deadline exceeded
+sworn notify: webhook POST attempt 1/3: Post "http://127.0.0.1:45217": context deadline exceeded
 --- PASS: TestNotifyWebhook_TimeoutContext (0.10s)
 === RUN   TestViolationsSummary_FromFile
---- PASS: TestViolationsSummary_FromFile (0.01s)
+--- PASS: TestViolationsSummary_FromFile (0.00s)
 === RUN   TestViolationsSummary_Truncation
 --- PASS: TestViolationsSummary_Truncation (0.00s)
 === RUN   TestNotifyEvent_JSONShape
@@ -99,7 +102,7 @@ warning: SWORN_PROXY_URL is set — sworn credentials will be routed to http://l
 === RUN   TestProxyEndpointModelIDEscaped
 --- PASS: TestProxyEndpointModelIDEscaped (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/internal/account	10.136s
+ok  	github.com/swornagent/sworn/internal/account	10.123s
 ```
 
 ### `go test ./internal/run/... -v -count=1`
@@ -126,11 +129,11 @@ ok  	github.com/swornagent/sworn/internal/account	10.136s
 === RUN   TestRunParallel_DependentTrackRunsAfterSuccess
 --- PASS: TestRunParallel_DependentTrackRunsAfterSuccess (0.00s)
 === RUN   TestRun_PassPath_Merges
---- PASS: TestRun_PassPath_Merges (0.11s)
+--- PASS: TestRun_PassPath_Merges (0.10s)
 === RUN   TestRun_FailPath_NoMerge
---- PASS: TestRun_FailPath_NoMerge (0.12s)
+--- PASS: TestRun_FailPath_NoMerge (0.11s)
 === RUN   TestRun_FailThenPass_RetrySucceeds
---- PASS: TestRun_FailThenPass_RetrySucceeds (0.12s)
+--- PASS: TestRun_FailThenPass_RetrySucceeds (0.11s)
 === RUN   TestRun_Blocked_StopsImmediately
 --- PASS: TestRun_Blocked_StopsImmediately (0.08s)
 === RUN   TestSanitiseBranch
@@ -138,19 +141,19 @@ ok  	github.com/swornagent/sworn/internal/account	10.136s
 === RUN   TestRun_MissingTask
 --- PASS: TestRun_MissingTask (0.00s)
 === RUN   TestRun_VerifyMarkdownPass
---- PASS: TestRun_VerifyMarkdownPass (0.11s)
+--- PASS: TestRun_VerifyMarkdownPass (0.10s)
 === RUN   TestRun_VerifyStatelessPromptWired
---- PASS: TestRun_VerifyStatelessPromptWired (0.11s)
+--- PASS: TestRun_VerifyStatelessPromptWired (0.10s)
 === RUN   TestRun_VerifyToolCallLeakBlocks
---- PASS: TestRun_VerifyToolCallLeakBlocks (0.09s)
+--- PASS: TestRun_VerifyToolCallLeakBlocks (0.10s)
 === RUN   TestRunSlice
 --- PASS: TestRunSlice (0.04s)
 === RUN   TestRunSliceFail
---- PASS: TestRunSliceFail (0.07s)
+--- PASS: TestRunSliceFail (0.06s)
 === RUN   TestRunSlice_MissingVerifierModel
 --- PASS: TestRunSlice_MissingVerifierModel (0.03s)
 PASS
-ok  	github.com/swornagent/sworn/internal/run	0.918s
+ok  	github.com/swornagent/sworn/internal/run	0.860s
 ```
 
 ### `go test ./internal/scheduler/... -v -count=1`
@@ -185,7 +188,7 @@ ok  	github.com/swornagent/sworn/internal/run	0.918s
 === RUN   TestRunTrack_EmptySlices
 --- PASS: TestRunTrack_EmptySlices (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/internal/scheduler	0.016s
+ok  	github.com/swornagent/sworn/internal/scheduler	0.015s
 ```
 
 ### `go vet`
@@ -234,11 +237,10 @@ ok  	github.com/swornagent/sworn/internal/scheduler	0.016s
 - **Pin 1:** `planned_files` updated: `internal/run/run.go` → `internal/run/slice.go` (S02a refactor moved `RunSlice`). Added `internal/account/account.go` (WebhookURL field on Credentials).
 - **Pin 2 (Option a):** BLOCKED notification fires at `slice.go:222` (before error return) with `state: "blocked"`. FAIL notification fires after `failed_verification` state write at `slice.go:265`. Track-fail notification in `worker.go` covers unexpected/non-verdict errors.
 - **Pin 3 (Coach acked):** Live webhook.site smoke test performed in addition to mock-server unit tests.
-- **Re-entry (2026-07-01):** Single-slice `run.Run()` path was not wired for notifications (only `RunParallel` was). Added `Notifier` field to `run.Options`, threaded through to `RunSlice`, and hoisted notifier creation in `cmd/sworn/run.go` to serve both modes. `git diff` now shows 13 files (was 8 in prior proof — `internal/run/run.go` and `internal/account/account_test.go` are added to the diff). `account_test.go` is from a prior commit that extended credential test coverage.
+- **Re-entry (2026-07-01):** Single-slice `run.Run()` path was not wired for notifications (only `RunParallel` was). Added `Notifier` field to `run.Options`, threaded through to `RunSlice`, and hoisted notifier creation in `cmd/sworn/run.go` to serve both modes.
+- **Re-entry (2026-07-01 #2):** Proof bundle refreshed from live repo state. Tests re-run: all 62 pass, `go vet` clean. No code changes needed.
 
 ## First-pass script output
-
-See `release-verify.sh` output below. After regenerating proof.md:
 
 ```
 release-verify.sh
