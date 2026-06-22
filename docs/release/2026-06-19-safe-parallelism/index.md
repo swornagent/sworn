@@ -392,7 +392,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S08a-mcp-transport` | T4 | `sworn mcp` JSON-RPC server; initialize handshake; tools scaffold | verified | [spec](./S08a-mcp-transport/spec.md) |
 | `S08b-mcp-ops-tools` | T4 | 9 ops tools: get_board, get_blocked, get_slice_context, rerun, patch, merge, defer | verified | [spec](./S08b-mcp-ops-tools/spec.md) |
 | `S08c-mcp-plan-tools` | T4 | 4 planning tools + resources + prompts + mcp-setup.md | verified | [spec](./S08c-mcp-plan-tools/spec.md) |
-| `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | verified | [spec](./S09-per-role-model-config/spec.md) || `S10-provider-foundation` | T5 | ADR 0004 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | planned | [spec](./S10-provider-foundation/spec.md) |
+| `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | verified | [spec](./S09-per-role-model-config/spec.md) || `S10-provider-foundation` | T5 | ADR 0007 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | implemented (blocked — spec AC says ADR-0004, should be ADR-0007; see verification.violations) | [spec](./S10-provider-foundation/spec.md) |
 | `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | planned | [spec](./S11-anthropic-driver/spec.md) |
 | `S12-google-driver` | T5 | Google Gemini and Vertex AI models work as verifier and implementer | planned | [spec](./S12-google-driver/spec.md) |
 | `S13-bedrock-driver` | T5 | AWS Bedrock models work via Converse API; IAM auth | planned | [spec](./S13-bedrock-driver/spec.md) |
@@ -454,9 +454,9 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > S07 `planned` despite `implemented`). Three duplicate rows (S22/S23/S24) and several
 > `||`-collapsed physical lines repaired.
 
-- Planned: 27
+- Planned: 26
 - In progress: 0
-- Implemented: 0
+- Implemented: 1
 - Design review: 1
 - Verified: 28
 - Failed verification: 0
@@ -464,6 +464,14 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 
 **Tracks:** Planned: 8 / In progress: 1 / Merged: 8
 > Merged (8): T1, T2, T3, T4, T8, T9, T11, T15. In progress (1): T12-harness-hardening (head: S42-implement-step-timeout). Planned (8): T5, T6, T7, T10, T13, T14, T16, T17.## Recent activity
+
+### 2026-06-23 — S10-provider-foundation verifier BLOCKED (T5-providers)
+
+- **Actor**: verifier (fresh context, artefact-only)
+- **Verdict**: BLOCKED — gates 1–5 pass; gate 6 blocked on internal spec inconsistency.
+- **Finding**: Acceptance check line 115 says "updated text references ADR-0004" but ADR-0004 is `0004-tui-deps-bubbletea-lipgloss.md` (TUI deps, unrelated). The spec body correctly says "ADR 0007". Coach pin 1 at start_commit updated the spec body/description but missed this AC. The implementation correctly references ADR-0007 — the remediation (referencing ADR-0004) is not a legal implementer fix.
+- **Proposed amendment**: In spec.md acceptance checks, change "updated text references ADR-0004" → "updated text references ADR-0007".
+- **Next**: `/replan-release 2026-06-19-safe-parallelism` — planner ratifies the spec AC fix, clears verification.result, then `/verify-slice S10-provider-foundation 2026-06-19-safe-parallelism` re-runs.
 
 ### 2026-07-07 — track `T3-commercial` merged to release-wt (commit 82fc388)
 

@@ -45,10 +45,12 @@
     "go test ./internal/model/... (httptest.Server-based integration tests)"
   ],  "open_deferrals": [],
   "verification": {
-    "result": "",
+    "result": "blocked",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
+    "verifier_verdict_at": "2026-06-23T05:30:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "Gate 6 — spec acceptance check internal inconsistency: AC line 115 says 'updated text references ADR-0004' but ADR-0004 is the TUI-deps ADR (bubbletea/lipgloss). The spec body (lines 31-33) and planned touchpoints correctly say 'ADR 0007'. Coach pin 1 updated the spec description and body but missed this AC. CLAUDE.md references ADR-0007 (correct). Proposed amendment: change 'updated text references ADR-0004' to 'updated text references ADR-0007' in the acceptance checks section."
+    ]
   }
 }

@@ -47,4 +47,35 @@ None — all 14 acceptance checks delivered.
 
 ## Verifier verdicts received
 
-*(None yet — slice is implemented, awaiting fresh-context verification.)*
+### 2026-06-23 — Verifier session (fresh context)
+
+**Verdict: BLOCKED**
+
+Gates 1–5 passed. Gate 6 blocked on a spec internal inconsistency.
+
+**Finding:** The spec acceptance check at line 115 reads:
+> `CLAUDE.md` no longer contains the phrase "zero runtime dependencies — stdlib only"; updated text references ADR-0004
+
+ADR-0004 (`0004-tui-deps-bubbletea-lipgloss.md`) is the TUI-dependency ADR, not the dep-policy ADR. The spec body (lines 31–33 and the planned touchpoints list) correctly says "ADR 0007" and "docs/adr/0007-dep-policy-minimal-justified.md". The Coach pin 1 (noted in the start_commit and journal) updated the spec description and body references but missed this acceptance check. The implementer followed the spec body correctly — CLAUDE.md references ADR-0007, the actual dep-policy ADR created by this slice.
+
+Remediation via the implementer is not possible: changing CLAUDE.md to reference ADR-0004 would point to the TUI-deps ADR, which is factually wrong.
+
+**Proposed spec.md amendment (for planner to ratify):**
+In the Acceptance checks section, change:
+```
+updated text references ADR-0004
+```
+to:
+```
+updated text references ADR-0007
+```
+
+**Evidence summary (for completeness):**
+- `go test ./internal/model/...` → 42 tests, 0 failures (run live)
+- `go build ./...` + `go vet ./...` → clean
+- All 8 OAI-compat presets dispatch correctly (TestNewClient_OAICompat)
+- Native drivers return ErrDriverNotRegistered (TestNewClient_NativeStub)
+- `LoadDotEnv()` sets, skips, and does not overwrite as specified (TestLoadDotEnv_* suite)
+- `oai.go` returns `*model.Error` on non-2xx; `errors.As` yields KindCredits for 402 (TestNewProviderError)
+- `cmd/sworn/run.go` calls `LoadDotEnv()` and `printModelError(err)` as specified
+- No silent deferrals in changed source files
