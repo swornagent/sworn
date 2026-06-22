@@ -95,7 +95,7 @@ tracks:
     worktree_branch: track/2026-06-19-safe-parallelism/T15-cli-registry
     state: merged
   - id: T16-verdict-ledger
-    slices: [S52-ledger-projection, S53-ledger-cli, S54-ledger-routing]
+    slices: [S52-ledger-projection, S53-ledger-cli, S54-ledger-routing, S55-ledger-multirole-cost, S56-ledger-cost-routing]
     depends_on: [T6-provider-ux, T12-harness-hardening, T13-sworn-role-parity]
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T16-verdict-ledger
@@ -145,7 +145,7 @@ tracks:
 | `T13-sworn-role-parity` | S45 → S46 → S47 | T12 | `track/.../T13-sworn-role-parity` | planned |
 | `T14-baton-integration` | S48 → S49 → S50 | T3 + T15 | `track/.../T14-baton-integration` | planned |
 | `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged |
-| `T16-verdict-ledger` | S52 → S53 → S54 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | planned |
+| `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | planned |
 
 ### Execution order
 
@@ -333,11 +333,18 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
   writer (S09, S17). T16 `depends_on T6` (the chain tail), so S54's `ResolveImplementerModel`
   edit lands after all of them — never parallel. Not a documented-shared file; a `/merge-track`
   conflict here is a planner error (invariant 4).
-- `internal/run/slice.go` + `internal/state/state.go` (S52): the verdict-record site is
+- `internal/run/slice.go` + `internal/state/state.go` (S52, S55): the verdict-record site is
   rewritten by S47/T13 (triage call) and touched by S42–S44/T12. T16 `depends_on T12+T13`
-  serialises S52's `verification.model`/`attempt` capture after that whole chain. If S47
-  relocates the verdict outcome into `internal/orchestrator/triage.go`, S52 persists from
-  there instead (noted in the spec's Risks).
+  serialises S52's `verification.model`/`attempt` capture — and S55's per-role
+  `verification.dispatches[]` cost capture — after that whole chain. If S47 relocates the
+  verdict outcome into `internal/orchestrator/triage.go`, persist from there instead (noted in
+  the specs' Risks).
+- `internal/agent/agent.go` (S55): surfaces the implementer loop's cost (already computed via
+  `computeCost`). Owned by T1 (S06 created it); touched by S42/S43/T12. Covered by the T12 dep.
+- `internal/verify/verify.go` (S55, read): the verifier dispatch already returns
+  `verdict.Result.CostUSD`; S55 records it, no behavioural change. Captain cost (S46) and the
+  orchestrator BLOCKED-resolvability hook cost (S47) are recorded from their T13-owned RunSlice
+  stages — the reason T16 `depends_on T13` for content as well as for `slice.go` serialisation.
 - Runtime-parallel tracks when T16 runs: T7 (`internal/mcp/`) and T14 (`internal/prompt/baton/`,
   `internal/adopt/`) — both touchpoint-disjoint from every T16 surface. T10 runs after T16
   (added to T10 `depends_on`).
@@ -406,6 +413,8 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S52-ledger-projection` | T16 | Projects every slice's verdict into an append-only `docs/ledger/verdicts.jsonl`; captures implementer model + attempt; backfills the whole board on first sync | planned | [spec](./S52-ledger-projection/spec.md) |
 | `S53-ledger-cli` | T16 | `sworn ledger sync` harvests the board; `sworn ledger report` shows pass-rate by model × slice-kind, attempts-to-pass, gate-failure histogram | planned | [spec](./S53-ledger-cli/spec.md) |
 | `S54-ledger-routing` | T16 | `sworn ledger recommend <kind>` + S09's `ResolveImplementerModel` defaults to the highest measured pass-rate model for the slice kind (flag/env still win; thin corpus = unchanged) | planned | [spec](./S54-ledger-routing/spec.md) |
+| `S55-ledger-multirole-cost` | T16 | Record `v:2` captures per-role `{model, cost_usd}` for every dispatch (implementer, verifier, captain, orchestrator-hook) — cost from local token-pricing, not S06b billing | planned | [spec](./S55-ledger-multirole-cost/spec.md) |
+| `S56-ledger-cost-routing` | T16 | `--optimize cost\|quality\|balanced`: cheapest model clearing a pass-rate floor; `report` gains cost-per-pass + per-role quality (captain-miss, verifier-overturn) | planned | [spec](./S56-ledger-cost-routing/spec.md) |
 
 ## Aggregate state
 
@@ -1048,3 +1057,31 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
   by the T6 and T12→T13 chains — see the "T16 depends_on T6+T12+T13 notes" block above.
 - **State**: S52/S53/S54 → planned. T16 worktree created by its first `/implement-slice`
   once T6, T12, T13 have merged.
+
+### 2026-06-23 — replan: cost angle added to T16 (S55 + S56)
+
+- **Actor**: planner (`/replan-release`)
+- **Trigger**: maintainer wants cost-aware routing AND full per-role economics (implementer,
+  verifier, captain, orchestrator/interpreter) — not just implementer quality.
+- **Key correction**: the earlier S54 "cost deferred until S06b billing" note was **wrong**.
+  The cost signal is local token-pricing — `model.Verifier.Verify` already returns `costUSD`,
+  `internal/agent`/`oai.go` already `computeCost` from a `modelPricing` table, `verdict.Result`
+  already carries `CostUSD`. Cost-aware routing needs **none** of the S06b commercial billing
+  engine (Stripe/subscriptions, which stays post-R3). S54's deferral note corrected.
+- **Added** (T16 tail, after S54):
+  - **S55-ledger-multirole-cost** — Record `v:2` with per-role `dispatches[] {role, model,
+    cost_usd, attempt}`; captured at each in-binary dispatch site (implementer=`internal/agent`,
+    verifier=`internal/verify`, captain=S46 stage, orchestrator=S47 BLOCKED-resolvability hook),
+    aggregated in `RunSlice`.
+  - **S56-ledger-cost-routing** — `--optimize cost|quality|balanced` (default quality, so S54
+    unchanged): cheapest model whose pass-rate ≥ floor for the (kind, role); `report` gains
+    cost-per-pass + derived per-role quality (captain-miss rate, verifier-overturn rate);
+    resolver wire.
+- **Roles are all in-binary** (or become so via T13): confirmed against S46 (`captain.model`
+  dispatch) and S47 (deterministic triage + single LLM hook). No new track dependency — T12
+  covers agent/verify, T13 covers captain/orchestrator; both already T16 deps.
+- **Quality is derived, not entered**: per-role quality (captain-miss, verifier-overturn) is
+  computed in the report/routing layer by correlating captured records — no hand-scored fields.
+- **Deferred (Rule 2, in specs)**: routing non-implementer roles from history; proxy/billed-cost
+  reconciliation against S06b credits; planner-cost capture (planner is not an in-binary dispatch).
+- **State**: S55/S56 → planned. T16 is now 5 slices: S52 → S53 → S54 → S55 → S56.

@@ -213,6 +213,27 @@ delivers async AND verified. Same PR, different quality bar. This gap is unoccup
 
 ## Decisions made during planning
 
+### 2026-06-23 — Replan: cost angle added to T16 (S55 + S56)
+
+- **Context**: maintainer wants cost-aware routing plus full per-role economics — implementer,
+  verifier, captain (quality + cost), and the orchestrator/interpreter worker — not just
+  implementer quality.
+- **Correction**: the 2026-06-22 deferral ("cost awaits S06b billing") was wrong. The cost
+  signal is local token-pricing: `model.Verifier.Verify` returns `costUSD`; `internal/agent`
+  and `oai.go` `computeCost` from a `modelPricing` table; `verdict.Result.CostUSD` exists.
+  Cost-aware routing needs none of the S06b commercial billing engine.
+- **Decision (objective)**: quality-gated, cost-optimized — cheapest model whose measured
+  pass-rate for the (slice-kind, role) clears a floor. Exposed as `--optimize cost|quality|
+  balanced`, default `quality` (S54 behaviour preserved).
+- **Decision (scope)**: capture cost AND model per role for all in-binary dispatches
+  (implementer, verifier, captain via S46, orchestrator hook via S47). Per-role *quality* is
+  derived in the report layer (captain-miss rate, verifier-overturn rate), not hand-entered.
+- **Decision (slicing)**: two tail slices on T16 — S55 (multi-role cost capture, Record `v:2`)
+  and S56 (cost routing + report). S52–S54 (quality MVP) unchanged. No new track dependency;
+  T12 covers agent/verify, T13 covers captain/orchestrator (both already T16 deps).
+- **Deferred (Rule 2)**: routing non-implementer roles; proxy/billed-cost reconciliation vs
+  S06b credits; planner-cost capture (planner is not an in-binary dispatch).
+
 ### 2026-06-22 — Replan: verdict-ledger track (T16) added
 
 - **Context**: maintainer wants to turn sworn's verifier verdicts into a durable, queryable
