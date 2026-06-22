@@ -59,6 +59,10 @@ type Options struct {
 	// each retry. The verifier model stays fixed.
 	EscalationModels []string
 
+	// ImplementTimeout is the per-attempt deadline for the implement step.
+	// 0 means use the default (config.DefaultImplementTimeout).
+	// A negative value means no timeout (opt-out).
+	ImplementTimeout time.Duration
 	// WorkspaceRoot is the repo root directory. Default ".".
 	WorkspaceRoot string
 
@@ -198,9 +202,9 @@ func Run(ctx context.Context, opts Options) error {
 		RetryCap:         opts.RetryCap,
 		NewAgent:         opts.NewAgent,
 		NewVerifier:      opts.NewVerifier,
+		ImplementTimeout: opts.ImplementTimeout,
 	})
-	if err != nil {
-		// Re-wrap Blocked errors to preserve the run: prefix for
+	if err != nil {		// Re-wrap Blocked errors to preserve the run: prefix for
 		// existing tests that check "verification blocked".
 		if IsBlocked(err) {
 			return fmt.Errorf("run: %s", err)
@@ -222,8 +226,8 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("run: merge into %s: %w", opts.Base, err)
 	}
 	fmt.Fprintf(os.Stderr, "sworn run: merged %s into %s (PASS)\n", featureBranch, opts.Base)
-	return nil}
-
+	return nil
+}
 // setupSlice creates a release directory and a single-slice directory with
 // auto-generated spec.md and status.json (Pin 3). Returns the release dir and
 // slice dir (both relative to workspaceRoot).

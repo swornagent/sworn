@@ -9,8 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 )
-
 // Config is the sworn runtime configuration. All model selections are
 // "provider/model" strings (e.g. "openai/gpt-4.1") as used by model.FromEnv.
 //
@@ -18,9 +18,9 @@ import (
 // design tokens source and component library, used by sworn designaudit (S09)
 // for design conformance checking.
 type Config struct {
-	Version  int          `json:"version"`
-	Verifier ModelSetting `json:"verifier"`
-
+	Version     int                `json:"version"`
+	Verifier    ModelSetting       `json:"verifier"`
+	Implementer ImplementerConfig  `json:"implementer"`
 	// UIBearing marks the project as UI-bearing. When true, a DesignSystem
 	// declaration is required or sworn will fail closed. When false (or absent),
 	// design-system requirements do not apply (CLI projects are exempt).
@@ -46,10 +46,16 @@ type DesignSystem struct {
 	ComponentLibrary string `json:"component_library"`
 }
 
+// ImplementerConfig holds implementer role settings in the config file.
+// Timeout is a duration string parsed via time.ParseDuration (e.g. "15m", "30s").
+// An empty string means unset — the default is applied at resolution time.
+type ImplementerConfig struct {
+	Timeout string `json:"timeout"`
+}
+
 // ErrNoDesignSystem is returned by Validate when a UI-bearing project has no
 // DesignSystem declaration. Callers should surface this as a fail-closed error.
-var ErrNoDesignSystem = fmt.Errorf(
-	"ui_bearing is true but no design_system declared — " +
+var ErrNoDesignSystem = fmt.Errorf(	"ui_bearing is true but no design_system declared — " +
 		"a design system (token source + component library) is required " +
 		"for design conformance; run 'sworn init' to configure",
 )
@@ -155,4 +161,46 @@ func ResolveVerifierModel(flagModel string, cfg Config) (string, error) {
 		"verifier model not configured — run 'sworn init' to scaffold a config file (%s) or set $SWORN_VERIFIER_MODEL",
 		Path(),
 	)
+}
+// DefaultImplementTimeout is the per-attempt deadline applied to the implement
+// step inside RunSlice when no explicit timeout is configured. 15 minutes is
+// generous enough for most implement steps but prevents a hung agent from
+// blocking the escalation loop indefinitely.
+const DefaultImplementTimeout = 15 * time.Minute
+
+// ResolveImplementTimeout returns the per-attempt implement timeout from the
+// first available source, in precedence order:
+//
+//  1. --implement-timeout flag (non-zero)
+//  2. $SWORN_IMPLEMENT_TIMEOUT env var (parsed as duration string)
+//  3. config file (implementer.timeout, parsed as duration string)
+//  4. DefaultImplementTimeout constant (15m)
+//
+// A negative flag or env value means "no timeout" (opt-out).
+func ResolveImplementTimeout(flagVal time.Duration, envVal string, cfgTimeout string) time.Duration {
+	if flagVal != 0 {
+		if flagVal < 0 {
+			return 0 // opt-out
+		}
+		return flagVal
+	}
+	if envVal != "" {
+		d, err := time.ParseDuration(envVal)
+		if err == nil {
+			if d < 0 {
+				return 0 // opt-out
+			}
+			return d
+		}
+	}
+	if cfgTimeout != "" {
+		d, err := time.ParseDuration(cfgTimeout)
+		if err == nil {
+			if d < 0 {
+				return 0 // opt-out
+			}
+			return d
+		}
+	}
+	return DefaultImplementTimeout
 }

@@ -3,10 +3,11 @@
   "slice_id": "S42-implement-step-timeout",
   "release": "2026-06-19-safe-parallelism",
   "track": "T12-harness-hardening",
-  "state": "design_review",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-06T00:00:00Z",  "start_commit": null,
+  "last_updated_at": "2026-07-06T00:00:00Z",
+  "start_commit": "62faf7d31f8ab9158d349f3a2859754aeece88c9",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/journal.md",
@@ -14,23 +15,79 @@
     "internal/run/slice.go",
     "internal/run/run.go",
     "cmd/sworn/run.go",
+    "internal/config/config.go",
     "internal/run/slice_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/run/slice.go",
+    "internal/run/run.go",
+    "internal/run/slice_test.go",
+    "cmd/sworn/run.go",
+    "internal/config/config.go",
+    "docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/proof.md",
+    "docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/journal.md"
+  ],
   "test_commands": [
     "go test -race ./internal/run/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "test output: go test -race -run TestImplementTimeout ./internal/run/... -v",
+    "stderr demonstration: implement attempt N timed out after <d> \u2014 escalating"
+  ],
   "open_deferrals": [
-    "default http.Client.Timeout on internal/model/oai.go — deferred; per-attempt ctx deadline already bounds the HTTP call, and oai.go is a future S39/T5 touchpoint (Rule 2, Coach ack 2026-06-21)",
-    "killing agent-spawned OS subprocesses — deferred; supervisor stale-PID reaping covers cross-session orphans (Rule 2, Coach ack 2026-06-21)"
+    "default http.Client.Timeout on internal/model/oai.go \u2014 deferred; per-attempt ctx deadline already bounds the HTTP call, and oai.go is a future S39/T5 touchpoint (Rule 2, Coach ack 2026-06-21)",
+    "killing agent-spawned OS subprocesses \u2014 deferred; supervisor stale-PID reaping covers cross-session orphans (Rule 2, Coach ack 2026-06-21)"
   ],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
-  }
+    "result": ""
+  },
+  "design_decisions": [
+    {
+      "choice": "Named constant DefaultImplementTimeout = 15 * time.Minute in internal/run/slice.go \u2014 single tuning point per spec's Risks section",
+      "stake_class": "Type-2",
+      "options": [
+        "Magic number 15m at each call site",
+        "Named constant in slice.go",
+        "Configurable via Options struct only"
+      ],
+      "rationale": "A single named constant makes tuning trivial and prevents scattered magic numbers. spec.md Risks instructs 'make it a single named constant for easy tuning.'"
+    },
+    {
+      "choice": "context.DeadlineExceeded detection via errors.Is(err, context.DeadlineExceeded) on implement.Run return \u2014 differentiates timeout from other implementer errors for stderr message, but escalation path is identical.",
+      "stake_class": "Type-2",
+      "options": [
+        "Treat all implement.Run errors identically",
+        "Differentiate DeadlineExceeded for distinct stderr message"
+      ],
+      "rationale": "The spec requires a distinct stderr line for timeouts ('timed out after <d> \u2014 escalating') vs generic implementer errors. The escalation logic (continue to next model) is identical for both. context.DeadlineExceeded is a sworn-internal signal (not a model.Error{Kind}), so S44's Kind-based routing will leave it on the existing 'escalate to next model' path."
+    },
+    {
+      "choice": "RunSliceOptions.ImplementTimeout with 0 meaning 'use default' \u2014 Go zero-value-as-unset convention for time.Duration",
+      "stake_class": "Type-2",
+      "options": [
+        "Negative value means no timeout (opt-out)",
+        "Zero value is valid (no timeout) and separate default-request sentinel"
+      ],
+      "rationale": "Go's idiomatic convention: zero-value time.Duration means unset. A negative value (-1) means 'no timeout' for opt-out. This is simpler than a separate sentinel constant."
+    },
+    {
+      "choice": "cancel() deferred per iteration \u2014 each attempt's context.WithTimeout creates a child context whose cancel is deferred immediately after creation",
+      "stake_class": "Type-2",
+      "options": [
+        "Single cancel for entire loop",
+        "Defer cancel per iteration"
+      ],
+      "rationale": "The parent context must not be leaked. A per-iteration defer ensures the deadline only bounds one implement attempt and the timer is released promptly."
+    },
+    {
+      "choice": "No timeout on RunSlice's own parent context \u2014 wrap only the implement step, not the verify step or commit/diff operations",
+      "stake_class": "Type-2",
+      "options": [
+        "Wrap entire for-loop body in timeout",
+        "Wrap only implement.Run in timeout"
+      ],
+      "rationale": "The parent ctx may carry a broader deadline (e.g., from a CI job). Wrapping only implement.Run scopes the deadline to the agent loop, leaving verify/commit/diff unbounded-by-us."
+    }
+  ]
 }

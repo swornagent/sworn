@@ -8,17 +8,19 @@ import (
 	"os"
 	"strings"
 
+	"github.com/swornagent/sworn/internal/config"
 	"github.com/swornagent/sworn/internal/run"
 )
-
 // cmdRun implements the `sworn run` subcommand.
 //
 //	sworn run --task "<description>" [--implementer-model <provider/model>]
 //	           [--verifier-model <provider/model>] [--base <branch>]
 //	           [--retry-cap <n>] [--escalation-models <m1,m2,...>]
+//	           [--implement-timeout <duration>]
 //
 //	sworn run --parallel --release <name> [--verifier-model <provider/model>]
 //	           [--implementer-model <provider/model>]
+//	           [--implement-timeout <duration>]
 func cmdRun(args []string) int {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	task := fs.String("task", "", "plain-language task description (required for single-slice mode)")
@@ -29,6 +31,7 @@ func cmdRun(args []string) int {
 	escalationFlag := fs.String("escalation-models", "", "comma-separated model escalation path (provider/model,...)")
 	parallel := fs.Bool("parallel", false, "run tracks concurrently from release board")
 	releaseName := fs.String("release", "", "release name for --parallel mode (e.g. 2026-06-19-safe-parallelism)")
+	implTimeout := fs.Duration("implement-timeout", 0, "per-attempt implement deadline (0 = use default; negative = no timeout)")
 
 	_ = fs.Parse(args)
 
@@ -42,6 +45,16 @@ func cmdRun(args []string) int {
 		fmt.Fprintln(os.Stderr, "sworn run: --task is required (or use --parallel --release)")
 		return 64
 	}
+
+	// ── Load config ─────────────────────────────────────────────────────
+	cfg, cfgErr := config.Load()
+	if cfgErr != nil {
+		fmt.Fprintf(os.Stderr, "sworn run: config warning: %v\n", cfgErr)
+		// Non-fatal — env vars and flags still work.
+	}
+
+	// ── Resolve implement timeout ───────────────────────────────────────
+	timeout := config.ResolveImplementTimeout(*implTimeout, os.Getenv("SWORN_IMPLEMENT_TIMEOUT"), cfg.Implementer.Timeout)
 
 	// ── Resolve verifier model ─────────────────────────────────────────
 	verifier := resolveVerifierModel(*verifierModel)
@@ -73,6 +86,7 @@ func cmdRun(args []string) int {
 				ImplementerModel: impl,
 				VerifierModel:    verifier,
 				EscalationModels: escalationModels,
+				ImplementTimeout: timeout,
 			})
 		}
 
@@ -98,6 +112,7 @@ func cmdRun(args []string) int {
 		Base:             *base,
 		RetryCap:         *retryCap,
 		EscalationModels: escalationModels,
+		ImplementTimeout: timeout,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sworn run: %v\n", err)
@@ -105,6 +120,7 @@ func cmdRun(args []string) int {
 	}
 	return 0
 }
+
 // resolveVerifierModel resolves the verifier model with precedence:
 // flag > env > config.
 func resolveVerifierModel(flagVal string) string {
