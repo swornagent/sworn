@@ -7,7 +7,7 @@
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-05T23:00:00Z",
-  "start_commit": null,
+  "start_commit": "e9a74532f1a9796cf875f0c7598ba22807c2477b",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S21-canonical-baton/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S21-canonical-baton/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S21-canonical-baton/journal.md",
