@@ -15,14 +15,16 @@ import (
 //
 // Targets:
 //
-//	ac     — classify every AC by EARS pattern; fail closed on free-form checks
-//	trace  — build the 2-D requirements traceability matrix; fail closed on broken traces
-//	deps   — check that go.mod/go.sum changes are declared in planned_files; fail closed on undeclared
+//	ac          — classify every AC by EARS pattern; fail closed on free-form checks
+//	trace       — build the 2-D requirements traceability matrix; fail closed on broken traces
+//	deps        — check that go.mod/go.sum changes are declared in planned_files; fail closed on undeclared
+//	touchpoints — reconcile design file/package refs against planned_files + collision matrix; fail closed
 func cmdLint(args []string) int {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "sworn lint: target required")
-		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace> <release>")
+		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint deps [--base <ref>] <slice-id> <release>")
+		fmt.Fprintln(os.Stderr, "       sworn lint touchpoints <slice-id> <release>")
 		return 64
 	}
 	switch args[0] {
@@ -32,14 +34,16 @@ func cmdLint(args []string) int {
 		return cmdLintTrace(args[1:])
 	case "deps":
 		return cmdLintDeps(args[1:])
+	case "touchpoints":
+		return cmdLintTouchpoints(args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "sworn lint: unknown target %q (known: ac, trace, deps)\n", args[0])
-		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace> <release>")
+		fmt.Fprintf(os.Stderr, "sworn lint: unknown target %q (known: ac, trace, deps, touchpoints)\n", args[0])
+		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint deps [--base <ref>] <slice-id> <release>")
+		fmt.Fprintln(os.Stderr, "       sworn lint touchpoints <slice-id> <release>")
 		return 64
 	}
 }
-
 // cmdLintAC implements `sworn lint ac <release>`.
 //
 // Classifies every acceptance check in every slice's spec.md by EARS pattern
@@ -167,10 +171,48 @@ func cmdLintDeps(args []string) int {
 	return 0
 }
 
+// cmdLintTouchpoints implements `sworn lint touchpoints <slice-id> <release>`.
+//
+// Parses a slice's spec for referenced files/packages, reconciles them against
+// planned_files AND the release index.md touchpoint matrix (flagging cross-slice
+// file collisions), and detects duplicate migration numbers across slices.
+// Fails closed (exit 1) on any undeclared touchpoint or unacknowledged collision.
+func cmdLintTouchpoints(args []string) int {
+	fs := flag.NewFlagSet("lint touchpoints", flag.ExitOnError)
+	_ = fs.Parse(args)
+
+	if fs.NArg() < 2 {
+		fmt.Fprintln(os.Stderr, "sworn lint touchpoints: slice-id and release name are required")
+		fmt.Fprintln(os.Stderr, "usage: sworn lint touchpoints <slice-id> <release>")
+		return 64
+	}
+	sliceID := fs.Arg(0)
+	releaseName := fs.Arg(1)
+
+	releaseDir, err := resolveReleaseDir(releaseName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint touchpoints: %v\n", err)
+		return 2
+	}
+
+	sliceDir := filepath.Join(releaseDir, sliceID)
+	if _, err := os.Stat(sliceDir); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint touchpoints: slice directory not found: %s\n", sliceDir)
+		return 2
+	}
+
+	if err := lint.CheckTouchpoints(sliceDir, releaseDir); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint touchpoints: %v\n", err)
+		return 1
+	}
+
+	fmt.Printf("touchpoints: all references declared, no collisions, no duplicate migrations for %s\n", sliceID)
+	return 0
+}
+
 // resolveReleaseDir returns the absolute path to docs/release/<name> relative
 // to the current working directory, or an error if the directory does not exist.
-func resolveReleaseDir(name string) (string, error) {
-	cwd, err := os.Getwd()
+func resolveReleaseDir(name string) (string, error) {	cwd, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("get cwd: %w", err)
 	}

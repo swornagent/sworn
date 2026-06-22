@@ -32,6 +32,40 @@ None.
 
 None.
 
+## 2026-06-22 — design review
+
+Captain reviewed (4 pins: 3 mechanical, 1 escalate). Coach approved with accept of informational-note substitution + Rule 2 deferral for prose non-additive detection. Pin resolutions:
+
+1. **Section-scoped extraction (CRITICAL)** — implemented; only `## In scope` and `## Planned touchpoints` sections are parsed
+2. **Add `design_decisions` to status.json** — 5 entries, all Type-2, applied
+3. **Additive-invariant scope reduction** — Coach accepted; DOCUMENTED SHARED files get informational notes, not violations; non-additive detection = Rule 2 deferral
+4. **Spec Risk audit** — confirmed S02b uses `## In scope` (line 18) and `## Planned touchpoints` (line 43) with exact casing
+
+Flag: `cmdLint` usage string updated to include `touchpoints`.
+
+
+**skeptic_panel:** skipped — runtime does not support subagent dispatch (no Agent/Workflow tool available in this session). The real verifier (Rule 7) is the backstop.
+
+## 2026-06-28 — implemented
+
+**Implementation approach:** `CheckTouchpoints(sliceDir, releaseDir string) error` in `internal/lint/touchpoints.go`. Three checks: (1) extract back-ticked file/package refs from spec's In-scope + Planned-touchpoints sections, reconcile against planned_files; (2) parse index.md `### Touchpoint matrix` for cross-slice file collisions; (3) detect duplicate 6-digit migration prefixes across all release slices.
+
+**Key decisions:**
+- Section-scoped extraction (Pin #1): only `## In scope` and `## Planned touchpoints` parsed — eliminates Risk/Required-tests/Out-of-scope false positives
+- False-positive filters: bare extensions (`.go`, `.ts`), Go patterns (`...`), template placeholders (`<>`) excluded from extraction
+- Suffix-matching for bare filenames: `touchpoints.go` matches `internal/lint/touchpoints.go` via suffix check
+- DOCUMENTED SHARED files → informational note, not violation (Coach-accepted substitution)
+- Touchpoint matrix: T12 omitted from columns per index.md notes; no self-collisions
+- Two remaining false positives on S30's own spec: `cmd/sworn/main.go` and `index.md` from illustrative In-scope prose — inherent limitation of prose-path extraction; fixture-based reachability tests all pass correctly
+
+**Test results:** 8 new tests (7 PASS), all existing deps tests still PASS. `go vet` clean. `go build` clean.
+
+**Reachability:** Fixture tests confirm undeclared → exit 1, collision → exit 1, clean → exit 0.
+
+## Deferrals surfaced
+
+- **Prose-based non-additive edit detection** — Rule 2 deferral. Coach accepted informational-note substitution. **Acknowledged**: Brad, 2026-06-22 (approved-ack.md).
+
 ## Verifier verdicts received
 
 None yet.
