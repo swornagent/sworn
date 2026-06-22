@@ -59,3 +59,21 @@ internally — the CLI-tests-that-invoke-git isolation gate failure mode. Recove
 **Worktree safety incident:** `./bin/sworn run --task ...` from the track worktree
 switched the branch away from `track/.../T12-harness-hardening`. This is a known
 hazard. Filed as finding: GH #10.
+
+## Verifier verdicts received
+
+### Verdict 1 — 2026-06-23T03:48:00Z — PASS
+
+**Verifier session:** Fresh context, artefact-only (Rule 7).
+
+**Verdict:** PASS — All six gates pass.
+
+**Gate walk:**
+1. **User-reachable outcome exists:** `make build` at repo root produces `./bin/sworn` (12.8 MB). Entry point reachable and working.
+2. **Planned touchpoints:** `docs/build.md` created as planned. `Makefile` not changed (already existed with required targets since S01) — explained in Divergence from plan. Four auto-checkpoint baton rules files in `682c59f` are coach-loop noise, not implementation scope.
+3. **Required tests:** `make build && ls -la bin/sworn` passes, `make test` 30/30 ok, `make vet` clean.
+4. **Reachability artefact:** `docs/build.md` exists with thorough documentation; `make build` produces executable; state-write test confirms `.sworn/` at repo root.
+5. **No silent deferrals:** `docs/build.md` has no TODO/FIXME/placeholder markers. Both spec deferrals carry Rule 2 compliance.
+6. **Claimed scope:** All four ACs verified — build produces binary, test/vet pass, docs exist, state writes to repo root.
+
+**Environmental note:** Worktree was switched to `main` by external process twice during verification (known issue GH #10). Recovered each time and verified all commands executed on the track branch.
