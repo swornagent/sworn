@@ -42,9 +42,9 @@ tracks:
   - id: T7-mcp-extensions
     slices: [S20-mcp-catalog-tools]
     depends_on: [T3-commercial, T4-mcp]
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T7-mcp-extensions
     worktree_branch: track/2026-06-19-safe-parallelism/T7-mcp-extensions
-    state: planned
+    state: in_progress
   - id: T8-memory
     slices: [S23-memory-config, S24-memory-engine, S25-memory-search, S40-memory-test-hygiene]
     depends_on: T1-concurrency-core
