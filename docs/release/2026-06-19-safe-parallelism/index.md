@@ -91,9 +91,9 @@ tracks:
   - id: T15-cli-registry
     slices: [S51-cli-command-registry]
     depends_on: T1-concurrency-core
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T15-cli-registry
     worktree_branch: track/2026-06-19-safe-parallelism/T15-cli-registry
-    state: planned
+    state: in_progress
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
