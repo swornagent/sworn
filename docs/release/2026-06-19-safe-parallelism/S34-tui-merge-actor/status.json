@@ -3,31 +3,77 @@
   "slice_id": "S34-tui-merge-actor",
   "release": "2026-06-19-safe-parallelism",
   "track": "T2-monitoring",
-  "state": "planned",
-  "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-21T00:00:00Z",
-  "start_commit": null,
+  "state": "verified",  "owner": "human",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-06-28T14:30:00Z",
+  "start_commit": "ba6ee06609adc53bbf1e8fc2b12d40c945a7c47a",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S34-tui-merge-actor/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S34-tui-merge-actor/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S34-tui-merge-actor/journal.md",
   "planned_files": [
     "internal/tui/concurrent.go",
     "internal/tui/board.go",
+    "internal/tui/styles.go",
     "internal/tui/tui_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/tui/concurrent.go",
+    "internal/tui/board.go",
+    "internal/tui/styles.go",
+    "internal/tui/tui_test.go",
+    "internal/tui/releases.go",
+    "internal/tui/tui.go"
+  ],
   "test_commands": [
     "go test ./internal/tui/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "internal/tui/tui_test.go::TestLiveViewRendersMergeActorRow",
+    "internal/tui/tui_test.go::TestBoardViewShowsMergeBadge"
+  ],
   "open_deferrals": [],
+  "design_decisions": [
+    {
+      "id": "D1",
+      "decision": "Merge actors come from the events table, not the tracks table. The coach-loop writes events with track_id = 'merge:<track>' via the supervisor's logEvent. The tracks table is not populated for merge dispatches.",
+      "stake_class": "Type-2",
+      "human_decision": "",
+      "rationale": "The spec says 'from the polled event stream'; the events table IS the event stream. The LiveView's poll() currently only queries tracks; we extend it to also query events."
+    },
+    {
+      "id": "D2",
+      "decision": "A merge actor is 'active' if its most recent event is 'acquired' (not 'released-*'). The supervisor logs 'acquired' on start and 'released-<state>' on completion.",
+      "stake_class": "Type-2",
+      "human_decision": "",
+      "rationale": "Matches the supervisor's lifecycle; a released merge is done and should not show."
+    },
+    {
+      "id": "D3",
+      "decision": "Merge rows reuse TrackRow with an IsMerge bool flag rather than a separate type.",
+      "stake_class": "Type-2",
+      "human_decision": "",
+      "rationale": "Minimal structural change; the renderer just checks the flag to apply a different style. The CurrentSlice field shows the merge detail since merge actors don't have a slice."
+    },
+    {
+      "id": "D4",
+      "decision": "Board view merge indicator is a styled badge appended to the track header line (e.g. '▸ T1-engine  [in_progress] ⟪merge⟫').",
+      "stake_class": "Type-2",
+      "human_decision": "",
+      "rationale": "The board already groups slices under track headers; a merge is a track-level activity, so the indicator belongs on the header, not as a separate slice row."
+    },
+    {
+      "id": "D5",
+      "decision": "ActiveMerges(repoRoot, releaseName) []string is an exported function in concurrent.go so the board view can check for active merges without holding a persistent DB connection.",
+      "stake_class": "Type-2",
+      "human_decision": "",
+      "rationale": "Mirrors the existing HasInProgressTracks pattern — open, query, close."
+    }
+  ],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "result": "pass",
+    "verifier_session_id": "2026-06-28-S34-tui-merge-actor",
+    "verifier_verdict_at": "2026-06-28T15:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
-  }
-}
+  }}

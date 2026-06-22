@@ -30,18 +30,30 @@ Runs a series of checks in order, prints a structured report, exits non-zero if 
 **Check group 1 — Embedded prompt integrity**
 
 For each embedded prompt (`planner.md`, `implementer.md`, `verifier.md`, `captain.md`,
-`verify-stateless.md`) and each Baton protocol doc (`baton/rules.md`, `baton/track-mode.md`):
+`verify-stateless.md`) and the Baton protocol docs (the `rules/` directory + `track-mode.md`):
+
+> **Coach decision (replan 2026-06-22 — review pins 1–3): the embed is authoritative;
+> the spec was stale.** The corrections below reflect the actual embed structure.
 
 - Length check: content must be > 500 bytes. Below this implies truncation or corruption.
-- Required headings check: each file has a known set of required `##` headings
+- Required headings check: each file has a known set of required headings
   (defined as a constant in doctor.go):
-  - `planner.md`: must contain `## Phase 1`, `## Phase 2`, `## Phase 3`, `## Phase 4`,
+  - `planner.md`: must contain `### Phase 1` through `### Phase 6` (h3 — the embed uses
+    `###`, and there are **six** phases, not four — review pin 3) and
     `## Re-planning a release in flight`
   - `implementer.md`: must contain `## Dependency discipline` and `## Deviation check`
-    (both added by S19); "Dependency discipline" must appear before "Deviation check"
+    (added by S19) — emit **`[WARN]`, not `[ERROR]`, until S19 lands** (the embed
+    legitimately lacks them today; a health tool must not report a clean repo as broken
+    for unbuilt future slices — Coach add-on to pin set); "Dependency discipline" must
+    appear before "Deviation check" once both are present
   - `verifier.md`: must contain `## Catalog conformance check` and the phrase
-    "independently query the package registry" (adversarial dep check, added by S19)
-  - `baton/rules.md`: must contain all 7 rule headings
+    "independently query the package registry" (added by S19) — **`[WARN]` until S19 lands**
+  - Baton rules — **multi-file** structure (review pins 1 & 2): the embed is
+    `internal/adopt/baton/rules/01-*.md` through `10-*.md` (**10** rule files) plus
+    `README.md`. There is **no** single `baton/rules.md`. Check that all 10 rule files
+    exist and are non-empty, and that `README.md` contains its rules-index heading. The
+    protocol grew from 7 to 10 rules — canonical 7 plus `08-requirements-fidelity`,
+    `09-design-fidelity`, `10-customer-journey-validation`.
   - `baton/track-mode.md`: must contain `## The safety invariants`
 - Version check: `internal/prompt/baton/VERSION.txt` must exist and be parseable as
   a semver string.
@@ -51,7 +63,7 @@ Output per check:
 [OK]    planner.md           length=8421   headings=all present
 [OK]    implementer.md       length=6204   headings=all present
 [ERROR] verifier.md          length=12     BELOW MINIMUM (expected >500) — embed may be corrupted
-[OK]    baton/rules.md       length=14321  headings=7/7 present
+[OK]    baton/rules/         10/10 rule files present, README heading OK
 [WARN]  baton/VERSION.txt    version=0.0.0 — not yet set; run 'sworn doctor --set-version <v>'
 ```
 
@@ -61,12 +73,15 @@ Checks the current working directory (must be a git repo root):
 
 - `docs/baton/` existence: if present → `[WARN] docs/baton/ exists — legacy per-repo
   Baton copy. The binary is now the canonical source. Safe to remove: rm -rf docs/baton/`
-- AGENTS.md splice detection: if `AGENTS.md` contains `<!-- baton:start -->` →
+- AGENTS.md splice detection: if `AGENTS.md` contains the actual splice marker
+  `## Engineering Process — Baton` (i.e. `adopt.BatonSectionHeading` — the embed never
+  used `<!-- baton:start -->`; design §2.3, Coach-acknowledged) →
   `[WARN] AGENTS.md contains legacy Baton splice content. Run 'sworn init' to replace
   with the current minimal MCP-pointer template (backs up old AGENTS.md to AGENTS.md.bak)`
-- AGENTS.md MCP pointer: if `AGENTS.md` exists but does NOT contain `sworn://baton/rules` →
-  `[WARN] AGENTS.md may be outdated — missing sworn MCP resource reference. Run
-  'sworn init' to update.`
+- AGENTS.md MCP pointer check (`sworn://baton/rules`): **deferred** (Rule 2) — the
+  `sworn://` MCP resource-URI scheme does not exist in any landed slice yet, so this
+  check would WARN on every repo. Skip it for now; re-add when the URI scheme lands.
+  Surface as a Rule 2 deferral in proof.md (design §2.4, Coach-acknowledged).
 - AGENTS.md absent: `[WARN] AGENTS.md not found. Run 'sworn init' to create it.`
 
 **Check group 3 — Local Baton sync (optional)**
@@ -143,6 +158,16 @@ commands and want their local Baton to match the binary.
 - [ ] `sworn doctor` on a clean repo (S21-initialized, no legacy artifacts, catalog
   populated by induction) prints all group 1 checks as `[OK]`, group 4 shows no
   stale pins, exits 0
+- [ ] **(review pins 1–2)** Group 1 verifies all **10** Baton rule files
+  (`rules/01-*.md`…`10-*.md`) exist and are non-empty, plus the `README.md` rules-index
+  heading — there is no single `baton/rules.md` check
+- [ ] **(review pin 3)** Group 1 checks `planner.md` for `### Phase 1`…`### Phase 6`
+  (h3, six phases) — a doctor run against the real embed passes these
+- [ ] **(Coach add-on)** `implementer.md`/`verifier.md` S19-dependent headings, when
+  absent, emit `[WARN]` (not `[ERROR]`) and do **not** cause a non-zero exit on an
+  otherwise-clean repo (verified by `TestDoctorAllOK` exiting 0 today, pre-S19)
+- [ ] Group 2 legacy-splice detection matches `## Engineering Process — Baton`
+  (`adopt.BatonSectionHeading`), not `<!-- baton:start -->`
 - [ ] Group 4: if `[dependencies].project_pinned` lists a module at a version that
   differs from the actual `go.mod` entry, prints `[WARN]` naming the diverged module
   and suggesting `sworn induction --update`
@@ -203,9 +228,9 @@ commands and want their local Baton to match the binary.
 - `--fix` auto-removes `docs/baton/`. Since `docs/baton/` may contain user-edited
   files in repos that predated this release, print each file being removed (with
   `rm: <path>`) before deleting, so the user can see exactly what was touched.
-- The `<!-- baton:start -->` legacy marker: confirm against the actual string in
-  `internal/adopt/` before finalising. If the actual marker differs, the doctor
-  check silently misses legacy repos.
+- Splice marker (resolved at review): the actual marker is
+  `## Engineering Process — Baton` (`adopt.BatonSectionHeading`), not `<!-- baton:start -->`
+  (which the embed never used). Use the `adopt` constant directly so the check can't drift.
 
 ## Deferrals allowed?
 
