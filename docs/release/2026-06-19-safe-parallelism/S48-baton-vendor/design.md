@@ -23,7 +23,7 @@
 
 ## §4. Things I'm NOT doing
 
-- **Network fetch of a Baton tag** — deferred as Rule 2 (why: S48 MVP is vendored snapshot on disk; tracking: S49-baton-version; will surface a hook in `source.go` for future network resolution).
+- **Network fetch of a Baton tag** — deferred as Rule 2 (why: S48 MVP is vendored snapshot on disk; tracking: GitHub issue #11; will surface a hook in `source.go` for future network resolution).
 - **SHA → semver tag reconciliation** — S49's concern. S48 reads whatever source dir it's pointed at; the pin format is unchanged.
 - **`sworn baton diff` or governance docs** — S50's concern.
 - **Editing protocol content** — transform only rewrites script references → commands.

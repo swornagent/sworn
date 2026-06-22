@@ -16,10 +16,8 @@
     "internal/baton/source.go",
     "internal/baton/vendor_test.go",
     "internal/baton/transform_test.go",
-    "cmd/sworn/baton.go",
-    "cmd/sworn/main.go"
-  ],
-  "actual_files": [],
+    "cmd/sworn/baton.go"
+  ],  "actual_files": [],
   "test_commands": [
     "go test -race ./internal/baton/... ./cmd/sworn/...",
     "go build ./..."
