@@ -367,8 +367,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S08a-mcp-transport` | T4 | `sworn mcp` JSON-RPC server; initialize handshake; tools scaffold | verified | [spec](./S08a-mcp-transport/spec.md) |
 | `S08b-mcp-ops-tools` | T4 | 9 ops tools: get_board, get_blocked, get_slice_context, rerun, patch, merge, defer | verified | [spec](./S08b-mcp-ops-tools/spec.md) |
 | `S08c-mcp-plan-tools` | T4 | 4 planning tools + resources + prompts + mcp-setup.md | verified | [spec](./S08c-mcp-plan-tools/spec.md) |
-| `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | planned | [spec](./S09-per-role-model-config/spec.md) |
-| `S10-provider-foundation` | T5 | ADR 0004 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | planned | [spec](./S10-provider-foundation/spec.md) |
+| `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | verified | [spec](./S09-per-role-model-config/spec.md) || `S10-provider-foundation` | T5 | ADR 0004 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | planned | [spec](./S10-provider-foundation/spec.md) |
 | `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | planned | [spec](./S11-anthropic-driver/spec.md) |
 | `S12-google-driver` | T5 | Google Gemini and Vertex AI models work as verifier and implementer | planned | [spec](./S12-google-driver/spec.md) |
 | `S13-bedrock-driver` | T5 | AWS Bedrock models work via Converse API; IAM auth | planned | [spec](./S13-bedrock-driver/spec.md) |
@@ -1023,8 +1022,13 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
   deliverable; the implementer applies it to the local baton install and notes the
   path in `proof.md`.
 
-### 2026-06-28 — S22-sworn-doctor verified
+### 2026-07-03 — S09-per-role-model-config verified
 
+- **Actor**: verifier (`/verify-slice`)
+- **Verdict**: PASS — all six verification gates passed. `Config` JSON round-trips, all three resolvers (ImplementerModel, EscalationModels, MaxAttempts) correct precedence, `sworn init --yes` writes all four required keys, 27/27 tests pass, `go build ./...` clean, no silent deferrals.
+- **State**: S09 → verified. T3-commercial now has S06a, S06b verified, S07 implemented, S09 verified.
+
+### 2026-06-28 — S22-sworn-doctor verified
 - **Actor**: verifier (`/verify-slice`)
 - **Verdict**: PASS — all six verification gates passed. `sworn doctor` runs cleanly with all expected OK/WARN output, exit 0. 12/12 tests pass, `go build ./...` clean.
 - **State**: S22 → verified. T4-mcp now has all 4 slices verified (S08a, S08b, S08c, S22). Track ready for `/merge-track T4-mcp`.

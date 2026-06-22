@@ -41,4 +41,13 @@ None.
 
 ## Verifier verdicts received
 
-*(None yet — slice at 'implemented', awaiting fresh-context verifier.)*
+### 2026-07-03 — Verifier session (PASS)
+
+Verdict: **PASS** — all six verification gates passed.
+
+- **Gate 1 (User-reachable outcome)**: `sworn init --yes` run live, config.json written with all four required keys (`verifier.model`, `implementer.model`, `implementer.escalation_models`, `implementer.max_attempts`). `sworn run` reads all fields through resolver calls.
+- **Gate 2 (Touchpoint match)**: `git diff --name-only` shows `internal/config/config.go`, `internal/config/config_test.go`, `internal/config/init.go`, `cmd/sworn/run.go`, `cmd/sworn/init.go` — all in planned_files (init.go added with divergence note).
+- **Gate 3 (Tests pass)**: 27/27 tests pass (re-run in fresh session). All spec-required test names present.
+- **Gate 4 (Reachability artefact)**: smoke step re-run — `SWORN_CONFIG_PATH=/tmp/... sworn init --yes`, verified config content matches expected keys.
+- **Gate 5 (No silent deferrals)**: grep of all changed Go files for TODO/FIXME/deferred/placeholder returned zero hits.
+- **Gate 6 (Scope matches)**: every Delivered item has verifiable evidence (test name or smoke step). Divergence (init.go addition) documented in proof.md.
