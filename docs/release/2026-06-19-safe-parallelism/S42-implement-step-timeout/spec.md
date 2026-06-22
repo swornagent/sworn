@@ -15,9 +15,10 @@ when the escalation list is exhausted.
 
 ## Entry point
 
-`sworn run --task ... [--implement-timeout <duration>]` (also `SWORN_IMPLEMENT_TIMEOUT` env
-and an `implementer.timeout` config field). The deadline is enforced per attempt inside the
-`RunSlice` escalation loop.
+`sworn run --task ... [--implement-timeout <duration>]` (also `SWORN_IMPLEMENT_TIMEOUT` env).
+The deadline is enforced per attempt inside the `RunSlice` escalation loop. Precedence is
+**flag > env > default**; the default is a named constant in `internal/run/slice.go`. (A
+config-file tier is deferred — see Out of scope.)
 
 ## Background
 
@@ -38,7 +39,9 @@ already respects context cancellation, so the deadline propagates end-to-end.
   attempt).
 - Add a configurable per-attempt timeout: `Options.ImplementTimeout time.Duration`
   (`internal/run`), a `--implement-timeout` flag + `SWORN_IMPLEMENT_TIMEOUT` env
-  (`cmd/sworn/run.go`), with a sensible default (e.g. 15m) when unset/zero.
+  (`cmd/sworn/run.go`), with a sensible default when unset/zero. The default MUST be a single
+  named constant `DefaultImplementTimeout` (e.g. 15m) in `internal/run/slice.go` — **not** in
+  `internal/config/config.go` (see Out of scope).
 - Surface a clear stderr line on timeout: `implement attempt N timed out after <d> —
   escalating`.
 
@@ -52,6 +55,14 @@ already respects context cancellation, so the deadline propagates end-to-end.
 - Killing OS subprocesses the agent spawned — the supervisor's stale-PID reaping covers
   cross-session orphans; in-process cancellation is what this slice adds.
 - Per-step timeouts for the verify step (verifier runs on a bounded Claude model already).
+- **Touching `internal/config/config.go`.** The default MUST stay a named constant
+  (`DefaultImplementTimeout`) in `internal/run/slice.go`; do **not** add it to
+  `internal/config/config.go`. That file is owned by T3 (merged) and is a planned touchpoint of
+  T6 (S17) and T16 (S54/S56); adding S42 to it creates a needless cross-track collision — the
+  defect that caused this slice's first BLOCKED verdict. **Deferred** (Rule 2; why: a config
+  tier requires a new field in `config.go`, a cross-track collision; tracking: a later slice may
+  add an `implementer.timeout` config field once `config.go` ownership is settled; ack: planner
+  replan 2026-06-23). Precedence is therefore flag > env > default, with no config-file tier.
 
 ## Planned touchpoints
 
@@ -69,9 +80,11 @@ already respects context cancellation, so the deadline propagates end-to-end.
   fail-closed "escalate to human" error (not a hang, not a panic)
 - [ ] An implementer that completes within the timeout is unaffected (no behavioural change to
   the happy path)
-- [ ] Default timeout is applied when `--implement-timeout`/env/config are all unset
+- [ ] Default timeout (the `DefaultImplementTimeout` constant in `slice.go`) is applied when
+  both `--implement-timeout` and `SWORN_IMPLEMENT_TIMEOUT` are unset
 - [ ] `--implement-timeout` flag and `SWORN_IMPLEMENT_TIMEOUT` env are honoured with correct
-  precedence (flag > env > config > default)
+  precedence (flag > env > default; no config-file tier)
+- [ ] `internal/config/config.go` is **not** in the slice's diff (the constant lives in `slice.go`)
 
 ## Required tests
 
