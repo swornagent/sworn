@@ -3,11 +3,11 @@
   "slice_id": "S32-designfit-decisions-gate",
   "release": "2026-06-19-safe-parallelism",
   "track": "T12-harness-hardening",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "planner",
   "last_updated_at": "2026-06-21T00:00:00Z",
-  "start_commit": null,
+  "start_commit": "9c07f6d727ae7dac70f5ae7b16601d4e27ec2951",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S32-designfit-decisions-gate/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S32-designfit-decisions-gate/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S32-designfit-decisions-gate/journal.md",
@@ -15,12 +15,18 @@
     "internal/designfit/designfit.go",
     "internal/designfit/designfit_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/designfit/designfit.go",
+    "internal/designfit/designfit_test.go"
+  ],
   "test_commands": [
     "go test ./internal/designfit/...",
+    "go vet ./internal/designfit/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "TestType1ImpliedEmptyDecisionsFails \u2014 exercises designfit.Run() with S23-memory-config fixture shape"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "",
@@ -28,5 +34,19 @@
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
     "violations": []
-  }
+  },
+  "design_decisions": [
+    {
+      "choice": "type1-implied-signal",
+      "stake_class": "Type-2",
+      "options": [
+        "planned_files prefix-match",
+        "new status.json field",
+        "git-history analysis"
+      ],
+      "human_decision": "noted default \u2014 planned_files prefix-match against {cmd/sworn/, internal/state/, internal/verdict/}",
+      "rationale": "low-blast-radius choice: uses existing data with no new schema field; prefix set covers the CLI entrypoint, state machine, and verdict contract \u2014 the artefact surface external consumers depend on",
+      "architecturally_significant": false
+    }
+  ]
 }
