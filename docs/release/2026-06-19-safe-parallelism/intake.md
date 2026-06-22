@@ -213,6 +213,23 @@ delivers async AND verified. Same PR, different quality bar. This gap is unoccup
 
 ## Decisions made during planning
 
+### 2026-06-23 — Replan: resolve S42-implement-step-timeout BLOCKED
+
+- **Decision A — `cmd/sworn/run.go` is a DOCUMENTED SHARED file.** S42 (T12) and S10 (T5) both
+  add additive, region-separable wiring to it (S42: `--implement-timeout` flag; S10: `LoadDotEnv`
+  + `printModelError`). Rather than a `T12 depends_on T5` edge — which would block the
+  near-complete T12 (10 slices verified) behind the barely-started T5 — the file is marked
+  documented-shared so both tracks stay parallel and `/merge-track` reconciles the additive
+  regions whichever merges second.
+- **Decision B — enforce the S42 spec; no `config.go` touch.** The default timeout stays a named
+  constant in `internal/run/slice.go`. The first implementation attempt moved it into
+  `config.go` (owned by merged T3; planned T6/T16), which created the collision behind the BLOCKED
+  verdict. The config-file timeout tier is deferred (Rule 2 card in the spec); precedence is now
+  flag > env > default. S42 returns to the implementer at `failed_verification`.
+- **Why this isn't a re-group**: three of the four conflict files were against already-merged
+  T1/T3 work (ordinary integration), and merged tracks can't be re-grouped. Only `cmd/sworn/run.go`
+  was a live in-flight collision (with T5), resolved by the documented-shared decision.
+
 ### 2026-06-23 — Replan: orchestration-core port (T17) from the port-fidelity audit
 
 - **Context**: a 7-dimension port-fidelity audit (reference = the leading-edge coach loop in

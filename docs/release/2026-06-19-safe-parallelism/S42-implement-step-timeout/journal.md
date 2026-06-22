@@ -61,3 +61,35 @@ The touchpoint matrix was wrong (track-mode invariant 4). This track (T12-harnes
 **Proposed fix**: `/replan-release 2026-06-19-safe-parallelism` to re-group the conflicting slices so that T12's planned_files do not overlap with any in-flight release-wt changes.
 
 **Next step**: `/replan-release 2026-06-19-safe-parallelism` (a blocked verdict routes to the planner, not back to the implementer).
+
+## Planner correction — 2026-06-23 (replan resolving the BLOCKED verdict)
+
+**Actor**: planner (`/replan-release`)
+
+The BLOCKED verdict's framing was only half-right. Decomposing the forward-merge conflict
+by *who actually touches each file while in-flight*:
+
+- `internal/run/run.go`, `internal/run/slice.go`, `internal/config/config.go` conflicts are
+  against **already-merged** T1/T3 work — ordinary integration the implementer resolves at
+  `/implement-slice` Step 0, not a parallel-track race. Merged tracks cannot be re-grouped.
+- The `config.go` conflict was **self-inflicted**: this implementation moved
+  `DefaultImplementTimeout` into `internal/config/config.go`, deviating from the spec (which
+  mandates a named constant in `internal/run/slice.go`). config.go is owned by merged T3 and is
+  a planned touchpoint of T6/T16 — the deviation manufactured the collision.
+- The one genuine in-flight collision is `cmd/sworn/run.go`, shared with S10 (T5, in_progress)
+  and unrecorded for T12 in the touchpoint matrix.
+
+**Resolutions ratified at replan:**
+
+1. **`cmd/sworn/run.go` is now DOCUMENTED SHARED** (additive flag/wiring per track). T5 and T12
+   stay parallel; `/merge-track` reconciles. (Chosen over a `T12 depends_on T5` edge — T12 is
+   near-complete, T5 barely started.)
+2. **Enforce the spec — no `config.go` touch.** The default stays a named constant
+   `DefaultImplementTimeout` in `internal/run/slice.go`. The config-file timeout tier is
+   **deferred** (Rule 2 card in the spec); precedence is now flag > env > default.
+
+**`verification.result` cleared to `pending`; state → `failed_verification`.** On re-entry:
+(a) `/implement-slice` Step 0 forward-merges `release-wt` to integrate the merged-T1/T3 run-loop
+changes; (b) relocate `DefaultImplementTimeout` from `config.go` back to `slice.go`; (c) remove
+the `--implement-timeout` config-file tier (keep flag + env + default); (d) re-prove. `start_commit`
+is intentionally preserved (do not overwrite it on re-entry).
