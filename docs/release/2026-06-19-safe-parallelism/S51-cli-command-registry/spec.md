@@ -52,7 +52,7 @@ The `sworn` CLI binary (`cmd/sworn`). User gesture: `sworn <verb> [args]` at a s
 - **Unit**: `internal/command/registry_test.go` — Register/Lookup/All behaviour; duplicate-name panic; `All()` sorted and complete.
 - **Integration**: `cmd/sworn/commands_test.go` — drives dispatch the way `main()` does: for each expected verb, assert `command.Lookup(verb)` resolves and its `Run` is the expected handler; assert unknown verb is not found; assert `help`/`version` resolve. This exercises the entry point (`main`'s dispatch path) per Rule 1, not a leaf in isolation.
 - **Reachability artefact**: explicit smoke step — build `sworn`, run `sworn help` (observe all verbs listed from the registry), `sworn version` (observe version + baton-protocol line), `sworn lint` and `sworn designfit` against a sample release (observe identical behaviour to pre-refactor), and `sworn bogusverb` (observe `unknown command`, exit 64). Capture terminal transcript in `proof.md`.
-- **E2E gate type**: N/A (CLI, no Playwright).
+- **Browser test gate**: N/A (CLI-only slice, no browser UI).
 
 ## Risks
 

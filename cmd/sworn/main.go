@@ -4,22 +4,21 @@
 // the git host (a GitHub Action / GitLab CI / any CI invokes it the same way).
 //
 // Brand: SwornAgent. Binary: sworn. (Like GitHub CLI -> gh.)
+//
+// T15-owned — the command registry (internal/command) replaced the
+// hand-maintained switch; per-command verbs self-register from their own files.
+// Adding a new CLI command never edits this file.
 package main
 
 import (
-	"context"
-	"encoding/json"
-	"flag"
 	"fmt"
-	"github.com/swornagent/sworn/internal/config"
-	"github.com/swornagent/sworn/internal/model"
+	"os"
+	"time"
+
+	"github.com/swornagent/sworn/internal/command"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/telemetry"
 	"github.com/swornagent/sworn/internal/tui"
-	"github.com/swornagent/sworn/internal/verify"
-	"os"
-	"strings"
-	"time"
 )
 
 // version is overridden at build time via -ldflags "-X main.version=...".
@@ -52,7 +51,8 @@ func main() {
 	os.Exit(exitCode)
 }
 
-// dispatch parses os.Args and dispatches to the appropriate subcommand.
+// dispatch resolves the subcommand from the registry and runs it.
+// No per-command case statements — the registry owns dispatch.
 // Returns exit code (0 for success, non-zero for errors).
 // Does NOT call os.Exit — the caller (main) handles that after telemetry.
 func dispatch(args []string) int {
@@ -64,141 +64,34 @@ func dispatch(args []string) int {
 		}
 		return 0
 	}
-	switch args[1] {
-	case "init":
-		// S08-init-config adds this case (T3-turnkey-ux).
-		return cmdInit(args[2:])
-	case "verify":
-		return cmdVerify(args[2:])
-	case "run":
-		// S07-run-loop adds this case (T2-orchestration).
-		// Disjoint from "init": both are additive to the switch.
-		return cmdRun(args[2:])
-	case "bench":
-		// S10-benchmark-dogfood adds this case (T4-proof).
-		return cmdBench(args[2:])
-	case "mcp":
-		// S08a-mcp-transport adds this case (T4-mcp).
-		return cmdMcp(args[2:])
-	case "lint":
-		// S01-rtm-spine / S02-ears-ac-format add this case (T1-fidelity-core).
-		// Dispatches to: lint ac <release>, lint trace <release>.
-		return cmdLint(args[2:])
-	case "reqverify":
-		// S04-requirements-verify-gate adds this case (T1-fidelity-core).
-		return cmdReqverify(args[2:])
-	case "reqvalidate":
-		// S05-requirements-validate-gate adds this case (T1-fidelity-core).
-		return cmdReqvalidate(args[2:])
-	case "designfit":
-		// S07-design-fit-gate adds this case (T1-fidelity-core).
-		return cmdDesignfit(args[2:])
-	case "journeys":
-		// S11-journey-elicitation adds this case (T1-fidelity-core).
-		return cmdJourneys(args[2:])
-	case "ship":
-		// S13-walkthrough-attestation adds this case (T2-delivery-cutover).
-		return cmdShip(args[2:])
-	case "specquality":
-		// S03-spec-quality-firstpass adds this case (T3-leaf-gates).
-		return cmdSpecquality(args[2:])
-	case "designaudit":
-		// S09-design-conformance-audit adds this case (T3-leaf-gates).
-		return cmdDesignaudit(args[2:])
-	case "top":
-		// S15-sworn-top-evidence adds this case (T4-evidence-surface).
-		return cmdTop(args[2:])
-	case "doctor":
-		// S22-sworn-doctor adds this case (T4-mcp).
-		return cmdDoctor(args[2:])
-	case "telemetry":
-		// S26-telemetry adds this case (T9-telemetry).
-		return cmdTelemetry(args[2:])
-	case "login":
-		// S06a-sworn-login-auth adds these cases (T3-commercial).
-		return cmdLogin(args[2:])
-	case "logout":
-		return cmdLogout(args[2:])
-	case "account":
-		return cmdAccount(args[2:])
-	case "version", "--version", "-v":
-		fmt.Printf("sworn %s\nbaton-protocol %s\n", version, prompt.BatonVersion())
-		return 0
-	case "help", "--help", "-h":
-		if len(args) > 2 && args[2] == "run" {
-			cmdRun([]string{"--help"})
-			return 0
-		}
-		usage()
-		return 0
-	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", args[1])
+
+	name := args[1]
+	c, ok := command.Lookup(name)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", name)
 		usage()
 		return 64
 	}
+	return c.Run(args[2:])
 }
 
-// openDeferralsFlag implements flag.Value to accept repeated --deferral flags.
-type openDeferralsFlag []string
-
-func (f *openDeferralsFlag) String() string { return strings.Join(*f, "; ") }
-func (f *openDeferralsFlag) Set(v string) error {
-	*f = append(*f, v)
-	return nil
+// cmdVersion prints the sworn binary version and baton-protocol version.
+func cmdVersion(_ []string) int {
+	fmt.Printf("sworn %s\nbaton-protocol %s\n", version, prompt.BatonVersion())
+	return 0
 }
 
-func cmdVerify(args []string) int {
-	fs := flag.NewFlagSet("verify", flag.ExitOnError)
-	spec := fs.String("spec", "", "path to the spec / acceptance criteria (required)")
-	diff := fs.String("diff", "", "path to the unified diff, or - for stdin (required)")
-	proof := fs.String("proof", "", "path to the proof bundle (optional in this build)")
-	mdl := fs.String("verifier-model", "", "verifier model id (provider/model)")
-	var openDeferrals openDeferralsFlag
-	fs.Var(&openDeferrals, "deferral", "declared Rule-2 deferral (repeatable: 'why - tracking - ack')")
-	_ = fs.Parse(args) // Resolve verifier model with precedence: flag > env > config (Coach Pin 3).
-	var v model.Verifier
-	cfg, cfgErr := config.Load()
-	if cfgErr != nil {
-		fmt.Fprintf(os.Stderr, "sworn verify: loading config: %v\n", cfgErr)
-		// Continue — config may be unavailable but env vars or flags may work.
+// cmdHelp prints usage. If the first argument is "run", it delegates to
+// cmdRun with --help (preserving the pre-registry behaviour for sworn help run).
+func cmdHelp(args []string) int {
+	if len(args) > 0 && args[0] == "run" {
+		cmdRun([]string{"--help"})
+		return 0
 	}
-
-	resolvedModel, err := config.ResolveVerifierModel(*mdl, cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "sworn verify: %v\n", err)
-		return 2
-	}
-
-	// Validate config invariants: UI-bearing projects must declare a design system.
-	// Sworn fails closed when a project marked UI-bearing has no design system.
-	if err := cfg.Validate(); err != nil {
-		fmt.Fprintf(os.Stderr, "sworn verify: %v\n", err)
-		return 2
-	}
-
-	if resolvedModel != "" {
-		var verr error
-		v, verr = model.FromEnv(resolvedModel)
-		if verr != nil {
-			fmt.Fprintf(os.Stderr, "sworn verify: %v\n", verr)
-			return 2
-		}
-	}
-	// v remains nil when no model is configured -> Unconfigured (fail-closed).
-
-	res := verify.Run(context.Background(), verify.Input{
-		SpecPath:      *spec,
-		DiffPath:      *diff,
-		ProofPath:     *proof,
-		Model:         resolvedModel,
-		Verifier:      v,
-		OpenDeferrals: openDeferrals,
-	})
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(res)
-	return res.ExitCode()
+	usage()
+	return 0
 }
+
 func usage() {
 	fmt.Fprint(os.Stderr, `sworn — SwornAgent's provider-neutral verification core
 

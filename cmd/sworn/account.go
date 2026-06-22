@@ -8,7 +8,18 @@ import (
 	"strings"
 
 	"github.com/swornagent/sworn/internal/account"
+	"github.com/swornagent/sworn/internal/command"
 )
+
+func init() {
+	// T3-commercial owns the account verb (S07-paging adds set-webhook + notifications).
+	// Self-registration via init() — never edit cmd/sworn/main.go to add a command.
+	command.Register(command.Command{
+		Name:    "account",
+		Summary: "show account status, buy credits, and configure webhook notifications",
+		Run:     cmdAccount,
+	})
+}
 
 // cmdAccount implements `sworn account` and its subcommands:
 //

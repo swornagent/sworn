@@ -3,11 +3,10 @@
   "slice_id": "S25-memory-search",
   "release": "2026-06-19-safe-parallelism",
   "track": "T8-memory",
-  "state": "planned",
-  "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-20T00:00:00Z",
-  "start_commit": null,
+  "state": "verified",
+  "owner": "verifier",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-22T14:00:00Z",  "start_commit": "c031ea11574c28e060658a53d1416c40d4a103e8",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S25-memory-search/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S25-memory-search/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S25-memory-search/journal.md",
@@ -16,18 +15,48 @@
     "internal/memory/search_test.go",
     "cmd/sworn/memory.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/memory/search.go",
+    "internal/memory/search_test.go",
+    "internal/memory/embed_voyage.go",
+    "internal/memory/index.go",
+    "cmd/sworn/memory.go"
+  ],
   "test_commands": [
     "go test -race ./internal/memory/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
-  "open_deferrals": [],
+  "reachability_artifacts": [
+    "CLI: sworn memory search 'test query' → exits 1 with 'No memory index found' (no-index path)",
+    "CLI: sworn memory search → exits 64 with usage (missing args)",
+    "Unit: TestSearchTopK — 10 entries, entry #3 (cosine closest) ranks #1",
+    "Unit: TestSearchFilterHarness — 5/5 claude-code results from mixed index"
+  ],
+  "design_decisions": [
+    { "id": "D1", "summary": "Linear scan over index (not ANN)", "type": "Type-2", "rationale": "Fast enough for <50K entries; ANN deferred to post-R3" },
+    { "id": "D2", "summary": "Float32 similarity scores", "type": "Type-2", "rationale": "Balances precision and storage" },
+    { "id": "D3", "summary": "Default embedder from S23 config (Voyage/OAI-compat/Ollama)", "type": "Type-2", "rationale": "Uses existing config; no new provider wiring" },
+    { "id": "D4", "summary": "CLI defaults: --top-k=10, --json opt-in", "type": "Type-2", "rationale": "Sensible defaults; matches existing captain-memory-search.py behaviour" },
+    { "id": "D5", "summary": "No shim changes; python shim deleted by T14-baton-integration", "type": "Type-2", "rationale": "Per Coach directive on Pin 2; shim deletion owned by later track" }
+  ],
+  "open_deferrals": [
+    {
+      "item": "captain-memory-search.py shim update",
+      "why": "Coach directive on Pin 2 — shim deleted by T14-baton-integration after S46 batching",
+      "tracking": "S46 (captain-review) + T14-baton-integration",
+      "acknowledgement": "Coach, 2026-06-22 (approved-ack.md)"
+    },
+    {
+      "item": "--batch search mode",
+      "why": "Coach directive on Pin 2 — in-process batching lands in S46",
+      "tracking": "S46 (captain-review)",
+      "acknowledgement": "Coach, 2026-06-22 (approved-ack.md)"
+    }
+  ],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "result": "pass",
+    "verifier_session_id": "2026-06-22-s25-verify",
+    "verifier_verdict_at": "2026-06-22T14:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
-  }
-}
+  }}

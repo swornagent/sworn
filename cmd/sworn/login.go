@@ -9,7 +9,24 @@ import (
 	"time"
 
 	"github.com/swornagent/sworn/internal/account"
+	"github.com/swornagent/sworn/internal/command"
 )
+
+func init() {
+	// T3-commercial owns the login/logout verbs (S06a-sworn-login-auth).
+	// Self-registration via init() — never edit cmd/sworn/main.go to add a command.
+	command.Register(command.Command{
+		Name:    "login",
+		Summary: "authenticate with SwornAgent via device-code OAuth2 flow",
+		Run:     cmdLogin,
+	})
+	command.Register(command.Command{
+		Name:    "logout",
+		Summary: "remove local SwornAgent credentials",
+		Run:     cmdLogout,
+	})
+}
+
 // authURL is the production SwornAgent auth endpoint. It can be overridden at
 // build time via -ldflags "-X main.authURL=https://custom.auth.example.com".
 // At runtime, SWORN_AUTH_URL env var takes precedence.
@@ -17,6 +34,7 @@ import (
 // Coach decision (approved-ack.md pin 4): SWORN_AUTH_URL env var with ldflags
 // compile-time fallback.
 var authURL = "https://auth.sworn.sh"
+
 // resolveAuthEndpoint returns the auth endpoint URL with precedence:
 // 1. SWORN_AUTH_URL env var
 // 2. compile-time authURL (ldflags)
@@ -51,7 +69,8 @@ func cmdLogin(args []string) int {
 	}
 
 	dir := filepath.Dir(account.CredentialsPath())
-	if err := account.Save(creds, dir); err != nil {		fmt.Fprintf(os.Stderr, "Failed to save credentials: %v\n", err)
+	if err := account.Save(creds, dir); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to save credentials: %v\n", err)
 		return 1
 	}
 
