@@ -451,7 +451,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S46-captain-review` | T13 | captain agent reviews the TL;DR + live code, emits classified pins, writes review.md, and gates implement (proceed if no escalate pins, else halt+surface) — the in-product `/design-review` | planned | [spec](./S46-captain-review/spec.md) |
 | `S47-orchestrator-recovery` | T13 | on non-PASS, intra-run triage chooses resolve-in-place / escalate / halt, then commits state and delegates lifecycle routing (BLOCKED→replan, fail→redesign/implement) to the S58 router (re-scoped 2026-06-23) | planned | [spec](./S47-orchestrator-recovery/spec.md) |
 | `S39-openai-responses-provider` | T5 | first-class OpenAI provider via /v1/responses (reasoning_effort + tool-calls + built-in web_search) + a cross-provider WebSearch/WebFetch agent tool — fixes gpt-5.x support + 'more than 6 tools' | planned | [spec](./S39-openai-responses-provider/spec.md) |
-| `S48-baton-vendor` | T14 | `sworn baton vendor` — semver-pinned vendor of upstream Baton + bash→sworn transform over rules AND role-prompts (strips `release-verify.sh`/`release-board-status.sh`/`captain-memory-search.py`… → sworn-native commands); reproduces the sworn-native embed (subsumes the one-time scrub) | planned | [spec](./S48-baton-vendor/spec.md) |
+| `S48-baton-vendor` | T14 | `sworn baton vendor` — semver-pinned vendor of upstream Baton + bash→sworn transform over rules AND role-prompts (strips `release-verify.sh`/`release-board-status.sh`/`captain-memory-search.py`… → sworn-native commands); reproduces the sworn-native embed (subsumes the one-time scrub) | failed_verification | [spec](./S48-baton-vendor/spec.md) |
 | `S49-baton-version` | T14 | reconcile the Baton pin from a raw SHA to a **semver tag** across `VERSION`+`VERSION.txt`; `sworn version` reports "on Baton vX.Y.Z"; `sworn doctor` fails the pin if it's a SHA not a tag | planned | [spec](./S49-baton-version/spec.md) |
 | `S50-baton-governance` | T14 | `sworn baton diff` divergence check (embed vs upstream pin) + `docs/baton-governance.md` PR-up process note + ADR-0006; protocol changes found in sworn dev must PR upstream, never silently fork | planned | [spec](./S50-baton-governance/spec.md) |
 | `S51-cli-command-registry` | T15 | command registry replaces the `cmd/sworn/main.go` dispatch switch; new subcommands self-register from their own file; `main.go` owned by one track — ends the recurring touchpoint collision | verified | [spec](./S51-cli-command-registry/spec.md) |
@@ -490,6 +490,31 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > Merged (8): T1, T2, T3, T4, T8, T9, T11, T15. In progress (1): T12-harness-hardening (head: S42-implement-step-timeout). Planned (8): T5, T6, T7, T10, T13, T14, T16, T17.
 
 ## Recent activity
+
+### 2026-06-23 — replan: route S48 to implementer (misroute) + fold board blocked-visibility into S57
+
+- **Actor**: planner (human + Claude)
+- **S48-baton-vendor → implementer (not a planner job).** Verifier BLOCKED on a dirty T14 worktree
+  (19 uncommitted mods) and routed to `/replan-release`, but its own verdict says "no spec defect."
+  Planner inspection found the uncommitted changes are **corrupt `sworn baton vendor` output** — the
+  transform degrades the Baton rules to stubs (`rules.md`: 1112→29 lines, "No scripts."), i.e. a
+  **lossy/non-deterministic transform** that fails the slice's own determinism AC. No planning
+  artefact to correct → `state` set to `failed_verification`; the implementer must **discard** the
+  broken output (`git checkout -- internal/adopt/baton internal/prompt`, do NOT commit it), fix
+  `internal/baton/transform.go`, and re-prove. See `S48-baton-vendor/journal.md`. T14 was dirty, so
+  this replan did not forward-merge into it — the routing reaches T14 at the implementer's next
+  `/implement-slice` Step 0 (after the broken output is discarded).
+- **S20-mcp-catalog-tools** (separate verdict): FAIL with three implementer-fixable violations
+  (unlisted `cmd/sworn/mcp.go` touch undocumented in proof; paraphrased test output / wrong command;
+  `slice_count` nested not top-level + untested). No spec defect → routes to `/implement-slice`; no
+  planner change made.
+- **Oracle/board blocked-visibility gap → folded into S57-oracle-reader.** The board derives display
+  purely from `status.json.state` and never reads `verification.result`, so a `state:implemented` +
+  `verification.result:"blocked"` slice renders as plain `implemented` (it hid S42/S10/S48 as blocked
+  this release). S57's spec now requires the reader to surface `blocked` + reason (`violations[]`) +
+  routing owner (`needs_planner`/`needs_human`/`needs_implementer`) as a distinct `BLOCKED → <owner>`
+  board row. (`blocked_needs_*` are not real states — they exist only as verifier prose; S57 makes
+  them machine-visible.)
 
 ### 2026-06-23 — replan: resolve S10-provider-foundation BLOCKED (stale ADR ref) + ADR-number reconciliation
 
