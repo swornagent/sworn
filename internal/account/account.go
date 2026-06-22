@@ -63,7 +63,13 @@ func OpenBrowser(urlStr string) {
 // openBrowser tries to open a URL in the system browser, falling back to
 // printing the URL to stderr. Platform-specific commands are tried in order:
 // xdg-open (Linux), open (macOS), start (Windows). See spec Risks section.
-func openBrowser(urlStr string) {
+//
+// It is a package var, not a plain func, so tests can replace it with a no-op:
+// DeviceCodeFlow calls it unconditionally, and the device-flow tests run a mock
+// server returning verification_uri=https://example.com/device — without this
+// seam every `go test ./...` literally spawned a real browser tab on the dev
+// machine (see TestMain in account_test.go).
+var openBrowser = func(urlStr string) {
 	switch runtime.GOOS {
 	case "darwin":
 		if err := exec.Command("open", urlStr).Start(); err == nil {

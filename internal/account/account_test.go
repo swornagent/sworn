@@ -11,6 +11,17 @@ import (
 	"time"
 )
 
+// TestMain disables the real browser-open seam for the whole package so the
+// device-flow tests never spawn xdg-open / a real browser tab on the machine
+// running the suite. The mock server returns verification_uri=
+// https://example.com/device, and DeviceCodeFlow opens it unconditionally, so
+// every `go test ./...` was opening two tabs on the dev box. These tests assert
+// flow logic (request/poll/token), not the act of opening a browser.
+func TestMain(m *testing.M) {
+	openBrowser = func(string) {}
+	os.Exit(m.Run())
+}
+
 // TestDeviceCodeFlow exercises the full device-code flow against a mock server.
 // It asserts:
 //   - POST /device/code receives device_code request
