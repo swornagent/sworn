@@ -41,8 +41,57 @@ type voyageResponse struct {
 	} `json:"data"`
 }
 
-func (e *voyageEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, error) {
-	if len(texts) == 0 {
+// EmbedQuery embeds a single query string with input_type set to "query".
+// This improves asymmetric search recall compared to the default "document" type.
+func (e *voyageEmbedder) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
+	apiKey := os.Getenv(e.cfg.APIKeyEnv)
+	if apiKey == "" {
+		return nil, fmt.Errorf("missing API key in environment variable %s", e.cfg.APIKeyEnv)
+	}
+
+	reqBody := voyageRequest{
+		Input:     []string{query},
+		Model:     e.cfg.Model,
+		InputType: "query",
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", e.cfg.BaseURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var vResp voyageResponse
+	if err := json.NewDecoder(resp.Body).Decode(&vResp); err != nil {
+		return nil, fmt.Errorf("decoding response: %w", err)
+	}
+
+	if len(vResp.Data) != 1 {
+		return nil, fmt.Errorf("expected 1 embedding, got %d", len(vResp.Data))
+	}
+
+	return vResp.Data[0].Embedding, nil
+}
+
+func (e *voyageEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, error) {	if len(texts) == 0 {
 		return nil, nil
 	}
 

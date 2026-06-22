@@ -116,9 +116,38 @@ CREATE INDEX IF NOT EXISTS idx_harness ON memory_entries(harness);
 	return err
 }
 
+// AllEntries returns all entries in the index.
+func (idx *Index) AllEntries(ctx context.Context) ([]Entry, error) {
+	query := `SELECT id, path, harness, title, content, embedding, model, indexed_at FROM memory_entries`
+	rows, err := idx.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []Entry
+	for rows.Next() {
+		var e Entry
+		var embBytes []byte
+		var indexedAtStr string
+		if err := rows.Scan(&e.ID, &e.Path, &e.Harness, &e.Title, &e.Content, &embBytes, &e.Model, &indexedAtStr); err != nil {
+			return nil, err
+		}
+		e.Embedding, err = DecodeEmbedding(embBytes)
+		if err != nil {
+			return nil, fmt.Errorf("decoding embedding for entry %s: %w", e.ID, err)
+		}
+		e.IndexedAt, err = time.Parse(time.RFC3339, indexedAtStr)
+		if err != nil {
+			return nil, fmt.Errorf("parsing indexed_at for entry %s: %w", e.ID, err)
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
 // Close closes the database connection.
-func (idx *Index) Close() error {
-	return idx.db.Close()
+func (idx *Index) Close() error {	return idx.db.Close()
 }
 
 // HasEntry returns true if an entry with the given ID exists in the index.
