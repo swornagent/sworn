@@ -57,3 +57,6 @@ None.
 ## Verifier verdicts received
 
 *(None yet.)*
+### Skeptic panel
+
+- **skipped** — runtime does not support subagent dispatch (no Agent/Workflow tool available).
