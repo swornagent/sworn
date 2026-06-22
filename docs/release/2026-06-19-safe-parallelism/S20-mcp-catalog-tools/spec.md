@@ -168,7 +168,7 @@ embed, which was already updated by S18 and S19.
 
 **Reachability artefact**: connect Claude Code to `sworn mcp`; ask "what's the induction
 status of this repo?"; observe AI calls `get_induction_status`; confirm it reads and
-reports the actual catalog state. Screenshot in proof.md.
+reports the actual catalog state. Capture in proof.md via manual smoke step.
 
 ## Risks
 
