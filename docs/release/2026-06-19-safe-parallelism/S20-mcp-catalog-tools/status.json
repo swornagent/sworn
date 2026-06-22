@@ -3,18 +3,17 @@
   "slice_id": "S20-mcp-catalog-tools",
   "release": "2026-06-19-safe-parallelism",
   "track": "T7-mcp-extensions",
-  "state": "planned",
+  "state": "design_review",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-20T00:00:00Z",
-  "start_commit": null,
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-06T13:00:00Z",  "start_commit": null,
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/journal.md",
   "planned_files": [
     "internal/mcp/catalog.go",
-    "internal/mcp/catalog_test.go"
-  ],
+    "internal/mcp/catalog_test.go",
+    "cmd/sworn/mcp.go"  ],
   "actual_files": [],
   "test_commands": [
     "go test ./internal/mcp/... -run Catalog",
