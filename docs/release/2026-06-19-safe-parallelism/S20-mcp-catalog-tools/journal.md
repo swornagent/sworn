@@ -56,7 +56,21 @@ None.
 
 ## Verifier verdicts received
 
-*(None yet.)*
+### Verdict 1 — 2026-06-23 (verifier, fresh context)
+
+**Verdict**: FAIL
+
+**Gate 2 — Violation 1**: `cmd/sworn/mcp.go` is changed (one line: `mcp.RegisterCatalogTools(server, ".")`) but is not listed in spec.md "Planned touchpoints" (which lists only `internal/mcp/catalog.go` and `internal/mcp/catalog_test.go`). proof.md "Divergence from plan" does not mention this unlisted file.
+**Fix**: Add one sentence to proof.md "Divergence from plan" noting `cmd/sworn/mcp.go` was touched for wiring and was not in the formal touchpoints list.
+
+**Gate 3 — Violation 2**: proof.md "Test results" section shows `go test ./internal/mcp/... -v -count=1` (not the AC command `go test ./internal/mcp/... -run Catalog`) and paraphrases the trailing portion of the output with `[... 34 more pre-existing tests ...]`. Verifier cannot independently validate the paraphrased output from the proof bundle alone.
+**Fix**: Re-run and paste the complete, unparaphrased output (including pre-existing tests) into proof.md.
+
+**Gate 3 / Gate 6 — Violation 3**: AC2 requires `plan_release("2026-06-19-safe-parallelism")` to return `{exists: true, slice_count: 24}` with `slice_count` at the top level. The implementation returns `slice_count` nested inside `state_summary` (not at the top level), and `TestPlanReleaseExisting` only checks `exists: true` and `state_summary` presence — it never asserts `slice_count`.
+**Fix**: (a) In `catalog.go`, extract `slice_count` from `releaseStateSummary` and add it as a top-level field in the existing-release response. (b) Update `TestPlanReleaseExisting` to create a fixture with a known slice count and assert the correct `slice_count` value at the top level.
+
+---
+
 ### Skeptic panel
 
 - **skipped** — runtime does not support subagent dispatch (no Agent/Workflow tool available).
