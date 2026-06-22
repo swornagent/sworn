@@ -18,7 +18,7 @@ tracks:
     state: merged
   - id: T3-commercial
     slices: [S06a-sworn-login-auth, S06b-sworn-proxy-credits, S07-paging, S09-per-role-model-config, S18-consideration-catalog, S19-sworn-induction, S21-canonical-baton]
-    depends_on: T1-concurrency-core
+    depends_on: [T1-concurrency-core, T15-cli-registry]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T3-commercial
     worktree_branch: track/2026-06-19-safe-parallelism/T3-commercial
     state: in_progress
@@ -126,7 +126,7 @@ tracks:
 |---|---|---|---|---|
 | `T1-concurrency-core` | S01 → S02a → S02b → S03 | — | `track/.../T1-concurrency-core` | merged |
 | `T2-monitoring` | S04a → S04b → S04c → S05 → S34 | T1 | `track/.../T2-monitoring` | merged |
-| `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 | `track/.../T3-commercial` | in_progress |
+| `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 + T15 | `track/.../T3-commercial` | in_progress |
 | `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | merged |
 | `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 → S39 | T1 + T3 | `track/.../T5-providers` | planned |
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
