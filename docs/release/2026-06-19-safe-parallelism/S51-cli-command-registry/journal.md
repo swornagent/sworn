@@ -34,3 +34,22 @@ None.
 ## Verifier verdicts received
 
 None yet.
+### 2026-07-03 — PASS (fresh-context verifier session)
+
+**Verdict: PASS**
+
+All six verification gates satisfied:
+
+1. **User-reachable outcome exists** — the `sworn <verb>` entry point dispatches through `command.Lookup` in `func dispatch()`. Every verb (19 commands + aliases) resolves and executes identically to pre-refactor behaviour. Smoke test confirms: `sworn help` lists all verbs from registry, `sworn version` prints version + baton-protocol, `sworn bogusverb` exits 64.
+
+2. **Planned touchpoints match actual changed files** — spec planned: `internal/command/registry.go`, `internal/command/registry_test.go`, `cmd/sworn/main.go`, `cmd/sworn/commands.go`, `cmd/sworn/commands_test.go`. Actual: same 5 plus `cmd/sworn/verify.go` (documented divergence: mechanical extraction of `cmdVerify` + `openDeferralsFlag` from `main.go` per Coach Pin 1).
+
+3. **Required tests exist and exercise the integration point** — `internal/command/registry_test.go` (4 unit tests). `cmd/sworn/commands_test.go` (5 integration tests driving dispatch the way `main()` does — Rule 1 compliant). All pass with `-count=1`.
+
+4. **Reachability artefact present** — proof.md contains terminal transcript; independently reproduced.
+
+5. **No silent deferrals** — grep for TODO/FIXME/deferred/placeholder/hack/workaround in changed source files found only legitimate `openDeferralsFlag` type names (Rule 2 mechanism).
+
+6. **Claimed scope matches implemented scope** — all 6 acceptance checks have verifiable evidence. `grep -c 'case "' cmd/sworn/main.go` → 0.
+
+Worktree note: the session encountered a worktree HEAD-on-main issue (track worktree had `main` checked out; initial `checkout` didn't stick). All verification reads were cross-checked against `git show df88cf3:path` to ensure correctness.

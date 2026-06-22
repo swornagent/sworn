@@ -3,11 +3,10 @@
   "slice_id": "S51-cli-command-registry",
   "release": "2026-06-19-safe-parallelism",
   "track": "T15-cli-registry",
-  "state": "implemented",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-02T00:00:00Z",
-  "start_commit": "a4df3dc",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-03T00:00:00Z",  "start_commit": "a4df3dc",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S51-cli-command-registry/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S51-cli-command-registry/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S51-cli-command-registry/journal.md",
@@ -38,13 +37,12 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "",
+    "result": "pass",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-07-03T00:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
-  },
-  "design_decisions": [
+  },  "design_decisions": [
     "Introduce process-wide command registry (internal/command) with Register/Lookup/All, replacing the hand-maintained switch in cmd/sworn/main.go \u2014 ends the recurring touchpoint collision on the shared file. Central registration in cmd/sworn/commands.go; per-verb self-registration from individual files is a deferred concern."
   ]
 }

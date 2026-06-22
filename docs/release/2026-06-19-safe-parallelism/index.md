@@ -369,22 +369,20 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 | `S48-baton-vendor` | T14 | `sworn baton vendor` — semver-pinned vendor of upstream Baton + bash→sworn transform over rules AND role-prompts (strips `release-verify.sh`/`release-board-status.sh`/`captain-memory-search.py`… → sworn-native commands); reproduces the sworn-native embed (subsumes the one-time scrub) | planned | [spec](./S48-baton-vendor/spec.md) |
 | `S49-baton-version` | T14 | reconcile the Baton pin from a raw SHA to a **semver tag** across `VERSION`+`VERSION.txt`; `sworn version` reports "on Baton vX.Y.Z"; `sworn doctor` fails the pin if it's a SHA not a tag | planned | [spec](./S49-baton-version/spec.md) |
 | `S50-baton-governance` | T14 | `sworn baton diff` divergence check (embed vs upstream pin) + `docs/baton-governance.md` PR-up process note + ADR-0006; protocol changes found in sworn dev must PR upstream, never silently fork | planned | [spec](./S50-baton-governance/spec.md) |
-| `S51-cli-command-registry` | T15 | command registry replaces the `cmd/sworn/main.go` dispatch switch; new subcommands self-register from their own file; `main.go` owned by one track — ends the recurring touchpoint collision | planned | [spec](./S51-cli-command-registry/spec.md) |
-
+| `S51-cli-command-registry` | T15 | command registry replaces the `cmd/sworn/main.go` dispatch switch; new subcommands self-register from their own file; `main.go` owned by one track — ends the recurring touchpoint collision | verified | [spec](./S51-cli-command-registry/spec.md) |
 ## Aggregate state
 
 > Reconciled from the board oracle (`release-board-status.sh --json`, authoritative) this
-> replan, 2026-06-22. 51 slices across 15 tracks.
+> replan, 2026-06-22. 51 slices across 15 tracks. Updated 2026-07-03: S51 verified.
 
 - Planned: 25
 - In progress: 0
-- Implemented: 2
-- Verified: 24
+- Implemented: 1
+- Verified: 25
 - Failed verification: 0
 - Deferred: 0
 
 **Tracks:** Planned: 7 / In progress: 2 / Merged: 6
-
 > **T15-cli-registry new** (1 slice: S51-cli-command-registry — CLI command registry replacing
 > the `cmd/sworn/main.go` dispatch switch; 2026-06-22 replan, unblocks the coach-loop pause on
 > S07-paging). Implemented (awaiting verify): S07-paging (T3), S32-designfit-decisions-gate (T12).
@@ -428,6 +426,18 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 - **Aggregate state reconciled** from the oracle: 51 slices / 15 tracks (was a drifted 56/14 note).
 - Stray untracked `.captain-trial-log.md` at the worktree root noted (harness scratch; not committed).
 
+### 2026-07-03 — S51-cli-command-registry verifier PASS
+
+- **Slice**: S51-cli-command-registry → state: **verified**
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **All six gates passed.** All tests pass (internal/command + cmd/sworn suites). grep -c case main.go → 0. Smoke tests confirm every verb resolves identically. verify.go is a mechanical extraction (documented divergence). No silent deferrals.
+
+
+### 2026-07-03 — S51-cli-command-registry verifier PASS
+
+- **Slice**: S51-cli-command-registry → state: **verified**
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **All six gates passed.** All tests pass (internal/command + cmd/sworn suites). `grep -c 'case "' cmd/sworn/main.go` → 0. Smoke tests confirm every verb resolves identically. `verify.go` is a mechanical extraction (documented divergence). No silent deferrals.
 ### 2026-06-22 — S25-memory-search verifier PASS
 
 - **Slice**: S25-memory-search → state: **verified**
