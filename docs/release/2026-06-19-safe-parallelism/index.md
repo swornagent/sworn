@@ -137,8 +137,7 @@ tracks:
 | `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | in_progress |
 | `T13-sworn-role-parity` | S45 → S46 → S47 | T12 | `track/.../T13-sworn-role-parity` | planned |
 | `T14-baton-integration` | S48 → S49 → S50 | T3 + T15 | `track/.../T14-baton-integration` | planned |
-| `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | planned |
-
+| `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | in_progress |
 ### Execution order
 
 ```
@@ -234,10 +233,10 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 | `internal/model/ollama_test.go` (new) | | | | | ✓ |  |
 | `cmd/sworn/run.go` | ✓ | | (T1 dep) | | (T1+T3 dep) |  |
 | `go.mod`, `go.sum` | ✓ | | | | (T1 dep) |  |
-| `cmd/sworn/main.go` (T15-owned — registry dispatch loop, no per-track edits) | | | | | |  |
-| `internal/command/` (new — command registry; T15-owned) | | | | | |  |
-| `cmd/sworn/commands.go` (new — central registration of pre-existing verbs; T15-owned) | | | | | |  |
-| `docs/release/<rel>/.captain-trial-log.md` (DOCUMENTED SHARED — Captain review log, append-only: every track's design reviews add one row per slice) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `cmd/sworn/main.go` (T15-owned — registry dispatch loop, no per-track edits) | | | | | | ✓ |
+| `internal/command/` (new — command registry; T15-owned) | | | | | | ✓ |
+| `cmd/sworn/commands.go` (new — central registration of pre-existing verbs; T15-owned) | | | | | | ✓ |
+| `cmd/sworn/verify.go` (new — cmdVerify relocated from main.go; T15-owned) | | | | | | ✓ || `docs/release/<rel>/.captain-trial-log.md` (DOCUMENTED SHARED — Captain review log, append-only: every track's design reviews add one row per slice) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `cmd/sworn/top.go` | | ✓ | | | | (T2 dep)  |
 | `internal/tui/` (new) | | ✓ | | | |  |
 | `internal/tui/settings.go` (new) | | | | | | ✓  |

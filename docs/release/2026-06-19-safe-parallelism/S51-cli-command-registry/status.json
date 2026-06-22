@@ -3,7 +3,8 @@
   "slice_id": "S51-cli-command-registry",
   "release": "2026-06-19-safe-parallelism",
   "track": "T15-cli-registry",
-  "state": "design_review",  "owner": "human",
+  "state": "in_progress",
+  "owner": "human",
   "last_updated_by": "planner",
   "last_updated_at": "2026-06-22T06:45:00Z",
   "start_commit": null,
@@ -15,7 +16,8 @@
     "internal/command/registry_test.go",
     "cmd/sworn/main.go",
     "cmd/sworn/commands.go",
-    "cmd/sworn/commands_test.go"
+    "cmd/sworn/commands_test.go",
+    "cmd/sworn/verify.go"
   ],
   "actual_files": [],
   "test_commands": [
@@ -27,10 +29,13 @@
   "reachability_artifacts": [],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "",
     "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
     "violations": []
-  }
+  },
+  "design_decisions": [
+    "Introduce process-wide command registry (internal/command) with Register/Lookup/All, replacing the hand-maintained switch in cmd/sworn/main.go \u2014 ends the recurring touchpoint collision on the shared file. Central registration in cmd/sworn/commands.go; per-verb self-registration from individual files is a deferred concern."
+  ]
 }
