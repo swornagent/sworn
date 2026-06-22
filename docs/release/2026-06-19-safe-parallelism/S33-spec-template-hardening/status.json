@@ -3,28 +3,38 @@
   "slice_id": "S33-spec-template-hardening",
   "release": "2026-06-19-safe-parallelism",
   "track": "T12-harness-hardening",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-03T00:00:00Z",
-  "start_commit": "348f2d2a0f831983b43d0bee76d8046b69d493e4",  "spec_path": "docs/release/2026-06-19-safe-parallelism/S33-spec-template-hardening/spec.md",
+  "last_updated_at": "2026-07-03T00:15:00Z",
+  "start_commit": "348f2d2a0f831983b43d0bee76d8046b69d493e4",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S33-spec-template-hardening/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S33-spec-template-hardening/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S33-spec-template-hardening/journal.md",
   "planned_files": [
     "internal/prompt/planner.md",
     "internal/prompt/implementer.md"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/prompt/planner.md",
+    "internal/prompt/implementer.md",
+    "docs/release/2026-06-19-safe-parallelism/S33-spec-template-hardening/status.json"
+  ],
   "test_commands": [
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    {
+      "type": "manual-smoke-step",
+      "description": "Three rule blocks quoted from internal/prompt/planner.md:186-191 (Rules 11, 12, 13)"
+    }
+  ],
   "open_deferrals": [
     {
       "item": "External $HOME/.claude/baton/release-mode-template/spec.md edit",
       "why": "File lives outside this repo (baton harness path, not in-repo)",
       "tracking": "S33 spec Deferrals section",
-      "acknowledgement": "Coach acknowledged via approved-ack.md PIN 3(a) — external template deferred; inline note in planner.md only, Rule-2 gate closed"
+      "acknowledgement": "Coach acknowledged via approved-ack.md PIN 3(a) \u2014 external template deferred; inline note in planner.md only, Rule-2 gate closed"
     }
   ],
   "verification": {
@@ -38,7 +48,7 @@
     {
       "file": "internal/prompt/planner.md",
       "collides_with": "S18-consideration-catalog (T3-commercial)",
-      "resolution": "S18 adds Phase 2b (consideration catalog consultation); S33 adds Phase 4 spec-authoring rules. Different sections of same file — second-lander confines hunk."
+      "resolution": "S18 adds Phase 2b (consideration catalog consultation); S33 adds Phase 4 spec-authoring rules. Different sections of same file \u2014 second-lander confines hunk."
     }
   ]
 }

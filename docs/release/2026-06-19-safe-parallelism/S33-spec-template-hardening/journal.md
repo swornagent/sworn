@@ -46,6 +46,37 @@ slices.
   outside this repo; tracking = this slice's spec; acknowledgement = flagged in the replan
   summary. Not actioned in this slice.
 
+## 2026-07-03 — implemented (re-entry, design_review → in_progress → implemented)
+
+Re-entered slice after Coach approval (`approved-ack.md`). Applied all 5 pins:
+
+- **PIN 1**: No separate memory file — in-planner comment IS the staleness marking. Proceeded.
+- **PIN 2 (a)**: Added `implementer.md` to planned_files, cleaned WATCHER at line 183.
+  Renamed section from "Watcher status block (mandatory)" to "## Status block", removed
+  `<!-- WATCHER` / `-->` wrapper, kept metadata content.
+- **PIN 3 (a)**: External template deferred — inline note in planner.md only, Rule-2 gate
+  closed. No edit to `$HOME/.claude/baton/release-mode-template/spec.md`.
+- **PIN 4**: Removed `verifier.md` from planned_files (no WATCHER block — task (d) was a
+  no-op there), added `implementer.md`.
+- **PIN 5**: Added `touchpoints` entry to status.json recording planner.md overlap with
+  S18 (T3-commercial); note "second-lander confines hunk".
+
+**Implementation:**
+- `internal/prompt/planner.md` — Added three Phase 4 spec-authoring rules (items 11-13):
+  Rule 11 (Risk-cites-code), Rule 12 (Shape-pin/two-commit), Rule 13 (Dynamic-CORS +
+  memory-stale note). All placed after item 10, before Phase 5.
+- `internal/prompt/implementer.md` — Cleaned WATCHER wrapper at line 183, renamed
+  heading to "## Status block".
+- No Go code changes; `go build ./...` passes.
+
+**Forward-merged** release-wt into track (1 unrelated T15 commit).
+
+**Touchpoint collision with S18:** S18 adds Phase 2b (consideration catalog); S33 adds
+Phase 4 rules. Different sections, no same-line conflict. Recorded in status.json
+touchpoints.
+
+**Skeptic panel:** skipped — runtime does not support subagent dispatch (direct API mode).
+
 ## Verifier verdicts received
 
 None yet.
