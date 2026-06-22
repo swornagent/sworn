@@ -90,3 +90,33 @@
 **Why:** The BLOCKED verdict (`verifier-S07-paging-2026-07-01`) was a cross-track collision on `cmd/sworn/main.go`, NOT a spec defect — the verifier said so explicitly, and S07's spec never references `main.go`. The demanded structural fix already merged: `T15-cli-registry / S51-cli-command-registry` replaced the `main.go` dispatch switch with a self-registration command registry and is verified + merged into `release-wt` (release-wt `main.go` now has 0 `case` lines). The verdict was therefore stale; this branch is 51 commits behind and simply had not picked it up.
 
 **Next step — implementer, NOT verifier** (return-to-sender is not a legal handoff): `/implement-slice S07-paging`. Its Step 0 forward-merges `release-wt` (brings in S51's registry), resolves the `main.go` conflict by converting this branch's `login`/`logout`/`account` switch cases into `command.Register(...)` calls in their own `cmd/sworn/*.go` files (the other 18 verbs are already centrally registered by S51's `commands.go`), commits, then `/verify-slice S07-paging`. No spec change.
+
+## 2026-06-22: Forward-merge convergence — registry conversion (Step 0)
+
+**State transition:** `implemented` → `in_progress` (merge start) → `implemented` (after merge commit)
+
+**Why:** Execute the journal-prescribed Step 0 from the 2026-07-03 planner replan. The stale BLOCKED was cleared because S51-cli-command-registry (T15) merged into release-wt, replacing the `main.go` dispatch switch with a self-registration command registry. T3 was 44 commits behind release-wt and had not picked it up.
+
+**Forward-merge:** `git merge release-wt/2026-06-19-safe-parallelism --no-commit`. Brought in 44 commits including S51-cli-command-registry, S23-memory-config, S24-memory-engine, S25-memory-search, S40-memory-test-hygiene, and the `internal/memory` + `internal/command` packages.
+
+**Conflicts and resolutions:**
+- `cmd/sworn/main.go` (content conflict): Took release-wt's version (`--theirs`). release-wt's main.go uses `command.Lookup(args[1])` + `c.Run(args[2:])` — no switch statement. T3's old inline `cmdVerify`/`openDeferralsFlag` moved to release-wt's `cmd/sworn/verify.go` (came in via merge). T3's inline `cmdVersion`/`cmdHelp` moved to release-wt's `main.go` (came in via merge).
+- `docs/release/2026-06-19-safe-parallelism/S07-paging/status.json` (content conflict): Kept ours (`--ours`) — our in_progress edit was newer than release-wt's version (which had `start_commit: null`).
+- `docs/release/2026-06-19-safe-parallelism/S51-cli-command-registry/{spec,journal,proof,status}.md` (add/add): T3 had stub `planned` versions from the replan propagation commit; release-wt had the real `verified` versions. Took release-wt's (`--theirs`).
+
+**Registry conversion (T3's three verbs):**
+- `cmd/sworn/login.go`: added `init()` registering `login` (Summary: "authenticate with SwornAgent via device-code OAuth2 flow") and `logout` (Summary: "remove local SwornAgent credentials"). Added `internal/command` import.
+- `cmd/sworn/account.go`: added `init()` registering `account` (Summary: "show account status, buy credits, and configure webhook notifications"). Added `internal/command` import.
+- `cmd/sworn/commands_test.go`: added `account`, `login`, `logout` to `expectedVerbs` (alphabetically at the head of the list, before `init`).
+
+**No S07 feature code touched:** `internal/account/notify.go`, `internal/account/notify_test.go`, `internal/run/slice.go`, `internal/scheduler/worker.go`, `internal/run/run.go`, `internal/run/parallel.go`, `cmd/sworn/run.go` — all unchanged from the prior implemented state.
+
+**Validation:**
+- `go build ./...` — PASS
+- `go test ./internal/account/... ./internal/run/... ./internal/scheduler/... ./cmd/sworn/... -count=1` — all PASS (account 10.1s, run 0.99s, scheduler 0.014s, cmd/sworn 0.32s)
+- `go vet ./...` — clean
+- `gofmt -l cmd/sworn/login.go cmd/sworn/account.go cmd/sworn/commands_test.go` — clean (only the 3 files I touched were reformatted; the rest of the repo has a pre-existing gofmt condition that is out of S07 scope)
+- Pre-existing failure (NOT caused by this merge): `internal/board` `TestLiveReleaseBoardsAreValid` fails on `docs/release/2026-06-19-safe-parallelism/index.md` frontmatter — confirmed same failure exists on release-wt worktree. Out of S07 scope.
+
+**Deferral carried forward:**
+- SwornAgent `/api/notify` endpoint: acknowledged Coach 2026-06-22, tracking SwornAgent backend backlog

@@ -8,21 +8,89 @@ FAIL/BLOCKED webhook + email notification: when a slice enters `failed_verificat
 
 ```
 cmd/sworn/account.go
+cmd/sworn/commands.go
+cmd/sworn/commands_test.go
+cmd/sworn/login.go
+cmd/sworn/main.go
+cmd/sworn/memory.go
+cmd/sworn/memory_test.go
 cmd/sworn/run.go
+cmd/sworn/verify.go
+docs/release/2026-06-19-safe-parallelism/.captain-trial-log.md
 docs/release/2026-06-19-safe-parallelism/S07-paging/journal.md
 docs/release/2026-06-19-safe-parallelism/S07-paging/proof.md
 docs/release/2026-06-19-safe-parallelism/S07-paging/status.json
+docs/release/2026-06-19-safe-parallelism/S19-sworn-induction/spec.md
+docs/release/2026-06-19-safe-parallelism/S23-memory-config/design.md
+docs/release/2026-06-19-safe-parallelism/S23-memory-config/journal.md
+docs/release/2026-06-19-safe-parallelism/S23-memory-config/proof.md
+docs/release/2026-06-19-safe-parallelism/S23-memory-config/status.json
+docs/release/2026-06-19-safe-parallelism/S24-memory-engine/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S24-memory-engine/design.md
+docs/release/2026-06-19-safe-parallelism/S24-memory-engine/journal.md
+docs/release/2026-06-19-safe-parallelism/S24-memory-engine/proof.md
+docs/release/2026-06-19-safe-parallelism/S24-memory-engine/review.md
+docs/release/2026-06-19-safe-parallelism/S24-memory-engine/status.json
+docs/release/2026-06-19-safe-parallelism/S25-memory-search/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S25-memory-search/design.md
+docs/release/2026-06-19-safe-parallelism/S25-memory-search/journal.md
+docs/release/2026-06-19-safe-parallelism/S25-memory-search/proof.md
+docs/release/2026-06-19-safe-parallelism/S25-memory-search/review.md
+docs/release/2026-06-19-safe-parallelism/S25-memory-search/spec.md
+docs/release/2026-06-19-safe-parallelism/S25-memory-search/status.json
+docs/release/2026-06-19-safe-parallelism/S40-memory-test-hygiene/journal.md
+docs/release/2026-06-19-safe-parallelism/S40-memory-test-hygiene/proof.md
+docs/release/2026-06-19-safe-parallelism/S40-memory-test-hygiene/status.json
+docs/release/2026-06-19-safe-parallelism/S48-baton-vendor/spec.md
+docs/release/2026-06-19-safe-parallelism/S49-baton-version/spec.md
+docs/release/2026-06-19-safe-parallelism/S51-cli-command-registry/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S51-cli-command-registry/design.md
+docs/release/2026-06-19-safe-parallelism/S51-cli-command-registry/journal.md
+docs/release/2026-06-19-safe-parallelism/S51-cli-command-registry/proof.md
+docs/release/2026-06-19-safe-parallelism/S51-cli-command-registry/review.md
+docs/release/2026-06-19-safe-parallelism/S51-cli-command-registry/spec.md
+docs/release/2026-06-19-safe-parallelism/S51-cli-command-registry/status.json
+docs/release/2026-06-19-safe-parallelism/index.md
 internal/account/account.go
 internal/account/account_test.go
 internal/account/notify.go
 internal/account/notify_test.go
+internal/command/registry.go
+internal/command/registry_test.go
+internal/memory/config.go
+internal/memory/config_test.go
+internal/memory/discover.go
+internal/memory/discover_test.go
+internal/memory/embed.go
+internal/memory/embed_oai.go
+internal/memory/embed_ollama.go
+internal/memory/embed_test.go
+internal/memory/embed_voyage.go
+internal/memory/harness.go
+internal/memory/index.go
+internal/memory/index_test.go
+internal/memory/search.go
+internal/memory/search_test.go
 internal/run/parallel.go
 internal/run/run.go
 internal/run/slice.go
 internal/scheduler/worker.go
 ```
 
+**S07-owned files** (the subset this slice directly touches): `cmd/sworn/account.go`, `cmd/sworn/login.go`, `cmd/sworn/run.go`, `internal/account/{account,account_test,notify,notify_test}.go`, `internal/run/{parallel,run,slice}.go`, `internal/scheduler/worker.go`.
+
+**Forward-merge artifacts** (brought in by merging `release-wt/2026-06-19-safe-parallelism` to resolve the stale BLOCKED on `cmd/sworn/main.go`): `cmd/sworn/{main,commands,commands_test,verify,memory,memory_test}.go`, `internal/command/{registry,registry_test}.go`, `internal/memory/*`, and the S23/S24/S25/S40/S51 slice docs. These are owned by other tracks (T15-cli-registry, T8-memory) and are not S07 scope; they enter the diff because the start_commit predates the merge.
+
 ## Test results
+
+### `go test ./internal/account/... ./internal/run/... ./internal/scheduler/... ./cmd/sworn/... -count=1`
+
+```
+ok  	github.com/swornagent/sworn/internal/account	10.142s
+ok  	github.com/swornagent/sworn/internal/run	1.175s
+ok  	github.com/swornagent/sworn/internal/scheduler	0.018s
+ok  	github.com/swornagent/sworn/cmd/sworn	0.324s
+```
 
 ### `go test ./internal/account/... -v -count=1`
 
@@ -82,7 +150,7 @@ sworn notify: webhook delivery failed after 3 attempts
 === RUN   TestNotifyWithAccount_ExpiredToken
 --- PASS: TestNotifyWithAccount_ExpiredToken (0.00s)
 === RUN   TestNotifyWebhook_TimeoutContext
-sworn notify: webhook POST attempt 1/3: Post "http://127.0.0.1:45217": context deadline exceeded
+sworn notify: webhook POST attempt 1/3: Post "http://127.0.0.1:45511": context deadline exceeded
 --- PASS: TestNotifyWebhook_TimeoutContext (0.10s)
 === RUN   TestViolationsSummary_FromFile
 --- PASS: TestViolationsSummary_FromFile (0.00s)
@@ -102,7 +170,7 @@ warning: SWORN_PROXY_URL is set — sworn credentials will be routed to http://l
 === RUN   TestProxyEndpointModelIDEscaped
 --- PASS: TestProxyEndpointModelIDEscaped (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/internal/account	10.123s
+ok  	github.com/swornagent/sworn/internal/account	10.128s
 ```
 
 ### `go test ./internal/run/... -v -count=1`
@@ -129,31 +197,31 @@ ok  	github.com/swornagent/sworn/internal/account	10.123s
 === RUN   TestRunParallel_DependentTrackRunsAfterSuccess
 --- PASS: TestRunParallel_DependentTrackRunsAfterSuccess (0.00s)
 === RUN   TestRun_PassPath_Merges
---- PASS: TestRun_PassPath_Merges (0.10s)
+--- PASS: TestRun_PassPath_Merges (0.12s)
 === RUN   TestRun_FailPath_NoMerge
---- PASS: TestRun_FailPath_NoMerge (0.11s)
+--- PASS: TestRun_FailPath_NoMerge (0.13s)
 === RUN   TestRun_FailThenPass_RetrySucceeds
---- PASS: TestRun_FailThenPass_RetrySucceeds (0.11s)
+--- PASS: TestRun_FailThenPass_RetrySucceeds (0.13s)
 === RUN   TestRun_Blocked_StopsImmediately
---- PASS: TestRun_Blocked_StopsImmediately (0.08s)
+--- PASS: TestRun_Blocked_StopsImmediately (0.09s)
 === RUN   TestSanitiseBranch
 --- PASS: TestSanitiseBranch (0.00s)
 === RUN   TestRun_MissingTask
 --- PASS: TestRun_MissingTask (0.00s)
 === RUN   TestRun_VerifyMarkdownPass
---- PASS: TestRun_VerifyMarkdownPass (0.10s)
+--- PASS: TestRun_VerifyMarkdownPass (0.13s)
 === RUN   TestRun_VerifyStatelessPromptWired
---- PASS: TestRun_VerifyStatelessPromptWired (0.10s)
+--- PASS: TestRun_VerifyStatelessPromptWired (0.13s)
 === RUN   TestRun_VerifyToolCallLeakBlocks
---- PASS: TestRun_VerifyToolCallLeakBlocks (0.10s)
+--- PASS: TestRun_VerifyToolCallLeakBlocks (0.12s)
 === RUN   TestRunSlice
---- PASS: TestRunSlice (0.04s)
+--- PASS: TestRunSlice (0.06s)
 === RUN   TestRunSliceFail
---- PASS: TestRunSliceFail (0.06s)
+--- PASS: TestRunSliceFail (0.07s)
 === RUN   TestRunSlice_MissingVerifierModel
 --- PASS: TestRunSlice_MissingVerifierModel (0.03s)
 PASS
-ok  	github.com/swornagent/sworn/internal/run	0.860s
+ok  	github.com/swornagent/sworn/internal/run	1.027s
 ```
 
 ### `go test ./internal/scheduler/... -v -count=1`
@@ -188,13 +256,32 @@ ok  	github.com/swornagent/sworn/internal/run	0.860s
 === RUN   TestRunTrack_EmptySlices
 --- PASS: TestRunTrack_EmptySlices (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/internal/scheduler	0.015s
+ok  	github.com/swornagent/sworn/internal/scheduler	0.017s
 ```
 
-### `go vet`
+### `go test ./cmd/sworn/... -v -count=1` (registry tests — key subset)
 
 ```
-(clean — no output)
+=== RUN   TestEveryVerbResolves
+--- PASS: TestEveryVerbResolves (0.00s)
+=== RUN   TestUnknownVerbNotFound
+--- PASS: TestUnknownVerbNotFound (0.00s)
+=== RUN   TestAllCommandsHaveNonEmptySummary
+--- PASS: TestAllCommandsHaveNonEmptySummary (0.00s)
+=== RUN   TestVersionAndHelpAliasesShareHandlers
+--- PASS: TestVersionAndHelpAliasesShareHandlers (0.00s)
+=== RUN   TestDispatchResolves
+--- PASS: TestDispatchResolves (0.00s)
+PASS
+ok  	github.com/swornagent/sworn/cmd/sworn	0.324s
+```
+
+`TestEveryVerbResolves` now covers 26 verbs (23 from release-wt + `account`, `login`, `logout` from T3). All resolve with non-empty Summary and non-nil Run.
+
+### `go vet ./...`
+
+```
+(clean — no output, exit 0)
 ```
 
 ## Reachability artefact
@@ -239,6 +326,7 @@ ok  	github.com/swornagent/sworn/internal/scheduler	0.015s
 - **Pin 3 (Coach acked):** Live webhook.site smoke test performed in addition to mock-server unit tests.
 - **Re-entry (2026-07-01):** Single-slice `run.Run()` path was not wired for notifications (only `RunParallel` was). Added `Notifier` field to `run.Options`, threaded through to `RunSlice`, and hoisted notifier creation in `cmd/sworn/run.go` to serve both modes.
 - **Re-entry (2026-07-01 #2):** Proof bundle refreshed from live repo state. Tests re-run: all 62 pass, `go vet` clean. No code changes needed.
+- **Forward-merge convergence (2026-06-22):** The journal's prescribed Step 0 — forward-merge `release-wt/2026-06-19-safe-parallelism` to bring in S51-cli-command-registry, resolving the stale BLOCKED on `cmd/sworn/main.go`. T3's `login`/`logout`/`account` switch cases converted to `command.Register(...)` calls via `init()` in `cmd/sworn/login.go` and `cmd/sworn/account.go`. release-wt's `main.go` (registry-based dispatch) adopted; release-wt's `verify.go`, `commands.go`, `commands_test.go`, `internal/command/registry.go` brought in via merge. `expectedVerbs` in `commands_test.go` extended with `account`, `login`, `logout`. No S07 feature code touched. This was not a spec divergence — it was the journal-prescribed convergence task.
 
 ## First-pass script output
 
@@ -260,27 +348,35 @@ release-verify.sh
   PASS  status.json is valid JSON
   state: implemented
   PASS  state is 'implemented' (eligible for verifier review)
+
 == Integration branch drift ==
   integration branch: release/v0.1.0
   PASS  worktree branch is current with release/v0.1.0 (no drift)
 
 == Diff vs start_commit (verifier base) ==
   diff base: start_commit a7681c4f2efa8aa31c52a750674c026984f18670
-  PASS  13 file(s) changed vs diff base
+  PASS  68 file(s) changed vs diff base
 
 == Dark-code markers in changed files ==
   PASS  no dark-code markers in changed source files
 
 == Proof bundle structural checks ==
-  PASS  proof.md has all 8 required sections
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
   PASS  no obvious template placeholders left in proof.md
   PASS  proof.md 'Not delivered' deferrals carry non-placeholder tracking refs
+  PASS  proof.md 'Files changed' count (~68) consistent with diff vs start_commit (68)
 
 == Frontmatter YAML safety ==
   PASS  spec.md frontmatter is strict-YAML safe
 
 == Test results section scope ==
-  PASS  Test results section contains no Playwright runner output
+  PASS  Test results section contains no Playwright runner output (Jest/Vitest scope confirmed)
 
 == First-pass verdict ==
   checks passed: 23
