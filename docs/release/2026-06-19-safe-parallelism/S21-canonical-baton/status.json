@@ -3,10 +3,10 @@
   "slice_id": "S21-canonical-baton",
   "release": "2026-06-19-safe-parallelism",
   "track": "T3-commercial",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-05T23:00:00Z",
+  "last_updated_at": "2026-07-06T00:00:00Z",
   "start_commit": "e9a74532f1a9796cf875f0c7598ba22807c2477b",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S21-canonical-baton/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S21-canonical-baton/proof.md",
@@ -24,7 +24,7 @@
     "docs/templates/agents.md",
     "docs/adr/0008-canonical-baton.md"
   ],
-  "actual_files": [],
+  "actual_files": ["internal/prompt/baton/rules.md", "internal/prompt/baton/session-discipline.md", "internal/prompt/baton/brainstorm-patterns.md", "internal/prompt/baton/README.md", "internal/prompt/baton/VERSION.txt", "internal/prompt/prompt.go", "internal/prompt/prompt_test.go", "cmd/sworn/init.go", "cmd/sworn/init_test.go", "cmd/sworn/init_design_system_test.go", "docs/templates/agents.md", "docs/adr/0008-canonical-baton.md"],
   "test_commands": [
     "go test ./internal/prompt/... -run Baton",
     "go test ./cmd/sworn/... -run Init",

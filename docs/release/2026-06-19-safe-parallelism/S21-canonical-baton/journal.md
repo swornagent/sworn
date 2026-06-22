@@ -20,8 +20,6 @@ copy would have leaked is split out to the new final slice `S27-public-readiness
 
 ## Open questions
 
-## Open questions
-
 None.
 
 ## Deferrals surfaced
@@ -31,3 +29,29 @@ None.
 ## Verifier verdicts received
 
 *(None yet.)*
+
+## 2026-07-06 — implemented (S21-canonical-baton)
+
+**State transition**: design_review → in_progress → implemented.
+
+**Coach pins addressed**:
+1. ADR filename: `0005`→`0008` (0005 already taken by T2's `0005-tui-dep-bubbles.md`). Updated planned_files.
+2. `track-mode.md` pre-exists from S08c — not recreated. Embed extended to `baton/*`.
+3. `design_decisions` populated in status.json (5 Type-2 decisions).
+4. Legacy detection in `TestInitWarnsLegacyBaton` uses `adopt.BatonSectionHeading` (`## Engineering Process — Baton`), not `<!-- baton:start -->`.
+5. T14 boundary respected — all content is verbatim from sources; no bash→sworn transforms.
+
+**Key trade-offs**:
+- `docs/templates/agents.md` is read from the filesystem (not embedded), matching the pre-existing `materialiseCatalog` pattern. This means `sworn init` requires the repo templates directory to exist. A future slice could embed templates if needed.
+- `adopt` package retained for `sworn doctor` — not deleted.
+
+**Skeptic panel**: skipped — runtime does not support subagent dispatch.
+
+**Reachability**: manual smoke test — `sworn init --yes` in temp dir creates AGENTS.md with `sworn://baton/rules`, does NOT create `docs/baton/`.
+
+**Test commands**:
+- `go test ./internal/prompt/... -run Baton` — 5/5 PASS
+- `go test ./cmd/sworn/... -run Init` — 11/11 PASS
+- `go build ./...` — PASS
+
+**First-pass script**: 21 PASS, 1 FAIL (expected — `in_progress` state; resolved by transitioning to `implemented`).
