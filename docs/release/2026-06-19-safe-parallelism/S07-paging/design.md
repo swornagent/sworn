@@ -8,16 +8,16 @@ When a slice enters `failed_verification` or a track fails during `sworn run --p
 
 1. **Webhook URL stored in `Credentials` struct as `WebhookURL string`** — the credentials file is already the config store for account-level settings (token, email, tier). Adding a `webhook_url` JSON field keeps all user-configured state in one file rather than introducing a second config file. Rationale: minimises new surface area; `Load`/`Save` already handle the file.
 
-2. **`Notifier` is a struct with an injectable `http.Client` field** — tests need to assert retry behaviour and mock server interactions. By giving `Notifier` a `Client *http.Client` field (defaulting to `http.DefaultClient`), tests can inject a client with custom transport or we just use `httptest.Server` with the default client. The spec says "mock webhook server" — `httptest.Server` is the idiomatic Go approach and needs no client injection. Decision: use `httptest.Server` directly; `Notifier` holds the webhook URL + credentials, and uses `http.DefaultClient` internally.
-
+2. **`Notifier` uses `httptest.Server` with `http.DefaultClient`** — no injectable `http.Client` field is needed. `httptest.Server` is the idiomatic Go approach for testing HTTP clients — it starts a real local server, and `http.DefaultClient` connects to it directly. `Notifier` holds the webhook URL + credentials, and uses `http.DefaultClient` internally for all outbound calls.
 3. **`NotifyEvent` struct is the payload** — rather than passing 7 arguments to `Notify`, a struct makes the contract explicit and testable. Fields match the spec's JSON payload exactly: `Release`, `Track`, `SliceID`, `State`, `ViolationsSummary`, `WorktreePath`, `Timestamp`.
 
 4. **SwornAgent API notify URL derived from `defaultProxyHost`** — same pattern as `FetchCredits`: uses `defaultProxyHost` with `SWORN_PROXY_URL` override. The endpoint is `<host>/api/notify`. This is consistent with the existing proxy routing.
 
 5. **`violations_summary` extraction reads proof.md if it exists** — the spec says "first violation line from proof.md (or 'N violations found' if proof not yet written)". I'll read the proof.md file at the slice dir, look for lines starting with numbered violations (e.g. `1.`), and take the first. If proof.md doesn't exist or has no parseable violations, fall back to "N violations found" where N comes from the status.json verification violations array, or "verification failed" if that's also empty.
 
-## §3. Files I'll touch grouped by purpose
+**§2 amendment — Pin 2 resolution (2026-07-01):** BLOCKED notification call site. Option (a) selected: add `notifier.Notify()` at `slice.go:218` (the `verdict.Blocked` case, before the error return) with `state: "blocked"` in the payload. This is in addition to the FAIL-exhausted notify at `slice.go:~241` and the `worker.go` track-fail notify. The BLOCKED path in `slice.go` fires before the error propagates to `worker.go`, so BLOCKED gets a slice-level notification (with `state: "blocked"`) AND a track-level notification from `worker.go`. The double-notify is intentional: the slice-level event carries the BLOCKED rationale/summary, and the track-level event is the coarse failure signal for the scheduler consumer.
 
+## §3. Files I'll touch grouped by purpose
 - **`internal/account/notify.go`** (new) — Core notification logic: `Notifier` struct, `NotifyEvent` payload struct, `Notify(ctx, event)` method with webhook POST + retry + SwornAgent API email path. This is the heart of the slice.
 - **`internal/account/notify_test.go`** (new) — Unit tests covering all four spec-required test cases: webhook success, retry on 500, no-op when unconfigured, dual-path when logged in.
 - **`internal/account/account.go`** (touch) — Add `WebhookURL string` field to `Credentials` struct so `set-webhook` can persist it.
