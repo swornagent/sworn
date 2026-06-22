@@ -27,17 +27,19 @@ const (
 	Implemented        State = "implemented"
 	Verified           State = "verified"
 	FailedVerification State = "failed_verification"
+	Deferred           State = "deferred"
 )
 
 // allowedTransitions is the state-transition lookup. Every entry is explicit;
 // an absent entry means the transition is illegal.
 var allowedTransitions = map[State][]State{
-	Planned:            {DesignReview, InProgress},
-	DesignReview:       {InProgress},
-	InProgress:         {Implemented},
-	Implemented:        {Verified, FailedVerification},
-	FailedVerification: {InProgress},
-	Verified:           {}, // terminal
+	Planned:            {DesignReview, InProgress, Deferred},
+	DesignReview:       {InProgress, Deferred},
+	InProgress:         {Implemented, Deferred},
+	Implemented:        {Verified, FailedVerification, Deferred},
+	FailedVerification: {InProgress, Deferred},
+	Verified:           {},           // terminal
+	Deferred:           {InProgress}, // can resume
 }
 
 // Transition returns nil if moving from s to next is legal. It fails closed:
@@ -73,7 +75,8 @@ type ValidationRecord struct {
 // Verification holds the per-slice verification record (verdict, session
 // metadata, violations). It mirrors the nested "verification" object in
 // status.json.
-type Verification struct {	Result                  string   `json:"result,omitempty"`
+type Verification struct {
+	Result                  string   `json:"result,omitempty"`
 	VerifierSessionID       *string  `json:"verifier_session_id,omitempty"`
 	VerifierVerdictAt       *string  `json:"verifier_verdict_at,omitempty"`
 	VerifierWasFreshContext *bool    `json:"verifier_was_fresh_context,omitempty"`
@@ -98,16 +101,17 @@ const (
 // A Type-1 choice with no HumanDecision is a violation — the model cannot
 // commit to an architecturally-significant choice on its own.
 type DesignDecision struct {
-	Choice                    string     `json:"choice"`
-	StakeClass                StakeClass `json:"stake_class"`
-	Options                   []string   `json:"options,omitempty"`
-	HumanDecision             string     `json:"human_decision,omitempty"`
-	Rationale                 string     `json:"rationale,omitempty"`
+	Choice                     string     `json:"choice"`
+	StakeClass                 StakeClass `json:"stake_class"`
+	Options                    []string   `json:"options,omitempty"`
+	HumanDecision              string     `json:"human_decision,omitempty"`
+	Rationale                  string     `json:"rationale,omitempty"`
 	ArchitecturallySignificant bool       `json:"architecturally_significant,omitempty"`
 }
 
 // Status is the full status.json payload for a slice.
-type Status struct {	Schema                string       `json:"$schema"`
+type Status struct {
+	Schema                string       `json:"$schema"`
 	SliceID               string       `json:"slice_id"`
 	Release               string       `json:"release"`
 	Track                 string       `json:"track"`
@@ -135,11 +139,11 @@ type Status struct {	Schema                string       `json:"$schema"`
 	// (from intake.md) is the lightweight floor — when present, every slice
 	// satisfies the vertical trace via slice -> release goal without an
 	// explicit release_benefit. Org objective is opt-in for enterprise depth.
-	ReleaseBenefit string          `json:"release_benefit,omitempty"`
-	OrgObjective   string          `json:"org_objective,omitempty"`
+	ReleaseBenefit  string           `json:"release_benefit,omitempty"`
+	OrgObjective    string           `json:"org_objective,omitempty"`
 	Validation      ValidationRecord `json:"validation,omitempty"`
-	DesignDecisions []DesignDecision  `json:"design_decisions,omitempty"`
-}// Read parses a status.json file at path and returns the Status. It returns
+	DesignDecisions []DesignDecision `json:"design_decisions,omitempty"`
+} // Read parses a status.json file at path and returns the Status. It returns
 // an error if the file cannot be read or is not valid JSON.
 func Read(path string) (*Status, error) {
 	data, err := os.ReadFile(path)

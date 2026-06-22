@@ -19,6 +19,13 @@ var batonFS embed.FS
 // splice logic exactly.
 const BatonSectionHeading = "## Engineering Process — Baton"
 
+// AgentsFragment returns the seven-rule fragment spliced into agent config
+// files. Exported so that `sworn doctor --fix` can write the minimal template
+// when migrating a legacy AGENTS.md.
+func AgentsFragment() string {
+	return batonAGENTSFragment
+}
+
 // agentFiles lists the recognized agent-config files that sworn splices
 // the Baton rules section into. AGENTS.md is always created if absent;
 // the others are only spliced if they already exist in the repo.
