@@ -3,12 +3,10 @@
   "slice_id": "S20-mcp-catalog-tools",
   "release": "2026-06-19-safe-parallelism",
   "track": "T7-mcp-extensions",
-  "state": "design_review",
+  "state": "in_progress",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-06T13:00:00Z",
-  "start_commit": null,
-  "spec_path": "docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/spec.md",
+  "last_updated_at": "2026-07-07T12:00:00Z",  "start_commit": "43fafbe1823baa18cca2ee81134105a1b3eb9d32",  "spec_path": "docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/journal.md",
   "planned_files": [
@@ -49,8 +47,7 @@
     "Semantic/vector search on decisions.md — post-R3. **Acknowledged**: Coach, 2026-06-20"
   ],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
+    "result": "",    "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
     "violations": []
