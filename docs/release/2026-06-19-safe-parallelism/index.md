@@ -93,8 +93,7 @@ tracks:
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T15-cli-registry
     worktree_branch: track/2026-06-19-safe-parallelism/T15-cli-registry
-    state: in_progress
----
+    state: merged---
 
 # Release Board: `2026-06-19-safe-parallelism`
 
@@ -137,8 +136,7 @@ tracks:
 | `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | in_progress |
 | `T13-sworn-role-parity` | S45 → S46 → S47 | T12 | `track/.../T13-sworn-role-parity` | planned |
 | `T14-baton-integration` | S48 → S49 → S50 | T3 + T15 | `track/.../T14-baton-integration` | planned |
-| `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | in_progress |
-### Execution order
+| `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged |### Execution order
 
 ```
 Phase 1:  T1 (sequential)
@@ -382,18 +380,21 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 - Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 7 / In progress: 2 / Merged: 6
-> **T15-cli-registry new** (1 slice: S51-cli-command-registry — CLI command registry replacing
+**Tracks:** Planned: 6 / In progress: 2 / Merged: 7
+> **T15-cli-registry merged** (1 slice: S51-cli-command-registry — CLI command registry replacing
 > the `cmd/sworn/main.go` dispatch switch; 2026-06-22 replan, unblocks the coach-loop pause on
-> S07-paging). Implemented (awaiting verify): S07-paging (T3), S32-designfit-decisions-gate (T12).
-> The per-slice State column in the slice table above still lags the oracle for some rows (e.g.
+> S07-paging). Implemented (awaiting verify): S07-paging (T3), S32-designfit-decisions-gate (T12).> The per-slice State column in the slice table above still lags the oracle for some rows (e.g.
 > historical `design_review` states on track branches); the counts here are oracle-reconciled,
 > the table rows are not fully re-rendered this pass.
 
 ## Recent activity
 
-### 2026-06-22 — replan: new track T15-cli-registry (S51) — unblock the coach-loop main.go collision
+### 2026-07-03 — track `T15-cli-registry` merged to release-wt (commit eaa96ae)
 
+- **Actor**: track integrator (/merge-track)
+- **Note**: 1 verified slice merged: S51-cli-command-registry. Track state -> merged.
+
+### 2026-06-22 — replan: new track T15-cli-registry (S51) — unblock the coach-loop main.go collision
 - **Actor**: planner (`/replan-release`)
 - **Trigger (diagnosed from journals + verify log, not just the oracle)**: the coach loop paused
   on T3-commercial's `S07-paging` verify. The worker summary said "verify INCONCLUSIVE … (env
