@@ -154,10 +154,54 @@ For §2 decisions that reference other slices ("replaces the S## stub at <file>:
 - Verify the cited stub actually exists at the cited location. `git -C <wt> grep -n "<distinctive-string>" <file>` or read the file.
 - If absent, pin: "Cited stub at <file>:<line> not found in current code. The handoff anchor is stale — re-anchor or escalate."
 
+### Step 7 — Process-global mutation guard
+
+Process-global mutation (`os.Chdir`, a raw `git` invocation with a cwd argument,
+worktree creation/switching, or a global env/cwd mutation in tests) is a
+**systematic** failure class — sworn#6 (a git op with an empty dir flipped a
+worktree to `main`) and its recurrence on S28 (`os.Chdir` → `t.Chdir`) are two
+instances of the same root cause. This step makes the catch systematic.
+
+For each design.md §3 file path and each sibling's `planned_files` touching the
+same Go code:
+
+1. **Scan for the four patterns.** Read the files the design plans to touch.
+   Search for:
+   - `os.Chdir` — any call, test or production
+   - `exec.Command("git", ...)` with a `Dir` field set — a raw git invocation
+     with a cwd argument
+   - Worktree creation/switching — `git worktree add`, `git worktree remove`,
+     `git checkout` targeting a different branch, or any operation that changes
+     the repo's working directory
+   - Global env/cwd mutation in tests — `os.Setenv`, `os.Setwd`, `os.Environ()`
+     mutation, `os.Args` mutation
+
+2. **For every match, verify three properties are present in the design:**
+   - **(a) Guaranteed restore.** The state is restored before the owning
+     function returns. Acceptable: `t.Chdir` (test-scoped), `defer <restore>()`,
+     or a cleanup callback that runs irrespective of test outcome.
+   - **(b) Non-empty / expected-dir assertion.** Any git operation with a cwd
+     argument first asserts the directory exists, is non-empty, or matches an
+     expected path. The assertion must fail closed.
+   - **(c) Reachability artefact.** The slice cannot reach `verified` without
+     a reachability artefact showing the guard: a test exercising the restore
+     path, a test run screenshot, or an explicit smoke step proving the
+     non-empty-dir check fires.
+
+   If a match exists and any of (a), (b), or (c) is missing → pin:
+   `[mechanical]` (if the fix is a one-line test-scoping change) or
+   `[escalate]` (if the design needs rework). Use the exact pattern and missing
+   property in the pin text.
+
+3. **If no match exists** — none of the four patterns appear in the design's
+   touchpoints — no pin. The slice is clean on this class.
+
+The governing Baton-rule clause is `internal/adopt/baton/rules/11-process-global-mutation.md`
+(Rule 11). Cite it in any pin surfaced here.
+
 ## Output
 
 Three deliverables, in order.
-
 ### A. Inline pin list (printed to chat)
 
 Format each pin:

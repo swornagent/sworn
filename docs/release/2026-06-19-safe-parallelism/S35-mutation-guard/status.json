@@ -3,16 +3,17 @@
   "slice_id": "S35-mutation-guard",
   "release": "2026-06-19-safe-parallelism",
   "track": "T12-harness-hardening",
-  "state": "design_review",
+  "state": "in_progress",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-03T02:00:00Z",  "start_commit": null,
-  "spec_path": "docs/release/2026-06-19-safe-parallelism/S35-mutation-guard/spec.md",
+  "last_updated_at": "2026-07-03T03:00:00Z",
+  "start_commit": "65be8da08b8a4cfeb414f89f37f5da7949bae6f9",  "spec_path": "docs/release/2026-06-19-safe-parallelism/S35-mutation-guard/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S35-mutation-guard/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S35-mutation-guard/journal.md",
   "planned_files": [
     "internal/prompt/captain.md",
-    "internal/adopt/baton/rules/11-process-global-mutation.md"  ],
+    "internal/adopt/baton/rules/11-process-global-mutation.md"
+  ],
   "actual_files": [],
   "test_commands": [
     "go build ./..."
@@ -20,10 +21,30 @@
   "reachability_artifacts": [],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "",
     "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
     "violations": []
-  }
+  },
+  "design_decisions": [
+    {
+      "choice": "Rules clause placement: new file 11-process-global-mutation.md, not an addition to Rule 2 (no-silent-deferrals).",
+      "stake_class": "Type-2",
+      "options": ["Add to Rule 2 (no-silent-deferrals)", "Add to Rule 1 (reachability-gate)", "New focused clause file"],
+      "rationale": "Rule 2 is about deferrals, Rule 1 is about reachability-through-integration-points. Neither naturally owns process-global mutation. A dedicated clause reads as a first-class standing check and can cite sworn#6 as its motivating bug directly."
+    },
+    {
+      "choice": "Captain check placement: new Step 7 'Process-global mutation guard' in the review function, inserted after Step 6 (inter-slice handoffs) and before the Output section.",
+      "stake_class": "Type-2",
+      "options": ["Add to Step 1 (drift detection)", "Add to Step 5 (missing-prereq audits)", "New Step 7"],
+      "rationale": "The existing six steps cover drift, memory, design-fit, inference, cross-stack drift, missing-prereq audits, and inter-slice handoffs. None naturally owns process-global mutation. A dedicated Step 7 keeps the review function's structure intact and makes the check discoverable as a named step."
+    },
+    {
+      "choice": "Check fires on exactly the four patterns the spec enumerates: os.Chdir, a raw git invocation with a cwd argument, worktree creation/switching, and a global env/cwd mutation in tests.",
+      "stake_class": "Type-2",
+      "options": ["Four spec-enumerated patterns only", "Add broader patterns (e.g., symlink manipulation, file permission changes)", "Scan all os/exec calls"],
+      "rationale": "The spec's in-scope list is precise and the implementation should not expand scope without a spec amendment. These four patterns cover the known failure classes (sworn#6, S28 recurrence)."
+    }
+  ]
 }
