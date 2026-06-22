@@ -349,8 +349,55 @@ func TestCheckBoundaryMocks_StubAuthDetected(t *testing.T) {
 	}
 }
 
-func TestCheckBoundaryMocks_StubDbDetected(t *testing.T) {
-	diff := "+func TestDB(t *testing.T) {\n+	var db stubDB\n+}"
+// --- S38: Blocked-requires-violations tests ---
+
+func TestBlockedRequiresViolations_EmptyViolationsFails(t *testing.T) {
+	// A status.json with result:blocked and violations:[] must fail.
+	statusJSON := `{"state":"implemented","verification":{"result":"blocked","violations":[]}}`
+	p := writeTmp(t, "status.json", statusJSON)
+	err := ValidateBlockedViolations(p)
+	if err == nil {
+		t.Fatal("expected error for blocked with empty violations, got nil")
+	}
+	if !strings.Contains(err.Error(), "BLOCKED verdict with empty violations") {
+		t.Fatalf("error message should mention 'BLOCKED verdict with empty violations', got: %s", err)
+	}
+	if !strings.Contains(err.Error(), statusJSONFile(p)) {
+		t.Fatalf("error message should name the slice path, got: %s", err)
+	}
+}
+
+func TestBlockedRequiresViolations_PopulatedViolationsPasses(t *testing.T) {
+	// A status.json with result:blocked and non-empty violations must pass.
+	statusJSON := `{"state":"implemented","verification":{"result":"blocked","violations":["spec AC1 is unfalsifiable: proposed amendment..."]}}`
+	p := writeTmp(t, "status.json", statusJSON)
+	err := ValidateBlockedViolations(p)
+	if err != nil {
+		t.Fatalf("expected nil for blocked with populated violations, got: %s", err)
+	}
+}
+
+func TestBlockedRequiresViolations_NonBlockedPasses(t *testing.T) {
+	// A status.json with result:pass and empty violations must pass (not a blocked verdict).
+	statusJSON := `{"state":"verified","verification":{"result":"pass","violations":[],"verifier_was_fresh_context":true}}`
+	p := writeTmp(t, "status.json", statusJSON)
+	err := ValidateBlockedViolations(p)
+	if err != nil {
+		t.Fatalf("expected nil for pass verdict (not blocked), got: %s", err)
+	}
+}
+
+// statusJSONFile returns just the filename portion of a path, for error message assertions.
+func statusJSONFile(path string) string {
+	for i := len(path) - 1; i >= 0; i-- {
+		if path[i] == '/' {
+			return path[i+1:]
+		}
+	}
+	return path
+}
+
+func TestCheckBoundaryMocks_StubDbDetected(t *testing.T) {	diff := "+func TestDB(t *testing.T) {\n+	var db stubDB\n+}"
 	report := CheckBoundaryMocks(diff, nil)
 	if len(report.UndeclaredMocks) != 1 {
 		t.Fatalf("want 1 undeclared stub for db boundary, got %d", len(report.UndeclaredMocks))
