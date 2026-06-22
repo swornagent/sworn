@@ -333,8 +333,7 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 | `S27-public-readiness-scrub` | T10 | Make repo + binary public-safe: generalise embedded role prompts (keep Captain/Coach, strip coach-loop coupling), scrub dogfood provenance comments + fired/GetFired + coach-loop refs. Final launch gate. | planned | [spec](./S27-public-readiness-scrub/spec.md) |
 | `S28-git-dir-guard` | T11 | internal/git fails closed on empty Repo.Dir so a git op can't run on the ambient worktree (fixes workers writing to main, sworn#6) + regression test | verified | [spec](./S28-git-dir-guard/spec.md) |
 | `S29-lint-deps` | T12 | `sworn lint deps` — go.mod/go.sum diff vs planned_files, fail-closed; planner auto-adds dep files | planned | [spec](./S29-lint-deps/spec.md) |
-| `S30-lint-touchpoints` | T12 | `sworn lint touchpoints` — design files/pkgs vs planned_files + collision matrix + migration-number collision | planned | [spec](./S30-lint-touchpoints/spec.md) |
-| `S31-lint-symbols` | T12 | `sworn lint symbols` — grep back-ticked design identifiers against the live codebase | planned | [spec](./S31-lint-symbols/spec.md) |
+| `S30-lint-touchpoints` | T12 | `sworn lint touchpoints` — design files/pkgs vs planned_files + collision matrix + migration-number collision | **verified** | [spec](./S30-lint-touchpoints/spec.md) || `S31-lint-symbols` | T12 | `sworn lint symbols` — grep back-ticked design identifiers against the live codebase | planned | [spec](./S31-lint-symbols/spec.md) |
 | `S32-designfit-decisions-gate` | T12 | `sworn designfit` fails closed when Type-1 work is declared but `design_decisions` is empty | planned | [spec](./S32-designfit-decisions-gate/spec.md) |
 | `S33-spec-template-hardening` | T12 | spec/prompt hardening: Risk-cites-`file:line`, pure-engine two-commit note, dynamic-CORS note, + verifier watcher-block cleanup | planned | [spec](./S33-spec-template-hardening/spec.md) |
 | `S34-tui-merge-actor` | T2 | render the `merge:<track>` actor as a distinct row in the TUI live view + release board | verified | [spec](./S34-tui-merge-actor/spec.md) || `S35-mutation-guard` | T12 | Captain check + Baton-rule clause for process-global mutation (cwd/git-state/os.Chdir) — the sworn#6 class | planned | [spec](./S35-mutation-guard/spec.md) |
@@ -375,8 +374,14 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 
 ## Recent activity
 
-### 2026-06-22 — replan: new track T14-baton-integration (S48/S49/S50) + frontmatter repair
+### 2026-06-28 — S30-lint-touchpoints verified ✓
 
+- **Actor**: verifier (`/verify-slice`)
+- **Slice**: `S30-lint-touchpoints` — **PASS** (all six gates)
+- **State**: implemented → **verified**
+- **Track impact**: T12-harness-hardening now has 2/13 verified (S29 + S30)
+
+### 2026-06-22 — replan: new track T14-baton-integration (S48/S49/S50) + frontmatter repair
 - **Actor**: planner (`/replan-release`)
 - **Directive**: establish the Baton↔SwornAgent architecture as deliverable scope. Baton is
   the open protocol (clonable/usable without sworn); SwornAgent is the all-Go product that

@@ -69,3 +69,17 @@ Flag: `cmdLint` usage string updated to include `touchpoints`.
 ## Verifier verdicts received
 
 None yet.
+### Verdict 1 — 2026-06-28T20:15:00Z (fresh context, artefact-only)
+
+**PASS**
+
+All six gates passed:
+1. User-reachable outcome — `sworn lint touchpoints` wired in `cmd/sworn/lint.go`, binary runs
+2. Planned touchpoints match — all 3 planned code files in diff (plus 3 Baton docs)
+3. Required tests — 8/8 touchpoint tests PASS, `go vet` clean
+4. Reachability artefact — CLI invocations documented + verified against real releases
+5. No silent deferrals — zero TODOs/FIXMEs/placeholders in production code
+6. Scope matches claimed — all 5 spec ACs delivered; 1 Rule 2 deferral properly documented
+
+Note: `start_commit` in status.json is a branch ref rather than a commit SHA; the proof documents
+the actual session baseline as `b2c25f2`. Non-blocking implementer defect.
