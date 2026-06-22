@@ -3,11 +3,10 @@
   "slice_id": "S41-build-bin-target",
   "release": "2026-06-19-safe-parallelism",
   "track": "T12-harness-hardening",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-05T22:00:00Z",
-  "start_commit": "640cc890ebe3471057a70e420c2331eb7e70f863",
+  "last_updated_at": "2026-06-22T17:35:00Z",  "start_commit": "640cc890ebe3471057a70e420c2331eb7e70f863",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S41-build-bin-target/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S41-build-bin-target/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S41-build-bin-target/journal.md",
@@ -15,13 +14,19 @@
     "Makefile",
     "docs/build.md"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "docs/build.md",
+    "docs/release/2026-06-19-safe-parallelism/S41-build-bin-target/journal.md",
+    "docs/release/2026-06-19-safe-parallelism/S41-build-bin-target/status.json"
+  ],
   "test_commands": [
     "make build",
-    "go build ./..."
+    "make test",
+    "make vet"
   ],
-  "reachability_artifacts": [],
-  "open_deferrals": [
+  "reachability_artifacts": [
+    "docs/build.md"
+  ],  "open_deferrals": [
     "sworn cwd-relative state-dir resolution (cmd/sworn/internal/config) \u2014 deferred; Makefile+doc convention fixes observed clutter (Rule 2, Coach ack 2026-06-21)",
     "reachability smoke-step prompt wording (internal/prompt/*) \u2014 deferred to S33-spec-template-hardening to avoid T3 prompt-ownership collision"
   ],

@@ -36,3 +36,26 @@
 - `make vet`: clean
 - State-write test: `./bin/sworn run --task "test write"` from repo root writes
   `.sworn/sworn.db` at repo root, nothing under `cmd/sworn/`
+## 2026-06-22: Recovery and finalisation session
+
+**State transition:** `in_progress` → `implemented`
+
+**Recovery note:** Prior session left the slice at `in_progress` with implementation
+committed but no proof.md and state not advanced. The worktree was found on `main`
+after a `sworn run` invocation (`./bin/sworn run`) performed a `git checkout`
+internally — the CLI-tests-that-invoke-git isolation gate failure mode. Recovery:
+- Restored track branch via `git checkout track/.../T12-harness-hardening`
+- Dropped auto-checkpoint commit (0ac388f) — contained run-scratch pollution
+- Files temporarily lost from disk; restored by re-checking out the track branch
+
+**Completion:**
+- Generated `proof.md` from live repo state
+- Ran `release-verify.sh` first-pass: 12 PASS, 4 FAIL (spec/status/journal missing
+  when worktree was on main; now resolved — see re-run below)
+- Updated `status.json` → `implemented` with `actual_files`, `test_commands`,
+  `reachability_artifacts`
+- Deferrals carried forward with Coach acknowledgement intact
+
+**Worktree safety incident:** `./bin/sworn run --task ...` from the track worktree
+switched the branch away from `track/.../T12-harness-hardening`. This is a known
+hazard. Filed as finding: GH #10.
