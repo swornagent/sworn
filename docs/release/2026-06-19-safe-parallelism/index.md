@@ -130,13 +130,16 @@ tracks:
 | `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 → S39 | T1 + T3 | `track/.../T5-providers` | planned |
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
 | `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | planned |
-| `T8-memory` | S23 → S24 → S25 → S40 | T1 | `track/.../T8-memory` | merged || `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
+| `T8-memory` | S23 → S24 → S25 → S40 | T1 | `track/.../T8-memory` | merged |
+| `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
 | `T10-public-readiness` | S27 | all (T1–T9) | `track/.../T10-public-readiness` | planned |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
 | `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | in_progress |
 | `T13-sworn-role-parity` | S45 → S46 → S47 | T12 | `track/.../T13-sworn-role-parity` | planned |
 | `T14-baton-integration` | S48 → S49 → S50 | T3 + T15 | `track/.../T14-baton-integration` | planned |
-| `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged |### Execution order
+| `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged |
+
+### Execution order
 
 ```
 Phase 1:  T1 (sequential)
@@ -318,13 +321,16 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 | `S02a-run-refactor` | T1 | `run.RunSlice()` exported; callable from goroutine; no regression | verified | [spec](./S02a-run-refactor/spec.md) |
 | `S02b-concurrent-scheduler` | T1 | `sworn run --parallel` launches all independent tracks concurrently | verified | [spec](./S02b-concurrent-scheduler/spec.md) |
 | `S03-verify-under-concurrency` | T1 | Verify gate goroutine-safe and fail-closed at N>1 | verified | [spec](./S03-verify-under-concurrency/spec.md) |
-| `S04a-tui-foundation` | T2 | `sworn` (no args) shows releases list + board view with navigation | verified | [spec](./S04a-tui-foundation/spec.md) || `S04b-tui-live` | T2 | Live concurrent track status from DB (1s poll) + credit balance in header | verified | [spec](./S04b-tui-live/spec.md) || `S04c-tui-resolution` | T2 | Blocked slice TL;DR panel + options + open in Claude Code / Codex | verified | [spec](./S04c-tui-resolution/spec.md) |
-| `S05-overclaim-benchmark` | T2 | Overclaim rate flat at N=1/2/4; published benchmark artefact | verified | [spec](./S05-overclaim-benchmark/spec.md) || `S06a-sworn-login-auth` | T3 | `sworn login` device-code flow; credentials file; `sworn logout` | planned | [spec](./S06a-sworn-login-auth/spec.md) |
-| `S06b-sworn-proxy-credits` | T3 | Model calls route via SwornAgent proxy; `sworn account buy`; credit display | planned | [spec](./S06b-sworn-proxy-credits/spec.md) |
-| `S07-paging` | T3 | FAIL/BLOCKED fires webhook + email; developer paged without watching terminal | planned | [spec](./S07-paging/spec.md) |
-| `S08a-mcp-transport` | T4 | `sworn mcp` JSON-RPC server; initialize handshake; tools scaffold | planned | [spec](./S08a-mcp-transport/spec.md) |
-| `S08b-mcp-ops-tools` | T4 | 9 ops tools: get_board, get_blocked, get_slice_context, rerun, patch, merge, defer | planned | [spec](./S08b-mcp-ops-tools/spec.md) |
-| `S08c-mcp-plan-tools` | T4 | 4 planning tools + resources + prompts + mcp-setup.md | planned | [spec](./S08c-mcp-plan-tools/spec.md) |
+| `S04a-tui-foundation` | T2 | `sworn` (no args) shows releases list + board view with navigation | verified | [spec](./S04a-tui-foundation/spec.md) |
+| `S04b-tui-live` | T2 | Live concurrent track status from DB (1s poll) + credit balance in header | verified | [spec](./S04b-tui-live/spec.md) |
+| `S04c-tui-resolution` | T2 | Blocked slice TL;DR panel + options + open in Claude Code / Codex | verified | [spec](./S04c-tui-resolution/spec.md) |
+| `S05-overclaim-benchmark` | T2 | Overclaim rate flat at N=1/2/4; published benchmark artefact | verified | [spec](./S05-overclaim-benchmark/spec.md) |
+| `S06a-sworn-login-auth` | T3 | `sworn login` device-code flow; credentials file; `sworn logout` | verified | [spec](./S06a-sworn-login-auth/spec.md) |
+| `S06b-sworn-proxy-credits` | T3 | Model calls route via SwornAgent proxy; `sworn account buy`; credit display | verified | [spec](./S06b-sworn-proxy-credits/spec.md) |
+| `S07-paging` | T3 | FAIL/BLOCKED fires webhook + email; developer paged without watching terminal | implemented | [spec](./S07-paging/spec.md) |
+| `S08a-mcp-transport` | T4 | `sworn mcp` JSON-RPC server; initialize handshake; tools scaffold | verified | [spec](./S08a-mcp-transport/spec.md) |
+| `S08b-mcp-ops-tools` | T4 | 9 ops tools: get_board, get_blocked, get_slice_context, rerun, patch, merge, defer | verified | [spec](./S08b-mcp-ops-tools/spec.md) |
+| `S08c-mcp-plan-tools` | T4 | 4 planning tools + resources + prompts + mcp-setup.md | verified | [spec](./S08c-mcp-plan-tools/spec.md) |
 | `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | planned | [spec](./S09-per-role-model-config/spec.md) |
 | `S10-provider-foundation` | T5 | ADR 0004 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | planned | [spec](./S10-provider-foundation/spec.md) |
 | `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | planned | [spec](./S11-anthropic-driver/spec.md) |
@@ -338,21 +344,21 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 | `S19-sworn-induction` | T3 | `sworn induction` one-time repo onboarding (design system + architecture discovery); implementer + verifier prompts gain deviation-surfacing steps | planned | [spec](./S19-sworn-induction/spec.md) |
 | `S20-mcp-catalog-tools` | T7 | 8 MCP tools: plan_release (unified), get_induction_status, get_considerations, search_decisions, record_decision, check_design_system, update_design_system, record_architecture_pattern | planned | [spec](./S20-mcp-catalog-tools/spec.md) |
 | `S21-canonical-baton` | T3 | Baton protocol embedded in binary (internal/prompt/baton/); sworn init writes minimal MCP-pointer AGENTS.md instead of per-repo Baton copy; ADR-0005 | planned | [spec](./S21-canonical-baton/spec.md) |
-| `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | planned | [spec](./S22-sworn-doctor/spec.md) |
-| `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | planned | [spec](./S23-memory-config/spec.md) |
+| `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | verified | [spec](./S22-sworn-doctor/spec.md) |
+| `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | verified | [spec](./S23-memory-config/spec.md) |
 | `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | verified | [spec](./S24-memory-engine/spec.md) |
-| `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | verified | [spec](./S22-sworn-doctor/spec.md) || `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | planned | [spec](./S23-memory-config/spec.md) |
-| `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | planned | [spec](./S24-memory-engine/spec.md) |
-| `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | verified | [spec](./S25-memory-search/spec.md) || `S40-memory-test-hygiene` | T8 | memory tests use `t.TempDir()`; removes stray `test-fixture/` + root `fake_ollama.go` so `go test ./internal/memory/...` leaves git clean | verified | [spec](./S40-memory-test-hygiene/spec.md) |
+| `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | verified | [spec](./S25-memory-search/spec.md) |
+| `S40-memory-test-hygiene` | T8 | memory tests use `t.TempDir()`; removes stray `test-fixture/` + root `fake_ollama.go` so `go test ./internal/memory/...` leaves git clean | verified | [spec](./S40-memory-test-hygiene/spec.md) |
 | `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | verified | [spec](./S26-telemetry/spec.md) |
 | `S27-public-readiness-scrub` | T10 | Make repo + binary public-safe: generalise embedded role prompts (keep Captain/Coach, strip coach-loop coupling), scrub dogfood provenance comments + fired/GetFired + coach-loop refs. Final launch gate. | planned | [spec](./S27-public-readiness-scrub/spec.md) |
 | `S28-git-dir-guard` | T11 | internal/git fails closed on empty Repo.Dir so a git op can't run on the ambient worktree (fixes workers writing to main, sworn#6) + regression test | verified | [spec](./S28-git-dir-guard/spec.md) |
-| `S29-lint-deps` | T12 | `sworn lint deps` — go.mod/go.sum diff vs planned_files, fail-closed; planner auto-adds dep files | planned | [spec](./S29-lint-deps/spec.md) |
-| `S30-lint-touchpoints` | T12 | `sworn lint touchpoints` — design files/pkgs vs planned_files + collision matrix + migration-number collision | planned | [spec](./S30-lint-touchpoints/spec.md) |
-| `S31-lint-symbols` | T12 | `sworn lint symbols` — grep back-ticked design identifiers against the live codebase | planned | [spec](./S31-lint-symbols/spec.md) |
-| `S32-designfit-decisions-gate` | T12 | `sworn designfit` fails closed when Type-1 work is declared but `design_decisions` is empty | planned | [spec](./S32-designfit-decisions-gate/spec.md) |
-| `S33-spec-template-hardening` | T12 | spec/prompt hardening: Risk-cites-`file:line`, pure-engine two-commit note, dynamic-CORS note, + verifier watcher-block cleanup | planned | [spec](./S33-spec-template-hardening/spec.md) |
-| `S34-tui-merge-actor` | T2 | render the `merge:<track>` actor as a distinct row in the TUI live view + release board | verified | [spec](./S34-tui-merge-actor/spec.md) || `S35-mutation-guard` | T12 | Captain check + Baton-rule clause for process-global mutation (cwd/git-state/os.Chdir) — the sworn#6 class | planned | [spec](./S35-mutation-guard/spec.md) |
+| `S29-lint-deps` | T12 | `sworn lint deps` — go.mod/go.sum diff vs planned_files, fail-closed; planner auto-adds dep files | verified | [spec](./S29-lint-deps/spec.md) |
+| `S30-lint-touchpoints` | T12 | `sworn lint touchpoints` — design files/pkgs vs planned_files + collision matrix + migration-number collision | verified | [spec](./S30-lint-touchpoints/spec.md) |
+| `S31-lint-symbols` | T12 | `sworn lint symbols` — grep back-ticked design identifiers against the live codebase | verified | [spec](./S31-lint-symbols/spec.md) |
+| `S32-designfit-decisions-gate` | T12 | `sworn designfit` fails closed when Type-1 work is declared but `design_decisions` is empty | verified | [spec](./S32-designfit-decisions-gate/spec.md) |
+| `S33-spec-template-hardening` | T12 | spec/prompt hardening: Risk-cites-`file:line`, pure-engine two-commit note, dynamic-CORS note, + verifier watcher-block cleanup | design_review | [spec](./S33-spec-template-hardening/spec.md) |
+| `S34-tui-merge-actor` | T2 | render the `merge:<track>` actor as a distinct row in the TUI live view + release board | verified | [spec](./S34-tui-merge-actor/spec.md) |
+| `S35-mutation-guard` | T12 | Captain check + Baton-rule clause for process-global mutation (cwd/git-state/os.Chdir) — the sworn#6 class | planned | [spec](./S35-mutation-guard/spec.md) |
 | `S36-captain-resolve-dirty-worktree` | T12 | Captain auto-resolves dirty track worktrees (commit-by-default, record the diff+resolution, never page the Coach) | planned | [spec](./S36-captain-resolve-dirty-worktree/spec.md) |
 | `S37-telemetry-tui-exclusion` | T12 | no-args/TUI launch no longer fires a junk telemetry event (empty cmd + session-length); exclusion in `telemetry.Fire()`, not the shared main.go (sworn#7) | planned | [spec](./S37-telemetry-tui-exclusion/spec.md) |
 | `S38-verifier-blocked-violations` | T12 | a BLOCKED verdict must populate `status.json` violations (not just journal prose) + a gate rejecting blocked-with-empty-violations — fixes blank REPLAN pages | planned | [spec](./S38-verifier-blocked-violations/spec.md) |
@@ -368,26 +374,71 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 | `S49-baton-version` | T14 | reconcile the Baton pin from a raw SHA to a **semver tag** across `VERSION`+`VERSION.txt`; `sworn version` reports "on Baton vX.Y.Z"; `sworn doctor` fails the pin if it's a SHA not a tag | planned | [spec](./S49-baton-version/spec.md) |
 | `S50-baton-governance` | T14 | `sworn baton diff` divergence check (embed vs upstream pin) + `docs/baton-governance.md` PR-up process note + ADR-0006; protocol changes found in sworn dev must PR upstream, never silently fork | planned | [spec](./S50-baton-governance/spec.md) |
 | `S51-cli-command-registry` | T15 | command registry replaces the `cmd/sworn/main.go` dispatch switch; new subcommands self-register from their own file; `main.go` owned by one track — ends the recurring touchpoint collision | verified | [spec](./S51-cli-command-registry/spec.md) |
+
 ## Aggregate state
 
 > Reconciled from the board oracle (`release-board-status.sh --json`, authoritative) this
-> replan, 2026-06-22. 51 slices across 15 tracks. Updated 2026-07-03: S51 verified.
+> replan, 2026-07-03. **57 slices across 15 tracks.** Slice-table State column above
+> re-rendered from the oracle this pass (it had lagged: S06a/S06b/S08a/S08b/S08c/S22 and
+> S29-S32 read `planned` despite being `verified`; S33 `planned` despite `design_review`;
+> S07 `planned` despite `implemented`). Three duplicate rows (S22/S23/S24) and several
+> `||`-collapsed physical lines repaired.
 
-- Planned: 25
+- Planned: 29
 - In progress: 0
 - Implemented: 1
-- Verified: 25
+- Design review: 1
+- Verified: 26
 - Failed verification: 0
 - Deferred: 0
 
 **Tracks:** Planned: 6 / In progress: 2 / Merged: 7
-> **T15-cli-registry merged** (1 slice: S51-cli-command-registry — CLI command registry replacing
-> the `cmd/sworn/main.go` dispatch switch; 2026-06-22 replan, unblocks the coach-loop pause on
-> S07-paging). Implemented (awaiting verify): S07-paging (T3), S32-designfit-decisions-gate (T12).> The per-slice State column in the slice table above still lags the oracle for some rows (e.g.
-> historical `design_review` states on track branches); the counts here are oracle-reconciled,
-> the table rows are not fully re-rendered this pass.
+> Merged (7): T1, T2, T4, T8, T9, T11, T15. In progress (2): T3-commercial (head: S07-paging),
+> T12-harness-hardening (head: S33-spec-template-hardening). Planned (6): T5, T6, T7, T10, T13, T14.
 
 ## Recent activity
+
+### 2026-07-03 — replan: resolve S07-paging stale BLOCKED (main.go fix already merged via T15)
+
+- **Actor**: planner (`/replan-release`)
+- **Trigger (diagnosed from oracle + S07 status.json + journal, not just the board)**:
+  S07-paging (T3, `state: implemented`) carried `verification.result: "blocked"` from verifier
+  session `verifier-S07-paging-2026-07-01`. The verdict's reason: forward-merging `release-wt`
+  into the in-flight `T3-commercial` branch **conflicts on `cmd/sworn/main.go`** (T3's
+  `login`/`logout`/`account` switch cases vs. the merged tracks' edits), so verification could
+  not run. The verifier stated explicitly **"this is a cross-track collision, not a spec
+  defect"** and routed to the planner to split the shared file. **S07's own spec never
+  references `main.go`** — confirmed: its planned touchpoints are `internal/account/notify.go`,
+  `internal/run/run.go`, `internal/scheduler/worker.go`, `cmd/sworn/account.go`.
+- **Resolution: the demanded structural fix is already merged.** The 2026-06-22 replan created
+  `T15-cli-registry / S51-cli-command-registry` for exactly this collision; S51 is now
+  **verified and merged** into `release-wt` (commit `eaa96ae`). Verified live this replan:
+  `release-wt`'s `cmd/sworn/main.go` has **0 `case` lines** (registry dispatch loop), with
+  `internal/command/registry.go` + `cmd/sworn/commands.go` present; T3's branch still carries
+  the 21-case switch and is 51 commits behind `release-wt`. So the BLOCKED verdict is **stale**:
+  its root cause was structurally removed at the release level, T3 simply has not picked it up.
+- **Step 2b action**: cleared S07's `verification.result` `blocked` → `pending`, kept
+  `state: implemented`, `violations: []`. No spec edit (the verifier confirmed no spec defect).
+  S07 re-enters the pipeline via the implementer, **not** the verifier (return-to-sender is not
+  a legal handoff). The next `/implement-slice S07-paging` Step 0 forward-merges `release-wt`
+  (bringing in S51's registry), resolves `main.go` by converting T3's `login`/`logout`/`account`
+  cases into `command.Register(...)` calls in their own `cmd/sworn/*.go` files (the other 18
+  verbs are already centrally registered by S51's `commands.go`), commits, then `/verify-slice`.
+- **No new scope**: no new slices or tracks; touchpoint matrix already T15-owns `main.go` from
+  the 2026-06-22 replan — unchanged this pass.
+- **Board drift corrected (same pass)**: `index.md` Aggregate-state block was stale (said "51
+  slices", Planned 25 / Verified 25, no `design_review` bucket); re-reconciled from the oracle to
+  **57 slices / 15 tracks**, Planned 29 / Implemented 1 / Design review 1 / Verified 26. The
+  slice-table State column was re-rendered from the oracle (S06a/S06b/S08a-c/S22/S29-S32 had read
+  `planned` despite `verified`; S33 `planned` despite `design_review`; S07 `planned` despite
+  `implemented`). Three duplicate rows (S22/S23/S24) and several `||`-collapsed physical lines
+  (Tracks table T8/T9, T15/Execution-order; slice rows S04a-c, S05/S06a, S25/S40, S34/S35) were
+  repaired. Integration-branch `index.md` (`release/v0.1.0`) remains a 4-track/14-slice fossil —
+  expected; it reconciles only at `/merge-release`.
+- **Base sync (Step 1)**: `release-wt` already current with `release/v0.1.0` (0 behind).
+- **Spec drift noted (benign)**: S06b spec is 98 lines ahead on the *T3 branch* (Coach-ack
+  commit `9571422` resolving billing pins) vs. `release-wt` — the track-ahead direction, which
+  reconciles at `/merge-track`; not the stale-spec loop.
 
 ### 2026-07-03 — track `T15-cli-registry` merged to release-wt (commit eaa96ae)
 
