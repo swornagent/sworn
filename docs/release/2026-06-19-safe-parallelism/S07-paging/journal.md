@@ -29,19 +29,28 @@
 
 ## Verification
 - `verification.result`: pending
-## 2026-07-01: Re-entry — proof bundle refresh
+## 2026-07-01: Re-entry — fix single-slice notification path
 
 **State transition:** `implemented` → `in_progress` → `implemented`
 
-**Why re-entry:** Coach re-dispatched S07-paging (oracle showed `design_review` on release-wt; track branch was at `implemented`). Performed fresh pass:
+**Why re-entry:** Coach re-dispatched S07-paging. Performed fresh pass:
 
-- All 27 tests across `internal/account`, `internal/run`, `internal/scheduler` still PASS
-- `go vet` clean
-- `release-verify.sh`: 22 PASS, 1 FAIL (state=in_progress mid-session; resolved on → implemented)
-- Proof bundle regenerated from live repo state (current test output, current git diff)
+**Fix applied — single-slice `run.Run()` notifier gap:**
+- Spec acceptance check: "On a FAIL verdict in `run.Run()`, `notifier.Notify()` is called with the correct payload"
+- Prior implementation only wired notifier for parallel (`RunParallel`) path; single-slice path (`run.Run()` → `RunSlice`) silently skipped notifications
+- Added `Notifier *account.Notifier` to `run.Options` struct
+- Threaded through in `Run()` → `RunSliceOptions`
+- Hoisted notifier creation in `cmd/sworn/run.go` to before the `if *parallel` block, shared by both modes
+- Single-slice `run.Options` now receives `Notifier: notifier`
+
+**Validation:**
+- All 62 tests across `internal/account`, `internal/run`, `internal/scheduler` PASS
+- `go vet` clean across all packages including `cmd/sworn/...`
+- `release-verify.sh`: 23 PASS, 0 FAIL (first-pass green)
+- Proof bundle regenerated from live repo state (13 files in diff, current test output)
 - Skeptic panel: skipped — runtime does not support subagent dispatch
 
-**No code changes** — implementation from prior session (9799a74) is intact and all tests pass.
-
-**Deferrals carried forward:**
+**Deferral carried forward:**
 - SwornAgent `/api/notify` endpoint: acknowledged Coach 2026-06-22, tracking SwornAgent backend backlog
+
+**Files changed this session:** `internal/run/run.go` (+Notifier field in Options, +thread through to RunSliceOptions), `cmd/sworn/run.go` (hoisted notifier creation, added to single-slice path), `status.json`, `proof.md`, `journal.md`

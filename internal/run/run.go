@@ -82,8 +82,11 @@ type Options struct {
 	// the run loop creates one from the database. When set, DB must also
 	// be set (or the supervisor must use its own connection).
 	Supervisor *supervisor.Supervisor
-}
 
+	// Notifier is the notification dispatcher for FAIL/BLOCKED verdicts.
+	// When nil, notifications are skipped (test path / zero-config).
+	Notifier *account.Notifier
+}
 // Run executes the sworn run turnkey loop. It returns nil only when the
 // implementation passed verification and was merged.
 func Run(ctx context.Context, opts Options) error {
@@ -214,9 +217,9 @@ func Run(ctx context.Context, opts Options) error {
 		RetryCap:         opts.RetryCap,
 		NewAgent:         opts.NewAgent,
 		NewVerifier:      opts.NewVerifier,
+		Notifier:         opts.Notifier,
 	})
-	if err != nil {
-		// Re-wrap Blocked errors to preserve the run: prefix for
+	if err != nil {		// Re-wrap Blocked errors to preserve the run: prefix for
 		// existing tests that check "verification blocked".
 		if IsBlocked(err) {
 			return fmt.Errorf("run: %s", err)

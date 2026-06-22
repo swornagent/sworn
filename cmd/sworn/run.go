@@ -61,6 +61,16 @@ func cmdRun(args []string) int {
 	// ── Resolve escalation models ───────────────────────────────────────
 	escalationModels := resolveEscalationModels(*escalationFlag)
 
+	// Load credentials for the notifier (shared by both modes).
+	credsDir := filepath.Dir(account.CredentialsPath())
+	creds, _ := account.Load(credsDir)
+
+	var webhookURL string
+	if creds != nil {
+		webhookURL = creds.WebhookURL
+	}
+	notifier := account.NewNotifier(webhookURL, creds)
+
 	// ── Parallel mode ─────────────────────────────────────────────────
 	if *parallel {
 		database, err := openDefaultDB()
@@ -70,17 +80,7 @@ func cmdRun(args []string) int {
 		}
 		defer database.Close()
 
-		// Load credentials for the notifier.
-		credsDir := filepath.Dir(account.CredentialsPath())
-		creds, _ := account.Load(credsDir)
-
-		var webhookURL string
-		if creds != nil {
-			webhookURL = creds.WebhookURL
-		}
-		notifier := account.NewNotifier(webhookURL, creds)
-
-		runSliceFn := func(ctx context.Context, worktreeRoot, specPath, statusPath string) error {
+			runSliceFn := func(ctx context.Context, worktreeRoot, specPath, statusPath string) error {
 			return run.RunSlice(ctx, worktreeRoot, specPath, statusPath, run.RunSliceOptions{
 				ImplementerModel: impl,
 				VerifierModel:    verifier,
@@ -111,6 +111,7 @@ func cmdRun(args []string) int {
 		Base:             *base,
 		RetryCap:         *retryCap,
 		EscalationModels: escalationModels,
+		Notifier:         notifier,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sworn run: %v\n", err)

@@ -3,7 +3,7 @@
   "slice_id": "S07-paging",
   "release": "2026-06-19-safe-parallelism",
   "track": "T3-commercial",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-01T00:00:00Z",
@@ -21,10 +21,12 @@
   ],
   "actual_files": [
     "internal/account/account.go",
+    "internal/account/account_test.go",
     "internal/account/notify.go",
     "internal/account/notify_test.go",
     "internal/run/slice.go",
     "internal/run/parallel.go",
+    "internal/run/run.go",
     "internal/scheduler/worker.go",
     "cmd/sworn/account.go",
     "cmd/sworn/run.go"
