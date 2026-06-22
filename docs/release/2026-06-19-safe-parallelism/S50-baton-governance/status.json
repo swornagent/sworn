@@ -1,0 +1,36 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S50-baton-governance",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T14-baton-integration",
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-22T00:00:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S50-baton-governance/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S50-baton-governance/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S50-baton-governance/journal.md",
+  "depends_on": ["S48-baton-vendor"],
+  "planned_files": [
+    "internal/baton/diff.go",
+    "internal/baton/diff_test.go",
+    "cmd/sworn/baton.go",
+    "docs/baton-governance.md",
+    "docs/adr/0006-baton-protocol-sync.md"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test -race ./internal/baton/... ./cmd/sworn/...",
+    "go build ./..."
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}
