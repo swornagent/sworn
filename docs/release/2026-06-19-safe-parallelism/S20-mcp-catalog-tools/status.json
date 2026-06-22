@@ -6,14 +6,38 @@
   "state": "design_review",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-06T13:00:00Z",  "start_commit": null,
+  "last_updated_at": "2026-07-06T13:00:00Z",
+  "start_commit": null,
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/journal.md",
   "planned_files": [
     "internal/mcp/catalog.go",
     "internal/mcp/catalog_test.go",
-    "cmd/sworn/mcp.go"  ],
+    "cmd/sworn/mcp.go"
+  ],
+  "design_decisions": [
+    {
+      "type": "Type-2",
+      "choice": "Tool registration pattern: Create RegisterCatalogTools as a separate function in internal/mcp/catalog.go, following the existing RegisterPlanTools(s *Server, repoRoot string) convention. Registered in cmd/sworn/mcp.go alongside the other three registrations. Stdlib is sufficient for this slice's text-file ops; no new dependency, no ADR required."
+    },
+    {
+      "type": "Type-2",
+      "choice": "plan_release reuse of CreateRelease helper: The CreateRelease helper already exists in tools_plan.go (S08c's internal function). plan_release calls it for new releases and returns structured JSON. No duplication."
+    },
+    {
+      "type": "Type-2",
+      "choice": "docs/considerations.md and docs/decisions.md format: Plain Markdown section structures (## design_system, ## architecture.patterns, ## [type] dimensions for considerations; ### <TYPE>: <title> entries for decisions). No YAML frontmatter needed — just parseable section headers for the status/dimension tools and full-text for search."
+    },
+    {
+      "type": "Type-2",
+      "choice": "check_design_system options scaffold: Static three-option template (Reuse as-is / Extend with variant / Build new) emitted by the handler. The AI enriches it conversationally. No model call needed in the tool."
+    },
+    {
+      "type": "Type-2",
+      "choice": "record_decision overrides convention: Follow the spec's append-only design. When overriding, record a new entry with overrides: <prior-decision-date> rather than editing. The overrides field is recorded in the decision entry body; no schema enforcement."
+    }
+  ],
   "actual_files": [],
   "test_commands": [
     "go test ./internal/mcp/... -run Catalog",
@@ -22,7 +46,7 @@
   ],
   "reachability_artifacts": [],
   "open_deferrals": [
-    "Semantic/vector search on decisions.md — post-R3"
+    "Semantic/vector search on decisions.md — post-R3. **Acknowledged**: Coach, 2026-06-20"
   ],
   "verification": {
     "result": "pending",
