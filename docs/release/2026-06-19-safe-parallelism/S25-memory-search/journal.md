@@ -50,3 +50,22 @@ All 23 tests pass with race detector. `go vet` clean.
 | --batch search mode | Coach directive; lands in S46 | S46 (captain-review) | Coach, 2026-06-22 |
 | ANN/FAISS | Post-R3 | Future release | Spec-blessed |
 | Reranking | Post-R3 | Future release | Spec-blessed |
+## Verifier verdicts received
+
+### 2026-06-22 — Verifier verdict: PASS
+
+- **Session**: fresh context, artefact-only inputs (Rule 7 compliant)
+- **Worktree**: `/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T8-memory`
+- **Forward-merge**: synced 110 commits from `release-wt/2026-06-19-safe-parallelism`; resolved docs-only conflicts via union merge
+
+**Gate 1 — User-reachable outcome**: PASS. `sworn memory search` wired through `cmdMemory` → `cmdMemorySearch` → `memory.Search()`. CLI verified live: missing-args exits 64, no-index exits 1.
+
+**Gate 2 — Touchpoint audit**: PASS. Planned touchpoints all present. Extra files (`embed_voyage.go`, `index.go`) explained: EmbedQuery() for Pin 4 and AllEntries() for ranking.
+
+**Gate 3 — Required tests**: PASS. 6/6 required, 26/26 total pass race-clean. `go vet` + `go build` clean.
+
+**Gate 4 — Reachability artefact**: PASS. Both CLI paths verified live; unit pipeline proven end-to-end.
+
+**Gate 5 — Dark-code scan**: PASS. Zero markers in 5 changed source files.
+
+**Gate 6 — Scope match**: PASS. 9 Delivered items with evidence; 4 Not-delivered with Rule 2 cards.

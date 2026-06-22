@@ -330,8 +330,7 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 | `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | verified | [spec](./S24-memory-engine/spec.md) |
 | `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | verified | [spec](./S22-sworn-doctor/spec.md) || `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | planned | [spec](./S23-memory-config/spec.md) |
 | `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | planned | [spec](./S24-memory-engine/spec.md) |
-| `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | planned | [spec](./S25-memory-search/spec.md) |
-| `S40-memory-test-hygiene` | T8 | memory tests use `t.TempDir()`; removes stray `test-fixture/` + root `fake_ollama.go` so `go test ./internal/memory/...` leaves git clean | planned | [spec](./S40-memory-test-hygiene/spec.md) |
+| `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | verified | [spec](./S25-memory-search/spec.md) || `S40-memory-test-hygiene` | T8 | memory tests use `t.TempDir()`; removes stray `test-fixture/` + root `fake_ollama.go` so `go test ./internal/memory/...` leaves git clean | planned | [spec](./S40-memory-test-hygiene/spec.md) |
 | `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | verified | [spec](./S26-telemetry/spec.md) |
 | `S27-public-readiness-scrub` | T10 | Make repo + binary public-safe: generalise embedded role prompts (keep Captain/Coach, strip coach-loop coupling), scrub dogfood provenance comments + fired/GetFired + coach-loop refs. Final launch gate. | planned | [spec](./S27-public-readiness-scrub/spec.md) |
 | `S28-git-dir-guard` | T11 | internal/git fails closed on empty Repo.Dir so a git op can't run on the ambient worktree (fixes workers writing to main, sworn#6) + regression test | verified | [spec](./S28-git-dir-guard/spec.md) |
@@ -379,8 +378,14 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 
 ## Recent activity
 
-### 2026-06-22 — replan: new track T14-baton-integration (S48/S49/S50) + frontmatter repair
+### 2026-06-22 — S25-memory-search verifier PASS
 
+- **Slice**: S25-memory-search → state: **verified**
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **All six gates passed.** 26/26 tests pass race-clean. CLI reachability verified live: `sworn memory search` exits 64 (usage), `sworn memory search "test query"` exits 1 (no index). Zero dark-code markers. Extra touchpoint files (embed_voyage.go, index.go) explained by EmbedQuery() + AllEntries() infrastructure. 4 deferrals carry Rule 2 cards.
+- **Next**: `/implement-slice S40-memory-test-hygiene 2026-06-19-safe-parallelism` in a fresh session (next incomplete slice in T8-memory).
+
+### 2026-06-22 — replan: new track T14-baton-integration (S48/S49/S50) + frontmatter repair
 - **Actor**: planner (`/replan-release`)
 - **Directive**: establish the Baton↔SwornAgent architecture as deliverable scope. Baton is
   the open protocol (clonable/usable without sworn); SwornAgent is the all-Go product that
