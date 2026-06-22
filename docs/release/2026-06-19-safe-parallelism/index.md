@@ -93,7 +93,8 @@ tracks:
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T15-cli-registry
     worktree_branch: track/2026-06-19-safe-parallelism/T15-cli-registry
-    state: merged---
+    state: merged
+---
 
 # Release Board: `2026-06-19-safe-parallelism`
 
