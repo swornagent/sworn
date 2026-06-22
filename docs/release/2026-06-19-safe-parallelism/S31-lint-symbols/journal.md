@@ -33,3 +33,34 @@ None.
 ## Verifier verdicts received
 
 None yet.
+
+## 2026-06-29 — implemented
+
+Design accepted by Coach (PROCEED, 3 pins + 2 flags). Implementation
+complete.
+
+**Decisions:**
+- Exit code 3 for advisory (pin 1) — distinct from hard-fail 1 and I/O error 2.
+- `CheckSymbols(sliceDir, repoRoot string) error` (pin 2) — caller passes cwd.
+- `design_decisions` populated in status.json (pin 3) — 5 Type-2 entries.
+- Usage strings updated to include `symbols` target (flag a).
+- Comment on snake_case regex noting single-word lowercase intentional exclusion (flag b).
+
+**Trade-offs:**
+- `grep -F` (fixed string) for literal symbol matching. This means code
+  snippets like `func CalculateFIRE() {}` inside backticks are searched
+  verbatim and won't resolve against the codebase where the return type
+  differs. The design accepts this: examples/illustrations in backticks are
+  inherently false positives, and the advisory nature of the gate means they
+  don't block.
+- Clone of `grepOne` shell-out instead of in-process file-walk. Simpler to
+  reason about and follows the existing `CheckDeps` pattern of shelling out
+  to git.
+
+**Tests:** 9 new test functions in `symbols_test.go`, all passing. Covers
+CamelCase, dotted, snake_case, single-word-lowercase exclusion, deduplication,
+no-backtick, and all-resolved exit-zero paths.
+
+**Reachability:** `sworn lint symbols S31-lint-symbols 2026-06-19-safe-parallelism`
+runs from the worktree, exits 3 with unresolved symbols (false positives from
+the slice's own design examples, as expected).

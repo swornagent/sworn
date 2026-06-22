@@ -3,11 +3,12 @@
   "slice_id": "S31-lint-symbols",
   "release": "2026-06-19-safe-parallelism",
   "track": "T12-harness-hardening",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-29T00:00:00Z",
-  "start_commit": "76b1880c7331d13e9fc2b3868b0f92d183d18648",  "spec_path": "docs/release/2026-06-19-safe-parallelism/S31-lint-symbols/spec.md",
+  "start_commit": "76b1880c7331d13e9fc2b3868b0f92d183d18648",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S31-lint-symbols/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S31-lint-symbols/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S31-lint-symbols/journal.md",
   "planned_files": [
@@ -15,13 +16,21 @@
     "internal/lint/symbols_test.go",
     "cmd/sworn/lint.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/lint/symbols.go",
+    "internal/lint/symbols_test.go",
+    "cmd/sworn/lint.go",
+    "docs/release/2026-06-19-safe-parallelism/S31-lint-symbols/status.json",
+    "docs/release/2026-06-19-safe-parallelism/S31-lint-symbols/proof.md"
+  ],
   "test_commands": [
     "go test ./internal/lint/... -run Symbols",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
-  "open_deferrals": [],
+  "reachability_artifacts": [
+    "CLI: sworn lint symbols S31-lint-symbols 2026-06-19-safe-parallelism → exit 3, unresolved symbols on stderr",
+    "Unit: internal/lint/symbols_test.go (9 test functions, all PASS)"
+  ],  "open_deferrals": [],
   "verification": {
     "result": "",
     "verifier_session_id": null,
