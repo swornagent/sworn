@@ -108,3 +108,31 @@ func TestBatonVersion_NonEmpty(t *testing.T) {
 		t.Fatal("BatonVersion() returned empty string")
 	}
 }
+func TestPlannerHasPhase2b(t *testing.T) {
+	got := Planner()
+	headings := []string{
+		"Registry check",
+		"Design consultation",
+		"Architecture conformance",
+		"Capture",
+	}
+	for _, h := range headings {
+		if !strings.Contains(got, h) {
+			t.Errorf("Planner() missing Phase 2b heading %q", h)
+		}
+	}
+}
+
+func TestPlannerPhase2bDRYGate(t *testing.T) {
+	got := Planner()
+	if !strings.Contains(got, "docs/decisions.md") {
+		t.Errorf("Planner() missing DRY gate reference to docs/decisions.md")
+	}
+}
+
+func TestPlannerPhase2bFastPath(t *testing.T) {
+	got := Planner()
+	if !strings.Contains(got, "do not block") {
+		t.Errorf("Planner() missing fast-path guard: 'do not block' for missing catalog files")
+	}
+}

@@ -6,20 +6,26 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/swornagent/sworn/internal/adopt"
 	"github.com/swornagent/sworn/internal/config"
 )
-func cmdInit(args []string) int {
-	fs := flag.NewFlagSet("init", flag.ExitOnError)
+
+func cmdInit(args []string) int {	fs := flag.NewFlagSet("init", flag.ExitOnError)
 	apiKey := fs.String("api-key", "", "API key for the default provider (openai); overrides prompting")
 	force := fs.Bool("force", false, "overwrite existing config and customized Baton sections")
 	yes := fs.Bool("yes", false, "skip confirmation prompt (non-interactive)")
 	uiBearer := fs.Bool("ui-bearing", false, "mark project as UI-bearing (requires design system declaration)")
 	_ = fs.Parse(args)
+
+	// Shared stdin reader — avoids multiple bufio.NewReader(os.Stdin)
+	// instances fighting over buffered pipe/test data.
+	in := bufio.NewReader(os.Stdin)
+
 	repoRoot, err := os.Getwd()
-	if err != nil {
+		if err != nil {
 		fmt.Fprintf(os.Stderr, "sworn init: cannot determine working directory: %v\n", err)
 		return 1
 	}
@@ -164,9 +170,8 @@ func cmdInit(args []string) int {
 
 	if !*yes {
 		fmt.Print("Proceed? [Y/n]: ")
-		reader := bufio.NewReader(os.Stdin)
-		resp, _ := reader.ReadString('\n')
-		resp = strings.TrimSpace(strings.ToLower(resp))
+		resp, _ := in.ReadString('\n')
+			resp = strings.TrimSpace(strings.ToLower(resp))
 		if resp != "" && resp != "y" && resp != "yes" {
 			fmt.Println("Aborted. No changes made.")
 			return 0
@@ -304,9 +309,74 @@ func cmdInit(args []string) int {
 		}
 	}
 
+	// --- Consideration catalog prompt ---
+	// After the implementer-model prompt, offer to scaffold the consideration
+	// catalog (docs/considerations.md) and decision registry (docs/decisions.md).
+	// These are plain markdown templates — no template engine, no interpolation.
+	if !*yes {
+		fmt.Print("Set up consideration catalog? (y/n) [y]: ")
+		resp, _ := in.ReadString('\n')
+		resp = strings.TrimSpace(strings.ToLower(resp))
+			if resp == "n" || resp == "no" {
+			fmt.Println("  skipped  catalog — run 'sworn induction' later to set it up")
+			goto done
+		}
+	}
+	if err := materialiseCatalog(repoRoot, in); err != nil {
+			fmt.Fprintf(os.Stderr, "sworn init: catalog: %v\n", err)
+		return 1
+	}
+
+done:
 	fmt.Println()
 	fmt.Println("Done. Run 'sworn verify' to verify your first change.")
 	return 0
+}
+
+// materialiseCatalog copies the consideration catalog and decision registry
+// templates from docs/templates/ into the project root. If either target file
+// already exists, it prompts before overwriting (defaulting to no).
+func materialiseCatalog(repoRoot string, in *bufio.Reader) error {
+	templates := []struct {
+		src  string
+		dst  string
+		name string
+	}{
+		{"docs/templates/considerations.md", "docs/considerations.md", "consideration catalog"},
+		{"docs/templates/decisions.md", "docs/decisions.md", "decision registry"},
+	}
+
+	for _, t := range templates {
+		srcPath := filepath.Join(repoRoot, t.src)
+		dstPath := filepath.Join(repoRoot, t.dst)
+
+		// Ensure destination directory exists.
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
+			return fmt.Errorf("create docs/: %w", err)
+		}
+
+		// Check if destination exists — prompt before overwriting.
+		if _, err := os.Stat(dstPath); err == nil {
+			fmt.Printf("  File exists — overwrite %s? [y/N]: ", t.name)
+			resp, _ := in.ReadString('\n')
+			resp = strings.TrimSpace(strings.ToLower(resp))
+			if resp != "y" && resp != "yes" {
+				fmt.Printf("  skipped  %s (already exists)\n", t.name)
+				continue
+			}
+		}
+
+		data, err := os.ReadFile(srcPath)
+			if err != nil {
+			return fmt.Errorf("read template %s: %w", t.src, err)
+		}
+		if err := os.WriteFile(dstPath, data, 0644); err != nil {
+			return fmt.Errorf("write %s: %w", t.name, err)
+		}
+		fmt.Printf("  created  %s\n", t.dst)
+	}
+
+	return nil
 }
 
 // promptAPIKey reads an API key from stdin with the prompt hidden.
