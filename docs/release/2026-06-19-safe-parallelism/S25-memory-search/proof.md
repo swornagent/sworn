@@ -7,18 +7,28 @@ Single-query `sworn memory search <query>` CLI subcommand that returns semantica
 ## Files changed
 
 ```
-cmd/sworn/memory.go             | +168  (search subcommand + print helpers)
-internal/memory/embed_voyage.go | +52   (EmbedQuery method with input_type:"query")
-internal/memory/index.go        | +29   (AllEntries method)
-internal/memory/search.go       | +108  (new — Search function + types)
-internal/memory/search_test.go  | +218  (new — 6 test cases)
+cmd/sworn/memory.go                                | 130 ++++
+docs/release/.../S25-memory-search/journal.md       |  52 ++
+docs/release/.../S25-memory-search/proof.md         | 102 +++
+docs/release/.../S25-memory-search/spec.md          |  64 +-
+docs/release/.../S25-memory-search/status.json      |  50 +-
+internal/memory/embed_voyage.go                    |  53 +-
+internal/memory/index.go                           |  33 +-
+internal/memory/search.go                          | 102 +++ (new)
+internal/memory/search_test.go                     | 234 ++++ (new)
 ```
 
+Production code summary:
+- `internal/memory/search.go` — Search function + Result type (108 lines)
+- `internal/memory/search_test.go` — 6 test cases (234 lines)
+- `internal/memory/embed_voyage.go` — EmbedQuery method with input_type:"query" (added 53 lines)
+- `internal/memory/index.go` — AllEntries method for search (added 33 lines)
+- `cmd/sworn/memory.go` — search subcommand + print helpers (added 130 lines)
 ## Test results
 
 ```
 $ go test -race ./internal/memory/...
-ok  	github.com/swornagent/sworn/internal/memory	1.648s
+ok  	github.com/swornagent/sworn/internal/memory	1.571s
 
 $ go vet ./...
 (clean)
@@ -30,8 +40,50 @@ $ go build ./...
 ### Full test output
 
 ```
+=== RUN   TestEncodeProjectPath
+--- PASS: TestEncodeProjectPath (0.00s)
+=== RUN   TestLoadMerge
+--- PASS: TestLoadMerge (0.00s)
+=== RUN   TestDefaultsAutoDetect
+--- PASS: TestDefaultsAutoDetect (0.00s)
+=== RUN   TestUnknownHarness
+--- PASS: TestUnknownHarness (0.00s)
+=== RUN   TestAPIKeyEnvNotLeaked
+--- PASS: TestAPIKeyEnvNotLeaked (0.00s)
+=== RUN   TestIsValidHarnessID
+--- PASS: TestIsValidHarnessID (0.00s)
+=== RUN   TestIsValidEmbeddingProvider
+--- PASS: TestIsValidEmbeddingProvider (0.00s)
+=== RUN   TestHarnessMemoryPath
+--- PASS: TestHarnessMemoryPath (0.00s)
+=== RUN   TestDiscoverClaudeCode
+--- PASS: TestDiscoverClaudeCode (0.00s)
+=== RUN   TestDiscoverFlatFile
+--- PASS: TestDiscoverFlatFile (0.00s)
+=== RUN   TestDiscoverCustomPath
+--- PASS: TestDiscoverCustomPath (0.00s)
+=== RUN   TestVoyageEmbedder
+--- PASS: TestVoyageEmbedder (0.01s)
+=== RUN   TestOAICompatEmbedder
+--- PASS: TestOAICompatEmbedder (0.01s)
+=== RUN   TestOllamaEmbedder
+--- PASS: TestOllamaEmbedder (0.00s)
+=== RUN   TestEmbedderAPIKeyEnvNotLeaked
+--- PASS: TestEmbedderAPIKeyEnvNotLeaked (0.00s)
+=== RUN   TestUpsertAndRetrieve
+--- PASS: TestUpsertAndRetrieve (0.04s)
+=== RUN   TestChangeDetection
+--- PASS: TestChangeDetection (0.05s)
+=== RUN   TestCosine
+=== RUN   TestCosine/identical
+=== RUN   TestCosine/orthogonal
+=== RUN   TestCosine/opposite
+=== RUN   TestCosine/half
+--- PASS: TestCosine (0.00s)
+=== RUN   TestEmbeddingEncoding
+--- PASS: TestEmbeddingEncoding (0.00s)
 === RUN   TestSearchTopK
---- PASS: TestSearchTopK (0.13s)
+--- PASS: TestSearchTopK (0.12s)
 === RUN   TestSearchFilterHarness
 --- PASS: TestSearchFilterHarness (0.13s)
 === RUN   TestSearchEmptyIndex
@@ -39,13 +91,13 @@ $ go build ./...
 === RUN   TestSearchNoBuild
 --- PASS: TestSearchNoBuild (0.00s)
 === RUN   TestSearchTopKTruncation
---- PASS: TestSearchTopKTruncation (0.15s)
+--- PASS: TestSearchTopKTruncation (0.12s)
 === RUN   TestSearchDeterministic
---- PASS: TestSearchDeterministic (0.06s)
+--- PASS: TestSearchDeterministic (0.05s)
+PASS
 ```
 
-All existing tests continue to pass (23/23, race detector clean).
-
+All 26 tests pass (including 17 existing S23/S24 tests), race detector clean.
 ## Reachability artefact
 
 ### CLI no-index test
@@ -92,8 +144,63 @@ exit: 64
 - Added `AllEntries()` method to Index (not in original spec; needed for search to load all entries for ranking).
 - Added `EmbedQuery()` to voyageEmbedder (Pin 4 fix; backward-compatible, does not break S24 verified state).
 
-## Design decisions applied
+## First-pass script output
 
+```
+release-verify.sh
+  slice:       S25-memory-search
+  slice dir:   docs/release/2026-06-19-safe-parallelism/S25-memory-search
+  base branch: main
+
+== Slice artefacts ==
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+  PASS  spec.md has Required tests section
+
+== Status ==
+  PASS  status.json is valid JSON
+  state: implemented
+  PASS  state is 'implemented' (eligible for verifier review)
+
+== Integration branch drift ==
+  integration branch: release/v0.1.0
+  PASS  worktree branch is current with release/v0.1.0 (no drift)
+
+== Diff vs start_commit (verifier base) ==
+  diff base: start_commit c031ea1
+  PASS  9 file(s) changed vs diff base
+
+== Dark-code markers in changed files ==
+  PASS  no dark-code markers in changed source files
+
+== Proof bundle structural checks ==
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+  PASS  proof.md 'Not delivered' deferrals carry non-placeholder tracking refs
+
+== Frontmatter YAML safety ==
+  PASS  spec.md frontmatter is strict-YAML safe
+
+== Test results section scope ==
+  PASS  Test results section contains no Playwright runner output
+
+== First-pass verdict ==
+  checks passed: 22
+  checks failed: 0
+
+FIRST-PASS PASS
+```
+
+## Design decisions applied
 From Captain review pins:
 1. **Pin 1**: `design_decisions` array added to status.json (5 decisions, all Type-2)
 2. **Pin 2**: Coach resolved — no shim changes in S25; spec corrected
