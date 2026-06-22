@@ -67,3 +67,14 @@ None.
 ## Verifier verdicts received
 
 *(None yet.)*
+### 2026-07-05 — Verifier PASS (fresh context)
+
+- **Actor**: verifier (fresh context, artefact-only)
+- **Verdict**: All six gates passed.
+  - Gate 1 (User-reachable): `sworn induction` CLI registered via `command.Register(...)`, functional end-to-end; idempotent mode confirmed.
+  - Gate 2 (Touchpoints): 4/4 planned files present + expected `prompt_test.go` extension.
+  - Gate 3 (Tests): All 8 induction + 3 prompt tests re-run and PASS; `go build ./...` clean.
+  - Gate 4 (Reachability): `sworn induction` smoke-executed; catalog populated; idempotent re-entry verified.
+  - Gate 5 (Deferrals): Zero TODO/FIXME/placeholder in changed files.
+  - Gate 6 (Scope): All 13 Delivered items confirmed against live evidence.
+- **Next**: `/implement-slice S21-canonical-baton 2026-06-19-safe-parallelism` (next slice in T3-commercial)
