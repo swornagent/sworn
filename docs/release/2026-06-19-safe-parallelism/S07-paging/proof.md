@@ -259,8 +259,7 @@ release-verify.sh
 == Status ==
   PASS  status.json is valid JSON
   state: implemented
-  PASS  state is 'implemented' — ready for verifier session
-
+  PASS  state is 'implemented' (eligible for verifier review)
 == Integration branch drift ==
   integration branch: release/v0.1.0
   PASS  worktree branch is current with release/v0.1.0 (no drift)
@@ -282,4 +281,10 @@ release-verify.sh
 
 == Test results section scope ==
   PASS  Test results section contains no Playwright runner output
+
+== First-pass verdict ==
+  checks passed: 23
+  checks failed: 0
+
+FIRST-PASS PASS
 ```
