@@ -1,6 +1,6 @@
 ---
 title: 'S10-provider-foundation — provider router, OAI-compat presets, .env file loading'
-description: 'ADR 0004 revises the dep policy to minimal+justified. A provider router dispatches model IDs like openai/gpt-4o, anthropic/claude-sonnet-4-6, groq/llama-3.3-70b to the correct driver. OAI-compat presets cover eight providers without new code. A .env file loader reads per-provider API keys from ~/.sworn/.env. cmd/sworn/run.go switches from direct OAI{} instantiation to the factory.'
+description: 'ADR 0007 revises the dep policy to minimal+justified. A provider router dispatches model IDs like openai/gpt-4o, anthropic/claude-sonnet-4-6, groq/llama-3.3-70b to the correct driver. OAI-compat presets cover eight providers without new code. A .env file loader reads per-provider API keys from ~/.sworn/.env. cmd/sworn/run.go switches from direct OAI{} instantiation to the factory.'
 ---
 
 # Slice: `S10-provider-foundation`
@@ -23,7 +23,7 @@ with the correct base URL and API key.
 
 ## In scope
 
-- **ADR 0004** at `docs/adr/0004-dep-policy-minimal-justified.md`: supersedes ADR-0001's
+- **ADR 0007** at `docs/adr/0007-dep-policy-minimal-justified.md`: supersedes ADR-0001's
   "zero runtime deps" rule; new policy is "minimal, justified deps — each new dependency
   requires an ADR entry". Documents rationale (multi-provider model drivers require their
   providers' Go SDKs; reimplementing auth/streaming/error handling from scratch for AWS
@@ -95,7 +95,7 @@ with the correct base URL and API key.
 
 ## Planned touchpoints
 
-- `docs/adr/0004-dep-policy-minimal-justified.md` (new)
+- `docs/adr/0007-dep-policy-minimal-justified.md` (new)
 - `CLAUDE.md` (modify — dep policy line)
 - `internal/model/env.go` (new)
 - `internal/model/env_test.go` (new)
@@ -104,11 +104,11 @@ with the correct base URL and API key.
 - `internal/model/errors.go` (new — typed error taxonomy)
 - `internal/model/errors_test.go` (new)
 - `internal/model/oai.go` (modify — return *model.Error on non-2xx)
-- `cmd/sworn/run.go` (modify — use NewClient + print Error.UserMessage; serialised by T1+T3 dep)
-
+- `internal/model/config.go` (modify — refactor FromEnv to delegate to NewClient)
+- `cmd/sworn/run.go` (modify — LoadDotEnv + print Error.UserMessage; serialised by T1+T3 dep)
 ## Acceptance checks
 
-- [ ] `docs/adr/0004-dep-policy-minimal-justified.md` is committed; it explicitly names
+- [ ] `docs/adr/0007-dep-policy-minimal-justified.md` is committed; it explicitly names
   ADR-0001 as the predecessor and states the new rule ("each new dep requires an ADR")
 - [ ] `CLAUDE.md` no longer contains the phrase "zero runtime dependencies — stdlib only";
   updated text references ADR-0004

@@ -66,7 +66,7 @@ the error message is actionable (`sworn account buy`, "check the API key for
 
 ## §3. Files I'll touch grouped by purpose
 
-- **ADR + policy update** — `docs/adr/0004-dep-policy-minimal-justified.md`
+- **ADR + policy update** — `docs/adr/0007-dep-policy-minimal-justified.md`
   (new), `CLAUDE.md` (edit). Supersedes ADR-0001's "zero runtime deps" rule.
   *Why*: the spec requires a formal ADR before any provider SDK dep can be
   added; ADR-0004 establishes the "minimal, justified" rule that S11-S16
