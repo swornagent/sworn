@@ -27,3 +27,18 @@
 - Coach flags addressed: design_decisions populated (5 Type-2), forward-handoff comment in baton.go.
 - Network fetch deferral: tracked at GitHub issue #11, acknowledged by Coach.
 - State transition: `in_progress` → `implemented`.
+
+## Verifier verdicts received
+
+### 2026-07-07 — Verifier session 1: BLOCKED (dirty worktree — drift gate)
+
+BLOCKED
+
+Slice: `S48-baton-vendor`
+Reason: Track worktree at `/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T14-baton-integration` has 19 uncommitted file modifications — cannot forward-merge `release-wt/2026-06-19-safe-parallelism` safely. `git status --short` returned non-empty output on 19 files in `internal/adopt/baton/**` (11 files) and `internal/prompt/**` (8 files), totalling 3,596 net deletions vs HEAD. The drift gate (Step 0.5) requires a clean tree at `state: implemented`; a dirty tree is itself a fault (track-mode invariant).
+
+No spec defect — the spec is correct as written. The implementer must either commit the 19 working-tree modifications (if they are intended S48 scope) or revert them (`git checkout -- internal/adopt/baton internal/prompt`), confirm the tree is clean, and re-stage the slice as `implemented` before verification can proceed.
+
+Proposed spec.md amendment: None. The spec contract is intact; this is an implementation/working-tree hygiene fault.
+
+Next step: `/replan-release 2026-06-19-safe-parallelism` — the planner routes the implementer to clean up the working tree, then re-enters verification.
