@@ -29,3 +29,19 @@
 
 ## Verification
 - `verification.result`: pending
+## 2026-07-01: Re-entry — proof bundle refresh
+
+**State transition:** `implemented` → `in_progress` → `implemented`
+
+**Why re-entry:** Coach re-dispatched S07-paging (oracle showed `design_review` on release-wt; track branch was at `implemented`). Performed fresh pass:
+
+- All 27 tests across `internal/account`, `internal/run`, `internal/scheduler` still PASS
+- `go vet` clean
+- `release-verify.sh`: 22 PASS, 1 FAIL (state=in_progress mid-session; resolved on → implemented)
+- Proof bundle regenerated from live repo state (current test output, current git diff)
+- Skeptic panel: skipped — runtime does not support subagent dispatch
+
+**No code changes** — implementation from prior session (9799a74) is intact and all tests pass.
+
+**Deferrals carried forward:**
+- SwornAgent `/api/notify` endpoint: acknowledged Coach 2026-06-22, tracking SwornAgent backend backlog

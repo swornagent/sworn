@@ -3,7 +3,8 @@
   "slice_id": "S07-paging",
   "release": "2026-06-19-safe-parallelism",
   "track": "T3-commercial",
-  "state": "in_progress",  "owner": "human",
+  "state": "implemented",
+  "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-01T00:00:00Z",
   "start_commit": "a7681c4f2efa8aa31c52a750674c026984f18670",
@@ -30,7 +31,8 @@
   ],
   "test_commands": [
     "go test ./internal/account/...",
-    "go test ./internal/run/..."
+    "go test ./internal/run/...",
+    "go test ./internal/scheduler/..."
   ],
   "reachability_artifacts": [
     "webhook.site: https://webhook.site/e79d3ba0-435e-473d-8d0e-c3d8209bcae2 (request UUID: 38181bb4-533e-45c9-9d75-8c5338aa9dd4)",
