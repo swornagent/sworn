@@ -40,9 +40,13 @@
     "killing agent-spawned OS subprocesses \u2014 deferred; supervisor stale-PID reaping covers cross-session orphans (Rule 2, Coach ack 2026-06-21)"
   ],
   "verification": {
-    "result": ""
-  },
-  "design_decisions": [
+    "result": "blocked",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-07T00:00:00Z",
+    "violations": [
+      "Forward-merge of release-wt/2026-06-19-safe-parallelism into track/2026-06-19-safe-parallelism/T12-harness-hardening conflicted on code files: cmd/sworn/run.go, internal/config/config.go, internal/run/run.go. The touchpoint matrix was wrong — track-mode invariant 4 violated. This track (T12-harness-hardening) and the release-wt branch have concurrent edits to the same Go files. Proposed fix: /replan-release to re-group the conflicting slices so that T12's planned_files do not overlap with any in-flight release-wt changes."
+    ]
+  },  "design_decisions": [
     {
       "choice": "Named constant DefaultImplementTimeout = 15 * time.Minute in internal/run/slice.go \u2014 single tuning point per spec's Risks section",
       "stake_class": "Type-2",

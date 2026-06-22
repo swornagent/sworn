@@ -45,3 +45,19 @@ No skeptic panel — runtime does not support subagent dispatch in this session.
 Both deferrals carried forward from spec and acknowledged by Coach (2026-06-21):
 1. `http.Client.Timeout` on `oai.go` — deferred to S39/T5
 2. Agent-spawned OS subprocess killing — deferred; supervisor covers cross-session orphans
+## Verifier verdicts received
+
+### BLOCKED — 2026-07-07
+
+**Actor**: verifier (`/verify-slice`)
+
+**Verdict**: BLOCKED — forward-merge of `release-wt/2026-06-19-safe-parallelism` into `track/2026-06-19-safe-parallelism/T12-harness-hardening` conflicted on code files:
+- `cmd/sworn/run.go`
+- `internal/config/config.go`
+- `internal/run/run.go`
+
+The touchpoint matrix was wrong (track-mode invariant 4). This track (T12-harness-hardening) and the release-wt branch have concurrent edits to the same Go files. The planned_files for S42 (`internal/run/slice.go`, `internal/run/run.go`, `cmd/sworn/run.go`, `internal/config/config.go`) overlap with changes that have landed on `release-wt/2026-06-19-safe-parallelism` from other tracks (likely T3-commercial, in_progress with `internal/config/config.go` ownership).
+
+**Proposed fix**: `/replan-release 2026-06-19-safe-parallelism` to re-group the conflicting slices so that T12's planned_files do not overlap with any in-flight release-wt changes.
+
+**Next step**: `/replan-release 2026-06-19-safe-parallelism` (a blocked verdict routes to the planner, not back to the implementer).
