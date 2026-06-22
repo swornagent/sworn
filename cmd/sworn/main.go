@@ -114,6 +114,9 @@ func dispatch(args []string) int {
 	case "telemetry":
 		// S26-telemetry adds this case (T9-telemetry).
 		return cmdTelemetry(args[2:])
+	case "memory":
+		// S23-memory-config adds this case (T8-memory).
+		return cmdMemory(args[2:])
 	case "version", "--version", "-v":
 		fmt.Printf("sworn %s\nbaton-protocol %s\n", version, prompt.BatonVersion())
 		return 0

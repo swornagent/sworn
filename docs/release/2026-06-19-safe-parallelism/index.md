@@ -325,10 +325,12 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 | `S19-sworn-induction` | T3 | `sworn induction` one-time repo onboarding (design system + architecture discovery); implementer + verifier prompts gain deviation-surfacing steps | planned | [spec](./S19-sworn-induction/spec.md) |
 | `S20-mcp-catalog-tools` | T7 | 8 MCP tools: plan_release (unified), get_induction_status, get_considerations, search_decisions, record_decision, check_design_system, update_design_system, record_architecture_pattern | planned | [spec](./S20-mcp-catalog-tools/spec.md) |
 | `S21-canonical-baton` | T3 | Baton protocol embedded in binary (internal/prompt/baton/); sworn init writes minimal MCP-pointer AGENTS.md instead of per-repo Baton copy; ADR-0005 | planned | [spec](./S21-canonical-baton/spec.md) |
+| `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | planned | [spec](./S22-sworn-doctor/spec.md) |
+| `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | planned | [spec](./S23-memory-config/spec.md) |
+| `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | verified | [spec](./S24-memory-engine/spec.md) |
 | `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | verified | [spec](./S22-sworn-doctor/spec.md) || `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | planned | [spec](./S23-memory-config/spec.md) |
 | `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | planned | [spec](./S24-memory-engine/spec.md) |
-| `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | planned | [spec](./S25-memory-search/spec.md) |
-| `S40-memory-test-hygiene` | T8 | memory tests use `t.TempDir()`; removes stray `test-fixture/` + root `fake_ollama.go` so `go test ./internal/memory/...` leaves git clean | planned | [spec](./S40-memory-test-hygiene/spec.md) |
+| `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | verified | [spec](./S25-memory-search/spec.md) || `S40-memory-test-hygiene` | T8 | memory tests use `t.TempDir()`; removes stray `test-fixture/` + root `fake_ollama.go` so `go test ./internal/memory/...` leaves git clean | verified | [spec](./S40-memory-test-hygiene/spec.md) |
 | `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | verified | [spec](./S26-telemetry/spec.md) |
 | `S27-public-readiness-scrub` | T10 | Make repo + binary public-safe: generalise embedded role prompts (keep Captain/Coach, strip coach-loop coupling), scrub dogfood provenance comments + fired/GetFired + coach-loop refs. Final launch gate. | planned | [spec](./S27-public-readiness-scrub/spec.md) |
 | `S28-git-dir-guard` | T11 | internal/git fails closed on empty Repo.Dir so a git op can't run on the ambient worktree (fixes workers writing to main, sworn#6) + regression test | verified | [spec](./S28-git-dir-guard/spec.md) |
@@ -359,6 +361,7 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 - In progress: 0
 - Design review: 3
 - Implemented: 0
+- Verified: 7
 - Verified: 21
 - Failed verification: 0
 - Deferred: 0
@@ -375,8 +378,21 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 
 ## Recent activity
 
-### 2026-06-22 — replan: new track T14-baton-integration (S48/S49/S50) + frontmatter repair
+### 2026-06-22 — S25-memory-search verifier PASS
 
+- **Slice**: S25-memory-search → state: **verified**
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **All six gates passed.** 26/26 tests pass race-clean. CLI reachability verified live: `sworn memory search` exits 64 (usage), `sworn memory search "test query"` exits 1 (no index). Zero dark-code markers. Extra touchpoint files (embed_voyage.go, index.go) explained by EmbedQuery() + AllEntries() infrastructure. 4 deferrals carry Rule 2 cards.
+- **Next**: `/implement-slice S40-memory-test-hygiene 2026-06-19-safe-parallelism` in a fresh session (next incomplete slice in T8-memory).
+
+
+### 2026-06-29 — S40-memory-test-hygiene verifier PASS
+
+- **Slice**: S40-memory-test-hygiene → state: **verified**
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
+- **All six gates passed.** Scope was pre-delivered by S24/S25 — memory tests already use `t.TempDir()` and `httptest.NewServer`. 26/26 tests pass with `-race`; `git status --porcelain` is empty; `fake_ollama.go` does not exist. Zero dark-code markers.
+- **Next**: `/merge-track T8-memory` (S40 is the last slice in T8 — track complete), then `/merge-release 2026-06-19-safe-parallelism` once every track is merged.
+### 2026-06-22 — replan: new track T14-baton-integration (S48/S49/S50) + frontmatter repair
 - **Actor**: planner (`/replan-release`)
 - **Directive**: establish the Baton↔SwornAgent architecture as deliverable scope. Baton is
   the open protocol (clonable/usable without sworn); SwornAgent is the all-Go product that
@@ -491,6 +507,22 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 - **S40-memory-test-hygiene → T8 tail** (after S25): the memory tests write `test-fixture/` + a root `fake_ollama.go` into the tree instead of `t.TempDir()`, tripping the Gate -1 cleanliness check on T8 (a `.gitignore test-fixture/` stopgap landed at `5d1b7c4`). Placed in **T8, not T12** — it edits `internal/memory/*_test.go`, which the touchpoint matrix assigns to T8; a T12 placement would collide.
 - **S41-build-bin-target → T12 tail** (after S38): canonical `make build` → `bin/sworn` + a new `docs/build.md` run-from-repo-root convention, so sworn run-state stops cluttering `cmd/sworn/` (the recurring `cmd/sworn/.sworn` + `docs/release/run-*`). Documented in a new `docs/build.md` rather than `AGENTS.md` (owned by S21/T3, S22/T4) to stay collision-free. Defers the in-code state-dir resolution and the prompt smoke-step wording (the latter to S33).
 - **Release now 47 slices across 12 tracks.** Both slices append to non-started tails; Step 6 forward-merged release-wt into the in-flight tracks (T2/T3/T4/T8/T12).
+
+### 2026-06-21 — S24-memory-engine verifier PASS (round 3)
+
+- **Slice**: S24-memory-engine → state: **verified**
+- **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant); verified against `40cb8d6`
+- **All six gates passed.** 18/18 tests pass fresh (`go clean -testcache && go test -race ./internal/memory/... -v`). Voyage batch splitting verified (150 texts → embeddings[128][0]==0.0 confirms two-request batching). Auth header + key-from-env tested. Discover tests cover Claude Code MEMORY.md parsing, `---` flat-file splitting, custom paths. Full pipeline demonstrated via Ollama reachability artefact (3 entries indexed, change detection, --force). No silent deferrals in S24 files. All Gate 2 non-planned files fully explained as forward-merge noise (S26/S28/T12 replan content).
+- **Next**: `/implement-slice S25-memory-search 2026-06-19-safe-parallelism` in a fresh session.
+
+### 2026-06-21 — S24-memory-engine verifier FAIL (round 2)
+
+- **Slice**: S24-memory-engine → state: **failed_verification**
+- **Gate failed**: Gate 2 — planned touchpoints vs actual diff
+- **Violation**: `start_commit` is `16c0a8b` (coach-ack commit) not `d441b4c` (start-implementation commit). `git diff --name-only 16c0a8b` includes 6 S26/S28 files not in planned touchpoints. `proof.md` "Divergence from plan" says "None" without acknowledging these files.
+- **Fix**: Set `start_commit` to `d441b4c` in status.json; update proof.md "Files changed" to match.
+- **Gates 1, 3, 4, 5, 6 all pass** — S24 implementation is correct.
+- **Next step**: `/implement-slice S24-memory-engine 2026-06-19-safe-parallelism` (fix start_commit + proof.md)
 
 ### 2026-06-21 — replan: harness-hardening batch (S29–S36) from the trial-log harvest
 
