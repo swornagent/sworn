@@ -51,9 +51,8 @@ tracks:
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T8-memory
     worktree_branch: track/2026-06-19-safe-parallelism/T8-memory
-    state: in_progress
-  - id: T9-telemetry
-    slices: [S26-telemetry]
+    state: merged
+  - id: T9-telemetry    slices: [S26-telemetry]
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T9-telemetry
     worktree_branch: track/2026-06-19-safe-parallelism/T9-telemetry
@@ -125,8 +124,7 @@ tracks:
 | `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 → S39 | T1 + T3 | `track/.../T5-providers` | planned |
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
 | `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | planned |
-| `T8-memory` | S23 → S24 → S25 → S40 | T1 | `track/.../T8-memory` | in_progress |
-| `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
+| `T8-memory` | S23 → S24 → S25 → S40 | T1 | `track/.../T8-memory` | merged || `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
 | `T10-public-readiness` | S27 | all (T1–T9) | `track/.../T10-public-readiness` | planned |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
 | `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | in_progress |
@@ -366,8 +364,7 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 - Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 6 / In progress: 3 / Merged: 5
-> Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice);> T10 new (1 slice: S27, the final public-readiness gate); T11 new (1 slice: S28, the
+**Tracks:** Planned: 6 / In progress: 2 / Merged: 6> Note: T3 now has 7 slices; T4 now has 4 slices; T8 new (3 slices); T9 new (1 slice);> T10 new (1 slice: S27, the final public-readiness gate); T11 new (1 slice: S28, the
 > sworn#6 git-dir safety fix); T12 new (7 harness-hardening slices from the trial-log harvest);
 > S34 appended to T2. **T14-baton-integration new (3 slices: S48/S49/S50 — Baton↔sworn protocol
 > sync, 2026-06-22 replan).** Release now **56 slices across 14 tracks** (S40→T8, S41–S44→T12,
@@ -392,6 +389,12 @@ Phase 5:  T10 (after ALL tracks merge incl. T14 — final public-readiness gate 
 - **Verifier**: fresh-context session, artefact-only inputs (Rule 7 compliant)
 - **All six gates passed.** Scope was pre-delivered by S24/S25 — memory tests already use `t.TempDir()` and `httptest.NewServer`. 26/26 tests pass with `-race`; `git status --porcelain` is empty; `fake_ollama.go` does not exist. Zero dark-code markers.
 - **Next**: `/merge-track T8-memory` (S40 is the last slice in T8 — track complete), then `/merge-release 2026-06-19-safe-parallelism` once every track is merged.
+
+### 2026-06-29 — track `T8-memory` merged to release-wt (commit a9512c2)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 4 verified slices merged: S23-memory-config, S24-memory-engine, S25-memory-search, S40-memory-test-hygiene. Track state -> merged.
+
 ### 2026-06-22 — replan: new track T14-baton-integration (S48/S49/S50) + frontmatter repair
 - **Actor**: planner (`/replan-release`)
 - **Directive**: establish the Baton↔SwornAgent architecture as deliverable scope. Baton is
