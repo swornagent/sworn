@@ -3,10 +3,10 @@
   "slice_id": "S19-sworn-induction",
   "release": "2026-06-19-safe-parallelism",
   "track": "T3-commercial",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-05T00:00:00Z",
+  "last_updated_at": "2026-07-05T01:00:00Z",
   "start_commit": "7db0d0e770fe4854a81e2e01c8b35d460c756c12",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S19-sworn-induction/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S19-sworn-induction/proof.md",
@@ -39,14 +39,22 @@
       "choice": "Prompt modifications: inject new sections at specific positions. For implementer.md, insert 'Dependency discipline' and 'Deviation check' sections after '## Workflow' heading and before '1. Update status.json' step. For verifier.md, insert 'Catalog conformance check' after existing gates. Structural inserts detected by heading anchors."
     }
   ],
-  "actual_files": [],
+  "actual_files": [
+    "cmd/sworn/induction.go",
+    "cmd/sworn/induction_test.go",
+    "internal/prompt/implementer.md",
+    "internal/prompt/prompt_test.go",
+    "internal/prompt/verifier.md"
+  ],
   "test_commands": [
     "go test ./cmd/sworn/... -run Induction",
     "go test ./internal/prompt/... -run 'TestImplementerHasDeviationCheck|TestImplementerHasDependencyDiscipline'",
     "go test ./internal/prompt/... -run TestVerifierHasCatalogConformance",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "manual-smoke-step: sworn induction in test repo with piped stdin"
+  ],
   "open_deferrals": [
     "Multi-language pattern inference beyond Go \u2014 post-R3. **Acknowledged**: Coach, 2026-06-20"
   ],
