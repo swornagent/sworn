@@ -51,10 +51,12 @@ writer, never parallel with one — matching the release's existing config.go co
 - Routing the **verifier** or other roles — only the implementer model is routed here. Why:
   implementer pass-rate is the signal the corpus measures; other roles need their own
   evidence axis. Tracking: future-release ledger follow-up. Ack: Brad, 2026-06-22.
-- Cost-aware routing (cheapest model clearing a pass-rate bar) — deferred (Rule 2). Why:
-  true per-call cost is post-R3 (billing deferred per intake); the `Record` schema leaves
-  room for a `cost`/`tokens` field at `v:2`. Tracking: arrives with the S06b billing
-  follow-up. Ack: Brad, 2026-06-22.
+- Cost-aware routing (cheapest model clearing a pass-rate bar) — **not deferred; sliced as
+  S55 + S56** in this same track. The cost signal is local token-pricing, already returned by
+  `model.Verifier.Verify` (`costUSD`) and computed by `internal/agent`/`oai.go` — it does NOT
+  depend on the S06b commercial billing engine. S55 captures per-role cost into a `v:2`
+  Record; S56 adds the `--optimize cost` objective. (Corrected 2026-06-23 — the original note
+  conflated "billing engine" with "cost signal".)
 - Auto-mutating `config.json` on disk — the recommendation influences the *resolved* model
   in memory, it does not rewrite the user's config file.
 
