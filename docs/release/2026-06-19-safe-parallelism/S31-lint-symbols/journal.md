@@ -64,3 +64,6 @@ no-backtick, and all-resolved exit-zero paths.
 **Reachability:** `sworn lint symbols S31-lint-symbols 2026-06-19-safe-parallelism`
 runs from the worktree, exits 3 with unresolved symbols (false positives from
 the slice's own design examples, as expected).
+**Skeptic panel:** skipped — runtime does not support subagent dispatch.
+
+**First-pass:** 23/23 PASS.
