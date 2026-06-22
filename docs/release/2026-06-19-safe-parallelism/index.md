@@ -375,8 +375,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S15-oci-driver` | T5 | OCI Generative AI models work via oci-go-sdk | planned | [spec](./S15-oci-driver/spec.md) |
 | `S16-ollama-driver` | T5 | Ollama native /api/chat endpoint; replaces OAI-compat shim | planned | [spec](./S16-ollama-driver/spec.md) |
 | `S17-tui-provider-config` | T6 | TUI settings panel: provider API keys, model per role, escalation list, max attempts; persists to config.json + ~/.sworn/.env | planned | [spec](./S17-tui-provider-config/spec.md) |
-| `S18-consideration-catalog` | T3 | Typed consideration catalog + decision registry; planner Phase 2b (DRY gate, design consultation, arch conformance, capture); sworn init scaffolds both templates | planned | [spec](./S18-consideration-catalog/spec.md) |
-| `S19-sworn-induction` | T3 | `sworn induction` one-time repo onboarding (design system + architecture discovery); implementer + verifier prompts gain deviation-surfacing steps | planned | [spec](./S19-sworn-induction/spec.md) |
+| `S18-consideration-catalog` | T3 | Typed consideration catalog + decision registry; planner Phase 2b (DRY gate, design consultation, arch conformance, capture); sworn init scaffolds both templates | verified | [spec](./S18-consideration-catalog/spec.md) || `S19-sworn-induction` | T3 | `sworn induction` one-time repo onboarding (design system + architecture discovery); implementer + verifier prompts gain deviation-surfacing steps | planned | [spec](./S19-sworn-induction/spec.md) |
 | `S20-mcp-catalog-tools` | T7 | 8 MCP tools: plan_release (unified), get_induction_status, get_considerations, search_decisions, record_decision, check_design_system, update_design_system, record_architecture_pattern | planned | [spec](./S20-mcp-catalog-tools/spec.md) |
 | `S21-canonical-baton` | T3 | Baton protocol embedded in binary (internal/prompt/baton/); sworn init writes minimal MCP-pointer AGENTS.md instead of per-repo Baton copy; ADR-0005 | planned | [spec](./S21-canonical-baton/spec.md) |
 | `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | verified | [spec](./S22-sworn-doctor/spec.md) |
@@ -424,11 +423,11 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > S07 `planned` despite `implemented`). Three duplicate rows (S22/S23/S24) and several
 > `||`-collapsed physical lines repaired.
 
-- Planned: 29
+- Planned: 28
 - In progress: 0
 - Implemented: 1
 - Design review: 1
-- Verified: 26
+- Verified: 27
 - Failed verification: 0
 - Deferred: 0
 
@@ -437,6 +436,18 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > T12-harness-hardening (head: S33-spec-template-hardening). Planned (6): T5, T6, T7, T10, T13, T14.
 
 ## Recent activity
+
+### 2026-07-04 — S18-consideration-catalog verifier PASS
+
+- **Actor**: verifier (fresh context, artefact-only)
+- **Verdict**: All six gates passed.
+  - Gate 1: Entry point wired — `sworn init` calls `cmdInit()` → `materialiseCatalog()`.
+  - Gate 2: Planned touchpoints match diff (4 planned + expected test/slice files).
+  - Gate 3: All 6 tests (3 planner, 3 init) pass on re-run; Rule 1 satisfied.
+  - Gate 4: Integration-level tests exercising `cmdInit()` end-to-end serve as reachability artefact.
+  - Gate 5: No TODO/FIXME/placeholder in changed production/template files.
+  - Gate 6: All 13 Delivered items verified against evidence.
+- **Next**: `/implement-slice S19-sworn-induction 2026-06-19-safe-parallelism` (next slice in T3-commercial).
 
 ### 2026-07-03 — replan: resolve S07-paging stale BLOCKED (main.go fix already merged via T15)
 

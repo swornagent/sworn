@@ -62,3 +62,19 @@ Real verifier (Rule 7) is the backstop.
 ### First-pass verification
 
 23/24 checks PASS. 1 known false positive: "screenshot" in spec body text (Phase 2b planner description), not in any AC. Documented in proof.md per feedback_release_verify_darkcode_docs_glob.
+
+## Verifier verdicts received
+
+### 2026-07-04T19:30:00Z — PASS (fresh context, artefact-only)
+
+Slice: `S18-consideration-catalog`
+Verified against: `0a45c60` (HEAD of track/2026-06-19-safe-parallelism/T3-commercial)
+Verifier session: fresh, artefact-only
+
+All six gates passed:
+1. User-reachable outcome exists — `sworn init` wired through `cmdInit()` → `materialiseCatalog()`
+2. Planned touchpoints match actual changed files — all 4 planned files in diff; test files + slice docs are expected
+3. Required tests exist and exercise integration point — all 6 tests (3 planner, 3 init) pass on re-run; Rule 1 satisfied (tests call `cmdInit()`, not leaf functions)
+4. Reachability artefact proves user path — integration-level tests exercising `cmdInit()` end-to-end
+5. No silent deferrals or placeholder logic — grep clean across all changed production files
+6. Claimed scope matches implemented scope — all 13 Delivered items verified against evidence
