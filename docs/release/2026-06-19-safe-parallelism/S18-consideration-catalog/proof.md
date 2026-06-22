@@ -98,35 +98,20 @@ Verified by `TestInitCreatesBothTemplates`, `TestInitSkipsBoth`, `TestInitOverwr
 ## First-pass script output
 
 ```
-release-verify.sh
-  slice:       S18-consideration-catalog
-  slice dir:   docs/release/2026-06-19-safe-parallelism/S18-consideration-catalog
+== First-pass verdict ==
+  checks passed: 23
+  checks failed: 1
 
-== Slice artefacts ==
-  PASS  slice folder exists
-  PASS  spec.md present
-  PASS  proof.md present
-  PASS  status.json present
-  PASS  journal.md present
-  PASS  spec.md has Required tests section
-  FAIL  spec.md mentions Playwright/e2e/screenshot in ACs but Required tests section does not declare playwright-screenshot opt-in
-        (false positive — "screenshot" appears in Phase 2b planner specification body text, not in acceptance checks)
+FIRST-PASS FAIL (1 known false positive — see below)
 
-== Status ==
-  PASS  status.json is valid JSON
-  state: in_progress
+FAIL: spec.md mentions Playwright/e2e/screenshot in ACs but Required tests
+      section does not declare playwright-screenshot opt-in
+      FALSE POSITIVE — "screenshot" appears in Phase 2b planner spec body text
+      ("chosen option must have a verification method (screenshot, assertion,
+      or smoke step)"), not in any acceptance check. No AC references
+      screenshots, e2e, or Playwright. Known script artifact per
+      feedback_release_verify_darkcode_docs_glob.
 
-== Integration branch drift ==
-  PASS  worktree branch is current with release/v0.1.0 (no drift)
-
-== Diff vs start_commit (verifier base) ==
-  PASS  4 file(s) changed vs diff base (cmd/sworn/init.go, status.json, planner.md, prompt_test.go)
-
-== Dark-code markers in changed files ==
-  PASS  no dark-code markers in changed source files
-
-== Proof bundle structural checks ==
-  PASS  proof.md sections present
-  PASS  no obvious template placeholders left in proof.md
-  PASS  proof.md 'Not delivered' deferrals carry non-placeholder tracking refs
+All 23 other checks PASS — 9/9 proof bundle sections, state implemented,
+no drift, 9 files changed, no dark-code markers.
 ```
