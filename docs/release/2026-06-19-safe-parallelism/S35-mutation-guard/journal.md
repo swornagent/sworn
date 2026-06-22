@@ -42,3 +42,52 @@ None.
 ## Verifier verdicts received
 
 None yet.
+
+## 2026-07-03 — implemented
+
+Entered at `design_review` with Coach-approved ack (PROCEED). Captain pin: 1
+mechanical (populate `design_decisions` in status.json) + 2 minor flags.
+
+### Design decisions (all Type-2, ratified in `design_decisions`)
+
+1. **Rule clause placement:** new `11-process-global-mutation.md` — not an
+   addition to Rule 2 (no-silent-deferrals) or Rule 1 (reachability-gate). A
+   dedicated clause reads as a first-class standing check and can cite sworn#6
+   directly.
+2. **Captain check placement:** new Step 7 "Process-global mutation guard" in
+   the review function, inserted after Step 6 (inter-slice handoffs) and before
+   `## Output`. Keeps the existing six-step structure intact.
+3. **Four-pattern scope:** fires on exactly `os.Chdir`, raw `git` with cwd,
+   worktree creation/switching, and global env/cwd mutation in tests. No
+   additional patterns — the spec's in-scope list is precise.
+
+### Mechanical registrations (beyond spec's planned_files)
+
+Adding a new rule file in the vendored baton directory required updating three
+registration surfaces:
+- `internal/adopt/adopt.go` — `files` slice for `sworn init` extraction
+- `cmd/sworn/doctor.go` — `batonRuleFiles` list for `sworn doctor` checks
+- `cmd/sworn/doctor_test.go` — expected rule count 10/10 → 11/11
+
+These are registration-only; no logic change. The embed directive
+(`//go:embed baton/rules/*`) already auto-covers new files.
+
+### Captain flags addressed
+
+- (a) S36-captain-resolve-dirty-worktree also touches `captain.md` — sequential
+  in T12, no collision. Step 7 inserted between Step 6 and Output; S36 should
+  land cleanly after it. Named in proof.md.
+- (b) §4 stale `planned_files` reference to `02-no-silent-deferrals.md` — the
+  NOT-doing item is correct; the supporting rationale just cited a prior state.
+  No action required.
+
+### Reachability
+
+The reachability artefact is the prose itself — Captain Step 7 and Rule 11
+clause quoted verbatim in proof.md. `go build ./...` passes as sanity check.
+
+### Panel
+
+Skeptic panel skipped — the runtime does not support subagent dispatch in this
+session configuration. Noted here per implement-slice.md Step 5. The real
+verifier (Rule 7) is the backstop.

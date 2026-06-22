@@ -3,23 +3,35 @@
   "slice_id": "S35-mutation-guard",
   "release": "2026-06-19-safe-parallelism",
   "track": "T12-harness-hardening",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-03T03:00:00Z",
-  "start_commit": "65be8da08b8a4cfeb414f89f37f5da7949bae6f9",  "spec_path": "docs/release/2026-06-19-safe-parallelism/S35-mutation-guard/spec.md",
+  "last_updated_at": "2026-07-03T03:30:00Z",
+  "start_commit": "65be8da08b8a4cfeb414f89f37f5da7949bae6f9",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S35-mutation-guard/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S35-mutation-guard/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S35-mutation-guard/journal.md",
   "planned_files": [
     "internal/prompt/captain.md",
     "internal/adopt/baton/rules/11-process-global-mutation.md"
   ],
-  "actual_files": [],
-  "test_commands": [
-    "go build ./..."
+  "actual_files": [
+    "internal/prompt/captain.md",
+    "internal/adopt/baton/rules/11-process-global-mutation.md",
+    "internal/adopt/adopt.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go",
+    "docs/release/2026-06-19-safe-parallelism/S35-mutation-guard/status.json",
+    "docs/release/2026-06-19-safe-parallelism/S35-mutation-guard/proof.md"
   ],
-  "reachability_artifacts": [],
-  "open_deferrals": [],
+  "test_commands": [
+    "go build ./...",
+    "grep -c 'Process-global mutation guard' internal/prompt/captain.md",
+    "grep -c 'Guaranteed restore' internal/adopt/baton/rules/11-process-global-mutation.md"
+  ],
+  "reachability_artifacts": [
+    "proof.md — verbatim quote of Captain Step 7 and Rule 11 clause"
+  ],  "open_deferrals": [],
   "verification": {
     "result": "",
     "verifier_session_id": null,
