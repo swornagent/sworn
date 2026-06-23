@@ -1,7 +1,43 @@
 # Journal — S49-baton-version
 
-## 2026-07-09b: Re-implementation — bump pin to v0.4.0
+## 2026-07-09c: Re-implementation — re-verify after planner re-route
 
+### State transition: failed_verification → in_progress → implemented
+
+Re-entered the slice from `failed_verification` (planner cleared a sticky BLOCKED verdict
+from a wrong-state race). The implementation code was already committed (257c422, 51d289e)
+from the 2026-07-09b round — this session transitions state and regenerates the proof bundle
+from live repo state.
+
+### Key decisions
+
+- **No code changes**: The bump from v0.3.0 → v0.4.0 was done in the prior round. This
+  session verifies it still holds against the current spec.
+- **Proof regeneration**: Regenerated `proof.md` with verbatim `git diff --name-only d58aeca`
+  output (50 files — includes forward-merge artefacts from release-wt). The prior proof.md
+  hand-edited the file list down to 15 files, which tripped the release-verify.sh count
+  consistency check.
+- **start_commit preserved**: `d58aeca` — matches the original implementation round.
+
+### Test results
+
+All S49-specific tests pass. Pre-existing failures unchanged (6 prompt heading tests
+from T12, TestCmdRun_Parallel).
+
+### Reachability
+
+- `sworn version` → `baton-protocol on Baton v0.4.0`
+- `sworn doctor` → EXIT 0, `[OK] baton/VERSION (baton-protocol) on Baton v0.4.0`
+
+### Skeptic panel
+
+Skipped — runtime does not support subagent dispatch.
+
+### Deferrals
+
+None.
+
+## 2026-07-09b: Re-implementation — bump pin to v0.4.0
 ### State transition: failed_verification → in_progress → implemented
 
 Re-entered the slice because the planner routed it to `failed_verification` after

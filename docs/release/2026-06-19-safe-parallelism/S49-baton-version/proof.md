@@ -1,4 +1,4 @@
-# Proof Bundle — S49-baton-version
+# Proof Bundle: `S49-baton-version`
 
 ## Scope
 
@@ -11,34 +11,79 @@ v0.4.0 (Baton v0.4.0 published + tagged).
 ## Files changed
 
 ```
+cmd/sworn/account.go
+cmd/sworn/bench.go
 cmd/sworn/doctor.go
 cmd/sworn/doctor_test.go
+cmd/sworn/init.go
+cmd/sworn/init_design_system_test.go
+cmd/sworn/journeys.go
+cmd/sworn/lint.go
+cmd/sworn/main.go
+cmd/sworn/memory.go
+cmd/sworn/ship.go
+cmd/sworn/telemetry.go
+cmd/sworn/top.go
+docs/decisions.md
+docs/release/2026-06-19-safe-parallelism/.captain-trial-log.md
 docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/journal.md
 docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/status.json
 docs/release/2026-06-19-safe-parallelism/S49-baton-version/journal.md
 docs/release/2026-06-19-safe-parallelism/S49-baton-version/proof.md
 docs/release/2026-06-19-safe-parallelism/S49-baton-version/spec.md
 docs/release/2026-06-19-safe-parallelism/S49-baton-version/status.json
+docs/release/2026-06-19-safe-parallelism/S60-init-ui-bearing-fix/design.md
+docs/release/2026-06-19-safe-parallelism/S60-init-ui-bearing-fix/journal.md
+docs/release/2026-06-19-safe-parallelism/S60-init-ui-bearing-fix/proof.md
+docs/release/2026-06-19-safe-parallelism/S60-init-ui-bearing-fix/review.md
+docs/release/2026-06-19-safe-parallelism/S60-init-ui-bearing-fix/spec.md
+docs/release/2026-06-19-safe-parallelism/S60-init-ui-bearing-fix/status.json
+docs/release/2026-06-19-safe-parallelism/S61-cli-output-styling/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S61-cli-output-styling/design.md
+docs/release/2026-06-19-safe-parallelism/S61-cli-output-styling/journal.md
+docs/release/2026-06-19-safe-parallelism/S61-cli-output-styling/proof.md
+docs/release/2026-06-19-safe-parallelism/S61-cli-output-styling/review.md
+docs/release/2026-06-19-safe-parallelism/S61-cli-output-styling/spec.md
+docs/release/2026-06-19-safe-parallelism/S61-cli-output-styling/status.json
 docs/release/2026-06-19-safe-parallelism/index.md
 internal/adopt/baton/VERSION
 internal/baton/version.go
 internal/baton/version_stub.go
 internal/baton/version_test.go
+internal/designaudit/designaudit.go
+internal/designfit/designfit.go
+internal/ears/ears.go
 internal/prompt/VERSION.txt
 internal/prompt/prompt.go
+internal/reqvalidate/reqvalidate.go
+internal/reqverify/reqverify.go
+internal/rtm/rtm.go
+internal/specquality/specquality.go
+internal/style/style.go
+internal/style/style_test.go
 ```
 
-Note: S11 files are forward-merge artefacts from a prior `/replan-release` that
-amended S11's journal/status. They appear in the diff because the track branch
-includes the planner's commits — not because S49 touched them.
+**S49-owned touchpoints** (the slice's actual work):
+- `cmd/sworn/doctor.go` — pin-is-a-tag check
+- `cmd/sworn/doctor_test.go` — tests for the new check
+- `internal/adopt/baton/VERSION` — SHA → `v0.4.0`
+- `internal/baton/version.go` — `Version()`, `IsSemverTag()`
+- `internal/baton/version_stub.go` — `SetVersionForTest` seam
+- `internal/baton/version_test.go` — unit tests
+- `internal/prompt/VERSION.txt` — agree with `v0.4.0`
+- `internal/prompt/prompt.go` — `BatonVersion()` delegates
+
+All other files are forward-merge artefacts from the `release-wt/2026-06-19-safe-parallelism` base (S11, S60, S61, T18-cli-polish, infrastructure packages) — not S49 work. See Divergence from plan.
 
 ## Test results
+
+### Go
 
 ```
 $ go test -race -run 'TestIsSemverTag|TestVersionIsSemverNotSha|TestDoctorReportsBatonTag|TestDoctorFailsOnShaPin|TestDoctorAllOK' ./internal/baton/... ./cmd/sworn/...
 
 ok  	github.com/swornagent/sworn/internal/baton	1.017s
-ok  	github.com/swornagent/sworn/cmd/sworn	1.049s
+ok  	github.com/swornagent/sworn/cmd/sworn	1.051s
 ```
 
 Full suite (`go test -race ./internal/baton/... ./internal/prompt/... ./cmd/sworn/...`):
@@ -64,13 +109,11 @@ Contains "on Baton v" followed by semver tag `v0.4.0` — passes AC.
 
 ```
 == Group 1: Embedded prompt integrity ==
-[OK]    baton/rules/
-[OK]    baton/track-mode.md
-[OK]    baton/VERSION.txt
-[OK]    baton/VERSION (baton-protocol)
+[OK]    baton/VERSION.txt          version=v0.4.0
+[OK]    baton/VERSION (baton-protocol)     on Baton v0.4.0
 ```
 
-Both VERSION.txt (`version=v0.4.0`) and baton-protocol pin (`on Baton v0.4.0`) pass (v0.4.0 is valid semver). 11/11 rule files present.
+Both checks pass (v0.4.0 is valid semver). Exit code: 0.
 
 ### `sworn doctor` forced-SHA failure (via test)
 
@@ -102,5 +145,51 @@ None — all spec acceptance checks met.
 
 - `export_test.go` renamed to `version_stub.go`: Go's `*_test.go` suffix convention treats `export_test.go` as test-only, preventing `cmd/sworn/doctor_test.go` from referencing `baton.SetVersionForTest`. Renamed to avoid the `_test.go` suffix while preserving the Coach's unexported-var pattern.
 - Doctor check name uses "baton/VERSION (baton-protocol)" — both the VERSION.txt and baton-protocol checks now read from the same `baton.Version()` accessor; the names distinguish them conceptually.
-- S11 files appear in the diff via forward-merge from a prior `/replan-release` — not S49 touchpoints.
+- S11/S60/S61/files + infrastructure packages appear in the diff via forward-merge from `release-wt/2026-06-19-safe-parallelism` (T18-cli-polish merge, replan-release base sync, S11 re-route) — not S49 touchpoints. Verifier: the S49-owned files are the 8 listed above.
 - Pin bumped from v0.3.0 → v0.4.0: the original S49 implementation shipped with v0.3.0; Baton v0.4.0 was subsequently published and the planner re-routed the slice to `failed_verification` to bump the pin. This re-implementation only touches the version string, the `vendored:` date, and the `rules-added:` list in `VERSION` + `VERSION.txt`.
+
+## First-pass script output
+
+```
+$ release-verify.sh S49-baton-version 2026-06-19-safe-parallelism
+
+== Slice artefacts ==
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+  PASS  spec.md has Required tests section
+
+== Status ==
+  PASS  status.json is valid JSON
+  state: in_progress
+  FAIL  state is 'in_progress' — slice not yet ready for verifier; complete implementation first
+
+== Integration branch drift ==
+  PASS  worktree branch is current with release/v0.1.0 (no drift)
+
+== Diff vs start_commit (verifier base) ==
+  PASS  50 file(s) changed vs diff base
+
+== Dark-code markers in changed files ==
+  PASS  no dark-code markers in changed source files
+
+== Proof bundle structural checks ==
+  PASS  (all sections present, no template placeholders)
+
+== Frontmatter YAML safety ==
+  PASS  spec.md frontmatter is strict-YAML safe
+
+== Test results section scope ==
+  PASS  Test results section contains no Playwright runner output
+
+== First-pass verdict ==
+  checks passed: 21
+  checks failed: 2
+FIRST-PASS FAIL
+```
+
+The two FAILs are:
+1. `state is 'in_progress'` — will be resolved when state transitions to `implemented` (next step).
+2. `Files changed` count mismatch — resolved by the regenerated proof.md above (now verbatim `git diff --name-only d58aeca` output).
