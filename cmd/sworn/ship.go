@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"github.com/swornagent/sworn/internal/journey"
+	"github.com/swornagent/sworn/internal/style"
 )
 
 // cmdShip implements `sworn ship <release> [project-root]`.
@@ -18,10 +19,11 @@ import (
 // asserted, and mocks-off asserted.
 //
 // Returns exit codes:
-//   0  — all touched journeys have complete, passing human attestations
-//   1  — one or more journeys are un-walked, incomplete, or failed
-//   2  — unrecoverable error (I/O or parse failure)
-//   64 — usage error
+//
+//	0  — all touched journeys have complete, passing human attestations
+//	1  — one or more journeys are un-walked, incomplete, or failed
+//	2  — unrecoverable error (I/O or parse failure)
+//	64 — usage error
 func cmdShip(args []string) int {
 	fs := flag.NewFlagSet("ship", flag.ExitOnError)
 	_ = fs.Parse(args)
@@ -59,7 +61,7 @@ func cmdShip(args []string) int {
 	}
 
 	if result.Pass {
-		fmt.Printf("sworn ship: release %q passed the ship gate — all touched journeys have complete, ", releaseName)
+		fmt.Print(style.Success(fmt.Sprintf("sworn ship: release %q passed the ship gate — all touched journeys have complete, ", releaseName)))
 		fmt.Printf("passing human-walkthrough attestations.\n")
 		fmt.Println()
 		fmt.Println("The release may proceed to cutover.")
@@ -67,7 +69,7 @@ func cmdShip(args []string) int {
 	}
 
 	// Gate blocked — print the kill-list.
-	fmt.Fprintf(os.Stderr, "FAIL: cutover blocked — release %q cannot ship.\n", releaseName)
+	fmt.Fprintln(os.Stderr, style.Danger(fmt.Sprintf("FAIL: cutover blocked — release %q cannot ship.", releaseName)))
 	fmt.Fprintln(os.Stderr)
 
 	unwalked := result.UnwalkedJourneys()

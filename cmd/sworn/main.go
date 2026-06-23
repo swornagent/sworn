@@ -13,10 +13,12 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/swornagent/sworn/internal/command"
 	"github.com/swornagent/sworn/internal/prompt"
+	"github.com/swornagent/sworn/internal/style"
 	"github.com/swornagent/sworn/internal/telemetry"
 	"github.com/swornagent/sworn/internal/tui"
 )
@@ -77,7 +79,8 @@ func dispatch(args []string) int {
 
 // cmdVersion prints the sworn binary version and baton-protocol version.
 func cmdVersion(_ []string) int {
-	fmt.Printf("sworn %s\nbaton-protocol %s\n", version, prompt.BatonVersion())
+	fmt.Println(style.Banner("sworn " + version))
+	fmt.Println(style.Dim("baton-protocol " + prompt.BatonVersion()))
 	return 0
 }
 
@@ -93,70 +96,106 @@ func cmdHelp(args []string) int {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `sworn — SwornAgent's provider-neutral verification core
+	var b strings.Builder
+	// Header line — styled as a heading, matching cmdVersion/top.go vocabulary.
+	b.WriteString(style.Heading("sworn — SwornAgent's provider-neutral verification core"))
+	b.WriteString("\n\n")
+	// usage: label — Bold, matching the label vocabulary in other commands.
+	b.WriteString(style.Bold("usage:"))
+	b.WriteString("\n")
+	// Command synopsis lines. The verb (first token after "sworn ") is accented;
+	// the remainder of each line stays plain so option/flag text is byte-identical.
+	usageLines := []struct {
+		verb string
+		rest string
+	}{
+		{"bench", " --task-set <dir> [--models <comma-sep>] [--output <dir>]"},
+		{"init", " [--api-key <key>] [--force]"},
+		{"journeys", " [--check] [--impact <release>] [project-path]"},
+		{"lint ac", " <release>"},
+		{"lint trace", " <release>"},
+		{"reqverify", " <release>"},
+		{"reqvalidate", " <release>"},
+		{"designfit", " <release>"},
+		{"designaudit", " <project-dir> [--cohesion on-brand|off-brand]"},
+		{"specquality", " <release> [--threshold <0.0-1.0>]"},
+		{"run", " --task <description> [--implementer-model <m>] [--verifier-model <m>] [--base <branch>] [--retry-cap <n>]"},
+		{"ship", " <release> [project-root]"},
+		{"telemetry on|off|status", ""},
+		{"top", " <release> [project-path]"},
+		{"doctor", " [--fix] [--sync-baton]"},
+		{"verify", " --spec <path> --diff <path|-> [--proof <path>] [--verifier-model <provider/model>]"},
+	}
+	for _, l := range usageLines {
+		b.WriteString("  sworn ")
+		b.WriteString(style.Accent(l.verb))
+		b.WriteString(l.rest)
+		b.WriteString("\n")
+	}
+	// The last synopsis line ("sworn version") shares its line with the first
+	// description ("bench runs...") — no newline separates them in the original
+	// text. Reproduce that exactly: "  sworn version" + "bench runs..." on one
+	// line, then the bench description continues for two more lines.
+	b.WriteString("  sworn ")
+	b.WriteString(style.Accent("version"))
+	b.WriteString("bench runs a model benchmark: iterate candidate verifier models against a task set\n")
+	b.WriteString("of slice specs with known-good diffs, record pass-rate + cost + jurisdiction, and\n")
+	b.WriteString("pick the safe-hosted default model from data.\n\n")
 
-usage:
-  sworn bench --task-set <dir> [--models <comma-sep>] [--output <dir>]
-  sworn init [--api-key <key>] [--force]
-  sworn journeys [--check] [--impact <release>] [project-path]
-  sworn lint ac <release>
-  sworn lint trace <release>
-  sworn reqverify <release>
-  sworn reqvalidate <release>
-  sworn designfit <release>
-  sworn designaudit <project-dir> [--cohesion on-brand|off-brand]
-  sworn specquality <release> [--threshold <0.0-1.0>]
-  sworn run --task <description> [--implementer-model <m>] [--verifier-model <m>] [--base <branch>] [--retry-cap <n>]
-  sworn ship <release> [project-root]
-  sworn telemetry on|off|status
-  sworn top <release> [project-path]
-  sworn doctor [--fix] [--sync-baton]
-  sworn verify --spec <path> --diff <path|-> [--proof <path>] [--verifier-model <provider/model>]
-  sworn versionbench runs a model benchmark: iterate candidate verifier models against a task set
-of slice specs with known-good diffs, record pass-rate + cost + jurisdiction, and
-pick the safe-hosted default model from data.
+	b.WriteString(style.Accent("init"))
+	b.WriteString(" bootstraps SwornAgent in a repo: writes a config file, vendors the Baton\n")
+	b.WriteString("protocol into docs/baton/, and splices the seven-rule fragment into AGENTS.md.\n")
+	b.WriteString(style.Accent("journeys"))
+	b.WriteString(" drafts critical customer journeys from the project, validates\n")
+	b.WriteString("their presence + ratification status, and analyses which journeys a release\n")
+	b.WriteString("touches. See 'sworn journeys --check' for the deterministic gate, 'sworn\n")
+	b.WriteString("journeys <project>' for the elicitation loop, and 'sworn journeys --impact\n")
+	b.WriteString("<release>' for per-release journey-impact analysis.\n")
+	b.WriteString(style.Accent("lint"))
+	b.WriteString(" checks a release for structural problems. Targets:\n")
+	b.WriteString("  ac     — classify every acceptance check by EARS pattern; fail closed on any\n")
+	b.WriteString("           free-form check that matches no pattern, naming the slice + line.\n")
+	b.WriteString("  trace  — build the 2-D requirements traceability matrix; fail closed on any\n")
+	b.WriteString("           broken trace (orphaned need, orphaned AC, slice with no vertical link).\n")
+	b.WriteString(style.Accent("reqverify"))
+	b.WriteString(" grades every acceptance criterion in a release against the ISO/IEC/IEEE\n")
+	b.WriteString("29148 quality characteristics using a fresh-context model pass, fail-closed.\n")
+	b.WriteString("  See 'sworn reqverify <release>' for details.\n")
+	b.WriteString(style.Accent("reqvalidate"))
+	b.WriteString(" checks every slice in a release for a human-ratified requirements\n")
+	b.WriteString("validation record (positive+negative scenarios + benefit hypothesis), fail-closed.\n")
+	b.WriteString("  See 'sworn reqvalidate <release>' for details.\n")
+	b.WriteString(style.Accent("designfit"))
+	b.WriteString(" checks every slice in a release for stakes-calibrated design-fit gate\n")
+	b.WriteString("(Rule 9): fails closed when any Type-1 (high-stakes) choice lacks a recorded\n")
+	b.WriteString("human decision. No model dispatch needed.\n")
+	b.WriteString("  See 'sworn designfit <release>' for details.\n")
+	b.WriteString(style.Accent("specquality"))
+	b.WriteString(" computes soundness + completeness metrics from every slice's\n")
+	b.WriteString("acceptance examples, with no source code and no model call. Fails closed when\n")
+	b.WriteString("any slice falls below the completeness threshold (default 50%).\n")
+	b.WriteString("  See 'sworn specquality <release> [--threshold <0.0-1.0>]' for details.\n")
+	b.WriteString(style.Accent("run"))
+	b.WriteString(" executes the full turnkey loop: implement -> verify -> (on FAIL: retry/escalate\n")
+	b.WriteString("up to N) -> gated merge on PASS only. See 'sworn run --help' for model resolution\n")
+	b.WriteString("and escalation model defaults.\n")
+	b.WriteString(style.Accent("ship"))
+	b.WriteString(" validates the human-walkthrough attestation gate (Rule 10/S13): fails\n")
+	b.WriteString("closed unless every touched journey has a passing human attestation asserting\n")
+	b.WriteString("real-infra + mocks-off. See 'sworn ship <release>' for details.\n")
+	b.WriteString(style.Accent("telemetry"))
+	b.WriteString(" manages anonymous usage telemetry: on (opt in), off (opt out), status\n")
+	b.WriteString("(display current setting). Telemetry is opt-in only, collected during sworn init.\n")
+	b.WriteString(style.Accent("top"))
+	b.WriteString(" renders a read-only evidence surface for the active release: the green-board\n")
+	b.WriteString("or kill-list of journey validation status. See 'sworn top <release>' for details.\n\n")
 
-init bootstraps SwornAgent in a repo: writes a config file, vendors the Baton
-protocol into docs/baton/, and splices the seven-rule fragment into AGENTS.md.
-journeys drafts critical customer journeys from the project, validates
-their presence + ratification status, and analyses which journeys a release
-touches. See 'sworn journeys --check' for the deterministic gate, 'sworn
-journeys <project>' for the elicitation loop, and 'sworn journeys --impact
-<release>' for per-release journey-impact analysis.
-lint checks a release for structural problems. Targets:
-  ac     — classify every acceptance check by EARS pattern; fail closed on any
-           free-form check that matches no pattern, naming the slice + line.
-  trace  — build the 2-D requirements traceability matrix; fail closed on any
-           broken trace (orphaned need, orphaned AC, slice with no vertical link).
-reqverify grades every acceptance criterion in a release against the ISO/IEC/IEEE
-29148 quality characteristics using a fresh-context model pass, fail-closed.
-  See 'sworn reqverify <release>' for details.
-reqvalidate checks every slice in a release for a human-ratified requirements
-validation record (positive+negative scenarios + benefit hypothesis), fail-closed.
-  See 'sworn reqvalidate <release>' for details.
-designfit checks every slice in a release for stakes-calibrated design-fit gate
-(Rule 9): fails closed when any Type-1 (high-stakes) choice lacks a recorded
-human decision. No model dispatch needed.
-  See 'sworn designfit <release>' for details.
-specquality computes soundness + completeness metrics from every slice's
-acceptance examples, with no source code and no model call. Fails closed when
-any slice falls below the completeness threshold (default 50%).
-  See 'sworn specquality <release> [--threshold <0.0-1.0>]' for details.
-run executes the full turnkey loop: implement -> verify -> (on FAIL: retry/escalate
-up to N) -> gated merge on PASS only. See 'sworn run --help' for model resolution
-and escalation model defaults.
-ship validates the human-walkthrough attestation gate (Rule 10/S13): fails
-closed unless every touched journey has a passing human attestation asserting
-real-infra + mocks-off. See 'sworn ship <release>' for details.
-telemetry manages anonymous usage telemetry: on (opt in), off (opt out), status
-(display current setting). Telemetry is opt-in only, collected during sworn init.
-top renders a read-only evidence surface for the active release: the green-board
-or kill-list of journey validation status. See 'sworn top <release>' for details.
-
-verify emits a JSON verdict (PASS/FAIL/BLOCKED) and exits 0 only on PASS,
-so a CI required-check blocks the merge by default.
-doctor runs health checks: embedded prompt integrity, legacy Baton artifact
-detection, local Baton sync, and dependency version freshness. Exits 0 if
-clean (WARN-only), 1 on any ERROR, 2 if --fix applied changes.
-`)
+	b.WriteString(style.Accent("verify"))
+	b.WriteString(" emits a JSON verdict (PASS/FAIL/BLOCKED) and exits 0 only on PASS,\n")
+	b.WriteString("so a CI required-check blocks the merge by default.\n")
+	b.WriteString(style.Accent("doctor"))
+	b.WriteString(" runs health checks: embedded prompt integrity, legacy Baton artifact\n")
+	b.WriteString("detection, local Baton sync, and dependency version freshness. Exits 0 if\n")
+	b.WriteString("clean (WARN-only), 1 on any ERROR, 2 if --fix applied changes.\n")
+	fmt.Fprint(os.Stderr, b.String())
 }

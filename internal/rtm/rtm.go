@@ -24,6 +24,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/swornagent/sworn/internal/style"
 )
 
 // Need is a requirements-level need enumerated in intake.md with a stable id.
@@ -253,18 +255,18 @@ func validate(m *Matrix) []Violation {
 func Print(m *Matrix) string {
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf("Requirements Traceability Matrix: %s\n", m.Release))
-	b.WriteString(strings.Repeat("=", 60) + "\n\n")
+	b.WriteString(style.Heading(fmt.Sprintf("Requirements Traceability Matrix: %s", m.Release)) + "\n")
+	b.WriteString(style.Dim(strings.Repeat("=", 60)) + "\n\n")
 
 	// Horizontal trace: need -> AC -> test -> proof
-	b.WriteString("Horizontal trace (need -> AC -> test -> proof)\n")
-	b.WriteString(strings.Repeat("-", 60) + "\n")
+	b.WriteString(style.Dim("Horizontal trace (need -> AC -> test -> proof)") + "\n")
+	b.WriteString(style.Dim(strings.Repeat("-", 60)) + "\n")
 
 	if len(m.Needs) == 0 {
 		b.WriteString("  (no needs found in intake.md)\n\n")
 	} else {
 		for _, n := range m.Needs {
-			b.WriteString(fmt.Sprintf("  Need %s: %s\n", n.ID, n.Description))
+			b.WriteString(fmt.Sprintf("  Need %s: %s\n", style.Accent(n.ID), n.Description))
 			// Find ACs linked to this need.
 			linkedACs := 0
 			for _, ac := range m.ACs {
@@ -289,8 +291,8 @@ func Print(m *Matrix) string {
 	b.WriteString("\n")
 
 	// Vertical trace: org objective -> release benefit -> slice
-	b.WriteString("Vertical trace (objective -> release benefit -> slice)\n")
-	b.WriteString(strings.Repeat("-", 60) + "\n")
+	b.WriteString(style.Dim("Vertical trace (objective -> release benefit -> slice)") + "\n")
+	b.WriteString(style.Dim(strings.Repeat("-", 60)) + "\n")
 	if m.OrgObjective != "" {
 		b.WriteString(fmt.Sprintf("  Objective: %s\n", m.OrgObjective))
 	} else {
@@ -304,7 +306,7 @@ func Print(m *Matrix) string {
 	}
 	b.WriteString("\n")
 	for _, s := range m.Slices {
-		b.WriteString(fmt.Sprintf("  Slice %s", s.ID))
+		b.WriteString(fmt.Sprintf("  Slice %s", style.Accent(s.ID)))
 		if s.ReleaseBenefit != "" {
 			b.WriteString(fmt.Sprintf(" -> benefit: %s", truncate(s.ReleaseBenefit, 50)))
 		} else if m.ReleaseGoal != "" {

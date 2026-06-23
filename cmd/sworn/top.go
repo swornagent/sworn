@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/swornagent/sworn/internal/journey"
+	"github.com/swornagent/sworn/internal/style"
 	"github.com/swornagent/sworn/internal/tui"
 )
 
@@ -56,8 +57,8 @@ func renderEvidenceSurface(releaseName string, projectRoot string) int {
 	if err != nil {
 		// Missing artefact — render empty state.
 		if isJourneyNotExist(err) {
-			fmt.Printf("Evidence surface for release %s\n", releaseName)
-			fmt.Println("────────────────────────────────────────────────────")
+			fmt.Println(style.Heading(fmt.Sprintf("Evidence surface for release %s", releaseName)))
+			fmt.Println(style.Dim("────────────────────────────────────────────────────"))
 			fmt.Println("No journeys artefact found.")
 			fmt.Println()
 			fmt.Printf("  Hint: run 'sworn journeys %s' to start journey elicitation.\n", projectRoot)
@@ -79,9 +80,9 @@ func renderEvidenceSurface(releaseName string, projectRoot string) int {
 	journeyList := artefact.Journeys
 
 	// Render header.
-	fmt.Printf("Evidence surface for release %s\n", releaseName)
+	fmt.Println(style.Heading(fmt.Sprintf("Evidence surface for release %s", releaseName)))
 	fmt.Printf("%d journey(s) in scope\n", len(journeyList))
-	fmt.Println("────────────────────────────────────────────────────")
+	fmt.Println(style.Dim("────────────────────────────────────────────────────"))
 
 	if len(journeyList) == 0 {
 		fmt.Println()
@@ -122,12 +123,12 @@ func renderEvidenceSurface(releaseName string, projectRoot string) int {
 	fmt.Println()
 	if failCount == 0 {
 		// Green-board
-		fmt.Printf("Green-board ✓  All %d journey(s) validated.\n", len(entries))
+		fmt.Println(style.Success(fmt.Sprintf("Green-board ✓  All %d journey(s) validated.", len(entries))))
 		return 0
 	}
 
 	// Kill-list
-	fmt.Printf("Kill-list ✗  %d journey(s) need human walkthrough or re-validation:\n", failCount)
+	fmt.Println(style.Danger(fmt.Sprintf("Kill-list ✗  %d journey(s) need human walkthrough or re-validation:", failCount)))
 	for _, e := range entries {
 		if e.status != journey.WalkPass {
 			switch e.status {

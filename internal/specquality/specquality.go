@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/swornagent/sworn/internal/state"
+	"github.com/swornagent/sworn/internal/style"
 )
 
 // DefaultThreshold is the minimum completeness score (0.0–1.0) required to
@@ -185,7 +186,7 @@ func evaluateSlice(releaseDir, sliceID string, threshold float64) SliceResult {
 // Each operator returns a mutated version of the input string, or "" if
 // this operator does not apply.
 var mutationOperators = []struct {
-	Name string
+	Name  string
 	Apply func(string) string
 }{
 	{"flip_exit_code", mutateFlipExitCode},
@@ -601,7 +602,7 @@ func parseExamples(specPath string) []Example {
 				continue
 			}
 		}
-	}	// Save last example.
+	} // Save last example.
 	if current.Name != "" {
 		examples = append(examples, current)
 	}
@@ -638,9 +639,9 @@ func extractCriteriaText(specPath string) string {
 func Print(report Report) string {
 	var b strings.Builder
 
-	fmt.Fprintf(&b, "Spec-quality first-pass report\n")
-	fmt.Fprintf(&b, "==============================\n\n")
-	fmt.Fprintf(&b, "Threshold: %.0f%% completeness\n\n", report.Threshold*100)
+	fmt.Fprint(&b, style.Heading("Spec-quality first-pass report")+"\n")
+	fmt.Fprint(&b, style.Dim("==============================")+"\n\n")
+	fmt.Fprint(&b, style.Dim(fmt.Sprintf("Threshold: %.0f%% completeness", report.Threshold*100))+"\n\n")
 
 	if len(report.Results) == 0 {
 		fmt.Fprintf(&b, "No slices to evaluate.\n")
@@ -648,7 +649,7 @@ func Print(report Report) string {
 	}
 
 	for _, r := range report.Results {
-		fmt.Fprintf(&b, "Slice: %s\n", r.SliceID)
+		fmt.Fprint(&b, style.Accent(fmt.Sprintf("Slice: %s", r.SliceID))+"\n")
 		fmt.Fprintf(&b, "  Examples: %d\n", r.ExampleCount)
 		fmt.Fprintf(&b, "  Soundness:  %.0f%%\n", r.Soundness*100)
 		fmt.Fprintf(&b, "  Completeness: %.0f%%\n", r.Completeness*100)
@@ -659,15 +660,15 @@ func Print(report Report) string {
 				fmt.Fprintf(&b, "    - %s\n", v.Reason)
 			}
 		} else {
-			fmt.Fprintf(&b, "  Status: PASS\n")
+			fmt.Fprint(&b, "  Status: "+style.Success("PASS")+"\n")
 		}
 		fmt.Fprintln(&b)
 	}
 
 	if report.Passed {
-		fmt.Fprintf(&b, "Overall: PASSED (average completeness: %.0f%%)\n", report.TotalScore*100)
+		fmt.Fprint(&b, style.Success(fmt.Sprintf("Overall: PASSED (average completeness: %.0f%%)", report.TotalScore*100))+"\n")
 	} else {
-		fmt.Fprintf(&b, "Overall: FAILED (average completeness: %.0f%%)\n", report.TotalScore*100)
+		fmt.Fprint(&b, style.Danger(fmt.Sprintf("Overall: FAILED (average completeness: %.0f%%)", report.TotalScore*100))+"\n")
 	}
 
 	return b.String()

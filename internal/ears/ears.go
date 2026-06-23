@@ -28,6 +28,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/swornagent/sworn/internal/style"
 )
 
 // Pattern is the EARS pattern class assigned to an acceptance criterion.
@@ -311,12 +313,12 @@ func classifySpec(sliceID, text string) []Result {
 func Print(r *Report) string {
 	var b strings.Builder
 
-	b.WriteString("EARS Acceptance-Criteria Validation\n")
-	b.WriteString(strings.Repeat("=", 60) + "\n\n")
+	b.WriteString(style.Heading("EARS Acceptance-Criteria Validation") + "\n")
+	b.WriteString(style.Dim(strings.Repeat("=", 60)) + "\n\n")
 
 	// Per-pattern distribution.
-	b.WriteString("Pattern distribution\n")
-	b.WriteString(strings.Repeat("-", 60) + "\n")
+	b.WriteString(style.Dim("Pattern distribution") + "\n")
+	b.WriteString(style.Dim(strings.Repeat("-", 60)) + "\n")
 	// Print patterns in a fixed order for deterministic output.
 	order := []Pattern{
 		PatternUbiquitous,
@@ -336,17 +338,17 @@ func Print(r *Report) string {
 		if p == PatternNone || p == PatternNote {
 			continue
 		}
-		b.WriteString(fmt.Sprintf("  %-20s %d\n", p, count))
+		b.WriteString(fmt.Sprintf("  %s %d\n", style.Accent(fmt.Sprintf("%-20s", string(p))), count))
 	}
 	if r.TotalNotes > 0 {
 		b.WriteString(fmt.Sprintf("  %-20s %d (excluded from validation)\n", PatternNote, r.TotalNotes))
 	}
-	b.WriteString(fmt.Sprintf("  %-20s %d\n", "total", r.TotalACs))
+	b.WriteString(style.Dim(fmt.Sprintf("  %-20s %d\n", "total", r.TotalACs)))
 	b.WriteString("\n")
 
 	// Per-slice breakdown.
-	b.WriteString("Per-slice breakdown\n")
-	b.WriteString(strings.Repeat("-", 60) + "\n")
+	b.WriteString(style.Dim("Per-slice breakdown") + "\n")
+	b.WriteString(style.Dim(strings.Repeat("-", 60)) + "\n")
 	sliceACs := map[string]int{}
 	slicePatterns := map[string]map[Pattern]int{}
 	for _, res := range r.Results {
@@ -379,7 +381,7 @@ func Print(r *Report) string {
 
 	// Violations.
 	if len(r.Violations) > 0 {
-		b.WriteString(fmt.Sprintf("Violations (%d free-form ACs)\n", len(r.Violations)))
+		b.WriteString(style.Danger(fmt.Sprintf("Violations (%d free-form ACs)", len(r.Violations))) + "\n")
 		b.WriteString(strings.Repeat("-", 60) + "\n")
 		for _, v := range r.Violations {
 			b.WriteString(fmt.Sprintf("  %s\n", v.String()))

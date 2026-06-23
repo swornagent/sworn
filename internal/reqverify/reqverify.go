@@ -18,20 +18,24 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/swornagent/sworn/internal/style"
 )
+
 // Characteristic is a 29148 quality characteristic for requirements.
 type Characteristic string
 
 const (
-	CharSingular     Characteristic = "singular"
-	CharUnambiguous  Characteristic = "unambiguous"
-	CharAmbiguous    Characteristic = "ambiguous"
-	CharComplete     Characteristic = "complete"
-	CharConsistent   Characteristic = "consistent"
-	CharFeasible     Characteristic = "feasible"
-	CharVerifiable   Characteristic = "verifiable"
-	CharNecessary    Characteristic = "necessary"
+	CharSingular    Characteristic = "singular"
+	CharUnambiguous Characteristic = "unambiguous"
+	CharAmbiguous   Characteristic = "ambiguous"
+	CharComplete    Characteristic = "complete"
+	CharConsistent  Characteristic = "consistent"
+	CharFeasible    Characteristic = "feasible"
+	CharVerifiable  Characteristic = "verifiable"
+	CharNecessary   Characteristic = "necessary"
 )
+
 // AllCharacteristics lists the seven quality characteristics in definition order.
 var AllCharacteristics = []Characteristic{
 	CharSingular,
@@ -42,6 +46,7 @@ var AllCharacteristics = []Characteristic{
 	CharVerifiable,
 	CharNecessary,
 }
+
 // Violation records a characteristic breach for one acceptance criterion.
 type Violation struct {
 	SliceID        string
@@ -291,7 +296,7 @@ func parseGrades(reply string, acs []AC) ([]Grade, error) {
 	}
 
 	// Parse result lines after ## RESULTS.
-	resultMap := make(map[string]bool)   // "sliceID:index" -> passed
+	resultMap := make(map[string]bool)         // "sliceID:index" -> passed
 	violationMap := make(map[string]Violation) // "sliceID:index" -> violation
 
 	for i := resultsIdx + 1; i < len(lines); i++ {
@@ -394,23 +399,23 @@ func parseGrades(reply string, acs []AC) ([]Grade, error) {
 func Print(report Report) string {
 	var b strings.Builder
 
-	fmt.Fprintf(&b, "Requirements verification report\n")
-	fmt.Fprintf(&b, "===============================\n\n")
+	fmt.Fprint(&b, style.Heading("Requirements verification report")+"\n")
+	fmt.Fprint(&b, style.Dim("===============================")+"\n\n")
 
 	if report.TotalACs == 0 {
 		fmt.Fprintf(&b, "No acceptance criteria to verify.\n")
 		return b.String()
 	}
 
-	fmt.Fprintf(&b, "Total ACs: %d | Passed: %d | Failed: %d\n\n",
-		report.TotalACs, report.PassedACs, report.FailedACs)
+	fmt.Fprint(&b, style.Accent(fmt.Sprintf("Total ACs: %d | Passed: %d | Failed: %d",
+		report.TotalACs, report.PassedACs, report.FailedACs))+"\n\n")
 
 	if report.FreshContext {
 		fmt.Fprintf(&b, "Verifier mode: fresh-context (requirements-verifier prompt)\n\n")
 	}
 
 	if report.HasViolations() {
-		fmt.Fprintf(&b, "Violations:\n")
+		fmt.Fprint(&b, style.Danger("Violations:")+"\n")
 		for _, v := range report.Violations {
 			fmt.Fprintf(&b, "  AC %d (%s): %s — %s\n",
 				v.ACIndex, v.SliceID, v.Characteristic, v.Reason)
@@ -422,11 +427,11 @@ func Print(report Report) string {
 	fmt.Fprintf(&b, "Per-AC grades:\n")
 	for _, g := range report.Grades {
 		if g.Passed {
-			fmt.Fprintf(&b, "  AC %d (%s): PASS\n", g.ACIndex, g.SliceID)
+			fmt.Fprint(&b, style.Success(fmt.Sprintf("  AC %d (%s): PASS", g.ACIndex, g.SliceID))+"\n")
 		} else if g.Violation != nil {
-			fmt.Fprintf(&b, "  AC %d (%s): FAIL — %s\n", g.ACIndex, g.SliceID, g.Violation.Characteristic)
+			fmt.Fprint(&b, style.Danger(fmt.Sprintf("  AC %d (%s): FAIL — %s", g.ACIndex, g.SliceID, g.Violation.Characteristic))+"\n")
 		} else {
-			fmt.Fprintf(&b, "  AC %d (%s): FAIL\n", g.ACIndex, g.SliceID)
+			fmt.Fprint(&b, style.Danger(fmt.Sprintf("  AC %d (%s): FAIL", g.ACIndex, g.SliceID))+"\n")
 		}
 	}
 

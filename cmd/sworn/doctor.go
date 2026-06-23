@@ -11,6 +11,7 @@ import (
 	"github.com/swornagent/sworn/internal/adopt"
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/prompt"
+	"github.com/swornagent/sworn/internal/style"
 )
 // checkLevel classifies a doctor check result.
 type checkLevel int
@@ -87,6 +88,7 @@ var batonRuleFiles = []string{
 	"10-customer-journey-validation.md",
 	"11-process-global-mutation.md",
 }
+
 // batonRulesIndexHeading is the heading the README.md must carry.
 const batonRulesIndexHeading = "## The seven rules"
 
@@ -181,7 +183,7 @@ func cmdDoctor(args []string) int {
 	hasError := false
 
 	// --- Group 1: Embedded prompt integrity ---
-	fmt.Println("== Group 1: Embedded prompt integrity ==")
+	fmt.Println(style.Heading("Group 1: Embedded prompt integrity"))
 	results = append(results, checkEmbeddedPrompts()...)
 	for _, r := range results {
 		if r.level == levelError {
@@ -192,7 +194,7 @@ func cmdDoctor(args []string) int {
 
 	// --- Group 2: Repo artifact audit ---
 	fmt.Println()
-	fmt.Println("== Group 2: Repo artifact audit ==")
+	fmt.Println(style.Heading("Group 2: Repo artifact audit"))
 	g2 := checkRepoArtifacts(repoRoot)
 	for _, r := range g2 {
 		printResult(r)
@@ -206,7 +208,7 @@ func cmdDoctor(args []string) int {
 	}
 	if _, err := os.Stat(batonHome); err == nil {
 		fmt.Println()
-		fmt.Println("== Group 3: Local Baton sync ==")
+		fmt.Println(style.Heading("Group 3: Local Baton sync"))
 		g3 := checkBatonSync(batonHome)
 		for _, r := range g3 {
 			printResult(r)
@@ -216,7 +218,7 @@ func cmdDoctor(args []string) int {
 
 	// --- Group 4: Dependency version freshness ---
 	fmt.Println()
-	fmt.Println("== Group 4: Dependency version freshness ==")
+	fmt.Println(style.Heading("Group 4: Dependency version freshness"))
 	g4 := checkDependencyFreshness(repoRoot)
 	for _, r := range g4 {
 		printResult(r)

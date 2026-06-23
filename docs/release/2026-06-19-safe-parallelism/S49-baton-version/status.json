@@ -3,7 +3,7 @@
   "slice_id": "S49-baton-version",
   "release": "2026-06-19-safe-parallelism",
   "track": "T14-baton-integration",
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "human",
   "last_updated_by": "planner",
   "last_updated_at": "2026-06-23T21:02:23Z",

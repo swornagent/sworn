@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/swornagent/sworn/internal/config"
+	"github.com/swornagent/sworn/internal/style"
 )
 
 // ViolationKind classifies the type of design drift found.
@@ -105,14 +106,14 @@ func Print(r *Report) string {
 	var b strings.Builder
 
 	if r.Exempt {
-		fmt.Fprintln(&b, "DESIGNAUDIT EXEMPT — project is not ui_bearing; design conformance does not apply.")
+		fmt.Fprint(&b, style.Warn("DESIGNAUDIT EXEMPT — project is not ui_bearing; design conformance does not apply.")+"\n")
 		return b.String()
 	}
 
-	fmt.Fprintf(&b, "Design conformance audit: %s\n\n", r.ProjectDir)
+	fmt.Fprint(&b, style.Heading(fmt.Sprintf("Design conformance audit: %s", r.ProjectDir))+"\n\n")
 
 	if r.HasViolations() {
-		fmt.Fprintf(&b, "%d violation(s) found:\n\n", len(r.Violations))
+		fmt.Fprint(&b, style.Danger(fmt.Sprintf("%d violation(s) found:", len(r.Violations)))+"\n\n")
 		for i, v := range r.Violations {
 			fmt.Fprintf(&b, "%d. %s\n", i+1, v.String())
 		}
@@ -120,14 +121,14 @@ func Print(r *Report) string {
 		return b.String()
 	}
 
-	fmt.Fprintln(&b, "Deterministic checks: PASS — no machine-detectable drift.")
+	fmt.Fprint(&b, style.Success("Deterministic checks: PASS — no machine-detectable drift.")+"\n")
 
 	if r.CohesionVerdict == "" {
-		fmt.Fprintln(&b, "\nHuman cohesion verdict: REQUIRED — run with --cohesion=on-brand|off-brand")
+		fmt.Fprint(&b, "\n"+style.Warn("Human cohesion verdict: REQUIRED — run with --cohesion=on-brand|off-brand")+"\n")
 		fmt.Fprintln(&b, "The cohesion judgement (\"does it feel on-brand\") must be human-set.")
 	} else {
-		fmt.Fprintf(&b, "Human cohesion verdict: %s\n", r.CohesionVerdict)
-		fmt.Fprintln(&b, "\nAUDIT PASS")
+		fmt.Fprint(&b, style.Accent(fmt.Sprintf("Human cohesion verdict: %s", r.CohesionVerdict))+"\n")
+		fmt.Fprint(&b, "\n"+style.Success("AUDIT PASS")+"\n")
 	}
 	return b.String()
 }

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/swornagent/sworn/internal/journey"
+	"github.com/swornagent/sworn/internal/style"
 )
 
 // cmdJourneys implements `sworn journeys [--check] [--impact <release>] [--regen <release>] [project-path]`.
@@ -30,9 +31,10 @@ import (
 // or parse errors.
 //
 // Returns exit codes:
-//   0  — success (check passed, impact computed, or elicit+ratify succeeded)//   1  — check or impact failed (missing or unratified artefact)
-//   2  — unrecoverable error (parse failure, I/O error)
-//   64 — usage error
+//
+//	0  — success (check passed, impact computed, or elicit+ratify succeeded)//   1  — check or impact failed (missing or unratified artefact)
+//	2  — unrecoverable error (parse failure, I/O error)
+//	64 — usage error
 func cmdJourneys(args []string) int {
 	fs := flag.NewFlagSet("journeys", flag.ExitOnError)
 	checkOnly := fs.Bool("check", false, "validate artefact presence + ratification (no draft)")
@@ -63,7 +65,9 @@ func cmdJourneys(args []string) int {
 		return cmdJourneysRegen(absRoot, *regenRelease)
 	}
 
-	return cmdJourneysElicit(absRoot)}
+	return cmdJourneysElicit(absRoot)
+}
+
 // cmdJourneysCheck implements the --check path. It reads the artefact and
 // checks presence + ratification. Exits 0 on pass, 1 on failure.
 func cmdJourneysCheck(projectRoot string) int {
@@ -175,6 +179,7 @@ func cmdJourneysElicit(projectRoot string) int {
 
 	return 0
 }
+
 // cmdJourneysImpact implements the --impact path.
 // It reads the journeys artefact from projectRoot and the release slices
 // from docs/release/<release-name>/, computes the touched-journey set, and
@@ -194,7 +199,7 @@ func cmdJourneysImpact(projectRoot, releaseName string) int {
 		return 2
 	}
 
-	fmt.Printf("Release: %s\n", result.ReleaseName)
+	fmt.Println(style.Accent(fmt.Sprintf("Release: %s", result.ReleaseName)))
 	fmt.Printf("Journeys artefact: found and ratified\n")
 	fmt.Println()
 	fmt.Printf("Journeys touched by this release (%d):\n", len(result.JourneysTouched))
@@ -251,7 +256,7 @@ func asImpactError(err error, target **journey.ImpactError) bool {
 //	1 — one or more walked journeys lacked coverage at run start (scaffolds
 //	    generated; exit 1 even if all gaps were filled during this run)
 //	2 — unrecoverable error (I/O, parse failure, missing artefact)
-func cmdJourneysRegen(projectRoot, releaseName string) int {	// 1. Load and verify the journeys artefact.
+func cmdJourneysRegen(projectRoot, releaseName string) int { // 1. Load and verify the journeys artefact.
 	checkResult, artefact, err := journey.Check(projectRoot)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sworn journeys --regen: %v\n", err)

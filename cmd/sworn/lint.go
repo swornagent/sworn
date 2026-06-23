@@ -9,6 +9,7 @@ import (
 	"github.com/swornagent/sworn/internal/ears"
 	"github.com/swornagent/sworn/internal/lint"
 	"github.com/swornagent/sworn/internal/rtm"
+	"github.com/swornagent/sworn/internal/style"
 )
 
 // cmdLint dispatches `sworn lint <target> <release>`.
@@ -79,7 +80,7 @@ func cmdLintAC(args []string) int {
 	fmt.Print(ears.Print(report))
 
 	if report.HasViolations() {
-		fmt.Fprintf(os.Stderr, "\n%d EARS violation(s) found:\n", len(report.Violations))
+		fmt.Fprintln(os.Stderr, style.Danger(fmt.Sprintf("\n%d EARS violation(s) found:", len(report.Violations))))
 		for _, v := range report.Violations {
 			fmt.Fprintf(os.Stderr, "  %s\n", v.String())
 		}
@@ -123,7 +124,7 @@ func cmdLintTrace(args []string) int {
 	fmt.Print(rtm.Print(m))
 
 	if len(violations) > 0 {
-		fmt.Fprintf(os.Stderr, "\n%d trace violation(s) found:\n", len(violations))
+		fmt.Fprintln(os.Stderr, style.Danger(fmt.Sprintf("\n%d trace violation(s) found:", len(violations))))
 		for _, v := range violations {
 			fmt.Fprintf(os.Stderr, "  %s\n", v.String())
 		}
