@@ -84,7 +84,7 @@ func TestNewClient_Ollama(t *testing.T) {
 func TestNewClient_NativeStub(t *testing.T) {
 	cfg := ProviderConfig{}
 	nativeProviders := []string{
-		"google/gemini-2.5-pro",		"bedrock/anthropic.claude-sonnet-4-6",
+		"google/gemini-2.5-pro", "bedrock/anthropic.claude-sonnet-4-6",
 		"azure/gpt-4o",
 		"oci/meta.llama-3.3-70b",
 	}

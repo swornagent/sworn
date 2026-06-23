@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -176,5 +178,25 @@ func newTestAnthropic(baseURL, modelID string) *Anthropic {
 		Client:    &client,
 		Model:     modelID,
 		MaxTokens: 8192,
+	}
+}
+
+// TestAnthropicVerify_Live is the spec-mandated live reachability artefact.
+// It is skipped unless SWORN_LIVE_TESTS=1 AND ANTHROPIC_API_KEY is set, so it
+// runs only when a developer explicitly opts in with real credentials.
+func TestAnthropicVerify_Live(t *testing.T) {
+	if os.Getenv("SWORN_LIVE_TESTS") != "1" || os.Getenv("ANTHROPIC_API_KEY") == "" {
+		t.Skip("live test requires SWORN_LIVE_TESTS=1 and ANTHROPIC_API_KEY")
+	}
+	a, err := NewAnthropic("claude-sonnet-4-6", os.Getenv("ANTHROPIC_API_KEY"))
+	if err != nil {
+		t.Fatalf("NewAnthropic error: %v", err)
+	}
+	text, _, err := a.Verify(context.Background(), "Reply with PASS.", "verify")
+	if err != nil {
+		t.Fatalf("Verify error: %v", err)
+	}
+	if !strings.Contains(text, "PASS") {
+		t.Fatalf("want text containing %q, got %q", "PASS", text)
 	}
 }

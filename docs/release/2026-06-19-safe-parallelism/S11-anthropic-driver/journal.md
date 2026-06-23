@@ -84,3 +84,62 @@ deadlock. That's a transient routing condition, **not** a spec defect. Cleared
 `failed_verification` → routes to the **implementer** to finish. A pre-dispatch
 state guard was added to coach-loop (never verify a non-`implemented` slice) to
 prevent recurrence.
+
+## 2026-06-23T23:36:50Z: Implementer — round 5, state → implemented
+
+Round 5 re-entry after the round-5 verifier FAIL (Gate 3 load-bearing + Gate 2
+secondary). Scope narrowed to remediating exactly the two recorded violations;
+the existing `internal/model/anthropic.go` and the 5 prior tests were NOT
+rewritten (captain review Pin 1 — they are correct from round 1 / round 4).
+
+**Violations remediated:**
+
+- **Violation 1 (Gate 3 — missing live integration test):** Appended
+  `TestAnthropicVerify_Live` to `internal/model/anthropic_test.go` (after the
+  `newTestAnthropic` helper; the 5 existing tests were not modified). The test
+  guards on `SWORN_LIVE_TESTS=1 && ANTHROPIC_API_KEY != ""`, constructs
+  `NewAnthropic("claude-sonnet-4-6", key)`, calls
+  `a.Verify(ctx, "Reply with PASS.", "verify")`, and asserts
+  `strings.Contains(text, "PASS")`. Added `os` and `strings` to the import
+  block. A repo-wide grep for `SWORN_LIVE_TESTS` now hits. The test compiles and
+  `t.Skip`s correctly when the env vars are absent (spec "Deferrals allowed?"
+  explicitly authorises this skip — it is NOT a Rule 2 deferral).
+
+- **Violation 2 (Gate 2 — `provider_test.go` not surfaced):** Added
+  `internal/model/provider_test.go` to `status.json` `actual_files`. Added a
+  one-line note in `proof.md` "Divergence from plan" explaining that the round-1
+  feat commit `810d7ce` removed `"anthropic/claude-sonnet-4-6"` from
+  `TestNewClient_NativeStub` as a benign in-scope companion to `provider.go`'s
+  `anthropic/*` registration (anthropic is now a registered driver, not a
+  native stub). The existing edit at `810d7ce` is correct; this round only
+  documents it. `provider.go` and `provider_test.go` were not modified in round 5.
+
+**Test results (all run in the track worktree):**
+- `go test ./internal/model/... -run Anthropic -count=1 -v` → 5 PASS + 1 SKIP
+  (new live test) = 6 results, `ok` summary.
+- `go test ./internal/model/... -count=1 -v` → all model tests pass, no OAI
+  regression, `ok` summary.
+- `go build ./...` → exit 0 (BUILD OK).
+- `go vet ./...` → exit 0 (VET OK).
+- `go test ./cmd/sworn/... -run 'TestCmdRun_(MissingTask|FlagParsing|EscalationModelsFlag|Parallel)' -count=1 -v`
+  → 4 PASS, `ok` summary.
+- `gofmt -l internal/model/anthropic_test.go` → no output (file is formatted).
+
+**First-pass script:** `$HOME/.claude/bin/release-verify.sh S11-anthropic-driver
+2026-06-19-safe-parallelism` → 23/23 FIRST-PASS PASS (run after the status.json →
+`implemented` transition and the fresh 179-file proof.md "Files changed" diff).
+The initial run (before updates) showed 2 expected FAILs (`state:
+failed_verification`, stale 172-vs-179 file count) — both cleared by the
+artefact updates.
+
+**Status.json updates:** `state` → `implemented`; `last_updated_by` →
+`implementer`; `last_updated_at` → `2026-06-23T23:36:50Z`; added
+`internal/model/provider_test.go` to `actual_files`; added
+`TestAnthropicVerify_Live` to `reachability_artifacts`; cleared
+`verification.violations` to `[]`; set `verification.result` → `pending`;
+`start_commit` preserved at `a72f436` (per re-entry rule — verifier diff must
+span all production code from the original round).
+
+**Did NOT verify.** The implementer never certifies its own work (Baton Rule 7).
+State stops at `implemented`; a fresh-context verifier session must return the
+PASS/FAIL/BLOCKED verdict. No verifier prompt was run in this session.

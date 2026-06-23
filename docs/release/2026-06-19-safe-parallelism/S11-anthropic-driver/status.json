@@ -3,10 +3,11 @@
   "slice_id": "S11-anthropic-driver",
   "release": "2026-06-19-safe-parallelism",
   "track": "T5-providers",
-  "state": "failed_verification",
-  "owner": "verifier",
-  "last_updated_by": "verifier",
-  "last_updated_at": "2026-06-23T23:28:23Z",  "start_commit": "a72f436",
+  "state": "implemented",
+  "owner": "implementer",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-06-23T23:36:50Z",
+  "start_commit": "a72f436",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/journal.md",
@@ -21,6 +22,7 @@
     "internal/model/anthropic.go",
     "internal/model/anthropic_test.go",
     "internal/model/provider.go",
+    "internal/model/provider_test.go",
     "go.mod",
     "go.sum",
     "cmd/sworn/run.go",
@@ -37,16 +39,15 @@
   "reachability_artifacts": [
     "internal/model/anthropic_test.go:TestAnthropicVerify_ReturnsTextBlock",
     "internal/model/anthropic_test.go:TestAnthropicNewClient_RoutedCorrectly",
+    "internal/model/anthropic_test.go:TestAnthropicVerify_Live",
     "cmd/sworn/run_test.go:TestCmdRun_Parallel"
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "fail",
-    "verifier_session_id": "fresh-verifier-2026-06-23T23:28:23Z",
-    "verifier_verdict_at": "2026-06-23T23:28:23Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      "Gate 3 — Required test missing: spec 'Required tests' mandates a live integration test (skipped in CI unless ANTHROPIC_API_KEY is set and SWORN_LIVE_TESTS=1) calling Verify() with a 'Reply with PASS.' system prompt and asserting the returned text contains 'PASS'. A repo-wide grep for SWORN_LIVE_TESTS returns zero hits; anthropic_test.go has no t.Skip and no ANTHROPIC_API_KEY guard. The test was never authored. proof.md 'Not delivered' mischaracterises this as 'not run' (execution deferral) when the actual defect is 'not implemented' (test absent). Remediation is a legal implementer fix: author the t.Skip-guarded live test in internal/model/anthropic_test.go checking SWORN_LIVE_TESTS=1 && ANTHROPIC_API_KEY!=\"\", calling NewAnthropic + Verify(ctx, 'Reply with PASS.', ...) and asserting strings.Contains(text, 'PASS').",
-      "Gate 2 — Changed file not surfaced: internal/model/provider_test.go was modified by the S11 feat commit 810d7ce (removed 'anthropic/claude-sonnet-4-6' from TestNewClient_NativeStub now that anthropic is a registered driver) but is not listed in spec.md 'Planned touchpoints', status.json actual_files, and is not explained in proof.md 'Divergence from plan'. The change is a benign in-scope companion to provider.go's registration edit, but the documentation gap violates Gate 2. Remediation: add internal/model/provider_test.go to status.json actual_files and add a one-line note in proof.md 'Divergence from plan'."
-    ]
-  }}
+    "result": "pending",
+    "verifier_session_id": "",
+    "verifier_verdict_at": "",
+    "verifier_was_fresh_context": false,
+    "violations": []
+  }
+}
