@@ -19,8 +19,9 @@ None.
 
 ## Verifier verdicts received
 
-*(None yet.)*
+- **Round 3** (2026-06-23T21:26:36Z, fresh context): BLOCKED — slice is in state 'failed_verification', expected 'implemented'. (See status.json verification.violations for details and proposed amendment.)
 
+*(None yet.)*
 ## 2026-06-23T21:02:23Z: Planner — re-routed to implementer (S11 unblock, replan)
 
 The verifier BLOCKED was a misdiagnosis: the `release-wt → T5` forward-merge conflicts
