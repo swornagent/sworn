@@ -6,7 +6,7 @@
   "state": "failed_verification",
   "owner": "human",
   "last_updated_by": "planner",
-  "last_updated_at": "2026-06-23T21:02:23Z",
+  "last_updated_at": "2026-06-24T00:00:00Z",
   "start_commit": "d58aeca",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S49-baton-version/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S49-baton-version/proof.md",
@@ -37,7 +37,7 @@
     "go build ./..."
   ],
   "reachability_artifacts": [
-    "sworn version output -> baton-protocol on Baton v0.4.0",
+    "sworn version output -> baton-protocol on Baton v0.4.2",
     "sworn doctor output -> [OK] baton/VERSION.txt + [OK] baton/VERSION (baton-protocol)"
   ],
   "open_deferrals": [],

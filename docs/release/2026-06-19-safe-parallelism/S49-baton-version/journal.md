@@ -67,3 +67,18 @@ so it no longer satisfies the spec. State set to `failed_verification` to route 
 **implementer**: bump `internal/adopt/baton/VERSION` to `baton-protocol: v0.4.0`, update the
 `vendored:` date + `rules-added:` (add 11-process-global-mutation), then verify
 (`sworn version` → `baton-protocol on Baton v0.4.0`). `start_commit` preserved.
+
+## 2026-06-24T00:00:00Z: Planner — re-pin v0.4.0 → v0.4.2
+
+Baton **v0.4.2** is now published + tagged (commit `729f188f6f69f4b807c5974b33fd39ec98671f15`),
+shipping the operational gates promoted into the canonical implementer/verifier role prompts
+(PR #35). Those gates are real product value, so the adoption pin moves to the release that
+carries them rather than v0.4.0. Spec re-pinned v0.4.0 → v0.4.2; the loop's prior implementation
+wrote `baton-protocol: v0.4.0`, so it no longer satisfies the spec.
+
+State set to `failed_verification` + `verification.result: pending` to route to the
+**implementer**: set `internal/adopt/baton/VERSION` → `baton-protocol: v0.4.2`, record
+`upstream-sha: 729f188…` provenance, refresh `vendored:` to the re-pin date, extend
+`rules-added:` to note rule 11 + the role-prompt gates; make `internal/prompt/VERSION.txt`
+agree (v0.4.2); verify `sworn version` → `baton-protocol on Baton v0.4.2` and `sworn doctor`
+stays green. `start_commit` preserved (NEVER overwrite on re-entry).
