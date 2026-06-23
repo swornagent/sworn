@@ -105,4 +105,12 @@ so it no longer satisfies the spec. State set to `failed_verification` to route 
 
 ## Verifier verdicts received
 
-BLOCKED: slice is in state 'failed_verification', expected 'implemented'.
+BLOCKED: slice is in state 'failed_verification', expected 'implemented'.## 2026-06-23T21:39:12Z: Planner — cleared verifier's sticky BLOCKED (Step 2b)
+
+The verifier was dispatched on a non-`implemented` slice (the loop raced a planner
+re-route) and stamped a sticky `verification.result: blocked` → `/replan-release` →
+deadlock. That's a transient routing condition, **not** a spec defect. Cleared
+`verification.result` → `pending` and `violations` → []; `state` stays
+`failed_verification` → routes to the **implementer** to finish. A pre-dispatch
+state guard was added to coach-loop (never verify a non-`implemented` slice) to
+prevent recurrence.
