@@ -31,3 +31,12 @@ DOCUMENTED SHARED by design — **not** a touchpoint-matrix/invariant-4 error. S
 `failed_verification` to route to the **implementer**: resolve the forward-merge **keeping
 BOTH hunks** (see index.md run.go "Resolution recipe"), commit on the T5 branch, then verify.
 This is an implementer merge resolution (the verifier must stay pure). `start_commit a72f436` preserved.
+## 2026-06-23T21:39:12Z: Planner — cleared verifier's sticky BLOCKED (Step 2b)
+
+The verifier was dispatched on a non-`implemented` slice (the loop raced a planner
+re-route) and stamped a sticky `verification.result: blocked` → `/replan-release` →
+deadlock. That's a transient routing condition, **not** a spec defect. Cleared
+`verification.result` → `pending` and `violations` → []; `state` stays
+`failed_verification` → routes to the **implementer** to finish. A pre-dispatch
+state guard was added to coach-loop (never verify a non-`implemented` slice) to
+prevent recurrence.

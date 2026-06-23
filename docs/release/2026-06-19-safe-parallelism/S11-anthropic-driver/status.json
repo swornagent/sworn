@@ -27,11 +27,10 @@
   "reachability_artifacts": [],
   "open_deferrals": [],
   "verification": {
-    "result": "blocked",
+    "result": "pending",
     "verifier_session_id": "verifier-fresh-2026-06-23",
     "verifier_verdict_at": "2026-06-23T21:26:36Z",
     "verifier_was_fresh_context": true,
-    "violations": [
-      "Slice state is 'failed_verification' (from planner re-route after prior BLOCKED on merge conflict), expected 'implemented'. The slice must reach 'implemented' state (with clean forward-merge and implementation commits) before a fresh verifier can run the six gates. Proposed amendment: implementer resolves any merge conflicts keeping both sides for shared files like cmd/sworn/run.go, updates status.json state to 'implemented', commits on track branch, then re-invokes /verify-slice."
-    ]
-  }}
+    "violations": []
+  }
+}
