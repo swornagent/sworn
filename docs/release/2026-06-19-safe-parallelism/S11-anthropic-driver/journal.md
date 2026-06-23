@@ -45,3 +45,22 @@ None.
 BLOCKED: forward-merge of release-wt/2026-06-19-safe-parallelism into track/2026-06-19-safe-parallelism/T5-providers conflicted on cmd/sworn/run.go (code file) — the touchpoint matrix was wrong (track-mode invariant 4). Route to /replan-release 2026-06-19-safe-parallelism to re-group.
 
 No spec amendment proposed — this is a process invariant violation (touchpoint collision), not a defect in the slice contract. The planner must correct the release plan / touchpoint matrix.
+
+### 2026-07-09 — Implementation (session 2, round 2)
+
+Re-entered `design_review` with `approved-ack.md` present (PROCEED verdict, 3 pins from Coach).
+
+**Coach pins addressed:**
+- Pin 1 (no rewrite): Confirmed. Production code unchanged from `810d7ce`. Round 2 is proof production only.
+- Pin 2 (non-HTTP error fallback): Confirmed `IsTransient` in errors.go:109 returns `true` for unknown error types, so the plain `fmt.Errorf` fallback in `anthropic.go` is handled as transient. Added code comment documenting this intent.
+- Pin 3 (SDK + error-taxonomy memory acks): Already confirmed in round 1.
+
+**State transitions:**
+- `design_review` → `in_progress` (15:45 UTC)
+- `in_progress` → `implemented` (15:50 UTC)
+
+**Tests:** All 52 model tests pass (4 Anthropic, 48 OAI/env/router). No regression.
+
+**Skeptic panel:** skipped — runtime does not support subagent dispatch.
+
+**Deferrals:** Live integration test skipped (no ANTHROPIC_API_KEY) — spec-allowed.

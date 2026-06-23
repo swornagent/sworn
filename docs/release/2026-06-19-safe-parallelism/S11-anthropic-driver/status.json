@@ -3,10 +3,10 @@
   "slice_id": "S11-anthropic-driver",
   "release": "2026-06-19-safe-parallelism",
   "track": "T5-providers",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-23T12:39:52Z",
+  "last_updated_at": "2026-06-23T12:42:54Z",
   "start_commit": "a72f436",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/proof.md",
@@ -18,13 +18,23 @@
     "go.mod",
     "go.sum"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/model/anthropic.go",
+    "internal/model/anthropic_test.go",
+    "internal/model/provider.go",
+    "internal/model/provider_test.go",
+    "go.mod",
+    "go.sum"
+  ],
   "test_commands": [
     "go test ./internal/model/... -run Anthropic",
     "go test ./internal/model/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "internal/model/anthropic_test.go \u2014 TestAnthropicVerify_ReturnsTextBlock (unit \u2014 full Verify() path through SDK)",
+    "internal/model/anthropic_test.go \u2014 TestAnthropicNewClient_RoutedCorrectly (router \u2014 NewClient dispatches to Anthropic)"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "",
