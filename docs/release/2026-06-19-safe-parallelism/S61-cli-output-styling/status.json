@@ -7,7 +7,7 @@
   "owner": "human",
   "last_updated_by": "planner",
   "last_updated_at": "2026-06-23T00:00:00Z",
-  "start_commit": null,
+  "start_commit": "0e3dddfaa5718c8e84f3eb07e13503572a682b2c",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S61-cli-output-styling/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S61-cli-output-styling/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S61-cli-output-styling/journal.md",
