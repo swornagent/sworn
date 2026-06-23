@@ -172,63 +172,11 @@ func cmdInit(args []string) int {
 		fmt.Printf("  created  %s\n", cfgPath)
 	}
 
-	// Design system prompt (S08): ask about UI-bearing and design system.
-	// This runs after the config file exists so we can re-load and modify it.
-	if cfgErr == nil && !cfgExisted {
-		ds, err := config.PromptDesignSystem(existingCfg.DesignSystem, *yes)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "sworn init: design system prompt: %v\n", err)
-			return 1
-		}
-		if ds != nil {
-			// Re-load the config (just created by Scaffold) and add design system.
-			cfg, loadErr := config.Load()
-			if loadErr != nil {
-				fmt.Fprintf(os.Stderr, "sworn init: re-load config: %v\n", loadErr)
-				return 1
-			}
-			cfg.UIBearing = *uiBearer || true
-			cfg.DesignSystem = ds
-			if writeErr := writeConfig(cfgPath, &cfg); writeErr != nil {
-				fmt.Fprintf(os.Stderr, "sworn init: write design system: %v\n", writeErr)
-				return 1
-			}
-			fmt.Printf("  updated  %s (design system: token_source=%s, component_library=%s)\n",
-				cfgPath, ds.TokenSource, ds.ComponentLibrary)
-		} else if *uiBearer {
-			// User explicitly wants UI-bearing but didn't provide design system.
-			cfg, loadErr := config.Load()
-			if loadErr != nil {
-				fmt.Fprintf(os.Stderr, "sworn init: re-load config: %v\n", loadErr)
-				return 1
-			}
-			cfg.UIBearing = true
-			if writeErr := writeConfig(cfgPath, &cfg); writeErr != nil {
-				fmt.Fprintf(os.Stderr, "sworn init: write ui_bearing: %v\n", writeErr)
-				return 1
-			}
-			fmt.Printf("  updated  %s (ui_bearing: true — design system not yet configured; run 'sworn init --ui-bearing --force' to configure)\n", cfgPath)
-		}
-
-		// Implementer model prompt (S09): collect implementer model + escalation + retry cap.
-		// When --yes is set, defaults are used without prompting (Coach Pin 2).
+	// Design system prompt (S08): only when --ui-bearing is set.
+	if *uiBearer {
 		cfg, loadErr := config.Load()
 		if loadErr != nil {
-			fmt.Fprintf(os.Stderr, "sworn init: re-load config: %v\n", loadErr)
-			return 1
-		}
-		impl := config.PromptImplementer(cfg.Implementer, *yes)
-		cfg.Implementer = impl
-		if writeErr := writeConfig(cfgPath, &cfg); writeErr != nil {
-			fmt.Fprintf(os.Stderr, "sworn init: write implementer config: %v\n", writeErr)
-			return 1
-		}
-		fmt.Printf("  updated  %s (implementer: model=%s, escalation_models=%v, max_attempts=%d)\n",
-			cfgPath, impl.Model, impl.EscalationModels, impl.MaxAttempts)
-	} else if cfgErr == config.ErrConfigExists && *uiBearer { // Config exists; update it with UI-bearing / design system.
-		cfg, loadErr := config.Load()
-		if loadErr != nil {
-			fmt.Fprintf(os.Stderr, "sworn init: load existing config: %v\n", loadErr)
+			fmt.Fprintf(os.Stderr, "sworn init: load config: %v\n", loadErr)
 			return 1
 		}
 		ds, err := config.PromptDesignSystem(cfg.DesignSystem, *yes)
@@ -243,7 +191,8 @@ func cmdInit(args []string) int {
 				fmt.Fprintf(os.Stderr, "sworn init: write design system: %v\n", writeErr)
 				return 1
 			}
-			fmt.Printf("  updated  %s (ui_bearing: true, design_system configured)\n", cfgPath)
+			fmt.Printf("  updated  %s (design system: token_source=%s, component_library=%s)\n",
+				cfgPath, ds.TokenSource, ds.ComponentLibrary)
 		} else {
 			if writeErr := writeConfig(cfgPath, &cfg); writeErr != nil {
 				fmt.Fprintf(os.Stderr, "sworn init: write ui_bearing: %v\n", writeErr)
@@ -253,6 +202,22 @@ func cmdInit(args []string) int {
 		}
 	}
 
+	// Implementer model prompt (S09): only for new config.
+	if cfgErr == nil && !cfgExisted {
+		cfg, loadErr := config.Load()
+		if loadErr != nil {
+			fmt.Fprintf(os.Stderr, "sworn init: re-load config: %v\n", loadErr)
+			return 1
+		}
+		impl := config.PromptImplementer(cfg.Implementer, *yes)
+		cfg.Implementer = impl
+		if writeErr := writeConfig(cfgPath, &cfg); writeErr != nil {
+			fmt.Fprintf(os.Stderr, "sworn init: write implementer config: %v\n", writeErr)
+			return 1
+		}
+		fmt.Printf("  updated  %s (implementer: model=%s, escalation_models=%v, max_attempts=%d)\n",
+			cfgPath, impl.Model, impl.EscalationModels, impl.MaxAttempts)
+	}
 	// AGENTS.md — create from MCP-pointer template if it does not exist.
 	if os.IsNotExist(agentsReadErr) {
 		if err := createAgentsMD(repoRoot); err != nil {
