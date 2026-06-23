@@ -109,7 +109,7 @@ tracks:
     depends_on: [T2-monitoring, T15-cli-registry]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T18-cli-polish
     worktree_branch: track/2026-06-19-safe-parallelism/T18-cli-polish
-    state: in_progress
+    state: merged
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
@@ -154,7 +154,7 @@ tracks:
 | `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged |
 | `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | planned |
 | `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | planned |
-| `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | planned |
+| `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
 
 ### Execution order
 
@@ -510,10 +510,15 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 - Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 5 / In progress: 3 / Merged: 9  *(oracle read 2026-06-23; T18 now in_progress, T12 merge recorded — board moving under coach loop)*
-> Merged (9): T1, T2, T3, T4, T7, T8, T9, T11, T15. In progress (3): T5, T14, T18. Planned (5 per oracle): T6, T10, T12, T16, T17.
+**Tracks:** Planned: 5 / In progress: 2 / Merged: 11  *(oracle read 2026-06-23; T12 + T18 merges recorded — board moving under coach loop)*
+> Merged (11): T1, T2, T3, T4, T7, T8, T9, T11, T12, T15, T18. In progress (2): T5, T14. Planned (5 per oracle): T6, T10, T13, T16, T17.
 
 ## Recent activity
+
+### 2026-06-24 — track `T18-cli-polish` merged to release-wt (commit 1df2910)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 2 verified slices merged: S60-init-ui-bearing-fix, S61-cli-output-styling. Track state -> merged. Fast-forward merge of `track/.../T18-cli-polish` into `release-wt/...`; standalone gofmt hygiene commit folded in (scoped to the 12 T18-changed Go files the S61 verifier flagged for cosmetic drift — no slice logic touched).
 
 ### 2026-06-24 — slice `S61-cli-output-styling` → verified (re-entry PASS)
 
