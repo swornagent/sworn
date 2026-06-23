@@ -45,8 +45,7 @@ tracks:
     depends_on: [T3-commercial, T4-mcp]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T7-mcp-extensions
     worktree_branch: track/2026-06-19-safe-parallelism/T7-mcp-extensions
-    state: in_progress
-  - id: T8-memory
+    state: merged  - id: T8-memory
     slices: [S23-memory-config, S24-memory-engine, S25-memory-search, S40-memory-test-hygiene]
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T8-memory
@@ -146,8 +145,7 @@ tracks:
 | `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 + T15 | `track/.../T3-commercial` | merged || `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | merged |
 | `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 → S39 | T1 + T3 | `track/.../T5-providers` | planned |
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
-| `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | planned |
-| `T8-memory` | S23 → S24 → S25 → S40 | T1 | `track/.../T8-memory` | merged |
+| `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | merged || `T8-memory` | S23 → S24 → S25 → S40 | T1 | `track/.../T8-memory` | merged |
 | `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
 | `T10-public-readiness` | S27 | all tracks (incl. T16) | `track/.../T10-public-readiness` | planned |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
@@ -513,12 +511,15 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 - Failed verification: 1
 - Deferred: 0
 
-**Tracks:** Planned: 5 / In progress: 4 / Merged: 8  *(oracle read 2026-06-23; T18 now in_progress, T12 merge recorded — board moving under coach loop)*
-> Merged (8): T1, T2, T3, T4, T8, T9, T11, T15. In progress (4): T5, T7, T14, T18. Planned (5 per oracle): T6, T10, T12, T16, T17.
-## Recent activity
+**Tracks:** Planned: 5 / In progress: 3 / Merged: 9  *(oracle read 2026-06-23; T18 now in_progress, T12 merge recorded — board moving under coach loop)*
+> Merged (9): T1, T2, T3, T4, T7, T8, T9, T11, T15. In progress (3): T5, T14, T18. Planned (5 per oracle): T6, T10, T12, T16, T17.## Recent activity
+
+### 2026-07-08 — track `T7-mcp-extensions` merged to release-wt (commit 746fe17)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 1 verified slice merged: S20-mcp-catalog-tools. Track state -> merged.
 
 ### 2026-06-23 — replan: add S62-baton-upstream-source (T14) + clear S48 BLOCKED
-
 - **Actor**: planner (human Brad + Claude)
 - **S48 unblocked**: the BLOCKED verdict was an operational dirty-tree verdict — a corrupt
   `sworn baton vendor` run stubbed the embed (rules.md 1112→29 lines, 3,596 deletions),
