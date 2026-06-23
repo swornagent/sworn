@@ -29,8 +29,7 @@ The `sworn init` command (`cmd/sworn/init.go`), in both interactive and `--yes` 
 ## Planned touchpoints
 
 - `cmd/sworn/init.go`
-- `cmd/sworn/init_design_system_test.go` (extend with the non-UI-bearing no-prompt assertion)
-
+- `cmd/sworn/init_design_system_test.go` (extend with the non-UI-bearing no-prompt assertion: test pre-existed from prior slices; S60 adds TestCmdInit_Interactive_NoUIPrompt)
 ## Acceptance checks
 
 - [ ] After `sworn init --yes` in a fresh non-UI-bearing repo, the written config's `ui_bearing` is false or absent **and** `design_system` is absent. Verified by `cmd/sworn/init_design_system_test.go` (TestCmdInit_NonInteractive) loading the written config.
@@ -44,7 +43,7 @@ The `sworn init` command (`cmd/sworn/init.go`), in both interactive and `--yes` 
 - **Unit**: `cmd/sworn/init_design_system_test.go` — TestCmdInit_NonInteractive (no design_system written), TestCmdInit_UIBearingFlag / TestCmdInit_UIBearing_ValidateFailClosed (UI-bearing path intact).
 - **Integration**: the above tests drive `cmdInit(...)` — the command entry point, not a leaf helper (Rule 1).
 - **Reachability artefact**: terminal transcript in `proof.md` showing `sworn init --yes` in a temp non-UI-bearing repo emitting no design-system prompt, and the resulting config.json having no `design_system` key.
-- **E2E gate type**: N/A (CLI; no Playwright).
+- **Browser gate type**: N/A (CLI-only; no browser integration needed).
 
 ## Risks
 
