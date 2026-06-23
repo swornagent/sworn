@@ -44,10 +44,9 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "",
-    "verifier_session_id": "fresh-verifier-2026-06-23",
-    "verifier_verdict_at": "2026-06-23T21:24:15Z",
+    "result": "pass",
+    "verifier_session_id": "fresh-verifier-2026-07-09",
+    "verifier_verdict_at": "2026-07-09T12:30:00Z",
     "verifier_was_fresh_context": true,
     "violations": []
-  }
-}
+  }}

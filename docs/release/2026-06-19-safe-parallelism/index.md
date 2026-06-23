@@ -477,8 +477,8 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S47-orchestrator-recovery` | T13 | on non-PASS, intra-run triage chooses resolve-in-place / escalate / halt, then commits state and delegates lifecycle routing (BLOCKED→replan, fail→redesign/implement) to the S58 router (re-scoped 2026-06-23) | planned | [spec](./S47-orchestrator-recovery/spec.md) |
 | `S39-openai-responses-provider` | T5 | first-class OpenAI provider via /v1/responses (reasoning_effort + tool-calls + built-in web_search) + a cross-provider WebSearch/WebFetch agent tool — fixes gpt-5.x support + 'more than 6 tools' | planned | [spec](./S39-openai-responses-provider/spec.md) |
 | `S48-baton-vendor` | T14 | `sworn baton vendor` — semver-pinned vendor of upstream Baton + bash→sworn transform over rules AND role-prompts (strips `release-verify.sh`/`release-board-status.sh`/`captain-memory-search.py`… → sworn-native commands); reproduces the sworn-native embed (subsumes the one-time scrub) | failed_verification | [spec](./S48-baton-vendor/spec.md) |
-| `S49-baton-version` | T14 | reconcile the Baton pin from a raw SHA to a **semver tag** across `VERSION`+`VERSION.txt`; `sworn version` reports "on Baton vX.Y.Z"; `sworn doctor` fails the pin if it's a SHA not a tag | failed_verification | [spec](./S49-baton-version/spec.md) || `S50-baton-governance` | T14 | `sworn baton diff` divergence check (embed vs upstream pin) + `docs/baton-governance.md` PR-up process note + ADR-0006; protocol changes found in sworn dev must PR upstream, never silently fork | planned | [spec](./S50-baton-governance/spec.md) |
-| `S62-baton-upstream-source` | T14 | `sworn baton vendor --upstream` fetches the version-locked Baton release from `github.com/sawy3r/baton` over stdlib HTTPS (codeload tar.gz), verified by tag + commit-SHA/digest, fail-closed — embed source-of-truth is the public repo at a pinned version, not a local install (issue #11) | planned | [spec](./S62-baton-upstream-source/spec.md) |
+| `S49-baton-version` | T14 | reconcile the Baton pin from a raw SHA to a **semver tag** across `VERSION`+`VERSION.txt`; `sworn version` reports "on Baton vX.Y.Z"; `sworn doctor` fails the pin if it's a SHA not a tag | verified | [spec](./S49-baton-version/spec.md) |
+| `S50-baton-governance` | T14 | `sworn baton diff` divergence check (embed vs upstream pin) + `docs/baton-governance.md` PR-up process note + ADR-0006; protocol changes found in sworn dev must PR upstream, never silently fork | planned | [spec](./S50-baton-governance/spec.md) || `S62-baton-upstream-source` | T14 | `sworn baton vendor --upstream` fetches the version-locked Baton release from `github.com/sawy3r/baton` over stdlib HTTPS (codeload tar.gz), verified by tag + commit-SHA/digest, fail-closed — embed source-of-truth is the public repo at a pinned version, not a local install (issue #11) | planned | [spec](./S62-baton-upstream-source/spec.md) |
 | `S51-cli-command-registry` | T15 | command registry replaces the `cmd/sworn/main.go` dispatch switch; new subcommands self-register from their own file; `main.go` owned by one track — ends the recurring touchpoint collision | verified | [spec](./S51-cli-command-registry/spec.md) |
 | `S52-ledger-projection` | T16 | Projects every slice's verdict into an append-only `docs/ledger/verdicts.jsonl`; captures implementer model + attempt; backfills the whole board on first sync | planned | [spec](./S52-ledger-projection/spec.md) |
 | `S53-ledger-cli` | T16 | `sworn ledger sync` harvests the board; `sworn ledger report` shows pass-rate by model × slice-kind, attempts-to-pass, gate-failure histogram | planned | [spec](./S53-ledger-cli/spec.md) |
@@ -522,8 +522,20 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 
 ## Recent activity
 
-### 2026-06-23 — slice `S49-baton-version` → blocked (verifier)
+### 2026-07-09 — slice `S49-baton-version` → verified (PASS)
 
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs)
+- **Verdict**: PASS — all six gates satisfied.
+  - Gate 1: `sworn version` and `sworn doctor` surface "on Baton v0.4.0" via integration points (cmdVersion, cmdDoctor).
+  - Gate 2: S49-owned touchpoints (8 files) match diff; forward-merges from release-wt documented in proof.md Divergence.
+  - Gate 3: Tests `TestIsSemverTag`, `TestVersionIsSemverNotSha`, `TestDoctorReportsBatonTag`, `TestDoctorFailsOnShaPin`, `TestDoctorAllOK` exist and pass (re-ran).
+  - Gate 4: Reachability artefacts in proof.md: `sworn version` → "baton-protocol on Baton v0.4.0"; `sworn doctor` clean + forced-SHA failure.
+  - Gate 5: No TODO/FIXME/deferred/placeholder in S49 source.
+  - Gate 6: Delivered list matches ACs; evidence (files, tests, outputs) verified live.
+- **State**: S49 → verified. T14-baton-integration: S48 verified, S49 verified; next is S50 (planned).
+- **Next step**: `/implement-slice S50-baton-governance 2026-06-19-safe-parallelism` (or `/merge-track T14-baton-integration` once all T14 slices verified).
+
+### 2026-06-23 — slice `S49-baton-version` → blocked (verifier)
 - **Actor**: verifier (`/verify-slice`, fresh context, no implementer transcript)
 - **Verdict**: BLOCKED — slice is in state 'failed_verification', expected 'implemented'.
   - Worktree HEAD status.json (authoritative) reports "failed_verification" (planner set to route v0.4.0 pin bump to implementer after Baton v0.4.0 published).

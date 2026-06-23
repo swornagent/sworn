@@ -150,3 +150,24 @@ deadlock. That's a transient routing condition, **not** a spec defect. Cleared
 `failed_verification` → routes to the **implementer** to finish. A pre-dispatch
 state guard was added to coach-loop (never verify a non-`implemented` slice) to
 prevent recurrence.
+
+## 2026-07-09: Verifier verdict — PASS
+
+PASS
+
+Slice: S49-baton-version
+Verified against: 8b4ce2b
+Verifier session: fresh, artefact-only
+
+All six gates passed:
+- Gate 1: User-reachable outcome exists — `sworn version` and `sworn doctor` surface the semver tag via the integration points.
+- Gate 2: Planned touchpoints match actual changed files — S49-owned files (8) match the diff; forward-merges from release-wt are documented in Divergence.
+- Gate 3: Required tests exist and exercise the integration point — unit tests in internal/baton/version_test.go and cmd/sworn/doctor_test.go cover IsSemverTag, Version(), and doctor SHA-fail; re-ran and passed.
+- Gate 4: Reachability artefact proves the user path — `sworn version` and `sworn doctor` outputs captured in proof.md show "on Baton v0.4.0" and clean exit.
+- Gate 5: No silent deferrals or placeholder logic — no TODO/FIXME/deferred in S49-owned source.
+- Gate 6: Claimed scope matches implemented scope — Delivered list matches ACs; evidence verified (files, tests, outputs).
+
+STATE: verified_implement_next
+SLICE: S49-baton-version
+NEXT: S50-baton-governance
+REASON: All six gates passed. S50-baton-governance is the next slice in track T14-baton-integration.
