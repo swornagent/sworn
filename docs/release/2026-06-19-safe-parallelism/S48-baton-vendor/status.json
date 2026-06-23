@@ -5,8 +5,8 @@
   "track": "T14-baton-integration",
   "state": "implemented",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-07T00:00:00Z",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-23T00:00:00Z",
   "start_commit": "e13f27daed9beddf53f8d3fa7b164a3b89cee798",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S48-baton-vendor/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S48-baton-vendor/proof.md",
@@ -84,13 +84,11 @@
     }
   ],
   "verification": {
-    "result": "blocked",
+    "result": "pending",
     "verifier_session_id": null,
-    "verifier_verdict_at": "2026-07-07T00:00:00Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      "Drift gate BLOCKED: track worktree has 19 uncommitted modifications in internal/adopt/baton/** (11 files) and internal/prompt/** (8 files) totalling 3,596 net deletions vs HEAD — cannot forward-merge release-wt/2026-06-19-safe-parallelism. Proposed resolution (not a spec amendment): implementer must commit the 19 working-tree modifications if they are S48 scope, or revert them with 'git checkout -- internal/adopt/baton internal/prompt' if they are noise, then confirm clean tree and re-stage as implemented."
-    ]
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
   },
   "design_decisions": [
     {

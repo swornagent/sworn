@@ -1,5 +1,25 @@
 # Journal — S48-baton-vendor
 
+## 2026-06-23 — planner: cleared BLOCKED (corrupt vendor output reverted)
+
+- **Trigger**: verifier BLOCKED — drift gate found 19 uncommitted modifications in
+  `internal/adopt/baton/**` + `internal/prompt/**` (3,596 net deletions): a corrupt
+  `sworn baton vendor` run that stubbed the embed (`internal/prompt/baton/rules.md`
+  1112 → 29 lines). The corruption had been auto-checkpointed onto the track tip as
+  `a29a33b` ("auto-checkpoint uncommitted work before replan-release").
+- **Not a spec defect** — the verifier said as much; the verdict was operational
+  (dirty/corrupt tree), and the proposed resolution was "revert the noise, confirm
+  clean tree, re-stage as implemented".
+- **Resolution**: `git reset --hard 924c07a` dropped the corrupt checkpoint `a29a33b`
+  (local-only; origin was already at `924c07a`) — losslessly restoring the legitimate
+  S48 vendor output (rules.md back to 1112 lines, all 10 rule docs intact). Clean tree.
+- Cleared `verification.result` blocked → pending and `violations` → [] so S48 can
+  re-enter verification; `state` stays `implemented`; `start_commit` untouched.
+- **Root cause still open**: the `sworn baton vendor` transform stubbed rather than
+  vendored — that bug needs the implementer's attention before re-verify. The recurring
+  page is what motivated issue #11 (locked upstream fetch, slice S62) and the
+  protocol-vs-operational reconciliation.
+
 ## 2026-07-07 — Session 1: Design TL;DR
 
 - Materialised track worktree for T14-baton-integration (new track, depends_on T3-commercial + T15-cli-registry, both merged).
