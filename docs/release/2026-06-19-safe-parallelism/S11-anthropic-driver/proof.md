@@ -1,6 +1,6 @@
 ---
 title: Slice proof bundle
-description: Rule 6 proof bundle. Generated from live repo state (round 2).
+description: Rule 6 proof bundle. Generated from live repo state (round 3 — forward-merge resolution).
 ---
 
 # Proof Bundle: `S11-anthropic-driver`
@@ -11,7 +11,15 @@ A developer sets `ANTHROPIC_API_KEY` in `~/.sworn/.env` and `verifier.model = "a
 
 ## Files changed
 
+Full output of `git diff --name-only a72f436` (verbatim):
+
 ```
+cmd/sworn/doctor.go
+cmd/sworn/doctor_test.go
+cmd/sworn/lint.go
+cmd/sworn/run.go
+docs/baton/rules/11-process-global-mutation.md
+docs/build.md
 docs/release/2026-06-19-safe-parallelism/.captain-trial-log.md
 docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/approved-ack.md
 docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/design.md
@@ -19,15 +27,128 @@ docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/journal.md
 docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/proof.md
 docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/review.md
 docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/status.json
+docs/release/2026-06-19-safe-parallelism/S29-lint-deps/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S29-lint-deps/design.md
+docs/release/2026-06-19-safe-parallelism/S29-lint-deps/journal.md
+docs/release/2026-06-19-safe-parallelism/S29-lint-deps/proof.md
+docs/release/2026-06-19-safe-parallelism/S29-lint-deps/review.md
+docs/release/2026-06-19-safe-parallelism/S29-lint-deps/status.json
+docs/release/2026-06-19-safe-parallelism/S30-lint-touchpoints/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S30-lint-touchpoints/design.md
+docs/release/2026-06-19-safe-parallelism/S30-lint-touchpoints/journal.md
+docs/release/2026-06-19-safe-parallelism/S30-lint-touchpoints/proof.md
+docs/release/2026-06-19-safe-parallelism/S30-lint-touchpoints/review.md
+docs/release/2026-06-19-safe-parallelism/S30-lint-touchpoints/status.json
+docs/release/2026-06-19-safe-parallelism/S31-lint-symbols/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S31-lint-symbols/design.md
+docs/release/2026-06-19-safe-parallelism/S31-lint-symbols/journal.md
+docs/release/2026-06-19-safe-parallelism/S31-lint-symbols/proof.md
+docs/release/2026-06-19-safe-parallelism/S31-lint-symbols/review.md
+docs/release/2026-06-19-safe-parallelism/S31-lint-symbols/status.json
+docs/release/2026-06-19-safe-parallelism/S32-designfit-decisions-gate/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S32-designfit-decisions-gate/design.md
+docs/release/2026-06-19-safe-parallelism/S32-designfit-decisions-gate/journal.md
+docs/release/2026-06-19-safe-parallelism/S32-designfit-decisions-gate/proof.md
+docs/release/2026-06-19-safe-parallelism/S32-designfit-decisions-gate/review.md
+docs/release/2026-06-19-safe-parallelism/S32-designfit-decisions-gate/status.json
+docs/release/2026-06-19-safe-parallelism/S33-spec-template-hardening/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S33-spec-template-hardening/design.md
+docs/release/2026-06-19-safe-parallelism/S33-spec-template-hardening/journal.md
+docs/release/2026-06-19-safe-parallelism/S33-spec-template-hardening/proof.md
+docs/release/2026-06-19-safe-parallelism/S33-spec-template-hardening/review.md
+docs/release/2026-06-19-safe-parallelism/S33-spec-template-hardening/status.json
+docs/release/2026-06-19-safe-parallelism/S35-mutation-guard/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S35-mutation-guard/design.md
+docs/release/2026-06-19-safe-parallelism/S35-mutation-guard/journal.md
+docs/release/2026-06-19-safe-parallelism/S35-mutation-guard/proof.md
+docs/release/2026-06-19-safe-parallelism/S35-mutation-guard/review.md
+docs/release/2026-06-19-safe-parallelism/S35-mutation-guard/status.json
+docs/release/2026-06-19-safe-parallelism/S36-captain-resolve-dirty-worktree/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S36-captain-resolve-dirty-worktree/design.md
+docs/release/2026-06-19-safe-parallelism/S36-captain-resolve-dirty-worktree/journal.md
+docs/release/2026-06-19-safe-parallelism/S36-captain-resolve-dirty-worktree/proof.md
+docs/release/2026-06-19-safe-parallelism/S36-captain-resolve-dirty-worktree/review.md
+docs/release/2026-06-19-safe-parallelism/S36-captain-resolve-dirty-worktree/status.json
+docs/release/2026-06-19-safe-parallelism/S37-telemetry-tui-exclusion/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S37-telemetry-tui-exclusion/design.md
+docs/release/2026-06-19-safe-parallelism/S37-telemetry-tui-exclusion/journal.md
+docs/release/2026-06-19-safe-parallelism/S37-telemetry-tui-exclusion/proof.md
+docs/release/2026-06-19-safe-parallelism/S37-telemetry-tui-exclusion/review.md
+docs/release/2026-06-19-safe-parallelism/S37-telemetry-tui-exclusion/status.json
+docs/release/2026-06-19-safe-parallelism/S38-verifier-blocked-violations/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S38-verifier-blocked-violations/design.md
+docs/release/2026-06-19-safe-parallelism/S38-verifier-blocked-violations/journal.md
+docs/release/2026-06-19-safe-parallelism/S38-verifier-blocked-violations/proof.md
+docs/release/2026-06-19-safe-parallelism/S38-verifier-blocked-violations/review.md
+docs/release/2026-06-19-safe-parallelism/S38-verifier-blocked-violations/status.json
+docs/release/2026-06-19-safe-parallelism/S41-build-bin-target/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S41-build-bin-target/design.md
+docs/release/2026-06-19-safe-parallelism/S41-build-bin-target/journal.md
+docs/release/2026-06-19-safe-parallelism/S41-build-bin-target/proof.md
+docs/release/2026-06-19-safe-parallelism/S41-build-bin-target/review.md
+docs/release/2026-06-19-safe-parallelism/S41-build-bin-target/status.json
+docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/design.md
+docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/journal.md
+docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/proof.md
+docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/review.md
+docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/status.json
+docs/release/2026-06-19-safe-parallelism/S43-agent-loop-natural-stop/journal.md
+docs/release/2026-06-19-safe-parallelism/S43-agent-loop-natural-stop/proof.md
+docs/release/2026-06-19-safe-parallelism/S43-agent-loop-natural-stop/status.json
+docs/release/2026-06-19-safe-parallelism/S44-feedback-driven-retry/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S44-feedback-driven-retry/design.md
+docs/release/2026-06-19-safe-parallelism/S44-feedback-driven-retry/journal.md
+docs/release/2026-06-19-safe-parallelism/S44-feedback-driven-retry/proof.md
+docs/release/2026-06-19-safe-parallelism/S44-feedback-driven-retry/status.json
+docs/release/2026-06-19-safe-parallelism/S49-baton-version/journal.md
+docs/release/2026-06-19-safe-parallelism/S49-baton-version/spec.md
+docs/release/2026-06-19-safe-parallelism/S49-baton-version/status.json
+docs/release/2026-06-19-safe-parallelism/S57-oracle-reader/spec.md
+docs/release/2026-06-19-safe-parallelism/S58-slice-router/spec.md
+docs/release/2026-06-19-safe-parallelism/S59-scheduler-relayer/spec.md
+docs/release/2026-06-19-safe-parallelism/S62-baton-upstream-source/journal.md
+docs/release/2026-06-19-safe-parallelism/S62-baton-upstream-source/spec.md
+docs/release/2026-06-19-safe-parallelism/S62-baton-upstream-source/status.json
 docs/release/2026-06-19-safe-parallelism/index.md
+docs/release/2026-06-19-safe-parallelism/intake.md
+docs/release/run-20260622-174526/S01-task/spec.md
+docs/release/run-20260622-174526/S01-task/status.json
 go.mod
 go.sum
+internal/adopt/adopt.go
+internal/adopt/baton/rules/11-process-global-mutation.md
+internal/agent/agent.go
+internal/agent/agent_test.go
+internal/designfit/designfit.go
+internal/designfit/designfit_test.go
+internal/implement/implement.go
+internal/implement/implement_test.go
+internal/lint/deps.go
+internal/lint/deps_test.go
+internal/lint/symbols.go
+internal/lint/symbols_test.go
+internal/lint/touchpoints.go
+internal/lint/touchpoints_test.go
 internal/model/anthropic.go
 internal/model/anthropic_test.go
 internal/model/provider.go
 internal/model/provider_test.go
+internal/prompt/captain.md
+internal/prompt/implementer.md
+internal/prompt/planner.md
+internal/prompt/prompt_test.go
+internal/prompt/verifier.md
+internal/run/run.go
+internal/run/slice.go
+internal/run/slice_test.go
+internal/telemetry/telemetry.go
+internal/telemetry/telemetry_test.go
+internal/verify/validate_blocked.go
+internal/verify/verify_test.go
 ```
 
+S11-specific production files within this diff: `internal/model/anthropic.go`, `internal/model/anthropic_test.go`, `internal/model/provider.go`, `internal/model/provider_test.go`, `go.mod`, `go.sum`, `cmd/sworn/run.go` (merge resolution). All other files are forward-merge artefacts from `release-wt/2026-06-19-safe-parallelism` — their provenance is documented in their respective slice proof bundles.
 ## Test results
 
 ### `go test ./internal/model/... -run Anthropic`
@@ -38,18 +159,20 @@ internal/model/provider_test.go
 === RUN   TestAnthropicVerify_MultiBlock
 --- PASS: TestAnthropicVerify_MultiBlock (0.00s)
 === RUN   TestAnthropicVerify_APIError
---- PASS: TestAnthropicVerify_APIError (1.39s)
+--- PASS: TestAnthropicVerify_APIError (1.29s)
 === RUN   TestAnthropicNewClient_RoutedCorrectly
 --- PASS: TestAnthropicNewClient_RoutedCorrectly (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/internal/model	1.394s
+ok  	github.com/swornagent/sworn/internal/model	1.297s
 ```
 
 ### `go test ./internal/model/...` (all model tests — no regression)
 
 ```
-ok  	github.com/swornagent/sworn/internal/model	1.606s
+ok  	github.com/swornagent/sworn/internal/model	1.458s
 ```
+
+All 52 model tests pass (including all OAI, provider, and error tests).
 
 ### `go build ./...`
 
@@ -68,9 +191,9 @@ BUILD OK
 - [x] `NewAnthropic("claude-sonnet-4-6", key)` returns non-nil `*Anthropic` with no error — evidence: `TestAnthropicNewClient_RoutedCorrectly` calls `NewAnthropic` indirectly via `NewClient`, returns non-nil `*Anthropic`
 - [x] `model.NewClient("anthropic/claude-sonnet-4-6", cfg)` returns a non-nil Verifier (router dispatches instead of returning `ErrDriverNotRegistered`) — evidence: `TestAnthropicNewClient_RoutedCorrectly` passes
 - [x] `Verify()` with a test HTTP transport returns the text block from the first content item in the Anthropic response without error — evidence: `TestAnthropicVerify_ReturnsTextBlock` passes
-- [x] Cost calculation returns a non-zero float for a response with non-zero token counts — evidence: `TestAnthropicVerify_ReturnsTextBlock` asserts `cost > 0` (input=10, output=20, sonnet-4-6→$0.00033)
+- [x] Cost calculation returns a non-zero float for a response with non-zero token counts — evidence: `TestAnthropicVerify_ReturnsTextBlock` asserts `cost > 0` (input=10, output=20, sonnet-4-6 → $0.00033)
 - [x] `go test ./internal/model/... -run Anthropic` passes with zero failures (no live API key required) — evidence: all 4 tests PASS
-- [x] `go test ./internal/model/...` (all model tests) still passes — no regression to OAI tests — evidence: 52 tests PASS including all OAI tests
+- [x] `go test ./internal/model/...` (all model tests) still passes — no regression to OAI tests — evidence: all 52 tests PASS
 
 ## Not delivered
 
@@ -78,19 +201,15 @@ BUILD OK
 
 ## Divergence from plan
 
-- **Touchpoint correction (replan):** `cmd/sworn/run.go` was originally in `planned_files` but was removed during `/replan-release` after the round-1 verifier BLOCKED on a track-mode collision. The file is not touched by this slice.
-- **Round 2 is proof-production only:** production code (`anthropic.go`, `anthropic_test.go`, `provider.go`, `provider_test.go`, `go.mod`, `go.sum`) is unchanged from commit `810d7ce` (round 1). Round 2 adds only the Pin 2 comment in `anthropic.go` documenting the IsTransient fallback path.
-- **Pin 2 comment (non-HTTP error fallback):** added code comment in `anthropic.go` line 64-69 documenting that the plain `fmt.Errorf` fallback path is handled by `IsTransient` returning `true` for unknown error types.
-- **Docs-only commits between round 1 and round 2** are design-review artefacts (`design.md`, `review.md`, `approved-ack.md`, `journal.md` updates) and replan corrections (`index.md`, `status.json` `planned_files` fix, `.captain-trial-log.md`). None alter production behaviour.
+- **Forward-merge resolution (round 3):** The planner re-routed S11 to implementer to resolve a `release-wt → T5` forward-merge conflict in `cmd/sworn/run.go`. Resolution: keep-both — S42's `resolveImplementTimeout` and S11's `printModelError` are independent additive hunks; `run.go` is DOCUMENTED SHARED by design. `index.md` kept both activity entries (S11 BLOCKED verdict + S62 replan entry).
+- **Round 3 is merge-only:** No changes to `internal/model/anthropic.go`, `anthropic_test.go`, `provider.go`, or `provider_test.go` — these are unchanged from round 1 (commit `810d7ce`).
+- **Pin 2 comment (non-HTTP error fallback):** inherited from round 2 — code comment in `anthropic.go` lines 64-69 documenting that the plain `fmt.Errorf` fallback path is handled by `IsTransient` returning `true` for unknown error types.
 
 ## First-pass script output
 
 ```
 == First-pass verdict ==
-  checks passed: 21
-  checks failed: 2
-FIRST-PASS FAIL
+  checks passed: 23
+  checks failed: 0
+FIRST-PASS PASS
 ```
-
-- **FAIL 1: state is 'in_progress'** — expected; transitioning to `implemented` in this commit.
-- **FAIL 2: proof.md 'Files changed' count mismatch** — the prior proof.md listed 7 files from round 1's filtered diff. This regenerated bundle lists all 14 files from `git diff --name-only a72f436` verbatim, including docs artefacts that accumulated between rounds. The verifier's diff gate filters to code files only.
