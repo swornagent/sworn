@@ -3,16 +3,15 @@ package run
 import (
 	"context"
 	"fmt"
+	"github.com/swornagent/sworn/internal/agent"
+	"github.com/swornagent/sworn/internal/model"
+	"github.com/swornagent/sworn/internal/state"
+	"github.com/swornagent/sworn/internal/verdict"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-	"github.com/swornagent/sworn/internal/agent"
-	"github.com/swornagent/sworn/internal/config"
-	"github.com/swornagent/sworn/internal/model"
-	"github.com/swornagent/sworn/internal/state"
-	"github.com/swornagent/sworn/internal/verdict"
 )
 
 // ---------------------------------------------------------------------------
@@ -251,7 +250,7 @@ func TestImplementTimeoutHappyPath(t *testing.T) {
 		EscalationModels: []string{"quick"},
 		VerifierModel:    "fake/verifier",
 		RetryCap:         0,
-		ImplementTimeout: config.DefaultImplementTimeout, // generous timeout
+		ImplementTimeout: DefaultImplementTimeout, // generous timeout
 		NewAgent: func(_ string) (agent.Agent, error) {
 			return &markedAgent{called: &called}, nil
 		},

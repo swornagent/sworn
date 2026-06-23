@@ -11,7 +11,6 @@ import (
 
 	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/agent"
-	"github.com/swornagent/sworn/internal/config"
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/implement"
 	"github.com/swornagent/sworn/internal/model"
@@ -19,6 +18,14 @@ import (
 	"github.com/swornagent/sworn/internal/verdict"
 	"github.com/swornagent/sworn/internal/verify"
 )
+
+// DefaultImplementTimeout is the per-attempt deadline applied to the implement
+// step inside RunSlice when no explicit timeout is configured. 15 minutes is
+// generous enough for most implement steps but prevents a hung agent from
+// blocking the escalation loop indefinitely. It lives in this package (not
+// internal/config) so S42 does not collide with config.go ownership.
+const DefaultImplementTimeout = 15 * time.Minute
+
 // RunSliceOptions configure the RunSlice retry loop. These are a subset of
 // Options — setup-level concerns (Task, Base, WorkspaceRoot) live in Options
 // and are handled by Run() or the scheduler worker (S02b).
@@ -38,7 +45,7 @@ type RunSliceOptions struct {
 	RetryCap int
 
 	// ImplementTimeout is the per-attempt deadline for the implement step.
-	// 0 means use the default (config.DefaultImplementTimeout).
+	// 0 means use DefaultImplementTimeout.
 	// A negative value means no timeout (opt-out).
 	ImplementTimeout time.Duration
 	// NewAgent is a factory for creating an agent.Agent from a model ID.
@@ -135,7 +142,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	// 0 means use default; negative means no timeout; positive is used as-is.
 	implementTimeout := opts.ImplementTimeout
 	if implementTimeout == 0 {
-		implementTimeout = config.DefaultImplementTimeout
+		implementTimeout = DefaultImplementTimeout
 	}
 
 	var lastVerdict verdict.Result
@@ -186,7 +193,8 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 				continue
 			}
 			return fmt.Errorf("RunSlice: implementer failed after %d attempts (last error: %w). "+
-			"Escalate to human.", maxAttempts, implErr)		}
+				"Escalate to human.", maxAttempts, implErr)
+		}
 		// ── Commit agent changes ───────────────────────────────────────
 		if err := repo.Stage("."); err != nil {
 			return fmt.Errorf("RunSlice: stage agent changes: %w", err)
