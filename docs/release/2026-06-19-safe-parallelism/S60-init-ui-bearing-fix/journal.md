@@ -30,3 +30,11 @@
 - **Skeptic panel**: skipped — Claude Code -p mode does not support subagent dispatch.
 - **First-pass verify**: 3 FAILs — (1) proof.md missing → now generated, (2) Playwright false positive → CLI slice, no Playwright, (3) state in_progress → now implemented.
 - **Commit**: `feat(init): gate design-system block on --ui-bearing only` (db44c5c).
+## Verifier verdicts received
+
+- **2026-07-08** (verifier, fresh context): FAIL: 3 violations
+  1. Gate 2 (Planned touchpoints match actual): spec.md lists `cmd/sworn/init_design_system_test.go` in Planned touchpoints and Required tests, but `git diff <start_commit>..HEAD` (non-merge) only touched `cmd/sworn/init.go`. The test file pre-existed from prior slices (S21 etc.); this slice did not change it. status.json `actual_files` correctly lists only init.go, but spec/planned_files was not reconciled.
+  2. Gate 4 (Reachability artefact proves the user path): proof.md reachability transcript shows "No action needed: design_system project is not UI-bearing..." emitted for `sworn init --yes` in non-UI-bearing repo. Implemented code (init.go:75) only appends this informational when `! *yes`. The transcript does not match the code for the documented gesture.
+  3. Gate 6 (Claimed scope matches implemented): "Delivered" AC2 claims the transcript proves "strings ... are NOT emitted" for interactive without --ui-bearing, but the transcript uses --yes (non-interactive) and the message is gated on !*yes. The artefact does not prove the claimed AC for the stated user gesture.
+  - Tests (Gate 3) and build/vet (Gate 5) pass; no dark markers (Gate 5); entry point wired (Gate 1).
+  - Next: re-open /implement-slice S60-init-ui-bearing-fix 2026-06-19-safe-parallelism (fresh session) to address violations. Do not re-verify until fixed.
