@@ -75,7 +75,6 @@ func PrintCompact(r *Report) string {
 		r.SlicesChecked)
 }
 
-
 // impliesType1Work returns true when the slice's planned_files indicate
 // architecturally-significant (Type-1) work by touching at least one file
 // under a contract/control-plane path prefix.
@@ -188,9 +187,9 @@ func Run(releaseDir string) (*Report, error) {
 			// Check 2: Type-1 choices must have a human decision.
 			if dd.StakeClass == state.Type1 && dd.HumanDecision == "" {
 				report.Violations = append(report.Violations, Violation{
-					SliceID:    sliceID,
-					ChoiceName: dd.Choice,
-					StakeClass: dd.StakeClass,
+					SliceID:     sliceID,
+					ChoiceName:  dd.Choice,
+					StakeClass:  dd.StakeClass,
 					Description: "has no recorded human decision — a Type-1 choice requires human judgement",
 				})
 			}

@@ -88,6 +88,7 @@ var batonRuleFiles = []string{
 	"10-customer-journey-validation.md",
 	"11-process-global-mutation.md",
 }
+
 // batonRulesIndexHeading is the heading the README.md must carry.
 const batonRulesIndexHeading = "## The seven rules"
 

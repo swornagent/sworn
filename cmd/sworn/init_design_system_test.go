@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/swornagent/sworn/internal/config"
-)// TestCmdInit_NonInteractive verifies that `sworn init --yes` without --ui-bearing
+) // TestCmdInit_NonInteractive verifies that `sworn init --yes` without --ui-bearing
 // produces a config with UIBearing: false (CLI project default) via the entry point.
 func TestCmdInit_NonInteractive(t *testing.T) {
 	dir := t.TempDir()
@@ -24,7 +24,8 @@ func TestCmdInit_NonInteractive(t *testing.T) {
 	setupTemplates(dir)
 
 	exit := cmdInit([]string{"--yes"})
-	if exit != 0 {		t.Fatalf("cmdInit --yes exited %d, want 0", exit)
+	if exit != 0 {
+		t.Fatalf("cmdInit --yes exited %d, want 0", exit)
 	}
 
 	data, err := os.ReadFile(configPath)
@@ -64,7 +65,8 @@ func TestCmdInit_UIBearingFlag(t *testing.T) {
 	setupTemplates(dir)
 
 	exit := cmdInit([]string{"--yes", "--ui-bearing"})
-	if exit != 0 {		t.Fatalf("cmdInit --yes --ui-bearing exited %d, want 0", exit)
+	if exit != 0 {
+		t.Fatalf("cmdInit --yes --ui-bearing exited %d, want 0", exit)
 	}
 
 	data, err := os.ReadFile(configPath)
@@ -112,7 +114,8 @@ func TestCmdInit_UIBearingOutput(t *testing.T) {
 	setupTemplates(dir)
 
 	exit := cmdInit([]string{"--yes", "--ui-bearing"})
-	if exit != 0 {		t.Fatalf("cmdInit --yes --ui-bearing exited %d, want 0", exit)
+	if exit != 0 {
+		t.Fatalf("cmdInit --yes --ui-bearing exited %d, want 0", exit)
 	}
 
 	data, err := os.ReadFile(configPath)
@@ -124,6 +127,7 @@ func TestCmdInit_UIBearingOutput(t *testing.T) {
 		t.Error("config should contain ui_bearing key")
 	}
 }
+
 // TestCmdInit_UIBearing_ValidateFailClosed verifies that after sworn init --yes --ui-bearing
 // the written config triggers Validate() to return ErrNoDesignSystem — proving the system
 // actually fails closed when ui_bearing is true without a design_system declaration.
@@ -141,7 +145,8 @@ func TestCmdInit_UIBearing_ValidateFailClosed(t *testing.T) {
 	setupTemplates(dir)
 
 	exit := cmdInit([]string{"--yes", "--ui-bearing"})
-	if exit != 0 {		t.Fatalf("cmdInit --yes --ui-bearing exited %d, want 0", exit)
+	if exit != 0 {
+		t.Fatalf("cmdInit --yes --ui-bearing exited %d, want 0", exit)
 	}
 
 	// Load the written config via config.Load() (real load path)

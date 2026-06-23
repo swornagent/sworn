@@ -21,19 +21,21 @@ import (
 
 	"github.com/swornagent/sworn/internal/style"
 )
+
 // Characteristic is a 29148 quality characteristic for requirements.
 type Characteristic string
 
 const (
-	CharSingular     Characteristic = "singular"
-	CharUnambiguous  Characteristic = "unambiguous"
-	CharAmbiguous    Characteristic = "ambiguous"
-	CharComplete     Characteristic = "complete"
-	CharConsistent   Characteristic = "consistent"
-	CharFeasible     Characteristic = "feasible"
-	CharVerifiable   Characteristic = "verifiable"
-	CharNecessary    Characteristic = "necessary"
+	CharSingular    Characteristic = "singular"
+	CharUnambiguous Characteristic = "unambiguous"
+	CharAmbiguous   Characteristic = "ambiguous"
+	CharComplete    Characteristic = "complete"
+	CharConsistent  Characteristic = "consistent"
+	CharFeasible    Characteristic = "feasible"
+	CharVerifiable  Characteristic = "verifiable"
+	CharNecessary   Characteristic = "necessary"
 )
+
 // AllCharacteristics lists the seven quality characteristics in definition order.
 var AllCharacteristics = []Characteristic{
 	CharSingular,
@@ -44,6 +46,7 @@ var AllCharacteristics = []Characteristic{
 	CharVerifiable,
 	CharNecessary,
 }
+
 // Violation records a characteristic breach for one acceptance criterion.
 type Violation struct {
 	SliceID        string
@@ -293,7 +296,7 @@ func parseGrades(reply string, acs []AC) ([]Grade, error) {
 	}
 
 	// Parse result lines after ## RESULTS.
-	resultMap := make(map[string]bool)   // "sliceID:index" -> passed
+	resultMap := make(map[string]bool)         // "sliceID:index" -> passed
 	violationMap := make(map[string]Violation) // "sliceID:index" -> violation
 
 	for i := resultsIdx + 1; i < len(lines); i++ {
@@ -405,7 +408,7 @@ func Print(report Report) string {
 	}
 
 	fmt.Fprint(&b, style.Accent(fmt.Sprintf("Total ACs: %d | Passed: %d | Failed: %d",
-			report.TotalACs, report.PassedACs, report.FailedACs))+"\n\n")
+		report.TotalACs, report.PassedACs, report.FailedACs))+"\n\n")
 
 	if report.FreshContext {
 		fmt.Fprintf(&b, "Verifier mode: fresh-context (requirements-verifier prompt)\n\n")

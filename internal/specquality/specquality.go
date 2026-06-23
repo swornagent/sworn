@@ -186,7 +186,7 @@ func evaluateSlice(releaseDir, sliceID string, threshold float64) SliceResult {
 // Each operator returns a mutated version of the input string, or "" if
 // this operator does not apply.
 var mutationOperators = []struct {
-	Name string
+	Name  string
 	Apply func(string) string
 }{
 	{"flip_exit_code", mutateFlipExitCode},
@@ -602,7 +602,7 @@ func parseExamples(specPath string) []Example {
 				continue
 			}
 		}
-	}	// Save last example.
+	} // Save last example.
 	if current.Name != "" {
 		examples = append(examples, current)
 	}

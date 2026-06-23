@@ -19,10 +19,11 @@ import (
 // asserted, and mocks-off asserted.
 //
 // Returns exit codes:
-//   0  — all touched journeys have complete, passing human attestations
-//   1  — one or more journeys are un-walked, incomplete, or failed
-//   2  — unrecoverable error (I/O or parse failure)
-//   64 — usage error
+//
+//	0  — all touched journeys have complete, passing human attestations
+//	1  — one or more journeys are un-walked, incomplete, or failed
+//	2  — unrecoverable error (I/O or parse failure)
+//	64 — usage error
 func cmdShip(args []string) int {
 	fs := flag.NewFlagSet("ship", flag.ExitOnError)
 	_ = fs.Parse(args)

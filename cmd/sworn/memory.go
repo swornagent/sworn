@@ -11,6 +11,7 @@ import (
 	"github.com/swornagent/sworn/internal/memory"
 	"github.com/swornagent/sworn/internal/style"
 )
+
 // cmdMemory dispatches the "sworn memory" command tree.
 func cmdMemory(args []string) int {
 	fs := flag.NewFlagSet("memory", flag.ExitOnError)
@@ -26,7 +27,8 @@ usage:
 
 See 'sworn memory <command> --help' for details.
 `)
-			return 64	}
+		return 64
+	}
 
 	switch fs.Arg(0) {
 	case "status":
@@ -230,6 +232,7 @@ func printHumanResults(results []memory.SearchResult) int {
 	}
 	return 0
 }
+
 // apiKeyStatus returns "<set>" or "<not set>" for the env var named by key.
 // The resolved value is never printed or logged.
 func apiKeyStatus(key string) string {
