@@ -481,7 +481,8 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S57-oracle-reader` | T17 | `sworn board` reads every slice's authoritative status.json from git refs (track branch > release-wt > worktree), ownership-resolved — the honest board reader the router/TUI/rollup read through | planned | [spec](./S57-oracle-reader/spec.md) |
 | `S58-slice-router` | T17 | `sworn route <slice> <release>` computes the next command purely from committed status.json — the deterministic captain-route.sh port (state machine + design-review/Gate-re-entry/merge) | planned | [spec](./S58-slice-router/spec.md) |
 | `S59-scheduler-relayer` | T17 | `sworn run --parallel` workers poll the router each step (poll-and-route) instead of a static slice list — resumable, dynamic; keeps dependency resolution + worktree isolation + supervisor ownership | planned | [spec](./S59-scheduler-relayer/spec.md) |
-| `S60-init-ui-bearing-fix` | T18 | `sworn init` no longer prompts for design tokens / component library in a non-UI-bearing repo; design-system flow gated on `--ui-bearing`; drops the always-true `UIBearing` write | verified | [spec](./S60-init-ui-bearing-fix/spec.md) || `S61-cli-output-styling` | T18 | shared zero-dep `internal/style` ANSI palette gives premium, consistent, TTY/`NO_COLOR`-aware colour across every command + report renderer; plain output byte-identical | planned | [spec](./S61-cli-output-styling/spec.md) |
+| `S60-init-ui-bearing-fix` | T18 | `sworn init` no longer prompts for design tokens / component library in a non-UI-bearing repo; design-system flow gated on `--ui-bearing`; drops the always-true `UIBearing` write | verified | [spec](./S60-init-ui-bearing-fix/spec.md) |
+| `S61-cli-output-styling` | T18 | shared zero-dep `internal/style` ANSI palette gives premium, consistent, TTY/`NO_COLOR`-aware colour across every command + report renderer; plain output byte-identical | failed_verification | [spec](./S61-cli-output-styling/spec.md) |
 ## Aggregate state
 
 > **STALE — the board oracle (`release-board-status.sh --json`) is authoritative; run it for live
@@ -511,6 +512,29 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 
 **Tracks:** Planned: 5 / In progress: 3 / Merged: 9  *(oracle read 2026-06-23; T18 now in_progress, T12 merge recorded — board moving under coach loop)*
 > Merged (9): T1, T2, T3, T4, T7, T8, T9, T11, T15. In progress (3): T5, T14, T18. Planned (5 per oracle): T6, T10, T12, T16, T17.## Recent activity
+
+### 2026-06-24 — slice `S61-cli-output-styling` → failed_verification
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs)
+- **Verdict**: FAIL — 3 violations.
+  - AC3: `sworn help` emits 0 ANSI escapes with `SWORN_FORCE_COLOR=1` — `usage()`
+    (cmd/sworn/main.go:96-162) uses no `style.*` helpers; spec requires
+    `sworn version|help|top` to emit ANSI under force-color. `sworn version` (2)
+    and `sworn top <release>` (2) emit ANSI; `sworn help` emits 0.
+  - Gate 2: `cmd/sworn/init.go` is a planned touchpoint but NOT changed; init.go
+    has 26 user-facing `fmt.Print*` stdout calls with no `style` import. Proof
+    "Divergence from plan" falsely claims init.go "writes only to stderr."
+  - Gate 4: proof.md "Reachability artefact" has no terminal transcript showing
+    the `SWORN_FORCE_COLOR=1` / `NO_COLOR=1` smoke runs the spec Required tests
+    section explicitly demands.
+- **Passed**: Gate 1 (style imported by 9 cmd + 7 renderer files), Gate 3
+  (style_test.go green; pre-existing TestCmdRun_Parallel fails on base too —
+  environmental), Gate 5 (no deferral markers), Gate 6 (proof files match diff;
+  AC1/AC2/AC4/AC5/AC6 satisfied). Drift gate: forward-merged release-wt (S49
+  docs-only); spec acceptance checks identical HEAD vs release-wt.
+- **State**: S61 → failed_verification. Next: re-open `/implement-slice
+  S61-cli-output-styling 2026-06-19-safe-parallelism` in a fresh session to
+  address the 3 numbered violations.
 
 ### 2026-07-08 — track `T7-mcp-extensions` merged to release-wt (commit 746fe17)
 

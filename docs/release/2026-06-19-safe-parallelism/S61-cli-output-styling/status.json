@@ -3,10 +3,10 @@
   "slice_id": "S61-cli-output-styling",
   "release": "2026-06-19-safe-parallelism",
   "track": "T18-cli-polish",
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-23T00:00:00Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-24T00:00:00Z",
   "start_commit": "0e3dddfaa5718c8e84f3eb07e13503572a682b2c",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S61-cli-output-styling/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S61-cli-output-styling/proof.md",
@@ -76,11 +76,15 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
+    "result": "fail",
+    "verifier_session_id": "fresh-context-2026-06-24",
+    "verifier_verdict_at": "2026-06-24T00:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "AC3: sworn help emits 0 ANSI escapes with SWORN_FORCE_COLOR=1 — usage() (cmd/sworn/main.go:96-162) uses no style helpers; spec requires sworn version|help|top to emit ANSI under force-color",
+      "Gate 2: cmd/sworn/init.go is a planned touchpoint but NOT in the diff; init.go has 26 fmt.Print* stdout calls with no style import; proof 'Divergence from plan' falsely claims init.go 'writes only to stderr'",
+      "Gate 4: proof.md 'Reachability artefact' contains no terminal transcript showing SWORN_FORCE_COLOR=1 sworn version|help|top ANSI output + NO_COLOR=1 zero-escape runs (spec Required tests explicitly demands this transcript)"
+    ]
   },
   "design_decisions": [
     {
