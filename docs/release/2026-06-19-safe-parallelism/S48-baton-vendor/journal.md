@@ -62,3 +62,23 @@ No spec defect — the spec is correct as written. The implementer must either c
 Proposed spec.md amendment: None. The spec contract is intact; this is an implementation/working-tree hygiene fault.
 
 Next step: `/replan-release 2026-06-19-safe-parallelism` — the planner routes the implementer to clean up the working tree, then re-enters verification.
+
+### 2026-07-08 — Verifier session 2: PASS
+
+PASS
+
+Slice: `S48-baton-vendor`
+Verified against: `ec7c2f046e4e3ba091c2c43cee09589f1f1acd48`
+Verifier session: `fresh, artefact-only`
+
+All six gates passed:
+- Gate 1: `sworn baton vendor` entry point wired via self-registration in cmd/sworn/baton.go init(); reachable from CLI.
+- Gate 2: Planned touchpoints (internal/baton/*, cmd/sworn/baton.go) match actual changed files in S48 commit; vendored content updates are expected write targets.
+- Gate 3: Required tests exist (transform_test.go, vendor_test.go) and exercise integration point; re-ran `go test -race ./internal/baton/...` (PASS); slice-specific tests in cmd/sworn pass when filtered.
+- Gate 4: Reachability artefact (`sworn baton vendor --check` diff) proves the user path; transform replaces all script refs.
+- Gate 5: No silent deferrals in implementation code (grep on Go files clean; matches in vendored docs are protocol content).
+- Gate 6: All "Delivered" items have evidence references matching live state.
+
+Open deferral (network fetch) is Rule-2 surfaced in proof.md with why + tracking + acknowledgement.
+
+Next step: `/implement-slice S49-baton-version 2026-06-19-safe-parallelism` (next slice in T14-baton-integration track).
