@@ -81,3 +81,31 @@
 - **Removed false deferral**: prior proof.md "Not delivered" falsely claimed "`sworn version` and `sworn help` command registration" was deferred to T15 — `sworn help` now emits ANSI (32 escapes under force-color), so this is no longer accurate. Removed.
 - **Removed false divergence claim**: prior proof.md "Divergence from plan" falsely claimed init.go "writes only to stderr" — it writes to stdout, unstyled. Now styled; claim removed and replaced with accurate audit.
 - **State**: S61 → implemented (NOT verified — fresh verifier decides per Rule 7).
+
+## 2026-06-24 — Verifier verdicts received
+
+### Verifier verdict — PASS (fresh context, re-entry round)
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs — spec.md + proof.md + status.json + live repo state)
+- **Verdict**: PASS — all six gates satisfied; all three prior violations genuinely resolved.
+- **Verified against**: `af0a0ce08fc6577cbc67e0f3bd835afb300f19f6` (track branch HEAD)
+- **Gates checked**:
+  - **Gate 1 (User-reachable outcome)**: `internal/style` imported by 18 production files (11 cmd/sworn + 7 renderers), not only its own test. Reachable through CLI dispatch.
+  - **Gate 2 (Planned touchpoints vs diff)**: 11 cmd files + 7 renderers + style package in the diff. 10 planned cmd files not in diff (run/reqverify/reqvalidate/designfit/designaudit/specquality/induction/login/mcp/verify) — all verified by inspection to either delegate stdout to a styled renderer `Print()` (5 files) or write only to stderr / JSON / MCP-transport (5 files). No silent deferrals. The prior false "writes only to stderr" claim for init.go is removed.
+  - **Gate 3 (Required tests)**: `internal/style/style_test.go` green (10 test functions, all AC1 semantics). `go test ./cmd/sworn/...` = 117 PASS / 1 FAIL (`TestCmdRun_Parallel` — confirmed pre-existing on release-wt base, exit 2 "implementer model not configured", environmental, out of scope). All 7 renderer packages green.
+  - **Gate 4 (Reachability artefact)**: proof.md contains a real terminal transcript with the 6 smoke runs; escape counts (version 2/0, help 32/0, top 2/0) match my independent live binary runs exactly.
+  - **Gate 5 (No silent deferrals)**: No TODO/FIXME/deferred/placeholder markers on contract surfaces. One grep hit ("later to set it up") is pre-existing user-facing prose, not a deferral marker. TUI out-of-scope deferral carries full Rule 2 triple.
+  - **Gate 6 (Claimed scope matches implemented scope)**: proof.md "Files changed" is a byte-perfect match to live `git diff --name-only start_commit`. All "Delivered" evidence refs point to real files. "Not delivered" = TUI only (valid out-of-scope). "Divergence from plan" present and accurate; the false init.go claim is gone.
+- **AC evidence (live binary, my own runs)**:
+  - AC1: 11 helpers in style.go; Enabled() false under NO_COLOR, true under SWORN_FORCE_COLOR, identity in disabled mode — all tested.
+  - AC2: `NO_COLOR=1 sworn help` byte-identical to base (sha256 `81c36dcf...`); `NO_COLOR=1 sworn init` byte-identical (sha256 `d5b8d0d4...`).
+  - AC3: `SWORN_FORCE_COLOR=1` escape counts — version 2, help 32 (stderr-merged; usage() writes to os.Stderr at main.go:200), top 2; all >0. `NO_COLOR=1` — 0, 0, 0; all zero.
+  - AC4: pad-then-style confirmed — init.go:124,136 `style.Accent(fmt.Sprintf("%-*s", labelWidth, c.label))`; ears.go:341 `style.Accent(fmt.Sprintf("%-20s", string(p)))`.
+  - AC5: `git diff release-wt...HEAD -- go.mod` empty; style.go imports only `os`.
+  - AC6: `go build ./...` exit 0; `go vet ./...` exit 0.
+- **Prior violations resolved**:
+  1. `sworn help` 0 → 32 escapes under force-color (usage() now styled strings.Builder).
+  2. init.go now imports style, 6 escapes under force-color (was 0 on base), byte-identical plain output.
+  3. proof.md Reachability artefact now contains the demanded terminal transcript.
+- **Minor non-blocking observation**: `gofmt -l` flags 11 changed files (style.go missing trailing newline, bench.go `)+` spacing, etc.) — cosmetic formatting nits, NOT a spec AC violation (AC6 is build+vet only, both pass). proof.md's "gofmt clean" claim covers 3 files it named but is inaccurate for 11 others. A `gofmt -w .` would fix without touching logic; does not block merge.
+- **State**: S61 → verified.

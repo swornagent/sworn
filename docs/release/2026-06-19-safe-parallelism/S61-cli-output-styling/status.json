@@ -3,10 +3,10 @@
   "slice_id": "S61-cli-output-styling",
   "release": "2026-06-19-safe-parallelism",
   "track": "T18-cli-polish",
-  "state": "implemented",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-24T00:50:00Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-24T01:30:00Z",
   "start_commit": "0e3dddfaa5718c8e84f3eb07e13503572a682b2c",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S61-cli-output-styling/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S61-cli-output-styling/proof.md",
@@ -79,15 +79,21 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "",
+    "result": "pass",
     "verifier_session_id": "fresh-context-2026-06-24",
-    "verifier_verdict_at": "2026-06-24T00:00:00Z",
+    "verifier_verdict_at": "2026-06-24T01:30:00Z",
     "verifier_was_fresh_context": true,
     "rework_notes": "Prior round failed_verification with 3 violations: (1) sworn help emitted 0 ANSI under SWORN_FORCE_COLOR=1 because usage() used no style helpers; (2) cmd/sworn/init.go was a planned touchpoint but never styled (26 fmt.Print* stdout calls); (3) proof.md Reachability artefact had no terminal transcript. Re-entry addresses all three: styling usage() in main.go, styling init.go user-facing stdout, and regenerating proof.md with a live terminal transcript.",
     "prior_violations": [
       "AC3: sworn help emits 0 ANSI escapes with SWORN_FORCE_COLOR=1 — usage() (cmd/sworn/main.go:96-162) uses no style helpers; spec requires sworn version|help|top to emit ANSI under force-color",
       "Gate 2: cmd/sworn/init.go is a planned touchpoint but NOT in the diff; init.go has 26 fmt.Print* stdout calls with no style import; proof 'Divergence from plan' falsely claims init.go 'writes only to stderr'",
       "Gate 4: proof.md 'Reachability artefact' contains no terminal transcript showing SWORN_FORCE_COLOR=1 sworn version|help|top ANSI output + NO_COLOR=1 zero-escape runs (spec Required tests explicitly demands this transcript)"
+    ],
+    "verifier_observations": [
+      "PASS — all six gates satisfied. All three prior violations genuinely resolved: (1) sworn help now emits 32 ANSI escapes under SWORN_FORCE_COLOR=1 (usage() refactored to styled strings.Builder writing to os.Stderr); (2) init.go now imports internal/style and emits 6 escapes under force-color (was 0), plain output byte-identical (sha256 d5b8d0d4... matches base); (3) proof.md Reachability artefact contains a real terminal transcript with escape counts matching live binary runs (version 2/0, help 32/0, top 2/0).",
+      "AC1: 11 style helpers present, Enabled() semantics tested (NoColor/ForceColor/DisabledReturnsPlain). AC2: sworn help + init byte-identical to base under NO_COLOR (help sha 81c36dcf...). AC3: version 2/0, help 32/0, top 2/0 (force/no-color). AC4: pad-then-style confirmed in init.go:124,136 and ears.go:341. AC5: go.mod unchanged. AC6: go build + go vet both exit 0.",
+      "TestCmdRun_Parallel fails (117/118 cmd/sworn tests pass) — confirmed pre-existing on release-wt base commit (same exit 2, 'implementer model not configured'), environmental, out of slice scope, excluded from verdict.",
+      "Minor non-blocking observation: gofmt -l flags 11 changed files (e.g. style.go missing trailing newline, bench.go )+ spacing). These are cosmetic formatting nits, not a spec AC violation (AC6 is build+vet only, both pass). proof.md's 'gofmt clean' claim is accurate for the 3 files it checked (main.go/init.go/telemetry.go) but inaccurate for 11 others. A `gofmt -w .` would fix without touching logic; does not block merge."
     ]
   },
   "design_decisions": [

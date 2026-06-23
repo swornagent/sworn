@@ -482,7 +482,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S58-slice-router` | T17 | `sworn route <slice> <release>` computes the next command purely from committed status.json — the deterministic captain-route.sh port (state machine + design-review/Gate-re-entry/merge) | planned | [spec](./S58-slice-router/spec.md) |
 | `S59-scheduler-relayer` | T17 | `sworn run --parallel` workers poll the router each step (poll-and-route) instead of a static slice list — resumable, dynamic; keeps dependency resolution + worktree isolation + supervisor ownership | planned | [spec](./S59-scheduler-relayer/spec.md) |
 | `S60-init-ui-bearing-fix` | T18 | `sworn init` no longer prompts for design tokens / component library in a non-UI-bearing repo; design-system flow gated on `--ui-bearing`; drops the always-true `UIBearing` write | verified | [spec](./S60-init-ui-bearing-fix/spec.md) |
-| `S61-cli-output-styling` | T18 | shared zero-dep `internal/style` ANSI palette gives premium, consistent, TTY/`NO_COLOR`-aware colour across every command + report renderer; plain output byte-identical | failed_verification | [spec](./S61-cli-output-styling/spec.md) |
+| `S61-cli-output-styling` | T18 | shared zero-dep `internal/style` ANSI palette gives premium, consistent, TTY/`NO_COLOR`-aware colour across every command + report renderer; plain output byte-identical | verified | [spec](./S61-cli-output-styling/spec.md) |
 ## Aggregate state
 
 > **STALE — the board oracle (`release-board-status.sh --json`) is authoritative; run it for live
@@ -506,12 +506,26 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 - In progress: 0
 - Implemented: 0
 - Design review: 1
-- Verified: 28
-- Failed verification: 1
+- Verified: 29
+- Failed verification: 0
 - Deferred: 0
 
 **Tracks:** Planned: 5 / In progress: 3 / Merged: 9  *(oracle read 2026-06-23; T18 now in_progress, T12 merge recorded — board moving under coach loop)*
-> Merged (9): T1, T2, T3, T4, T7, T8, T9, T11, T15. In progress (3): T5, T14, T18. Planned (5 per oracle): T6, T10, T12, T16, T17.## Recent activity
+> Merged (9): T1, T2, T3, T4, T7, T8, T9, T11, T15. In progress (3): T5, T14, T18. Planned (5 per oracle): T6, T10, T12, T16, T17.
+
+## Recent activity
+
+### 2026-06-24 — slice `S61-cli-output-styling` → verified (re-entry PASS)
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs — re-entry round after prior FAIL)
+- **Verdict**: PASS — all six gates satisfied; all three prior violations genuinely resolved.
+  - Violation 1 (AC3, `sworn help` 0 escapes): `usage()` in `cmd/sworn/main.go` refactored to a styled `strings.Builder` (Heading/Bold/Accent) writing to `os.Stderr`; force-color escape count 0 → 32.
+  - Violation 2 (Gate 2, init.go never styled): `cmd/sworn/init.go` now imports `internal/style`; scan header, Changes/No-action headings, markers, padded labels (pad-then-style), created/updated/skipped tokens, prompts, Aborted, Done all styled. Force-color escapes 0 → 6; plain output byte-identical (sha256 `d5b8d0d4...`). The false "writes only to stderr" claim removed from proof.
+  - Violation 3 (Gate 4, no transcript): proof.md "Reachability artefact" now contains a real terminal transcript with the 6 smoke runs and escape counts matching live binary runs (version 2/0, help 32/0, top 2/0).
+- **AC evidence (verifier's own live binary runs)**: AC1 11 helpers + Enabled() semantics tested; AC2 help/init byte-identical to base under NO_COLOR; AC3 version 2/0, help 32/0, top 2/0; AC4 pad-then-style in init.go:124,136 + ears.go:341; AC5 go.mod unchanged; AC6 build+vet exit 0.
+- **Pre-existing failure excluded**: `TestCmdRun_Parallel` (117/118 cmd/sworn tests pass) — confirmed failing identically on release-wt base commit (exit 2, "implementer model not configured"), environmental, out of slice scope.
+- **Minor non-blocking observation**: `gofmt -l` flags 11 changed files (cosmetic — style.go trailing newline, bench.go `)+` spacing). Not a spec AC violation (AC6 = build+vet, both pass). proof.md "gofmt clean" claim accurate for 3 named files but not 11 others. A `gofmt -w .` fixes without logic change; does not block merge.
+- **State**: S61 → verified. T18-cli-polish track: S60 verified + S61 verified → track complete, ready for `/merge-track T18-cli-polish`.
 
 ### 2026-06-24 — slice `S61-cli-output-styling` → failed_verification
 
