@@ -9,9 +9,9 @@ import (
 	"strings"
 
 	"github.com/swornagent/sworn/internal/adopt"
+	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/prompt"
 )
-
 // checkLevel classifies a doctor check result.
 type checkLevel int
 
@@ -384,19 +384,19 @@ func checkEmbeddedPrompts() []checkResult {
 		})
 	}
 
-	// Check VERSION.txt.
-	v := prompt.BatonVersion()
+	// Check VERSION.txt — the embedded prompt version (tightened: ERROR on non-semver).
+	v := baton.Version()
 	if v == "" {
 		results = append(results, checkResult{
 			level:  levelError,
 			name:   "baton/VERSION.txt",
 			detail: "version file empty or unparseable",
 		})
-	} else if v == "0.0.0" || strings.HasSuffix(v, "-dev") {
+	} else if !baton.IsSemverTag(v) {
 		results = append(results, checkResult{
-			level:  levelWarn,
+			level:  levelError,
 			name:   "baton/VERSION.txt",
-			detail: fmt.Sprintf("version=%s — not yet set; run 'sworn doctor --set-version <v>'", v),
+			detail: fmt.Sprintf("version=%s — not a valid semver tag (must be vMAJOR.MINOR.PATCH)", v),
 		})
 	} else {
 		results = append(results, checkResult{
@@ -406,8 +406,23 @@ func checkEmbeddedPrompts() []checkResult {
 		})
 	}
 
-	return results
-}
+	// Check baton-protocol pin is a semver tag, not a SHA (fail-closed).
+	pin := baton.Version()
+	if !baton.IsSemverTag(pin) {
+		results = append(results, checkResult{
+			level:  levelError,
+			name:   "baton/VERSION (baton-protocol)",
+			detail: fmt.Sprintf("pin=%s — [ERROR] baton-protocol must be a semver tag (vMAJOR.MINOR.PATCH), not a SHA", pin),
+		})
+	} else {
+		results = append(results, checkResult{
+			level:  levelOK,
+			name:   "baton/VERSION (baton-protocol)",
+			detail: fmt.Sprintf("on Baton %s", pin),
+		})
+	}
+
+	return results}
 
 // checkRepoArtifacts checks for legacy Baton artifacts in the repo.
 func checkRepoArtifacts(repoRoot string) []checkResult {
