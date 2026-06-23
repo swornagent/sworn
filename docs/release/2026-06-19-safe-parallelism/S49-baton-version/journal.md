@@ -1,7 +1,42 @@
 # Journal — S49-baton-version
 
-## 2026-07-09: Implementation
+## 2026-07-09b: Re-implementation — bump pin to v0.4.0
 
+### State transition: failed_verification → in_progress → implemented
+
+Re-entered the slice because the planner routed it to `failed_verification` after
+Baton v0.4.0 was published + tagged (commit `5ac5834fa1ee07b55a3e670d14dc7d9e63e84d84`).
+
+### Changes
+
+- `internal/adopt/baton/VERSION`: `baton-protocol: v0.3.0` → `v0.4.0`; updated
+  `vendored:` to 2026-07-09; added `rules-added: 11-process-global-mutation`
+- `internal/prompt/VERSION.txt`: `v0.3.0` → `v0.4.0`
+- `internal/baton/version.go`: doc comment updated to v0.4.0
+- `internal/prompt/prompt.go`: BatonVersion doc comment updated to v0.4.0; fixed
+  Edit-tool newline collapse that fused comment+function on one line
+- `proof.md`: regenerated from live state with corrected `Files changed` (15 files,
+  includes S11 forward-merge artefacts)
+
+### Test results
+
+All S49-specific tests pass. Pre-existing failures unchanged (6 prompt heading
+tests from T12, TestCmdRun_Parallel).
+
+### Reachability
+
+- `sworn version` → `baton-protocol on Baton v0.4.0`
+- `sworn doctor` → `[OK] baton/VERSION.txt version=v0.4.0`, `[OK] baton/VERSION (baton-protocol) on Baton v0.4.0`, 11/11 rule files, exit 0
+
+### Skeptic panel
+
+Skipped — runtime does not support subagent dispatch.
+
+### Deferrals
+
+None.
+
+## 2026-07-09: Implementation
 ### State transition: design_review → in_progress
 
 Coach-approved design (3 pins, all addressed):
