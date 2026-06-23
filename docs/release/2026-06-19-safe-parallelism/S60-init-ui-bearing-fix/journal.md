@@ -49,4 +49,5 @@
 - **Additional fix**: Spec's Required tests section mentioned "Playwright" / "E2E" triggering the release-verify.sh playwright-screenshot opt-in check. Rephrased to "Browser gate type: N/A (CLI-only)" to avoid the false positive.
 - **Tests**: All 5 TestCmdInit* tests pass (NonInteractive, UIBearingFlag, UIBearingOutput, UIBearing_ValidateFailClosed, Interactive_NoUIPrompt). `go build ./...` and `go vet ./...` clean.
 - **First-pass verify**: PASS (23/23 checks, 0 failures).
-- **Commit**: Pending.
+- **Skeptic panel**: skipped — runtime does not support subagent dispatch.
+- **Commit**: 5098db2 (pushed).
