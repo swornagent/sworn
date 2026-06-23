@@ -61,6 +61,12 @@ func (a *Anthropic) Verify(ctx context.Context, systemPrompt, userPayload string
 		if code, ok := anthropicStatusCode(err); ok {
 			return "", 0, NewProviderError(code, "anthropic", a.Model, nil)
 		}
+		// Fallback: a non-HTTP error (DNS failure, TLS handshake, connection
+		// refused, etc.). This error is not a *model.Error — IsTransient in
+		// errors.go returns true for unknown error types (see IsTransient:
+		// "unknown errors are assumed transient"), so the caller's retry
+		// policy will treat this as transient and retry. We preserve the
+		// original error message rather than wrapping with NewProviderError.
 		return "", 0, fmt.Errorf("model: anthropic dispatch: %w", err)
 	}
 
