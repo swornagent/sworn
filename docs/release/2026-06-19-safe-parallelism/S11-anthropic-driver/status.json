@@ -3,10 +3,10 @@
   "slice_id": "S11-anthropic-driver",
   "release": "2026-06-19-safe-parallelism",
   "track": "T5-providers",
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-23T12:42:54Z",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-23T21:02:23Z",
   "start_commit": "a72f436",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/proof.md",
@@ -18,30 +18,19 @@
     "go.mod",
     "go.sum"
   ],
-  "actual_files": [
-    "internal/model/anthropic.go",
-    "internal/model/anthropic_test.go",
-    "internal/model/provider.go",
-    "internal/model/provider_test.go",
-    "go.mod",
-    "go.sum"
-  ],
+  "actual_files": [],
   "test_commands": [
     "go test ./internal/model/... -run Anthropic",
     "go test ./internal/model/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [
-    "internal/model/anthropic_test.go \u2014 TestAnthropicVerify_ReturnsTextBlock (unit \u2014 full Verify() path through SDK)",
-    "internal/model/anthropic_test.go \u2014 TestAnthropicNewClient_RoutedCorrectly (router \u2014 NewClient dispatches to Anthropic)"
-  ],
+  "reachability_artifacts": [],
   "open_deferrals": [],
   "verification": {
-    "result": "blocked",
+    "result": "pending",
     "verifier_session_id": null,
-    "verifier_verdict_at": "2026-06-23T12:58:25Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      "forward-merge of release-wt/2026-06-19-safe-parallelism into track/2026-06-19-safe-parallelism/T5-providers conflicted on cmd/sworn/run.go (code file) — the touchpoint matrix was wrong (track-mode invariant 4). Route to /replan-release 2026-06-19-safe-parallelism to re-group. No spec amendment proposed — this is a process invariant violation (touchpoint collision), not a defect in the slice contract. The planner must correct the release plan / touchpoint matrix."
-    ]
-  }}
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}
