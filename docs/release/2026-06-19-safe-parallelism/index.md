@@ -45,7 +45,8 @@ tracks:
     depends_on: [T3-commercial, T4-mcp]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T7-mcp-extensions
     worktree_branch: track/2026-06-19-safe-parallelism/T7-mcp-extensions
-    state: merged  - id: T8-memory
+    state: merged
+  - id: T8-memory
     slices: [S23-memory-config, S24-memory-engine, S25-memory-search, S40-memory-test-hygiene]
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T8-memory
@@ -74,7 +75,8 @@ tracks:
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T12-harness-hardening
     worktree_branch: track/2026-06-19-safe-parallelism/T12-harness-hardening
-    state: merged  - id: T13-sworn-role-parity
+    state: merged
+  - id: T13-sworn-role-parity
     slices: [S45-design-tldr, S46-captain-review, S47-orchestrator-recovery]
     depends_on: [T12-harness-hardening, T17-orchestration-core]
     worktree_path:

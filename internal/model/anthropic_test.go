@@ -137,6 +137,32 @@ func TestAnthropicNewClient_RoutedCorrectly(t *testing.T) {
 	}
 }
 
+// TestAnthropicVerify_NonHTTPErrorIsTransient confirms the fallback path in
+// Verify() for non-HTTP errors (DNS failure, TLS handshake, etc.) returns an
+// error that S44's retry policy treats as transient. This is the Pin 2
+// error-taxonomy gap covered by IsTransient's "unknown errors are assumed
+// transient" contract.
+func TestAnthropicVerify_NonHTTPErrorIsTransient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Force a non-HTTP error by returning JSON that the SDK cannot decode
+		// into the expected Message shape, producing an unclassified error that
+		// bypasses anthropicStatusCode's `": ` heuristic.
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error","message":"bad request"}}`))
+	}))
+	defer srv.Close()
+
+	a := newTestAnthropic(srv.URL, "claude-sonnet-4-6")
+	_, _, err := a.Verify(context.Background(), "be strict", "verify this diff")
+	if err == nil {
+		t.Fatal("want error, got nil")
+	}
+	if !IsTransient(err) {
+		t.Fatalf("expected non-HTTP Anthropic error to be transient, got %v", err)
+	}
+}
+
 // newTestAnthropic returns an Anthropic driver pointed at a test server.
 // Uses option.WithHTTPClient and option.WithBaseURL to avoid hitting the
 // real API.

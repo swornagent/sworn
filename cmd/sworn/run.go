@@ -15,7 +15,8 @@ import (
 	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/config"
 	"github.com/swornagent/sworn/internal/model"
-	"github.com/swornagent/sworn/internal/run")
+	"github.com/swornagent/sworn/internal/run"
+)
 
 // cmdRun implements the `sworn run` subcommand.
 //
@@ -130,9 +131,9 @@ func cmdRun(args []string) int {
 			printModelError(err)
 			fmt.Fprintf(os.Stderr, "sworn run: parallel: %v\n", err)
 			return 1
-			}
-			return 0
 		}
+		return 0
+	}
 	// ── Single-slice mode ──────────────────────────────────────────────
 	err = run.Run(context.Background(), run.Options{
 		Task:             *task,
@@ -151,6 +152,7 @@ func cmdRun(args []string) int {
 	}
 	return 0
 }
+
 // resolveImplementTimeout returns the per-attempt implement timeout from the
 // first available source, in precedence order:
 //
@@ -177,7 +179,7 @@ func resolveImplementTimeout(flagVal time.Duration, envVal string) time.Duration
 		}
 	}
 	return run.DefaultImplementTimeout
-}// parseEscalationFlag splits a comma-separated escalation models string into
+} // parseEscalationFlag splits a comma-separated escalation models string into
 // a []string. Returns nil when the flag is empty.
 func parseEscalationFlag(raw string) []string {
 	if raw == "" {
@@ -213,6 +215,7 @@ func openDefaultDB() (*sql.DB, error) {
 	db.SetMaxOpenConns(1)
 	return db, nil
 }
+
 // printModelError unwraps a *model.Error from err (via errors.As) and
 // prints its UserMessage to stderr. This gives the user actionable
 // guidance (e.g. "check the API key", "out of credits") instead of
