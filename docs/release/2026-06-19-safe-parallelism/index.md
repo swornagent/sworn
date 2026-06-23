@@ -82,7 +82,7 @@ tracks:
     worktree_branch: track/2026-06-19-safe-parallelism/T13-sworn-role-parity
     state: planned
   - id: T14-baton-integration
-    slices: [S48-baton-vendor, S49-baton-version, S50-baton-governance]
+    slices: [S48-baton-vendor, S49-baton-version, S50-baton-governance, S62-baton-upstream-source]
     depends_on: [T3-commercial, T15-cli-registry]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T14-baton-integration
     worktree_branch: track/2026-06-19-safe-parallelism/T14-baton-integration
@@ -152,7 +152,7 @@ tracks:
 | `T10-public-readiness` | S27 | all tracks (incl. T16) | `track/.../T10-public-readiness` | planned |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
 | `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | merged || `T13-sworn-role-parity` | S45 → S46 → S47 | T12 + T17 | `track/.../T13-sworn-role-parity` | planned |
-| `T14-baton-integration` | S48 → S49 → S50 | T3 + T15 | `track/.../T14-baton-integration` | planned |
+| `T14-baton-integration` | S48 → S49 → S50 → S62 | T3 + T15 | `track/.../T14-baton-integration` | in_progress |
 | `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged |
 | `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | planned |
 | `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | planned |
@@ -197,7 +197,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > tool-specific (`internal/designfit/`, `cmd/sworn/lint.go`) plus prompt files
 > (`captain.md`/`planner.md`/`verifier.md`) shared only with T10 — which depends on T12,
 > so those writes are sequential, not parallel.
-> `T14-baton-integration` (S48–S50) is likewise omitted from the columns: it `depends_on T3`
+> `T14-baton-integration` (S48–S50, **S62**) is likewise omitted from the columns: it `depends_on T3`
 > (it vendors+transforms into the embed S21 creates) so it starts only after T3 merges, in
 > Phase 3 parallel with T5/T7 — and it collides with neither. Its files are either **new
 > namespaces** (`internal/baton/*`, `cmd/sworn/baton.go`, `docs/adr/0006-baton-protocol-sync.md`,
@@ -207,6 +207,10 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > S22/T4, already merged — S49 adds a Baton-pin check) plus the documented-shared additive
 > `cmd/sworn/main.go`. T5 touches only `internal/model/**`+`go.mod`+`cmd/sworn/run.go`; T7
 > only `internal/mcp/**`+`internal/config/**` — disjoint from T14. No parallel collision.
+> **S62-baton-upstream-source** stays inside those same T14 namespaces: new `internal/baton/fetch.go`
+> + extends `internal/baton/source.go` + `cmd/sworn/baton.go` (all T14-owned), plus
+> `internal/adopt/baton/VERSION` (S49-owned, sequential via dep). No new collision; `depends_on
+> S48 + S49`. Implementation gated on the upstream Baton repo being synced + tagged (the lock target).
 > `T18-cli-polish` (S60–S61) is omitted from the columns: it is presentation-only and
 > serialised against everything it shares a file with. S60 touches only `cmd/sworn/init.go`
 > (owned by S08/T3, merged — sequential). S61 adds the new `internal/style/` namespace and
@@ -469,6 +473,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S48-baton-vendor` | T14 | `sworn baton vendor` — semver-pinned vendor of upstream Baton + bash→sworn transform over rules AND role-prompts (strips `release-verify.sh`/`release-board-status.sh`/`captain-memory-search.py`… → sworn-native commands); reproduces the sworn-native embed (subsumes the one-time scrub) | failed_verification | [spec](./S48-baton-vendor/spec.md) |
 | `S49-baton-version` | T14 | reconcile the Baton pin from a raw SHA to a **semver tag** across `VERSION`+`VERSION.txt`; `sworn version` reports "on Baton vX.Y.Z"; `sworn doctor` fails the pin if it's a SHA not a tag | planned | [spec](./S49-baton-version/spec.md) |
 | `S50-baton-governance` | T14 | `sworn baton diff` divergence check (embed vs upstream pin) + `docs/baton-governance.md` PR-up process note + ADR-0006; protocol changes found in sworn dev must PR upstream, never silently fork | planned | [spec](./S50-baton-governance/spec.md) |
+| `S62-baton-upstream-source` | T14 | `sworn baton vendor --upstream` fetches the version-locked Baton release from `github.com/sawy3r/baton` over stdlib HTTPS (codeload tar.gz), verified by tag + commit-SHA/digest, fail-closed — embed source-of-truth is the public repo at a pinned version, not a local install (issue #11) | planned | [spec](./S62-baton-upstream-source/spec.md) |
 | `S51-cli-command-registry` | T15 | command registry replaces the `cmd/sworn/main.go` dispatch switch; new subcommands self-register from their own file; `main.go` owned by one track — ends the recurring touchpoint collision | verified | [spec](./S51-cli-command-registry/spec.md) |
 | `S52-ledger-projection` | T16 | Projects every slice's verdict into an append-only `docs/ledger/verdicts.jsonl`; captures implementer model + attempt; backfills the whole board on first sync | planned | [spec](./S52-ledger-projection/spec.md) |
 | `S53-ledger-cli` | T16 | `sworn ledger sync` harvests the board; `sworn ledger report` shows pass-rate by model × slice-kind, attempts-to-pass, gate-failure histogram | planned | [spec](./S53-ledger-cli/spec.md) |
@@ -485,9 +490,13 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 
 > **STALE — the board oracle (`release-board-status.sh --json`) is authoritative; run it for live
 > counts.** This hand-maintained block predates the T16-verdict-ledger, T17-orchestration-core, and
-> T18-cli-polish additions (now **18 tracks, 67 slices**) and is not reconciled per-replan. Counts
-> below are a historical snapshot only. Live oracle at 2026-06-23: verified 40 / planned 24 /
-> in_progress 2 / implemented 1; tracks merged 8 / in_progress 4 / planned 6.
+> T18-cli-polish additions (now **18 tracks, 68 slices**) and is not reconciled per-replan. Counts
+> below are a historical snapshot only. The board is actively moving under the coach loop — run the
+> oracle. Live oracle at 2026-06-23 (pre-S62-commit): verified 42 / planned 22 / in_progress 1 /
+> implemented 2; tracks merged 8 / in_progress 4 / planned 5. +S62-baton-upstream-source (planned,
+> T14) → 68 slices / planned 23. S48-baton-vendor unblocked to implemented after the corrupt-vendor
+> revert; T12-harness-hardening merged to release-wt (dd3b622) though the oracle read may lag; T18
+> worktree materialised (in_progress).
 >
 > Reconciled from the board oracle (`release-board-status.sh --json`, authoritative) this
 > replan, 2026-07-03. **57 slices across 15 tracks.** Slice-table State column above
@@ -504,9 +513,29 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 - Failed verification: 1
 - Deferred: 0
 
-**Tracks:** Planned: 9 / In progress: 1 / Merged: 8
-> Merged (9): T1, T2, T3, T4, T8, T9, T11, T12, T15. In progress (3): T5, T7, T14. Planned (6): T6, T10, T13, T16, T17, T18.
+**Tracks:** Planned: 5 / In progress: 4 / Merged: 8  *(oracle read 2026-06-23; T18 now in_progress, T12 merge recorded — board moving under coach loop)*
+> Merged (8): T1, T2, T3, T4, T8, T9, T11, T15. In progress (4): T5, T7, T14, T18. Planned (5 per oracle): T6, T10, T12, T16, T17.
 ## Recent activity
+
+### 2026-06-23 — replan: add S62-baton-upstream-source (T14) + clear S48 BLOCKED
+
+- **Actor**: planner (human Brad + Claude)
+- **S48 unblocked**: the BLOCKED verdict was an operational dirty-tree verdict — a corrupt
+  `sworn baton vendor` run stubbed the embed (rules.md 1112→29 lines, 3,596 deletions),
+  auto-checkpointed onto T14's tip as `a29a33b`. Reverted via `reset --hard 924c07a`
+  (local-only commit, lossless), restoring the legitimate vendor output; cleared
+  `verification.result` blocked→pending so S48 re-enters verification (state stays
+  implemented). Root cause (the transform stubbing) remains for the implementer.
+- **New slice S62-baton-upstream-source** appended to **T14** (S48 → S49 → S50 → S62),
+  `depends_on S48 + S49`. Makes `sworn baton vendor --upstream` fetch the version-locked
+  Baton release from `github.com/sawy3r/baton` over **stdlib HTTPS tarball** (no git, no
+  dep, no ADR), verified by **tag + commit-SHA/digest, fail-closed**. The release-facing
+  "embed source-of-truth = public repo at a pinned, tested version, never a local install."
+  Tracking: issue #11. Stays inside T14's namespaces (`internal/baton/*`, `cmd/sworn/baton.go`);
+  no new touchpoint collision. **Implementation gated** on the Baton repo being synced to
+  canonical truth and **tagged** (the lock target).
+- Per-project test-config gap (canonical role-prompts stay project-agnostic; sworn binds
+  test commands per project at `sworn init`) captured for the next release as issue #13.
 
 ### 2026-07-07 — track `T12-harness-hardening` merged to release-wt (commit dd3b622)
 
