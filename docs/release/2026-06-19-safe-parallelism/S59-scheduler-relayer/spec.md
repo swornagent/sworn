@@ -52,6 +52,8 @@ S02b's `RunParallel` is a **plan-then-execute** static-DAG executor: it topologi
 - [ ] A `coach_decision` / `replan-release` router decision pauses that track and surfaces it (no auto-pass, no infinite loop) while other tracks continue.
 - [ ] `supervisor.Acquire`/`Release` still bracket every worker (normal + error paths); `go test -race ./internal/scheduler/... ./internal/run/...` passes with zero races.
 - [ ] Exit code 0 only when every track reaches terminal PASS; a paused/failed track yields non-zero.
+- [ ] **User-initiated pause/resume**: a cooperative pause signal (e.g. `sworn pause <release>`) is honoured at the next poll — the worker finishes the in-flight dispatch, persists committed state, and stops; `sworn resume <release>` (or re-running `sworn run`) continues from committed state. The pause/resume control is part of the engine (not the surface) so it is invokable identically from CLI, TUI, and the MCP run-control tools — see `internal-docs/decisions/2026-06-24-sworn-orchestration-surfaces-and-subscription-drivers.md`.
+- [ ] **Crash recovery**: SIGKILL-ing the process mid-dispatch and re-running resumes correctly — the router re-derives the next action purely from committed state (`in_progress → implement` resume, per S58); no slice strands `in_progress` forever and no work is double-applied.
 
 ## Required tests
 
