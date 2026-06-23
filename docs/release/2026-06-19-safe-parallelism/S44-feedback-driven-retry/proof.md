@@ -8,6 +8,8 @@ When `sworn run` retries a slice after a verifier FAIL, the next implement attem
 
 ```sh
 $ git diff --name-only 359fe6b..HEAD
+docs/release/2026-06-19-safe-parallelism/S44-feedback-driven-retry/proof.md
+docs/release/2026-06-19-safe-parallelism/S44-feedback-driven-retry/status.json
 internal/implement/implement.go
 internal/implement/implement_test.go
 internal/run/slice.go
@@ -16,11 +18,13 @@ internal/run/slice_test.go
 
 ```sh
 $ git diff --stat 359fe6b..HEAD
-internal/implement/implement.go      |  34 ++++-
-internal/implement/implement_test.go | 103 ++++++++++++---
-internal/run/slice.go                |  11 +-
-internal/run/slice_test.go           | 233 +++++++++++++++++++++++++++++++++-
-4 files changed, 351 insertions(+), 30 deletions(-)
+.../S44-feedback-driven-retry/proof.md   | 119 +++++++++++
+.../S44-feedback-driven-retry/status.json |  19 +-
+internal/implement/implement.go          |  34 ++-
+internal/implement/implement_test.go     | 103 ++++++--
+internal/run/slice.go                    |  11 +-
+internal/run/slice_test.go               | 233 ++++++++++++++++++-
+6 files changed, 470 insertions(+), 36 deletions(-)
 ```
 
 ## Test results
