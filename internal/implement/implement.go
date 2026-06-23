@@ -18,7 +18,8 @@ import (
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/reqverify"
-	"github.com/swornagent/sworn/internal/state")
+	"github.com/swornagent/sworn/internal/state"
+)
 
 // Run drives the implementer role for one slice:
 //  1. Read status.json; if design_review, transition to in_progress.
@@ -70,7 +71,8 @@ func Run(ctx context.Context, workspaceRoot, specPath string, a agent.Agent) err
 		if err := state.Write(statusPath, st); err != nil {
 			return fmt.Errorf("implement: write status: %w", err)
 		}
-	} else if st.State != state.InProgress && st.State != state.FailedVerification {		return fmt.Errorf("implement: cannot run from state %q", st.State)
+	} else if st.State != state.InProgress && st.State != state.FailedVerification {
+		return fmt.Errorf("implement: cannot run from state %q", st.State)
 	}
 
 	// Step 2: Read spec.
@@ -80,6 +82,9 @@ func Run(ctx context.Context, workspaceRoot, specPath string, a agent.Agent) err
 	}
 
 	// Step 3: Build prompts and run agent loop.
+	// The agent's final prose is not required: proof.md is built from git
+	// diff + test output, so an empty agent return still produces a valid
+	// proof bundle and proceeds to verification.
 	systemPrompt := prompt.Implementer()
 	userPrompt := fmt.Sprintf(
 		"Implement the following spec in workspace %s.\n\n%s\n\nAfter implementation, stop.",
