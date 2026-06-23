@@ -416,8 +416,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S08b-mcp-ops-tools` | T4 | 9 ops tools: get_board, get_blocked, get_slice_context, rerun, patch, merge, defer | verified | [spec](./S08b-mcp-ops-tools/spec.md) |
 | `S08c-mcp-plan-tools` | T4 | 4 planning tools + resources + prompts + mcp-setup.md | verified | [spec](./S08c-mcp-plan-tools/spec.md) |
 | `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | verified | [spec](./S09-per-role-model-config/spec.md) |
-| `S10-provider-foundation` | T5 | ADR 0007 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | implemented | [spec](./S10-provider-foundation/spec.md) |
-| `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | planned | [spec](./S11-anthropic-driver/spec.md) |
+| `S10-provider-foundation` | T5 | ADR 0007 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | verified | [spec](./S10-provider-foundation/spec.md) || `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | planned | [spec](./S11-anthropic-driver/spec.md) |
 | `S12-google-driver` | T5 | Google Gemini and Vertex AI models work as verifier and implementer | planned | [spec](./S12-google-driver/spec.md) |
 | `S13-bedrock-driver` | T5 | AWS Bedrock models work via Converse API; IAM auth | planned | [spec](./S13-bedrock-driver/spec.md) |
 | `S14-azure-driver` | T5 | Azure OpenAI deployments work via api-key auth; no new SDK dep | planned | [spec](./S14-azure-driver/spec.md) |
@@ -1193,12 +1192,17 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
   deliverable; the implementer applies it to the local baton install and notes the
   path in `proof.md`.
 
+### 2026-07-08 — S10-provider-foundation verified
+
+- **Actor**: verifier (`/verify-slice`)
+- **Verdict**: PASS — all six verification gates passed. `go test ./internal/model/...` passes (40+ tests, 0 failures), `go build ./...` clean. Provider router dispatches 8 OAI-compat presets with correct base URLs; native drivers return `ErrDriverNotRegistered`. `.env` loader (CWD-first, set-only-if-unset). Typed `model.Error{Kind}` taxonomy with `ClassifyHTTP`, `IsTerminal`/`IsTransient`, `UserMessage()`. `oai.go` returns `*model.Error` on non-2xx. `cmd/sworn/run.go` wires `LoadDotEnv()` + `printModelError()`. CLAUDE.md updated to "minimal, justified deps (see ADR-0007)". ADR-0007 committed.
+- **State**: S10 → verified. T5-providers now has S10 verified; next slice: S11-anthropic-driver (planned).
+
 ### 2026-07-03 — S09-per-role-model-config verified
 
 - **Actor**: verifier (`/verify-slice`)
 - **Verdict**: PASS — all six verification gates passed. `Config` JSON round-trips, all three resolvers (ImplementerModel, EscalationModels, MaxAttempts) correct precedence, `sworn init --yes` writes all four required keys, 27/27 tests pass, `go build ./...` clean, no silent deferrals.
 - **State**: S09 → verified. T3-commercial now has S06a, S06b verified, S07 implemented, S09 verified.
-
 ### 2026-06-28 — S22-sworn-doctor verified
 - **Actor**: verifier (`/verify-slice`)
 - **Verdict**: PASS — all six verification gates passed. `sworn doctor` runs cleanly with all expected OK/WARN output, exit 0. 12/12 tests pass, `go build ./...` clean.

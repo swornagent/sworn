@@ -100,3 +100,24 @@ matrix rows + S10 `planned_files` corrected to 0007/0008; the collision note mar
 `verification.result` cleared to `pending`, `state` kept `implemented` (gates 1-5 already passed).
 `start_commit` preserved. Next: a fresh `/verify-slice S10-provider-foundation` — no code change
 required, the implementation already satisfies the corrected spec.
+
+## Verifier verdicts received
+
+
+### 2026-07-08 — Verifier session (fresh context, Rule 7)
+
+**Verdict: PASS** — all six verification gates satisfied.
+
+**Gate 1 — User-reachable outcome exists**: PASS. `cmd/sworn/run.go` wires `LoadDotEnv()` (L41), delegates to `NewClient()` via `config.FromEnv()` (L84), and prints `UserMessage()` via `printModelError()` (L184). Full path from `sworn run` through provider router to user-facing error display is wired.
+
+**Gate 2 — Planned touchpoints match actual changed files**: PASS. All 11 planned touchpoints in diff. Extra files: slice artefacts (journal.md, proof.md, spec.md, status.json), release-wt drift files (S42, S48, S57, index.md), and `oai_test.go` (Azure→Groq test migration) — all explained in Divergence from plan.
+
+**Gate 3 — Required tests exist and exercise the integration point**: PASS. All 11 required test categories present, pass (0 failures), and exercise integration points via `httptest.Server`. Tests re-run in fresh context: `go test ./internal/model/... -count=1` — PASS (0.229s).
+
+**Gate 4 — Reachability artefact**: PASS. `go test ./internal/model/...` with httptest.Server covering provider dispatch, error classification, and 402→KindCredits→"sworn account buy" chain.
+
+**Gate 5 — No silent deferrals**: PASS. Zero TODO/FIXME/deferred/placeholder markers in changed source files.
+
+**Gate 6 — Claimed scope matches implemented scope**: PASS. All 14 delivered items have verifiable evidence. ADR-0007 committed and references ADR-0001 as predecessor. CLAUDE.md updated ("minimal, justified deps" replaces "zero runtime dependencies"). All provider presets verified with correct base URLs. Native drivers return ErrDriverNotRegistered. Typed error taxonomy wired end-to-end.
+
+**Next step**: `/implement-slice S11-anthropic-driver 2026-06-19-safe-parallelism` (next incomplete slice in T5-providers track).
