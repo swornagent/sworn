@@ -519,6 +519,12 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 - **State**: slice remains `implemented`; `verification.result: blocked`. No spec amendment (process invariant violation, not contract defect).
 - **Next step**: `/replan-release 2026-06-19-safe-parallelism`
 
+### 2026-06-23T12:58:25Z — verifier verdict — BLOCKED (S11-anthropic-driver)
+- **Slice**: S11-anthropic-driver (T5-providers)
+- **Verdict**: BLOCKED
+- **Reason**: forward-merge of release-wt/2026-06-19-safe-parallelism into track/2026-06-19-safe-parallelism/T5-providers conflicted on cmd/sworn/run.go (code file) — the touchpoint matrix was wrong (track-mode invariant 4). Route to /replan-release 2026-06-19-safe-parallelism to re-group.
+- **State**: slice remains `implemented`; `verification.result: blocked`. No spec amendment (process invariant violation, not contract defect).
+- **Next step**: `/replan-release 2026-06-19-safe-parallelism`
 ### 2026-06-23 — replan: new track T18-cli-polish (S60 init fix + S61 CLI styling)
 - **Actor**: planner (human Brad + Claude)
 - **Trigger**: human-initiated new scope from an ad-hoc fix session, not a BLOCKED handoff.
