@@ -29,7 +29,7 @@ tracks:
     worktree_branch: track/2026-06-19-safe-parallelism/T4-mcp
     state: merged
   - id: T5-providers
-    slices: [S10-provider-foundation, S11-anthropic-driver, S12-google-driver, S13-bedrock-driver, S14-azure-driver, S15-oci-driver, S16-ollama-driver, S39-openai-responses-provider]
+    slices: [S10-provider-foundation, S11-anthropic-driver, S12-google-driver, S13-bedrock-driver, S14-azure-driver, S15-oci-driver, S16-ollama-driver, S39-openai-responses-provider, S63-subscription-cli-driver]
     depends_on: [T1-concurrency-core, T3-commercial]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T5-providers
     worktree_branch: track/2026-06-19-safe-parallelism/T5-providers
@@ -145,7 +145,7 @@ tracks:
 | `T1-concurrency-core` | S01 → S02a → S02b → S03 | — | `track/.../T1-concurrency-core` | merged |
 | `T2-monitoring` | S04a → S04b → S04c → S05 → S34 | T1 | `track/.../T2-monitoring` | merged |
 | `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 + T15 | `track/.../T3-commercial` | merged || `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | merged |
-| `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 → S39 | T1 + T3 | `track/.../T5-providers` | planned |
+| `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 → S39 → S63 | T1 + T3 | `track/.../T5-providers` | planned |
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
 | `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | merged || `T8-memory` | S23 → S24 → S25 → S40 | T1 | `track/.../T8-memory` | merged |
 | `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
