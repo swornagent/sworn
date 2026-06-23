@@ -69,3 +69,15 @@
   acceptance checks identical between HEAD and release-wt, so verified against
   the binding contract.
 - **State**: S61 → failed_verification.
+
+## 2026-06-24 — re-entered (implementer rework — 3 verifier violations)
+
+- **Actor**: implementer (re-entry session)
+- **Violations addressed** (all three from the fresh-context verifier FAIL):
+  1. **AC3 — `sworn help` emits 0 ANSI under force-color**: `usage()` in `cmd/sworn/main.go` was a raw string literal written via `fmt.Fprint(os.Stderr, ...)` with no `style.*` calls. Refactored into a `strings.Builder` with `style.Heading` on the header line, `style.Bold` on the `usage:` label, and `style.Accent` on every command verb. Plain output verified byte-identical via `sha256sum` (4000 bytes, `81c36dcf...` before and after). Force-color escape count: 0 → 32.
+  2. **Gate 2 — `cmd/sworn/init.go` planned but never styled**: init.go had 26 `fmt.Print*` stdout calls with no `style` import. Added `internal/style` import; styled scan header (`Heading`), Changes/No-action-needed headings (`Heading`), `+`/`!` markers (`Success`/`Warn`), padded labels (pad-then-style: `style.Accent(fmt.Sprintf("%-*s", labelWidth, c.label))` per AC4), created/updated/skipped tokens (`Success`/`Accent`/`Dim`), prompts (`Bold`), Aborted warning (`Warn`), Done summary (`Success`). Plain output verified byte-identical across 4 paths (fresh `--yes`, "Nothing to do", "Aborted", catalog-overwrite) via `diff` against pre-styling binary in same temp dirs. Also found and styled `telemetry.go` (`telemetryStatus()` had 4 `fmt.Fprintln(os.Stdout, ...)` calls missed in round 1).
+  3. **Gate 4 — no terminal transcript in proof.md**: Built `./bin/sworn` via `make build` and produced a real terminal transcript showing all 6 runs (`SWORN_FORCE_COLOR=1` and `NO_COLOR=1` for `version`/`help`/`top`) with `cat -v` ANSI rendering and `grep -c $'\033'` escape counts. Pasted into proof.md "Reachability artefact".
+- **Tests**: `go test ./internal/style/...` pass; `go test ./cmd/sworn/...` 117 PASS / 1 FAIL (`TestCmdRun_Parallel` — pre-existing on base commit, environmental, out of scope); all 7 renderer packages pass; `go build ./...` clean; `go vet ./...` clean; `gofmt` clean.
+- **Removed false deferral**: prior proof.md "Not delivered" falsely claimed "`sworn version` and `sworn help` command registration" was deferred to T15 — `sworn help` now emits ANSI (32 escapes under force-color), so this is no longer accurate. Removed.
+- **Removed false divergence claim**: prior proof.md "Divergence from plan" falsely claimed init.go "writes only to stderr" — it writes to stdout, unstyled. Now styled; claim removed and replaced with accurate audit.
+- **State**: S61 → implemented (NOT verified — fresh verifier decides per Rule 7).

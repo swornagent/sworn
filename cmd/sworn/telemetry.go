@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/swornagent/sworn/internal/style"
 	"github.com/swornagent/sworn/internal/telemetry"
 	"os"
 	"path/filepath"
@@ -88,7 +89,7 @@ func telemetryStatus() int {
 	}
 
 	if os.Getenv("SWORN_NO_TELEMETRY") == "1" {
-		fmt.Fprintln(os.Stdout, "telemetry: disabled (SWORN_NO_TELEMETRY env var)")
+		fmt.Fprintln(os.Stdout, style.Dim("telemetry: disabled (SWORN_NO_TELEMETRY env var)"))
 		return 0
 	}
 
@@ -99,11 +100,12 @@ func telemetryStatus() int {
 	_, noTelErr := os.Stat(noTelemetryPath)
 	enabledExists := enabledErr == nil
 	noTelemetryExists := noTelErr == nil
-	if noTelemetryExists {		fmt.Fprintln(os.Stdout, "telemetry: disabled (opted out)")
+	if noTelemetryExists {
+		fmt.Fprintln(os.Stdout, style.Dim("telemetry: disabled (opted out)"))
 	} else if enabledExists {
-		fmt.Fprintln(os.Stdout, "telemetry: enabled")
+		fmt.Fprintln(os.Stdout, style.Success("telemetry: enabled"))
 	} else {
-		fmt.Fprintln(os.Stdout, "telemetry: disabled (init not run)")
+		fmt.Fprintln(os.Stdout, style.Dim("telemetry: disabled (init not run)"))
 	}
 
 	return 0

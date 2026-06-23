@@ -3,10 +3,10 @@
   "slice_id": "S61-cli-output-styling",
   "release": "2026-06-19-safe-parallelism",
   "track": "T18-cli-polish",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-24T00:35:00Z",
+  "last_updated_at": "2026-06-24T00:50:00Z",
   "start_commit": "0e3dddfaa5718c8e84f3eb07e13503572a682b2c",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S61-cli-output-styling/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S61-cli-output-styling/proof.md",
@@ -47,11 +47,13 @@
     "cmd/sworn/account.go",
     "cmd/sworn/bench.go",
     "cmd/sworn/doctor.go",
+    "cmd/sworn/init.go",
     "cmd/sworn/journeys.go",
     "cmd/sworn/lint.go",
     "cmd/sworn/main.go",
     "cmd/sworn/memory.go",
     "cmd/sworn/ship.go",
+    "cmd/sworn/telemetry.go",
     "cmd/sworn/top.go",
     "internal/designaudit/designaudit.go",
     "internal/designfit/designfit.go",
@@ -71,8 +73,9 @@
     "go vet ./..."
   ],
   "reachability_artifacts": [
+    "docs/release/2026-06-19-safe-parallelism/S61-cli-output-styling/proof.md — terminal transcript showing SWORN_FORCE_COLOR=1 sworn version|help|top emitting ANSI (escape counts 2/32/2) and NO_COLOR=1 emitting zero escapes (0/0/0)",
     "internal/style/style_test.go (TestEnabled_DisabledReturnsPlain, TestEnabled_EnabledReturnsAnsi)",
-    "go test ./cmd/sworn/... (styled commands exercised through entry points)"
+    "go test ./cmd/sworn/... (styled commands exercised through entry points, 117/118 pass — 1 pre-existing TestCmdRun_Parallel failure)"
   ],
   "open_deferrals": [],
   "verification": {

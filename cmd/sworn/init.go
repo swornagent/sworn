@@ -11,6 +11,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/adopt"
 	"github.com/swornagent/sworn/internal/config"
+	"github.com/swornagent/sworn/internal/style"
 )
 
 func cmdInit(args []string) int {
@@ -33,7 +34,7 @@ func cmdInit(args []string) int {
 
 	// --- Scan phase: determine what will change, without touching anything ---
 
-	fmt.Println("sworn init: scanning repo...")
+	fmt.Println(style.Heading("sworn init: scanning repo..."))
 	fmt.Println()
 
 	type change struct {
@@ -111,42 +112,45 @@ func cmdInit(args []string) int {
 	// Print plan
 	labelWidth := 22
 	if len(planned) > 0 {
-		fmt.Println("Changes:")
+		fmt.Println(style.Heading("Changes:"))
 		for _, c := range planned {
-			marker := "  +"
+			marker := style.Success("  +")
 			if c.warn {
-				marker = "  !"
+				marker = style.Warn("  !")
 			}
-			fmt.Printf("%s  %-*s  %s\n", marker, labelWidth, c.label, c.reason)
+			// Pad-then-style (AC4): the %-*s width verb gets the raw label,
+			// style.Accent wraps the already-padded result so ANSI bytes do
+			// not corrupt the column width.
+			fmt.Printf("%s  %s  %s\n", marker, style.Accent(fmt.Sprintf("%-*s", labelWidth, c.label)), c.reason)
 		}
 		fmt.Println()
 	}
 
 	if len(informational) > 0 {
-		fmt.Println("No action needed:")
+		fmt.Println(style.Heading("No action needed:"))
 		for _, c := range informational {
 			marker := "     "
 			if c.warn {
-				marker = "  !  "
+				marker = style.Warn("  !  ")
 			}
-			fmt.Printf("%s%-*s  %s\n", marker, labelWidth, c.label, c.reason)
+			fmt.Printf("%s%s  %s\n", marker, style.Accent(fmt.Sprintf("%-*s", labelWidth, c.label)), c.reason)
 		}
 		fmt.Println()
 	}
 
 	if len(planned) == 0 {
-		fmt.Println("Nothing to do — repo is already current.")
+		fmt.Println(style.Bold("Nothing to do — repo is already current."))
 		return 0
 	}
 
 	// --- Confirm phase ---
 
 	if !*yes {
-		fmt.Print("Proceed? [Y/n]: ")
+		fmt.Print(style.Bold("Proceed? [Y/n]: "))
 		resp, _ := in.ReadString('\n')
 		resp = strings.TrimSpace(strings.ToLower(resp))
 		if resp != "" && resp != "y" && resp != "yes" {
-			fmt.Println("Aborted. No changes made.")
+			fmt.Println(style.Warn("Aborted. No changes made."))
 			return 0
 		}
 	}
@@ -169,7 +173,7 @@ func cmdInit(args []string) int {
 		if key != "" {
 			fmt.Println("  API key noted — store it in env var SWORN_OPENAI_API_KEY for production use")
 		}
-		fmt.Printf("  created  %s\n", cfgPath)
+		fmt.Printf("  %s  %s\n", style.Success("created"), cfgPath)
 	}
 
 	// Design system prompt (S08): only when --ui-bearing is set.
@@ -191,14 +195,14 @@ func cmdInit(args []string) int {
 				fmt.Fprintf(os.Stderr, "sworn init: write design system: %v\n", writeErr)
 				return 1
 			}
-			fmt.Printf("  updated  %s (design system: token_source=%s, component_library=%s)\n",
-				cfgPath, ds.TokenSource, ds.ComponentLibrary)
+			fmt.Printf("  %s  %s (design system: token_source=%s, component_library=%s)\n",
+				style.Accent("updated"), cfgPath, ds.TokenSource, ds.ComponentLibrary)
 		} else {
 			if writeErr := writeConfig(cfgPath, &cfg); writeErr != nil {
 				fmt.Fprintf(os.Stderr, "sworn init: write ui_bearing: %v\n", writeErr)
 				return 1
 			}
-			fmt.Printf("  updated  %s (ui_bearing: true — design system not yet configured)\n", cfgPath)
+			fmt.Printf("  %s  %s (ui_bearing: true — design system not yet configured)\n", style.Accent("updated"), cfgPath)
 		}
 	}
 
@@ -215,8 +219,8 @@ func cmdInit(args []string) int {
 			fmt.Fprintf(os.Stderr, "sworn init: write implementer config: %v\n", writeErr)
 			return 1
 		}
-		fmt.Printf("  updated  %s (implementer: model=%s, escalation_models=%v, max_attempts=%d)\n",
-			cfgPath, impl.Model, impl.EscalationModels, impl.MaxAttempts)
+		fmt.Printf("  %s  %s (implementer: model=%s, escalation_models=%v, max_attempts=%d)\n",
+			style.Accent("updated"), cfgPath, impl.Model, impl.EscalationModels, impl.MaxAttempts)
 	}
 	// AGENTS.md — create from MCP-pointer template if it does not exist.
 	if os.IsNotExist(agentsReadErr) {
@@ -224,14 +228,14 @@ func cmdInit(args []string) int {
 			fmt.Fprintf(os.Stderr, "sworn init: %v\n", err)
 			return 1
 		}
-		fmt.Println("  created  AGENTS.md (MCP-pointer template)")
+		fmt.Printf("  %s  AGENTS.md (MCP-pointer template)\n", style.Success("created"))
 	} else if agentsReadErr == nil && *force && !strings.Contains(string(agentsData), adopt.BatonSectionHeading) {
 		// --force with a non-legacy AGENTS.md: overwrite with template.
 		if err := createAgentsMD(repoRoot); err != nil {
 			fmt.Fprintf(os.Stderr, "sworn init: %v\n", err)
 			return 1
 		}
-		fmt.Println("  updated  AGENTS.md (overwritten with MCP-pointer template via --force)")
+		fmt.Printf("  %s  AGENTS.md (overwritten with MCP-pointer template via --force)\n", style.Accent("updated"))
 	}
 
 	// --- Consideration catalog prompt ---
@@ -239,11 +243,11 @@ func cmdInit(args []string) int {
 	// catalog (docs/considerations.md) and decision registry (docs/decisions.md).
 	// These are plain markdown templates — no template engine, no interpolation.
 	if !*yes {
-		fmt.Print("Set up consideration catalog? (y/n) [y]: ")
+		fmt.Print(style.Bold("Set up consideration catalog? (y/n) [y]: "))
 		resp, _ := in.ReadString('\n')
 		resp = strings.TrimSpace(strings.ToLower(resp))
 		if resp == "n" || resp == "no" {
-			fmt.Println("  skipped  catalog — run 'sworn induction' later to set it up")
+			fmt.Printf("  %s  catalog — run 'sworn induction' later to set it up\n", style.Dim("skipped"))
 			goto done
 		}
 	}
@@ -254,7 +258,7 @@ func cmdInit(args []string) int {
 
 done:
 	fmt.Println()
-	fmt.Println("Done. Connect your AI to sworn mcp to get the Baton protocol and role prompts. Run 'sworn doctor' to verify your setup.")
+	fmt.Println(style.Success("Done. Connect your AI to sworn mcp to get the Baton protocol and role prompts. Run 'sworn doctor' to verify your setup."))
 	return 0
 }
 
@@ -302,7 +306,7 @@ func materialiseCatalog(repoRoot string, in *bufio.Reader) error {
 			resp, _ := in.ReadString('\n')
 			resp = strings.TrimSpace(strings.ToLower(resp))
 			if resp != "y" && resp != "yes" {
-				fmt.Printf("  skipped  %s (already exists)\n", t.name)
+				fmt.Printf("  %s  %s (already exists)\n", style.Dim("skipped"), t.name)
 				continue
 			}
 		}
@@ -314,7 +318,7 @@ func materialiseCatalog(repoRoot string, in *bufio.Reader) error {
 		if err := os.WriteFile(dstPath, data, 0644); err != nil {
 			return fmt.Errorf("write %s: %w", t.name, err)
 		}
-		fmt.Printf("  created  %s\n", t.dst)
+		fmt.Printf("  %s  %s\n", style.Success("created"), t.dst)
 	}
 
 	return nil
