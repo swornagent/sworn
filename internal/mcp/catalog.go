@@ -46,7 +46,8 @@ func RegisterCatalogTools(s *Server, repoRoot string) {
 			}
 			summary := releaseStateSummary(string(indexData))
 			result := map[string]any{
-				"exists":       true,
+				"exists":        true,
+				"slice_count":   summary["slice_count"],
 				"state_summary": summary,
 			}
 			b, _ := json.Marshal(result)
@@ -71,7 +72,7 @@ func RegisterCatalogTools(s *Server, repoRoot string) {
 			paths = append(paths, v)
 		}
 		result := map[string]any{
-			"exists":       false,
+			"exists":        false,
 			"created_paths": paths,
 		}
 		b, _ := json.Marshal(result)
@@ -101,11 +102,11 @@ func RegisterCatalogTools(s *Server, repoRoot string) {
 		}
 
 		result, _ := json.Marshal(map[string]any{
-			"catalog_exists":               true,
-			"design_system_configured":     dsConfigured,
-			"architecture_patterns_count":  patternsCount,
-			"enabled_dimensions":           dimensions,
-			"decisions_count":              decisionsCount,
+			"catalog_exists":              true,
+			"design_system_configured":    dsConfigured,
+			"architecture_patterns_count": patternsCount,
+			"enabled_dimensions":          dimensions,
+			"decisions_count":             decisionsCount,
 		})
 		return &ToolResult{Content: []ContentItem{{Type: "text", Text: string(result)}}}, nil
 	})
@@ -183,14 +184,14 @@ func RegisterCatalogTools(s *Server, repoRoot string) {
 		"required": ["type", "title", "decision", "rationale", "applies_to"]
 	}`), func(ctx context.Context, params json.RawMessage) (*ToolResult, error) {
 		var p struct {
-			Type       string `json:"type"`
-			Title      string `json:"title"`
-			Decision   string `json:"decision"`
-			Rationale  string `json:"rationale"`
-			AppliesTo  string `json:"applies_to"`
-			Release    string `json:"release,omitempty"`
-			Slice      string `json:"slice,omitempty"`
-			Overrides  string `json:"overrides,omitempty"`
+			Type      string `json:"type"`
+			Title     string `json:"title"`
+			Decision  string `json:"decision"`
+			Rationale string `json:"rationale"`
+			AppliesTo string `json:"applies_to"`
+			Release   string `json:"release,omitempty"`
+			Slice     string `json:"slice,omitempty"`
+			Overrides string `json:"overrides,omitempty"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, fmt.Errorf("invalid params: %w", err)
@@ -244,7 +245,8 @@ func RegisterCatalogTools(s *Server, repoRoot string) {
 
 		content := string(data)
 		location := extractSectionField(content, "design_system", "location")
-		if location == "" {			result, _ := json.Marshal(map[string]any{"status": "unconfigured"})
+		if location == "" {
+			result, _ := json.Marshal(map[string]any{"status": "unconfigured"})
 			return &ToolResult{Content: []ContentItem{{Type: "text", Text: string(result)}}}, nil
 		}
 
@@ -252,7 +254,7 @@ func RegisterCatalogTools(s *Server, repoRoot string) {
 		result, _ := json.Marshal(map[string]any{
 			"status":            "exists",
 			"matched_component": extractSectionField(content, "design_system", "component_library"),
-		"location":          location,			"options": []map[string]string{
+			"location":          location, "options": []map[string]string{
 				{"label": "Reuse as-is", "description": "Use the existing component without modification."},
 				{"label": "Extend with variant", "description": "Create a variant of the existing component for this use case."},
 				{"label": "Build new", "description": "Build a new component from scratch."},
@@ -352,10 +354,10 @@ func RegisterCatalogTools(s *Server, repoRoot string) {
 // It does a simple grep for state: <value> lines.
 func releaseStateSummary(indexContent string) map[string]int {
 	summary := map[string]int{
-		"planned":   0,
+		"planned":     0,
 		"in_progress": 0,
 		"implemented": 0,
-		"verified":  0,
+		"verified":    0,
 	}
 	lines := strings.Split(indexContent, "\n")
 	states := []string{"planned", "in_progress", "implemented", "verified"}
@@ -527,7 +529,8 @@ func extractDimensionSection(content, dim string) string {
 }
 
 // extractSectionField extracts a `field: value` line from within a named section.
-func extractSectionField(content, section, field string) string {	lines := strings.Split(content, "\n")
+func extractSectionField(content, section, field string) string {
+	lines := strings.Split(content, "\n")
 	inSection := false
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)

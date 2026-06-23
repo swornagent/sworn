@@ -10,7 +10,8 @@ import (
 )
 
 // callCatalogTool invokes a registered catalog tool by name and unmarshals the result text.
-func callCatalogTool(t *testing.T, s *Server, name string, params map[string]any) string {	t.Helper()
+func callCatalogTool(t *testing.T, s *Server, name string, params map[string]any) string {
+	t.Helper()
 	paramsJSON, err := json.Marshal(params)
 	if err != nil {
 		t.Fatalf("marshal params: %v", err)
@@ -99,6 +100,14 @@ func TestPlanReleaseExisting(t *testing.T) {
 	// The state_summary should be present.
 	if _, ok := parsed["state_summary"]; !ok {
 		t.Errorf("expected state_summary to be present")
+	}
+	// AC2: slice_count must be at the top level.
+	sc, ok := parsed["slice_count"].(float64)
+	if !ok {
+		t.Fatalf("expected slice_count at top level, got %v", parsed["slice_count"])
+	}
+	if sc != 0 {
+		t.Errorf("expected slice_count=0 for fresh fixture, got %v", sc)
 	}
 }
 
