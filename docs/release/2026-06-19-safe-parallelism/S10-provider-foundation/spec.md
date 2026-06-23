@@ -1,6 +1,6 @@
 ---
 title: 'S10-provider-foundation — provider router, OAI-compat presets, .env file loading'
-description: 'ADR 0004 revises the dep policy to minimal+justified. A provider router dispatches model IDs like openai/gpt-4o, anthropic/claude-sonnet-4-6, groq/llama-3.3-70b to the correct driver. OAI-compat presets cover eight providers without new code. A .env file loader reads per-provider API keys from ~/.sworn/.env. cmd/sworn/run.go switches from direct OAI{} instantiation to the factory.'
+description: 'ADR 0007 revises the dep policy to minimal+justified. A provider router dispatches model IDs like openai/gpt-4o, anthropic/claude-sonnet-4-6, groq/llama-3.3-70b to the correct driver. OAI-compat presets cover eight providers without new code. A .env file loader reads per-provider API keys from ~/.sworn/.env. cmd/sworn/run.go switches from direct OAI{} instantiation to the factory.'
 ---
 
 # Slice: `S10-provider-foundation`
@@ -23,13 +23,13 @@ with the correct base URL and API key.
 
 ## In scope
 
-- **ADR 0004** at `docs/adr/0004-dep-policy-minimal-justified.md`: supersedes ADR-0001's
+- **ADR 0007** at `docs/adr/0007-dep-policy-minimal-justified.md`: supersedes ADR-0001's
   "zero runtime deps" rule; new policy is "minimal, justified deps — each new dependency
   requires an ADR entry". Documents rationale (multi-provider model drivers require their
   providers' Go SDKs; reimplementing auth/streaming/error handling from scratch for AWS
   SigV4, OCI auth, Anthropic SSE is not minimal — using the official SDK is).
 - **`CLAUDE.md` update**: replace "zero runtime dependencies — stdlib only" constraint
-  with "minimal, justified deps — new dep requires an ADR (see ADR-0004)"
+  with "minimal, justified deps — new dep requires an ADR (see ADR-0007)"
 - **`internal/model/env.go`**: `.env` file loader (stdlib only, no new dep):
   - Loads `~/.sworn/.env` first, then `.env` in the current working directory
   (CWD wins on collision — local project keys override global user keys)
@@ -95,7 +95,7 @@ with the correct base URL and API key.
 
 ## Planned touchpoints
 
-- `docs/adr/0004-dep-policy-minimal-justified.md` (new)
+- `docs/adr/0007-dep-policy-minimal-justified.md` (new)
 - `CLAUDE.md` (modify — dep policy line)
 - `internal/model/env.go` (new)
 - `internal/model/env_test.go` (new)
@@ -108,10 +108,10 @@ with the correct base URL and API key.
 
 ## Acceptance checks
 
-- [ ] `docs/adr/0004-dep-policy-minimal-justified.md` is committed; it explicitly names
+- [ ] `docs/adr/0007-dep-policy-minimal-justified.md` is committed; it explicitly names
   ADR-0001 as the predecessor and states the new rule ("each new dep requires an ADR")
 - [ ] `CLAUDE.md` no longer contains the phrase "zero runtime dependencies — stdlib only";
-  updated text references ADR-0004
+  updated text references ADR-0007
 - [ ] `LoadDotEnv()` correctly sets env vars from a temp `.env` file; does not overwrite
   a key already present in the environment; skips blank lines and comments
 - [ ] `NewClient("openai/gpt-4o", cfg)` returns a non-nil `Verifier` with no error
@@ -180,7 +180,7 @@ with the correct base URL and API key.
   `openrouter/` prefix and pass the remainder verbatim to the OAI endpoint's `model`
   field. Document this in a code comment in provider.go.
 - `.env` file in CWD: if `sworn run` is called from an unrelated directory, `.env`
-  files there may inject unexpected keys. Document in ADR-0004 as an acknowledged
+  files there may inject unexpected keys. Document in ADR-0007 as an acknowledged
   trade-off of convention-based loading.
 
 ## Deferrals allowed?

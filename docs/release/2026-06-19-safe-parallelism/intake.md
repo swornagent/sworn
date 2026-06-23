@@ -213,10 +213,27 @@ delivers async AND verified. Same PR, different quality bar. This gap is unoccup
 
 ## Decisions made during planning
 
+### 2026-06-23 — Replan: resolve S42-implement-step-timeout BLOCKED
+
+- **Decision A — `cmd/sworn/run.go` is a DOCUMENTED SHARED file.** S42 (T12) and S10 (T5) both
+  add additive, region-separable wiring to it (S42: `--implement-timeout` flag; S10: `LoadDotEnv`
+  + `printModelError`). Rather than a `T12 depends_on T5` edge — which would block the
+  near-complete T12 (10 slices verified) behind the barely-started T5 — the file is marked
+  documented-shared so both tracks stay parallel and `/merge-track` reconciles the additive
+  regions whichever merges second.
+- **Decision B — enforce the S42 spec; no `config.go` touch.** The default timeout stays a named
+  constant in `internal/run/slice.go`. The first implementation attempt moved it into
+  `config.go` (owned by merged T3; planned T6/T16), which created the collision behind the BLOCKED
+  verdict. The config-file timeout tier is deferred (Rule 2 card in the spec); precedence is now
+  flag > env > default. S42 returns to the implementer at `failed_verification`.
+- **Why this isn't a re-group**: three of the four conflict files were against already-merged
+  T1/T3 work (ordinary integration), and merged tracks can't be re-grouped. Only `cmd/sworn/run.go`
+  was a live in-flight collision (with T5), resolved by the documented-shared decision.
+
 ### 2026-06-23 — Replan: orchestration-core port (T17) from the port-fidelity audit
 
-- **Context**: a 7-dimension port-fidelity audit (`internal-docs/captures/2026-06-23-port-fidelity-audit/`;
-  reference = the leading-edge coach loop in `~/.claude/baton/` + `~/.claude/bin`) found sworn
+- **Context**: a 7-dimension port-fidelity audit (reference = the leading-edge coach loop in
+  `~/.claude/baton/` + `~/.claude/bin`) found sworn
   faithfully ported the **workflow plane** (status.json state machine, worktree isolation,
   verifier verdict contract, per-role routing — exactly what getfired exercises across 32
   releases) but NOT the **orchestration plane**.
@@ -382,11 +399,10 @@ Three flows, all MCP-mediated:
 The user runs their planning session in whichever AI tool they prefer, using whatever
 skills they have available (deep-research, brainstorm, domain-specific tools). The AI
 calls sworn MCP planning tools to write artefacts into the repo:
-  `sworn.create_release()` → creates intake.md + release folder
+  `sworn.plan_release()` → creates intake.md + release folder (or reads existing)
   `sworn.create_slice()` → writes spec.md + status.json
   `sworn.set_track()` → updates index.md tracks + touchpoint matrix
-  `sworn.update_intake()` → appends decisions to intake.md
-The sworn MCP server exposes the planner/implementer/verifier role prompts as resources
+  `sworn.update_intake()` → appends decisions to intake.mdThe sworn MCP server exposes the planner/implementer/verifier role prompts as resources
 (`sworn://prompts/plan` etc.) so any AI can pull and apply them.
 
 **2. Autonomous execution** (sworn runs without AI involvement)
@@ -527,8 +543,7 @@ shared state surface they all lack.
   Operations tools: `get_board`, `get_blocked`, `get_slice_context` (assembles spec +
   violations TL;DR + diff + journal), `rerun_slice`, `patch_slice`, `approve_merge`,
   `defer_slice`, `get_credits`;
-  Planning tools: `create_release`, `create_slice`, `set_track`, `update_intake`;
-  Resources: `sworn://prompts/{plan,implement,verify}`, `sworn://release/{name}/{board,
+  Planning tools: `plan_release`, `create_slice`, `set_track`, `update_intake`;  Resources: `sworn://prompts/{plan,implement,verify}`, `sworn://release/{name}/{board,
   intake}`, `sworn://release/{name}/{slice}/{spec,proof,diff}`;
   TUI "open in AI" action: writes context file + opens configured AI tool at worktree
   with MCP server pre-connected. ~12 files.

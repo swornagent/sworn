@@ -121,17 +121,15 @@ When the slice reaches `implemented`, respond with:
 
 That message is the entire wrap-up. Do not summarise the implementation, do not enumerate "what was delivered" in prose. The proof bundle is the wrap-up. Anything you write in prose has no evidentiary weight.
 
-## Watcher status block (mandatory)
+## Status block
 
 After all the above, emit this as the absolute last content of the turn:
 
 ```
-<!-- WATCHER
 STATE: verified_validate
-SLICE: `<slice-id>`
+SLICE: <slice-id>
 NEXT: NONE
-REASON: `<one sentence>`
--->
+REASON: <one sentence>
 ```
 
 If the slice is blocked instead of implemented, use STATE: blocked_needs_planner or blocked_needs_human as appropriate. See `docs/baton/watcher-protocol.md` for all valid states. The block must be last — after all prose, after all tool output.

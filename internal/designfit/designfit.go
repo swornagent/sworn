@@ -74,6 +74,36 @@ func PrintCompact(r *Report) string {
 		r.SlicesChecked)
 }
 
+
+// impliesType1Work returns true when the slice's planned_files indicate
+// architecturally-significant (Type-1) work by touching at least one file
+// under a contract/control-plane path prefix.
+//
+// The prefix set is {cmd/sworn/, internal/state/, internal/verdict/}:
+// these are the artefact surface external consumers depend on — the CLI
+// entrypoint, the status.json schema (state machine), and the verdict
+// contract (PASS/FAIL/BLOCKED + exit codes). Other internal packages
+// (run, scheduler, verify, supervisor, etc.) are implementation detail
+// whose shape may change without affecting the external contract.
+//
+// When design_decisions is empty, DesignDecision.ArchitecturallySignificant
+// cannot be checked — planned_files prefix-matching is the correct fallback.
+func impliesType1Work(st *state.Status) bool {
+	archPrefixes := []string{
+		"cmd/sworn/",
+		"internal/state/",
+		"internal/verdict/",
+	}
+	for _, f := range st.PlannedFiles {
+		for _, p := range archPrefixes {
+			if strings.HasPrefix(f, p) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Run checks every slice in the release for design-fit violations.
 //
 // For each slice, it reads the status.json from <releaseDir>/<slice-id>/
@@ -124,7 +154,19 @@ func Run(releaseDir string) (*Report, error) {
 		report.SlicesChecked++
 
 		if len(st.DesignDecisions) == 0 {
-			// No design decisions means no design-fit gate to enforce.
+			// If the slice's design implies Type-1 work, an empty
+			// design_decisions is itself a violation — the slice
+			// touches architecturally-significant packages but
+			// records no design decisions at all. The benign empty
+			// case (no Type-1-implied work) still passes.
+			if impliesType1Work(st) {
+				report.Violations = append(report.Violations, Violation{
+					SliceID: sliceID,
+					Description: fmt.Sprintf(
+						"implies Type-1 work (planned_files touch architecturally-significant packages) but design_decisions is empty — Type-1 decisions must be recorded and human-acknowledged",
+					),
+				})
+			}
 			continue
 		}
 

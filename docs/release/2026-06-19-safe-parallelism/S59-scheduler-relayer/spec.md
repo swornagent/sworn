@@ -5,7 +5,7 @@ description: 'sworn run --parallel workers stop iterating a static slice list an
 
 # Slice: `S59-scheduler-relayer`
 
-> Proposed by the 2026-06-23 port-fidelity audit (`internal-docs/captures/2026-06-23-port-fidelity-audit/08-router-and-dispatch.md`). Closes the orchestration-core port: replaces `RunParallel`'s **static-DAG execution heart** with a **router-driven poll loop**. Depends on **S58-slice-router** (and transitively S57). The wrap-vs-replace decision is this slice's Captain design-review pin (see Design decisions).
+> Proposed by the 2026-06-23 port-fidelity audit (router/dispatch deep-read). Closes the orchestration-core port: replaces `RunParallel`'s **static-DAG execution heart** with a **router-driven poll loop**. Depends on **S58-slice-router** (and transitively S57). The wrap-vs-replace decision is this slice's Captain design-review pin (see Design decisions).
 
 ## User outcome
 

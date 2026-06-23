@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,13 @@ import (
 	"github.com/swornagent/sworn/internal/verdict"
 	"github.com/swornagent/sworn/internal/verify"
 )
+
+// DefaultImplementTimeout is the per-attempt deadline applied to the implement
+// step inside RunSlice when no explicit timeout is configured. 15 minutes is
+// generous enough for most implement steps but prevents a hung agent from
+// blocking the escalation loop indefinitely. It lives in this package (not
+// internal/config) so S42 does not collide with config.go ownership.
+const DefaultImplementTimeout = 15 * time.Minute
 
 // RunSliceOptions configure the RunSlice retry loop. These are a subset of
 // Options — setup-level concerns (Task, Base, WorkspaceRoot) live in Options
@@ -36,6 +44,10 @@ type RunSliceOptions struct {
 	// RetryCap is the maximum number of retries. 0 = single attempt.
 	RetryCap int
 
+	// ImplementTimeout is the per-attempt deadline for the implement step.
+	// 0 means use DefaultImplementTimeout.
+	// A negative value means no timeout (opt-out).
+	ImplementTimeout time.Duration
 	// NewAgent is a factory for creating an agent.Agent from a model ID.
 	// When nil, model.FromEnv is used (production path).
 	NewAgent func(modelID string) (agent.Agent, error)
@@ -126,11 +138,22 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	absSliceDir := filepath.Join(worktreeRoot, filepath.Dir(specPath))
 	proofPath := filepath.Join(absSliceDir, "proof.md")
 
-	var lastVerdict verdict.Result
+	// ── Resolve implement timeout ──────────────────────────────────────
+	// 0 means use default; negative means no timeout; positive is used as-is.
+	implementTimeout := opts.ImplementTimeout
+	if implementTimeout == 0 {
+		implementTimeout = DefaultImplementTimeout
+	}
 
+	var lastVerdict verdict.Result
+	var priorFeedback string
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		// ── Reset slice state for retry ────────────────────────────────
+		// Capture the prior verdict's rationale before clearing verification
+		// so the next implement attempt can receive actionable feedback.
 		if attempt > 0 {
+			priorFeedback = lastVerdict.Rationale
+
 			st, err := state.Read(statusPath)
 			if err != nil {
 				return fmt.Errorf("RunSlice: read status for retry reset: %w", err)
@@ -142,6 +165,8 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			if err := state.Write(statusPath, st); err != nil {
 				return fmt.Errorf("RunSlice: reset status for retry: %w", err)
 			}
+		} else {
+			priorFeedback = ""
 		}
 
 		implModelID := escalationModels[attempt]
@@ -154,15 +179,29 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		fmt.Fprintf(os.Stderr, "sworn run: attempt %d/%d — implementing with %s\n",
 			attempt+1, maxAttempts, implModelID)
 
-		if err := implement.Run(ctx, worktreeRoot, specPath, implAgent); err != nil {
-			fmt.Fprintf(os.Stderr, "sworn run: implementer error: %v\n", err)
+		var implErr error
+		if implementTimeout > 0 {
+			implCtx, cancel := context.WithTimeout(ctx, implementTimeout)
+			defer cancel() // safe: each iteration has its own defer
+			implErr = implement.Run(implCtx, worktreeRoot, specPath, priorFeedback, implAgent)
+		} else {
+			implErr = implement.Run(ctx, worktreeRoot, specPath, priorFeedback, implAgent)
+		}
+
+		if implErr != nil {
+			if errors.Is(implErr, context.DeadlineExceeded) {
+				fmt.Fprintf(os.Stderr, "sworn run: implement attempt %d timed out after %s — escalating\n",
+					attempt+1, implementTimeout)
+			} else {
+				fmt.Fprintf(os.Stderr, "sworn run: implementer error: %v\n", implErr)
+			}
 			if attempt+1 < maxAttempts {
 				fmt.Fprintf(os.Stderr, "sworn run: escalating implementer model for retry\n")
 				continue
 			}
-			return fmt.Errorf("RunSlice: implementer failed after %d attempts: %w", maxAttempts, err)
+			return fmt.Errorf("RunSlice: implementer failed after %d attempts (last error: %w). "+
+				"Escalate to human.", maxAttempts, implErr)
 		}
-
 		// ── Commit agent changes ───────────────────────────────────────
 		if err := repo.Stage("."); err != nil {
 			return fmt.Errorf("RunSlice: stage agent changes: %w", err)

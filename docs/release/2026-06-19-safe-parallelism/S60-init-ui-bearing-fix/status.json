@@ -1,0 +1,33 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S60-init-ui-bearing-fix",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T18-cli-polish",
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-23T00:00:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S60-init-ui-bearing-fix/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S60-init-ui-bearing-fix/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S60-init-ui-bearing-fix/journal.md",
+  "planned_files": [
+    "cmd/sworn/init.go",
+    "cmd/sworn/init_design_system_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./cmd/sworn/...",
+    "go build ./...",
+    "go vet ./..."
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}

@@ -5,7 +5,7 @@ description: 'sworn route <slice> <release> computes the next command for a slic
 
 # Slice: `S58-slice-router`
 
-> Proposed by the 2026-06-23 port-fidelity audit (`internal-docs/captures/2026-06-23-port-fidelity-audit/08-router-and-dispatch.md`). The orchestration brain: `captain-route.sh` is the router + the (S57) oracle reader + the design-review/Gate-re-entry/merge state machine. This slice ports the **decision tree**; it consumes S57 for state reads. Depends on **S57-oracle-reader**.
+> Proposed by the 2026-06-23 port-fidelity audit (router/dispatch deep-read). The orchestration brain: `captain-route.sh` is the router + the (S57) oracle reader + the design-review/Gate-re-entry/merge state machine. This slice ports the **decision tree**; it consumes S57 for state reads. Depends on **S57-oracle-reader**.
 
 ## User outcome
 
