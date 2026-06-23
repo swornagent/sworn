@@ -70,9 +70,8 @@ func Planner() string { return planner }
 // Captain returns the embedded Baton captain role prompt.
 func Captain() string { return captain }
 
-// BatonVersion returns the vendored Baton protocol version string (e.g. "on Baton v0.3.0").
+// BatonVersion returns the vendored Baton protocol version string (e.g. "on Baton v0.4.0").
 func BatonVersion() string { return "on Baton " + baton.Version() }
-
 // TrackMode returns the embedded Baton track-mode.md content.
 func TrackMode() string { return trackMode }
 

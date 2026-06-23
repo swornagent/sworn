@@ -1,4 +1,4 @@
-baton-protocol: v0.3.0
+baton-protocol: v0.4.0
 upstream: github.com/sawy3r/baton
-vendored: 2026-06-15
-rules-added: 08-requirements-fidelity (2026-06-16-fidelity-layer S01), 09-design-fidelity (2026-06-16-fidelity-layer S07), 10-customer-journey-validation (2026-06-16-fidelity-layer S11)
+vendored: 2026-07-09
+rules-added: 08-requirements-fidelity (2026-06-16-fidelity-layer S01), 09-design-fidelity (2026-06-16-fidelity-layer S07), 10-customer-journey-validation (2026-06-16-fidelity-layer S11), 11-process-global-mutation (2026-06-19-safe-parallelism)
