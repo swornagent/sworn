@@ -481,8 +481,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S57-oracle-reader` | T17 | `sworn board` reads every slice's authoritative status.json from git refs (track branch > release-wt > worktree), ownership-resolved — the honest board reader the router/TUI/rollup read through | planned | [spec](./S57-oracle-reader/spec.md) |
 | `S58-slice-router` | T17 | `sworn route <slice> <release>` computes the next command purely from committed status.json — the deterministic captain-route.sh port (state machine + design-review/Gate-re-entry/merge) | planned | [spec](./S58-slice-router/spec.md) |
 | `S59-scheduler-relayer` | T17 | `sworn run --parallel` workers poll the router each step (poll-and-route) instead of a static slice list — resumable, dynamic; keeps dependency resolution + worktree isolation + supervisor ownership | planned | [spec](./S59-scheduler-relayer/spec.md) |
-| `S60-init-ui-bearing-fix` | T18 | `sworn init` no longer prompts for design tokens / component library in a non-UI-bearing repo; design-system flow gated on `--ui-bearing`; drops the always-true `UIBearing` write | failed_verification | [spec](./S60-init-ui-bearing-fix/spec.md) || `S61-cli-output-styling` | T18 | shared zero-dep `internal/style` ANSI palette gives premium, consistent, TTY/`NO_COLOR`-aware colour across every command + report renderer; plain output byte-identical | planned | [spec](./S61-cli-output-styling/spec.md) |
-
+| `S60-init-ui-bearing-fix` | T18 | `sworn init` no longer prompts for design tokens / component library in a non-UI-bearing repo; design-system flow gated on `--ui-bearing`; drops the always-true `UIBearing` write | verified | [spec](./S60-init-ui-bearing-fix/spec.md) || `S61-cli-output-styling` | T18 | shared zero-dep `internal/style` ANSI palette gives premium, consistent, TTY/`NO_COLOR`-aware colour across every command + report renderer; plain output byte-identical | planned | [spec](./S61-cli-output-styling/spec.md) |
 ## Aggregate state
 
 > **STALE — the board oracle (`release-board-status.sh --json`) is authoritative; run it for live
@@ -1366,3 +1365,15 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
   - Gate 4: reachability transcript in proof.md does not match code (message emitted under --yes but code gates on !*yes).
   - Gate 6: Delivered claims do not match the artefact for the stated ACs.
 - **State**: S60 → failed_verification. T18-cli-polish remains in_progress. Implementer must address in fresh /implement-slice session.
+
+### 2026-06-23 — S60-init-ui-bearing-fix verified
+
+- **Actor**: verifier (`/verify-slice`, fresh context)
+- **Verdict**: PASS — all six gates satisfied.
+  - Gate 1: `sworn init` entry point wired to user-reachable code.
+  - Gate 2: Planned touchpoints match (test pre-existed; S60 adds Interactive_NoUIPrompt).
+  - Gate 3: Required tests (TestCmdInit_*) exercise cmdInit integration point; re-ran PASS.
+  - Gate 4: Reachability artefact (test transcript + manual-smoke) proves no design-system prompt for non-UI-bearing.
+  - Gate 5: No silent deferrals or dark code in changed files.
+  - Gate 6: All ACs evidenced in proof.md.
+- **State**: S60 → verified. Next slice in T18: S61-cli-output-styling.
