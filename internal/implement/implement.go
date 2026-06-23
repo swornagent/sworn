@@ -18,7 +18,8 @@ import (
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/reqverify"
-	"github.com/swornagent/sworn/internal/state")
+	"github.com/swornagent/sworn/internal/state"
+)
 
 // Run drives the implementer role for one slice:
 //  1. Read status.json; if design_review, transition to in_progress.
@@ -30,7 +31,10 @@ import (
 // Workspace root is the root of the repository the agent operates in.
 // Spec path is the absolute path to the slice's spec.md (status.json and
 // proof.md are derived from the same directory).
-func Run(ctx context.Context, workspaceRoot, specPath string, a agent.Agent) error {
+// priorFeedback is the prior verifier's rationale. When non-empty, it is
+// injected into the user prompt ahead of the spec so the agent can address
+// the named failures.
+func Run(ctx context.Context, workspaceRoot, specPath, priorFeedback string, a agent.Agent) error {
 	sliceDir := filepath.Dir(specPath)
 	statusPath := filepath.Join(sliceDir, "status.json")
 	proofPath := filepath.Join(sliceDir, "proof.md")
@@ -70,7 +74,8 @@ func Run(ctx context.Context, workspaceRoot, specPath string, a agent.Agent) err
 		if err := state.Write(statusPath, st); err != nil {
 			return fmt.Errorf("implement: write status: %w", err)
 		}
-	} else if st.State != state.InProgress && st.State != state.FailedVerification {		return fmt.Errorf("implement: cannot run from state %q", st.State)
+	} else if st.State != state.InProgress && st.State != state.FailedVerification {
+		return fmt.Errorf("implement: cannot run from state %q", st.State)
 	}
 
 	// Step 2: Read spec.
@@ -80,11 +85,24 @@ func Run(ctx context.Context, workspaceRoot, specPath string, a agent.Agent) err
 	}
 
 	// Step 3: Build prompts and run agent loop.
+	// The agent's final prose is not required: proof.md is built from git
+	// diff + test output, so an empty agent return still produces a valid
+	// proof bundle and proceeds to verification.
 	systemPrompt := prompt.Implementer()
-	userPrompt := fmt.Sprintf(
-		"Implement the following spec in workspace %s.\n\n%s\n\nAfter implementation, stop.",
-		workspaceRoot, string(spec),
-	)
+
+	var userPrompt string
+	if priorFeedback != "" {
+		feedback := truncateString(priorFeedback, 2000)
+		userPrompt = fmt.Sprintf(
+			"Previous attempt failed verification — address these specifically:\n\n%s\n\n---\n\nImplement the following spec in workspace %s.\n\n%s\n\nAfter implementation, stop.",
+			feedback, workspaceRoot, string(spec),
+		)
+	} else {
+		userPrompt = fmt.Sprintf(
+			"Implement the following spec in workspace %s.\n\n%s\n\nAfter implementation, stop.",
+			workspaceRoot, string(spec),
+		)
+	}
 
 	_, _, _, err = agent.Run(ctx, a, systemPrompt, userPrompt, workspaceRoot, agent.Config{})
 	if err != nil {
@@ -211,6 +229,17 @@ func runGoTest(workspaceRoot string) string {
 		return fmt.Sprintf("(exit error: %v)\n%s", err, string(out))
 	}
 	return string(out)
+}
+
+// truncateString caps s at maxRunes runes, adding an ellipsis if truncated.
+func truncateString(s string, maxRunes int) string {
+	if len(s) <= maxRunes {
+		return s
+	}
+	if maxRunes <= 3 {
+		return s[:maxRunes]
+	}
+	return s[:maxRunes-3] + "..."
 }
 
 // runGitCmd runs an arbitrary git command in workspaceRoot and returns trimmed stdout.

@@ -68,10 +68,9 @@ func TestDoctorAllOK(t *testing.T) {
 		t.Errorf("expected [OK] for planner.md\nOutput:\n%s", output)
 	}
 
-	// Group 1: baton/rules/ should be OK (10/10).
-	if !strings.Contains(output, "10/10 rule files present") {
-		t.Errorf("expected 10/10 rule files present\nOutput:\n%s", output)
-	}
+	// Group 1: baton/rules/ should be OK (11/11).
+	if !strings.Contains(output, "11/11 rule files present") {
+		t.Errorf("expected 11/11 rule files present\nOutput:\n%s", output)	}
 
 	// Group 1: planner.md should have all Phase 1-6 headings.
 	if !strings.Contains(output, "headings=all present") {

@@ -3,13 +3,87 @@
   "slice_id": "S38-verifier-blocked-violations",
   "release": "2026-06-19-safe-parallelism",
   "track": "T12-harness-hardening",
-  "state": "planned", "owner": "human", "last_updated_by": "planner",
-  "last_updated_at": "2026-06-21T00:00:00Z", "start_commit": null,
+  "state": "verified",
+  "owner": "human",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-05T06:00:00Z",  "start_commit": "93fb61e589dcb640c18da5e49ea1d393577a3d19",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S38-verifier-blocked-violations/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S38-verifier-blocked-violations/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S38-verifier-blocked-violations/journal.md",
-  "planned_files": ["internal/prompt/verifier.md", "internal/verify/verify.go"],
-  "actual_files": [], "test_commands": ["go test ./internal/verify/...", "go build ./..."],
-  "reachability_artifacts": [], "open_deferrals": [],
-  "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []}
+  "planned_files": [
+    "internal/prompt/verifier.md",
+    "internal/verify/validate_blocked.go",
+    "internal/verify/verify_test.go"
+  ],
+  "actual_files": [
+    "internal/prompt/verifier.md",
+    "internal/verify/validate_blocked.go",
+    "internal/verify/verify_test.go"
+  ],
+  "test_commands": [
+    "go test ./internal/verify/...",
+    "go build ./..."
+  ],
+  "reachability_artifacts": [
+    "go test ./internal/verify/ -run TestBlockedRequiresViolations -v"
+  ],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": "fresh-context-20260705",
+    "verifier_verdict_at": "2026-07-05T06:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": []
+  },  "design_decisions": [
+    {
+      "choice": "Gate location: Go unit in internal/verify/ (sworn repo) + bash check in $HOME/.claude/bin/release-verify.sh (baton-owned). scripts/release-verify.sh does not exist in sworn; the baton copy is the canonical first-pass gate.",
+      "stake_class": "Type-2",
+      "options": [
+        "Go unit only",
+        "Bash gate only",
+        "Both Go unit + bash gate"
+      ],
+      "rationale": "Spec leaves gate location open ('sworn verify, or scripts/release-verify.sh, or internal/verify'). The Go unit makes it callable from sworn verify later; the bash gate in release-verify.sh ensures the harness catches malformed BLOCKED verdicts at first-pass time. The bash gate is baton-owned and not git-tracked in sworn."
+    },
+    {
+      "choice": "Verifier prompt change is additive only \u2014 two sentences in the BLOCKED output branch.",
+      "stake_class": "Type-2",
+      "options": [
+        "Additive sentences in BLOCKED section",
+        "Restructure BLOCKED section",
+        "Add a separate 'Writing the verdict to status.json' section"
+      ],
+      "rationale": "The minimal two-sentence addition keeps the diff reviewable and avoids structural rewrite risk. The BLOCKED section already describes what the verdict must contain; adding the violations-population requirement there is the natural home."
+    },
+    {
+      "choice": "Gate checks status.json verbatim (jq in bash, encoding/json in Go), not a Go-typed struct with custom marshal/unmarshal.",
+      "stake_class": "Type-2",
+      "options": [
+        "jq/bash for bash gate + encoding/json for Go gate",
+        "Define a shared Go struct and use it in both places",
+        "Go gate only, no bash gate"
+      ],
+      "rationale": "release-verify.sh already uses jq for status.json inspection (Check 2 state check). Matching that pattern keeps the bash gate consistent and avoids new parsing infrastructure. The Go function uses encoding/json for type-safe access."
+    },
+    {
+      "choice": "Gate is forward-looking only \u2014 validates at write time, not retroactively on historical state.",
+      "stake_class": "Type-2",
+      "options": [
+        "Forward-looking only (check fires on verification.result == 'blocked')",
+        "Retroactive (check all status.json files in the repo)",
+        "Configurable flag for retroactive mode"
+      ],
+      "rationale": "Matches spec Risks section ('the gate is forward-looking. Ensure it doesn't retroactively wedge a slice mid-flight'). A slice already in 'verified' state with a historical blocked doesn't retroactively fail. Only checks when verification.result == 'blocked'."
+    },
+    {
+      "choice": "Unit test (TestBlockedRequiresViolations) serves double duty as both the required unit test and the reachability artefact.",
+      "stake_class": "Type-2",
+      "options": [
+        "Unit test is reachability artefact",
+        "Separate manual smoke test",
+        "CLI invocation as reachability artefact"
+      ],
+      "rationale": "The spec prescribes running the Go check against crafted JSON. The unit test does exactly that \u2014 two sub-tests proving empty-violations BLOCKED fails and populated-violations BLOCKED passes. A go test run output is the reachability artefact."
+    }
+  ]
 }

@@ -232,8 +232,8 @@ delivers async AND verified. Same PR, different quality bar. This gap is unoccup
 
 ### 2026-06-23 — Replan: orchestration-core port (T17) from the port-fidelity audit
 
-- **Context**: a 7-dimension port-fidelity audit (`internal-docs/captures/2026-06-23-port-fidelity-audit/`;
-  reference = the leading-edge coach loop in `~/.claude/baton/` + `~/.claude/bin`) found sworn
+- **Context**: a 7-dimension port-fidelity audit (reference = the leading-edge coach loop in
+  `~/.claude/baton/` + `~/.claude/bin`) found sworn
   faithfully ported the **workflow plane** (status.json state machine, worktree isolation,
   verifier verdict contract, per-role routing — exactly what getfired exercises across 32
   releases) but NOT the **orchestration plane**.

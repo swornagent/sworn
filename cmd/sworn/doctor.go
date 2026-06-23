@@ -73,7 +73,7 @@ var promptHeadingSpecs = map[string]headingSpec{
 	},
 }
 
-// batonRuleFiles is the list of all 10 embedded Baton rule files that must
+// batonRuleFiles is the list of all 11 embedded Baton rule files that must
 // exist and be non-empty.
 var batonRuleFiles = []string{
 	"01-reachability-gate.md",
@@ -85,8 +85,8 @@ var batonRuleFiles = []string{
 	"08-requirements-fidelity.md",
 	"09-design-fidelity.md",
 	"10-customer-journey-validation.md",
+	"11-process-global-mutation.md",
 }
-
 // batonRulesIndexHeading is the heading the README.md must carry.
 const batonRulesIndexHeading = "## The seven rules"
 

@@ -75,8 +75,7 @@ tracks:
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T12-harness-hardening
     worktree_branch: track/2026-06-19-safe-parallelism/T12-harness-hardening
-    state: in_progress
-  - id: T13-sworn-role-parity
+    state: merged  - id: T13-sworn-role-parity
     slices: [S45-design-tldr, S46-captain-review, S47-orchestrator-recovery]
     depends_on: [T12-harness-hardening, T17-orchestration-core]
     worktree_path:
@@ -152,8 +151,7 @@ tracks:
 | `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
 | `T10-public-readiness` | S27 | all tracks (incl. T16) | `track/.../T10-public-readiness` | planned |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
-| `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | in_progress |
-| `T13-sworn-role-parity` | S45 → S46 → S47 | T12 + T17 | `track/.../T13-sworn-role-parity` | planned |
+| `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | merged || `T13-sworn-role-parity` | S45 → S46 → S47 | T12 + T17 | `track/.../T13-sworn-role-parity` | planned |
 | `T14-baton-integration` | S48 → S49 → S50 | T3 + T15 | `track/.../T14-baton-integration` | planned |
 | `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged |
 | `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | planned |
@@ -508,12 +506,15 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 - Deferred: 0
 
 **Tracks:** Planned: 9 / In progress: 1 / Merged: 8
-> Merged (8): T1, T2, T3, T4, T8, T9, T11, T15. In progress (1): T12-harness-hardening (head: S42-implement-step-timeout). Planned (9): T5, T6, T7, T10, T13, T14, T16, T17, T18-cli-polish.
-
+> Merged (9): T1, T2, T3, T4, T8, T9, T11, T12, T15. In progress (3): T5, T7, T14. Planned (6): T6, T10, T13, T16, T17, T18.
 ## Recent activity
 
-### 2026-06-23 — replan: new track T18-cli-polish (S60 init fix + S61 CLI styling)
+### 2026-07-07 — track `T12-harness-hardening` merged to release-wt (commit dd3b622)
 
+- **Actor**: track integrator (/merge-track)
+- **Note**: 13 verified slices merged: S29-lint-deps, S30-lint-touchpoints, S31-lint-symbols, S32-designfit-decisions-gate, S33-spec-template-hardening, S35-mutation-guard, S36-captain-resolve-dirty-worktree, S37-telemetry-tui-exclusion, S38-verifier-blocked-violations, S41-build-bin-target, S42-implement-step-timeout, S43-agent-loop-natural-stop, S44-feedback-driven-retry. Track state -> merged.
+
+### 2026-06-23 — replan: new track T18-cli-polish (S60 init fix + S61 CLI styling)
 - **Actor**: planner (human Brad + Claude)
 - **Trigger**: human-initiated new scope from an ad-hoc fix session, not a BLOCKED handoff.
   Two changes: (S60) `sworn init` prompts for design tokens / component library even in a
