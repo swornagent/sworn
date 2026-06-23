@@ -5,21 +5,19 @@
   "track": "T14-baton-integration",
   "state": "implemented",
   "owner": "human",
-  "last_updated_by": "verifier",
-  "last_updated_at": "2026-06-23T13:00:00Z",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-23T13:26:28Z",
   "start_commit": "d58aeca",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S49-baton-version/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S49-baton-version/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S49-baton-version/journal.md",
-  "depends_on": [
-    "S48-baton-vendor"
-  ],
+  "depends_on": ["S48-baton-vendor"],
   "planned_files": [
     "internal/adopt/baton/VERSION",
     "internal/prompt/VERSION.txt",
     "internal/prompt/prompt.go",
     "internal/baton/version.go",
-    "internal/baton/export_test.go",
+    "internal/baton/version_stub.go",
     "internal/baton/version_test.go",
     "cmd/sworn/doctor.go",
     "cmd/sworn/doctor_test.go"
@@ -35,7 +33,7 @@
     "cmd/sworn/doctor_test.go"
   ],
   "test_commands": [
-    "go test -race -run 'TestIsSemverTag|TestVersionIsSemverNotSha|TestDoctorReportsBatonTag|TestDoctorFailsOnShaPin|TestDoctorAllOK' ./internal/baton/... ./cmd/sworn/...",
+    "go test -race ./internal/baton/... ./internal/prompt/... ./cmd/sworn/...",
     "go build ./..."
   ],
   "reachability_artifacts": [
@@ -44,12 +42,10 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "blocked",
-    "verifier_session_id": "fresh-verifier-2026-06-23",
-    "verifier_verdict_at": "2026-06-23T13:00:00Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      "Spec contract defect: User outcome section claims 'SwornAgent vA.B.C on Baton vX.Y.Z' but entry point, ACs, and implementation deliver 'baton-protocol on Baton vX.Y.Z' (no main.go edit per T15 boundary). Spec not updated after design review pin."
-    ]
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
   }
 }
