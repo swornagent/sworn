@@ -37,7 +37,7 @@
     "go build ./..."
   ],
   "reachability_artifacts": [
-    "sworn version output -> baton-protocol on Baton v0.3.0",
+    "sworn version output -> baton-protocol on Baton v0.4.0",
     "sworn doctor output -> [OK] baton/VERSION.txt + [OK] baton/VERSION (baton-protocol)"
   ],
   "open_deferrals": [],

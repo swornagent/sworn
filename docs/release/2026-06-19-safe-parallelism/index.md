@@ -359,6 +359,14 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
   This supersedes the earlier T5 note's assumption that T5 was the only in-flight writer of this
   file. Chosen over a `T12 depends_on T5` edge because T12 is near-complete (10 slices verified)
   and T5 is barely started — serialising the finished track behind the unstarted one is backwards.
+- **Resolution recipe (replan 2026-06-24, S11 unblock):** the `release-wt → T5` forward-merge
+  conflicts *textually* in `cmd/sworn/run.go` because S42's `--implement-timeout` flag block and
+  S10's `.env`/provider block sit adjacent in `cmdRun`. **Keep BOTH hunks** — they are independent
+  additive changes (flag registration + timeout resolve vs `.env` load + provider error surfacing).
+  This is a mechanical implementer merge resolution, **NOT** a touchpoint-matrix / invariant-4 error:
+  the plan is correct (run.go is DOCUMENTED SHARED by design). A verifier or Step-0 that routes this
+  to `/replan-release` is **mis-diagnosing** — there is no plan change to make. Resolve the merge once
+  on the T5 branch (keep both) and S11 proceeds; do not bounce it to the planner again.
 - `internal/run/run.go`, `internal/run/slice.go`: T1-owned and **merged**. S42 threads
   `ImplementTimeout` through `Options`/`SliceOptions` and wraps each attempt in
   `context.WithTimeout`. Only T12 writes these while in-flight (T13/T16/T17 are planned and
