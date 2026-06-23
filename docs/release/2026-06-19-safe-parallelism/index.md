@@ -434,8 +434,8 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S08b-mcp-ops-tools` | T4 | 9 ops tools: get_board, get_blocked, get_slice_context, rerun, patch, merge, defer | verified | [spec](./S08b-mcp-ops-tools/spec.md) |
 | `S08c-mcp-plan-tools` | T4 | 4 planning tools + resources + prompts + mcp-setup.md | verified | [spec](./S08c-mcp-plan-tools/spec.md) |
 | `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | verified | [spec](./S09-per-role-model-config/spec.md) |
-| `S10-provider-foundation` | T5 | ADR 0007 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | verified | [spec](./S10-provider-foundation/spec.md) || `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | planned | [spec](./S11-anthropic-driver/spec.md) |
-| `S12-google-driver` | T5 | Google Gemini and Vertex AI models work as verifier and implementer | planned | [spec](./S12-google-driver/spec.md) |
+| `S10-provider-foundation` | T5 | ADR 0007 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | verified | [spec](./S10-provider-foundation/spec.md) |
+| `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | implemented (verifier BLOCKED) | [spec](./S11-anthropic-driver/spec.md) || `S12-google-driver` | T5 | Google Gemini and Vertex AI models work as verifier and implementer | planned | [spec](./S12-google-driver/spec.md) |
 | `S13-bedrock-driver` | T5 | AWS Bedrock models work via Converse API; IAM auth | planned | [spec](./S13-bedrock-driver/spec.md) |
 | `S14-azure-driver` | T5 | Azure OpenAI deployments work via api-key auth; no new SDK dep | planned | [spec](./S14-azure-driver/spec.md) |
 | `S15-oci-driver` | T5 | OCI Generative AI models work via oci-go-sdk | planned | [spec](./S15-oci-driver/spec.md) |
@@ -497,7 +497,8 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > S29-S32 read `planned` despite being `verified`; S33 `planned` despite `design_review`;
 > S07 `planned` despite `implemented`). Three duplicate rows (S22/S23/S24) and several
 > `||`-collapsed physical lines repaired.
-
+>
+> 2026-06-23T12:08:47Z: S11-anthropic-driver (T5) moved to BLOCKED by verifier (touchpoint-matrix conflict on forward-merge of release-wt into T5-providers track; cmd/sworn/run.go). Slice state remains `implemented`; `verification.result: blocked`. No change to aggregate counts (oracle authoritative).
 - Planned: 27
 - In progress: 0
 - Implemented: 0
@@ -511,8 +512,14 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 
 ## Recent activity
 
-### 2026-06-23 — replan: new track T18-cli-polish (S60 init fix + S61 CLI styling)
+### 2026-06-23T12:08:47Z — verifier verdict — BLOCKED (S11-anthropic-driver)
+- **Slice**: S11-anthropic-driver (T5-providers)
+- **Verdict**: BLOCKED
+- **Reason**: forward-merge of release-wt/2026-06-19-safe-parallelism into track/2026-06-19-safe-parallelism/T5-providers conflicted on cmd/sworn/run.go (code file) — the touchpoint matrix was wrong (track-mode invariant 4). Route to /replan-release 2026-06-19-safe-parallelism to re-group.
+- **State**: slice remains `implemented`; `verification.result: blocked`. No spec amendment (process invariant violation, not contract defect).
+- **Next step**: `/replan-release 2026-06-19-safe-parallelism`
 
+### 2026-06-23 — replan: new track T18-cli-polish (S60 init fix + S61 CLI styling)
 - **Actor**: planner (human Brad + Claude)
 - **Trigger**: human-initiated new scope from an ad-hoc fix session, not a BLOCKED handoff.
   Two changes: (S60) `sworn init` prompts for design tokens / component library even in a

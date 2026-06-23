@@ -41,3 +41,7 @@ None.
 ## Verifier verdicts received
 
 *(None yet.)*
+### 2026-06-23T12:08:47Z — verifier verdict — BLOCKED
+BLOCKED: forward-merge of release-wt/2026-06-19-safe-parallelism into track/2026-06-19-safe-parallelism/T5-providers conflicted on cmd/sworn/run.go (code file) — the touchpoint matrix was wrong (track-mode invariant 4). Route to /replan-release 2026-06-19-safe-parallelism to re-group.
+
+No spec amendment proposed — this is a process invariant violation (touchpoint collision), not a defect in the slice contract. The planner must correct the release plan / touchpoint matrix.

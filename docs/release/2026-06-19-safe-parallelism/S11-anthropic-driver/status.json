@@ -37,10 +37,11 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
-  }
-}
+    "result": "blocked",
+    "verifier_session_id": "fresh-verifier-2026-06-23",
+    "verifier_verdict_at": "2026-06-23T12:08:47Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "forward-merge of release-wt/2026-06-19-safe-parallelism into track/2026-06-19-safe-parallelism/T5-providers conflicted on cmd/sworn/run.go (code file) — the touchpoint matrix was wrong (track-mode invariant 4). Route to /replan-release 2026-06-19-safe-parallelism to re-group."
+    ]
+  }}
