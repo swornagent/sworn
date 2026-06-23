@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/swornagent/sworn/internal/memory"
+	"github.com/swornagent/sworn/internal/style"
 )
 // cmdMemory dispatches the "sworn memory" command tree.
 func cmdMemory(args []string) int {
@@ -69,9 +70,9 @@ func cmdMemoryStatus(args []string) int {
 	usingDefaults := len(cfg.LoadedPaths()) == 0
 
 	if usingDefaults {
-		fmt.Println("memory config: using defaults (no config file found)")
+		fmt.Println(style.Dim("memory config: using defaults (no config file found)"))
 	} else {
-		fmt.Println("memory config:")
+		fmt.Println(style.Heading("memory config:"))
 		for _, p := range cfg.LoadedPaths() {
 			fmt.Printf("  loaded: %s\n", p)
 		}

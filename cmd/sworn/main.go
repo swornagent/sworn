@@ -17,6 +17,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/command"
 	"github.com/swornagent/sworn/internal/prompt"
+	"github.com/swornagent/sworn/internal/style"
 	"github.com/swornagent/sworn/internal/telemetry"
 	"github.com/swornagent/sworn/internal/tui"
 )
@@ -77,9 +78,9 @@ func dispatch(args []string) int {
 
 // cmdVersion prints the sworn binary version and baton-protocol version.
 func cmdVersion(_ []string) int {
-	fmt.Printf("sworn %s\nbaton-protocol %s\n", version, prompt.BatonVersion())
-	return 0
-}
+	fmt.Println(style.Banner("sworn " + version))
+	fmt.Println(style.Dim("baton-protocol " + prompt.BatonVersion()))
+	return 0}
 
 // cmdHelp prints usage. If the first argument is "run", it delegates to
 // cmdRun with --help (preserving the pre-registry behaviour for sworn help run).

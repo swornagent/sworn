@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"github.com/swornagent/sworn/internal/journey"
+	"github.com/swornagent/sworn/internal/style"
 )
 
 // cmdShip implements `sworn ship <release> [project-root]`.
@@ -59,7 +60,7 @@ func cmdShip(args []string) int {
 	}
 
 	if result.Pass {
-		fmt.Printf("sworn ship: release %q passed the ship gate — all touched journeys have complete, ", releaseName)
+		fmt.Print(style.Success(fmt.Sprintf("sworn ship: release %q passed the ship gate — all touched journeys have complete, ", releaseName)))
 		fmt.Printf("passing human-walkthrough attestations.\n")
 		fmt.Println()
 		fmt.Println("The release may proceed to cutover.")
@@ -67,7 +68,7 @@ func cmdShip(args []string) int {
 	}
 
 	// Gate blocked — print the kill-list.
-	fmt.Fprintf(os.Stderr, "FAIL: cutover blocked — release %q cannot ship.\n", releaseName)
+	fmt.Fprintln(os.Stderr, style.Danger(fmt.Sprintf("FAIL: cutover blocked — release %q cannot ship.", releaseName)))
 	fmt.Fprintln(os.Stderr)
 
 	unwalked := result.UnwalkedJourneys()

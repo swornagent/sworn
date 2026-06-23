@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/swornagent/sworn/internal/journey"
+	"github.com/swornagent/sworn/internal/style"
 )
 
 // cmdJourneys implements `sworn journeys [--check] [--impact <release>] [--regen <release>] [project-path]`.
@@ -194,7 +195,7 @@ func cmdJourneysImpact(projectRoot, releaseName string) int {
 		return 2
 	}
 
-	fmt.Printf("Release: %s\n", result.ReleaseName)
+	fmt.Println(style.Accent(fmt.Sprintf("Release: %s", result.ReleaseName)))
 	fmt.Printf("Journeys artefact: found and ratified\n")
 	fmt.Println()
 	fmt.Printf("Journeys touched by this release (%d):\n", len(result.JourneysTouched))

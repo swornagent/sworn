@@ -3,7 +3,7 @@
   "slice_id": "S61-cli-output-styling",
   "release": "2026-06-19-safe-parallelism",
   "track": "T18-cli-polish",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "planner",
   "last_updated_at": "2026-06-23T00:00:00Z",
@@ -43,7 +43,26 @@
     "internal/reqverify/reqverify.go",
     "internal/reqvalidate/reqvalidate.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "cmd/sworn/account.go",
+    "cmd/sworn/bench.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/journeys.go",
+    "cmd/sworn/lint.go",
+    "cmd/sworn/main.go",
+    "cmd/sworn/memory.go",
+    "cmd/sworn/ship.go",
+    "cmd/sworn/top.go",
+    "internal/designaudit/designaudit.go",
+    "internal/designfit/designfit.go",
+    "internal/ears/ears.go",
+    "internal/reqvalidate/reqvalidate.go",
+    "internal/reqverify/reqverify.go",
+    "internal/rtm/rtm.go",
+    "internal/specquality/specquality.go",
+    "internal/style/style.go",
+    "internal/style/style_test.go"
+  ],
   "test_commands": [
     "go test ./internal/style/...",
     "go test ./cmd/sworn/...",
@@ -51,7 +70,10 @@
     "go build ./...",
     "go vet ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "internal/style/style_test.go (TestEnabled_DisabledReturnsPlain, TestEnabled_EnabledReturnsAnsi)",
+    "go test ./cmd/sworn/... (styled commands exercised through entry points)"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "",
@@ -59,5 +81,37 @@
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
     "violations": []
-  }
+  },
+  "design_decisions": [
+    {
+      "choice": "Reuse internal/style/style.go verbatim from wip/cli-styling-reference",
+      "stake_class": "type_2",
+      "human_decision": "acknowledged \u2014 reference branch code is clean and tested; copy verbatim",
+      "rationale": "Spec directs reuse; reference package is zero-dependency and already passes style_test.go"
+    },
+    {
+      "choice": "Command-file styling wraps existing fmt.Print* arguments in style.*() calls, never rephrases",
+      "stake_class": "type_2",
+      "human_decision": "acknowledged \u2014 wrapping pattern guarantees byte-identical plain-text output",
+      "rationale": "Preserves all golden-string and table-alignment tests"
+    },
+    {
+      "choice": "main.go touchpoints: usage(), cmdVersion(), cmdHelp() only; skip dispatch() and TUI path",
+      "stake_class": "type_2",
+      "human_decision": "acknowledged \u2014 T15 owns dispatch/registry pattern; no output text to style there",
+      "rationale": "Avoids cross-track collision with T15 command registry"
+    },
+    {
+      "choice": "Divider runs of = stay Dim-wrapped rather than converted to style.Rule",
+      "stake_class": "type_2",
+      "human_decision": "acknowledged \u2014 preserves byte-identical plain output; Rule() emits box-drawing chars",
+      "rationale": "Spec Risk section explicitly calls this out"
+    },
+    {
+      "choice": "usage() text block: Banner at top, hint line at bottom; middle prose stays plain",
+      "stake_class": "type_2",
+      "human_decision": "acknowledged \u2014 over-styling reference material degrades readability",
+      "rationale": "Only verdict/heading surfaces get colour"
+    }
+  ]
 }
