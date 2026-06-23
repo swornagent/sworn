@@ -1,6 +1,6 @@
 ---
 title: 'S49-baton-version — reconcile the Baton pin from a raw SHA to a semver tag; `sworn version`/`doctor` report and gate "on Baton vX.Y.Z"'
-description: 'The embed pins Baton by a raw 40-char SHA in internal/adopt/baton/VERSION, while internal/prompt/VERSION.txt carries a separate prompt-vendor version — two divergent sources, neither a clean semver tag. S49 reconciles them to a single semver tag (v0.3.0 at adoption), surfaces the released protocol version in `sworn version` (the existing two-line output `sworn <version>` / `baton-protocol on Baton vX.Y.Z`, via S49-owned `prompt.BatonVersion()`), and adds a `sworn doctor` check that fails closed when the pin is a SHA rather than a tag. depends_on S48 (internal/baton package). See ADR-0006.'
+description: 'The embed pins Baton by a raw 40-char SHA in internal/adopt/baton/VERSION, while internal/prompt/VERSION.txt carries a separate prompt-vendor version — two divergent sources, neither a clean semver tag. S49 reconciles them to a single semver tag (v0.4.0 at adoption), surfaces the released protocol version in `sworn version` (the existing two-line output `sworn <version>` / `baton-protocol on Baton vX.Y.Z`, via S49-owned `prompt.BatonVersion()`), and adds a `sworn doctor` check that fails closed when the pin is a SHA rather than a tag. depends_on S48 (internal/baton package). See ADR-0006.'
 ---
 
 # Slice: `S49-baton-version`
@@ -11,7 +11,7 @@ description: 'The embed pins Baton by a raw 40-char SHA in internal/adopt/baton/
 binary implements. The T15-owned `version` command (`cmd/sworn/main.go`, left
 **unedited** per the design-review pin) prints two lines — `sworn <version>` then
 `baton-protocol on Baton vX.Y.Z` — where the **`on Baton vX.Y.Z`** segment is a
-semver tag (e.g. `v0.3.0`), not a raw commit SHA, and is supplied by the
+semver tag (e.g. `v0.4.0`), not a raw commit SHA, and is supplied by the
 S49-owned `prompt.BatonVersion()` → `baton.Version()` accessor. `sworn doctor`
 reports the same `on Baton vX.Y.Z` line and **fails closed** if the embedded pin
 is a 40-char SHA instead of a semver tag, so a binary can never ship claiming a
@@ -37,7 +37,7 @@ Two divergent version sources exist today:
    a semver-ish string).
 
 A user asking "what protocol am I on?" gets a SHA from one source and a string from
-another. Baton now publishes tags `v0.1.0`…`v0.3.0` (upstream `VERSION`-file +
+another. Baton now publishes tags `v0.1.0`…`v0.4.0` (upstream `VERSION`-file +
 tag-discipline tracked at sawy3r/baton#31). S49 makes the pin a single semver tag and
 surfaces/gates it.
 
@@ -47,9 +47,9 @@ than re-deriving from raw files in two places.
 
 ## In scope
 
-- Reconcile the pin to a **semver tag** (`v0.3.0` at adoption) as the single source of
+- Reconcile the pin to a **semver tag** (`v0.4.0` at adoption) as the single source of
   truth: set it in `internal/adopt/baton/VERSION` (replace the SHA line with
-  `baton-protocol: v0.3.0`, keeping the `upstream:`/`vendored:`/`rules-added:` lines)
+  `baton-protocol: v0.4.0`, keeping the `upstream:`/`vendored:`/`rules-added:` lines)
   and make `internal/prompt/VERSION.txt` agree (or derive from the same value).
 - `internal/baton/version.go` (new, in S48's package) — `Version() string` returns the
   pinned semver tag; `IsSemverTag(s string) bool` (matches `vMAJOR.MINOR.PATCH`,
@@ -89,7 +89,7 @@ than re-deriving from raw files in two places.
 
 - [ ] `baton.IsSemverTag("v0.3.0")` is true; `IsSemverTag("cf158423f65c20860a3d4ec0310acb6cc7fb5aa0")`
   is false; `IsSemverTag("0.3.0")` and `IsSemverTag("")` are false
-- [ ] `baton.Version()` returns the semver tag (`v0.3.0`), not a SHA, read from the
+- [ ] `baton.Version()` returns the semver tag (`v0.4.0`), not a SHA, read from the
   reconciled pin
 - [ ] `internal/adopt/baton/VERSION` no longer contains a 40-hex-char SHA on the
   `baton-protocol:` line (assert by reading the embedded bytes)
@@ -108,7 +108,7 @@ than re-deriving from raw files in two places.
   `TestDoctorFailsOnShaPin`, `TestDoctorReportsBatonTag` (and `TestDoctorAllOK` from
   S22 must still exit 0 against the reconciled embed).
 - **Reachability artefact**: paste `sworn version` and `sworn doctor` output in
-  `proof.md` showing the "on Baton v0.3.0" line and a forced-SHA failure run.
+  `proof.md` showing the "on Baton v0.4.0" line and a forced-SHA failure run.
 
 ## Risks
 
