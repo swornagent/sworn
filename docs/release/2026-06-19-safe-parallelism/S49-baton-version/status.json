@@ -3,11 +3,11 @@
   "slice_id": "S49-baton-version",
   "release": "2026-06-19-safe-parallelism",
   "track": "T14-baton-integration",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-09T00:00:00Z",
-  "start_commit": null,
+  "start_commit": "d58aeca",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S49-baton-version/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S49-baton-version/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S49-baton-version/journal.md",
@@ -24,12 +24,24 @@
     "cmd/sworn/doctor.go",
     "cmd/sworn/doctor_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/adopt/baton/VERSION",
+    "internal/prompt/VERSION.txt",
+    "internal/prompt/prompt.go",
+    "internal/baton/version.go",
+    "internal/baton/version_stub.go",
+    "internal/baton/version_test.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go"
+  ],
   "test_commands": [
-    "go test -race ./internal/baton/... ./internal/prompt/... ./cmd/sworn/...",
+    "go test -race -run 'TestIsSemverTag|TestVersionIsSemverNotSha|TestDoctorReportsBatonTag|TestDoctorFailsOnShaPin|TestDoctorAllOK' ./internal/baton/... ./cmd/sworn/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "sworn version output -> baton-protocol on Baton v0.3.0",
+    "sworn doctor output -> [OK] baton/VERSION.txt + [OK] baton/VERSION (baton-protocol)"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "",
