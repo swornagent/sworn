@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
-
 // ErrConfigExists is returned by Scaffold when the config file already exists
 // and force is false.
 var ErrConfigExists = errors.New("config file already exists")
@@ -105,4 +105,68 @@ func PromptDesignSystem(current *DesignSystem, nonInteractive bool) (*DesignSyst
 	}
 
 	return ds, nil
+}
+// PromptImplementer collects implementer model settings interactively. When
+// nonInteractive is true, it returns the defaults without prompting.
+//
+// In interactive mode, the prompts show the default for each field and accept
+// input. Empty input accepts the default.
+func PromptImplementer(current ModelSetting, nonInteractive bool) ModelSetting {
+	ms := ModelSetting{
+		Model:            current.Model,
+		EscalationModels: current.EscalationModels,
+		MaxAttempts:      current.MaxAttempts,
+	}
+	if nonInteractive {
+		return ms
+	}
+
+	fmt.Println()
+	fmt.Println("Implementer model configuration:")
+	fmt.Println()
+
+	// Model
+	fmt.Printf("  Model (provider/model) [%s]: ", ms.Model)
+	var input string
+	if _, err := fmt.Scanln(&input); err == nil && input != "" {
+		ms.Model = input
+	}
+
+	// Escalation models
+	defaultEsc := strings.Join(ms.EscalationModels, ", ")
+	fmt.Printf("  Escalation models (comma-separated) [%s]: ", defaultEsc)
+	input = ""
+	// Scanln only reads one token; use a full line read for comma-separated input.
+	var buf []byte
+	var ch byte
+	for {
+		n, _ := fmt.Scanf("%c", &ch)
+		if n == 0 || ch == '\n' {
+			break
+		}
+		buf = append(buf, ch)
+	}
+	input = strings.TrimSpace(string(buf))
+	if input != "" {
+		var models []string
+		for _, m := range strings.Split(input, ",") {
+			m = strings.TrimSpace(m)
+			if m != "" {
+				models = append(models, m)
+			}
+		}
+		if len(models) > 0 {
+			ms.EscalationModels = models
+		}
+	}
+
+	// Max attempts
+	fmt.Printf("  Max attempts [%d]: ", ms.MaxAttempts)
+	var n int
+	if _, err := fmt.Scanln(&n); err == nil {
+		ms.MaxAttempts = n
+	}
+
+	fmt.Println()
+	return ms
 }

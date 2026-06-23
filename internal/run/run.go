@@ -17,14 +17,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/db"
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/state"
 	"github.com/swornagent/sworn/internal/supervisor"
-)// DefaultEscalationModels is the default model escalation path when none is
-// provided. Each entry is a "provider/model" ID suitable for model.FromEnv.
+) // DefaultEscalationModels is the default model escalation path when none is// provided. Each entry is a "provider/model" ID suitable for model.FromEnv.
 // The list runs from cheapest to most capable; on retry the next model is used.
 var DefaultEscalationModels = []string{
 	"openai/gpt-4o-mini",
@@ -59,10 +59,6 @@ type Options struct {
 	// each retry. The verifier model stays fixed.
 	EscalationModels []string
 
-	// ImplementTimeout is the per-attempt deadline for the implement step.
-	// 0 means use the default (config.DefaultImplementTimeout).
-	// A negative value means no timeout (opt-out).
-	ImplementTimeout time.Duration
 	// WorkspaceRoot is the repo root directory. Default ".".
 	WorkspaceRoot string
 
@@ -86,6 +82,10 @@ type Options struct {
 	// the run loop creates one from the database. When set, DB must also
 	// be set (or the supervisor must use its own connection).
 	Supervisor *supervisor.Supervisor
+
+	// Notifier is the notification dispatcher for FAIL/BLOCKED verdicts.
+	// When nil, notifications are skipped (test path / zero-config).
+	Notifier *account.Notifier
 }
 // Run executes the sworn run turnkey loop. It returns nil only when the
 // implementation passed verification and was merged.
@@ -111,8 +111,23 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("run: resolve workspace: %w", err)
 	}
 
-	repo := git.New(workspaceRoot)
+	// ── Non-blocking credit fetch (S06b) ──────────────────────────────
+	// FetchCredits runs in a goroutine with a 3s timeout. It updates the
+	// cache file if successful; the run proceeds regardless of outcome.
+	go func() {
+		credsDir := filepath.Dir(account.CredentialsPath())
+		creds, credErr := account.Load(credsDir)
+		if credErr != nil || creds == nil || !account.IsLoggedIn(creds) {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if _, err := account.FetchCredits(ctx, creds); err != nil {
+			fmt.Fprintf(os.Stderr, "sworn run: credit fetch warning: %v\n", err)
+		}
+	}()
 
+	repo := git.New(workspaceRoot)
 	// ── Open database and initialise supervisor ───────────────────────
 	var database *sql.DB
 	if opts.DB != nil {
@@ -202,7 +217,7 @@ func Run(ctx context.Context, opts Options) error {
 		RetryCap:         opts.RetryCap,
 		NewAgent:         opts.NewAgent,
 		NewVerifier:      opts.NewVerifier,
-		ImplementTimeout: opts.ImplementTimeout,
+		Notifier:         opts.Notifier,
 	})
 	if err != nil {		// Re-wrap Blocked errors to preserve the run: prefix for
 		// existing tests that check "verification blocked".
@@ -228,6 +243,7 @@ func Run(ctx context.Context, opts Options) error {
 	fmt.Fprintf(os.Stderr, "sworn run: merged %s into %s (PASS)\n", featureBranch, opts.Base)
 	return nil
 }
+
 // setupSlice creates a release directory and a single-slice directory with
 // auto-generated spec.md and status.json (Pin 3). Returns the release dir and
 // slice dir (both relative to workspaceRoot).
@@ -317,7 +333,6 @@ func sanitiseBranch(task string) string {
 	}
 	return name
 }
-
 
 func newAgentFromModel(modelID string) (agent.Agent, error) {
 	v, err := model.FromEnv(modelID)

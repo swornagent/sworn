@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
+
+	"github.com/swornagent/sworn/internal/account"
 )
 
 // FromEnv resolves a Verifier from environment variables using the model ID
@@ -13,9 +16,17 @@ import (
 //
 // Env vars:
 //
-//	SWORN_<UPPER_PROVIDER>_API_KEY  (required)
+//	SWORN_<UPPER_PROVIDER>_API_KEY  (required for direct provider routing)
 //	SWORN_<UPPER_PROVIDER>_BASE_URL (optional; defaults vary by provider)
 //	SWORN_<UPPER_PROVIDER>_MODEL    (optional; overrides the model name from the flag)
+//	SWORN_DIRECT=1                  (optional; bypass proxy, use provider key directly)
+//
+// Proxy routing (S06b): when sworn login credentials are present and
+// SWORN_DIRECT is not set, FromEnv routes through the SwornAgent proxy.
+// The proxy URL is obtained from account.Endpoint(). The sworn bearer token
+// is used as the API key for the proxy. When SWORN_DIRECT=1 is set, or no
+// credentials are present, FromEnv falls back to direct provider routing
+// (the pre-S06b behaviour).
 //
 // When provider is "openai" and SWORN_OPENAI_BASE_URL is unset, the default is
 // https://api.openai.com/v1 — the safe-hosted default (trusted-jurisdiction). Any
@@ -35,6 +46,23 @@ func FromEnv(modelID string) (Verifier, error) {
 
 	prefix := strings.ToUpper(strings.ReplaceAll(provider, "-", "_"))
 
+	// Proxy routing: check for sworn credentials and SWORN_DIRECT override.
+	// (Coach ack pin B — credential-trust boundary.)
+	if os.Getenv("SWORN_DIRECT") != "1" {
+		creds, credErr := account.Load(filepath.Dir(account.CredentialsPath()))
+		if credErr == nil && creds != nil && account.IsLoggedIn(creds) {
+			proxyURL := account.Endpoint(creds, modelID)
+			if proxyURL != "" {
+				return &OAI{
+					BaseURL: proxyURL,
+					Model:   model,
+					APIKey:  creds.Token,
+				}, nil
+			}
+		}
+	}
+
+	// Direct provider routing (pre-S06b behaviour).
 	key := os.Getenv("SWORN_" + prefix + "_API_KEY")
 	if key == "" {
 		return nil, fmt.Errorf("model: SWORN_%s_API_KEY not set", prefix)

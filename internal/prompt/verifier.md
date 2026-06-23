@@ -155,6 +155,41 @@ Read `proof.md` "Delivered" list. For each item, verify the evidence reference (
 - Evidence reference points to a file that doesn't exist or doesn't do what the claim says: FAIL.
 - "Delivered" list contains items not in the original `spec.md` acceptance checks: FAIL — re-slice or update spec first.
 
+### Gate 7 — Catalog conformance check
+
+If docs/considerations.md exists in the repo:
+
+1. Read docs/decisions.md. Check whether any decision entries for this slice
+   document a deliberate deviation from the catalog's architecture patterns.
+2. Inspect the implementation diff. Does it deviate from any pattern in
+   architecture.patterns without a corresponding entry in docs/decisions.md?
+   - If yes: this is a FAIL. Violation: "undocumented deviation from <pattern> —
+     see docs/considerations.md architecture.patterns[N]. Either the implementation
+     must conform or a deviation must be recorded in docs/decisions.md with human
+     acknowledgement."
+3. Check that design system affordances used in UI slices are either from the
+   registered design system or have a documented gap entry in intake.md.
+   - If a UI component was built without checking the design system and no gap is
+     documented: FAIL.
+4. **Adversarial dependency version check.** For every new dependency added by this
+   slice (identified by diffing the dependency file against the start_commit):
+   a. Check docs/considerations.md [dependencies].project_pinned. If the version
+      used matches the pinned version: PASS this dep.
+   b. If the dep is not pinned: independently query the package registry to get the
+      current latest stable version (same commands as the implementer's Dependency
+      discipline step). Do not trust what the implementer wrote — run the query.
+   c. Compare the queried version against what the implementer used:
+      - Same major version, same or newer minor: PASS (patch-level drift is acceptable).
+      - Older major version with no entry in docs/decisions.md documenting why: FAIL.
+        Violation: "<module> vX.Y.Z used but registry reports vA.B.C as latest stable.
+        Either upgrade to the latest or document the version choice in docs/decisions.md."
+      - Any version with a docs/decisions.md entry documenting the choice: PASS.
+   d. If the registry is unreachable during verification: do NOT auto-FAIL. Record
+      "WARN: registry unreachable for <module> — version check skipped; verify manually"
+      in the verdict and proceed. Unreachability is an environment issue, not a code issue.
+5. If docs/considerations.md does not exist, skip checks 1–4 and note its absence
+   in the verdict.
+
 ## Output format
 
 If all six gates pass:

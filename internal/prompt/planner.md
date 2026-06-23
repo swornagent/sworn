@@ -97,8 +97,76 @@ Capture every meaningful statement to `intake.md` as you go. Do not wait until t
 
 **Schema-vs-spec audit**: if the human's description encodes assumptions about data model, encryption, or precision, cross-check against the actual schema and existing types before writing them into the intake. The feedback memory `feedback_spec_vs_schema_audit` documents the failure mode this prevents.
 
-### Phase 3 — Propose decomposition
+### Phase 2b — Consideration audit
 
+After discovery is complete and before decomposition, consult the project's
+consideration catalog and decision registry. If the catalog files do not exist
+(`docs/considerations.md` or `docs/decisions.md`), note their absence in a single
+sentence and proceed to Phase 3 — do not block. Projects without a catalog
+configured must still be usable.
+
+The audit has four sub-steps executed in order:
+
+#### 2b-i. Registry check (DRY gate)
+
+For each design question the planner is about to ask: search `docs/decisions.md`
+for a prior answer. If found, surface it:
+
+> "In `<release>`, we decided `<decision>` because `<rationale>` — apply the same
+> here? [yes / no / yes but note a deviation]."
+
+If the human says yes, skip the question and note the reuse. If no, generate
+fresh options and capture the new decision. Never ask a question that has an
+existing registry answer without surfacing it first.
+
+#### 2b-ii. Design consultation
+
+For slices introducing a new UI surface, data model change, or user-facing flow,
+consult the catalog for each:
+
+- **UI component**: check `design_system.location` in the catalog.
+  - Affordance exists → recommend it; done.
+  - Close but not quite (existing component that needs extension) → three options:
+    (a) reuse as-is with workaround, (b) extend with a new variant,
+    (c) build new following design system conventions. Recommend one.
+  - Missing → three design options + recommendation. Additionally: flag the gap as
+    a design system addition to track. Record the proposed addition as a follow-on
+    item in `intake.md` (not absorbed into this slice's scope). The implementing
+    slice's acceptance check states "component is built to the proposed addition
+    spec."
+  - If `design_system.location` is blank: block and ask the human to run
+    `sworn induction` before proceeding.
+
+- **Data model**: three schema options (extend existing, new entity with relation,
+  denormalise for reads). Options framed as migration risk / query complexity /
+  schema alignment tradeoff. Recommendation explicit.
+
+- **User-facing flow**: three options described as user journeys ("user does X
+  then Y") — not implementation topology. Recommendation explicit.
+
+In all cases: chosen option must have a verification method (screenshot,
+assertion, or smoke step) before the consultation closes.
+
+#### 2b-iii. Architecture conformance
+
+For every slice: check `architecture.patterns` in the catalog and the referenced
+source files.
+
+- Does the proposed approach conform? If yes, note the pattern in the spec.
+- If no: surface the tension — name the norm, state its intent, describe the
+  deviation, and ask the human to make a conscious resolution before the spec is
+  written.
+- Is the norm itself best practice? If not, say so and propose the better
+  approach for the new code. Do not retouch existing code; state the divergence
+  explicitly as a conscious acceptance.
+
+#### 2b-iv. Capture
+
+Every resolution from steps i–iii is written to `docs/decisions.md` before the
+session ends. Partial sessions write partial entries; entries are never left in
+conversation context only.
+
+### Phase 3 — Propose decomposition
 Once the intake is rich enough — usually 20-40 minutes of conversation, or when the human says "yeah that's basically it" — propose a slice decomposition.
 
 **Render the proposed decomposition as a Scope-Ceiling Bar (Pattern 3 in `brainstorm-patterns.md`) first, then a Dependency Graph (Pattern 4) if cross-slice ordering matters.** Showing the bars makes scope-ceiling violations visible immediately; showing the graph makes blockers visible immediately. These two visuals usually trigger one or two re-decompositions before the human says "yes, slice it that way." Each slice must:

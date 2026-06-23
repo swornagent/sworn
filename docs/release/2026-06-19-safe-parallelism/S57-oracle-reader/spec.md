@@ -28,6 +28,20 @@ The reference orchestration brain reads state from **git refs**, not the working
   - `ReadBoard(ctx, repo, release) ([]TrackState, error)` — every track + every slice's authoritative state, the JSON the CLI prints.
 - `cmd/sworn/board.go` (new) + self-registration via `init()`.
 - Git plumbing via the existing `internal/git` package (`git show`, `cat-file -e`), not a new git dependency.
+- **Blocked visibility (folded in at replan 2026-06-23):** the reader must surface a slice's
+  `verification.result` — specifically `"blocked"` — as a first-class board signal, not collapse it
+  into `state`. The bash oracle (`release-board-status.sh`) reads only `.state`, so a slice with
+  `state:"implemented"` + `verification.result:"blocked"` renders as plain `implemented` and the
+  BLOCKED is invisible — the gap that hid S42/S10/S48 as blocked on the board this release.
+  `ReadSliceStatus` / `ReadBoard` must expose:
+  - `Blocked bool` (true when `verification.result == "blocked"`),
+  - the blocked **reason** — the first `verification.violations[]` entry (S38 guarantees it is
+    populated for a blocked verdict), and
+  - the blocked **routing owner**: `needs_planner` | `needs_human` | `needs_implementer`, taken
+    from a `verification.routing` field when present, else inferred (`blocked` → `needs_planner`,
+    `failed_verification` → `needs_implementer`).
+  `sworn board` renders these as a distinct `BLOCKED → <owner>: <reason>` row so a verifier-BLOCKED
+  slice can never again read as a healthy `implemented`.
 
 ## Out of scope
 
@@ -50,7 +64,9 @@ The reference orchestration brain reads state from **git refs**, not the working
 - [ ] Priority fallback: a slice with no track branch yet resolves from `release-wt`; with neither, from working-tree HEAD.
 - [ ] `docs/` vs `apps/docs/content/docs/` prefix probe selects the right path.
 - [ ] Transient-read retry: a status.json that reads empty once then non-empty resolves to the non-empty state (fake git layer with a one-shot empty).
-- [ ] `sworn board --json --release <fixture>` prints every slice's authoritative state; output `.slices[].state` matches `release-board-status.sh --json` on the same fixture (parity).
+- [ ] `sworn board --json --release <fixture>` prints every slice's authoritative state; output `.slices[].state` matches `release-board-status.sh --json` on the same fixture for **non-blocked** slices (parity). Blocked-visibility is an intentional improvement over the bash oracle — see the next two checks.
+- [ ] A slice with `state:"implemented"` AND `verification.result:"blocked"` renders as **BLOCKED** (distinct from a healthy `implemented`), shows the routing owner, and surfaces the first `verification.violations[]` entry as the reason — proving the board no longer collapses a blocked verdict into the underlying state (the 2026-06-23 oracle-gap fix).
+- [ ] `--json` output carries per slice a `blocked` boolean, `blocked_reason` (first violation), and `blocked_owner` (`needs_planner` | `needs_human` | `needs_implementer`).
 - [ ] `go test -race ./internal/board/...` passes.
 
 ## Required tests

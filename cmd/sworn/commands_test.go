@@ -8,6 +8,9 @@ import (
 
 // expectedVerbs is the full set of verbs that must resolve in the registry.
 var expectedVerbs = []string{
+	"account",
+	"login",
+	"logout",
 	"init",
 	"verify",
 	"run",

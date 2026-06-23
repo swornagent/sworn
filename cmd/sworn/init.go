@@ -6,11 +6,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/swornagent/sworn/internal/adopt"
 	"github.com/swornagent/sworn/internal/config"
 )
+
 func cmdInit(args []string) int {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
 	apiKey := fs.String("api-key", "", "API key for the default provider (openai); overrides prompting")
@@ -18,6 +20,11 @@ func cmdInit(args []string) int {
 	yes := fs.Bool("yes", false, "skip confirmation prompt (non-interactive)")
 	uiBearer := fs.Bool("ui-bearing", false, "mark project as UI-bearing (requires design system declaration)")
 	_ = fs.Parse(args)
+
+	// Shared stdin reader — avoids multiple bufio.NewReader(os.Stdin)
+	// instances fighting over buffered pipe/test data.
+	in := bufio.NewReader(os.Stdin)
+
 	repoRoot, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sworn init: cannot determine working directory: %v\n", err)
@@ -57,20 +64,6 @@ func cmdInit(args []string) int {
 		_ = os.Remove(cfgPath)
 	}
 
-	// Baton protocol docs
-	batonExist := adopt.BatonDocsExist(repoRoot)
-	if !batonExist {
-		planned = append(planned, change{
-			label:  "docs/baton/",
-			reason: "Baton protocol docs not present — will write 7 rule files + README + VERSION",
-		})
-	} else {
-		informational = append(informational, change{
-			label:  "docs/baton/",
-			reason: "already present — will refresh to current protocol version",
-		})
-	}
-
 	// Design system declaration (S08) — check current project config.
 	existingCfg, _ := config.Load()
 	if existingCfg.UIBearing && existingCfg.DesignSystem == nil {
@@ -86,48 +79,34 @@ func cmdInit(args []string) int {
 		})
 	}
 
-	// Agent config files
-	spliceResults, err := adopt.PlanSplice(repoRoot, *force)
-	if err != nil {		fmt.Fprintf(os.Stderr, "sworn init: %v\n", err)
+	// AGENTS.md
+	agentsPath := filepath.Join(repoRoot, "AGENTS.md")
+	agentsData, agentsReadErr := os.ReadFile(agentsPath)
+	if os.IsNotExist(agentsReadErr) {
+		// AGENTS.md does not exist — will be created from template.
+		planned = append(planned, change{
+			label:  "AGENTS.md",
+			reason: "does not exist — will be created from MCP-pointer template",
+		})
+	} else if agentsReadErr != nil {
+		fmt.Fprintf(os.Stderr, "sworn init: read AGENTS.md: %v\n", agentsReadErr)
 		return 1
+	} else if strings.Contains(string(agentsData), adopt.BatonSectionHeading) {
+		// Legacy Baton splice detected — warn and skip.
+		informational = append(informational, change{
+			label: "AGENTS.md",
+			warn:  true,
+			reason: "contains legacy Baton content — run 'sworn doctor' to migrate\n" +
+				"          (AGENTS.md left unchanged)",
+		})
+	} else {
+		informational = append(informational, change{
+			label:  "AGENTS.md",
+			reason: "already present and up-to-date — no changes (use --force to overwrite)",
+		})
 	}
-	for _, r := range spliceResults {
-		switch r.Action {
-		case adopt.SpliceCreated:
-			planned = append(planned, change{
-				label:  r.File,
-				reason: "file does not exist — will be created with Baton rules section",
-			})
-		case adopt.SpliceAppended:
-			planned = append(planned, change{
-				label:  r.File,
-				reason: "Baton section missing — will append rules to existing file",
-			})
-		case adopt.SpliceUpdated:
-			planned = append(planned, change{
-				label:  r.File,
-				warn:   true,
-				reason: "Baton section is customized — will overwrite with current protocol text (--force)",
-			})
-		case adopt.SpliceNoOp:
-			informational = append(informational, change{
-				label:  r.File,
-				reason: "Baton section already current — no changes",
-			})
-		case adopt.SpliceCustomized:
-			informational = append(informational, change{
-				label:  r.File,
-				warn:   true,
-				reason: "Baton section has been customized — leaving unchanged\n" +
-					"          (re-run with --force to overwrite with current protocol text)",
-			})
-		case adopt.SpliceAbsent:
-			informational = append(informational, change{
-				label:  r.File,
-				reason: "not found — skipping (only spliced if the file already exists)",
-			})
-		}
-	}
+	// Store for apply phase.
+	_ = agentsData
 
 	// Print plan
 	labelWidth := 22
@@ -164,8 +143,7 @@ func cmdInit(args []string) int {
 
 	if !*yes {
 		fmt.Print("Proceed? [Y/n]: ")
-		reader := bufio.NewReader(os.Stdin)
-		resp, _ := reader.ReadString('\n')
+		resp, _ := in.ReadString('\n')
 		resp = strings.TrimSpace(strings.ToLower(resp))
 		if resp != "" && resp != "y" && resp != "yes" {
 			fmt.Println("Aborted. No changes made.")
@@ -231,8 +209,23 @@ func cmdInit(args []string) int {
 			}
 			fmt.Printf("  updated  %s (ui_bearing: true — design system not yet configured; run 'sworn init --ui-bearing --force' to configure)\n", cfgPath)
 		}
-	} else if cfgErr == config.ErrConfigExists && *uiBearer {
-		// Config exists; update it with UI-bearing / design system.
+
+		// Implementer model prompt (S09): collect implementer model + escalation + retry cap.
+		// When --yes is set, defaults are used without prompting (Coach Pin 2).
+		cfg, loadErr := config.Load()
+		if loadErr != nil {
+			fmt.Fprintf(os.Stderr, "sworn init: re-load config: %v\n", loadErr)
+			return 1
+		}
+		impl := config.PromptImplementer(cfg.Implementer, *yes)
+		cfg.Implementer = impl
+		if writeErr := writeConfig(cfgPath, &cfg); writeErr != nil {
+			fmt.Fprintf(os.Stderr, "sworn init: write implementer config: %v\n", writeErr)
+			return 1
+		}
+		fmt.Printf("  updated  %s (implementer: model=%s, escalation_models=%v, max_attempts=%d)\n",
+			cfgPath, impl.Model, impl.EscalationModels, impl.MaxAttempts)
+	} else if cfgErr == config.ErrConfigExists && *uiBearer { // Config exists; update it with UI-bearing / design system.
 		cfg, loadErr := config.Load()
 		if loadErr != nil {
 			fmt.Fprintf(os.Stderr, "sworn init: load existing config: %v\n", loadErr)
@@ -259,39 +252,107 @@ func cmdInit(args []string) int {
 			fmt.Printf("  updated  %s (ui_bearing: true — design system not yet configured)\n", cfgPath)
 		}
 	}
-	// Baton protocol docs
-	if err := adopt.Materialise(repoRoot); err != nil {
-		fmt.Fprintf(os.Stderr, "sworn init: %v\n", err)
-		return 1
-	}
-	if !batonExist {
-		fmt.Println("  created  docs/baton/ (rules + README + VERSION)")
-	} else {
-		fmt.Println("  updated  docs/baton/ (refreshed to current protocol version)")
+
+	// AGENTS.md — create from MCP-pointer template if it does not exist.
+	if os.IsNotExist(agentsReadErr) {
+		if err := createAgentsMD(repoRoot); err != nil {
+			fmt.Fprintf(os.Stderr, "sworn init: %v\n", err)
+			return 1
+		}
+		fmt.Println("  created  AGENTS.md (MCP-pointer template)")
+	} else if agentsReadErr == nil && *force && !strings.Contains(string(agentsData), adopt.BatonSectionHeading) {
+		// --force with a non-legacy AGENTS.md: overwrite with template.
+		if err := createAgentsMD(repoRoot); err != nil {
+			fmt.Fprintf(os.Stderr, "sworn init: %v\n", err)
+			return 1
+		}
+		fmt.Println("  updated  AGENTS.md (overwritten with MCP-pointer template via --force)")
 	}
 
-	// Agent config files
-	applied, err := adopt.SpliceAgents(repoRoot, *force)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "sworn init: %v\n", err)
-		return 1
-	}
-	for _, r := range applied {
-		switch r.Action {
-		case adopt.SpliceCreated:
-			fmt.Printf("  created  %s\n", r.File)
-		case adopt.SpliceAppended:
-			fmt.Printf("  updated  %s (Baton section appended)\n", r.File)
-		case adopt.SpliceUpdated:
-			fmt.Printf("  updated  %s (Baton section replaced)\n", r.File)
-		case adopt.SpliceCustomized:
-			fmt.Printf("  skipped  %s (customized — use --force to overwrite)\n", r.File)
+	// --- Consideration catalog prompt ---
+	// After the implementer-model prompt, offer to scaffold the consideration
+	// catalog (docs/considerations.md) and decision registry (docs/decisions.md).
+	// These are plain markdown templates — no template engine, no interpolation.
+	if !*yes {
+		fmt.Print("Set up consideration catalog? (y/n) [y]: ")
+		resp, _ := in.ReadString('\n')
+		resp = strings.TrimSpace(strings.ToLower(resp))
+		if resp == "n" || resp == "no" {
+			fmt.Println("  skipped  catalog — run 'sworn induction' later to set it up")
+			goto done
 		}
 	}
+	if err := materialiseCatalog(repoRoot, in); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn init: catalog: %v\n", err)
+		return 1
+	}
 
+done:
 	fmt.Println()
-	fmt.Println("Done. Run 'sworn verify' to verify your first change.")
+	fmt.Println("Done. Connect your AI to sworn mcp to get the Baton protocol and role prompts. Run 'sworn doctor' to verify your setup.")
 	return 0
+}
+
+// createAgentsMD writes the MCP-pointer AGENTS.md from the embedded template
+// at docs/templates/agents.md.
+func createAgentsMD(repoRoot string) error {
+	templatePath := filepath.Join(repoRoot, "docs", "templates", "agents.md")
+	targetPath := filepath.Join(repoRoot, "AGENTS.md")
+
+	data, err := os.ReadFile(templatePath)
+	if err != nil {
+		return fmt.Errorf("read AGENTS.md template: %w", err)
+	}
+	if err := os.WriteFile(targetPath, data, 0644); err != nil {
+		return fmt.Errorf("write AGENTS.md: %w", err)
+	}
+	return nil
+}
+
+// materialiseCatalog copies the consideration catalog and decision registry
+// templates from docs/templates/ into the project root. If either target file
+// already exists, it prompts before overwriting (defaulting to no).
+func materialiseCatalog(repoRoot string, in *bufio.Reader) error {
+	templates := []struct {
+		src  string
+		dst  string
+		name string
+	}{
+		{"docs/templates/considerations.md", "docs/considerations.md", "consideration catalog"},
+		{"docs/templates/decisions.md", "docs/decisions.md", "decision registry"},
+	}
+
+	for _, t := range templates {
+		srcPath := filepath.Join(repoRoot, t.src)
+		dstPath := filepath.Join(repoRoot, t.dst)
+
+		// Ensure destination directory exists.
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
+			return fmt.Errorf("create docs/: %w", err)
+		}
+
+		// Check if destination exists — prompt before overwriting.
+		if _, err := os.Stat(dstPath); err == nil {
+			fmt.Printf("  File exists — overwrite %s? [y/N]: ", t.name)
+			resp, _ := in.ReadString('\n')
+			resp = strings.TrimSpace(strings.ToLower(resp))
+			if resp != "y" && resp != "yes" {
+				fmt.Printf("  skipped  %s (already exists)\n", t.name)
+				continue
+			}
+		}
+
+		data, err := os.ReadFile(srcPath)
+		if err != nil {
+			return fmt.Errorf("read template %s: %w", t.src, err)
+		}
+		if err := os.WriteFile(dstPath, data, 0644); err != nil {
+			return fmt.Errorf("write %s: %w", t.name, err)
+		}
+		fmt.Printf("  created  %s\n", t.dst)
+	}
+
+	return nil
 }
 
 // promptAPIKey reads an API key from stdin with the prompt hidden.
