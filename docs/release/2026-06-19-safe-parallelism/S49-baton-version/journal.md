@@ -171,3 +171,14 @@ STATE: verified_implement_next
 SLICE: S49-baton-version
 NEXT: S50-baton-governance
 REASON: All six gates passed. S50-baton-governance is the next slice in track T14-baton-integration.
+## 2026-06-24T00:00:00Z: Planner — re-pin v0.4.0 → v0.4.2 (propagated to T14)
+
+Baton **v0.4.2** (`729f188f6f69f4b807c5974b33fd39ec98671f15`) is published + tagged, shipping the
+operational gates promoted into the canonical implementer/verifier role prompts (PR #35). The
+adoption pin moves to that release. The loop's prior T14 implementation wrote
+`baton-protocol: v0.4.0`, so it no longer satisfies the re-pinned spec. State reset
+`implemented`/`pass` → `failed_verification`/`pending` to route the VERSION-file bump back to the
+**implementer**: set `internal/adopt/baton/VERSION` → `baton-protocol: v0.4.2`, record
+`upstream-sha: 729f188…`, refresh `vendored:`, extend `rules-added:` (rule 11 + role-prompt gates),
+make `internal/prompt/VERSION.txt` agree, re-verify `sworn version`/`sworn doctor` → on Baton v0.4.2.
+Spec synced from release-wt. `start_commit` (d58aeca) preserved.
