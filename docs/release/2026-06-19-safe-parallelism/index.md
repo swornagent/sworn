@@ -36,7 +36,7 @@ tracks:
     state: in_progress
   - id: T6-provider-ux
     slices: [S17-tui-provider-config]
-    depends_on: [T2-monitoring, T5-providers]
+    depends_on: [T2-monitoring, T5-providers, T18-cli-polish]
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T6-provider-ux
     state: planned
@@ -60,7 +60,7 @@ tracks:
     state: merged
   - id: T10-public-readiness
     slices: [S27-public-readiness-scrub]
-    depends_on: [T1-concurrency-core, T2-monitoring, T3-commercial, T4-mcp, T5-providers, T6-provider-ux, T7-mcp-extensions, T8-memory, T9-telemetry, T11-infra-safety, T12-harness-hardening, T13-sworn-role-parity, T14-baton-integration, T16-verdict-ledger]
+    depends_on: [T1-concurrency-core, T2-monitoring, T3-commercial, T4-mcp, T5-providers, T6-provider-ux, T7-mcp-extensions, T8-memory, T9-telemetry, T11-infra-safety, T12-harness-hardening, T13-sworn-role-parity, T14-baton-integration, T16-verdict-ledger, T18-cli-polish]
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T10-public-readiness
     state: planned
@@ -102,9 +102,15 @@ tracks:
     state: planned
   - id: T17-orchestration-core
     slices: [S57-oracle-reader, S58-slice-router, S59-scheduler-relayer]
-    depends_on: [T1-concurrency-core, T12-harness-hardening]
+    depends_on: [T1-concurrency-core, T12-harness-hardening, T18-cli-polish]
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T17-orchestration-core
+    state: planned
+  - id: T18-cli-polish
+    slices: [S60-init-ui-bearing-fix, S61-cli-output-styling]
+    depends_on: [T2-monitoring, T15-cli-registry]
+    worktree_path:
+    worktree_branch: track/2026-06-19-safe-parallelism/T18-cli-polish
     state: planned
 ---
 
@@ -151,14 +157,16 @@ tracks:
 | `T14-baton-integration` | S48 → S49 → S50 | T3 + T15 | `track/.../T14-baton-integration` | planned |
 | `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged |
 | `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | planned |
-| `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 | `track/.../T17-orchestration-core` | planned |
+| `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | planned |
+| `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | planned |
 
 ### Execution order
 
 ```
 Phase 1:  T1 (sequential)
 Phase 2:  T2, T3, T4, T8, T9, T11, T12, T15 (parallel after T1 — T11/T12 harness-hardening + T15 CLI registry dispatch early)
-          T17 (after T1 + T12 — orchestration-core port: oracle reader + router + scheduler re-layer; S59 shares internal/run + internal/scheduler with T12, so serial after T12)
+          T18 (after T2 + T15 — CLI-output polish: init --ui-bearing fix + shared internal/style colour across the command surface; lands before the planned tracks that share its files)
+          T17 (after T1 + T12 + T18 — orchestration-core port: oracle reader + router + scheduler re-layer; S59 shares internal/run + internal/scheduler with T12, and run.go with T18, so serial after both)
           T13 (after T12 + T17 — product role parity; S47 consumes the T17 router; shares internal/run with T12)
 Phase 3:  T5 (after T1 + T3)
           T7 (after T3 + T4; may run in parallel with T5)
@@ -201,6 +209,16 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > S22/T4, already merged — S49 adds a Baton-pin check) plus the documented-shared additive
 > `cmd/sworn/main.go`. T5 touches only `internal/model/**`+`go.mod`+`cmd/sworn/run.go`; T7
 > only `internal/mcp/**`+`internal/config/**` — disjoint from T14. No parallel collision.
+> `T18-cli-polish` (S60–S61) is omitted from the columns: it is presentation-only and
+> serialised against everything it shares a file with. S60 touches only `cmd/sworn/init.go`
+> (owned by S08/T3, merged — sequential). S61 adds the new `internal/style/` namespace and
+> restyles the existing command surface + report renderers (`cmd/sworn/*.go`,
+> `internal/{rtm,ears,specquality,designfit,designaudit,reqverify,reqvalidate}`), all owned by
+> already-merged tracks (T2/T3/T4/T8/T9/T11/T12/T15) and thus sequential. Its only overlaps with
+> **not-yet-merged** tracks are three planned slices — S27 (T10: `main.go`, `bench.go`), S17
+> (T6: `top.go`), S59 (T17: `run.go`) — resolved by adding `depends_on T18-cli-polish` to T6,
+> T10, and T17 so T18 lands first; those tracks pick up the styled files at their own start.
+> `main.go` stays T-owned: S61 styles only `usage()` / `version` *presentation*, not dispatch.
 > **ADR-number-collision finding (flagged 2026-06-21, RESOLVED 2026-06-23):** the original matrix
 > rows named `docs/adr/0004-dep-policy-minimal-justified.md` (S10) and
 > `docs/adr/0005-canonical-baton.md` (S21), but `0004`/`0005` were already taken on
@@ -463,13 +481,16 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S57-oracle-reader` | T17 | `sworn board` reads every slice's authoritative status.json from git refs (track branch > release-wt > worktree), ownership-resolved — the honest board reader the router/TUI/rollup read through | planned | [spec](./S57-oracle-reader/spec.md) |
 | `S58-slice-router` | T17 | `sworn route <slice> <release>` computes the next command purely from committed status.json — the deterministic captain-route.sh port (state machine + design-review/Gate-re-entry/merge) | planned | [spec](./S58-slice-router/spec.md) |
 | `S59-scheduler-relayer` | T17 | `sworn run --parallel` workers poll the router each step (poll-and-route) instead of a static slice list — resumable, dynamic; keeps dependency resolution + worktree isolation + supervisor ownership | planned | [spec](./S59-scheduler-relayer/spec.md) |
+| `S60-init-ui-bearing-fix` | T18 | `sworn init` no longer prompts for design tokens / component library in a non-UI-bearing repo; design-system flow gated on `--ui-bearing`; drops the always-true `UIBearing` write | planned | [spec](./S60-init-ui-bearing-fix/spec.md) |
+| `S61-cli-output-styling` | T18 | shared zero-dep `internal/style` ANSI palette gives premium, consistent, TTY/`NO_COLOR`-aware colour across every command + report renderer; plain output byte-identical | planned | [spec](./S61-cli-output-styling/spec.md) |
 
 ## Aggregate state
 
 > **STALE — the board oracle (`release-board-status.sh --json`) is authoritative; run it for live
-> counts.** This hand-maintained block predates the T16-verdict-ledger and T17-orchestration-core
-> additions (now **17 tracks**) and is not reconciled per-replan. Counts below are a historical
-> snapshot only.
+> counts.** This hand-maintained block predates the T16-verdict-ledger, T17-orchestration-core, and
+> T18-cli-polish additions (now **18 tracks, 67 slices**) and is not reconciled per-replan. Counts
+> below are a historical snapshot only. Live oracle at 2026-06-23: verified 40 / planned 24 /
+> in_progress 2 / implemented 1; tracks merged 8 / in_progress 4 / planned 6.
 >
 > Reconciled from the board oracle (`release-board-status.sh --json`, authoritative) this
 > replan, 2026-07-03. **57 slices across 15 tracks.** Slice-table State column above
@@ -486,10 +507,37 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 - Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 8 / In progress: 1 / Merged: 8
-> Merged (8): T1, T2, T3, T4, T8, T9, T11, T15. In progress (1): T12-harness-hardening (head: S42-implement-step-timeout). Planned (8): T5, T6, T7, T10, T13, T14, T16, T17.
+**Tracks:** Planned: 9 / In progress: 1 / Merged: 8
+> Merged (8): T1, T2, T3, T4, T8, T9, T11, T15. In progress (1): T12-harness-hardening (head: S42-implement-step-timeout). Planned (9): T5, T6, T7, T10, T13, T14, T16, T17, T18-cli-polish.
 
 ## Recent activity
+
+### 2026-06-23 — replan: new track T18-cli-polish (S60 init fix + S61 CLI styling)
+
+- **Actor**: planner (human Brad + Claude)
+- **Trigger**: human-initiated new scope from an ad-hoc fix session, not a BLOCKED handoff.
+  Two changes: (S60) `sworn init` prompts for design tokens / component library even in a
+  non-UI-bearing repo — the design-system block is gated on new-config, not on `--ui-bearing`,
+  plus an always-true `UIBearing = *uiBearer || true`; (S61) premium, consistent colour across
+  the whole CLI via a new zero-dep `internal/style` package, TTY/`NO_COLOR`-aware, plain output
+  byte-identical. Both defects (S60) confirmed present on release-wt at plan time.
+- **New track T18-cli-polish** (S60 → S61), `depends_on T2 + T15` (the merged tracks owning the
+  command surface it restyles). Both slices `planned`.
+- **Touchpoint resolution**: S61 shares files with three not-yet-started planned slices — S27
+  (T10: `main.go`, `bench.go`), S17 (T6: `top.go`), S59 (T17: `run.go`). Added
+  `depends_on T18-cli-polish` to T6, T10, T17 so T18 lands first; no concurrent edit. Zero
+  collisions with any *started* track (T5/T7/T12/T14) — verified by `git diff --name-only`.
+- **Base divergence (Rule 2 surface)**: the reference implementation was authored on
+  `release/v0.1.0`, **379 commits behind release-wt**; release-wt's command surface is larger
+  (account/doctor/induction/login/mcp/memory/telemetry/verify) and `main.go` is registry-based.
+  The code is preserved on branch `wip/cli-styling-reference` as implementer reference; S61 must
+  be implemented fresh against release-wt (reuse `internal/style` verbatim, re-cover the command
+  layer). **Not** a clean port — flagged so the implementer does not git-apply the stale diff.
+- **Index drift noted (not fully reconciled)**: the `## Slices` State column and the Aggregate
+  block lagged the oracle before this replan (table shows ~28 verified vs oracle 40). Aggregate
+  disclaimer updated to point at the oracle; per-row State cells left as the prior replans did —
+  the oracle (`release-board-status.sh`) remains authoritative. Why: out of scope for adding T18,
+  mass per-row edits carry error risk; Tracking: this note; Ack: surfaced to Brad.
 
 ### 2026-06-23 — replan: route S48 to implementer (misroute) + fold board blocked-visibility into S57
 
