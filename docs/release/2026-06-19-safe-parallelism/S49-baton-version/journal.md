@@ -40,3 +40,8 @@ Captain reviewed design.md (commit 7093b0c0e4d1b28e1e8b9460ecb51588474dc9be). 3 
 3. Single accessor confirmed — honours [[project_baton_sworn_architecture]]
 
 Coach approved with CAPTAIN-VERDICT: PROCEED.
+## Verifier verdicts received
+
+BLOCKED: Spec's "User outcome" section and front-matter description claim `sworn version` prints "SwornAgent vA.B.C on Baton vX.Y.Z", but the entry point section, acceptance checks, and delivered reachability artefact use "baton-protocol on Baton vX.Y.Z" (reframing is done only in BatonVersion() without editing main.go per T15 ownership). The spec is internally inconsistent on the user-facing output format.
+
+Proposed spec.md amendment: In the YAML front-matter "description" and the "## User outcome" section, change the claimed output format from "SwornAgent vA.B.C on Baton vX.Y.Z" to "baton-protocol on Baton vX.Y.Z" (or "sworn <v>\nbaton-protocol on Baton vX.Y.Z") to match the "Entry point" section, the AC, and the actual implementation. Also align "Planned touchpoints" list with status.json (test stub file missing from spec list).

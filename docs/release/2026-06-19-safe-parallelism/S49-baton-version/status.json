@@ -5,8 +5,8 @@
   "track": "T14-baton-integration",
   "state": "implemented",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-09T00:00:00Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-23T13:00:00Z",
   "start_commit": "d58aeca",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S49-baton-version/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S49-baton-version/proof.md",
@@ -44,10 +44,12 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
+    "result": "blocked",
+    "verifier_session_id": "fresh-verifier-2026-06-23",
+    "verifier_verdict_at": "2026-06-23T13:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "Spec contract defect: User outcome section claims 'SwornAgent vA.B.C on Baton vX.Y.Z' but entry point, ACs, and implementation deliver 'baton-protocol on Baton vX.Y.Z' (no main.go edit per T15 boundary). Spec not updated after design review pin."
+    ]
   }
 }
