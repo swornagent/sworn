@@ -445,7 +445,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S08c-mcp-plan-tools` | T4 | 4 planning tools + resources + prompts + mcp-setup.md | verified | [spec](./S08c-mcp-plan-tools/spec.md) |
 | `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | verified | [spec](./S09-per-role-model-config/spec.md) |
 | `S10-provider-foundation` | T5 | ADR 0007 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | implemented | [spec](./S10-provider-foundation/spec.md) |
-| `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | failed_verification | [spec](./S11-anthropic-driver/spec.md) || `S12-google-driver` | T5 | Google Gemini and Vertex AI models work as verifier and implementer | planned | [spec](./S12-google-driver/spec.md) || `S13-bedrock-driver` | T5 | AWS Bedrock models work via Converse API; IAM auth | planned | [spec](./S13-bedrock-driver/spec.md) |
+| `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | verified | [spec](./S11-anthropic-driver/spec.md) || `S12-google-driver` | T5 | Google Gemini and Vertex AI models work as verifier and implementer | planned | [spec](./S12-google-driver/spec.md) || `S13-bedrock-driver` | T5 | AWS Bedrock models work via Converse API; IAM auth | planned | [spec](./S13-bedrock-driver/spec.md) |
 | `S14-azure-driver` | T5 | Azure OpenAI deployments work via api-key auth; no new SDK dep | planned | [spec](./S14-azure-driver/spec.md) |
 | `S15-oci-driver` | T5 | OCI Generative AI models work via oci-go-sdk | planned | [spec](./S15-oci-driver/spec.md) |
 | `S16-ollama-driver` | T5 | Ollama native /api/chat endpoint; replaces OAI-compat shim | planned | [spec](./S16-ollama-driver/spec.md) |
@@ -514,14 +514,24 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 - In progress: 0
 - Implemented: 0
 - Design review: 1
-- Verified: 28
-- Failed verification: 1
+- Verified: 29
+- Failed verification: 0
 - Deferred: 0
 
 **Tracks:** Planned: 5 / In progress: 2 / Merged: 11  *(oracle read 2026-06-23; T12 + T18 merges recorded — board moving under coach loop)*
 > Merged (11): T1, T2, T3, T4, T7, T8, T9, T11, T12, T15, T18. In progress (2): T5, T14. Planned (5 per oracle): T6, T10, T13, T16, T17.
 
 ## Recent activity
+
+### 2026-06-24 — slice `S11-anthropic-driver` → verified (re-entry PASS, round 6)
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs — re-entry round after prior round-5 FAIL).
+- **Verdict**: PASS — all six gates satisfied; both prior round-5 violations genuinely resolved.
+  - **Gate 3 remediation confirmed**: `TestAnthropicVerify_Live` now authored at `internal/model/anthropic_test.go:187-202`, `t.Skip`-guarded on `SWORN_LIVE_TESTS=1 && ANTHROPIC_API_KEY != ""`, calls `Verify(ctx, "Reply with PASS.", "verify")`, asserts `strings.Contains(text, "PASS")`. Repo-wide grep for `SWORN_LIVE_TESTS` hits the test file (3 matches). Live run against real Anthropic API with provided key PASSed end-to-end (2.26s).
+  - **Gate 2 remediation confirmed**: `internal/model/provider_test.go` surfaced in `status.json` `actual_files` and documented in proof.md "Divergence from plan" (removal of `anthropic/claude-sonnet-4-6` from `TestNewClient_NativeStub` at lines 84-90).
+- **Gates passed (independent re-run)**: Gate 1 (provider.go:150 `case "anthropic": return NewAnthropic(...)` → Verify; `TestCmdRun_Parallel` exercises cmdRun); Gate 4 (live test + router test + CLI path test); Gate 5 (no TODO/placeholder in production files); Gate 6 (Delivered evidence refs resolve). All cited test commands re-run green: 5 PASS + 1 SKIP Anthropic, all model tests pass (no OAI regression), `go build`/`go vet` exit 0, 4/4 cmd/sworn reachability tests, `gofmt -l` clean on all four touched files. SDK dep pre-ratified in ADR 0007.
+- **Drift gate**: clean (rev-list count 0) — track already carried release-wt tip, no forward-merge needed. Verified against HEAD `b27d31a`; `start_commit` `a72f436`.
+- **State**: S11 → verified. Board Verified: 28 → 29; Failed verification: 1 → 0. Next: T5 track has further incomplete slices — next is `/implement-slice S12-google-driver 2026-06-19-safe-parallelism` in a fresh session (S12 is `design_review`; planner/human to decide re-entry).
 
 ### 2026-06-23 — slice `S11-anthropic-driver` → failed_verification (re-verify FAIL, round 5)
 
