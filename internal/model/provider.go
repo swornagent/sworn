@@ -148,7 +148,7 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 	// Native drivers — not yet registered. The error message names the
 	// slice that will add each driver so users know what's missing.
 	case "anthropic":
-		return nil, fmt.Errorf("%w: anthropic driver lands in S11-anthropic-driver", ErrDriverNotRegistered)
+		return NewAnthropic(model, pcfg.AnthropicKey)
 	case "google":
 		return nil, fmt.Errorf("%w: google driver lands in S12-google-driver", ErrDriverNotRegistered)
 	case "bedrock":
