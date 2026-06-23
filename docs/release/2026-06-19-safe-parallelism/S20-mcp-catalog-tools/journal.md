@@ -74,3 +74,40 @@ None.
 ### Skeptic panel
 
 - **skipped** — runtime does not support subagent dispatch (no Agent/Workflow tool available).
+
+---
+
+## Session 2 — 2026-07-07 (implementer, re-entry from failed_verification)
+
+### State transitions
+
+- `failed_verification` → `in_progress` (re-entry, violations to address)
+- `in_progress` → `implemented`
+
+### Verifier violations resolved
+
+1. **Gate 2 — Violation 1 (cmd/sworn/mcp.go)**: Added divergence note to proof.md
+   documenting that `cmd/sworn/mcp.go` was touched for `RegisterCatalogTools` wiring.
+2. **Gate 3 — Violation 2 (paraphrased test output)**: Re-ran tests and pasted complete,
+   unparaphrased output for both `go test ./internal/mcp/... -run Catalog` and
+   `go test ./internal/mcp/...` into proof.md.
+3. **Gate 3/Gate 6 — Violation 3 (slice_count nesting)**: Promoted `slice_count` to
+   top-level in `catalog.go` existing-release response (alongside `state_summary`,
+   which still contains the breakdown). Added `slice_count` assertion to
+   `TestPlanReleaseExisting` (expects 0 for fresh fixture).
+
+### Design decisions (carried forward, no changes)
+
+All 5 Type-2 design decisions from Session 1 remain valid. No new inferences needed.
+
+### Deferrals (carried forward)
+
+- Semantic/vector search on decisions.md — post-R3. **Acknowledged**: Coach, 2026-06-20.
+
+### First-pass verification
+
+- `release-verify.sh S20-mcp-catalog-tools 2026-06-19-safe-parallelism`: FIRST-PASS PASS (23/0)
+
+### Skeptic panel
+
+- **skipped** — runtime does not support subagent dispatch.

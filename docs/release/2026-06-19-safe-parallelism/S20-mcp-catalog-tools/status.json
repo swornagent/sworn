@@ -3,7 +3,7 @@
   "slice_id": "S20-mcp-catalog-tools",
   "release": "2026-06-19-safe-parallelism",
   "track": "T7-mcp-extensions",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-07T12:00:00Z",

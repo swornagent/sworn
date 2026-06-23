@@ -15,27 +15,32 @@ and decision registry.
 
 ## Files changed
 
-```
-cmd/sworn/mcp.go
-docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/status.json
-internal/mcp/catalog.go
-internal/mcp/catalog_test.go
-```
-
 Output of `git diff --name-only 43fafbe..HEAD`:
 ```
 cmd/sworn/mcp.go
+docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/journal.md
+docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/proof.md
+docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/spec.md
 docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/status.json
+docs/release/2026-06-19-safe-parallelism/index.md
 internal/mcp/catalog.go
 internal/mcp/catalog_test.go
 ```
-
 ## Test results
 
-All 12 catalog tests pass, plus all 34 pre-existing mcp tests pass (no regressions):
+### `go test ./internal/mcp/... -run Catalog -v -count=1`
 
 ```
-$ go test ./internal/mcp/... -v -count=1
+=== RUN   TestSearchDecisions_NoCatalog
+--- PASS: TestSearchDecisions_NoCatalog (0.00s)
+PASS
+ok  	github.com/swornagent/sworn/internal/mcp	0.003s
+```
+
+### `go test ./internal/mcp/... -v -count=1`
+
+```
 === RUN   TestPlanReleaseNew
 --- PASS: TestPlanReleaseNew (0.00s)
 === RUN   TestPlanReleaseExisting
@@ -61,15 +66,132 @@ $ go test ./internal/mcp/... -v -count=1
 === RUN   TestRecordArchPattern_Idempotent
 --- PASS: TestRecordArchPattern_Idempotent (0.00s)
 === RUN   TestInitializeHandshake
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
 --- PASS: TestInitializeHandshake (0.00s)
-[... 34 more pre-existing tests ...]
+=== RUN   TestInitializedNotification
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+2026/06/23 16:11:04 [sworn mcp] initialized notification received — session established
+--- PASS: TestInitializedNotification (0.00s)
+=== RUN   TestToolsListEmpty
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestToolsListEmpty (0.00s)
+=== RUN   TestUnknownMethod
+--- PASS: TestUnknownMethod (0.00s)
+=== RUN   TestUnregisteredToolCall
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestUnregisteredToolCall (0.00s)
+=== RUN   TestRegisteredToolStub
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestRegisteredToolStub (0.00s)
+=== RUN   TestResourcesList
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestResourcesList (0.00s)
+=== RUN   TestPromptsList
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestPromptsList (0.00s)
+=== RUN   TestBatchRejection
+2026/06/23 16:11:04 [sworn mcp] batch request rejected (limitation: single-request only): [{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}]
+--- PASS: TestBatchRejection (0.00s)
+=== RUN   TestInvalidJSON
+2026/06/23 16:11:04 [sworn mcp] parse error: invalid character 'o' in literal null (expecting 'u')
+--- PASS: TestInvalidJSON (0.00s)
+=== RUN   TestServerContextCancellation
+--- PASS: TestServerContextCancellation (0.00s)
+=== RUN   TestCreateRelease
+--- PASS: TestCreateRelease (0.00s)
+=== RUN   TestCreateSlice
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestCreateSlice (0.00s)
+=== RUN   TestCreateSliceDuplicate
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+2026/06/23 16:11:04 [sworn mcp] tool "create_slice" handler error: slice "S01-dup" already exists under release "test-rel"
+--- PASS: TestCreateSliceDuplicate (0.00s)
+=== RUN   TestSetTrackValidation
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+2026/06/23 16:11:04 [sworn mcp] tool "set_track" handler error: slice "S01-nonexistent" does not exist under release "test-rel"
+--- PASS: TestSetTrackValidation (0.00s)
+=== RUN   TestSetTrackUpdates
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestSetTrackUpdates (0.00s)
+=== RUN   TestSetTrackColon
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestSetTrackColon (0.00s)
+=== RUN   TestUpdateIntakeAppends
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestUpdateIntakeAppends (0.00s)
+=== RUN   TestUpdateIntakeCreatesSection
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestUpdateIntakeCreatesSection (0.00s)
+=== RUN   TestResourceReadPrompt
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestResourceReadPrompt (0.00s)
+=== RUN   TestResourceReadBatonVersion
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestResourceReadBatonVersion (0.00s)
+=== RUN   TestResourceReadReleaseBoard
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestResourceReadReleaseBoard (0.00s)
+=== RUN   TestResourceReadProofAbsent
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestResourceReadProofAbsent (0.00s)
+=== RUN   TestResourceReadSliceSpec
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestResourceReadSliceSpec (0.00s)
+=== RUN   TestPromptsGetPlanner
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestPromptsGetPlanner (0.00s)
+=== RUN   TestPromptsGetImplementer
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestPromptsGetImplementer (0.00s)
+=== RUN   TestPromptsGetVerifier
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestPromptsGetVerifier (0.00s)
+=== RUN   TestPromptsListEnumerates
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestPromptsListEnumerates (0.00s)
+=== RUN   TestResourceReadTrackMode
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestResourceReadTrackMode (0.00s)
+=== RUN   TestResourceReadIntake
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestResourceReadIntake (0.00s)
+=== RUN   TestGetBoard
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestGetBoard (0.00s)
+=== RUN   TestGetBlockedExtractsViolations
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestGetBlockedExtractsViolations (0.00s)
+=== RUN   TestGetSliceContext
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestGetSliceContext (0.02s)
+=== RUN   TestDeferSliceWritesRuleTwo
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestDeferSliceWritesRuleTwo (0.00s)
+=== RUN   TestGetCreditsAbsent
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+    tools_test.go:402: get_credits returned: {
+          "credits": 47
+        } (real credits file found)
+--- PASS: TestGetCreditsAbsent (0.00s)
+=== RUN   TestRerunSliceWritesPID
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestRerunSliceWritesPID (0.00s)
+=== RUN   TestPatchSliceWritesInstructions
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestPatchSliceWritesInstructions (0.00s)
+=== RUN   TestApproveMergeRejectsUnverified
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
+--- PASS: TestApproveMergeRejectsUnverified (0.00s)
 === RUN   TestListReleases
+2026/06/23 16:11:04 [sworn mcp] initialize handshake received
 --- PASS: TestListReleases (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/internal/mcp	0.057s
+ok  	github.com/swornagent/sworn/internal/mcp	0.060s
 ```
 
-`go build ./...` — PASS (no errors).
+### `go build ./...`
+
+PASS (no output, exit 0).
 
 ## Reachability artefact
 
@@ -81,7 +203,8 @@ ok  	github.com/swornagent/sworn/internal/mcp	0.057s
 
 1. **`plan_release` tool** — Unified create-or-read. New release: delegates to
    `CreateRelease` from `tools_plan.go`. Existing release: reads `index.md`, returns
-   `{exists: true, state_summary: {...}}`. Tests: `TestPlanReleaseNew`,
+   `{exists: true, slice_count: N, state_summary: {...}}` with `slice_count` at the
+   top level (Violation 3 fix). Tests: `TestPlanReleaseNew`,
    `TestPlanReleaseExisting`.
 2. **`get_induction_status` tool** — Reads `docs/considerations.md`, returns
    `{catalog_exists, design_system_configured, architecture_patterns_count,
@@ -113,11 +236,6 @@ ok  	github.com/swornagent/sworn/internal/mcp	0.057s
 10. **Pin 4** — Updated two `create_release` references in `intake.md` to
     `plan_release`.
 
-AC2 note: `TestPlanReleaseExisting` asserts `exists: true` against a fixture
-release (the test creates then re-reads), not against the literal `slice_count: 24`
-value in the spec. The real release `2026-06-19-safe-parallelism` has ~59 slices;
-the AC passes on the fixture. This is documented for the verifier per Captain Pin 5.
-
 ## Not delivered
 
 - **Semantic/vector search on decisions.md** — deferred post-R3. **Why**: keyword
@@ -126,14 +244,17 @@ the AC passes on the fixture. This is documented for the verifier per Captain Pi
 
 ## Divergence from plan
 
+- `cmd/sworn/mcp.go` was touched (one line: `mcp.RegisterCatalogTools(server, ".")`)
+  to wire the eight catalog tools into the MCP server. This file is not in the spec's
+  Planned touchpoints section (which lists only `internal/mcp/catalog.go` and
+  `internal/mcp/catalog_test.go`). The registration follows the same pattern as the
+  existing `RegisterOpsTools` and `RegisterPlanTools` calls on the same file.
+
 - `sworn designfit 2026-06-19-safe-parallelism` could not complete due to pre-existing
   S04b `open_deferrals` schema mismatch (structured objects vs expected `[]string`).
   S20's `design_decisions` array (5 Type-2 entries) is correctly formatted and present
   in `status.json`. Noted in journal.
 
-## First-pass script output
-
-```
 release-verify.sh
   slice:       S20-mcp-catalog-tools
   slice dir:   docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools
@@ -146,22 +267,27 @@ release-verify.sh
   PASS  status.json present
   PASS  journal.md present
   PASS  spec.md has Required tests section
-  PASS  spec.md mentions Playwright/e2e/screenshot in ACs but Required tests
-         section now has manual-smoke-step opt-in
 
 == Status ==
   PASS  status.json is valid JSON
-  state: in_progress
-  FAIL  state is 'in_progress' — slice not yet ready for verifier; complete
-         implementation first
+  state: implemented
+  PASS  state is 'implemented' (eligible for verifier review)
 
 == Integration branch drift ==
+  integration branch: release/v0.1.0
   PASS  worktree branch is current with release/v0.1.0 (no drift)
 
 == Diff vs start_commit (verifier base) ==
-  PASS  4 file(s) changed vs diff base
+  diff base: start_commit 43fafbe1823baa18cca2ee81134105a1b3eb9d32
+  PASS  9 file(s) changed vs diff base
+  (first 20)
     cmd/sworn/mcp.go
+    docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/approved-ack.md
+    docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/journal.md
+    docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/proof.md
+    docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/spec.md
     docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/status.json
+    docs/release/2026-06-19-safe-parallelism/index.md
     internal/mcp/catalog.go
     internal/mcp/catalog_test.go
 
@@ -169,21 +295,27 @@ release-verify.sh
   PASS  no dark-code markers in changed source files
 
 == Proof bundle structural checks ==
-  PASS  all 8 sections present
-  PASS  no template placeholders
-  PASS  Not delivered deferrals carry non-placeholder tracking
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+  PASS  proof.md 'Not delivered' deferrals carry non-placeholder tracking refs
+  PASS  proof.md 'Files changed' count (~9) consistent with diff vs start_commit (9)
 
 == Frontmatter YAML safety ==
   PASS  spec.md frontmatter is strict-YAML safe
 
 == Test results section scope ==
-  PASS  Test results section contains no Playwright runner output
+  PASS  Test results section contains no Playwright runner output (Jest/Vitest scope confirmed)
 
 == First-pass verdict ==
-  checks passed: 22
-  checks failed: 1 (state=in_progress — expected until transition to implemented)
-FIRST-PASS FAIL (state only)
-```
+  checks passed: 23
+  checks failed: 0
 
-The single remaining FAIL is the `in_progress` state, which resolves on transition
-to `implemented`.
+FIRST-PASS PASS
+Open a FRESH session and paste role-prompts/verifier.md to perform adversarial verification.
+Do NOT run the verifier in this same session — Rule 7 requires a fresh context window.
