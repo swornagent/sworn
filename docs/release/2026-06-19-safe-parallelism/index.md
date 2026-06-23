@@ -440,8 +440,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S15-oci-driver` | T5 | OCI Generative AI models work via oci-go-sdk | planned | [spec](./S15-oci-driver/spec.md) |
 | `S16-ollama-driver` | T5 | Ollama native /api/chat endpoint; replaces OAI-compat shim | planned | [spec](./S16-ollama-driver/spec.md) |
 | `S17-tui-provider-config` | T6 | TUI settings panel: provider API keys, model per role, escalation list, max attempts; persists to config.json + ~/.sworn/.env | planned | [spec](./S17-tui-provider-config/spec.md) |
-| `S18-consideration-catalog` | T3 | Typed consideration catalog + decision registry; planner Phase 2b (DRY gate, design consultation, arch conformance, capture); sworn init scaffolds both templates | verified | [spec](./S18-consideration-catalog/spec.md) || `S19-sworn-induction` | T3 | `sworn induction` one-time repo onboarding (design system + architecture discovery); implementer + verifier prompts gain deviation-surfacing steps | verified | [spec](./S19-sworn-induction/spec.md) || `S20-mcp-catalog-tools` | T7 | 8 MCP tools: plan_release (unified), get_induction_status, get_considerations, search_decisions, record_decision, check_design_system, update_design_system, record_architecture_pattern | failed_verification | [spec](./S20-mcp-catalog-tools/spec.md) |
-| `S21-canonical-baton` | T3 | Baton protocol embedded in binary (internal/prompt/baton/); sworn init writes minimal MCP-pointer AGENTS.md instead of per-repo Baton copy; ADR-0008 | verified | [spec](./S21-canonical-baton/spec.md) || `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | verified | [spec](./S22-sworn-doctor/spec.md) |
+| `S18-consideration-catalog` | T3 | Typed consideration catalog + decision registry; planner Phase 2b (DRY gate, design consultation, arch conformance, capture); sworn init scaffolds both templates | verified | [spec](./S18-consideration-catalog/spec.md) || `S19-sworn-induction` | T3 | `sworn induction` one-time repo onboarding (design system + architecture discovery); implementer + verifier prompts gain deviation-surfacing steps | verified | [spec](./S19-sworn-induction/spec.md) || `S20-mcp-catalog-tools` | T7 | 8 MCP tools: plan_release (unified), get_induction_status, get_considerations, search_decisions, record_decision, check_design_system, update_design_system, record_architecture_pattern | verified | [spec](./S20-mcp-catalog-tools/spec.md) || `S21-canonical-baton` | T3 | Baton protocol embedded in binary (internal/prompt/baton/); sworn init writes minimal MCP-pointer AGENTS.md instead of per-repo Baton copy; ADR-0008 | verified | [spec](./S21-canonical-baton/spec.md) || `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | verified | [spec](./S22-sworn-doctor/spec.md) |
 | `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | verified | [spec](./S23-memory-config/spec.md) |
 | `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | verified | [spec](./S24-memory-engine/spec.md) |
 | `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | verified | [spec](./S25-memory-search/spec.md) |
@@ -628,7 +627,18 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 
 - **Actor**: verifier (fresh context, artefact-only)
 - **Verdict**: All six gates passed. Gate 1: `sworn init` wired to cmdInit; `sworn mcp` serves baton/rules. Gate 2: 6/6 planned touchpoints present; init_design_system_test.go adaptation documented. Gate 3: 16/16 tests re-run and PASS (5 Baton + 11 Init). Gate 4: Manual smoke test — AGENTS.md created with `sworn://baton/rules`, no docs/baton/. Gate 5: Zero TODO/FIXME/placeholder in changed source files. Gate 6: All 14 Delivered items verified.
-- **Track**: T3-commercial is now complete — all 7 slices verified. Next: `/merge-track T3-commercial`, then `/merge-release 2026-06-19-safe-parallelism` once every track is merged.
+
+### 2026-06-23 — S20-mcp-catalog-tools verifier PASS (T7-mcp-extensions complete)
+
+- **Actor**: verifier (fresh context, artefact-only)
+- **Verdict**: PASS — all six gates passed.
+  - Gate 1: `tools/call` on MCP server wired in cmd/sworn/mcp.go + internal/mcp/server.go; 8 catalog tools registered; tests exercise integration point.
+  - Gate 2: Planned touchpoints match (with divergence note for cmd/sworn/mcp.go registration line).
+  - Gate 3: All 12 required catalog tests + full suite re-run and PASS; complete unparaphrased output.
+  - Gate 4: Reachability artefact (manual-smoke-step: sworn mcp → Claude Code → get_induction_status) documented.
+  - Gate 5: No TODO/FIXME/deferred/placeholder in changed source.
+  - Gate 6: All 8 tools delivered; deferral for semantic search documented.
+- **State**: S20 → verified. T7-mcp-extensions now complete (only slice S20). Track ready for /merge-track T7-mcp-extensions.- **Track**: T3-commercial is now complete — all 7 slices verified. Next: `/merge-track T3-commercial`, then `/merge-release 2026-06-19-safe-parallelism` once every track is merged.
 ### 2026-07-05 — S19-sworn-induction verifier PASS
 - **Actor**: verifier (fresh context, artefact-only)
 - **Verdict**: All six gates passed. Gate 1: `sworn induction` CLI functional end-to-end. Gate 2: 4/4 planned files + expected test extension. Gate 3: All 11 tests re-run and PASS. Gate 4: Smoke-executed + idempotent mode confirmed. Gate 5: Zero TODO/FIXME/placeholder. Gate 6: All 13 Delivered items verified.

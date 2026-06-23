@@ -111,3 +111,25 @@ All 5 Type-2 design decisions from Session 1 remain valid. No new inferences nee
 ### Skeptic panel
 
 - **skipped** — runtime does not support subagent dispatch.
+
+---
+
+### Verdict 2 — 2026-06-23 (verifier, fresh context)
+
+**Verdict**: PASS
+
+**Gate 1 — User-reachable outcome exists**: PASS. Entry point `tools/call` on MCP server is wired in `cmd/sworn/mcp.go` (RegisterCatalogTools after RegisterPlanTools) and dispatched in `internal/mcp/server.go` (handleToolsCall). All 8 catalog tools registered in `internal/mcp/catalog.go`. Tests in `catalog_test.go` (direct handler calls) and `server_test.go` (protocol roundtrips) exercise the integration point. Manual smoke-step documented in proof.md.
+
+**Gate 2 — Planned touchpoints match actual changed files**: PASS. Planned: `internal/mcp/catalog.go`, `internal/mcp/catalog_test.go`. Actual changed (slice scope, excluding forward-merge noise): those + `cmd/sworn/mcp.go` (+1 line registration). Divergence explained in proof.md "Divergence from plan": "cmd/sworn/mcp.go was touched (one line: `mcp.RegisterCatalogTools(server, ".")`) to wire the eight catalog tools into the MCP server. This file is not in the spec's Planned touchpoints section (which lists only `internal/mcp/catalog.go` and `internal/mcp/catalog_test.go`). The registration follows the same pattern as the existing `RegisterOpsTools` and `RegisterPlanTools` calls on the same file."
+
+**Gate 3 — Required tests exist and exercise the integration point**: PASS. All 12 required tests in `catalog_test.go` exist and pass (re-ran `go test ./internal/mcp/... -run 'Test(PlanRelease|GetInductionStatus|GetConsiderations|SearchDecisions|RecordDecision|CheckDesignSystem|UpdateDesignSystem|RecordArchPattern)' -v -count=1`: all PASS). Full suite `go test ./internal/mcp/...` passes. Tests exercise the integration point (MCP tool handlers). Complete unparaphrased output in proof.md. `go build ./...` passes.
+
+**Gate 4 — Reachability artefact proves the user path**: PASS. Reachability artefact documented in proof.md: "manual-smoke-step: sworn mcp → connect Claude Code → call get_induction_status". Covers all ACs by exercising the tool registration path end-to-end through the MCP JSON-RPC server. The artefact exists and names the user gesture (AI connected to `sworn mcp` calling `get_induction_status`).
+
+**Gate 5 — No silent deferrals or placeholder logic**: PASS. Grep of changed source files (`internal/mcp/catalog.go`, `cmd/sworn/mcp.go`) for TODO/FIXME/deferred/placeholder/later/future: no matches. No silent deferrals.
+
+**Gate 6 — Claimed scope matches implemented scope**: PASS. All 8 tools delivered with evidence in proof.md "Delivered" section (tests, code). ACs 1-13 covered. Not delivered: semantic/vector search on decisions.md (Rule 2 deferral with why + tracking + acknowledgement in spec and proof). Divergence from plan documented.
+
+All gates passed. Slice S20-mcp-catalog-tools transitions to verified.
+
+**Next step**: Track T7-mcp-extensions has only S20. Track complete. Run `/merge-track T7-mcp-extensions`, then `/merge-release 2026-06-19-safe-parallelism` once every track is merged.
