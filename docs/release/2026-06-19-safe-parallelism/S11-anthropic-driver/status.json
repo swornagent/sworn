@@ -3,11 +3,11 @@
   "slice_id": "S11-anthropic-driver",
   "release": "2026-06-19-safe-parallelism",
   "track": "T5-providers",
-  "state": "implemented",
+  "state": "planned",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-07T00:00:00Z",
-  "start_commit": "79ec6bd74e4bf220fcf9c1c96d8336d1484a3b6f",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-20T00:00:00Z",
+  "start_commit": null,
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/journal.md",
@@ -18,30 +18,19 @@
     "go.mod",
     "go.sum"
   ],
-  "actual_files": [
-    "internal/model/anthropic.go",
-    "internal/model/anthropic_test.go",
-    "internal/model/provider.go",
-    "internal/model/provider_test.go",
-    "go.mod",
-    "go.sum"
-  ],
+  "actual_files": [],
   "test_commands": [
     "go test ./internal/model/... -run Anthropic",
     "go test ./internal/model/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [
-    "go test ./internal/model/... -run Anthropic (4/4 pass, httptest-based)",
-    "TestAnthropicNewClient_RoutedCorrectly (type assertion *Anthropic)"
-  ],
+  "reachability_artifacts": [],
   "open_deferrals": [],
   "verification": {
-    "result": "blocked",
-    "verifier_session_id": "fresh-verifier-2026-06-23",
-    "verifier_verdict_at": "2026-06-23T12:08:47Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      "forward-merge of release-wt/2026-06-19-safe-parallelism into track/2026-06-19-safe-parallelism/T5-providers conflicted on cmd/sworn/run.go (code file) — the touchpoint matrix was wrong (track-mode invariant 4). Route to /replan-release 2026-06-19-safe-parallelism to re-group."
-    ]
-  }}
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}
