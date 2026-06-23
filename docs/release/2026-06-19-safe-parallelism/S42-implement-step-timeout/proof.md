@@ -6,14 +6,115 @@ Bound each implement attempt in `sworn run`'s escalation loop with a per-attempt
 
 ## Files changed
 
-```sh
-$ git diff --name-only 62faf7d31f8ab9158d349f3a2859754aeece88c9..HEAD | grep -E '(S42|internal/run|cmd/sworn/run)'
+The verifier's diff base is `start_commit` (`62faf7d31f8ab9158d349f3a2859754aeece88c9`). A forward-merge from `release-wt/2026-06-19-safe-parallelism` at Step 0 pulled in the rest of the release's merged tracks; those files are NOT S42-owned and are documented in **Divergence from plan**. The S42-owned changes within this list are:
+
+- `cmd/sworn/run.go`
+- `internal/run/run.go`
+- `internal/run/slice.go`
+- `internal/run/slice_test.go`
+- `docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/status.json`
+- `docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/proof.md`
+
+### Verbatim `git diff --name-only 62faf7d31f8ab9158d349f3a2859754aeece88c9 HEAD`
+
+```
+cmd/sworn/account.go
+cmd/sworn/account_test.go
+cmd/sworn/commands_test.go
+cmd/sworn/induction.go
+cmd/sworn/induction_test.go
+cmd/sworn/init.go
+cmd/sworn/init_design_system_test.go
+cmd/sworn/init_test.go
+cmd/sworn/login.go
 cmd/sworn/run.go
+docs/adr/0008-canonical-baton.md
+docs/api-contract.md
+docs/considerations.md
+docs/release/2026-06-19-safe-parallelism/.captain-trial-log.md
+docs/release/2026-06-19-safe-parallelism/S06a-sworn-login-auth/design.md
+docs/release/2026-06-19-safe-parallelism/S06a-sworn-login-auth/journal.md
+docs/release/2026-06-19-safe-parallelism/S06a-sworn-login-auth/proof.md
+docs/release/2026-06-19-safe-parallelism/S06a-sworn-login-auth/review.md
+docs/release/2026-06-19-safe-parallelism/S06a-sworn-login-auth/status.json
+docs/release/2026-06-19-safe-parallelism/S06b-sworn-proxy-credits/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S06b-sworn-proxy-credits/design.md
+docs/release/2026-06-19-safe-parallelism/S06b-sworn-proxy-credits/journal.md
+docs/release/2026-06-19-safe-parallelism/S06b-sworn-proxy-credits/proof.md
+docs/release/2026-06-19-safe-parallelism/S06b-sworn-proxy-credits/spec.md
+docs/release/2026-06-19-safe-parallelism/S06b-sworn-proxy-credits/status.json
+docs/release/2026-06-19-safe-parallelism/S07-paging/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S07-paging/design.md
+docs/release/2026-06-19-safe-parallelism/S07-paging/journal.md
+docs/release/2026-06-19-safe-parallelism/S07-paging/proof.md
+docs/release/2026-06-19-safe-parallelism/S07-paging/review.md
+docs/release/2026-06-19-safe-parallelism/S07-paging/status.json
+docs/release/2026-06-19-safe-parallelism/S09-per-role-model-config/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S09-per-role-model-config/design.md
+docs/release/2026-06-19-safe-parallelism/S09-per-role-model-config/journal.md
+docs/release/2026-06-19-safe-parallelism/S09-per-role-model-config/proof.md
+docs/release/2026-06-19-safe-parallelism/S09-per-role-model-config/review.md
+docs/release/2026-06-19-safe-parallelism/S09-per-role-model-config/status.json
+docs/release/2026-06-19-safe-parallelism/S10-provider-foundation/spec.md
+docs/release/2026-06-19-safe-parallelism/S10-provider-foundation/status.json
+docs/release/2026-06-19-safe-parallelism/S18-consideration-catalog/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S18-consideration-catalog/design.md
+docs/release/2026-06-19-safe-parallelism/S18-consideration-catalog/journal.md
+docs/release/2026-06-19-safe-parallelism/S18-consideration-catalog/proof.md
+docs/release/2026-06-19-safe-parallelism/S18-consideration-catalog/review.md
+docs/release/2026-06-19-safe-parallelism/S18-consideration-catalog/status.json
+docs/release/2026-06-19-safe-parallelism/S19-sworn-induction/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S19-sworn-induction/design.md
+docs/release/2026-06-19-safe-parallelism/S19-sworn-induction/journal.md
+docs/release/2026-06-19-safe-parallelism/S19-sworn-induction/proof.md
+docs/release/2026-06-19-safe-parallelism/S19-sworn-induction/review.md
+docs/release/2026-06-19-safe-parallelism/S19-sworn-induction/status.json
+docs/release/2026-06-19-safe-parallelism/S21-canonical-baton/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S21-canonical-baton/design.md
+docs/release/2026-06-19-safe-parallelism/S21-canonical-baton/journal.md
+docs/release/2026-06-19-safe-parallelism/S21-canonical-baton/proof.md
+docs/release/2026-06-19-safe-parallelism/S21-canonical-baton/review.md
+docs/release/2026-06-19-safe-parallelism/S21-canonical-baton/status.json
+docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/journal.md
+docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/proof.md
+docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/spec.md
+docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/status.json
+docs/release/2026-06-19-safe-parallelism/S48-baton-vendor/journal.md
+docs/release/2026-06-19-safe-parallelism/S48-baton-vendor/status.json
+docs/release/2026-06-19-safe-parallelism/S57-oracle-reader/spec.md
+docs/release/2026-06-19-safe-parallelism/index.md
+docs/release/2026-06-19-safe-parallelism/intake.md
+docs/templates/agents.md
+docs/templates/considerations.md
+docs/templates/decisions.md
+internal/account/account.go
+internal/account/account_test.go
+internal/account/notify.go
+internal/account/notify_test.go
+internal/account/proxy.go
+internal/account/proxy_test.go
+internal/config/config.go
+internal/config/config_test.go
+internal/config/init.go
+internal/model/config.go
+internal/model/oai.go
+internal/model/oai_test.go
+internal/prompt/baton/README.md
+internal/prompt/baton/VERSION.txt
+internal/prompt/baton/brainstorm-patterns.md
+internal/prompt/baton/rules.md
+internal/prompt/baton/session-discipline.md
+internal/prompt/implementer.md
+internal/prompt/planner.md
+internal/prompt/prompt.go
+internal/prompt/prompt_test.go
+internal/prompt/verifier.md
+internal/run/parallel.go
 internal/run/run.go
+internal/run/run_test.go
 internal/run/slice.go
 internal/run/slice_test.go
-docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/status.json
-docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/proof.md
+internal/scheduler/worker.go
 ```
 
 ```sh
@@ -25,7 +126,7 @@ internal/run/slice_test.go | 11 +++++------
 4 files changed, 64 insertions(+), 12 deletions(-)
 ```
 
-**Note:** `internal/config/config.go` is intentionally **not** in the slice's diff. The config-file tier is deferred per the spec's Out of scope section.
+**Note:** `internal/config/config.go` is intentionally **not** in the slice's `git diff --stat HEAD`. The config-file tier is deferred per the spec's Out of scope section.
 
 ## Test results
 
@@ -111,4 +212,13 @@ ok      github.com/swornagent/sworn/internal/run      1.988s
 
 ## Divergence from plan
 
-None from the re-plan. The original implementation diverged by adding `internal/config/config.go` changes; this re-implementation removes them and restores the spec-mandated precedence (flag > env > default) with `DefaultImplementTimeout` located in `internal/run/slice.go`.
+The forward-merge from `release-wt/2026-06-19-safe-parallelism` at Step 0 pulled in 91 additional files belonging to other tracks/slices that had merged into `release-wt` since S42's `start_commit` (`62faf7d31f8ab9158d349f3a2859754aeece88c9`). Those files appear in `git diff --name-only start_commit HEAD` but are NOT S42-owned; they are present because the track worktree must stay current with the release integration branch. The S42-owned changes remain only:
+
+- `cmd/sworn/run.go`
+- `internal/run/run.go`
+- `internal/run/slice.go`
+- `internal/run/slice_test.go`
+- `docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/status.json`
+- `docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/proof.md`
+
+The original S42 implementation diverged by adding `internal/config/config.go` changes; this re-implementation removes them and restores the spec-mandated precedence (flag > env > default) with `DefaultImplementTimeout` located in `internal/run/slice.go`.
