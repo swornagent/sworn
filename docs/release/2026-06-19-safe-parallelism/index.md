@@ -445,7 +445,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S08c-mcp-plan-tools` | T4 | 4 planning tools + resources + prompts + mcp-setup.md | verified | [spec](./S08c-mcp-plan-tools/spec.md) |
 | `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | verified | [spec](./S09-per-role-model-config/spec.md) |
 | `S10-provider-foundation` | T5 | ADR 0007 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | implemented | [spec](./S10-provider-foundation/spec.md) |
-| `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | verified | [spec](./S11-anthropic-driver/spec.md) || `S12-google-driver` | T5 | Google Gemini and Vertex AI models work as verifier and implementer | planned | [spec](./S12-google-driver/spec.md) || `S13-bedrock-driver` | T5 | AWS Bedrock models work via Converse API; IAM auth | planned | [spec](./S13-bedrock-driver/spec.md) |
+| `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | failed_verification | [spec](./S11-anthropic-driver/spec.md) || `S12-google-driver` | T5 | Google Gemini and Vertex AI models work as verifier and implementer | planned | [spec](./S12-google-driver/spec.md) || `S13-bedrock-driver` | T5 | AWS Bedrock models work via Converse API; IAM auth | planned | [spec](./S13-bedrock-driver/spec.md) |
 | `S14-azure-driver` | T5 | Azure OpenAI deployments work via api-key auth; no new SDK dep | planned | [spec](./S14-azure-driver/spec.md) |
 | `S15-oci-driver` | T5 | OCI Generative AI models work via oci-go-sdk | planned | [spec](./S15-oci-driver/spec.md) |
 | `S16-ollama-driver` | T5 | Ollama native /api/chat endpoint; replaces OAI-compat shim | planned | [spec](./S16-ollama-driver/spec.md) |
@@ -514,14 +514,25 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 - In progress: 0
 - Implemented: 0
 - Design review: 1
-- Verified: 29
-- Failed verification: 0
+- Verified: 28
+- Failed verification: 1
 - Deferred: 0
 
 **Tracks:** Planned: 5 / In progress: 2 / Merged: 11  *(oracle read 2026-06-23; T12 + T18 merges recorded — board moving under coach loop)*
 > Merged (11): T1, T2, T3, T4, T7, T8, T9, T11, T12, T15, T18. In progress (2): T5, T14. Planned (5 per oracle): T6, T10, T13, T16, T17.
 
 ## Recent activity
+
+### 2026-06-23 — slice `S11-anthropic-driver` → failed_verification (re-verify FAIL, round 5)
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs — independent re-verification after prior round-4 PASS).
+- **Verdict**: FAIL — Gate 3 (primary) + Gate 2 (secondary).
+  - **Gate 3 (load-bearing)**: spec "Required tests" mandates a live integration test (`t.Skip` unless `ANTHROPIC_API_KEY` set and `SWORN_LIVE_TESTS=1`) calling `Verify()` with "Reply with PASS." and asserting the returned text contains "PASS". Repo-wide grep for `SWORN_LIVE_TESTS` returns zero hits; `internal/model/anthropic_test.go` has no `t.Skip` and no `ANTHROPIC_API_KEY` guard. The test was never authored. proof.md "Not delivered" mischaracterises the gap as "not run" (execution deferral) when the defect is "not implemented" (test absent).
+  - **Gate 2**: `internal/model/provider_test.go` modified by the S11 feat commit `810d7ce` (removed `anthropic/claude-sonnet-4-6` from `TestNewClient_NativeStub`) but omitted from spec.md Planned touchpoints, status.json `actual_files`, and unexplained in proof.md "Divergence from plan". Benign in-scope companion change, but undocumented.
+- **Gates that passed (independent re-run)**: Gate 1 (run.go → FromEnv → NewClient → `case "anthropic"` → NewAnthropic → Verify, exercised by `TestCmdRun_Parallel`); Gate 5 (no TODO/placeholder); Gate 6 (Delivered evidence refs resolve). All cited test commands re-run green: 5/5 Anthropic tests, all model tests, 4/4 cmd/sworn reachability tests, `go build`/`go vet` exit 0.
+- **Before-you-FAIL gate**: remediation is a legal implementer fix — author the `t.Skip`-guarded live test the spec already names (no spec amendment, no different test shape, no planner authority). FAIL, not BLOCKED.
+- **Drift gate**: forward-merged `release-wt/2026-06-19-safe-parallelism` into `track/.../T5-providers` (2 commits, docs-only, no conflict), pushed to origin. Verified against HEAD `efcccb4` (post forward-merge); `start_commit` `a72f436`.
+- **State**: S11 → failed_verification. Board Verified: 29 → 28; Failed verification: 0 → 1. Next: implementer re-opens `/implement-slice S11-anthropic-driver 2026-06-19-safe-parallelism` in a fresh session to author the missing live test and document the `provider_test.go` touch.
 
 ### 2026-06-24 — track `T18-cli-polish` merged to release-wt (commit 1df2910)
 
