@@ -58,3 +58,12 @@ Cleared `verification.result` → `pending` and set `state` → `implemented` (t
 **Discrepancy noted for the verifier (not blocking):** design-review pin #2 said "SetVersionForTest via `export_test.go`"; the implementation delivered `version_stub.go` instead. Spec/status now reflect the delivered `version_stub.go`; re-verification should confirm the test-seam approach is sound.
 
 **Open item flagged to the human (separate from this BLOCKED):** the `v0.3.0` adoption pin and its SHA are pending revalidation against the in-flight "tag the latest canonical Baton prompts as a release, then re-pin R3" work. If that retags Baton, S49's VERSION pin (production code) gets a follow-up implement + re-verify — does not block clearing this format defect.
+
+## 2026-06-23T21:02:23Z: Planner — re-routed to implementer (v0.4.0 pin)
+
+Baton v0.4.0 is published + tagged (commit `5ac5834fa1ee07b55a3e670d14dc7d9e63e84d84`).
+Spec re-pinned v0.3.0 → v0.4.0; the existing implementation still writes `baton-protocol: v0.3.0`,
+so it no longer satisfies the spec. State set to `failed_verification` to route to the
+**implementer**: bump `internal/adopt/baton/VERSION` to `baton-protocol: v0.4.0`, update the
+`vendored:` date + `rules-added:` (add 11-process-global-mutation), then verify
+(`sworn version` → `baton-protocol on Baton v0.4.0`). `start_commit` preserved.
