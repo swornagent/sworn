@@ -3,10 +3,10 @@
   "slice_id": "S42-implement-step-timeout",
   "release": "2026-06-19-safe-parallelism",
   "track": "T12-harness-hardening",
-  "state": "planned",
+  "state": "failed_verification",
   "owner": "human",
   "last_updated_by": "planner",
-  "last_updated_at": "2026-06-21T00:00:00Z",
+  "last_updated_at": "2026-06-23T00:00:00Z",
   "start_commit": null,
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S42-implement-step-timeout/proof.md",
@@ -25,7 +25,8 @@
   "reachability_artifacts": [],
   "open_deferrals": [
     "default http.Client.Timeout on internal/model/oai.go — deferred; per-attempt ctx deadline already bounds the HTTP call, and oai.go is a future S39/T5 touchpoint (Rule 2, Coach ack 2026-06-21)",
-    "killing agent-spawned OS subprocesses — deferred; supervisor stale-PID reaping covers cross-session orphans (Rule 2, Coach ack 2026-06-21)"
+    "killing agent-spawned OS subprocesses — deferred; supervisor stale-PID reaping covers cross-session orphans (Rule 2, Coach ack 2026-06-21)",
+    "config.json `implementer.timeout` tier — deferred at replan 2026-06-23; precedence is flag > env > default only. Why: a config tier requires adding a field to internal/config/config.go (owned by T3-merged, planned T6/T16) — a needless cross-track collision. Tracking: a later slice may add it once config.go ownership is settled. Ack: planner replan 2026-06-23."
   ],
   "verification": {
     "result": "pending",
