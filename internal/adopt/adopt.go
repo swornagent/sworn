@@ -166,9 +166,9 @@ func Materialise(repoRoot string) error {
 		{"baton/rules/08-requirements-fidelity.md", filepath.Join(rulesDir, "08-requirements-fidelity.md"), 0644},
 		{"baton/rules/09-design-fidelity.md", filepath.Join(rulesDir, "09-design-fidelity.md"), 0644},
 		{"baton/rules/10-customer-journey-validation.md", filepath.Join(rulesDir, "10-customer-journey-validation.md"), 0644},
+		{"baton/rules/11-process-global-mutation.md", filepath.Join(rulesDir, "11-process-global-mutation.md"), 0644},
 	}
-	for _, f := range files {
-		data, err := batonFS.ReadFile(f.src)
+	for _, f := range files {		data, err := batonFS.ReadFile(f.src)
 		if err != nil {
 			return fmt.Errorf("adopt: read embedded %s: %w", f.src, err)
 		}

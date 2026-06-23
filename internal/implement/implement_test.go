@@ -22,9 +22,10 @@ import (
 // fakeAgent returns scripted ChatResponses. Each entry in script is one turn.
 // The last entry must be a text response (no tool calls) to terminate the loop.
 type fakeAgent struct {
-	t      *testing.T
-	script []fakeResponse
-	next   int
+	t              *testing.T
+	script         []fakeResponse
+	next           int
+	lastUserPrompt string
 }
 
 type fakeResponse struct {
@@ -37,7 +38,7 @@ type fakeToolCall struct {
 	args string
 }
 
-func (f *fakeAgent) Chat(_ context.Context, _ []model.ChatMessage, _ []model.ToolDef) (*model.ChatResponse, error) {
+func (f *fakeAgent) Chat(_ context.Context, messages []model.ChatMessage, _ []model.ToolDef) (*model.ChatResponse, error) {
 	if f.next >= len(f.script) {
 		f.t.Fatal("fakeAgent: no more scripted responses")
 	}
@@ -54,6 +55,14 @@ func (f *fakeAgent) Chat(_ context.Context, _ []model.ChatMessage, _ []model.Too
 		}{{}},
 	}
 	cr.Choices[0].Message.Content = r.text
+
+	// Record the last user/system messages for assertion purposes.
+	// Store a copy of the most recent user message content if available.
+	for _, m := range messages {
+		if m.Role == "user" {
+			f.lastUserPrompt = m.Content
+		}
+	}
 
 	for i, tc := range r.toolCalls {
 		cr.Choices[0].Message.ToolCalls = append(cr.Choices[0].Message.ToolCalls, model.ToolCall{
@@ -207,15 +216,15 @@ Write a hello world file and verify it exists.
 		PlannedFiles:  []string{"hello.txt"},
 		TestCommands:  []string{"go test ./..."},
 		Validation: state.ValidationRecord{
-			HumanRatified:      true,
-			RatifiedBy:         "test-user",
-			RatifiedAt:         "2026-06-16T12:00:00Z",
-			PositiveScenarios:  []string{"User saves, form persists."},
-			NegativeScenarios:  []string{"User saves while offline, system shows error."},
-			BenefitHypothesis:  "Test benefit hypothesis.",
+			HumanRatified:     true,
+			RatifiedBy:        "test-user",
+			RatifiedAt:        "2026-06-16T12:00:00Z",
+			PositiveScenarios: []string{"User saves, form persists."},
+			NegativeScenarios: []string{"User saves while offline, system shows error."},
+			BenefitHypothesis: "Test benefit hypothesis.",
 		},
-		Verification:  state.Verification{},
-		ReleaseBase:   "release/v0.1.0",
+		Verification: state.Verification{},
+		ReleaseBase:  "release/v0.1.0",
 	}
 	statusPath := filepath.Join(sliceDir, "status.json")
 	_ = state.Write(statusPath, st) // initially write status so state package can read it
@@ -272,7 +281,7 @@ func TestRun_GeneratesProofFromLiveRepoState(t *testing.T) {
 		},
 	}
 
-	err := Run(context.Background(), workspaceRoot, specPath, fa)
+	err := Run(context.Background(), workspaceRoot, specPath, "", fa)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}
@@ -366,7 +375,7 @@ func TestRun_DesignReviewToInProgress(t *testing.T) {
 		},
 	}
 
-	err = Run(context.Background(), workspaceRoot, specPath, fa)
+	err = Run(context.Background(), workspaceRoot, specPath, "", fa)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}
@@ -403,7 +412,7 @@ func TestRun_IllegalStateRejected(t *testing.T) {
 		},
 	}
 
-	err = Run(context.Background(), workspaceRoot, specPath, fa)
+	err = Run(context.Background(), workspaceRoot, specPath, "", fa)
 	if err == nil {
 		t.Fatal("expected error for planned state, got nil")
 	}
@@ -422,7 +431,7 @@ func (errorAgent) Chat(context.Context, []model.ChatMessage, []model.ToolDef) (*
 func TestRun_AgentErrorDoesNotTransition(t *testing.T) {
 	workspaceRoot, specPath, _ := setupTempRepo(t)
 
-	err := Run(context.Background(), workspaceRoot, specPath, &errorAgent{})
+	err := Run(context.Background(), workspaceRoot, specPath, "", &errorAgent{})
 	if err == nil {
 		t.Fatal("expected error from agent, got nil")
 	}
@@ -513,7 +522,7 @@ Write a hello world file and verify it exists.
 		},
 	}
 
-	err = Run(context.Background(), workspaceRoot, specPath, fa)
+	err = Run(context.Background(), workspaceRoot, specPath, "", fa)
 	if err == nil {
 		t.Fatal("expected Run() to return error due to DoR gate blocking, got nil")
 	}
@@ -561,7 +570,7 @@ func TestProof_ContainsRequiredSections(t *testing.T) {
 		},
 	}
 
-	if err := Run(context.Background(), workspaceRoot, specPath, fa); err != nil {
+	if err := Run(context.Background(), workspaceRoot, specPath, "", fa); err != nil {
 		t.Fatal(err)
 	}
 
@@ -632,7 +641,7 @@ func TestProof_FilesChangedFromGit(t *testing.T) {
 		},
 	}
 
-	if err := Run(context.Background(), workspaceRoot, specPath, fa); err != nil {
+	if err := Run(context.Background(), workspaceRoot, specPath, "", fa); err != nil {
 		t.Fatal(err)
 	}
 
@@ -672,4 +681,60 @@ func mustMarshal(v interface{}) string {
 		panic(err)
 	}
 	return string(b)
+}
+
+// ---------------------------------------------------------------------------
+// Feedback injection tests
+// ---------------------------------------------------------------------------
+
+func TestRunInjectsPriorFeedback(t *testing.T) {
+	workspaceRoot, specPath, _ := setupTempRepo(t)
+
+	fa := &fakeAgent{
+		t: t,
+		script: []fakeResponse{
+			{toolCalls: []fakeToolCall{{name: "write", args: `{"path":"feedback.txt","content":"ok"}`}}},
+			{text: "Done."},
+		},
+	}
+
+	feedback := "previous attempt failed because gate 2 missing integration test"
+	err := Run(context.Background(), workspaceRoot, specPath, feedback, fa)
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	if fa.lastUserPrompt == "" {
+		t.Fatal("fake agent never recorded a user prompt")
+	}
+	if !strings.Contains(fa.lastUserPrompt, "Previous attempt failed verification — address these specifically:") {
+		t.Fatalf("expected feedback header in user prompt, got:\n%s", fa.lastUserPrompt)
+	}
+	if !strings.Contains(fa.lastUserPrompt, feedback) {
+		t.Fatalf("expected feedback rationale in user prompt, got:\n%s", fa.lastUserPrompt)
+	}
+	// The spec must still appear after the delimiter.
+	if !strings.Contains(fa.lastUserPrompt, "---\n\nImplement the following spec") {
+		t.Fatalf("expected spec after delimiter, got:\n%s", fa.lastUserPrompt)
+	}
+
+	// Empty feedback must not inject the block.
+	fa2 := &fakeAgent{
+		t: t,
+		script: []fakeResponse{
+			{toolCalls: []fakeToolCall{{name: "write", args: `{"path":"empty.txt","content":"ok"}`}}},
+			{text: "Done."},
+		},
+	}
+	workspaceRoot2, specPath2, _ := setupTempRepo(t)
+	err = Run(context.Background(), workspaceRoot2, specPath2, "", fa2)
+	if err != nil {
+		t.Fatalf("Run() with empty feedback error: %v", err)
+	}
+	if strings.Contains(fa2.lastUserPrompt, "Previous attempt failed verification") {
+		t.Fatalf("empty feedback should not inject block, got:\n%s", fa2.lastUserPrompt)
+	}
+	if !strings.HasPrefix(fa2.lastUserPrompt, "Implement the following spec") {
+		t.Fatalf("empty feedback should keep original prompt prefix, got:\n%s", fa2.lastUserPrompt)
+	}
 }

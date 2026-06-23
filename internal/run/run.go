@@ -86,7 +86,12 @@ type Options struct {
 	// Notifier is the notification dispatcher for FAIL/BLOCKED verdicts.
 	// When nil, notifications are skipped (test path / zero-config).
 	Notifier *account.Notifier
+
+	// ImplementTimeout is the per-attempt deadline for the implement step.
+	// 0 means use DefaultImplementTimeout. A negative value means no timeout.
+	ImplementTimeout time.Duration
 }
+
 // Run executes the sworn run turnkey loop. It returns nil only when the
 // implementation passed verification and was merged.
 func Run(ctx context.Context, opts Options) error {
@@ -215,11 +220,12 @@ func Run(ctx context.Context, opts Options) error {
 		VerifierModel:    opts.VerifierModel,
 		EscalationModels: opts.EscalationModels,
 		RetryCap:         opts.RetryCap,
+		ImplementTimeout: opts.ImplementTimeout,
 		NewAgent:         opts.NewAgent,
 		NewVerifier:      opts.NewVerifier,
 		Notifier:         opts.Notifier,
 	})
-	if err != nil {		// Re-wrap Blocked errors to preserve the run: prefix for
+	if err != nil { // Re-wrap Blocked errors to preserve the run: prefix for
 		// existing tests that check "verification blocked".
 		if IsBlocked(err) {
 			return fmt.Errorf("run: %s", err)

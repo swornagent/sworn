@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"errors"
 
@@ -21,9 +22,11 @@ import (
 //	sworn run --task "<description>" [--implementer-model <provider/model>]
 //	           [--verifier-model <provider/model>] [--base <branch>]
 //	           [--retry-cap <n>] [--escalation-models <m1,m2,...>]
+//	           [--implement-timeout <duration>]
 //
 //	sworn run --parallel --release <name> [--verifier-model <provider/model>]
 //	           [--implementer-model <provider/model>]
+//	           [--implement-timeout <duration>]
 func cmdRun(args []string) int {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	task := fs.String("task", "", "plain-language task description (required for single-slice mode)")
@@ -34,6 +37,7 @@ func cmdRun(args []string) int {
 	escalationFlag := fs.String("escalation-models", "", "comma-separated model escalation path (provider/model,...)")
 	parallel := fs.Bool("parallel", false, "run tracks concurrently from release board")
 	releaseName := fs.String("release", "", "release name for --parallel mode (e.g. 2026-06-19-safe-parallelism)")
+	implTimeout := fs.Duration("implement-timeout", 0, "per-attempt implement deadline (0 = use default; negative = no timeout)")
 
 	_ = fs.Parse(args)
 
@@ -59,6 +63,11 @@ func cmdRun(args []string) int {
 		fmt.Fprintf(os.Stderr, "sworn run: load config: %v\n", cfgErr)
 		return 1
 	}
+
+	// ── Resolve implement timeout ─────────────────────────────────────
+	// Precedence: flag > env > default. No config-file tier — touching
+	// internal/config/config.go for S42 was the source of the BLOCKED verdict.
+	implementTimeout := resolveImplementTimeout(*implTimeout, os.Getenv("SWORN_IMPLEMENT_TIMEOUT"))
 
 	// ── Resolve verifier model ─────────────────────────────────────────
 	verifier, err := config.ResolveVerifierModel(*verifierModel, cfg)
@@ -105,6 +114,7 @@ func cmdRun(args []string) int {
 				VerifierModel:    verifier,
 				EscalationModels: escalationModels,
 				RetryCap:         maxAttempts,
+				ImplementTimeout: implementTimeout,
 				Notifier:         notifier,
 			})
 		}
@@ -131,6 +141,7 @@ func cmdRun(args []string) int {
 		Base:             *base,
 		RetryCap:         maxAttempts,
 		EscalationModels: escalationModels,
+		ImplementTimeout: implementTimeout,
 		Notifier:         notifier,
 	})
 	if err != nil {
@@ -140,7 +151,33 @@ func cmdRun(args []string) int {
 	}
 	return 0
 }
-// parseEscalationFlag splits a comma-separated escalation models string into
+// resolveImplementTimeout returns the per-attempt implement timeout from the
+// first available source, in precedence order:
+//
+//  1. --implement-timeout flag (non-zero)
+//  2. $SWORN_IMPLEMENT_TIMEOUT env var (parsed as duration string)
+//  3. run.DefaultImplementTimeout constant (15m)
+//
+// A negative flag or env value means "no timeout" (opt-out). Zero means "use
+// default". There is intentionally no config-file tier — that was the source
+// of the S42 BLOCKED verdict (cross-track collision with config.go ownership).
+func resolveImplementTimeout(flagVal time.Duration, envVal string) time.Duration {
+	if flagVal != 0 {
+		if flagVal < 0 {
+			return 0 // opt-out
+		}
+		return flagVal
+	}
+	if envVal != "" {
+		if d, err := time.ParseDuration(envVal); err == nil {
+			if d < 0 {
+				return 0 // opt-out
+			}
+			return d
+		}
+	}
+	return run.DefaultImplementTimeout
+}// parseEscalationFlag splits a comma-separated escalation models string into
 // a []string. Returns nil when the flag is empty.
 func parseEscalationFlag(raw string) []string {
 	if raw == "" {
@@ -176,7 +213,6 @@ func openDefaultDB() (*sql.DB, error) {
 	db.SetMaxOpenConns(1)
 	return db, nil
 }
-
 // printModelError unwraps a *model.Error from err (via errors.As) and
 // prints its UserMessage to stderr. This gives the user actionable
 // guidance (e.g. "check the API key", "out of credits") instead of

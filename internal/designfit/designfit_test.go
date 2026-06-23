@@ -327,3 +327,65 @@ func TestDesignfit_EmptyRelease(t *testing.T) {
 		t.Errorf("expected 0 slices checked, got %d", report.SlicesChecked)
 	}
 }
+// TestType1ImpliedEmptyDecisionsFails verifies AC1: a slice whose planned_files
+// touch an architecturally-significant prefix (cmd/sworn/) but whose
+// design_decisions is empty records a violation — the gate fails closed.
+func TestType1ImpliedEmptyDecisionsFails(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := writeFixture(t, dir, "S23-memory-config", &state.Status{
+		SliceID: "S23-memory-config",
+		// PlannedFiles touch cmd/sworn/ → Type-1 implied
+		PlannedFiles: []string{
+			"cmd/sworn/memory.go",
+			"internal/memory/engine.go",
+		},
+		// DesignDecisions empty — the bypass being fixed
+		DesignDecisions: nil,
+	})
+
+	report, err := Run(releaseDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !report.HasViolations() {
+		t.Fatal("expected violation for Type-1-implied slice with empty design_decisions, got none")
+	}
+	if len(report.Violations) != 1 {
+		t.Fatalf("expected 1 violation, got %d", len(report.Violations))
+	}
+	v := report.Violations[0]
+	if v.SliceID != "S23-memory-config" {
+		t.Errorf("expected slice S23-memory-config, got %s", v.SliceID)
+	}
+	// ChoiceName is empty for this violation type (the decision array is empty).
+	if v.ChoiceName != "" {
+		t.Errorf("expected empty ChoiceName for empty-decisions violation, got %q", v.ChoiceName)
+	}
+}
+
+// TestNoType1EmptyDecisionsPasses verifies AC2: a slice with no Type-1-implied
+// work (planned_files only in non-architectural packages) and empty
+// design_decisions records no violation — the benign empty case still passes.
+func TestNoType1EmptyDecisionsPasses(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := writeFixture(t, dir, "S99-utility", &state.Status{
+		SliceID: "S99-utility",
+		// PlannedFiles only touch non-architectural packages
+		PlannedFiles: []string{
+			"internal/lint/deps.go",
+			"docs/release/test/spec.md",
+		},
+		// DesignDecisions empty — benign, no Type-1 work implied
+		DesignDecisions: nil,
+	})
+
+	report, err := Run(releaseDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if report.HasViolations() {
+		t.Fatalf("expected no violations for benign empty design_decisions, got %v", report.Violations)
+	}
+}

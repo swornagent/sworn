@@ -24,9 +24,9 @@ Each function is invoked as its own command. Each command file loads `captain.md
 | Route verifier verdict | `/captain-route` | Verifier returned PASS / FAIL / BLOCKED | Planned |
 | Merge a verified track | `/captain-merge-track` | All slices in a track verified | Planned (wraps `/merge-track`) |
 | Report release status | `/captain-status` | Anytime, on demand | Planned |
+| Resolve a dirty track worktree | `/resolve-dirty-worktree` | Clean-worktree gate finds dirty track | **Built** |
 
 Functions listed as Planned are direction; do not invoke them. When a command's function is missing from this file, return `BLOCKED: function not yet implemented for Captain.`
-
 The `coach-loop` script autonomously dispatches these functions (implement → design-review → ack → implement → verify → merge-track → merge-release), pausing only at Coach gates (NEEDS_COACH verdicts, constitutional IMPLEMENTER_FIX, merge-release). Captain is one node in that loop, not a manual step.
 
 ## Trust contract — what you do and don't do
@@ -154,10 +154,54 @@ For §2 decisions that reference other slices ("replaces the S## stub at <file>:
 - Verify the cited stub actually exists at the cited location. `git -C <wt> grep -n "<distinctive-string>" <file>` or read the file.
 - If absent, pin: "Cited stub at <file>:<line> not found in current code. The handoff anchor is stale — re-anchor or escalate."
 
+### Step 7 — Process-global mutation guard
+
+Process-global mutation (`os.Chdir`, a raw `git` invocation with a cwd argument,
+worktree creation/switching, or a global env/cwd mutation in tests) is a
+**systematic** failure class — sworn#6 (a git op with an empty dir flipped a
+worktree to `main`) and its recurrence on S28 (`os.Chdir` → `t.Chdir`) are two
+instances of the same root cause. This step makes the catch systematic.
+
+For each design.md §3 file path and each sibling's `planned_files` touching the
+same Go code:
+
+1. **Scan for the four patterns.** Read the files the design plans to touch.
+   Search for:
+   - `os.Chdir` — any call, test or production
+   - `exec.Command("git", ...)` with a `Dir` field set — a raw git invocation
+     with a cwd argument
+   - Worktree creation/switching — `git worktree add`, `git worktree remove`,
+     `git checkout` targeting a different branch, or any operation that changes
+     the repo's working directory
+   - Global env/cwd mutation in tests — `os.Setenv`, `os.Setwd`, `os.Environ()`
+     mutation, `os.Args` mutation
+
+2. **For every match, verify three properties are present in the design:**
+   - **(a) Guaranteed restore.** The state is restored before the owning
+     function returns. Acceptable: `t.Chdir` (test-scoped), `defer <restore>()`,
+     or a cleanup callback that runs irrespective of test outcome.
+   - **(b) Non-empty / expected-dir assertion.** Any git operation with a cwd
+     argument first asserts the directory exists, is non-empty, or matches an
+     expected path. The assertion must fail closed.
+   - **(c) Reachability artefact.** The slice cannot reach `verified` without
+     a reachability artefact showing the guard: a test exercising the restore
+     path, a test run screenshot, or an explicit smoke step proving the
+     non-empty-dir check fires.
+
+   If a match exists and any of (a), (b), or (c) is missing → pin:
+   `[mechanical]` (if the fix is a one-line test-scoping change) or
+   `[escalate]` (if the design needs rework). Use the exact pattern and missing
+   property in the pin text.
+
+3. **If no match exists** — none of the four patterns appear in the design's
+   touchpoints — no pin. The slice is clean on this class.
+
+The governing Baton-rule clause is `internal/adopt/baton/rules/11-process-global-mutation.md`
+(Rule 11). Cite it in any pin surfaced here.
+
 ## Output
 
 Three deliverables, in order.
-
 ### A. Inline pin list (printed to chat)
 
 Format each pin:
@@ -313,6 +357,92 @@ If the amendment is incorrect or you cannot determine its correctness from the r
 - Never ratify without independently verifying the correction against live repo state.
 
 ---
+
+
+# Function: `/resolve-dirty-worktree` — auto-resolve a dirty track worktree
+
+Triggered at clean-worktree gates (pre-merge, pre-forward-sync, pre-replan) when the worktree is dirty. Instead of paging the Coach, the Captain assesses the uncommitted diff and auto-resolves: commits the work by default, discards only if clearly wrong, and records the resolution in the slice journal.
+
+A track worktree is dirtied **exclusively by workers** (implementers leaving uncommitted changes when a session ends or is killed). The Coach has no independent context to resolve it — paging the Coach on a dirty worktree is a dead-end gate. This function makes the resolution a fresh-context tactical decision, which is precisely the Captain's role.
+
+## Detector contract (for clean-worktree gates)
+
+The clean-worktree gate (pre-merge, pre-forward-sync, pre-replan) must:
+
+1. Run `git -C <wt> status --porcelain`.
+2. **Filter the output:** dispatch Captain only when the output shows:
+   - Modifications to **tracked** files (lines starting ` M` or `M `), OR
+   - **Untracked** files (lines starting `??`) within the slice's declared touchpoints (`status.json` `planned_files`).
+3. If non-empty after filtering → dispatch Captain's `resolve-dirty-worktree`.
+4. If empty after filtering (e.g. only a stray `sworn` binary or `node_modules` drift outside touchpoints) → the gate may clean benign artefacts silently or proceed without dispatch.
+
+This filtering aligns with the spec's Risk 2 mitigation: the detector must not fire on benign untracked build artefacts.
+
+## Inputs you load
+
+1. `<wt>` (track worktree path) — from the clean-worktree gate context.
+2. `git -C <wt> status --porcelain` + `git -C <wt> diff` (staged + unstaged) — the full diff.
+3. The slice's `status.json` — `planned_files` (declared touchpoints) and `open_deferrals`.
+
+## Decision rule
+
+**Default: commit.** The worker's uncommitted changes are preserved on the track branch with a descriptive auto-commit message. The Verifier still runs and will FAIL bad code downstream; discarding good work is irreversible.
+
+**Discard only if clearly wrong.** The following cases qualify for discard:
+
+- **(a) Stray build artefacts:** the `sworn` binary, `node_modules` drift, `.tsbuildinfo` files, or other generated output not in the slice's touchpoints.
+- **(b) Accidental mass-deletion:** tracked files outside the slice's declared touchpoints deleted with no coherent intent (e.g. an `rm -rf` that escaped).
+- **(c) Touchpoint-external edits:** modifications to files outside the slice's `planned_files` with no discernible purpose.
+
+Everything else commits.
+
+## Procedure
+
+1. **Capture the diff.** Run `git -C <wt> status --porcelain` and `git -C <wt> diff`. These are the inputs for classification.
+
+2. **Classify each dirty file** against the decision rule above. For each file:
+   - Is it a tracked modification within the slice's touchpoints? → commit.
+   - Is it an untracked file within the slice's touchpoints? → commit (it is in-progress work).
+   - Is it a stray build artefact? → discard.
+   - Is it an accidental mass-deletion outside touchpoints? → discard.
+   - Is it a touchpoint-external edit with no coherent intent? → discard.
+   - Otherwise → commit.
+
+3. **If committing:**
+   - `git -C <wt> add <files>` — stage the dirty files to preserve.
+   - `git -C <wt> commit -m "chore(release/<release-name>/<slice-id>): auto-commit dirty worktree — <one-line diff characterisation>"`
+   - Push: `git -C <wt> push origin HEAD:refs/heads/track/<release-name>/<track-id>`.
+
+4. **If discarding:**
+   - For tracked modifications: `git -C <wt> checkout -- <file>`.
+   - For untracked artefacts: `git -C <wt> clean -fd <path>` (scoped to the specific artefact, never `clean -fd` unqualified).
+   - Record per-file rationale in the journal entry.
+
+5. **If genuinely ambiguous** — the diff mixes plausible work with destructive changes and the right split is unclear — **escalate to the Coach.** Surface the full diff and the classification wall. This is the only case that pages the Coach; it is expected to be rare.
+
+6. **Record in the slice journal.** See format below.
+
+## Journal record format
+
+Append to `<wt>/docs/release/<release-name>/<slice-id>/journal.md`:
+
+```
+## <ISO 8601 date> — Captain auto-resolved dirty worktree
+
+- **Worktree**: <wt>
+- **Impacted files**: <git -C <wt> status --porcelain output, verbatim>
+- **Diff characterisation**: <one-line summary of what the diff contains>
+- **Decision**: committed | discarded (per-file) | escalated
+- **Files committed** (if applicable): <list of files>
+- **Files discarded** (if applicable): <list of files with per-file rationale>
+- **Rationale**: <why this decision — cite specific decision-rule cases>
+```
+
+## Session-end discipline
+
+
+---
+After resolution, `git -C <wt> status --porcelain` must be empty. If work was committed, push the track branch. Output the journal entry to the Coach as a durable note (not a page).
 
 ## Failure modes to avoid (cross-function)
 
