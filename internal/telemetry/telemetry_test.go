@@ -298,8 +298,70 @@ func TestFireTelemetryMetaCommandExcluded(t *testing.T) {
 	}
 }
 
-// --- ShowDisclosure tests ----------------------------------------------
+func TestFireSkipsEmptyCmd(t *testing.T) {
+	var hit bool
+	hitMu := sync.Mutex{}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hitMu.Lock()
+		hit = true
+		hitMu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
 
+	prevClient := HTTPClient()
+	testClient := &http.Client{Transport: &fireTestTransport{targetURL: ts.URL}}
+	SetHTTPClient(testClient)
+	defer SetHTTPClient(prevClient)
+
+	// Fire with empty cmd (no-args / TUI launch) — should be excluded.
+	Fire("", "", "0.1.0", 5000, 0)
+	time.Sleep(100 * time.Millisecond)
+
+	hitMu.Lock()
+	wasHit := hit
+	hitMu.Unlock()
+	if wasHit {
+		t.Error("Fire() sent telemetry event for cmd=\"\" (TUI launch); should be excluded")
+	}
+}
+
+func TestFireStillFiresRealCmd(t *testing.T) {
+	var hit bool
+	hitMu := sync.Mutex{}
+	requestReceived := make(chan struct{}, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hitMu.Lock()
+		hit = true
+		hitMu.Unlock()
+		requestReceived <- struct{}{}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	prevClient := HTTPClient()
+	testClient := &http.Client{Transport: &fireTestTransport{targetURL: ts.URL}}
+	SetHTTPClient(testClient)
+	defer SetHTTPClient(prevClient)
+
+	// Fire with a real command — must still fire (guard against over-broad exclusion).
+	Fire("verify", "", "0.1.0", 100, 0)
+
+	select {
+	case <-requestReceived:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for Fire(\"verify\", ...) to send request — over-broad exclusion?")
+	}
+
+	hitMu.Lock()
+	wasHit := hit
+	hitMu.Unlock()
+	if !wasHit {
+		t.Error("Fire(\"verify\", ...) did not send request; real commands must still fire")
+	}
+}
+
+// --- ShowDisclosure tests ----------------------------------------------
 func TestShowDisclosure_FirstRun(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)

@@ -3,11 +3,11 @@
   "slice_id": "S30-lint-touchpoints",
   "release": "2026-06-19-safe-parallelism",
   "track": "T12-harness-hardening",
-  "state": "planned",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-21T00:00:00Z",
-  "start_commit": null,
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-28T20:15:00Z",
+  "start_commit": "release-wt/2026-06-19-safe-parallelism",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S30-lint-touchpoints/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S30-lint-touchpoints/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S30-lint-touchpoints/journal.md",
@@ -16,18 +16,53 @@
     "internal/lint/touchpoints_test.go",
     "cmd/sworn/lint.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/lint/touchpoints.go",
+    "internal/lint/touchpoints_test.go",
+    "cmd/sworn/lint.go"
+  ],
   "test_commands": [
     "go test ./internal/lint/... -run Touchpoint",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "sworn lint touchpoints S01-test test-undeclared (exit 1, undeclared)",
+    "sworn lint touchpoints S01-test test-collision (exit 1, collision)",
+    "sworn lint touchpoints S01-test test-clean (exit 0, clean)"
+  ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "result": "pass",
+    "verifier_session_id": "fresh-context-2026-06-28",
+    "verifier_verdict_at": "2026-06-28T20:15:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
-  }
+  },
+  "design_decisions": [
+    {
+      "choice": "Parse back-ticked file/package references from spec.md sections '## In scope' and '## Planned touchpoints' only, not design.md or other sections. Section-scoping eliminates false positives from Out-of-scope, Risk, and Required-tests sections.",
+      "stake_class": "Type-2",
+      "rationale": "Spec is the binding contract; section-scoping fixes the critical Pin #1 where full-scan extraction caused false positives on S30's own spec (cmd/sworn/main.go, internal/foo/bar.go, etc.)."
+    },
+    {
+      "choice": "File-reference extraction uses a regex on back-ticked tokens that contain '/' or end in .go/.ts/.tsx/.md, extracted from In-scope + Planned-touchpoints sections only.",
+      "stake_class": "Type-2",
+      "rationale": "Mirrors how specs name files; avoids matching prose back-ticks like 'sworn' or 'planned_files'. Package refs like 'internal/lint' are covered by the '/' matcher."
+    },
+    {
+      "choice": "Touchpoint matrix parsing reads the markdown table under '### Touchpoint matrix' in index.md. Extracts file/surface column and \u2713 marks per track column. Files with \u2713 in multiple non-sequential-serialised columns without DOCUMENTED SHARED annotation are collisions.",
+      "stake_class": "Type-2",
+      "rationale": "Matrix is the authoritative touchpoint registry for the release; the parser flags raw multi-\u2713 rows without DOCUMENTED SHARED annotation."
+    },
+    {
+      "choice": "Migration number detection scans planned_files for a 6-digit prefix pattern (NNNNNN_) across the release. Two slices sharing the same prefix \u2192 collision violation.",
+      "stake_class": "Type-2",
+      "rationale": "Simple string-prefix check, not a database introspection; migration number uniqueness is a hard invariant."
+    },
+    {
+      "choice": "DOCUMENTED SHARED files that appear in the slice's planned_files are reported as an informational note (not a fail-closed violation). Non-additive edit detection from design prose is a Rule 2 deferral \u2014 too fuzzy for a reliable gate.",
+      "stake_class": "Type-2",
+      "rationale": "Coach accepted the informational-note substitution for the spec's additive-invariant check (Pin #3 escalate). Prose-based 'non-additive vs additive' detection is deferred as a Rule 2 open_deferral. The informational note surfaces shared files so the Coach can make the coordination decision at plan time."
+    }
+  ]
 }

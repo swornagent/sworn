@@ -206,6 +206,12 @@ func Fire(cmd, sub, swornVersion string, durationMS int64, exitCode int) {
 		return
 	}
 
+	// TUI / no-args exclusion: running sworn with no subcommand launches
+	// the TUI interactively. The empty cmd + session-length duration is
+	// junk data — exclude it (swornagent/sworn#7).
+	if cmd == "" {
+		return
+	}
 	go func() {
 		evt := event{
 			V:            1,

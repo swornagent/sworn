@@ -5,7 +5,7 @@ description: 'sworn board reads every slice''s authoritative status.json straigh
 
 # Slice: `S57-oracle-reader`
 
-> Proposed by the 2026-06-23 port-fidelity audit (`internal-docs/captures/2026-06-23-port-fidelity-audit/`). The keystone of the orchestration-core port (T17): the git-ref oracle reader that the router (S58), the TUI, and the end-of-run rollup all read through. Today sworn has only `state.Read` (a single working-tree `os.ReadFile`) + `internal/board` index.md parsing — neither reads authoritative committed state across track branches.
+> Proposed by the 2026-06-23 port-fidelity audit. The keystone of the orchestration-core port (T17): the git-ref oracle reader that the router (S58), the TUI, and the end-of-run rollup all read through. Today sworn has only `state.Read` (a single working-tree `os.ReadFile`) + `internal/board` index.md parsing — neither reads authoritative committed state across track branches.
 
 ## User outcome
 

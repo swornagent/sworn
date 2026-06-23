@@ -107,8 +107,12 @@ func Run(ctx context.Context, a Agent, systemPrompt, userPrompt string, workspac
 
 		msg := choice.Message
 
-		// If the model produced text content and no tool calls, it's done.
-		if msg.Content != "" && len(msg.ToolCalls) == 0 {
+		// If the model produced no tool calls, the turn is terminal.
+		// Content may be empty (e.g., gpt-oss-class reasoning models stop
+		// silently after finishing tool work). We return the accumulated
+		// content; downstream verification judges the actual diff/tests, not
+		// the agent's prose.
+		if len(msg.ToolCalls) == 0 {
 			history = append(history, model.ChatMessage{
 				Role:    "assistant",
 				Content: msg.Content,
@@ -120,58 +124,43 @@ func Run(ctx context.Context, a Agent, systemPrompt, userPrompt string, workspac
 			return msg.Content, totalCost, agentMessages, nil
 		}
 
-		// If the model requested tool calls, execute them.
-		if len(msg.ToolCalls) > 0 {
-			// Record the assistant message with tool calls
-			var agentTCs []ToolCall
-			var modelTCs []model.ToolCall
-			for _, tc := range msg.ToolCalls {
-				agentTCs = append(agentTCs, ToolCall{
-					ID:        tc.ID,
-					Name:      tc.Function.Name,
-					Arguments: tc.Function.Arguments,
-				})
-				modelTCs = append(modelTCs, tc)
-			}
-			history = append(history, model.ChatMessage{
-				Role:      "assistant",
-				Content:   msg.Content,
-				ToolCalls: modelTCs,
+		// If the model requested tool calls, execute them and continue.
+		var agentTCs []ToolCall
+		var modelTCs []model.ToolCall
+		for _, tc := range msg.ToolCalls {
+			agentTCs = append(agentTCs, ToolCall{
+				ID:        tc.ID,
+				Name:      tc.Function.Name,
+				Arguments: tc.Function.Arguments,
 			})
-			agentMessages = append(agentMessages, Message{
-				Role:      "assistant",
-				Content:   msg.Content,
-				ToolCalls: agentTCs,
-			})
-
-			// Execute each tool call and append results
-			for _, tc := range msg.ToolCalls {
-				result := exec.run(tc.Function.Name, tc.Function.Arguments)
-				tcID := tc.ID // capture loop variable
-				history = append(history, model.ChatMessage{
-					Role:       "tool",
-					Content:    result,
-					ToolCallID: &tcID,
-				})
-				agentMessages = append(agentMessages, Message{
-					Role:       "tool",
-					Content:    result,
-					ToolCallID: tc.ID,
-				})
-			}
-			continue
+			modelTCs = append(modelTCs, tc)
 		}
-
-		// If neither text nor tool calls, treat as empty and append to history
-		// so the model can correct (shouldn't happen with well-behaved models).
 		history = append(history, model.ChatMessage{
-			Role:    "assistant",
-			Content: msg.Content,
+			Role:      "assistant",
+			Content:   msg.Content,
+			ToolCalls: modelTCs,
 		})
 		agentMessages = append(agentMessages, Message{
-			Role:    "assistant",
-			Content: msg.Content,
+			Role:      "assistant",
+			Content:   msg.Content,
+			ToolCalls: agentTCs,
 		})
+
+		// Execute each tool call and append results
+		for _, tc := range msg.ToolCalls {
+			result := exec.run(tc.Function.Name, tc.Function.Arguments)
+			tcID := tc.ID // capture loop variable
+			history = append(history, model.ChatMessage{
+				Role:       "tool",
+				Content:    result,
+				ToolCallID: &tcID,
+			})
+			agentMessages = append(agentMessages, Message{
+				Role:       "tool",
+				Content:    result,
+				ToolCallID: tc.ID,
+			})
+		}
 	}
 
 	return "", totalCost, agentMessages, fmt.Errorf("agent: turn cap (%d) reached with no text response", cfg.MaxTurns)
