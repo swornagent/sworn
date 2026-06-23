@@ -31,7 +31,10 @@ import (
 // Workspace root is the root of the repository the agent operates in.
 // Spec path is the absolute path to the slice's spec.md (status.json and
 // proof.md are derived from the same directory).
-func Run(ctx context.Context, workspaceRoot, specPath string, a agent.Agent) error {
+// priorFeedback is the prior verifier's rationale. When non-empty, it is
+// injected into the user prompt ahead of the spec so the agent can address
+// the named failures.
+func Run(ctx context.Context, workspaceRoot, specPath, priorFeedback string, a agent.Agent) error {
 	sliceDir := filepath.Dir(specPath)
 	statusPath := filepath.Join(sliceDir, "status.json")
 	proofPath := filepath.Join(sliceDir, "proof.md")
@@ -86,10 +89,20 @@ func Run(ctx context.Context, workspaceRoot, specPath string, a agent.Agent) err
 	// diff + test output, so an empty agent return still produces a valid
 	// proof bundle and proceeds to verification.
 	systemPrompt := prompt.Implementer()
-	userPrompt := fmt.Sprintf(
-		"Implement the following spec in workspace %s.\n\n%s\n\nAfter implementation, stop.",
-		workspaceRoot, string(spec),
-	)
+
+	var userPrompt string
+	if priorFeedback != "" {
+		feedback := truncateString(priorFeedback, 2000)
+		userPrompt = fmt.Sprintf(
+			"Previous attempt failed verification — address these specifically:\n\n%s\n\n---\n\nImplement the following spec in workspace %s.\n\n%s\n\nAfter implementation, stop.",
+			feedback, workspaceRoot, string(spec),
+		)
+	} else {
+		userPrompt = fmt.Sprintf(
+			"Implement the following spec in workspace %s.\n\n%s\n\nAfter implementation, stop.",
+			workspaceRoot, string(spec),
+		)
+	}
 
 	_, _, _, err = agent.Run(ctx, a, systemPrompt, userPrompt, workspaceRoot, agent.Config{})
 	if err != nil {
@@ -216,6 +229,17 @@ func runGoTest(workspaceRoot string) string {
 		return fmt.Sprintf("(exit error: %v)\n%s", err, string(out))
 	}
 	return string(out)
+}
+
+// truncateString caps s at maxRunes runes, adding an ellipsis if truncated.
+func truncateString(s string, maxRunes int) string {
+	if len(s) <= maxRunes {
+		return s
+	}
+	if maxRunes <= 3 {
+		return s[:maxRunes]
+	}
+	return s[:maxRunes-3] + "..."
 }
 
 // runGitCmd runs an arbitrary git command in workspaceRoot and returns trimmed stdout.

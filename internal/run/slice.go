@@ -146,9 +146,14 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	}
 
 	var lastVerdict verdict.Result
+	var priorFeedback string
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		// ── Reset slice state for retry ────────────────────────────────
+		// Capture the prior verdict's rationale before clearing verification
+		// so the next implement attempt can receive actionable feedback.
 		if attempt > 0 {
+			priorFeedback = lastVerdict.Rationale
+
 			st, err := state.Read(statusPath)
 			if err != nil {
 				return fmt.Errorf("RunSlice: read status for retry reset: %w", err)
@@ -160,6 +165,8 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			if err := state.Write(statusPath, st); err != nil {
 				return fmt.Errorf("RunSlice: reset status for retry: %w", err)
 			}
+		} else {
+			priorFeedback = ""
 		}
 
 		implModelID := escalationModels[attempt]
@@ -176,9 +183,9 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		if implementTimeout > 0 {
 			implCtx, cancel := context.WithTimeout(ctx, implementTimeout)
 			defer cancel() // safe: each iteration has its own defer
-			implErr = implement.Run(implCtx, worktreeRoot, specPath, implAgent)
+			implErr = implement.Run(implCtx, worktreeRoot, specPath, priorFeedback, implAgent)
 		} else {
-			implErr = implement.Run(ctx, worktreeRoot, specPath, implAgent)
+			implErr = implement.Run(ctx, worktreeRoot, specPath, priorFeedback, implAgent)
 		}
 
 		if implErr != nil {
