@@ -3,10 +3,10 @@
   "slice_id": "S60-init-ui-bearing-fix",
   "release": "2026-06-19-safe-parallelism",
   "track": "T18-cli-polish",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-08T00:00:00Z",
+  "last_updated_at": "2026-07-08T00:30:00Z",
   "start_commit": "0b140e47567e82c19046ce248c4de60f3d328f78",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S60-init-ui-bearing-fix/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S60-init-ui-bearing-fix/proof.md",
@@ -15,14 +15,17 @@
     "cmd/sworn/init.go",
     "cmd/sworn/init_design_system_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "cmd/sworn/init.go"
+  ],
   "test_commands": [
     "go test ./cmd/sworn/...",
     "go build ./...",
     "go vet ./..."
   ],
-  "reachability_artifacts": [],
-  "design_decisions": [
+  "reachability_artifacts": [
+    "docs/release/2026-06-19-safe-parallelism/S60-init-ui-bearing-fix/proof.md#reachability-artefact"
+  ],  "design_decisions": [
     {
       "id": "D1",
       "title": "Gate design-system block on *uiBearer, not config existence",

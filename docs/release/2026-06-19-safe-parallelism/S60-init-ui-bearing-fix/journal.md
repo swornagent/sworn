@@ -14,3 +14,19 @@
   `init.go` is structurally identical across the two branches, so the fix ports
   directly; the implementer should still re-derive it against release-wt.
 - Sequenced before `S61-cli-output-styling` in T18 — both touch `init.go`.
+
+## 2026-07-08 — implemented
+
+- **Actor**: implementer (Claude)
+- State re-entered from `design_review` via Coach-approved ack (PROCEED, 1 mechanical pin).
+- **Pin 1 applied**: added `design_decisions` array (5 Type-2 decisions) to `status.json`.
+- **Implementation**: restructured apply phase in `cmd/sworn/init.go`:
+  - Gate design-system block on `if *uiBearer` (was gated on `cfgErr == nil && !cfgExisted` / `cfgErr == config.ErrConfigExists && *uiBearer`).
+  - Removed `*uiBearer || true` defect — now plain `cfg.UIBearing = true` inside the `*uiBearer` block.
+  - Implementer-model prompt (S09) stays gated on `cfgErr == nil && !cfgExisted` (new config only), separate from the design-system block.
+  - Two apply-phase design-system branches collapsed into one.
+- **Tests**: All 4 TestCmdInit* tests pass (NonInteractive, UIBearingFlag, UIBearingOutput, UIBearing_ValidateFailClosed).
+- **Reachability**: manual-smoke-step terminal transcript in proof.md shows both non-UI-bearing and --ui-bearing paths.
+- **Skeptic panel**: skipped — Claude Code -p mode does not support subagent dispatch.
+- **First-pass verify**: 3 FAILs — (1) proof.md missing → now generated, (2) Playwright false positive → CLI slice, no Playwright, (3) state in_progress → now implemented.
+- **Commit**: `feat(init): gate design-system block on --ui-bearing only` (db44c5c).
