@@ -3,11 +3,10 @@
   "slice_id": "S60-init-ui-bearing-fix",
   "release": "2026-06-19-safe-parallelism",
   "track": "T18-cli-polish",
-  "state": "planned",
-  "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-23T00:00:00Z",
-  "start_commit": null,
+  "state": "verified",  "owner": "human",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-06-23T12:29:29Z",
+  "start_commit": "0b140e47567e82c19046ce248c4de60f3d328f78",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S60-init-ui-bearing-fix/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S60-init-ui-bearing-fix/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S60-init-ui-bearing-fix/journal.md",
@@ -15,19 +14,55 @@
     "cmd/sworn/init.go",
     "cmd/sworn/init_design_system_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "cmd/sworn/init.go",
+    "cmd/sworn/init_design_system_test.go"
+  ],
   "test_commands": [
     "go test ./cmd/sworn/...",
     "go build ./...",
     "go vet ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "docs/release/2026-06-19-safe-parallelism/S60-init-ui-bearing-fix/proof.md#reachability-artefact"
+  ],
+  "design_decisions": [
+    {
+      "id": "D1",
+      "title": "Gate design-system block on *uiBearer, not config existence",
+      "type": "type_2",
+      "rationale": "The current code gates the design-system block on cfgErr == nil && !cfgExisted (new config) and cfgErr == config.ErrConfigExists && *uiBearer (existing config). The fix collapses both into a single if *uiBearer block after config creation/loading, simplifying the control flow."
+    },
+    {
+      "id": "D2",
+      "title": "Implementer-model prompt stays in new-config-only path",
+      "type": "type_2",
+      "rationale": "The implementer-model prompt (S09) is unrelated to UI-bearing and stays gated on new-config only — it's not collapsed into the unified *uiBearer block."
+    },
+    {
+      "id": "D3",
+      "title": "Keep PromptDesignSystem call inside the gate",
+      "type": "type_2",
+      "rationale": "Rather than modifying PromptDesignSystem to be a no-op when !uiBearer, we gate at the call site. This keeps the function's contract clean — it always prompts; the caller decides whether to invoke it."
+    },
+    {
+      "id": "D4",
+      "title": "Line 190 *uiBearer || true becomes plain true",
+      "type": "type_2",
+      "rationale": "Since we're already inside the if *uiBearer block, cfg.UIBearing = true suffices. The old || true was a latent defect that forced ui_bearing: true whenever a design system was entered, even without the flag."
+    },
+    {
+      "id": "D5",
+      "title": "No scan-phase changes needed",
+      "type": "type_2",
+      "rationale": "The scan phase already correctly distinguishes UI-bearing from non-UI-bearing repos in its informational messages. No change required there."
+    }
+  ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_session_id": "fresh-verifier-2026-06-23",
+    "verifier_verdict_at": "2026-06-23T12:38:48Z",
+    "verifier_was_fresh_context": true,
+    "result": "pass",
     "violations": []
-  }
-}
+  }}

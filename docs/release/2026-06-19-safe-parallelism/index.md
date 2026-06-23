@@ -45,8 +45,7 @@ tracks:
     depends_on: [T3-commercial, T4-mcp]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T7-mcp-extensions
     worktree_branch: track/2026-06-19-safe-parallelism/T7-mcp-extensions
-    state: in_progress
-  - id: T8-memory
+    state: merged  - id: T8-memory
     slices: [S23-memory-config, S24-memory-engine, S25-memory-search, S40-memory-test-hygiene]
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T8-memory
@@ -110,7 +109,7 @@ tracks:
     depends_on: [T2-monitoring, T15-cli-registry]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T18-cli-polish
     worktree_branch: track/2026-06-19-safe-parallelism/T18-cli-polish
-    state: in_progress
+    state: merged
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
@@ -146,8 +145,7 @@ tracks:
 | `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 + T15 | `track/.../T3-commercial` | merged || `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | merged |
 | `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 → S39 | T1 + T3 | `track/.../T5-providers` | planned |
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
-| `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | planned |
-| `T8-memory` | S23 → S24 → S25 → S40 | T1 | `track/.../T8-memory` | merged |
+| `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | merged || `T8-memory` | S23 → S24 → S25 → S40 | T1 | `track/.../T8-memory` | merged |
 | `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
 | `T10-public-readiness` | S27 | all tracks (incl. T16) | `track/.../T10-public-readiness` | planned |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
@@ -156,7 +154,7 @@ tracks:
 | `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged |
 | `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | planned |
 | `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | planned |
-| `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | planned |
+| `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
 
 ### Execution order
 
@@ -444,15 +442,15 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S08b-mcp-ops-tools` | T4 | 9 ops tools: get_board, get_blocked, get_slice_context, rerun, patch, merge, defer | verified | [spec](./S08b-mcp-ops-tools/spec.md) |
 | `S08c-mcp-plan-tools` | T4 | 4 planning tools + resources + prompts + mcp-setup.md | verified | [spec](./S08c-mcp-plan-tools/spec.md) |
 | `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | verified | [spec](./S09-per-role-model-config/spec.md) |
-| `S10-provider-foundation` | T5 | ADR 0007 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | verified | [spec](./S10-provider-foundation/spec.md) |
-| `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | implemented (verifier BLOCKED) | [spec](./S11-anthropic-driver/spec.md) || `S12-google-driver` | T5 | Google Gemini and Vertex AI models work as verifier and implementer | planned | [spec](./S12-google-driver/spec.md) |
+| `S10-provider-foundation` | T5 | ADR 0007 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | implemented | [spec](./S10-provider-foundation/spec.md) |
+| `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | planned | [spec](./S11-anthropic-driver/spec.md) |
+| `S12-google-driver` | T5 | Google Gemini and Vertex AI models work as verifier and implementer | planned | [spec](./S12-google-driver/spec.md) |
 | `S13-bedrock-driver` | T5 | AWS Bedrock models work via Converse API; IAM auth | planned | [spec](./S13-bedrock-driver/spec.md) |
 | `S14-azure-driver` | T5 | Azure OpenAI deployments work via api-key auth; no new SDK dep | planned | [spec](./S14-azure-driver/spec.md) |
 | `S15-oci-driver` | T5 | OCI Generative AI models work via oci-go-sdk | planned | [spec](./S15-oci-driver/spec.md) |
 | `S16-ollama-driver` | T5 | Ollama native /api/chat endpoint; replaces OAI-compat shim | planned | [spec](./S16-ollama-driver/spec.md) |
 | `S17-tui-provider-config` | T6 | TUI settings panel: provider API keys, model per role, escalation list, max attempts; persists to config.json + ~/.sworn/.env | planned | [spec](./S17-tui-provider-config/spec.md) |
-| `S18-consideration-catalog` | T3 | Typed consideration catalog + decision registry; planner Phase 2b (DRY gate, design consultation, arch conformance, capture); sworn init scaffolds both templates | verified | [spec](./S18-consideration-catalog/spec.md) || `S19-sworn-induction` | T3 | `sworn induction` one-time repo onboarding (design system + architecture discovery); implementer + verifier prompts gain deviation-surfacing steps | verified | [spec](./S19-sworn-induction/spec.md) || `S20-mcp-catalog-tools` | T7 | 8 MCP tools: plan_release (unified), get_induction_status, get_considerations, search_decisions, record_decision, check_design_system, update_design_system, record_architecture_pattern | planned | [spec](./S20-mcp-catalog-tools/spec.md) |
-| `S21-canonical-baton` | T3 | Baton protocol embedded in binary (internal/prompt/baton/); sworn init writes minimal MCP-pointer AGENTS.md instead of per-repo Baton copy; ADR-0008 | verified | [spec](./S21-canonical-baton/spec.md) || `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | verified | [spec](./S22-sworn-doctor/spec.md) |
+| `S18-consideration-catalog` | T3 | Typed consideration catalog + decision registry; planner Phase 2b (DRY gate, design consultation, arch conformance, capture); sworn init scaffolds both templates | verified | [spec](./S18-consideration-catalog/spec.md) || `S19-sworn-induction` | T3 | `sworn induction` one-time repo onboarding (design system + architecture discovery); implementer + verifier prompts gain deviation-surfacing steps | verified | [spec](./S19-sworn-induction/spec.md) || `S20-mcp-catalog-tools` | T7 | 8 MCP tools: plan_release (unified), get_induction_status, get_considerations, search_decisions, record_decision, check_design_system, update_design_system, record_architecture_pattern | verified | [spec](./S20-mcp-catalog-tools/spec.md) || `S21-canonical-baton` | T3 | Baton protocol embedded in binary (internal/prompt/baton/); sworn init writes minimal MCP-pointer AGENTS.md instead of per-repo Baton copy; ADR-0008 | verified | [spec](./S21-canonical-baton/spec.md) || `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | verified | [spec](./S22-sworn-doctor/spec.md) |
 | `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | verified | [spec](./S23-memory-config/spec.md) |
 | `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | verified | [spec](./S24-memory-engine/spec.md) |
 | `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | verified | [spec](./S25-memory-search/spec.md) |
@@ -491,9 +489,8 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S57-oracle-reader` | T17 | `sworn board` reads every slice's authoritative status.json from git refs (track branch > release-wt > worktree), ownership-resolved — the honest board reader the router/TUI/rollup read through | planned | [spec](./S57-oracle-reader/spec.md) |
 | `S58-slice-router` | T17 | `sworn route <slice> <release>` computes the next command purely from committed status.json — the deterministic captain-route.sh port (state machine + design-review/Gate-re-entry/merge) | planned | [spec](./S58-slice-router/spec.md) |
 | `S59-scheduler-relayer` | T17 | `sworn run --parallel` workers poll the router each step (poll-and-route) instead of a static slice list — resumable, dynamic; keeps dependency resolution + worktree isolation + supervisor ownership | planned | [spec](./S59-scheduler-relayer/spec.md) |
-| `S60-init-ui-bearing-fix` | T18 | `sworn init` no longer prompts for design tokens / component library in a non-UI-bearing repo; design-system flow gated on `--ui-bearing`; drops the always-true `UIBearing` write | planned | [spec](./S60-init-ui-bearing-fix/spec.md) |
-| `S61-cli-output-styling` | T18 | shared zero-dep `internal/style` ANSI palette gives premium, consistent, TTY/`NO_COLOR`-aware colour across every command + report renderer; plain output byte-identical | planned | [spec](./S61-cli-output-styling/spec.md) |
-
+| `S60-init-ui-bearing-fix` | T18 | `sworn init` no longer prompts for design tokens / component library in a non-UI-bearing repo; design-system flow gated on `--ui-bearing`; drops the always-true `UIBearing` write | verified | [spec](./S60-init-ui-bearing-fix/spec.md) |
+| `S61-cli-output-styling` | T18 | shared zero-dep `internal/style` ANSI palette gives premium, consistent, TTY/`NO_COLOR`-aware colour across every command + report renderer; plain output byte-identical | verified | [spec](./S61-cli-output-styling/spec.md) |
 ## Aggregate state
 
 > **STALE — the board oracle (`release-board-status.sh --json`) is authoritative; run it for live
@@ -512,34 +509,66 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > S29-S32 read `planned` despite being `verified`; S33 `planned` despite `design_review`;
 > S07 `planned` despite `implemented`). Three duplicate rows (S22/S23/S24) and several
 > `||`-collapsed physical lines repaired.
->
-> 2026-06-23T12:08:47Z: S11-anthropic-driver (T5) moved to BLOCKED by verifier (touchpoint-matrix conflict on forward-merge of release-wt into T5-providers track; cmd/sworn/run.go). Slice state remains `implemented`; `verification.result: blocked`. No change to aggregate counts (oracle authoritative).
+
 - Planned: 27
 - In progress: 0
 - Implemented: 0
 - Design review: 1
-- Verified: 28
+- Verified: 29
 - Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 5 / In progress: 4 / Merged: 8  *(oracle read 2026-06-23; T18 now in_progress, T12 merge recorded — board moving under coach loop)*
-> Merged (8): T1, T2, T3, T4, T8, T9, T11, T15. In progress (4): T5, T7, T14, T18. Planned (5 per oracle): T6, T10, T12, T16, T17.
+**Tracks:** Planned: 5 / In progress: 2 / Merged: 11  *(oracle read 2026-06-23; T12 + T18 merges recorded — board moving under coach loop)*
+> Merged (11): T1, T2, T3, T4, T7, T8, T9, T11, T12, T15, T18. In progress (2): T5, T14. Planned (5 per oracle): T6, T10, T13, T16, T17.
+
 ## Recent activity
 
-### 2026-06-23T12:08:47Z — verifier verdict — BLOCKED (S11-anthropic-driver)
-- **Slice**: S11-anthropic-driver (T5-providers)
-- **Verdict**: BLOCKED
-- **Reason**: forward-merge of release-wt/2026-06-19-safe-parallelism into track/2026-06-19-safe-parallelism/T5-providers conflicted on cmd/sworn/run.go (code file) — the touchpoint matrix was wrong (track-mode invariant 4). Route to /replan-release 2026-06-19-safe-parallelism to re-group.
-- **State**: slice remains `implemented`; `verification.result: blocked`. No spec amendment (process invariant violation, not contract defect).
-- **Next step**: `/replan-release 2026-06-19-safe-parallelism`
+### 2026-06-24 — track `T18-cli-polish` merged to release-wt (commit 1df2910)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 2 verified slices merged: S60-init-ui-bearing-fix, S61-cli-output-styling. Track state -> merged. Fast-forward merge of `track/.../T18-cli-polish` into `release-wt/...`; standalone gofmt hygiene commit folded in (scoped to the 12 T18-changed Go files the S61 verifier flagged for cosmetic drift — no slice logic touched).
+
+### 2026-06-24 — slice `S61-cli-output-styling` → verified (re-entry PASS)
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs — re-entry round after prior FAIL)
+- **Verdict**: PASS — all six gates satisfied; all three prior violations genuinely resolved.
+  - Violation 1 (AC3, `sworn help` 0 escapes): `usage()` in `cmd/sworn/main.go` refactored to a styled `strings.Builder` (Heading/Bold/Accent) writing to `os.Stderr`; force-color escape count 0 → 32.
+  - Violation 2 (Gate 2, init.go never styled): `cmd/sworn/init.go` now imports `internal/style`; scan header, Changes/No-action headings, markers, padded labels (pad-then-style), created/updated/skipped tokens, prompts, Aborted, Done all styled. Force-color escapes 0 → 6; plain output byte-identical (sha256 `d5b8d0d4...`). The false "writes only to stderr" claim removed from proof.
+  - Violation 3 (Gate 4, no transcript): proof.md "Reachability artefact" now contains a real terminal transcript with the 6 smoke runs and escape counts matching live binary runs (version 2/0, help 32/0, top 2/0).
+- **AC evidence (verifier's own live binary runs)**: AC1 11 helpers + Enabled() semantics tested; AC2 help/init byte-identical to base under NO_COLOR; AC3 version 2/0, help 32/0, top 2/0; AC4 pad-then-style in init.go:124,136 + ears.go:341; AC5 go.mod unchanged; AC6 build+vet exit 0.
+- **Pre-existing failure excluded**: `TestCmdRun_Parallel` (117/118 cmd/sworn tests pass) — confirmed failing identically on release-wt base commit (exit 2, "implementer model not configured"), environmental, out of slice scope.
+- **Minor non-blocking observation**: `gofmt -l` flags 11 changed files (cosmetic — style.go trailing newline, bench.go `)+` spacing). Not a spec AC violation (AC6 = build+vet, both pass). proof.md "gofmt clean" claim accurate for 3 named files but not 11 others. A `gofmt -w .` fixes without logic change; does not block merge.
+- **State**: S61 → verified. T18-cli-polish track: S60 verified + S61 verified → track complete, ready for `/merge-track T18-cli-polish`.
+
+### 2026-06-24 — slice `S61-cli-output-styling` → failed_verification
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs)
+- **Verdict**: FAIL — 3 violations.
+  - AC3: `sworn help` emits 0 ANSI escapes with `SWORN_FORCE_COLOR=1` — `usage()`
+    (cmd/sworn/main.go:96-162) uses no `style.*` helpers; spec requires
+    `sworn version|help|top` to emit ANSI under force-color. `sworn version` (2)
+    and `sworn top <release>` (2) emit ANSI; `sworn help` emits 0.
+  - Gate 2: `cmd/sworn/init.go` is a planned touchpoint but NOT changed; init.go
+    has 26 user-facing `fmt.Print*` stdout calls with no `style` import. Proof
+    "Divergence from plan" falsely claims init.go "writes only to stderr."
+  - Gate 4: proof.md "Reachability artefact" has no terminal transcript showing
+    the `SWORN_FORCE_COLOR=1` / `NO_COLOR=1` smoke runs the spec Required tests
+    section explicitly demands.
+- **Passed**: Gate 1 (style imported by 9 cmd + 7 renderer files), Gate 3
+  (style_test.go green; pre-existing TestCmdRun_Parallel fails on base too —
+  environmental), Gate 5 (no deferral markers), Gate 6 (proof files match diff;
+  AC1/AC2/AC4/AC5/AC6 satisfied). Drift gate: forward-merged release-wt (S49
+  docs-only); spec acceptance checks identical HEAD vs release-wt.
+- **State**: S61 → failed_verification. Next: re-open `/implement-slice
+  S61-cli-output-styling 2026-06-19-safe-parallelism` in a fresh session to
+  address the 3 numbered violations.
+
+### 2026-07-08 — track `T7-mcp-extensions` merged to release-wt (commit 746fe17)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 1 verified slice merged: S20-mcp-catalog-tools. Track state -> merged.
+
 ### 2026-06-23 — replan: add S62-baton-upstream-source (T14) + clear S48 BLOCKED
-### 2026-06-23T12:58:25Z — verifier verdict — BLOCKED (S11-anthropic-driver)
-- **Slice**: S11-anthropic-driver (T5-providers)
-- **Verdict**: BLOCKED
-- **Reason**: forward-merge of release-wt/2026-06-19-safe-parallelism into track/2026-06-19-safe-parallelism/T5-providers conflicted on cmd/sworn/run.go (code file) — the touchpoint matrix was wrong (track-mode invariant 4). Route to /replan-release 2026-06-19-safe-parallelism to re-group.
-- **State**: slice remains `implemented`; `verification.result: blocked`. No spec amendment (process invariant violation, not contract defect).
-- **Next step**: `/replan-release 2026-06-19-safe-parallelism`
-### 2026-06-23 — replan: new track T18-cli-polish (S60 init fix + S61 CLI styling)
 - **Actor**: planner (human Brad + Claude)
 - **S48 unblocked**: the BLOCKED verdict was an operational dirty-tree verdict — a corrupt
   `sworn baton vendor` run stubbed the embed (rules.md 1112→29 lines, 3,596 deletions),
@@ -659,6 +688,15 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
   `T4-mcp` frontmatter line (`id:` + `slices:` on one line — the oracle was reading T4-mcp with
   an empty slice list) and the `## Recent activity` header glued onto the tracks note.
 
+### 2026-06-23 — S20-mcp-catalog-tools verifier FAIL (3 violations)
+
+- **Actor**: verifier (fresh context, artefact-only)
+- **Verdict**: FAIL — 3 violations across Gates 2, 3, and 6.
+  1. Gate 2: `cmd/sworn/mcp.go` changed but absent from spec Planned touchpoints and proof Divergence.
+  2. Gate 3: proof Test results paraphrased (`[... 34 more pre-existing tests ...]`) and shows wrong command vs AC.
+  3. Gate 3/6: AC2 `slice_count` at top level not returned (nested in `state_summary`); `TestPlanReleaseExisting` does not assert it.
+- **Next**: `/implement-slice S20-mcp-catalog-tools 2026-06-19-safe-parallelism` in a fresh session to address violations.
+
 ### 2026-07-07 — track `T3-commercial` merged to release-wt (commit 82fc388)
 
 - **Actor**: track integrator (/merge-track)
@@ -668,7 +706,18 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 
 - **Actor**: verifier (fresh context, artefact-only)
 - **Verdict**: All six gates passed. Gate 1: `sworn init` wired to cmdInit; `sworn mcp` serves baton/rules. Gate 2: 6/6 planned touchpoints present; init_design_system_test.go adaptation documented. Gate 3: 16/16 tests re-run and PASS (5 Baton + 11 Init). Gate 4: Manual smoke test — AGENTS.md created with `sworn://baton/rules`, no docs/baton/. Gate 5: Zero TODO/FIXME/placeholder in changed source files. Gate 6: All 14 Delivered items verified.
-- **Track**: T3-commercial is now complete — all 7 slices verified. Next: `/merge-track T3-commercial`, then `/merge-release 2026-06-19-safe-parallelism` once every track is merged.
+
+### 2026-06-23 — S20-mcp-catalog-tools verifier PASS (T7-mcp-extensions complete)
+
+- **Actor**: verifier (fresh context, artefact-only)
+- **Verdict**: PASS — all six gates passed.
+  - Gate 1: `tools/call` on MCP server wired in cmd/sworn/mcp.go + internal/mcp/server.go; 8 catalog tools registered; tests exercise integration point.
+  - Gate 2: Planned touchpoints match (with divergence note for cmd/sworn/mcp.go registration line).
+  - Gate 3: All 12 required catalog tests + full suite re-run and PASS; complete unparaphrased output.
+  - Gate 4: Reachability artefact (manual-smoke-step: sworn mcp → Claude Code → get_induction_status) documented.
+  - Gate 5: No TODO/FIXME/deferred/placeholder in changed source.
+  - Gate 6: All 8 tools delivered; deferral for semantic search documented.
+- **State**: S20 → verified. T7-mcp-extensions now complete (only slice S20). Track ready for /merge-track T7-mcp-extensions.- **Track**: T3-commercial is now complete — all 7 slices verified. Next: `/merge-track T3-commercial`, then `/merge-release 2026-06-19-safe-parallelism` once every track is merged.
 ### 2026-07-05 — S19-sworn-induction verifier PASS
 - **Actor**: verifier (fresh context, artefact-only)
 - **Verdict**: All six gates passed. Gate 1: `sworn induction` CLI functional end-to-end. Gate 2: 4/4 planned files + expected test extension. Gate 3: All 11 tests re-run and PASS. Gate 4: Smoke-executed + idempotent mode confirmed. Gate 5: Zero TODO/FIXME/placeholder. Gate 6: All 13 Delivered items verified.
@@ -1291,17 +1340,12 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
   deliverable; the implementer applies it to the local baton install and notes the
   path in `proof.md`.
 
-### 2026-07-08 — S10-provider-foundation verified
-
-- **Actor**: verifier (`/verify-slice`)
-- **Verdict**: PASS — all six verification gates passed. `go test ./internal/model/...` passes (40+ tests, 0 failures), `go build ./...` clean. Provider router dispatches 8 OAI-compat presets with correct base URLs; native drivers return `ErrDriverNotRegistered`. `.env` loader (CWD-first, set-only-if-unset). Typed `model.Error{Kind}` taxonomy with `ClassifyHTTP`, `IsTerminal`/`IsTransient`, `UserMessage()`. `oai.go` returns `*model.Error` on non-2xx. `cmd/sworn/run.go` wires `LoadDotEnv()` + `printModelError()`. CLAUDE.md updated to "minimal, justified deps (see ADR-0007)". ADR-0007 committed.
-- **State**: S10 → verified. T5-providers now has S10 verified; next slice: S11-anthropic-driver (planned).
-
 ### 2026-07-03 — S09-per-role-model-config verified
 
 - **Actor**: verifier (`/verify-slice`)
 - **Verdict**: PASS — all six verification gates passed. `Config` JSON round-trips, all three resolvers (ImplementerModel, EscalationModels, MaxAttempts) correct precedence, `sworn init --yes` writes all four required keys, 27/27 tests pass, `go build ./...` clean, no silent deferrals.
 - **State**: S09 → verified. T3-commercial now has S06a, S06b verified, S07 implemented, S09 verified.
+
 ### 2026-06-28 — S22-sworn-doctor verified
 - **Actor**: verifier (`/verify-slice`)
 - **Verdict**: PASS — all six verification gates passed. `sworn doctor` runs cleanly with all expected OK/WARN output, exit 0. 12/12 tests pass, `go build ./...` clean.
@@ -1363,3 +1407,24 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - **Deferred (Rule 2, in specs)**: routing non-implementer roles from history; proxy/billed-cost
   reconciliation against S06b credits; planner-cost capture (planner is not an in-binary dispatch).
 - **State**: S55/S56 → planned. T16 is now 5 slices: S52 → S53 → S54 → S55 → S56.
+
+### 2026-07-08 — S60-init-ui-bearing-fix failed_verification
+
+- **Actor**: verifier (`/verify-slice`, fresh context, no implementer transcript)
+- **Verdict**: FAIL — 3 violations (Gates 2, 4, 6). See slice journal for details.
+  - Gate 2: planned touchpoints list test file not changed by this slice.
+  - Gate 4: reachability transcript in proof.md does not match code (message emitted under --yes but code gates on !*yes).
+  - Gate 6: Delivered claims do not match the artefact for the stated ACs.
+- **State**: S60 → failed_verification. T18-cli-polish remains in_progress. Implementer must address in fresh /implement-slice session.
+
+### 2026-06-23 — S60-init-ui-bearing-fix verified
+
+- **Actor**: verifier (`/verify-slice`, fresh context)
+- **Verdict**: PASS — all six gates satisfied.
+  - Gate 1: `sworn init` entry point wired to user-reachable code.
+  - Gate 2: Planned touchpoints match (test pre-existed; S60 adds Interactive_NoUIPrompt).
+  - Gate 3: Required tests (TestCmdInit_*) exercise cmdInit integration point; re-ran PASS.
+  - Gate 4: Reachability artefact (test transcript + manual-smoke) proves no design-system prompt for non-UI-bearing.
+  - Gate 5: No silent deferrals or dark code in changed files.
+  - Gate 6: All ACs evidenced in proof.md.
+- **State**: S60 → verified. Next slice in T18: S61-cli-output-styling.

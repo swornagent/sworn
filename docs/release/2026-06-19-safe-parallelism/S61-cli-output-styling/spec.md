@@ -54,7 +54,6 @@ Every `sworn` subcommand's stdout/stderr rendering: the command files in `cmd/sw
 - **Unit**: `internal/style/style_test.go` — palette helpers, `NO_COLOR` / `SWORN_FORCE_COLOR` / non-TTY gating, and that disabled mode returns the input unchanged.
 - **Integration**: the existing `cmd/sworn/...` and `internal/{rtm,ears,specquality,designfit,designaudit,reqverify,reqvalidate}` test suites exercise the styled renderers through their command/Print entry points and must stay green with colour disabled (Rule 1).
 - **Reachability artefact**: terminal transcript in `proof.md` showing `SWORN_FORCE_COLOR=1 sworn version|help|top` rendering ANSI, and the matching `NO_COLOR=1` runs showing zero escapes.
-- **E2E gate type**: N/A (CLI; no Playwright).
 
 ## Risks
 

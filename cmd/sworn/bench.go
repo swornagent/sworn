@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/swornagent/sworn/internal/bench"
+	"github.com/swornagent/sworn/internal/style"
 )
 
 // cmdBench implements `sworn bench` and `sworn bench overclaim`.
@@ -130,7 +131,7 @@ func cmdBench(args []string) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sworn bench: select default: %v\n", err)
 	} else {
-		fmt.Printf("\nSafe-hosted default model: %s\n\n", def)
+		fmt.Println(style.Success(fmt.Sprintf("\nSafe-hosted default model: %s", def)) + "\n")
 	}
 
 	fmt.Printf("Benchmark completed in %s (%d cells).\n", elapsed.Round(time.Millisecond), len(cells))

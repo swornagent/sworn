@@ -9,6 +9,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/command"
+	"github.com/swornagent/sworn/internal/style"
 )
 
 func init() {
@@ -47,12 +48,12 @@ func cmdAccount(args []string) int {
 	}
 
 	if creds == nil || !account.IsLoggedIn(creds) {
-		fmt.Println("Not logged in — run `sworn login`")
+		fmt.Println(style.Dim("Not logged in — run `sworn login`"))
 		return 0
 	}
 
-	fmt.Printf("Email: %s\n", creds.Email)
-	fmt.Printf("Tier: %s\n", creds.Tier)
+	fmt.Printf("Email: %s\n", style.Accent(creds.Email))
+	fmt.Printf("Tier: %s\n", style.Accent(creds.Tier))
 
 	// Display credit balance from cache (Coach ack pin A — integer credits).
 	credits, ok := account.LoadCachedCredits()
@@ -136,7 +137,7 @@ func cmdAccountNotifications(args []string) int {
 	}
 
 	if creds == nil {
-		fmt.Println("Not logged in — run `sworn login`")
+		fmt.Println(style.Dim("Not logged in — run `sworn login`"))
 		fmt.Println("No webhook configured — run `sworn account set-webhook <url>`")
 		return 0
 	}
