@@ -44,10 +44,11 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
-  }
-}
+    "result": "blocked",
+    "verifier_session_id": "fresh-verifier-2026-06-23",
+    "verifier_verdict_at": "2026-06-23T21:24:15Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "BLOCKED: slice state is 'failed_verification' (set by planner to route v0.4.0 pin bump), not 'implemented'. Worktree HEAD authoritative. Implementer must complete the bump and set state to 'implemented' before re-verification. Proposed: after bump, implementer runs state transition to implemented; planner clears verification.result."
+    ]
+  }}

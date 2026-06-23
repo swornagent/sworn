@@ -477,8 +477,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S47-orchestrator-recovery` | T13 | on non-PASS, intra-run triage chooses resolve-in-place / escalate / halt, then commits state and delegates lifecycle routing (BLOCKED→replan, fail→redesign/implement) to the S58 router (re-scoped 2026-06-23) | planned | [spec](./S47-orchestrator-recovery/spec.md) |
 | `S39-openai-responses-provider` | T5 | first-class OpenAI provider via /v1/responses (reasoning_effort + tool-calls + built-in web_search) + a cross-provider WebSearch/WebFetch agent tool — fixes gpt-5.x support + 'more than 6 tools' | planned | [spec](./S39-openai-responses-provider/spec.md) |
 | `S48-baton-vendor` | T14 | `sworn baton vendor` — semver-pinned vendor of upstream Baton + bash→sworn transform over rules AND role-prompts (strips `release-verify.sh`/`release-board-status.sh`/`captain-memory-search.py`… → sworn-native commands); reproduces the sworn-native embed (subsumes the one-time scrub) | failed_verification | [spec](./S48-baton-vendor/spec.md) |
-| `S49-baton-version` | T14 | reconcile the Baton pin from a raw SHA to a **semver tag** across `VERSION`+`VERSION.txt`; `sworn version` reports "on Baton vX.Y.Z"; `sworn doctor` fails the pin if it's a SHA not a tag | planned | [spec](./S49-baton-version/spec.md) |
-| `S50-baton-governance` | T14 | `sworn baton diff` divergence check (embed vs upstream pin) + `docs/baton-governance.md` PR-up process note + ADR-0006; protocol changes found in sworn dev must PR upstream, never silently fork | planned | [spec](./S50-baton-governance/spec.md) |
+| `S49-baton-version` | T14 | reconcile the Baton pin from a raw SHA to a **semver tag** across `VERSION`+`VERSION.txt`; `sworn version` reports "on Baton vX.Y.Z"; `sworn doctor` fails the pin if it's a SHA not a tag | failed_verification | [spec](./S49-baton-version/spec.md) || `S50-baton-governance` | T14 | `sworn baton diff` divergence check (embed vs upstream pin) + `docs/baton-governance.md` PR-up process note + ADR-0006; protocol changes found in sworn dev must PR upstream, never silently fork | planned | [spec](./S50-baton-governance/spec.md) |
 | `S62-baton-upstream-source` | T14 | `sworn baton vendor --upstream` fetches the version-locked Baton release from `github.com/sawy3r/baton` over stdlib HTTPS (codeload tar.gz), verified by tag + commit-SHA/digest, fail-closed — embed source-of-truth is the public repo at a pinned version, not a local install (issue #11) | planned | [spec](./S62-baton-upstream-source/spec.md) |
 | `S51-cli-command-registry` | T15 | command registry replaces the `cmd/sworn/main.go` dispatch switch; new subcommands self-register from their own file; `main.go` owned by one track — ends the recurring touchpoint collision | verified | [spec](./S51-cli-command-registry/spec.md) |
 | `S52-ledger-projection` | T16 | Projects every slice's verdict into an append-only `docs/ledger/verdicts.jsonl`; captures implementer model + attempt; backfills the whole board on first sync | planned | [spec](./S52-ledger-projection/spec.md) |
@@ -523,8 +522,16 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 
 ## Recent activity
 
-### 2026-06-24 — track `T18-cli-polish` merged to release-wt (commit 1df2910)
+### 2026-06-23 — slice `S49-baton-version` → blocked (verifier)
 
+- **Actor**: verifier (`/verify-slice`, fresh context, no implementer transcript)
+- **Verdict**: BLOCKED — slice is in state 'failed_verification', expected 'implemented'.
+  - Worktree HEAD status.json (authoritative) reports "failed_verification" (planner set to route v0.4.0 pin bump to implementer after Baton v0.4.0 published).
+  - Board oracle showed "implemented" but worktree HEAD is the source of truth for implementer commits.
+  - Implementer must complete the VERSION bump to v0.4.0, update vendored/rules-added, set state to 'implemented', then re-verify.
+- **State**: S49 → failed_verification (unchanged). T14-baton-integration remains in_progress.
+
+### 2026-06-24 — track `T18-cli-polish` merged to release-wt (commit 1df2910)
 - **Actor**: track integrator (/merge-track)
 - **Note**: 2 verified slices merged: S60-init-ui-bearing-fix, S61-cli-output-styling. Track state -> merged. Fast-forward merge of `track/.../T18-cli-polish` into `release-wt/...`; standalone gofmt hygiene commit folded in (scoped to the 12 T18-changed Go files the S61 verifier flagged for cosmetic drift — no slice logic touched).
 

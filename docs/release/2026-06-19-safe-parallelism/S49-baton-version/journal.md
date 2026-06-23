@@ -102,3 +102,7 @@ so it no longer satisfies the spec. State set to `failed_verification` to route 
 **implementer**: bump `internal/adopt/baton/VERSION` to `baton-protocol: v0.4.0`, update the
 `vendored:` date + `rules-added:` (add 11-process-global-mutation), then verify
 (`sworn version` → `baton-protocol on Baton v0.4.0`). `start_commit` preserved.
+
+## Verifier verdicts received
+
+BLOCKED: slice is in state 'failed_verification', expected 'implemented'.
