@@ -3,10 +3,12 @@
   "slice_id": "S11-anthropic-driver",
   "release": "2026-06-19-safe-parallelism",
   "track": "T5-providers",
-  "state": "in_progress",  "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-20T00:00:00Z",
-  "start_commit": "79ec6bd74e4bf220fcf9c1c96d8336d1484a3b6f",  "spec_path": "docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/spec.md",
+  "state": "implemented",
+  "owner": "human",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-07T00:00:00Z",
+  "start_commit": "79ec6bd74e4bf220fcf9c1c96d8336d1484a3b6f",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S11-anthropic-driver/journal.md",
   "planned_files": [
@@ -16,16 +18,27 @@
     "go.mod",
     "go.sum"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/model/anthropic.go",
+    "internal/model/anthropic_test.go",
+    "internal/model/provider.go",
+    "internal/model/provider_test.go",
+    "go.mod",
+    "go.sum"
+  ],
   "test_commands": [
     "go test ./internal/model/... -run Anthropic",
     "go test ./internal/model/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "go test ./internal/model/... -run Anthropic (4/4 pass, httptest-based)",
+    "TestAnthropicNewClient_RoutedCorrectly (type assertion *Anthropic)"
+  ],
   "open_deferrals": [],
   "verification": {
-    "result": "",    "verifier_session_id": null,
+    "result": "",
+    "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
     "violations": []
