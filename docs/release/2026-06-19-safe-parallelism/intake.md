@@ -399,11 +399,10 @@ Three flows, all MCP-mediated:
 The user runs their planning session in whichever AI tool they prefer, using whatever
 skills they have available (deep-research, brainstorm, domain-specific tools). The AI
 calls sworn MCP planning tools to write artefacts into the repo:
-  `sworn.create_release()` → creates intake.md + release folder
+  `sworn.plan_release()` → creates intake.md + release folder (or reads existing)
   `sworn.create_slice()` → writes spec.md + status.json
   `sworn.set_track()` → updates index.md tracks + touchpoint matrix
-  `sworn.update_intake()` → appends decisions to intake.md
-The sworn MCP server exposes the planner/implementer/verifier role prompts as resources
+  `sworn.update_intake()` → appends decisions to intake.mdThe sworn MCP server exposes the planner/implementer/verifier role prompts as resources
 (`sworn://prompts/plan` etc.) so any AI can pull and apply them.
 
 **2. Autonomous execution** (sworn runs without AI involvement)
@@ -544,8 +543,7 @@ shared state surface they all lack.
   Operations tools: `get_board`, `get_blocked`, `get_slice_context` (assembles spec +
   violations TL;DR + diff + journal), `rerun_slice`, `patch_slice`, `approve_merge`,
   `defer_slice`, `get_credits`;
-  Planning tools: `create_release`, `create_slice`, `set_track`, `update_intake`;
-  Resources: `sworn://prompts/{plan,implement,verify}`, `sworn://release/{name}/{board,
+  Planning tools: `plan_release`, `create_slice`, `set_track`, `update_intake`;  Resources: `sworn://prompts/{plan,implement,verify}`, `sworn://release/{name}/{board,
   intake}`, `sworn://release/{name}/{slice}/{spec,proof,diff}`;
   TUI "open in AI" action: writes context file + opens configured AI tool at worktree
   with MCP server pre-connected. ~12 files.

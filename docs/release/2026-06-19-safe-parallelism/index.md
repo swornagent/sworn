@@ -45,8 +45,7 @@ tracks:
     depends_on: [T3-commercial, T4-mcp]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T7-mcp-extensions
     worktree_branch: track/2026-06-19-safe-parallelism/T7-mcp-extensions
-    state: in_progress
-  - id: T8-memory
+    state: merged  - id: T8-memory
     slices: [S23-memory-config, S24-memory-engine, S25-memory-search, S40-memory-test-hygiene]
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T8-memory
@@ -82,7 +81,7 @@ tracks:
     worktree_branch: track/2026-06-19-safe-parallelism/T13-sworn-role-parity
     state: planned
   - id: T14-baton-integration
-    slices: [S48-baton-vendor, S49-baton-version, S50-baton-governance]
+    slices: [S48-baton-vendor, S49-baton-version, S50-baton-governance, S62-baton-upstream-source]
     depends_on: [T3-commercial, T15-cli-registry]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T14-baton-integration
     worktree_branch: track/2026-06-19-safe-parallelism/T14-baton-integration
@@ -146,13 +145,12 @@ tracks:
 | `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 + T15 | `track/.../T3-commercial` | merged || `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | merged |
 | `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 → S39 | T1 + T3 | `track/.../T5-providers` | planned |
 | `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
-| `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | planned |
-| `T8-memory` | S23 → S24 → S25 → S40 | T1 | `track/.../T8-memory` | merged |
+| `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | merged || `T8-memory` | S23 → S24 → S25 → S40 | T1 | `track/.../T8-memory` | merged |
 | `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
 | `T10-public-readiness` | S27 | all tracks (incl. T16) | `track/.../T10-public-readiness` | planned |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
 | `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | merged || `T13-sworn-role-parity` | S45 → S46 → S47 | T12 + T17 | `track/.../T13-sworn-role-parity` | planned |
-| `T14-baton-integration` | S48 → S49 → S50 | T3 + T15 | `track/.../T14-baton-integration` | planned |
+| `T14-baton-integration` | S48 → S49 → S50 → S62 | T3 + T15 | `track/.../T14-baton-integration` | in_progress |
 | `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged |
 | `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | planned |
 | `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | planned |
@@ -197,7 +195,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > tool-specific (`internal/designfit/`, `cmd/sworn/lint.go`) plus prompt files
 > (`captain.md`/`planner.md`/`verifier.md`) shared only with T10 — which depends on T12,
 > so those writes are sequential, not parallel.
-> `T14-baton-integration` (S48–S50) is likewise omitted from the columns: it `depends_on T3`
+> `T14-baton-integration` (S48–S50, **S62**) is likewise omitted from the columns: it `depends_on T3`
 > (it vendors+transforms into the embed S21 creates) so it starts only after T3 merges, in
 > Phase 3 parallel with T5/T7 — and it collides with neither. Its files are either **new
 > namespaces** (`internal/baton/*`, `cmd/sworn/baton.go`, `docs/adr/0006-baton-protocol-sync.md`,
@@ -207,6 +205,10 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > S22/T4, already merged — S49 adds a Baton-pin check) plus the documented-shared additive
 > `cmd/sworn/main.go`. T5 touches only `internal/model/**`+`go.mod`+`cmd/sworn/run.go`; T7
 > only `internal/mcp/**`+`internal/config/**` — disjoint from T14. No parallel collision.
+> **S62-baton-upstream-source** stays inside those same T14 namespaces: new `internal/baton/fetch.go`
+> + extends `internal/baton/source.go` + `cmd/sworn/baton.go` (all T14-owned), plus
+> `internal/adopt/baton/VERSION` (S49-owned, sequential via dep). No new collision; `depends_on
+> S48 + S49`. Implementation gated on the upstream Baton repo being synced + tagged (the lock target).
 > `T18-cli-polish` (S60–S61) is omitted from the columns: it is presentation-only and
 > serialised against everything it shares a file with. S60 touches only `cmd/sworn/init.go`
 > (owned by S08/T3, merged — sequential). S61 adds the new `internal/style/` namespace and
@@ -440,8 +442,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S15-oci-driver` | T5 | OCI Generative AI models work via oci-go-sdk | planned | [spec](./S15-oci-driver/spec.md) |
 | `S16-ollama-driver` | T5 | Ollama native /api/chat endpoint; replaces OAI-compat shim | planned | [spec](./S16-ollama-driver/spec.md) |
 | `S17-tui-provider-config` | T6 | TUI settings panel: provider API keys, model per role, escalation list, max attempts; persists to config.json + ~/.sworn/.env | planned | [spec](./S17-tui-provider-config/spec.md) |
-| `S18-consideration-catalog` | T3 | Typed consideration catalog + decision registry; planner Phase 2b (DRY gate, design consultation, arch conformance, capture); sworn init scaffolds both templates | verified | [spec](./S18-consideration-catalog/spec.md) || `S19-sworn-induction` | T3 | `sworn induction` one-time repo onboarding (design system + architecture discovery); implementer + verifier prompts gain deviation-surfacing steps | verified | [spec](./S19-sworn-induction/spec.md) || `S20-mcp-catalog-tools` | T7 | 8 MCP tools: plan_release (unified), get_induction_status, get_considerations, search_decisions, record_decision, check_design_system, update_design_system, record_architecture_pattern | planned | [spec](./S20-mcp-catalog-tools/spec.md) |
-| `S21-canonical-baton` | T3 | Baton protocol embedded in binary (internal/prompt/baton/); sworn init writes minimal MCP-pointer AGENTS.md instead of per-repo Baton copy; ADR-0008 | verified | [spec](./S21-canonical-baton/spec.md) || `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | verified | [spec](./S22-sworn-doctor/spec.md) |
+| `S18-consideration-catalog` | T3 | Typed consideration catalog + decision registry; planner Phase 2b (DRY gate, design consultation, arch conformance, capture); sworn init scaffolds both templates | verified | [spec](./S18-consideration-catalog/spec.md) || `S19-sworn-induction` | T3 | `sworn induction` one-time repo onboarding (design system + architecture discovery); implementer + verifier prompts gain deviation-surfacing steps | verified | [spec](./S19-sworn-induction/spec.md) || `S20-mcp-catalog-tools` | T7 | 8 MCP tools: plan_release (unified), get_induction_status, get_considerations, search_decisions, record_decision, check_design_system, update_design_system, record_architecture_pattern | verified | [spec](./S20-mcp-catalog-tools/spec.md) || `S21-canonical-baton` | T3 | Baton protocol embedded in binary (internal/prompt/baton/); sworn init writes minimal MCP-pointer AGENTS.md instead of per-repo Baton copy; ADR-0008 | verified | [spec](./S21-canonical-baton/spec.md) || `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | verified | [spec](./S22-sworn-doctor/spec.md) |
 | `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | verified | [spec](./S23-memory-config/spec.md) |
 | `S24-memory-engine` | T8 | `sworn memory build` embeds all memory entries via voyage/oai-compat/ollama; incremental SQLite index | verified | [spec](./S24-memory-engine/spec.md) |
 | `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | verified | [spec](./S25-memory-search/spec.md) |
@@ -470,6 +471,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S48-baton-vendor` | T14 | `sworn baton vendor` — semver-pinned vendor of upstream Baton + bash→sworn transform over rules AND role-prompts (strips `release-verify.sh`/`release-board-status.sh`/`captain-memory-search.py`… → sworn-native commands); reproduces the sworn-native embed (subsumes the one-time scrub) | failed_verification | [spec](./S48-baton-vendor/spec.md) |
 | `S49-baton-version` | T14 | reconcile the Baton pin from a raw SHA to a **semver tag** across `VERSION`+`VERSION.txt`; `sworn version` reports "on Baton vX.Y.Z"; `sworn doctor` fails the pin if it's a SHA not a tag | planned | [spec](./S49-baton-version/spec.md) |
 | `S50-baton-governance` | T14 | `sworn baton diff` divergence check (embed vs upstream pin) + `docs/baton-governance.md` PR-up process note + ADR-0006; protocol changes found in sworn dev must PR upstream, never silently fork | planned | [spec](./S50-baton-governance/spec.md) |
+| `S62-baton-upstream-source` | T14 | `sworn baton vendor --upstream` fetches the version-locked Baton release from `github.com/sawy3r/baton` over stdlib HTTPS (codeload tar.gz), verified by tag + commit-SHA/digest, fail-closed — embed source-of-truth is the public repo at a pinned version, not a local install (issue #11) | planned | [spec](./S62-baton-upstream-source/spec.md) |
 | `S51-cli-command-registry` | T15 | command registry replaces the `cmd/sworn/main.go` dispatch switch; new subcommands self-register from their own file; `main.go` owned by one track — ends the recurring touchpoint collision | verified | [spec](./S51-cli-command-registry/spec.md) |
 | `S52-ledger-projection` | T16 | Projects every slice's verdict into an append-only `docs/ledger/verdicts.jsonl`; captures implementer model + attempt; backfills the whole board on first sync | planned | [spec](./S52-ledger-projection/spec.md) |
 | `S53-ledger-cli` | T16 | `sworn ledger sync` harvests the board; `sworn ledger report` shows pass-rate by model × slice-kind, attempts-to-pass, gate-failure histogram | planned | [spec](./S53-ledger-cli/spec.md) |
@@ -486,9 +488,13 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 
 > **STALE — the board oracle (`release-board-status.sh --json`) is authoritative; run it for live
 > counts.** This hand-maintained block predates the T16-verdict-ledger, T17-orchestration-core, and
-> T18-cli-polish additions (now **18 tracks, 67 slices**) and is not reconciled per-replan. Counts
-> below are a historical snapshot only. Live oracle at 2026-06-23: verified 40 / planned 24 /
-> in_progress 2 / implemented 1; tracks merged 8 / in_progress 4 / planned 6.
+> T18-cli-polish additions (now **18 tracks, 68 slices**) and is not reconciled per-replan. Counts
+> below are a historical snapshot only. The board is actively moving under the coach loop — run the
+> oracle. Live oracle at 2026-06-23 (pre-S62-commit): verified 42 / planned 22 / in_progress 1 /
+> implemented 2; tracks merged 8 / in_progress 4 / planned 5. +S62-baton-upstream-source (planned,
+> T14) → 68 slices / planned 23. S48-baton-vendor unblocked to implemented after the corrupt-vendor
+> revert; T12-harness-hardening merged to release-wt (dd3b622) though the oracle read may lag; T18
+> worktree materialised (in_progress).
 >
 > Reconciled from the board oracle (`release-board-status.sh --json`, authoritative) this
 > replan, 2026-07-03. **57 slices across 15 tracks.** Slice-table State column above
@@ -502,12 +508,35 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 - Implemented: 0
 - Design review: 1
 - Verified: 28
-- Failed verification: 0
+- Failed verification: 1
 - Deferred: 0
 
-**Tracks:** Planned: 9 / In progress: 1 / Merged: 8
-> Merged (9): T1, T2, T3, T4, T8, T9, T11, T12, T15. In progress (3): T5, T7, T14. Planned (6): T6, T10, T13, T16, T17, T18.
-## Recent activity
+**Tracks:** Planned: 5 / In progress: 3 / Merged: 9  *(oracle read 2026-06-23; T18 now in_progress, T12 merge recorded — board moving under coach loop)*
+> Merged (9): T1, T2, T3, T4, T7, T8, T9, T11, T15. In progress (3): T5, T14, T18. Planned (5 per oracle): T6, T10, T12, T16, T17.## Recent activity
+
+### 2026-07-08 — track `T7-mcp-extensions` merged to release-wt (commit 746fe17)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 1 verified slice merged: S20-mcp-catalog-tools. Track state -> merged.
+
+### 2026-06-23 — replan: add S62-baton-upstream-source (T14) + clear S48 BLOCKED
+- **Actor**: planner (human Brad + Claude)
+- **S48 unblocked**: the BLOCKED verdict was an operational dirty-tree verdict — a corrupt
+  `sworn baton vendor` run stubbed the embed (rules.md 1112→29 lines, 3,596 deletions),
+  auto-checkpointed onto T14's tip as `a29a33b`. Reverted via `reset --hard 924c07a`
+  (local-only commit, lossless), restoring the legitimate vendor output; cleared
+  `verification.result` blocked→pending so S48 re-enters verification (state stays
+  implemented). Root cause (the transform stubbing) remains for the implementer.
+- **New slice S62-baton-upstream-source** appended to **T14** (S48 → S49 → S50 → S62),
+  `depends_on S48 + S49`. Makes `sworn baton vendor --upstream` fetch the version-locked
+  Baton release from `github.com/sawy3r/baton` over **stdlib HTTPS tarball** (no git, no
+  dep, no ADR), verified by **tag + commit-SHA/digest, fail-closed**. The release-facing
+  "embed source-of-truth = public repo at a pinned, tested version, never a local install."
+  Tracking: issue #11. Stays inside T14's namespaces (`internal/baton/*`, `cmd/sworn/baton.go`);
+  no new touchpoint collision. **Implementation gated** on the Baton repo being synced to
+  canonical truth and **tagged** (the lock target).
+- Per-project test-config gap (canonical role-prompts stay project-agnostic; sworn binds
+  test commands per project at `sworn init`) captured for the next release as issue #13.
 
 ### 2026-07-07 — track `T12-harness-hardening` merged to release-wt (commit dd3b622)
 
@@ -610,6 +639,15 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
   `T4-mcp` frontmatter line (`id:` + `slices:` on one line — the oracle was reading T4-mcp with
   an empty slice list) and the `## Recent activity` header glued onto the tracks note.
 
+### 2026-06-23 — S20-mcp-catalog-tools verifier FAIL (3 violations)
+
+- **Actor**: verifier (fresh context, artefact-only)
+- **Verdict**: FAIL — 3 violations across Gates 2, 3, and 6.
+  1. Gate 2: `cmd/sworn/mcp.go` changed but absent from spec Planned touchpoints and proof Divergence.
+  2. Gate 3: proof Test results paraphrased (`[... 34 more pre-existing tests ...]`) and shows wrong command vs AC.
+  3. Gate 3/6: AC2 `slice_count` at top level not returned (nested in `state_summary`); `TestPlanReleaseExisting` does not assert it.
+- **Next**: `/implement-slice S20-mcp-catalog-tools 2026-06-19-safe-parallelism` in a fresh session to address violations.
+
 ### 2026-07-07 — track `T3-commercial` merged to release-wt (commit 82fc388)
 
 - **Actor**: track integrator (/merge-track)
@@ -619,7 +657,18 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 
 - **Actor**: verifier (fresh context, artefact-only)
 - **Verdict**: All six gates passed. Gate 1: `sworn init` wired to cmdInit; `sworn mcp` serves baton/rules. Gate 2: 6/6 planned touchpoints present; init_design_system_test.go adaptation documented. Gate 3: 16/16 tests re-run and PASS (5 Baton + 11 Init). Gate 4: Manual smoke test — AGENTS.md created with `sworn://baton/rules`, no docs/baton/. Gate 5: Zero TODO/FIXME/placeholder in changed source files. Gate 6: All 14 Delivered items verified.
-- **Track**: T3-commercial is now complete — all 7 slices verified. Next: `/merge-track T3-commercial`, then `/merge-release 2026-06-19-safe-parallelism` once every track is merged.
+
+### 2026-06-23 — S20-mcp-catalog-tools verifier PASS (T7-mcp-extensions complete)
+
+- **Actor**: verifier (fresh context, artefact-only)
+- **Verdict**: PASS — all six gates passed.
+  - Gate 1: `tools/call` on MCP server wired in cmd/sworn/mcp.go + internal/mcp/server.go; 8 catalog tools registered; tests exercise integration point.
+  - Gate 2: Planned touchpoints match (with divergence note for cmd/sworn/mcp.go registration line).
+  - Gate 3: All 12 required catalog tests + full suite re-run and PASS; complete unparaphrased output.
+  - Gate 4: Reachability artefact (manual-smoke-step: sworn mcp → Claude Code → get_induction_status) documented.
+  - Gate 5: No TODO/FIXME/deferred/placeholder in changed source.
+  - Gate 6: All 8 tools delivered; deferral for semantic search documented.
+- **State**: S20 → verified. T7-mcp-extensions now complete (only slice S20). Track ready for /merge-track T7-mcp-extensions.- **Track**: T3-commercial is now complete — all 7 slices verified. Next: `/merge-track T3-commercial`, then `/merge-release 2026-06-19-safe-parallelism` once every track is merged.
 ### 2026-07-05 — S19-sworn-induction verifier PASS
 - **Actor**: verifier (fresh context, artefact-only)
 - **Verdict**: All six gates passed. Gate 1: `sworn induction` CLI functional end-to-end. Gate 2: 4/4 planned files + expected test extension. Gate 3: All 11 tests re-run and PASS. Gate 4: Smoke-executed + idempotent mode confirmed. Gate 5: Zero TODO/FIXME/placeholder. Gate 6: All 13 Delivered items verified.

@@ -33,6 +33,7 @@ All diagnostic logs go to stderr; stdout is reserved for the protocol.
 	// Planning tools (S08c) register here in a later slice.
 	mcp.RegisterOpsTools(server, ".")
 	mcp.RegisterPlanTools(server, ".")
+	mcp.RegisterCatalogTools(server, ".")
 	mcp.RegisterResources(server, ".")
 	mcp.RegisterPrompts(server)
 	ctx, cancel := context.WithCancel(context.Background())
