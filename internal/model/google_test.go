@@ -203,6 +203,82 @@ func TestNewClient_VertexRouted(t *testing.T) {
 		t.Fatalf("expected *Google, got %T", v)
 	}
 }
+
+// TestFromEnv_GoogleWithCanonicalKey is the spec-mandated regression test for
+// the user outcome: `sworn run` → model.FromEnv("google/gemini-2.0-flash") with
+// only GOOGLE_API_KEY set (no SWORN_GOOGLE_API_KEY alias) must return a *Google.
+// This is the exact path the S12 verifier found broken (Gate 1): a mangled
+// switch had `case "google":` trapped after a // comment, so GOOGLE_API_KEY
+// alone fell through to the default and failed with "SWORN_GOOGLE_API_KEY not
+// set". SWORN_DIRECT=1 forces the direct-provider branch (bypassing proxy
+// credential lookup) and an isolated XDG_CONFIG_HOME prevents real creds from
+// interfering.
+func TestFromEnv_GoogleWithCanonicalKey(t *testing.T) {
+	for _, k := range []string{
+		"GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY", "SWORN_DIRECT",
+		"SWORN_GOOGLE_MODEL", "SWORN_GOOGLE_BASE_URL",
+	} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("SWORN_DIRECT", "1")
+	t.Setenv("GOOGLE_API_KEY", "test-canonical-key")
+
+	v, err := FromEnv("google/gemini-2.0-flash")
+	if err != nil {
+		t.Fatalf("FromEnv returned error: %v", err)
+	}
+	g, ok := v.(*Google)
+	if !ok {
+		t.Fatalf("expected *Google, got %T", v)
+	}
+	if g.Model != "gemini-2.0-flash" {
+		t.Errorf("Model = %q, want gemini-2.0-flash", g.Model)
+	}
+}
+
+// TestFromEnv_GoogleWithAliasKey confirms the SWORN_GOOGLE_API_KEY alias still
+// works as a fallback when the canonical GOOGLE_API_KEY is unset — backward
+// compat per the spec's "canonical or alias" requirement.
+func TestFromEnv_GoogleWithAliasKey(t *testing.T) {
+	for _, k := range []string{
+		"GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY", "SWORN_DIRECT",
+		"SWORN_GOOGLE_MODEL", "SWORN_GOOGLE_BASE_URL",
+	} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("SWORN_DIRECT", "1")
+	t.Setenv("SWORN_GOOGLE_API_KEY", "test-alias-key")
+
+	v, err := FromEnv("google/gemini-2.0-flash")
+	if err != nil {
+		t.Fatalf("FromEnv returned error: %v", err)
+	}
+	if _, ok := v.(*Google); !ok {
+		t.Fatalf("expected *Google, got %T", v)
+	}
+}
+
+// TestFromEnv_GoogleMissingKey confirms the key gate still fails closed when
+// neither GOOGLE_API_KEY nor SWORN_GOOGLE_API_KEY is set — the fail-closed
+// invariant (AGENTS.md non-negotiables) must hold for the google prefix.
+func TestFromEnv_GoogleMissingKey(t *testing.T) {
+	for _, k := range []string{
+		"GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY", "SWORN_DIRECT",
+		"SWORN_GOOGLE_MODEL", "SWORN_GOOGLE_BASE_URL",
+	} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("SWORN_DIRECT", "1")
+
+	_, err := FromEnv("google/gemini-2.0-flash")
+	if err == nil {
+		t.Fatal("want error for missing Google key, got nil")
+	}
+}
+
 func TestNewGoogleGemini_MissingKey(t *testing.T) {
 	_, err := NewGoogleGemini("gemini-2.0-flash", "")
 	if err == nil {

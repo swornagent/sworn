@@ -81,3 +81,69 @@ None yet.
 **Next step for human:** Re-open `/implement-slice S12-google-driver 2026-06-19-safe-parallelism` in a fresh terminal to address the numbered violations. Do not re-verify until fixed.
 
 **Verifier was fresh context:** yes (no implementer transcript loaded).
+
+### 2026-06-24 — fix session (address verifier FAIL)
+
+**Entry state:** `failed_verification` (verifier returned FAIL with 3 violations:
+Gate 1 broken user path, Gate 2 touchpoint mismatch, Gate 6 scope claim vs
+reality).
+
+**Root cause:** The `FromEnv` key-check switch in `internal/model/config.go` had
+a mangled line — `case "google":` was appended to the same line as a `//`
+comment on the vertex case (`key = "adc" // ... required\tcase "google":`), so
+the entire `case "google":` clause was swallowed into the comment and google
+fell through to the default branch. `GOOGLE_API_KEY` alone therefore failed with
+"SWORN_GOOGLE_API_KEY not set", breaking the documented `sworn run` user
+outcome. Two further mangled lines existed in the same region
+(`provider.go:43` CloudflareKey appended to GoogleCloudLocation line;
+`provider.go:159` bedrock body appended to the case line; `config.go:136`
+CloudflareKey appended to GoogleCloudLocation line) — all the same class of
+comment/run-together mangling. `google.go:81` had a `}`-then-comment run-together
+and `google_test.go:206` was missing a blank line between funcs.
+
+**Fixes applied:**
+
+1. **`internal/model/config.go`** — rewrote the `FromEnv` switch so `case "vertex"`
+   and `case "google":` are real executable cases on their own lines; vertex uses
+   ADC (key = "adc"), google uses `envOrAlias("GOOGLE_API_KEY",
+   "SWORN_GOOGLE_API_KEY")`. Fixed the mangled `CloudflareKey` line in
+   `swornProviderConfig`. `GOOGLE_API_KEY` alone now satisfies the pre-dispatch
+   key check for the google prefix.
+2. **`internal/model/provider.go`** — fixed the mangled `CloudflareKey` line in
+   `ProviderConfigFromEnv` and the mangled `bedrock` case in `NewClient`.
+3. **`internal/model/google.go`** — fixed the `}`-then-comment run-together in
+   the error-handling block of `Verify`.
+4. **`internal/model/google_test.go`** — added a blank line between
+   `TestNewClient_VertexRouted` and `TestNewGoogleGemini_MissingKey`; added three
+   regression tests covering the user path:
+   - `TestFromEnv_GoogleWithCanonicalKey` — the exact broken path:
+     `FromEnv("google/gemini-2.0-flash")` with only `GOOGLE_API_KEY` set
+     (SWORN_DIRECT=1, isolated XDG_CONFIG_HOME) → `*Google`.
+   - `TestFromEnv_GoogleWithAliasKey` — SWORN_GOOGLE_API_KEY alias fallback.
+   - `TestFromEnv_GoogleMissingKey` — fail-closed when neither key is set.
+5. **`gofmt -l -w`** on the four slice .go files flagged by the verifier
+   (config.go, google.go, provider.go, google_test.go). Pre-existing unformatted
+   files outside the slice scope (env.go, errors.go, oai.go) were left untouched
+   — verified unformatted at start_commit too (not a regression).
+6. **`spec.md` "Planned touchpoints"** — added `internal/model/config.go` and
+   `internal/model/provider_test.go` explicitly (resolves Gate 2; the journal's
+   earlier design pin to add config.go had never propagated to the spec).
+7. **`status.json`** — added `provider_test.go` to `planned_files`; transitioned
+   state `failed_verification → in_progress → implemented`.
+
+**Test results (live, this session):**
+- `go test ./internal/model/... -run Google`: 13 PASS, 1 SKIP (live), 0 FAIL
+- `go test ./internal/model/...`: all model tests PASS
+- `go build ./...`: PASS
+- `go vet ./...`: PASS
+- `gofmt -l` (slice files): clean
+
+**Pre-existing failure note:** `TestCmdRun_Parallel` in `cmd/sworn` fails when
+run in the full `go test ./...` suite. Confirmed pre-existing (fails at
+start_commit b60e4a3 too — a cross-package HOME/config test-isolation issue in
+the cmd/sworn harness). No changes to `cmd/sworn` in this slice.
+
+**Open deferrals:** None.
+
+**Divergence from plan:** see proof.md §Divergence from plan #4 (touchpoint scope
+expanded to config.go + provider_test.go; spec updated to match, not deferred).

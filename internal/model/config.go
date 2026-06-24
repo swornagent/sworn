@@ -75,7 +75,9 @@ func FromEnv(modelID string) (Verifier, error) {
 	var key string
 	switch provider {
 	case "vertex":
-		key = "adc" // Vertex AI uses ADC — no API key required	case "google":
+		// Vertex AI uses ADC — no API key required.
+		key = "adc"
+	case "google":
 		key = envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY")
 	default:
 		key = os.Getenv("SWORN_" + prefix + "_API_KEY")
@@ -125,20 +127,21 @@ func errorsIs(err, target error) bool {
 // the new canonical ProviderConfig used by NewClient.
 func swornProviderConfig() ProviderConfig {
 	return ProviderConfig{
-		OpenAIKey:      os.Getenv("SWORN_OPENAI_API_KEY"),
-		DeepSeekKey:    os.Getenv("SWORN_DEEPSEEK_API_KEY"),
-		GroqKey:        os.Getenv("SWORN_GROQ_API_KEY"),
-		MistralKey:     os.Getenv("SWORN_MISTRAL_API_KEY"),
-		OpenRouterKey:  os.Getenv("SWORN_OPENROUTER_API_KEY"),
-		AnthropicKey:   os.Getenv("SWORN_ANTHROPIC_API_KEY"),
-		GoogleKey:           envOrAlias("SWORN_GOOGLE_API_KEY", "GOOGLE_API_KEY"),
+		OpenAIKey:           os.Getenv("SWORN_OPENAI_API_KEY"),
+		DeepSeekKey:         os.Getenv("SWORN_DEEPSEEK_API_KEY"),
+		GroqKey:             os.Getenv("SWORN_GROQ_API_KEY"),
+		MistralKey:          os.Getenv("SWORN_MISTRAL_API_KEY"),
+		OpenRouterKey:       os.Getenv("SWORN_OPENROUTER_API_KEY"),
+		AnthropicKey:        os.Getenv("SWORN_ANTHROPIC_API_KEY"),
+		GoogleKey:           envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY"),
 		GoogleCloudProject:  os.Getenv("GOOGLE_CLOUD_PROJECT"),
-		GoogleCloudLocation: os.Getenv("GOOGLE_CLOUD_LOCATION"),		CloudflareKey:  os.Getenv("SWORN_CLOUDFLARE_API_KEY"),
-		GitHubToken:    os.Getenv("SWORN_GITHUB_TOKEN"),
-		OllamaHost:     ollamaHost(),
-		AwsAccessKey:   os.Getenv("SWORN_AWS_ACCESS_KEY_ID"),
-		AwsSecretKey:   os.Getenv("SWORN_AWS_SECRET_ACCESS_KEY"),
-		AzureOpenAIKey: os.Getenv("SWORN_AZURE_OPENAI_API_KEY"),
+		GoogleCloudLocation: os.Getenv("GOOGLE_CLOUD_LOCATION"),
+		CloudflareKey:       os.Getenv("SWORN_CLOUDFLARE_API_KEY"),
+		GitHubToken:         os.Getenv("SWORN_GITHUB_TOKEN"),
+		OllamaHost:          ollamaHost(),
+		AwsAccessKey:        os.Getenv("SWORN_AWS_ACCESS_KEY_ID"),
+		AwsSecretKey:        os.Getenv("SWORN_AWS_SECRET_ACCESS_KEY"),
+		AzureOpenAIKey:      os.Getenv("SWORN_AZURE_OPENAI_API_KEY"),
 	}
 }
 

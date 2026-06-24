@@ -9,21 +9,21 @@ import (
 // ProviderConfig holds per-provider API keys and optional overrides.
 // Fields use the canonical env var names (OPENAI_API_KEY, etc.).
 type ProviderConfig struct {
-	OpenAIKey      string
-	DeepSeekKey    string
-	GroqKey        string
-	MistralKey     string
-	OpenRouterKey  string
-	AnthropicKey   string
-	GoogleKey            string
-	GoogleCloudProject   string
-	GoogleCloudLocation  string
-	CloudflareKey  string
-	GitHubToken    string
-	OllamaHost     string // optional, defaults to http://localhost:11434/v1
-	AwsAccessKey   string
-	AwsSecretKey   string
-	AzureOpenAIKey string
+	OpenAIKey           string
+	DeepSeekKey         string
+	GroqKey             string
+	MistralKey          string
+	OpenRouterKey       string
+	AnthropicKey        string
+	GoogleKey           string
+	GoogleCloudProject  string
+	GoogleCloudLocation string
+	CloudflareKey       string
+	GitHubToken         string
+	OllamaHost          string // optional, defaults to http://localhost:11434/v1
+	AwsAccessKey        string
+	AwsSecretKey        string
+	AzureOpenAIKey      string
 	// OCI SDK env vars are read directly by the OCI driver (S15); not stored here.
 }
 
@@ -32,20 +32,21 @@ type ProviderConfig struct {
 // OPENAI_API_KEY is empty (backward compatibility per spec Risk #1).
 func ProviderConfigFromEnv() ProviderConfig {
 	return ProviderConfig{
-		OpenAIKey:      envOrAlias("OPENAI_API_KEY", "SWORN_OPENAI_API_KEY"),
-		DeepSeekKey:    os.Getenv("DEEPSEEK_API_KEY"),
-		GroqKey:        os.Getenv("GROQ_API_KEY"),
-		MistralKey:     os.Getenv("MISTRAL_API_KEY"),
-		OpenRouterKey:  os.Getenv("OPENROUTER_API_KEY"),
-		AnthropicKey:   os.Getenv("ANTHROPIC_API_KEY"),
+		OpenAIKey:           envOrAlias("OPENAI_API_KEY", "SWORN_OPENAI_API_KEY"),
+		DeepSeekKey:         os.Getenv("DEEPSEEK_API_KEY"),
+		GroqKey:             os.Getenv("GROQ_API_KEY"),
+		MistralKey:          os.Getenv("MISTRAL_API_KEY"),
+		OpenRouterKey:       os.Getenv("OPENROUTER_API_KEY"),
+		AnthropicKey:        os.Getenv("ANTHROPIC_API_KEY"),
 		GoogleKey:           envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY"),
 		GoogleCloudProject:  os.Getenv("GOOGLE_CLOUD_PROJECT"),
-		GoogleCloudLocation: os.Getenv("GOOGLE_CLOUD_LOCATION"),		CloudflareKey:  os.Getenv("CLOUDFLARE_API_KEY"),
-		GitHubToken:    os.Getenv("GITHUB_TOKEN"),
-		OllamaHost:     ollamaHost(),
-		AwsAccessKey:   os.Getenv("AWS_ACCESS_KEY_ID"),
-		AwsSecretKey:   os.Getenv("AWS_SECRET_ACCESS_KEY"),
-		AzureOpenAIKey: os.Getenv("AZURE_OPENAI_API_KEY"),
+		GoogleCloudLocation: os.Getenv("GOOGLE_CLOUD_LOCATION"),
+		CloudflareKey:       os.Getenv("CLOUDFLARE_API_KEY"),
+		GitHubToken:         os.Getenv("GITHUB_TOKEN"),
+		OllamaHost:          ollamaHost(),
+		AwsAccessKey:        os.Getenv("AWS_ACCESS_KEY_ID"),
+		AwsSecretKey:        os.Getenv("AWS_SECRET_ACCESS_KEY"),
+		AzureOpenAIKey:      os.Getenv("AZURE_OPENAI_API_KEY"),
 	}
 }
 
@@ -156,7 +157,8 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 		return NewGoogleGemini(model, pcfg.GoogleKey)
 	case "vertex":
 		return NewGoogleVertex(model, pcfg.GoogleCloudProject, pcfg.GoogleCloudLocation)
-	case "bedrock":		return nil, fmt.Errorf("%w: bedrock driver lands in S13-bedrock-driver", ErrDriverNotRegistered)
+	case "bedrock":
+		return nil, fmt.Errorf("%w: bedrock driver lands in S13-bedrock-driver", ErrDriverNotRegistered)
 	case "azure":
 		return nil, fmt.Errorf("%w: azure driver lands in S14-azure-driver", ErrDriverNotRegistered)
 	case "oci":

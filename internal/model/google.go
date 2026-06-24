@@ -78,7 +78,8 @@ func (g *Google) Verify(ctx context.Context, systemPrompt, userPayload string) (
 		var apiErr genai.APIError
 		if errors.As(err, &apiErr) {
 			return "", 0, NewProviderError(apiErr.Code, "google", g.Model, nil)
-		}		// Fallback: non-HTTP error (DNS failure, TLS handshake, connection
+		}
+		// Fallback: non-HTTP error (DNS failure, TLS handshake, connection
 		// refused, etc.). This error is not a *model.Error — IsTransient
 		// returns true for unknown error types, so the caller's retry policy
 		// will treat this as transient and retry.
@@ -113,12 +114,12 @@ var googlePricing = map[string]struct {
 	inputPricePer1M  float64
 	outputPricePer1M float64
 }{
-	"gemini-2.0-flash":             {0.10, 0.40},
-	"gemini-2.0-flash-lite":        {0.075, 0.30},
-	"gemini-2.5-flash":             {0.15, 0.60},
-	"gemini-2.5-flash-lite":        {0.075, 0.30},
+	"gemini-2.0-flash":              {0.10, 0.40},
+	"gemini-2.0-flash-lite":         {0.075, 0.30},
+	"gemini-2.5-flash":              {0.15, 0.60},
+	"gemini-2.5-flash-lite":         {0.075, 0.30},
 	"gemini-2.5-flash-lite-preview": {0.075, 0.30},
-	"gemini-2.5-pro":               {1.25, 10.00},
+	"gemini-2.5-pro":                {1.25, 10.00},
 }
 
 // computeGoogleCost returns the USD cost for a verify call from token counts.
