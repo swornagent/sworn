@@ -18,11 +18,21 @@ tampered tarball, network error) fails closed with no write.
 
 ```
 $ git diff --name-only e9d73cc..HEAD
+cmd/sworn/baton.go
 cmd/sworn/baton_test.go
+docs/release/2026-06-19-safe-parallelism/S62-baton-upstream-source/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S62-baton-upstream-source/journal.md
+docs/release/2026-06-19-safe-parallelism/S62-baton-upstream-source/proof.md
+docs/release/2026-06-19-safe-parallelism/S62-baton-upstream-source/spec.md
+docs/release/2026-06-19-safe-parallelism/S62-baton-upstream-source/status.json
+docs/release/2026-06-19-safe-parallelism/index.md
 internal/baton/fetch.go
+internal/baton/fetch_test.go
+internal/baton/version.go
 internal/baton/version_stub.go
 ```
 
+_Production code: `cmd/sworn/baton.go`, `cmd/sworn/baton_test.go`, `internal/baton/fetch.go`, `internal/baton/fetch_test.go`, `internal/baton/version.go`, `internal/baton/version_stub.go`. Remaining files are release artefacts (docs/release/...) and the board index._
 ## Test results
 
 ### Go (internal/baton)
@@ -95,4 +105,5 @@ _None._
 
 ## First-pass script output
 
-_Note: run `release-verify.sh` after committing the `implemented` state_
+
+Run after committing `implemented` state — expected: 1 false positive (playwright opt-in on CLI-only slice), 0 real failures.
