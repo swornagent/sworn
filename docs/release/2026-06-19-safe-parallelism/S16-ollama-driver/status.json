@@ -3,10 +3,10 @@
   "slice_id": "S16-ollama-driver",
   "release": "2026-06-19-safe-parallelism",
   "track": "T5-providers",
-  "state": "design_review",
+  "state": "in_progress",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-24T08:18:16Z",
+  "last_updated_at": "2026-07-12T00:00:00Z",
   "start_commit": null,
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S16-ollama-driver/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S16-ollama-driver/proof.md",
@@ -14,7 +14,8 @@
   "planned_files": [
     "internal/model/ollama.go",
     "internal/model/ollama_test.go",
-    "internal/model/provider.go"
+    "internal/model/provider.go",
+    "internal/model/provider_test.go"
   ],
   "actual_files": [],
   "test_commands": [
@@ -24,8 +25,40 @@
   ],
   "reachability_artifacts": [],
   "open_deferrals": [],
+  "design_decisions": [
+    {
+      "category": "constructor_signature",
+      "summary": "No OllamaConfig struct — two constructor params (modelID, host) with empty-host → $OLLAMA_HOST fallback inside NewOllama, following spec literally.",
+      "type": "type_2",
+      "rationale": "One parameter fewer than the provider-config pattern; Ollama is local/free, no auth/region/endpoint complexity."
+    },
+    {
+      "category": "host_field_semantics",
+      "summary": "OllamaHost field stays raw host (no /v1); the change is removing the /v1 append in the dispatch block, not changing the stored value.",
+      "type": "type_2",
+      "rationale": "ollamaHost() already returns the raw host — field semantics unchanged; only the consumer's URL construction changes."
+    },
+    {
+      "category": "env_fallback_reachability",
+      "summary": "Reuse ollamaHost() in NewOllama for empty-host param; the $OLLAMA_HOST fallback handles direct construction (tests, standalone) — NewClient always passes pcfg.OllamaHost.",
+      "type": "type_2",
+      "rationale": "Spec requires NewOllama(\"m\", \"\") to resolve $OLLAMA_HOST; NewClient path supplies a non-empty host from ProviderConfigFromEnv."
+    },
+    {
+      "category": "response_parsing",
+      "summary": "JSON decode into anonymous struct with only needed fields (message.content, error, done); unknown fields silently ignored — same pattern as OAI driver.",
+      "type": "type_2",
+      "rationale": "Consistent with existing driver patterns; stdlib encoding/json handles unknown field passthrough."
+    },
+    {
+      "category": "error_format",
+      "summary": "Error on \"error\" response field uses fmt.Errorf with the error string — not *model.Error taxonomy, because Ollama is local/free with no auth/rate-limit/billing states.",
+      "type": "type_2",
+      "rationale": "Ollama has no rate limits, auth errors, or billing states to classify; a plain error string matches the local-tool posture."
+    }
+  ],
   "verification": {
-    "result": "pending",
+    "result": "",
     "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
