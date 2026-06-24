@@ -57,7 +57,8 @@ call to Ollama `POST /api/chat`.
 - `internal/model/ollama_test.go` (new)
 - `internal/model/provider.go` (modify — replace OAI-compat ollama preset with native
   driver)
-
+- `internal/model/provider_test.go` (modify — update `TestNewClient_Ollama` to assert
+  `*Ollama` type and native host)
 ## Acceptance checks
 
 - [ ] `go build ./...` succeeds with no new external deps
