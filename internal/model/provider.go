@@ -27,9 +27,11 @@ type ProviderConfig struct {
 	AzureAPIKey         string
 	AzureEndpoint       string
 	AzureAPIVersion     string
-	// OCI SDK env vars are read directly by the OCI driver (S15); not stored here.
+	// OCI SDK auth env vars (key_file, fingerprint, tenancy, region) are read
+	// directly by the OCI driver (S15). OCICompartmentID is a SwornAgent-specific
+	// routing param — not an SDK auth var — and is stored here.
+	OCICompartmentID string
 }
-
 // ProviderConfigFromEnv reads per-provider configuration from environment variables. The SWORN_OPENAI_API_KEY alias is checked as a fallback when
 // OPENAI_API_KEY is empty (backward compatibility per spec Risk #1).
 func ProviderConfigFromEnv() ProviderConfig {
@@ -52,9 +54,9 @@ func ProviderConfigFromEnv() ProviderConfig {
 		AzureAPIKey:         os.Getenv("AZURE_OPENAI_API_KEY"),
 		AzureEndpoint:       os.Getenv("AZURE_OPENAI_ENDPOINT"),
 		AzureAPIVersion:     os.Getenv("AZURE_OPENAI_API_VERSION"),
+		OCICompartmentID:    os.Getenv("OCI_COMPARTMENT_ID"),
 	}
 }
-
 // envOrAlias returns the value of the canonical env var, or the alias if the
 // canonical is empty. This implements the spec's backward-compat requirement:
 // canonical key wins; SWORN_OPENAI_API_KEY is a fallback only.
@@ -167,8 +169,7 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 	case "azure":
 		return NewAzureOAI(model, pcfg.AzureEndpoint, pcfg.AzureAPIKey, pcfg.AzureAPIVersion)
 	case "oci":
-		return nil, fmt.Errorf("%w: oci driver lands in S15-oci-driver", ErrDriverNotRegistered)
-
+		return NewOCI(model, pcfg.OCICompartmentID)
 	default:
 		return nil, fmt.Errorf("%w: unknown provider %q", ErrDriverNotRegistered, provider)
 	}

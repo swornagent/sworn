@@ -80,8 +80,11 @@ func FromEnv(modelID string) (Verifier, error) {
 	case "bedrock":
 		// Bedrock uses IAM credentials — no API key required.
 		key = "iam"
-	case "google":
-		key = envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY")
+	case "oci":
+		// OCI uses SDK config file (~/.oci/config) and OCI_CLI_REGION —
+		// no API key required. The compartment ID is checked later.
+		key = "compartment"
+	case "google":		key = envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY")
 	case "azure":
 		key = envOrAlias("AZURE_OPENAI_API_KEY", "SWORN_AZURE_OPENAI_API_KEY")
 	default:
@@ -150,7 +153,7 @@ func swornProviderConfig() ProviderConfig {
 		AzureAPIKey:         os.Getenv("SWORN_AZURE_OPENAI_API_KEY"),
 		AzureEndpoint:       os.Getenv("SWORN_AZURE_OPENAI_ENDPOINT"),
 		AzureAPIVersion:     os.Getenv("SWORN_AZURE_OPENAI_API_VERSION"),
-	}
+		OCICompartmentID:    os.Getenv("OCI_COMPARTMENT_ID"),	}
 }
 
 // parseModelID splits "provider/model" into its parts. The first "/" is the

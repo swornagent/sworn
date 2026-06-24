@@ -83,11 +83,10 @@ func TestNewClient_Ollama(t *testing.T) {
 
 func TestNewClient_NativeStub(t *testing.T) {
 	cfg := ProviderConfig{}
-	nativeProviders := []string{
-		"oci/meta.llama-3.3-70b",
-	}
-	for _, modelID := range nativeProviders {
-		_, err := NewClient(modelID, cfg)
+	// All native drivers are now registered (S10-S15). This list exists to
+	// catch future additions — add a not-yet-implemented provider ID here.
+	nativeProviders := []string{}
+	for _, modelID := range nativeProviders {		_, err := NewClient(modelID, cfg)
 		if err == nil {
 			t.Errorf("NewClient(%q) returned nil error, want ErrDriverNotRegistered", modelID)
 			continue
