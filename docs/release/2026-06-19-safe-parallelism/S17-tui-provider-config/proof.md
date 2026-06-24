@@ -53,8 +53,7 @@ ok  	github.com/swornagent/sworn/internal/config	0.003s
 
 ## Reachability artefact
 
-Screenshot: `docs/release/2026-06-19-safe-parallelism/captures/S17-settings-panel.txt`
-
+Text capture: `docs/release/2026-06-19-safe-parallelism/captures/S17-settings-panel.txt`
 The settings panel renders with:
 - Verifier model: `anthropic/claude-sonnet-4-6`
 - Implementer model: `openai/gpt-4o-mini`
