@@ -26,3 +26,19 @@
 ### Pre-existing conditions
 
 - The live repo contains future-dated status metadata (the motivation for this slice). Running `sworn doctor` on the live repo will report these as `[ERROR]` — this is the intended behaviour. The defect exists today and should be explicit.
+## Verifier verdicts received
+
+### 2026-06-24T15:25:19Z — PASS (verifier)
+
+All six gates passed.
+
+- Gate 1: User-reachable outcome exists — `sworn lint status <release>` and `sworn doctor` wired and exercised by command tests.
+- Gate 2: Planned touchpoints match actual changed files — exact match to spec (internal/lint/status_time*.go, cmd/sworn/lint*.go, cmd/sworn/doctor*.go).
+- Gate 3: Required tests exist and exercise the integration point — table tests + Rule 1 command-level tests (`TestLintStatusCmd_*`, `TestDoctorStatusTimestamps*`) re-run and green.
+- Gate 4: Reachability artefact proves the user path — command tests drive `cmdLintStatus` and doctor groups directly.
+- Gate 5: No silent deferrals or placeholder logic — no TODO/FIXME/deferred in changed Go files.
+- Gate 6: Claimed scope matches implemented scope — all "Delivered" items have evidence in tests and code.
+
+Tests re-run: `go test -race ./internal/lint/... ./cmd/sworn/...` and `go build ./...` — PASS.
+
+Verified against: bb4ea79 (implementation commit)
