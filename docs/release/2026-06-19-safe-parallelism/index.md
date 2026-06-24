@@ -114,9 +114,9 @@ tracks:
   - id: T19-status-hygiene
     slices: [S64-status-timestamp-sanity]
     depends_on: [T4-mcp, T12-harness-hardening, T15-cli-registry]
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T19-status-hygiene
     worktree_branch: track/2026-06-19-safe-parallelism/T19-status-hygiene
-    state: planned
+    state: in_progress
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
