@@ -114,4 +114,42 @@ None. All spec-mandated acceptance checks are delivered. Live tests are conditio
 
 ## First-pass script output
 
-*(Run `$HOME/.claude/bin/release-verify.sh S12-google-driver 2026-06-19-safe-parallelism` — pending)*
+```
+release-verify.sh S12-google-driver 2026-06-19-safe-parallelism
+
+== Slice artefacts ==
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+  PASS  spec.md has Required tests section
+
+== Status ==
+  PASS  status.json is valid JSON
+  state: implemented
+  PASS  state is 'implemented' (eligible for verifier review)
+
+== Integration branch drift ==
+  PASS  worktree branch is current with release/v0.1.0 (no drift)
+
+== Diff vs start_commit (verifier base) ==
+  PASS  10 file(s) changed vs diff base
+
+== Dark-code markers in changed files ==
+  PASS  no dark-code markers in changed source files
+
+== Proof bundle structural checks ==
+  PASS  all 8 structural checks present and populated
+
+== Frontmatter YAML safety ==
+  PASS  spec.md frontmatter is strict-YAML safe
+
+== Test results section scope ==
+  PASS  Test results section contains no Playwright runner output
+
+== First-pass verdict ==
+  checks passed: 23
+  checks failed: 0
+FIRST-PASS PASS
+```
