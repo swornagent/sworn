@@ -138,13 +138,35 @@ Clean — no warnings, no errors.
 ```
 release-verify.sh
   slice:       S15-oci-driver
-  state: implemented — PASS (eligible for verifier review)
+  slice dir:   docs/release/2026-06-19-safe-parallelism/S15-oci-driver
+  base branch: main
 
-== Diff vs start_commit ==
-  PASS  10 file(s) changed vs diff base
+== Slice artefacts ==
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+  PASS  spec.md has Required tests section
+
+== Status ==
+  PASS  status.json is valid JSON
+  state: implemented
+  PASS  state is 'implemented' (eligible for verifier review)
+
+== Integration branch drift ==
+  integration branch: release/v0.1.0
+  PASS  worktree branch is current with release/v0.1.0 (no drift)
+
+== Diff vs start_commit (verifier base) ==
+  diff base: start_commit 3d60456432fd6dbfcdfb6248bf084bfe3da9564a
+  PASS  13 file(s) changed vs diff base
+    docs/release/2026-06-19-safe-parallelism/S15-oci-driver/approved-ack.md
     docs/release/2026-06-19-safe-parallelism/S15-oci-driver/journal.md
     docs/release/2026-06-19-safe-parallelism/S15-oci-driver/proof.md
+    docs/release/2026-06-19-safe-parallelism/S15-oci-driver/spec.md
     docs/release/2026-06-19-safe-parallelism/S15-oci-driver/status.json
+    docs/release/2026-06-19-safe-parallelism/index.md
     go.mod
     go.sum
     internal/model/config.go
@@ -161,12 +183,23 @@ release-verify.sh
     internal/model/oci.go: comment block documenting deferred credential loading
     internal/model/oci_test.go: test name and log message documenting the contract
 
+== Proof bundle structural checks ==
+  PASS  all required sections present
+  PASS  no obvious template placeholders
+  PASS  Not delivered deferrals carry non-placeholder tracking refs
+  PASS  Files changed count (13) consistent with diff vs start_commit (13)
+
+== Frontmatter YAML safety ==
+  PASS  spec.md frontmatter is strict-YAML safe
+
+== Test results section scope ==
+  PASS  Test results section contains no Playwright runner output
+
 == First-pass verdict ==
   checks passed: 22 / 23
   checks failed: 1 (dark-code false positive — known pattern match on spec-mandated deferral language)
   FIRST-PASS: effectually PASS (single failure is a known false positive)
 ```
-
 ## OCI config prerequisites
 
 Per spec Risks #2 and #3:
