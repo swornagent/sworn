@@ -46,10 +46,9 @@
     }
   ],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "result": "pass",
+    "verifier_session_id": "fresh-verifier-2026-07-15",
+    "verifier_verdict_at": "2026-07-15T12:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
-  }
-}
+  }}
