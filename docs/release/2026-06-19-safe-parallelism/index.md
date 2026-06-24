@@ -34,7 +34,8 @@ tracks:
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T5-providers
     worktree_branch: track/2026-06-19-safe-parallelism/T5-providers
     state: merged
-  - id: T6-provider-ux    slices: [S17-tui-provider-config]
+  - id: T6-provider-ux
+    slices: [S17-tui-provider-config]
     depends_on: [T2-monitoring, T5-providers, T18-cli-polish]
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T6-provider-ux
@@ -116,7 +117,8 @@ tracks:
     depends_on: [T4-mcp, T12-harness-hardening, T15-cli-registry]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T19-status-hygiene
     worktree_branch: track/2026-06-19-safe-parallelism/T19-status-hygiene
-    state: merged---
+    state: merged
+---
 
 # Release Board: `2026-06-19-safe-parallelism`
 
