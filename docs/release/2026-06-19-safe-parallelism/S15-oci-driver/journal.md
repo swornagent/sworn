@@ -108,3 +108,24 @@ verifier violations.
 clean.
 
 **Skeptic panel:** skipped — runtime does not support subagent dispatch.
+### 2026-07-10 — Verifier (fresh context, artefact-only)
+
+PASS
+
+Slice: S15-oci-driver
+
+Verified against: 8e304129b689dfbb3d120dbb7aaee733c0a4d9bd
+
+Verifier session: fresh, artefact-only
+
+All six gates passed:
+
+- Gate 1: User-reachable outcome exists — `sworn run` dispatches via `model.NewClient("oci/cohere.command-r-plus", cfg)` → `*OCI.Verify()`; entry point exercised by `TestNewClient_OCIRouted` and full run path.
+- Gate 2: Planned touchpoints match actual changed files — spec.md lists oci.go, oci_test.go, provider.go, config.go, provider_test.go, go.mod/go.sum; git diff matches exactly.
+- Gate 3: Required tests exist and exercise the integration point — 6 unit tests in oci_test.go (TestOCIVerify_ReturnsText, MissingCompartment, MissingTokenCount, NewClient_OCIRouted, MissingModelID, New_DeferredCredentialLoading) + full `./internal/model/...` suite; re-run PASS.
+- Gate 4: Reachability artefact proves the user path — `go test ./internal/model/... -run OCI` (6/6 PASS) + smoke step documented.
+- Gate 5: No silent deferrals or placeholder logic — no TODO/FIXME/deferred/placeholder in production code; only documented deferral (instance principal auth) is in spec "Deferrals allowed?" with why/tracking/acknowledgement.
+- Gate 6: Claimed scope matches implemented scope — all acceptance checks have evidence references in proof.md; Delivered list matches.
+
+Note on divergence: Spec line 34 still references `$OCI_REGION`; implementation defers to OCI SDK (OCI_CLI_REGION / config file) per D5 and Coach ack. Tracked for `/replan-release` spec amendment. Does not affect verification (behavior correct, tests pass).
+

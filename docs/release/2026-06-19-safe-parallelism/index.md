@@ -446,7 +446,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | verified | [spec](./S09-per-role-model-config/spec.md) |
 | `S10-provider-foundation` | T5 | ADR 0007 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | implemented | [spec](./S10-provider-foundation/spec.md) |
 | `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | verified | [spec](./S11-anthropic-driver/spec.md) || `S12-google-driver` | T5 | Google Gemini and Vertex AI models work as verifier and implementer | failed_verification | [spec](./S12-google-driver/spec.md) || `S13-bedrock-driver` | T5 | AWS Bedrock models work via Converse API; IAM auth | verified | [spec](./S13-bedrock-driver/spec.md) |
-| `S14-azure-driver` | T5 | Azure OpenAI deployments work via api-key auth; no new SDK dep | verified | [spec](./S14-azure-driver/spec.md) || `S15-oci-driver` | T5 | OCI Generative AI models work via oci-go-sdk | failed_verification | [spec](./S15-oci-driver/spec.md) || `S16-ollama-driver` | T5 | Ollama native /api/chat endpoint; replaces OAI-compat shim | planned | [spec](./S16-ollama-driver/spec.md) |
+| `S14-azure-driver` | T5 | Azure OpenAI deployments work via api-key auth; no new SDK dep | verified | [spec](./S14-azure-driver/spec.md) || `S15-oci-driver` | T5 | OCI Generative AI models work via oci-go-sdk | verified | [spec](./S15-oci-driver/spec.md) || `S16-ollama-driver` | T5 | Ollama native /api/chat endpoint; replaces OAI-compat shim | planned | [spec](./S16-ollama-driver/spec.md) |
 | `S17-tui-provider-config` | T6 | TUI settings panel: provider API keys, model per role, escalation list, max attempts; persists to config.json + ~/.sworn/.env | planned | [spec](./S17-tui-provider-config/spec.md) |
 | `S18-consideration-catalog` | T3 | Typed consideration catalog + decision registry; planner Phase 2b (DRY gate, design consultation, arch conformance, capture); sworn init scaffolds both templates | verified | [spec](./S18-consideration-catalog/spec.md) || `S19-sworn-induction` | T3 | `sworn induction` one-time repo onboarding (design system + architecture discovery); implementer + verifier prompts gain deviation-surfacing steps | verified | [spec](./S19-sworn-induction/spec.md) || `S20-mcp-catalog-tools` | T7 | 8 MCP tools: plan_release (unified), get_induction_status, get_considerations, search_decisions, record_decision, check_design_system, update_design_system, record_architecture_pattern | verified | [spec](./S20-mcp-catalog-tools/spec.md) || `S21-canonical-baton` | T3 | Baton protocol embedded in binary (internal/prompt/baton/); sworn init writes minimal MCP-pointer AGENTS.md instead of per-repo Baton copy; ADR-0008 | verified | [spec](./S21-canonical-baton/spec.md) || `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | verified | [spec](./S22-sworn-doctor/spec.md) |
 | `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | verified | [spec](./S23-memory-config/spec.md) |
@@ -509,8 +509,8 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 - In progress: 0
 - Implemented: 0
 - Design review: 1
-- Verified: 29
-- Failed verification: 1
+- Verified: 30
+- Failed verification: 0
 - Deferred: 0
 
 **Tracks:** Planned: 5 / In progress: 2 / Merged: 11  *(oracle read 2026-06-23; T12 + T18 merges recorded — board moving under coach loop)*
@@ -555,7 +555,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
   - **Gate 2 remediation confirmed**: `internal/model/provider_test.go` surfaced in `status.json` `actual_files` and documented in proof.md "Divergence from plan" (removal of `anthropic/claude-sonnet-4-6` from `TestNewClient_NativeStub` at lines 84-90).
 - **Gates passed (independent re-run)**: Gate 1 (provider.go:150 `case "anthropic": return NewAnthropic(...)` → Verify; `TestCmdRun_Parallel` exercises cmdRun); Gate 4 (live test + router test + CLI path test); Gate 5 (no TODO/placeholder in production files); Gate 6 (Delivered evidence refs resolve). All cited test commands re-run green: 5 PASS + 1 SKIP Anthropic, all model tests pass (no OAI regression), `go build`/`go vet` exit 0, 4/4 cmd/sworn reachability tests, `gofmt -l` clean on all four touched files. SDK dep pre-ratified in ADR 0007.
 - **Drift gate**: clean (rev-list count 0) — track already carried release-wt tip, no forward-merge needed. Verified against HEAD `b27d31a`; `start_commit` `a72f436`.
-- **State**: S11 → verified. Board Verified: 28 → 29; Failed verification: 1 → 0. Next: T5 track has further incomplete slices — next is `/implement-slice S12-google-driver 2026-06-19-safe-parallelism` in a fresh session (S12 is `design_review`; planner/human to decide re-entry).
+- **State**: S11 → verified. Board Verified: 28 → 29; Failed verification: 0 → 0. Next: T5 track has further incomplete slices — next is `/implement-slice S12-google-driver 2026-06-19-safe-parallelism` in a fresh session (S12 is `design_review`; planner/human to decide re-entry).
 
 ### 2026-06-23 — slice `S11-anthropic-driver` → failed_verification (re-verify FAIL, round 5)
 
@@ -566,7 +566,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 - **Gates that passed (independent re-run)**: Gate 1 (run.go → FromEnv → NewClient → `case "anthropic"` → NewAnthropic → Verify, exercised by `TestCmdRun_Parallel`); Gate 5 (no TODO/placeholder); Gate 6 (Delivered evidence refs resolve). All cited test commands re-run green: 5/5 Anthropic tests, all model tests, 4/4 cmd/sworn reachability tests, `go build`/`go vet` exit 0.
 - **Before-you-FAIL gate**: remediation is a legal implementer fix — author the `t.Skip`-guarded live test the spec already names (no spec amendment, no different test shape, no planner authority). FAIL, not BLOCKED.
 - **Drift gate**: forward-merged `release-wt/2026-06-19-safe-parallelism` into `track/.../T5-providers` (2 commits, docs-only, no conflict), pushed to origin. Verified against HEAD `efcccb4` (post forward-merge); `start_commit` `a72f436`.
-- **State**: S11 → failed_verification. Board Verified: 29 → 28; Failed verification: 0 → 1. Next: implementer re-opens `/implement-slice S11-anthropic-driver 2026-06-19-safe-parallelism` in a fresh session to author the missing live test and document the `provider_test.go` touch.
+- **State**: S11 → failed_verification. Board Verified: 30 → 28; Failed verification: 0 → 1. Next: implementer re-opens `/implement-slice S11-anthropic-driver 2026-06-19-safe-parallelism` in a fresh session to author the missing live test and document the `provider_test.go` touch.
 
 ### 2026-06-24 — slice `S62-baton-upstream-source` → verified (PASS)
 
@@ -1599,3 +1599,18 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
   - Gate 6: Claimed scope matches — "Delivered" items have evidence; prior FAILs (param order, api-version, field names, formatting, touchpoints) addressed.
 - **State**: S14 → verified. T5-providers remains in_progress (S15, S16, S39, S63 pending).
 - **Next step**: `/implement-slice S15-oci-driver 2026-06-19-safe-parallelism` in a fresh session.
+
+### 2026-07-10T08:13:05Z — slice `S15-oci-driver` → verified (PASS)
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs).
+- **Verdict**: PASS. All six gates satisfied.
+  - Gate 1: User-reachable outcome exists — `sworn run` → `model.NewClient("oci/cohere.command-r-plus", cfg)` → `*OCI.Verify()`; entry point exercised by `TestNewClient_OCIRouted` and full run path.
+  - Gate 2: Planned touchpoints match actual changed files — spec.md lists oci.go, oci_test.go, provider.go, config.go, provider_test.go, go.mod/go.sum; git diff matches exactly.
+  - Gate 3: Required tests exist and exercise the integration point — 6 unit tests in oci_test.go (TestOCIVerify_ReturnsText, MissingCompartment, MissingTokenCount, NewClient_OCIRouted, MissingModelID, New_DeferredCredentialLoading) + full `./internal/model/...` suite; re-run PASS.
+  - Gate 4: Reachability artefact proves the user path — `go test ./internal/model/... -run OCI` (6/6 PASS) + smoke step documented.
+  - Gate 5: No silent deferrals or placeholder logic — no TODO/FIXME/deferred/placeholder in production code; only documented deferral (instance principal auth) is in spec "Deferrals allowed?" with why/tracking/acknowledgement.
+  - Gate 6: Claimed scope matches implemented scope — all acceptance checks have evidence references in proof.md; Delivered list matches.
+- **Note on divergence**: Spec line 34 still references `$OCI_REGION`; implementation defers to OCI SDK (OCI_CLI_REGION / config file) per D5 and Coach ack. Tracked for `/replan-release` spec amendment. Does not affect verification (behavior correct, tests pass).
+- **State**: S15 → verified. T5-providers remains in_progress (S16, S39, S63 pending).
+- **Next step**: `/implement-slice S16-ollama-driver 2026-06-19-safe-parallelism` in a fresh session.
+
