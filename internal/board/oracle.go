@@ -50,15 +50,22 @@ type SliceState struct {
 	Blocked       bool        `json:"blocked"`
 	BlockedReason string      `json:"blocked_reason,omitempty"`
 	BlockedOwner  BlockedOwner `json:"blocked_owner,omitempty"`
+	// VerificationResult is the raw verification.result field from status.json.
+	// Exposed for the router (S58) to route on failed_verification and implemented
+	// without re-reading status.json.
+	VerificationResult string `json:"-"`
+	// Violations is the verification.violations array from status.json.
+	// Exposed for the router (S58) to classify violations by gate.
+	Violations []string `json:"-"`
 }
 
 // TrackState is the board-level track entry.
 type TrackState struct {
-	ID       string       `json:"id"`
-	State    string       `json:"state"`
-	Slices   []SliceState `json:"slices"`
+	ID             string       `json:"id"`
+	State          string       `json:"state"`
+	Slices         []SliceState `json:"slices"`
+	WorktreeBranch string       `json:"-"`
 }
-
 // BoardState is the full release board.
 type BoardState struct {
 	Release string       `json:"release"`
@@ -92,11 +99,20 @@ func (g *gitRepoReader) CatFileExists(ref, path string) (bool, error) {
 	return g.catFileExists(ref, path)
 }
 
+// OracleReader is the consumer contract for the router (S58) and scheduler
+// (S59). It hides git-ref resolution and track-map construction behind
+// router-friendly signatures: the caller passes a release and slice ID, and
+// gets back SliceState / BoardState with no knowledge of track branches,
+// release-wt refs, or index.md parsing.
+type OracleReader interface {
+	ReadSliceStatus(ctx context.Context, release, sliceID string) (SliceState, error)
+	ReadBoard(ctx context.Context, release string) (*BoardState, error)
+}
+
 // Oracle reads slice state from git refs with ownership resolution.
 // All methods accept a gitContentReader; the production caller passes
 // a gitRepoReader wrapping *git.Repo.
-type Oracle struct {
-	reader gitContentReader
+type Oracle struct {	reader gitContentReader
 }
 
 // NewOracle returns an Oracle backed by the given gitContentReader.
@@ -226,18 +242,19 @@ func parseStatusJSON(raw string, sliceID, trackID string, trackMap map[string]Tr
 	}
 
 	return SliceState{
-		ID:              sliceID,
-		State:           s.State,
-		Owner:           s.Owner,
-		LastUpdated:     s.LastUpdatedAt,
-		Track:           trackID,
-		Actionable:      actionable,
-		DependsOnTracks: deps,
-		Blocked:         blocked,
-		BlockedReason:   blockedReason,
-		BlockedOwner:    blockedOwner,
-	}, nil
-}
+		ID:                 sliceID,
+		State:              s.State,
+		Owner:              s.Owner,
+		LastUpdated:        s.LastUpdatedAt,
+		Track:              trackID,
+		Actionable:         actionable,
+		DependsOnTracks:    deps,
+		Blocked:            blocked,
+		BlockedReason:      blockedReason,
+		BlockedOwner:       blockedOwner,
+		VerificationResult: s.Verification.Result,
+		Violations:         s.Verification.Violations,
+	}, nil}
 
 // isActionable returns true when a slice is in a state where it can be
 // picked up by a worker (the router/scheduler can act on it).
@@ -386,12 +403,12 @@ func (o *Oracle) ReadBoard(
 
 	for _, ti := range trackInfos {
 		ts := TrackState{
-			ID:     ti.ID,
-			State:  ti.State,
-			Slices: make([]SliceState, 0, len(ti.Slices)),
+			ID:             ti.ID,
+			State:          ti.State,
+			WorktreeBranch: ti.WorktreeBranch,
+			Slices:         make([]SliceState, 0, len(ti.Slices)),
 		}
-		for _, sid := range ti.Slices {
-			trackBranch := "refs/heads/" + ti.WorktreeBranch
+		for _, sid := range ti.Slices {			trackBranch := "refs/heads/" + ti.WorktreeBranch
 			if ti.WorktreeBranch == "" {
 				trackBranch = "" // track not materialised yet
 			}
@@ -465,4 +482,77 @@ func NewGitOracle(repo *git.Repo) *Oracle {
 			catFileExists: repo.CatFileExists,
 		},
 	}
+}
+
+// OracleReaderAdapter wraps an *Oracle with resolved parameters so it
+// satisfies the router.OracleReader interface (simple 2-param signatures).
+// Construct via NewOracleReaderAdapter; the adapter caches the track map
+// and release ref for repeated calls.
+type OracleReaderAdapter struct {
+	oracle     *Oracle
+	reader     gitContentReader
+	release    string
+	releaseRef string
+	trackMap   map[string]TrackInfo
+}
+
+// NewOracleReaderAdapter reads index.md from releaseRef to build the track map,
+// then returns an adapter that satisfies router.OracleReader.
+func NewOracleReaderAdapter(
+	oracle *Oracle,
+	reader gitContentReader,
+	release, releaseRef string,
+) (*OracleReaderAdapter, error) {
+	// Read index.md from releaseRef.
+	indexPath := "docs/release/" + release + "/index.md"
+	rawIndex, err := reader.Show(releaseRef, indexPath)
+	if err != nil {
+		fumaPath := "apps/docs/content/docs/release/" + release + "/index.md"
+		rawIndex2, err2 := reader.Show(releaseRef, fumaPath)
+		if err2 != nil {
+			return nil, fmt.Errorf("read index.md: %v (also tried %s: %v)", err, fumaPath, err2)
+		}
+		rawIndex = rawIndex2
+	}
+
+	fmBody := extractFrontmatterBody(rawIndex)
+	trackInfos := ParseTracks(fmBody)
+	trackMap := make(map[string]TrackInfo, len(trackInfos))
+	for _, ti := range trackInfos {
+		trackMap[ti.ID] = ti
+	}
+
+	return &OracleReaderAdapter{
+		oracle:     oracle,
+		reader:     reader,
+		release:    release,
+		releaseRef: releaseRef,
+		trackMap:   trackMap,
+	}, nil
+}
+
+// ReadSliceStatus reads a single slice's status, resolving via the owner track
+// branch → release-wt → HEAD priority chain. Implements router.OracleReader.
+func (a *OracleReaderAdapter) ReadSliceStatus(ctx context.Context, release, sliceID string) (SliceState, error) {
+	if release != a.release {
+		return SliceState{}, fmt.Errorf("adapter: release mismatch (got %q, configured for %q)", release, a.release)
+	}
+	// Use the first track's branch as default (most callers will pass the right one).
+	trackBranch := ""
+	for _, ti := range a.trackMap {
+		if ti.WorktreeBranch != "" {
+			trackBranch = ti.WorktreeBranch
+			break
+		}
+	}
+	ss, _, err := a.oracle.ReadSliceStatus(ctx, a.reader, trackBranch, a.releaseRef, release, sliceID, a.trackMap)
+	return ss, err
+}
+
+// ReadBoard reads the full release board. Implements router.OracleReader.
+func (a *OracleReaderAdapter) ReadBoard(ctx context.Context, release string) (*BoardState, error) {
+	if release != a.release {
+		return nil, fmt.Errorf("adapter: release mismatch (got %q, configured for %q)", release, a.release)
+	}
+	return a.oracle.ReadBoard(ctx, a.reader, a.releaseRef, release)
 }

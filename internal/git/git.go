@@ -113,9 +113,50 @@ func (r *Repo) CatFileExists(ref, path string) (bool, error) {
 	}
 	return true, nil
 }
+// LastCommitTime returns the Unix epoch timestamp (seconds) of the last commit
+// that touched path on ref. Returns 0 if the file has never been committed.
+// Wraps `git log -1 --format=%ct ref -- path`.
+func (r *Repo) LastCommitTime(ref, path string) (int64, error) {
+	out, err := r.run("log", "-1", "--format=%ct", ref, "--", path)
+	if err != nil {
+		// When the file has never been committed or the ref doesn't exist,
+		// git log exits non-zero. Treat as 0 (absent).
+		if strings.Contains(err.Error(), "fatal:") ||
+			strings.Contains(err.Error(), "does not have any commits") ||
+			strings.Contains(err.Error(), "unknown revision") ||
+			strings.Contains(err.Error(), "bad revision") {
+			return 0, nil
+		}
+		return 0, err
+	}
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return 0, nil
+	}
+	var ct int64
+	if _, err := fmt.Sscanf(out, "%d", &ct); err != nil {
+		return 0, fmt.Errorf("git log --format=%%ct: parse %q: %w", out, err)
+	}
+	return ct, nil
+}
+
+// IsAncestor returns true when ancestor is reachable from branch (i.e. branch
+// contains ancestor). Wraps `git merge-base --is-ancestor ancestor branch`.
+func (r *Repo) IsAncestor(ancestor, branch string) (bool, error) {
+	_, err := r.run("merge-base", "--is-ancestor", ancestor, branch)
+	if err != nil {
+		// git merge-base --is-ancestor exits 0 when ancestor is reachable,
+		// 1 when it is not. Both are valid outcomes.
+		if strings.Contains(err.Error(), "exit status 1") {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 // run executes a git command in r.Dir and returns stdout (trimmed). On
-// non-zero exit it returns stderr as the error.
-//
+// non-zero exit it returns stderr as the error.//
 // It refuses to run when Dir is empty — executing git in the ambient cwd
 // is the root cause of sworn#6 (track workers flipping the calling worktree
 // to main). Every mutating method funnels through this single chokepoint,
