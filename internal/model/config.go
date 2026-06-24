@@ -84,7 +84,9 @@ func FromEnv(modelID string) (Verifier, error) {
 		key = envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY")
 	case "azure":
 		key = envOrAlias("AZURE_OPENAI_API_KEY", "SWORN_AZURE_OPENAI_API_KEY")
-	default:		key = os.Getenv("SWORN_" + prefix + "_API_KEY")	}
+	default:
+		key = os.Getenv("SWORN_" + prefix + "_API_KEY")
+	}
 	if key == "" {
 		return nil, fmt.Errorf("model: SWORN_%s_API_KEY not set", prefix)
 	}
@@ -150,6 +152,7 @@ func swornProviderConfig() ProviderConfig {
 		AzureAPIVersion:     os.Getenv("SWORN_AZURE_OPENAI_API_VERSION"),
 	}
 }
+
 // parseModelID splits "provider/model" into its parts. The first "/" is the
 // separator; model names that contain "/" are passed through as-is after the
 // first slash — this correctly handles OpenRouter sub-paths like

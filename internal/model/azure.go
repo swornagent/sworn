@@ -27,7 +27,7 @@ type AzureOAI struct {
 	Endpoint   string // e.g. myendpoint.openai.azure.com
 	Deployment string // e.g. gpt-4o
 	APIKey     string
-	APIVersion string // e.g. 2024-10-21
+	APIVersion string       // e.g. 2024-10-21
 	Client     *http.Client // nil means http.DefaultClient
 }
 

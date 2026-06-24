@@ -54,7 +54,8 @@ Azure OpenAI deployment and returns a PASS/FAIL verdict.
 - `internal/model/azure_test.go` (new)
 - `internal/model/provider.go` (modify — register azure/* prefix, add Azure fields to
   ProviderConfig)
-
+- `internal/model/config.go` (modify — add azure case to FromEnv() key gate)
+- `internal/model/provider_test.go` (modify — remove azure stub from TestNewClient_NativeStub)
 ## Acceptance checks
 
 - [ ] `go build ./...` succeeds with no new external deps (azure.go uses only stdlib)

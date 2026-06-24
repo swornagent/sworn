@@ -12,9 +12,11 @@ Implement an Azure OpenAI Service driver (`AzureOAI`) that dispatches verificati
 ## Files changed
 
 ```
-docs/release/2026-06-19-safe-parallelism/S14-azure-driver/status.json
+docs/release/2026-06-19-safe-parallelism/S14-azure-driver/approved-ack.md
 docs/release/2026-06-19-safe-parallelism/S14-azure-driver/journal.md
 docs/release/2026-06-19-safe-parallelism/S14-azure-driver/proof.md
+docs/release/2026-06-19-safe-parallelism/S14-azure-driver/spec.md
+docs/release/2026-06-19-safe-parallelism/S14-azure-driver/status.json
 docs/release/2026-06-19-safe-parallelism/index.md
 internal/model/azure.go
 internal/model/azure_test.go
@@ -47,14 +49,16 @@ internal/model/provider_test.go
 === RUN   TestAzureVerify_ErrorResponse
 --- PASS: TestAzureVerify_ErrorResponse (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/internal/model	0.016s
+ok  	github.com/swornagent/sworn/internal/model	0.012s
 ```
 
-**`go test ./internal/model/...`** — full model test suite PASS (1.532s).
+**`go test ./internal/model/...`** — full model test suite PASS (1.609s).
 
 **`go build ./...`** — BUILD_SUCCESS (no new external deps; azure.go uses only stdlib).
 
 **`go vet ./...`** — clean (no output).
+
+**`gofmt -l`** on changed source files — clean (no output).
 
 ## Reachability artefact
 
@@ -71,12 +75,15 @@ ok  	github.com/swornagent/sworn/internal/model	0.016s
 - [x] The HTTP request produced by `Verify()` uses the URL `https://<endpoint>/openai/deployments/gpt-4o/chat/completions?api-version=<version>` and the header `api-key: <key>`
 - [x] The HTTP request does NOT include an `Authorization` header (Azure uses `api-key`, not `Bearer`)
 - [x] `go test ./internal/model/... -run Azure` passes with zero failures (9 tests)
-- [x] All prior model tests still pass (full suite 1.532s, zero regressions)
+- [x] All prior model tests still pass (full suite 1.609s, zero regressions)
 - [x] `case "azure":` added to `FromEnv()` key gate in config.go (reads `AZURE_OPENAI_API_KEY` canonical, `SWORN_AZURE_OPENAI_API_KEY` fallback)
 - [x] `AzureAPIKey`, `AzureEndpoint`, and `AzureAPIVersion` fields added to `ProviderConfig`, `ProviderConfigFromEnv()`, and `swornProviderConfig()` — field name `AzureAPIKey` matches spec AC exactly
 - [x] Azure stub in `NewClient()` replaced with `NewAzureOAI()` call using correct param order `(model, endpoint, apiKey, apiVersion)`
 - [x] Endpoint normalisation: strips trailing slashes, prepends `https://` when no scheme present
 - [x] Standalone `AzureOAI` struct (not embedding `*OAI`) — Azure replaces URL construction and auth header entirely
+- [x] `gofmt -l` clean on all changed source files (formatting violations from prior round fixed)
+- [x] Comment typo "environment// variables" fixed in provider.go → "environment variables"
+- [x] spec.md "Planned touchpoints" updated to include `config.go` and `provider_test.go`
 
 ## Not delivered
 
@@ -86,7 +93,8 @@ ok  	github.com/swornagent/sworn/internal/model	0.016s
 
 ## Divergence from plan
 
-- None. This implementation round corrected prior divergences: param order now matches spec AC #2 `(deployment, endpoint, key, apiVersion)`; default api-version is `"2024-12-01-preview"`; field name is `AzureAPIKey` as specified. All three verifier violations from the prior round are resolved.
+- spec.md "Planned touchpoints" updated to include `config.go` (FromEnv azure key gate) and `provider_test.go` (azure stub removal). These were legitimately touched in the original implementation but omitted from the spec; now recorded.
+- All other divergences from prior verifier round (gofmt formatting, comment typo, indentation fusion) are resolved — this round is gofmt-clean and go-vet-clean.
 
 ## First-pass script output
 
@@ -115,7 +123,19 @@ release-verify.sh
 
 == Diff vs start_commit (verifier base) ==
   diff base: start_commit e6c92d5
-  PASS  10 file(s) changed vs diff base
+  PASS  11 file(s) changed vs diff base
+  (first 20)
+    docs/release/2026-06-19-safe-parallelism/S14-azure-driver/approved-ack.md
+    docs/release/2026-06-19-safe-parallelism/S14-azure-driver/journal.md
+    docs/release/2026-06-19-safe-parallelism/S14-azure-driver/proof.md
+    docs/release/2026-06-19-safe-parallelism/S14-azure-driver/spec.md
+    docs/release/2026-06-19-safe-parallelism/S14-azure-driver/status.json
+    docs/release/2026-06-19-safe-parallelism/index.md
+    internal/model/azure.go
+    internal/model/azure_test.go
+    internal/model/config.go
+    internal/model/provider.go
+    internal/model/provider_test.go
 
 == Dark-code markers in changed files ==
   PASS  no dark-code markers in changed source files
@@ -130,7 +150,7 @@ release-verify.sh
   PASS  proof.md has section: ## Divergence from plan
   PASS  no obvious template placeholders left in proof.md
   PASS  proof.md 'Not delivered' deferrals carry non-placeholder tracking refs
-  PASS  proof.md 'Files changed' count (~9) consistent with diff vs start_commit (10)
+  PASS  proof.md 'Files changed' count (~11) consistent with diff vs start_commit (11)
 
 == Frontmatter YAML safety ==
   PASS  spec.md frontmatter is strict-YAML safe

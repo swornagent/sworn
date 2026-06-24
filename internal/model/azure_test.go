@@ -62,7 +62,8 @@ func TestAzureVerify_CorrectURL(t *testing.T) {
 	}
 	if !strings.Contains(gotURL, "api-version=2024-12-01-preview") {
 		t.Fatalf("URL missing api-version: got %q", gotURL)
-	}}
+	}
+}
 
 func TestAzureVerify_APIKeyHeader(t *testing.T) {
 	var gotAPIKey string
@@ -76,7 +77,8 @@ func TestAzureVerify_APIKeyHeader(t *testing.T) {
 	endpoint := srv.URL
 
 	a, err := NewAzureOAI("gpt-4o", endpoint, "test-api-key-123", "2024-12-01-preview")
-	if err != nil {		t.Fatalf("NewAzureOAI: %v", err)
+	if err != nil {
+		t.Fatalf("NewAzureOAI: %v", err)
 	}
 	a.Client = srv.Client()
 
@@ -178,7 +180,7 @@ func TestAzureVerify_ReturnsText(t *testing.T) {
 
 func TestNewClient_AzureRouted(t *testing.T) {
 	pcfg := ProviderConfig{
-		AzureAPIKey:  "test-key",
+		AzureAPIKey:     "test-key",
 		AzureEndpoint:   "myendpoint.openai.azure.com",
 		AzureAPIVersion: "2024-12-01-preview",
 	}
