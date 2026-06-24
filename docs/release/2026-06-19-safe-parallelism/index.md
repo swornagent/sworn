@@ -446,8 +446,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | verified | [spec](./S09-per-role-model-config/spec.md) |
 | `S10-provider-foundation` | T5 | ADR 0007 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | implemented | [spec](./S10-provider-foundation/spec.md) |
 | `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | verified | [spec](./S11-anthropic-driver/spec.md) || `S12-google-driver` | T5 | Google Gemini and Vertex AI models work as verifier and implementer | failed_verification | [spec](./S12-google-driver/spec.md) || `S13-bedrock-driver` | T5 | AWS Bedrock models work via Converse API; IAM auth | verified | [spec](./S13-bedrock-driver/spec.md) |
-| `S14-azure-driver` | T5 | Azure OpenAI deployments work via api-key auth; no new SDK dep | planned | [spec](./S14-azure-driver/spec.md) |
-| `S15-oci-driver` | T5 | OCI Generative AI models work via oci-go-sdk | planned | [spec](./S15-oci-driver/spec.md) |
+| `S14-azure-driver` | T5 | Azure OpenAI deployments work via api-key auth; no new SDK dep | failed_verification | [spec](./S14-azure-driver/spec.md) || `S15-oci-driver` | T5 | OCI Generative AI models work via oci-go-sdk | planned | [spec](./S15-oci-driver/spec.md) |
 | `S16-ollama-driver` | T5 | Ollama native /api/chat endpoint; replaces OAI-compat shim | planned | [spec](./S16-ollama-driver/spec.md) |
 | `S17-tui-provider-config` | T6 | TUI settings panel: provider API keys, model per role, escalation list, max attempts; persists to config.json + ~/.sworn/.env | planned | [spec](./S17-tui-provider-config/spec.md) |
 | `S18-consideration-catalog` | T3 | Typed consideration catalog + decision registry; planner Phase 2b (DRY gate, design consultation, arch conformance, capture); sworn init scaffolds both templates | verified | [spec](./S18-consideration-catalog/spec.md) || `S19-sworn-induction` | T3 | `sworn induction` one-time repo onboarding (design system + architecture discovery); implementer + verifier prompts gain deviation-surfacing steps | verified | [spec](./S19-sworn-induction/spec.md) || `S20-mcp-catalog-tools` | T7 | 8 MCP tools: plan_release (unified), get_induction_status, get_considerations, search_decisions, record_decision, check_design_system, update_design_system, record_architecture_pattern | verified | [spec](./S20-mcp-catalog-tools/spec.md) || `S21-canonical-baton` | T3 | Baton protocol embedded in binary (internal/prompt/baton/); sworn init writes minimal MCP-pointer AGENTS.md instead of per-repo Baton copy; ADR-0008 | verified | [spec](./S21-canonical-baton/spec.md) || `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | verified | [spec](./S22-sworn-doctor/spec.md) |
@@ -1472,3 +1471,11 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
   - Gate 2: Planned touchpoints mismatch (config.go, provider_test.go changed but not listed in spec; no divergence documented).
   - Gate 6: Claimed scope (sworn run dispatch) does not match implementation (FromEnv path broken).
 - **State**: S12 → failed_verification. T5-providers remains in_progress. Implementer must address in fresh /implement-slice session.
+
+### 2026-07-09 — S14-azure-driver failed_verification
+
+- **Actor**: verifier (`/verify-slice`, fresh context, no implementer transcript)
+- **Verdict**: FAIL — 2 violations (Gate 6). See slice journal for details.
+  - Gate 6: Claimed scope matches implemented scope — spec.md AC #2 NewAzureOAI call order and default api-version do not match implementation; field names AzureAPIKey vs AzureOpenAIKey.
+  - Gate 6: proof.md "Delivered" claims ACs satisfied but they are not literally.
+- **State**: S14 → failed_verification. T5-providers remains in_progress. Implementer must address in fresh /implement-slice session.

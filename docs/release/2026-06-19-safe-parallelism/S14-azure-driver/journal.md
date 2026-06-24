@@ -40,3 +40,18 @@ None.
 ## Verifier verdicts received
 
 *(None yet — slice is implemented, awaiting fresh-context verification.)*
+### 2026-07-09 — Verifier verdict — FAIL
+
+FAIL
+
+Slice: S14-azure-driver
+
+Violations:
+1. Gate 6 — Claimed scope matches implemented scope
+   Evidence: spec.md AC #2: `NewAzureOAI("gpt-4o", "myendpoint.openai.azure.com", key, "")` with default "2024-12-01-preview"; code in azure.go has different param order (deployment, apiKey, endpoint, apiVersion) and default "2024-10-21"; field names AzureAPIKey vs AzureOpenAIKey in provider.go/config.go
+2. Gate 6 — "Delivered" list claims ACs satisfied but they are not literally (proof acknowledges divergences but does not update spec ACs)
+
+Required to address:
+1. Make implementation match spec ACs (param order, default api-version, field names) or update spec ACs to match implementation (latter requires planner if changing binding ACs).
+
+Next step: re-open `/implement-slice S14-azure-driver 2026-06-19-safe-parallelism` in a fresh session to address the violations.
