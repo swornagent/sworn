@@ -12,8 +12,7 @@ var versionForTest string
 var semverTagRE = regexp.MustCompile(`^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$`)
 
 // Version returns the embedded Baton protocol version string (a semver tag
-// like "v0.4.0") read from the adopt embed. If the embed is missing or the
-// baton-protocol line cannot be parsed, it returns "".
+// like "v0.4.2") read from the adopt embed. If the embed is missing or the// baton-protocol line cannot be parsed, it returns "".
 func Version() string {
 	if versionForTest != "" {
 		return versionForTest

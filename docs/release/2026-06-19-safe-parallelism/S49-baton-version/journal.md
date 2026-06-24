@@ -182,3 +182,39 @@ adoption pin moves to that release. The loop's prior T14 implementation wrote
 `upstream-sha: 729f188…`, refresh `vendored:`, extend `rules-added:` (rule 11 + role-prompt gates),
 make `internal/prompt/VERSION.txt` agree, re-verify `sworn version`/`sworn doctor` → on Baton v0.4.2.
 Spec synced from release-wt. `start_commit` (d58aeca) preserved.
+
+## 2026-07-09d: Re-implementation — re-pin v0.4.0 → v0.4.2
+### State transition: failed_verification → in_progress → implemented
+
+Re-entered from `failed_verification` (planner re-pinned spec to v0.4.2, commit
+`729f188f6f69f4b807c5974b33fd39ec98671f15`). Bumped version strings in all four
+touchpoints.
+
+### Changes
+
+- `internal/adopt/baton/VERSION`: `baton-protocol: v0.4.0` → `v0.4.2`; added
+  `upstream-sha: 729f188f6f69f4b807c5974b33fd39ec98671f15`; extended
+  `rules-added:` with `role-prompt-operational-gates (v0.4.1/v0.4.2 implementer/verifier canonical prompts)`
+- `internal/prompt/VERSION.txt`: `v0.4.0` → `v0.4.2`
+- `internal/baton/version.go`: doc comment updated to v0.4.2
+- `internal/prompt/prompt.go`: doc comment updated to v0.4.2; fixed Edit-tool
+  newline collapse (comment+function fused on one line)
+
+### Test results
+
+All S49-specific tests pass. Pre-existing failures unchanged (6 prompt
+heading tests from T12, TestCmdRun_Parallel).
+
+### Reachability
+
+- `sworn version` → `baton-protocol on Baton v0.4.2`
+- `sworn doctor` → EXIT 0, `[OK] baton/VERSION.txt version=v0.4.2`,
+  `[OK] baton/VERSION (baton-protocol) on Baton v0.4.2`
+
+### Skeptic panel
+
+Skipped — runtime does not support subagent dispatch.
+
+### Deferrals
+
+None.
