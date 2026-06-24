@@ -3,8 +3,7 @@
   "slice_id": "S16-ollama-driver",
   "release": "2026-06-19-safe-parallelism",
   "track": "T5-providers",
-  "state": "implemented",
-  "owner": "human",
+  "state": "failed_verification",  "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-12T00:00:00Z",
   "start_commit": "f88468f",
@@ -66,10 +65,11 @@
     }
   ],
   "verification": {
-    "result": "",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
-  }
-}
+    "result": "fail",
+    "verifier_session_id": "verifier-fresh-2026-07-12",
+    "verifier_verdict_at": "2026-07-12T00:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "1. Planned touchpoints mismatch: spec.md lists 3 files (internal/model/ollama.go, internal/model/ollama_test.go, internal/model/provider.go), but git diff shows 4 source files changed including internal/model/provider_test.go (not listed in spec's Planned touchpoints); status.json planned_files includes it but spec.md (the contract) was not updated. Divergence section in proof.md does not explain this addition to scope."
+    ]
+  }}

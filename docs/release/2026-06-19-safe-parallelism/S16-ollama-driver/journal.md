@@ -47,3 +47,10 @@ None.
 ## Verifier verdicts received
 
 *(None yet.)*
+### 2026-07-12 — Verifier verdict — FAIL
+
+**Verdict:** FAIL: 1
+
+1. Planned touchpoints mismatch: spec.md lists 3 files (internal/model/ollama.go, internal/model/ollama_test.go, internal/model/provider.go), but git diff shows 4 source files changed including internal/model/provider_test.go (not listed in spec's Planned touchpoints); status.json planned_files includes it but spec.md (the contract) was not updated. Divergence section in proof.md does not explain this addition to scope.
+
+**Next step:** Re-open `/implement-slice S16-ollama-driver 2026-06-19-safe-parallelism` in a fresh session to address the numbered violation (update spec.md Planned touchpoints to include provider_test.go and reconcile proof.md divergence).
