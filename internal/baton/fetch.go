@@ -134,6 +134,12 @@ type ghCommitResponse struct {
 
 var baseURLForTest string
 
+// SetBaseURLForTest overrides the base URL for test HTTP servers.
+// Call ClearBaseURLForTest to restore default behaviour.
+func SetBaseURLForTest(url string) { baseURLForTest = url }
+
+// ClearBaseURLForTest restores the default (real) base URLs.
+func ClearBaseURLForTest() { baseURLForTest = "" }
 func resolveCommitSHA(ctx context.Context, owner, name, tag string) (string, error) {
 	base := "https://api.github.com"
 	if baseURLForTest != "" {

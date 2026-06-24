@@ -50,14 +50,13 @@ network source provider.
 
 ## Planned touchpoints
 
-- `internal/baton/fetch.go` (new) — HTTPS tarball fetch + extract + SHA/digest verify
+- `internal/baton/fetch.go` (new) — HTTPS tarball fetch + extract + SHA/digest verify; exported `SetBaseURLForTest` / `ClearBaseURLForTest` for integration tests
 - `internal/baton/fetch_test.go` (new) — `httptest.Server` fixtures: success, digest/SHA
-  mismatch, 404/network-error, bad-gzip, prefix-strip
-- `internal/baton/source.go` — add the network source provider behind the existing resolver
-- `cmd/sworn/baton.go` — `--upstream` / `--tag` / `--repo` flags wiring
-- `internal/adopt/baton/VERSION` — record resolved commit SHA + digest beside the tag
-  (S49-owned format; sequential via dep on S49)
-
+  mismatch, 404/network-error, bad-gzip, prefix-strip, bootstrap
+- `internal/baton/version.go` — upstream pin read/write (`ReadUpstreamPin`, `WriteUpstreamPin`, `UpstreamPin` struct)
+- `internal/baton/version_stub.go` — exported test setters: `SetUpstreamPinForTest` / `ClearUpstreamPinForTest`
+- `cmd/sworn/baton.go` — `--upstream` / `--tag` / `--repo` flags wiring; `cmdBatonVendor` calls `FetchUpstream` + `Vendor` + `WriteUpstreamPin`
+- `cmd/sworn/baton_test.go` — command-level integration tests: `TestBatonVendorUpstream_Success`, `TestBatonVendorUpstream_DigestMismatch`, `TestBatonVendorUpstream_LocalBackCompat` (Rule 1 reachability through CLI entry point)
 ## Acceptance checks
 
 - [ ] With `--upstream`, `internal/baton` fetches `codeload.github.com/<owner>/<repo>/tar.gz/refs/tags/<tag>` via `net/http` and extracts via `compress/gzip` + `archive/tar`, stripping the `<repo>-<ref>/` prefix. Falsifiable: no `os/exec`/git invocation in the fetch path; `go.mod` `require` is unchanged (stdlib only). Verified by `fetch_test.go` against an `httptest.Server`.

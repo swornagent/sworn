@@ -70,3 +70,19 @@
   - Required to address: Add command-level integration test exercising `cmdBatonVendor` with --upstream against httptest (or equivalent Rule 1 test); update spec.md Planned touchpoints and proof.md Divergence to match implemented files (fetch.go + version.go, no source.go); ensure proof.md reachability artefact names the command-level test.
   - Tests re-run: go test ./internal/baton/... , go test ./cmd/sworn/... -run TestBaton , go build ./... , go vet ./... — all PASS in this session.
   - Verifier was fresh context (Rule 7).
+
+## 2026-07-09 (round 2) — in_progress (re-implementation after FAIL)
+
+- **Actor**: implementer (Claude)
+- **Verifier violations addressed**:
+  1. **Gate 2 (touchpoint mismatch)**: Updated spec.md `Planned touchpoints` to match actual files: removed `internal/baton/source.go` (not modified — Decision 5 chose standalone FetchUpstream) and `internal/adopt/baton/VERSION` (embed file, not code file); added `internal/baton/version_stub.go` and `cmd/sworn/baton_test.go`. Proof.md `Divergence from plan` documents the architectural change.
+  2. **Gate 3 (missing integration test)**: Added 3 command-level integration tests in `cmd/sworn/baton_test.go`:
+     - `TestBatonVendorUpstream_Success` — drives `cmdBatonVendor` with `--upstream --repo --tag` against an `httptest.Server`; asserts exit 0, all 19 dest files written, VERSION updated with pin.
+     - `TestBatonVendorUpstream_DigestMismatch` — tampered tarball fails closed at command level (non-zero exit, no files written).
+     - `TestBatonVendorUpstream_LocalBackCompat` — local vendor path without `--upstream` still works (S48 back-compat).
+  3. **Gate 1/4 (reachability)**: `TestBatonVendorUpstream_Success` is the Rule 1 artefact — exercises the full `sworn baton vendor --upstream` through the CLI entry point, not just the leaf. Proof.md reachability artefact updated.
+  4. **Gate 6 (AC evidence)**: Delivered list now references command-level test names for cross-referencing.
+- **Test infrastructure exports**: Added `SetBaseURLForTest`/`ClearBaseURLForTest` to `internal/baton/fetch.go` and `SetUpstreamPinForTest`/`ClearUpstreamPinForTest` to `internal/baton/version_stub.go` so the `cmd/sworn` package can inject test servers/pins.
+- **Tests**: all 27 internal/baton tests pass; all 5 cmd/sworn baton tests pass; build + vet clean.
+- **Skeptic panel**: skipped — runtime does not support subagent dispatch.
+- **start_commit**: preserved at `e9d73cc14fe53cec60d12867e00cf3d83d270807` (original implementation round).
