@@ -12,7 +12,8 @@ import (
 
 	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/board"
-	"github.com/swornagent/sworn/internal/scheduler")
+	"github.com/swornagent/sworn/internal/scheduler"
+)
 
 // ParallelOptions configures the RunParallel concurrent execution.
 type ParallelOptions struct {
@@ -37,6 +38,7 @@ type ParallelOptions struct {
 	// When nil, notifications are skipped.
 	Notifier *account.Notifier
 }
+
 // RunParallel reads the release board, builds an execution plan, and runs
 // all tracks concurrently according to their depends_on edges.
 //
@@ -145,7 +147,8 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 				if result == scheduler.TrackFail {
 					failCancel()
 				}
-			}()		}
+			}()
+		}
 
 		wg.Wait()
 		phaseCancel()
@@ -154,6 +157,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 	// ── Collect and report outcomes ─────────────────────────────────────
 	var failedTracks []string
 	var skippedTracks []string
+	var pausedTracks []string
 
 	for _, trackInfo := range tracks {
 		val, ok := outcomeMap.Load(trackInfo.ID)
@@ -171,6 +175,9 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 		case scheduler.TrackSkipped:
 			skippedTracks = append(skippedTracks, trackInfo.ID)
 			fmt.Fprintf(os.Stderr, "[%s] result: SKIPPED\n", trackInfo.ID)
+		case scheduler.TrackPaused:
+			pausedTracks = append(pausedTracks, trackInfo.ID)
+			fmt.Fprintf(os.Stderr, "[%s] result: PAUSED\n", trackInfo.ID)
 		}
 	}
 
@@ -179,8 +186,8 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 			len(failedTracks), strings.Join(failedTracks, ", "))
 	}
 
-	fmt.Fprintf(os.Stderr, "RunParallel: all %d tracks PASS (skipped: %d)\n",
-		len(tracks), len(skippedTracks))
+	fmt.Fprintf(os.Stderr, "RunParallel: all %d tracks PASS (skipped: %d, paused: %d)\n",
+		len(tracks), len(skippedTracks), len(pausedTracks))
 	return nil
 }
 
