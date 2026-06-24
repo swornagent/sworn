@@ -125,4 +125,4 @@ This httptest is the reachability artefact per spec — the `/v1/responses` endp
 
 ## First-pass script output
 
-21 passed, 2 failed (state in_progress + Files miscount). Re-run after fixes passes all.
+23 passed, 0 failed — FIRST-PASS PASS

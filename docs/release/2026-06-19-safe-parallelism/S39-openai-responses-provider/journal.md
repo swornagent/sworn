@@ -114,3 +114,6 @@ Verifier FAIL violations addressed:
 All tests green: `go test ./internal/model/...` (1.644s), `go test ./internal/agent/...` (0.029s), `go vet clean`, `go build clean`.
 
 Slice re-marked `implemented` for fresh verifier re-run.
+Release-verify.sh first-pass: 23/23 PASS.
+
+Skeptic panel: skipped — runtime does not support subagent dispatch.
