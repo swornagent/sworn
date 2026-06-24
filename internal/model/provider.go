@@ -23,10 +23,10 @@ type ProviderConfig struct {
 	OllamaHost          string // optional, defaults to http://localhost:11434/v1
 	AwsAccessKey        string
 	AwsSecretKey        string
+	AwsRegion           string // AWS region for Bedrock (fallback: AWS_REGION → AWS_DEFAULT_REGION → us-east-1)
 	AzureOpenAIKey      string
 	// OCI SDK env vars are read directly by the OCI driver (S15); not stored here.
 }
-
 // ProviderConfigFromEnv reads per-provider configuration from environment
 // variables. The SWORN_OPENAI_API_KEY alias is checked as a fallback when
 // OPENAI_API_KEY is empty (backward compatibility per spec Risk #1).
@@ -46,8 +46,8 @@ func ProviderConfigFromEnv() ProviderConfig {
 		OllamaHost:          ollamaHost(),
 		AwsAccessKey:        os.Getenv("AWS_ACCESS_KEY_ID"),
 		AwsSecretKey:        os.Getenv("AWS_SECRET_ACCESS_KEY"),
-		AzureOpenAIKey:      os.Getenv("AZURE_OPENAI_API_KEY"),
-	}
+		AwsRegion:           envOrAlias("AWS_REGION", "AWS_DEFAULT_REGION"),
+		AzureOpenAIKey:      os.Getenv("AZURE_OPENAI_API_KEY"),	}
 }
 
 // envOrAlias returns the value of the canonical env var, or the alias if the
@@ -158,9 +158,8 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 	case "vertex":
 		return NewGoogleVertex(model, pcfg.GoogleCloudProject, pcfg.GoogleCloudLocation)
 	case "bedrock":
-		return nil, fmt.Errorf("%w: bedrock driver lands in S13-bedrock-driver", ErrDriverNotRegistered)
-	case "azure":
-		return nil, fmt.Errorf("%w: azure driver lands in S14-azure-driver", ErrDriverNotRegistered)
+		return NewBedrock(model, pcfg.AwsRegion)
+	case "azure":		return nil, fmt.Errorf("%w: azure driver lands in S14-azure-driver", ErrDriverNotRegistered)
 	case "oci":
 		return nil, fmt.Errorf("%w: oci driver lands in S15-oci-driver", ErrDriverNotRegistered)
 

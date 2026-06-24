@@ -84,11 +84,9 @@ func TestNewClient_Ollama(t *testing.T) {
 func TestNewClient_NativeStub(t *testing.T) {
 	cfg := ProviderConfig{}
 	nativeProviders := []string{
-		"bedrock/anthropic.claude-sonnet-4-6",
 		"azure/gpt-4o",
 		"oci/meta.llama-3.3-70b",
 	}
-
 	for _, modelID := range nativeProviders {
 		_, err := NewClient(modelID, cfg)
 		if err == nil {
