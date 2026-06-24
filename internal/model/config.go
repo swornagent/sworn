@@ -70,11 +70,20 @@ func FromEnv(modelID string) (Verifier, error) {
 	// delegate to NewClient for provider dispatch.
 	//
 	// Backward compat: check that the provider's API key is set before dispatch.
-	key := os.Getenv("SWORN_" + prefix + "_API_KEY")
+	// Vertex AI uses Application Default Credentials — no API key required.
+	// Google Gemini uses either GOOGLE_API_KEY (canonical) or SWORN_GOOGLE_API_KEY.
+	var key string
+	switch provider {
+	case "vertex":
+		key = "adc" // placeholder; ADC handles auth — no API key required
+	case "google":
+		key = envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY")
+	default:
+		key = os.Getenv("SWORN_" + prefix + "_API_KEY")
+	}
 	if key == "" {
 		return nil, fmt.Errorf("model: SWORN_%s_API_KEY not set", prefix)
 	}
-
 	pcfg := swornProviderConfig()
 	// Apply SWORN_<PREFIX>_MODEL override before dispatch.
 	if envModel := os.Getenv("SWORN_" + prefix + "_MODEL"); envModel != "" {
@@ -123,8 +132,9 @@ func swornProviderConfig() ProviderConfig {
 		MistralKey:     os.Getenv("SWORN_MISTRAL_API_KEY"),
 		OpenRouterKey:  os.Getenv("SWORN_OPENROUTER_API_KEY"),
 		AnthropicKey:   os.Getenv("SWORN_ANTHROPIC_API_KEY"),
-		GoogleKey:      os.Getenv("SWORN_GOOGLE_API_KEY"),
-		CloudflareKey:  os.Getenv("SWORN_CLOUDFLARE_API_KEY"),
+		GoogleKey:           envOrAlias("SWORN_GOOGLE_API_KEY", "GOOGLE_API_KEY"),
+		GoogleCloudProject:  os.Getenv("GOOGLE_CLOUD_PROJECT"),
+		GoogleCloudLocation: os.Getenv("GOOGLE_CLOUD_LOCATION"),		CloudflareKey:  os.Getenv("SWORN_CLOUDFLARE_API_KEY"),
 		GitHubToken:    os.Getenv("SWORN_GITHUB_TOKEN"),
 		OllamaHost:     ollamaHost(),
 		AwsAccessKey:   os.Getenv("SWORN_AWS_ACCESS_KEY_ID"),

@@ -15,7 +15,9 @@ type ProviderConfig struct {
 	MistralKey     string
 	OpenRouterKey  string
 	AnthropicKey   string
-	GoogleKey      string
+	GoogleKey            string
+	GoogleCloudProject   string
+	GoogleCloudLocation  string
 	CloudflareKey  string
 	GitHubToken    string
 	OllamaHost     string // optional, defaults to http://localhost:11434/v1
@@ -36,8 +38,9 @@ func ProviderConfigFromEnv() ProviderConfig {
 		MistralKey:     os.Getenv("MISTRAL_API_KEY"),
 		OpenRouterKey:  os.Getenv("OPENROUTER_API_KEY"),
 		AnthropicKey:   os.Getenv("ANTHROPIC_API_KEY"),
-		GoogleKey:      os.Getenv("GOOGLE_API_KEY"),
-		CloudflareKey:  os.Getenv("CLOUDFLARE_API_KEY"),
+		GoogleKey:           envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY"),
+		GoogleCloudProject:  os.Getenv("GOOGLE_CLOUD_PROJECT"),
+		GoogleCloudLocation: os.Getenv("GOOGLE_CLOUD_LOCATION"),		CloudflareKey:  os.Getenv("CLOUDFLARE_API_KEY"),
 		GitHubToken:    os.Getenv("GITHUB_TOKEN"),
 		OllamaHost:     ollamaHost(),
 		AwsAccessKey:   os.Getenv("AWS_ACCESS_KEY_ID"),
@@ -150,9 +153,10 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 	case "anthropic":
 		return NewAnthropic(model, pcfg.AnthropicKey)
 	case "google":
-		return nil, fmt.Errorf("%w: google driver lands in S12-google-driver", ErrDriverNotRegistered)
-	case "bedrock":
-		return nil, fmt.Errorf("%w: bedrock driver lands in S13-bedrock-driver", ErrDriverNotRegistered)
+		return NewGoogleGemini(model, pcfg.GoogleKey)
+	case "vertex":
+		return NewGoogleVertex(model, pcfg.GoogleCloudProject, pcfg.GoogleCloudLocation)
+	case "bedrock":		return nil, fmt.Errorf("%w: bedrock driver lands in S13-bedrock-driver", ErrDriverNotRegistered)
 	case "azure":
 		return nil, fmt.Errorf("%w: azure driver lands in S14-azure-driver", ErrDriverNotRegistered)
 	case "oci":
