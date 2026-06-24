@@ -1,7 +1,7 @@
 {
   "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
   "slice_id": "S39-openai-responses-provider", "release": "2026-06-19-safe-parallelism",
-  "track": "T5-providers", "state": "planned", "owner": "human",
+  "track": "T5-providers", "state": "design_review", "owner": "human",
   "last_updated_by": "planner", "last_updated_at": "2026-06-21T00:00:00Z", "start_commit": null,
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S39-openai-responses-provider/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S39-openai-responses-provider/proof.md",
