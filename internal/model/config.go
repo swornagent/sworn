@@ -75,8 +75,7 @@ func FromEnv(modelID string) (Verifier, error) {
 	var key string
 	switch provider {
 	case "vertex":
-		key = "adc" // placeholder; ADC handles auth — no API key required
-	case "google":
+		key = "adc" // Vertex AI uses ADC — no API key required	case "google":
 		key = envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY")
 	default:
 		key = os.Getenv("SWORN_" + prefix + "_API_KEY")

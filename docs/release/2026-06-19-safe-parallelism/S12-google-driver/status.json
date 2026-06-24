@@ -3,11 +3,11 @@
   "slice_id": "S12-google-driver",
   "release": "2026-06-19-safe-parallelism",
   "track": "T5-providers",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-08T00:00:00Z",
-  "start_commit": null,
+  "last_updated_at": "2026-07-08T01:00:00Z",
+  "start_commit": "b60e4a3",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S12-google-driver/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S12-google-driver/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S12-google-driver/journal.md",
@@ -19,13 +19,25 @@
     "go.mod",
     "go.sum"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/model/google.go",
+    "internal/model/google_test.go",
+    "internal/model/provider.go",
+    "internal/model/config.go",
+    "internal/model/provider_test.go",
+    "go.mod",
+    "go.sum"
+  ],
   "test_commands": [
     "go test ./internal/model/... -run Google",
     "go test ./internal/model/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "go test ./internal/model/... -run Google (10 tests, 8 PASS, 2 SKIP)",
+    "go build ./... (PASS)",
+    "go test ./internal/model/... (all model tests PASS)"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "",
