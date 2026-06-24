@@ -3,10 +3,12 @@
   "slice_id": "S58-slice-router",
   "release": "2026-06-19-safe-parallelism",
   "track": "T17-orchestration-core",
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-15T02:00:00Z",  "start_commit": "ec63795caf94eec6c5c124027542ae38cffb1a65",  "spec_path": "docs/release/2026-06-19-safe-parallelism/S58-slice-router/spec.md",
+  "last_updated_at": "2026-07-15T02:00:00Z",
+  "start_commit": "ec63795caf94eec6c5c124027542ae38cffb1a65",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S58-slice-router/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S58-slice-router/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S58-slice-router/journal.md",
   "planned_files": [
@@ -18,7 +20,8 @@
     "cmd/sworn/route_test.go",
     "internal/git/git.go",
     "internal/git/git_test.go"
-  ],  "actual_files": [
+  ],
+  "actual_files": [
     "cmd/sworn/route.go",
     "cmd/sworn/route_test.go",
     "internal/board/oracle.go",
@@ -33,17 +36,16 @@
     "go build ./..."
   ],
   "reachability_artifacts": [
-    "cmd/sworn/route_test.go — TestRouteIntegration runs sworn route against a fixture repo covering every state branch"
+    "cmd/sworn/route_test.go \u2014 TestRouteIntegration runs sworn route against a fixture repo covering every state branch"
   ],
   "open_deferrals": [],
   "verification": {
     "result": "fail",
     "verifier_session_id": "fresh-verifier-2026-07-15",
-    "verifier_verdict_at": "2026-07-15T00:00:00Z",
+    "verifier_verdict_at": "2026-07-15T02:30:00Z",
     "verifier_was_fresh_context": true,
     "violations": [
-      "Gate 2 — Planned touchpoints do not match actual changed files. Evidence: spec.md \"Planned touchpoints\" lists only internal/router/* and cmd/sworn/route*; git diff shows internal/board/oracle.go and internal/git/git.go changed; proof.md \"Divergence from plan\" does not explain these.",
-      "Gate 6 — Claimed scope matches implemented scope. Evidence: spec AC \"verified with a later planned sibling routes to it (review if it has design.md, else implement)\" is not implemented; routeNextSlice always routes planned to implement (no design.md check); TestVerifiedWalksTrackThenMerges only tests planned case; proof.md lists it as delivered but acknowledges the gap."
+      "Gate 2 \u2014 Planned touchpoints do not match actual changed files. Evidence: spec.md \"Planned touchpoints\" lists internal/board/oracle.go, internal/git/git.go, internal/git/git_test.go, cmd/sworn/route.go, cmd/sworn/route_test.go, internal/router/parity_test.go; `git diff --name-only ec63795caf94eec6c5c124027542ae38cffb1a65..HEAD` only shows internal/router/router.go and internal/router/router_test.go (plus docs). proof.md \"Divergence from plan\" claims \"These were always in the actual diff\" but that refers to prior commit ff14848 (before re-impl start_commit); the slice scope per start_commit does not include them."
     ],
     "routing": ""
   },
@@ -51,7 +53,10 @@
     {
       "choice": "OracleReader interface defined in internal/board with router-friendly signatures (ReadSliceStatus, ReadBoard hiding ref/track-map resolution).",
       "stake_class": "Type-2",
-      "options": ["Define router-friendly interface in internal/board", "Pass *Oracle directly with full params to Route"],
+      "options": [
+        "Define router-friendly interface in internal/board",
+        "Pass *Oracle directly with full params to Route"
+      ],
       "human_decision": "Define router-friendly interface in internal/board; CLI constructs Oracle+reader, passes interface to router.",
       "rationale": "Keeps the router testable with fakes; hides git-ref resolution from the pure decision function.",
       "architecturally_significant": false
@@ -59,7 +64,10 @@
     {
       "choice": "LastCommitTime added to internal/git/git.go as method on *Repo wrapping `git log -1 --format=%ct`.",
       "stake_class": "Type-2",
-      "options": ["Add to *git.Repo", "Define in router package with os/exec"],
+      "options": [
+        "Add to *git.Repo",
+        "Define in router package with os/exec"
+      ],
       "human_decision": "Add to *git.Repo; also add IsAncestor. Both declared in planned_files.",
       "rationale": "git.Repo is the single git-operation surface; new methods are additive (no existing method modified).",
       "architecturally_significant": false
@@ -67,7 +75,10 @@
     {
       "choice": "CommitTimeReader is a separate interface in internal/router for commit-time queries; do NOT add LastCommitTime to board.gitContentReader.",
       "stake_class": "Type-2",
-      "options": ["Separate CommitTimeReader interface", "Add LastCommitTime to board.gitContentReader"],
+      "options": [
+        "Separate CommitTimeReader interface",
+        "Add LastCommitTime to board.gitContentReader"
+      ],
       "human_decision": "Separate CommitTimeReader interface. board.gitContentReader is the board-oracle contract; adding LastCommitTime breaks cmd/sworn/board.go's oracleReader.",
       "rationale": "Interface segregation: board oracle reads state, router queries commit times. Different concerns, different interfaces.",
       "architecturally_significant": false
@@ -75,15 +86,21 @@
     {
       "choice": "Design-review routing: approved-ack.md via CatFileExists (committed-ref); design/review/decline via LastCommitTime on track branch.",
       "stake_class": "Type-2",
-      "options": ["CatFileExists for approved-ack.md; LastCommitTime for others (committed-ref, stricter)", "os.Stat + git log -1 matching bash script exactly"],
-      "human_decision": "CatFileExists for approved-ack.md; LastCommitTime for others. Committed-ref check; slightly stricter than bash (uncommitted approved-ack.md → absent).",
-      "rationale": "Router reads committed state; avoids working-tree dependency. Stricter means uncommitted approved-ack is invisible — implementer must commit after coach ack.",
+      "options": [
+        "CatFileExists for approved-ack.md; LastCommitTime for others (committed-ref, stricter)",
+        "os.Stat + git log -1 matching bash script exactly"
+      ],
+      "human_decision": "CatFileExists for approved-ack.md; LastCommitTime for others. Committed-ref check; slightly stricter than bash (uncommitted approved-ack.md \u2192 absent).",
+      "rationale": "Router reads committed state; avoids working-tree dependency. Stricter means uncommitted approved-ack is invisible \u2014 implementer must commit after coach ack.",
       "architecturally_significant": false
     },
     {
       "choice": "verification.reason: use strings.Join(violations, \"; \") as fallback; no Reason field added to state.Verification.",
       "stake_class": "Type-2",
-      "options": ["strings.Join(violations) only", "Add Reason string to state.Verification"],
+      "options": [
+        "strings.Join(violations) only",
+        "Add Reason string to state.Verification"
+      ],
       "human_decision": "Use strings.Join(violations, \"; \") only. No status.json has ever set verification.reason; the jq // fallback was never populated in practice.",
       "rationale": "No production data carries the field; adding it to state.Verification is spec fiction. The bash jq is pure defensive fallback.",
       "architecturally_significant": false

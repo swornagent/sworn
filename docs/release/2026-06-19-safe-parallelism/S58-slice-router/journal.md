@@ -44,3 +44,16 @@ STATE: blocked_needs_human
 SLICE: S58-slice-router
 NEXT: NONE
 REASON: Gates 2 and 6 failed: touchpoint mismatch and verified sibling routing AC not met.
+
+### 2026-07-15 — verifier verdict — FAIL (re-verification after re-impl)
+FAIL
+Slice: S58-slice-router
+Violations:
+1. Gate 2 — Planned touchpoints do not match actual changed files.
+   Evidence: spec.md "Planned touchpoints" lists internal/board/oracle.go, internal/git/git.go, internal/git/git_test.go, cmd/sworn/route.go, cmd/sworn/route_test.go, internal/router/parity_test.go; `git diff --name-only ec63795caf94eec6c5c124027542ae38cffb1a65..HEAD` only shows internal/router/router.go and internal/router/router_test.go (plus docs). proof.md "Divergence from plan" claims "These were always in the actual diff" but that refers to prior commit ff14848 (before re-impl start_commit); the slice scope per start_commit does not include them.
+Required to address:
+1. Align planned touchpoints in spec.md and status.json `planned_files` with files actually changed since start_commit (only router.go + router_test.go + docs), or re-set start_commit to original implementation start if full scope intended. Update proof.md "Divergence from plan" and "Files changed" to match the verified scope.
+STATE: blocked_needs_human
+SLICE: S58-slice-router
+NEXT: NONE
+REASON: Gate 2 failed: touchpoint mismatch between spec planned and git diff vs start_commit.

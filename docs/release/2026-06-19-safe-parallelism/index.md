@@ -1714,3 +1714,17 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
   - Gate 6: Claimed scope matches implemented scope — all acceptance checks satisfied; Delivered list matches.
 - **State**: S16 → verified. T5-providers remains in_progress (S39, S63 pending).
 - **Next step**: `/implement-slice S39-openai-responses-provider 2026-06-19-safe-parallelism` in a fresh session.
+
+### 2026-07-15 — slice `S58-slice-router` → failed_verification (re-verification after re-impl)
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs).
+- **Verdict**: FAIL — Gate 2 failed (Gate 6 now passes).
+  - Gate 1: PASS — `sworn route <slice> <release>` CLI wired via command registry (init() in route.go), exercised by TestRouteIntegration and parity test; binary produces correct JSON.
+  - Gate 2: FAIL — Planned touchpoints do not match actual changed files. spec.md "Planned touchpoints" lists internal/board/oracle.go, internal/git/git.go, internal/git/git_test.go, cmd/sworn/route.go, cmd/sworn/route_test.go, internal/router/parity_test.go; `git diff --name-only ec63795caf94eec6c5c124027542ae38cffb1a65..HEAD` only shows internal/router/router.go and internal/router/router_test.go (plus docs). proof.md "Divergence from plan" claims "These were always in the actual diff" but that refers to prior commit ff14848 (before re-impl start_commit); the slice scope per start_commit does not include them.
+  - Gate 3: PASS — Required tests exist and exercise integration point (router_test.go table tests, parity_test.go, cmd/sworn/route_test.go TestRouteIntegration); re-ran `go test -race ./internal/router/...` PASS, `./internal/git/...` PASS, build PASS.
+  - Gate 4: PASS — Reachability artefact `cmd/sworn/route_test.go:TestRouteIntegration` runs real `sworn route` binary against committed fixture covering every state branch.
+  - Gate 5: PASS — No silent deferrals or placeholder logic in changed files (grep for TODO/FIXME/deferred/placeholder only hits legitimate state names in tests).
+  - Gate 6: PASS — design.md check for planned siblings now implemented in routeNextSlice (CatFileExists on track ref); TestVerifiedWalksTrackThenMerges includes "next_planned_sibling_with_design.md_→_review"; parity test covers it.
+- **Gates passed**: 1,3,4,5,6.
+- **Drift gate**: forward-merged 1 commit from release-wt/2026-06-19-safe-parallelism, pushed track branch.
+- **State**: S58 → failed_verification. Track T17-orchestration-core: S57 verified, S58 failed_verification, S59 planned.
+- **Next step**: Re-open `/implement-slice S58-slice-router 2026-06-19-safe-parallelism` in fresh session to address the numbered violation (Gate 2 touchpoint alignment).
