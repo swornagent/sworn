@@ -9,10 +9,15 @@ Deterministic `sworn route <slice-id> <release-name> [--pretty]` subcommand that
 ```
 cmd/sworn/route.go
 cmd/sworn/route_test.go
+docs/release/2026-06-19-safe-parallelism/S58-slice-router/approved-ack.md
 docs/release/2026-06-19-safe-parallelism/S58-slice-router/journal.md
 docs/release/2026-06-19-safe-parallelism/S58-slice-router/proof.md
 docs/release/2026-06-19-safe-parallelism/S58-slice-router/spec.md
 docs/release/2026-06-19-safe-parallelism/S58-slice-router/status.json
+docs/release/2026-06-19-safe-parallelism/S64-status-timestamp-sanity/journal.md
+docs/release/2026-06-19-safe-parallelism/S64-status-timestamp-sanity/spec.md
+docs/release/2026-06-19-safe-parallelism/S64-status-timestamp-sanity/status.json
+docs/release/2026-06-19-safe-parallelism/index.md
 internal/board/oracle.go
 internal/git/git.go
 internal/router/parity_test.go
@@ -20,6 +25,7 @@ internal/router/router.go
 internal/router/router_test.go
 ```
 
+Note: `docs/release/2026-06-19-safe-parallelism/S64-status-timestamp-sanity/*` and `index.md` are forward-merge artifacts from `release-wt` absorbed into this track branch during prior merges. They are not S58 code changes.
 ## Test results
 
 ```
@@ -59,6 +65,8 @@ ok  	github.com/swornagent/sworn/internal/git	1.251s
 
 ## Divergence from plan
 
-- **Docs prefix discovery**: The design assumed the CLI would receive a fixed `DocsPrefix`. The implementation resolves it dynamically by probing `CatFileExists` on the track branch for `docs/release/...` vs `apps/docs/content/docs/release/...`, matching `captain-route.sh`'s prefix detection.
-- **`internal/git/git_test.go` removed from planned_files**: This file was created by S57-oracle-reader (commit eb1127b) and was never modified by S58. It was incorrectly listed in the first-pass planned_files. Removed from both spec.md and status.json.
-- **start_commit reset**: Changed from ec63795 (re-impl session start) to a82b950 (original first-pass start) to capture the full implementation scope including `internal/board/oracle.go`, `internal/git/git.go`, `cmd/sworn/route.go`, `cmd/sworn/route_test.go`, and `internal/router/parity_test.go` that were created in the first pass and not re-touched in the re-impl.- **Dark-code first-pass hits**: release-verify.sh flags "deferred" in source files. All hits are legitimate: (a) the `deferred` state value used throughout the router (proper domain terminology, not a deferral), (b) `S63-deferral-1` — codex exec support, tracked Rule 2 deferral in #19, (c) OCI credential loading deferred-loading contract (design documentation, not a deferral).
+- **Docs prefix discovery**: The design assumed the CLI would receive a fixed DocsPrefix. The implementation resolves it dynamically by probing CatFileExists on the track branch for docs/release/... vs apps/docs/content/docs/release/..., matching captain-route.sh prefix detection.
+- **internal/git/git_test.go removed from planned_files**: This file was created by S57-oracle-reader (commit eb1127b) and was never modified by S58. It was incorrectly listed in the first-pass planned_files. Removed from both spec.md and status.json.
+- **start_commit reset**: Changed from ec63795 (re-impl session start) to a82b950 (original first-pass start) to capture the full implementation scope.
+- **Dark-code first-pass hits**: release-verify.sh flags "deferred" in S58 source files (router.go, router_test.go, parity_test.go, route_test.go). All hits are the legitimate deferred state name — a terminal state like shipped and verified — used throughout the router decision tree. Not a deferral.
+- **S64/docs artifacts in diff**: S64-status-timestamp-sanity/* and index.md appear in the diff because release-wt forward-merged them into this track branch. They are not S58 code changes and not in planned_files.
