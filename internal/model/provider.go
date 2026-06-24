@@ -3,9 +3,7 @@ package model
 import (
 	"fmt"
 	"os"
-	"strings"
 )
-
 // ProviderConfig holds per-provider API keys and optional overrides.
 // Fields use the canonical env var names (OPENAI_API_KEY, etc.).
 type ProviderConfig struct {
@@ -20,7 +18,7 @@ type ProviderConfig struct {
 	GoogleCloudLocation string
 	CloudflareKey       string
 	GitHubToken         string
-	OllamaHost          string // optional, defaults to http://localhost:11434/v1
+	OllamaHost          string // optional, defaults to http://localhost:11434
 	AwsAccessKey        string
 	AwsSecretKey        string
 	AwsRegion           string // AWS region for Bedrock (fallback: AWS_REGION → AWS_DEFAULT_REGION → us-east-1)
@@ -31,8 +29,7 @@ type ProviderConfig struct {
 	// directly by the OCI driver (S15). OCICompartmentID is a SwornAgent-specific
 	// routing param — not an SDK auth var — and is stored here.
 	OCICompartmentID string
-}
-// ProviderConfigFromEnv reads per-provider configuration from environment variables. The SWORN_OPENAI_API_KEY alias is checked as a fallback when
+}// ProviderConfigFromEnv reads per-provider configuration from environment variables. The SWORN_OPENAI_API_KEY alias is checked as a fallback when
 // OPENAI_API_KEY is empty (backward compatibility per spec Risk #1).
 func ProviderConfigFromEnv() ProviderConfig {
 	return ProviderConfig{
@@ -132,16 +129,10 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 		}, nil
 
 	case "ollama":
-		base := pcfg.OllamaHost
-		if base == "" {
-			base = "http://localhost:11434"
-		}
-		return &OAI{
-			BaseURL: strings.TrimRight(base, "/") + "/v1",
-			Model:   model,
-			APIKey:  "ollama", // Ollama doesn't require auth by default
-		}, nil
-
+		// Native Ollama driver — uses POST /api/chat, not the OAI-compat
+		// /v1/chat/completions shim. pcfg.OllamaHost already holds the raw
+		// host (no /v1 suffix) via ollamaHost().
+		return NewOllama(model, pcfg.OllamaHost), nil
 	case "cloudflare":
 		return &OAI{
 			BaseURL: "https://api.cloudflare.com/client/v4/ai/v1",

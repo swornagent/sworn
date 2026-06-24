@@ -55,32 +55,39 @@ func TestNewClient_OAICompat(t *testing.T) {
 }
 
 func TestNewClient_Ollama(t *testing.T) {
-	// With OLLAMA_HOST set.
+	// With explicit OllamaHost set.
 	cfg := ProviderConfig{OllamaHost: "http://ollama.local:11434"}
 	v, err := NewClient("ollama/llama3", cfg)
 	if err != nil {
 		t.Fatalf("NewClient(ollama/llama3) error: %v", err)
 	}
-	oai := v.(*OAI)
-	if oai.BaseURL != "http://ollama.local:11434/v1" {
-		t.Errorf("Ollama BaseURL = %q, want http://ollama.local:11434/v1", oai.BaseURL)
+	o, ok := v.(*Ollama)
+	if !ok {
+		t.Fatalf("NewClient(ollama/llama3) returned %T, want *Ollama", v)
 	}
-	if oai.APIKey != "ollama" {
-		t.Errorf("Ollama APIKey = %q, want ollama", oai.APIKey)
+	if o.Host != "http://ollama.local:11434" {
+		t.Errorf("Host = %q, want http://ollama.local:11434", o.Host)
+	}
+	if o.Model != "llama3" {
+		t.Errorf("Model = %q, want llama3", o.Model)
 	}
 
-	// With default OLLAMA_HOST.
+	// With default OllamaHost (empty cfg). NewOllama resolves $OLLAMA_HOST
+	// or falls back to http://localhost:11434.
+	os.Unsetenv("OLLAMA_HOST")
 	cfg2 := ProviderConfig{}
 	v2, err := NewClient("ollama/llama3", cfg2)
 	if err != nil {
 		t.Fatalf("NewClient(ollama/llama3, default) error: %v", err)
 	}
-	oai2 := v2.(*OAI)
-	if oai2.BaseURL != "http://localhost:11434/v1" {
-		t.Errorf("Default Ollama BaseURL = %q, want http://localhost:11434/v1", oai2.BaseURL)
+	o2, ok := v2.(*Ollama)
+	if !ok {
+		t.Fatalf("NewClient(ollama/llama3, default) returned %T, want *Ollama", v2)
+	}
+	if o2.Host != "http://localhost:11434" {
+		t.Errorf("Default Host = %q, want http://localhost:11434", o2.Host)
 	}
 }
-
 func TestNewClient_NativeStub(t *testing.T) {
 	cfg := ProviderConfig{}
 	// All native drivers are now registered (S10-S15). This list exists to
