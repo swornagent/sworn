@@ -81,8 +81,13 @@ type Verification struct {
 	VerifierVerdictAt       *string  `json:"verifier_verdict_at,omitempty"`
 	VerifierWasFreshContext *bool    `json:"verifier_was_fresh_context,omitempty"`
 	Violations              []string `json:"violations,omitempty"`
+	// Routing is the blocked-routing owner set by the verifier when it returns
+	// a BLOCKED verdict. Consumers (board oracle, router, TUI) use it to direct
+	// remediation: "needs_planner" | "needs_human" | "needs_implementer".
+	// When absent, the oracle infers from the verdict: "blocked" → needs_planner,
+	// "failed_verification" → needs_implementer (S57 spec).
+	Routing string `json:"routing,omitempty"`
 }
-
 // StakeClass classifies a design decision by its stakes = reversibility x blast-radius.
 // Type-1 (high stakes / hard-to-reverse) requires a recorded human decision.
 // Type-2 (low stakes / reversible) may proceed with a noted default.

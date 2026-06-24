@@ -3,30 +3,59 @@
   "slice_id": "S57-oracle-reader",
   "release": "2026-06-19-safe-parallelism",
   "track": "T17-orchestration-core",
-  "state": "design_review",
-  "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-23T02:35:00Z",
-  "start_commit": null,
-  "spec_path": "docs/release/2026-06-19-safe-parallelism/S57-oracle-reader/spec.md",
+  "state": "in_progress",  "owner": "human",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-14T12:00:00Z",  "start_commit": "5d2a9bc63ff0253077b4035a4c94e283d72cbe87",  "spec_path": "docs/release/2026-06-19-safe-parallelism/S57-oracle-reader/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S57-oracle-reader/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S57-oracle-reader/journal.md",
   "planned_files": [
     "internal/board/oracle.go",
     "internal/board/oracle_test.go",
+    "internal/git/git.go",
+    "internal/git/git_test.go",
+    "internal/state/state.go",
     "cmd/sworn/board.go",
     "cmd/sworn/board_test.go"
-  ],
-  "actual_files": [],
+  ],  "actual_files": [],
   "test_commands": [
     "go test -race ./internal/board/...",
     "go build ./..."
   ],
   "reachability_artifacts": [],
   "open_deferrals": [],
-  "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
+  "design_decisions": [
+    {
+      "choice": "Git operations via internal/git with new Show/CatFileExists methods — reuse the existing package with its Dir guard (S28) rather than spawning raw git",
+      "stake_class": "Type-2",
+      "options": ["Raw os/exec git calls in oracle.go", "Extend internal/git with Show/CatFileExists"],
+      "rationale": "The internal/git Dir guard protects against operating in the wrong worktree; new methods inherit it via r.run()"
+    },
+    {
+      "choice": "Test strategy: real git repos in temp dirs with a thin contentReader interface for transient-retry test",
+      "stake_class": "Type-2",
+      "options": ["Real git repos in t.TempDir() everywhere", "Real git + contentReader interface for the one test that needs a fake"],
+      "rationale": "Existing internal/git test convention (real git init + commit in t.TempDir()) covers most tests; the contentReader interface handles the transient-read retry test's one-shot empty read per spec AC and Coach pin 4"
+    },
+    {
+      "choice": "Docs prefix probe via git cat-file -e — ordered trial of docs/release/... then apps/docs/content/docs/release/...",
+      "stake_class": "Type-2",
+      "options": ["Configurable prefix list", "Inline two-path trial"],
+      "rationale": "Spec calls for one fallback; git cat-file -e checks the ref tree not the working tree, avoiding the Fumadocs symlink trap"
+    },
+    {
+      "choice": "ReadBoard returns the full board struct; the CLI formats it — separation of concerns",
+      "stake_class": "Type-2",
+      "options": ["Oracle formats JSON/text inline", "Oracle returns structs, CLI formats"],
+      "rationale": "Router (S58) can call ReadBoard later without pulling in CLI formatting"
+    },
+    {
+      "choice": "Blocked owner inference: if verification.routing is absent, blocked → needs_planner, failed_verification → needs_implementer",
+      "stake_class": "Type-2",
+      "options": ["Always require routing field", "Inference default + override"],
+      "rationale": "Simple defaults, overridable when the verifier sets verification.routing"
+    }
+  ],  "verification": {
+    "result": "",    "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
     "violations": []

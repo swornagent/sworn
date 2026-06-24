@@ -87,6 +87,32 @@ func (r *Repo) Merge(branch string) error {
 	return err
 }
 
+// Show returns the content of <ref>:<path>. Both ref and path are passed
+// directly to `git show` — the caller is responsible for assembling the
+// colon-separated form (e.g. "HEAD:docs/release/.../status.json").
+func (r *Repo) Show(ref, path string) (string, error) {
+	return r.run("show", ref+":"+path)
+}
+
+// CatFileExists returns true when <ref>:<path> exists in the git object
+// database (equivalent to `git cat-file -e <ref>:<path>`). It does not
+// inspect the working tree — the check is against the committed tree,
+// which avoids the Fumadocs symlink trap (S57 spec, Coach pin 7).
+func (r *Repo) CatFileExists(ref, path string) (bool, error) {
+	_, err := r.run("cat-file", "-e", ref+":"+path)
+	if err != nil {
+		// git cat-file -e exits non-zero when the object does not exist
+		if strings.Contains(err.Error(), "exists") ||
+			strings.Contains(err.Error(), "bad file") ||
+			strings.Contains(err.Error(), "Not a valid object name") ||
+			strings.Contains(err.Error(), "path not found") ||
+			strings.Contains(err.Error(), "fatal:") {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
 // run executes a git command in r.Dir and returns stdout (trimmed). On
 // non-zero exit it returns stderr as the error.
 //
