@@ -472,8 +472,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S45-design-tldr` | T13 | `sworn run` generates a design TL;DR (§1–6) before implementation — restores the pre-code design artefact for the captain to review | planned | [spec](./S45-design-tldr/spec.md) |
 | `S46-captain-review` | T13 | captain agent reviews the TL;DR + live code, emits classified pins, writes review.md, and gates implement (proceed if no escalate pins, else halt+surface) — the in-product `/design-review` | planned | [spec](./S46-captain-review/spec.md) |
 | `S47-orchestrator-recovery` | T13 | on non-PASS, intra-run triage chooses resolve-in-place / escalate / halt, then commits state and delegates lifecycle routing (BLOCKED→replan, fail→redesign/implement) to the S58 router (re-scoped 2026-06-23) | planned | [spec](./S47-orchestrator-recovery/spec.md) |
-| `S39-openai-responses-provider` | T5 | first-class OpenAI provider via /v1/responses (reasoning_effort + tool-calls + built-in web_search) + a cross-provider WebSearch/WebFetch agent tool — fixes gpt-5.x support + 'more than 6 tools' | planned | [spec](./S39-openai-responses-provider/spec.md) |
-| `S48-baton-vendor` | T14 | `sworn baton vendor` — semver-pinned vendor of upstream Baton + bash→sworn transform over rules AND role-prompts (strips `release-verify.sh`/`release-board-status.sh`/`captain-memory-search.py`… → sworn-native commands); reproduces the sworn-native embed (subsumes the one-time scrub) | failed_verification | [spec](./S48-baton-vendor/spec.md) |
+| `S39-openai-responses-provider` | T5 | first-class OpenAI provider via /v1/responses (reasoning_effort + tool-calls + built-in web_search) + a cross-provider WebSearch/WebFetch agent tool — fixes gpt-5.x support + 'more than 6 tools' | failed_verification | [spec](./S39-openai-responses-provider/spec.md) || `S48-baton-vendor` | T14 | `sworn baton vendor` — semver-pinned vendor of upstream Baton + bash→sworn transform over rules AND role-prompts (strips `release-verify.sh`/`release-board-status.sh`/`captain-memory-search.py`… → sworn-native commands); reproduces the sworn-native embed (subsumes the one-time scrub) | failed_verification | [spec](./S48-baton-vendor/spec.md) |
 | `S49-baton-version` | T14 | reconcile the Baton pin from a raw SHA to a **semver tag** across `VERSION`+`VERSION.txt`; `sworn version` reports "on Baton vX.Y.Z"; `sworn doctor` fails the pin if it's a SHA not a tag | verified | [spec](./S49-baton-version/spec.md) |
 | `S50-baton-governance` | T14 | `sworn baton diff` divergence check (embed vs upstream pin) + `docs/baton-governance.md` PR-up process note + ADR-0006; protocol changes found in sworn dev must PR upstream, never silently fork | verified | [spec](./S50-baton-governance/spec.md) || `S62-baton-upstream-source` | T14 | `sworn baton vendor --upstream` fetches the version-locked Baton release from `github.com/sawy3r/baton` over stdlib HTTPS (codeload tar.gz), verified by tag + commit-SHA/digest, fail-closed — embed source-of-truth is the public repo at a pinned version, not a local install (issue #11) | verified | [spec](./S62-baton-upstream-source/spec.md) || `S51-cli-command-registry` | T15 | command registry replaces the `cmd/sworn/main.go` dispatch switch; new subcommands self-register from their own file; `main.go` owned by one track — ends the recurring touchpoint collision | verified | [spec](./S51-cli-command-registry/spec.md) |
 | `S52-ledger-projection` | T16 | Projects every slice's verdict into an append-only `docs/ledger/verdicts.jsonl`; captures implementer model + attempt; backfills the whole board on first sync | planned | [spec](./S52-ledger-projection/spec.md) |
@@ -509,15 +508,26 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 - Implemented: 0
 - Design review: 1
 - Verified: 30
-- Failed verification: 0
+- Failed verification: 1
 - Deferred: 0
 
 **Tracks:** Planned: 5 / In progress: 2 / Merged: 11  *(oracle read 2026-06-23; T12 + T18 merges recorded — board moving under coach loop)*
 > Merged (11): T1, T2, T3, T4, T7, T8, T9, T11, T12, T15, T18. In progress (2): T5, T14. Planned (5 per oracle): T6, T10, T13, T16, T17.
 
 ## Recent activity
-### 2026-06-24 — slice `S14-azure-driver` → failed_verification (FAIL)
+### 2026-07-12 — slice `S39-openai-responses-provider` → failed_verification (FAIL)
 
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs).
+- **Verdict**: FAIL — 3 violations (Gates 2, 3; status integrity).
+  - Gate 2 (touchpoints): spec.md and status.json planned_files list `internal/agent/tools_test.go` but actual changed file is `internal/agent/agent_test.go`; proof.md "Divergence from plan" claims "None" (false).
+  - Gate 3 (required tests): spec.md explicitly requires `internal/agent/tools_test.go` (web_search schema + stubbed search) but the file does not exist; tests live in agent_test.go instead.
+  - status.json: `start_commit` is 930bc0ae (chore ack commit) instead of aa97dc3 (docs start implementation commit); this corrupts diff scope for future verifiers.
+- **Gates passed (independent re-run)**: Gate 1 (entry point wired via NewClient("openai-responses/...") and FromEnv); Gate 4 (httptest reachability artefacts in openai_responses_test.go); Gate 5 (no TODO/FIXME in changed code); Gate 6 (Delivered list matches implemented code).
+- **Gates failed**: 2, 3.
+- **Drift gate**: clean (rev-list count 0). Verified against HEAD on track branch; start_commit corrected to aa97dc3 in this verdict.
+- **State**: S39 → failed_verification. Board Failed verification count updated. Next: re-open `/implement-slice S39-openai-responses-provider 2026-06-19-safe-parallelism` in a fresh session to address the violations (fix test file mismatch or update spec + proof, correct start_commit).
+
+### 2026-06-24 — slice `S14-azure-driver` → failed_verification (FAIL)
 - **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs).
 - **Verdict**: FAIL — 6 violations (Gates 2, 5, 6).
   - Gate 2 (touchpoints): spec.md planned touchpoints miss config.go and provider_test.go; proof.md claims "None" (false).

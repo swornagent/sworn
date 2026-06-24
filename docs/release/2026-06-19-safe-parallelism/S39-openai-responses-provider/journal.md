@@ -53,8 +53,29 @@ Smaller flags addressed:
 
 ## Verifier verdicts received
 
-*(None yet.)*
+### 2026-07-12 — verifier (fresh context)
 
+FAIL
+
+Slice: S39-openai-responses-provider
+
+Violations:
+1. Gate 2 — Planned touchpoints (spec.md, status.json) list `internal/agent/tools_test.go` but actual changed file is `internal/agent/agent_test.go`; proof.md "Divergence from plan" incorrectly states "None".
+   Evidence: spec.md:61 (planned touchpoints), status.json:21 (planned_files), proof.md:11 (files changed lists agent_test.go), proof.md:117 (Divergence: None), git diff --name-only aa97dc3..HEAD
+2. Gate 3 — Required tests explicitly call for `internal/agent/tools_test.go` (web_search schema + stub) but the file does not exist; tests live in agent_test.go instead.
+   Evidence: spec.md:79-80, directory has no tools_test.go, agent_test.go:369-392 has the 2 web_search tests
+3. status.json records wrong `start_commit` (930bc0ae... chore ack commit) instead of aa97dc3 (docs start implementation commit).
+   Evidence: status.json:10, git log shows aa97dc3 is the "docs(...): start implementation" commit
+
+Required to address:
+1. Either create `internal/agent/tools_test.go` containing the web_search tests (to match spec) or update spec.md + planned_files + required tests to reference agent_test.go, and document the choice in proof.md "Divergence from plan".
+2. Fix start_commit in status.json to "aa97dc3".
+3. Re-generate proof bundle from live state, re-mark implemented, then re-verify in fresh session.
+
+STATE: blocked_needs_human
+SLICE: S39-openai-responses-provider
+NEXT: NONE
+REASON: Gates 2 and 3 fail on test file mismatch (spec requires tools_test.go; impl uses agent_test.go without acknowledgement); start_commit wrong in status.json.
 ## 2026-07-12 — implemented (Coach ack round)
 
 Coach approved with 4 pins, all addressed inline:
