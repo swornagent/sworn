@@ -26,7 +26,7 @@
     "internal/config/config.go",
     "internal/config/config_test.go",
     "docs/release/2026-06-19-safe-parallelism/S17-tui-provider-config/spec.md",
-    "docs/release/2026-06-19-safe-parallelism/screenshots/S17-settings-panel.txt"
+    "docs/release/2026-06-19-safe-parallelism/captures/S17-settings-panel.txt"
   ],
   "test_commands": [
     "go test ./internal/tui/... -run Settings",
@@ -35,7 +35,7 @@
     "go build ./..."
   ],
   "reachability_artifacts": [
-    "docs/release/2026-06-19-safe-parallelism/screenshots/S17-settings-panel.txt"
+    "docs/release/2026-06-19-safe-parallelism/captures/S17-settings-panel.txt"
   ],
   "open_deferrals": [
     {
