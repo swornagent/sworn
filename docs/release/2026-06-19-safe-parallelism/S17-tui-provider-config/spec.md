@@ -106,7 +106,7 @@ required.
     Save(); assert file created
 - **Reachability artefact**: smoke step — run `sworn` in a terminal (or via PTY in test);
   press `s`; confirm settings panel appears (no crash). Document exact commands in
-  proof.md. Text capture at `docs/release/2026-06-19-safe-parallelism/screenshots/S17-settings-panel.png`
+  proof.md. Text capture at `docs/release/2026-06-19-safe-parallelism/captures/S17-settings-panel.txt`
   is the canonical artefact.
 
 ## Risks
