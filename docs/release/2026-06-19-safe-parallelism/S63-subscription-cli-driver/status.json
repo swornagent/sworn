@@ -3,7 +3,7 @@
   "slice_id": "S63-subscription-cli-driver",
   "release": "2026-06-19-safe-parallelism",
   "track": "T5-providers",
-  "state": "planned",
+  "state": "design_review",
   "owner": "human",
   "last_updated_by": "planner",
   "last_updated_at": "2026-06-24T00:00:00Z",
@@ -11,7 +11,9 @@
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S63-subscription-cli-driver/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S63-subscription-cli-driver/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S63-subscription-cli-driver/journal.md",
-  "depends_on": ["S10-provider-foundation"],
+  "depends_on": [
+    "S10-provider-foundation"
+  ],
   "planned_files": [
     "internal/model/cli.go",
     "internal/model/config.go",
