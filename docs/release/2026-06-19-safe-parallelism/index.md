@@ -446,8 +446,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | verified | [spec](./S09-per-role-model-config/spec.md) |
 | `S10-provider-foundation` | T5 | ADR 0007 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | implemented | [spec](./S10-provider-foundation/spec.md) |
 | `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | verified | [spec](./S11-anthropic-driver/spec.md) || `S12-google-driver` | T5 | Google Gemini and Vertex AI models work as verifier and implementer | failed_verification | [spec](./S12-google-driver/spec.md) || `S13-bedrock-driver` | T5 | AWS Bedrock models work via Converse API; IAM auth | verified | [spec](./S13-bedrock-driver/spec.md) |
-| `S14-azure-driver` | T5 | Azure OpenAI deployments work via api-key auth; no new SDK dep | failed_verification | [spec](./S14-azure-driver/spec.md) || `S15-oci-driver` | T5 | OCI Generative AI models work via oci-go-sdk | planned | [spec](./S15-oci-driver/spec.md) |
-| `S16-ollama-driver` | T5 | Ollama native /api/chat endpoint; replaces OAI-compat shim | planned | [spec](./S16-ollama-driver/spec.md) |
+| `S14-azure-driver` | T5 | Azure OpenAI deployments work via api-key auth; no new SDK dep | verified | [spec](./S14-azure-driver/spec.md) || `S15-oci-driver` | T5 | OCI Generative AI models work via oci-go-sdk | planned | [spec](./S15-oci-driver/spec.md) || `S16-ollama-driver` | T5 | Ollama native /api/chat endpoint; replaces OAI-compat shim | planned | [spec](./S16-ollama-driver/spec.md) |
 | `S17-tui-provider-config` | T6 | TUI settings panel: provider API keys, model per role, escalation list, max attempts; persists to config.json + ~/.sworn/.env | planned | [spec](./S17-tui-provider-config/spec.md) |
 | `S18-consideration-catalog` | T3 | Typed consideration catalog + decision registry; planner Phase 2b (DRY gate, design consultation, arch conformance, capture); sworn init scaffolds both templates | verified | [spec](./S18-consideration-catalog/spec.md) || `S19-sworn-induction` | T3 | `sworn induction` one-time repo onboarding (design system + architecture discovery); implementer + verifier prompts gain deviation-surfacing steps | verified | [spec](./S19-sworn-induction/spec.md) || `S20-mcp-catalog-tools` | T7 | 8 MCP tools: plan_release (unified), get_induction_status, get_considerations, search_decisions, record_decision, check_design_system, update_design_system, record_architecture_pattern | verified | [spec](./S20-mcp-catalog-tools/spec.md) || `S21-canonical-baton` | T3 | Baton protocol embedded in binary (internal/prompt/baton/); sworn init writes minimal MCP-pointer AGENTS.md instead of per-repo Baton copy; ADR-0008 | verified | [spec](./S21-canonical-baton/spec.md) || `S22-sworn-doctor` | T4 | Prompt integrity checks; legacy docs/baton/ + AGENTS.md splice detection with --fix; optional ~/.claude/baton/ sync with --sync-baton | verified | [spec](./S22-sworn-doctor/spec.md) |
 | `S23-memory-config` | T8 | `sworn memory status` shows harnesses, memory paths, embedding provider; global + per-project config | verified | [spec](./S23-memory-config/spec.md) |
@@ -1587,3 +1586,16 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - **Actor**: verifier (`/verify-slice`, fresh context)
 - **Verdict**: PASS. All six gates satisfied. Gate 2/6 mismatches explained in proof.md "Divergence from plan" (ADR not edited per DD-005; test file added for Rule 1 reachability). Tests re-run green.
 - **State**: S50 → verified. T14-baton-integration still has S62 pending. Next step: /implement-slice S62-baton-upstream-source 2026-06-19-safe-parallelism (or /merge-track T14-baton-integration once all verified).
+
+### 2026-06-24T07:06:17Z — slice `S14-azure-driver` → verified (PASS)
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs)
+- **Verdict**: PASS. All six gates satisfied.
+  - Gate 1: User-reachable outcome exists — `sworn run` dispatches via `model.FromEnv` / `NewClient("azure/gpt-4o")` to `*AzureOAI.Verify()` using Azure URL pattern and `api-key` header.
+  - Gate 2: Planned touchpoints match — azure.go, azure_test.go, provider.go, config.go, provider_test.go (stub removal); divergences recorded.
+  - Gate 3: Required tests exist and exercise integration point — 9 Azure tests + full model suite re-run; all PASS.
+  - Gate 4: Reachability artefacts (`TestNewClient_AzureRouted`, `TestAzureVerify_ReturnsText`, `TestAzureVerify_CorrectURL`) prove the path.
+  - Gate 5: No silent deferrals — no TODO/FIXME in changed code; deferrals have Rule 2 entries.
+  - Gate 6: Claimed scope matches — "Delivered" items have evidence; prior FAILs (param order, api-version, field names, formatting, touchpoints) addressed.
+- **State**: S14 → verified. T5-providers remains in_progress (S15, S16, S39, S63 pending).
+- **Next step**: `/implement-slice S15-oci-driver 2026-06-19-safe-parallelism` in a fresh session.

@@ -28,6 +28,25 @@ Tests: all 9 Azure-specific tests pass (CorrectURL, APIKeyHeader, AuthorizationH
 
 Skeptic panel: skipped — runtime does not support parallel subagent dispatch.
 
+### 2026-06-24 — Verifier verdict — PASS
+
+PASS
+
+Slice: S14-azure-driver
+
+Verified against: ee357c5
+
+Verifier session: fresh, artefact-only
+
+All six gates passed:
+- Gate 1: User-reachable outcome exists — `sworn run` → `model.FromEnv` → `NewClient("azure/gpt-4o", cfg)` → `*AzureOAI.Verify()` using Azure endpoint and `api-key` header.
+- Gate 2: Planned touchpoints match actual changed files — `internal/model/azure.go`, `azure_test.go`, `provider.go`, `config.go`, `provider_test.go` (stub removal); divergences recorded in proof.md.
+- Gate 3: Required tests exist and exercise the integration point — 9 Azure-specific tests + full `./internal/model/...` suite re-run by verifier; all PASS. Tests drive through `NewClient` and `Verify`.
+- Gate 4: Reachability artefact proves the user path — `TestNewClient_AzureRouted`, `TestAzureVerify_ReturnsText`, `TestAzureVerify_CorrectURL` (and others) match spec.
+- Gate 5: No silent deferrals or placeholder logic — grep of changed files found no TODO/FIXME/deferred/placeholder; deferrals (Entra ID auth, cost modelling) have Rule 2 entries in proof.md and status.json.
+- Gate 6: Claimed scope matches implemented scope — "Delivered" list items have verifiable evidence (tests, code); previous FAILs (param order, api-version default, field names, formatting, touchpoints) addressed in re-implementation.
+
+Next step: `/implement-slice S15-oci-driver 2026-06-19-safe-parallelism` in a fresh session.
 ### 2026-07-09 — Re-implementation #2 (state: failed_verification → in_progress → implemented)
 
 Verifier FAIL violations from 2026-07-09 round addressed:
