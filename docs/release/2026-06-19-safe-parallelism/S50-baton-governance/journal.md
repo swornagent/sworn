@@ -113,3 +113,12 @@ Required to address:
 1. Update proof.md "Divergence from plan" to accurately describe the scope (ADR not edited per DD-005 as no open questions remained; test file added for Rule 1 integration-point reachability).
 2. Ensure proof bundle sections truthfully reflect git diff vs spec planned touchpoints.
 3. Re-verify after proof correction.
+## 2026-07-08 — Implementation session (Fixing Verifier FAIL)
+
+**State transition:** failed_verification → in_progress → implemented
+
+**Decisions:**
+- Updated `proof.md` "Divergence from plan" to accurately reflect that `docs/adr/0006-baton-protocol-sync.md` was not edited (as it was already accepted and had no open questions) and that `cmd/sworn/baton_test.go` was added for integration tests.
+- Cleared `verification.result` and transitioned state to `implemented`.
+
+**Skeptic panel:** skipped — runtime does not support subagent dispatch.
