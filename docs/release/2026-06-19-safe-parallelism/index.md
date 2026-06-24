@@ -478,8 +478,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S54-ledger-routing` | T16 | `sworn ledger recommend <kind>` + S09's `ResolveImplementerModel` defaults to the highest measured pass-rate model for the slice kind (flag/env still win; thin corpus = unchanged) | planned | [spec](./S54-ledger-routing/spec.md) |
 | `S55-ledger-multirole-cost` | T16 | Record `v:2` captures per-role `{model, cost_usd}` for every dispatch (implementer, verifier, captain, orchestrator-hook) — cost from local token-pricing, not S06b billing | planned | [spec](./S55-ledger-multirole-cost/spec.md) |
 | `S56-ledger-cost-routing` | T16 | `--optimize cost\|quality\|balanced`: cheapest model clearing a pass-rate floor; `report` gains cost-per-pass + per-role quality (captain-miss, verifier-overturn) | planned | [spec](./S56-ledger-cost-routing/spec.md) |
-| `S57-oracle-reader` | T17 | `sworn board` reads every slice's authoritative status.json from git refs (track branch > release-wt > worktree), ownership-resolved — the honest board reader the router/TUI/rollup read through | planned | [spec](./S57-oracle-reader/spec.md) |
-| `S58-slice-router` | T17 | `sworn route <slice> <release>` computes the next command purely from committed status.json — the deterministic captain-route.sh port (state machine + design-review/Gate-re-entry/merge) | planned | [spec](./S58-slice-router/spec.md) |
+| `S57-oracle-reader` | T17 | `sworn board` reads every slice's authoritative status.json from git refs (track branch > release-wt > worktree), ownership-resolved — the honest board reader the router/TUI/rollup read through | verified | [spec](./S57-oracle-reader/spec.md) || `S58-slice-router` | T17 | `sworn route <slice> <release>` computes the next command purely from committed status.json — the deterministic captain-route.sh port (state machine + design-review/Gate-re-entry/merge) | planned | [spec](./S58-slice-router/spec.md) |
 | `S59-scheduler-relayer` | T17 | `sworn run --parallel` workers poll the router each step (poll-and-route) instead of a static slice list — resumable, dynamic; keeps dependency resolution + worktree isolation + supervisor ownership | planned | [spec](./S59-scheduler-relayer/spec.md) |
 | `S60-init-ui-bearing-fix` | T18 | `sworn init` no longer prompts for design tokens / component library in a non-UI-bearing repo; design-system flow gated on `--ui-bearing`; drops the always-true `UIBearing` write | verified | [spec](./S60-init-ui-bearing-fix/spec.md) |
 | `S61-cli-output-styling` | T18 | shared zero-dep `internal/style` ANSI palette gives premium, consistent, TTY/`NO_COLOR`-aware colour across every command + report renderer; plain output byte-identical | verified | [spec](./S61-cli-output-styling/spec.md) |
@@ -513,8 +512,22 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > Merged (11): T1, T2, T3, T4, T7, T8, T9, T11, T12, T15, T18. In progress (2): T5, T14. Planned (5 per oracle): T6, T10, T13, T16, T17.
 
 ## Recent activity
-### 2026-06-24 — slice `S63-subscription-cli-driver` → verified (PASS)
+### 2026-06-24 — slice `S57-oracle-reader` → verified (PASS)
 
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs).
+- **Verdict**: PASS — all six gates satisfied.
+  - Gate 1: User-reachable outcome exists — `sworn board [--release <name>] [--json]` wired via command registry + `cmdBoard` → `board.NewGitOracle` → `ReadBoard`/`ReadSliceStatus`; exercised by `TestBoardCLI_JSON`.
+  - Gate 2: Planned touchpoints match — core files (oracle.go, board.go, git.go, state.go) match; divergences (Coach pins 1/3/4/5) documented in proof.md "Divergence from plan" and status.json planned_files.
+  - Gate 3: Required tests exist and exercise integration point — `TestOwnerBranchWins`, `TestGhostCopyIgnored`, `TestBoardCLI_JSON`, `TestBoardCLI_BlockedVisibility` etc.; re-ran `go test -race ./internal/board/...` (S57 tests PASS; pre-existing TestLiveReleaseBoardsAreValid on T6-provider-ux unrelated), git tests PASS, cmd tests PASS, build PASS.
+  - Gate 4: Reachability artefact — `TestBoardCLI_JSON` runs the real `sworn board --json` binary against committed fixture; proves end-to-end user path.
+  - Gate 5: No silent deferrals — no TODO/FIXME/placeholder in changed source; ParseTracks workaround noted in journal as out-of-scope.
+  - Gate 6: Claimed scope matches — all Delivered items have evidence references; Blocked visibility (S38 gap fix) implemented and tested.
+- **Gates passed**: 1–6.
+- **Drift gate**: clean (rev-list count 0). Verified against track HEAD 6073461.
+- **State**: S57 → verified. Track T17-orchestration-core now has S57 verified (S58/S59 still planned).
+- **Note**: Pre-existing board validation failure on T6-provider-ux (no slices) is documented in proof.md and does not affect this slice.
+
+### 2026-06-24 — slice `S63-subscription-cli-driver` → verified (PASS)
 - **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs).
 - **Verdict**: PASS — all six gates satisfied.
   - Gate 1: User-reachable outcome exists — `claude-cli/sonnet` routes through `model.FromEnv` (early return before proxy) → `NewClient` → `*cliDriver.Verify()` (implements Verifier).
