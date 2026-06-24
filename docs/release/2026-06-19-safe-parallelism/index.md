@@ -59,7 +59,7 @@ tracks:
     state: merged
   - id: T10-public-readiness
     slices: [S27-public-readiness-scrub]
-    depends_on: [T1-concurrency-core, T2-monitoring, T3-commercial, T4-mcp, T5-providers, T6-provider-ux, T7-mcp-extensions, T8-memory, T9-telemetry, T11-infra-safety, T12-harness-hardening, T13-sworn-role-parity, T14-baton-integration, T16-verdict-ledger, T18-cli-polish]
+    depends_on: [T1-concurrency-core, T2-monitoring, T3-commercial, T4-mcp, T5-providers, T6-provider-ux, T7-mcp-extensions, T8-memory, T9-telemetry, T11-infra-safety, T12-harness-hardening, T13-sworn-role-parity, T14-baton-integration, T16-verdict-ledger, T18-cli-polish, T19-status-hygiene]
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T10-public-readiness
     state: planned
@@ -111,6 +111,12 @@ tracks:
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T18-cli-polish
     worktree_branch: track/2026-06-19-safe-parallelism/T18-cli-polish
     state: merged
+  - id: T19-status-hygiene
+    slices: [S64-status-timestamp-sanity]
+    depends_on: [T4-mcp, T12-harness-hardening, T15-cli-registry]
+    worktree_path:
+    worktree_branch: track/2026-06-19-safe-parallelism/T19-status-hygiene
+    state: planned
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
@@ -147,7 +153,7 @@ tracks:
 | `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 → S39 → S63 | T1 + T3 | `track/.../T5-providers` | merged || `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | planned |
 | `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | merged || `T8-memory` | S23 → S24 → S25 → S40 | T1 | `track/.../T8-memory` | merged |
 | `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
-| `T10-public-readiness` | S27 | all tracks (incl. T16) | `track/.../T10-public-readiness` | planned |
+| `T10-public-readiness` | S27 | all tracks (incl. T16 + T19) | `track/.../T10-public-readiness` | planned |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
 | `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | merged || `T13-sworn-role-parity` | S45 → S46 → S47 | T12 + T17 | `track/.../T13-sworn-role-parity` | planned |
 | `T14-baton-integration` | S48 → S49 → S50 → S62 | T3 + T15 | `track/.../T14-baton-integration` | merged |
@@ -155,6 +161,7 @@ tracks:
 | `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | planned |
 | `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | planned |
 | `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
+| `T19-status-hygiene` | S64 | T4 + T12 + T15 | `track/.../T19-status-hygiene` | planned |
 
 ### Execution order
 
@@ -170,7 +177,8 @@ Phase 3:  T5 (after T1 + T3)
 Phase 4:  T6 (after T2 + T5)
 Phase 5:  T16 (after T6 + T12 + T13 — harvests the settled verdict pipeline:
           config.go via the T3→T5→T6 chain, slice.go/state.go via the T12→T13 chain)
-Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate before launch)
+          T19 (after T4 + T12 + T15 — status timestamp sanity as a lint/doctor hardening gate)
+Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness gate before launch)
 ```
 
 ### Touchpoint matrix
@@ -188,7 +196,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > `(dep)` notation means the track writes this file only after the named dependency merges
 > — the dep-edge serialises writes so they are not truly concurrent.
 > `T10-public-readiness` (S27) is omitted from the columns below: it depends on every
-> other track and runs strictly last (Phase 5), so its wide touchpoints — comment scrubs
+> other track and runs strictly last (Phase 6), so its wide touchpoints — comment scrubs
 > and prompt-text edits across many files — collide with nothing in parallel.
 > `T11-infra-safety` (S28) and `T12-harness-hardening` (S29–S33, S35, S36) are likewise
 > omitted: T11 touches only `internal/git/`; T12's files are new (`internal/lint/`) or
@@ -219,6 +227,11 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > (T6: `top.go`), S59 (T17: `run.go`) — resolved by adding `depends_on T18-cli-polish` to T6,
 > T10, and T17 so T18 lands first; those tracks pick up the styled files at their own start.
 > `main.go` stays T-owned: S61 styles only `usage()` / `version` *presentation*, not dispatch.
+> `T19-status-hygiene` (S64) is omitted from the columns: it depends on already-merged
+> `T4-mcp` (doctor), `T12-harness-hardening` (lint), and `T15-cli-registry` (command
+> registration), so its writes are sequential. It hardens status metadata validation by
+> adding fail-closed future-timestamp checks to `sworn lint` / `sworn doctor` without
+> reopening the merged T12 track.
 > **ADR-number-collision finding (flagged 2026-06-21, RESOLVED 2026-06-23):** the original matrix
 > rows named `docs/adr/0004-dep-policy-minimal-justified.md` (S10) and
 > `docs/adr/0005-canonical-baton.md` (S21), but `0004`/`0005` were already taken on
