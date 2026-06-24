@@ -1,7 +1,30 @@
 # Journal — S58-slice-router
 
-## 2026-07-15 — Re-implementation session (verifier FAIL recovery)
+## 2026-07-15 — Re-implementation session (Gate 2 touchpoint alignment)
 
+### State transition: failed_verification → in_progress → implemented
+
+### Root cause of Gate 2 FAIL
+
+The re-implementation session set `start_commit` to `ec63795` (the re-impl start), but the `planned_files` listed the full first-pass scope. From `ec63795`, only `router.go` and `router_test.go` were modified (the other files were already committed from the first pass). The verifier correctly flagged the mismatch.
+
+### Fix applied
+
+- Reset `start_commit` to `a82b950` (original first-pass start) — captures the full implementation scope
+- Removed `internal/git/git_test.go` from `planned_files` — it was created by S57 (commit `eb1127b`) and never modified by S58
+- Verified diff from `a82b950..HEAD` matches `planned_files` exactly (7 code files + docs)
+
+### No code changes
+
+The router code (`router.go`, `router_test.go`) is identical to the prior re-implementation that already addressed the Gate 6 (`design.md` check for planned siblings) fix. This session was a docs-only alignment.
+
+### Deferrals
+
+*(none)*
+
+---
+
+## 2026-07-15 — Re-implementation session (verifier FAIL recovery)
 ### State transition: failed_verification → in_progress → implemented
 
 ### Verifier violations addressed
