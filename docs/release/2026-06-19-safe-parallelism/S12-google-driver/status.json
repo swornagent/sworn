@@ -3,10 +3,10 @@
   "slice_id": "S12-google-driver",
   "release": "2026-06-19-safe-parallelism",
   "track": "T5-providers",
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-08T01:00:00Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-08T02:00:00Z",
   "start_commit": "b60e4a3",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S12-google-driver/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S12-google-driver/proof.md",
@@ -40,10 +40,14 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
+    "result": "fail",
+    "verifier_session_id": "fresh-verifier-2026-07-08",
+    "verifier_verdict_at": "2026-07-08T02:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "Gate 1 — User-reachable outcome does not exist for canonical path: sworn run with verifier.model=\"google/gemini-2.0-flash\" and GOOGLE_API_KEY set fails with \"SWORN_GOOGLE_API_KEY not set\". The key-check switch in FromEnv has case \"google\": inside a // comment (no newline after comment text), so it falls through to default and requires the SWORN_ alias only. Spec explicitly requires GOOGLE_API_KEY (canonical) or SWORN_GOOGLE_API_KEY to work for the user outcome.",
+      "Gate 2 — Planned touchpoints do not match actual changed files: internal/model/config.go and internal/model/provider_test.go were modified, but spec.md \"Planned touchpoints\" lists only google.go, google_test.go, provider.go, go.mod/go.sum. proof.md \"Divergence from plan\" does not mention these files (only SDK API diffs).",
+      "Gate 6 — Claimed scope does not match implemented scope: spec \"User outcome\" and \"Entry point\" claim sworn run dispatches via the google driver when GOOGLE_API_KEY is set, but the FromEnv path (the actual entry for sworn run) does not support it. Acceptance checks 3 and 4 pass only for direct NewClient, not the documented user path."
+    ]
   }
 }

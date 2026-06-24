@@ -46,3 +46,38 @@ None.
 ## Verifier verdicts received
 
 None yet.
+### 2026-07-08 — verifier verdict — FAIL
+
+**Verdict:** FAIL
+
+**Slice:** S12-google-driver
+
+**Violations:**
+
+1. Gate 1 — User-reachable outcome does not exist for canonical path: `sworn run` with `verifier.model="google/gemini-2.0-flash"` and `GOOGLE_API_KEY` set fails with "SWORN_GOOGLE_API_KEY not set". The key-check switch in FromEnv has `case "google":` inside a `//` comment (no newline after comment text), so it falls through to default and requires the SWORN_ alias only. Spec explicitly requires GOOGLE_API_KEY (canonical) or SWORN_GOOGLE_API_KEY to work for the user outcome.
+
+   Evidence: internal/model/config.go:78 (mangled line: `key = "adc" // ... required\tcase "google":`), FromEnv call in internal/run/run.go:344, test failure when setting only GOOGLE_API_KEY.
+
+2. Gate 2 — Planned touchpoints do not match actual changed files: `internal/model/config.go` and `internal/model/provider_test.go` were modified, but spec.md "Planned touchpoints" lists only google.go, google_test.go, provider.go, go.mod/go.sum. proof.md "Divergence from plan" does not mention these files (only SDK API diffs). Journal notes a design pin to add config.go to planned_files, but spec.md was never updated.
+
+   Evidence: spec.md:52-58 (Planned touchpoints), git diff b60e4a3..HEAD shows config.go and provider_test.go, proof.md:109-114 (Divergence section).
+
+3. Gate 6 — Claimed scope does not match implemented scope: spec "User outcome" and "Entry point" claim `sworn run` dispatches via the google driver when GOOGLE_API_KEY is set, but the FromEnv path (the actual entry for `sworn run`) does not support it. Acceptance checks 3 and 4 ("model.NewClient... returns non-nil Verifier") pass only for direct NewClient, not the documented user path.
+
+   Evidence: spec.md:10-18 (User outcome / Entry point), config.go:75-84 (broken key gate), proof.md:98-99 (claims delivery of NewClient routing).
+
+**Required to address:**
+
+1. Fix the switch in internal/model/config.go FromEnv so `case "google":` is a real case using envOrAlias (and vertex bypass stays). Ensure `GOOGLE_API_KEY` alone satisfies the key check for google prefix.
+
+2. Update spec.md "Planned touchpoints" to include the actual files changed (config.go, provider_test.go) or document the divergence in proof.md with Rule 2 elements.
+
+3. Add a unit test exercising FromEnv("google/...") with only GOOGLE_API_KEY set (no SWORN_ alias) to prevent regression on the user path.
+
+4. Run `gofmt -l -w` on changed .go files (config.go, google.go, provider.go, google_test.go are not formatted).
+
+**Gate checks summary:** Gate 1 FAIL (user path broken), Gate 2 FAIL (touchpoint mismatch), Gate 3 PASS (unit tests exist and pass), Gate 4 PASS (unit reachability), Gate 5 PASS (no silent deferrals), Gate 6 FAIL (scope claim vs reality).
+
+**Next step for human:** Re-open `/implement-slice S12-google-driver 2026-06-19-safe-parallelism` in a fresh terminal to address the numbered violations. Do not re-verify until fixed.
+
+**Verifier was fresh context:** yes (no implementer transcript loaded).
