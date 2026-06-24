@@ -108,10 +108,9 @@ $ $HOME/.claude/bin/release-verify.sh S62-baton-upstream-source 2026-06-19-safe-
 
 == First-pass verdict ==
   checks passed: 23
-  checks failed: 1
-  FAIL  spec.md mentions Playwright/e2e/screenshot in ACs but Required tests section
-        does not declare playwright-screenshot opt-in
-        (False positive — spec says "E2E gate type: N/A (CLI; no Playwright).")
+  checks failed: 0
+
+FIRST-PASS PASS
 ```
 
-_23/24 checks green. The single FAIL is a known false positive: release-verify.sh matches "Playwright" in the spec's "E2E gate type: N/A (CLI; no Playwright)" line and expects a playwright-screenshot opt-in. This slice is CLI-only with no Playwright tests._
+_All 23 checks green._

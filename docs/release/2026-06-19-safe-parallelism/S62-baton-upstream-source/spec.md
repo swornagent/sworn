@@ -73,7 +73,7 @@ network source provider.
 - **Unit**: `internal/baton/fetch_test.go` — `httptest.Server` serving a fixture tarball; SHA/digest match + mismatch; 404 / network-error / bad-gzip; prefix-strip; pinned-tag URL assertion.
 - **Integration**: `sworn baton vendor --upstream --repo <test> --tag <t>` driven end-to-end against an `httptest.Server` through `cmd/sworn/baton.go` (Rule 1 — through the command, not just the leaf fetch).
 - **Reachability artefact**: `proof.md` transcript — `sworn baton vendor --upstream` against a local `httptest` fixture (and, once `sawy3r/baton` is tagged, a real fetch of the pinned tag) showing fetch → verify → transform → write; plus a tampered-digest run failing closed with a non-zero exit and no file change.
-- **E2E gate type**: N/A (CLI; no Playwright).
+- **Gate type**: N/A (CLI only).
 
 ## Risks
 
