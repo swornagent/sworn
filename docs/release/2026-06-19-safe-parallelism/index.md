@@ -522,8 +522,20 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 
 ## Recent activity
 
-### 2026-07-09 — slice `S49-baton-version` → verified (PASS)
+### 2026-06-24 — slice `S49-baton-version` → verified (PASS)
 
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs)
+- **Verdict**: PASS — all six gates satisfied.
+  - Gate 1: `sworn version` and `sworn doctor` surface "on Baton v0.4.2" via integration points (cmdVersion, cmdDoctor).
+  - Gate 2: S49-owned touchpoints (4 files) match diff; forward-merges from release-wt documented in proof.md Divergence.
+  - Gate 3: Tests `TestIsSemverTag`, `TestVersionIsSemverNotSha`, `TestDoctorReportsBatonTag`, `TestDoctorFailsOnShaPin`, `TestDoctorAllOK` exist and pass (re-ran).
+  - Gate 4: Reachability artefacts in proof.md: `sworn version` → "baton-protocol on Baton v0.4.2"; `sworn doctor` clean + forced-SHA failure.
+  - Gate 5: No TODO/FIXME/deferred/placeholder in S49 source.
+  - Gate 6: Delivered list matches ACs; evidence (files, tests, outputs) verified live.
+- **State**: S49 → verified. T14-baton-integration: S48 verified, S49 verified; next is S50 (planned).
+- **Next step**: `/implement-slice S50-baton-governance 2026-06-19-safe-parallelism` (or `/merge-track T14-baton-integration` once all T14 slices verified).
+
+### 2026-07-09 — slice `S49-baton-version` → verified (PASS)
 - **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs)
 - **Verdict**: PASS — all six gates satisfied.
   - Gate 1: `sworn version` and `sworn doctor` surface "on Baton v0.4.0" via integration points (cmdVersion, cmdDoctor).
