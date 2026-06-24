@@ -86,3 +86,6 @@
 - **Tests**: all 27 internal/baton tests pass; all 5 cmd/sworn baton tests pass; build + vet clean.
 - **Skeptic panel**: skipped — runtime does not support subagent dispatch.
 - **start_commit**: preserved at `e9d73cc14fe53cec60d12867e00cf3d83d270807` (original implementation round).
+**First-pass script**: 23/24 checks passed. 1 false positive (playwright opt-in on CLI-only slice). Ready for verifier.
+
+- **Terminal state**: `implemented`
