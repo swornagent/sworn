@@ -21,13 +21,14 @@ import (
 //	deps        — check that go.mod/go.sum changes are declared in planned_files; fail closed on undeclared
 //	touchpoints — reconcile design file/package refs against planned_files + collision matrix; fail closed
 //	symbols     — grep backtick identifiers from design.md against live codebase; advisory warn-only
-func cmdLint(args []string) int {
-	if len(args) == 0 {
+//	status      — check that status.json timestamps are not in the future beyond 5m skew; fail closed
+func cmdLint(args []string) int {	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "sworn lint: target required")
-		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols> <release>")
+		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols|status> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint deps [--base <ref>] <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint touchpoints <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint symbols <slice-id> <release>")
+		fmt.Fprintln(os.Stderr, "       sworn lint status <release>")
 		return 64
 	}
 	switch args[0] {
@@ -41,15 +42,17 @@ func cmdLint(args []string) int {
 		return cmdLintTouchpoints(args[1:])
 	case "symbols":
 		return cmdLintSymbols(args[1:])
+	case "status":
+		return cmdLintStatus(args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "sworn lint: unknown target %q (known: ac, trace, deps, touchpoints, symbols)\n", args[0])
-		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols> <release>")
+		fmt.Fprintf(os.Stderr, "sworn lint: unknown target %q (known: ac, trace, deps, touchpoints, symbols, status)\n", args[0])
+		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols|status> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint deps [--base <ref>] <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint touchpoints <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint symbols <slice-id> <release>")
+		fmt.Fprintln(os.Stderr, "       sworn lint status <release>")
 		return 64
-	}
-} // cmdLintAC implements `sworn lint ac <release>`.
+	}} // cmdLintAC implements `sworn lint ac <release>`.
 // Classifies every acceptance check in every slice's spec.md by EARS pattern
 // and fails closed (non-zero exit) on any free-form check that matches no
 // pattern, naming the slice + the offending line. A release whose every AC is
@@ -271,4 +274,42 @@ func resolveReleaseDir(name string) (string, error) {
 		return "", fmt.Errorf("release directory not found: %s", dir)
 	}
 	return dir, nil
+}
+
+// cmdLintStatus implements `sworn lint status <release>`.
+//
+// Walks the release directory for every slice's status.json and validates
+// that last_updated_at and verification.verifier_verdict_at timestamps are
+// not in the future beyond a 5-minute clock-skew allowance. Malformed
+// timestamps fail closed.  Exit 0 when all timestamps are sane; exit 1
+// on any future/malformed timestamp, naming the offending slice, field,
+// value, and the allowed maximum.
+func cmdLintStatus(args []string) int {
+	fs := flag.NewFlagSet("lint status", flag.ExitOnError)
+	_ = fs.Parse(args)
+
+	if fs.NArg() < 1 {
+		fmt.Fprintln(os.Stderr, "sworn lint status: release name is required")
+		fmt.Fprintln(os.Stderr, "usage: sworn lint status <release>")
+		return 64
+	}
+
+	releaseName := fs.Arg(0)
+	releaseDir, err := resolveReleaseDir(releaseName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint status: %v\n", err)
+		return 2
+	}
+
+	violations := lint.CheckStatusTimestamps(releaseDir, lint.DefaultClock)
+	if len(violations) > 0 {
+		fmt.Fprintln(os.Stderr, style.Danger(fmt.Sprintf("%d status timestamp violation(s) found:", len(violations))))
+		for _, v := range violations {
+			fmt.Fprintf(os.Stderr, "  %s\n", v.String())
+		}
+		return 1
+	}
+
+	fmt.Printf("All status timestamps within allowed window for %s\n", releaseName)
+	return 0
 }
