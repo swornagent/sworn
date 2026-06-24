@@ -3,9 +3,11 @@
   "slice_id": "S62-baton-upstream-source",
   "release": "2026-06-19-safe-parallelism",
   "track": "T14-baton-integration",
-  "state": "design_review",  "owner": "human",
+  "state": "in_progress",
+  "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-09T00:00:00Z",  "start_commit": null,
+  "last_updated_at": "2026-07-09T00:00:00Z",
+  "start_commit": null,
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S62-baton-upstream-source/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S62-baton-upstream-source/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S62-baton-upstream-source/journal.md",
@@ -16,9 +18,16 @@
   "planned_files": [
     "internal/baton/fetch.go",
     "internal/baton/fetch_test.go",
-    "internal/baton/source.go",
+    "internal/baton/version.go",
     "cmd/sworn/baton.go",
     "internal/adopt/baton/VERSION"
+  ],
+  "design_decisions": [
+    {"id": 1, "type": "Type-2", "summary": "Temp directory lifecycle — download to os.MkdirTemp, feed to Vendor(), clean on return; no persistent cache."},
+    {"id": 2, "type": "Type-2", "summary": "Digest algorithm SHA-256 — crypto/sha256 stdlib, hex-encoded, stored as upstream-digest: sha256:<hex> in VERSION."},
+    {"id": 3, "type": "Type-2", "summary": "VERSION record written after successful Vendor — commit SHA + digest written only on nil error so a failed run leaves no stale pin."},
+    {"id": 4, "type": "Type-2", "summary": "Flag semantics — --upstream makes positional source-dir optional; --tag/--repo only apply with --upstream; no --tag uses pinned semver from baton.Version()."},
+    {"id": 5, "type": "Type-2", "summary": "No SourceProvider interface — single FetchUpstream(ctx, repo, tag) (*FetchResult, error) function called from cmd/sworn/baton.go; no pipeline change."}
   ],
   "actual_files": [],
   "test_commands": [
@@ -30,7 +39,7 @@
   "reachability_artifacts": [],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "",
     "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
