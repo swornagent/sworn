@@ -73,3 +73,22 @@ None.
 ## Verifier verdicts received
 
 *(None yet.)*
+### 2026-07-09 — Verifier (fresh context, artefact-only)
+
+FAIL
+
+Slice: S15-oci-driver
+
+Violations:
+1. Gate 2 — Planned touchpoints mismatch (config.go and provider_test.go modified but not listed in spec.md "Planned touchpoints"; proof.md "Divergence from plan" does not explain them — only covers $OCI_REGION drift).
+   Evidence: spec.md:53-57 (Planned touchpoints), git diff --name-only 3d60456432fd6dbfcdfb6248bf084bfe3da9564a..HEAD, proof.md Divergence section, journal.md implementation notes (added to status.json planned_files but spec.md untouched).
+2. Gate 3 — Compartment ID validation and test name do not match spec acceptance check (spec says "Verify returns a non-nil error" for missing compartment; implementation errors in NewOCI; test TestOCIVerify_MissingCompartment calls NewOCI directly, not Verify).
+   Evidence: spec.md acceptance checks ("cfg.OCICompartmentID empty ... → Verify returns..."), oci.go:42-44 (if compartmentID == "" return error in NewOCI), oci_test.go:68-72 (TestOCIVerify_MissingCompartment), Verify path at oci.go:84.
+
+Required to address:
+1. Update spec.md "Planned touchpoints" to include config.go and provider_test.go (or document as divergence).
+2. Align spec acceptance check, test name, or implementation for compartment ID validation location (NewOCI vs Verify).
+3. Update proof.md "Divergence from plan" and "Delivered" evidence references to be accurate.
+4. Document extra indirect deps in go.mod if they are unexpected (per spec Risk #1).
+
+Next step for human: re-open `/implement-slice S15-oci-driver 2026-06-19-safe-parallelism` in a fresh session to address the violations.
