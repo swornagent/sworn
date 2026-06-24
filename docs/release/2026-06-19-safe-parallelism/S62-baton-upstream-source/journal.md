@@ -97,3 +97,21 @@
   - Required to address: Add command-level integration test (e.g. `TestBatonVendorUpstream_NoTagUsesPinned`) that calls `cmdBatonVendor` with `--upstream --repo ...` (no `--tag`), injects pinned tag via test setter or env, and asserts the test server's codeload URL contains the pinned semver tag (not "latest").
   - Tests re-run: `go test ./internal/baton/...`, `go test ./cmd/sworn/... -run TestBaton`, `go build ./...`, `go vet ./...` — all PASS in this session.
   - Verifier was fresh context (Rule 7).
+
+## 2026-07-09 (round 3) — in_progress → implemented (re-implementation after FAIL)
+
+- **Actor**: implementer (Claude)
+- **Verifier violation addressed**:
+  1. **Gate 6 — AC3 (no `--tag` uses pinned semver from VERSION)**: Added command-level integration test `TestBatonVendorUpstream_NoTagUsesPinned` to `cmd/sworn/baton_test.go`. The test:
+     - Calls `cmdBatonVendor` with `--upstream --repo sawy3r/baton` (no `--tag`)
+     - Uses `baton.SetVersionForTest("v0.4.2")` to inject the pinned semver
+     - Captures the codeload URL path via a custom `httptest.Server` mux
+     - Asserts the URL contains `"v0.4.2"` (the pinned tag)
+     - Asserts the URL does NOT contain `"latest"` or `"head"`
+     - Asserts exit 0 and all 19 dest files written
+  - This is the falsifiable evidence the verifier required: a command-level test proving the codeload URL carries the pinned tag from `baton.Version()`, not `latest`/HEAD.
+- **Tests**: all 27 internal/baton tests pass; all 6 cmd/sworn baton tests pass; build + vet clean.
+- **Skeptic panel**: skipped — runtime does not support subagent dispatch.
+- **start_commit**: preserved at `e9d73cc14fe53cec60d12867e00cf3d83d270807` (original implementation round).
+- **First-pass script**: 22/24 checks passed. 2 expected failures: Playwright false positive (CLI-only slice) + state=in_progress (will read implemented after commit).
+- **Terminal state**: `implemented`

@@ -366,8 +366,95 @@ func TestBatonVendorUpstream_DigestMismatch(t *testing.T) {
 	}
 }
 
-func TestBatonVendorUpstream_LocalBackCompat(t *testing.T) {
-	// Without --upstream, the command should use the local-dir path (S48 back-compat).
+func TestBatonVendorUpstream_NoTagUsesPinned(t *testing.T) {
+	owner, repo, tag := "sawy3r", "baton", "v0.4.2"
+	commitSHA := "abc123def4567890123456789012345678abcdef"
+
+	// Set the pinned version so Version() returns this tag when --tag is empty.
+	baton.SetVersionForTest(tag)
+	t.Cleanup(func() { baton.SetVersionForTest("") })
+
+	files := vendorFixtureFiles()
+	tarball := makeUpstreamTarball(repo, tag, files)
+	digest := sha256HexDigest(tarball)
+
+	baton.SetUpstreamPinForTest(&baton.UpstreamPin{SHA: commitSHA, Digest: digest})
+	t.Cleanup(baton.ClearUpstreamPinForTest)
+
+	// Custom test server that captures the codeload URL path for assertion.
+	var codeloadURLPath string
+	mux := http.NewServeMux()
+
+	// API: /repos/{owner}/{repo}/commits/{tag}
+	apiPath := fmt.Sprintf("/repos/%s/%s/commits/%s", owner, repo, tag)
+	mux.HandleFunc(apiPath, func(w http.ResponseWriter, r *http.Request) {
+		resp := struct {
+			SHA string `json:"sha"`
+		}{SHA: commitSHA}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	})
+
+	// Codeload: capture path for assertion; serve tarball.
+	codeloadPrefix := fmt.Sprintf("/%s/%s/tar.gz/refs/tags/", owner, repo)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, codeloadPrefix) {
+			codeloadURLPath = r.URL.Path
+			w.Header().Set("Content-Type", "application/x-gzip")
+			w.Write(tarball)
+		} else {
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+	baton.SetBaseURLForTest(ts.URL)
+	t.Cleanup(baton.ClearBaseURLForTest)
+
+	// Set up temp repo.
+	tmpRepo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(tmpRepo, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range baton.AllMappings() {
+		os.MkdirAll(filepath.Join(tmpRepo, filepath.Dir(m.Dest)), 0755)
+	}
+	versionDir := filepath.Join(tmpRepo, "internal", "adopt", "baton")
+	os.MkdirAll(versionDir, 0755)
+	os.WriteFile(filepath.Join(versionDir, "VERSION"), []byte("baton-protocol: v0.4.2\n"), 0644)
+
+	oldDir, _ := os.Getwd()
+	os.Chdir(tmpRepo)
+	defer os.Chdir(oldDir)
+
+	// Run with --upstream but NO --tag. Should fall back to baton.Version().
+	exit := cmdBatonVendor([]string{"--upstream", "--repo", owner + "/" + repo})
+	if exit != 0 {
+		t.Fatalf("cmdBatonVendor --upstream (no --tag) exit = %d, want 0", exit)
+	}
+
+	// Assert: codeload URL contains the pinned semver tag, not "latest" or "HEAD".
+	if !strings.Contains(codeloadURLPath, tag) {
+		t.Errorf("codeload URL path %q does not contain pinned tag %q", codeloadURLPath, tag)
+	}
+	if strings.Contains(strings.ToLower(codeloadURLPath), "latest") {
+		t.Errorf("codeload URL path %q contains 'latest' — should use pinned tag %q", codeloadURLPath, tag)
+	}
+	if strings.Contains(strings.ToLower(codeloadURLPath), "head") {
+		t.Errorf("codeload URL path %q contains 'head' — should use pinned tag %q", codeloadURLPath, tag)
+	}
+
+	// Verify files were written (same as success test).
+	for _, m := range baton.AllMappings() {
+		destPath := filepath.Join(tmpRepo, m.Dest)
+		if _, err := os.Stat(destPath); os.IsNotExist(err) {
+			t.Errorf("dest file not written: %s", m.Dest)
+		}
+	}
+}
+
+func TestBatonVendorUpstream_LocalBackCompat(t *testing.T) {	// Without --upstream, the command should use the local-dir path (S48 back-compat).
 	fixture, err := filepath.Abs(filepath.Join("..", "..", "internal", "baton", "testdata", "fixture"))
 	if err != nil {
 		t.Fatal(err)

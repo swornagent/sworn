@@ -33,13 +33,14 @@ internal/baton/version_stub.go
 ```
 
 _Production code: `cmd/sworn/baton.go`, `cmd/sworn/baton_test.go`, `internal/baton/fetch.go`, `internal/baton/fetch_test.go`, `internal/baton/version.go`, `internal/baton/version_stub.go`. Remaining files are release artefacts (docs/release/...) and the board index._
+
 ## Test results
 
 ### Go (internal/baton)
 
 ```
 $ go test ./internal/baton/... -count=1
-ok  	github.com/swornagent/sworn/internal/baton	0.053s
+ok  	github.com/swornagent/sworn/internal/baton	0.065s
 ```
 
 All 27 tests pass: fetch (11 tests), transform (4), vendor (4), diff (3), version (2), validate (2), replacements guard (1).
@@ -47,22 +48,17 @@ All 27 tests pass: fetch (11 tests), transform (4), vendor (4), diff (3), versio
 ### Go (cmd/sworn baton tests — command-level integration)
 
 ```
-$ go test ./cmd/sworn/... -run TestBaton -count=1 -v
-=== RUN   TestBatonDiffExitsNonZeroOnDivergence
---- PASS: TestBatonDiffExitsNonZeroOnDivergence (0.02s)
-=== RUN   TestBatonDiffExitsZeroWhenInSync
---- PASS: TestBatonDiffExitsZeroWhenInSync (0.01s)
-=== RUN   TestBatonVendorUpstream_Success
---- PASS: TestBatonVendorUpstream_Success (0.01s)
-=== RUN   TestBatonVendorUpstream_DigestMismatch
---- PASS: TestBatonVendorUpstream_DigestMismatch (0.00s)
-=== RUN   TestBatonVendorUpstream_LocalBackCompat
---- PASS: TestBatonVendorUpstream_LocalBackCompat (0.00s)
-PASS
-ok  	github.com/swornagent/sworn/cmd/sworn	0.048s
+$ go test ./cmd/sworn/... -run TestBaton -count=1
+ok  	github.com/swornagent/sworn/cmd/sworn	0.051s
 ```
 
-All 5 baton command tests pass: 2 diff tests (existing), 3 new upstream vendor integration tests.
+All 6 baton command tests pass:
+- `TestBatonDiffExitsNonZeroOnDivergence` (existing)
+- `TestBatonDiffExitsZeroWhenInSync` (existing)
+- `TestBatonVendorUpstream_Success` — full upstream pipeline via CLI
+- `TestBatonVendorUpstream_DigestMismatch` — tampered tarball fails closed at command level
+- `TestBatonVendorUpstream_NoTagUsesPinned` — **NEW (round 3)** — no `--tag` falls back to `baton.Version()`, codeload URL contains pinned tag, never `latest`/HEAD
+- `TestBatonVendorUpstream_LocalBackCompat` — local vendor path unchanged
 
 ### Go (build + vet)
 
@@ -78,15 +74,17 @@ VET OK
 
 - **Type**: `integration-test`
 - **Path**: `cmd/sworn/baton_test.go`
-- **Test name**: `TestBatonVendorUpstream_Success`
-- **What it proves**: `cmdBatonVendor` with `--upstream --repo sawy3r/baton --tag v0.4.2` drives the full pipeline end-to-end: API commit SHA resolution → codeload tarball fetch → SHA/digest verification → tar extraction with prefix stripping → `Vendor()` transform pipeline → `WriteUpstreamPin()` pin writeback. Run against an `httptest.Server` that serves both the GitHub API and codeload endpoints. Asserts: exit code 0, all 19 dest files written, VERSION updated with `upstream-sha` and `upstream-digest`, rule file content non-empty after vendor.
-- **Falsifiable**: `TestBatonVendorUpstream_DigestMismatch` — same setup but with a wrong digest pinned; exits non-zero, writes no files.
+- **Test names**:
+  - `TestBatonVendorUpstream_Success` — `cmdBatonVendor` with `--upstream --repo --tag` against `httptest.Server`; full pipeline end-to-end (API commit resolution → codeload tarball → SHA/digest verify → extract → Vendor → WriteUpstreamPin). Asserts exit 0, 19 dest files written, VERSION updated.
+  - `TestBatonVendorUpstream_NoTagUsesPinned` — **AC3 falsifiable evidence**: `cmdBatonVendor` with `--upstream --repo` (NO `--tag`) against `httptest.Server`; captures the codeload URL path and asserts it contains the pinned semver tag from `baton.Version()` — never `latest` or `HEAD`. Asserts exit 0 and all dest files written.
+  - `TestBatonVendorUpstream_DigestMismatch` — tampered tarball fails closed at command level (non-zero exit, no files written).
+- **What they prove**: The full `sworn baton vendor --upstream` flow is exercised through the CLI entry point (`cmdBatonVendor`), satisfying Rule 1 reachability. AC3's no-`--tag` path is covered with explicit URL-capture assertion.
 
 ## Delivered
 
 - **AC1** (stdlib-only HTTPS tarball fetch + gzip/tar extraction, stripping `<repo>-<ref>/` prefix, no `os/exec`/git, no new module deps): `internal/baton/fetch.go` uses `net/http`, `compress/gzip`, `archive/tar` — stdlib only. Verified by `TestFetchUpstream_Success` (prefix-strip assertion: `baton-v0.4.2/` dir absent after extract) and `TestBatonVendorUpstream_Success` (command-level). No `os/exec` or git invocation in the fetch path. `go.mod` unchanged.
 - **AC2** (SHA + digest pin verification, force-moved tag / tampered tarball fails closed): Verified by `TestFetchUpstream_SHAMismatch` and `TestFetchUpstream_DigestMismatch` (leaf) + `TestBatonVendorUpstream_DigestMismatch` (command-level) — tampered tarball exits non-zero, writes nothing.
-- **AC3** (no `--tag` uses pinned semver from VERSION; never `latest`/HEAD): `cmdBatonVendor` resolves tag via `baton.Version()` when `--tag` flag is empty. Verified by code review and `TestVersionIsSemverNotSha`. The URL contains the pinned tag, not `latest`.
+- **AC3** (no `--tag` uses pinned semver from VERSION; never `latest`/HEAD): `cmdBatonVendor` resolves tag via `baton.Version()` when `--tag` flag is empty. **Verified by `TestBatonVendorUpstream_NoTagUsesPinned`** — command-level test that calls `cmdBatonVendor` with `--upstream --repo` (no `--tag`), captures the codeload URL path, and asserts it contains the pinned semver tag (`v0.4.2`) and does NOT contain `latest` or `head`.
 - **AC4** (default repo `github.com/sawy3r/baton`; `--repo`/config override honoured): `cmdBatonVendor` defaults to `sawy3r/baton`, overridable via `--repo` flag or `SWORN_BATON_REPO` env var. Verified by `TestFetchUpstream_RepoFormatValidation` and `TestBatonVendorUpstream_Success` which passes explicit `--repo sawy3r/baton`.
 - **AC5** (network failure, non-2xx, missing tag → non-zero exit, fail closed): Verified by `TestFetchUpstream_APINotFound`, `TestFetchUpstream_CodeloadNotFound`, `TestFetchUpstream_ServerError` — all return non-nil errors.
 - **AC6** (transform parity — fetched source produces identical embed as local source): The existing `Vendor()` function is called unchanged; `FetchUpstream` returns a source directory that feeds the same pipeline. Verified by `TestVendorWritesTransformedEmbed` and `TestVendorIsIdempotent` still passing (existing S48 tests green).
@@ -102,11 +100,6 @@ _None._
 - **Planned touchpoints reconciliation.** The spec originally listed `internal/baton/source.go` (not modified — Decision 5 chose standalone `FetchUpstream` in `fetch.go` instead of a `SourceProvider` interface) and `internal/adopt/baton/VERSION` (an embed file, not a code file). The actual implementation uses: `fetch.go` (network fetch + test setters), `fetch_test.go` (leaf tests), `version.go`/`version_stub.go` (pin read/write + test setters), `cmd/sworn/baton.go` (CLI wiring), and `cmd/sworn/baton_test.go` (command-level integration tests). Spec `Planned touchpoints` updated to match.
 - **Config-based repo override.** Implemented as `SWORN_BATON_REPO` env var fallback instead of a Config struct field. **Why**: zero-migration path; Config schema migration out of scope for this slice. **Tracking**: issue #11. **Acknowledged**: implementer decision (Type-2 — reversible, narrow blast radius).
 - **Architectural change: `source.go` not modified.** Decision 5 chose a standalone `FetchUpstream` function rather than modifying the existing `source.go`/`FileMapping` infrastructure. Documented as a deliberate design choice, now reflected in the spec's Planned touchpoints.
-
-## First-pass script output
-
-
-Run after committing `implemented` state — expected: 1 false positive (playwright opt-in on CLI-only slice), 0 real failures.
 
 ## First-pass script output
 
