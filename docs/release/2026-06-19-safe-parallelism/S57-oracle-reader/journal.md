@@ -35,3 +35,15 @@ c. `ResolvedFrom` return type explicitly declared
 ## 2026-07-14: First-pass PASS
 
 `release-verify.sh` — 23/23 checks passed, 0 failed. State: `implemented`. Ready for fresh-context verifier session.
+
+## Verifier verdicts received
+
+PASS
+
+Slice: S57-oracle-reader
+
+Verified against: 6073461a8a67e78d2ae4cc64ed8ed04f92e00955
+
+Verifier session: fresh, artefact-only
+
+All gates satisfied. Pre-existing TestLiveReleaseBoardsAreValid failure (T6-provider-ux) is unrelated and documented in proof.md; S57-specific tests and reachability pass. No silent deferrals, scope matches, blocked visibility implemented.
