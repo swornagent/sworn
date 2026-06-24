@@ -3,10 +3,10 @@
   "slice_id": "S59-scheduler-relayer",
   "release": "2026-06-19-safe-parallelism",
   "track": "T17-orchestration-core",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-24T15:41:35Z",
+  "last_updated_at": "2026-07-15T13:00:00Z",
   "start_commit": "5cc564898d134033131369ac76eb8827cdf1d766",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S59-scheduler-relayer/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S59-scheduler-relayer/proof.md",
@@ -17,12 +17,18 @@
     "internal/run/parallel.go",
     "internal/run/parallel_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/scheduler/worker.go",
+    "internal/scheduler/worker_test.go",
+    "internal/run/parallel.go"
+  ],
   "test_commands": [
     "go test -race ./internal/scheduler/... ./internal/run/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "go test -v -run TestWorkerPollsRouterDrivesSlice ./internal/scheduler/..."
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "pending",

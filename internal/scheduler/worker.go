@@ -196,8 +196,7 @@ func runTrackRouter(
 	// Determine the first non-terminal slice in the track.
 	currentSlice := findFirstNonTerminal(opts.TrackInfo.Slices)
 	if currentSlice == "" {
-		// All slices already terminal (verified/shipped/deferred).
-		return finishTrack(ctx, opts, workRoot, trackID, trackBranch, releaseTrack)
+		// All slices already in a terminal state.		return finishTrack(ctx, opts, workRoot, trackID, trackBranch, releaseTrack)
 	}
 
 	for {
@@ -361,8 +360,7 @@ func finishTrack(
 }
 
 // findFirstNonTerminal returns the first slice ID in the track that is not
-// in a terminal state (verified, shipped, deferred). Returns "" if all
-// slices are terminal — the track is fully done and resumability skips it.
+// in a terminal state. Returns "" if all// slices are terminal — the track is fully done and resumability skips it.
 //
 // This is a best-effort helper for the worker at startup. The authoritative
 // state machine lives in the router (S58); this function only determines the
