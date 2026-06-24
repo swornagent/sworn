@@ -45,3 +45,8 @@ Verified `docs/baton-governance.md` contains no private repo refs (no firedau/fi
 ### Deferral ack durability
 
 Both CI wiring and live-remote diff deferrals are acknowledged inline here and in `proof.md` "Not delivered" — per the durable-inline rule (feedback_deferral_ack_durable_inline), acks are not dependent on transient `approved-ack.md` lifetime.
+### Skeptic panel
+skeptic_panel: skipped — runtime does not support subagent dispatch (no Agent/Workflow tool in this session's tool set). First-pass release-verify.sh returned PASS (22/22 checks). Defers to fresh-context verifier (Rule 7).
+
+### First-pass verification
+release-verify.sh: 22/22 PASS. start_commit=94a1223, 8 files changed. No dark-code markers. All proof bundle sections present.
