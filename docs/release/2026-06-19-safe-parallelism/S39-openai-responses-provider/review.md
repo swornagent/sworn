@@ -1,76 +1,71 @@
 # Captain review — S39-openai-responses-provider
 Date: 2026-07-12
-Design commit: d9d1ae8c5997e8df7cd22168bff252cdcd65efc3
+Design commit: 66e6a4b03c282511004b4da117e484f4f644883c
+Review round: R2 (re-review after Coach decline: "web_search is mandatory")
+
+## R1 pin resolution check
+
+All 8 R1 pins resolved in the revised design:
+
+- R1-1 (config.go key routing CRITICAL): RESOLVED. §3 now includes config.go with `case "openai-responses":` routing to `envOrAlias("OPENAI_API_KEY", "SWORN_OPENAI_API_KEY")`. status.json planned_files includes config.go.
+- R1-2 (planned_files incomplete): RESOLVED. status.json now lists all 7 files.
+- R1-3 (openai/responses prefix alternative): RESOLVED. Design commits to `openai-responses` as sole prefix.
+- R1-4 (§1 model ID example): RESOLVED. §1 uses `openai-responses/gpt-5.5`.
+- R1-5 (WebSearch vs WebFetch ESCALATE): RESOLVED. Design now ships WebSearch (DuckDuckGo), matching spec Risk #2's prescribed fallback. The Coach decline mandated this.
+- R1-6 (web_search wiring): RESOLVED. §3 describes tool entry format `{"type": "web_search_preview"}`, opt-in via UseWebSearch bool, test asserting presence/absence.
+- R1-7 (Rule 2 deferral tracking): PARTIALLY RESOLVED — see Pin 4 below. §4 now has tracking+ack lines, but "follow-up slice TBD" is placeholder tracking.
+- R1-8 (design_decisions absent): RESOLVED. status.json has 5 design_decisions, all Type-2 with rationale.
 
 ## Pins
 
-1. **[mechanical] §3 — `internal/model/config.go` missing from file plan; provider will fail at runtime on key resolution.**
-   What I observed: The design registers the provider under prefix `openai-responses` in `NewClient` (provider.go), but `FromEnv` (config.go) derives the key env var from the prefix: `strings.ToUpper(strings.ReplaceAll("openai-responses", "-", "_"))` → `OPENAI_RESPONSES` → checks `SWORN_OPENAI_RESPONSES_API_KEY`. The spec says "reading `OPENAI_API_KEY` (existing config path)." Users have `OPENAI_API_KEY` or `SWORN_OPENAI_API_KEY` set, not `SWORN_OPENAI_RESPONSES_API_KEY`. Without either (a) special-casing `openai-responses` in `FromEnv`'s key switch to reuse `pcfg.OpenAIKey`, or (b) adding a `ProviderConfig` field for the responses key, the provider will error "SWORN_OPENAI_RESPONSES_API_KEY not set" at runtime.
-   What to ask the implementer: Add `internal/model/config.go` to the file plan. In `FromEnv`'s key-derivation switch, route `case "openai-responses": key = envOrAlias("OPENAI_API_KEY", "SWORN_OPENAI_API_KEY")` (same as `openai`). In `NewClient`, pass `pcfg.OpenAIKey` to the responses provider. Add a unit test asserting `openai-responses/gpt-5.5` resolves with `OPENAI_API_KEY` set and `SWORN_OPENAI_RESPONSES_API_KEY` unset.
+1. **[mechanical] §3 — CRITICAL: proxy routing path in FromEnv bypasses NewClient, returns &OAI{} for all providers.**
+   What I observed: `FromEnv` (config.go lines 52-66) has a proxy routing path that fires when sworn credentials are present and `SWORN_DIRECT` is not set. It returns `&OAI{BaseURL: proxyURL, Model: model, APIKey: creds.Token}` for ALL model IDs — bypassing `NewClient` entirely. This means `openai-responses/gpt-5.5` would get `&OAI{}` (chat/completions via proxy), NOT `OpenAIResponses` (responses API). gpt-5.5 rejects /chat/completions ("use /v1/responses instead"). The design does not mention the proxy routing path at all. Any user with sworn credentials (the default on-ramp) would get chat/completions, not responses.
+   What to ask the implementer: In `FromEnv`'s proxy routing block (config.go ~line 57), add a special case: when `provider == "openai-responses"`, construct an `OpenAIResponses` with the proxy URL as BaseURL instead of `&OAI{}`. Alternatively, if the SwornAgent proxy does not yet support `/v1/responses` forwarding, document that the responses provider requires `SWORN_DIRECT=1` and defer proxy support as a Rule 2 deferral (with real tracking). Either way, the proxy path must not silently route a responses-provider model to /chat/completions.
 
-2. **[mechanical] §3 — `internal/model/provider.go` and `internal/model/oai.go` missing from status.json `planned_files`.**
-   What I observed: Design §3 lists `internal/model/provider.go` (NewClient dispatch) and `internal/model/oai.go` (modelPricing entries) as files to touch, but `status.json` `planned_files` only lists 4 files: `openai_responses.go`, `openai_responses_test.go`, `tools.go`, `tools_test.go`. The lint/touchpoint gates (S30, verified) check `planned_files` against actual diffs.
-   What to ask the implementer: Add `internal/model/provider.go`, `internal/model/oai.go`, and `internal/model/config.go` to `planned_files` in status.json before transitioning to in_progress.
+2. **[mechanical] §2/§3 — reasoning_effort has no field, no config mechanism, no wiring path.**
+   What I observed: The spec says "reasoning_effort configurable per role (default medium)" and AC1 requires "reasoning_effort sent." The design mentions reasoning_effort in §1 and §5 (test assertion) but never describes: (a) a `ReasoningEffort` field on `OpenAIResponses`, (b) how it's configured per role (config.json? env var? hardcoded default?), (c) how it's passed through `NewClient(modelID, pcfg ProviderConfig)` which has no parameter for it. `internal/config/config.go` (ModelSetting) is not in the file plan. The design §3 says NewClient constructs OpenAIResponses with "BaseURL, pcfg.OpenAIKey, and the model name" — no reasoning_effort.
+   What to ask the implementer: Add a `ReasoningEffort string` field to `OpenAIResponses` (default "medium"). Either add it to `ProviderConfig` or read from an env var (e.g. `SWORN_OPENAI_RESPONSES_REASONING_EFFORT`). If per-role config via `ModelSetting` is intended, add `internal/config/config.go` to the file plan. At minimum, hardcode "medium" as the default and send it in the request — the spec AC requires it to be sent, and "configurable" can be satisfied by an env var override.
 
-3. **[mechanical] §3 — `openai/responses` prefix alternative is unworkable with `parseModelID`.**
-   What I observed: Design §3 says the prefix will be `"openai-responses" (or openai/responses)`. `parseModelID` splits on the first `/`, so `openai/responses/gpt-5.5` → provider=`openai`, model=`responses/gpt-5.5` → routes to the existing `/chat/completions` OAI client, not the responses provider. The `openai/responses` alternative is a dead end.
-   What to ask the implementer: Commit to `openai-responses` as the sole prefix. Remove the `openai/responses` alternative from the design to avoid confusion.
+3. **[mechanical] §3 — UseWebSearch bool field has no wiring path through NewClient.**
+   What I observed: The design says `UseWebSearch bool` is a field on `OpenAIResponses`, "by default it's off; the caller (agent loop or sworn run) sets it per the role's config." But `NewClient` returns `Verifier`, not `*OpenAIResponses` — the caller would need a type assertion to set the field. The agent loop gets its model via `newAgentFromModel` → `FromEnv` → `NewClient` → returns `Verifier` → type-asserts to `agent.Agent`. There is no step in this chain where the caller can set `UseWebSearch`. No config mechanism (env var, ModelSetting field, ProviderConfig field) is described.
+   What to ask the implementer: Either (a) add `UseWebSearch` to `ProviderConfig` and set it in `NewClient` when constructing `OpenAIResponses`, (b) read from an env var (e.g. `SWORN_OPENAI_RESPONSES_USE_WEB_SEARCH`) inside `NewClient`, or (c) default to false and defer per-role configurability. The test in §5 (asserting tool entry appears when opted in) needs a way to set the flag — describe how the test constructs the provider with `UseWebSearch=true`.
 
-4. **[mechanical] §1 vs §4 — model ID prefix inconsistency.**
-   What I observed: §1 says `openai/gpt-5.5` as an example model ID, but §4 says the opt-in prefix is `openai-responses/gpt-5.5`. The `openai/` prefix routes to `/chat/completions`, so `openai/gpt-5.5` would not use the responses provider. The §1 example is misleading.
-   What to ask the implementer: Fix §1 to use `openai-responses/gpt-5.5` as the example model ID, consistent with §4.
-
-5. **[escalate] §2.3 + §4 — spec Risk #2 mitigation narrowed without acknowledgement.**
-   What I observed: Spec Risk #2 says "the function-tool WebSearch (item 3) is the portable fallback" for web_search gating. Design §2.3 ships `web_fetch` only and defers WebSearch (search-engine integration) to a separate slice. The spec's prescribed fallback for web_search gating was WebSearch, not WebFetch — WebFetch is a URL fetcher, not a search engine. The design narrows the spec's fallback without acknowledging the deviation from the Risk #2 mitigation.
-   What to ask the implementer: Coach, the design ships WebFetch (HTTP GET) instead of WebSearch (search-engine query) as the cross-provider tool. Spec Risk #2 names WebSearch as the portable fallback for web_search gating. WebFetch is a different tool (URL fetch vs search). Either (a) ack the narrowing — WebFetch is sufficient as the cross-provider web tool and WebSearch is a separate slice, or (b) require WebSearch be implemented in this slice per the spec's Risk #2 mitigation. If (a), the spec's Risk #2 should be amended via /replan-release to reference WebFetch as the fallback.
-
-6. **[mechanical] §3 — AC3 (web_search selectable) has no implementation file or mechanism described.**
-   What I observed: §1 mentions "OpenAI models using the responses provider also get OpenAI's built-in `web_search` tool as a provider-native option." AC3 requires "OpenAI built-in `web_search` is selectable and reaches the model as a tool." But §3 lists no file or mechanism for how web_search is wired into the responses provider request. The design doesn't describe how the tool is sent (e.g., as a `{"type": "web_search"}` entry in the responses API tools array) or how it's made opt-in per role/config.
-   What to ask the implementer: Add to §3 a description of how `web_search` is wired: which file adds it to the responses request, what the tool entry looks like in the responses API format, and how it's made opt-in (config flag, role setting, or always-on for the responses provider). Add a test asserting the tool reaches the model.
-
-7. **[mechanical] §4 — deferrals lack tracking and acknowledgement (Rule 2).**
-   What I observed: §4 lists three deferrals (streaming, WebSearch, previous_response_id). Each has a why but none has tracking (issue/slice reference) or acknowledgement. Spec "Deferrals allowed" says streaming "may be deferred (with why + tracking + ack)" and the web tool split must be "surfaced explicitly." The design surfaces the split but doesn't link tracking or record acknowledgement.
-   What to ask the implementer: For each §4 deferral, add a tracking reference (GitHub issue or slice ID) and record the Coach's acknowledgement. At minimum, note "tracking: follow-up slice" and "ack: Coach acked in design review" for each. The implementer should file issues for WebSearch and streaming if not already filed.
-
-8. **[mechanical] Step 2b — `design_decisions` field absent from status.json.**
-   What I observed: status.json has no `design_decisions` field. Sibling slices (S13, S15, S16, S19) carry structured `design_decisions` with id/description/type/rationale. The design-fit gate (S32, verified) expects this field. All 5 §2 decisions are Type-2 (local, reversible) but must be recorded.
-   What to ask the implementer: Add a `design_decisions` array to status.json with entries for each §2 decision (D1–D5), classified as Type-2, with rationale. This satisfies the design-fit gate.
+4. **[mechanical] §4 — deferrals use "follow-up slice TBD" which is placeholder tracking.**
+   What I observed: §4 has three deferrals (streaming, previous_response_id, separate search-engine integration). Each has "Tracking: follow-up slice TBD. Ack: ..." But "TBD" is not a real tracking reference. Per [[feedback_placeholder_tracking_smell]], real tracking is a GitHub issue number (#NNN), an on-disk release folder, or a sibling slice id. The `release-verify.sh` placeholder tracking regex (`tracking:[[:space:]]*(TBD|TODO|pending|none|n/?a)`) will catch this when these deferrals land in proof.md "Not delivered."
+   What to ask the implementer: File GitHub issues for each deferral (streaming, previous_response_id, search-engine integration) using `gh issue create` and cite the real issue numbers in §4. Replace "follow-up slice TBD" with "#NNN" references. Do this before transitioning to in_progress.
 
 ## Summary
 
-Pins: 8 total — 7 [mechanical], 0 [memory-cited], 1 [escalate]
-Critical pins: #1 (provider will fail at runtime without config.go key routing)
+Pins: 4 total — 4 [mechanical], 0 [memory-cited], 0 [escalate]
+Critical pins: #1 (proxy routing path returns &OAI{} for openai-responses, causing runtime failure for sworn-credential users)
 
 ## Smaller flags (not pins, worth one-line ack)
 
-- (a) `internal/agent/tools.go` and `internal/model/oai.go` collide with S27 (public-readiness-scrub, state=planned). Low risk since S27 is planned, not in_progress — but if S27 activates before S39 merges, coordinate.
-- (b) The design says pricing entries go in `oai.go`'s `modelPricing` table, which serves both chat and responses paths. Confirm the pricing keys match the model IDs the responses provider will use (e.g., `gpt-5.5` not `openai-responses/gpt-5.5` — `computeCost` looks up by model name, not full model ID).
-- (c) §2 decision 5 says "if the responses API reports a `reasoning_tokens` field in usage, it is summed into completion tokens for cost calculation." Confirm the responses API usage shape — `usage` in `/v1/responses` may use different field names than `/chat/completions` (e.g., `output_tokens` vs `completion_tokens`).
+- (a) S63-subscription-cli-driver (planned, T5-providers) also touches `internal/model/config.go`. Low risk since S63 is planned, not in_progress — but if S63 activates before S39 merges, coordinate on config.go.
+- (b) S27-public-readiness-scrub (planned) touches `internal/agent/tools.go` and `internal/model/oai.go`. Same low-risk caveat.
+- (c) DuckDuckGo HTML parsing approach is undescribed. If the implementer promotes `golang.org/x/net/html` from indirect to direct dep, an ADR is required per ADR-0007 and `go.mod` must be added to planned_files. Regexp-based extraction (no new dep) is sufficient for lite.duckduckgo.com's simple HTML.
+- (d) Response parsing (output items → tool calls + text) is not described in §2 or §3 — only usage field mapping is covered. This is an implementation detail the httptest tests will exercise; no design-level gap.
 
 ## Suggested ack reply
 <!-- Coach-extractable section: `coach ack <slice>` reads everything between
      this heading and the next ## heading (or EOF). Keep this content
      verbatim-pasteable into the Implementer session — no surrounding prose. -->
 
-TL;DR Solid translation-layer design with one critical wiring gap and a spec-deviation to ack. 8 pins + 3 flags:
+TL;DR Revised design resolves all 8 R1 pins; 4 new mechanical pins (1 critical) from wiring gaps the design didn't cover. 4 pins + 4 flags:
 
-1. **config.go key routing (CRITICAL).** Add `internal/model/config.go` to the file plan. In `FromEnv`'s key-derivation switch, route `case "openai-responses": key = envOrAlias("OPENAI_API_KEY", "SWORN_OPENAI_API_KEY")` (same as `openai`). In `NewClient`, pass `pcfg.OpenAIKey` to the responses provider. Add a unit test asserting `openai-responses/gpt-5.5` resolves with `OPENAI_API_KEY` set and `SWORN_OPENAI_RESPONSES_API_KEY` unset.
-2. **planned_files incomplete.** Add `internal/model/provider.go`, `internal/model/oai.go`, and `internal/model/config.go` to `planned_files` in status.json.
-3. **Prefix alternative.** Commit to `openai-responses` as the sole prefix. Remove the `openai/responses` alternative — `parseModelID` splits on the first `/`, so it would route to chat/completions.
-4. **§1 model ID example.** Fix §1 to use `openai-responses/gpt-5.5` (not `openai/gpt-5.5`) as the example — `openai/` routes to chat/completions.
-5. **WebSearch vs WebFetch (Coach ack).** Spec Risk #2 names WebSearch as the portable fallback for web_search gating. Design ships WebFetch (URL fetch) instead. Coach: ack the narrowing (WebFetch is sufficient, WebSearch is a separate slice) or require WebSearch in this slice. If ack, amend spec Risk #2 via /replan-release.
-6. **web_search wiring.** Add to §3 a description of how `web_search` is wired into the responses request (file, tool entry format, opt-in mechanism) and a test asserting it reaches the model. AC3 requires it.
-7. **Rule 2 deferral tracking.** For each §4 deferral, add a tracking reference (issue or slice ID) and record Coach acknowledgement. File issues for WebSearch and streaming if not already filed.
-8. **design_decisions in status.json.** Add a `design_decisions` array to status.json with entries for D1–D5, classified Type-2, with rationale. Satisfies the design-fit gate.
+1. **Proxy routing bypasses responses provider (CRITICAL).** FromEnv's proxy path (config.go ~line 57) returns &OAI{} for ALL providers when sworn credentials are present — openai-responses/gpt-5.5 would get /chat/completions, not /v1/responses. Either special-case openai-responses in the proxy block to return OpenAIResponses, or document SWORN_DIRECT=1 requirement as a Rule 2 deferral with real tracking.
+2. **reasoning_effort wiring.** Spec requires "configurable per role (default medium)" and AC1 requires it sent. Add a ReasoningEffort field to OpenAIResponses (default "medium"). Wire it via ProviderConfig field or env var (SWORN_OPENAI_RESPONSES_REASONING_EFFORT). At minimum hardcode "medium" so the AC is satisfied.
+3. **UseWebSearch wiring.** NewClient returns Verifier, not *OpenAIResponses — no way for the caller to set UseWebSearch. Either add to ProviderConfig, read from env var (SWORN_OPENAI_RESPONSES_USE_WEB_SEARCH) inside NewClient, or default false and defer configurability. Describe how the §5 test sets the flag.
+4. **Deferral tracking is placeholder.** "follow-up slice TBD" is not real tracking. File GitHub issues for streaming, previous_response_id, and search-engine integration deferrals. Replace "TBD" with real #NNN references before in_progress.
 
-Flags (not pins): (a) tools.go/oai.go collide with S27 (planned, low risk); (b) confirm pricing keys match model names not full IDs; (c) confirm responses API usage field names for reasoning_tokens.
+Flags (not pins): (a) S63 also touches config.go (planned, low risk); (b) S27 also touches tools.go + oai.go (planned, low risk); (c) if DuckDuckGo HTML parsing needs golang.org/x/net/html as direct dep, add ADR + go.mod to file plan — regexp is sufficient; (d) response output-item parsing is undescribed but covered by httptest tests.
 
-§2 decisions 1–5 ack (Type-2, all local/reversible). §6 questions: none — ack.
+§2 decisions 1-5 ack (Type-2, all local/reversible). §6 questions: (1) DuckDuckGo lite is acceptable as "simple HTTP search" — proceed; (2) placeholder pricing is fine — note as preliminary in proof.md. Ack.
 
-Address pins 1–8 inline during implementation, then proceed to in_progress.
+Address pins 1-4 inline during implementation, then proceed to in_progress.
 
 <!-- CAPTAIN-VERDICT
-DECISION: NEEDS_COACH
+DECISION: PROCEED
 CONSTITUTIONAL: no
-REASON: Pin 5 is a spec Risk #2 deviation (WebSearch fallback narrowed to WebFetch) requiring Coach judgement — no single right answer on whether WebFetch satisfies the spec's intent.
+REASON: All 4 pins are apply-inline wiring corrections (proxy path special-case, field additions, tracking refs) — the design's approach is sound and no pin requires re-reviewing the design before code is safe.
 -->
