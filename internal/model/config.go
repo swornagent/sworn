@@ -56,6 +56,18 @@ func FromEnv(modelID string) (Verifier, error) {
 		if credErr == nil && creds != nil && account.IsLoggedIn(creds) {
 			proxyURL := account.Endpoint(creds, modelID)
 			if proxyURL != "" {
+				// Coach pin 1 (S39): openai-responses needs the
+				// responses-API provider, not the OAI chat/completions
+				// adapter. The proxy URL + token are identical; only
+				// the struct type differs so /v1/responses is called.
+				if provider == "openai-responses" {
+					return &OpenAIResponses{
+						BaseURL:         proxyURL,
+						Model:           model,
+						APIKey:          creds.Token,
+						ReasoningEffort: "medium",
+					}, nil
+				}
 				return &OAI{
 					BaseURL: proxyURL,
 					Model:   model,
@@ -85,6 +97,8 @@ func FromEnv(modelID string) (Verifier, error) {
 		// no API key required. The compartment ID is checked later.
 		key = "compartment"
 	case "google":		key = envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY")
+	case "openai-responses":
+		key = envOrAlias("OPENAI_API_KEY", "SWORN_OPENAI_API_KEY")
 	case "azure":
 		key = envOrAlias("AZURE_OPENAI_API_KEY", "SWORN_AZURE_OPENAI_API_KEY")
 	default:

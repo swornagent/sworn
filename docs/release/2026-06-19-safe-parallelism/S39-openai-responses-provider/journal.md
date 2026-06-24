@@ -54,3 +54,30 @@ Smaller flags addressed:
 ## Verifier verdicts received
 
 *(None yet.)*
+
+## 2026-07-12 — implemented (Coach ack round)
+
+Coach approved with 4 pins, all addressed inline:
+
+1. **Pin 1 (CRITICAL): Proxy routing bypasses responses provider.** In `config.go` `FromEnv`, the proxy path now special-cases `openai-responses` to return `&OpenAIResponses{}` instead of `&OAI{}`. Same proxy URL + token; only the struct type differs so `/v1/responses` is called.
+
+2. **Pin 2: reasoning_effort wiring.** Added `ReasoningEffort string` field to `OpenAIResponses`. Default "medium"; overridable via `SWORN_OPENAI_RESPONSES_REASONING_EFFORT` env var. Included in all `/v1/responses` requests.
+
+3. **Pin 3: UseWebSearch wiring.** Added `UseWebSearch bool` field. Default false; set to true via `SWORN_OPENAI_RESPONSES_USE_WEB_SEARCH=1` env var. When true, `{"type": "web_search_preview"}` is added to the request tools array.
+
+4. **Pin 4: Deferral tracking.** Filed GitHub issues #16 (streaming), #17 (previous_response_id), #18 (search-engine integration). Updated design.md §4 with real issue references.
+
+Implementation:
+- New file: `internal/model/openai_responses.go` — OpenAIResponses struct with Verify+Chat, message conversion, response parsing, usage mapping
+- New file: `internal/model/openai_responses_test.go` — 13 httptest tests covering verify, chat, request shape, web_search tool, multi-turn conversion, error handling, env overrides
+- Modified: `internal/model/provider.go` — added `case "openai-responses":`
+- Modified: `internal/model/config.go` — proxy routing special-case + key resolution  
+- Modified: `internal/model/oai.go` — pricing entries for gpt-5.5 / gpt-5.5-pro / gpt-5.3-codex
+- Modified: `internal/agent/tools.go` — web_search tool schema + executor (DuckDuckGo HTML lite)
+- Modified: `internal/agent/agent_test.go` — web_search tool tests
+
+Test results: all model tests pass (1.644s), all agent tests pass (0.029s), go vet clean, go build clean.
+
+Deferrals carried forward with Coach ack: streaming (#16), previous_response_id (#17), search-engine integration (#18).
+
+Skeptic panel: skipped — runtime subagent dispatch not confirmed in this session.

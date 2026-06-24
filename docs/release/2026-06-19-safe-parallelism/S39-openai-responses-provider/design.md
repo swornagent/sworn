@@ -83,14 +83,14 @@ as a provider-native option.
 
 - **Streaming** — deferred per spec (needs its own slice; the responses API
   streaming format differs significantly from chat/completions SSE).
-  Tracking: follow-up slice TBD. Ack: Coach acked streaming deferral in
+  Tracking: #16 (follow-up slice TBD). Ack: Coach acked streaming deferral in
   design-review decline (2026-06-24).
 
 - **Multi-turn conversation with `previous_response_id`** — each `Chat` call
   sends the full history as input items. Stateful conversation (using the
   responses API's `previous_response_id` for lower latency) is a follow-up
   optimization.
-  Tracking: follow-up slice TBD. Ack: Coach acked in design review.
+  Tracking: #17 (follow-up slice TBD). Ack: Coach acked in design review.
 
 - **Migrating existing `openai/` prefix to responses** — the existing `/chat/completions`
   path remains the default for `openai/gpt-4o` etc. The responses path is opt-in
@@ -101,7 +101,7 @@ as a provider-native option.
 - **Separate search-engine integration** — the cross-provider `web_search` tool
   uses DuckDuckGo HTML lite (no API key). Full search-engine integration (SerpAPI,
   Brave Search, etc.) is a separate slice.
-  Tracking: follow-up slice TBD. Ack: Coach mandated web_search is mandatory;
+  Tracking: #18 (follow-up slice TBD). Ack: Coach mandated web_search is mandatory;
   DuckDuckGo lite satisfies the spec's "simple HTTP search" scope.
 
 ## §5. Reachability plan

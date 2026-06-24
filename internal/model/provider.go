@@ -147,6 +147,9 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 			APIKey:  pcfg.GitHubToken,
 		}, nil
 
+		case "openai-responses":
+			return NewOpenAIResponses(model, pcfg.OpenAIKey)
+
 	// Native drivers — not yet registered. The error message names the
 	// slice that will add each driver so users know what's missing.
 	case "anthropic":

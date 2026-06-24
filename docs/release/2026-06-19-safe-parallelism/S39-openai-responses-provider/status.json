@@ -3,7 +3,7 @@
   "slice_id": "S39-openai-responses-provider",
   "release": "2026-06-19-safe-parallelism",
   "track": "T5-providers",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-12T00:00:00Z",
@@ -20,13 +20,25 @@
     "internal/agent/tools.go",
     "internal/agent/tools_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/model/openai_responses.go",
+    "internal/model/openai_responses_test.go",
+    "internal/model/provider.go",
+    "internal/model/oai.go",
+    "internal/model/config.go",
+    "internal/agent/tools.go",
+    "internal/agent/agent_test.go"
+  ],
   "test_commands": [
     "go test ./internal/model/...",
     "go test ./internal/agent/...",
-    "go build ./..."
+    "go build ./...",
+    "go vet ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "TestOpenAIResponses_Chat_ToolCallRoundTrip (httptest /v1/responses round-trip)",
+    "TestOpenAIResponses_RequestShape (request shape validation)"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "",
@@ -38,27 +50,27 @@
   "design_decisions": [
     {
       "id": "D1",
-      "description": "ChatMessage → responses input mapping: convert []ChatMessage to /v1/responses input items internally; keep ChatMessage/ChatResponse canonical.",
+      "description": "ChatMessage \u2192 responses input mapping: convert []ChatMessage to /v1/responses input items internally; keep ChatMessage/ChatResponse canonical.",
       "type": "Type-2",
-      "rationale": "Local to OpenAIResponses struct; keeps agent loop unchanged. Reversible — could add a dedicated responses-message type later."
+      "rationale": "Local to OpenAIResponses struct; keeps agent loop unchanged. Reversible \u2014 could add a dedicated responses-message type later."
     },
     {
       "id": "D2",
       "description": "Temperature omitted from all responses-API requests. Reasoning models reject non-default; non-reasoning models accept default.",
       "type": "Type-2",
-      "rationale": "Narrow, request-shape decision. Reversible — could add a configurable temperature field later."
+      "rationale": "Narrow, request-shape decision. Reversible \u2014 could add a configurable temperature field later."
     },
     {
       "id": "D3",
-      "description": "Cross-provider web_search tool backed by DuckDuckGo HTML lite (no API key). Takes a query, fetches lite.duckduckgo.com/lite/?q=…, returns truncated results.",
+      "description": "Cross-provider web_search tool backed by DuckDuckGo HTML lite (no API key). Takes a query, fetches lite.duckduckgo.com/lite/?q=\u2026, returns truncated results.",
       "type": "Type-2",
-      "rationale": "Coach mandated web_search is mandatory (decline 2026-06-24). DDG lite satisfies spec's 'simple HTTP search' scope without API key dependency. Reversible — can swap backing to SerpAPI/Brave later."
+      "rationale": "Coach mandated web_search is mandatory (decline 2026-06-24). DDG lite satisfies spec's 'simple HTTP search' scope without API key dependency. Reversible \u2014 can swap backing to SerpAPI/Brave later."
     },
     {
       "id": "D4",
       "description": "No dedicated Agent interface for responses; OpenAIResponses implements both Verify (Verifier) and Chat (Agent) on the same struct, matching OAI pattern.",
       "type": "Type-2",
-      "rationale": "Matches existing pattern; OAI already carries both methods. Reversible — could extract a separate Agent interface later."
+      "rationale": "Matches existing pattern; OAI already carries both methods. Reversible \u2014 could extract a separate Agent interface later."
     },
     {
       "id": "D5",

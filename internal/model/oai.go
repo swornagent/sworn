@@ -135,6 +135,11 @@ var modelPricing = map[string]struct {
 	"o4-mini":      {1.10, 4.40},
 	"o3":           {10.00, 40.00},
 	"o3-mini":      {1.10, 4.40},
+	// gpt-5.x reasoning models (responses API pricing, USD per 1M tokens).
+	// Preliminary — confirm with https://openai.com/api/pricing/.
+	"gpt-5.5":       {1.25, 10.00},
+	"gpt-5.5-pro":   {2.50, 20.00},
+	"gpt-5.3-codex": {3.00, 12.00},
 }
 
 // Verify sends the system prompt + user payload to /chat/completions.

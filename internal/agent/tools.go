@@ -3,14 +3,17 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/swornagent/sworn/internal/model"
 )
-
 // ---------------------------------------------------------------------------
 // Workspace confinement
 // ---------------------------------------------------------------------------
@@ -60,6 +63,7 @@ func allToolDefs() []model.ToolDef {
 		bashToolSchema(),
 		grepToolSchema(),
 		globToolSchema(),
+		webSearchToolSchema(),
 	}
 }
 
@@ -242,6 +246,8 @@ func (e *executor) run(name, rawArgs string) string {
 		return e.runGrep(rawArgs)
 	case "glob":
 		return e.runGlob(rawArgs)
+	case "web_search":
+		return e.runWebSearch(rawArgs)
 	default:
 		return fmt.Sprintf("error: unknown tool %q", name)
 	}
@@ -363,6 +369,84 @@ func (e *executor) runGlob(rawArgs string) string {
 		return "no matches"
 	}
 	return truncate(strings.Join(rel, "\n"), e.maxOutput)
+}
+
+// --- WebSearch ---
+
+type webSearchArgs struct {
+	Query string `json:"query"`
+}
+
+func webSearchToolSchema() model.ToolDef {
+	return model.ToolDef{
+		Name:        "web_search",
+		Description: "Search the web for information using DuckDuckGo HTML lite. Returns truncated result snippets.",
+		Parameters: mustMarshal(map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"query": map[string]interface{}{
+					"type":        "string",
+					"description": "The search query to look up on the web.",
+				},
+			},
+			"required": []string{"query"},
+		}),
+	}
+}
+
+func (e *executor) runWebSearch(rawArgs string) string {
+	var args webSearchArgs
+	if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
+		return fmt.Sprintf("error: web_search: %v", err)
+	}
+	if args.Query == "" {
+		return "error: web_search: empty query"
+	}
+
+	query := url.QueryEscape(args.Query)
+	searchURL := "https://lite.duckduckgo.com/lite/?q=" + query
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(searchURL)
+	if err != nil {
+		return fmt.Sprintf("error: web_search: fetch: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 256*1024)) // 256KB cap
+	if err != nil {
+		return fmt.Sprintf("error: web_search: read: %v", err)
+	}
+
+	// Extract text snippets from the HTML — simple approach: strip tags,
+	// collect non-empty lines, truncate.
+	text := stripTags(string(body))
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "web_search: no results found"
+	}
+	return truncate(text, e.maxOutput)
+}
+
+// stripTags removes HTML tags and returns plain text content.
+// This is a simple regex-free implementation — sufficient for DuckDuckGo
+// lite's minimal HTML.
+func stripTags(s string) string {
+	var b strings.Builder
+	inTag := false
+	for _, r := range s {
+		switch {
+		case r == '<':
+			inTag = true
+		case r == '>':
+			inTag = false
+		case !inTag:
+			b.WriteRune(r)
+		}
+	}
+	// Collapse whitespace
+	result := strings.Join(strings.Fields(b.String()), " ")
+	return result
 }
 
 // ---------------------------------------------------------------------------
