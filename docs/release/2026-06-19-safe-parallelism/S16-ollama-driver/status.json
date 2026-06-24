@@ -3,11 +3,12 @@
   "slice_id": "S16-ollama-driver",
   "release": "2026-06-19-safe-parallelism",
   "track": "T5-providers",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-12T00:00:00Z",
-  "start_commit": "f88468f",  "spec_path": "docs/release/2026-06-19-safe-parallelism/S16-ollama-driver/spec.md",
+  "start_commit": "f88468f",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S16-ollama-driver/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S16-ollama-driver/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S16-ollama-driver/journal.md",
   "planned_files": [
@@ -16,13 +17,21 @@
     "internal/model/provider.go",
     "internal/model/provider_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/model/ollama.go",
+    "internal/model/ollama_test.go",
+    "internal/model/provider.go",
+    "internal/model/provider_test.go"
+  ],
   "test_commands": [
     "go test ./internal/model/... -run Ollama",
     "go test ./internal/model/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "TestNewClient_OllamaIsNative (unit): NewClient(\"ollama/llama3.2\") returns *Ollama, not *OAI",
+    "TestOllamaVerify_ReturnsContent (unit): Verify() calls /api/chat and extracts message.content"
+  ],
   "open_deferrals": [],
   "design_decisions": [
     {
