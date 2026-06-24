@@ -106,7 +106,7 @@ required.
     Save(); assert file created
 - **Reachability artefact**: smoke step — run `sworn` in a terminal (or via PTY in test);
   press `s`; confirm settings panel appears (no crash). Document exact commands in
-  proof.md. A screenshot at `docs/release/2026-06-19-safe-parallelism/screenshots/S17-settings-panel.png`
+  proof.md. Text capture at `docs/release/2026-06-19-safe-parallelism/screenshots/S17-settings-panel.png`
   is the canonical artefact.
 
 ## Risks
@@ -120,7 +120,7 @@ required.
   all keys) would erase unrecognised keys. The implementer must preserve lines whose key
   is not being updated.
 - PTY-based UI testing is flaky. The `settings_test.go` tests must use Bubble Tea's
-  programmatic `tea.NewProgram` test mode, not a real PTY. Screenshots must be manual
+  programmatic `tea.NewProgram` test mode, not a real PTY. Manual captures suffice
   or driven by a separate PTY test helper.
 
 ## Deferrals allowed?
