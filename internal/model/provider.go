@@ -25,9 +25,10 @@ type ProviderConfig struct {
 	AwsSecretKey        string
 	AwsRegion           string // AWS region for Bedrock (fallback: AWS_REGION → AWS_DEFAULT_REGION → us-east-1)
 	AzureOpenAIKey      string
+	AzureEndpoint       string
+	AzureAPIVersion     string
 	// OCI SDK env vars are read directly by the OCI driver (S15); not stored here.
-}
-// ProviderConfigFromEnv reads per-provider configuration from environment
+}// ProviderConfigFromEnv reads per-provider configuration from environment
 // variables. The SWORN_OPENAI_API_KEY alias is checked as a fallback when
 // OPENAI_API_KEY is empty (backward compatibility per spec Risk #1).
 func ProviderConfigFromEnv() ProviderConfig {
@@ -47,7 +48,9 @@ func ProviderConfigFromEnv() ProviderConfig {
 		AwsAccessKey:        os.Getenv("AWS_ACCESS_KEY_ID"),
 		AwsSecretKey:        os.Getenv("AWS_SECRET_ACCESS_KEY"),
 		AwsRegion:           envOrAlias("AWS_REGION", "AWS_DEFAULT_REGION"),
-		AzureOpenAIKey:      os.Getenv("AZURE_OPENAI_API_KEY"),	}
+		AzureOpenAIKey:      os.Getenv("AZURE_OPENAI_API_KEY"),
+			AzureEndpoint:       os.Getenv("AZURE_OPENAI_ENDPOINT"),
+			AzureAPIVersion:     os.Getenv("AZURE_OPENAI_API_VERSION"),	}
 }
 
 // envOrAlias returns the value of the canonical env var, or the alias if the
@@ -159,7 +162,8 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 		return NewGoogleVertex(model, pcfg.GoogleCloudProject, pcfg.GoogleCloudLocation)
 	case "bedrock":
 		return NewBedrock(model, pcfg.AwsRegion)
-	case "azure":		return nil, fmt.Errorf("%w: azure driver lands in S14-azure-driver", ErrDriverNotRegistered)
+	case "azure":
+			return NewAzureOAI(model, pcfg.AzureOpenAIKey, pcfg.AzureEndpoint, pcfg.AzureAPIVersion)
 	case "oci":
 		return nil, fmt.Errorf("%w: oci driver lands in S15-oci-driver", ErrDriverNotRegistered)
 
