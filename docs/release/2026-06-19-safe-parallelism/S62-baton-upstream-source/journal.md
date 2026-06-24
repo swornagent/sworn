@@ -58,3 +58,15 @@
 - **Skeptic panel**: skipped — runtime does not support subagent dispatch
 - **start_commit**: `e9d73cc14fe53cec60d12867e00cf3d83d270807`
 - **Terminal state**: `implemented`
+## Verifier verdicts received
+
+- **2026-07-09** — verifier (fresh context)
+  - Verdict: FAIL
+  - Violations:
+    1. Gate 2 — Planned touchpoints in spec.md list `internal/baton/source.go` and `internal/adopt/baton/VERSION`, but neither appears in `git diff --name-only <start_commit>` or `actual_files`. Reconciliation noted only in commit message and status.json; spec.md and proof.md "Divergence from plan" do not document the architectural change (source.go → standalone FetchUpstream + version.go).
+    2. Gate 3 — Required tests section in spec.md mandates "Integration: `sworn baton vendor --upstream --repo <test> --tag <t>` driven end-to-end against an `httptest.Server` through `cmd/sworn/baton.go` (Rule 1)". No such test exists; baton_test.go only covers diff path. fetch_test.go exercises leaf FetchUpstream only. Proof.md reachability artefact is unit test + build/vet, contradicting the spec's explicit integration requirement.
+    3. Gate 1/4 — User-reachable outcome (`sworn baton vendor --upstream`) is wired in cmd/sworn/baton.go, but reachability artefact and required tests do not exercise the command entry point as required by Rule 1 and spec ACs. Proof claims "through the command" but provides no command-level test evidence.
+    4. Gate 6 — Delivered list claims AC verification (e.g. AC1, AC2) whose evidence references rely on the missing integration test and full touchpoint match.
+  - Required to address: Add command-level integration test exercising `cmdBatonVendor` with --upstream against httptest (or equivalent Rule 1 test); update spec.md Planned touchpoints and proof.md Divergence to match implemented files (fetch.go + version.go, no source.go); ensure proof.md reachability artefact names the command-level test.
+  - Tests re-run: go test ./internal/baton/... , go test ./cmd/sworn/... -run TestBaton , go build ./... , go vet ./... — all PASS in this session.
+  - Verifier was fresh context (Rule 7).
