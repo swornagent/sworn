@@ -35,3 +35,27 @@ All 8 pins from `approved-ack.md` were addressed inline during implementation:
 ### Deferrals
 
 *(none)*
+## Verifier verdicts received
+
+### 2026-07-15 — verifier verdict — FAIL
+
+FAIL
+
+Slice: S58-slice-router
+
+Violations:
+
+1. Gate 2 — Planned touchpoints do not match actual changed files.
+   Evidence: spec.md "Planned touchpoints" lists only internal/router/* and cmd/sworn/route*; `git diff --name-only <start_commit>` shows internal/board/oracle.go and internal/git/git.go changed; proof.md "Divergence from plan" does not explain these (only mentions docs prefix and design.md check gap).
+
+2. Gate 6 — Claimed scope matches implemented scope.
+   Evidence: spec AC "verified with a later `planned` sibling routes to it (`review` if it has `design.md`, else `implement`)" is not implemented; routeNextSlice always routes planned to implement (no design.md check); TestVerifiedWalksTrackThenMerges only tests planned case, no design.md test; proof.md lists it as delivered but acknowledges "No `design.md` presence check in `routeNextSlice` for planned siblings" as "minor fidelity gap".
+
+Required to address:
+1. Align planned touchpoints in spec.md with actual (add board/oracle.go, git/git.go) or remove the extra changes; update proof.md Divergence section.
+2. Implement design.md check for planned siblings in routeNextSlice (using ContentReader.CatFileExists on track ref), add test coverage, update proof.md to reflect delivery or defer per Rule 2.
+
+STATE: blocked_needs_human
+SLICE: S58-slice-router
+NEXT: NONE
+REASON: Gates 2 and 6 failed: touchpoint mismatch and verified sibling routing AC not met.

@@ -491,8 +491,8 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 | `S54-ledger-routing` | T16 | `sworn ledger recommend <kind>` + S09's `ResolveImplementerModel` defaults to the highest measured pass-rate model for the slice kind (flag/env still win; thin corpus = unchanged) | planned | [spec](./S54-ledger-routing/spec.md) |
 | `S55-ledger-multirole-cost` | T16 | Record `v:2` captures per-role `{model, cost_usd}` for every dispatch (implementer, verifier, captain, orchestrator-hook) — cost from local token-pricing, not S06b billing | planned | [spec](./S55-ledger-multirole-cost/spec.md) |
 | `S56-ledger-cost-routing` | T16 | `--optimize cost\|quality\|balanced`: cheapest model clearing a pass-rate floor; `report` gains cost-per-pass + per-role quality (captain-miss, verifier-overturn) | planned | [spec](./S56-ledger-cost-routing/spec.md) |
-| `S57-oracle-reader` | T17 | `sworn board` reads every slice's authoritative status.json from git refs (track branch > release-wt > worktree), ownership-resolved — the honest board reader the router/TUI/rollup read through | verified | [spec](./S57-oracle-reader/spec.md) || `S58-slice-router` | T17 | `sworn route <slice> <release>` computes the next command purely from committed status.json — the deterministic captain-route.sh port (state machine + design-review/Gate-re-entry/merge) | planned | [spec](./S58-slice-router/spec.md) |
-| `S59-scheduler-relayer` | T17 | `sworn run --parallel` workers poll the router each step (poll-and-route) instead of a static slice list — resumable, dynamic; keeps dependency resolution + worktree isolation + supervisor ownership | planned | [spec](./S59-scheduler-relayer/spec.md) |
+| `S57-oracle-reader` | T17 | `sworn board` reads every slice's authoritative status.json from git refs (track branch > release-wt > worktree), ownership-resolved — the honest board reader the router/TUI/rollup read through | verified | [spec](./S57-oracle-reader/spec.md) |
+| `S58-slice-router` | T17 | `sworn route <slice> <release>` computes the next command purely from committed status.json — the deterministic captain-route.sh port (state machine + design-review/Gate-re-entry/merge) | failed_verification | [spec](./S58-slice-router/spec.md) || `S59-scheduler-relayer` | T17 | `sworn run --parallel` workers poll the router each step (poll-and-route) instead of a static slice list — resumable, dynamic; keeps dependency resolution + worktree isolation + supervisor ownership | planned | [spec](./S59-scheduler-relayer/spec.md) |
 | `S60-init-ui-bearing-fix` | T18 | `sworn init` no longer prompts for design tokens / component library in a non-UI-bearing repo; design-system flow gated on `--ui-bearing`; drops the always-true `UIBearing` write | verified | [spec](./S60-init-ui-bearing-fix/spec.md) |
 | `S61-cli-output-styling` | T18 | shared zero-dep `internal/style` ANSI palette gives premium, consistent, TTY/`NO_COLOR`-aware colour across every command + report renderer; plain output byte-identical | verified | [spec](./S61-cli-output-styling/spec.md) |
 ## Aggregate state
@@ -525,8 +525,22 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 > Merged (11): T1, T2, T3, T4, T7, T8, T9, T11, T12, T15, T18. In progress (2): T5, T14. Planned (5 per oracle): T6, T10, T13, T16, T17.
 
 ## Recent activity
-### 2026-06-24 — slice `S57-oracle-reader` → verified (PASS)
+### 2026-07-15 — slice `S58-slice-router` → failed_verification (FAIL)
 
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs).
+- **Verdict**: FAIL — gates 2 and 6 failed.
+  - Gate 1: PASS — `sworn route <slice> <release>` CLI wired via command registry (init() in route.go), exercised by TestRouteIntegration and parity test; binary produces correct JSON for implemented state.
+  - Gate 2: FAIL — Planned touchpoints mismatch. spec.md lists only internal/router/* + cmd/sworn/route*; actual diff includes internal/board/oracle.go and internal/git/git.go (for OracleReader, LastCommitTime, IsAncestor); proof.md Divergence section does not explain (only docs prefix and design.md gap).
+  - Gate 3: PASS — Required tests exist and exercise integration point (router_test.go table tests, parity_test.go, cmd/sworn/route_test.go TestRouteIntegration); re-ran `go test -race ./internal/router/...` PASS, `./internal/git/...` PASS, build PASS.
+  - Gate 4: PASS — Reachability artefact `cmd/sworn/route_test.go:TestRouteIntegration` runs real `sworn route` binary against committed fixture covering every state branch.
+  - Gate 5: PASS — No silent deferrals or placeholder logic in changed files (grep for TODO/FIXME/deferred/placeholder/XXX/HACK only hits test data names).
+  - Gate 6: FAIL — Claimed scope does not match. spec AC "verified with later planned sibling routes to it (review if design.md, else implement)" not implemented; routeNextSlice always routes planned to implement (no CatFileExists check for design.md); TestVerifiedWalksTrackThenMerges only covers planned case; proof.md lists as delivered but acknowledges "minor fidelity gap".
+- **Gates passed**: 1,3,4,5.
+- **Drift gate**: clean (rev-list count 0). Verified against track HEAD e631ed4.
+- **State**: S58 → failed_verification. Track T17-orchestration-core now has S57 verified, S58 failed_verification, S59 planned.
+- **Next step**: Re-open `/implement-slice S58-slice-router 2026-06-19-safe-parallelism` in fresh session to address violations.
+
+### 2026-06-24 — slice `S57-oracle-reader` → verified (PASS)
 - **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs).
 - **Verdict**: PASS — all six gates satisfied.
   - Gate 1: User-reachable outcome exists — `sworn board [--release <name>] [--json]` wired via command registry + `cmdBoard` → `board.NewGitOracle` → `ReadBoard`/`ReadSliceStatus`; exercised by `TestBoardCLI_JSON`.
