@@ -108,7 +108,6 @@ required.
   press `s`; confirm settings panel appears (no crash). Document exact commands in
   proof.md. A screenshot at `docs/release/2026-06-19-safe-parallelism/screenshots/S17-settings-panel.png`
   is the canonical artefact.
-- **playwright-screenshot** `docs/release/2026-06-19-safe-parallelism/screenshots/S17-settings-panel.png` — Settings panel visual confirmation. Covers AC1, AC2, AC3.
 
 ## Risks
 
