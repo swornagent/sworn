@@ -3,10 +3,10 @@
   "slice_id": "S39-openai-responses-provider",
   "release": "2026-06-19-safe-parallelism",
   "track": "T5-providers",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "implementer",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-24T10:59:26Z",
+  "last_updated_at": "2026-06-24T11:03:53Z",
   "start_commit": "aa97dc3",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S39-openai-responses-provider/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S39-openai-responses-provider/proof.md",
@@ -27,7 +27,7 @@
     "internal/model/oai.go",
     "internal/model/config.go",
     "internal/agent/tools.go",
-    "internal/agent/agent_test.go"
+    "internal/agent/tools_test.go"
   ],
   "test_commands": [
     "go test ./internal/model/...",

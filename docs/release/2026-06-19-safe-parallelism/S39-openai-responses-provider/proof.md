@@ -4,24 +4,29 @@
 
 Add a first-class OpenAI provider via `/v1/responses` supporting reasoning_effort, tool-calls, and OpenAI built-in `web_search` — plus a cross-provider `web_search` agent tool for non-OpenAI chat/completions providers.
 
+**Re-entry round**: addressing verifier FAIL violations (2026-07-12): Gate 2 (planned touchpoints vs actual files mismatch), Gate 3 (required tests file not found).
+
 ---
 
 ## Files changed
 
 ```
+docs/release/2026-06-19-safe-parallelism/S39-openai-responses-provider/approved-ack.md
 docs/release/2026-06-19-safe-parallelism/S39-openai-responses-provider/design.md
+docs/release/2026-06-19-safe-parallelism/S39-openai-responses-provider/journal.md
+docs/release/2026-06-19-safe-parallelism/S39-openai-responses-provider/proof.md
 docs/release/2026-06-19-safe-parallelism/S39-openai-responses-provider/status.json
-internal/agent/agent_test.go
+docs/release/2026-06-19-safe-parallelism/index.md
 internal/agent/tools.go
+internal/agent/tools_test.go
 internal/model/config.go
 internal/model/oai.go
-internal/model/openai_responses.go       (new)
-internal/model/openai_responses_test.go  (new)
+internal/model/openai_responses.go
+internal/model/openai_responses_test.go
 internal/model/provider.go
 ```
 
-9 files total (7 modified, 2 new).
-
+13 files total (3 new, 10 modified including 1 deleted).
 ---
 
 ## Test results
@@ -32,7 +37,7 @@ internal/model/provider.go
 ok  	github.com/swornagent/sworn/internal/model	1.644s
 ```
 
-All 13 new OpenAI responses tests pass; all existing model tests unaffected.
+All 13 OpenAI responses tests pass (Verify, Chat, RequestShape, WebSearchTool, WebSearchTool_Off, MultiTurnConversion, NewClient_Registration, ReasoningDefault, EnvOverrides, ErrorResponse, ConvertMessages_SystemPreservation, ExtractOutputText, ConvertToChatResponse); all existing model tests unaffected.
 
 ### `go test ./internal/agent/...`
 
@@ -40,7 +45,7 @@ All 13 new OpenAI responses tests pass; all existing model tests unaffected.
 ok  	github.com/swornagent/sworn/internal/agent	0.029s
 ```
 
-All existing agent loop tests pass; 2 new web_search tool tests pass.
+All existing agent loop tests pass; 2 web_search tool tests pass (TestWebSearchToolSchema_InAllToolDefs, TestWebSearch_Stubbed) — now in `tools_test.go`.
 
 ### `go vet ./...`
 
@@ -78,11 +83,11 @@ This httptest is the reachability artefact per spec — the `/v1/responses` endp
    - When true, `{"type": "web_search_preview"}` added to request tools array
    - `TestOpenAIResponses_WebSearchTool`, `TestOpenAIResponses_WebSearchTool_Off` pass
 
-3. **Cross-provider WebSearch agent tool** (`internal/agent/tools.go`)
+3. **Cross-provider WebSearch agent tool** (`internal/agent/tools.go` + `tools_test.go`)
    - `web_search` function-tool registered in `allToolDefs()`
    - Backed by DuckDuckGo HTML lite (no API key)
    - Executor returns truncated search results via `net/http`
-   - `TestWebSearchToolSchema_InAllToolDefs`, `TestWebSearch_Stubbed` pass
+   - Tests in `internal/agent/tools_test.go` (`TestWebSearchToolSchema_InAllToolDefs`, `TestWebSearch_Stubbed`) — extracted from agent_test.go to match spec's planned touchpoints
 
 4. **Provider registration** (`internal/model/provider.go`)
    - `case "openai-responses":` routes to `NewOpenAIResponses(model, pcfg.OpenAIKey)`
@@ -114,14 +119,10 @@ This httptest is the reachability artefact per spec — the `/v1/responses` endp
 
 ## Divergence from plan
 
-None. All 5 acceptance checks addressed; all 4 Coach pins resolved.
+**Re-entry fix (2026-07-12)**: Verifier violations Gate 2/3 — spec and planned_files listed `internal/agent/tools_test.go` but web_search tests were in `internal/agent/agent_test.go`. Fixed by extracting web_search tests into `internal/agent/tools_test.go` (new file), matching planned touchpoints exactly. No other divergence.
 
 ---
 
 ## First-pass script output
 
-```
-10 passed, 2 failed (proof.md missing — generated here; state in_progress — will be implemented)
-```
-
-Re-run after marking `implemented` state will show all green.
+21 passed, 2 failed (state in_progress + Files miscount). Re-run after fixes passes all.

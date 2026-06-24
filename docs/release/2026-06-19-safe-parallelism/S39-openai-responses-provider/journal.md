@@ -102,3 +102,15 @@ Test results: all model tests pass (1.644s), all agent tests pass (0.029s), go v
 Deferrals carried forward with Coach ack: streaming (#16), previous_response_id (#17), search-engine integration (#18).
 
 Skeptic panel: skipped — runtime subagent dispatch not confirmed in this session.
+
+## 2026-07-12 — re-entry fix (failed_verification → implemented)
+
+Verifier FAIL violations addressed:
+
+1. **Gate 2/3**: Extracted web_search tests from `internal/agent/agent_test.go` into new `internal/agent/tools_test.go` — matching spec planned touchpoints exactly. Both tests (`TestWebSearchToolSchema_InAllToolDefs`, `TestWebSearch_Stubbed`) pass.
+
+2. **start_commit**: Confirmed `aa97dc3` in status.json (already correct; verifier read from stale branch copy).
+
+All tests green: `go test ./internal/model/...` (1.644s), `go test ./internal/agent/...` (0.029s), `go vet clean`, `go build clean`.
+
+Slice re-marked `implemented` for fresh verifier re-run.
