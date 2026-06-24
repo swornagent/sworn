@@ -122,3 +122,15 @@ Required to address:
 - Cleared `verification.result` and transitioned state to `implemented`.
 
 **Skeptic panel:** skipped — runtime does not support subagent dispatch.
+
+**2026-06-24T03:46:51Z** — Verifier verdict — PASS (fresh context)
+
+All six gates passed:
+1. Gate 1 — User-reachable outcome exists: `sworn baton diff` entry point wired in cmd/sworn/baton.go, exercised by cmdBatonDiff in tests.
+2. Gate 2 — Planned touchpoints match actual: mismatches (ADR not edited per DD-005; test file added for Rule 1) explained in proof.md "Divergence from plan".
+3. Gate 3 — Required tests exist and exercise integration point: diff_test.go and baton_test.go present; re-ran `go test -race -run 'TestDiff|TestBatonDiff' ./internal/baton/... ./cmd/sworn/...` — PASS.
+4. Gate 4 — Reachability artefact proves user path: tests capture stdout/exit codes for clean (0) and divergent (1) cases.
+5. Gate 5 — No silent deferrals: no TODO/FIXME/placeholder in changed files.
+6. Gate 6 — Claimed scope matches: "Delivered" items have evidence; "Divergence from plan" accurate.
+
+Slice state: verified.
