@@ -46,6 +46,62 @@ None.
 ## Verifier verdicts received
 
 None yet.
+
+### 2026-06-24 — verifier verdict — PASS (fresh context)
+
+**Verdict:** PASS
+
+**Slice:** S12-google-driver
+
+**Verifier session:** fresh context, loaded only with `spec.md` + `proof.md` +
+`status.json` + live repo state at `ae6abde` on
+`track/2026-06-19-safe-parallelism/T5-providers`. No implementer transcript or
+fix-summary prose was provided to the verifier (Rule 7).
+
+**Per-gate evidence (from live repo state):**
+
+1. **Reachability (Rule 1)** — PASS. `internal/model/config.go:80` has a real
+   executable `case "google":` (not trapped after a `//` comment) calling
+   `envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY")`; `case "vertex":`
+   (line 77) sets `key="adc"` bypassing the key gate for ADC.
+   `TestFromEnv_GoogleWithCanonicalKey` exercises
+   `FromEnv("google/gemini-2.0-flash")` with only `GOOGLE_API_KEY` set
+   (`SWORN_DIRECT=1`, isolated `XDG_CONFIG_HOME`) and asserts `*Google` with
+   `Model == "gemini-2.0-flash"` — ran green live. The documented `sworn run`
+   → `FromEnv` canonical-key path works through the integration point, not
+   just a leaf constructor.
+2. **Planned touchpoints match actual files** — PASS. `status.json`
+   `planned_files` == `actual_files` == {google.go, google_test.go,
+   provider.go, config.go, provider_test.go, go.mod, go.sum};
+   `git diff --name-only b60e4a3...HEAD` matches exactly these 7 plus the 4
+   expected docs artefacts — no unaccounted files.
+3. **Tests** — PASS. `go test ./internal/model/... -run Google` → 13 PASS,
+   1 SKIP (live, documented conditional skip per spec Risks #2);
+   `go test ./internal/model/...` → ok; `go build ./...` → OK;
+   `go vet ./...` → OK; `gofmt -l` on the 5 slice .go files → clean.
+4. **Proof bundle completeness** — PASS. `proof.md` has all required sections
+   populated with evidence references; no template placeholders; Divergence
+   section records 4 items including the resolved touchpoint-scope expansion.
+5. **Acceptance checks** — PASS. All 8 spec checkboxes satisfied:
+   `google.golang.org/genai v1.61.0` in go.mod; `NewGoogleGemini` returns
+   non-nil `*Google`; `NewClient("google/...")` and `NewClient("vertex/...")`
+   route to `*Google`; `Verify()` returns first text part; cost non-negative
+   for known models and zero for unknown; `go test -run Google` zero failures;
+   all prior model tests pass (no regression).
+6. **Scope claim vs reality** — PASS. The documented `sworn run` → `FromEnv`
+   canonical-key path works through the real entry point, confirmed by the
+   live `TestFromEnv_GoogleWithCanonicalKey` run — not just direct
+   `NewClient`.
+
+**Non-negotiables:** ADR-0007 pre-ratifies `google.golang.org/genai` for S12
+with rationale (provider SDK permitted where stdlib reimplementation would be
+error-prone). Fail-closed holds (`TestFromEnv_GoogleMissingKey` confirms error
+on missing key). No API keys or model payloads logged (tests use httptest +
+dummy keys).
+
+**State transition:** `implemented → verified`.
+
+**Verifier was fresh context:** yes (no implementer transcript loaded).
 ### 2026-07-08 — verifier verdict — FAIL
 
 **Verdict:** FAIL
