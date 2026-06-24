@@ -81,4 +81,5 @@ The `cmdBatonDiff` integration point is exercised by `TestBatonDiffExitsNonZeroO
 
 ## Divergence from plan
 
-None. All five planned files touched. ADR-0006 confirmed accepted with no open questions — enforcement now exists via `sworn baton diff`. Design decisions per design.md §2 all implemented as described. Coach pins (design_decisions, deferral tracking concretisation) and flags (governance doc hygiene, diff vs vendor --check distinction) all addressed.
+- `docs/adr/0006-baton-protocol-sync.md` was listed as a planned touchpoint but was not edited. It was already marked as accepted and had no open questions, so no changes were needed (per DD-005).
+- `cmd/sworn/baton_test.go` was added to provide integration tests for the `sworn baton diff` command (Rule 1 reachability), which was not listed in the planned touchpoints.

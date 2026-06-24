@@ -3,13 +3,17 @@
   "slice_id": "S50-baton-governance",
   "release": "2026-06-19-safe-parallelism",
   "track": "T14-baton-integration",
-  "state": "failed_verification",  "owner": "human",
+  "state": "in_progress",
+  "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-07T12:30:00Z",
-  "start_commit": "94a1223",  "spec_path": "docs/release/2026-06-19-safe-parallelism/S50-baton-governance/spec.md",
+  "start_commit": "94a1223",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S50-baton-governance/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S50-baton-governance/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S50-baton-governance/journal.md",
-  "depends_on": ["S48-baton-vendor"],
+  "depends_on": [
+    "S48-baton-vendor"
+  ],
   "planned_files": [
     "internal/baton/diff.go",
     "internal/baton/diff_test.go",
@@ -23,14 +27,16 @@
     "cmd/sworn/baton.go",
     "cmd/sworn/baton_test.go",
     "docs/baton-governance.md"
-  ],  "test_commands": [
+  ],
+  "test_commands": [
     "go test -race ./internal/baton/... ./cmd/sworn/...",
     "go build ./..."
   ],
   "reachability_artifacts": [
     "cmd/sworn/baton_test.go — TestBatonDiffExitsZeroWhenInSync (clean, exit 0)",
     "cmd/sworn/baton_test.go — TestBatonDiffExitsNonZeroOnDivergence (divergent, exit non-zero)"
-  ],  "design_decisions": [
+  ],
+  "design_decisions": [
     {
       "id": "DD-001",
       "classification": "Type-2",
@@ -75,11 +81,14 @@
       "tracking": "S62-baton-upstream-source",
       "acknowledgement": "Coach, 2026-07-07"
     }
-  ],  "verification": {
-    "result": "fail",
+  ],
+  "verification": {
     "verifier_session_id": "fresh-verifier-2026-07-08",
-    "verifier_verdict_at": "2026-07-08T12:30:00Z",    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-08T12:30:00Z",
+    "verifier_was_fresh_context": true,
     "violations": [
       "1. Gate 2 — Planned touchpoints do not match actual changed files. Evidence: spec.md \"Planned touchpoints\" lists `docs/adr/0006-baton-protocol-sync.md` (not changed in git diff 94a1223..HEAD); git diff shows `cmd/sworn/baton_test.go` added (not listed in planned touchpoints); proof.md \"Divergence from plan\" claims \"None. All five planned files touched\"",
       "2. Gate 6 — Claimed scope matches implemented scope. Evidence: proof.md \"Divergence from plan\" and \"Delivered\" sections inaccurately report scope against spec; \"Divergence from plan: None\" is false"
-    ]  }}
+    ]
+  }
+}
