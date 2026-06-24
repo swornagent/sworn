@@ -390,6 +390,49 @@ func TestVerifiedWalksTrackThenMerges(t *testing.T) {
 		}
 	})
 
+		t.Run("next planned sibling with design.md → review", func(t *testing.T) {
+			input := defaultInput()
+			input.SliceID = "S01-done"
+			docsPrefix := input.DocsPrefix
+			release := input.Release
+
+			oracle := &fakeOracle{
+				slices: map[string]board.SliceState{
+					"S01-done":   {ID: "S01-done", State: state.Verified, Track: "T1-core"},
+					"S02-review": {ID: "S02-review", State: state.Planned, Track: "T1-core"},
+				},
+				board: &board.BoardState{
+					Release: release,
+					Tracks: []board.TrackState{
+						{
+							ID:    "T1-core",
+							State: "in_progress",
+							Slices: []board.SliceState{
+								{ID: "S01-done", State: state.Verified, Track: "T1-core"},
+								{ID: "S02-review", State: state.Planned, Track: "T1-core"},
+							},
+						},
+					},
+				},
+			}
+			content := &fakeContent{
+				existing: map[string]bool{
+					docsPrefix + "/release/" + release + "/S02-review/design.md": true,
+				},
+			}
+
+			d, err := Route(context.Background(), oracle, content, input)
+			if err != nil {
+				t.Fatalf("Route: %v", err)
+			}
+			if d.NextType != NextReview {
+				t.Errorf("planned sibling with design.md should route review, got %s", d.NextType)
+			}
+			if d.TargetSlice != "S02-review" {
+				t.Errorf("TargetSlice should be S02-review, got %s", d.TargetSlice)
+			}
+		})
+
 	t.Run("track done, others ongoing → merge-track", func(t *testing.T) {
 		oracle := &fakeOracle{
 			slices: map[string]board.SliceState{

@@ -307,7 +307,7 @@ func routeVerified(ctx context.Context, oracle OracleReader, content ContentRead
 		}
 
 		if !terminal {
-			return routeNextSlice(s, input)
+			return routeNextSlice(ctx, content, s, input)
 		}
 	}
 
@@ -316,10 +316,30 @@ func routeVerified(ctx context.Context, oracle OracleReader, content ContentRead
 }
 
 // routeNextSlice returns the right command for the next non-terminal sibling.
-func routeNextSlice(s board.SliceState, input RouteInput) (Decision, error) {
+func routeNextSlice(ctx context.Context, content ContentReader, s board.SliceState, input RouteInput) (Decision, error) {
 	ss := string(s.State)
 	switch ss {
 	case "planned":
+		// Check if the planned sibling has a design.md — if so, route review
+		// (Design TL;DR gate fires before code). Matches captain-route.sh:474-478.
+		trackRef := input.TrackBranch
+		if !strings.HasPrefix(trackRef, "refs/heads/") {
+			trackRef = "refs/heads/" + trackRef
+		}
+		designPath := fmt.Sprintf("%s/release/%s/%s/design.md", input.DocsPrefix, input.Release, s.ID)
+		designExists, err := content.CatFileExists(trackRef, designPath)
+		if err != nil {
+			return Decision{}, fmt.Errorf("check design.md for %s: %w", s.ID, err)
+		}
+		if designExists {
+			return Decision{
+				NextType:    NextReview,
+				NextCommand: fmt.Sprintf("/design-review %s %s", s.ID, input.Release),
+				NextReason:  fmt.Sprintf("%s is verified. Next slice in track (%s) is %s — it already has a design.md; review it before code is written (Design TL;DR gate).", input.SliceID, input.TrackID, s.ID),
+				TargetSlice: s.ID,
+				TargetTrack: input.TrackID,
+			}, nil
+		}
 		return Decision{
 			NextType:    NextImplement,
 			NextCommand: fmt.Sprintf("/implement-slice %s %s", s.ID, input.Release),
@@ -327,7 +347,6 @@ func routeNextSlice(s board.SliceState, input RouteInput) (Decision, error) {
 			TargetSlice: s.ID,
 			TargetTrack: input.TrackID,
 		}, nil
-
 	case "design_review":
 		return Decision{
 			NextType:    NextReview,
