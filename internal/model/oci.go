@@ -39,17 +39,13 @@ type OCI struct {
 // *OCI with no error even when ~/.oci/config is absent; the error surfaces
 // at Verify time.
 func NewOCI(modelID, compartmentID string) (*OCI, error) {
-	if compartmentID == "" {
-		return nil, fmt.Errorf("model: missing OCI compartment ID (set OCI_COMPARTMENT_ID)")
-	}
-	if modelID == "" {
-		return nil, fmt.Errorf("model: missing OCI model ID")
-	}
+	// Validation of modelID and compartmentID is deferred to Verify
+	// (spec: NewOCI returns non-nil *OCI with no error — credential loading
+	// deferred to first API call).
 	o := &OCI{
 		ModelID:       modelID,
 		CompartmentID: compartmentID,
-	}
-	// Best-effort client creation; defer error to Verify call.
+	}	// Best-effort client creation; defer error to Verify call.
 	configProvider := common.DefaultConfigProvider()
 	client, err := generativeaiinference.NewGenerativeAiInferenceClientWithConfigurationProvider(configProvider)
 	if err != nil {
@@ -81,10 +77,12 @@ func (o *OCI) EnsureClient() (generativeAIInferenceClient, error) {
 // cost in USD (always 0.0 — OCI does not always return token counts), or
 // an error.
 func (o *OCI) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
+	if o.ModelID == "" {
+		return "", 0, fmt.Errorf("model: missing OCI model ID")
+	}
 	if o.CompartmentID == "" {
 		return "", 0, fmt.Errorf("model: missing OCI compartment ID (set OCI_COMPARTMENT_ID)")
 	}
-
 	client, err := o.EnsureClient()
 	if err != nil {
 		return "", 0, err

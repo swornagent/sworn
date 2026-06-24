@@ -40,10 +40,10 @@ internal/model/provider_test.go
 === RUN   TestOCIVerify_MissingModelID
 --- PASS: TestOCIVerify_MissingModelID (0.00s)
 === RUN   TestOCINew_DeferredCredentialLoading
-    oci_test.go:152: OCI deferred-loading contract: NewOCI succeeded regardless of config state
+    oci_test.go:160: OCI deferred-loading contract: NewOCI succeeded regardless of config state
 --- PASS: TestOCINew_DeferredCredentialLoading (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/internal/model	(cached)
+ok  	github.com/swornagent/sworn/internal/model	0.013s
 ```
 
 ### `go test ./internal/model/...`
@@ -58,9 +58,9 @@ Clean — no warnings, no errors.
 ## Reachability artefact
 
 - **Unit tests (offline):** `go test ./internal/model/... -run OCI` — 6 tests
-  covering mock Chat response, missing compartment ID, nil usage, NewClient
-  routing to `*OCI`, missing model ID, and deferred credential loading. All
-  PASS.
+  covering mock Chat response, missing compartment ID (via Verify), nil usage,
+  NewClient routing to `*OCI`, missing model ID (via Verify), and deferred
+  credential loading. All PASS.
 - **Live integration test:** Skipped — requires `OCI_COMPARTMENT_ID` +
   `SWORN_LIVE_TESTS=1` + valid `~/.oci/config`.
 - **Smoke step:** `sworn run --model oci/cohere.command-r-plus` with real OCI
@@ -79,7 +79,7 @@ Clean — no warnings, no errors.
   the ChatResult — `TestOCIVerify_ReturnsText`
 - [x] `cfg.OCICompartmentID` empty and `$OCI_COMPARTMENT_ID` absent → Verify
   returns a non-nil error naming the missing compartment ID —
-  `TestOCIVerify_MissingCompartment`
+  `TestOCIVerify_MissingCompartment` (calls Verify directly, per spec)
 - [x] `go test ./internal/model/... -run OCI` passes with zero failures (no
   live OCI key) — 6/6 PASS
 - [x] All prior model tests still pass — full `go test ./internal/model/...`
@@ -96,6 +96,17 @@ Clean — no warnings, no errors.
 
 ## Divergence from plan
 
+- **config.go and provider_test.go (verifier-identified).** The original spec
+  "Planned touchpoints" listed only `oci.go`, `oci_test.go`, `provider.go`,
+  `go.mod`, `go.sum`. Two additional files were touched:
+  - `internal/model/config.go`: added `case "oci": key = "compartment"` in
+    `FromEnv` (key-gate sentinel matching bedrock/vertex pattern — no API key
+    required), and `OCICompartmentID` in `swornProviderConfig()`.
+  - `internal/model/provider_test.go`: removed `oci/meta.llama-3.3-70b` from
+    the native stub list since OCI is now a registered driver (S15).
+  Both are necessary for the OCI driver to integrate with the provider dispatch
+  system. Spec "Planned touchpoints" has been updated.
+
 - **$OCI_REGION → OCI_CLI_REGION (Coach-acked).** Spec In Scope line 34 names
   `$OCI_REGION` as the env var for OCI region. The OCI SDK natively honours
   `OCI_CLI_REGION` and config-file region. Per Captain pin 3 escalated to Coach
@@ -103,6 +114,13 @@ Clean — no warnings, no errors.
   the OCI SDK's region discovery (`DefaultConfigProvider()` → config file /
   `OCI_CLI_REGION`). No separate `$OCI_REGION` parsing is done. The spec will be
   amended via `/replan-release` to reflect the SDK-native mechanism.
+
+- **compartment/modelID validation moved to Verify (verifier-identified).**
+  The spec acceptance check states "Verify returns a non-nil error" for missing
+  compartment; the original implementation checked in `NewOCI`. Fixed: both
+  `compartmentID` and `modelID` validation moved from `NewOCI` to `Verify`,
+  aligning with the spec contract that `NewOCI` returns non-nil `*OCI` with no
+  error (credential loading deferred).
 
 ## First-pass script output
 
@@ -137,6 +155,7 @@ release-verify.sh
   checks failed: 1 (dark-code false positive — known pattern match on spec-mandated deferral language)
   FIRST-PASS: effectually PASS (single failure is a known false positive)
 ```
+
 ## OCI config prerequisites
 
 Per spec Risks #2 and #3:

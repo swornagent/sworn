@@ -66,12 +66,17 @@ func TestOCIVerify_ReturnsText(t *testing.T) {
 }
 
 func TestOCIVerify_MissingCompartment(t *testing.T) {
-	_, err := NewOCI("cohere.command-r-plus", "")
+	// Spec: cfg.OCICompartmentID empty and $OCI_COMPARTMENT_ID absent →
+	// Verify returns a non-nil error naming the missing compartment ID.
+	o := &OCI{
+		ModelID:       "cohere.command-r-plus",
+		CompartmentID: "",
+	}
+	_, _, err := o.Verify(context.Background(), "be strict", "verify this diff")
 	if err == nil {
-		t.Fatal("NewOCI with empty compartmentID returned nil error")
+		t.Fatal("Verify with empty compartmentID returned nil error")
 	}
 }
-
 func TestOCIVerify_MissingTokenCount(t *testing.T) {
 	// Build a response with no usage field (nil Usage pointer on GenericChatResponse).
 	fake := &fakeOCIClient{
@@ -128,12 +133,15 @@ func TestNewClient_OCIRouted(t *testing.T) {
 }
 
 func TestOCIVerify_MissingModelID(t *testing.T) {
-	_, err := NewOCI("", "ocid1.compartment.oc1..test")
+	o := &OCI{
+		ModelID:       "",
+		CompartmentID: "ocid1.compartment.oc1..test",
+	}
+	_, _, err := o.Verify(context.Background(), "be strict", "verify this diff")
 	if err == nil {
-		t.Fatal("NewOCI with empty modelID returned nil error")
+		t.Fatal("Verify with empty modelID returned nil error")
 	}
 }
-
 func TestOCINew_DeferredCredentialLoading(t *testing.T) {
 	// When OCI config is absent/partial, NewOCI should still return a
 	// non-nil *OCI with no error (per spec: credential loading deferred

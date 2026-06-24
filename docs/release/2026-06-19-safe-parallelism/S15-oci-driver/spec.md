@@ -54,8 +54,10 @@ the OCI Generative AI service and returns a PASS/FAIL verdict.
 - `internal/model/oci_test.go` (new)
 - `internal/model/provider.go` (modify — register oci/* prefix, add OCI fields to
   ProviderConfig)
+- `internal/model/config.go` (modify — oci key-gate sentinel, OCICompartmentID in
+  swornProviderConfig)
+- `internal/model/provider_test.go` (modify — remove oci from native stub list)
 - `go.mod`, `go.sum` (modify — add oci-go-sdk)
-
 ## Acceptance checks
 
 - [ ] `go build ./...` succeeds with `github.com/oracle/oci-go-sdk/v65` in go.mod
