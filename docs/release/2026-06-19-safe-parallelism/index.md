@@ -116,8 +116,7 @@ tracks:
     depends_on: [T4-mcp, T12-harness-hardening, T15-cli-registry]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T19-status-hygiene
     worktree_branch: track/2026-06-19-safe-parallelism/T19-status-hygiene
-    state: verified
----
+    state: merged---
 
 # Release Board: `2026-06-19-safe-parallelism`
 
@@ -161,8 +160,7 @@ tracks:
 | `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | verified |
 | `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | verified |
 | `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
-| `T19-status-hygiene` | S64 | T4 + T12 + T15 | `track/.../T19-status-hygiene` | verified |
-
+| `T19-status-hygiene` | S64 | T4 + T12 + T15 | `track/.../T19-status-hygiene` | merged |
 ### Execution order
 
 ```
@@ -522,12 +520,15 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 - Failed verification: 1
 - Deferred: 0
 
-**Tracks:** Planned: 5 / In progress: 2 / Merged: 11  *(oracle read 2026-06-23; T12 + T18 merges recorded — board moving under coach loop)*
-> Merged (11): T1, T2, T3, T4, T7, T8, T9, T11, T12, T15, T18. In progress (2): T5, T14. Planned (5 per oracle): T6, T10, T13, T16, T17.
-
+**Tracks:** Planned: 4 / In progress: 1 / Merged: 14  *(post T19 merge; oracle-authoritative: T5, T14 subsequently merged)*
+> Merged (14): T1, T2, T3, T4, T5, T7, T8, T9, T11, T12, T14, T15, T18, T19. In progress (1): T17. Planned (4): T6, T10, T13, T16.
 ## Recent activity
-### 2026-06-24 — slice `S63-subscription-cli-driver` → verified (PASS)
+### 2026-07-15 — track `T19-status-hygiene` merged to release-wt (commit 9de1cb9)
 
+- **Actor**: track integrator (/merge-track)
+- **Note**: 1 verified slice merged: S64-status-timestamp-sanity. Track state -> merged.
+
+### 2026-06-24 — slice `S63-subscription-cli-driver` → verified (PASS)
 - **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs).
 - **Verdict**: PASS — all six gates satisfied.
   - Gate 1: User-reachable outcome exists — `claude-cli/sonnet` routes through `model.FromEnv` (early return before proxy) → `NewClient` → `*cliDriver.Verify()` (implements Verifier).
