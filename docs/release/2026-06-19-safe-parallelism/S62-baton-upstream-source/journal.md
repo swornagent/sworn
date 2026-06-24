@@ -28,3 +28,33 @@
 - **Design TL;DR** written to `design.md`; awaiting Captain review.
 - **Key decisions**: SHA-256 digest, temp-dir lifecycle, VERSION write-after-success,
   flat function (no interface), positional arg optional with --upstream.
+
+## 2026-07-09 — in_progress → implemented
+
+- **Actor**: implementer (Claude)
+- **Coach pins applied**:
+  1. `design_decisions` array added to `status.json` (5 Type-2 decisions)
+  2. `planned_files` reconciled: `source.go` → `version.go`
+  3. Commit SHA resolution via `api.github.com/repos/{owner}/{repo}/commits/{tag}`
+     (separate from codeload fetch — handles annotated tags correctly)
+  4. First-fetch bootstrap: absent `upstream-digest` skips digest verification;
+     SHA still catches force-moved tags
+- **Coach flags applied**:
+  (a) Repo override via `SWORN_BATON_REPO` env var (not Config struct — zero-migration path)
+  (b) `repo` param validated as `owner/name` format
+- **Implementation**:
+  - `internal/baton/fetch.go` — `FetchUpstream()`, `FetchResult`, `Cleanup()`,
+    `extractTarball()`, with `baseURLForTest` for test URL injection
+  - `internal/baton/fetch_test.go` — 11 tests: success, SHA mismatch, digest
+    mismatch, no-digest bootstrap, no-pins bootstrap, API 404, codeload 404,
+    server 500, bad gzip, repo format validation, empty tag
+  - `internal/baton/version.go` — `ReadUpstreamPin()`, `WriteUpstreamPin()`,
+    `UpstreamPin` struct, `parseUpstreamPin()`, `upstreamPinForTest` override
+  - `cmd/sworn/baton.go` — `--upstream`/`--tag`/`--repo` flags, `findRepoRoot()`
+    extraction, `printVendorResult()` helper
+- **Tests**: all 27 baton tests pass; all 2 cmd/sworn baton tests pass; go build + vet clean
+- **Divergence from plan**: config-based repo override via env var instead of Config
+  struct field (Type-2 reversible decision — Config schema migration out of scope for this slice)
+- **Skeptic panel**: skipped — runtime does not support subagent dispatch
+- **start_commit**: `e9d73cc14fe53cec60d12867e00cf3d83d270807`
+- **Terminal state**: `implemented`

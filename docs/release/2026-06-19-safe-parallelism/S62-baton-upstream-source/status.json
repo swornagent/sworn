@@ -3,11 +3,11 @@
   "slice_id": "S62-baton-upstream-source",
   "release": "2026-06-19-safe-parallelism",
   "track": "T14-baton-integration",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-09T00:00:00Z",
-  "start_commit": null,
+  "start_commit": "e9d73cc14fe53cec60d12867e00cf3d83d270807",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S62-baton-upstream-source/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S62-baton-upstream-source/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S62-baton-upstream-source/journal.md",
@@ -29,14 +29,21 @@
     {"id": 4, "type": "Type-2", "summary": "Flag semantics — --upstream makes positional source-dir optional; --tag/--repo only apply with --upstream; no --tag uses pinned semver from baton.Version()."},
     {"id": 5, "type": "Type-2", "summary": "No SourceProvider interface — single FetchUpstream(ctx, repo, tag) (*FetchResult, error) function called from cmd/sworn/baton.go; no pipeline change."}
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/baton/fetch.go",
+    "internal/baton/fetch_test.go",
+    "internal/baton/version.go",
+    "cmd/sworn/baton.go"
+  ],
   "test_commands": [
     "go test ./internal/baton/...",
     "go test ./cmd/sworn/...",
     "go build ./...",
     "go vet ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "manual-smoke-step: go test ./internal/baton/... -run TestFetchUpstream_Success (drives full fetch+verify+extract pipeline)"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "",
