@@ -70,3 +70,18 @@ ok  	github.com/swornagent/sworn/internal/git	1.251s
 - **start_commit reset**: Changed from ec63795 (re-impl session start) to a82b950 (original first-pass start) to capture the full implementation scope.
 - **Dark-code first-pass hits**: release-verify.sh flags "deferred" in S58 source files (router.go, router_test.go, parity_test.go, route_test.go). All hits are the legitimate deferred state name — a terminal state like shipped and verified — used throughout the router decision tree. Not a deferral.
 - **S64/docs artifacts in diff**: S64-status-timestamp-sanity/* and index.md appear in the diff because release-wt forward-merged them into this track branch. They are not S58 code changes and not in planned_files.
+## First-pass script output
+
+```
+release-verify.sh S58-slice-router 2026-06-19-safe-parallelism
+
+First-pass verdict:
+  checks passed: 22
+  checks failed: 1
+  FAIL: dark-code markers found in changed source files
+
+The single FAIL is "deferred" hits in S58 source files (router.go, router_test.go,
+parity_test.go, route_test.go). All hits are the legitimate "deferred" state name
+— a terminal state like "shipped" and "verified" — used throughout the router's
+decision tree. Not a deferral. Documented in Divergence from plan.
+```
