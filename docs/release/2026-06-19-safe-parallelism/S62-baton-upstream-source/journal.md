@@ -19,3 +19,12 @@
 - **Blocked on (external)**: implementation waits on the Baton repo being synced to canonical
   truth (the local install had drifted ahead) and **tagged** — that tag is the lock target.
 - Sequenced after S50; T14 is in_progress (S48 implemented/re-verifying, S49/S50 planned).
+
+## 2026-07-09 — design_review (design TL;DR)
+
+- **Actor**: implementer (Claude)
+- **DoR gate**: `sworn lint` subcommand not available (planned as S16 in fidelity release);
+  reqverify and reqvalidate not checked — manual session, not `sworn implement`.
+- **Design TL;DR** written to `design.md`; awaiting Captain review.
+- **Key decisions**: SHA-256 digest, temp-dir lifecycle, VERSION write-after-success,
+  flat function (no interface), positional arg optional with --upstream.
