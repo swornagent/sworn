@@ -207,9 +207,8 @@ func parseStatusJSON(raw string, sliceID, trackID string, trackMap map[string]Tr
 		deps = ti.DependsOn
 		// A slice is actionable when its track has no unmet dependencies
 		// AND the slice itself is in a non-terminal, non-verified state.
-		// For now, the "depends on satisfied" check is deferred to the
-		// scheduler (S59); here we set Actionable based on slice state.
-		actionable = isActionable(s.State)
+		// The depends_on-satisfied check is owned by the scheduler (S59);
+		// here we compute Actionable from slice state alone.		actionable = isActionable(s.State)
 	}
 
 	blocked := s.Verification.Result == "blocked"
