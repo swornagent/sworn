@@ -31,28 +31,23 @@ type AzureOAI struct {
 	Client     *http.Client // nil means http.DefaultClient
 }
 
-// NewAzureOAI constructs an AzureOAI driver. deployment and apiKey must be
-// non-empty. endpoint must be non-empty (the Azure OpenAI host, without
-// scheme or path). apiVersion defaults to "2024-10-21" if empty — this is
-// the most recent GA (Generally Available) API version as of 2026-07.
+// NewAzureOAI constructs an AzureOAI driver. deployment and endpoint must be
+// non-empty (endpoint is the Azure OpenAI host, without scheme or path).
+// apiKey must be non-empty. apiVersion defaults to "2024-12-01-preview" if
+// empty — this is the preview version specified in the acceptance checks.
+// The api-version is overridable via AZURE_OPENAI_API_VERSION.
 //
-// The spec AC originally specified "2024-12-01-preview" but the spec Risk #1
-// directs using the most recent GA version at implementation time. The Azure
-// OpenAI REST API stable versions are: 2022-12-01, 2023-05-15, 2024-02-01,
-// 2024-06-01, 2024-10-21. "2024-10-21" is the latest GA. The api-version is
-// overridable via AZURE_OPENAI_API_VERSION.
-//
-// Endpoint normalisation (spec Risk #2): trailing slashes are stripped and
-// https:// is prepended only when no scheme is present.
-func NewAzureOAI(deployment, apiKey, endpoint, apiVersion string) (*AzureOAI, error) {
+// Endpoint normalisation: trailing slashes are stripped and https:// is
+// prepended only when no scheme is present.
+func NewAzureOAI(deployment, endpoint, apiKey, apiVersion string) (*AzureOAI, error) {
 	if deployment == "" {
 		return nil, fmt.Errorf("model: missing Azure deployment name")
 	}
-	if apiKey == "" {
-		return nil, fmt.Errorf("model: missing Azure API key")
-	}
 	if endpoint == "" {
 		return nil, fmt.Errorf("model: missing Azure endpoint")
+	}
+	if apiKey == "" {
+		return nil, fmt.Errorf("model: missing Azure API key")
 	}
 
 	// Normalise endpoint: strip trailing slashes, prepend https:// if no scheme.
@@ -62,9 +57,8 @@ func NewAzureOAI(deployment, apiKey, endpoint, apiVersion string) (*AzureOAI, er
 	}
 
 	if apiVersion == "" {
-		apiVersion = "2024-10-21"
+		apiVersion = "2024-12-01-preview"
 	}
-
 	return &AzureOAI{
 		Endpoint:   endpoint,
 		Deployment: deployment,

@@ -145,11 +145,11 @@ func swornProviderConfig() ProviderConfig {
 		AwsAccessKey:        os.Getenv("SWORN_AWS_ACCESS_KEY_ID"),
 		AwsSecretKey:        os.Getenv("SWORN_AWS_SECRET_ACCESS_KEY"),
 		AwsRegion:           envOrAlias("AWS_REGION", "AWS_DEFAULT_REGION"),
-		AzureOpenAIKey:      os.Getenv("SWORN_AZURE_OPENAI_API_KEY"),
-			AzureEndpoint:       os.Getenv("SWORN_AZURE_OPENAI_ENDPOINT"),
-			AzureAPIVersion:     os.Getenv("SWORN_AZURE_OPENAI_API_VERSION"),	}
+		AzureAPIKey:         os.Getenv("SWORN_AZURE_OPENAI_API_KEY"),
+		AzureEndpoint:       os.Getenv("SWORN_AZURE_OPENAI_ENDPOINT"),
+		AzureAPIVersion:     os.Getenv("SWORN_AZURE_OPENAI_API_VERSION"),
+	}
 }
-
 // parseModelID splits "provider/model" into its parts. The first "/" is the
 // separator; model names that contain "/" are passed through as-is after the
 // first slash — this correctly handles OpenRouter sub-paths like

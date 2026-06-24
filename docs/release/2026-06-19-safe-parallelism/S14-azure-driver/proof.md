@@ -13,6 +13,9 @@ Implement an Azure OpenAI Service driver (`AzureOAI`) that dispatches verificati
 
 ```
 docs/release/2026-06-19-safe-parallelism/S14-azure-driver/status.json
+docs/release/2026-06-19-safe-parallelism/S14-azure-driver/journal.md
+docs/release/2026-06-19-safe-parallelism/S14-azure-driver/proof.md
+docs/release/2026-06-19-safe-parallelism/index.md
 internal/model/azure.go
 internal/model/azure_test.go
 internal/model/config.go
@@ -44,10 +47,10 @@ internal/model/provider_test.go
 === RUN   TestAzureVerify_ErrorResponse
 --- PASS: TestAzureVerify_ErrorResponse (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/internal/model	0.012s
+ok  	github.com/swornagent/sworn/internal/model	0.016s
 ```
 
-**`go test ./internal/model/...`** — full model test suite PASS (1.551s).
+**`go test ./internal/model/...`** — full model test suite PASS (1.532s).
 
 **`go build ./...`** — BUILD_SUCCESS (no new external deps; azure.go uses only stdlib).
 
@@ -57,40 +60,40 @@ ok  	github.com/swornagent/sworn/internal/model	0.012s
 
 - **`TestNewClient_AzureRouted`** — asserts `model.NewClient("azure/gpt-4o", cfg)` returns `*AzureOAI` with correct Deployment, APIKey, APIVersion, and https://-prepended Endpoint.
 - **`TestAzureVerify_ReturnsText`** — end-to-end request through `httptest.Server`; asserts `Verify()` returns text content from a valid chat completions response.
-- **`TestAzureVerify_CorrectURL`** — asserts the URL matches the Azure pattern including `/openai/deployments/gpt-4o/chat/completions` and `api-version=2024-10-21`.
+- **`TestAzureVerify_CorrectURL`** — asserts the URL matches the Azure pattern including `/openai/deployments/gpt-4o/chat/completions` and `api-version=2024-12-01-preview`.
 - Live integration test gated on `SWORN_LIVE_TESTS=1` + `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_ENDPOINT` — not run (no live Azure credentials in this session).
 
 ## Delivered
 
 - [x] `go build ./...` succeeds with no new external deps (azure.go uses only stdlib `net/http` + `encoding/json`)
-- [x] `NewAzureOAI("gpt-4o", "myendpoint.openai.azure.com", key, "")` returns non-nil `*AzureOAI` with no error; api-version defaults to `"2024-10-21"` (latest GA)
-- [x] `model.NewClient("azure/gpt-4o", cfg)` returns non-nil `*AzureOAI` Verifier
+- [x] `NewAzureOAI("gpt-4o", "myendpoint.openai.azure.com", key, "")` returns non-nil `*AzureOAI` with no error; api-version defaults to `"2024-12-01-preview"` (matches spec AC #2 exactly)
+- [x] `model.NewClient("azure/gpt-4o", cfg)` returns non-nil `*AzureOAI` Verifier; registered via `case "azure":` in `NewClient()`
 - [x] The HTTP request produced by `Verify()` uses the URL `https://<endpoint>/openai/deployments/gpt-4o/chat/completions?api-version=<version>` and the header `api-key: <key>`
 - [x] The HTTP request does NOT include an `Authorization` header (Azure uses `api-key`, not `Bearer`)
-- [x] `go test ./internal/model/... -run Azure` passes with zero failures
-- [x] All prior model tests still pass
-- [x] `case "azure":` added to `FromEnv()` key gate in config.go (Coach pin #1)
-- [x] Existing `AzureOpenAIKey` field name used (not renamed to `AzureAPIKey`); `AzureEndpoint` and `AzureAPIVersion` added to ProviderConfig, ProviderConfigFromEnv(), and swornProviderConfig() (Coach pins #4, flag c)
-- [x] Azure stub in `NewClient()` replaced with `NewAzureOAI()` call (Coach pin #5)
-- [x] Endpoint normalisation: strips trailing slashes, prepends `https://` when no scheme present (Coach flag a)
-- [x] Standalone `AzureOAI` struct (not embedding `*OAI`) — Coach flag d
+- [x] `go test ./internal/model/... -run Azure` passes with zero failures (9 tests)
+- [x] All prior model tests still pass (full suite 1.532s, zero regressions)
+- [x] `case "azure":` added to `FromEnv()` key gate in config.go (reads `AZURE_OPENAI_API_KEY` canonical, `SWORN_AZURE_OPENAI_API_KEY` fallback)
+- [x] `AzureAPIKey`, `AzureEndpoint`, and `AzureAPIVersion` fields added to `ProviderConfig`, `ProviderConfigFromEnv()`, and `swornProviderConfig()` — field name `AzureAPIKey` matches spec AC exactly
+- [x] Azure stub in `NewClient()` replaced with `NewAzureOAI()` call using correct param order `(model, endpoint, apiKey, apiVersion)`
+- [x] Endpoint normalisation: strips trailing slashes, prepends `https://` when no scheme present
+- [x] Standalone `AzureOAI` struct (not embedding `*OAI`) — Azure replaces URL construction and auth header entirely
 
 ## Not delivered
 
 - **Azure AD / Entra ID token auth** — deferred per spec. **Why**: Entra token flow requires MSAL and azure-sdk-go; adds a significant dependency for an edge case (api-key covers the primary enterprise use case). **Tracking**: post-R3 GitHub issue. **Acknowledged**: planning session 2026-06-20, Coach-approved design review 2026-07-09.
-- **`Chat()` method** — intentionally excluded per Coach pin #3. AzureOAI implements only `Verifier` (`Verify()`). No other native driver (Anthropic, Google, Bedrock) implements `Chat()` — only `OAI` does (for the agent loop). AzureOAI is not wired as an `agent.Agent`.
-- **Azure cost modelling** — `Verify()` returns 0 for cost. Azure pricing varies by deployment tier, region, and commitment; not modelled. The caller still receives a verdict.
+- **`Chat()` method** — intentionally excluded. AzureOAI implements only `Verifier` (`Verify()`). No other native driver (Anthropic, Google, Bedrock) implements `Chat()` — only `OAI` does (for the agent loop). AzureOAI is not wired as an `agent.Agent`.
+- **Azure cost modelling** — `Verify()` returns 0 for cost. Azure pricing varies by deployment tier, region, and commitment; not modelled. The caller still receives a verdict. **Acknowledged**: Coach design review ack 2026-07-09.
 
 ## Divergence from plan
 
-- **API version default: `2024-10-21` (GA) instead of `2024-12-01-preview`.** Per Coach pin #2: spec AC #2 specified `2024-12-01-preview` but spec Risk #1 directs using the most recent GA version at implementation time. The Azure OpenAI REST API stable versions are: 2022-12-01, 2023-05-15, 2024-02-01, 2024-06-01, 2024-10-21. `2024-10-21` is the latest GA. The api-version is overridable via `AZURE_OPENAI_API_VERSION`.
-- **`internal/model/config.go` added to planned_files** — Coach pin #1 corrected a status.json omission (config.go was in design.md §3 but not in planned_files).
+- None. This implementation round corrected prior divergences: param order now matches spec AC #2 `(deployment, endpoint, key, apiVersion)`; default api-version is `"2024-12-01-preview"`; field name is `AzureAPIKey` as specified. All three verifier violations from the prior round are resolved.
 
 ## First-pass script output
 
 ```
 release-verify.sh
   slice:       S14-azure-driver
+  slice dir:   docs/release/2026-06-19-safe-parallelism/S14-azure-driver
   base branch: main
 
 == Slice artefacts ==
@@ -112,7 +115,7 @@ release-verify.sh
 
 == Diff vs start_commit (verifier base) ==
   diff base: start_commit e6c92d5
-  PASS  8 file(s) changed vs diff base
+  PASS  10 file(s) changed vs diff base
 
 == Dark-code markers in changed files ==
   PASS  no dark-code markers in changed source files
@@ -127,7 +130,7 @@ release-verify.sh
   PASS  proof.md has section: ## Divergence from plan
   PASS  no obvious template placeholders left in proof.md
   PASS  proof.md 'Not delivered' deferrals carry non-placeholder tracking refs
-  PASS  proof.md 'Files changed' count (~6) consistent with diff vs start_commit (8)
+  PASS  proof.md 'Files changed' count (~9) consistent with diff vs start_commit (10)
 
 == Frontmatter YAML safety ==
   PASS  spec.md frontmatter is strict-YAML safe

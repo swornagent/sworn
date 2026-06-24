@@ -55,3 +55,17 @@ Required to address:
 1. Make implementation match spec ACs (param order, default api-version, field names) or update spec ACs to match implementation (latter requires planner if changing binding ACs).
 
 Next step: re-open `/implement-slice S14-azure-driver 2026-06-19-safe-parallelism` in a fresh session to address the violations.
+
+### 2026-07-09 — Re-implementation (state: failed_verification → in_progress → implemented)
+
+Verifier FAIL violations addressed:
+
+1. **Param order** — `NewAzureOAI(deployment, endpoint, apiKey, apiVersion)` now matches spec AC #2 exactly (`NewAzureOAI("gpt-4o", "myendpoint.openai.azure.com", key, "")`).
+2. **Default api-version** — Changed from `"2024-10-21"` (GA) back to `"2024-12-01-preview"` to match spec AC #2. The spec AC is binding; the risk section's GA-direction advice is advisory and doesn't override the literal AC.
+3. **Field name** — Renamed `AzureOpenAIKey` → `AzureAPIKey` in `ProviderConfig`, `ProviderConfigFromEnv()`, and `swornProviderConfig()`. Matches spec "In scope" which says "add `AzureEndpoint`, `AzureAPIKey`, `AzureAPIVersion` fields to `ProviderConfig`". The pre-existing `AzureOpenAIKey` (from S13) is replaced — all references are within this slice's touchpoints.
+
+All 9 Azure tests pass. Full model test suite passes (zero regressions). Build and vet clean.
+
+Formatting issues: fused newlines (`}}` on one line, `case "oci":` fused onto prior line) were pre-existing from round 1; fixed in this round.
+
+Skeptic panel: skipped — runtime does not support parallel subagent dispatch.

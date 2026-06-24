@@ -44,7 +44,7 @@ func TestAzureVerify_CorrectURL(t *testing.T) {
 	// Extract host from test server URL to use as the Azure endpoint.
 	endpoint := srv.URL
 
-	a, err := NewAzureOAI("gpt-4o", "test-key", endpoint, "2024-10-21")
+	a, err := NewAzureOAI("gpt-4o", endpoint, "test-key", "2024-12-01-preview")
 	if err != nil {
 		t.Fatalf("NewAzureOAI: %v", err)
 	}
@@ -56,14 +56,13 @@ func TestAzureVerify_CorrectURL(t *testing.T) {
 	}
 
 	// Assert URL matches the Azure pattern:
-	// /openai/deployments/gpt-4o/chat/completions?api-version=2024-10-21
+	// /openai/deployments/gpt-4o/chat/completions?api-version=2024-12-01-preview
 	if !strings.Contains(gotURL, "/openai/deployments/gpt-4o/chat/completions") {
 		t.Fatalf("URL missing Azure path: got %q, want /openai/deployments/gpt-4o/chat/completions", gotURL)
 	}
-	if !strings.Contains(gotURL, "api-version=2024-10-21") {
+	if !strings.Contains(gotURL, "api-version=2024-12-01-preview") {
 		t.Fatalf("URL missing api-version: got %q", gotURL)
-	}
-}
+	}}
 
 func TestAzureVerify_APIKeyHeader(t *testing.T) {
 	var gotAPIKey string
@@ -76,9 +75,8 @@ func TestAzureVerify_APIKeyHeader(t *testing.T) {
 
 	endpoint := srv.URL
 
-	a, err := NewAzureOAI("gpt-4o", "test-api-key-123", endpoint, "2024-10-21")
-	if err != nil {
-		t.Fatalf("NewAzureOAI: %v", err)
+	a, err := NewAzureOAI("gpt-4o", endpoint, "test-api-key-123", "2024-12-01-preview")
+	if err != nil {		t.Fatalf("NewAzureOAI: %v", err)
 	}
 	a.Client = srv.Client()
 
@@ -103,7 +101,7 @@ func TestAzureVerify_AuthorizationHeaderAbsent(t *testing.T) {
 
 	endpoint := srv.URL
 
-	a, err := NewAzureOAI("gpt-4o", "test-key", endpoint, "2024-10-21")
+	a, err := NewAzureOAI("gpt-4o", endpoint, "test-key", "2024-12-01-preview")
 	if err != nil {
 		t.Fatalf("NewAzureOAI: %v", err)
 	}
@@ -130,8 +128,8 @@ func TestAzureVerify_DefaultAPIVersion(t *testing.T) {
 
 	endpoint := srv.URL
 
-	// Pass empty apiVersion — should default to "2024-10-21".
-	a, err := NewAzureOAI("gpt-4o", "test-key", endpoint, "")
+	// Pass empty apiVersion — should default to "2024-12-01-preview".
+	a, err := NewAzureOAI("gpt-4o", endpoint, "test-key", "")
 	if err != nil {
 		t.Fatalf("NewAzureOAI: %v", err)
 	}
@@ -142,11 +140,11 @@ func TestAzureVerify_DefaultAPIVersion(t *testing.T) {
 		t.Fatalf("Verify: %v", err)
 	}
 
-	if !strings.Contains(gotURL, "api-version=2024-10-21") {
-		t.Fatalf("URL missing default api-version: got %q, want api-version=2024-10-21", gotURL)
+	if !strings.Contains(gotURL, "api-version=2024-12-01-preview") {
+		t.Fatalf("URL missing default api-version: got %q, want api-version=2024-12-01-preview", gotURL)
 	}
-	if a.APIVersion != "2024-10-21" {
-		t.Fatalf("APIVersion field: got %q, want %q", a.APIVersion, "2024-10-21")
+	if a.APIVersion != "2024-12-01-preview" {
+		t.Fatalf("APIVersion field: got %q, want %q", a.APIVersion, "2024-12-01-preview")
 	}
 }
 
@@ -159,7 +157,7 @@ func TestAzureVerify_ReturnsText(t *testing.T) {
 
 	endpoint := srv.URL
 
-	a, err := NewAzureOAI("gpt-4o", "test-key", endpoint, "2024-10-21")
+	a, err := NewAzureOAI("gpt-4o", endpoint, "test-key", "2024-12-01-preview")
 	if err != nil {
 		t.Fatalf("NewAzureOAI: %v", err)
 	}
@@ -180,9 +178,9 @@ func TestAzureVerify_ReturnsText(t *testing.T) {
 
 func TestNewClient_AzureRouted(t *testing.T) {
 	pcfg := ProviderConfig{
-		AzureOpenAIKey:  "test-key",
+		AzureAPIKey:  "test-key",
 		AzureEndpoint:   "myendpoint.openai.azure.com",
-		AzureAPIVersion: "2024-10-21",
+		AzureAPIVersion: "2024-12-01-preview",
 	}
 
 	v, err := NewClient("azure/gpt-4o", pcfg)
@@ -204,8 +202,8 @@ func TestNewClient_AzureRouted(t *testing.T) {
 	if az.APIKey != "test-key" {
 		t.Fatalf("APIKey: got %q, want %q", az.APIKey, "test-key")
 	}
-	if az.APIVersion != "2024-10-21" {
-		t.Fatalf("APIVersion: got %q, want %q", az.APIVersion, "2024-10-21")
+	if az.APIVersion != "2024-12-01-preview" {
+		t.Fatalf("APIVersion: got %q, want %q", az.APIVersion, "2024-12-01-preview")
 	}
 	// Endpoint should have https:// prepended.
 	if !strings.HasPrefix(az.Endpoint, "https://") {
@@ -217,17 +215,17 @@ func TestNewAzureOAI_Errors(t *testing.T) {
 	tests := []struct {
 		name       string
 		deployment string
-		apiKey     string
 		endpoint   string
+		apiKey     string
 	}{
-		{"empty deployment", "", "key", "endpoint"},
-		{"empty apiKey", "gpt-4o", "", "endpoint"},
-		{"empty endpoint", "gpt-4o", "key", ""},
+		{"empty deployment", "", "endpoint", "key"},
+		{"empty apiKey", "gpt-4o", "endpoint", ""},
+		{"empty endpoint", "gpt-4o", "", "key"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewAzureOAI(tt.deployment, tt.apiKey, tt.endpoint, "")
+			_, err := NewAzureOAI(tt.deployment, tt.endpoint, tt.apiKey, "")
 			if err == nil {
 				t.Fatal("expected error, got nil")
 			}
@@ -237,7 +235,7 @@ func TestNewAzureOAI_Errors(t *testing.T) {
 
 func TestAzureVerify_EndpointNormalisation(t *testing.T) {
 	// Trailing slash stripped, https:// prepended.
-	a, err := NewAzureOAI("gpt-4o", "key", "myendpoint.openai.azure.com/", "2024-10-21")
+	a, err := NewAzureOAI("gpt-4o", "myendpoint.openai.azure.com/", "key", "2024-12-01-preview")
 	if err != nil {
 		t.Fatalf("NewAzureOAI: %v", err)
 	}
@@ -256,7 +254,7 @@ func TestAzureVerify_ErrorResponse(t *testing.T) {
 
 	endpoint := srv.URL
 
-	a, err := NewAzureOAI("gpt-4o", "test-key", endpoint, "2024-10-21")
+	a, err := NewAzureOAI("gpt-4o", endpoint, "test-key", "2024-12-01-preview")
 	if err != nil {
 		t.Fatalf("NewAzureOAI: %v", err)
 	}
