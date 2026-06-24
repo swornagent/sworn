@@ -6,8 +6,7 @@
   "state": "in_progress",  "owner": "human",
   "last_updated_by": "planner",
   "last_updated_at": "2026-06-20T00:00:00Z",
-  "start_commit": null,
-  "spec_path": "docs/release/2026-06-19-safe-parallelism/S17-tui-provider-config/spec.md",
+  "start_commit": "5325d114d2e96cb62eb85ea712fc5478dc46393a",  "spec_path": "docs/release/2026-06-19-safe-parallelism/S17-tui-provider-config/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S17-tui-provider-config/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S17-tui-provider-config/journal.md",
   "planned_files": [
