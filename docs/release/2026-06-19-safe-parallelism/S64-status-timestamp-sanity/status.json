@@ -3,11 +3,11 @@
   "slice_id": "S64-status-timestamp-sanity",
   "release": "2026-06-19-safe-parallelism",
   "track": "T19-status-hygiene",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-15T00:00:00Z",  "start_commit": null,
-  "spec_path": "docs/release/2026-06-19-safe-parallelism/S64-status-timestamp-sanity/spec.md",
+  "last_updated_at": "2026-07-15T00:00:00Z",
+  "start_commit": "bcbadb8a75dc8a9cab3bfcf5efefb95accb789d4",  "spec_path": "docs/release/2026-06-19-safe-parallelism/S64-status-timestamp-sanity/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S64-status-timestamp-sanity/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S64-status-timestamp-sanity/journal.md",
   "planned_files": [
@@ -18,12 +18,22 @@
     "cmd/sworn/doctor.go",
     "cmd/sworn/doctor_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/lint/status_time.go",
+    "internal/lint/status_time_test.go",
+    "cmd/sworn/lint.go",
+    "cmd/sworn/lint_trace_test.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go"
+  ],
   "test_commands": [
     "go test -race ./internal/lint/... ./cmd/sworn/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "cmd/sworn/lint_trace_test.go: TestLintStatusCmd_ValidRelease, TestLintStatusCmd_FutureTimestamp, TestLintStatusCmd_FutureVerdictAt, TestLintStatusCmd_MalformedTimestamp",
+    "cmd/sworn/doctor_test.go: TestDoctorStatusTimestamps, TestDoctorStatusTimestamps_Clean"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "pending",
