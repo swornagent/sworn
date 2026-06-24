@@ -56,3 +56,26 @@ release-verify.sh: 22/22 PASS. start_commit=94a1223, 8 files changed. No dark-co
 **2026-07-08T12:00:00Z** — FAIL: 1
 
 1. Proof bundle inaccurately claims "All five planned files touched" and "Divergence from plan: None" (see proof.md "Divergence from plan" and "Delivered" sections). The planned touchpoint `docs/adr/0006-baton-protocol-sync.md` was not edited (confirm/finalise required no change per spec), and `cmd/sworn/baton_test.go` was added (not listed in planned touchpoints). The proof must accurately report scope against the spec's "Planned touchpoints" and "Divergence from plan" section must be present and truthful. (Gate 2 + Gate 6)
+**2026-07-08T12:30:00Z** — FAIL: 1
+
+1. Gate 2 — Planned touchpoints do not match actual changed files
+   Evidence: spec.md "Planned touchpoints" lists `docs/adr/0006-baton-protocol-sync.md` (not changed in git diff 94a1223..HEAD); git diff shows `cmd/sworn/baton_test.go` added (not listed in planned touchpoints); proof.md "Divergence from plan" claims "None. All five planned files touched"
+2. Gate 6 — Claimed scope matches implemented scope
+   Evidence: proof.md "Divergence from plan" and "Delivered" sections inaccurately report scope against spec; "Divergence from plan: None" is false
+
+Required to address:
+1. Update proof.md "Divergence from plan" to accurately describe the scope (ADR not edited per DD-005 as no open questions remained; test file added for Rule 1 integration-point reachability).
+2. Ensure proof bundle sections truthfully reflect git diff vs spec planned touchpoints.
+3. Re-verify after proof correction.
+
+**2026-07-08T12:30:00Z** — FAIL: 1 (re-verified, no change since prior verdict)
+
+1. Gate 2 — Planned touchpoints do not match actual changed files
+   Evidence: spec.md "Planned touchpoints" lists `docs/adr/0006-baton-protocol-sync.md` (not changed in git diff 94a1223..HEAD); git diff shows `cmd/sworn/baton_test.go` added (not listed in planned touchpoints); proof.md "Divergence from plan" claims "None. All five planned files touched"
+2. Gate 6 — Claimed scope matches implemented scope
+   Evidence: proof.md "Divergence from plan" and "Delivered" sections inaccurately report scope against spec; "Divergence from plan: None" is false
+
+Required to address:
+1. Update proof.md "Divergence from plan" to accurately describe the scope (ADR not edited per DD-005 as no open questions remained; test file added for Rule 1 integration-point reachability).
+2. Ensure proof bundle sections truthfully reflect git diff vs spec planned touchpoints.
+3. Re-verify after proof correction.

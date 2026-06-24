@@ -1465,3 +1465,8 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - **Actor**: verifier (`/verify-slice`, fresh context)
 - **Verdict**: FAIL — 1 violation (Gate 2 + Gate 6). Proof bundle inaccurately claims "All five planned files touched" and "Divergence from plan: None". The planned touchpoint `docs/adr/0006-baton-protocol-sync.md` was not edited (confirm/finalise required no change per spec), and `cmd/sworn/baton_test.go` was added (not listed in planned touchpoints). The proof must accurately report scope against the spec's "Planned touchpoints".
 - **State**: S50 → failed_verification. T14-baton-integration remains in_progress. Implementer must address in fresh /implement-slice session.
+### 2026-07-08T12:30:00Z — S50-baton-governance re-verified (identical result)
+
+- **Actor**: verifier (fresh context, re-run)
+- **Verdict**: FAIL (same as prior). No changes to spec.md, proof.md, or implementation since prior verdict commit. Re-emitted verbatim.
+- **State**: S50 remains failed_verification. Next step: /implement-slice S50-baton-governance 2026-06-19-safe-parallelism to correct proof bundle.
