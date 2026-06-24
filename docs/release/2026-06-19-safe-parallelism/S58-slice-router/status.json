@@ -3,11 +3,11 @@
   "slice_id": "S58-slice-router",
   "release": "2026-06-19-safe-parallelism",
   "track": "T17-orchestration-core",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-15T00:00:00Z",
-  "start_commit": null,
+  "start_commit": "a82b95034bc4c7f42c5ad9e248392a108bd00620",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S58-slice-router/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S58-slice-router/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S58-slice-router/journal.md",
@@ -20,13 +20,23 @@
     "internal/git/git.go",
     "internal/git/git_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "cmd/sworn/route.go",
+    "cmd/sworn/route_test.go",
+    "internal/board/oracle.go",
+    "internal/git/git.go",
+    "internal/router/parity_test.go",
+    "internal/router/router.go",
+    "internal/router/router_test.go"
+  ],
   "test_commands": [
     "go test -race ./internal/router/...",
     "go test -race ./internal/git/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "cmd/sworn/route_test.go — TestRouteIntegration runs sworn route against a fixture repo covering every state branch"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "",
