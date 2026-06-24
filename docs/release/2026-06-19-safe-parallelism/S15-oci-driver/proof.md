@@ -15,6 +15,12 @@ to OCI Generative AI Chat endpoint.
 ## Files changed
 
 ```
+docs/release/2026-06-19-safe-parallelism/S15-oci-driver/approved-ack.md
+docs/release/2026-06-19-safe-parallelism/S15-oci-driver/journal.md
+docs/release/2026-06-19-safe-parallelism/S15-oci-driver/proof.md
+docs/release/2026-06-19-safe-parallelism/S15-oci-driver/spec.md
+docs/release/2026-06-19-safe-parallelism/S15-oci-driver/status.json
+docs/release/2026-06-19-safe-parallelism/index.md
 go.mod
 go.sum
 internal/model/config.go
@@ -24,6 +30,11 @@ internal/model/provider.go
 internal/model/provider_test.go
 ```
 
+Production code: `oci.go`, `oci_test.go`, `config.go`, `provider.go`,
+`provider_test.go`, `go.mod`, `go.sum`. Slice artefacts: `spec.md`, `proof.md`,
+`journal.md`, `status.json`. Board artefacts: `index.md`, `approved-ack.md`. The
+`approved-ack.md` is a design-review transient token from the prior
+implementation round (Coach acknowledged design TL;DR).
 ## Test results
 
 ### `go test ./internal/model/... -run OCI -v`
