@@ -3,11 +3,10 @@
   "slice_id": "S39-openai-responses-provider",
   "release": "2026-06-19-safe-parallelism",
   "track": "T5-providers",
-  "state": "implemented",
-  "owner": "implementer",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-24T11:03:53Z",
-  "start_commit": "aa97dc3",
+  "state": "verified",
+  "owner": "verifier",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-12T11:10:00Z",  "start_commit": "aa97dc3",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S39-openai-responses-provider/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S39-openai-responses-provider/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S39-openai-responses-provider/journal.md",
@@ -40,8 +39,12 @@
     "TestOpenAIResponses_RequestShape (request shape validation)"
   ],
   "open_deferrals": [],
-  "verification": {},
-  "design_decisions": [
+  "verification": {
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-12T11:10:00Z",
+    "verified_against": "8624c1d51e818f08877cfb6c8b2981b287ae2f89"
+  },  "design_decisions": [
     {
       "id": "D1",
       "description": "ChatMessage → responses input mapping: convert []ChatMessage to /v1/responses input items internally; keep ChatMessage/ChatResponse canonical.",

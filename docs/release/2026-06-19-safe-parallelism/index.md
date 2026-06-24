@@ -472,7 +472,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S45-design-tldr` | T13 | `sworn run` generates a design TL;DR (§1–6) before implementation — restores the pre-code design artefact for the captain to review | planned | [spec](./S45-design-tldr/spec.md) |
 | `S46-captain-review` | T13 | captain agent reviews the TL;DR + live code, emits classified pins, writes review.md, and gates implement (proceed if no escalate pins, else halt+surface) — the in-product `/design-review` | planned | [spec](./S46-captain-review/spec.md) |
 | `S47-orchestrator-recovery` | T13 | on non-PASS, intra-run triage chooses resolve-in-place / escalate / halt, then commits state and delegates lifecycle routing (BLOCKED→replan, fail→redesign/implement) to the S58 router (re-scoped 2026-06-23) | planned | [spec](./S47-orchestrator-recovery/spec.md) |
-| `S39-openai-responses-provider` | T5 | first-class OpenAI provider via /v1/responses (reasoning_effort + tool-calls + built-in web_search) + a cross-provider WebSearch/WebFetch agent tool — fixes gpt-5.x support + 'more than 6 tools' | failed_verification | [spec](./S39-openai-responses-provider/spec.md) || `S48-baton-vendor` | T14 | `sworn baton vendor` — semver-pinned vendor of upstream Baton + bash→sworn transform over rules AND role-prompts (strips `release-verify.sh`/`release-board-status.sh`/`captain-memory-search.py`… → sworn-native commands); reproduces the sworn-native embed (subsumes the one-time scrub) | failed_verification | [spec](./S48-baton-vendor/spec.md) |
+| `S39-openai-responses-provider` | T5 | first-class OpenAI provider via /v1/responses (reasoning_effort + tool-calls + built-in web_search) + a cross-provider WebSearch/WebFetch agent tool — fixes gpt-5.x support + 'more than 6 tools' | verified | [spec](./S39-openai-responses-provider/spec.md) || `S48-baton-vendor` | T14 | `sworn baton vendor` — semver-pinned vendor of upstream Baton + bash→sworn transform over rules AND role-prompts (strips `release-verify.sh`/`release-board-status.sh`/`captain-memory-search.py`… → sworn-native commands); reproduces the sworn-native embed (subsumes the one-time scrub) | failed_verification | [spec](./S48-baton-vendor/spec.md) |
 | `S49-baton-version` | T14 | reconcile the Baton pin from a raw SHA to a **semver tag** across `VERSION`+`VERSION.txt`; `sworn version` reports "on Baton vX.Y.Z"; `sworn doctor` fails the pin if it's a SHA not a tag | verified | [spec](./S49-baton-version/spec.md) |
 | `S50-baton-governance` | T14 | `sworn baton diff` divergence check (embed vs upstream pin) + `docs/baton-governance.md` PR-up process note + ADR-0006; protocol changes found in sworn dev must PR upstream, never silently fork | verified | [spec](./S50-baton-governance/spec.md) || `S62-baton-upstream-source` | T14 | `sworn baton vendor --upstream` fetches the version-locked Baton release from `github.com/sawy3r/baton` over stdlib HTTPS (codeload tar.gz), verified by tag + commit-SHA/digest, fail-closed — embed source-of-truth is the public repo at a pinned version, not a local install (issue #11) | verified | [spec](./S62-baton-upstream-source/spec.md) || `S51-cli-command-registry` | T15 | command registry replaces the `cmd/sworn/main.go` dispatch switch; new subcommands self-register from their own file; `main.go` owned by one track — ends the recurring touchpoint collision | verified | [spec](./S51-cli-command-registry/spec.md) |
 | `S52-ledger-projection` | T16 | Projects every slice's verdict into an append-only `docs/ledger/verdicts.jsonl`; captures implementer model + attempt; backfills the whole board on first sync | planned | [spec](./S52-ledger-projection/spec.md) |
@@ -515,8 +515,22 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > Merged (11): T1, T2, T3, T4, T7, T8, T9, T11, T12, T15, T18. In progress (2): T5, T14. Planned (5 per oracle): T6, T10, T13, T16, T17.
 
 ## Recent activity
-### 2026-07-12 — slice `S39-openai-responses-provider` → failed_verification (FAIL)
+### 2026-07-12 — slice `S39-openai-responses-provider` → verified (PASS)
 
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs).
+- **Verdict**: PASS — all six gates satisfied.
+  - Gate 1: User-reachable outcome exists — `openai-responses/gpt-5.5` routes through `model.FromEnv` → `*OpenAIResponses` (implements Verifier + agent.Agent).
+  - Gate 2: Planned touchpoints match — files exactly match spec + status.json (re-entry fix moved web_search tests to `tools_test.go`).
+  - Gate 3: Required tests exist and exercise integration point — 13 model + 2 web_search tests; re-ran `go test ./internal/model/... ./internal/agent/...` (PASS); httptest drives `/v1/responses` path.
+  - Gate 4: Reachability artefact — `TestOpenAIResponses_Chat_ToolCallRoundTrip` + `TestOpenAIResponses_RequestShape` + web_search tests prove tool-call + final-text + reasoning_effort + no temperature.
+  - Gate 5: No silent deferrals — no TODO/FIXME/placeholder added in production paths.
+  - Gate 6: Claimed scope matches — all Delivered items have evidence references; Not delivered are Rule-2 deferrals with tracking + Coach ack.
+- **Gates passed**: 1–6.
+- **Drift gate**: clean (rev-list count 0). Verified against track HEAD 8624c1d.
+- **State**: S39 → verified. Track T5-providers remains in_progress (S63 pending). Next: `/implement-slice S63-subscription-cli-driver 2026-06-19-safe-parallelism` (or `/merge-track T5-providers` if S63 is the last).
+- **Note**: gofmt issues exist in changed files (provider.go indentation, etc.); not a gate violation per spec ACs (tests/build/vet green; gofmt not listed in required tests). Recommend fmt sweep before merge.
+
+### 2026-07-12 — slice `S39-openai-responses-provider` → failed_verification (FAIL)
 - **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs).
 - **Verdict**: FAIL — 3 violations (Gates 2, 3; status integrity).
   - Gate 2 (touchpoints): spec.md and status.json planned_files list `internal/agent/tools_test.go` but actual changed file is `internal/agent/agent_test.go`; proof.md "Divergence from plan" claims "None" (false).

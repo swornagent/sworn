@@ -117,3 +117,27 @@ Slice re-marked `implemented` for fresh verifier re-run.
 Release-verify.sh first-pass: 23/23 PASS.
 
 Skeptic panel: skipped — runtime does not support subagent dispatch.
+
+### 2026-07-12 — verifier (fresh context) — PASS
+
+PASS
+
+Slice: S39-openai-responses-provider
+
+Verified against: 8624c1d51e818f08877cfb6c8b2981b287ae2f89
+
+Verifier session: fresh, artefact-only
+
+All six gates passed:
+1. User-reachable outcome exists — `openai-responses/gpt-5.5` (and similar) routes through `model.FromEnv` → `NewClient` → `*OpenAIResponses`, which implements `Verifier` and `agent.Agent`. The entry point is wired and exercised by the agent loop.
+2. Planned touchpoints match actual changed files — `internal/model/openai_responses.go`, `openai_responses_test.go`, `provider.go`, `config.go`, `oai.go`, `internal/agent/tools.go`, `tools_test.go` exactly match spec + status.json planned_files (re-entry fix extracted web_search tests to `tools_test.go`).
+3. Required tests exist and exercise the integration point — 13 model tests + 2 web_search tests in `tools_test.go`; re-ran `go test ./internal/model/... ./internal/agent/...` (all PASS); tests drive the provider's `Verify`/`Chat` through httptest mimicking `/v1/responses`.
+4. Reachability artefact proves the user path — `TestOpenAIResponses_Chat_ToolCallRoundTrip` (and `TestOpenAIResponses_RequestShape`, `TestOpenAIResponses_WebSearchTool`) in proof.md; exercises tool-call turn + final-text turn with `reasoning_effort` and no `temperature`.
+5. No silent deferrals or placeholder logic — no TODO/FIXME/deferred/placeholder added by the slice in production paths (pre-existing "checked later" comment unrelated).
+6. Claimed scope matches implemented scope — all "Delivered" items have evidence (test names, file paths); "Not delivered" items are Rule-2 deferrals with tracking + Coach ack.
+
+STATE: verified_implement_next
+SLICE: S39-openai-responses-provider
+NEXT: S63-subscription-cli-driver
+REASON: All six gates passed. S63-subscription-cli-driver is the next slice in track T5-providers.
+
