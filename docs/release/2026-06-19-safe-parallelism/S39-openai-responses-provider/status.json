@@ -1,8 +1,13 @@
 {
   "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
-  "slice_id": "S39-openai-responses-provider", "release": "2026-06-19-safe-parallelism",
-  "track": "T5-providers", "state": "design_review", "owner": "human",
-  "last_updated_by": "implementer", "last_updated_at": "2026-07-12T00:00:00Z", "start_commit": null,
+  "slice_id": "S39-openai-responses-provider",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T5-providers",
+  "state": "in_progress",
+  "owner": "human",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-12T00:00:00Z",
+  "start_commit": "930bc0ae069ebbae4244808c17dc482e5d3b5244",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S39-openai-responses-provider/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S39-openai-responses-provider/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S39-openai-responses-provider/journal.md",
@@ -15,9 +20,21 @@
     "internal/agent/tools.go",
     "internal/agent/tools_test.go"
   ],
-  "actual_files": [], "test_commands": ["go test ./internal/model/...", "go test ./internal/agent/...", "go build ./..."],
-  "reachability_artifacts": [], "open_deferrals": [],
-  "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []},
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/model/...",
+    "go test ./internal/agent/...",
+    "go build ./..."
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
   "design_decisions": [
     {
       "id": "D1",
