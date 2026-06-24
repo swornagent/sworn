@@ -50,14 +50,13 @@ network source provider.
 
 ## Planned touchpoints
 
-- `internal/baton/fetch.go` (new) — HTTPS tarball fetch + extract + SHA/digest verify
+- `internal/baton/fetch.go` (new) — HTTPS tarball fetch + extract + SHA/digest verify; exported `SetBaseURLForTest` / `ClearBaseURLForTest` for integration tests
 - `internal/baton/fetch_test.go` (new) — `httptest.Server` fixtures: success, digest/SHA
-  mismatch, 404/network-error, bad-gzip, prefix-strip
-- `internal/baton/source.go` — add the network source provider behind the existing resolver
-- `cmd/sworn/baton.go` — `--upstream` / `--tag` / `--repo` flags wiring
-- `internal/adopt/baton/VERSION` — record resolved commit SHA + digest beside the tag
-  (S49-owned format; sequential via dep on S49)
-
+  mismatch, 404/network-error, bad-gzip, prefix-strip, bootstrap
+- `internal/baton/version.go` — upstream pin read/write (`ReadUpstreamPin`, `WriteUpstreamPin`, `UpstreamPin` struct)
+- `internal/baton/version_stub.go` — exported test setters: `SetUpstreamPinForTest` / `ClearUpstreamPinForTest`
+- `cmd/sworn/baton.go` — `--upstream` / `--tag` / `--repo` flags wiring; `cmdBatonVendor` calls `FetchUpstream` + `Vendor` + `WriteUpstreamPin`
+- `cmd/sworn/baton_test.go` — command-level integration tests: `TestBatonVendorUpstream_Success`, `TestBatonVendorUpstream_DigestMismatch`, `TestBatonVendorUpstream_LocalBackCompat` (Rule 1 reachability through CLI entry point)
 ## Acceptance checks
 
 - [ ] With `--upstream`, `internal/baton` fetches `codeload.github.com/<owner>/<repo>/tar.gz/refs/tags/<tag>` via `net/http` and extracts via `compress/gzip` + `archive/tar`, stripping the `<repo>-<ref>/` prefix. Falsifiable: no `os/exec`/git invocation in the fetch path; `go.mod` `require` is unchanged (stdlib only). Verified by `fetch_test.go` against an `httptest.Server`.
@@ -74,7 +73,7 @@ network source provider.
 - **Unit**: `internal/baton/fetch_test.go` — `httptest.Server` serving a fixture tarball; SHA/digest match + mismatch; 404 / network-error / bad-gzip; prefix-strip; pinned-tag URL assertion.
 - **Integration**: `sworn baton vendor --upstream --repo <test> --tag <t>` driven end-to-end against an `httptest.Server` through `cmd/sworn/baton.go` (Rule 1 — through the command, not just the leaf fetch).
 - **Reachability artefact**: `proof.md` transcript — `sworn baton vendor --upstream` against a local `httptest` fixture (and, once `sawy3r/baton` is tagged, a real fetch of the pinned tag) showing fetch → verify → transform → write; plus a tampered-digest run failing closed with a non-zero exit and no file change.
-- **E2E gate type**: N/A (CLI; no Playwright).
+- **Gate type**: N/A (CLI only).
 
 ## Risks
 

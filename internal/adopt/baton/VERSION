@@ -1,4 +1,5 @@
-baton-protocol: cf158423f65c20860a3d4ec0310acb6cc7fb5aa0
+baton-protocol: v0.4.2
 upstream: github.com/sawy3r/baton
-vendored: 2026-06-15
-rules-added: 08-requirements-fidelity (2026-06-16-fidelity-layer S01), 09-design-fidelity (2026-06-16-fidelity-layer S07), 10-customer-journey-validation (2026-06-16-fidelity-layer S11)
+upstream-sha: 729f188f6f69f4b807c5974b33fd39ec98671f15
+vendored: 2026-07-09
+rules-added: 08-requirements-fidelity (2026-06-16-fidelity-layer S01), 09-design-fidelity (2026-06-16-fidelity-layer S07), 10-customer-journey-validation (2026-06-16-fidelity-layer S11), 11-process-global-mutation (2026-06-19-safe-parallelism), role-prompt-operational-gates (v0.4.1/v0.4.2 implementer/verifier canonical prompts)

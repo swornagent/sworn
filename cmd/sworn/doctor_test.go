@@ -6,8 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-)
 
+	"github.com/swornagent/sworn/internal/baton"
+)
 // runDoctorInDir runs cmdDoctor with the given args in the given directory,
 // capturing stdout+stderr. Returns exit code and combined output.
 func runDoctorInDir(t *testing.T, dir string, args ...string) (int, string) {
@@ -460,5 +461,42 @@ func TestDoctorCorruptPrompt(t *testing.T) {
 	}
 	if exitCode != 0 {
 		t.Errorf("expected exit 0, got %d", exitCode)
+	}
+}
+
+// TestDoctorReportsBatonTag verifies that doctor output includes "on Baton vX.Y.Z"
+// with a valid semver tag on the baton-protocol pin check.
+func TestDoctorReportsBatonTag(t *testing.T) {
+	dir, _ := os.Getwd()
+	dir = filepath.Dir(dir)
+
+	exitCode, output := runDoctorInDir(t, dir)
+	if exitCode != 0 {
+		t.Errorf("expected exit 0 for clean repo, got %d\nOutput:\n%s", exitCode, output)
+	}
+	if !strings.Contains(output, "on Baton v") {
+		t.Errorf("expected 'on Baton v' in doctor output\nOutput:\n%s", output)
+	}
+}
+
+// TestDoctorFailsOnShaPin verifies that doctor fails closed (non-zero exit,
+// [ERROR]) when the embedded baton-protocol pin is a SHA instead of a semver tag.
+func TestDoctorFailsOnShaPin(t *testing.T) {
+	// Inject a SHA into the baton version so the doctor check fails.
+	baton.SetVersionForTest("cf158423f65c20860a3d4ec0310acb6cc7fb5aa0")
+	defer baton.SetVersionForTest("") // Reset after test so other tests see the real version.
+
+	dir, _ := os.Getwd()
+	dir = filepath.Dir(dir)
+
+	exitCode, output := runDoctorInDir(t, dir)
+	if exitCode == 0 {
+		t.Errorf("expected non-zero exit for SHA pin, got 0\nOutput:\n%s", output)
+	}
+	if !strings.Contains(output, "[ERROR]") {
+		t.Errorf("expected [ERROR] in output for SHA pin\nOutput:\n%s", output)
+	}
+	if !strings.Contains(output, "baton/VERSION (baton-protocol)") {
+		t.Errorf("expected 'baton/VERSION (baton-protocol)' check in output\nOutput:\n%s", output)
 	}
 }

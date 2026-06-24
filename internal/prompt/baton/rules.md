@@ -1,4 +1,3 @@
-
 ---
 title: Rule 1 — Reachability Gate
 description: TDD's failing test must render through the integration point that owns the user-facing affordance, not the leaf component in isolation
@@ -78,7 +77,6 @@ For release-mode slices whose artefact is a screenshot, the canonical path, per-
 ## Provenance
 
 The v0.5.0 audit on the source project's monorepo (May 2026) found five primitives shipped as dark code, all with passing TDD-written unit tests: per-section Summary/Detail mode toggle (component prop existed, parent hardcoded the literal), `SectionStatusBadge` (built + tested, zero render sites), `FieldErrorIndicator` (built, no consumers), `useCheckoutFlow` (496 lines, 26 tests, no consumer), per-line `taxRate` Pro gate inside `InvoiceSection.Detailed` branch (Detail mode unreachable from UI). Each had been "done" at the leaf-component test level. None were reachable.
-
 
 ---
 title: Rule 2 — No Silent Deferrals
@@ -199,7 +197,6 @@ For each hit, ask: is this tracked, why, and was the user told?
 
 The source project v0.5.0 audit (May 2026) found 6 silent deferrals in `src/lib/validation/src/schemas/` header comments. User's reaction when surfaced: "I'm not sure why these were deferred, I don't remember making that call." The pattern was rationalisation, not decision. The fix (this rule) makes the rationalisation impossible by demanding the three conditions up front.
 
-
 ---
 title: Rule 3 — Capture Discipline
 description: Conversation context is the most ephemeral persistence layer; analysis and decisions must land in durable storage before session ends
@@ -278,7 +275,6 @@ Any subagent dispatch that produces a substantial findings doc must save its out
 ## Provenance
 
 The v0.5.0 source project audit produced two substantial subagent findings docs (dashboard IA dark-code audit + validation field-coverage parity audit) that initially lived only in conversation context. Recognition of this risk drove the creation of `docs/captures/2026-05-13-v1.0-audit-handoff.md` with the full audit reports preserved as appendices. The user's framing of the problem: "stuff only living within [conversation context]... ephemeral data... we lose too much, too often, and this is ultimately one of the causes of the churn I have been facing and re-work." This rule is the structural fix.
-
 
 ---
 title: Rule 4 — Commit Messages as Capture Layer
@@ -367,7 +363,6 @@ The strong version survives any future move of the plan doc. It also surfaces in
 ## Provenance
 
 The v0.5.0 source project audit found multiple "completed" plans whose decisions were captured in conversation but only thinly summarised in commits. Re-tracing rationale required reading the original plan doc — which by then had been edited multiple times. This rule prevents that loss: the commit message body is the immutable record of the decision at the moment the change landed.
-
 
 ---
 title: Rule 5 — Session Discipline
@@ -467,7 +462,6 @@ When you are about to hand work back to whoever just handed it to you, stop: eit
 ## Provenance
 
 The the source project AGENTS.md has had a Session Discipline section since well before this rule-set was codified. The v0.5.0 audit found that the *stated rule* (anchor to issues) had drifted from *lived practice* (substantial planning in `/docs/plans/` markdown files with no issue anchor). The rule below tightens the discipline by explicitly distinguishing issue-shaped state from doc-shaped reference material, and by treating session captures as mandatory rather than offer-only.
-
 
 ---
 title: Rule 6 — Proof Bundle
@@ -602,7 +596,6 @@ This rule emerged directly from the v0.5.0 release cycle at the source project (
 
 The rule is the minimal intervention: require the agent to read repo state and write the output to disk before making a completion claim. No new tooling, no new infrastructure — just a structured file that cannot be written without running the commands.
 
-
 ---
 title: Rule 7 — Adversarial Verification
 description: Completion claims must be verified by a fresh-context session loaded only with slice artefacts; the implementing reasoning thread is not allowed to certify its own work
@@ -695,7 +688,7 @@ State transitions:
 The minimum-cost loop that satisfies Rule 7:
 
 1. Implementer session works one vertical slice. Writes `spec.md`, `journal.md`, `proof.md`, updates `status.json` to `implemented`.
-2. Run `scripts/release-verify.sh <slice-id>` from a terminal. The script does deterministic first-pass: confirms `proof.md` exists, confirms `git diff` is non-empty, greps for dark-code markers, runs the test commands listed in `proof.md`. If the script fails, the slice never reaches the verifier — fix and re-run.
+2. Run `sworn verify <slice-id>` from a terminal. The script does deterministic first-pass: confirms `proof.md` exists, confirms `git diff` is non-empty, greps for dark-code markers, runs the test commands listed in `proof.md`. If the script fails, the slice never reaches the verifier — fix and re-run.
 3. Open a fresh agent session (new terminal, new window, no prior context). Paste `role-prompts/verifier.md`. Provide the slice id.
 4. The verifier reads only the artefacts and returns PASS / FAIL / BLOCKED.
 5. Implementer (in a separate session, or the same session after reading the verdict from disk) addresses any FAIL items, regenerates the proof bundle, and re-submits.
@@ -736,7 +729,6 @@ This rule was drafted in response to a Perplexity-assisted analysis of the sourc
 
 The fix — fresh-context verification with artefact-only inputs — was the single recommendation that survived multiple framings of the problem. It is the cheapest intervention with the largest effect: no new tools, no new infrastructure, just a discipline that the certifier must not share a context window with the implementer.
 
-
 ---
 title: Rule 8 — Requirements Fidelity
 description: The spec is not an axiom. Requirements are verified (quality), validated (sense-check), and traced (need -> AC -> test -> proof) so a need cannot drop silently between intake and spec.
@@ -746,265 +738,111 @@ description: The spec is not an axiom. Requirements are verified (quality), vali
 
 ## The rule
 
-**The spec is not an axiom.** Before a slice enters implementation, its
-requirements must be:
+**The spec is not an axiom.** Before a slice enters implementation, its requirements must be:
 
-1. **Verified** — each acceptance criterion is singular, unambiguous,
-   complete, consistent, feasible, and verifiable (ISO/IEC/IEEE 29148:2018
-   quality characteristics). A fresh-context gate checks this.
-2. **Validated** — the requirement makes sense and serves the need. A
-   human-owned scenario sense-check (positive AND negative) confirms the
-   spec answers the right question, not just a well-formed one.
-3. **Traced** — every need in the intake links to at least one acceptance
-   criterion, every acceptance criterion links to a need and at least one
-   test, and every slice links up the vertical golden thread (org objective
-   -> release benefit -> slice, or the lightweight floor: slice -> release
-   goal). The 2-D requirements traceability matrix (RTM) enforces this
-   fail-closed.
+1. **Verified** — each acceptance criterion is singular, unambiguous, complete, consistent, feasible, and verifiable (the ISO/IEC/IEEE 29148:2018 quality characteristics). A fresh-context gate checks this.
+2. **Validated** — the requirement makes sense and serves the need. A human-owned scenario sense-check (positive AND negative) confirms the spec answers the right question, not just a well-formed one.
+3. **Traced** — every need in the intake links to at least one acceptance criterion, every acceptance criterion links back to a need and forward to at least one test, and every slice links up a vertical golden thread (org objective → release benefit → slice, or the lightweight floor: slice → release goal).
 
-A need that drops silently between intake and spec is a requirements-fidelity
-defect. The RTM makes it visible and blocks the release.
+A need that drops silently between intake and spec is a requirements-fidelity defect. The traceability matrix makes it visible and blocks the release.
 
 ## Why
 
-Baton Rules 1/6/7 verify **delivery against the spec** rigorously. They treat
-the spec itself as an axiom — the spec is the contract, and the verifier
-checks the code against it. But the spec can be wrong, incomplete, or
-disconnected from what the user actually asked for. The front half of the
-fidelity chain — from intake need to spec acceptance criterion — is
-unverified by the delivery rules. A perfectly implemented, perfectly verified
-slice that answers the wrong question is a fidelity defect that no amount of
-delivery rigour will catch.
+Rules 1, 6, and 7 verify **delivery against the spec** rigorously. They treat the spec itself as an axiom — the spec is the contract, and the verifier checks the code against it. But the spec can be wrong, incomplete, or disconnected from what the user actually asked for. The front half of the fidelity chain — from intake need to spec acceptance criterion — is unverified by the delivery rules. A perfectly implemented, perfectly verified slice that answers the wrong question is a fidelity defect no amount of delivery rigour will catch.
 
-The gap is structural: the delivery rules are **downstream** of the spec.
-They cannot see upstream. Rule 8 closes the front half.
+The gap is structural: the delivery rules are **downstream** of the spec. They cannot see upstream. Rule 8 closes the front half.
+
+This is the same insight the README frames around requirements failure: decades of post-mortems converge on *poor requirements* — lost, drifted, met-technically-but-missed-the-intent — as the dominant cause of project failure. Rules 1–7 keep delivery honest; Rule 8 keeps the requirement itself honest before delivery begins.
 
 ## The 2-D requirements traceability matrix (RTM)
 
-The RTM is the enforcement mechanism. It has two axes:
+The RTM is the enforcement mechanism. It has two axes and threads through the existing artefacts — no separate datastore.
 
-### Horizontal: need -> acceptance criterion -> test -> proof
+### Horizontal: need → acceptance criterion → test → proof
 
 ```
-intake.md          spec.md              spec.md             proof.md
---------           --------              --------            --------
-N-01: need  --->   - [ ] AC cites N-01   Required tests  ->  test results
-                   - [ ] AC cites N-01                      reachability
+intake.md          spec.md               spec.md             proof.md
+--------           --------               --------            --------
+N-01: need  --->   - [ ] AC cites N-01    Required tests  ->  test results
+                   - [ ] AC cites N-01                        reachability
 ```
 
-- **Needs** are enumerated with stable ids (`N-01`, `N-02`, ...) in
-  `intake.md`. The planner assigns ids at planning time; they are never
-  reused.
-- **Acceptance criteria** in each `spec.md` cite the need id(s) they satisfy.
-  The citation is inline in the AC text (e.g. "WHEN ... THE SYSTEM SHALL ...
-  (N-01)").
+- **Needs** are enumerated with stable ids (`N-01`, `N-02`, …) in `intake.md`. The planner assigns ids at planning time; they are never reused.
+- **Acceptance criteria** in each `spec.md` cite the need id(s) they satisfy, inline in the AC text (e.g. "WHEN … THE SYSTEM SHALL … (N-01)").
 - **Required tests** in `spec.md` cite the acceptance check they exercise.
-- **Proof** in `proof.md` closes `AC -> test -> proof` (already enforced by
-  Rule 6).
+- **Proof** in `proof.md` closes `AC → test → proof` (already required by Rule 6).
 
-The RTM adds the front half: `need -> AC`. An orphaned need (no linked AC) or
-an orphaned AC (cites no need, or cites a need but has no test) is a broken
-trace.
+The RTM adds the front half: `need → AC`. An orphaned need (no linked AC) or an orphaned AC (cites no need, or cites a need but has no test) is a broken trace.
 
-### Vertical: org objective -> release benefit -> slice
+### Vertical: org objective → release benefit → slice
 
 ```
 org objective  --->  release benefit  --->  slice
-(optional)          (index.md)            (status.json)
+(optional)           (index.md)             (status.json)
 ```
 
-- **Org objective** is opt-in. A solo founder or small team may have no
-  declared objective — the vertical floor is `slice -> release goal`.
-- **Release benefit** is the value the release delivers, recorded in
-  `index.md`.
-- **Slice link** is the slice's contribution to the release benefit, recorded
-  in `status.json` (`release_benefit` field).
+- **Org objective** is opt-in. A solo founder or small team may have no declared objective — the vertical floor is `slice → release goal`.
+- **Release benefit** is the value the release delivers, recorded in `index.md`.
+- **Slice link** is the slice's contribution to the release benefit, recorded in `status.json`.
 
-The vertical trace is the golden thread: it carries line-of-sight from
-strategy (if declared) through release value to individual slices. For
-solo/small teams, the floor is lightweight: `slice -> release goal` satisfies
-the vertical trace without an org-objective link.
+The vertical trace is the golden thread: line-of-sight from strategy (if declared) through release value to individual slices. For solo/small teams the floor is lightweight: `slice → release goal` satisfies the vertical trace without an org-objective link.
 
 ## Enforcement
 
-`sworn lint trace <release>` builds the matrix from `intake.md` / `spec.md` /
-`status.json` / `index.md` alone — no separate datastore. It fails closed
-(exit non-zero) on:
+A deterministic, fail-closed traceability gate builds the matrix from `intake.md` / `spec.md` / `status.json` / `index.md` alone — no separate datastore. It exits non-zero on:
 
 - An orphaned need (need with no linked acceptance criterion).
-- An orphaned acceptance criterion (cites no need id, or cites a need but has
-  no linked test).
-- A slice with no vertical link (no release goal in intake and no release
-  benefit or org objective on the slice).
+- An orphaned acceptance criterion (cites no need id, or cites a need but has no linked test).
+- A slice with no vertical link (no release goal in intake and no release benefit or org objective on the slice).
 
-A fully-traced release prints the matrix and exits 0.
+A fully-traced release prints the matrix and exits 0. The source reference implementation is a `lint trace`-style command; adopters port the check to their own tooling, the same way Rule 7's `sworn verify` is ported.
 
-## Lightweight by default
-
-The RTM and the front-end gates must not over-proceduralise solo / small-team
-work. The design choices that keep it lightweight:
-
-- **Stable but simple need ids** — `N-01`, not a database. The planner
-  assigns them; they survive edits.
-- **Inline citation** — need ids are cited inline in AC text, not in a
-  separate mapping file. The RTM parses them from the spec.
-- **Vertical floor** — `slice -> release goal` is enough when no org
-  objective is declared. Enterprise depth is opt-in.
-- **No separate datastore** — the RTM threads through existing artefacts.
-
-## Relationship to existing rules
-
-| Rule | What it does | How Rule 8 complements it |
-|---|---|---|
-| Rule 1 — Reachability Gate | Tests exercise the integration point | Rule 8 ensures the integration point is the *right* one — traced to a need |
-| Rule 6 — Proof Bundle | Closes AC -> test -> proof | Rule 8 adds the front half: need -> AC. Together they form the full horizontal chain |
-| Rule 7 — Adversarial Verification | Fresh-context verification of delivery | Rule 8 verifies the spec itself, before delivery verification runs |
-
-## When this rule applies
-
-- Any release with an `intake.md` that declares needs. The RTM is the
-  enforcement; the planner constructs the trace as a by-product of planning.
-- The `planned -> in_progress` transition (Definition of Ready, Rule 8 +
-  S06) gates on the RTM passing.
-
-## When this rule does NOT apply
-
-- Spikes or exploratory work without a release intake.
-- A release with no declared needs (the RTM reports an empty matrix and
-  exits 0 — no needs means no traces to break).
-
-## Spec-quality metric — pre-code soundness + completeness
-
-Before a spec reaches verification or validation, `sworn specquality <release>`
-provides a deterministic, pre-code first-pass: soundness + completeness metrics
-computed from a slice's **acceptance examples** alone, with no source code and
-no model call.
-
-### Acceptance examples
-
-Every spec SHOULD include a `## Acceptance examples` section with one or more
-**input → expected-output** pairs per acceptance check. These are the data the
-metric operates on. Two formats are accepted:
-
-**Structured** (preferred for complex specs):
-```
-## Acceptance examples
-
-- name: "whole-ears-pass"
-  input: "a release where every AC matches an EARS pattern"
-  expected: "sworn lint ac exits 0 and prints per-pattern distribution"
-
-- name: "free-form-fail"
-  input: "a release with at least one free-form AC"
-  expected: "sworn lint ac exits 1 naming the slice and line"
-```
-
-**Shorthand** (for simple cases where input/expected is clear):
-```
-## Acceptance examples
-
-- valid ears release → exits 0
-- free-form ac present → exits 1
-```
-
-### Soundness
-
-For each example, `specquality` checks that the expected output is consistent
-with the acceptance criteria — the criteria must not reject a valid output.
-This is a limited deterministic check: it flags contradictions like "expects
-failure where criteria describe only a pass case" or "references commands not
-mentioned in the criteria."
-
-### Completeness (mutation analysis)
-
-For each example, `specquality` applies deterministic mutation operators to the
-expected output (flip exit codes, negate assertions, remove keywords, change
-case) and checks what fraction the criteria would reject. The completeness
-score is `caught / total`. Below the configurable threshold (default 50%),
-the gate fails closed.
-
-### Enforcement
-
-`sworn specquality <release> [--threshold <0.0-1.0>]` iterates every slice in
-a release, computes soundness + completeness from each slice's acceptance
-examples, and fails closed (exit non-zero) on:
-
-- **Missing examples** — a slice with no `## Acceptance examples` section
-- **Unsound example** — expected output contradicts the criteria
-- **Low completeness** — below the threshold (default 0.5 / 50%)
-
-A fully passing release prints per-slice scores and exits 0.
-
-### Relationship to verify and validate
-
-| Gate | What it checks | When | Owner | Tool |
-|---|---|---|---|---|
-| **Spec-quality** (S03) | Soundness + completeness of acceptance examples | Pre-code, pre-verification | Deterministic | `sworn specquality` |
-| **Verify** (S04) | Quality characteristics per 29148 | After spec-quality passes | Model (fresh context) | `sworn reqverify` |
-| **Validate** (S05) | Scenarios + benefit (sense-check) | After verify passes | Human | `sworn reqvalidate` |
-
-The three gates form a pipeline: spec-quality is the cheapest (deterministic,
-no model, no human), so it runs first. A spec with no acceptance examples or
-low completeness never reaches model-based verification.
-
-## Provenance
-Rule 8 was introduced in the `2026-06-16-fidelity-layer` release. It closes
-the "front half" fidelity gap identified during the v0.5.0 release cycle: the
-delivery rules (1/6/7) verify code against spec, but nothing verified the
-spec against the need. The RTM is the keystone — it threads through existing
-artefacts and enforces traceability fail-closed, so a need cannot drop
-silently between intake and spec.
 ## EARS notation — structured acceptance criteria
 
-The RTM enforces *traceability* (need -> AC -> test). EARS (Easy Approach to
-Requirements Syntax) enforces *structure* — each acceptance criterion is a
-single sentence with a fixed keyword shape, not free-form prose. Together
-they form the front-end fidelity gate: traced AND well-formed.
+The RTM enforces *traceability* (need → AC → test). EARS (Easy Approach to Requirements Syntax) enforces *structure* — each acceptance criterion is a single sentence with a fixed keyword shape, not free-form prose. Together they form the front-end fidelity gate: traced AND well-formed.
 
-`sworn lint ac <release>` classifies every acceptance check in every slice's
-`spec.md` by EARS pattern and fails closed on any free-form check that matches
-no pattern, naming the slice + the offending line. A release whose every AC is
-well-formed EARS passes and prints the per-pattern distribution.
-
-### The six EARS pattern classes
+A deterministic gate classifies every acceptance check in every slice's `spec.md` by EARS pattern and fails closed on any free-form check that matches no pattern, naming the slice and the offending line.
 
 | Class | Pattern | Example |
 |---|---|---|
 | Ubiquitous | `THE SYSTEM SHALL <action>` | `THE SYSTEM SHALL display the dashboard.` |
 | Event-driven | `WHEN <trigger> THE SYSTEM SHALL <action>` | `WHEN a user clicks save THE SYSTEM SHALL persist the form.` |
-| State-driven | `WHILE <state> THE SYSTEM SHALL <action>` | `WHILE the system is in maintenance mode THE SYSTEM SHALL show a banner.` |
+| State-driven | `WHILE <state> THE SYSTEM SHALL <action>` | `WHILE in maintenance mode THE SYSTEM SHALL show a banner.` |
 | Optional-feature | `WHERE <feature> THE SYSTEM SHALL <action>` | `WHERE a premium feature is enabled THE SYSTEM SHALL show the export button.` |
 | Unwanted-behaviour | `IF <condition> THEN THE SYSTEM SHALL <action>` | `IF the database is unreachable THEN THE SYSTEM SHALL return a 503 error.` |
 | Complex | Two or more preconditions combined | `WHEN a user clicks save WHILE the form is valid THE SYSTEM SHALL persist the form.` |
 
-### The NOTE: escape
+**The `NOTE:` escape.** A line prefixed with `NOTE:` is a deliberate non-requirement note and is excluded from validation — use it for context that is not a testable requirement (a design constraint, a cross-reference, a rationale). Without the escape such lines would fail the gate as free-form.
 
-A line prefixed with `NOTE:` is a deliberate non-requirement note and is
-excluded from validation. Use it for context that is not a testable
-requirement (e.g. a design constraint, a cross-reference, a rationale note).
-Without the escape, such lines would fail the gate as free-form.
+**Why EARS, not Gherkin.** Gherkin (Given-When-Then) was considered and rejected: EARS is lighter (one sentence per requirement, no scenario tables), is the de-facto notation for agent-authored requirements, and maps cleanly to the checkbox format already used in `spec.md`. The decision is recorded; adopters need not re-litigate it.
 
-### Why EARS, not Gherkin
+## Spec-quality metric — pre-code soundness + completeness
 
-Gherkin (Given-When-Then) was considered and rejected. EARS is lighter (one
-sentence per requirement, no scenario tables), is the de-facto notation for
-agent-authored requirements, and maps cleanly to the checkbox format already
-used in `spec.md` acceptance checks. The decision is recorded; do not
-re-litigate at implementation.
+Before a spec reaches verification or validation, a deterministic, pre-code first-pass computes soundness + completeness from a slice's **acceptance examples** alone — no source code, no model call.
+
+Every spec SHOULD carry a `## Acceptance examples` section with one or more **input → expected-output** pairs per acceptance check:
+
+```
+## Acceptance examples
+
+- name: "valid-ears-pass"
+  input: "a release where every AC matches an EARS pattern"
+  expected: "the AC lint exits 0 and prints the per-pattern distribution"
+- name: "free-form-fail"
+  input: "a release with at least one free-form AC"
+  expected: "the AC lint exits 1 naming the slice and line"
+```
+
+- **Soundness** — for each example, the expected output must be consistent with the acceptance criteria (the criteria must not reject a valid output). A limited deterministic check that flags contradictions like "expects failure where criteria describe only a pass case."
+- **Completeness (mutation analysis)** — deterministic mutation operators are applied to the expected output (flip exit codes, negate assertions, remove keywords) and the gate checks what fraction the criteria would reject. The score is `caught / total`; below the threshold (default 50%) the gate fails closed.
+
+Because it is the cheapest check (deterministic, no model, no human), spec-quality runs first. A spec with no acceptance examples or low completeness never reaches model-based verification.
 
 ## Validation — human-owned sense-check
 
-Validation answers "are we building the *right* requirements?" — does the spec
-make sense and serve the need (as distinct from verification's "are the
-requirements well-formed?"). This is the cheapest defect-catch point and is
-**human-owned**: the model drafts scenarios + a benefit hypothesis; the human
-ratifies. Spec validation has no oracle but the user, so this gate is never LLM
-self-certified.
+Validation answers "are we building the *right* requirements?" — does the spec make sense and serve the need (distinct from verification's "are the requirements well-formed?"). This is the cheapest defect-catch point and is **human-owned**: the model drafts scenarios + a benefit hypothesis; the human ratifies. Spec validation has no oracle but the user, so this gate is never model self-certified.
 
-### Validation record
-
-Every slice must carry a validation record in its `status.json` under the
-`validation` field (see `state.ValidationRecord`):
+Every slice carries a validation record in its `status.json`:
 
 | Field | Required | Description |
 |---|---|---|
@@ -1013,113 +851,78 @@ Every slice must carry a validation record in its `status.json` under the
 | `ratified_at` | Yes | When ratified (ISO 8601). |
 | `positive_scenarios` | Yes (≥1) | Scenarios where the requirement works as intended. |
 | `negative_scenarios` | Yes (≥1) | Edge + failure flows; what should *not* happen. |
-| `benefit_hypothesis` | Yes | This slice's benefit and its vertical link (slice -> release benefit -> objective). |
+| `benefit_hypothesis` | Yes | This slice's benefit and its vertical link (slice → release benefit → objective). |
 
-### Enforcement
+A deterministic gate fails closed on a missing record, model-only ratification, empty positive or negative scenarios, or a blank benefit hypothesis.
 
-`sworn reqvalidate <release>` reads every slice's `status.json` and fails
-closed on:
-
-- **Missing record** — no `validation` field at all
-- **Model-only** — `human_ratified` is false or absent
-- **Missing positive scenarios** — empty `positive_scenarios` array
-- **Missing negative scenarios** — empty `negative_scenarios` array
-- **Missing benefit hypothesis** — empty or blank `benefit_hypothesis`
-
-A fully-validated release exits 0 and prints the per-slice summary.
-
-### Relationship to verification
-
-| Gate | What it checks | Owner | Tool |
-|---|---|---|---|
-| **Verify** (S04) | Quality characteristics per 29148 (well-formedness) | Model (fresh context) | `sworn reqverify` |
-| **Validate** (S05) | Scenarios + benefit (sense-check) | Human | `sworn reqvalidate` |
-
-The two gates are complementary. A spec can be perfectly well-formed (pass
-reqverify) but answer the wrong question (fail reqvalidate), and vice versa.
-Both must pass before a slice enters implementation (Definition of Ready, S06).
 ## Definition of Ready
 
-The Definition of Ready (DoR) is the gate that every slice must pass before it
-can transition from `planned` to `in_progress`. It composes the three
-requirements-fidelity checks into a single fail-closed verdict:
+The Definition of Ready (DoR) is the gate every slice passes before it can transition from `planned` to `in_progress`. It composes the three checks into a single fail-closed verdict:
 
-1. **Traced** — the RTM verifies the slice has complete traceability: every need
-   links to an acceptance criterion, every acceptance criterion links to a need
-   and a test, and the slice has a vertical golden-thread link (slice → release
-   benefit → org objective or the lightweight floor: slice → release goal).
-2. **Verified** — every acceptance criterion passes the 29148 quality-
-   characteristic check (singular, unambiguous, complete, consistent, feasible,
-   verifiable, necessary) via a fresh-context model pass.
-3. **Validated** — the slice carries a human-ratified validation record with
-   positive + negative scenarios and a benefit/alignment hypothesis.
+1. **Traced** — the RTM verifies complete traceability (horizontal + vertical).
+2. **Verified** — every acceptance criterion passes the 29148 quality-characteristic check via a fresh-context model pass.
+3. **Validated** — the slice carries a human-ratified validation record.
 
-If any gate fails, the transition is blocked and the failing gate(s) are named.
-If any gate cannot be evaluated (e.g. the RTM cannot build due to a missing
-artefact, or no verifier model is configured), the transition is also blocked —
-fail closed. The slice remains `planned` until all three gates pass.
+If any gate fails, the transition is blocked and the failing gate(s) named. If any gate cannot be evaluated (missing artefact, no verifier model configured), the transition is also blocked — fail closed. There is no bypass: an explicit human re-plan is the only way to change a spec, never a silent skip.
 
-### Enforcement
+## Relationship to existing rules
 
-The DoR is enforced programmatically by `internal/implement.CheckDoR()`, which
-calls `rtm.Build()`, `reqverify.Run()`, and `reqvalidate.Run()` and filters
-their results to the target slice. The implementer session calls CheckDoR before
-any code is written; if it fails, the slice stays `planned` and the specific
-violations are surfaced.
+| Rule | What it does | How Rule 8 complements it |
+|---|---|---|
+| Rule 1 — Reachability Gate | Tests exercise the integration point | Rule 8 ensures the integration point is the *right* one — traced to a need |
+| Rule 2 — No Silent Deferrals | Surfaces drift explicitly | Rule 8 makes a dropped need a hard, detectable trace break |
+| Rule 6 — Proof Bundle | Closes AC → test → proof | Rule 8 adds the front half: need → AC. Together they form the full horizontal chain |
+| Rule 7 — Adversarial Verification | Fresh-context verification of delivery | Rule 8 verifies the spec itself, before delivery verification runs |
 
-### Bypass
+## When this rule applies
 
-There is no bypass for the DoR. An explicit human re-plan (/replan-release) is
-the only way to change a spec — never a silent Gate 0 skip. The
-`state.TransitionGate` API enforces this by requiring the gate callback to
-return nil before the transition proceeds.
+- Any release with an `intake.md` that declares needs. The RTM is the enforcement; the planner constructs the trace as a by-product of planning.
+- The `planned → in_progress` transition (Definition of Ready) gates on the RTM, verification, and validation all passing.
 
+## When this rule does NOT apply
+
+- Spikes or exploratory work without a release intake.
+- A release with no declared needs (the RTM reports an empty matrix and exits 0 — no needs means no traces to break).
+
+## Provenance
+
+Rule 8 was introduced in the `2026-06-16-fidelity-layer` cycle. It closes the "front half" fidelity gap surfaced during the v0.5.0 cycle: the delivery rules (1/6/7) verify code against spec, but nothing verified the spec against the need. The RTM is the keystone — it threads through existing artefacts and enforces traceability fail-closed, so a need cannot drop silently between intake and spec.
+
+---
+title: Rule 9 — Design Fidelity
+description: Meeting a requirement is not the same as the right solution for the whole. Design stays human-owned and AI-augmented, with the amount of human judgement calibrated to each choice's stakes (reversibility x blast-radius).
+---
 
 # Rule 9 — Design Fidelity
 
-**Meeting a requirement is not the same as the right solution for the whole.**
-Solution fit is a quality the delivery verifier (Rule 7) cannot see. This rule
-keeps design **human-owned**, AI-augmented, and calibrates how much human
-judgement each choice demands by its stakes.
+**Meeting a requirement is not the same as the right solution for the whole.** Solution fit is a quality the delivery verifier (Rule 7) cannot see — the verifier checks the diff against the spec, but the spec does not encode whether *this* design was the right one for the system. Rule 9 keeps design **human-owned**, AI-augmented, and calibrates how much human judgement each choice demands by its stakes.
 
-## Classification: stakes = reversibility x blast-radius
+## Classification: stakes = reversibility × blast-radius
 
 Every design choice has a **stakes class**:
 
 | Class | Reversibility | Blast radius | Decision requirement |
-|-------|--------------|--------------|---------------------|
+|---|---|---|---|
 | Type-1 | Hard to reverse | Wide / structural | Full human decision with options + rationale recorded |
-| Type-2 | Easy to reverse | Narrow / local | AI may proceed with noted default |
+| Type-2 | Easy to reverse | Narrow / local | AI may proceed with a noted default |
 
-**Architecturally-significant choices are always Type-1**, regardless of other
-factors. A choice that shapes the whole system, the data model, the deployment
-architecture, or an external contract is architecturally significant.
+**Architecturally-significant choices are always Type-1**, regardless of other factors. A choice that shapes the whole system, the data model, the deployment architecture, or an external contract is architecturally significant — and therefore Type-1 — even if it feels locally reversible.
 
-## Enforcement
-
-`sworn designfit <release>` is a deterministic, fail-closed gate that reads each
-slice's `design_decisions` from `status.json`. It checks:
-
-1. Every Type-1 choice has a non-empty `human_decision` field — otherwise
-   violates, naming the slice + choice.
-2. Every `architecturally_significant` choice is classified Type-1 — otherwise
-   violates, naming the slice + choice.
+The Type-1/Type-2 split is the well-known "one-way vs two-way door" heuristic applied per choice. Its purpose is to spend scarce human attention where it matters: forcing a human decision on every trivial reversible call drowns the genuinely consequential ones.
 
 ## Option surfacing
 
 When the planner reaches a design choice during planning:
 
 1. The planner drafts **at least two options** with trade-offs and prior art.
-2. For Type-1 choices, the human selects one and records the decision +
-   rationale in the slice's `status.json` `design_decisions` field.
+2. For Type-1 choices, the human selects one and records the decision + rationale in the slice's `status.json`.
 3. For Type-2 choices, the planner records a noted default and proceeds.
 
-The model may propose options, classify stakes, and surface trade-offs — but
-for a Type-1 choice, the model **may not record the human decision itself**.
+The model may propose options, classify stakes, and surface trade-offs — but for a Type-1 choice the model **may not record the human decision itself**. (This is the design-time analogue of Rule 7: the agent that proposes is not the authority that decides.)
 
 ## Record format
 
-Each design decision is recorded as an entry in `status.json`:
+Each design decision is an entry in `status.json`:
 
 ```json
 {
@@ -1136,23 +939,26 @@ Each design decision is recorded as an entry in `status.json`:
 }
 ```
 
-## Design-system input
+## Enforcement
 
-Design fidelity requires a declared source of truth. Every UI-bearing project
-must declare its design system in its sworn project config before design
-conformance can be audited (S09).
+A deterministic, fail-closed gate reads each slice's `design_decisions` and checks:
 
-The design system is a **three-tier concept**:
+1. Every Type-1 choice has a non-empty `human_decision` field — otherwise it violates, naming the slice + choice.
+2. Every `architecturally_significant` choice is classified Type-1 — otherwise it violates, naming the slice + choice.
 
-| Tier | Name | Role | Example |
-|------|------|------|---------|
-| Umbrella | **Design system** | The whole declared input — token source + component library | `design_system` in `config.json` |
-| Atoms | **Design tokens** | The named-value source of truth (colours, spacing, typography) | `tokens.json` (W3C DTCG), CSS custom properties, JS theme object |
-| Reusables | **Component library** | The coded, reusable UI components | `packages/ui/`, `src/components/` |
+This is the design-time counterpart to the delivery first-pass: cheap, deterministic, and run before model or human review time is spent.
 
-### Schema
+## Design-system input (UI-bearing projects)
 
-A project's `config.json` carries an optional `design_system` block:
+Design fidelity for a UI requires a declared source of truth. Every UI-bearing project declares its design system before design conformance can be audited. The design system is a three-tier concept:
+
+| Tier | Name | Role |
+|---|---|---|
+| Umbrella | **Design system** | The whole declared input — token source + component library |
+| Atoms | **Design tokens** | The named-value source of truth (colours, spacing, typography) |
+| Reusables | **Component library** | The coded, reusable UI components |
+
+A project config carries an optional declaration:
 
 ```json
 {
@@ -1164,306 +970,143 @@ A project's `config.json` carries an optional `design_system` block:
 }
 ```
 
-### Enforcement
-
-- `ui_bearing: true` with no `design_system` block = fail closed (design
-  conformance cannot proceed without a declared source of truth).
-- `ui_bearing: false` or absent = design system not applicable (CLI projects
-  and non-UI tools are exempt).
-- The format hint for tokens is not mandated here — S09's audit adapts to
-  the project's token format (DTCG JSON, CSS vars, JS themes).
-
-### Discovery
-
-`sworn init` prompts for the design system declaration when initialising a
-UI-bearing project. The `--ui-bearing` flag marks the project explicitly.
+- `ui_bearing: true` with no design-system declaration = fail closed (conformance cannot proceed without a source of truth).
+- `ui_bearing: false` or absent = not applicable. CLI projects and non-UI tools are exempt.
 
 ## Design-system conformance audit
 
-`sworn designaudit <project-dir>` runs a two-layer conformance audit:
+A two-layer conformance audit guards UI-bearing projects against design drift.
 
 ### Layer 1 — Deterministic first-pass (machine-check)
 
-Scans UI source files (`.css`, `.scss`, `.ts`, `.tsx`, `.js`, `.jsx`, `.vue`, `.svelte`)
-for three categories of design drift:
+Scans UI source files for three categories of drift:
 
 | Category | Pattern | Example violation |
-|----------|---------|------------------|
-| **Hardcoded colour** | `color: #ff0000` | Hex literal in CSS property — use `var(--color-primary)` |
-| **Off-scale spacing** | `margin: 17px` | Hard-coded `px`/`rem` value — use `var(--spacing-4)` |
-| **Recreated component** | `function Button()` in app code | Component defined outside the library when a library `Button` exists |
+|---|---|---|
+| **Hardcoded colour** | `color: #ff0000` | Hex literal in a CSS property — use `var(--color-primary)` |
+| **Off-scale spacing** | `margin: 17px` | Hard-coded value off the spacing scale — use `var(--spacing-4)` |
+| **Recreated component** | `function Button()` in app code | Component re-defined outside the library when a library `Button` exists |
 
-Each violation is reported with `file:line: [kind] message`.
-
-**Sanctioned exceptions:** append `/* sworn-design-allow */` to a line to suppress
-its violation and record a deliberate, human-approved deviation.
+Each violation reports `file:line: [kind] message`. A sanctioned exception marker (an inline allow-comment) suppresses a single line's violation and records a deliberate, human-approved deviation.
 
 ### Layer 2 — Human cohesion verdict (human-owned)
 
-The deterministic pass cannot assess whether the overall design **feels on-brand** —
-typography consistency, visual rhythm, spacing coherence. This judgement is human-owned.
+The deterministic pass cannot assess whether the overall design *feels on-brand* — typography consistency, visual rhythm, spacing coherence. That judgement is human-owned. The audit will **not** auto-pass cohesion; it requires a human-set `on-brand` / `off-brand` verdict to reach exit 0. A clean machine pass with no cohesion verdict stays blocked.
 
-Supply it with `--cohesion=on-brand|off-brand`. The system will NOT auto-pass the
-cohesion check; it requires a human-set value to reach exit 0.
+## Relationship to existing rules
 
-### Exit codes
+| Rule | What it does | How Rule 9 complements it |
+|---|---|---|
+| Rule 7 — Adversarial Verification | Verifies the diff against the spec | Rule 9 governs the choice the spec doesn't encode — *was this the right design* |
+| Rule 8 — Requirements Fidelity | Verifies the requirement is right | Rule 9 assumes the requirement is already validated and governs the solution's fit |
+| Rule 2 — No Silent Deferrals | Surfaces deferrals explicitly | Rule 9 makes an unrecorded Type-1 decision a hard, detectable gate failure |
 
-| Condition | Exit code |
-|-----------|-----------|
-| Machine violations found | 1 |
-| Clean pass, no cohesion verdict | 1 (blocked until human sets verdict) |
-| Clean pass + cohesion verdict recorded | 0 |
-| Project is not `ui_bearing` | 0 (exempt) |
-| Config error (no design system declared for UI-bearing project) | 2 |
+## When this rule applies
 
-### CI usage
+- Any slice that makes a design choice with structural reach or hard-to-reverse consequences.
+- Any UI-bearing project, for the design-system conformance audit.
 
-`bin/design-audit.sh <project-dir>` wraps `sworn designaudit` for first-pass CI use.
+## When this rule does NOT apply
 
-## Out of scope (sibling rules)
+- Purely local, easily-reversed implementation choices (Type-2) — a noted default is sufficient.
+- Non-UI projects, for the conformance-audit half (the stakes-classification half still applies).
 
-- Design-system declaration (tokens + component library) — S08.
-- Requirements validation (Rule 8) — design fit assumes the requirement is
-  already validated.
+## Provenance
+
+Rule 9 was introduced in the `2026-06-16-fidelity-layer` cycle alongside Rule 8. It closes the design half of the fidelity gap: Rule 8 ensures the requirement is right; Rule 9 ensures the solution chosen to meet it is right for the whole — a quality the delivery verifier structurally cannot assess from the diff.
 
 ---
 title: Rule 10 — Customer Journey Validation
-description: Critical customer journeys are a first-class platform artefact — AI-drafted, human-ratified, version-controlled, and fail-closed on absence or staleness. A journey is the unit of end-to-end evidence.
+description: Critical customer journeys are a first-class artefact — AI-drafted, human-ratified, version-controlled, fail-closed on absence or staleness. A journey is the unit of end-to-end evidence, and a journey walked over a mocked boundary proves nothing.
 ---
 
 # Rule 10 — Customer Journey Validation
 
 ## The rule
 
-**Critical customer journeys are a first-class platform artefact, not a per-release afterthought.** Before a release can ship, its customer journeys must be:
+**Critical customer journeys are a first-class artefact, not a per-release afterthought.** Before a release can ship, its customer journeys must be:
 
-1. **Elicited** — the model drafts candidate critical customer journeys from the app; no draft means no journeys gate.
-2. **Ratified** — a human reviews, edits, and ratifies the journeys; model-only journeys are unratified and fail the gate.
-3. **Durable** — journeys are persisted to a version-controlled artefact (`.sworn/journeys.json`) that survives session boundaries and is maintained release over release.
+1. **Elicited** — the model drafts candidate critical journeys from the app. No draft means no journeys gate.
+2. **Ratified** — a human reviews, edits, and ratifies the journeys. Model-only journeys are unratified and fail the gate.
+3. **Durable** — journeys are persisted to a version-controlled artefact that survives session boundaries and is maintained release over release.
 
-A journey is an ordered, end-to-end path a user type takes across the app to achieve an outcome. It is the unit of end-to-end evidence — if a release changes a user-visible surface, the journey that crosses that surface must be updated.
+A journey is an ordered, end-to-end path a user type takes across the app to achieve an outcome. It is the unit of end-to-end evidence: if a release changes a user-visible surface, the journey that crosses that surface must be updated.
 
 ## Why
 
-Baton Rules 1/6/7 verify **delivery against the spec** within a single slice. The s
+Rules 1, 6, and 7 verify **delivery against the spec** within a single slice. A slice spec scopes one slice, one outcome. A critical customer journey crosses many slices — it is the full path a user takes. If release work changes a surface a journey crosses, the journey (not just the slice) must be re-verified.
 
-pec scopes one slice, one outcome. A critical customer journey crosses many slices — it is the full path a user takes. If release work changes a surface that a journey crosses, the journey (not just the slice) must be re-verified.
-
-Journey validation exists at a different level of abstraction from slice verification:
+Journey validation sits at a different level of abstraction from slice verification:
 
 | Artefact | Scope | Owned by | Gate |
 |---|---|---|---|
 | Slice spec | One slice, one user-reachable outcome | Planner + Verifier | Rule 7 (adversarial verification) |
 | Journey | End-to-end user path across many slices | Human + Model | Rule 10 (elicitation + ratification) |
 
-A slice that passes Rule 7 but leaves a journey stale is an integration defect that no per-slice gate catches. Journey validation closes that gap.
+A slice that passes Rule 7 but leaves a journey stale is an integration defect no per-slice gate catches. Journey validation closes that gap: Rule 7 verifies the parts; Rule 10 verifies the assembled whole.
 
 ## The journey artefact
 
-The journeys artefact lives at `<project-root>/.sworn/journeys.json`. It is a JSON document containing:
+The journeys artefact is a version-controlled JSON document at a stable project path. It contains:
 
 - **Version** — schema version for forward compatibility.
-- **Journeys** — the list of critical customer journeys, each with:
-  - **id** (e.g. `J01-onboard-new-user`)
-  - **user_type** (e.g. `free_user`, `pro_user`, `admin`)
-  - **outcome** — what the user achieves
-  - **steps** — ordered sequence of actions
-  - **entry_surface** — where the journey begins
-- **Ratification metadata** — `is_ratified`, `ratified_by`, `ratified_at`
-
-Provisional: the exact schema is refined by the live journey-validation hand-run (field-level detail appended via `/replan-release`; verified work stays immutable).
+- **Journeys** — the list of critical journeys, each with an **id** (e.g. `J01-onboard-new-user`), a **user_type** (e.g. `free_user`, `pro_user`, `admin`), an **outcome** (what the user achieves), ordered **steps**, and an **entry_surface** (where the journey begins).
+- **Ratification metadata** — `is_ratified`, `ratified_by`, `ratified_at`.
 
 ## Enforcement
 
-`sworn journeys --check <project>` is a deterministic, fail-closed gate that reads `.sworn/journeys.json` and returns:
+A deterministic, fail-closed gate reads the journeys artefact and returns:
 
-- **Exit 0** — artefact exists and is human-ratified. The journeys are listed.
-- **Exit 1** — artefact is missing (elicitation has not been run) or exists but is unratified.
+- **Exit 0** — artefact exists and is human-ratified; the journeys are listed.
+- **Exit 1** — artefact is missing (elicitation not run) or exists but is unratified.
 - **Exit 2** — unrecoverable error (parse failure, I/O error).
 
-The gate is additive — it does not replace any existing gate. It runs alongside per-slice verification (Rule 7), not instead of it.
+The gate is additive — it runs alongside per-slice verification (Rule 7), after all slices are verified but before the release merges. It does not replace any existing gate.
+
+## No-mock boundary — the enforcement that makes a journey count
+
+Journey validation exists to prove the **assembled system actually works end-to-end**. A journey walked over a *mocked* boundary proves nothing — the mock answers however the test author wired it to, not however the real system would. So the no-mock boundary is **constitutive of Rule 10, not a detachable add-on**: it is the enforcement that makes a walked journey count as proof.
+
+The artefact and the gate are not two rules that happen to compose — they are one rule's two faces. The journey says *what* end-to-end path must work; the no-mock gate guarantees the walk that proves it didn't cheat at the boundary. A journey whose boundary is mocked is a journey that has not been validated at all, regardless of a green test.
+
+**The validated boundaries** are: database (DB), authentication (auth), and entitlement (premium/subscription tier) — the integration points where a mock most easily hides a journey that doesn't really work.
+
+**The constraint.** On an environment wall — when real infrastructure at a validated boundary cannot be reached — the implementer must **stop and surface the blocker**, never mock around it. A mock/stub/fake at a validated boundary is permitted only if it is a declared deferral with all three Rule 2 elements (why + tracking + acknowledgement). An *undeclared* boundary mock is an undeclared silent deferral and fails the gate closed.
+
+This reads as a Rule 2 concern too — an undeclared mock is a species of silent deferral — but its home is Rule 10, because the specific failure it prevents is *a journey that lies about working*.
+
+**Detection (deterministic first-pass).** A diff-scanning check flags lines that combine a mock/stub/fake marker (`mock`, `fake`, `stub`, …) with a validated-boundary keyword (`sql.DB`, `auth`, `premium`, …). If the flagged mock matches an open declared deferral, it is surfaced as a known deferral; otherwise it is an undeclared boundary mock and the gate exits non-zero, naming the offending mock and boundary.
+
+**When the no-mock gate applies:** every slice whose diff introduces, uses, or constructs a mock/stub/fake at a validated boundary. **When it does not:** pure unit-test mocks that touch no validated boundary (a mock calculator, a mock string formatter), and the human walkthrough itself, where mocks are fully off and real journeys run against real infra.
 
 ## Workflow
 
-1. A maintainer runs `sworn journeys <project>`.
+1. A maintainer runs journey elicitation against the project.
 2. The model drafts candidate journeys from the project structure.
-3. The human reviews, edits, and ratifies the artefact (sets `is_ratified=true`,
-   `ratified_by`, `ratified_at`).
-4. `sworn journeys --check <project>` passes.
-5. The journeys artefact is committed to version control and maintained as the project evolves.
+3. The human reviews, edits, and ratifies the artefact (`is_ratified=true`, `ratified_by`, `ratified_at`).
+4. The journeys gate passes; the artefact is committed and maintained as the project evolves.
+5. At release cutover, the journeys that the release touches are re-walked against real boundaries (no-mock), and the walkthrough is human-attested before ship.
+
+## Relationship to existing rules
+
+| Rule | What it does | How Rule 10 complements it |
+|---|---|---|
+| Rule 1 — Reachability Gate | Tests exercise the integration point | Rule 10 ensures the integration point's journey is documented and re-walked |
+| Rule 2 — No Silent Deferrals | Surfaces deferrals explicitly | An undeclared boundary mock is a silent deferral caught by Rule 10's no-mock gate |
+| Rule 6 — Proof Bundle | Closes AC → test → proof per slice | Rule 10 adds cross-slice journey evidence |
+| Rule 7 — Adversarial Verification | Fresh-context verification of one slice | Rule 10 verifies the end-to-end paths that span slices |
+| Rule 8 — Requirements Fidelity | Need → AC → test → proof horizontal trace | Rule 10 adds the vertical journey trace across the release |
 
 ## When this rule applies
 
 - Any release that changes a user-visible surface (UI, API, CLI command, form, route).
-- Pre-release cutover checks — the journeys gate runs after all slices are verified but before the release merges.
+- Pre-release cutover — the journeys gate runs after all slices are verified but before the release merges.
 
 ## When this rule does NOT apply
 
 - Infrastructure-only releases with no user-visible change.
 - A release with no ratifiable journeys (the tooling produces a minimal set; the human may ratify that minimal set).
 
-## Relationship to existing rules
-
-| Rule | What it does | How Rule 10 complements it |
-|---|---|---|
-| Rule 1 — Reachability Gate | Tests exercise the integration point | Rule 10 ensures the integration point's journey is documented |
-| Rule 6 — Proof Bundle | Closes AC -> test -> proof per slice | Rule 10 adds cross-slice journey evidence |
-| Rule 7 — Adversarial Verification | Fresh-context verification of one slice | Rule 10 verifies the end-to-end paths that span slices |
-| Rule 8 — Requirements Fidelity | Need -> AC -> test -> proof horizontal trace | Rule 10 adds the vertical journey trace across the release |
-
-
-## No-mock boundary (S10 enforcement)
-
-Journey validation exists to prove the *assembled system actually works end-to-end*. A journey walked over a mocked boundary proves nothing — the mock answers however the test author wired it to, not however the real system would. So the no-mock boundary is **constitutive of Rule 10, not a detachable add-on**: it is the enforcement that makes a walked journey count as proof. (It also reads as a Rule-2 concern — an undeclared mock is a silent deferral — but its home is here, because the failure it prevents is a journey that lies about working.)
-
-**An undeclared mock at a validated boundary is an undeclared Rule-2 deferral and fails closed.** The validated boundaries are: database (DB), authentication (auth), and entitlement (premium/subscription tier). A mock/stub/fake at one of these boundaries is permitted only if declared as a Rule-2 deferral in the slice's `status.json` `open_deferrals` with all three elements (why + tracking + acknowledgement).
-
-### Detection
-
-The `sworn verify` first-pass gate (`internal/verify.CheckBoundaryMocks`) scans the slice's diff for lines that combine:
-1. A mock/stub/fake marker (`mock`, `fake`, `stub`, etc.)
-2. A validated-boundary keyword (`sql.DB`, `auth`, `premium`, etc.)
-
-Lines matching both patterns are flagged. If the mock's boundary + type matches any open deferral (case-insensitive substring match on boundary name + mock/fake/stub keyword), it is treated as declared and surfaced as a known deferral. Otherwise it is an undeclared boundary mock — the gate exits non-zero (FAIL) and names the offending mock + boundary.
-
-### Implementer guidance
-
-An implementer that cannot reach real infrastructure at a validated boundary must **stop and surface the blocker** (record a blocked-on-environment state) rather than mock around it. The implementer role prompt (`internal/prompt/implementer.md`) instructs this under "Hard constraints" — the stop-don't-mock principle is a binding constraint, not advisory.
-
-### Relationship to journey validation
-
-A journey that crosses a validated boundary (every journey touches the DB; most touch auth) must run that crossing against real infra, or declare the mock as a deferral, for the verification gate to pass. The artefact (the journey) and the gate (no-mock) are not two rules that happen to compose — they are one rule's two faces: the journey says *what* end-to-end path must work; the no-mock gate guarantees the walk that proves it didn't cheat at the boundary. A journey whose boundary is mocked is a journey that hasn't been validated at all, regardless of a green test.
-
-### When this applies
-
-- Every slice whose diff introduces, uses, or constructs a mock/stub/fake at a validated boundary.
-- Every implementer session that operates the S10 implementer prompt.
-
-### When this does NOT apply
-
-- Pure unit test mocks that do not touch a validated boundary (e.g. a mock calculator, a mock string formatter). These are internal to the unit and are not flagged.
-- The human walkthrough (S13), where mocks are fully off and real journeys run against real infra — that slice is out of scope for S10.
-
-
-## Impact analysis (S12)
-
-**Per-release journey-impact analysis ties Rule 10 into the release workflow.** For a given release, `sworn journeys --impact <release>` computes which critical journeys the release touches, derived from the release's slice planned/actual files and the journeys' step surfaces. The output is the release's validation scope: the set of journeys that must be walked and re-tested before cutover.
-
-### Algorithm
-
-1. **Load the journeys artefact** from `.sworn/journeys.json` — fail-closed if missing or unratified.
-2. **Collect slice touchpoints** — scan `docs/release/<release>/S*/status.json` for each slice's `planned_files` and `actual_files` (the files the release changes).
-3. **Heuristic surface matching** — for each journey, its `entry_surface` and each step's `surface` are matched against the collected touchpoint files:
-   - Level 1: direct substring match (normalised to lowercase).
-   - Level 2: token-level match (alphanumeric tokens from both file path and surface).
-   - Level 3: conventional mapping (surface "CLI" maps to files under `cmd/`).
-4. **Output the touched set** — a journey is in-scope if any of its surfaces match any touchpoint file. The heuristic is biased toward over-inclusion (a journey is touched if any step's surface is touched), so the walkthrough scope errs safe.
-
-### Fail-closed on missing artefact
-
-If no ratified journeys artefact exists at `.sworn/journeys.json`, impact analysis cannot run and directs the user to run elicitation (S11) first. An unratified artefact also fails — ratification is required before impact analysis.
-
-### Empty touched set
-
-A release that touches no journeys (e.g. an internal-only refactor with touchpoints that no journey surface matches) reports an empty touched-set explicitly rather than failing. This allows infrastructure-only releases to pass the gate.
-
-### CLI
-
-```
-sworn journeys --impact <release> [project-path]
-```
-
-Exit codes:
-- **0** — success; the touched-journey set is reported (may be empty).
-- **1** — journeys artefact missing or unratified.
-- **2** — unrecoverable error (I/O or parse failure).
-
-The impact result is consumed by S13 (walkthrough attestation) and S14 (journey regression suite) to determine the release's validation scope.
-
-
-## Walkthrough attestation (S13)
-
-**A release cannot ship unless every touched journey carries a human-walkthrough attestation.** The human who walks the journey is the acceptance authority: the model (software) may load/save attestation records but cannot author the human attestation's attested-by field.
-
-### Attestation record
-
-Each walkthrough attestation records:
-
-- **journey_id** — the journey this attestation covers (e.g. `J01-verify-flow`)
-- **walked_by** — the human who walked this journey (mandatory; model cannot set)
-- **walked_at** — ISO 8601 timestamp when the walkthrough was performed
-- **real_infra** — boolean assertion that the walkthrough used real infrastructure
-- **mocks_off** — boolean assertion that no mocks/stubs were present at validated boundaries
-- **passed** — whether the walkthrough passed or failed
-- **notes** — free-form observations (optional)
-
-### Storage
-
-Attestations are stored per-release at `<project-root>/.sworn/attestations/<release-name>.json`. A human edits this file to record walkthroughs. The file is version-controlled alongside the journeys artefact.
-
-### Ship gate
-
-`sworn ship <release>` is a deterministic, fail-closed gate that checks:
-
-1. The journeys artefact exists and is human-ratified.
-2. The release's validation scope (touched journeys, computed by S12 impact analysis).
-3. Every touched journey has an attestation with all required fields.
-
-The gate exits:
-- **0** — all touched journeys have complete, passing human attestations; the release may proceed to cutover.
-- **1** — one or more journeys are un-walked, incomplete, or have failed attestations; each is named in the kill-list.
-- **2** — unrecoverable error (I/O or parse failure).
-
-### Fail-closed semantics
-
-The ship gate is fail-closed:
-- A journey with **no attestation** blocks cutover (un-walked).
-- A journey whose attestation is **missing the human-walked-by field** blocks cutover (model cannot author attestations).
-- A journey whose attestation **lacks real_infra or mocks_off** blocks cutover.
-- A journey whose attestation records a **failed walkthrough** blocks cutover.
-- Only a complete, passing attestation for every touched journey allows cutover.
-
-### Relationship to S14
-
-The walkthrough attestation is deliberately manual (S13). S14 (journey regression suite) is the maturity path that shrinks the manual set over time — as journeys are codified into automated regression tests, fewer require human walkthrough at cutover. The attestation record is designed so a journey can transition from manual-walkthrough-required to regression-covered without schema changes.
-
-
-
-## Regression codification (S14)
-
-**Every walked-pass journey should eventually have an automated regression test.** S14 introduces the `sworn journeys --regen <release>` command that codifies journey steps into structured test scaffolds.
-
-### Codification algorithm
-
-1. **Load** the ratified journeys artefact and attestations from `.sworn/`.
-2. **Collect** journeys with a `walked-pass` attestation status.
-3. **Filter** — journeys already marked `has_regression: true` or whose `regression_test_path` points to a file that exists on disk are skipped (accretive).
-4. **Generate** a Go test scaffold for each un-covered walked journey:
-   - File name: `journey_<sanitised-id>_test.go`
-   - Package: `journey_test`
-   - One test function per journey containing the journey's steps as structured comments and a `t.Skip` marker.
-5. **Mark** the journey's `has_regression: true` and set `regression_test_path` in the artefact.
-6. **Save** the updated artefact.
-
-### Coverage check
-
-`sworn journeys --regen <release>` performs a coverage check before codification. If any coverage gaps existed at run start (walked-pass journey without a committed regression test), the command exits non-zero (FAIL) even if those gaps are filled during the same run. This fail-closed signal forces the release to either:
-- Commit the scaffolds and re-run `--regen` (no pre-codification gaps → exit 0), or
-- Explicitly acknowledge the gap as a Rule 2 deferral.
-### Accretive, not regenerated
-
-Previously-codified journeys are never re-generated. The scaffold file existence + `has_regression` flag together define "covered." An existing file is not overwritten, and a journey with `has_regression: true` is not re-processed. This ensures the regression suite is additive across releases — last release's walked journeys are this release's automated coverage.
-
-### Default output path
-
-Scaffolds are written to `<project-root>/tests/e2e/journeys/` by default. This path is configurable via an `outputDir` parameter (planned enhancement).
-
-### Relationship to S13 (walkthrough attestation)
-
-The ship gate (S13) currently requires human walkthrough attestations for every touched journey. A journey with `has_regression: true` is still subject to the ship gate — regression coverage does NOT replace the walkthrough. Over future releases, the ship gate may relax requirements for regression-covered journeys (e.g., re-walk only changed surfaces), but that is out of scope for v1 of S14.
-
-
 ## Provenance
 
-Rule 10 was introduced in the `2026-06-16-fidelity-layer` release. It closes the cross-slice integration-evidence gap: per-slice verification (Rules 1/6/7) catches within-slice defects, but no artefact captures the end-to-end user path. Journey validation fills that gap with a lightweight, version-controlled artefact that survives release boundaries.
-
+Rule 10 was introduced in the `2026-06-16-fidelity-layer` cycle. It closes the integration gap above per-slice verification: a release of individually-verified slices can still leave a cross-slice user path broken or stale. The no-mock boundary is folded in as Rule 10's enforcement teeth — the recognition that an end-to-end journey only counts as evidence if it ran against real boundaries, not mocks.

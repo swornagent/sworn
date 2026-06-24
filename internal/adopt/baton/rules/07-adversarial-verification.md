@@ -90,7 +90,7 @@ State transitions:
 The minimum-cost loop that satisfies Rule 7:
 
 1. Implementer session works one vertical slice. Writes `spec.md`, `journal.md`, `proof.md`, updates `status.json` to `implemented`.
-2. Run `scripts/release-verify.sh <slice-id>` from a terminal. The script does deterministic first-pass: confirms `proof.md` exists, confirms `git diff` is non-empty, greps for dark-code markers, runs the test commands listed in `proof.md`. If the script fails, the slice never reaches the verifier — fix and re-run.
+2. Run `sworn verify <slice-id>` from a terminal. The script does deterministic first-pass: confirms `proof.md` exists, confirms `git diff` is non-empty, greps for dark-code markers, runs the test commands listed in `proof.md`. If the script fails, the slice never reaches the verifier — fix and re-run.
 3. Open a fresh agent session (new terminal, new window, no prior context). Paste `role-prompts/verifier.md`. Provide the slice id.
 4. The verifier reads only the artefacts and returns PASS / FAIL / BLOCKED.
 5. Implementer (in a separate session, or the same session after reading the verdict from disk) addresses any FAIL items, regenerates the proof bundle, and re-submits.
