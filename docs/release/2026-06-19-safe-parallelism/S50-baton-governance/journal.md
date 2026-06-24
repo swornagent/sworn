@@ -50,3 +50,9 @@ skeptic_panel: skipped — runtime does not support subagent dispatch (no Agent/
 
 ### First-pass verification
 release-verify.sh: 22/22 PASS. start_commit=94a1223, 8 files changed. No dark-code markers. All proof bundle sections present.
+
+## Verifier verdicts received
+
+**2026-07-08T12:00:00Z** — FAIL: 1
+
+1. Proof bundle inaccurately claims "All five planned files touched" and "Divergence from plan: None" (see proof.md "Divergence from plan" and "Delivered" sections). The planned touchpoint `docs/adr/0006-baton-protocol-sync.md` was not edited (confirm/finalise required no change per spec), and `cmd/sworn/baton_test.go` was added (not listed in planned touchpoints). The proof must accurately report scope against the spec's "Planned touchpoints" and "Divergence from plan" section must be present and truthful. (Gate 2 + Gate 6)

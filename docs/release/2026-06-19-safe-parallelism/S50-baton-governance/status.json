@@ -77,10 +77,11 @@
       "acknowledgement": "Coach, 2026-07-07"
     }
   ],  "verification": {
-    "result": "",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
-  }
-}
+    "result": "fail",
+    "verifier_session_id": "fresh-verifier-2026-07-08",
+    "verifier_verdict_at": "2026-07-08T12:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "1. Proof bundle inaccurately claims \"All five planned files touched\" and \"Divergence from plan: None\" (see proof.md \"Divergence from plan\" and \"Delivered\" sections). The planned touchpoint `docs/adr/0006-baton-protocol-sync.md` was not edited (confirm/finalise required no change per spec), and `cmd/sworn/baton_test.go` was added (not listed in planned touchpoints). The proof must accurately report scope against the spec's \"Planned touchpoints\" and \"Divergence from plan\" section must be present and truthful. (Gate 2 + Gate 6)"
+    ]
+  }}
