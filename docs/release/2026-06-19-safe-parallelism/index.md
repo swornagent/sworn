@@ -478,7 +478,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S39-openai-responses-provider` | T5 | first-class OpenAI provider via /v1/responses (reasoning_effort + tool-calls + built-in web_search) + a cross-provider WebSearch/WebFetch agent tool — fixes gpt-5.x support + 'more than 6 tools' | planned | [spec](./S39-openai-responses-provider/spec.md) |
 | `S48-baton-vendor` | T14 | `sworn baton vendor` — semver-pinned vendor of upstream Baton + bash→sworn transform over rules AND role-prompts (strips `release-verify.sh`/`release-board-status.sh`/`captain-memory-search.py`… → sworn-native commands); reproduces the sworn-native embed (subsumes the one-time scrub) | failed_verification | [spec](./S48-baton-vendor/spec.md) |
 | `S49-baton-version` | T14 | reconcile the Baton pin from a raw SHA to a **semver tag** across `VERSION`+`VERSION.txt`; `sworn version` reports "on Baton vX.Y.Z"; `sworn doctor` fails the pin if it's a SHA not a tag | verified | [spec](./S49-baton-version/spec.md) |
-| `S50-baton-governance` | T14 | `sworn baton diff` divergence check (embed vs upstream pin) + `docs/baton-governance.md` PR-up process note + ADR-0006; protocol changes found in sworn dev must PR upstream, never silently fork | verified | [spec](./S50-baton-governance/spec.md) || `S62-baton-upstream-source` | T14 | `sworn baton vendor --upstream` fetches the version-locked Baton release from `github.com/sawy3r/baton` over stdlib HTTPS (codeload tar.gz), verified by tag + commit-SHA/digest, fail-closed — embed source-of-truth is the public repo at a pinned version, not a local install (issue #11) | failed_verification | [spec](./S62-baton-upstream-source/spec.md) || `S51-cli-command-registry` | T15 | command registry replaces the `cmd/sworn/main.go` dispatch switch; new subcommands self-register from their own file; `main.go` owned by one track — ends the recurring touchpoint collision | verified | [spec](./S51-cli-command-registry/spec.md) |
+| `S50-baton-governance` | T14 | `sworn baton diff` divergence check (embed vs upstream pin) + `docs/baton-governance.md` PR-up process note + ADR-0006; protocol changes found in sworn dev must PR upstream, never silently fork | verified | [spec](./S50-baton-governance/spec.md) || `S62-baton-upstream-source` | T14 | `sworn baton vendor --upstream` fetches the version-locked Baton release from `github.com/sawy3r/baton` over stdlib HTTPS (codeload tar.gz), verified by tag + commit-SHA/digest, fail-closed — embed source-of-truth is the public repo at a pinned version, not a local install (issue #11) | verified | [spec](./S62-baton-upstream-source/spec.md) || `S51-cli-command-registry` | T15 | command registry replaces the `cmd/sworn/main.go` dispatch switch; new subcommands self-register from their own file; `main.go` owned by one track — ends the recurring touchpoint collision | verified | [spec](./S51-cli-command-registry/spec.md) |
 | `S52-ledger-projection` | T16 | Projects every slice's verdict into an append-only `docs/ledger/verdicts.jsonl`; captures implementer model + attempt; backfills the whole board on first sync | planned | [spec](./S52-ledger-projection/spec.md) |
 | `S53-ledger-cli` | T16 | `sworn ledger sync` harvests the board; `sworn ledger report` shows pass-rate by model × slice-kind, attempts-to-pass, gate-failure histogram | planned | [spec](./S53-ledger-cli/spec.md) |
 | `S54-ledger-routing` | T16 | `sworn ledger recommend <kind>` + S09's `ResolveImplementerModel` defaults to the highest measured pass-rate model for the slice kind (flag/env still win; thin corpus = unchanged) | planned | [spec](./S54-ledger-routing/spec.md) |
@@ -496,8 +496,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > T18-cli-polish additions (now **18 tracks, 68 slices**) and is not reconciled per-replan. Counts
 > below are a historical snapshot only. The board is actively moving under the coach loop — run the
 > oracle. Live oracle at 2026-06-23 (pre-S62-commit): verified 42 / planned 22 / in_progress 1 /
-> implemented 2; tracks merged 8 / in_progress 4 / planned 5. +S62-baton-upstream-source (planned,
-> T14) → 68 slices / planned 23. S48-baton-vendor unblocked to implemented after the corrupt-vendor
+> implemented 1; tracks merged 8 / in_progress 4 / planned 5. +S62-baton-upstream-source (verified,> T14) → 68 slices / planned 23. S48-baton-vendor unblocked to implemented after the corrupt-vendor
 > revert; T12-harness-hardening merged to release-wt (dd3b622) though the oracle read may lag; T18
 > worktree materialised (in_progress).
 >
@@ -521,8 +520,20 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 
 ## Recent activity
 
-### 2026-06-24 — slice `S49-baton-version` → verified (PASS)
+### 2026-06-24 — slice `S62-baton-upstream-source` → verified (PASS)
 
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs)
+- **Verdict**: PASS — all six gates satisfied.
+  - Gate 1: `sworn baton vendor --upstream` wired in `cmd/sworn/baton.go`, exercises full pipeline through CLI entry point (Rule 1).
+  - Gate 2: Planned touchpoints match actual (spec.md reconciled in round 2; `fetch.go` + `version.go` + command tests).
+  - Gate 3: Required tests exist and exercise the integration point: `fetch_test.go` + command-level `TestBatonVendorUpstream_*` in `cmd/sworn/baton_test.go`; re-run pass.
+  - Gate 4: Reachability artefact: `TestBatonVendorUpstream_Success`, `TestBatonVendorUpstream_NoTagUsesPinned`, `TestBatonVendorUpstream_DigestMismatch`, `TestBatonVendorUpstream_LocalBackCompat`.
+  - Gate 5: No TODO/FIXME/deferred/placeholder in changed `.go` files.
+  - Gate 6: Delivered list matches ACs; evidence (files, tests, outputs) verified live.
+- **State**: S62 → verified. T14-baton-integration: S48/S49/S50/S62 verified; track complete.
+- **Next step**: `/merge-track T14-baton-integration`, then `/merge-release 2026-06-19-safe-parallelism` once every track is merged.
+
+### 2026-06-24 — slice `S49-baton-version` → verified (PASS)
 - **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs)
 - **Verdict**: PASS — all six gates satisfied.
   - Gate 1: `sworn version` and `sworn doctor` surface "on Baton v0.4.2" via integration points (cmdVersion, cmdDoctor).

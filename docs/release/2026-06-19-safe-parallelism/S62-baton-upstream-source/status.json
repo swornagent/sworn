@@ -3,8 +3,7 @@
   "slice_id": "S62-baton-upstream-source",
   "release": "2026-06-19-safe-parallelism",
   "track": "T14-baton-integration",
-  "state": "implemented",
-  "owner": "human",
+  "state": "verified",  "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-09T14:00:00Z",
   "start_commit": "e9d73cc14fe53cec60d12867e00cf3d83d270807",
@@ -71,10 +70,9 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "",
+    "result": "pass",
     "verifier_session_id": null,
-    "verifier_verdict_at": "2026-07-09T13:30:00Z",
+    "verifier_verdict_at": "2026-06-24T06:14:00Z",
     "verifier_was_fresh_context": true,
     "violations": []
-  }
-}
+  }}

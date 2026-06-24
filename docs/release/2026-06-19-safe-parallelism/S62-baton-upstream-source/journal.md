@@ -115,3 +115,15 @@
 - **start_commit**: preserved at `e9d73cc14fe53cec60d12867e00cf3d83d270807` (original implementation round).
 - **First-pass script**: 22/24 checks passed. 2 expected failures: Playwright false positive (CLI-only slice) + state=in_progress (will read implemented after commit).
 - **Terminal state**: `implemented`
+
+## 2026-06-24 — verifier (fresh context)
+- Verdict: PASS
+- All six gates satisfied.
+- User-reachable outcome: `sworn baton vendor --upstream` wired in `cmd/sworn/baton.go`, exercises full pipeline through CLI entry point (Rule 1).
+- Planned touchpoints match: spec.md updated in round 2 to list `fetch.go`, `fetch_test.go`, `version.go`, `version_stub.go`, `cmd/sworn/baton.go`, `cmd/sworn/baton_test.go`; matches `git diff --name-only`.
+- Required tests exist and exercise the integration point: `fetch_test.go` (11 tests), command-level `TestBatonVendorUpstream_*` (4 tests) in `cmd/sworn/baton_test.go`; re-run pass.
+- Reachability artefact: `TestBatonVendorUpstream_Success`, `TestBatonVendorUpstream_NoTagUsesPinned`, `TestBatonVendorUpstream_DigestMismatch`, `TestBatonVendorUpstream_LocalBackCompat` in `cmd/sworn/baton_test.go`.
+- No silent deferrals or placeholder logic: no TODO/FIXME in changed `.go` files.
+- Claimed scope matches implemented scope: all ACs delivered with evidence references in proof.md and tests.
+- Tests re-run: `go test ./internal/baton/...`, `go test ./cmd/sworn/... -run TestBaton`, `go build ./...`, `go vet ./...` — all PASS in this session.
+- Verifier was fresh context (Rule 7).
