@@ -492,8 +492,8 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 | `S55-ledger-multirole-cost` | T16 | Record `v:2` captures per-role `{model, cost_usd}` for every dispatch (implementer, verifier, captain, orchestrator-hook) — cost from local token-pricing, not S06b billing | planned | [spec](./S55-ledger-multirole-cost/spec.md) |
 | `S56-ledger-cost-routing` | T16 | `--optimize cost\|quality\|balanced`: cheapest model clearing a pass-rate floor; `report` gains cost-per-pass + per-role quality (captain-miss, verifier-overturn) | planned | [spec](./S56-ledger-cost-routing/spec.md) |
 | `S57-oracle-reader` | T17 | `sworn board` reads every slice's authoritative status.json from git refs (track branch > release-wt > worktree), ownership-resolved — the honest board reader the router/TUI/rollup read through | verified | [spec](./S57-oracle-reader/spec.md) |
-| `S58-slice-router` | T17 | `sworn route <slice> <release>` computes the next command purely from committed status.json — the deterministic captain-route.sh port (state machine + design-review/Gate-re-entry/merge) | failed_verification | [spec](./S58-slice-router/spec.md) || `S59-scheduler-relayer` | T17 | `sworn run --parallel` workers poll the router each step (poll-and-route) instead of a static slice list — resumable, dynamic; keeps dependency resolution + worktree isolation + supervisor ownership | planned | [spec](./S59-scheduler-relayer/spec.md) |
-| `S60-init-ui-bearing-fix` | T18 | `sworn init` no longer prompts for design tokens / component library in a non-UI-bearing repo; design-system flow gated on `--ui-bearing`; drops the always-true `UIBearing` write | verified | [spec](./S60-init-ui-bearing-fix/spec.md) |
+| `S58-slice-router` | T17 | `sworn route <slice> <release>` computes the next command purely from committed status.json — the deterministic captain-route.sh port (state machine + design-review/Gate-re-entry/merge) | verified | [spec](./S58-slice-router/spec.md) |
+| `S59-scheduler-relayer` | T17 | `sworn run --parallel` workers poll the router each step (poll-and-route) instead of a static slice list — resumable, dynamic; keeps dependency resolution + worktree isolation + supervisor ownership | planned | [spec](./S59-scheduler-relayer/spec.md) || `S60-init-ui-bearing-fix` | T18 | `sworn init` no longer prompts for design tokens / component library in a non-UI-bearing repo; design-system flow gated on `--ui-bearing`; drops the always-true `UIBearing` write | verified | [spec](./S60-init-ui-bearing-fix/spec.md) |
 | `S61-cli-output-styling` | T18 | shared zero-dep `internal/style` ANSI palette gives premium, consistent, TTY/`NO_COLOR`-aware colour across every command + report renderer; plain output byte-identical | verified | [spec](./S61-cli-output-styling/spec.md) |
 ## Aggregate state
 
@@ -1728,3 +1728,17 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - **Drift gate**: forward-merged 1 commit from release-wt/2026-06-19-safe-parallelism, pushed track branch.
 - **State**: S58 → failed_verification. Track T17-orchestration-core: S57 verified, S58 failed_verification, S59 planned.
 - **Next step**: Re-open `/implement-slice S58-slice-router 2026-06-19-safe-parallelism` in fresh session to address the numbered violation (Gate 2 touchpoint alignment).
+
+### 2026-07-15 — slice `S58-slice-router` → verified (PASS)
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs).
+- **Verdict**: PASS. All six gates satisfied.
+  - Gate 1: User-reachable outcome exists — `sworn route <slice> <release>` CLI wired via command registry (init() in route.go), exercised by TestRouteIntegration and parity test; binary produces correct JSON.
+  - Gate 2: Planned touchpoints match actual changed files — core files (router.go, router_test.go, parity_test.go, route.go, route_test.go, oracle.go, git.go) match; docs/* and S64/* are forward-merge artifacts from release-wt (documented in proof.md).
+  - Gate 3: Required tests exist and exercise the integration point — router_test.go table tests (TestBlockedPrecedesState, TestDesignReviewCommitTimeNewest, TestFailedVerificationGateClassification, TestVerifiedWalksTrackThenMerges, TestGhostSliceFiltered), parity_test.go, cmd/sworn/route_test.go TestRouteIntegration; re-ran `go test -race ./internal/router/...` PASS, `./internal/git/...` PASS, build PASS, specific tests PASS.
+  - Gate 4: Reachability artefact proves the user path — `cmd/sworn/route_test.go:TestRouteIntegration` runs real `sworn route` binary against committed fixture covering every state branch.
+  - Gate 5: No silent deferrals or placeholder logic — grep for TODO/FIXME/deferred/placeholder only hits legitimate state names ("deferred" as terminal state); documented in proof.md.
+  - Gate 6: Claimed scope matches implemented scope — all ACs have evidence: planned/implemented/verified/blocked/failed_verification/design_review/shipped/deferred/unrecognised routing, ghost filter, parity against captain-route.sh; previous Gate 2/6 FAILs addressed (start_commit reset, design.md check added).
+- **Gates passed**: 1–6.
+- **Drift gate**: clean (0 commits).
+- **State**: S58 → verified. Track T17-orchestration-core: S57 verified, S58 verified, S59 planned.
+- **Next step**: `/implement-slice S59-scheduler-relayer 2026-06-19-safe-parallelism` in a fresh session.

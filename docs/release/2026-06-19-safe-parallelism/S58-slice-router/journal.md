@@ -80,3 +80,37 @@ STATE: blocked_needs_human
 SLICE: S58-slice-router
 NEXT: NONE
 REASON: Gate 2 failed: touchpoint mismatch between spec planned and git diff vs start_commit.
+
+### 2026-07-15 — verifier verdict — PASS
+PASS
+
+Slice: S58-slice-router
+
+All six gates passed.
+
+- Gate 1: User-reachable outcome exists — `sworn route <slice> <release>` entry point wired via `command.Register` in `cmd/sworn/route.go` (init), dispatched through `main.dispatch` → `cmdRoute` → `router.Route`. Exercised by `TestRouteIntegration` which builds and runs the real binary.
+- Gate 2: Planned touchpoints match actual changed files — `git diff --name-only a82b950..HEAD` matches planned_files in status.json (core: router.go, router_test.go, parity_test.go, route.go, route_test.go, oracle.go, git.go); docs/* and S64/* are forward-merge artifacts from release-wt (documented in proof.md "Divergence from plan").
+- Gate 3: Required tests exist and exercise the integration point — `internal/router/router_test.go` (table-driven per state, including `TestBlockedPrecedesState`, `TestDesignReviewCommitTimeNewest`, `TestFailedVerificationGateClassification`, `TestVerifiedWalksTrackThenMerges`, `TestGhostSliceFiltered`), `cmd/sworn/route_test.go` (Rule 1 reachability), `internal/router/parity_test.go` (golden against captain-route.sh). Re-ran `go test -race ./internal/router/...`, `./internal/git/...`, `go build ./...`, `TestRouteIntegration`, `TestCaptainRouteParity` — all PASS.
+- Gate 4: Reachability artefact proves the user path — `TestRouteIntegration` in `cmd/sworn/route_test.go` creates temp git fixture with committed status.json for every state, builds `sworn`, runs `sworn route <slice> <release>` and asserts `.next.type` and JSON shape.
+- Gate 5: No silent deferrals or placeholder logic — grep for TODO/FIXME/deferred/placeholder in *.go yields only legitimate "deferred" state name (terminal state like "shipped"/"verified", used in decision tree and tests; documented in proof.md first-pass output and Divergence).
+- Gate 6: Claimed scope matches implemented scope — every AC in spec.md has evidence:
+  - planned → implement: TestPlannedRoutesImplement
+  - implemented/pending/stale → verify: TestImplementedRoutesVerify
+  - blocked → replan-release: TestBlockedPrecedesState
+  - failed_verification Gate 1/2/6 → redesign, else implement: TestFailedVerificationGateClassification
+  - design_review by commit-time-newest (approved-ack, review, decline, design): TestDesignReviewCommitTimeNewest
+  - verified walks track (next planned/review if design.md, merge-track/release): TestVerifiedWalksTrackThenMerges (includes design.md sibling case)
+  - ghost-slice filter: TestGhostSliceFiltered
+  - shipped/unrecognised → none: TestShippedRoutesNone, TestUnrecognisedStateRoutesNone
+  - deferred → none + skipped in track walk: TestDeferredRoutesNone, TestDeferredSkippedInTrackWalk
+  - parity: TestCaptainRouteParity (all 8 states match captain-route.sh)
+  - Previous FAILs addressed: Gate 2 (start_commit reset to a82b950, git_test.go removed), Gate 6 (design.md check added to routeNextSlice + test).
+
+Drift gate: clean (0 commits). Verified against track HEAD after clean forward-merge check.
+
+**Gates passed**: 1–6.
+
+STATE: verified_implement_next
+SLICE: S58-slice-router
+NEXT: S59-scheduler-relayer
+REASON: All six gates passed. S59-scheduler-relayer is the next slice in track T17-orchestration-core.
