@@ -3,8 +3,7 @@
   "slice_id": "S15-oci-driver",
   "release": "2026-06-19-safe-parallelism",
   "track": "T5-providers",
-  "state": "design_review",
-  "owner": "human",
+  "state": "in_progress",  "owner": "human",
   "last_updated_by": "planner",
   "last_updated_at": "2026-06-20T00:00:00Z",
   "start_commit": null,
@@ -15,10 +14,17 @@
     "internal/model/oci.go",
     "internal/model/oci_test.go",
     "internal/model/provider.go",
+    "internal/model/config.go",
     "go.mod",
     "go.sum"
   ],
-  "actual_files": [],
+  "design_decisions": [
+    {"id": "D1", "title": "Standalone struct (not OAI-embed)", "type_2": true, "rationale": "OCI Generative AI Inference API uses its own request/response shapes; embedding *OAI would create a misleading type relationship."},
+    {"id": "D2", "title": "OCI SDK config from environment only", "type_2": true, "rationale": "OCI SDK reads ~/.oci/config and OCI_* env vars natively; only OCICompartmentID (a SwornAgent-specific param) is stored in ProviderConfig."},
+    {"id": "D3", "title": "Mock OCI client via local interface", "type_2": true, "rationale": "OCI SDK generativeaiinference client is a concrete struct like Bedrock's, but unlike Bedrock the OCI SDK does not expose a BaseEndpoint override, so a local interface extraction is needed for test substitution."},
+    {"id": "D4", "title": "Cost: optional token counts, return 0.0", "type_2": true, "rationale": "OCI ChatResult Usage field is a pointer — nil when the model doesn't return counts. Return 0.0 when absent, per spec."},
+    {"id": "D5", "title": "Region from OCI SDK, not $OCI_REGION override", "type_2": true, "rationale": "OCI SDK honours OCI_CLI_REGION and config-file region natively; no separate $OCI_REGION parsing needed."}
+  ],  "actual_files": [],
   "test_commands": [
     "go test ./internal/model/... -run OCI",
     "go test ./internal/model/...",
@@ -27,8 +33,7 @@
   "reachability_artifacts": [],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
+    "result": "",    "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
     "violations": []
