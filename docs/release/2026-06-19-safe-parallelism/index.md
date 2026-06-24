@@ -445,7 +445,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 | `S08c-mcp-plan-tools` | T4 | 4 planning tools + resources + prompts + mcp-setup.md | verified | [spec](./S08c-mcp-plan-tools/spec.md) |
 | `S09-per-role-model-config` | T3 | Config file gains implementer.model, escalation_models, max_attempts; sworn init prompts for both roles | verified | [spec](./S09-per-role-model-config/spec.md) |
 | `S10-provider-foundation` | T5 | ADR 0007 + provider router + OAI-compat presets (8 providers) + .env file loading + typed `model.Error{Kind}` taxonomy (classify/UserMessage) | implemented | [spec](./S10-provider-foundation/spec.md) |
-| `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | verified | [spec](./S11-anthropic-driver/spec.md) || `S12-google-driver` | T5 | Google Gemini and Vertex AI models work as verifier and implementer | failed_verification | [spec](./S12-google-driver/spec.md) || `S13-bedrock-driver` | T5 | AWS Bedrock models work via Converse API; IAM auth | planned | [spec](./S13-bedrock-driver/spec.md) |
+| `S11-anthropic-driver` | T5 | Anthropic Claude models work as verifier and implementer via Messages API | verified | [spec](./S11-anthropic-driver/spec.md) || `S12-google-driver` | T5 | Google Gemini and Vertex AI models work as verifier and implementer | failed_verification | [spec](./S12-google-driver/spec.md) || `S13-bedrock-driver` | T5 | AWS Bedrock models work via Converse API; IAM auth | verified | [spec](./S13-bedrock-driver/spec.md) |
 | `S14-azure-driver` | T5 | Azure OpenAI deployments work via api-key auth; no new SDK dep | planned | [spec](./S14-azure-driver/spec.md) |
 | `S15-oci-driver` | T5 | OCI Generative AI models work via oci-go-sdk | planned | [spec](./S15-oci-driver/spec.md) |
 | `S16-ollama-driver` | T5 | Ollama native /api/chat endpoint; replaces OAI-compat shim | planned | [spec](./S16-ollama-driver/spec.md) |
@@ -522,6 +522,20 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > Merged (11): T1, T2, T3, T4, T7, T8, T9, T11, T12, T15, T18. In progress (2): T5, T14. Planned (5 per oracle): T6, T10, T13, T16, T17.
 
 ## Recent activity
+
+### 2026-06-24 — slice `S13-bedrock-driver` → verified (PASS)
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs).
+- **Verdict**: PASS — all six gates satisfied.
+  - Gate 1: User-reachable outcome exists — `sworn run` / `sworn verify` dispatches via `model.FromEnv` → `NewClient("bedrock/...")` → `*Bedrock.Verify()` (entry point wired in cmd/sworn/{run,verify}.go and provider.go).
+  - Gate 2: Planned touchpoints match actual changed files — bedrock.go, bedrock_test.go, provider.go, go.mod/go.sum as planned; config.go and provider_test.go divergences documented in proof.md "Divergence from plan".
+  - Gate 3: Required tests exist and exercise the integration point — 10 Bedrock tests + TestNewClient_BedrockRouted; re-ran `go test ./internal/model/... -run Bedrock` and full `./internal/model/...` — all PASS.
+  - Gate 4: Reachability artefact proves the user path — TestNewClient_BedrockRouted + mocked Converse Verify tests exercise the full dispatch + Verify path.
+  - Gate 5: No silent deferrals or placeholder logic — no TODO/FIXME/deferred in source; live test deferral explicitly documented in proof.md with why + tracking + acknowledgement.
+  - Gate 6: Claimed scope matches implemented scope — "Delivered" list matches spec acceptance checks with evidence references; all tests re-executed from live state.
+- **Gates passed (independent re-run)**: All cited test commands re-run green: 10/10 Bedrock (1 SKIP live), full model suite PASS, `go build`/`go vet` exit 0.
+- **Drift gate**: clean (rev-list count 0) — track already carried release-wt tip, no forward-merge needed. Verified against HEAD `4a2bc7f`; `start_commit` `91f7768`.
+- **State**: S13 → verified. Board Verified count updated. Next: T5 track has further incomplete slices — next is `/implement-slice S14-azure-driver 2026-06-19-safe-parallelism` in a fresh session.
 
 ### 2026-06-24 — slice `S11-anthropic-driver` → verified (re-entry PASS, round 6)
 
