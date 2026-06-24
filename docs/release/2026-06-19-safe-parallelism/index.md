@@ -514,13 +514,28 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 - Implemented: 0
 - Design review: 1
 - Verified: 29
-- Failed verification: 0
+- Failed verification: 1
 - Deferred: 0
 
 **Tracks:** Planned: 5 / In progress: 2 / Merged: 11  *(oracle read 2026-06-23; T12 + T18 merges recorded — board moving under coach loop)*
 > Merged (11): T1, T2, T3, T4, T7, T8, T9, T11, T12, T15, T18. In progress (2): T5, T14. Planned (5 per oracle): T6, T10, T13, T16, T17.
 
 ## Recent activity
+### 2026-06-24 — slice `S14-azure-driver` → failed_verification (FAIL)
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs).
+- **Verdict**: FAIL — 6 violations (Gates 2, 5, 6).
+  - Gate 2 (touchpoints): spec.md planned touchpoints miss config.go and provider_test.go; proof.md claims "None" (false).
+  - Gate 2 (formatting): gofmt -l reports 4 files (azure.go, provider.go, config.go, azure_test.go) need formatting; indentation and newline issues.
+  - Gate 2 (code quality): malformed switch indentation and fused lines in provider.go and config.go.
+  - Gate 5: provider.go comment typo "environment// variables" (double slash).
+  - Gate 6: proof.md "Divergence from plan" and "formatting fixed" claims are false.
+  - Gate 6: azure.go struct comment references outdated api-version example "2024-10-21".
+- **Gates passed (independent re-run)**: Gate 1 (entry point wired via model.FromEnv → NewClient("azure/...") → *AzureOAI.Verify()); Gate 3 (9 Azure tests + full model suite PASS); Gate 4 (TestNewClient_AzureRouted + httptest reachability artefacts).
+- **Gates failed**: 2, 5, 6.
+- **Drift gate**: clean (rev-list count 0). Verified against HEAD on track branch; start_commit e6c92d5.
+- **State**: S14 → failed_verification. Board Failed verification: 0 → 1. Next: re-open `/implement-slice S14-azure-driver 2026-06-19-safe-parallelism` in a fresh session to address the violations.
+
 
 ### 2026-06-24 — slice `S13-bedrock-driver` → verified (PASS)
 
@@ -721,6 +736,21 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
   drop the config tier, and re-prove. Also repaired two `index.md` defects: the collapsed
   `T4-mcp` frontmatter line (`id:` + `slices:` on one line — the oracle was reading T4-mcp with
   an empty slice list) and the `## Recent activity` header glued onto the tracks note.
+### 2026-06-24 — slice `S14-azure-driver` → failed_verification (FAIL)
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs).
+- **Verdict**: FAIL — 6 violations (Gates 2, 5, 6).
+  - Gate 2 (touchpoints): spec.md planned touchpoints miss config.go and provider_test.go; proof.md claims "None" (false).
+  - Gate 2 (formatting): gofmt -l reports 4 files (azure.go, provider.go, config.go, azure_test.go) need formatting; indentation and newline issues.
+  - Gate 2 (code quality): malformed switch indentation and fused lines in provider.go and config.go.
+  - Gate 5: provider.go comment typo "environment// variables" (double slash).
+  - Gate 6: proof.md "Divergence from plan" and "formatting fixed" claims are false.
+  - Gate 6: azure.go struct comment references outdated api-version example "2024-10-21".
+- **Gates passed (independent re-run)**: Gate 1 (entry point wired via model.FromEnv → NewClient("azure/...") → *AzureOAI.Verify()); Gate 3 (9 Azure tests + full model suite PASS); Gate 4 (TestNewClient_AzureRouted + httptest reachability artefacts).
+- **Gates failed**: 2, 5, 6.
+- **Drift gate**: clean (rev-list count 0). Verified against HEAD on track branch; start_commit e6c92d5.
+- **State**: S14 → failed_verification. Board Failed verification: 0 → 1. Next: re-open `/implement-slice S14-azure-driver 2026-06-19-safe-parallelism` in a fresh session to address the violations.
+
 
 ### 2026-06-23 — S20-mcp-catalog-tools verifier FAIL (3 violations)
 
