@@ -72,16 +72,16 @@ func ollamaHost() string {
 	return "http://localhost:11434"
 }
 
-// ErrDriverNotRegistered is returned when a model ID prefix maps to a native
-// driver (Anthropic, Google, Bedrock, Azure, OCI) that has not yet been
-// implemented. The error message names the slice that will add the driver.
+// ErrDriverNotRegistered is returned when a model ID prefix maps to a driver
+// that has not yet been implemented. Some drivers (e.g. codex) are not yet
+// available; see S63-deferral-1.
 var ErrDriverNotRegistered = constErr("driver not registered (not yet implemented; see slices S11-S16)")
 
 // NewClient dispatches a model ID like "openai/gpt-4o" or "groq/llama-3.3-70b"
 // to the correct driver. OAI-compat providers get an &OAI{} with the correct
-// base URL preset. Native drivers return ErrDriverNotRegistered until their
-// implementation slice lands (S11-S16). Model IDs after the provider prefix
-// are passed through as-is — the provider needs the full model name.
+// base URL preset. Native drivers return an appropriate implementation. Model
+// IDs after the provider prefix are passed through as-is — the provider needs
+// the full model name.
 func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 	provider, model, err := parseModelID(modelID)
 	if err != nil {
@@ -150,8 +150,7 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 		case "openai-responses":
 			return NewOpenAIResponses(model, pcfg.OpenAIKey)
 
-	// Native drivers — not yet registered. The error message names the
-	// slice that will add each driver so users know what's missing.
+	// Native drivers.
 	case "anthropic":
 		return NewAnthropic(model, pcfg.AnthropicKey)
 	case "google":
@@ -164,7 +163,18 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 		return NewAzureOAI(model, pcfg.AzureEndpoint, pcfg.AzureAPIKey, pcfg.AzureAPIVersion)
 	case "oci":
 		return NewOCI(model, pcfg.OCICompartmentID)
-	default:
+
+	// Subscription-based CLI drivers — no API key, authenticate via the
+	// user's logged-in CLI session (claude -p / codex exec).
+	case "claude-cli":
+		return newClaudeCLI(model), nil
+	case "codex":
+		// Codex support deferred (S63-deferral-1).
+		// TODO: codex exec support — different invocation shapes and
+		// output normalisation from claude-cli. Claude-CLI ships first.
+		// Tracking: https://github.com/swornagent/sworn/issues/19.
+		return nil, fmt.Errorf("%w: codex support deferred (S63-deferral-1)", ErrDriverNotRegistered)
+		default:
 		return nil, fmt.Errorf("%w: unknown provider %q", ErrDriverNotRegistered, provider)
 	}
 }

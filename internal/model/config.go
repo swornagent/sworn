@@ -47,10 +47,20 @@ func FromEnv(modelID string) (Verifier, error) {
 		return nil, err
 	}
 
+	// Keyless subscription drivers: claude-cli and codex authenticate via the
+	// user's logged-in CLI session — no API key, no proxy routing. Return the
+	// subprocess driver directly, BEFORE the proxy routing block (Coach pin 4).
+	if provider == "claude-cli" || provider == "codex" {
+		verifier, err := NewClient(modelID, ProviderConfig{})
+		if err != nil {
+			return nil, err
+		}
+		return verifier, nil
+	}
+
 	prefix := strings.ToUpper(strings.ReplaceAll(provider, "-", "_"))
 
-	// Proxy routing: check for sworn credentials and SWORN_DIRECT override.
-	// (Coach ack pin B — credential-trust boundary.)
+	// Proxy routing: check for sworn credentials and SWORN_DIRECT override.	// (Coach ack pin B — credential-trust boundary.)
 	if os.Getenv("SWORN_DIRECT") != "1" {
 		creds, credErr := account.Load(filepath.Dir(account.CredentialsPath()))
 		if credErr == nil && creds != nil && account.IsLoggedIn(creds) {

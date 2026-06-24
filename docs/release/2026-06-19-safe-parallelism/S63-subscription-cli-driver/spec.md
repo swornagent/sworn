@@ -42,6 +42,11 @@ A developer who already pays for **Claude Code** (Claude Pro/Max) or **ChatGPT**
 - [ ] A missing or unauthenticated CLI yields a typed `model.Error{Kind}` (e.g. `unavailable`/`auth_error`), surfaced to the caller — not a hang; the call is timeout-bounded.
 - [ ] `go test -race ./internal/model/...` passes.
 
+
+## Required tests
+
+- `go test -race ./internal/model/...` — all model tests with race detector
+- `go build ./...` — full build
 ## Design decisions (for the Captain review to ratify)
 
 - Exact `claude -p` invocation (output format, `--no-session-persistence`, model flag) and the `codex exec` equivalent.
