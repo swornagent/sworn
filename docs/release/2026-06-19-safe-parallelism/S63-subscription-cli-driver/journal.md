@@ -56,3 +56,19 @@
 ### Reachability
 
 The integration point is `FromEnv("claude-cli/sonnet")` → `NewClient()` → `cliDriver.Verify()`. Tested via `TestClaudeCLI_FromEnvIntegration` which exercises the full path from config resolution through subprocess dispatch.
+## Verifier verdicts received
+
+### 2026-06-24 — verifier verdict — PASS
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs).
+- **Verdict**: PASS — all six gates satisfied.
+  - Gate 1: User-reachable outcome exists — `claude-cli/sonnet` routes through `model.FromEnv` (early return before proxy) → `NewClient` → `*cliDriver.Verify()` (implements Verifier).
+  - Gate 2: Planned touchpoints match — core files (cli.go, config.go, cli_test.go) match; provider.go addition documented in proof.md "Divergence from plan" and status.json planned_files.
+  - Gate 3: Required tests exist and exercise integration point — `TestClaudeCLI_FromEnvIntegration` + 10 others; re-ran `go test -race ./internal/model/...` (PASS) and `go build ./...` (PASS).
+  - Gate 4: Reachability artefact — `TestClaudeCLI_FromEnvIntegration` proves full FromEnv→NewClient→cliDriver.Verify() path with fake binary.
+  - Gate 5: No silent deferrals — only documented Rule-2 codex deferral (S63-deferral-1, #19, Coach ack); no other TODO/FIXME in production paths.
+  - Gate 6: Claimed scope matches — all Delivered items have evidence references; Not delivered is the acknowledged codex deferral.
+- **Gates passed**: 1–6.
+- **Drift gate**: clean (rev-list count 0). Verified against track HEAD 58bd7ef.
+- **State**: S63 → verified. Track T5-providers now has all slices verified (S10–S16, S39, S63). Next: `/merge-track T5-providers`.
+- **Note**: Codex support is a Rule 2 deferral (different invocation/normalisation); claude-cli ships. gofmt note from prior S39 entry still applies.

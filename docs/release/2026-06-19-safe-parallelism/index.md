@@ -515,8 +515,22 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
 > Merged (11): T1, T2, T3, T4, T7, T8, T9, T11, T12, T15, T18. In progress (2): T5, T14. Planned (5 per oracle): T6, T10, T13, T16, T17.
 
 ## Recent activity
-### 2026-07-12 — slice `S39-openai-responses-provider` → verified (PASS)
+### 2026-06-24 — slice `S63-subscription-cli-driver` → verified (PASS)
 
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs).
+- **Verdict**: PASS — all six gates satisfied.
+  - Gate 1: User-reachable outcome exists — `claude-cli/sonnet` routes through `model.FromEnv` (early return before proxy) → `NewClient` → `*cliDriver.Verify()` (implements Verifier).
+  - Gate 2: Planned touchpoints match — core files (cli.go, config.go, cli_test.go) match; provider.go addition documented in proof.md "Divergence from plan" and status.json planned_files.
+  - Gate 3: Required tests exist and exercise integration point — `TestClaudeCLI_FromEnvIntegration` + 10 others; re-ran `go test -race ./internal/model/...` (PASS) and `go build ./...` (PASS).
+  - Gate 4: Reachability artefact — `TestClaudeCLI_FromEnvIntegration` proves full FromEnv→NewClient→cliDriver.Verify() path with fake binary.
+  - Gate 5: No silent deferrals — only documented Rule-2 codex deferral (S63-deferral-1, #19, Coach ack); no other TODO/FIXME in production paths.
+  - Gate 6: Claimed scope matches — all Delivered items have evidence references; Not delivered is the acknowledged codex deferral.
+- **Gates passed**: 1–6.
+- **Drift gate**: clean (rev-list count 0). Verified against track HEAD 58bd7ef.
+- **State**: S63 → verified. Track T5-providers now has all slices verified (S10–S16, S39, S63). Next: `/merge-track T5-providers`.
+- **Note**: Codex support is a Rule 2 deferral (different invocation/normalisation); claude-cli ships. gofmt note from prior S39 entry still applies.
+
+### 2026-07-12 — slice `S39-openai-responses-provider` → verified (PASS)
 - **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs).
 - **Verdict**: PASS — all six gates satisfied.
   - Gate 1: User-reachable outcome exists — `openai-responses/gpt-5.5` routes through `model.FromEnv` → `*OpenAIResponses` (implements Verifier + agent.Agent).
@@ -527,8 +541,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 — final public-readiness gate 
   - Gate 6: Claimed scope matches — all Delivered items have evidence references; Not delivered are Rule-2 deferrals with tracking + Coach ack.
 - **Gates passed**: 1–6.
 - **Drift gate**: clean (rev-list count 0). Verified against track HEAD 8624c1d.
-- **State**: S39 → verified. Track T5-providers remains in_progress (S63 pending). Next: `/implement-slice S63-subscription-cli-driver 2026-06-19-safe-parallelism` (or `/merge-track T5-providers` if S63 is the last).
-- **Note**: gofmt issues exist in changed files (provider.go indentation, etc.); not a gate violation per spec ACs (tests/build/vet green; gofmt not listed in required tests). Recommend fmt sweep before merge.
+- **State**: S39 → verified. Track T5-providers remains in_progress (S63 pending at time of S39 verify). Next: `/merge-track T5-providers` (S63 now verified).- **Note**: gofmt issues exist in changed files (provider.go indentation, etc.); not a gate violation per spec ACs (tests/build/vet green; gofmt not listed in required tests). Recommend fmt sweep before merge.
 
 ### 2026-07-12 — slice `S39-openai-responses-provider` → failed_verification (FAIL)
 - **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs).

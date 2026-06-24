@@ -3,8 +3,7 @@
   "slice_id": "S63-subscription-cli-driver",
   "release": "2026-06-19-safe-parallelism",
   "track": "T5-providers",
-  "state": "implemented",
-  "owner": "human",
+  "state": "verified",  "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-14T00:00:00Z",
   "start_commit": "a901d6754ec0e4a50cc1e2aa8ef984945d27f88f",
@@ -51,10 +50,9 @@
     }
   ],
   "verification": {
-    "result": "",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "result": "pass",
+    "verifier_session_id": "fresh-verifier-2026-06-24",
+    "verifier_verdict_at": "2026-06-24T12:08:44Z",
+    "verifier_was_fresh_context": true,
     "violations": []
-  }
-}
+  }}
