@@ -138,6 +138,63 @@ Minimal IAM policy:
 ## First-pass script output
 
 ```
-$ scripts/release-verify.sh S13-bedrock-driver 2026-06-19-safe-parallelism
-(pending — will capture after status.json transition to implemented)
+$ /home/brad/.claude/bin/release-verify.sh S13-bedrock-driver 2026-06-19-safe-parallelism
+
+== Slice artefacts ==
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+  PASS  spec.md has Required tests section
+
+== Status ==
+  PASS  status.json is valid JSON
+  state: implemented
+  PASS  state is 'implemented' (eligible for verifier review)
+
+== Integration branch drift ==
+  integration branch: release/v0.1.0
+  PASS  worktree branch is current with release/v0.1.0 (no drift)
+
+== Diff vs start_commit (verifier base) ==
+  diff base: start_commit 91f7768873a5b0acdb2686e00c2eab302cec3277
+  PASS  10 file(s) changed vs diff base
+    docs/release/2026-06-19-safe-parallelism/S13-bedrock-driver/journal.md
+    docs/release/2026-06-19-safe-parallelism/S13-bedrock-driver/proof.md
+    docs/release/2026-06-19-safe-parallelism/S13-bedrock-driver/status.json
+    go.mod
+    go.sum
+    internal/model/bedrock.go
+    internal/model/bedrock_test.go
+    internal/model/config.go
+    internal/model/provider.go
+    internal/model/provider_test.go
+
+== Dark-code markers in changed files ==
+  PASS  no dark-code markers in changed source files
+
+== Proof bundle structural checks ==
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+  PASS  proof.md 'Not delivered' deferrals carry non-placeholder tracking refs
+  PASS  proof.md 'Files changed' count (~8) consistent with diff vs start_commit (10)
+
+== Frontmatter YAML safety ==
+  PASS  spec.md frontmatter is strict-YAML safe
+
+== Test results section scope ==
+  PASS  Test results section contains no Playwright runner output (Jest/Vitest scope confirmed)
+
+== First-pass verdict ==
+  checks passed: 23
+  checks failed: 0
+FIRST-PASS PASS
 ```
+
