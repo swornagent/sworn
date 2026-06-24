@@ -77,4 +77,19 @@ None. Implementation follows spec exactly: wrap (not replace), pause set as spec
 
 ## First-pass script output
 
-(To be filled by running `$HOME/.claude/bin/release-verify.sh S59-scheduler-relayer 2026-06-19-safe-parallelism`)
+```
+$ $HOME/.claude/bin/release-verify.sh S59-scheduler-relayer 2026-06-19-safe-parallelism
+
+FIRST-PASS PASS — 22 checks passed, 0 failed.
+
+All gate checks green:
+- Slice artefacts (6/6): folder, spec.md, proof.md, status.json, journal.md, Required tests
+- Status (2/2): valid JSON, state=implemented
+- Integration branch drift (1/1): drift present but no test-infra overlap
+- Diff vs start_commit (1/1): 5 files changed
+- Dark-code markers (1/1): none found
+- Proof bundle structure (9/9): all sections present, no placeholders, deferrals tracked
+- Frontmatter YAML safety (1/1): strict-YAML safe
+- Test results scope (1/1): no Playwright runner output
+```
+
