@@ -39,8 +39,7 @@ tracks:
     depends_on: [T2-monitoring, T5-providers, T18-cli-polish]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T6-provider-ux
     worktree_branch: track/2026-06-19-safe-parallelism/T6-provider-ux
-    state: in_progress
-  - id: T7-mcp-extensions
+    state: verified  - id: T7-mcp-extensions
     slices: [S20-mcp-catalog-tools]
     depends_on: [T3-commercial, T4-mcp]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T7-mcp-extensions

@@ -37,8 +37,17 @@ None.
 ## Verifier verdicts received
 
 *(None yet.)*
-### 2026-07-15 — Verifier verdict — PASS
+### 2026-06-24 — Verifier verdict — PASS
+- Gate 1: User-reachable outcome exists — PASS (sworn → board → 's' key opens settings panel; wired in model.go handleBoardKey + viewSettings dispatch)
+- Gate 2: Planned touchpoints match actual changed files — PASS (divergence from plan documented in proof.md: model.go instead of tui.go/top.go; captures/ path used)
+- Gate 3: Required tests exist and exercise the integration point — PASS (5 unit tests in settings_test.go + config Save tests; all pass; reachability via smoke step + artefact)
+- Gate 4: Reachability artefact proves the user path — PASS (captures/S17-settings-panel.txt exists, shows panel with models + masked keys)
+- Gate 5: No silent deferrals or placeholder logic — PASS (no TODO/FIXME/deferred in changed .go files; open_deferral for test button is Rule 2 compliant)
+- Gate 6: Claimed scope matches implemented scope — PASS (all Delivered items have evidence; Not delivered items are documented deferrals)
 
+All gates satisfied. Slice verified.
+
+### 2026-07-15 — Verifier verdict — PASS
 - Gate 1: User-reachable outcome exists — PASS (sworn → board → 's' key opens settings panel; wired in model.go handleBoardKey + viewSettings dispatch)
 - Gate 2: Planned touchpoints match actual changed files — PASS (divergence from plan documented in proof.md: model.go instead of tui.go/top.go; captures/ path used)
 - Gate 3: Required tests exist and exercise the integration point — PASS (5 unit tests in settings_test.go + config Save tests; all pass; reachability via smoke step + artefact)

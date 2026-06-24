@@ -3,10 +3,10 @@
   "slice_id": "S17-tui-provider-config",
   "release": "2026-06-19-safe-parallelism",
   "track": "T6-provider-ux",
-  "state": "implemented",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-15T00:00:00Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-24T23:51:36Z",
   "start_commit": "5325d114d2e96cb62eb85ea712fc5478dc46393a",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S17-tui-provider-config/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S17-tui-provider-config/proof.md",
@@ -47,8 +47,9 @@
   ],
   "verification": {
     "result": "pass",
-    "verifier_session_id": "fresh-verifier-2026-07-15",
-    "verifier_verdict_at": "2026-07-15T12:00:00Z",
+    "verifier_session_id": "fresh-verifier-2026-06-24",
+    "verifier_verdict_at": "2026-06-24T23:51:36Z",
     "verifier_was_fresh_context": true,
     "violations": []
-  }}
+  }
+}
