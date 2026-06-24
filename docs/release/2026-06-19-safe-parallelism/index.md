@@ -1485,3 +1485,11 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
   - Gate 6: Delivered claims rely on missing evidence.
 - **State**: S62 → failed_verification. T14-baton-integration: S48/S49/S50 verified, S62 failed.
 - **Next step**: `/implement-slice S62-baton-upstream-source 2026-06-19-safe-parallelism` (fresh session) to address violations.
+
+### 2026-07-09 (round 2) — slice `S62-baton-upstream-source` → failed_verification (FAIL)
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs)
+- **Verdict**: FAIL — 1 violation.
+  - Gate 6: AC3 (no `--tag` uses pinned semver from VERSION; never `latest`/HEAD) claimed delivered with falsifiable "test asserts the requested URL carries the pinned tag", but no such test exists. All upstream command tests pass explicit `--tag`; no test exercises `cmdBatonVendor --upstream` (no `--tag`) asserting codeload URL uses pinned tag from `baton.Version()`. Proof references S49 leaf test which does not cover upstream URL construction.
+- **State**: S62 → failed_verification. T14-baton-integration: S48/S49/S50 verified, S62 failed.
+- **Next step**: `/implement-slice S62-baton-upstream-source 2026-06-19-safe-parallelism` (fresh session) to address the violation.

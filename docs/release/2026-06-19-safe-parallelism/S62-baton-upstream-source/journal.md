@@ -89,3 +89,11 @@
 **First-pass script**: 23/24 checks passed. 1 false positive (playwright opt-in on CLI-only slice). Ready for verifier.
 
 - **Terminal state**: `implemented`
+
+- **2026-07-09** — verifier (fresh context)
+  - Verdict: FAIL
+  - Violations:
+    1. Gate 6 — AC3 (no `--tag` uses pinned semver from VERSION; never `latest`/HEAD) is claimed delivered in proof.md "Delivered" and "AC3", with falsifiable "test asserts the requested URL carries the pinned tag". But no such test exists: all `TestBatonVendorUpstream_*` calls pass explicit `--tag`; no test exercises `cmdBatonVendor` with `--upstream` (no `--tag`) and asserts the codeload URL uses the pinned tag from `baton.Version()`. The fallback code in `cmdBatonVendor` and `Version()` exist, but the required falsifiable evidence at command level (Rule 1) is absent. Proof.md references `TestVersionIsSemverNotSha` (S49 leaf test) which does not cover the upstream URL construction.
+  - Required to address: Add command-level integration test (e.g. `TestBatonVendorUpstream_NoTagUsesPinned`) that calls `cmdBatonVendor` with `--upstream --repo ...` (no `--tag`), injects pinned tag via test setter or env, and asserts the test server's codeload URL contains the pinned semver tag (not "latest").
+  - Tests re-run: `go test ./internal/baton/...`, `go test ./cmd/sworn/... -run TestBaton`, `go build ./...`, `go vet ./...` — all PASS in this session.
+  - Verifier was fresh context (Rule 7).
