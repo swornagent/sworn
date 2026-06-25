@@ -43,3 +43,18 @@ None.
 - **Non-implementer role routing** — **Why**: out of scope for S56 (implementer-only routing in this slice). **Tracking**: future-release ledger follow-up. **Acknowledged**: Brad, 2026-06-23 (in spec.md).
 - **Proxy/billed-cost reconciliation against S06b credits** — **Why**: out of scope. **Tracking**: deferred as in S55. **Acknowledged**: Brad, 2026-06-23.
 - **Role-specific cost filtering from Dispatches** — **Why**: `TotalCostUSD` used as proxy; per-role Dispatch filtering deferred until non-implementer roles are routed. **Tracking**: same future-release follow-up as above. **Acknowledged**: Brad (implicit in spec's out-of-scope).
+## Verifier verdicts received
+
+### 2026-06-25T21:01:50Z — PASS
+
+**Verifier:** fresh-context session, artefact-only inputs, worktree at `/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T16-verdict-ledger`.
+
+**Gate results:**
+- Gate 1 (User-reachable outcome exists): ✅ — `sworn ledger recommend --optimize cost`, `sworn ledger report`, `config.ResolveImplementerModel` all wired
+- Gate 2 (Planned touchpoints match actual files): ✅ — 7/7 planned + run.go explained in divergence
+- Gate 3 (Required tests exist and pass): ✅ — 18 new routing tests, 5 new config tests, 5+ new query tests; all pass (pre-existing doctor test failures in cmd/sworn unrelated to S56)
+- Gate 4 (Reachability artefact): ✅ — manual-smoke-step documented in proof.md
+- Gate 5 (No silent deferrals): ✅ — zero TODO/FIXME in production code; deferrals tracked with why/tracking/ack
+- Gate 6 (Claimed scope matches implemented): ✅ — all 8 acceptance checks delivered with named test evidence
+
+**Verdict:** PASS
