@@ -86,8 +86,8 @@ tracks:
     depends_on: [T3-commercial, T15-cli-registry]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T14-baton-integration
     worktree_branch: track/2026-06-19-safe-parallelism/T14-baton-integration
-    state: verified  - id: T15-cli-registry
-    slices: [S51-cli-command-registry]
+    state: merged
+  - id: T15-cli-registry    slices: [S51-cli-command-registry]
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T15-cli-registry
     worktree_branch: track/2026-06-19-safe-parallelism/T15-cli-registry
@@ -172,8 +172,8 @@ tracks:
 | `T10-public-readiness` | S27 | all tracks (incl. T16 + T19) | `track/.../T10-public-readiness` | verified |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
 | `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | merged || `T13-sworn-role-parity` | S45 → S46 → S47 | T12 + T17 | `track/.../T13-sworn-role-parity` | verified |
-| `T14-baton-integration` | S48 → S49 → S50 → S62 → S73 | T3 + T15 | `track/.../T14-baton-integration` | verified || `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged |
-| `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | verified |
+| `T14-baton-integration` | S48 → S49 → S50 → S62 → S73 | T3 + T15 | `track/.../T14-baton-integration` | merged |
+| `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged || `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | verified |
 | `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | verified |
 | `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
 | `T19-status-hygiene` | S64 | T4 + T12 + T15 | `track/.../T19-status-hygiene` | merged |
@@ -539,8 +539,12 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 **Tracks:** Planned: 4 / In progress: 1 / Merged: 14  *(post T19 merge; oracle-authoritative: T5, T14 subsequently merged)*
 > Merged (14): T1, T2, T3, T4, T5, T7, T8, T9, T11, T12, T14, T15, T18, T19. In progress (1): T17. Planned (4): T6, T10, T13, T16.
 ## Recent activity
-### 2026-06-25 — verify: S73-baton-v0.5.0-pin → FAIL (embed not synced to v0.5.0)
+### 2026-07-16 — track `T14-baton-integration` merged to release-wt (commit 8daa03d)
 
+- **Actor**: track integrator (/merge-track)
+- **Note**: 5 verified slices merged: S48-baton-vendor, S49-baton-version, S50-baton-governance, S62-baton-upstream-source, S73-baton-v0.5.0-pin. Track state -> merged.
+
+### 2026-06-25 — verify: S73-baton-v0.5.0-pin → FAIL (embed not synced to v0.5.0)
 - **Actor**: verifier (fresh context, artefact-only), `/verify-slice`
 - **Verdict**: **FAIL**. The slice correctly extended the vendor file-map and VERSION
   (commit-SHA pin `9ae08fb`; `sworn version` shows v0.5.0; `--upstream` vendor resolves +
