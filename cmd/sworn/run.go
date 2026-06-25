@@ -78,7 +78,7 @@ func cmdRun(args []string) int {
 	}
 
 	// ── Resolve implementer model ──────────────────────────────────────
-	impl, err := config.ResolveImplementerModel(*implModel, cfg, "", "")
+	impl, err := config.ResolveImplementerModel(*implModel, cfg, "", "", "quality", 0)
 	if err != nil {		fmt.Fprintf(os.Stderr, "sworn run: %v\n", err)
 		return 2
 	}

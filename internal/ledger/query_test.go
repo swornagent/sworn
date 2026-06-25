@@ -5,20 +5,21 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-)
 
+	"github.com/swornagent/sworn/internal/state"
+)
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 // makeRecords returns a fixed in-memory corpus for deterministic aggregation tests.
 func makeRecords() []Record {
 	return []Record{
-		{V: 1, Ts: "2026-01-01T00:00:00Z", Release: "rel1", Track: "T5-providers", SliceID: "S01", SliceKind: "provider", Model: "claude-sonnet", Attempt: 1, Verdict: "pass", GateCount: 5},
-		{V: 1, Ts: "2026-01-02T00:00:00Z", Release: "rel1", Track: "T5-providers", SliceID: "S02", SliceKind: "provider", Model: "claude-sonnet", Attempt: 2, Verdict: "pass", GateCount: 3},
-		{V: 1, Ts: "2026-01-03T00:00:00Z", Release: "rel1", Track: "T12-harness-hardening", SliceID: "S03", SliceKind: "harness", Model: "claude-sonnet", Attempt: 1, Verdict: "fail", GateCount: 7, Violations: []string{"missing proof bundle", "unreachable test"}, ViolationCount: 2},
-		{V: 1, Ts: "2026-01-04T00:00:00Z", Release: "rel1", Track: "T8-memory", SliceID: "S04", SliceKind: "memory", Model: "gpt-5", Attempt: 3, Verdict: "pass", GateCount: 4},
-		{V: 1, Ts: "2026-01-05T00:00:00Z", Release: "rel1", Track: "T8-memory", SliceID: "S05", SliceKind: "memory", Model: "gpt-5", Attempt: 1, Verdict: "fail", GateCount: 4, Violations: []string{"missing proof bundle"}, ViolationCount: 1},
-		{V: 1, Ts: "2026-01-06T00:00:00Z", Release: "rel1", Track: "T3-commercial", SliceID: "S06", SliceKind: "commercial", Model: "claude-sonnet", Attempt: 1, Verdict: "blocked", GateCount: 2},
-		{V: 1, Ts: "2026-01-07T00:00:00Z", Release: "rel1", Track: "T5-providers", SliceID: "S07", SliceKind: "provider", Model: "claude-sonnet", Attempt: 1, Verdict: "fail", GateCount: 6, Violations: []string{"spec defect"}, ViolationCount: 1},
+		{V: 1, Ts: "2026-01-01T00:00:00Z", Release: "rel1", Track: "T5-providers", SliceID: "S01", SliceKind: "provider", Model: "claude-sonnet", Attempt: 1, Verdict: "pass", GateCount: 5, TotalCostUSD: 0.42},
+		{V: 1, Ts: "2026-01-02T00:00:00Z", Release: "rel1", Track: "T5-providers", SliceID: "S02", SliceKind: "provider", Model: "claude-sonnet", Attempt: 2, Verdict: "pass", GateCount: 3, TotalCostUSD: 0.38},
+		{V: 1, Ts: "2026-01-03T00:00:00Z", Release: "rel1", Track: "T12-harness-hardening", SliceID: "S03", SliceKind: "harness", Model: "claude-sonnet", Attempt: 1, Verdict: "fail", GateCount: 7, Violations: []string{"missing proof bundle", "unreachable test"}, ViolationCount: 2, TotalCostUSD: 0.55},
+		{V: 1, Ts: "2026-01-04T00:00:00Z", Release: "rel1", Track: "T8-memory", SliceID: "S04", SliceKind: "memory", Model: "gpt-5", Attempt: 3, Verdict: "pass", GateCount: 4, TotalCostUSD: 0.12},
+		{V: 1, Ts: "2026-01-05T00:00:00Z", Release: "rel1", Track: "T8-memory", SliceID: "S05", SliceKind: "memory", Model: "gpt-5", Attempt: 1, Verdict: "fail", GateCount: 4, Violations: []string{"missing proof bundle"}, ViolationCount: 1, TotalCostUSD: 0.08},
+		{V: 1, Ts: "2026-01-06T00:00:00Z", Release: "rel1", Track: "T3-commercial", SliceID: "S06", SliceKind: "commercial", Model: "claude-sonnet", Attempt: 1, Verdict: "blocked", GateCount: 2, TotalCostUSD: 0.30},
+		{V: 1, Ts: "2026-01-07T00:00:00Z", Release: "rel1", Track: "T5-providers", SliceID: "S07", SliceKind: "provider", Model: "claude-sonnet", Attempt: 1, Verdict: "fail", GateCount: 6, Violations: []string{"spec defect"}, ViolationCount: 1, TotalCostUSD: 0.50},
 	}
 }
 
@@ -199,6 +200,139 @@ func TestGateFailureHistogram_OnlyPasses(t *testing.T) {
 	}
 }
 
+// ── CostPerPassingSlice ──────────────────────────────────────────────────
+
+func TestCostPerPassingSlice(t *testing.T) {
+	buckets := CostPerPassingSlice(makeRecords())
+
+	// claude-sonnet / provider: 3 records (2 pass, 1 fail), total cost = 0.42+0.38+0.50 = 1.30
+	var cb *CostPerPassBucket
+	for i := range buckets {
+		if buckets[i].Model == "claude-sonnet" && buckets[i].SliceKind == "provider" {
+			cb = &buckets[i]
+			break
+		}
+	}
+	if cb == nil {
+		t.Fatal("expected cost bucket for claude-sonnet / provider")
+	}
+	if cb.PassCount != 2 {
+		t.Errorf("PassCount: want 2, got %d", cb.PassCount)
+	}
+	if cb.TotalCost < 1.29 || cb.TotalCost > 1.31 {
+		t.Errorf("TotalCost: want ~1.30, got %.4f", cb.TotalCost)
+	}
+	if cb.MeanCost < 0.43 || cb.MeanCost > 0.44 {
+		t.Errorf("MeanCost: want ~0.4333, got %.4f", cb.MeanCost)
+	}
+
+	// Check sorting: model ascending, then kind ascending.
+	for i := 1; i < len(buckets); i++ {
+		if buckets[i].Model < buckets[i-1].Model {
+			t.Errorf("CostPerPass: sorting violation at %d: %s before %s", i, buckets[i-1].Model, buckets[i].Model)
+		}
+	}
+}
+
+func TestCostPerPassingSlice_Empty(t *testing.T) {
+	buckets := CostPerPassingSlice(nil)
+	if len(buckets) != 0 {
+		t.Errorf("empty input: want 0 buckets, got %d", len(buckets))
+	}
+}
+
+// ── CaptainMissRate ──────────────────────────────────────────────────────
+
+func TestCaptainMissRate_NoCaptainDispatches(t *testing.T) {
+	records := makeRecords() // no Dispatches set → rate should be 0
+	rate := CaptainMissRate(records)
+	if rate != 0 {
+		t.Errorf("no captain dispatches: want 0, got %.3f", rate)
+	}
+}
+
+func TestCaptainMissRate_WithDispatches(t *testing.T) {
+	// Two records with captain dispatches, one fail.
+	records := []Record{
+		{
+			SliceID: "S01", Verdict: "pass", Model: "m1",
+			Dispatches: []state.Dispatch{
+				{Role: "captain", Model: "claude", CostUSD: 0.10, Attempt: 1},
+			},
+		},
+		{
+			SliceID: "S02", Verdict: "fail", Model: "m1",
+			Dispatches: []state.Dispatch{
+				{Role: "captain", Model: "claude", CostUSD: 0.10, Attempt: 1},
+			},
+		},
+	}
+	rate := CaptainMissRate(records)
+	if rate != 0.5 {
+		t.Errorf("captain miss rate: want 0.5, got %.3f", rate)
+	}
+}
+
+func TestCaptainMissRate_BlockedCountsAsMiss(t *testing.T) {
+	records := []Record{
+		{
+			SliceID: "S01", Verdict: "blocked", Model: "m1",
+			Dispatches: []state.Dispatch{
+				{Role: "captain", Model: "claude", CostUSD: 0.10, Attempt: 1},
+			},
+		},
+	}
+	rate := CaptainMissRate(records)
+	if rate != 1.0 {
+		t.Errorf("blocked should count as miss: want 1.0, got %.3f", rate)
+	}
+}
+// ── VerifierOverturnRate ─────────────────────────────────────────────────
+
+func TestVerifierOverturnRate_NoMultiRecordSlices(t *testing.T) {
+	records := makeRecords() // one record per SliceID
+	rate := VerifierOverturnRate(records)
+	if rate != 0 {
+		t.Errorf("single-verdict slices: want 0, got %.3f", rate)
+	}
+}
+
+func TestVerifierOverturnRate_WithOverturn(t *testing.T) {
+	records := []Record{
+		{SliceID: "S01", Verdict: "fail", Model: "m1", Ts: "2026-01-01T00:00:00Z"},
+		{SliceID: "S01", Verdict: "pass", Model: "m1", Ts: "2026-01-02T00:00:00Z"},
+		{SliceID: "S02", Verdict: "pass", Model: "m1", Ts: "2026-01-03T00:00:00Z"},
+		{SliceID: "S02", Verdict: "pass", Model: "m1", Ts: "2026-01-04T00:00:00Z"},
+	}
+	rate := VerifierOverturnRate(records)
+	if rate != 0.5 {
+		t.Errorf("S01 overturned, S02 stable: want 0.5, got %.3f", rate)
+	}
+}
+
+// ── PerRoleQualityAll ────────────────────────────────────────────────────
+
+func TestPerRoleQualityAll_EmptyDispatches(t *testing.T) {
+	pqs := PerRoleQualityAll(makeRecords())
+	// Should still return captain + verifier entries with zero sample.
+	if len(pqs) < 2 {
+		t.Errorf("expected at least 2 roles, got %d", len(pqs))
+	}
+	foundCaptain := false
+	foundVerifier := false
+	for _, pq := range pqs {
+		if pq.Role == "captain" {
+			foundCaptain = true
+		}
+		if pq.Role == "verifier" {
+			foundVerifier = true
+		}
+	}
+	if !foundCaptain || !foundVerifier {
+		t.Errorf("missing required roles: captain=%v verifier=%v", foundCaptain, foundVerifier)
+	}
+}
+
 // ── Load ─────────────────────────────────────────────────────────────────
 
 func TestLoad_EmptyFile(t *testing.T) {
@@ -289,12 +423,17 @@ func TestReport_Render(t *testing.T) {
 		"Pass-rate by model",
 		"Attempts to pass",
 		"Gate-failure histogram",
+		"Per-role quality",
 		"claude-sonnet",
 		"gpt-5",
 		"provider",
 		"harness",
 		"memory",
 		"commercial",
+		"total cost",
+		"COST/EA",
+		"MISS_RATE",
+		"OVERTURN_RATE",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q", want)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/swornagent/sworn/internal/command"
@@ -26,8 +27,8 @@ func runLedger(args []string) int {
 		fmt.Fprint(os.Stderr, "sworn ledger — manage the verdict ledger\n\n")
 		fmt.Fprint(os.Stderr, "usage:\n")
 		fmt.Fprint(os.Stderr, "  sworn ledger sync        harvest every release board into docs/ledger/verdicts.jsonl\n")
-		fmt.Fprint(os.Stderr, "  sworn ledger report      print pass-rate, attempts-to-pass, and gate-failure aggregates\n")
-		fmt.Fprint(os.Stderr, "  sworn ledger recommend <kind>  rank models for a slice kind by measured pass-rate\n")
+		fmt.Fprint(os.Stderr, "  sworn ledger report      print pass-rate, attempts-to-pass, gate-failure, and cost aggregates\n")
+		fmt.Fprint(os.Stderr, "  sworn ledger recommend <role> <kind> [--optimize quality|cost|balanced] [--floor 0.8]\n")
 		return 64
 	}
 	switch args[0] {
@@ -41,9 +42,10 @@ func runLedger(args []string) int {
 		fmt.Fprintf(os.Stderr, "unknown ledger subcommand %q\n\n", args[0])
 		fmt.Fprint(os.Stderr, "usage: sworn ledger sync\n")
 		fmt.Fprint(os.Stderr, "usage: sworn ledger report\n")
-		fmt.Fprint(os.Stderr, "usage: sworn ledger recommend <kind>\n")
+		fmt.Fprint(os.Stderr, "usage: sworn ledger recommend <role> <kind> [--optimize quality|cost|balanced] [--floor 0.8]\n")
 		return 64
-	}}
+	}
+}
 
 // cmdLedgerSync walks every docs/release/*/*/status.json, projects each
 // terminal verdict into a Record, and appends it to docs/ledger/verdicts.jsonl.
@@ -130,7 +132,8 @@ func countGates(repoRoot, sliceID, release string) int {
 	return count
 }
 
-// cmdLedgerReport reads the verdict corpus and prints the three aggregate tables.
+// cmdLedgerReport reads the verdict corpus and prints the aggregate tables
+// including cost and per-role quality columns (S56).
 func cmdLedgerReport(args []string) int {
 	repoRoot, err := findRepoRoot()
 	if err != nil {
@@ -149,17 +152,53 @@ func cmdLedgerReport(args []string) int {
 	r.Render(os.Stdout, records)
 	return 0
 }
+
 // cmdLedgerRecommend loads the verdict corpus and prints the ranked model
-// recommendation for the given slice kind (e.g. "harness", "provider").
-// With no kind argument, it prints usage and exits non-zero.
+// recommendation for the given (role, kind), optionally with cost-aware
+// routing via --optimize and --floor flags.
+//
+// Usage: sworn ledger recommend <role> <kind> [--optimize quality|cost|balanced] [--floor 0.8]
 func cmdLedgerRecommend(args []string) int {
-	if len(args) == 0 {
-		fmt.Fprint(os.Stderr, "usage: sworn ledger recommend <kind>\n")
+	// Parse positional args: <role> <kind>
+	var positional []string
+	var optimize string
+	floor := 0.0
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--optimize":
+			i++
+			if i < len(args) {
+				optimize = args[i]
+			}
+		case "--floor":
+			i++
+			if i < len(args) {
+				if f, err := strconv.ParseFloat(args[i], 64); err == nil {
+					floor = f
+				}
+			}
+		default:
+			positional = append(positional, args[i])
+		}
+	}
+
+	if len(positional) < 2 {
+		fmt.Fprint(os.Stderr, "usage: sworn ledger recommend <role> <kind> [--optimize quality|cost|balanced] [--floor 0.8]\n")
 		fmt.Fprint(os.Stderr, "\n")
+		fmt.Fprint(os.Stderr, "  <role> is the agent role to route (e.g. implementer)\n")
 		fmt.Fprint(os.Stderr, "  <kind> is a slice-dimension label: harness, provider, commercial, memory, etc.\n")
+		fmt.Fprint(os.Stderr, "\n")
+		fmt.Fprint(os.Stderr, "  --optimize  quality | cost | balanced (default quality)\n")
+		fmt.Fprint(os.Stderr, "  --floor     minimum pass-rate gate (default 0.8)\n")
 		return 64
 	}
-	kind := args[0]
+	role := positional[0]
+	kind := positional[1]
+
+	if optimize == "" {
+		optimize = "quality"
+	}
 
 	repoRoot, err := findRepoRoot()
 	if err != nil {
@@ -175,19 +214,100 @@ func cmdLedgerRecommend(args []string) int {
 	}
 
 	if len(records) == 0 {
-		fmt.Printf("No verdict records for kind %q — run 'sworn ledger sync' first.\n", kind)
+		fmt.Printf("No verdict records — run 'sworn ledger sync' first.\n")
 		return 0
 	}
 
-	rec, ok := ledger.RecommendModel(records, kind)
+	obj := ledger.ParseObjective(optimize)
+	rec, ok := ledger.RecommendModel(records, role, kind, obj, floor)
 	if !ok {
-		fmt.Printf("No confident recommendation for kind %q (need at least %d verdicts per model).\n", kind, ledger.MinSampleSize)
+		fmt.Printf("No confident recommendation for %s %q (need at least %d verdicts per model).\n",
+			role, kind, ledger.MinSampleSize)
 		return 0
 	}
 
-	fmt.Printf("Recommendation for %q:\n", kind)
+	fmt.Printf("Recommendation for %s %q (--optimize %s):\n", role, kind, obj.String())
 	fmt.Printf("  model:      %s\n", rec.Model)
 	fmt.Printf("  pass-rate:  %.0f%%\n", rec.PassRate*100)
 	fmt.Printf("  sample:     %d verdicts\n", rec.Sample)
+	if rec.MeanCostUSD > 0 {
+		fmt.Printf("  mean cost:  $%.4f/slice\n", rec.MeanCostUSD)
+	}
+
+	// Show all ranked candidates for transparency.
+	fmt.Println()
+	fmt.Println("All ranked models:")
+	fmt.Println("  MODEL                                   PASS-RATE  SAMPLE  COST/EA")
+	fmt.Println("  -----                                   ---------  ------  -------")
+	// Re-rank with quality mode to show all models with enough sample.
+	candidates := buildCandidateList(records, kind)
+	for _, c := range candidates {
+		costStr := "—"
+		if c.meanCost > 0 {
+			costStr = fmt.Sprintf("$%.4f", c.meanCost)
+		}
+		fmt.Printf("  %-40s %5.0f%%     %4d   %s\n", c.model, c.passRate*100, c.sample, costStr)
+	}
 	return 0
+}
+
+// candidateRow is a lightweight struct for display in the recommend CLI.
+type candidateRow struct {
+	model    string
+	passRate float64
+	sample   int
+	meanCost float64
+}
+
+// buildCandidateList returns all models with enough sample for display.
+func buildCandidateList(records []ledger.Record, kind string) []candidateRow {
+	type accum struct {
+		pass, fail, blocked int
+		totalCost           float64
+	}
+	m := make(map[string]*accum)
+	for _, r := range records {
+		if r.SliceKind != kind {
+			continue
+		}
+		if r.Verdict != "pass" && r.Verdict != "fail" && r.Verdict != "blocked" {
+			continue
+		}
+		a := m[r.Model]
+		if a == nil {
+			a = &accum{}
+			m[r.Model] = a
+		}
+		switch r.Verdict {
+		case "pass":
+			a.pass++
+		case "fail":
+			a.fail++
+		case "blocked":
+			a.blocked++
+		}
+		a.totalCost += r.TotalCostUSD
+	}
+
+	var out []candidateRow
+	for model, a := range m {
+		sample := a.pass + a.fail + a.blocked
+		if sample < ledger.MinSampleSize {
+			continue
+		}
+		rate := float64(a.pass) / float64(sample)
+		meanCost := a.totalCost / float64(sample)
+		out = append(out, candidateRow{model: model, passRate: rate, sample: sample, meanCost: meanCost})
+	}
+
+	// Sort by pass-rate descending.
+	for i := 0; i < len(out); i++ {
+		for j := i + 1; j < len(out); j++ {
+			if out[j].passRate > out[i].passRate ||
+				(out[j].passRate == out[i].passRate && out[j].model < out[i].model) {
+				out[i], out[j] = out[j], out[i]
+			}
+		}
+	}
+	return out
 }

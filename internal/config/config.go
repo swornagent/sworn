@@ -18,7 +18,8 @@ import (
 	"github.com/swornagent/sworn/internal/ledger"
 )
 
-// Config is the sworn runtime configuration. All model selections are// "provider/model" strings (e.g. "openai/gpt-4.1") as used by model.FromEnv.
+// Config is the sworn runtime configuration. All model selections are
+// "provider/model" strings (e.g. "openai/gpt-4.1") as used by model.FromEnv.
 //
 // For UI-bearing projects, the DesignSystem field declares the project's
 // design tokens source and component library, used by sworn designaudit (S09)
@@ -27,6 +28,15 @@ type Config struct {
 	Version     int          `json:"version"`
 	Verifier    ModelSetting `json:"verifier"`
 	Implementer ModelSetting `json:"implementer,omitempty"`
+
+	// OptimizeMode selects the implementer routing strategy: "quality",
+	// "cost", or "balanced". When empty, defaults to "quality" (S54
+	// behaviour, unchanged).
+	OptimizeMode string `json:"optimize_mode,omitempty"`
+
+	// PassRateFloor overrides the default quality floor for cost-aware
+	// routing (default 0.8). Values <= 0 or > 1 use the default.
+	PassRateFloor float64 `json:"pass_rate_floor,omitempty"`
 
 	// UIBearing marks the project as UI-bearing. When true, a DesignSystem
 	// declaration is required or sworn will fail closed. When false (or absent),
@@ -37,8 +47,7 @@ type Config struct {
 	// struct), the design tokens source of truth (TokenSource), and the coded
 	// component library (ComponentLibrary). Required when UIBearing is true.
 	DesignSystem *DesignSystem `json:"design_system,omitempty"`
-}
-// DesignSystem represents a project's design system declaration.
+}// DesignSystem represents a project's design system declaration.
 // The three concepts are distinguished:
 //   - DesignSystem (the umbrella struct)
 //   - TokenSource (design tokens — the named-value source of truth)
@@ -198,8 +207,17 @@ var DefaultEscalationModels = []string{
 // empty, the ledger lookup is skipped. ledgerPath is the path to
 // docs/ledger/verdicts.jsonl; when empty, the ledger lookup is skipped.
 //
+// optimizeMode selects the routing strategy: "quality", "cost", or
+// "balanced". When empty, defaults to "quality" (S54 behaviour unchanged).
+// Precedence: optimizeMode param → $SWORN_OPTIMIZE_MODE → config file
+// optimize_mode field.
+//
+// passRateFloor overrides the quality floor for cost-aware routing
+// (default 0.8). Values <= 0 or > 1 use the default. Precedence:
+// passRateFloor param → config file pass_rate_floor field.
+//
 // Returns an error when no source provides a model.
-func ResolveImplementerModel(flagModel string, cfg Config, sliceKind string, ledgerPath string) (string, error) {
+func ResolveImplementerModel(flagModel string, cfg Config, sliceKind string, ledgerPath string, optimizeMode string, passRateFloor float64) (string, error) {
 	if flagModel != "" {
 		return flagModel, nil
 	}
@@ -210,12 +228,34 @@ func ResolveImplementerModel(flagModel string, cfg Config, sliceKind string, led
 		return cfg.Implementer.Model, nil
 	}
 
+	// Resolve optimize mode: param → env → config → default "quality".
+	mode := optimizeMode
+	if mode == "" {
+		mode = os.Getenv("SWORN_OPTIMIZE_MODE")
+	}
+	if mode == "" && cfg.OptimizeMode != "" {
+		mode = cfg.OptimizeMode
+	}
+	if mode == "" {
+		mode = "quality"
+	}
+
+	// Resolve pass-rate floor: param → config → default 0.
+	floor := passRateFloor
+	if floor <= 0 || floor > 1 {
+		floor = cfg.PassRateFloor
+	}
+	if floor <= 0 || floor > 1 {
+		floor = 0 // let RecommendModel use DefaultPassRateFloor
+	}
+
 	// Ledger-backed default: when sliceKind is non-empty and the corpus
 	// has a confident recommendation, use it.
 	if sliceKind != "" && ledgerPath != "" {
 		records, err := ledger.Load(ledgerPath)
 		if err == nil {
-			if rec, ok := ledger.RecommendModel(records, sliceKind); ok {
+			obj := ledger.ParseObjective(mode)
+			if rec, ok := ledger.RecommendModel(records, "implementer", sliceKind, obj, floor); ok {
 				return rec.Model, nil
 			}
 		}
@@ -228,8 +268,7 @@ func ResolveImplementerModel(flagModel string, cfg Config, sliceKind string, led
 		"implementer model not configured — run 'sworn init' to scaffold a config file (%s) or set $SWORN_IMPLEMENTER_MODEL",
 		Path(),
 	)
-}
-// ResolveEscalationModels returns the ordered escalation model list from the
+}// ResolveEscalationModels returns the ordered escalation model list from the
 // first available source, in precedence order:
 //
 //  1. --escalation-models flag (passed as a pre-parsed []string)
