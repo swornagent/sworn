@@ -26,8 +26,38 @@
 5. `TestRetryPassesVerifierRationale`: Changed from 2-model escalation to 1-model resolve_in_place
 6. `TestRetryFeedbackResolvesToPass`: Changed from 2-model escalation to 1-model resolve_in_place
 
-### Out of scope (Rule 2 deferrals)
+## 2026-07-21: Verifier verdict — PASS
 
+### Verification evidence
+
+- **Gate 1 (User-reachable outcome)**: ✅ The triage `Decide()` is wired into `RunSlice()` at `internal/run/slice.go:398`, invoked by `sworn run`'s `Run()` function. The triage decision replaces the old fixed verdict switch.
+- **Gate 2 (Planned touchpoints)**: ✅ `internal/run/slice.go` (triage integration), `internal/orchestrator/triage.go` (new triage policy), `internal/orchestrator/triage_test.go` (new unit tests) all present. Additional test files `internal/run/run_test.go` and `internal/run/slice_test.go` are natural integration test extensions — acknowledged in proof.md.
+- **Gate 3 (Required tests)**: ✅ All 3 required tests exist and pass. `go test -race ./internal/orchestrator/... ./internal/run/...` passes on fresh run. Run with `-count=1` to force: `orchestrator: 1.011s`, `run: 4.764s`.
+- **Gate 4 (Reachability artefact)**: ✅ `TestRun_FailThenPass_RetrySucceeds` shows FAIL→resolve_in_place→PASS decision log through full `sworn run` path. Decision log:
+  ```
+  sworn run: verdict FAIL (cost $0.0000)
+  sworn run: rationale: FAIL: first try fail
+  sworn run: triage: resolve_in_place — FAIL/Inconclusive: resolve_in_place attempt 1/1 on model 0 — retrying same model with S44 feedback
+  sworn run: verdict PASS (cost $0.0000)
+  sworn run: rationale: PASS: second try ok
+  ```
+- **Gate 5 (No silent deferrals)**: ✅ Zero dark-code markers (TODO/FIXME/HACK/placeholder) in changed files. The deferred LLM-orchestrator from spec is properly tracked with why/tracking/ack.
+- **Gate 6 (Scope match)**: ✅ All 5 delivered items verified with evidence:
+  1. FAIL→resolve_in_place then FAIL→escalate_model: `TestFailResolvesThenEscalates` + `triage.go:96-114`
+  2. Exhausted escalation→halt: `TestExhaustedEscalationHalts` + `triage.go:117-124`
+  3. BLOCKED→halt with violations, no re-classification: `TestBlockedHaltsCommitsBlocked` + `slice.go:421-453`; reason doesn't contain "spec-defect"/"genuine"
+  4. Explainable rationale per triage decision: `TestTriageReasonAuditability` (4 sub-cases)
+  5. All tests pass: `go test -race -count=1 ./internal/orchestrator/... ./internal/run/...`
+
+### Verdict
+
+**PASS** — all 6 verification gates satisfied.
+
+### Next step
+
+T13-sworn-role-parity has 3 slices: S45 (verified), S46 (verified), S47 (verified). All slices in track T13 are now `verified`. The next step is `/merge-track T13-sworn-role-parity`.
+
+### Out of scope (Rule 2 deferrals)
 - **Full LLM-orchestrator**: Deferred. Why: prove deterministic policy shape first. Tracking: S47 spec "Out of scope". Ack: Coach 2026-06-21.
 - **Interactive human-halt UX**: Deferred. Tracking: S47 spec "Out of scope". Ack: Coach 2026-06-21.
 - **Lifecycle routing / BLOCKED-resolvability**: Not deferred — reassigned to S58 (T17-orchestration-core).
