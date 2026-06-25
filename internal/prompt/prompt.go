@@ -16,9 +16,8 @@ import (
 	"github.com/swornagent/sworn/internal/baton"
 )
 
-//go:embed verifier.md implementer.md planner.md captain.md verify-stateless.md requirements-verifier.md VERSION.txt baton/*
+//go:embed verifier.md implementer.md planner.md captain.md verify-stateless.md requirements-verifier.md design-tldr.md VERSION.txt baton/*
 var fs embed.FS
-
 var (
 	verifier             string
 	implementer          string
@@ -26,6 +25,7 @@ var (
 	captain              string
 	verifyStateless      string
 	requirementsVerifier string
+	designTLDR           string
 	trackMode            string
 )
 
@@ -36,6 +36,7 @@ func init() {
 	captain = mustRead("captain.md")
 	verifyStateless = mustRead("verify-stateless.md")
 	requirementsVerifier = mustRead("requirements-verifier.md")
+	designTLDR = mustRead("design-tldr.md")
 	trackMode = mustRead("baton/track-mode.md")
 }
 
@@ -70,9 +71,13 @@ func Planner() string { return planner }
 // Captain returns the embedded Baton captain role prompt.
 func Captain() string { return captain }
 
+// DesignTLDR returns the embedded design-TL;DR prompt (§1–§6) used by the
+// design-generation step in sworn run (S45).
+func DesignTLDR() string { return designTLDR }
+
 // BatonVersion returns the vendored Baton protocol version string (e.g. "on Baton v0.4.2").
-func BatonVersion() string { return "on Baton " + baton.Version() }// TrackMode returns the embedded Baton track-mode.md content.
-func TrackMode() string { return trackMode }
+func BatonVersion() string { return "on Baton " + baton.Version() } // TrackMode returns the embedded Baton track-mode.md content.
+func TrackMode() string    { return trackMode }
 
 // Baton returns the content of a single Baton protocol document from the
 // embedded baton/ subdirectory. name is the filename relative to baton/

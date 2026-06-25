@@ -185,8 +185,6 @@ func stdoutAgent(content string) *fakeImplementer {
 func TestRun_PassPath_Merges(t *testing.T) {
 	workspaceRoot, _ := setupTestRepo(t)
 
-	impl := stdoutAgent("hello from sworn run")
-
 	verifier := &fakeVerifier{
 		verdicts: []verdict.Result{
 			{Verdict: verdict.Pass, Rationale: "all good"},
@@ -199,7 +197,7 @@ func TestRun_PassPath_Merges(t *testing.T) {
 		Base:          "main",
 		RetryCap:      0,
 		WorkspaceRoot: workspaceRoot,
-		NewAgent:      func(_ string) (agent.Agent, error) { return impl, nil },
+		NewAgent:      func(_ string) (agent.Agent, error) { return stdoutAgent("hello from sworn run"), nil },
 		NewVerifier:   func(_ string) (model.Verifier, error) { return verifier, nil },
 	})
 	if err != nil {
@@ -241,11 +239,13 @@ func TestRun_FailPath_NoMerge(t *testing.T) {
 
 	impl := stdoutAgent("should not merge")
 
+	// K=1 resolve-in-place: with 1 model and 2 FAILs, the triage
+	// exhausts (first FAIL → resolve_in_place, second FAIL → halt
+	// because no more models to escalate to).
 	verifier := &fakeVerifier{
 		verdicts: []verdict.Result{
 			{Verdict: verdict.Fail, Rationale: "missing test"},
 			{Verdict: verdict.Fail, Rationale: "still missing"},
-			{Verdict: verdict.Fail, Rationale: "nope"},
 		},
 	}
 
@@ -253,9 +253,9 @@ func TestRun_FailPath_NoMerge(t *testing.T) {
 		Task:             "Write a file",
 		VerifierModel:    "fake/verifier",
 		Base:             "main",
-		RetryCap:         2,
+		RetryCap:         1,
 		WorkspaceRoot:    workspaceRoot,
-		EscalationModels: []string{"fake/impl1", "fake/impl2", "fake/impl3"},
+		EscalationModels: []string{"fake/impl1"},
 		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
 		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
 	})
@@ -572,8 +572,6 @@ func setupFixtureSlice(t *testing.T) (worktreeRoot, specPath, statusPath string,
 func TestRunSlice(t *testing.T) {
 	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
 
-	impl := stdoutAgent("hello from RunSlice")
-
 	verifier := &fakeVerifier{
 		verdicts: []verdict.Result{
 			{Verdict: verdict.Pass, Rationale: "all good"},
@@ -584,7 +582,7 @@ func TestRunSlice(t *testing.T) {
 		VerifierModel:    "fake/verifier",
 		RetryCap:         0,
 		EscalationModels: []string{"fake/impl"},
-		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
+		NewAgent:         func(_ string) (agent.Agent, error) { return stdoutAgent("hello from RunSlice"), nil },
 		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
 	})
 	if err != nil {
@@ -625,7 +623,7 @@ func TestRunSliceFail(t *testing.T) {
 	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
 		VerifierModel:    "fake/verifier",
 		RetryCap:         1,
-		EscalationModels: []string{"fake/impl1", "fake/impl2"},
+		EscalationModels: []string{"fake/impl1"},
 		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
 		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
 	})
@@ -718,7 +716,7 @@ func TestRunSlice_FailNotifiesOnce(t *testing.T) {
 	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
 		VerifierModel:    "fake/verifier",
 		RetryCap:         1,
-		EscalationModels: []string{"fake/impl1", "fake/impl2"},
+		EscalationModels: []string{"fake/impl1"},
 		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
 		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
 		Notifier:         notifier,

@@ -541,7 +541,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 - In progress: 1
 - Implemented: 0
 - Design review: 0
-- Verified: 64
+- Verified: 65
 - Failed verification: 0
 - Deferred: 0
 
@@ -550,8 +550,31 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 
 ## Recent activity
 
-### 2026-06-26 — track `T21-mcp-lint` merged to release-wt (commit ae328ed)
+### 2026-07-21 — slice `S46-captain-review` → verified (PASS)
+- **Actor**: verifier (fresh context, artefact-only).
+- **Verdict**: PASS — all six verification gates satisfied.
+  - Gate 1: Captain review wired into RunSlice — called after design TL;DR, gates implement loop on escalate pins.
+  - Gate 2: Planned touchpoints (review.go, review_test.go, slice.go) matched; state.go/prompt.go reused existing (documented).
+  - Gate 3: 5 unit tests (EscalatePinHalts, CleanDesignProceeds, PinsClassified, ReviewModelError, FormatPinsAsFeedbackNil) pass with `go test -race`.
+  - Gate 4: Integration in RunSlice exercised by TestRunSlice* e2e tests.
+  - Gate 5: No TODO/FIXME/HACK/placeholder in S46 code.
+  - Gate 6: All 8 delivered items verified against the code.
+- **State**: S46 → `verified`. T13 → `in_progress` (S47-orchestrator-recovery (now verified)).
+- **Next**: Next slice in track T13 is S47-orchestrator-recovery: `/implement-slice S47-orchestrator-recovery 2026-06-19-safe-parallelism`.
 
+### 2026-07-21 — slice `S47-orchestrator-recovery` → verified (PASS)
+- **Actor**: verifier (fresh context, artefact-only).
+- **Verdict**: PASS — all six verification gates satisfied.
+  - Gate 1: Triage `Decide()` wired into `RunSlice()` at `internal/run/slice.go:398` — replaces the old fixed verdict switch through the user entry point `sworn run`.
+  - Gate 2: Planned touchpoints (`slice.go`, `triage.go`, `triage_test.go`) matched; `run_test.go` and `slice_test.go` additions are natural integration test extensions.
+  - Gate 3: 9 unit + 10 integration tests pass under `go test -race -count=1 ./internal/orchestrator/... ./internal/run/...`.
+  - Gate 4: `TestRun_FailThenPass_RetrySucceeds` shows triage decision log: FAIL→resolve_in_place→PASS through full `sworn run` loop.
+  - Gate 5: Zero TODO/FIXME/HACK/placeholder in S47-specific code; deferred LLM-orchestrator properly tracked.
+  - Gate 6: All 5 delivered items verified with named test evidence.
+- **State**: S47 → `verified`. T13 → `in_progress` (all 3 slices verified; ready for `/merge-track`).
+- **Next**: All slices in track T13 are verified. Next step: `/merge-track T13-sworn-role-parity`.
+
+### 2026-06-26 — track `T21-mcp-lint` merged to release-wt (commit ae328ed)
 - **Actor**: track integrator (/merge-track)
 - **Note**: 1 verified slice merged: S71-mcp-lint-tools. Track state -> merged. Forward-merged 10 sibling commits (T22-tui-gate merge) into track before integration; index.md conflict resolved (T22 state + frontmatter `---` fence restored).
 

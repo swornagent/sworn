@@ -116,7 +116,8 @@ func TestCaptain_ResolveDirtyWorktree(t *testing.T) {
 		t.Errorf("Captain() missing drift detection step")
 	}
 }
-func TestBatonVersion_NonEmpty(t *testing.T) {	if got := BatonVersion(); got == "" {
+func TestBatonVersion_NonEmpty(t *testing.T) {
+	if got := BatonVersion(); got == "" {
 		t.Fatal("BatonVersion() returned empty string")
 	}
 }
@@ -182,6 +183,7 @@ func TestVerifierHasCatalogConformance(t *testing.T) {
 		t.Errorf("Verifier() missing 'Gate 6 — Design conformance' heading")
 	}
 }
+
 // --- Baton protocol embed tests (S21-canonical-baton) ---
 
 func TestBatonRulesNonEmpty(t *testing.T) {

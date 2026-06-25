@@ -236,8 +236,8 @@ func TestImplementTimeoutExhaustsToHuman(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error after exhausting timeouts, got nil")
 	}
-	if !strings.Contains(err.Error(), "implementer failed after") {
-		t.Fatalf("expected 'implementer failed after' message, got: %v", err)
+	if !strings.Contains(err.Error(), "verification failed after") {
+		t.Fatalf("expected 'verification failed after' message, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "Escalate to human") {
 		t.Fatalf("expected 'Escalate to human' message, got: %v", err)
@@ -406,26 +406,22 @@ func TestRetryPassesVerifierRationale(t *testing.T) {
 	failReason := "FAIL: gate 1 — no feedback block in implementer prompt"
 	verifier := &failThenPassVerifier{failReason: failReason}
 
-	var agent0, agent1 *recordingPromptAgent
+	// With K=1 resolve_in_place, model-a retries itself on FAIL.
+	// agent0 handles both attempts: attempt 0 (no feedback) and attempt 1
+	// (with the verifier's rationale as feedback).
+	var agent0 *recordingPromptAgent
 
 	opts := RunSliceOptions{
-		EscalationModels: []string{"model-a", "model-b"},
+		EscalationModels: []string{"model-a"},
 		VerifierModel:    "fake/verifier",
 		RetryCap:         1,
 		ImplementTimeout: -1,
 		NewAgent: func(modelID string) (agent.Agent, error) {
-			switch modelID {
-			case "model-a":
+			if modelID == "model-a" {
 				agent0 = &recordingPromptAgent{requireFeedbackBlock: ""}
 				return agent0, nil
-			case "model-b":
-				// Model B receives the feedback block on retry and stops naturally.
-				// It records whether the block was present for the assertion below.
-				agent1 = &recordingPromptAgent{}
-				return agent1, nil
-			default:
-				return nil, fmt.Errorf("unknown model: %s", modelID)
 			}
+			return nil, fmt.Errorf("unknown model: %s", modelID)
 		},
 		NewVerifier: func(_ string) (model.Verifier, error) { return verifier, nil },
 	}
@@ -434,21 +430,20 @@ func TestRetryPassesVerifierRationale(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunSlice() error: %v", err)
 	}
-	if agent0 == nil || agent1 == nil {
-		t.Fatal("expected both agents to be created")
+	if agent0 == nil {
+		t.Fatal("expected agent to be created")
 	}
-
-	if strings.Contains(agent0.lastUserPrompt, "Previous attempt failed verification") {
-		t.Fatalf("attempt 0 must not receive feedback, got:\n%s", agent0.lastUserPrompt)
+	// agent0 is reused; the recordingPromptAgent captures the LAST prompt
+	// (attempt 1 with feedback). We verify the retry carried the rationale.
+	// Note: recordingPromptAgent stores only the last call, so we can't
+	// assert on attempt 0 here — that's covered by TestAttempt0EmptyFeedback.
+	if !strings.Contains(agent0.lastUserPrompt, failReason) {
+		t.Fatalf("retry did not receive prior rationale; got:\n%s", agent0.lastUserPrompt)
 	}
-	if !strings.Contains(agent1.lastUserPrompt, failReason) {
-		t.Fatalf("attempt 1 did not receive prior rationale; got:\n%s", agent1.lastUserPrompt)
-	}
-	if !strings.Contains(agent1.lastUserPrompt, "Previous attempt failed verification") {
-		t.Fatalf("attempt 1 did not receive feedback header; got:\n%s", agent1.lastUserPrompt)
+	if !strings.Contains(agent0.lastUserPrompt, "Previous attempt failed verification") {
+		t.Fatalf("retry did not receive feedback header; got:\n%s", agent0.lastUserPrompt)
 	}
 }
-
 func TestAttempt0EmptyFeedback(t *testing.T) {
 	workspaceRoot, specPath, statusPath, _ := setupSliceTestRepo(t)
 
@@ -488,25 +483,21 @@ func TestRetryFeedbackResolvesToPass(t *testing.T) {
 	failReason := "FAIL: implementer prompt missing feedback block"
 	verifier := &failThenPassVerifier{failReason: failReason}
 
-	var agent0, agent1 *recordingPromptAgent
+	// With K=1 resolve_in_place, model-a retries itself. The recordingPromptAgent
+	// captures the last prompt (attempt 1 with feedback).
+	var agent0 *recordingPromptAgent
 
 	opts := RunSliceOptions{
-		EscalationModels: []string{"model-a", "model-b"},
+		EscalationModels: []string{"model-a"},
 		VerifierModel:    "fake/verifier",
 		RetryCap:         1,
 		ImplementTimeout: -1,
 		NewAgent: func(modelID string) (agent.Agent, error) {
-			switch modelID {
-			case "model-a":
+			if modelID == "model-a" {
 				agent0 = &recordingPromptAgent{}
 				return agent0, nil
-			case "model-b":
-				// Model B receives the feedback block on retry and stops naturally.
-				agent1 = &recordingPromptAgent{}
-				return agent1, nil
-			default:
-				return nil, fmt.Errorf("unknown model: %s", modelID)
 			}
+			return nil, fmt.Errorf("unknown model: %s", modelID)
 		},
 		NewVerifier: func(_ string) (model.Verifier, error) { return verifier, nil },
 	}
@@ -515,16 +506,12 @@ func TestRetryFeedbackResolvesToPass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunSlice() error: %v", err)
 	}
-	if agent0 == nil || agent1 == nil {
-		t.Fatal("expected both agents to be created")
+	if agent0 == nil {
+		t.Fatal("expected agent to be created")
 	}
-	if agent0.seenFeedback {
-		t.Fatal("model-a should not have seen feedback on attempt 0")
+	if !agent0.seenFeedback {
+		t.Fatalf("model-a should have seen feedback on resolve_in_place retry; got prompt:\n%s", agent0.lastUserPrompt)
 	}
-	if !agent1.seenFeedback {
-		t.Fatalf("model-b should have seen feedback on attempt 1; got prompt:\n%s", agent1.lastUserPrompt)
-	}
-
 	final, err := state.Read(statusPath)
 	if err != nil {
 		t.Fatal(err)
