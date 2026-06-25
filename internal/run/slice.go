@@ -16,10 +16,10 @@ import (
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/implement"
 	"github.com/swornagent/sworn/internal/model"
+	"github.com/swornagent/sworn/internal/orchestrator"
 	"github.com/swornagent/sworn/internal/state"
 	"github.com/swornagent/sworn/internal/verdict"
-	"github.com/swornagent/sworn/internal/verify"
-)
+	"github.com/swornagent/sworn/internal/verify")
 // DefaultImplementTimeout is the per-attempt deadline applied to the implement
 // step inside RunSlice when no explicit timeout is configured. 15 minutes is
 // generous enough for most implement steps but prevents a hung agent from
@@ -128,22 +128,16 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		escalationModels = DefaultEscalationModels
 	}
 
-	retryCap := opts.RetryCap
-	if retryCap < 0 {
-		retryCap = len(escalationModels) - 1
-		if retryCap < 0 {
-			retryCap = 0
-		}
-	}
-
-	maxAttempts := retryCap + 1
-	if maxAttempts > len(escalationModels) {
-		maxAttempts = len(escalationModels)
-	}
+	// ── Triage policy (S47) ────────────────────────────────────────────
+	// The loop is driven by the triage policy, not a fixed attempt counter.
+	// maxResolves (K) is the per-model resolve_in_place budget; default 1 as
+	// per the S47 spec. escalate_model advances to the next model; halt
+	// commits the terminal state and returns.
+	maxResolves := 1
+	_ = opts.RetryCap // RetryCap is superseded by the triage policy; kept for API compat.
 
 	absSliceDir := filepath.Join(worktreeRoot, filepath.Dir(specPath))
 	proofPath := filepath.Join(absSliceDir, "proof.md")
-
 	// ── Resolve implement timeout ──────────────────────────────────────
 	// 0 means use default; negative means no timeout; positive is used as-is.
 	implementTimeout := opts.ImplementTimeout
@@ -240,12 +234,29 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		}
 	}
 
-	var lastVerdict verdict.Result
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		// ── Reset slice state for retry ────────────────────────────────
-		// Capture the prior verdict's rationale before clearing verification
-		// so the next implement attempt can receive actionable feedback.
-		if attempt > 0 {
+	// ── Triage-driven implement→verify loop (S47) ─────────────────────
+	// Replaces the fixed attempt-counter loop with a triage policy that
+	// decides resolve_in_place / escalate_model / halt per verifier verdict.
+	// Each model in the escalation list gets up to maxResolves (K) same-model
+	// retries before the triage advances to the next model; BLOCKED halts
+	// immediately.
+	var (
+		lastVerdict    verdict.Result
+		modelIdx       = 0
+		resolveCount   = 0
+		totalAttempts  = 0
+		firstAttempt   = true
+	)
+	for {
+		// ── Guard: model index out of range ─────────────────────────
+		if modelIdx >= len(escalationModels) {
+			// Should not happen with correct triage, but fail-safe.
+			return fmt.Errorf("RunSlice: triage advanced model index %d beyond escalation list length %d",
+				modelIdx, len(escalationModels))
+		}
+
+		// ── Reset slice state for retry ────────────────────────────
+		if !firstAttempt {
 			priorFeedback = lastVerdict.Rationale
 
 			st, err := state.Read(statusPath)
@@ -260,15 +271,18 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 				return fmt.Errorf("RunSlice: reset status for retry: %w", err)
 			}
 		}
-		implModelID := escalationModels[attempt]
+		firstAttempt = false
+		totalAttempts++
+
+		implModelID := escalationModels[modelIdx]
 		implAgent, err := opts.NewAgent(implModelID)
 		if err != nil {
 			return fmt.Errorf("RunSlice: create implementer agent for %q: %w", implModelID, err)
 		}
 
-		// ── Implement ──────────────────────────────────────────────────
-		fmt.Fprintf(os.Stderr, "sworn run: attempt %d/%d — implementing with %s\n",
-			attempt+1, maxAttempts, implModelID)
+		// ── Implement ───────────────────────────────────────────────
+		fmt.Fprintf(os.Stderr, "sworn run: attempt %d (model %d/%d, resolve %d/%d) — implementing with %s\n",
+			totalAttempts, modelIdx+1, len(escalationModels), resolveCount, maxResolves, implModelID)
 
 		var implErr error
 		if implementTimeout > 0 {
@@ -281,33 +295,51 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 
 		if implErr != nil {
 			if errors.Is(implErr, context.DeadlineExceeded) {
-				fmt.Fprintf(os.Stderr, "sworn run: implement attempt %d timed out after %s — escalating\n",
-					attempt+1, implementTimeout)
+				fmt.Fprintf(os.Stderr, "sworn run: implement attempt %d timed out after %s\n",
+					totalAttempts, implementTimeout)
 			} else {
 				fmt.Fprintf(os.Stderr, "sworn run: implementer error: %v\n", implErr)
 			}
-			if attempt+1 < maxAttempts {
-				fmt.Fprintf(os.Stderr, "sworn run: escalating implementer model for retry\n")
+			// Triage the implementer error: treat as FAIL for the policy.
+			triageOut := orchestrator.Decide(orchestrator.Input{
+				Verdict:        verdict.Fail,
+				AttemptOnModel: resolveCount,
+				ModelIdx:       modelIdx,
+				EscalationLen:  len(escalationModels),
+				MaxResolves:    maxResolves,
+			})
+			fmt.Fprintf(os.Stderr, "sworn run: triage (implementer error): %s — %s\n", triageOut.Action, triageOut.Reason)
+			switch triageOut.Action {
+			case orchestrator.ResolveInPlace:
+				resolveCount++
+				priorFeedback = fmt.Sprintf("implementer error: %v", implErr)
 				continue
+			case orchestrator.EscalateModel:
+				modelIdx++
+				resolveCount = 0
+				priorFeedback = fmt.Sprintf("implementer error: %v", implErr)
+				continue
+			case orchestrator.Halt:
+				// Commit failed_verification and return.
+				goto haltFailedVerification
 			}
-			return fmt.Errorf("RunSlice: implementer failed after %d attempts (last error: %w). "+
-				"Escalate to human.", maxAttempts, implErr)
 		}
-		// ── Commit agent changes ───────────────────────────────────────
+
+		// ── Commit agent changes ────────────────────────────────────
 		if err := repo.Stage("."); err != nil {
 			return fmt.Errorf("RunSlice: stage agent changes: %w", err)
 		}
-		if err := repo.Commit(fmt.Sprintf("feat(run): implementation attempt %d", attempt+1)); err != nil {
+		if err := repo.Commit(fmt.Sprintf("feat(run): implementation attempt %d", totalAttempts)); err != nil {
 			return fmt.Errorf("RunSlice: commit agent changes: %w", err)
 		}
 
-		// ── Compute diff ───────────────────────────────────────────────
+		// ── Compute diff ────────────────────────────────────────────
 		diff, err := repo.DiffRange(startCommit, "HEAD")
 		if err != nil {
 			return fmt.Errorf("RunSlice: compute diff: %w", err)
 		}
 
-		// ── Verify ─────────────────────────────────────────────────────
+		// ── Verify ──────────────────────────────────────────────────
 		verifierModelID := opts.VerifierModel
 		verifier, err := opts.NewVerifier(verifierModelID)
 		if err != nil {
@@ -344,9 +376,8 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			fmt.Fprintf(os.Stderr, "sworn run: rationale: %s\n", lastVerdict.Rationale)
 		}
 
-		switch lastVerdict.Verdict {
-		case verdict.Pass:
-			// ── Transition implemented → verified ──────────────────────
+		// ── PASS: transition to verified ────────────────────────────
+		if lastVerdict.Verdict == verdict.Pass {
 			st, err := state.Read(statusPath)
 			if err != nil {
 				return fmt.Errorf("RunSlice: read status for verified transition: %w", err)
@@ -361,37 +392,74 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 				return fmt.Errorf("RunSlice: write verified status: %w", err)
 			}
 			return nil
+		}
 
-		case verdict.Blocked:
-			if opts.Notifier != nil {
-				stNotify, _ := state.Read(statusPath)
-				if stNotify != nil {
-					summary := lastVerdict.Rationale
-					if len(summary) > 200 {
-						summary = summary[:197] + "..."
-					}
-					opts.Notifier.Notify(ctx, account.NotifyEvent{
-						Release:           stNotify.Release,
-						Track:             stNotify.Track,
-						SliceID:           stNotify.SliceID,
-						State:             "blocked",
-						ViolationsSummary: summary,
-						WorktreePath:      worktreeRoot,
-					})
+		// ── Non-PASS: run triage (S47) ──────────────────────────────
+		triageOut := orchestrator.Decide(orchestrator.Input{
+			Verdict:        lastVerdict.Verdict,
+			AttemptOnModel: resolveCount,
+			ModelIdx:       modelIdx,
+			EscalationLen:  len(escalationModels),
+			MaxResolves:    maxResolves,
+		})
+		fmt.Fprintf(os.Stderr, "sworn run: triage: %s — %s\n", triageOut.Action, triageOut.Reason)
+
+		switch triageOut.Action {
+		case orchestrator.ResolveInPlace:
+			// Retry same model with S44 feedback (the verifier's rationale).
+			resolveCount++
+			priorFeedback = lastVerdict.Rationale
+			continue
+
+		case orchestrator.EscalateModel:
+			// Advance to next model; reset per-model resolve counter.
+			modelIdx++
+			resolveCount = 0
+			priorFeedback = lastVerdict.Rationale
+			continue
+
+		case orchestrator.Halt:
+			// Commit terminal state.
+			if lastVerdict.Verdict == verdict.Blocked {
+				// ── BLOCKED: commit blocked with violations ─────────
+				st, stErr := state.Read(statusPath)
+				if stErr == nil {
+					st.Verification.Result = "blocked"
+					st.Verification.Violations = extractViolations(lastVerdict.Rationale)
+					st.LastUpdatedBy = "run-slice"
+					st.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
+					_ = state.Write(statusPath, st)
+					_ = repo.Stage(statusPath)
+					_ = repo.Commit("chore(run): verification blocked — router (S58) will route to replan-release")
 				}
+				// Notify on BLOCKED.
+				if opts.Notifier != nil {
+					stNotify, _ := state.Read(statusPath)
+					if stNotify != nil {
+						summary := lastVerdict.Rationale
+						if len(summary) > 200 {
+							summary = summary[:197] + "..."
+						}
+						opts.Notifier.Notify(ctx, account.NotifyEvent{
+							Release:           stNotify.Release,
+							Track:             stNotify.Track,
+							SliceID:           stNotify.SliceID,
+							State:             "blocked",
+							ViolationsSummary: summary,
+							WorktreePath:      worktreeRoot,
+						})
+					}
+				}
+				return fmt.Errorf("RunSlice: verification blocked: %s", lastVerdict.Rationale)
 			}
-			return fmt.Errorf("RunSlice: verification blocked: %s", lastVerdict.Rationale)
-		case verdict.Inconclusive:
-			fallthrough
-		default:
-			if attempt+1 < maxAttempts {
-				fmt.Fprintf(os.Stderr, "sworn run: verification failed — retrying with escalated implementer model\n")
-				continue
-			}
+
+			// ── FAIL/Inconclusive exhausted: transition to failed_verification ─
+			goto haltFailedVerification
 		}
 	}
 
-	// ── All attempts exhausted: transition to failed_verification ─────
+haltFailedVerification:
+	// ── Transition to failed_verification ────────────────────────────────
 	st, stErr := state.Read(statusPath)
 	if stErr == nil {
 		_ = st.State.Transition(state.FailedVerification) // ignore — state may already be terminal
@@ -420,9 +488,8 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	return fmt.Errorf(
 		"RunSlice: verification failed after %d attempts (last verdict: %s). "+
 			"Escalate to human. Slice reached failed_verification on worktree %s.",
-		maxAttempts, lastVerdict.Verdict, worktreeRoot,
-	)
-}
+		totalAttempts, lastVerdict.Verdict, worktreeRoot,
+	)}
 
 // writeTempFile writes content to a temporary file in dir matching pattern.
 func writeTempFile(dir, pattern, content string) (string, error) {
@@ -443,8 +510,41 @@ func writeTempFile(dir, pattern, content string) (string, error) {
 	return path, nil
 }
 
-// Sentinel error string prefixes used by RunSlice. Callers can
-// strings.Contains on the returned error to distinguish exit causes.
+// extractViolations parses a verifier rationale string into a slice of
+// individual violation strings. It handles numbered (1. ...) and bulleted
+// (- ...) items. If no structured items are found, the entire rationale is
+// treated as a single violation.
+// This is used by the BLOCKED halt path (S47) to populate
+// status.json → verification.violations so the S38 guard
+// (ValidateBlockedViolations) passes.
+func extractViolations(rationale string) []string {
+	if rationale == "" {
+		return []string{"(no rationale provided)"}
+	}
+	lines := strings.Split(rationale, "\n")
+	var violations []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		// Match "1. ...", "2. ...", etc., or "- ...", or "* ..."
+		if len(trimmed) >= 3 && trimmed[0] >= '0' && trimmed[0] <= '9' && trimmed[1] == '.' && trimmed[2] == ' ' {
+			violations = append(violations, strings.TrimSpace(trimmed[2:]))
+		} else if strings.HasPrefix(trimmed, "- ") {
+			violations = append(violations, strings.TrimSpace(trimmed[2:]))
+		} else if strings.HasPrefix(trimmed, "* ") {
+			violations = append(violations, strings.TrimSpace(trimmed[2:]))
+		}
+	}
+	if len(violations) == 0 {
+		// No structured items found — use the entire rationale.
+		return []string{rationale}
+	}
+	return violations
+}
+
+// Sentinel error string prefixes used by RunSlice. Callers can// strings.Contains on the returned error to distinguish exit causes.
 const (
 	errVerdictBlockedPrefix = "RunSlice: verification blocked:"
 	errVerdictFailPrefix    = "RunSlice: verification failed after"
