@@ -39,9 +39,9 @@ tracks:
     depends_on: [T2-monitoring, T5-providers, T18-cli-polish]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T6-provider-ux
     worktree_branch: track/2026-06-19-safe-parallelism/T6-provider-ux
-    state: verified  - id: T7-mcp-extensions
-    slices: [S20-mcp-catalog-tools]
-    depends_on: [T3-commercial, T4-mcp]
+    state: merged
+  - id: T7-mcp-extensions
+    slices: [S20-mcp-catalog-tools]    depends_on: [T3-commercial, T4-mcp]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T7-mcp-extensions
     worktree_branch: track/2026-06-19-safe-parallelism/T7-mcp-extensions
     state: merged
@@ -150,8 +150,7 @@ tracks:
 | `T1-concurrency-core` | S01 → S02a → S02b → S03 | — | `track/.../T1-concurrency-core` | merged |
 | `T2-monitoring` | S04a → S04b → S04c → S05 → S34 | T1 | `track/.../T2-monitoring` | merged |
 | `T3-commercial` | S06a → S06b → S07 → S09 → S18 → S19 → S21 | T1 + T15 | `track/.../T3-commercial` | merged || `T4-mcp` | S08a → S08b → S08c → S22 | T1 | `track/.../T4-mcp` | merged |
-| `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 → S39 → S63 | T1 + T3 | `track/.../T5-providers` | merged || `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | verified |
-| `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | merged || `T8-memory` | S23 → S24 → S25 → S40 | T1 | `track/.../T8-memory` | merged |
+| `T5-providers` | S10 → S11 → S12 → S13 → S14 → S15 → S16 → S39 → S63 | T1 + T3 | `track/.../T5-providers` | merged || `T6-provider-ux` | S17 | T2 + T5 | `track/.../T6-provider-ux` | merged || `T7-mcp-extensions` | S20 | T3 + T4 | `track/.../T7-mcp-extensions` | merged || `T8-memory` | S23 → S24 → S25 → S40 | T1 | `track/.../T8-memory` | merged |
 | `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
 | `T10-public-readiness` | S27 | all tracks (incl. T16 + T19) | `track/.../T10-public-readiness` | verified |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
@@ -1717,3 +1716,8 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - **Drift gate**: forward-merged 1 commit from release-wt; clean after merge.
 - **State**: S17 → verified. Track T6-provider-ux now has its only slice verified. Next: `/merge-track T6-provider-ux`.
 - **Note**: TUI text capture (not PNG) is authentic for Bubble Tea; path fixed to captures/.
+
+### 2026-07-15 — track `T6-provider-ux` merged to release-wt (commit `8c3ae3a`)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 1 verified slice merged: S17-tui-provider-config. Track state -> merged.
