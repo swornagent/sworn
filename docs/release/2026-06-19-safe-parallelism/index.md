@@ -82,7 +82,7 @@ tracks:
     worktree_branch: track/2026-06-19-safe-parallelism/T13-sworn-role-parity
     state: planned
   - id: T14-baton-integration
-    slices: [S48-baton-vendor, S49-baton-version, S50-baton-governance, S62-baton-upstream-source]
+    slices: [S48-baton-vendor, S49-baton-version, S50-baton-governance, S62-baton-upstream-source, S73-baton-v0.5.0-pin]
     depends_on: [T3-commercial, T15-cli-registry]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T14-baton-integration
     worktree_branch: track/2026-06-19-safe-parallelism/T14-baton-integration
@@ -483,7 +483,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 | `S47-orchestrator-recovery` | T13 | on non-PASS, intra-run triage chooses resolve-in-place / escalate / halt, then commits state and delegates lifecycle routing (BLOCKED→replan, fail→redesign/implement) to the S58 router (re-scoped 2026-06-23) | verified | [spec](./S47-orchestrator-recovery/spec.md) |
 | `S39-openai-responses-provider` | T5 | first-class OpenAI provider via /v1/responses (reasoning_effort + tool-calls + built-in web_search) + a cross-provider WebSearch/WebFetch agent tool — fixes gpt-5.x support + 'more than 6 tools' | verified | [spec](./S39-openai-responses-provider/spec.md) || `S48-baton-vendor` | T14 | `sworn baton vendor` — semver-pinned vendor of upstream Baton + bash→sworn transform over rules AND role-prompts (strips `release-verify.sh`/`release-board-status.sh`/`captain-memory-search.py`… → sworn-native commands); reproduces the sworn-native embed (subsumes the one-time scrub) | failed_verification | [spec](./S48-baton-vendor/spec.md) |
 | `S49-baton-version` | T14 | reconcile the Baton pin from a raw SHA to a **semver tag** across `VERSION`+`VERSION.txt`; `sworn version` reports "on Baton vX.Y.Z"; `sworn doctor` fails the pin if it's a SHA not a tag | verified | [spec](./S49-baton-version/spec.md) |
-| `S50-baton-governance` | T14 | `sworn baton diff` divergence check (embed vs upstream pin) + `docs/baton-governance.md` PR-up process note + ADR-0006; protocol changes found in sworn dev must PR upstream, never silently fork | verified | [spec](./S50-baton-governance/spec.md) || `S62-baton-upstream-source` | T14 | `sworn baton vendor --upstream` fetches the version-locked Baton release from `github.com/sawy3r/baton` over stdlib HTTPS (codeload tar.gz), verified by tag + commit-SHA/digest, fail-closed — embed source-of-truth is the public repo at a pinned version, not a local install (issue #11) | verified | [spec](./S62-baton-upstream-source/spec.md) || `S51-cli-command-registry` | T15 | command registry replaces the `cmd/sworn/main.go` dispatch switch; new subcommands self-register from their own file; `main.go` owned by one track — ends the recurring touchpoint collision | verified | [spec](./S51-cli-command-registry/spec.md) |
+| `S50-baton-governance` | T14 | `sworn baton diff` divergence check (embed vs upstream pin) + `docs/baton-governance.md` PR-up process note + ADR-0006; protocol changes found in sworn dev must PR upstream, never silently fork | verified | [spec](./S50-baton-governance/spec.md) || `S62-baton-upstream-source` | T14 | `sworn baton vendor --upstream` fetches the version-locked Baton release from `github.com/sawy3r/baton` over stdlib HTTPS (codeload tar.gz), verified by tag + commit-SHA/digest, fail-closed — embed source-of-truth is the public repo at a pinned version, not a local install (issue #11) | verified | [spec](./S62-baton-upstream-source/spec.md) || `S73-baton-v0.5.0-pin` | T14 | Update vendored Baton from cf15842 to v0.5.0 (b8452dd) — re-vendor role prompts (16-hat planner, fresh-context boundaries, LLM self-checks), rules (requirements-fidelity, design-fidelity, architecture.json), and verify `sworn version` shows baton-protocol v0.5.0 | planned | [spec](./S73-baton-v0.5.0-pin/spec.md) || `S51-cli-command-registry` | T15 | command registry replaces the `cmd/sworn/main.go` dispatch switch; new subcommands self-register from their own file; `main.go` owned by one track — ends the recurring touchpoint collision | verified | [spec](./S51-cli-command-registry/spec.md) |
 | `S52-ledger-projection` | T16 | Projects every slice's verdict into an append-only `docs/ledger/verdicts.jsonl`; captures implementer model + attempt; backfills the whole board on first sync | verified | [spec](./S52-ledger-projection/spec.md) |
 | `S53-ledger-cli` | T16 | `sworn ledger sync` harvests the board; `sworn ledger report` shows pass-rate by model × slice-kind, attempts-to-pass, gate-failure histogram | verified | [spec](./S53-ledger-cli/spec.md) |
 | `S54-ledger-routing` | T16 | `sworn ledger recommend <kind>` + S09's `ResolveImplementerModel` defaults to the highest measured pass-rate model for the slice kind (flag/env still win; thin corpus = unchanged) | verified | [spec](./S54-ledger-routing/spec.md) |
@@ -512,7 +512,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 > S07 `planned` despite `implemented`). Three duplicate rows (S22/S23/S24) and several
 > `||`-collapsed physical lines repaired.
 
-- Planned: 27
+- Planned: 28
 - In progress: 0
 - Implemented: 0
 - Design review: 1
