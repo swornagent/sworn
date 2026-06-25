@@ -26,3 +26,15 @@
 ### Subagent dispatches
 
 None.
+## 2026-07-15 — State: implemented
+
+Completed implementation. All 8 acceptance checks covered:
+- Hardcoded colour detection (hex, rgb, hsl) in UI diff files
+- Architecture rule engine (grep, touchpoints, diff-size, external)
+- Design-fidelity.json token exemptions
+- Design-allowlist.json per-slice suppression
+- Test file skipping
+- JSON + human-readable output
+- CLI integration via `sworn lint design`
+
+39 tests pass (gate package). First-pass verification: 22/23 checks pass (1 false positive from `E2E gate type: local` metadata triggering Playwright opt-in check).
