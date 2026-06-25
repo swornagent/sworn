@@ -123,8 +123,7 @@ tracks:
     depends_on: [T14-baton-integration, T15-cli-registry]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T20-gate-engine
     worktree_branch: track/2026-06-19-safe-parallelism/T20-gate-engine
-    state: in_progress
-  - id: T21-mcp-lint
+    state: verified  - id: T21-mcp-lint
     slices: [S71-mcp-lint-tools]
     depends_on: [T4-mcp, T20-gate-engine]
     worktree_path:
