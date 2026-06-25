@@ -7,11 +7,10 @@ import (
 	"path/filepath"
 
 	"github.com/swornagent/sworn/internal/ears"
+	"github.com/swornagent/sworn/internal/gate"
 	"github.com/swornagent/sworn/internal/lint"
-	"github.com/swornagent/sworn/internal/rtm"
 	"github.com/swornagent/sworn/internal/style"
 )
-
 // cmdLint dispatches `sworn lint <target> <release>`.
 //
 // Targets:
@@ -97,10 +96,14 @@ func cmdLintAC(args []string) int {
 
 // cmdLintTrace implements `sworn lint trace <release>`.
 //
-// Builds the 2-D requirements traceability matrix for a release and fails
-// closed (non-zero exit) on any broken trace: an orphaned need, an orphaned
-// acceptance criterion (no need or no test), or a slice with no vertical link.
-// A fully-traced release prints the matrix and exits 0.
+// Port of the canonical baton release-trace.sh: builds the full RTM + EARS +
+// sniff-test gate for Rule 8. Verifies the full requirements-fidelity chain:
+//
+//	intake → slice (covers_needs) → AC (spec.md citations) → test (Required tests)
+//
+// Plus structural-completeness sniff-test and EARS conformance.
+// Fails closed (non-zero exit) on any violation.
+// A fully-traced release prints the report and exits 0.
 func cmdLintTrace(args []string) int {
 	fs := flag.NewFlagSet("lint trace", flag.ExitOnError)
 	_ = fs.Parse(args)
@@ -118,27 +121,19 @@ func cmdLintTrace(args []string) int {
 		return 2
 	}
 
-	m, violations, err := rtm.Build(releaseDir)
+	report, err := gate.RunTrace(releaseDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sworn lint trace: %v\n", err)
 		return 2
 	}
 
-	fmt.Print(rtm.Print(m))
+	fmt.Print(gate.PrintReport(report))
 
-	if len(violations) > 0 {
-		fmt.Fprintln(os.Stderr, style.Danger(fmt.Sprintf("\n%d trace violation(s) found:", len(violations))))
-		for _, v := range violations {
-			fmt.Fprintf(os.Stderr, "  %s\n", v.String())
-		}
+	if report.HasViolations() {
 		return 1
 	}
-
-	fmt.Printf("\nAll traces verified. %d needs, %d acceptance criteria, %d tests, %d slices.\n",
-		len(m.Needs), len(m.ACs), len(m.Tests), len(m.Slices))
 	return 0
 }
-
 // cmdLintDeps implements `sworn lint deps <slice-id> <release>`.
 //
 // Checks that go.mod / go.sum changes in the slice's diff are declared in the
