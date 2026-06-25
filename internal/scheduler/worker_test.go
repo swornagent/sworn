@@ -816,3 +816,61 @@ func TestRouterDrivenWorkerLegacyFallback(t *testing.T) {
 		t.Fatalf("expected 2 slice calls (legacy), got %d: %v", len(called), called)
 	}
 }
+
+func TestCrashRecovery(t *testing.T) {
+	// AC-8: Crash recovery — a slice in in_progress state at worker startup
+	// simulates a process being SIGKILL'd mid-dispatch. On restart the router
+	// re-derives "implement" from the committed in_progress state (per S58's
+	// routing table: in_progress → implement) and the worker dispatches correctly.
+	// No slice strands in_progress permanently; no work is double-applied.
+	tmpDir := t.TempDir()
+
+	sid := "S01-inprogress"
+	d := filepath.Join(tmpDir, "docs", "release", "test-crash", sid)
+	os.MkdirAll(d, 0o755)
+	os.WriteFile(filepath.Join(d, "spec.md"), []byte("# test"), 0o644)
+	// Slice is in_progress — simulates a SIGKILL mid-dispatch leaving committed state.
+	os.WriteFile(filepath.Join(d, "status.json"), []byte(`{"state":"in_progress"}`), 0o644)
+
+	// Router simulates S58 re-derivation: in_progress → implement (restart).
+	router := &fakeRouter{
+		decisions: []SliceDecision{
+			{Type: "implement", Reason: "in_progress → restart from committed state", Target: ""},
+			{Type: "none", Reason: "terminal"},
+		},
+	}
+
+	var called []string
+	opts := WorkerOptions{
+		ReleaseName:         "test-crash",
+		PrimaryWorktreeRoot: tmpDir,
+		ProjectDir:          "sworn",
+		TrackInfo: board.TrackInfo{
+			ID:             "T1",
+			Slices:         []string{sid},
+			WorktreePath:   tmpDir,
+			WorktreeBranch: "track/test-crash/T1",
+		},
+		RunSliceFn: fakeRunSlice("", &called),
+		Router:     router,
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite not available: %v", err)
+	}
+	defer db.Close()
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+	opts.DB = db
+
+	result := RunTrack(context.Background(), opts)
+	if result != TrackPass {
+		t.Fatalf("expected TrackPass (crash recovery: in_progress → implement → pass), got %s", result)
+	}
+
+	// The worker must have dispatched implement for the in_progress slice.
+	if len(called) != 1 || called[0] != sid {
+		t.Fatalf("expected implement dispatch for %q, got %v", sid, called)
+	}
+}

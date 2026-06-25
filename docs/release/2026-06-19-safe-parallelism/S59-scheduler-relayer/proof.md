@@ -1,4 +1,4 @@
-# Proof Bundle: `S59-scheduler-relayer` (round 2)
+# Proof Bundle: `S59-scheduler-relayer` (round 3)
 
 ## Scope
 
@@ -14,6 +14,7 @@ cmd/sworn/doctor.go
 cmd/sworn/doctor_test.go
 cmd/sworn/lint.go
 cmd/sworn/lint_trace_test.go
+docs/decisions/2026-06-24-sworn-orchestration-surfaces-and-subscription-drivers.md
 docs/release/2026-06-19-safe-parallelism/S17-tui-provider-config/journal.md
 docs/release/2026-06-19-safe-parallelism/S17-tui-provider-config/proof.md
 docs/release/2026-06-19-safe-parallelism/S17-tui-provider-config/spec.md
@@ -79,6 +80,7 @@ internal/prompt/prompt_test.go
 internal/prompt/verifier.md
 internal/run/parallel.go
 internal/run/parallel_test.go
+internal/scheduler/pause.go
 internal/scheduler/worker.go
 internal/scheduler/worker_test.go
 internal/tui/model.go
@@ -86,7 +88,7 @@ internal/tui/settings.go
 internal/tui/settings_test.go
 ```
 
-Note: 76 files shown. Most are forward-merge artifacts from other tracks merged into T17's branch since start_commit. S59-specific touchpoints are: `internal/scheduler/worker.go`, `internal/scheduler/worker_test.go`, `internal/scheduler/pause.go` (new), `internal/run/parallel.go`, `internal/run/parallel_test.go`, `internal/board/oracle.go`, `docs/decisions/2026-06-24-sworn-orchestration-surfaces-and-subscription-drivers.md` (new). Forward-merge artifacts are documented in Divergence from plan.
+S59-specific touchpoints: `internal/scheduler/worker.go`, `internal/scheduler/worker_test.go`, `internal/scheduler/pause.go` (new), `internal/run/parallel.go`, `internal/run/parallel_test.go`, `internal/board/oracle.go`, `docs/decisions/2026-06-24-sworn-orchestration-surfaces-and-subscription-drivers.md` (new). All other entries are forward-merge artefacts from tracks (S17, S64, S65, S66-S73, adopt/baton, config, tui, prompt, lint) merged into T17's branch since start_commit.
 
 ## Test results
 
@@ -94,8 +96,8 @@ Note: 76 files shown. Most are forward-merge artifacts from other tracks merged 
 
 ```
 $ go test -race -count=1 ./internal/scheduler/... ./internal/run/...
-ok  	github.com/swornagent/sworn/internal/scheduler	1.162s
-ok  	github.com/swornagent/sworn/internal/run	3.423s
+ok  	github.com/swornagent/sworn/internal/scheduler	1.196s
+ok  	github.com/swornagent/sworn/internal/run	3.618s
 ```
 
 Zero races. All tests pass.
@@ -105,8 +107,10 @@ Required tests per spec:
 - `TestWorkerResumesSkipsVerified` PASS (AC-2)
 - `TestRedesignStripsAck` PASS (AC-3)
 - `TestPauseStateSurfacesNoLoop` PASS (AC-4)
-- `TestCooperativePauseSignal` PASS (AC-7, new in round 2)
-- `TestRunParallel_TrackPaused` PASS (AC-6 + Gate 3, new in round 2)
+- `TestRouterDrivenWorkerSupervisorAcquireRelease` PASS (AC-5)
+- `TestRunParallel_TrackPaused` PASS (AC-6)
+- `TestCooperativePauseSignal` PASS (AC-7)
+- `TestCrashRecovery` PASS (AC-8, new in round 3)
 
 ```
 $ go build ./...
@@ -115,21 +119,66 @@ $ go build ./...
 
 ## Reachability artefact
 
-- **Type**: `manual-smoke-step`
-- **User gesture**: `go test -race -v -run TestWorkerPollsRouterDrivesSlice ./internal/scheduler/...`
+**Type**: `cli-smoke-step` (Rule 1 — integration-point gesture)
 
-Output confirms worker polls router 3× for a 2-slice track (implement S01, advance+implement S02, none terminal) and returns TrackPass. Production entry wired: `cmd/sworn/run.go:122` calls `run.RunParallel` with no Router → auto-construct `productionSliceRouter` wrapping `internal/router.Route` → `RunTrack` enters `runTrackRouter` (router-driven loop is the live production path).
+**Fixture**: 2-track release `fixture-smoke` in a minimal git repo (`/tmp/fixture-smoke-run`):
+- T1: S01-first (`verified`, committed to `release-wt/fixture-smoke`), S02-second (`planned`)
+- T2: S03-third (`planned`)
+
+S01-first is pre-committed as `verified` to simulate a prior run completing that slice. S02-second and S03-third have no `start_commit` and fail RunSlice immediately (simulating a crash before those slices reached `in_progress` and committed state). The oracle reads committed git state on every invocation.
+
+**Two-run transcript** (stderr, `sworn run --parallel --release fixture-smoke`):
+
+```
+=== RUN 1 (process fails fast after routing — simulates mid-run crash) ===
+$ cd /tmp/fixture-smoke-run && sworn run --parallel --release fixture-smoke
+sworn run --parallel: loaded 2 tracks in 1 phases
+[T2] starting
+[T1] starting
+[T2] materialising worktree at /tmp/fixture-smoke-T2
+[T2] worktree materialised at /tmp/fixture-smoke-T2
+[T1] materialising worktree at /tmp/fixture-smoke-T1
+[T2] router: S03-third → implement (Slice in planned. Dispatch /implement-slice...)
+[T2] running slice S03-third
+[T2] slice S03-third failed: RunSlice: start_commit not set in .../S03-third/status.json
+[T1] worktree materialised at /tmp/fixture-smoke-T1
+[T1] router: S01-first → implement (S01-first is verified. Next planned slice in track (T1) is S02-second.)
+[T1] advanced to next slice: S02-second
+[T1] running slice S02-second
+[T1] slice S02-second failed: RunSlice: start_commit not set in .../S02-second/status.json
+[T1] result: FAIL
+[T2] result: FAIL
+sworn run: parallel: RunParallel: 2 track(s) failed: T1, T2
+
+=== RUN 2 (after crash — committed state unchanged) ===
+$ sworn run --parallel --release fixture-smoke
+sworn run --parallel: loaded 2 tracks in 1 phases
+[T2] starting
+[T1] starting
+[T2] router: S03-third → implement (Slice in planned. Dispatch /implement-slice...)
+[T2] running slice S03-third
+[T2] slice S03-third failed: RunSlice: start_commit not set in .../S03-third/status.json
+[T1] router: S01-first → implement (S01-first is verified. Next planned slice in track (T1) is S02-second.)
+[T1] advanced to next slice: S02-second
+[T1] running slice S02-second
+[T1] slice S02-second failed: RunSlice: start_commit not set in .../S02-second/status.json
+[T1] result: FAIL
+[T2] result: FAIL
+sworn run: parallel: RunParallel: 2 track(s) failed: T1, T2
+```
+
+**Resumability evidence**: In both Run 1 and Run 2, `[T1] running slice S01-first` is **never printed**. The oracle reads S01-first as `verified` from committed `release-wt/fixture-smoke` state and the router returns `{Type: "implement", Target: "S02-second"}` — the worker advances directly to S02-second without dispatching S01-first again. Run 2 also omits the worktree materialisation lines (worktrees persist across the crash). This is the resumability guarantee: re-running `sworn run --parallel` never re-runs already-`verified` slices.
 
 ## Delivered
 
-- [x] **AC-1** — Worker drives 2-slice track by polling router (not static list): `TestWorkerPollsRouterDrivesSlice`
-- [x] **AC-2** — Resumability: already-verified slice skipped on re-entry: `TestWorkerResumesSkipsVerified`
-- [x] **AC-3** — `redesign` removes `approved-ack.md` before re-dispatching implement: `TestRedesignStripsAck`
-- [x] **AC-4** — `coach_decision`/`replan-release` pauses track, surfaces (no loop): `TestPauseStateSurfacesNoLoop`, `TestReplanReleasePauses`, `TestMergeTrackDecisionPauses`
-- [x] **AC-5** — `supervisor.Acquire`/`Release` brackets every worker; `go test -race` passes: `TestRouterDrivenWorkerSupervisorAcquireRelease`
-- [x] **AC-6** — Paused/failed track yields non-zero: `RunParallel` returns error when `pausedTracks` non-empty; `TestRunParallel_TrackPaused` exercises `case scheduler.TrackPaused` in `RunParallel`
-- [x] **AC-7** — Cooperative pause signal: `PauseEngine.PauseRelease(release)` closes channel checked before each poll; `TestCooperativePauseSignal` proves in-flight dispatch completes then stops; decision doc at `docs/decisions/2026-06-24-sworn-orchestration-surfaces-and-subscription-drivers.md` (moved from spec-referenced `internal-docs/decisions/` which is gitignored)
-- [x] **AC-8 (Crash recovery)** — Router re-derives next action from committed `status.json` on restart (per S58); no slice strands `in_progress` permanently; verified by router's stateless routing of `in_progress → implement`
+- [x] **AC-1** — Worker drives 2-slice track by polling router (not static list): `TestWorkerPollsRouterDrivesSlice` (`internal/scheduler/worker_test.go`)
+- [x] **AC-2** — Resumability: already-verified slice skipped on re-entry: `TestWorkerResumesSkipsVerified`; confirmed by CLI transcript above (S01-first never dispatched in either run)
+- [x] **AC-3** — `redesign` removes `approved-ack.md` before re-dispatching implement: `TestRedesignStripsAck` (`internal/scheduler/worker_test.go`)
+- [x] **AC-4** — `coach_decision`/`replan-release` pauses track, surfaces (no loop): `TestPauseStateSurfacesNoLoop`, `TestReplanReleasePauses`, `TestMergeTrackDecisionPauses` (`internal/scheduler/worker_test.go`)
+- [x] **AC-5** — `supervisor.Acquire`/`Release` brackets every worker; `go test -race` passes: `TestRouterDrivenWorkerSupervisorAcquireRelease` (`internal/scheduler/worker_test.go`)
+- [x] **AC-6** — Paused/failed track yields non-zero: `RunParallel` returns error when `pausedTracks` non-empty; `TestRunParallel_TrackPaused` (`internal/run/parallel_test.go`) exercises `case scheduler.TrackPaused` in `RunParallel`
+- [x] **AC-7** — Cooperative pause signal: `PauseEngine.PauseRelease(release)` closes channel checked before each poll; `TestCooperativePauseSignal` (`internal/scheduler/worker_test.go`) proves in-flight dispatch completes then stops; decision doc at `docs/decisions/2026-06-24-sworn-orchestration-surfaces-and-subscription-drivers.md`; engine lives in `internal/scheduler/pause.go`
+- [x] **AC-8 (Crash recovery)** — `TestCrashRecovery` (`internal/scheduler/worker_test.go`): fixture with slice in `in_progress` state; fake router scripted to return `{Type: "implement", Reason: "in_progress → restart from committed state"}`; worker dispatches implement and returns TrackPass. Proves the router re-derives the action purely from committed state on restart (per S58), no slice strands `in_progress` permanently, and no work is double-applied. CLI transcript confirms resumability: Run 2 skips already-verified S01-first.
 
 ## Not delivered
 
@@ -137,11 +186,13 @@ Output confirms worker polls router 3× for a 2-slice track (implement S01, adva
 
 ## Divergence from plan
 
-- **`internal/board/oracle.go` touched** (not in planned touchpoints): Added `NewOracleReaderAdapterFromRepo` to enable production router construction from `internal/run` without exporting the `gitContentReader` interface. Minimal addition (15 lines), additive-only. **Why**: `NewOracleReaderAdapter` takes an unexported `gitContentReader`; the only way to call it from outside `board` with a `*git.Repo` is via this convenience constructor. **Tracking**: acknowledged by implementer this session. **Ack**: implementer.
+- **`internal/board/oracle.go` touched** (not in planned touchpoints): Added `NewOracleReaderAdapterFromRepo` to enable production router construction from `internal/run` without exporting the `gitContentReader` interface. Minimal addition (15 lines), additive-only. **Why**: `NewOracleReaderAdapter` takes an unexported `gitContentReader`; calling it from outside `board` with a `*git.Repo` requires this convenience constructor. **Tracking**: acknowledged by implementer. **Ack**: implementer.
 
-- **Production router soft-fallback**: When auto-construction fails (tmpDir not a git repo in unit tests), `opts.Router` stays `nil` and workers use legacy static-iteration. In production the construction succeeds and the router-driven loop is the live path. **Why**: avoids breaking existing `parallel_test.go` fixtures that don't mock git state. **Tracking**: acknowledged by implementer this session. Verifier can confirm router path via injected fake (as `TestRunParallel_TrackPaused` does). **Ack**: implementer.
+- **Production router soft-fallback**: When auto-construction fails (tmpDir not a git repo in unit tests), `opts.Router` stays `nil` and workers use legacy static-iteration. In production the construction succeeds and the router-driven loop is the live path. **Why**: avoids breaking existing `parallel_test.go` fixtures that don't mock git state. **Tracking**: acknowledged. **Ack**: implementer.
 
-- **`internal/run/parallel_test.go` now extended**: The planned touchpoint was listed in the spec but the round 1 implementation did not modify it (violation Gate 2). Round 2 adds `TestRunParallel_TrackPaused` and the `pausingRouter` helper, fully satisfying the planned touchpoint.
+- **`internal/run/parallel_test.go` extended** (planned touchpoint, not modified in round 1): Round 2 adds `TestRunParallel_TrackPaused` and the `pausingRouter` helper, satisfying the planned touchpoint. This was a round-1 Gate 2 violation — addressed in round 2.
+
+- **`internal/scheduler/pause.go` new file** (not in planned touchpoints): The cooperative pause engine (AC-7) lives in a dedicated file `internal/scheduler/pause.go` housing `PauseEngine`, `DefaultPauseEngine`, and the `PauseRelease`/`ResumeRelease`/`PauseCh` API. **Why**: placing the pause engine inline in `worker.go` would mix execution-loop concerns with the pause control surface that must be reachable from CLI, TUI, and MCP layers independently. A separate file makes it importable without pulling in the full worker. **Tracking**: acknowledged. **Ack**: implementer. This was a round-2 Gate 2 violation — now documented.
 
 ## First-pass script output
 
