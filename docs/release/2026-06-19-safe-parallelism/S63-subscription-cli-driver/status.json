@@ -1,0 +1,58 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S63-subscription-cli-driver",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T5-providers",
+  "state": "verified",  "owner": "human",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-14T00:00:00Z",
+  "start_commit": "a901d6754ec0e4a50cc1e2aa8ef984945d27f88f",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S63-subscription-cli-driver/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S63-subscription-cli-driver/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S63-subscription-cli-driver/journal.md",
+  "depends_on": [
+    "S10-provider-foundation"
+  ],
+  "planned_files": [
+    "internal/model/cli.go",
+    "internal/model/provider.go",
+    "internal/model/config.go",
+    "internal/model/cli_test.go"
+  ],
+  "actual_files": [
+    "internal/model/cli.go",
+    "internal/model/provider.go",
+    "internal/model/config.go",
+    "internal/model/cli_test.go"
+  ],
+  "test_commands": [
+    "go test -race ./internal/model/...",
+    "go build ./..."
+  ],
+  "reachability_artifacts": [
+    "TestClaudeCLI_FromEnvIntegration — full FromEnv→NewClient→cliDriver.Verify() path"
+  ],
+  "design_decisions": [
+    {"id": 1, "summary": "Driver struct is cliDriver in internal/model/cli.go, separate from direct-API drivers.", "type": "Type-2", "rationale": "Keeps subprocess logic isolated; shares same Verifier interface."},
+    {"id": 2, "summary": "NewClient() adds claude-cli returning *cliDriver; codex returns a deferral error (S63-deferral-1).", "type": "Type-2", "rationale": "Claude-CLI ships first; codex is deferred with different invocation/normalisation."},
+    {"id": 3, "summary": "FromEnv() adds early return for claude-cli/codex BEFORE proxy routing — no API key check.", "type": "Type-2", "rationale": "Subscription-based drivers bypass API-key gate and proxy routing entirely."},
+    {"id": 4, "summary": "Timeout is configurable via SWORN_CLI_TIMEOUT (default 300s).", "type": "Type-2", "rationale": "Bounded subprocess prevent silent hangs."},
+    {"id": 5, "summary": "Binary override via CLAUDE_BIN / CODEX_BIN env vars for testing.", "type": "Type-2", "rationale": "Mirrors reference driver's convention; absent defaults to claude/codex on PATH."}
+  ],
+  "open_deferrals": [
+    {
+      "id": "S63-deferral-1",
+      "description": "Codex exec support deferred — different invocation shapes and output normalisation from claude-cli. Claude-CLI ships first.",
+      "tracking": "https://github.com/swornagent/sworn/issues/19",
+      "acknowledged": true,
+      "acknowledged_by": "Coach (approved-ack.md pin 3, flag c)",
+      "acknowledged_at": "2026-07-14"
+    }
+  ],
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": "fresh-verifier-2026-06-24",
+    "verifier_verdict_at": "2026-06-24T12:08:44Z",
+    "verifier_was_fresh_context": true,
+    "violations": []
+  }}

@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/swornagent/sworn/internal/state"
+	"github.com/swornagent/sworn/internal/style"
 )
 
 // Violation records a validation failure for one slice.
@@ -138,19 +139,18 @@ func validateSlice(releaseDir, sliceID string) []Violation {
 func Print(report Report) string {
 	var b strings.Builder
 
-	fmt.Fprintf(&b, "Requirements validation report\n")
-	fmt.Fprintf(&b, "==============================\n\n")
+	fmt.Fprint(&b, style.Heading("Requirements validation report")+"\n")
+	fmt.Fprint(&b, style.Dim("==============================")+"\n\n")
 
 	if report.TotalSlices == 0 {
 		fmt.Fprintf(&b, "No slices to validate.\n")
 		return b.String()
 	}
 
-	fmt.Fprintf(&b, "Total slices: %d | Validated: %d | Failed: %d\n\n",
-		report.TotalSlices, report.ValidatedSlices, report.FailedSlices)
+	fmt.Fprint(&b, style.Accent(fmt.Sprintf("Total slices: %d | Validated: %d | Failed: %d", report.TotalSlices, report.ValidatedSlices, report.FailedSlices))+"\n\n")
 
 	if report.HasViolations() {
-		fmt.Fprintf(&b, "Violations:\n")
+		fmt.Fprint(&b, style.Danger("Violations:")+"\n")
 		for _, v := range report.Violations {
 			fmt.Fprintf(&b, "  %s: %s\n", v.SliceID, v.Reason)
 		}
@@ -171,11 +171,11 @@ func Print(report Report) string {
 				reasons = append(reasons, v.Reason)
 			}
 		}
-		fmt.Fprintf(&b, "  %s: FAIL — %s\n", sliceID, strings.Join(reasons, "; "))
+		fmt.Fprint(&b, style.Danger(fmt.Sprintf("  %s: FAIL — %s", sliceID, strings.Join(reasons, "; ")))+"\n")
 	}
 	passed := report.TotalSlices - len(failed)
 	if passed > 0 {
-		fmt.Fprintf(&b, "\n%d slice(s) fully validated.\n", passed)
+		fmt.Fprint(&b, "\n"+style.Success(fmt.Sprintf("%d slice(s) fully validated.", passed))+"\n")
 	}
 
 	return b.String()

@@ -7,14 +7,17 @@ import (
 	"path/filepath"
 
 	"github.com/swornagent/sworn/internal/journey"
+	"github.com/swornagent/sworn/internal/style"
+	"github.com/swornagent/sworn/internal/tui"
 )
 
 // cmdTop implements `sworn top <release> [project-path]`.
 //
-// It renders a read-only evidence surface for the active release:
-// each critical journey in scope with its walkthrough validation status,
-// assembled into a green-board when all pass or a kill-list when any
-// fail or are un-walked.
+// With no release argument, it launches the TUI (same as `sworn` with no args).
+// With a release argument, it renders a read-only evidence surface for the
+// active release: each critical journey in scope with its walkthrough
+// validation status, assembled into a green-board when all pass or a kill-list
+// when any fail or are un-walked.
 //
 // This is strictly read-only — no state transitions, no artefact writes.
 // Returns exit 0 on green-board, 1 on kill-list, 2 on unrecoverable error,
@@ -24,11 +27,13 @@ func cmdTop(args []string) int {
 	_ = fs.Parse(args)
 
 	if fs.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "sworn top: release name is required")
-		fmt.Fprintln(os.Stderr, "usage: sworn top <release> [project-path]")
-		return 64
+		// No release arg — launch TUI instead of rendering evidence surface.
+		if err := tui.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "sworn top: %v\n", err)
+			return 1
+		}
+		return 0
 	}
-
 	releaseName := fs.Arg(0)
 	projectRoot := "."
 	if fs.NArg() > 1 {
@@ -52,8 +57,8 @@ func renderEvidenceSurface(releaseName string, projectRoot string) int {
 	if err != nil {
 		// Missing artefact — render empty state.
 		if isJourneyNotExist(err) {
-			fmt.Printf("Evidence surface for release %s\n", releaseName)
-			fmt.Println("────────────────────────────────────────────────────")
+			fmt.Println(style.Heading(fmt.Sprintf("Evidence surface for release %s", releaseName)))
+			fmt.Println(style.Dim("────────────────────────────────────────────────────"))
 			fmt.Println("No journeys artefact found.")
 			fmt.Println()
 			fmt.Printf("  Hint: run 'sworn journeys %s' to start journey elicitation.\n", projectRoot)
@@ -75,9 +80,9 @@ func renderEvidenceSurface(releaseName string, projectRoot string) int {
 	journeyList := artefact.Journeys
 
 	// Render header.
-	fmt.Printf("Evidence surface for release %s\n", releaseName)
+	fmt.Println(style.Heading(fmt.Sprintf("Evidence surface for release %s", releaseName)))
 	fmt.Printf("%d journey(s) in scope\n", len(journeyList))
-	fmt.Println("────────────────────────────────────────────────────")
+	fmt.Println(style.Dim("────────────────────────────────────────────────────"))
 
 	if len(journeyList) == 0 {
 		fmt.Println()
@@ -118,12 +123,12 @@ func renderEvidenceSurface(releaseName string, projectRoot string) int {
 	fmt.Println()
 	if failCount == 0 {
 		// Green-board
-		fmt.Printf("Green-board ✓  All %d journey(s) validated.\n", len(entries))
+		fmt.Println(style.Success(fmt.Sprintf("Green-board ✓  All %d journey(s) validated.", len(entries))))
 		return 0
 	}
 
 	// Kill-list
-	fmt.Printf("Kill-list ✗  %d journey(s) need human walkthrough or re-validation:\n", failCount)
+	fmt.Println(style.Danger(fmt.Sprintf("Kill-list ✗  %d journey(s) need human walkthrough or re-validation:", failCount)))
 	for _, e := range entries {
 		if e.status != journey.WalkPass {
 			switch e.status {

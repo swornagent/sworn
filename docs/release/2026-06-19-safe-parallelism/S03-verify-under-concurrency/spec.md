@@ -75,8 +75,7 @@ Called internally by `internal/scheduler/worker.go` (S02): each track worker cal
   If the real HTTP client has goroutine-safety issues, they will only be caught in
   integration tests, not the unit race tests. Document this limitation in proof.md.
 - `go test -race` adds ~2-5× runtime overhead. Keep test fixtures small (synthetic
-  spec+diff, not the full GetFired dogfood data) so the race tests run in <10s.
-
+  spec+diff, not large production data) so the race tests run in <10s.
 ## Deferrals allowed?
 
 No. A data race in the verify path under concurrency means S02's parallel scheduler

@@ -87,9 +87,86 @@ func (r *Repo) Merge(branch string) error {
 	return err
 }
 
+// Show returns the content of <ref>:<path>. Both ref and path are passed
+// directly to `git show` — the caller is responsible for assembling the
+// colon-separated form (e.g. "HEAD:docs/release/.../status.json").
+func (r *Repo) Show(ref, path string) (string, error) {
+	return r.run("show", ref+":"+path)
+}
+
+// CatFileExists returns true when <ref>:<path> exists in the git object
+// database (equivalent to `git cat-file -e <ref>:<path>`). It does not
+// inspect the working tree — the check is against the committed tree,
+// which avoids the Fumadocs symlink trap (S57 spec, Coach pin 7).
+func (r *Repo) CatFileExists(ref, path string) (bool, error) {
+	_, err := r.run("cat-file", "-e", ref+":"+path)
+	if err != nil {
+		// git cat-file -e exits non-zero when the object does not exist
+		if strings.Contains(err.Error(), "exists") ||
+			strings.Contains(err.Error(), "bad file") ||
+			strings.Contains(err.Error(), "Not a valid object name") ||
+			strings.Contains(err.Error(), "path not found") ||
+			strings.Contains(err.Error(), "fatal:") {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+// LastCommitTime returns the Unix epoch timestamp (seconds) of the last commit
+// that touched path on ref. Returns 0 if the file has never been committed.
+// Wraps `git log -1 --format=%ct ref -- path`.
+func (r *Repo) LastCommitTime(ref, path string) (int64, error) {
+	out, err := r.run("log", "-1", "--format=%ct", ref, "--", path)
+	if err != nil {
+		// When the file has never been committed or the ref doesn't exist,
+		// git log exits non-zero. Treat as 0 (absent).
+		if strings.Contains(err.Error(), "fatal:") ||
+			strings.Contains(err.Error(), "does not have any commits") ||
+			strings.Contains(err.Error(), "unknown revision") ||
+			strings.Contains(err.Error(), "bad revision") {
+			return 0, nil
+		}
+		return 0, err
+	}
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return 0, nil
+	}
+	var ct int64
+	if _, err := fmt.Sscanf(out, "%d", &ct); err != nil {
+		return 0, fmt.Errorf("git log --format=%%ct: parse %q: %w", out, err)
+	}
+	return ct, nil
+}
+
+// IsAncestor returns true when ancestor is reachable from branch (i.e. branch
+// contains ancestor). Wraps `git merge-base --is-ancestor ancestor branch`.
+func (r *Repo) IsAncestor(ancestor, branch string) (bool, error) {
+	_, err := r.run("merge-base", "--is-ancestor", ancestor, branch)
+	if err != nil {
+		// git merge-base --is-ancestor exits 0 when ancestor is reachable,
+		// 1 when it is not. Both are valid outcomes.
+		if strings.Contains(err.Error(), "exit status 1") {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 // run executes a git command in r.Dir and returns stdout (trimmed). On
-// non-zero exit it returns stderr as the error.
+// non-zero exit it returns stderr as the error.//
+// It refuses to run when Dir is empty — executing git in the ambient cwd
+// is the root cause of sworn#6 (track workers flipping the calling worktree
+// to main). Every mutating method funnels through this single chokepoint,
+// so one guard protects all mutation paths.
 func (r *Repo) run(args ...string) (string, error) {
+	if r.Dir == "" {
+		return "", fmt.Errorf("git %s: refusing to run with empty Repo.Dir "+
+			"(would operate on the ambient working directory / calling worktree)",
+			strings.Join(args, " "))
+	}
 	cmd := exec.Command("git", args...)
 	cmd.Dir = r.Dir
 	out, err := cmd.Output()

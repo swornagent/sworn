@@ -8,9 +8,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
-)
 
-// OAI dispatches a single /chat/completions call to an OpenAI-compatible
+	"github.com/swornagent/sworn/internal/account"
+) // OAI dispatches a single /chat/completions call to an OpenAI-compatible
 // endpoint. It implements Verifier via stdlib net/http + encoding/json
 // (zero third-party dependencies per AGENTS.md).
 //
@@ -135,6 +135,11 @@ var modelPricing = map[string]struct {
 	"o4-mini":      {1.10, 4.40},
 	"o3":           {10.00, 40.00},
 	"o3-mini":      {1.10, 4.40},
+	// gpt-5.x reasoning models (responses API pricing, USD per 1M tokens).
+	// Preliminary — confirm with https://openai.com/api/pricing/.
+	"gpt-5.5":       {1.25, 10.00},
+	"gpt-5.5-pro":   {2.50, 20.00},
+	"gpt-5.3-codex": {3.00, 12.00},
 }
 
 // Verify sends the system prompt + user payload to /chat/completions.
@@ -178,9 +183,15 @@ func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (str
 		return "", 0, fmt.Errorf("model: read response: %w", err)
 	}
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", 0, fmt.Errorf("model: HTTP %d: %s", resp.StatusCode, trimBody(body, 200))
-	}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			me := NewProviderError(resp.StatusCode, "openai", c.Model, body)
+			// 402 Payment Required — insufficient credits (Coach ack pin C).
+			// Never silently downgrade to a direct provider call.
+			if resp.StatusCode == http.StatusPaymentRequired {
+				me.Err = account.ErrInsufficientCredits
+			}
+			return "", 0, me
+		}
 
 	var cr ChatResponse
 	if err := json.Unmarshal(body, &cr); err != nil {
@@ -194,8 +205,7 @@ func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (str
 	return cr.Choices[0].Message.Content, cost, nil
 }
 
-// Chat sends a multi-message conversation (possibly with tool definitions
-// and tool-call history) to /chat/completions. It returns the full
+// Chat sends a multi-message conversation (possibly with tool definitions// and tool-call history) to /chat/completions. It returns the full
 // ChatResponse so the caller can inspect tool_calls and finish_reason.
 // Cost is the sum of all Chat calls in the loop — tracked by the caller.
 //
@@ -236,9 +246,14 @@ func (c *OAI) Chat(ctx context.Context, messages []ChatMessage, tools []ToolDef)
 		return nil, fmt.Errorf("model: read response: %w", err)
 	}
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("model: HTTP %d: %s", resp.StatusCode, trimBody(body, 200))
-	}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			me := NewProviderError(resp.StatusCode, "openai", c.Model, body)
+			// 402 Payment Required — insufficient credits (Coach ack pin C).
+			if resp.StatusCode == http.StatusPaymentRequired {
+				me.Err = account.ErrInsufficientCredits
+			}
+			return nil, me
+		}
 
 	var cr ChatResponse
 	if err := json.Unmarshal(body, &cr); err != nil {
@@ -250,7 +265,6 @@ func (c *OAI) Chat(ctx context.Context, messages []ChatMessage, tools []ToolDef)
 
 	return &cr, nil
 }
-
 func computeCost(model string, usage *UsageBlock) float64 {
 	p, ok := modelPricing[model]
 	if !ok || usage == nil {

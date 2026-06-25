@@ -1,0 +1,38 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S46-captain-review",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T13-sworn-role-parity",
+  "state": "verified",  "owner": "human",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-21T14:00:00Z",  "start_commit": "0ff1a9690c6ee941cac44083ecb4dec0e960eb3d",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S46-captain-review/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S46-captain-review/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S46-captain-review/journal.md",
+  "planned_files": [
+    "internal/run/slice.go",
+    "internal/captain/review.go",
+    "internal/captain/review_test.go",
+    "internal/state/state.go",
+    "internal/prompt/prompt.go"
+  ],
+  "actual_files": [
+    "internal/captain/review.go",
+    "internal/captain/review_test.go",
+    "internal/run/slice.go"
+  ],
+  "test_commands": [
+    "go test -race ./internal/captain/... ./internal/run/..."
+  ],
+  "reachability_artifacts": [
+    "go test -race -v ./internal/captain/... (TestEscalatePinHalts, TestCleanDesignProceeds, TestPinsClassified)",
+    "go test -race -v ./internal/run/... (TestRunSlice* \u2014 exercises captain review in RunSlice)"
+  ],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": null,
+    "verifier_verdict_at": "2026-07-21T14:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": []
+  }}

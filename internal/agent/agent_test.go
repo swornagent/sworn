@@ -67,6 +67,84 @@ func (f *fakeAgent) Chat(_ context.Context, _ []model.ChatMessage, _ []model.Too
 	return cr, nil
 }
 
+func TestRunReturnsOnEmptyStopAfterToolCalls(t *testing.T) {
+	dir := t.TempDir()
+
+	fa := &fakeAgent{
+		t: t,
+		script: []fakeResponse{
+			{
+				toolCalls: []fakeToolCall{
+					{name: "write", args: `{"path":"done.txt","content":"work complete"}`},
+				},
+			},
+			{
+				toolCalls: []fakeToolCall{
+					{name: "bash", args: `{"command":"cat done.txt"}`},
+				},
+			},
+			{
+				// Terminal turn: empty content, no tool calls (natural stop).
+			},
+		},
+	}
+
+	text, _, msgs, err := Run(context.Background(), fa,
+		"you are a helpful assistant", "write done.txt and verify it",
+		dir, Config{MaxTurns: 10, MaxOutputBytes: 10000})
+	if err != nil {
+		t.Fatalf("expected nil error for empty natural stop, got: %v", err)
+	}
+	if text != "" {
+		t.Fatalf("expected empty final text, got %q", text)
+	}
+
+	// Verify tool side effects were applied.
+	data, err := os.ReadFile(filepath.Join(dir, "done.txt"))
+	if err != nil {
+		t.Fatalf("expected done.txt to exist: %v", err)
+	}
+	if string(data) != "work complete" {
+		t.Fatalf("expected 'work complete', got %q", string(data))
+	}
+
+	foundBash := false
+	for _, m := range msgs {
+		if m.Role == "tool" && strings.Contains(m.Content, "work complete") {
+			foundBash = true
+		}
+	}
+	if !foundBash {
+		t.Fatal("expected tool-result message containing 'work complete'")
+	}
+}
+
+func TestRunStillCapsOnEndlessToolCalls(t *testing.T) {
+	// This is the existing turn-cap scenario under a new name.
+	dir := t.TempDir()
+
+	script := make([]fakeResponse, 50)
+	for i := range script {
+		script[i] = fakeResponse{
+			toolCalls: []fakeToolCall{
+				{name: "bash", args: `{"command":"echo turn"}`},
+			},
+		}
+	}
+
+	fa := &fakeAgent{t: t, script: script}
+
+	_, _, _, err := Run(context.Background(), fa,
+		"you are a helpful assistant", "run commands forever",
+		dir, Config{MaxTurns: 3, MaxOutputBytes: 10000})
+	if err == nil {
+		t.Fatal("expected turn-cap error, got nil")
+	}
+	if !strings.Contains(err.Error(), "turn cap") {
+		t.Fatalf("expected 'turn cap' in error, got: %v", err)
+	}
+}
+
 func TestRun_SuccessPath(t *testing.T) {
 	dir := t.TempDir()
 

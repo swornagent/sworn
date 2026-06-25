@@ -18,7 +18,8 @@ import (
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/reqverify"
-	"github.com/swornagent/sworn/internal/state")
+	"github.com/swornagent/sworn/internal/state"
+)
 
 // Run drives the implementer role for one slice:
 //  1. Read status.json; if design_review, transition to in_progress.
@@ -30,18 +31,19 @@ import (
 // Workspace root is the root of the repository the agent operates in.
 // Spec path is the absolute path to the slice's spec.md (status.json and
 // proof.md are derived from the same directory).
-func Run(ctx context.Context, workspaceRoot, specPath string, a agent.Agent) error {
-	sliceDir := filepath.Dir(specPath)
+// priorFeedback is the prior verifier's rationale. When non-empty, it is
+// injected into the user prompt ahead of the spec so the agent can address
+// the named failures.
+func Run(ctx context.Context, workspaceRoot, specPath, priorFeedback string, a agent.Agent) (costUSD float64, err error) {	sliceDir := filepath.Dir(specPath)
 	statusPath := filepath.Join(sliceDir, "status.json")
 	proofPath := filepath.Join(sliceDir, "proof.md")
 
 	// Step 1: Read and validate current state.
 	st, err := state.Read(statusPath)
 	if err != nil {
-		return fmt.Errorf("implement: read status: %w", err)
+		return 0, fmt.Errorf("implement: read status: %w", err)
 	}
-
-	// State transition guard (Coach pin 2): design_review → in_progress
+	// State transition guard: design_review → in_progress
 	// before launching the agent loop.  The Definition of Ready gate
 	// (CheckDoR) is applied at this boundary — a slice whose RTM trace,
 	// requirements-verify, or requirements-validate gates are not satisfied
@@ -62,54 +64,66 @@ func Run(ctx context.Context, workspaceRoot, specPath string, a agent.Agent) err
 			}
 			return nil
 		}); err != nil {
-			return fmt.Errorf("implement: design_review → in_progress gate: %w", err)
+			return 0, fmt.Errorf("implement: design_review → in_progress gate: %w", err)
 		}
 		st.State = state.InProgress
 		st.LastUpdatedBy = "implementer"
 		st.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
 		if err := state.Write(statusPath, st); err != nil {
-			return fmt.Errorf("implement: write status: %w", err)
+			return 0, fmt.Errorf("implement: write status: %w", err)
 		}
-	} else if st.State != state.InProgress && st.State != state.FailedVerification {		return fmt.Errorf("implement: cannot run from state %q", st.State)
+	} else if st.State != state.InProgress && st.State != state.FailedVerification {
+		return 0, fmt.Errorf("implement: cannot run from state %q", st.State)
 	}
 
 	// Step 2: Read spec.
 	spec, err := os.ReadFile(specPath)
 	if err != nil {
-		return fmt.Errorf("implement: read spec: %w", err)
+		return 0, fmt.Errorf("implement: read spec: %w", err)
+	}
+	// Step 3: Build prompts and run agent loop.
+	// The agent's final prose is not required: proof.md is built from git
+	// diff + test output, so an empty agent return still produces a valid
+	// proof bundle and proceeds to verification.
+	systemPrompt := prompt.Implementer()
+
+	var userPrompt string
+	if priorFeedback != "" {
+		feedback := truncateString(priorFeedback, 2000)
+		userPrompt = fmt.Sprintf(
+			"Previous attempt failed verification — address these specifically:\n\n%s\n\n---\n\nImplement the following spec in workspace %s.\n\n%s\n\nAfter implementation, stop.",
+			feedback, workspaceRoot, string(spec),
+		)
+	} else {
+		userPrompt = fmt.Sprintf(
+			"Implement the following spec in workspace %s.\n\n%s\n\nAfter implementation, stop.",
+			workspaceRoot, string(spec),
+		)
 	}
 
-	// Step 3: Build prompts and run agent loop.
-	systemPrompt := prompt.Implementer()
-	userPrompt := fmt.Sprintf(
-		"Implement the following spec in workspace %s.\n\n%s\n\nAfter implementation, stop.",
-		workspaceRoot, string(spec),
-	)
-
-	_, _, _, err = agent.Run(ctx, a, systemPrompt, userPrompt, workspaceRoot, agent.Config{})
-	if err != nil {
-		return fmt.Errorf("implement: agent loop: %w", err)
+	_, cost, _, runErr := agent.Run(ctx, a, systemPrompt, userPrompt, workspaceRoot, agent.Config{})
+	if runErr != nil {
+		return cost, fmt.Errorf("implement: agent loop: %w", runErr)
 	}
 
 	// Step 4: Generate proof from live repo state.
 	if err := generateProof(workspaceRoot, specPath, proofPath, st); err != nil {
-		return fmt.Errorf("implement: generate proof: %w", err)
+		return cost, fmt.Errorf("implement: generate proof: %w", err)
 	}
 
 	// Step 5: Transition to implemented.
 	if err := st.State.Transition(state.Implemented); err != nil {
-		return fmt.Errorf("implement: %w", err)
+		return cost, fmt.Errorf("implement: %w", err)
 	}
 	st.State = state.Implemented
 	st.LastUpdatedBy = "implementer"
 	st.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	if err := state.Write(statusPath, st); err != nil {
-		return fmt.Errorf("implement: write status: %w", err)
+		return cost, fmt.Errorf("implement: write status: %w", err)
 	}
 
-	return nil
+	return cost, nil
 }
-
 // generateProof writes proof.md in the slice directory from live repo state.
 // Every machine-producible section is generated from actual git output and
 // test runs — not from the model's narration.
@@ -211,6 +225,17 @@ func runGoTest(workspaceRoot string) string {
 		return fmt.Sprintf("(exit error: %v)\n%s", err, string(out))
 	}
 	return string(out)
+}
+
+// truncateString caps s at maxRunes runes, adding an ellipsis if truncated.
+func truncateString(s string, maxRunes int) string {
+	if len(s) <= maxRunes {
+		return s
+	}
+	if maxRunes <= 3 {
+		return s[:maxRunes]
+	}
+	return s[:maxRunes-3] + "..."
 }
 
 // runGitCmd runs an arbitrary git command in workspaceRoot and returns trimmed stdout.

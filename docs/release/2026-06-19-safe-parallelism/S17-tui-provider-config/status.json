@@ -1,0 +1,55 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S17-tui-provider-config",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T6-provider-ux",
+  "state": "verified",
+  "owner": "human",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-24T23:51:36Z",
+  "start_commit": "5325d114d2e96cb62eb85ea712fc5478dc46393a",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S17-tui-provider-config/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S17-tui-provider-config/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S17-tui-provider-config/journal.md",
+  "planned_files": [
+    "internal/tui/settings.go",
+    "internal/tui/settings_test.go",
+    "internal/tui/tui.go",
+    "cmd/sworn/top.go",
+    "internal/config/config.go",
+    "internal/config/config_test.go"
+  ],
+  "actual_files": [
+    "internal/tui/settings.go",
+    "internal/tui/settings_test.go",
+    "internal/tui/model.go",
+    "internal/config/config.go",
+    "internal/config/config_test.go",
+    "docs/release/2026-06-19-safe-parallelism/S17-tui-provider-config/spec.md",
+    "docs/release/2026-06-19-safe-parallelism/captures/S17-settings-panel.txt"
+  ],
+  "test_commands": [
+    "go test ./internal/tui/... -run Settings",
+    "go test ./internal/config/... -run Save",
+    "go test ./internal/tui/...",
+    "go build ./..."
+  ],
+  "reachability_artifacts": [
+    "docs/release/2026-06-19-safe-parallelism/captures/S17-settings-panel.txt"
+  ],
+  "open_deferrals": [
+    {
+      "what": "Provider connection test button",
+      "why": "Requires live model call from TUI, adds complexity and potential hangs",
+      "tracking": "post-R3 UX issue",
+      "acknowledged": "2026-06-20 planning session"
+    }
+  ],
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": "fresh-verifier-2026-06-24",
+    "verifier_verdict_at": "2026-06-24T23:51:36Z",
+    "verifier_was_fresh_context": true,
+    "violations": []
+  }
+}

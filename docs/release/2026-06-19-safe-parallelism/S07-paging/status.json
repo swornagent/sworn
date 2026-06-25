@@ -3,33 +3,59 @@
   "slice_id": "S07-paging",
   "release": "2026-06-19-safe-parallelism",
   "track": "T3-commercial",
-  "state": "planned",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-20T00:00:00Z",
-  "start_commit": null,
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-22T14:36:00Z",
+  "start_commit": "a7681c4f2efa8aa31c52a750674c026984f18670",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S07-paging/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S07-paging/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S07-paging/journal.md",
   "planned_files": [
+    "internal/account/account.go",
     "internal/account/notify.go",
     "internal/account/notify_test.go",
-    "internal/run/run.go",
+    "internal/run/slice.go",
     "internal/scheduler/worker.go",
     "cmd/sworn/account.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/account/account.go",
+    "internal/account/account_test.go",
+    "internal/account/notify.go",
+    "internal/account/notify_test.go",
+    "internal/run/slice.go",
+    "internal/run/run_test.go",
+    "internal/run/parallel.go",
+    "internal/run/run.go",
+    "internal/scheduler/worker.go",
+    "cmd/sworn/account.go",
+    "cmd/sworn/account_test.go",
+    "cmd/sworn/login.go",
+    "cmd/sworn/run.go",
+    "cmd/sworn/main.go",
+    "cmd/sworn/commands.go",
+    "cmd/sworn/commands_test.go",
+    "cmd/sworn/verify.go",
+    "internal/command/registry.go"
+  ],
   "test_commands": [
     "go test ./internal/account/...",
-    "go test ./internal/run/..."
+    "go test ./internal/run/...",
+    "go test ./internal/scheduler/..."
   ],
-  "reachability_artifacts": [],
-  "open_deferrals": [],
+  "reachability_artifacts": [
+    "webhook.site: https://webhook.site/e79d3ba0-435e-473d-8d0e-c3d8209bcae2 (request UUID: 38181bb4-533e-45c9-9d75-8c5338aa9dd4)",
+    "docs/release/2026-06-19-safe-parallelism/S07-paging/proof.md"
+  ],
+  "open_deferrals": [
+    "SwornAgent /api/notify endpoint: server-side not built yet; client POST implemented with mock tests. Acknowledged: Coach, 2026-06-22. Tracking: SwornAgent backend backlog."
+  ],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "result": "pass",
+    "verifier_session_id": "ses_11044a939ffesvKvUXKGb5Iepm",
+    "verifier_verdict_at": "2026-06-22T14:36:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
   }
 }

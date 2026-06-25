@@ -27,17 +27,19 @@ const (
 	Implemented        State = "implemented"
 	Verified           State = "verified"
 	FailedVerification State = "failed_verification"
+	Deferred           State = "deferred"
 )
 
 // allowedTransitions is the state-transition lookup. Every entry is explicit;
 // an absent entry means the transition is illegal.
 var allowedTransitions = map[State][]State{
-	Planned:            {DesignReview, InProgress},
-	DesignReview:       {InProgress},
-	InProgress:         {Implemented},
-	Implemented:        {Verified, FailedVerification},
-	FailedVerification: {InProgress},
-	Verified:           {}, // terminal
+	Planned:            {DesignReview, InProgress, Deferred},
+	DesignReview:       {InProgress, Deferred},
+	InProgress:         {Implemented, Deferred},
+	Implemented:        {Verified, FailedVerification, Deferred},
+	FailedVerification: {InProgress, Deferred},
+	Verified:           {},           // terminal
+	Deferred:           {InProgress}, // can resume
 }
 
 // Transition returns nil if moving from s to next is legal. It fails closed:
@@ -70,17 +72,41 @@ type ValidationRecord struct {
 	ReleaseBenefitLink string   `json:"release_benefit_link,omitempty"`
 }
 
+// Dispatch records one role's model dispatch and its USD cost for a slice
+// run. One entry per role that dispatched: implementer, verifier, captain,
+// orchestrator. CostUSD is 0 when the model was unpriced or the role ran
+// deterministically — downstream consumers (S56) treat 0 as "no signal",
+// never as "free".
+type Dispatch struct {
+	Role    string  `json:"role"`
+	Model   string  `json:"model"`
+	CostUSD float64 `json:"cost_usd"`
+	Attempt int     `json:"attempt"`
+}
+
 // Verification holds the per-slice verification record (verdict, session
 // metadata, violations). It mirrors the nested "verification" object in
 // status.json.
-type Verification struct {	Result                  string   `json:"result,omitempty"`
+type Verification struct {
+	Result                  string   `json:"result,omitempty"`
+	Model                   string   `json:"model,omitempty"`
+	Attempt                 int      `json:"attempt,omitempty"`
 	VerifierSessionID       *string  `json:"verifier_session_id,omitempty"`
 	VerifierVerdictAt       *string  `json:"verifier_verdict_at,omitempty"`
 	VerifierWasFreshContext *bool    `json:"verifier_was_fresh_context,omitempty"`
 	Violations              []string `json:"violations,omitempty"`
-}
-
-// StakeClass classifies a design decision by its stakes = reversibility x blast-radius.
+	// Routing is the blocked-routing owner set by the verifier when it returns
+	// a BLOCKED verdict. Consumers (board oracle, router, TUI) use it to direct
+	// remediation: "needs_planner" | "needs_human" | "needs_implementer".
+	// When absent, the oracle infers from the verdict: "blocked" → needs_planner,
+	// "failed_verification" → needs_implementer (S57 spec).
+	Routing string `json:"routing,omitempty"`
+	// Dispatches records the per-role model and USD cost for each dispatch
+	// during the slice run. Omitted from JSON when empty (omitempty).
+	// Populated by RunSlice (S55); consumed by ledger.Project (v:2 Records)
+	// and S56 cost-aware routing.
+	Dispatches []Dispatch `json:"dispatches,omitempty"`
+}// StakeClass classifies a design decision by its stakes = reversibility x blast-radius.
 // Type-1 (high stakes / hard-to-reverse) requires a recorded human decision.
 // Type-2 (low stakes / reversible) may proceed with a noted default.
 // See docs/baton/rules/09-design-fidelity.md.
@@ -98,16 +124,17 @@ const (
 // A Type-1 choice with no HumanDecision is a violation — the model cannot
 // commit to an architecturally-significant choice on its own.
 type DesignDecision struct {
-	Choice                    string     `json:"choice"`
-	StakeClass                StakeClass `json:"stake_class"`
-	Options                   []string   `json:"options,omitempty"`
-	HumanDecision             string     `json:"human_decision,omitempty"`
-	Rationale                 string     `json:"rationale,omitempty"`
+	Choice                     string     `json:"choice"`
+	StakeClass                 StakeClass `json:"stake_class"`
+	Options                    []string   `json:"options,omitempty"`
+	HumanDecision              string     `json:"human_decision,omitempty"`
+	Rationale                  string     `json:"rationale,omitempty"`
 	ArchitecturallySignificant bool       `json:"architecturally_significant,omitempty"`
 }
 
 // Status is the full status.json payload for a slice.
-type Status struct {	Schema                string       `json:"$schema"`
+type Status struct {
+	Schema                string       `json:"$schema"`
 	SliceID               string       `json:"slice_id"`
 	Release               string       `json:"release"`
 	Track                 string       `json:"track"`
@@ -135,11 +162,11 @@ type Status struct {	Schema                string       `json:"$schema"`
 	// (from intake.md) is the lightweight floor — when present, every slice
 	// satisfies the vertical trace via slice -> release goal without an
 	// explicit release_benefit. Org objective is opt-in for enterprise depth.
-	ReleaseBenefit string          `json:"release_benefit,omitempty"`
-	OrgObjective   string          `json:"org_objective,omitempty"`
+	ReleaseBenefit  string           `json:"release_benefit,omitempty"`
+	OrgObjective    string           `json:"org_objective,omitempty"`
 	Validation      ValidationRecord `json:"validation,omitempty"`
-	DesignDecisions []DesignDecision  `json:"design_decisions,omitempty"`
-}// Read parses a status.json file at path and returns the Status. It returns
+	DesignDecisions []DesignDecision `json:"design_decisions,omitempty"`
+} // Read parses a status.json file at path and returns the Status. It returns
 // an error if the file cannot be read or is not valid JSON.
 func Read(path string) (*Status, error) {
 	data, err := os.ReadFile(path)

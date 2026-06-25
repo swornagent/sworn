@@ -96,7 +96,8 @@ Test outcome.
 	status := `{
   "slice_id": "S01-test-slice",
   "state": "planned",
-  "release_benefit": "The release delivers value to users."
+  "covers_needs": ["N-01", "N-02"],
+  "release_benefit": "The release delivers value to users.",
 }`
 	os.WriteFile(filepath.Join(sliceDir, "status.json"), []byte(status), 0644)
 
@@ -173,7 +174,8 @@ Test outcome.
 	os.WriteFile(filepath.Join(sliceDir, "spec.md"), []byte(spec), 0644)
 	status := `{
   "slice_id": "S01-test-slice",
-  "state": "planned"
+  "covers_needs": ["N-01"],
+  "state": "planned",
 }`
 	os.WriteFile(filepath.Join(sliceDir, "status.json"), []byte(status), 0644)
 
@@ -249,7 +251,8 @@ Test outcome.
 	os.WriteFile(filepath.Join(sliceDir, "spec.md"), []byte(spec), 0644)
 	status := `{
   "slice_id": "S01-test-slice",
-  "state": "planned"
+  "covers_needs": ["N-01"],
+  "state": "planned",
 }`
 	os.WriteFile(filepath.Join(sliceDir, "status.json"), []byte(status), 0644)
 
@@ -260,5 +263,155 @@ Test outcome.
 	exit := cmdLintTrace([]string{"test-release"})
 	if exit != 0 {
 		t.Errorf("expected exit 0 for solo floor (no objective, release goal present), got %d", exit)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// lint status tests
+// ---------------------------------------------------------------------------
+
+// TestLintStatusCmd_MissingReleaseArg verifies that `sworn lint status` without
+// a release argument exits 64 (usage error).
+func TestLintStatusCmd_MissingReleaseArg(t *testing.T) {
+	exit := cmdLintStatus([]string{})
+	if exit != 64 {
+		t.Errorf("expected exit 64 for missing release arg, got %d", exit)
+	}
+}
+
+// TestLintStatusCmd_NonexistentRelease verifies that `sworn lint status <nonexistent>`
+// exits 2.
+func TestLintStatusCmd_NonexistentRelease(t *testing.T) {
+	exit := cmdLintStatus([]string{"nonexistent-release-xyz"})
+	if exit != 2 {
+		t.Errorf("expected exit 2 for nonexistent release, got %d", exit)
+	}
+}
+
+// TestLintStatusCmd_ValidRelease verifies that a release with valid timestamps
+// exits 0. This is the Rule 1 reachability artefact: it drives the actual
+// command entry point (cmdLintStatus), not just the lint package.
+func TestLintStatusCmd_ValidRelease(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	sliceDir := filepath.Join(releaseDir, "S01-test-slice")
+	os.MkdirAll(sliceDir, 0755)
+
+	status := `{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S01-test-slice",
+  "release": "test-release",
+  "track": "T1-test",
+  "state": "planned",
+  "last_updated_at": "2020-01-01T00:00:00Z",
+  "verification": {
+    "result": "pending",
+    "verifier_verdict_at": "2020-01-01T00:00:00Z"
+  }
+}`
+	os.WriteFile(filepath.Join(sliceDir, "status.json"), []byte(status), 0644)
+
+	oldCwd, _ := os.Getwd()
+	defer os.Chdir(oldCwd)
+	os.Chdir(dir)
+
+	exit := cmdLintStatus([]string{"test-release"})
+	if exit != 0 {
+		t.Errorf("expected exit 0 for valid release, got %d", exit)
+	}
+}
+
+// TestLintStatusCmd_FutureTimestamp verifies that a release with a future
+// last_updated_at causes non-zero exit.
+func TestLintStatusCmd_FutureTimestamp(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	sliceDir := filepath.Join(releaseDir, "S01-test-slice")
+	os.MkdirAll(sliceDir, 0755)
+
+	// Far-future timestamp — will always be beyond now+5m.
+	status := `{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S01-test-slice",
+  "release": "test-release",
+  "track": "T1-test",
+  "state": "planned",
+  "last_updated_at": "2099-01-01T00:00:00Z",
+  "verification": {
+    "result": "pending"
+  }
+}`
+	os.WriteFile(filepath.Join(sliceDir, "status.json"), []byte(status), 0644)
+
+	oldCwd, _ := os.Getwd()
+	defer os.Chdir(oldCwd)
+	os.Chdir(dir)
+
+	exit := cmdLintStatus([]string{"test-release"})
+	if exit == 0 {
+		t.Error("expected non-zero exit for future timestamp, got 0")
+	}
+}
+
+// TestLintStatusCmd_FutureVerdictAt verifies that a release with a future
+// verification.verifier_verdict_at causes non-zero exit.
+func TestLintStatusCmd_FutureVerdictAt(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	sliceDir := filepath.Join(releaseDir, "S01-test-slice")
+	os.MkdirAll(sliceDir, 0755)
+
+	status := `{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S01-test-slice",
+  "release": "test-release",
+  "track": "T1-test",
+  "state": "planned",
+  "last_updated_at": "2020-01-01T00:00:00Z",
+  "verification": {
+    "result": "pending",
+    "verifier_verdict_at": "2099-01-01T00:00:00Z"
+  }
+}`
+	os.WriteFile(filepath.Join(sliceDir, "status.json"), []byte(status), 0644)
+
+	oldCwd, _ := os.Getwd()
+	defer os.Chdir(oldCwd)
+	os.Chdir(dir)
+
+	exit := cmdLintStatus([]string{"test-release"})
+	if exit == 0 {
+		t.Error("expected non-zero exit for future verifier_verdict_at, got 0")
+	}
+}
+
+// TestLintStatusCmd_MalformedTimestamp verifies that a malformed timestamp
+// string fails closed with non-zero exit.
+func TestLintStatusCmd_MalformedTimestamp(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	sliceDir := filepath.Join(releaseDir, "S01-test-slice")
+	os.MkdirAll(sliceDir, 0755)
+
+	status := `{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S01-test-slice",
+  "release": "test-release",
+  "track": "T1-test",
+  "state": "planned",
+  "last_updated_at": "not-a-valid-date",
+  "verification": {
+    "result": "pending"
+  }
+}`
+	os.WriteFile(filepath.Join(sliceDir, "status.json"), []byte(status), 0644)
+
+	oldCwd, _ := os.Getwd()
+	defer os.Chdir(oldCwd)
+	os.Chdir(dir)
+
+	exit := cmdLintStatus([]string{"test-release"})
+	if exit == 0 {
+		t.Error("expected non-zero exit for malformed timestamp, got 0")
 	}
 }

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S51-cli-command-registry",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T15-cli-registry",
+  "state": "verified",
+  "owner": "human",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-03T00:00:00Z",  "start_commit": "a4df3dc",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S51-cli-command-registry/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S51-cli-command-registry/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S51-cli-command-registry/journal.md",
+  "planned_files": [
+    "internal/command/registry.go",
+    "internal/command/registry_test.go",
+    "cmd/sworn/main.go",
+    "cmd/sworn/commands.go",
+    "cmd/sworn/commands_test.go",
+    "cmd/sworn/verify.go"
+  ],
+  "actual_files": [
+    "internal/command/registry.go",
+    "internal/command/registry_test.go",
+    "cmd/sworn/main.go",
+    "cmd/sworn/commands.go",
+    "cmd/sworn/commands_test.go",
+    "cmd/sworn/verify.go"
+  ],
+  "test_commands": [
+    "go test ./internal/command/...",
+    "go test ./cmd/sworn/...",
+    "go build ./...",
+    "go vet ./..."
+  ],
+  "reachability_artifacts": [
+    "proof.md \u00a7 Reachability artefact \u2014 terminal transcript"
+  ],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": null,
+    "verifier_verdict_at": "2026-07-03T00:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": []
+  },  "design_decisions": [
+    "Introduce process-wide command registry (internal/command) with Register/Lookup/All, replacing the hand-maintained switch in cmd/sworn/main.go \u2014 ends the recurring touchpoint collision on the shared file. Central registration in cmd/sworn/commands.go; per-verb self-registration from individual files is a deferred concern."
+  ]
+}

@@ -19,13 +19,17 @@ the developer running any CLI commands or copying template files manually.
 
 ## In scope
 
-Four planning tools registered via `server.RegisterTool()`:
+Three planning tools registered via `server.RegisterTool()`:
 
-1. **`create_release`** `(name: string, goal: string, tracking_issue?: string)` →
-   creates `docs/release/<name>/` directory; writes `intake.md` from the template with
-   `goal` filled into the "Release goal" section and `tracking_issue` into "Source of
-   truth"; writes `index.md` from the template with minimal frontmatter; creates
-   `screenshots/.gitkeep`; returns paths created. Errors if the directory already exists.
+> Note: the originally-planned `create_release` tool is superseded by `plan_release`
+> in S20-mcp-catalog-tools (T7), which adds detection logic (new vs. existing release).
+> S08c implements `create_release` as an internal function used by S20's `plan_release`;
+> it is not exposed as a public MCP tool from this slice.
+
+1. *(internal)* **`createRelease`** `(name, goal, tracking_issue)` — creates
+   `docs/release/<name>/` directory; writes `intake.md` with `goal` and `tracking_issue`;
+   writes `index.md` from template; creates the release image-capture directory
+   with `.gitkeep`; returns paths. Called by S20's `plan_release`; not a registered MCP tool in this slice.
 
 2. **`create_slice`** `(release: string, slice_id: string, spec_content: string, track_id: string)` →
    creates `docs/release/<release>/<slice_id>/` directory; writes `spec.md` with
@@ -44,10 +48,17 @@ Four planning tools registered via `server.RegisterTool()`:
 
 MCP Resources (registered via `server.RegisterResource()`):
 
-- `sworn://prompts/plan` → full text of the embedded planner role prompt
-  (`internal/prompt/` embed or direct file read from `$HOME/.claude/baton/role-prompts/planner.md`)
-- `sworn://prompts/implement` → implementer role prompt
-- `sworn://prompts/verify` → verifier role prompt
+> All prompt and Baton resources are served from the binary's `internal/prompt/`
+> embed — NOT from `$HOME/.claude/baton/`. The binary is the canonical source.
+> If the embed is absent or corrupted, the resource returns an error; it does not
+> fall back to the filesystem.
+
+- `sworn://prompts/plan` → `internal/prompt/planner.md` (embed)
+- `sworn://prompts/implement` → `internal/prompt/implementer.md` (embed)
+- `sworn://prompts/verify` → `internal/prompt/verifier.md` (embed)
+- `sworn://baton/rules` → **DEFERRED to S21-canonical-baton** — source `internal/prompt/baton/rules.md` is not yet built; Rule-2 deferral (see design §4), Coach ack 2026-06-21. Not served by S08c.
+- `sworn://baton/track-mode` → `internal/prompt/baton/track-mode.md` (embed)
+- `sworn://baton/version` → `internal/prompt/baton/VERSION.txt` (embed; Baton version string)
 - `sworn://release/{name}/board` → content of `docs/release/<name>/index.md`
 - `sworn://release/{name}/intake` → content of `docs/release/<name>/intake.md`
 - `sworn://release/{name}/{slice}/spec` → content of the slice's `spec.md`
@@ -78,27 +89,33 @@ and an example planning workflow.
 
 ## Acceptance checks
 
-- [ ] `create_release("test-mcp-release", "test goal")` creates the expected directory
-  structure with intake.md containing "test goal" and index.md from template; cleans
-  up after test
+- [ ] Internal `createRelease("test-mcp-release", "test goal")` creates the expected
+  directory structure with intake.md containing "test goal" and index.md from template;
+  cleans up after test; function is callable from S20's plan_release handler
 - [ ] `create_slice("test-mcp-release", "S01-foo", "# spec content", "T1")` creates
   spec.md with the provided content and status.json with state=planned and track=T1
 - [ ] `set_track` with a valid slices list updates the index.md frontmatter and Tracks
   table; `set_track` with a non-existent slice_id returns an error (not a panic)
 - [ ] `update_intake` appends content under the correct section heading
-- [ ] `resources/read sworn://prompts/plan` returns non-empty content matching the
-  planner.md role prompt (or embedded equivalent)
+- [ ] `resources/read sworn://prompts/plan` returns non-empty content from the
+  `internal/prompt/` embed — NOT from `$HOME/.claude/baton/` (verified by checking
+  that the resource works when `$HOME/.claude/baton/` does not exist)
+- [ ] *(DEFERRED to S21 — out of scope for S08c)* `resources/read sworn://baton/rules`
+  returns non-empty content from the `internal/prompt/baton/rules.md` embed (source built by
+  S21-canonical-baton; Rule-2 deferral, Coach ack 2026-06-21)
+- [ ] `resources/read sworn://baton/version` returns a parseable version string
 - [ ] `resources/read sworn://release/2026-06-19-safe-parallelism/board` returns the
   content of this release's index.md
 - [ ] `resources/read sworn://release/{name}/{slice}/proof` for a slice with no proof.md
   returns empty string (not an error)
 - [ ] `docs/mcp-setup.md` exists and contains Claude Code JSON config block
-- [ ] `go test ./internal/mcp/...` covers all 4 planning tools and resource reads
+- [ ] `go test ./internal/mcp/...` covers all 3 registered planning tools, the internal
+  createRelease function, and resource reads
 
 ## Required tests
 
 - **Unit**: `internal/mcp/tools_test.go` (extend)
-  — `TestCreateRelease`: call create_release; assert files created; cleanup
+  — `TestCreateRelease`: call internal createRelease; assert files created; cleanup
   — `TestCreateSliceDuplicate`: call create_slice twice with same id; assert error on
     second call (not silent overwrite)
   — `TestSetTrackValidation`: set_track with non-existent slice_id; assert error returned
@@ -107,17 +124,20 @@ and an example planning workflow.
   — `TestResourceReadPrompt`: assert sworn://prompts/plan returns non-empty string
   — `TestResourceReadProofAbsent`: sworn://release/{name}/{slice}/proof for slice with
     no proof.md; assert empty string, no error
-- **Reachability artefact**: configure sworn mcp in Claude Code; ask Claude to "create
-  a new sworn release called 2026-06-20-mcp-test with goal 'test the MCP planning
-  tools'"; observe AI calls create_release; verify directory created in `docs/release/`;
-  clean up. Screenshot or log in proof.md.
+- **Reachability artefact** (manual-smoke-step): configure sworn mcp in Claude Code; ask
+  Claude to "add slice S99-smoke to release 2026-06-19-mcp-test"; observe AI calls
+  **create_slice**; verify `docs/release/2026-06-19-mcp-test/S99-smoke/{spec.md,status.json}`
+  created; clean up. Log transcript in proof.md. *(Amended 2026-06-21: the prior artefact
+  referenced `create_release`, which this slice does not expose as an MCP tool — Coach ack
+  via decline.md.)*
 
 ## Risks
 
-- The role prompt files live at `$HOME/.claude/baton/role-prompts/` which is outside
-  the repo. The MCP server must read them at runtime from this path, not embed them
-  (embedding would make the binary repo-specific). If the path doesn't exist, return
-  a descriptive error: "Baton role prompts not found at <path> — is Baton installed?"
+- Role prompts and Baton docs are served from the `internal/prompt/` embed, NOT from
+  `$HOME/.claude/baton/`. The embed is compiled in at build time; there is no runtime
+  filesystem fallback. If the embed is somehow absent (should never happen in a correctly
+  built binary), return a clear error: "sworn://prompts/plan: embedded prompt not found
+  — this is a binary build error; please reinstall sworn."
 - `set_track` rewrites the index.md frontmatter. YAML frontmatter generation must
   produce strict-YAML-safe output (single-quoted strings per the planner.md convention).
   Test with a slice title containing a colon-space.

@@ -1,240 +1,95 @@
 ---
 title: Rule 10 — Customer Journey Validation
-description: Critical customer journeys are a first-class platform artefact — AI-drafted, human-ratified, version-controlled, and fail-closed on absence or staleness. A journey is the unit of end-to-end evidence.
+description: Critical customer journeys are a first-class artefact — AI-drafted, human-ratified, version-controlled, fail-closed on absence or staleness. A journey is the unit of end-to-end evidence, and a journey walked over a mocked boundary proves nothing.
 ---
 
 # Rule 10 — Customer Journey Validation
 
 ## The rule
 
-**Critical customer journeys are a first-class platform artefact, not a per-release afterthought.** Before a release can ship, its customer journeys must be:
+**Critical customer journeys are a first-class artefact, not a per-release afterthought.** Before a release can ship, its customer journeys must be:
 
-1. **Elicited** — the model drafts candidate critical customer journeys from the app; no draft means no journeys gate.
-2. **Ratified** — a human reviews, edits, and ratifies the journeys; model-only journeys are unratified and fail the gate.
-3. **Durable** — journeys are persisted to a version-controlled artefact (`.sworn/journeys.json`) that survives session boundaries and is maintained release over release.
+1. **Elicited** — the model drafts candidate critical journeys from the app. No draft means no journeys gate.
+2. **Ratified** — a human reviews, edits, and ratifies the journeys. Model-only journeys are unratified and fail the gate.
+3. **Durable** — journeys are persisted to a version-controlled artefact that survives session boundaries and is maintained release over release.
 
-A journey is an ordered, end-to-end path a user type takes across the app to achieve an outcome. It is the unit of end-to-end evidence — if a release changes a user-visible surface, the journey that crosses that surface must be updated.
+A journey is an ordered, end-to-end path a user type takes across the app to achieve an outcome. It is the unit of end-to-end evidence: if a release changes a user-visible surface, the journey that crosses that surface must be updated.
 
 ## Why
 
-Baton Rules 1/6/7 verify **delivery against the spec** within a single slice. The s
+Rules 1, 6, and 7 verify **delivery against the spec** within a single slice. A slice spec scopes one slice, one outcome. A critical customer journey crosses many slices — it is the full path a user takes. If release work changes a surface a journey crosses, the journey (not just the slice) must be re-verified.
 
-pec scopes one slice, one outcome. A critical customer journey crosses many slices — it is the full path a user takes. If release work changes a surface that a journey crosses, the journey (not just the slice) must be re-verified.
-
-Journey validation exists at a different level of abstraction from slice verification:
+Journey validation sits at a different level of abstraction from slice verification:
 
 | Artefact | Scope | Owned by | Gate |
 |---|---|---|---|
 | Slice spec | One slice, one user-reachable outcome | Planner + Verifier | Rule 7 (adversarial verification) |
 | Journey | End-to-end user path across many slices | Human + Model | Rule 10 (elicitation + ratification) |
 
-A slice that passes Rule 7 but leaves a journey stale is an integration defect that no per-slice gate catches. Journey validation closes that gap.
+A slice that passes Rule 7 but leaves a journey stale is an integration defect no per-slice gate catches. Journey validation closes that gap: Rule 7 verifies the parts; Rule 10 verifies the assembled whole.
 
 ## The journey artefact
 
-The journeys artefact lives at `<project-root>/.sworn/journeys.json`. It is a JSON document containing:
+The journeys artefact is a version-controlled JSON document at a stable project path. It contains:
 
 - **Version** — schema version for forward compatibility.
-- **Journeys** — the list of critical customer journeys, each with:
-  - **id** (e.g. `J01-onboard-new-user`)
-  - **user_type** (e.g. `free_user`, `pro_user`, `admin`)
-  - **outcome** — what the user achieves
-  - **steps** — ordered sequence of actions
-  - **entry_surface** — where the journey begins
-- **Ratification metadata** — `is_ratified`, `ratified_by`, `ratified_at`
-
-Provisional: the exact schema is refined by the live journey-validation hand-run (field-level detail appended via `/replan-release`; verified work stays immutable).
+- **Journeys** — the list of critical journeys, each with an **id** (e.g. `J01-onboard-new-user`), a **user_type** (e.g. `free_user`, `pro_user`, `admin`), an **outcome** (what the user achieves), ordered **steps**, and an **entry_surface** (where the journey begins).
+- **Ratification metadata** — `is_ratified`, `ratified_by`, `ratified_at`.
 
 ## Enforcement
 
-`sworn journeys --check <project>` is a deterministic, fail-closed gate that reads `.sworn/journeys.json` and returns:
+A deterministic, fail-closed gate reads the journeys artefact and returns:
 
-- **Exit 0** — artefact exists and is human-ratified. The journeys are listed.
-- **Exit 1** — artefact is missing (elicitation has not been run) or exists but is unratified.
+- **Exit 0** — artefact exists and is human-ratified; the journeys are listed.
+- **Exit 1** — artefact is missing (elicitation not run) or exists but is unratified.
 - **Exit 2** — unrecoverable error (parse failure, I/O error).
 
-The gate is additive — it does not replace any existing gate. It runs alongside per-slice verification (Rule 7), not instead of it.
+The gate is additive — it runs alongside per-slice verification (Rule 7), after all slices are verified but before the release merges. It does not replace any existing gate.
+
+## No-mock boundary — the enforcement that makes a journey count
+
+Journey validation exists to prove the **assembled system actually works end-to-end**. A journey walked over a *mocked* boundary proves nothing — the mock answers however the test author wired it to, not however the real system would. So the no-mock boundary is **constitutive of Rule 10, not a detachable add-on**: it is the enforcement that makes a walked journey count as proof.
+
+The artefact and the gate are not two rules that happen to compose — they are one rule's two faces. The journey says *what* end-to-end path must work; the no-mock gate guarantees the walk that proves it didn't cheat at the boundary. A journey whose boundary is mocked is a journey that has not been validated at all, regardless of a green test.
+
+**The validated boundaries** are: database (DB), authentication (auth), and entitlement (premium/subscription tier) — the integration points where a mock most easily hides a journey that doesn't really work.
+
+**The constraint.** On an environment wall — when real infrastructure at a validated boundary cannot be reached — the implementer must **stop and surface the blocker**, never mock around it. A mock/stub/fake at a validated boundary is permitted only if it is a declared deferral with all three Rule 2 elements (why + tracking + acknowledgement). An *undeclared* boundary mock is an undeclared silent deferral and fails the gate closed.
+
+This reads as a Rule 2 concern too — an undeclared mock is a species of silent deferral — but its home is Rule 10, because the specific failure it prevents is *a journey that lies about working*.
+
+**Detection (deterministic first-pass).** A diff-scanning check flags lines that combine a mock/stub/fake marker (`mock`, `fake`, `stub`, …) with a validated-boundary keyword (`sql.DB`, `auth`, `premium`, …). If the flagged mock matches an open declared deferral, it is surfaced as a known deferral; otherwise it is an undeclared boundary mock and the gate exits non-zero, naming the offending mock and boundary.
+
+**When the no-mock gate applies:** every slice whose diff introduces, uses, or constructs a mock/stub/fake at a validated boundary. **When it does not:** pure unit-test mocks that touch no validated boundary (a mock calculator, a mock string formatter), and the human walkthrough itself, where mocks are fully off and real journeys run against real infra.
 
 ## Workflow
 
-1. A maintainer runs `sworn journeys <project>`.
+1. A maintainer runs journey elicitation against the project.
 2. The model drafts candidate journeys from the project structure.
-3. The human reviews, edits, and ratifies the artefact (sets `is_ratified=true`,
-   `ratified_by`, `ratified_at`).
-4. `sworn journeys --check <project>` passes.
-5. The journeys artefact is committed to version control and maintained as the project evolves.
+3. The human reviews, edits, and ratifies the artefact (`is_ratified=true`, `ratified_by`, `ratified_at`).
+4. The journeys gate passes; the artefact is committed and maintained as the project evolves.
+5. At release cutover, the journeys that the release touches are re-walked against real boundaries (no-mock), and the walkthrough is human-attested before ship.
+
+## Relationship to existing rules
+
+| Rule | What it does | How Rule 10 complements it |
+|---|---|---|
+| Rule 1 — Reachability Gate | Tests exercise the integration point | Rule 10 ensures the integration point's journey is documented and re-walked |
+| Rule 2 — No Silent Deferrals | Surfaces deferrals explicitly | An undeclared boundary mock is a silent deferral caught by Rule 10's no-mock gate |
+| Rule 6 — Proof Bundle | Closes AC → test → proof per slice | Rule 10 adds cross-slice journey evidence |
+| Rule 7 — Adversarial Verification | Fresh-context verification of one slice | Rule 10 verifies the end-to-end paths that span slices |
+| Rule 8 — Requirements Fidelity | Need → AC → test → proof horizontal trace | Rule 10 adds the vertical journey trace across the release |
 
 ## When this rule applies
 
 - Any release that changes a user-visible surface (UI, API, CLI command, form, route).
-- Pre-release cutover checks — the journeys gate runs after all slices are verified but before the release merges.
+- Pre-release cutover — the journeys gate runs after all slices are verified but before the release merges.
 
 ## When this rule does NOT apply
 
 - Infrastructure-only releases with no user-visible change.
 - A release with no ratifiable journeys (the tooling produces a minimal set; the human may ratify that minimal set).
 
-## Relationship to existing rules
-
-| Rule | What it does | How Rule 10 complements it |
-|---|---|---|
-| Rule 1 — Reachability Gate | Tests exercise the integration point | Rule 10 ensures the integration point's journey is documented |
-| Rule 6 — Proof Bundle | Closes AC -> test -> proof per slice | Rule 10 adds cross-slice journey evidence |
-| Rule 7 — Adversarial Verification | Fresh-context verification of one slice | Rule 10 verifies the end-to-end paths that span slices |
-| Rule 8 — Requirements Fidelity | Need -> AC -> test -> proof horizontal trace | Rule 10 adds the vertical journey trace across the release |
-
-
-## No-mock boundary (S10 enforcement)
-
-Journey validation exists to prove the *assembled system actually works end-to-end*. A journey walked over a mocked boundary proves nothing — the mock answers however the test author wired it to, not however the real system would. So the no-mock boundary is **constitutive of Rule 10, not a detachable add-on**: it is the enforcement that makes a walked journey count as proof. (It also reads as a Rule-2 concern — an undeclared mock is a silent deferral — but its home is here, because the failure it prevents is a journey that lies about working.)
-
-**An undeclared mock at a validated boundary is an undeclared Rule-2 deferral and fails closed.** The validated boundaries are: database (DB), authentication (auth), and entitlement (premium/subscription tier). A mock/stub/fake at one of these boundaries is permitted only if declared as a Rule-2 deferral in the slice's `status.json` `open_deferrals` with all three elements (why + tracking + acknowledgement).
-
-### Detection
-
-The `sworn verify` first-pass gate (`internal/verify.CheckBoundaryMocks`) scans the slice's diff for lines that combine:
-1. A mock/stub/fake marker (`mock`, `fake`, `stub`, etc.)
-2. A validated-boundary keyword (`sql.DB`, `auth`, `premium`, etc.)
-
-Lines matching both patterns are flagged. If the mock's boundary + type matches any open deferral (case-insensitive substring match on boundary name + mock/fake/stub keyword), it is treated as declared and surfaced as a known deferral. Otherwise it is an undeclared boundary mock — the gate exits non-zero (FAIL) and names the offending mock + boundary.
-
-### Implementer guidance
-
-An implementer that cannot reach real infrastructure at a validated boundary must **stop and surface the blocker** (record a blocked-on-environment state) rather than mock around it. The implementer role prompt (`internal/prompt/implementer.md`) instructs this under "Hard constraints" — the stop-don't-mock principle is a binding constraint, not advisory.
-
-### Relationship to journey validation
-
-A journey that crosses a validated boundary (every journey touches the DB; most touch auth) must run that crossing against real infra, or declare the mock as a deferral, for the verification gate to pass. The artefact (the journey) and the gate (no-mock) are not two rules that happen to compose — they are one rule's two faces: the journey says *what* end-to-end path must work; the no-mock gate guarantees the walk that proves it didn't cheat at the boundary. A journey whose boundary is mocked is a journey that hasn't been validated at all, regardless of a green test.
-
-### When this applies
-
-- Every slice whose diff introduces, uses, or constructs a mock/stub/fake at a validated boundary.
-- Every implementer session that operates the S10 implementer prompt.
-
-### When this does NOT apply
-
-- Pure unit test mocks that do not touch a validated boundary (e.g. a mock calculator, a mock string formatter). These are internal to the unit and are not flagged.
-- The human walkthrough (S13), where mocks are fully off and real journeys run against real infra — that slice is out of scope for S10.
-
-
-## Impact analysis (S12)
-
-**Per-release journey-impact analysis ties Rule 10 into the release workflow.** For a given release, `sworn journeys --impact <release>` computes which critical journeys the release touches, derived from the release's slice planned/actual files and the journeys' step surfaces. The output is the release's validation scope: the set of journeys that must be walked and re-tested before cutover.
-
-### Algorithm
-
-1. **Load the journeys artefact** from `.sworn/journeys.json` — fail-closed if missing or unratified.
-2. **Collect slice touchpoints** — scan `docs/release/<release>/S*/status.json` for each slice's `planned_files` and `actual_files` (the files the release changes).
-3. **Heuristic surface matching** — for each journey, its `entry_surface` and each step's `surface` are matched against the collected touchpoint files:
-   - Level 1: direct substring match (normalised to lowercase).
-   - Level 2: token-level match (alphanumeric tokens from both file path and surface).
-   - Level 3: conventional mapping (surface "CLI" maps to files under `cmd/`).
-4. **Output the touched set** — a journey is in-scope if any of its surfaces match any touchpoint file. The heuristic is biased toward over-inclusion (a journey is touched if any step's surface is touched), so the walkthrough scope errs safe.
-
-### Fail-closed on missing artefact
-
-If no ratified journeys artefact exists at `.sworn/journeys.json`, impact analysis cannot run and directs the user to run elicitation (S11) first. An unratified artefact also fails — ratification is required before impact analysis.
-
-### Empty touched set
-
-A release that touches no journeys (e.g. an internal-only refactor with touchpoints that no journey surface matches) reports an empty touched-set explicitly rather than failing. This allows infrastructure-only releases to pass the gate.
-
-### CLI
-
-```
-sworn journeys --impact <release> [project-path]
-```
-
-Exit codes:
-- **0** — success; the touched-journey set is reported (may be empty).
-- **1** — journeys artefact missing or unratified.
-- **2** — unrecoverable error (I/O or parse failure).
-
-The impact result is consumed by S13 (walkthrough attestation) and S14 (journey regression suite) to determine the release's validation scope.
-
-
-## Walkthrough attestation (S13)
-
-**A release cannot ship unless every touched journey carries a human-walkthrough attestation.** The human who walks the journey is the acceptance authority: the model (software) may load/save attestation records but cannot author the human attestation's attested-by field.
-
-### Attestation record
-
-Each walkthrough attestation records:
-
-- **journey_id** — the journey this attestation covers (e.g. `J01-verify-flow`)
-- **walked_by** — the human who walked this journey (mandatory; model cannot set)
-- **walked_at** — ISO 8601 timestamp when the walkthrough was performed
-- **real_infra** — boolean assertion that the walkthrough used real infrastructure
-- **mocks_off** — boolean assertion that no mocks/stubs were present at validated boundaries
-- **passed** — whether the walkthrough passed or failed
-- **notes** — free-form observations (optional)
-
-### Storage
-
-Attestations are stored per-release at `<project-root>/.sworn/attestations/<release-name>.json`. A human edits this file to record walkthroughs. The file is version-controlled alongside the journeys artefact.
-
-### Ship gate
-
-`sworn ship <release>` is a deterministic, fail-closed gate that checks:
-
-1. The journeys artefact exists and is human-ratified.
-2. The release's validation scope (touched journeys, computed by S12 impact analysis).
-3. Every touched journey has an attestation with all required fields.
-
-The gate exits:
-- **0** — all touched journeys have complete, passing human attestations; the release may proceed to cutover.
-- **1** — one or more journeys are un-walked, incomplete, or have failed attestations; each is named in the kill-list.
-- **2** — unrecoverable error (I/O or parse failure).
-
-### Fail-closed semantics
-
-The ship gate is fail-closed:
-- A journey with **no attestation** blocks cutover (un-walked).
-- A journey whose attestation is **missing the human-walked-by field** blocks cutover (model cannot author attestations).
-- A journey whose attestation **lacks real_infra or mocks_off** blocks cutover.
-- A journey whose attestation records a **failed walkthrough** blocks cutover.
-- Only a complete, passing attestation for every touched journey allows cutover.
-
-### Relationship to S14
-
-The walkthrough attestation is deliberately manual (S13). S14 (journey regression suite) is the maturity path that shrinks the manual set over time — as journeys are codified into automated regression tests, fewer require human walkthrough at cutover. The attestation record is designed so a journey can transition from manual-walkthrough-required to regression-covered without schema changes.
-
-
-
-## Regression codification (S14)
-
-**Every walked-pass journey should eventually have an automated regression test.** S14 introduces the `sworn journeys --regen <release>` command that codifies journey steps into structured test scaffolds.
-
-### Codification algorithm
-
-1. **Load** the ratified journeys artefact and attestations from `.sworn/`.
-2. **Collect** journeys with a `walked-pass` attestation status.
-3. **Filter** — journeys already marked `has_regression: true` or whose `regression_test_path` points to a file that exists on disk are skipped (accretive).
-4. **Generate** a Go test scaffold for each un-covered walked journey:
-   - File name: `journey_<sanitised-id>_test.go`
-   - Package: `journey_test`
-   - One test function per journey containing the journey's steps as structured comments and a `t.Skip` marker.
-5. **Mark** the journey's `has_regression: true` and set `regression_test_path` in the artefact.
-6. **Save** the updated artefact.
-
-### Coverage check
-
-`sworn journeys --regen <release>` performs a coverage check before codification. If any coverage gaps existed at run start (walked-pass journey without a committed regression test), the command exits non-zero (FAIL) even if those gaps are filled during the same run. This fail-closed signal forces the release to either:
-- Commit the scaffolds and re-run `--regen` (no pre-codification gaps → exit 0), or
-- Explicitly acknowledge the gap as a Rule 2 deferral.
-### Accretive, not regenerated
-
-Previously-codified journeys are never re-generated. The scaffold file existence + `has_regression` flag together define "covered." An existing file is not overwritten, and a journey with `has_regression: true` is not re-processed. This ensures the regression suite is additive across releases — last release's walked journeys are this release's automated coverage.
-
-### Default output path
-
-Scaffolds are written to `<project-root>/tests/e2e/journeys/` by default. This path is configurable via an `outputDir` parameter (planned enhancement).
-
-### Relationship to S13 (walkthrough attestation)
-
-The ship gate (S13) currently requires human walkthrough attestations for every touched journey. A journey with `has_regression: true` is still subject to the ship gate — regression coverage does NOT replace the walkthrough. Over future releases, the ship gate may relax requirements for regression-covered journeys (e.g., re-walk only changed surfaces), but that is out of scope for v1 of S14.
-
-
 ## Provenance
 
-Rule 10 was introduced in the `2026-06-16-fidelity-layer` release. It closes the cross-slice integration-evidence gap: per-slice verification (Rules 1/6/7) catches within-slice defects, but no artefact captures the end-to-end user path. Journey validation fills that gap with a lightweight, version-controlled artefact that survives release boundaries.
+Rule 10 was introduced in the `2026-06-16-fidelity-layer` cycle. It closes the integration gap above per-slice verification: a release of individually-verified slices can still leave a cross-slice user path broken or stale. The no-mock boundary is folded in as Rule 10's enforcement teeth — the recognition that an end-to-end journey only counts as evidence if it ran against real boundaries, not mocks.

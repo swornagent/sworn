@@ -1,0 +1,48 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S26-telemetry",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T9-telemetry",
+  "state": "verified",
+  "owner": "human",
+  "last_updated_by": "agent",
+  "last_updated_at": "2026-06-21T00:00:00Z",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S26-telemetry/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S26-telemetry/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S26-telemetry/journal.md",
+  "planned_files": [
+    "internal/telemetry/telemetry.go",
+    "internal/telemetry/telemetry_test.go",
+    "cmd/sworn/main.go",
+    "cmd/sworn/telemetry.go"
+  ],
+  "actual_files": [
+    "internal/telemetry/telemetry.go",
+    "internal/telemetry/telemetry_test.go",
+    "cmd/sworn/main.go",
+    "cmd/sworn/telemetry.go",
+    "docs/release/2026-06-19-safe-parallelism/S26-telemetry/design.md",
+    "docs/release/2026-06-19-safe-parallelism/S26-telemetry/journal.md",
+    "docs/release/2026-06-19-safe-parallelism/S26-telemetry/proof.md"
+  ],
+  "test_commands": [
+    "go test -race ./internal/telemetry/...",
+    "go build ./..."
+  ],
+  "reachability_artifacts": [
+    "docs/release/2026-06-19-safe-parallelism/S26-telemetry/proof.md (manual smoke step: rm -f ~/.config/sworn/.telemetry-disclosed && sworn version)"
+  ],
+  "start_commit": "659332370db3e763f1cb4457d89ae28e52dc5215",
+  "open_deferrals": [
+    {
+      "why": "AC1/AC2 (sworn init consent and --non-interactive default) are owned by T3/S09 which holds cmd/sworn/init.go. S26 ships ShowConsent() as a callable function; the init-flow wiring is a cross-track dependency.",
+      "tracking": "S09-per-role-model-config planned_files includes cmd/sworn/init.go",
+      "ack": "Coach review 2026-06-21"
+    }
+  ],
+  "verification": {
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-06-21T00:00:00Z"
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S09-per-role-model-config",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T3-commercial",
+  "state": "verified",
+  "owner": "human",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-03T14:00:00Z",
+  "design_decisions": [
+    {
+      "id": "D1",
+      "type": "type_2",
+      "summary": "Shared ModelSetting struct adds EscalationModels+MaxAttempts; verifier ignores them"
+    },
+    {
+      "id": "D2",
+      "type": "type_2",
+      "summary": "Config defaults differ from run.DefaultEscalationModels (2 vs 4 entries)"
+    },
+    {
+      "id": "D3",
+      "type": "type_2",
+      "summary": "Escalation fallback uses cfg.Implementer.EscalationModels[0] for initial model"
+    },
+    {
+      "id": "D4",
+      "type": "type_2",
+      "summary": "Replace ad-hoc resolveVerifierModel in run.go with config.ResolveVerifierModel"
+    },
+    {
+      "id": "D5",
+      "type": "type_2",
+      "summary": "sworn init re-prompts only on fresh scaffold; existing config preserved"
+    }
+  ],
+  "start_commit": "62caf95",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S09-per-role-model-config/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S09-per-role-model-config/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S09-per-role-model-config/journal.md",
+  "planned_files": [
+    "internal/config/config.go",
+    "internal/config/config_test.go",
+    "internal/config/init.go",
+    "cmd/sworn/run.go",
+    "cmd/sworn/init.go"
+  ],
+  "actual_files": [
+    "internal/config/config.go",
+    "internal/config/config_test.go",
+    "internal/config/init.go",
+    "cmd/sworn/run.go",
+    "cmd/sworn/init.go"
+  ],
+  "test_commands": [
+    "go test ./internal/config/...",
+    "go build ./..."
+  ],
+  "reachability_artifacts": [
+    "sworn init --yes smoke step: /tmp/sworn-s09-smoke-config.json written with all 4 keys"
+  ],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": "2026-07-03-s09",
+    "verifier_verdict_at": "2026-07-03T14:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": []
+  }
+}

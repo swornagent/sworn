@@ -1,0 +1,131 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S61-cli-output-styling",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T18-cli-polish",
+  "state": "verified",
+  "owner": "human",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-24T01:30:00Z",
+  "start_commit": "0e3dddfaa5718c8e84f3eb07e13503572a682b2c",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S61-cli-output-styling/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S61-cli-output-styling/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S61-cli-output-styling/journal.md",
+  "planned_files": [
+    "internal/style/style.go",
+    "internal/style/style_test.go",
+    "cmd/sworn/init.go",
+    "cmd/sworn/top.go",
+    "cmd/sworn/journeys.go",
+    "cmd/sworn/ship.go",
+    "cmd/sworn/lint.go",
+    "cmd/sworn/bench.go",
+    "cmd/sworn/run.go",
+    "cmd/sworn/main.go",
+    "cmd/sworn/reqverify.go",
+    "cmd/sworn/reqvalidate.go",
+    "cmd/sworn/designfit.go",
+    "cmd/sworn/designaudit.go",
+    "cmd/sworn/specquality.go",
+    "cmd/sworn/account.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/induction.go",
+    "cmd/sworn/login.go",
+    "cmd/sworn/mcp.go",
+    "cmd/sworn/memory.go",
+    "cmd/sworn/telemetry.go",
+    "cmd/sworn/verify.go",
+    "internal/rtm/rtm.go",
+    "internal/ears/ears.go",
+    "internal/specquality/specquality.go",
+    "internal/designfit/designfit.go",
+    "internal/designaudit/designaudit.go",
+    "internal/reqverify/reqverify.go",
+    "internal/reqvalidate/reqvalidate.go"
+  ],
+  "actual_files": [
+    "cmd/sworn/account.go",
+    "cmd/sworn/bench.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/init.go",
+    "cmd/sworn/journeys.go",
+    "cmd/sworn/lint.go",
+    "cmd/sworn/main.go",
+    "cmd/sworn/memory.go",
+    "cmd/sworn/ship.go",
+    "cmd/sworn/telemetry.go",
+    "cmd/sworn/top.go",
+    "internal/designaudit/designaudit.go",
+    "internal/designfit/designfit.go",
+    "internal/ears/ears.go",
+    "internal/reqvalidate/reqvalidate.go",
+    "internal/reqverify/reqverify.go",
+    "internal/rtm/rtm.go",
+    "internal/specquality/specquality.go",
+    "internal/style/style.go",
+    "internal/style/style_test.go"
+  ],
+  "test_commands": [
+    "go test ./internal/style/...",
+    "go test ./cmd/sworn/...",
+    "go test ./internal/...",
+    "go build ./...",
+    "go vet ./..."
+  ],
+  "reachability_artifacts": [
+    "docs/release/2026-06-19-safe-parallelism/S61-cli-output-styling/proof.md — terminal transcript showing SWORN_FORCE_COLOR=1 sworn version|help|top emitting ANSI (escape counts 2/32/2) and NO_COLOR=1 emitting zero escapes (0/0/0)",
+    "internal/style/style_test.go (TestEnabled_DisabledReturnsPlain, TestEnabled_EnabledReturnsAnsi)",
+    "go test ./cmd/sworn/... (styled commands exercised through entry points, 117/118 pass — 1 pre-existing TestCmdRun_Parallel failure)"
+  ],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": "fresh-context-2026-06-24",
+    "verifier_verdict_at": "2026-06-24T01:30:00Z",
+    "verifier_was_fresh_context": true,
+    "rework_notes": "Prior round failed_verification with 3 violations: (1) sworn help emitted 0 ANSI under SWORN_FORCE_COLOR=1 because usage() used no style helpers; (2) cmd/sworn/init.go was a planned touchpoint but never styled (26 fmt.Print* stdout calls); (3) proof.md Reachability artefact had no terminal transcript. Re-entry addresses all three: styling usage() in main.go, styling init.go user-facing stdout, and regenerating proof.md with a live terminal transcript.",
+    "prior_violations": [
+      "AC3: sworn help emits 0 ANSI escapes with SWORN_FORCE_COLOR=1 — usage() (cmd/sworn/main.go:96-162) uses no style helpers; spec requires sworn version|help|top to emit ANSI under force-color",
+      "Gate 2: cmd/sworn/init.go is a planned touchpoint but NOT in the diff; init.go has 26 fmt.Print* stdout calls with no style import; proof 'Divergence from plan' falsely claims init.go 'writes only to stderr'",
+      "Gate 4: proof.md 'Reachability artefact' contains no terminal transcript showing SWORN_FORCE_COLOR=1 sworn version|help|top ANSI output + NO_COLOR=1 zero-escape runs (spec Required tests explicitly demands this transcript)"
+    ],
+    "verifier_observations": [
+      "PASS — all six gates satisfied. All three prior violations genuinely resolved: (1) sworn help now emits 32 ANSI escapes under SWORN_FORCE_COLOR=1 (usage() refactored to styled strings.Builder writing to os.Stderr); (2) init.go now imports internal/style and emits 6 escapes under force-color (was 0), plain output byte-identical (sha256 d5b8d0d4... matches base); (3) proof.md Reachability artefact contains a real terminal transcript with escape counts matching live binary runs (version 2/0, help 32/0, top 2/0).",
+      "AC1: 11 style helpers present, Enabled() semantics tested (NoColor/ForceColor/DisabledReturnsPlain). AC2: sworn help + init byte-identical to base under NO_COLOR (help sha 81c36dcf...). AC3: version 2/0, help 32/0, top 2/0 (force/no-color). AC4: pad-then-style confirmed in init.go:124,136 and ears.go:341. AC5: go.mod unchanged. AC6: go build + go vet both exit 0.",
+      "TestCmdRun_Parallel fails (117/118 cmd/sworn tests pass) — confirmed pre-existing on release-wt base commit (same exit 2, 'implementer model not configured'), environmental, out of slice scope, excluded from verdict.",
+      "Minor non-blocking observation: gofmt -l flags 11 changed files (e.g. style.go missing trailing newline, bench.go )+ spacing). These are cosmetic formatting nits, not a spec AC violation (AC6 is build+vet only, both pass). proof.md's 'gofmt clean' claim is accurate for the 3 files it checked (main.go/init.go/telemetry.go) but inaccurate for 11 others. A `gofmt -w .` would fix without touching logic; does not block merge."
+    ]
+  },
+  "design_decisions": [
+    {
+      "choice": "Reuse internal/style/style.go verbatim from wip/cli-styling-reference",
+      "stake_class": "type_2",
+      "human_decision": "acknowledged \u2014 reference branch code is clean and tested; copy verbatim",
+      "rationale": "Spec directs reuse; reference package is zero-dependency and already passes style_test.go"
+    },
+    {
+      "choice": "Command-file styling wraps existing fmt.Print* arguments in style.*() calls, never rephrases",
+      "stake_class": "type_2",
+      "human_decision": "acknowledged \u2014 wrapping pattern guarantees byte-identical plain-text output",
+      "rationale": "Preserves all golden-string and table-alignment tests"
+    },
+    {
+      "choice": "main.go touchpoints: usage(), cmdVersion(), cmdHelp() only; skip dispatch() and TUI path",
+      "stake_class": "type_2",
+      "human_decision": "acknowledged \u2014 T15 owns dispatch/registry pattern; no output text to style there",
+      "rationale": "Avoids cross-track collision with T15 command registry"
+    },
+    {
+      "choice": "Divider runs of = stay Dim-wrapped rather than converted to style.Rule",
+      "stake_class": "type_2",
+      "human_decision": "acknowledged \u2014 preserves byte-identical plain output; Rule() emits box-drawing chars",
+      "rationale": "Spec Risk section explicitly calls this out"
+    },
+    {
+      "choice": "usage() text block: Banner at top, hint line at bottom; middle prose stays plain",
+      "stake_class": "type_2",
+      "human_decision": "acknowledged \u2014 over-styling reference material degrades readability",
+      "rationale": "Only verdict/heading surfaces get colour"
+    }
+  ]
+}

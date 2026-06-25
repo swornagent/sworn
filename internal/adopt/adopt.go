@@ -11,13 +11,20 @@ import (
 	"strings"
 )
 
-//go:embed baton/README.md baton/VERSION baton/rules/*
+//go:embed baton/README.md baton/VERSION baton/rules/* baton/architecture.json
 var batonFS embed.FS
 
 // BatonSectionHeading is the marker heading that identifies the Baton
 // section in agent config files. It must match the heading used by the
 // splice logic exactly.
 const BatonSectionHeading = "## Engineering Process — Baton"
+
+// AgentsFragment returns the seven-rule fragment spliced into agent config
+// files. Exported so that `sworn doctor --fix` can write the minimal template
+// when migrating a legacy AGENTS.md.
+func AgentsFragment() string {
+	return batonAGENTSFragment
+}
 
 // agentFiles lists the recognized agent-config files that sworn splices
 // the Baton rules section into. AGENTS.md is always created if absent;
@@ -159,9 +166,9 @@ func Materialise(repoRoot string) error {
 		{"baton/rules/08-requirements-fidelity.md", filepath.Join(rulesDir, "08-requirements-fidelity.md"), 0644},
 		{"baton/rules/09-design-fidelity.md", filepath.Join(rulesDir, "09-design-fidelity.md"), 0644},
 		{"baton/rules/10-customer-journey-validation.md", filepath.Join(rulesDir, "10-customer-journey-validation.md"), 0644},
+		{"baton/rules/11-process-global-mutation.md", filepath.Join(rulesDir, "11-process-global-mutation.md"), 0644},
 	}
-	for _, f := range files {
-		data, err := batonFS.ReadFile(f.src)
+	for _, f := range files {		data, err := batonFS.ReadFile(f.src)
 		if err != nil {
 			return fmt.Errorf("adopt: read embedded %s: %w", f.src, err)
 		}

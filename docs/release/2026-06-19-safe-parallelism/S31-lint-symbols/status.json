@@ -1,0 +1,71 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S31-lint-symbols",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T12-harness-hardening",
+  "state": "verified",
+  "owner": "human",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-29T01:00:00Z",  "start_commit": "76b1880c7331d13e9fc2b3868b0f92d183d18648",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S31-lint-symbols/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S31-lint-symbols/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S31-lint-symbols/journal.md",
+  "planned_files": [
+    "internal/lint/symbols.go",
+    "internal/lint/symbols_test.go",
+    "cmd/sworn/lint.go"
+  ],
+  "actual_files": [
+    "internal/lint/symbols.go",
+    "internal/lint/symbols_test.go",
+    "cmd/sworn/lint.go",
+    "docs/release/2026-06-19-safe-parallelism/S31-lint-symbols/status.json",
+    "docs/release/2026-06-19-safe-parallelism/S31-lint-symbols/proof.md"
+  ],
+  "test_commands": [
+    "go test ./internal/lint/... -run Symbols",
+    "go build ./..."
+  ],
+  "reachability_artifacts": [
+    "CLI: sworn lint symbols S31-lint-symbols 2026-06-19-safe-parallelism → exit 3, unresolved symbols on stderr",
+    "Unit: internal/lint/symbols_test.go (9 test functions, all PASS)"
+  ],  "open_deferrals": [],
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": "2026-06-29-verifier",
+    "verifier_verdict_at": "2026-06-29T01:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": []
+  },  "design_decisions": [
+    {
+      "choice": "Advisory exit code 3 — distinct from the hard-fail exit 1 used by deps/touchpoints/ac/trace and the I/O error exit 2.",
+      "stake_class": "Type-2",
+      "options": ["exit 1 (same as hard-fail)", "exit 2 (same as I/O error)", "exit 3 (dedicated advisory)"],
+      "rationale": "Spec requires an advisory code distinct from hard fail-closed of S29/S30; pin 1 chose exit 3 to avoid collapsing with I/O errors (exit 2)."
+    },
+    {
+      "choice": "Grep against the repo working tree (not git-tracked-only) via grep -r excluding docs/.",
+      "stake_class": "Type-2",
+      "options": ["git grep (committed only)", "grep -r (live tree)", "ripgrep"],
+      "rationale": "Matches spec's 'live codebase' intent; git grep would miss untracked generated files."
+    },
+    {
+      "choice": "Extract from design.md only, not spec.md.",
+      "stake_class": "Type-2",
+      "options": ["design.md only", "spec.md only", "both"],
+      "rationale": "Evidence rows (§3a #3) all involve design-phase symbol errors; spec.md backticks are often AC lines and file paths, not code symbols."
+    },
+    {
+      "choice": "Conservative symbol shape regex: CamelCase/dotted pattern + snake_case pattern (multi-underscore only; single-word lowercase intentionally excluded).",
+      "stake_class": "Type-2",
+      "options": ["broad match (all backticks)", "conservative regex (CamelCase + snake_case)", "semantic parse"],
+      "rationale": "Spec warns about over-extraction; this regex pair catches known evidence classes while avoiding CLI flags and prose backticks."
+    },
+    {
+      "choice": "state.Read for status metadata, os.ReadFile for design.md.",
+      "stake_class": "Type-2",
+      "options": ["state.Read everywhere", "os.ReadFile for documents"],
+      "rationale": "Follow existing CheckDeps/CheckTouchpoints pattern: state package for status.json, direct OS reads for slice documents."
+    }
+  ]
+}

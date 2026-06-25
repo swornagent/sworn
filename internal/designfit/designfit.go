@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/swornagent/sworn/internal/state"
+	"github.com/swornagent/sworn/internal/style"
 )
 
 // Violation records one design-fit violation for a single slice.
@@ -47,15 +48,15 @@ func (r *Report) HasViolations() bool {
 // Print renders the report to a human-readable string.
 func Print(r *Report) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Design-fit gate report for release %q\n", r.Release)
+	fmt.Fprint(&b, style.Heading(fmt.Sprintf("Design-fit gate report for release %q", r.Release))+"\n")
 	fmt.Fprintf(&b, "Slices checked: %d\n\n", r.SlicesChecked)
 
 	if !r.HasViolations() {
-		fmt.Fprintln(&b, "All design decisions have recorded human decisions where required — PASS.")
+		fmt.Fprint(&b, style.Success("All design decisions have recorded human decisions where required — PASS.")+"\n")
 		return b.String()
 	}
 
-	fmt.Fprintf(&b, "%d design-fit violation(s) found:\n\n", len(r.Violations))
+	fmt.Fprint(&b, style.Danger(fmt.Sprintf("%d design-fit violation(s) found:", len(r.Violations)))+"\n\n")
 	for i, v := range r.Violations {
 		fmt.Fprintf(&b, "%d. %s\n", i+1, v.String())
 	}
@@ -72,6 +73,35 @@ func PrintCompact(r *Report) string {
 	}
 	return fmt.Sprintf("DESIGNFIT PASS — %d slice(s) checked, all design-fit gates clear",
 		r.SlicesChecked)
+}
+
+// impliesType1Work returns true when the slice's planned_files indicate
+// architecturally-significant (Type-1) work by touching at least one file
+// under a contract/control-plane path prefix.
+//
+// The prefix set is {cmd/sworn/, internal/state/, internal/verdict/}:
+// these are the artefact surface external consumers depend on — the CLI
+// entrypoint, the status.json schema (state machine), and the verdict
+// contract (PASS/FAIL/BLOCKED + exit codes). Other internal packages
+// (run, scheduler, verify, supervisor, etc.) are implementation detail
+// whose shape may change without affecting the external contract.
+//
+// When design_decisions is empty, DesignDecision.ArchitecturallySignificant
+// cannot be checked — planned_files prefix-matching is the correct fallback.
+func impliesType1Work(st *state.Status) bool {
+	archPrefixes := []string{
+		"cmd/sworn/",
+		"internal/state/",
+		"internal/verdict/",
+	}
+	for _, f := range st.PlannedFiles {
+		for _, p := range archPrefixes {
+			if strings.HasPrefix(f, p) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Run checks every slice in the release for design-fit violations.
@@ -124,7 +154,19 @@ func Run(releaseDir string) (*Report, error) {
 		report.SlicesChecked++
 
 		if len(st.DesignDecisions) == 0 {
-			// No design decisions means no design-fit gate to enforce.
+			// If the slice's design implies Type-1 work, an empty
+			// design_decisions is itself a violation — the slice
+			// touches architecturally-significant packages but
+			// records no design decisions at all. The benign empty
+			// case (no Type-1-implied work) still passes.
+			if impliesType1Work(st) {
+				report.Violations = append(report.Violations, Violation{
+					SliceID: sliceID,
+					Description: fmt.Sprintf(
+						"implies Type-1 work (planned_files touch architecturally-significant packages) but design_decisions is empty — Type-1 decisions must be recorded and human-acknowledged",
+					),
+				})
+			}
 			continue
 		}
 
@@ -145,9 +187,9 @@ func Run(releaseDir string) (*Report, error) {
 			// Check 2: Type-1 choices must have a human decision.
 			if dd.StakeClass == state.Type1 && dd.HumanDecision == "" {
 				report.Violations = append(report.Violations, Violation{
-					SliceID:    sliceID,
-					ChoiceName: dd.Choice,
-					StakeClass: dd.StakeClass,
+					SliceID:     sliceID,
+					ChoiceName:  dd.Choice,
+					StakeClass:  dd.StakeClass,
 					Description: "has no recorded human decision — a Type-1 choice requires human judgement",
 				})
 			}

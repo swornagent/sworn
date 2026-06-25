@@ -10,25 +10,34 @@ import (
 	"time"
 
 	"github.com/swornagent/sworn/internal/bench"
+	"github.com/swornagent/sworn/internal/style"
 )
 
-// cmdBench implements `sworn bench`.
+// cmdBench implements `sworn bench` and `sworn bench overclaim`.
 //
 //	sworn bench [--task-set <dir>] [--models <comma-sep>] [--output <dir>]
+//	sworn bench overclaim [--publish]
 //
-// The benchmark runs each model against each task (spec + known-good diff) and
-// produces a table to stdout and a JSON report to the output directory.
+// The model benchmark runs each model against each task (spec + known-good diff)
+// and produces a table to stdout and a JSON report to the output directory.
+//
+// The overclaim benchmark runs a deterministic 12-slice fixture through the
+// concurrent scheduler at N=1, 2, 4 and reports overclaim/underclaim rates.
+// With --publish, writes the Markdown report to docs/benchmark/.
 //
 // Model IDs use the "provider/model" format (e.g. "openai/gpt-4.1"). The
 // benchmark constructs OAI clients directly with explicit model IDs, bypassing
 // model.FromEnv's SWORN_OPENAI_MODEL override (Pin 3).
 func cmdBench(args []string) int {
+	// Dispatch to overclaim subcommand if first arg is "overclaim".
+	if len(args) > 0 && args[0] == "overclaim" {
+		return cmdBenchOverclaim(args[1:])
+	}
 	fs := flag.NewFlagSet("bench", flag.ExitOnError)
 	taskSet := fs.String("task-set", "", "path to release directory containing slice specs (required)")
 	modelsFlag := fs.String("models", defaultModelsCSV(), "comma-separated model IDs (provider/model)")
 	outputDir := fs.String("output", "docs/benchmark", "output directory for JSON report")
 	_ = fs.Parse(args)
-
 	if *taskSet == "" {
 		fmt.Fprintln(os.Stderr, "sworn bench: --task-set is required")
 		return 64
@@ -122,7 +131,7 @@ func cmdBench(args []string) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sworn bench: select default: %v\n", err)
 	} else {
-		fmt.Printf("\nSafe-hosted default model: %s\n\n", def)
+		fmt.Println(style.Success(fmt.Sprintf("\nSafe-hosted default model: %s", def)) + "\n")
 	}
 
 	fmt.Printf("Benchmark completed in %s (%d cells).\n", elapsed.Round(time.Millisecond), len(cells))
@@ -210,4 +219,52 @@ func markdownReport(report *bench.Report, defaultModel string, elapsed time.Dura
 	b.WriteString(bench.Table(report))
 	b.WriteString("\n```\n")
 	return b.String()
+}
+
+// cmdBenchOverclaim implements `sworn bench overclaim [--publish]`.
+//
+// Runs the overclaim benchmark: a deterministic 12-slice fixture (8 PASS,
+// 4 FAIL) through the concurrent scheduler at N=1, 2, 4 concurrent tracks.
+// Reports overclaim and underclaim rates. With --publish, writes the
+// Markdown report to docs/benchmark/overclaim-concurrent-1to4.md.
+//
+// No live API calls — all mock. The benchmark tests scheduler+gate
+// correctness, not model quality.
+func cmdBenchOverclaim(args []string) int {
+	fs := flag.NewFlagSet("bench overclaim", flag.ExitOnError)
+	publish := fs.Bool("publish", false, "write the Markdown report to docs/benchmark/overclaim-concurrent-1to4.md")
+	_ = fs.Parse(args)
+
+	report, err := bench.RunOverclaimBenchmark()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn bench overclaim: %v\n", err)
+		return 2
+	}
+
+	// Print Markdown table to stdout.
+	md := bench.FormatMarkdownTable(report)
+	fmt.Print(md)
+
+	// Print JSON to stderr for machine consumption.
+	jsonOut, err := bench.FormatJSON(report)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn bench overclaim: format JSON: %v\n", err)
+	} else {
+		fmt.Fprintf(os.Stderr, "\nJSON:\n%s\n", jsonOut)
+	}
+
+	if *publish {
+		outPath := filepath.Join("docs", "benchmark", "overclaim-concurrent-1to4.md")
+		if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+			fmt.Fprintf(os.Stderr, "sworn bench overclaim: create output dir: %v\n", err)
+			return 2
+		}
+		if err := os.WriteFile(outPath, []byte(md), 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "sworn bench overclaim: write report: %v\n", err)
+			return 2
+		}
+		fmt.Fprintf(os.Stderr, "sworn bench overclaim: report written to %s\n", outPath)
+	}
+
+	return 0
 }

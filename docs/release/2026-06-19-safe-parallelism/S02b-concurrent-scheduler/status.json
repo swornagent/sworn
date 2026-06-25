@@ -3,24 +3,55 @@
   "slice_id": "S02b-concurrent-scheduler",
   "release": "2026-06-19-safe-parallelism",
   "track": "T1-concurrency-core",
-  "state": "planned",
-  "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-20T00:00:00Z",
-  "start_commit": null,
+  "state": "verified",  "owner": "human",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-21T00:00:00Z",  "start_commit": "821edf2",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S02b-concurrent-scheduler/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S02b-concurrent-scheduler/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S02b-concurrent-scheduler/journal.md",
-  "planned_files": ["internal/scheduler/scheduler.go","internal/scheduler/scheduler_test.go","internal/scheduler/worker.go","internal/scheduler/worker_test.go","internal/run/parallel.go","cmd/sworn/run.go"],
-  "actual_files": [],
-  "test_commands": [],
-  "reachability_artifacts": [],
+  "planned_files": [
+    "internal/scheduler/scheduler.go",
+    "internal/scheduler/scheduler_test.go",
+    "internal/scheduler/worker.go",
+    "internal/scheduler/worker_test.go",
+    "internal/run/parallel.go",
+    "cmd/sworn/run.go",
+    "internal/board/track.go",
+    "internal/board/track_test.go"
+  ],
+  "actual_files": [
+    "cmd/sworn/run.go",
+    "cmd/sworn/run_test.go",
+    "docs/release/2026-06-19-safe-parallelism/S02b-concurrent-scheduler/journal.md",
+    "docs/release/2026-06-19-safe-parallelism/S02b-concurrent-scheduler/proof.md",
+    "docs/release/2026-06-19-safe-parallelism/S02b-concurrent-scheduler/status.json",
+    "internal/board/track.go",
+    "internal/board/track_test.go",
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go",
+    "internal/scheduler/scheduler.go",
+    "internal/scheduler/scheduler_test.go",
+    "internal/scheduler/worker.go",
+    "internal/scheduler/worker_test.go"
+  ],
+  "test_commands": [
+    "go test -race ./internal/board/",
+    "go test -race ./internal/scheduler/",
+    "go test -race ./internal/run/",
+    "go test -race ./cmd/sworn/",
+    "go test -race -run TestCmdRun_Parallel ./cmd/sworn/",
+    "go test -race ./internal/..."
+  ],
+  "reachability_artifacts": [
+    "cmd/sworn/run_test.go:TestCmdRun_Parallel (CLI entry path — exit 0)",
+    "internal/run/parallel_test.go:TestRunParallel_TimingConcurrency (concurrency proof)",
+    "internal/run/parallel_test.go:TestRunParallel_FailureCascade (failure cascade)",
+    "internal/scheduler/worker_test.go:TestRunTrack_MaterialisesWorktree (materialisation)"
+  ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-06-21T00:00:00Z",
     "violations": []
-  }
-}
+  }}

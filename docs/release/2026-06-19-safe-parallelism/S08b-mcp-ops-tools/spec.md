@@ -101,7 +101,7 @@ Nine operations tools registered via `server.RegisterTool()`:
   — `TestGetCreditsAbsent`: no credits file; assert null (not error) in response
 - **Reachability artefact**: configure sworn mcp in Claude Code; ask "what's blocked in
   the safe-parallelism release?"; observe AI calls get_blocked and returns the blocked
-  slice list. Screenshot or log in proof.md.
+  slice list. Screengrab or log in proof.md.
 
 ## Risks
 

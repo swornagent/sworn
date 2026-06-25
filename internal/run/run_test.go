@@ -3,16 +3,18 @@ package run
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
-	"testing"
-
+	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/state"
 	"github.com/swornagent/sworn/internal/verdict"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
 )
 
 // ---------------------------------------------------------------------------
@@ -141,9 +143,13 @@ func setupTestRepo(t *testing.T) (workspaceRoot string, cleanup func()) {
 	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# test\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	runCmd(t, dir, "git", "add", "README.md")
+	// Add .gitignore with .sworn/ so the process registry DB doesn't
+	// interfere with git operations during test.
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("/.sworn/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runCmd(t, dir, "git", "add", "README.md", ".gitignore")
 	runCmd(t, dir, "git", "commit", "-m", "initial commit")
-
 	return dir, func() {}
 }
 
@@ -179,8 +185,6 @@ func stdoutAgent(content string) *fakeImplementer {
 func TestRun_PassPath_Merges(t *testing.T) {
 	workspaceRoot, _ := setupTestRepo(t)
 
-	impl := stdoutAgent("hello from sworn run")
-
 	verifier := &fakeVerifier{
 		verdicts: []verdict.Result{
 			{Verdict: verdict.Pass, Rationale: "all good"},
@@ -193,7 +197,7 @@ func TestRun_PassPath_Merges(t *testing.T) {
 		Base:          "main",
 		RetryCap:      0,
 		WorkspaceRoot: workspaceRoot,
-		NewAgent:      func(_ string) (agent.Agent, error) { return impl, nil },
+		NewAgent:      func(_ string) (agent.Agent, error) { return stdoutAgent("hello from sworn run"), nil },
 		NewVerifier:   func(_ string) (model.Verifier, error) { return verifier, nil },
 	})
 	if err != nil {
@@ -235,11 +239,13 @@ func TestRun_FailPath_NoMerge(t *testing.T) {
 
 	impl := stdoutAgent("should not merge")
 
+	// K=1 resolve-in-place: with 1 model and 2 FAILs, the triage
+	// exhausts (first FAIL → resolve_in_place, second FAIL → halt
+	// because no more models to escalate to).
 	verifier := &fakeVerifier{
 		verdicts: []verdict.Result{
 			{Verdict: verdict.Fail, Rationale: "missing test"},
 			{Verdict: verdict.Fail, Rationale: "still missing"},
-			{Verdict: verdict.Fail, Rationale: "nope"},
 		},
 	}
 
@@ -247,9 +253,9 @@ func TestRun_FailPath_NoMerge(t *testing.T) {
 		Task:             "Write a file",
 		VerifierModel:    "fake/verifier",
 		Base:             "main",
-		RetryCap:         2,
+		RetryCap:         1,
 		WorkspaceRoot:    workspaceRoot,
-		EscalationModels: []string{"fake/impl1", "fake/impl2", "fake/impl3"},
+		EscalationModels: []string{"fake/impl1"},
 		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
 		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
 	})
@@ -484,5 +490,352 @@ func TestRun_VerifyToolCallLeakBlocks(t *testing.T) {
 	log := runCmd(t, workspaceRoot, "git", "log", "--oneline", "-1")
 	if strings.Contains(log, "merge:") {
 		t.Fatal("unexpected merge commit on main after tool-call BLOCKED")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RunSlice tests (S02a)
+// ---------------------------------------------------------------------------
+
+// setupFixtureSlice creates a temp git repo with an initial commit, then
+// writes a fixture spec.md and status.json in a slice directory. It returns
+// the worktree root, spec path, status path, and a cleanup function.
+func setupFixtureSlice(t *testing.T) (worktreeRoot, specPath, statusPath string, cleanup func()) {
+	t.Helper()
+	dir := t.TempDir()
+
+	runCmd(t, dir, "git", "init", "-b", "main")
+	runCmd(t, dir, "git", "config", "user.email", "test@swornagent.dev")
+	runCmd(t, dir, "git", "config", "user.name", "sworn test")
+
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runCmd(t, dir, "git", "add", "README.md")
+	runCmd(t, dir, "git", "commit", "-m", "initial commit")
+
+	// Create slice directory.
+	sliceDir := filepath.Join(dir, "docs", "release", "test-release", "S01-task")
+	if err := os.MkdirAll(sliceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	specPath = filepath.Join(sliceDir, "spec.md")
+	statusPath = filepath.Join(sliceDir, "status.json")
+
+	// Write a minimal spec.
+	if err := os.WriteFile(specPath, []byte("# Test slice\n\nWrite a hello file.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write status.json with start_commit set.
+	startCommit := strings.TrimSpace(runCmd(t, dir, "git", "rev-parse", "HEAD"))
+
+	st := &state.Status{
+		Schema:        "https://example.com/schemas/baton/slice-status-v1.json",
+		SliceID:       "S01-task",
+		Release:       "test-release",
+		Track:         "",
+		State:         state.InProgress,
+		Owner:         "test",
+		LastUpdatedBy: "setup",
+		LastUpdatedAt: time.Now().UTC().Format(time.RFC3339),
+		StartCommit:   startCommit,
+		SpecPath:      "docs/release/test-release/S01-task/spec.md",
+		ProofPath:     "docs/release/test-release/S01-task/proof.md",
+		JournalPath:   "docs/release/test-release/S01-task/journal.md",
+		PlannedFiles:  []string{},
+		TestCommands:  []string{"go test ./..."},
+		Verification:  state.Verification{},
+		ReleaseBase:   "main",
+	}
+	if err := state.Write(statusPath, st); err != nil {
+		t.Fatal(err)
+	}
+
+	// Stage and commit the fixture so start_commit captures the slice state.
+	runCmd(t, dir, "git", "add", ".")
+	runCmd(t, dir, "git", "commit", "-m", "fixture slice")
+
+	// Update start_commit to point to this commit.
+	startCommit2 := strings.TrimSpace(runCmd(t, dir, "git", "rev-parse", "HEAD"))
+	st.StartCommit = startCommit2
+	if err := state.Write(statusPath, st); err != nil {
+		t.Fatal(err)
+	}
+	_ = runCmd(t, dir, "git", "add", statusPath)
+	_ = runCmd(t, dir, "git", "commit", "-m", "set start_commit")
+
+	return dir, specPath, statusPath, func() {}
+}
+
+func TestRunSlice(t *testing.T) {
+	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
+
+	verifier := &fakeVerifier{
+		verdicts: []verdict.Result{
+			{Verdict: verdict.Pass, Rationale: "all good"},
+		},
+	}
+
+	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
+		VerifierModel:    "fake/verifier",
+		RetryCap:         0,
+		EscalationModels: []string{"fake/impl"},
+		NewAgent:         func(_ string) (agent.Agent, error) { return stdoutAgent("hello from RunSlice"), nil },
+		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
+	})
+	if err != nil {
+		t.Fatalf("RunSlice() error: %v", err)
+	}
+
+	// Verify the implementation file was created.
+	data, err := os.ReadFile(filepath.Join(worktreeRoot, "output.txt"))
+	if err != nil {
+		t.Fatalf("output.txt not created: %v", err)
+	}
+	if string(data) != "hello from RunSlice" {
+		t.Fatalf("expected 'hello from RunSlice', got %q", string(data))
+	}
+
+	// Verify status.json is verified.
+	st, err := state.Read(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.State != state.Verified {
+		t.Fatalf("expected state verified, got %q", st.State)
+	}
+}
+
+func TestRunSliceFail(t *testing.T) {
+	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
+
+	impl := stdoutAgent("should not pass")
+
+	verifier := &fakeVerifier{
+		verdicts: []verdict.Result{
+			{Verdict: verdict.Fail, Rationale: "missing test"},
+			{Verdict: verdict.Fail, Rationale: "still missing"},
+		},
+	}
+
+	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
+		VerifierModel:    "fake/verifier",
+		RetryCap:         1,
+		EscalationModels: []string{"fake/impl1"},
+		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
+		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !IsFailed(err) {
+		t.Fatalf("expected IsFailed(err)=true, got false: %v", err)
+	}
+
+	// Verify status.json is failed_verification.
+	st, err := state.Read(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.State != state.FailedVerification {
+		t.Fatalf("expected state failed_verification, got %q", st.State)
+	}
+}
+
+func TestRunSlice_MissingVerifierModel(t *testing.T) {
+	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
+
+	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{})
+	if err == nil {
+		t.Fatal("expected error for missing VerifierModel, got nil")
+	}
+	if !strings.Contains(err.Error(), "VerifierModel is required") {
+		t.Fatalf("expected VerifierModel required, got: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// S07-paging — FAIL/BLOCKED notifier integration (Required tests → Integration)
+// ---------------------------------------------------------------------------
+
+// fakeNotifier is a recording Notifier seam fake. It captures every Notify
+// call so the integration test can assert the run loop fires the webhook on a
+// FAIL or BLOCKED verdict transition with the correct payload. It implements
+// the run.Notifier interface (one method).
+type fakeNotifier struct {
+	mu      sync.Mutex
+	calls   []account.NotifyEvent
+	webhook bool // mirrors account.Notifier's "has webhook" behaviour
+}
+
+func (f *fakeNotifier) Notify(_ context.Context, event account.NotifyEvent) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, event)
+}
+
+func (f *fakeNotifier) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
+func (f *fakeNotifier) lastCall() (account.NotifyEvent, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.calls) == 0 {
+		return account.NotifyEvent{}, false
+	}
+	return f.calls[len(f.calls)-1], true
+}
+
+// TestRunSlice_FailNotifiesOnce is the S07-paging Required Integration test
+// (spec "Required tests → Integration": inject a failing mock verifier; assert
+// notifier.Notify is called exactly once with the correct slice ID). It
+// exercises the FAIL→failed_verification wiring in slice.go (the path the
+// verifier cited at slice.go:264-275) through the integration point that owns
+// the affordance — RunSlice — using the run.Notifier interface seam.
+func TestRunSlice_FailNotifiesOnce(t *testing.T) {
+	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
+
+	impl := stdoutAgent("should not pass")
+
+	// Failing verifier — FAILs every attempt so the retry loop exhausts and
+	// transitions to failed_verification, firing the FAIL notifier.
+	verifier := &fakeVerifier{
+		verdicts: []verdict.Result{
+			{Verdict: verdict.Fail, Rationale: "missing test"},
+			{Verdict: verdict.Fail, Rationale: "still missing"},
+		},
+	}
+
+	notifier := &fakeNotifier{webhook: true}
+
+	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
+		VerifierModel:    "fake/verifier",
+		RetryCap:         1,
+		EscalationModels: []string{"fake/impl1"},
+		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
+		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
+		Notifier:         notifier,
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !IsFailed(err) {
+		t.Fatalf("expected IsFailed(err)=true, got false: %v", err)
+	}
+
+	// AC1: Notify called exactly once with State == "failed_verification" and
+	// the correct slice ID (and Release/Track from status.json).
+	if got := notifier.count(); got != 1 {
+		t.Fatalf("Notify called %d times, want exactly 1", got)
+	}
+
+	ev, ok := notifier.lastCall()
+	if !ok {
+		t.Fatal("no Notify event recorded")
+	}
+	if ev.SliceID != "S01-task" {
+		t.Errorf("SliceID = %q, want %q", ev.SliceID, "S01-task")
+	}
+	if ev.Release != "test-release" {
+		t.Errorf("Release = %q, want %q", ev.Release, "test-release")
+	}
+	if ev.State != "failed_verification" {
+		t.Errorf("State = %q, want %q", ev.State, "failed_verification")
+	}
+	if ev.WorktreePath != worktreeRoot {
+		t.Errorf("WorktreePath = %q, want %q", ev.WorktreePath, worktreeRoot)
+	}
+	if ev.ViolationsSummary == "" {
+		t.Error("ViolationsSummary must not be empty on FAIL")
+	}
+
+	// The state must have actually transitioned (the notify fires AFTER the
+	// state write, so this also guards ordering).
+	st, err := state.Read(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.State != state.FailedVerification {
+		t.Fatalf("status state = %q, want failed_verification", st.State)
+	}
+}
+
+// TestRunSlice_BlockedNotifies exercises the BLOCKED wiring (slice.go:222-239)
+// that the verifier cited as the second transition. It asserts Notify is
+// called exactly once with State == "blocked" and the correct slice ID.
+func TestRunSlice_BlockedNotifies(t *testing.T) {
+	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
+
+	impl := stdoutAgent("blocked test")
+
+	// BLOCKED verifier — the run loop returns immediately on the first attempt.
+	verifier := &fakeVerifier{
+		verdicts: []verdict.Result{
+			{Verdict: verdict.Blocked, Rationale: "spec missing required section"},
+		},
+	}
+
+	notifier := &fakeNotifier{webhook: true}
+
+	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
+		VerifierModel:    "fake/verifier",
+		RetryCap:         0,
+		EscalationModels: []string{"fake/impl"},
+		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
+		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
+		Notifier:         notifier,
+	})
+	if err == nil {
+		t.Fatal("expected error for BLOCKED, got nil")
+	}
+	if !IsBlocked(err) {
+		t.Fatalf("expected IsBlocked(err)=true, got false: %v", err)
+	}
+
+	// Notify called exactly once with State == "blocked".
+	if got := notifier.count(); got != 1 {
+		t.Fatalf("Notify called %d times, want exactly 1", got)
+	}
+
+	ev, ok := notifier.lastCall()
+	if !ok {
+		t.Fatal("no Notify event recorded")
+	}
+	if ev.SliceID != "S01-task" {
+		t.Errorf("SliceID = %q, want %q", ev.SliceID, "S01-task")
+	}
+	if ev.State != "blocked" {
+		t.Errorf("State = %q, want %q", ev.State, "blocked")
+	}
+	if ev.ViolationsSummary != "BLOCKED: spec missing required section" {
+		t.Errorf("ViolationsSummary = %q, want %q", ev.ViolationsSummary, "BLOCKED: spec missing required section")
+	}
+}
+
+// TestRunSlice_NilNotifierNoOp confirms the nil-notifier path does not panic
+// (production callers may pass nil when no webhook/account is configured).
+func TestRunSlice_NilNotifierNoOp(t *testing.T) {
+	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
+
+	impl := stdoutAgent("nil notifier test")
+	verifier := &fakeVerifier{
+		verdicts: []verdict.Result{{Verdict: verdict.Pass, Rationale: "ok"}},
+	}
+
+	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
+		VerifierModel:    "fake/verifier",
+		RetryCap:         0,
+		EscalationModels: []string{"fake/impl"},
+		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
+		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
+		Notifier:         nil, // no notifier — must not panic
+	})
+	if err != nil {
+		t.Fatalf("RunSlice error: %v", err)
 	}
 }

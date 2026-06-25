@@ -1,15 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/swornagent/sworn/internal/config"
-)
-// TestCmdInit_NonInteractive verifies that `sworn init --yes` without --ui-bearing
+) // TestCmdInit_NonInteractive verifies that `sworn init --yes` without --ui-bearing
 // produces a config with UIBearing: false (CLI project default) via the entry point.
 func TestCmdInit_NonInteractive(t *testing.T) {
 	dir := t.TempDir()
@@ -19,6 +20,8 @@ func TestCmdInit_NonInteractive(t *testing.T) {
 	oldCwd, _ := os.Getwd()
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
+
+	setupTemplates(dir)
 
 	exit := cmdInit([]string{"--yes"})
 	if exit != 0 {
@@ -58,6 +61,8 @@ func TestCmdInit_UIBearingFlag(t *testing.T) {
 	oldCwd, _ := os.Getwd()
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
+
+	setupTemplates(dir)
 
 	exit := cmdInit([]string{"--yes", "--ui-bearing"})
 	if exit != 0 {
@@ -106,6 +111,8 @@ func TestCmdInit_UIBearingOutput(t *testing.T) {
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
 
+	setupTemplates(dir)
+
 	exit := cmdInit([]string{"--yes", "--ui-bearing"})
 	if exit != 0 {
 		t.Fatalf("cmdInit --yes --ui-bearing exited %d, want 0", exit)
@@ -120,6 +127,7 @@ func TestCmdInit_UIBearingOutput(t *testing.T) {
 		t.Error("config should contain ui_bearing key")
 	}
 }
+
 // TestCmdInit_UIBearing_ValidateFailClosed verifies that after sworn init --yes --ui-bearing
 // the written config triggers Validate() to return ErrNoDesignSystem — proving the system
 // actually fails closed when ui_bearing is true without a design_system declaration.
@@ -133,6 +141,8 @@ func TestCmdInit_UIBearing_ValidateFailClosed(t *testing.T) {
 	oldCwd, _ := os.Getwd()
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
+
+	setupTemplates(dir)
 
 	exit := cmdInit([]string{"--yes", "--ui-bearing"})
 	if exit != 0 {
@@ -154,5 +164,54 @@ func TestCmdInit_UIBearing_ValidateFailClosed(t *testing.T) {
 		t.Error("config.Validate() should return error when ui_bearing=true and design_system=nil, got nil")
 	} else if err != config.ErrNoDesignSystem {
 		t.Errorf("expected ErrNoDesignSystem, got: %v", err)
+	}
+}
+
+// TestCmdInit_Interactive_NoUIPrompt verifies AC2: in interactive mode without
+// --ui-bearing, the strings "Design tokens source" and "Component library
+// location" are NOT emitted (the design-system prompt block is unreachable
+// because it is gated on ` + "`" + `if *uiBearer` + "`" + `).
+func TestCmdInit_Interactive_NoUIPrompt(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	t.Setenv("SWORN_CONFIG_PATH", configPath)
+
+	oldCwd, _ := os.Getwd()
+	defer os.Chdir(oldCwd)
+	os.Chdir(dir)
+
+	setupTemplates(dir)
+
+	// Feed stdin: "y" for confirm, "y" for catalog prompt.
+	cleanupStdin := feedStdinFromString(t, "y\ny\n")
+	defer cleanupStdin()
+
+	// Capture stdout.
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+
+	exit := cmdInit([]string{}) // no --yes, no --ui-bearing
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	output := buf.String()
+
+	if exit != 0 {
+		t.Fatalf("cmdInit (interactive, no --ui-bearing) exited %d, want 0.\nOutput:\n%s", exit, output)
+	}
+
+	// AC2: design-system prompt strings must NOT appear.
+	if strings.Contains(output, "Design tokens source") {
+		t.Error("interactive without --ui-bearing should not prompt for design tokens source")
+	}
+	if strings.Contains(output, "Component library location") {
+		t.Error("interactive without --ui-bearing should not prompt for component library location")
 	}
 }

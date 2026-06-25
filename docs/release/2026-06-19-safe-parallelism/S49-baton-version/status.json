@@ -1,0 +1,51 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S49-baton-version",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T14-baton-integration",
+  "state": "verified",
+  "owner": "verifier",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-24T00:16:23Z",  "start_commit": "d58aeca",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S49-baton-version/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S49-baton-version/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S49-baton-version/journal.md",
+  "depends_on": [
+    "S48-baton-vendor"
+  ],
+  "planned_files": [
+    "internal/adopt/baton/VERSION",
+    "internal/prompt/VERSION.txt",
+    "internal/prompt/prompt.go",
+    "internal/baton/version.go",
+    "internal/baton/version_stub.go",
+    "internal/baton/version_test.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go"
+  ],
+  "actual_files": [
+    "internal/adopt/baton/VERSION",
+    "internal/prompt/VERSION.txt",
+    "internal/prompt/prompt.go",
+    "internal/baton/version.go",
+    "internal/baton/version_stub.go",
+    "internal/baton/version_test.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go"
+  ],
+  "test_commands": [
+    "go test -race ./internal/baton/... ./internal/prompt/... ./cmd/sworn/...",
+    "go build ./..."
+  ],
+  "reachability_artifacts": [
+    "sworn version output -> baton-protocol on Baton v0.4.2",
+    "sworn doctor output -> [OK] baton/VERSION.txt + [OK] baton/VERSION (baton-protocol)"
+  ],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": "fresh-verifier-2026-06-24",
+    "verifier_verdict_at": "2026-06-24T00:19:05Z",
+    "verifier_was_fresh_context": true,
+    "violations": []
+  }}
