@@ -1993,6 +1993,11 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - **State**: S53 → verified. Track T16-verdict-ledger: S52 verified, S53 verified, S54 verified, S55 planned, S56 planned.
 - **Next step**: `/implement-slice S55-ledger-multirole-cost 2026-06-19-safe-parallelism` (next slice in T16-verdict-ledger).
 
+### 2026-06-26 — release merged to release/v0.1.0 (commit 864c5e7)
+
+- **Actor**: release integrator (/merge-release)
+- **Note**: 73 verified slices merged. Slices remain in `verified` state until release/v0.1.0 ships to production; at that point each slice's `status.json` flips to `shipped`. Branch `release-wt/2026-06-19-safe-parallelism` retained; remove with `git branch -D release-wt/2026-06-19-safe-parallelism` once you're sure no more work belongs to this release.
+
 ### 2026-07-24 — slice S27-public-readiness-scrub -> verified (PASS)
 
 - **Actor**: verifier (/verify-slice, fresh context, artefact-only inputs)
