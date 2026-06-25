@@ -74,3 +74,53 @@ None — all 5 acceptance checks satisfied.
 1. **`cmd/sworn/top.go` not modified.** The `planned_files` list included `cmd/sworn/top.go` as a touchpoint, but no changes were needed. The gate display is wired internally through `BoardView.LoadBoard()` → `LoadGateResults()`. `cmd/sworn/top.go` calls `tui.Run()` which creates the Model+BoardView — no surface-level wiring needed.
 
 2. **Spec's reachability artefact says "Screenshot" but no Playwright harness exists.** The TUI is a Go Bubble Tea program, not a web app. The reachability artefact is a manual smoke step (terminal capture), not a Playwright screenshot. The verifier script's `playwright-screenshot` opt-in requirement is not applicable. This is a spec wording issue — the planner used "Screenshot" language from the Baton convention (designed for web apps) on a Go CLI/TUI slice.
+## First-pass script output
+
+```
+release-verify.sh S72-tui-gate-display 2026-06-19-safe-parallelism
+
+== Slice artefacts ==
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+  PASS  spec.md has Required tests section
+  FAIL  spec.md mentions Playwright/e2e/screenshot in ACs but Required tests
+        section does not declare playwright-screenshot opt-in
+
+== Status ==
+  PASS  status.json is valid JSON
+  state: implemented
+  PASS  state is 'implemented' (eligible for verifier review)
+
+== Integration branch drift ==
+  PASS  worktree branch is current with release/v0.1.0 (no drift)
+
+== Diff vs start_commit (verifier base) ==
+  PASS  7 file(s) changed vs diff base
+
+== Dark-code markers in changed files ==
+  PASS  no dark-code markers in changed source files
+
+== Proof bundle structural checks ==
+  PASS  all 8 proof.md sections present
+  PASS  no template placeholders
+  PASS  deferral tracking refs
+  PASS  Files changed count consistent
+
+== Frontmatter YAML safety ==
+  PASS  spec.md frontmatter is strict-YAML safe
+
+== Test results section scope ==
+  PASS  Test results section contains no Playwright runner output
+
+checks passed: 23  checks failed: 1
+FIRST-PASS FAIL (1 failure — playwright-screenshot opt-in missing; Go TUI, not web app)
+```
+
+The single failure is a known false positive: the spec's Required tests section says
+"Screenshot of TUI showing per-slice gate status" — the word "Screenshot" triggers
+the verifier script's Playwright opt-in check. This is a Go Bubble Tea terminal
+application; there is no Playwright/e2e harness. Reachability is via manual smoke
+step (see Divergence from plan #2).
