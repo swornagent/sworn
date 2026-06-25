@@ -105,9 +105,8 @@ tracks:
     depends_on: [T1-concurrency-core, T12-harness-hardening, T18-cli-polish]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T17-orchestration-core
     worktree_branch: track/2026-06-19-safe-parallelism/T17-orchestration-core
-    state: verified
-  - id: T18-cli-polish
-    slices: [S60-init-ui-bearing-fix, S61-cli-output-styling]
+    state: merged
+  - id: T18-cli-polish    slices: [S60-init-ui-bearing-fix, S61-cli-output-styling]
     depends_on: [T2-monitoring, T15-cli-registry]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T18-cli-polish
     worktree_branch: track/2026-06-19-safe-parallelism/T18-cli-polish
@@ -175,8 +174,7 @@ tracks:
 | `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | merged || `T13-sworn-role-parity` | S45 → S46 → S47 | T12 + T17 | `track/.../T13-sworn-role-parity` | verified |
 | `T14-baton-integration` | S48 → S49 → S50 → S62 → S73 | T3 + T15 | `track/.../T14-baton-integration` | merged |
 | `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged || `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | verified |
-| `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | verified |
-| `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
+| `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | merged || `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
 | `T19-status-hygiene` | S64 | T4 + T12 + T15 | `track/.../T19-status-hygiene` | merged |
 | `T20-gate-engine` | S65 → S66 → S67 → S68 → S69 → S70 | T14 + T15 | `track/.../T20-gate-engine` | merged |
 ### Execution order
@@ -536,11 +534,14 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 - Failed verification: 1
 - Deferred: 0
 
-**Tracks:** Planned: 4 / In progress: 1 / Merged: 14  *(post T19 merge; oracle-authoritative: T5, T14 subsequently merged)*
-> Merged (14): T1, T2, T3, T4, T5, T7, T8, T9, T11, T12, T14, T15, T18, T19. In progress (1): T17. Planned (4): T6, T10, T13, T16.
-## Recent activity
-### 2026-06-26 — slice `S59-scheduler-relayer` → verified (PASS, round 3)
+**Tracks:** Planned: 3 / In progress: 2 / Merged: 17  *(post T17 merge; oracle-authoritative)*
+> Merged (17): T1, T2, T3, T4, T5, T6, T7, T8, T9, T11, T12, T14, T15, T17, T18, T19, T20. In progress (2): T21, T22. Planned (3): T10, T13, T16.## Recent activity
+### 2026-07-20 — track `T17-orchestration-core` merged to release-wt (commit 3c78949)
 
+- **Actor**: track integrator (/merge-track)
+- **Note**: 3 verified slices merged: S57-oracle-reader, S58-slice-router, S59-scheduler-relayer. Track state -> merged. Forward-merged 3 sibling commits into track before merge; tests re-run green.
+
+### 2026-06-26 — slice `S59-scheduler-relayer` → verified (PASS, round 3)
 - **Actor**: verifier (fresh context, artefact-only).
 - **Verdict**: PASS — all six verification gates satisfied.
   - Gate 1: Production router auto-constructed in `RunParallel` when `opts.Router == nil`; `runTrackRouter` (router-driven poll loop) is live path in production.
