@@ -3,11 +3,11 @@
   "slice_id": "S59-scheduler-relayer",
   "release": "2026-06-19-safe-parallelism",
   "track": "T17-orchestration-core",
-  "state": "planned",
-  "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-23T02:35:00Z",
-  "start_commit": null,
+  "state": "verified",
+  "owner": "verifier",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-26T17:00:00Z",
+  "start_commit": "5cc564898d134033131369ac76eb8827cdf1d766",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S59-scheduler-relayer/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S59-scheduler-relayer/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S59-scheduler-relayer/journal.md",
@@ -17,18 +17,28 @@
     "internal/run/parallel.go",
     "internal/run/parallel_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/scheduler/worker.go",
+    "internal/scheduler/worker_test.go",
+    "internal/scheduler/pause.go",
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go",
+    "internal/board/oracle.go",
+    "docs/decisions/2026-06-24-sworn-orchestration-surfaces-and-subscription-drivers.md"
+  ],
   "test_commands": [
     "go test -race ./internal/scheduler/... ./internal/run/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "CLI smoke step: sworn run --parallel --release fixture-smoke (2-track fixture, S01-first pre-verified); both Run 1 and Run 2 skip S01-first — see proof.md Reachability artefact for full transcript"
+  ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "pass",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-06-26T17:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
   }
 }

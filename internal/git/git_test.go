@@ -316,3 +316,73 @@ func TestMerge(t *testing.T) {	r := setupRepo(t)
 		t.Fatal("HEAD unchanged after merge")
 	}
 }
+
+
+func TestShow(t *testing.T) {
+	r := setupRepo(t)
+	path := filepath.Join(r.Dir, "docs", "release", "r", "S01-task")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	writeFile(t, path, "status.json", `{"slice_id":"S01-task","state":"planned"}`)
+	r.Stage("docs/release/r/S01-task/status.json")
+	r.Commit("add status.json")
+
+	content, err := r.Show("HEAD", "docs/release/r/S01-task/status.json")
+	if err != nil {
+		t.Fatalf("Show: %v", err)
+	}
+	if !strings.Contains(content, `"slice_id":"S01-task"`) {
+		t.Errorf("Show: unexpected content: %s", content)
+	}
+}
+
+func TestShow_RejectsEmptyDir(t *testing.T) {
+	zero := &Repo{}
+	_, err := zero.Show("HEAD", "any/path")
+	if err == nil {
+		t.Fatal("zero-Dir Show: expected guard error, got nil")
+	}
+	if !strings.Contains(err.Error(), "empty Repo.Dir") {
+		t.Errorf("error: want mention of 'empty Repo.Dir', got: %v", err)
+	}
+}
+
+func TestCatFileExists(t *testing.T) {
+	r := setupRepo(t)
+	path := filepath.Join(r.Dir, "docs", "release", "r", "S01-task")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	writeFile(t, path, "status.json", `{"slice_id":"S01-task","state":"planned"}`)
+	r.Stage("docs/release/r/S01-task/status.json")
+	r.Commit("add status.json")
+
+	exists, err := r.CatFileExists("HEAD", "docs/release/r/S01-task/status.json")
+	if err != nil {
+		t.Fatalf("CatFileExists: %v", err)
+	}
+	if !exists {
+		t.Error("CatFileExists: expected true for committed file")
+	}
+
+	// Non-existent path should return false, not error.
+	exists, err = r.CatFileExists("HEAD", "docs/release/r/S99-nonexistent/status.json")
+	if err != nil {
+		t.Fatalf("CatFileExists non-existent: %v", err)
+	}
+	if exists {
+		t.Error("CatFileExists: expected false for non-existent path")
+	}
+}
+
+func TestCatFileExists_RejectsEmptyDir(t *testing.T) {
+	zero := &Repo{}
+	_, err := zero.CatFileExists("HEAD", "any/path")
+	if err == nil {
+		t.Fatal("zero-Dir CatFileExists: expected guard error, got nil")
+	}
+	if !strings.Contains(err.Error(), "empty Repo.Dir") {
+		t.Errorf("error: want mention of 'empty Repo.Dir', got: %v", err)
+	}
+}

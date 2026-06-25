@@ -43,9 +43,10 @@ A developer (or the autonomous loop) runs `sworn route <slice-id> <release-name>
 - `internal/router/router.go` (new)
 - `internal/router/router_test.go` (new)
 - `internal/router/parity_test.go` (new)
+- `internal/board/oracle.go` (additive — OracleReader interface + OracleReaderAdapter for router-friendly signatures)
+- `internal/git/git.go` (additive — LastCommitTime, IsAncestor methods for commit-time and ancestry queries)
 - `cmd/sworn/route.go` (new)
 - `cmd/sworn/route_test.go` (new)
-
 ## Acceptance checks
 
 - [ ] `planned` slice routes `implement` (`/implement-slice <slice> <release>`).

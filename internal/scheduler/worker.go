@@ -10,8 +10,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/board"
-	"github.com/swornagent/sworn/internal/supervisor"
-)
+	"github.com/swornagent/sworn/internal/supervisor")
 
 // TrackResult is the outcome of a single worker goroutine.
 type TrackResult string
@@ -20,7 +19,46 @@ const (
 	TrackPass    TrackResult = "pass"
 	TrackFail    TrackResult = "fail"
 	TrackSkipped TrackResult = "skipped"
+	TrackPaused  TrackResult = "paused"
 )
+
+// ── Router interface (S59) ──────────────────────────────────────────────
+
+// SliceDecision is the router's output for a slice — what action to take next.
+type SliceDecision struct {
+	// Type is the action kind: "implement", "verify", "redesign",
+	// "coach_decision", "replan-release", "merge-track", "merge-release",
+	// "none".
+	Type string
+
+	// Reason is a human-readable explanation.
+	Reason string
+
+	// Target is the slice ID to advance to (set when the router walks to
+	// the next slice in the track after a verified slice).
+	Target string
+}
+
+// SliceRouter is the interface the worker polls for route decisions.
+// The production implementation wraps internal/router; tests supply
+// a fake that returns scripted decisions.
+type SliceRouter interface {
+	Route(ctx context.Context, release, sliceID, trackID string) (SliceDecision, error)
+}
+
+// ── Pause set (S59 spec, Captain ratified) ──────────────────────────────
+
+// pauseSet is the set of router decisions that pause a track rather than
+// failing it. These surface to the human (via stderr prefix) and let other
+// tracks continue.
+var pauseSet = map[string]bool{
+	"coach_decision":  true,
+	"replan-release":  true,
+	"merge-track":     true,
+	"merge-release":   true,
+}
+
+// ── WorkerOptions ───────────────────────────────────────────────────────
 
 // WorkerOptions configures a single-track worker goroutine.
 type WorkerOptions struct {
@@ -45,19 +83,38 @@ type WorkerOptions struct {
 	// loop. Tests inject a fake; production uses run.RunSlice.
 	RunSliceFn func(ctx context.Context, worktreeRoot, specPath, statusPath string) error
 
+	// Router is the SliceRouter the worker polls for route decisions.
+	// When nil, the worker falls back to static iteration for backward
+	// compatibility (RunTrackLegacy behaviour).
+	Router SliceRouter
+
 	// ProjectDir is the project directory name used for worktree naming.
 	ProjectDir string
 
 	// Notifier is the notification dispatcher for track-level failures.
 	// When nil, notifications are skipped.
 	Notifier *account.Notifier
+
+	// PauseCh is the cooperative pause signal for this release. When this
+	// channel is closed, the worker stops at the next router-poll boundary
+	// (after completing any in-flight dispatch). Set via PauseEngine.PauseCh.
+	// When nil, no cooperative pause is checked.
+	PauseCh <-chan struct{}
 }
 
 // RunTrack executes one track's slices sequentially in its own worktree.
 // It is designed to be called as a goroutine from RunParallel.
 //
+// If opts.Router is non-nil, the worker uses a router-driven poll loop:
+// it asks the router for the next action for the current frontier slice,
+// dispatches the returned action, and loops until the router returns a
+// terminal or paused decision. If opts.Router is nil, the worker falls
+// back to static slice-iteration (RunTrackLegacy behaviour) for backward
+// compatibility.
+//
 // It returns TrackPass if all slices succeed, TrackFail if any slice fails,
-// or TrackSkipped if dependencies indicate the track should be skipped.
+// TrackPaused if the router returns a human-gated decision, or TrackSkipped
+// if dependencies indicate the track should be skipped.
 func RunTrack(ctx context.Context, opts WorkerOptions) TrackResult {
 	trackID := opts.TrackInfo.ID
 
@@ -86,7 +143,6 @@ func RunTrack(ctx context.Context, opts WorkerOptions) TrackResult {
 
 	// ── Materialise track worktree if absent ────────────────────────────
 	if trackWorktreePath == "" {
-		// Generate a worktree path from the project dir + release + track.
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[%s] cannot determine home dir: %v\n", trackID, err)
@@ -100,8 +156,6 @@ func RunTrack(ctx context.Context, opts WorkerOptions) TrackResult {
 	if !dirExists(trackWorktreePath) {
 		fmt.Fprintf(os.Stderr, "[%s] materialising worktree at %s\n", trackID, trackWorktreePath)
 
-		// Create the worktree from the release worktree branch.
-		// git worktree add <path> -b <branch> <release-branch>
 		releaseBranch := "release-wt/" + opts.ReleaseName
 		cmd := exec.CommandContext(ctx, "git", "worktree", "add",
 			trackWorktreePath, "-b", trackBranch,
@@ -117,30 +171,167 @@ func RunTrack(ctx context.Context, opts WorkerOptions) TrackResult {
 		}
 		fmt.Fprintf(os.Stderr, "[%s] worktree materialised at %s\n", trackID, trackWorktreePath)
 
-		// Forward-merge release-wt into the track so it's current.
 		mergeCmd := exec.Command("git", "merge", releaseBranch, "--no-edit")
 		mergeCmd.Dir = trackWorktreePath
 		if mergeOut, mergeErr := mergeCmd.CombinedOutput(); mergeErr != nil {
-			// Non-fatal: log but continue (merge may already be up-to-date).
 			fmt.Fprintf(os.Stderr, "[%s] forward-merge note: %s\n", trackID, string(mergeOut))
 		}
 	}
 
-	// ── Run each slice in the worktree ──────────────────────────────────
-	// The track's slices are the slice IDs from TrackInfo.Slices. We need
-	// to construct the specPath and statusPath for each.
+	// ── Fallback: no router → static iteration ─────────────────────────
+	if opts.Router == nil {
+		return runTrackLegacy(ctx, opts, trackWorktreePath, trackID, trackBranch, releaseTrack)
+	}
+
+	// ── Router-driven poll loop ─────────────────────────────────────────
+	return runTrackRouter(ctx, opts, trackWorktreePath, trackID, trackBranch, releaseTrack)
+}
+
+// runTrackRouter is the router-driven execution loop (S59 core).
+// It polls the router for the current frontier slice, dispatches the
+// returned action, and loops until the router returns a terminal or
+// paused decision.
+func runTrackRouter(
+	ctx context.Context,
+	opts WorkerOptions,
+	workRoot, trackID, trackBranch string,
+	releaseTrack func(string),
+) TrackResult {
 	specBase := filepath.Join("docs", "release", opts.ReleaseName)
-	workRoot := trackWorktreePath
+
+	// Determine the first non-terminal slice in the track.
+	currentSlice := findFirstNonTerminal(opts.TrackInfo.Slices)
+	if currentSlice == "" {
+		// All slices already in a terminal state.		return finishTrack(ctx, opts, workRoot, trackID, trackBranch, releaseTrack)
+	}
+
+	for {
+		// Check context before every iteration.
+		if ctx.Err() != nil {
+			fmt.Fprintf(os.Stderr, "[%s] cancelled at slice %s\n", trackID, currentSlice)
+			releaseTrack(supervisor.StateFailed)
+			return TrackSkipped
+		}
+
+		// Cooperative pause check — fires after any in-flight dispatch
+		// completes, before the next router poll. The engine layer
+		// (PauseEngine) closes the channel; this is a non-blocking check
+		// so a nil channel (release not paused) is always a no-op.
+		if opts.PauseCh != nil {
+			select {
+			case <-opts.PauseCh:
+				fmt.Fprintf(os.Stderr, "[%s] engine pause signal at slice %s — stopping\n", trackID, currentSlice)
+				releaseTrack("paused")
+				return TrackPaused
+			default:
+			}
+		}
+
+		// Poll the router for the current frontier slice.
+		decision, err := opts.Router.Route(ctx, opts.ReleaseName, currentSlice, trackID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[%s] router error for %s: %v\n", trackID, currentSlice, err)
+			releaseTrack(supervisor.StateFailed)
+			return TrackFail
+		}
+
+		fmt.Fprintf(os.Stderr, "[%s] router: %s → %s (%s)\n",
+			trackID, currentSlice, decision.Type, decision.Reason)
+
+		// Advance to the target slice BEFORE dispatching — the router's
+		// Target field tells us which slice the decision applies to.
+		if decision.Target != "" && decision.Target != currentSlice {
+			fmt.Fprintf(os.Stderr, "[%s] advanced to next slice: %s\n", trackID, decision.Target)
+			currentSlice = decision.Target
+		}
+
+		switch decision.Type {		case "implement", "verify":
+			// Both implement and verify dispatch to RunSliceFn, which handles
+			// the full implement→verify loop in production (run.RunSlice).
+			// A separate verify-only step would be needed for a genuine
+			// "implemented but not verified" resume, but RunSlice already
+			// handles both phases atomically.
+			specPath := filepath.Join(workRoot, specBase, currentSlice, "spec.md")
+			statusPath := filepath.Join(workRoot, specBase, currentSlice, "status.json")
+
+			fmt.Fprintf(os.Stderr, "[%s] running slice %s\n", trackID, currentSlice)
+
+			if err := opts.RunSliceFn(ctx, workRoot, specPath, statusPath); err != nil {
+				fmt.Fprintf(os.Stderr, "[%s] slice %s failed: %v\n", trackID, currentSlice, err)
+
+				if opts.Notifier != nil {
+					summary := err.Error()
+					if len(summary) > 200 {
+						summary = summary[:197] + "..."
+					}
+					opts.Notifier.Notify(ctx, account.NotifyEvent{
+						Release:           opts.ReleaseName,
+						Track:             trackID,
+						SliceID:           currentSlice,
+						State:             "track_failed",
+						ViolationsSummary: summary,
+						WorktreePath:      workRoot,
+					})
+				}
+
+				releaseTrack(supervisor.StateFailed)
+				return TrackFail
+			}
+
+		case "redesign":
+			// Strip approved-ack.md so the Design TL;DR gate fires again on
+			// the next implement attempt. Then dispatch implement.
+			stripApprovedAck(workRoot, specBase, currentSlice)
+
+			specPath := filepath.Join(workRoot, specBase, currentSlice, "spec.md")
+			statusPath := filepath.Join(workRoot, specBase, currentSlice, "status.json")
+
+			fmt.Fprintf(os.Stderr, "[%s] redesign: stripped approved-ack.md for %s, re-running\n",
+				trackID, currentSlice)
+
+			if err := opts.RunSliceFn(ctx, workRoot, specPath, statusPath); err != nil {
+				fmt.Fprintf(os.Stderr, "[%s] slice %s failed after redesign: %v\n", trackID, currentSlice, err)
+				releaseTrack(supervisor.StateFailed)
+				return TrackFail
+			}
+
+		case "coach_decision", "replan-release", "merge-track", "merge-release":
+			// Human-gated pause states — surface and pause this track.
+			fmt.Fprintf(os.Stderr, "[%s] paused: %s — %s\n", trackID, decision.Type, decision.Reason)
+			releaseTrack("paused")
+			return TrackPaused
+
+		case "none":
+			// Terminal — no more slices.
+			return finishTrack(ctx, opts, workRoot, trackID, trackBranch, releaseTrack)
+
+		default:
+			fmt.Fprintf(os.Stderr, "[%s] unrecognised router decision %q for %s: %s\n",
+				trackID, decision.Type, currentSlice, decision.Reason)
+			releaseTrack(supervisor.StateFailed)
+			return TrackFail
+		}
+	}
+}
+
+// runTrackLegacy is the pre-S59 static-iteration worker, preserved for
+// backward compatibility when no Router is configured.
+func runTrackLegacy(
+	ctx context.Context,
+	opts WorkerOptions,
+	workRoot, trackID, trackBranch string,
+	releaseTrack func(string),
+) TrackResult {
+	specBase := filepath.Join("docs", "release", opts.ReleaseName)
 
 	for _, sliceID := range opts.TrackInfo.Slices {
-		// Check context before every slice.
 		if ctx.Err() != nil {
 			fmt.Fprintf(os.Stderr, "[%s] cancelled at slice %s\n", trackID, sliceID)
 			releaseTrack(supervisor.StateFailed)
 			return TrackSkipped
 		}
 
-		fmt.Fprintf(os.Stderr, "[%s] running slice %s\n", trackID, sliceID)
+		fmt.Fprintf(os.Stderr, "[%s] running slice %s (legacy)\n", trackID, sliceID)
 
 		specPath := filepath.Join(workRoot, specBase, sliceID, "spec.md")
 		statusPath := filepath.Join(workRoot, specBase, sliceID, "status.json")
@@ -148,8 +339,6 @@ func RunTrack(ctx context.Context, opts WorkerOptions) TrackResult {
 		if err := opts.RunSliceFn(ctx, workRoot, specPath, statusPath); err != nil {
 			fmt.Fprintf(os.Stderr, "[%s] slice %s failed: %v\n", trackID, sliceID, err)
 
-			// Notify on track-level failure (slice-level BLOCKED/FAIL already
-			// handled by RunSlice; this covers unexpected/implementation errors).
 			if opts.Notifier != nil {
 				summary := err.Error()
 				if len(summary) > 200 {
@@ -161,7 +350,7 @@ func RunTrack(ctx context.Context, opts WorkerOptions) TrackResult {
 					SliceID:           sliceID,
 					State:             "track_failed",
 					ViolationsSummary: summary,
-					WorktreePath:      trackWorktreePath,
+					WorktreePath:      workRoot,
 				})
 			}
 
@@ -170,16 +359,50 @@ func RunTrack(ctx context.Context, opts WorkerOptions) TrackResult {
 		}
 	}
 
-	// ── All slices passed ───────────────────────────────────────────────
+	return finishTrack(ctx, opts, workRoot, trackID, trackBranch, releaseTrack)
+}
+
+// finishTrack pushes the track branch and releases the supervisor.
+func finishTrack(
+	_ context.Context,
+	opts WorkerOptions,
+	workRoot, trackID, trackBranch string,
+	releaseTrack func(string),
+) TrackResult {
 	releaseTrack(supervisor.StateDone)
 
-	// Push the track branch so results are durable.
 	pushCmd := exec.Command("git", "push", "origin", "HEAD:"+trackBranch)
-	pushCmd.Dir = trackWorktreePath
-	_ = pushCmd.Run() // Best-effort; log but don't fail on push issues.
+	pushCmd.Dir = workRoot
+	_ = pushCmd.Run()
 
 	fmt.Fprintf(os.Stderr, "[%s] done\n", trackID)
 	return TrackPass
+}
+
+// findFirstNonTerminal returns the first slice ID in the track that is not
+// in a terminal state. Returns "" if all// slices are terminal — the track is fully done and resumability skips it.
+//
+// This is a best-effort helper for the worker at startup. The authoritative
+// state machine lives in the router (S58); this function only determines the
+// initial frontier slice for the first Route() call.
+func findFirstNonTerminal(slices []string) string {
+	for _, sid := range slices {
+		// We can't read committed state here (no router wired yet for the
+		// first call). The router will handle this on the first Route() call.
+		// We just return the first slice; the router will skip terminal ones
+		// and return a Target for the actual frontier.
+		return sid
+	}
+	return ""
+}
+
+// stripApprovedAck removes approved-ack.md for the given slice so the
+// Design TL;DR gate fires again on the next implement dispatch.
+func stripApprovedAck(workRoot, specBase, sliceID string) {
+	ackPath := filepath.Join(workRoot, specBase, sliceID, "approved-ack.md")
+	if err := os.Remove(ackPath); err != nil && !os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "stripApprovedAck: remove %s: %v\n", ackPath, err)
+	}
 }
 
 // dirExists checks if a path exists and is a directory.
@@ -189,9 +412,6 @@ func dirExists(path string) bool {
 }
 
 // defaultRunSliceFn is the production RunSlice wrapper.
-// In production, this calls run.RunSlice; here we provide the
-// signature-compatible version. The actual wiring happens in parallel.go
-// which constructs WorkerOptions with the real run.RunSlice.
 func defaultRunSliceFn(ctx context.Context, worktreeRoot, specPath, statusPath string) error {
 	return fmt.Errorf("defaultRunSliceFn: not wired — use WorkerOptions.RunSliceFn")
 }
@@ -200,3 +420,4 @@ func defaultRunSliceFn(ctx context.Context, worktreeRoot, specPath, statusPath s
 func DefaultRunSliceFn() func(context.Context, string, string, string) error {
 	return defaultRunSliceFn
 }
+
