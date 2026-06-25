@@ -39,3 +39,18 @@ None.
 ## Verifier verdicts received
 
 None yet.
+### 2026-07-22 — Verifier PASS
+
+**PASS** — all 6 verification gates satisfied, all 6 acceptance checks met.
+
+- Verdict: PASS
+- Verifier session context: fresh (no prior implementer context loaded)
+- Verification gates:
+  1. ✅ User-reachable outcome exists (RunSlice → CLI, dispatch capture wired)
+  2. ✅ Planned touchpoints match actual changed files (all divergences documented)
+  3. ✅ Required tests exist and exercise the integration point
+  4. ✅ Reachability artefact proves the user path
+  5. ✅ No silent deferrals or placeholder logic
+  6. ✅ Claimed scope matches implemented scope
+- Acceptance checks: all 6 pass
+- Notes: Minor gap — no explicit dispatches assertion in RunSlice integration tests (code path is exercised, leaf tests prove content correctness). `ledger.Load` referenced in spec does not exist as a function; `json.Unmarshal` used equivalently (documented in divergence).

@@ -3,10 +3,10 @@
   "slice_id": "S55-ledger-multirole-cost",
   "release": "2026-06-19-safe-parallelism",
   "track": "T16-verdict-ledger",
-  "state": "implemented",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-25T19:54:21Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-22T15:00:00Z",
   "start_commit": "3340d3d50b139d08c7af67d52c471da091468cc2",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S55-ledger-multirole-cost/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S55-ledger-multirole-cost/proof.md",
@@ -38,10 +38,10 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "pass",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-07-22T15:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
   }
 }
