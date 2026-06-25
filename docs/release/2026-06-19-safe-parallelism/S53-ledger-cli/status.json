@@ -7,7 +7,7 @@
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-25T18:10:16Z",
-  "start_commit": null,
+  "start_commit": "b7865159add6b1e31bc3b5e7043a7544b377911a",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S53-ledger-cli/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S53-ledger-cli/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S53-ledger-cli/journal.md",
