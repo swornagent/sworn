@@ -106,7 +106,8 @@ tracks:
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T17-orchestration-core
     worktree_branch: track/2026-06-19-safe-parallelism/T17-orchestration-core
     state: merged
-  - id: T18-cli-polish    slices: [S60-init-ui-bearing-fix, S61-cli-output-styling]
+  - id: T18-cli-polish
+    slices: [S60-init-ui-bearing-fix, S61-cli-output-styling]
     depends_on: [T2-monitoring, T15-cli-registry]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T18-cli-polish
     worktree_branch: track/2026-06-19-safe-parallelism/T18-cli-polish
