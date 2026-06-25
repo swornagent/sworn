@@ -297,7 +297,7 @@ func TestMockDeferralsHasMockBoundary(t *testing.T) {
 		},
 		{
 			name: "no mock mention",
-			d:    &MockDeferrals{Entries: []MockDeferralEntry{{What: "deferred colours", Why: "no tokens yet"}}},
+			d:    &MockDeferrals{Entries: []MockDeferralEntry{{What: "pending colours", Why: "no tokens yet"}}},
 			want: false,
 		},
 		{

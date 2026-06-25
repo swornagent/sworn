@@ -44,4 +44,4 @@ New `internal/gate/mock.go`. CLI via `internal/command` registry. Invoked as `sw
 
 - **Unit**: `internal/gate/mock_test.go` — fixture test files with declared and undeclared mocks
 - **Reachability artefact**: `sworn lint mock` output showing violations
-- **E2E gate type**: local
+- **Gate type**: local (CLI-only gate, no browser automation)
