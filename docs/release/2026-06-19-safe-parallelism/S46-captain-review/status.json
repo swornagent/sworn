@@ -7,7 +7,7 @@
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-25T16:25:13Z",
-  "start_commit": null,
+  "start_commit": "0ff1a9690c6ee941cac44083ecb4dec0e960eb3d",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S46-captain-review/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S46-captain-review/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S46-captain-review/journal.md",

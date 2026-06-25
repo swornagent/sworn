@@ -11,6 +11,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/agent"
+	"github.com/swornagent/sworn/internal/captain"
 	"github.com/swornagent/sworn/internal/design"
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/implement"
@@ -19,7 +20,6 @@ import (
 	"github.com/swornagent/sworn/internal/verdict"
 	"github.com/swornagent/sworn/internal/verify"
 )
-
 // DefaultImplementTimeout is the per-attempt deadline applied to the implement
 // step inside RunSlice when no explicit timeout is configured. 15 minutes is
 // generous enough for most implement steps but prevents a hung agent from
@@ -185,8 +185,62 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			}
 		}
 	}
-	var lastVerdict verdict.Result
+
+	// ── Captain Review (S46) ──────────────────────────────────────────
+	// After design TL;DR, run the captain design-review. Escalate pins
+	// halt the run; mechanical/memory-cited pins feed the implementer.
 	var priorFeedback string
+	{
+		designPath := filepath.Join(absSliceDir, "design.md")
+		if designBytes, err := os.ReadFile(designPath); err == nil {
+			specBytes, specErr := os.ReadFile(specPath)
+			if specErr == nil {
+				firstModelID := escalationModels[0]
+				captainAgent, caErr := opts.NewAgent(firstModelID)
+				if caErr == nil {
+					// Transition to DesignReview before the review.
+					stReview, _ := state.Read(statusPath)
+					if stReview != nil && stReview.State != state.DesignReview {
+						_ = stReview.State.Transition(state.DesignReview)
+						stReview.State = state.DesignReview
+						stReview.LastUpdatedBy = "run-slice"
+						stReview.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
+						_ = state.Write(statusPath, stReview)
+					}
+
+					reviewCtx := ctx
+					var reviewCancel context.CancelFunc
+					if implementTimeout > 0 {
+						reviewCtx, reviewCancel = context.WithTimeout(ctx, implementTimeout)
+						defer reviewCancel()
+					}
+					fmt.Fprintf(os.Stderr, "sworn run: running captain design-review with %s\n", firstModelID)
+					reviewResult, revErr := captain.Review(reviewCtx, absSliceDir, string(specBytes), string(designBytes), captainAgent, worktreeRoot)
+					if revErr != nil {
+						if errors.Is(revErr, context.DeadlineExceeded) {
+							fmt.Fprintf(os.Stderr, "sworn run: captain review timed out — proceeding without review\n")
+						} else {
+							fmt.Fprintf(os.Stderr, "sworn run: captain review error: %v — proceeding without review\n", revErr)
+						}
+					} else if reviewResult.HasEscalatePins {
+						fmt.Fprintf(os.Stderr, "sworn run: captain review halted — %d escalate pins in %s\n",
+							reviewResult.EscalateCount, filepath.Join(absSliceDir, "review.md"))
+						return fmt.Errorf("RunSlice: captain review found %d escalate pins — review at %s. Resolve and re-run.",
+							reviewResult.EscalateCount, filepath.Join(absSliceDir, "review.md"))
+					} else {
+						// Inject mechanical/memory-cited pins into the implementer
+						// prompt. The S44 mechanism (priorFeedback) carries these
+						// into the first implement attempt.
+						if fb := reviewResult.FormatPinsAsFeedback(); fb != "" {
+							priorFeedback = fb
+						}
+					}
+				}
+			}
+		}
+	}
+
+	var lastVerdict verdict.Result
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		// ── Reset slice state for retry ────────────────────────────────
 		// Capture the prior verdict's rationale before clearing verification
@@ -205,10 +259,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			if err := state.Write(statusPath, st); err != nil {
 				return fmt.Errorf("RunSlice: reset status for retry: %w", err)
 			}
-		} else {
-			priorFeedback = ""
 		}
-
 		implModelID := escalationModels[attempt]
 		implAgent, err := opts.NewAgent(implModelID)
 		if err != nil {
