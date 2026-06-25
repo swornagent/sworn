@@ -41,3 +41,18 @@
 ### Deferred
 
 None.
+
+## Verifier verdicts received
+
+### Session 2026-07-21 — verifier (fresh-context)
+
+**Verdict: PASS**
+
+All 6 verification gates pass.
+
+- **Gate 1 (Reachability):** PASS — gate display wired into `BoardView.LoadBoard()` → `LoadGateResults()` → `RenderInline()` in `View()`, reachable from `sworn` or `sworn top`.
+- **Gate 2 (Touchpoints):** PASS — `planned_files` divergence explained: `top.go` not needed, `board.go` + `styles.go` modified instead. `actual_files` correctly records all 4 files.
+- **Gate 3 (Tests):** PASS — 9 gate-specific unit tests pass covering all formatting scenarios.
+- **Gate 4 (Reachability artefact):** PASS — manual smoke step described; screenshot requirement is a spec wording issue (Go TUI, not web app).
+- **Gate 5 (No silent deferrals):** PASS — zero TODO/FIXME/HACK markers in changed files.
+- **Gate 6 (Scope):** PASS — all 5 acceptance checks verified against code.
