@@ -98,9 +98,8 @@ tracks:
     depends_on: [T6-provider-ux, T12-harness-hardening, T13-sworn-role-parity]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T16-verdict-ledger
     worktree_branch: track/2026-06-19-safe-parallelism/T16-verdict-ledger
-    state: in_progress
-  - id: T17-orchestration-core    slices: [S57-oracle-reader, S58-slice-router, S59-scheduler-relayer]
-    depends_on: [T1-concurrency-core, T12-harness-hardening, T18-cli-polish]
+    state: merged
+  - id: T17-orchestration-core    slices: [S57-oracle-reader, S58-slice-router, S59-scheduler-relayer]    depends_on: [T1-concurrency-core, T12-harness-hardening, T18-cli-polish]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T17-orchestration-core
     worktree_branch: track/2026-06-19-safe-parallelism/T17-orchestration-core
     state: merged
@@ -171,7 +170,7 @@ tracks:
 | `T10-public-readiness` | S27 | all tracks (incl. T16 + T19) | `track/.../T10-public-readiness` | verified |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
 | `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | merged || `T13-sworn-role-parity` | S45 → S46 → S47 | T12 + T17 | `track/.../T13-sworn-role-parity` | merged || `T14-baton-integration` | S48 → S49 → S50 → S62 → S73 | T3 + T15 | `track/.../T14-baton-integration` | merged |
-| `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged || `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | in_progress (S52, S53, S54, S55, S56 verified) || `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | merged || `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
+| `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged || `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | merged || `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | merged || `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
 | `T19-status-hygiene` | S64 | T4 + T12 + T15 | `track/.../T19-status-hygiene` | merged |
 | `T20-gate-engine` | S65 → S66 → S67 → S68 → S69 → S70 | T14 + T15 | `track/.../T20-gate-engine` | merged |
 | `T21-mcp-lint` | S71 | T4 + T20 | `track/.../T21-mcp-lint` | merged |
@@ -540,11 +539,14 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 - Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 2 / In progress: 0 / Merged: 20  *(post T13 merge; oracle-authoritative)*> Merged (20): T1, T2, T3, T4, T5, T6, T7, T8, T9, T11, T12, T13, T14, T15, T17, T18, T19, T20, T21, T22. Planned (2): T10, T16.
-## Recent activity
+**Tracks:** Planned: 1 / In progress: 0 / Merged: 21  *(post T16 merge; oracle-authoritative)*> Merged (21): T1, T2, T3, T4, T5, T6, T7, T8, T9, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21, T22. Planned (1): T10.## Recent activity
 
-### 2026-07-22 — slice `S54-ledger-routing` → verified (PASS)
-- **Actor**: verifier (fresh context, artefact-only).
+### 2026-07-22 — track `T16-verdict-ledger` merged to release-wt (commit 8b438d9)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 5 verified slices merged: S52-ledger-projection, S53-ledger-cli, S54-ledger-routing, S55-ledger-multirole-cost, S56-ledger-cost-routing. Track state -> merged.
+
+### 2026-07-22 — slice `S54-ledger-routing` → verified (PASS)- **Actor**: verifier (fresh context, artefact-only).
 - **Verdict**: PASS — all 7 acceptance checks satisfied.
   - Gate 1: `sworn ledger recommend <kind>` CLI subcommand wired; `ResolveImplementerModel` consults ledger.
   - Gate 2: All 5 planned touchpoints touched; `cmd/sworn/run.go` modified mechanically (call-site update) — transparently disclosed.
