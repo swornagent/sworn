@@ -132,9 +132,9 @@ tracks:
   - id: T22-tui-gate
     slices: [S72-tui-gate-display]
     depends_on: [T2-monitoring, T20-gate-engine]
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T22-tui-gate
     worktree_branch: track/2026-06-19-safe-parallelism/T22-tui-gate
-    state: planned
+    state: in_progress
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
