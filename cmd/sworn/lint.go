@@ -21,13 +21,16 @@ import (
 //	touchpoints — reconcile design file/package refs against planned_files + collision matrix; fail closed
 //	symbols     — grep backtick identifiers from design.md against live codebase; advisory warn-only
 //	status      — check that status.json timestamps are not in the future beyond 5m skew; fail closed
-func cmdLint(args []string) int {	if len(args) == 0 {
+//	coverage    — map every AC to a test function in the slice diff; fail closed on uncovered ACs
+func cmdLint(args []string) int {
+	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "sworn lint: target required")
-		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols|status> <release>")
+		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols|status|coverage> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint deps [--base <ref>] <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint touchpoints <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint symbols <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint status <release>")
+		fmt.Fprintln(os.Stderr, "       sworn lint coverage --slice <slice-id> --release <release> [--base <ref>]")
 		return 64
 	}
 	switch args[0] {
@@ -43,15 +46,20 @@ func cmdLint(args []string) int {	if len(args) == 0 {
 		return cmdLintSymbols(args[1:])
 	case "status":
 		return cmdLintStatus(args[1:])
+	case "coverage":
+		return cmdLintCoverage(args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "sworn lint: unknown target %q (known: ac, trace, deps, touchpoints, symbols, status)\n", args[0])
-		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols|status> <release>")
+		fmt.Fprintf(os.Stderr, "sworn lint: unknown target %q (known: ac, trace, deps, touchpoints, symbols, status, coverage)\n", args[0])
+		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols|status|coverage> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint deps [--base <ref>] <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint touchpoints <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint symbols <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint status <release>")
 		return 64
-	}} // cmdLintAC implements `sworn lint ac <release>`.
+	}
+}
+
+// cmdLintAC implements `sworn lint ac <release>`.
 // Classifies every acceptance check in every slice's spec.md by EARS pattern
 // and fails closed (non-zero exit) on any free-form check that matches no
 // pattern, naming the slice + the offending line. A release whose every AC is
@@ -306,5 +314,65 @@ func cmdLintStatus(args []string) int {
 	}
 
 	fmt.Printf("All status timestamps within allowed window for %s\n", releaseName)
+	return 0
+}
+// cmdLintCoverage implements `sworn lint coverage --slice <slice-id> --release <release>`.
+//
+// Extracts acceptance checks from the slice's spec.md, scans the test files in
+// the slice's diff for test functions (Go, TypeScript, Python patterns), and
+// keyword-matches each AC against the discovered tests.  Prints a coverage map
+// showing each AC mapped to its best-match test (file:line) and exits 0 when
+// every AC is covered, 1 with uncovered ACs enumerated.
+func cmdLintCoverage(args []string) int {
+	fs := flag.NewFlagSet("lint coverage", flag.ExitOnError)
+	sliceID := fs.String("slice", "", "slice ID to check (e.g. S66-lint-coverage)")
+	releaseName := fs.String("release", "", "release name (e.g. 2026-06-19-safe-parallelism)")
+	baseRef := fs.String("base", "", "base ref for git diff (defaults to start_commit or release-wt/<release>)")
+	jsonOut := fs.Bool("json", false, "output as JSON")
+	_ = fs.Parse(args)
+
+	if *sliceID == "" || *releaseName == "" {
+		fmt.Fprintln(os.Stderr, "sworn lint coverage: --slice and --release are required")
+		fmt.Fprintln(os.Stderr, "usage: sworn lint coverage --slice <slice-id> --release <release> [--base <ref>]")
+		return 64
+	}
+
+	releaseDir, err := resolveReleaseDir(*releaseName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint coverage: %v\n", err)
+		return 2
+	}
+
+	sliceDir := filepath.Join(releaseDir, *sliceID)
+	if _, err := os.Stat(sliceDir); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint coverage: slice directory not found: %s\n", sliceDir)
+		return 2
+	}
+
+	ref := *baseRef
+	if ref == "" {
+		var err error
+		ref, err = gate.BaseRefForSlice(sliceDir, *releaseName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "sworn lint coverage: resolve base ref: %v\n", err)
+			return 2
+		}
+	}
+
+	report, err := gate.RunCoverage(releaseDir, *sliceID, ref)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint coverage: %v\n", err)
+		return 2
+	}
+
+	if *jsonOut {
+		fmt.Print(gate.JSONCoverage(report))
+	} else {
+		fmt.Print(gate.PrintCoverage(report))
+	}
+
+	if report.HasViolations() {
+		return 1
+	}
 	return 0
 }
