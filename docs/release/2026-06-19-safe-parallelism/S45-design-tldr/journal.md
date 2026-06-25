@@ -24,3 +24,14 @@ Session opened. Slice state: planned. Fresh track worktree materialised.
 **Subagent dispatches:** None — all implementation in single session.
 
 **State:** implemented → ready for fresh-context verification.
+
+## Verifier verdicts received
+
+- **2026-07-21T14:00:00Z — PASS** (Verifier, fresh context)
+  - Gate 1 (user-reachable outcome): PASS — `design.Generate()` invoked from `RunSlice` before implement loop, wired through `sworn run`.
+  - Gate 2 (planned touchpoints): PASS — all 5 planned files present; extras are run_test.go + prompt_test.go (test hygiene).
+  - Gate 3 (required tests): PASS — `TestGenerateWritesSixSections`, `TestGenerateRespectsExisting`, `TestHasSixSections`, `TestGenerateModelError`, `TestGenerateMissingSections`. Fresh run: `go test -race ./internal/design/... ./internal/run/...` PASS.
+  - Gate 4 (reachability artefact): PASS — unit tests prove design.md written with six sections through the Generate integration point.
+  - Gate 5 (silent deferrals): PASS — no TODO/FIXME/placeholder/deferred in changed files.
+  - Gate 6 (scope match): PASS — all 6 delivered items confirmed; all 4 ACs satisfied.
+  - Verdict: **PASS** — slice transitions to `verified`.

@@ -3,10 +3,10 @@
   "slice_id": "S45-design-tldr",
   "release": "2026-06-19-safe-parallelism",
   "track": "T13-sworn-role-parity",
-  "state": "implemented",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-25T15:44:32Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-21T14:00:00Z",
   "start_commit": "846fca5a7f7a41b63878d0109ad96c7b9c180e89",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S45-design-tldr/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S45-design-tldr/proof.md",
@@ -36,10 +36,10 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "pass",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-07-21T14:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
   }
 }
