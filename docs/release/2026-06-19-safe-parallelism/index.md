@@ -136,6 +136,7 @@ tracks:
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T22-tui-gate
     worktree_branch: track/2026-06-19-safe-parallelism/T22-tui-gate
     state: merged
+---
 # Release Board: `2026-06-19-safe-parallelism`
 
 > Frontmatter is the machine-readable registry; the tables below mirror it.
@@ -177,8 +178,11 @@ tracks:
 | `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | merged || `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
 | `T19-status-hygiene` | S64 | T4 + T12 + T15 | `track/.../T19-status-hygiene` | merged |
 | `T20-gate-engine` | S65 → S66 → S67 → S68 → S69 → S70 | T14 + T15 | `track/.../T20-gate-engine` | merged |
-| `T21-mcp-lint` | S71 | T4 + T20 | `track/.../T21-mcp-lint` | merged || `T22-tui-gate` | S72 | T2 + T20 | `track/.../T22-tui-gate` | merged |
-### Execution order```
+| `T21-mcp-lint` | S71 | T4 + T20 | `track/.../T21-mcp-lint` | merged |
+| `T22-tui-gate` | S72 | T2 + T20 | `track/.../T22-tui-gate` | merged |
+
+### Execution order
+```
 Phase 1:  T1 (sequential)
 Phase 2:  T2, T3, T4, T8, T9, T11, T12, T15 (parallel after T1 — T11/T12 harness-hardening + T15 CLI registry dispatch early)
           T18 (after T2 + T15 — CLI-output polish: init --ui-bearing fix + shared internal/style colour across the command surface; lands before the verified tracks that share its files)
@@ -533,16 +537,24 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 > S07 `planned` despite `implemented`). Three duplicate rows (S22/S23/S24) and several
 > `||`-collapsed physical lines repaired.
 
-- Planned: 28
-- In progress: 0
+- Planned: 8
+- In progress: 1
 - Implemented: 0
-- Design review: 1
-- Verified: 31
-- Failed verification: 1
+- Design review: 0
+- Verified: 64
+- Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 3 / In progress: 2 / Merged: 17  *(post T17 merge; oracle-authoritative)*
-> Merged (17): T1, T2, T3, T4, T5, T6, T7, T8, T9, T11, T12, T14, T15, T17, T18, T19, T20. In progress (2): T21, T22. Planned (3): T10, T13, T16.## Recent activity
+**Tracks:** Planned: 2 / In progress: 1 / Merged: 19  *(post T21+T22 merge; oracle-authoritative)*
+> Merged (19): T1, T2, T3, T4, T5, T6, T7, T8, T9, T11, T12, T14, T15, T17, T18, T19, T20, T21, T22. In progress (1): T13. Planned (2): T10, T16.
+
+## Recent activity
+
+### 2026-06-26 — track `T21-mcp-lint` merged to release-wt (commit ae328ed)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 1 verified slice merged: S71-mcp-lint-tools. Track state -> merged. Forward-merged 10 sibling commits (T22-tui-gate merge) into track before integration; index.md conflict resolved (T22 state + frontmatter `---` fence restored).
+
 ### 2026-07-20 — track `T17-orchestration-core` merged to release-wt (commit 3c78949)
 
 - **Actor**: track integrator (/merge-track)
