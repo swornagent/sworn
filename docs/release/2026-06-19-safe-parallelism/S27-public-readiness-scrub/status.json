@@ -7,7 +7,7 @@
   "owner": "agent",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-25T21:51:24Z",
-  "start_commit": "b6b4cf87b2f8a5a2c135f4544ae856b551ce13d9",
+  "start_commit": "9bebea463ce1ad3b7353b5b83dbf737dfad0b625",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S27-public-readiness-scrub/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S27-public-readiness-scrub/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S27-public-readiness-scrub/journal.md",
