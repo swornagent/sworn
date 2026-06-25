@@ -3,10 +3,10 @@
   "slice_id": "S47-orchestrator-recovery",
   "release": "2026-06-19-safe-parallelism",
   "track": "T13-sworn-role-parity",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-25T16:46:23Z",
+  "last_updated_at": "2026-06-25T17:09:00Z",
   "start_commit": "93d88031e47807dd489275ac921d9d145e0b0fa0",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S47-orchestrator-recovery/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S47-orchestrator-recovery/proof.md",
@@ -16,12 +16,20 @@
     "internal/orchestrator/triage.go",
     "internal/orchestrator/triage_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/orchestrator/triage.go",
+    "internal/orchestrator/triage_test.go",
+    "internal/run/slice.go",
+    "internal/run/run_test.go",
+    "internal/run/slice_test.go"
+  ],
   "test_commands": [
     "go test -race ./internal/orchestrator/... ./internal/run/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "manual-smoke-step: triage decision log from TestRun_FailThenPass_RetrySucceeds test output"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "pending",
