@@ -7,7 +7,7 @@
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-25T16:46:23Z",
-  "start_commit": null,
+  "start_commit": "93d88031e47807dd489275ac921d9d145e0b0fa0",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S47-orchestrator-recovery/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S47-orchestrator-recovery/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S47-orchestrator-recovery/journal.md",
