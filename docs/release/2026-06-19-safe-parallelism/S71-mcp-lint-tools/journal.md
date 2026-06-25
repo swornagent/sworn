@@ -22,3 +22,17 @@ description: 'Implementation session notes for MCP lint tools.'
 
 - `lint.go` from release-wt had fused lines in `cmd/sworn/mcp.go` (RegisterPrompts + ctx declaration on same line; RegisterResources + RegisterPrompts on same line). These predate this slice. Fixed during implementation.
 - `release-verify.sh` has a `PLAYWRIGHT_OPTIN: unbound variable` bug — triggered by "E2E gate type: local" in Required tests section despite no browser screenshots in scope.
+## Verifier verdicts received
+
+### Session: 2026-07-20 — Verifier (fresh context)
+
+**Verdict: PASS**
+
+- Gate 1 (User-reachable outcome): PASS — RegisterLintTools wired into sworn mcp, all 6 tools reachable.
+- Gate 2 (Touchpoint match): PASS — planned_files match feat commit exactly.
+- Gate 3 (Tests exercise integration): PASS — 7 tests pass, build + vet clean, tests exercise MCP server handler interface.
+- Gate 4 (Reachability artefact): PASS — live binary tools/list returns all 6 lint tools; sworn.lint_trace returns structured JSON.
+- Gate 5 (No silent deferrals): PASS — no TODO/FIXME/HACK in changed files; open_deferrals empty.
+- Gate 6 (Scope match): PASS — all 5 acceptance checks confirmed against live code and tests.
+
+**Next step:** /merge-track T21-mcp-lint (sole slice in track — track is complete), then /merge-release 2026-06-19-safe-parallelism once all tracks merged.
