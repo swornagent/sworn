@@ -96,9 +96,9 @@ tracks:
   - id: T16-verdict-ledger
     slices: [S52-ledger-projection, S53-ledger-cli, S54-ledger-routing, S55-ledger-multirole-cost, S56-ledger-cost-routing]
     depends_on: [T6-provider-ux, T12-harness-hardening, T13-sworn-role-parity]
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T16-verdict-ledger
     worktree_branch: track/2026-06-19-safe-parallelism/T16-verdict-ledger
-    state: planned
+    state: in_progress
   - id: T17-orchestration-core
     slices: [S57-oracle-reader, S58-slice-router, S59-scheduler-relayer]
     depends_on: [T1-concurrency-core, T12-harness-hardening, T18-cli-polish]
