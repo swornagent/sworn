@@ -500,3 +500,77 @@ func TestDoctorFailsOnShaPin(t *testing.T) {
 		t.Errorf("expected 'baton/VERSION (baton-protocol)' check in output\nOutput:\n%s", output)
 	}
 }
+// TestDoctorStatusTimestamps verifies that `sworn doctor` reports [ERROR]
+// when docs/release/ contains status.json files with future timestamps.
+func TestDoctorStatusTimestamps(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a minimal git repo root.
+	os.MkdirAll(filepath.Join(dir, ".git"), 0755)
+
+	// Create a release with a future timestamp.
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	sliceDir := filepath.Join(releaseDir, "S01-test-slice")
+	os.MkdirAll(sliceDir, 0755)
+
+	status := `{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S01-test-slice",
+  "release": "test-release",
+  "track": "T1-test",
+  "state": "planned",
+  "last_updated_at": "2099-01-01T00:00:00Z",
+  "verification": {
+    "result": "pending"
+  }
+}`
+	os.WriteFile(filepath.Join(sliceDir, "status.json"), []byte(status), 0644)
+
+	// Doctor should find the future timestamp and report ERROR.
+	exitCode, output := runDoctorInDir(t, dir)
+	if exitCode == 0 {
+		t.Errorf("expected non-zero exit for future timestamp, got 0\nOutput:\n%s", output)
+	}
+	if !strings.Contains(output, "[ERROR]") {
+		t.Errorf("expected [ERROR] in output for future timestamp\nOutput:\n%s", output)
+	}
+	if !strings.Contains(output, "status timestamp") {
+		t.Errorf("expected 'status timestamp' in output\nOutput:\n%s", output)
+	}
+	if !strings.Contains(output, "2099-01-01") {
+		t.Errorf("expected timestamp value '2099-01-01' in output\nOutput:\n%s", output)
+	}
+}
+
+// TestDoctorStatusTimestamps_Clean verifies that a release with valid
+// timestamps passes the status timestamp check in doctor.
+func TestDoctorStatusTimestamps_Clean(t *testing.T) {
+	dir := t.TempDir()
+
+	os.MkdirAll(filepath.Join(dir, ".git"), 0755)
+
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	sliceDir := filepath.Join(releaseDir, "S01-test-slice")
+	os.MkdirAll(sliceDir, 0755)
+
+	status := `{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S01-test-slice",
+  "release": "test-release",
+  "track": "T1-test",
+  "state": "planned",
+  "last_updated_at": "2020-01-01T00:00:00Z",
+  "verification": {
+    "result": "pending"
+  }
+}`
+	os.WriteFile(filepath.Join(sliceDir, "status.json"), []byte(status), 0644)
+
+	exitCode, output := runDoctorInDir(t, dir)
+	// Since other doctor groups (embedded prompts) won't exist in the temp dir,
+	// we only verify the status timestamp check doesn't cause an [ERROR].
+	if strings.Contains(output, "status timestamp") && strings.Contains(output, "[ERROR]") {
+		t.Errorf("expected no [ERROR] for status timestamps with valid data\nOutput:\n%s", output)
+	}
+	_ = exitCode // other groups may fail, that's fine
+}

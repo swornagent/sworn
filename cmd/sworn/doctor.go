@@ -10,10 +10,10 @@ import (
 
 	"github.com/swornagent/sworn/internal/adopt"
 	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/lint"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/style"
-)
-// checkLevel classifies a doctor check result.
+)// checkLevel classifies a doctor check result.
 type checkLevel int
 
 const (
@@ -200,10 +200,20 @@ func cmdDoctor(args []string) int {
 		printResult(r)
 	}
 
+	// --- Group 2b: Release status timestamp sanity ---
+	fmt.Println()
+	fmt.Println(style.Heading("Group 2b: Release status timestamp sanity"))
+	g2b := checkStatusTimestamps(repoRoot)
+	for _, r := range g2b {
+		if r.level == levelError {
+			hasError = true
+		}
+		printResult(r)
+	}
+
 	// --- Group 3: Local Baton sync (optional) ---
 	batonHome := os.Getenv("SWORN_BATON_HOME")
-	if batonHome == "" {
-		home, _ := os.UserHomeDir()
+	if batonHome == "" {		home, _ := os.UserHomeDir()
 		batonHome = filepath.Join(home, ".claude", "baton")
 	}
 	if _, err := os.Stat(batonHome); err == nil {
@@ -478,9 +488,57 @@ func checkRepoArtifacts(repoRoot string) []checkResult {
 	return results
 }
 
+// checkStatusTimestamps scans docs/release/ for status.json files and validates
+// that last_updated_at and verification.verifier_verdict_at timestamps are not
+// in the future beyond a 5-minute clock-skew allowance.
+func checkStatusTimestamps(repoRoot string) []checkResult {
+	releaseRoot := filepath.Join(repoRoot, "docs", "release")
+	if _, err := os.Stat(releaseRoot); err != nil {
+		return []checkResult{{
+			level:  levelOK,
+			name:   "status timestamps",
+			detail: "no docs/release/ directory — nothing to check",
+		}}
+	}
+
+	var allResults []checkResult
+	entries, _ := os.ReadDir(releaseRoot)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		releaseDir := filepath.Join(releaseRoot, entry.Name())
+		violations := lint.CheckStatusTimestamps(releaseDir, lint.DefaultClock)
+		if len(violations) > 0 {
+			for _, v := range violations {
+				allResults = append(allResults, checkResult{
+					level:  levelError,
+					name:   fmt.Sprintf("status timestamp (%s/%s)", v.Release, v.SliceID),
+					detail: fmt.Sprintf("%s: %q exceeds allowed maximum %s", v.Field, v.Value, v.AllowedAt),
+				})
+			}
+		}
+	}
+
+	if len(allResults) == 0 {
+		return []checkResult{{
+			level:  levelOK,
+			name:   "status timestamps",
+			detail: fmt.Sprintf("all timestamps within allowed window across %d release(s)", len(entries)),
+		}}
+	}
+
+	// Prepend a summary result.
+	summary := checkResult{
+		level:  levelError,
+		name:   "status timestamps",
+		detail: fmt.Sprintf("%d violation(s) across scanned releases", len(allResults)),
+	}
+	return append([]checkResult{summary}, allResults...)
+}
+
 // checkBatonSync compares the embedded Baton docs against the local ~/.claude/baton/.
-func checkBatonSync(batonHome string) []checkResult {
-	var results []checkResult
+func checkBatonSync(batonHome string) []checkResult {	var results []checkResult
 
 	// Compare rules files.
 	mismatches := 0
