@@ -5,8 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-)
 
+	"github.com/swornagent/sworn/internal/ledger"
+)
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	if cfg.Version != 1 {
@@ -331,9 +332,8 @@ func contains(s, sub string) bool {
 
 func TestResolveImplementerModel_FlagWins(t *testing.T) {
 	cfg := DefaultConfig()
-	m, err := ResolveImplementerModel("openai/gpt-4.1", cfg)
-	if err != nil {
-		t.Fatal(err)
+	m, err := ResolveImplementerModel("openai/gpt-4.1", cfg, "", "", "quality", 0)
+	if err != nil {		t.Fatal(err)
 	}
 	if m != "openai/gpt-4.1" {
 		t.Errorf("got %q, want openai/gpt-4.1", m)
@@ -343,7 +343,7 @@ func TestResolveImplementerModel_FlagWins(t *testing.T) {
 func TestResolveImplementerModel_EnvFallback(t *testing.T) {
 	t.Setenv("SWORN_IMPLEMENTER_MODEL", "openai/gpt-4o-mini")
 	cfg := Config{Version: 1}
-	m, err := ResolveImplementerModel("", cfg)
+	m, err := ResolveImplementerModel("", cfg, "", "", "quality", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,7 +359,7 @@ func TestResolveImplementerModel_ConfigFallback(t *testing.T) {
 			Model: "openai/gpt-4o",
 		},
 	}
-	m, err := ResolveImplementerModel("", cfg)
+	m, err := ResolveImplementerModel("", cfg, "", "", "quality", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,7 +375,7 @@ func TestResolveImplementerModel_EscalationFallback(t *testing.T) {
 			EscalationModels: []string{"openai/o3-mini", "openai/o3"},
 		},
 	}
-	m, err := ResolveImplementerModel("", cfg)
+	m, err := ResolveImplementerModel("", cfg, "", "", "quality", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -386,9 +386,8 @@ func TestResolveImplementerModel_EscalationFallback(t *testing.T) {
 
 func TestResolveImplementerModel_Error(t *testing.T) {
 	cfg := Config{Version: 1}
-	_, err := ResolveImplementerModel("", cfg)
-	if err == nil {
-		t.Fatal("expected error when no implementer model is configured")
+	_, err := ResolveImplementerModel("", cfg, "", "", "quality", 0)
+	if err == nil {		t.Fatal("expected error when no implementer model is configured")
 	}
 	msg := err.Error()
 	if !contains(msg, "sworn init") {
@@ -399,10 +398,315 @@ func TestResolveImplementerModel_Error(t *testing.T) {
 	}
 }
 
+// writeLedger creates a temp ledger file with the given records and returns its path.
+func writeLedger(t *testing.T, records []ledger.Record) string {
+	t.Helper()
+	f, err := os.CreateTemp("", "verdicts-*.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	for _, r := range records {
+		data, err := json.Marshal(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.Write(append(data, '\n')); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return f.Name()
+}
+
+func TestResolveImplementerModel_LedgerDefault(t *testing.T) {
+	// Corpus: openai/gpt-4o dominates harness with 9/10 pass.
+	records := []ledger.Record{
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "fail", Attempt: 2},
+		// Also a worse model to ensure ranking.
+		{Model: "anthropic/claude-sonnet-4-20250514", SliceKind: "harness", Verdict: "pass", Attempt: 3},
+		{Model: "anthropic/claude-sonnet-4-20250514", SliceKind: "harness", Verdict: "pass", Attempt: 3},
+		{Model: "anthropic/claude-sonnet-4-20250514", SliceKind: "harness", Verdict: "pass", Attempt: 3},
+		{Model: "anthropic/claude-sonnet-4-20250514", SliceKind: "harness", Verdict: "pass", Attempt: 3},
+		{Model: "anthropic/claude-sonnet-4-20250514", SliceKind: "harness", Verdict: "pass", Attempt: 3},
+		{Model: "anthropic/claude-sonnet-4-20250514", SliceKind: "harness", Verdict: "fail", Attempt: 1},
+		{Model: "anthropic/claude-sonnet-4-20250514", SliceKind: "harness", Verdict: "fail", Attempt: 1},
+		{Model: "anthropic/claude-sonnet-4-20250514", SliceKind: "harness", Verdict: "fail", Attempt: 1},
+		{Model: "anthropic/claude-sonnet-4-20250514", SliceKind: "harness", Verdict: "fail", Attempt: 1},
+		{Model: "anthropic/claude-sonnet-4-20250514", SliceKind: "harness", Verdict: "fail", Attempt: 1},
+	}
+	ledgerPath := writeLedger(t, records)
+	defer os.Remove(ledgerPath)
+
+	// No flag, no env, no config — should pick ledger-recommended model.
+	cfg := Config{
+		Version: 1,
+		Implementer: ModelSetting{
+			EscalationModels: []string{"openai/gpt-4o-mini"},
+		},
+	}
+	m, err := ResolveImplementerModel("", cfg, "harness", ledgerPath, "quality", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m != "openai/gpt-4o" {
+		t.Errorf("got %q, want openai/gpt-4o (ledger recommendation)", m)
+	}
+}
+
+func TestResolveImplementerModel_LedgerFlagWins(t *testing.T) {
+	// Even with a confident ledger recommendation, an explicit flag wins.
+	records := []ledger.Record{
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "fail", Attempt: 2},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "fail", Attempt: 2},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "fail", Attempt: 2},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "fail", Attempt: 2},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "fail", Attempt: 2},
+	}
+	ledgerPath := writeLedger(t, records)
+	defer os.Remove(ledgerPath)
+
+	cfg := DefaultConfig()
+	m, err := ResolveImplementerModel("anthropic/claude-sonnet-4-20250514", cfg, "harness", ledgerPath, "quality", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m != "anthropic/claude-sonnet-4-20250514" {
+		t.Errorf("flag should win over ledger: got %q", m)
+	}
+}
+
+func TestResolveImplementerModel_LedgerThinCorpusFallback(t *testing.T) {
+	// Only 4 records — below MinSampleSize (5). Should fall through to escalation.
+	records := []ledger.Record{
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "fail", Attempt: 2},
+	}
+	ledgerPath := writeLedger(t, records)
+	defer os.Remove(ledgerPath)
+
+	cfg := Config{
+		Version: 1,
+		Implementer: ModelSetting{
+			EscalationModels: []string{"openai/o3-mini"},
+		},
+	}
+	m, err := ResolveImplementerModel("", cfg, "harness", ledgerPath, "quality", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m != "openai/o3-mini" {
+		t.Errorf("thin corpus should fall through to escalation: got %q, want openai/o3-mini", m)
+	}
+}
+
+func TestResolveImplementerModel_LedgerAbsentCorpusFallback(t *testing.T) {
+	// No ledger file at all — should fall through to escalation (byte-for-byte same as S09).
+	cfg := Config{
+		Version: 1,
+		Implementer: ModelSetting{
+			EscalationModels: []string{"openai/o3-mini"},
+		},
+	}
+	m, err := ResolveImplementerModel("", cfg, "harness", "/nonexistent/path/verdicts.jsonl", "quality", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m != "openai/o3-mini" {
+		t.Errorf("absent corpus should fall through to escalation: got %q, want openai/o3-mini", m)
+	}
+}
+
+func TestResolveImplementerModel_LedgerEmptySliceKind(t *testing.T) {
+	// When sliceKind is empty, the ledger lookup is skipped entirely.
+	records := []ledger.Record{
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1},
+	}
+	ledgerPath := writeLedger(t, records)
+	defer os.Remove(ledgerPath)
+
+	cfg := Config{
+		Version: 1,
+		Implementer: ModelSetting{
+			EscalationModels: []string{"openai/o3-mini"},
+		},
+	}
+	m, err := ResolveImplementerModel("", cfg, "", ledgerPath, "quality", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m != "openai/o3-mini" {
+		t.Errorf("empty sliceKind should skip ledger: got %q, want escalation openai/o3-mini", m)
+	}
+}
+
+// --- S56 cost-aware routing tests ---
+
+func TestResolveImplementerModel_CostModePicksCheapest(t *testing.T) {
+	// Model A: 9/10 pass at $0.50 → $0.50 mean cost
+	// Model B: 9/10 pass at $0.05 → $0.05 mean cost (cheaper)
+	// Cost mode should pick B.
+	records := []ledger.Record{
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "fail", Attempt: 2, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "fail", Attempt: 2, TotalCostUSD: 0.05},
+	}
+	ledgerPath := writeLedger(t, records)
+	defer os.Remove(ledgerPath)
+
+	cfg := Config{
+		Version: 1,
+		Implementer: ModelSetting{
+			EscalationModels: []string{"openai/o3-mini"},
+		},
+	}
+	m, err := ResolveImplementerModel("", cfg, "harness", ledgerPath, "cost", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m != "openai/gpt-4o-mini" {
+		t.Errorf("cost mode: got %q, want openai/gpt-4o-mini (cheaper)", m)
+	}
+}
+
+func TestResolveImplementerModel_CostModeFlagWins(t *testing.T) {
+	// Even in cost mode, an explicit --model flag wins.
+	records := []ledger.Record{
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "fail", Attempt: 2, TotalCostUSD: 0.05},
+	}
+	ledgerPath := writeLedger(t, records)
+	defer os.Remove(ledgerPath)
+
+	cfg := DefaultConfig()
+	m, err := ResolveImplementerModel("anthropic/claude-sonnet-4-20250514", cfg, "harness", ledgerPath, "cost", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m != "anthropic/claude-sonnet-4-20250514" {
+		t.Errorf("flag should win over cost mode: got %q", m)
+	}
+}
+
+func TestResolveImplementerModel_CostModeThinCorpusFallback(t *testing.T) {
+	// Thin corpus (below MinSampleSize) in cost mode should fall through
+	// to escalation — byte-for-byte same as quality mode fallback.
+	records := []ledger.Record{
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "fail", Attempt: 2, TotalCostUSD: 0.50},
+	}
+	ledgerPath := writeLedger(t, records)
+	defer os.Remove(ledgerPath)
+
+	cfg := Config{
+		Version: 1,
+		Implementer: ModelSetting{
+			EscalationModels: []string{"openai/o3-mini"},
+		},
+	}
+	m, err := ResolveImplementerModel("", cfg, "harness", ledgerPath, "cost", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m != "openai/o3-mini" {
+		t.Errorf("thin corpus in cost mode should fall to escalation: got %q, want openai/o3-mini", m)
+	}
+}
+
+func TestResolveImplementerModel_CostModeViaConfig(t *testing.T) {
+	// Cost mode via config.OptimizeMode, not CLI param.
+	records := []ledger.Record{
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o", SliceKind: "harness", Verdict: "fail", Attempt: 2, TotalCostUSD: 0.50},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "pass", Attempt: 1, TotalCostUSD: 0.05},
+		{Model: "openai/gpt-4o-mini", SliceKind: "harness", Verdict: "fail", Attempt: 2, TotalCostUSD: 0.05},
+	}
+	ledgerPath := writeLedger(t, records)
+	defer os.Remove(ledgerPath)
+
+	cfg := Config{
+		Version:      1,
+		OptimizeMode: "cost",
+		Implementer: ModelSetting{
+			EscalationModels: []string{"openai/o3-mini"},
+		},
+	}
+	// No CLI param, no env — should read from config.OptimizeMode.
+	m, err := ResolveImplementerModel("", cfg, "harness", ledgerPath, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m != "openai/gpt-4o-mini" {
+		t.Errorf("cost mode via config: got %q, want openai/gpt-4o-mini", m)
+	}
+}
+
 func TestResolveEscalationModels_FlagWins(t *testing.T) {
 	cfg := DefaultConfig()
-	flag := []string{"custom/model1", "custom/model2"}
-	got := ResolveEscalationModels(flag, cfg)
+		flag := []string{"custom/model1", "custom/model2"}
+		got := ResolveEscalationModels(flag, cfg)
 	if len(got) != 2 || got[0] != "custom/model1" || got[1] != "custom/model2" {
 		t.Errorf("got %v, want [custom/model1 custom/model2]", got)
 	}

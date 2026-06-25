@@ -242,3 +242,149 @@ func TestTraceFieldsRoundTrip(t *testing.T) {
 		t.Errorf("OrgObjective: want %q, got %q", "Become the standard.", got.OrgObjective)
 	}
 }
+
+func TestVerification_ModelAttemptRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "status.json")
+
+	orig := Status{
+		SliceID: "S52-ledger-projection",
+		State:   Verified,
+		Verification: Verification{
+			Result:  "pass",
+			Model:   "claude-sonnet-4-20250514",
+			Attempt: 2,
+		},
+	}
+	if err := Write(path, &orig); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	if got.Verification.Model != "claude-sonnet-4-20250514" {
+		t.Errorf("Model: want %q, got %q", "claude-sonnet-4-20250514", got.Verification.Model)
+	}
+	if got.Verification.Attempt != 2 {
+		t.Errorf("Attempt: want 2, got %d", got.Verification.Attempt)
+	}
+}
+
+func TestVerification_ModelAttemptOmitEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "status.json")
+
+	// Zero-valued fields should be omitted (omitempty).
+	orig := Status{
+		SliceID: "S52-ledger-projection",
+		State:   Verified,
+		Verification: Verification{
+			Result: "pass",
+		},
+	}
+	if err := Write(path, &orig); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"model"`) {
+		t.Error("zero-valued Model should be omitted from JSON")
+	}
+	if strings.Contains(string(raw), `"attempt"`) {
+		t.Error("zero-valued Attempt should be omitted from JSON")
+	}
+
+	// But they round-trip back as zero values.
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got.Verification.Model != "" {
+		t.Errorf("Model: want empty, got %q", got.Verification.Model)
+	}
+	if got.Verification.Attempt != 0 {
+		t.Errorf("Attempt: want 0, got %d", got.Verification.Attempt)
+	}
+}
+
+func TestDispatches_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "status.json")
+
+	orig := Status{
+		SliceID: "S55-ledger-multirole-cost",
+		State:   Verified,
+		Verification: Verification{
+			Result: "pass",
+			Model:  "claude-sonnet-4-20250514",
+			Dispatches: []Dispatch{
+				{Role: "implementer", Model: "claude-sonnet-4-20250514", CostUSD: 0.0420, Attempt: 1},
+				{Role: "verifier", Model: "claude-sonnet-4-20250514", CostUSD: 0.0085, Attempt: 1},
+				{Role: "captain", Model: "claude-sonnet-4-20250514", CostUSD: 0.0120, Attempt: 1},
+			},
+		},
+	}
+	if err := Write(path, &orig); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	if len(got.Verification.Dispatches) != 3 {
+		t.Fatalf("Dispatches: want 3, got %d", len(got.Verification.Dispatches))
+	}
+	if got.Verification.Dispatches[0].Role != "implementer" {
+		t.Errorf("dispatch[0].Role: want implementer, got %s", got.Verification.Dispatches[0].Role)
+	}
+	if got.Verification.Dispatches[0].CostUSD != 0.0420 {
+		t.Errorf("dispatch[0].CostUSD: want 0.0420, got %f", got.Verification.Dispatches[0].CostUSD)
+	}
+	if got.Verification.Dispatches[1].Role != "verifier" {
+		t.Errorf("dispatch[1].Role: want verifier, got %s", got.Verification.Dispatches[1].Role)
+	}
+	if got.Verification.Dispatches[2].Role != "captain" {
+		t.Errorf("dispatch[2].Role: want captain, got %s", got.Verification.Dispatches[2].Role)
+	}
+}
+
+func TestDispatches_OmitEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "status.json")
+
+	orig := Status{
+		SliceID: "S55-ledger-multirole-cost",
+		State:   Verified,
+		Verification: Verification{
+			Result: "pass",
+		},
+	}
+	if err := Write(path, &orig); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"dispatches"`) {
+		t.Error("empty Dispatches should be omitted from JSON")
+	}
+
+	// Round-trips back as nil.
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got.Verification.Dispatches != nil {
+		t.Errorf("Dispatches: want nil, got %v", got.Verification.Dispatches)
+	}
+}

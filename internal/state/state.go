@@ -72,11 +72,25 @@ type ValidationRecord struct {
 	ReleaseBenefitLink string   `json:"release_benefit_link,omitempty"`
 }
 
+// Dispatch records one role's model dispatch and its USD cost for a slice
+// run. One entry per role that dispatched: implementer, verifier, captain,
+// orchestrator. CostUSD is 0 when the model was unpriced or the role ran
+// deterministically — downstream consumers (S56) treat 0 as "no signal",
+// never as "free".
+type Dispatch struct {
+	Role    string  `json:"role"`
+	Model   string  `json:"model"`
+	CostUSD float64 `json:"cost_usd"`
+	Attempt int     `json:"attempt"`
+}
+
 // Verification holds the per-slice verification record (verdict, session
 // metadata, violations). It mirrors the nested "verification" object in
 // status.json.
 type Verification struct {
 	Result                  string   `json:"result,omitempty"`
+	Model                   string   `json:"model,omitempty"`
+	Attempt                 int      `json:"attempt,omitempty"`
 	VerifierSessionID       *string  `json:"verifier_session_id,omitempty"`
 	VerifierVerdictAt       *string  `json:"verifier_verdict_at,omitempty"`
 	VerifierWasFreshContext *bool    `json:"verifier_was_fresh_context,omitempty"`
@@ -87,8 +101,12 @@ type Verification struct {
 	// When absent, the oracle infers from the verdict: "blocked" → needs_planner,
 	// "failed_verification" → needs_implementer (S57 spec).
 	Routing string `json:"routing,omitempty"`
-}
-// StakeClass classifies a design decision by its stakes = reversibility x blast-radius.
+	// Dispatches records the per-role model and USD cost for each dispatch
+	// during the slice run. Omitted from JSON when empty (omitempty).
+	// Populated by RunSlice (S55); consumed by ledger.Project (v:2 Records)
+	// and S56 cost-aware routing.
+	Dispatches []Dispatch `json:"dispatches,omitempty"`
+}// StakeClass classifies a design decision by its stakes = reversibility x blast-radius.
 // Type-1 (high stakes / hard-to-reverse) requires a recorded human decision.
 // Type-2 (low stakes / reversible) may proceed with a noted default.
 // See docs/baton/rules/09-design-fidelity.md.

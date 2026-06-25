@@ -3,11 +3,11 @@
   "slice_id": "S53-ledger-cli",
   "release": "2026-06-19-safe-parallelism",
   "track": "T16-verdict-ledger",
-  "state": "planned",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-22T00:00:00Z",
-  "start_commit": null,
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-22T00:00:00Z",
+  "start_commit": "b7865159add6b1e31bc3b5e7043a7544b377911a",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S53-ledger-cli/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S53-ledger-cli/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S53-ledger-cli/journal.md",
@@ -17,18 +17,25 @@
     "internal/ledger/query.go",
     "internal/ledger/query_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "cmd/sworn/ledger.go",
+    "cmd/sworn/ledger_test.go",
+    "internal/ledger/query.go",
+    "internal/ledger/query_test.go",
+    "internal/ledger/ledger.go"
+  ],
   "test_commands": [
     "go test ./internal/ledger/... ./cmd/sworn/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "terminal: sworn ledger sync + sworn ledger report output"
+  ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "pass",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-07-22T00:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
-  }
-}
+  }}
