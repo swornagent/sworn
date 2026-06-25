@@ -22,15 +22,16 @@ import (
 //	symbols     — grep backtick identifiers from design.md against live codebase; advisory warn-only
 //	status      — check that status.json timestamps are not in the future beyond 5m skew; fail closed
 //	coverage    — map every AC to a test function in the slice diff; fail closed on uncovered ACs
-func cmdLint(args []string) int {
-	if len(args) == 0 {
+//	design      — hardcoded colour detection + architecture rule engine (grep, touchpoints, diff-size, external)
+func cmdLint(args []string) int {	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "sworn lint: target required")
-		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols|status|coverage> <release>")
+		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols|status|coverage|design> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint deps [--base <ref>] <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint touchpoints <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint symbols <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint status <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint coverage --slice <slice-id> --release <release> [--base <ref>]")
+			fmt.Fprintln(os.Stderr, "       sworn lint design --slice <slice-id> --release <release> [--base <ref>]")
 		return 64
 	}
 	switch args[0] {
@@ -48,9 +49,11 @@ func cmdLint(args []string) int {
 		return cmdLintStatus(args[1:])
 	case "coverage":
 		return cmdLintCoverage(args[1:])
+		case "design":
+			return cmdLintDesign(args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "sworn lint: unknown target %q (known: ac, trace, deps, touchpoints, symbols, status, coverage)\n", args[0])
-		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols|status|coverage> <release>")
+		fmt.Fprintf(os.Stderr, "sworn lint: unknown target %q (known: ac, trace, deps, touchpoints, symbols, status, coverage, design)\n", args[0])
+		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols|status|coverage|design> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint deps [--base <ref>] <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint touchpoints <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint symbols <slice-id> <release>")
@@ -369,6 +372,68 @@ func cmdLintCoverage(args []string) int {
 		fmt.Print(gate.JSONCoverage(report))
 	} else {
 		fmt.Print(gate.PrintCoverage(report))
+	}
+
+	if report.HasViolations() {
+		return 1
+	}
+	return 0
+}
+
+// cmdLintDesign implements `sworn lint design --slice <slice-id> --release <release>`.
+//
+// Port of bin/release-audit-design.sh from bash to Go. Runs hardcoded colour
+// detection in UI files from the slice's diff, then executes the architecture
+// rule engine (grep, touchpoints, diff-size, external) from docs/baton/architecture.json.
+// Reads docs/baton/design-fidelity.json for design token exemptions and the
+// per-slice design-allowlist.json for escape-hatch suppression.
+// Exits 0 on clean pass, 1 with enumerated violations.
+func cmdLintDesign(args []string) int {
+	fs := flag.NewFlagSet("lint design", flag.ExitOnError)
+	sliceID := fs.String("slice", "", "slice ID to check (e.g. S67-lint-design)")
+	releaseName := fs.String("release", "", "release name (e.g. 2026-06-19-safe-parallelism)")
+	baseRef := fs.String("base", "", "base ref for git diff (defaults to start_commit or release-wt/<release>)")
+	jsonOut := fs.Bool("json", false, "output as JSON")
+	_ = fs.Parse(args)
+
+	if *sliceID == "" || *releaseName == "" {
+		fmt.Fprintln(os.Stderr, "sworn lint design: --slice and --release are required")
+		fmt.Fprintln(os.Stderr, "usage: sworn lint design --slice <slice-id> --release <release> [--base <ref>]")
+		return 64
+	}
+
+	releaseDir, err := resolveReleaseDir(*releaseName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint design: %v\n", err)
+		return 2
+	}
+
+	sliceDir := filepath.Join(releaseDir, *sliceID)
+	if _, err := os.Stat(sliceDir); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint design: slice directory not found: %s\n", sliceDir)
+		return 2
+	}
+
+	ref := *baseRef
+	if ref == "" {
+		var err error
+		ref, err = gate.BaseRefForSlice(sliceDir, *releaseName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "sworn lint design: resolve base ref: %v\n", err)
+			return 2
+		}
+	}
+
+	report, err := gate.RunDesign(releaseDir, *sliceID, ref)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint design: %v\n", err)
+		return 2
+	}
+
+	if *jsonOut {
+		fmt.Print(gate.JSONDesign(report))
+	} else {
+		fmt.Print(gate.PrintDesign(report))
 	}
 
 	if report.HasViolations() {
