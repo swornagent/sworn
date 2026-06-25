@@ -34,7 +34,7 @@ S02b's `RunParallel` is a **plan-then-execute** static-DAG executor: it topologi
 
 ## Design decisions (for the Captain review to ratify)
 
-- **Wrap vs replace.** Proposed: **wrap** — keep `scheduler.BuildPlan` (dependency resolution), worktree isolation, and `supervisor` ownership; replace only the worker's *execution heart* (static slice iteration → router poll-and-route). Rationale: the reference's poll-and-route model carried 32 getfired releases and gives resumability for free; the DAG scaffolding is still worth keeping. Confirm vs a fuller replace of `RunParallel`.
+- **Wrap vs replace.** Proposed: **wrap** — keep `scheduler.BuildPlan` (dependency resolution), worktree isolation, and `supervisor` ownership; replace only the worker's *execution heart* (static slice iteration → router poll-and-route). Rationale: the reference's poll-and-route model carried 32 prior releases and gives resumability for free; the DAG scaffolding is still worth keeping. Confirm vs a fuller replace of `RunParallel`.
 - **Pause set.** Proposed human-gated `next.type` values that stop a track and surface (not fail): `coach_decision`, `replan-release`. `error`/exhausted → fail-closed surface. Confirm.
 
 ## Planned touchpoints

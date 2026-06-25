@@ -235,7 +235,7 @@ delivers async AND verified. Same PR, different quality bar. This gap is unoccup
 - **Context**: a 7-dimension port-fidelity audit (reference = the leading-edge coach loop in
   `~/.claude/baton/` + `~/.claude/bin`) found sworn
   faithfully ported the **workflow plane** (status.json state machine, worktree isolation,
-  verifier verdict contract, per-role routing — exactly what getfired exercises across 32
+  verifier verdict contract, per-role routing — exactly what prior releases exercise across many
   releases) but NOT the **orchestration plane**.
 - **Findings driving the scope**:
   - The git-ref, ownership-resolved **oracle reader** (`lib/release-board.mjs` /

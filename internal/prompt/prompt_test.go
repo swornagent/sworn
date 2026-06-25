@@ -231,3 +231,39 @@ func TestBatonMissingFile(t *testing.T) {
 		t.Fatal("Baton(\"nonexistent.md\") returned nil error, want error")
 	}
 }
+
+// --- S27-public-readiness-scrub tests ---
+
+func TestEmbeddedPromptsPublicSafe(t *testing.T) {
+	prompts := map[string]string{
+		"Captain":     Captain(),
+		"Implementer": Implementer(),
+		"Verifier":    Verifier(),
+		"Planner":     Planner(),
+	}
+	banned := []string{
+		"coach" + "-loop",
+		"--" + "auto-ack",
+		"approved" + "-ack",
+		"captain" + "-route",
+		"[[" + "project_",
+		"[[" + "feedback_",
+		"S21 stall",
+	}
+	for name, text := range prompts {		for _, token := range banned {
+			if strings.Contains(text, token) {
+				t.Errorf("%s() contains banned token %q", name, token)
+			}
+		}
+	}
+}
+
+func TestCaptainKeepsRoleVocab(t *testing.T) {
+	got := Captain()
+	if !strings.Contains(got, "Captain") {
+		t.Errorf("Captain() does not contain 'Captain' — role vocab must be retained")
+	}
+	if !strings.Contains(got, "Coach") {
+		t.Errorf("Captain() does not contain 'Coach' — role vocab must be retained")
+	}
+}

@@ -27,13 +27,7 @@ func TestTransformStripsScriptRefs(t *testing.T) {
 			want: "`sworn designaudit <project-dir>` wraps `sworn designaudit`.",
 		},
 		{
-			name: "captain-route.sh → sworn internal router",
-			in:   "Triggered by `captain-route.sh` when a verifier returns BLOCKED.",
-			want: "Triggered by `the sworn internal router` when a verifier returns BLOCKED.",
-		},
-		{
-			name: "port-deriver.sh → native port derivation",
-			in:   "These paths are consumed by `port-deriver.sh`.",
+			name: "port-deriver.sh → native port derivation",			in:   "These paths are consumed by `port-deriver.sh`.",
 			want: "These paths are consumed by `native port derivation`.",
 		},
 		{

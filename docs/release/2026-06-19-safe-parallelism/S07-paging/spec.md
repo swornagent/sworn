@@ -14,7 +14,7 @@ without polling.
 
 ## Entry point
 
-Internal — fired by `internal/run/run.go` and `internal/scheduler/worker.go` on a FAIL
+Internal — triggered by `internal/run/run.go` and `internal/scheduler/worker.go` on a FAIL
 or BLOCKED verdict transition. Configured via `sworn account set-webhook <url>`.
 
 ## In scope

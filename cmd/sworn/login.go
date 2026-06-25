@@ -31,8 +31,8 @@ func init() {
 // build time via -ldflags "-X main.authURL=https://custom.auth.example.com".
 // At runtime, SWORN_AUTH_URL env var takes precedence.
 //
-// Coach decision (approved-ack.md pin 4): SWORN_AUTH_URL env var with ldflags
-// compile-time fallback.
+// SWORN_AUTH_URL env var takes precedence, with ldflags compile-time fallback.
+// (see resolveAuthEndpoint for the precedence chain).
 var authURL = "https://auth.sworn.sh"
 
 // resolveAuthEndpoint returns the auth endpoint URL with precedence:
@@ -80,7 +80,7 @@ func cmdLogin(args []string) int {
 
 // cmdLogout implements `sworn logout`. It removes the credentials file and
 // prints a message. If no credentials file exists, it is a silent no-op
-// (Coach pin 2 / Captain pin 1: suppress os.ErrNotExist).
+// Suppress os.ErrNotExist — no credentials file is not an error.
 func cmdLogout(args []string) int {
 	path := account.CredentialsPath()
 	if err := os.Remove(path); err != nil {

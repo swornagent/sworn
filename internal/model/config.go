@@ -49,7 +49,7 @@ func FromEnv(modelID string) (Verifier, error) {
 
 	// Keyless subscription drivers: claude-cli and codex authenticate via the
 	// user's logged-in CLI session — no API key, no proxy routing. Return the
-	// subprocess driver directly, BEFORE the proxy routing block (Coach pin 4).
+	// subprocess driver directly, BEFORE the proxy routing block.
 	if provider == "claude-cli" || provider == "codex" {
 		verifier, err := NewClient(modelID, ProviderConfig{})
 		if err != nil {

@@ -1,5 +1,5 @@
 // Package router deterministically routes a slice's current state to the next
-// command. It ports ~/.claude/bin/captain-route.sh into pure Go: the same
+// command. It ports the reference bash router into pure Go: the same
 // decision tree, the same JSON .next output, no LLM. See spec S58-slice-router.
 //
 // Route is a pure function: all I/O flows through the injected interfaces,
@@ -49,7 +49,7 @@ type OracleReader interface {
 
 // ContentReader is the git-object-read interface for commit-time queries,
 // file existence checks, and ancestry tests. Separate from OracleReader
-// per interface segregation (Captain pin 3).
+// per interface segregation.
 type ContentReader interface {
 	LastCommitTime(ref, path string) (int64, error)
 	CatFileExists(ref, path string) (bool, error)
@@ -159,18 +159,18 @@ func routeDesignReview(ctx context.Context, content ContentReader, input RouteIn
 		trackRef = "refs/heads/" + trackRef
 	}
 
-	// approved-ack.md presence via committed-ref (CatFileExists).
-	ackPath := fmt.Sprintf("%s/release/%s/%s/approved-ack.md", input.DocsPrefix, input.Release, input.SliceID)
+	// captain-proceed.md presence via committed-ref (CatFileExists).
+	ackPath := fmt.Sprintf("%s/release/%s/%s/captain-proceed.md", input.DocsPrefix, input.Release, input.SliceID)
 	ackExists, err := content.CatFileExists(trackRef, ackPath)
 	if err != nil {
-		return Decision{}, fmt.Errorf("check approved-ack.md: %w", err)
+		return Decision{}, fmt.Errorf("check captain-proceed.md: %w", err)
 	}
 
 	if ackExists {
 		return Decision{
 			NextType:    NextImplement,
 			NextCommand: fmt.Sprintf("/implement-slice %s %s", input.SliceID, input.Release),
-			NextReason:  "Coach approved the ack (approved-ack.md present). Resume /implement-slice — it'll read the ack, transition to in_progress, and write code.",
+			NextReason:  "Coach approved the ack (captain-proceed.md present). Resume /implement-slice — it'll read the ack, transition to in_progress, and write code.",
 		}, nil
 	}
 
@@ -234,7 +234,7 @@ func routeFailedVerification(ss board.SliceState, input RouteInput) (Decision, e
 		return Decision{
 			NextType:    NextRedesign,
 			NextCommand: fmt.Sprintf("/implement-slice %s %s", input.SliceID, input.Release),
-			NextReason:  "Verifier FAIL includes Gate 1/2/6 (design-level) violations. The loop will remove approved-ack.md so the Design TL;DR gate fires again — implementer rewrites design.md addressing the violations, then Captain re-reviews before code is written.",
+			NextReason:  "Verifier FAIL includes Gate 1/2/6 (design-level) violations. The loop will remove captain-proceed.md so the Design TL;DR gate fires again — implementer rewrites design.md addressing the violations, then Captain re-reviews before code is written.",
 		}, nil
 	}
 
@@ -321,7 +321,7 @@ func routeNextSlice(ctx context.Context, content ContentReader, s board.SliceSta
 	switch ss {
 	case "planned":
 		// Check if the planned sibling has a design.md — if so, route review
-		// (Design TL;DR gate fires before code). Matches captain-route.sh:474-478.
+		// (Design TL;DR gate fires before code).
 		trackRef := input.TrackBranch
 		if !strings.HasPrefix(trackRef, "refs/heads/") {
 			trackRef = "refs/heads/" + trackRef

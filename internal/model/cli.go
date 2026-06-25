@@ -72,7 +72,7 @@ func newCodexCLI(model string) (*cliDriver, error) {	return nil, fmt.Errorf("%w:
 // usage metadata (pin 6a: flag from Coach ack).
 func (d *cliDriver) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
 	// Concatenate systemPrompt + userPayload as a single prompt argument.
-	// (Coach pin 7: prompt assembly.)
+	// (system + user concatenated as a single prompt).
 	prompt := systemPrompt + "\n\n" + userPayload
 
 	ctx, cancel := context.WithTimeout(ctx, d.timeout)

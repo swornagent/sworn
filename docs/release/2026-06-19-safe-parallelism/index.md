@@ -1344,7 +1344,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 - **New track `T12-harness-hardening`** (depends T1; dispatch early): **S29-lint-deps**, **S30-lint-touchpoints**, **S31-lint-symbols**, **S32-designfit-decisions-gate**, **S33-spec-template-hardening**, **S35-mutation-guard**, **S36-captain-resolve-dirty-worktree**. Each hardens the automation against a recurring class the Captain design-gate has been catching by hand (186-review harvest at `internal-docs/captures/2026-06-21-captain-trial-log-harvest.md`).
 - **S34-tui-merge-actor** appended to T2's tail: render the `merge:<track>` actor (now emitted by the coach-loop merge-tag) in the TUI live view + board.
 - **S36** added per Coach direction: dirty worktrees are only worker-caused, so the Captain auto-resolves (commit-by-default, record diff+resolution) rather than paging.
-- **Also landed live this session** (outside the release tree): coach-loop merge-actor tag + post-dispatch worktree-flip guard (sworn#6); verifier `## Status block` watcher-wrapper removed (metadata kept). 10 fired latent bugs filed at `firedau/fired#968–977`.
+- **Also landed live this session** (outside the release tree): coach-loop merge-actor tag + post-dispatch worktree-flip guard (sworn#6); verifier `## Status block` watcher-wrapper removed (metadata kept). 10 latent bugs filed in the private issue tracker.
 - **Release now 45 slices across 12 tracks.** Lightweight add — T12 is a new verified track and S34 appends to T2's tail, so no cross-track forward-merge was needed.
 
 ### 2026-06-21 — track `T11-infra-safety` merged to release-wt (commit d242687)

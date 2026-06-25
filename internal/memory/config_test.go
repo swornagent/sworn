@@ -11,7 +11,7 @@ import (
 )
 
 // TestEncodeProjectPath verifies that path encoding matches baton's// captain-memory-search.py: "/" → "-" substitution (pin 1 from Coach
-// approved-ack.md).
+// design review acknowledgement file).
 func TestEncodeProjectPath(t *testing.T) {
 	tests := []struct {
 		input    string

@@ -25,7 +25,7 @@ func Scaffold(force bool) (path string, existed bool, err error) {
 		return "", false, fmt.Errorf("config: cannot determine home directory; set $SWORN_CONFIG_PATH")
 	}
 
-	// Check existence first — this is the idempotency gate (Coach Pin 2).
+	// Check existence first — this is the idempotency gate.
 	if _, statErr := os.Stat(p); statErr == nil {
 		if !force {
 			return p, true, ErrConfigExists

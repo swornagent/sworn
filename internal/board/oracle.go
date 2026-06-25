@@ -75,7 +75,7 @@ type BoardState struct {
 // gitContentReader abstracts a single git ref read + existence check for
 // oracle operators. The production implementation uses git.Repo; tests
 // supply a fake (map-based) reader for transient-retry and ref-priority
-// tests (Coach pin 4).
+// tests (transient-retry and ref-priority tests).
 type gitContentReader interface {
 	// Show returns the content of <ref>:<path>.
 	Show(ref, path string) (string, error)
@@ -121,7 +121,7 @@ func NewOracle(r gitContentReader) *Oracle {
 }
 
 // docsPrefixes is the ordered list of release-docs prefixes to probe.
-// The first prefix that exists in the git tree wins (Coach pin 7:
+// The first prefix that exists in the git tree wins (using git cat-file -e,
 // git cat-file -e, not filesystem existence, to avoid the Fumadocs
 // symlink trap).
 var docsPrefixes = []string{
@@ -177,7 +177,7 @@ func (o *Oracle) readSliceStatusFromRef(reader gitContentReader, ref, release, s
 	}
 
 	// Transient-read retry: if the content is empty or state is "unknown",
-	// retry once after a short sleep (captain-route.sh:162-171,219-225).
+	// retry once after a short sleep.
 	raw = strings.TrimSpace(raw)
 	if raw == "" || raw == "{}" || strings.Contains(raw, `"state":""`) {
 		time.Sleep(50 * time.Millisecond)
@@ -416,7 +416,7 @@ func (o *Oracle) ReadBoard(
 			if err != nil {
 				// Ghost-slice filter: if the slice is NOT owned by this
 				// track, skip it. The authoritative copy is on the owner's
-				// branch. (captain-route.sh:403-412,469-495)
+				// branch.
 				if !trackOwnsSlice(ti.ID, sid, trackMap) {
 					continue // ghost — not this track's authoritative copy
 				}

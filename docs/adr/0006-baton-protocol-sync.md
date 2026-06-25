@@ -24,9 +24,8 @@ Three problems made the relationship implicit and drift-prone:
    answer "which released protocol version is this binary on?" and silently drifts.
 2. **No defined transform from Baton → sworn embed.** Baton's docs reference its
    bash/node scripts (`release-verify.sh`, `release-board-status.sh`,
-   `design-audit.sh`, `captain-route.sh`, `port-deriver.sh`,
-   `captain-memory-search.py`). Those are correct **for standalone Baton** but are
-   superseded inside sworn by the Go binary's own capabilities. Copying the
+   `design-audit.sh`, `port-deriver.sh`,
+   `captain-memory-search.py`). Those are correct **for standalone Baton** but are   superseded inside sworn by the Go binary's own capabilities. Copying the
    protocol verbatim leaks script references the product can't honour.
 3. **No governance for protocol changes discovered during sworn development.** The
    embed `VERSION` records `rules-added: 08/09/10 during the fidelity-layer
@@ -59,9 +58,7 @@ and replace them with sworn-native commands**:
 | `release-verify.sh`        | `sworn verify`           |
 | `release-board-status.sh`  | `sworn board`            |
 | `design-audit.sh`          | `sworn designaudit`      |
-| `captain-route.sh`         | sworn internal router    |
-| `port-deriver.sh`          | native (no script)       |
-| `captain-memory-search.py` | `sworn memory search`    |
+| `port-deriver.sh`          | native (no script)       || `captain-memory-search.py` | `sworn memory search`    |
 
 The embed is **sworn-native** (not a dual bash/Go copy). Re-running the vendor
 reproduces the sworn-native embed deterministically, so it **subsumes the one-time
@@ -96,6 +93,6 @@ ask are tracked upstream at **sawy3r/baton#31**.
   `cmd/sworn/baton.go`, `docs/baton-governance.md`. Delivered by track
   **T14-baton-integration** (`depends_on T3-commercial` — S21 creates the embed
   this track vendors into).
-- `S27-public-readiness-scrub` (T10) keeps its dogfood/`fired`/coach-loop-comment
+- `S27-public-readiness-scrub` (T10) keeps its dogfood provenance-comment
   scrub; the *script-reference* portion is now produced by S48's transform, and
   T10 `depends_on T14` so the generated embed is in place before the final gate.

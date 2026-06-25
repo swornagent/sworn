@@ -88,7 +88,7 @@ today and simply discarded; this slice persists it.
   from JSON when empty
 - [ ] After a slice runs through `RunSlice`, its `status.json` `verification.dispatches`
   contains an entry for each role that dispatched (implementer + verifier always; captain when
-  the S46 stage ran; orchestrator only when the S47 hook fired), each with a non-negative
+  the S46 stage ran; orchestrator only when the S47 hook ran), each with a non-negative
   `cost_usd` and the model used (asserted via the run package's RunSlice test — Rule 1: cost is
   proven through the loop that owns the dispatches, not a leaf)
 - [ ] A model absent from the pricing table records `cost_usd: 0` and is treated downstream as

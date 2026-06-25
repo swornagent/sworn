@@ -82,7 +82,7 @@ func TestResolveVerifierModel(t *testing.T) {
 }
 
 func TestResolveVerifierModelMissingKey(t *testing.T) {
-	// Missing-key error path (Coach Pin 5: smoke test the error).
+	// Missing-key error path: smoke test the error.
 	t.Setenv("SWORN_VERIFIER_MODEL", "")
 	cfg := Config{Version: 1} // no verifier model set
 	_, err := ResolveVerifierModel("", cfg)
@@ -100,7 +100,7 @@ func TestResolveVerifierModelMissingKey(t *testing.T) {
 }
 
 func TestScaffoldIdempotent(t *testing.T) {
-	// Idempotency: second Scaffold without force returns ErrConfigExists (Coach Pin 2).
+	// Idempotency: second Scaffold without force returns ErrConfigExists.
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.json")
 	t.Setenv("SWORN_CONFIG_PATH", configPath)
