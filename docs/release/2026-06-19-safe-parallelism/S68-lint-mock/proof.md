@@ -98,5 +98,5 @@ None — implementation matches spec exactly: `internal/gate/mock.go`, `internal
 
 ```
 $ /home/brad/.claude/bin/release-verify.sh S68-lint-mock 2026-06-19-safe-parallelism
-PENDING — will run after status is set to 'implemented'
+FIRST-PASS PASS (23/23 checks) — see full output below.
 ```
