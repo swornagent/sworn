@@ -1843,3 +1843,17 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - **Drift gate**: clean (rev-list count 0). No forward-merge needed.
 - **State**: S67 → verified. T20-gate-engine remains in_progress (S68-lint-mock, S69-lint-regress, S70-llm-check pending).
 - **Next step**: `/implement-slice S68-lint-mock 2026-06-19-safe-parallelism` in a fresh session.
+
+### 2026-07-17 — slice `S68-lint-mock` → verified (PASS)
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs)
+- **Verdict**: PASS — all six gates satisfied.
+  - Gate 1: User-reachable outcome exists — `sworn lint mock` wired via `cmd/sworn/lint.go:55`.
+  - Gate 2: Planned touchpoints match actual changed files — `mock.go`, `mock_test.go`, `lint.go` all match spec; no unexplained production files.
+  - Gate 3: Required tests exist and exercise integration point — `go test ./internal/gate/...` PASS (0.051s), `go build ./...` PASS, `go vet ./internal/gate/...` PASS.
+  - Gate 4: Reachability artefact — `sworn lint mock --slice S68-lint-mock --release 2026-06-19-safe-parallelism` produces structured output (22 mock usages, 0 violations). JSON mode confirmed.
+  - Gate 5: No silent deferrals — zero TODO/FIXME/HACK in all changed files; open_deferrals empty.
+  - Gate 6: Claimed scope matches implemented scope — all 6 acceptance checks traced to implementation + passing tests.
+- **Drift gate**: clean (rev-list count 0). No forward-merge needed.
+- **State**: S68 → verified. T20-gate-engine remains in_progress (S69-lint-regress, S70-llm-check pending).
+- **Next step**: `/implement-slice S69-lint-regress 2026-06-19-safe-parallelism` in a fresh session.

@@ -18,3 +18,18 @@
 ### Out-of-scope discoveries (Rule 2)
 
 None.
+## Verifier verdicts received
+
+### 2026-07-17 — Verifier (fresh context)
+
+**Verdict: PASS**
+
+Verification gates:
+1. **User-reachable outcome** ✅ — `sworn lint mock` wired at `cmd/sworn/lint.go:55`
+2. **Planned touchpoints match actual** ✅ — `mock.go`, `mock_test.go`, `lint.go` (no unexplained files)
+3. **Required tests exist** ✅ — `go test ./internal/gate/...` PASS, `go build ./...` PASS, `go vet ./...` PASS
+4. **Reachability artefact** ✅ — CLI command produces structured mock usage output
+5. **No silent deferrals** ✅ — zero TODO/FIXME patterns in changed code
+6. **Scope matches implementation** ✅ — all 6 acceptance checks verified
+
+**Next step:** Track T20-gate-engine has further incomplete slices (S69-lint-regress, S70-llm-check). Next: `/implement-slice S69-lint-regress 2026-06-19-safe-parallelism` in a fresh session.
