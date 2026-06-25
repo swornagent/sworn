@@ -172,7 +172,7 @@ tracks:
 | `T10-public-readiness` | S27 | all tracks (incl. T16 + T19) | `track/.../T10-public-readiness` | verified |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
 | `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | merged || `T13-sworn-role-parity` | S45 → S46 → S47 | T12 + T17 | `track/.../T13-sworn-role-parity` | merged || `T14-baton-integration` | S48 → S49 → S50 → S62 → S73 | T3 + T15 | `track/.../T14-baton-integration` | merged |
-| `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged || `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | in_progress (S52 verified) || `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | merged || `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
+| `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged || `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | in_progress (S52, S53, S54 verified) || `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | merged || `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
 | `T19-status-hygiene` | S64 | T4 + T12 + T15 | `track/.../T19-status-hygiene` | merged |
 | `T20-gate-engine` | S65 → S66 → S67 → S68 → S69 → S70 | T14 + T15 | `track/.../T20-gate-engine` | merged |
 | `T21-mcp-lint` | S71 | T4 + T20 | `track/.../T21-mcp-lint` | merged |
@@ -544,8 +544,20 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 **Tracks:** Planned: 2 / In progress: 0 / Merged: 20  *(post T13 merge; oracle-authoritative)*> Merged (20): T1, T2, T3, T4, T5, T6, T7, T8, T9, T11, T12, T13, T14, T15, T17, T18, T19, T20, T21, T22. Planned (2): T10, T16.
 ## Recent activity
 
-### 2026-07-21 — track `T13-sworn-role-parity` merged to release-wt (commit 280593a)
+### 2026-07-22 — slice `S54-ledger-routing` → verified (PASS)
+- **Actor**: verifier (fresh context, artefact-only).
+- **Verdict**: PASS — all 7 acceptance checks satisfied.
+  - Gate 1: `sworn ledger recommend <kind>` CLI subcommand wired; `ResolveImplementerModel` consults ledger.
+  - Gate 2: All 5 planned touchpoints touched; `cmd/sworn/run.go` modified mechanically (call-site update) — transparently disclosed.
+  - Gate 3: Unit tests in routing_test.go (7 tests), integration tests in config_test.go (5 tests) — all pass.
+  - Gate 4: Integration test exercises config resolver end-to-end with real temp JSONL; CLI affordance wired.
+  - Gate 5: No TODOs/FIXMEs/placeholders.
+  - Gate 6: All 7 acceptance checks confirmed against tests and code.
+  - Go build/vet pass; no new deps.
+- **State**: S54 → `verified`. T16 → `in_progress` (S52, S53, S54 verified, S55 planned, S56 planned).
+- **Next**: Next slice in track T16 is S55-ledger-multirole-cost: `/implement-slice S55-ledger-multirole-cost 2026-06-19-safe-parallelism`.
 
+### 2026-07-21 — track `T13-sworn-role-parity` merged to release-wt (commit 280593a)
 - **Actor**: track integrator (/merge-track)
 - **Note**: 3 verified slices merged: S45-design-tldr, S46-captain-review, S47-orchestrator-recovery. Track state -> merged. No drift (track tip == release-wt tip).
 
@@ -1972,5 +1984,5 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
   - Gate 6: Design conformance — no UI-bearing config; auto-passes (non-UI project).
   - Gate 7: Claimed scope matches implemented scope — all 6 acceptance checks confirmed against code, tests, and proof artefact.
 - **Drift gate**: no drift from release-wt (track already in sync).
-- **State**: S53 → verified. Track T16-verdict-ledger: S52 verified, S53 verified, S54 planned, S55 planned, S56 planned.
-- **Next step**: `/implement-slice S54-ledger-routing 2026-06-19-safe-parallelism` (next slice in T16-verdict-ledger).
+- **State**: S53 → verified. Track T16-verdict-ledger: S52 verified, S53 verified, S54 verified, S55 planned, S56 planned.
+- **Next step**: `/implement-slice S55-ledger-multirole-cost 2026-06-19-safe-parallelism` (next slice in T16-verdict-ledger).

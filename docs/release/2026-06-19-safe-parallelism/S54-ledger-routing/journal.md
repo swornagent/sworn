@@ -37,4 +37,20 @@ None.
 
 ## Verifier verdicts received
 
-(None yet — slice is at `implemented`, awaiting fresh-context verification.)
+### 2026-07-22 — PASS
+
+- **Verifier session**: fresh
+- **Verdict body**:
+
+  All 7 acceptance checks satisfied. Test evidence for each:
+  1. `TestRecommendModel_RanksByPassRate` — A beats B by pass-rate
+  2. `TestRecommendModel_BelowMinSample` — returns ok==false
+  3. `cmdLedgerRecommend` wired in `runLedger`; usage mentions recommend; `TestLedgerNoSubcommand` proves no-kind exits non-zero
+  4. `TestResolveImplementerModel_LedgerDefault` — ledger recommendation used as default
+  5. `TestResolveImplementerModel_LedgerFlagWins` — explicit flag wins over ledger
+  6. `TestResolveImplementerModel_LedgerThinCorpusFallback` + `LedgerAbsentCorpusFallback` — thin/absent corpus falls through
+  7. `go build`, `go vet` pass; no new deps
+
+  Minor note: `cmd/sworn/run.go` was modified (mechanical call-site update for `ResolveImplementerModel`'s new params) without being listed in spec's planned touchpoints. Data transparently disclosed in `actual_files` — no correctness impact.
+
+- **Action taken**: Slice verified; next: `/implement-slice S55-ledger-multirole-cost 2026-06-19-safe-parallelism`
