@@ -110,11 +110,18 @@ var (
 			Foreground(colMuted).
 			Render(strings.Repeat("─", 70))
 
+	// Gate status indicators (S72).
+	GatePassStyle    = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
+	GateFailStyle    = lipgloss.NewStyle().Foreground(colFail).Bold(true)
+	GateWarnStyle    = lipgloss.NewStyle().Foreground(colWarn)
+	GateNeutralStyle = lipgloss.NewStyle().Foreground(colMuted)
+	GateBracketStyle = lipgloss.NewStyle().Foreground(colMuted)
+	GateSepStyle     = lipgloss.NewStyle().Foreground(colMuted)
+
 	// Generic.
 	Divider      = lipgloss.NewStyle().Foreground(colMuted).Render("─")
 	EmptyMessage = lipgloss.NewStyle().Foreground(colMuted).Italic(true).Padding(0, 2)
 )
-
 // StateColor renders a slice state string with the correct colour.
 func StateColor(state string) string {
 	switch state {
