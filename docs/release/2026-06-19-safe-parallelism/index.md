@@ -117,6 +117,24 @@ tracks:
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T19-status-hygiene
     worktree_branch: track/2026-06-19-safe-parallelism/T19-status-hygiene
     state: merged
+  - id: T20-gate-engine
+    slices: [S65-lint-trace, S66-lint-coverage, S67-lint-design, S68-lint-mock, S69-lint-regress, S70-llm-check]
+    depends_on: [T14-baton-integration, T15-cli-registry]
+    worktree_path:
+    worktree_branch: track/2026-06-19-safe-parallelism/T20-gate-engine
+    state: planned
+  - id: T21-mcp-lint
+    slices: [S71-mcp-lint-tools]
+    depends_on: [T4-mcp, T20-gate-engine]
+    worktree_path:
+    worktree_branch: track/2026-06-19-safe-parallelism/T21-mcp-lint
+    state: planned
+  - id: T22-tui-gate
+    slices: [S72-tui-gate-display]
+    depends_on: [T2-monitoring, T20-gate-engine]
+    worktree_path:
+    worktree_branch: track/2026-06-19-safe-parallelism/T22-tui-gate
+    state: planned
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
