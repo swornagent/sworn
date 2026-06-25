@@ -142,3 +142,53 @@ already resolved both defects correctly; the spec is now corrected to match it.
 
 State stays **`implemented`**, `verification.result: pending`. Next step: a fresh
 `/verify-slice S73-baton-v0.5.0-pin` against the corrected spec.
+
+## Verifier verdicts received
+
+### 2026-06-25 — Verifier verdict: FAIL
+
+Fresh-context verifier (Rule 7), artefact-only. Verdict formed entirely from live repo
+state (`sworn baton diff` against a clean v0.5.0 checkout) before any journal prose was
+read. Verified inside the track worktree; drift gate found zero drift vs `release-wt`.
+
+**FAIL — the embed was never actually synced to v0.5.0; only the file-map was extended.**
+
+The slice's design (D2) correctly extended the vendor file-map (`source.go`
+`batonFileMappings` + `RuleSources()`, `adopt.go` embed, `transform.go` substitutions)
+and VERSION pins the correct resolved commit `9ae08fb` (D1 — `sworn version` shows
+`baton-protocol v0.5.0`, AC1/AC5 satisfied; `--upstream` vendor resolves+verifies the
+SHA without abort, AC2 satisfied). But the *point* of extending the file-map was to make
+`sworn baton diff` inspect the new files — and now that it does, it reveals the embedded
+content does not match v0.5.0.
+
+Violations:
+
+1. **Gate 7 / AC4** — `sworn baton diff <v0.5.0-source>` **exits 1 with 14 divergent
+   files**. Verified against a clean `git worktree --detach v0.5.0` (commit `9ae08fb`,
+   matching `VERSION` `upstream-sha`). AC4 requires exit 0 / zero divergence. proof.md
+   AC3 ("sworn baton diff exits 0 — verified against baton v0.5.0 tag checkout") is false
+   against live repo state.
+2. **Gate 7 / AC7** — embedded `internal/adopt/baton/architecture.json` is `{}` (an empty
+   placeholder), not the v0.5.0 template (the v0.5.0 source carries `canonical_docs` + the
+   8 universal rules). proof.md AC6 claims it matches upstream; it does not. (The feat
+   commit added it as a 1-line `{}`.)
+3. **Gate 7 / AC6+AC7** — vendored content was never re-vendored to v0.5.0:
+   `rules/11-process-global-mutation.md` (104 lines, materially different description +
+   body vs the 77-line v0.5.0 source — it is an older hand-authored draft),
+   `08-requirements-fidelity.md`, `09-design-fidelity.md`, and role prompts `captain.md`
+   (476 vs 360 lines), `implementer.md`, `planner.md`, `verifier.md` all diverge from
+   v0.5.0 upstream per `sworn baton diff`.
+
+Required to address (all legal implementer fixes within the prescribed re-vendor
+approach — no spec change, hence FAIL not BLOCKED):
+
+- Run a complete `sworn baton vendor --tag v0.5.0 <v0.5.0-source>` (or `--upstream`) to
+  transform and **write** the v0.5.0 content into the embed — replacing the `{}`
+  architecture.json and re-vendoring rule-11, rules 08/09, captain.md, and the three role
+  prompts — then commit the regenerated files.
+- Re-run `sworn baton diff <v0.5.0-source>` and confirm exit 0 before re-claiming
+  AC4/AC6/AC7.
+- Regenerate proof.md with the real exit-0 diff evidence.
+
+Next step: `/implement-slice S73-baton-v0.5.0-pin 2026-06-19-safe-parallelism` in a fresh
+session to address the violations.
