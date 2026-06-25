@@ -79,9 +79,9 @@ tracks:
   - id: T13-sworn-role-parity
     slices: [S45-design-tldr, S46-captain-review, S47-orchestrator-recovery]
     depends_on: [T12-harness-hardening, T17-orchestration-core]
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T13-sworn-role-parity
     worktree_branch: track/2026-06-19-safe-parallelism/T13-sworn-role-parity
-    state: planned
+    state: in_progress
   - id: T14-baton-integration
     slices: [S48-baton-vendor, S49-baton-version, S50-baton-governance, S62-baton-upstream-source, S73-baton-v0.5.0-pin]
     depends_on: [T3-commercial, T15-cli-registry]
@@ -106,7 +106,8 @@ tracks:
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T17-orchestration-core
     worktree_branch: track/2026-06-19-safe-parallelism/T17-orchestration-core
     state: merged
-  - id: T18-cli-polish    slices: [S60-init-ui-bearing-fix, S61-cli-output-styling]
+  - id: T18-cli-polish
+    slices: [S60-init-ui-bearing-fix, S61-cli-output-styling]
     depends_on: [T2-monitoring, T15-cli-registry]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T18-cli-polish
     worktree_branch: track/2026-06-19-safe-parallelism/T18-cli-polish
@@ -129,12 +130,12 @@ tracks:
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T21-mcp-lint
     worktree_branch: track/2026-06-19-safe-parallelism/T21-mcp-lint
     state: in_progress
-  - id: T22-tui-gate    slices: [S72-tui-gate-display]
+  - id: T22-tui-gate
+    slices: [S72-tui-gate-display]
     depends_on: [T2-monitoring, T20-gate-engine]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T22-tui-gate
     worktree_branch: track/2026-06-19-safe-parallelism/T22-tui-gate
-    state: in_progress
----
+    state: merged---
 
 # Release Board: `2026-06-19-safe-parallelism`
 
@@ -177,8 +178,9 @@ tracks:
 | `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | merged || `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
 | `T19-status-hygiene` | S64 | T4 + T12 + T15 | `track/.../T19-status-hygiene` | merged |
 | `T20-gate-engine` | S65 → S66 → S67 → S68 → S69 → S70 | T14 + T15 | `track/.../T20-gate-engine` | merged |
-### Execution order
-```
+| `T21-mcp-lint` | S71 | T4 + T20 | `track/.../T21-mcp-lint` | in_progress |
+| `T22-tui-gate` | S72 | T2 + T20 | `track/.../T22-tui-gate` | merged |
+### Execution order```
 Phase 1:  T1 (sequential)
 Phase 2:  T2, T3, T4, T8, T9, T11, T12, T15 (parallel after T1 — T11/T12 harness-hardening + T15 CLI registry dispatch early)
           T18 (after T2 + T15 — CLI-output polish: init --ui-bearing fix + shared internal/style colour across the command surface; lands before the verified tracks that share its files)
@@ -1896,3 +1898,7 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - **Drift gate**: clean (rev-list count 0). No forward-merge needed.
 - **State**: S69 → verified. T20-gate-engine remains in_progress (S70-llm-check pending).
 - **Next step**: `/implement-slice S70-llm-check 2026-06-19-safe-parallelism` in a fresh session.
+### 2026-07-21 — track `T22-tui-gate` merged to release-wt (commit cda2b24)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 1 verified slice merged: S72-tui-gate-display (per-slice gate results in TUI board view). Track state -> merged.
