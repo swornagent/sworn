@@ -61,9 +61,9 @@ tracks:
   - id: T10-public-readiness
     slices: [S27-public-readiness-scrub]
     depends_on: [T1-concurrency-core, T2-monitoring, T3-commercial, T4-mcp, T5-providers, T6-provider-ux, T7-mcp-extensions, T8-memory, T9-telemetry, T11-infra-safety, T12-harness-hardening, T13-sworn-role-parity, T14-baton-integration, T16-verdict-ledger, T18-cli-polish, T19-status-hygiene]
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T10-public-readiness
     worktree_branch: track/2026-06-19-safe-parallelism/T10-public-readiness
-    state: planned
+    state: in_progress
   - id: T11-infra-safety
     slices: [S28-git-dir-guard]
     depends_on: T1-concurrency-core
