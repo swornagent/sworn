@@ -145,6 +145,20 @@ State stays **`implemented`**, `verification.result: pending`. Next step: a fres
 
 ## Verifier verdicts received
 
+### 2026-06-25T20:40:53+10:00 — Verifier verdict: PASS
+Fresh-context verifier (Rule 7), artefact-only. Verified inside track worktree `T14-baton-integration` (branch `track/2026-06-19-safe-parallelism/T14-baton-integration`). Drift gate: zero drift from `release-wt`.
+
+Verdict formed from:
+- `sworn version` output showing `baton-protocol v0.5.0`
+- `sworn baton diff ~/projects/baton` exits 0 — zero divergence, all 4 role prompts + rules 08–11 + architecture.json match upstream v0.5.0
+- `go test -count=1 ./internal/prompt/... ./internal/adopt/... ./internal/baton/...` — all OK
+- `go vet ./...` — clean
+- VERSION pin: `upstream-sha: 9ae08fbb1ef28ba5a4918a51018b01ba31b4797b` matches upstream `git rev-list -n1 v0.5.0`
+- No TODO/FIXME/HACK/placeholder in changed Go files or vendored content
+
+All 8 acceptance checks satisfied. All 6 verification gates pass.
+
+Next step: All T14-baton-integration slices now verified. Run `/merge-track T14-baton-integration` in a fresh session.
 ### 2026-06-25 — Verifier verdict: FAIL
 
 Fresh-context verifier (Rule 7), artefact-only. Verdict formed entirely from live repo
