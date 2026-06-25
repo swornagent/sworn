@@ -32,3 +32,18 @@ title: 'Implementation journal — S66-lint-coverage'
 ### Out-of-scope discoveries
 
 None requiring tracking. All ACs are delivered.
+
+## Verifier verdicts received
+
+### 2026-06-25 — Verdict: PASS
+
+**Verifier session** (fresh context, artefact-only). All six verification gates walked.
+
+- Gate 1: `sworn lint coverage` wired in `cmdLint()` dispatch (line 49), reachable as `sworn lint coverage --slice <id> --release <name>`.
+- Gate 2: All 3 planned touchpoints match actual changed files. Minor divergences explained in proof.md.
+- Gate 3: All 16 unit tests re-run and passing. Tests exercise the `RunCoverage()` integration point.
+- Gate 4: Reachability artefact exercised — binary builds and produces coverage map (3/4 matched, AC-04 uncovered — expected per proof.md due to keyword-matching vocabulary gap; exit-code behavior validated by unit tests).
+- Gate 5: No TODO/FIXME/placeholder/deferred markers in any changed file.
+- Gate 7: All 4 ACs have evidence references in proof.md and are satisfied by the code.
+
+**Note**: `status.json` field `start_commit` (`2d9ec30`) is stale — not an ancestor of the current branch HEAD. The correct ancestor is `99571af`. The stale value did not affect the diff (git resolved via common ancestor) but should be corrected on the next implementer re-entry.

@@ -575,6 +575,19 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 - **Actor**: track integrator (/merge-track)
 - **Note**: 5 verified slices merged: S48-baton-vendor, S49-baton-version, S50-baton-governance, S62-baton-upstream-source, S73-baton-v0.5.0-pin. Track state -> merged.
 
+### 2026-06-25 -- slice S66-lint-coverage -> verified (PASS verdict)
+
+- **Actor**: fresh-context verifier.
+- **Verdict**: PASS -- all six verification gates satisfied.
+  - Gate 1: `sworn lint coverage` wired and user-reachable.
+  - Gate 2: Planned touchpoints match actual changed files.
+  - Gate 3: All 16 tests re-run and passing.
+  - Gate 4: Reachability artefact exercised against live release.
+  - Gate 5: No TODO/FIXME/placeholder/deferred markers.
+  - Gate 7: All 4 acceptance checks covered by test evidence.
+- **Note**: status.json start_commit is stale (2d9ec30 -> should be 99571af). Does not affect verification but should be corrected on next implementer re-entry.
+- **Next**: the track T20-gate-engine continues with S67-lint-design. /implement-slice S67-lint-design 2026-06-19-safe-parallelism.
+
 ### 2026-06-25 — verify: S73-baton-v0.5.0-pin → FAIL (embed not synced to v0.5.0)
 - **Actor**: verifier (fresh context, artefact-only), `/verify-slice`
 - **Verdict**: **FAIL**. The slice correctly extended the vendor file-map and VERSION
