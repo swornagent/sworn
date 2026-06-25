@@ -524,6 +524,6 @@ func TestRetryFeedbackResolvesToPass(t *testing.T) {
 // ensureCallCount is an unexported compile-time guard that implement.Run
 // is callable with the new signature inside this package.
 var _ = func() error {
-	_ = implement.Run(context.Background(), "", "", "", nil)
+	_, _ = implement.Run(context.Background(), "", "", "", nil)
 	return nil
 }()

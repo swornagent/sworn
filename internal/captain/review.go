@@ -44,9 +44,9 @@ type ReviewResult struct {
 	Pins            []Pin
 	EscalateCount   int
 	HasEscalatePins bool
-	RawOutput       string // full model output for review.md
+	RawOutput       string  // full model output for review.md
+	CostUSD         float64 // dispatch cost from token usage; 0 if unpriced
 }
-
 // Review runs the captain design-review for one slice. It takes the TL;DR
 // (design.md content), the spec, and a model agent, prompts the captain to
 // review the design, parses the pin list, and writes review.md to sliceDir.
@@ -87,9 +87,17 @@ func Review(ctx context.Context, sliceDir, spec, design string, a agent.Agent, w
 
 	text := resp.Choices[0].Message.Content
 
+	// Compute dispatch cost from token usage (same nominal estimate as
+	// agent.computeCost — $2/1M tokens).  An unpriced model or nil usage
+	// yields 0, treated downstream as "no cost signal."
+	var costUSD float64
+	if resp.Usage != nil && resp.Usage.TotalTokens > 0 {
+		costUSD = float64(resp.Usage.TotalTokens) * 0.000002
+	}
+
 	// Parse pins from the model output.
 	result := parsePins(text)
-
+	result.CostUSD = costUSD
 	// Write review.md.
 	reviewPath := filepath.Join(sliceDir, "review.md")
 	reviewContent := buildReviewMD(sliceDir, text, result)

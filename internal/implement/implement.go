@@ -34,17 +34,15 @@ import (
 // priorFeedback is the prior verifier's rationale. When non-empty, it is
 // injected into the user prompt ahead of the spec so the agent can address
 // the named failures.
-func Run(ctx context.Context, workspaceRoot, specPath, priorFeedback string, a agent.Agent) error {
-	sliceDir := filepath.Dir(specPath)
+func Run(ctx context.Context, workspaceRoot, specPath, priorFeedback string, a agent.Agent) (costUSD float64, err error) {	sliceDir := filepath.Dir(specPath)
 	statusPath := filepath.Join(sliceDir, "status.json")
 	proofPath := filepath.Join(sliceDir, "proof.md")
 
 	// Step 1: Read and validate current state.
 	st, err := state.Read(statusPath)
 	if err != nil {
-		return fmt.Errorf("implement: read status: %w", err)
+		return 0, fmt.Errorf("implement: read status: %w", err)
 	}
-
 	// State transition guard (Coach pin 2): design_review → in_progress
 	// before launching the agent loop.  The Definition of Ready gate
 	// (CheckDoR) is applied at this boundary — a slice whose RTM trace,
@@ -66,24 +64,23 @@ func Run(ctx context.Context, workspaceRoot, specPath, priorFeedback string, a a
 			}
 			return nil
 		}); err != nil {
-			return fmt.Errorf("implement: design_review → in_progress gate: %w", err)
+			return 0, fmt.Errorf("implement: design_review → in_progress gate: %w", err)
 		}
 		st.State = state.InProgress
 		st.LastUpdatedBy = "implementer"
 		st.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
 		if err := state.Write(statusPath, st); err != nil {
-			return fmt.Errorf("implement: write status: %w", err)
+			return 0, fmt.Errorf("implement: write status: %w", err)
 		}
 	} else if st.State != state.InProgress && st.State != state.FailedVerification {
-		return fmt.Errorf("implement: cannot run from state %q", st.State)
+		return 0, fmt.Errorf("implement: cannot run from state %q", st.State)
 	}
 
 	// Step 2: Read spec.
 	spec, err := os.ReadFile(specPath)
 	if err != nil {
-		return fmt.Errorf("implement: read spec: %w", err)
+		return 0, fmt.Errorf("implement: read spec: %w", err)
 	}
-
 	// Step 3: Build prompts and run agent loop.
 	// The agent's final prose is not required: proof.md is built from git
 	// diff + test output, so an empty agent return still produces a valid
@@ -104,30 +101,29 @@ func Run(ctx context.Context, workspaceRoot, specPath, priorFeedback string, a a
 		)
 	}
 
-	_, _, _, err = agent.Run(ctx, a, systemPrompt, userPrompt, workspaceRoot, agent.Config{})
-	if err != nil {
-		return fmt.Errorf("implement: agent loop: %w", err)
+	_, cost, _, runErr := agent.Run(ctx, a, systemPrompt, userPrompt, workspaceRoot, agent.Config{})
+	if runErr != nil {
+		return cost, fmt.Errorf("implement: agent loop: %w", runErr)
 	}
 
 	// Step 4: Generate proof from live repo state.
 	if err := generateProof(workspaceRoot, specPath, proofPath, st); err != nil {
-		return fmt.Errorf("implement: generate proof: %w", err)
+		return cost, fmt.Errorf("implement: generate proof: %w", err)
 	}
 
 	// Step 5: Transition to implemented.
 	if err := st.State.Transition(state.Implemented); err != nil {
-		return fmt.Errorf("implement: %w", err)
+		return cost, fmt.Errorf("implement: %w", err)
 	}
 	st.State = state.Implemented
 	st.LastUpdatedBy = "implementer"
 	st.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	if err := state.Write(statusPath, st); err != nil {
-		return fmt.Errorf("implement: write status: %w", err)
+		return cost, fmt.Errorf("implement: write status: %w", err)
 	}
 
-	return nil
+	return cost, nil
 }
-
 // generateProof writes proof.md in the slice directory from live repo state.
 // Every machine-producible section is generated from actual git output and
 // test runs — not from the model's narration.

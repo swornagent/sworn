@@ -238,3 +238,122 @@ func TestAppend_CreatesDir(t *testing.T) {
 		t.Fatalf("file should exist: %v", err)
 	}
 }
+func TestProject_V2Dispatches(t *testing.T) {
+	st := makeStatus("pass", "claude-sonnet-4-20250514", 1)
+	st.Verification.Dispatches = []state.Dispatch{
+		{Role: "implementer", Model: "claude-sonnet-4-20250514", CostUSD: 0.0420, Attempt: 1},
+		{Role: "verifier", Model: "claude-sonnet-4-20250514", CostUSD: 0.0085, Attempt: 1},
+		{Role: "captain", Model: "claude-sonnet-4-20250514", CostUSD: 0.0120, Attempt: 1},
+	}
+
+	r, ok := Project(st, 7)
+	if !ok {
+		t.Fatal("expected ok=true for pass verdict with dispatches")
+	}
+	if r.V != 2 {
+		t.Errorf("V: want 2, got %d", r.V)
+	}
+	if len(r.Dispatches) != 3 {
+		t.Fatalf("Dispatches: want 3, got %d", len(r.Dispatches))
+	}
+	if r.Dispatches[0].Role != "implementer" {
+		t.Errorf("dispatches[0].Role: want implementer, got %s", r.Dispatches[0].Role)
+	}
+	if r.Dispatches[0].CostUSD != 0.0420 {
+		t.Errorf("dispatches[0].CostUSD: want 0.0420, got %f", r.Dispatches[0].CostUSD)
+	}
+	if r.Dispatches[1].Role != "verifier" {
+		t.Errorf("dispatches[1].Role: want verifier, got %s", r.Dispatches[1].Role)
+	}
+	if r.Dispatches[2].Role != "captain" {
+		t.Errorf("dispatches[2].Role: want captain, got %s", r.Dispatches[2].Role)
+	}
+	// TotalCostUSD should be the sum.
+	expectedTotal := 0.0420 + 0.0085 + 0.0120
+	if r.TotalCostUSD != expectedTotal {
+		t.Errorf("TotalCostUSD: want %f, got %f", expectedTotal, r.TotalCostUSD)
+	}
+}
+
+func TestProject_V2RoundTrip(t *testing.T) {
+	st := makeStatus("pass", "claude-sonnet-4-20250514", 1)
+	st.Verification.Dispatches = []state.Dispatch{
+		{Role: "implementer", Model: "claude-sonnet-4-20250514", CostUSD: 0.050, Attempt: 2},
+		{Role: "verifier", Model: "gpt-4.1", CostUSD: 0.010, Attempt: 2},
+	}
+
+	r, ok := Project(st, 5)
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+
+	// Marshal and unmarshal to verify JSON round-trip.
+	data, err := json.Marshal(r)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var got Record
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if got.V != 2 {
+		t.Errorf("V: want 2, got %d", got.V)
+	}
+	if len(got.Dispatches) != 2 {
+		t.Fatalf("Dispatches: want 2, got %d", len(got.Dispatches))
+	}
+	if got.Dispatches[0].Role != "implementer" {
+		t.Errorf("dispatches[0].Role: want implementer, got %s", got.Dispatches[0].Role)
+	}
+	if got.TotalCostUSD < 0.0599 || got.TotalCostUSD > 0.0601 {
+		t.Errorf("TotalCostUSD: want 0.060, got %f", got.TotalCostUSD)
+	}
+}
+
+func TestProject_V1BackCompat(t *testing.T) {
+	// A v:1 line (no dispatches, v:1) should still load without error.
+	v1JSON := `{"v":1,"ts":"2026-01-01T00:00:00Z","release":"x","track":"T1","slice_id":"S01","slice_kind":"test","role":"implementer","verdict":"pass","state":"verified","gate_count":3,"violation_count":0,"sworn_version":"0.1.0"}`
+
+	var r Record
+	if err := json.Unmarshal([]byte(v1JSON), &r); err != nil {
+		t.Fatalf("v:1 line should unmarshal without error: %v", err)
+	}
+	// v:2 fields should be zero-valued, not panic.
+	if r.V != 1 {
+		t.Errorf("V: want 1, got %d", r.V)
+	}
+	if r.Dispatches != nil {
+		t.Errorf("Dispatches: want nil for v:1 line, got %v", r.Dispatches)
+	}
+	if r.TotalCostUSD != 0 {
+		t.Errorf("TotalCostUSD: want 0 for v:1 line, got %f", r.TotalCostUSD)
+	}
+	// Core v:1 fields should survive.
+	if r.SliceID != "S01" {
+		t.Errorf("SliceID: want S01, got %s", r.SliceID)
+	}
+	if r.Verdict != "pass" {
+		t.Errorf("Verdict: want pass, got %s", r.Verdict)
+	}
+}
+
+func TestProject_EmptyDispatches(t *testing.T) {
+	// No dispatches set: Project should still produce a valid v:2 Record
+	// with empty/nil Dispatches and TotalCostUSD=0.
+	st := makeStatus("pass", "claude-sonnet-4-20250514", 1)
+	r, ok := Project(st, 3)
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if r.V != 2 {
+		t.Errorf("V: want 2, got %d", r.V)
+	}
+	if r.Dispatches != nil {
+		t.Errorf("Dispatches: want nil, got %v", r.Dispatches)
+	}
+	if r.TotalCostUSD != 0 {
+		t.Errorf("TotalCostUSD: want 0, got %f", r.TotalCostUSD)
+	}
+}

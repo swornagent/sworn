@@ -49,6 +49,14 @@ type Record struct {
 	ViolationCount int `json:"violation_count"`
 	// SwornVersion is the baton protocol version the binary embeds.
 	SwornVersion string `json:"sworn_version"`
+
+	// Dispatches records per-role model + cost for each dispatch during the
+	// slice run (v:2 field). Omitted from JSON when empty for back-compat
+	// with v:1 lines.
+	Dispatches []state.Dispatch `json:"dispatches,omitempty"`
+	// TotalCostUSD is the sum of all Dispatch.CostUSD values (v:2 field).
+	// Convenience field for reporting; derived from Dispatches.
+	TotalCostUSD float64 `json:"total_cost_usd,omitempty"`
 }
 
 // SliceKind derives a rubric dimension from a track id. It strips the
@@ -133,7 +141,7 @@ func Project(st *state.Status, gateCount int) (Record, bool) {
 	}
 
 	r := Record{
-		V:                 1,
+		V:                 2,
 		Ts:                time.Now().UTC().Format(time.RFC3339),
 		Release:           st.Release,
 		Track:             st.Track,
@@ -148,8 +156,14 @@ func Project(st *state.Status, gateCount int) (Record, bool) {
 		Violations:        v.Violations,
 		GateCount:         gateCount,
 		ViolationCount:    len(v.Violations),
-		SwornVersion:      baton.Version(),
+		Dispatches:         v.Dispatches,
+		SwornVersion:       baton.Version(),
 	}
+	var totalCost float64
+	for _, d := range v.Dispatches {
+		totalCost += d.CostUSD
+	}
+	r.TotalCostUSD = totalCost
 	if v.VerifierSessionID != nil {
 		r.VerifierSessionID = *v.VerifierSessionID
 	}

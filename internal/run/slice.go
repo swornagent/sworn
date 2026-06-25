@@ -145,6 +145,12 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		implementTimeout = DefaultImplementTimeout
 	}
 
+
+	// dispatches accumulates per-role dispatch costs (S55) for the verdict
+	// ledger. Populated by the captain review, implement, and verify stages;
+	// written to status.json at each terminal state transition.
+	var dispatches []state.Dispatch
+
 	// ── Design TL;DR (S45) ────────────────────────────────────────────
 	// Generate design.md before the implement loop so the captain review
 	// stage (S46) has an artefact to gate on. The TL;DR uses the first
@@ -227,6 +233,13 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 						// into the first implement attempt.
 						if fb := reviewResult.FormatPinsAsFeedback(); fb != "" {
 							priorFeedback = fb
+						// Record captain dispatch for per-role cost ledger (S55).
+						dispatches = append(dispatches, state.Dispatch{
+							Role:    "captain",
+							Model:   firstModelID,
+							CostUSD: reviewResult.CostUSD,
+							Attempt: 1,
+						})
 						}
 					}
 				}
@@ -286,13 +299,13 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		fmt.Fprintf(os.Stderr, "sworn run: attempt %d (model %d/%d, resolve %d/%d) — implementing with %s\n",
 			totalAttempts, modelIdx+1, len(escalationModels), resolveCount, maxResolves, implModelID)
 
-		var implErr error
+		var implCost float64; var implErr error
 		if implementTimeout > 0 {
 			implCtx, cancel := context.WithTimeout(ctx, implementTimeout)
 			defer cancel() // safe: each iteration has its own defer
-			implErr = implement.Run(implCtx, worktreeRoot, specPath, priorFeedback, implAgent)
+			implCost, implErr = implement.Run(implCtx, worktreeRoot, specPath, priorFeedback, implAgent)
 		} else {
-			implErr = implement.Run(ctx, worktreeRoot, specPath, priorFeedback, implAgent)
+			implCost, implErr = implement.Run(ctx, worktreeRoot, specPath, priorFeedback, implAgent)
 		}
 
 		if implErr != nil {
@@ -327,6 +340,14 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			}
 		}
 
+
+		// Record implementer dispatch for per-role cost ledger (S55).
+		dispatches = append(dispatches, state.Dispatch{
+			Role:    "implementer",
+			Model:   implModelID,
+			CostUSD: implCost,
+			Attempt: totalAttempts,
+		})
 		// ── Commit agent changes ────────────────────────────────────
 		if err := repo.Stage("."); err != nil {
 			return fmt.Errorf("RunSlice: stage agent changes: %w", err)
@@ -378,6 +399,14 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			fmt.Fprintf(os.Stderr, "sworn run: rationale: %s\n", lastVerdict.Rationale)
 		}
 
+		// Record verifier dispatch for per-role cost ledger (S55).
+		dispatches = append(dispatches, state.Dispatch{
+			Role:    "verifier",
+			Model:   opts.VerifierModel,
+			CostUSD: lastVerdict.CostUSD,
+			Attempt: totalAttempts,
+		})
+
 		// ── PASS: transition to verified ────────────────────────────
 		if lastVerdict.Verdict == verdict.Pass {
 			st, err := state.Read(statusPath)
@@ -389,6 +418,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			}
 			st.State = state.Verified
 				st.Verification.Model = implModelID
+			st.Verification.Dispatches = dispatches
 				st.Verification.Attempt = totalAttempts
 			st.LastUpdatedBy = "run-slice"
 			st.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
@@ -432,6 +462,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 					st.Verification.Violations = extractViolations(lastVerdict.Rationale)
 					st.Verification.Model = implModelID
 					st.Verification.Attempt = totalAttempts
+					st.Verification.Dispatches = dispatches
 					st.LastUpdatedBy = "run-slice"
 					st.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
 					_ = state.Write(statusPath, st)
@@ -472,6 +503,7 @@ haltFailedVerification:
 		st.State = state.FailedVerification
 		st.Verification.Model = lastImplModel
 		st.Verification.Attempt = totalAttempts
+		st.Verification.Dispatches = dispatches
 		st.LastUpdatedBy = "run-slice"
 		st.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
 		_ = state.Write(statusPath, st)
