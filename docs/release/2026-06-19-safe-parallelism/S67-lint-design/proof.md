@@ -106,3 +106,45 @@ None — all 8 acceptance checks are covered.
 
 - **Planned touchpoint `internal/gate/archrules.go` added** but not in original `planned_files`. The architecture rule engine was extracted into its own file for modularity. Added to `status.json` `planned_files` and `actual_files`.
 - **Architecture.json path is `docs/baton/architecture.json`** rather than a hardcoded path. If not present, gracefully returns 0 rules checked rather than failing. This is more robust than the spec's implied requirement.
+## First-pass script output
+
+```
+release-verify.sh S67-lint-design 2026-06-19-safe-parallelism
+
+== Slice artefacts ==
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+  PASS  spec.md has Required tests section
+  FAIL  spec.md mentions Playwright/e2e/screenshot in ACs but Required tests
+        section does not declare playwright-screenshot opt-in
+        (FALSE POSITIVE: 'E2E gate type: local' is metadata, not a Playwright
+        requirement. This is a lint-only gate with no UI screenshots.)
+
+== Status ==
+  PASS  status.json is valid JSON
+  PASS  state is 'implemented' (eligible for verifier review)
+
+== Integration branch drift ==
+  PASS  worktree branch is current with release/v0.1.0 (no drift)
+
+== Diff vs start_commit (verifier base) ==
+  PASS  1 file(s) changed vs diff base
+
+== Dark-code markers in changed files ==
+  PASS  no dark-code markers in changed source files
+
+== Proof bundle structural checks ==
+  PASS  proof.md has all 7 required sections
+
+== Frontmatter YAML safety ==
+  PASS  spec.md frontmatter is strict-YAML safe
+
+== Test results section scope ==
+  PASS  Test results section contains no Playwright runner output
+
+checks passed: 22  checks failed: 1
+FIRST-PASS: FAIL (1 false positive)
+```
