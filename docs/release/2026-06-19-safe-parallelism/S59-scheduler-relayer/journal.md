@@ -75,3 +75,24 @@ State transition: `failed_verification` → `implemented`.
 - **V5 (AC-7) test**: Added `TestCooperativePauseSignal` to `worker_test.go`: RunSliceFn closes the pauseCh after first dispatch; next loop iteration checks pause → returns `TrackPaused`; asserts only S01-first was dispatched.
 
 ### First-pass: 23/23 PASS.
+
+## Verifier verdict — 2026-06-26 (round 2)
+
+**FAIL**
+
+Slice: `S59-scheduler-relayer`
+
+Violations:
+1. Gate 2 — `internal/scheduler/pause.go` (new file, 66 lines) is not listed in planned touchpoints and is not documented in proof.md "Divergence from plan." The AC-7 Delivered section references `PauseEngine` but the file is not explained as a planned-touchpoint divergence.
+   Evidence: `internal/scheduler/pause.go` exists in diff; proof.md Divergence from plan has entries for `internal/board/oracle.go`, the soft-fallback, and `internal/run/parallel_test.go` — no entry for `pause.go`.
+
+2. Gate 4 — Reachability artefact is a unit test (`TestWorkerPollsRouterDrivesSlice` via `go test -race -v`), not the CLI smoke step the spec prescribes. The spec Required tests section prescribes "`sworn run --parallel --release <fixture>` on a 2-track fixture, kill mid-run, re-run, observe the second run skip the already-`verified` slice (resumability). Document the two-run transcript in `proof.md`." That two-run kill-and-resume transcript is absent.
+   Evidence: proof.md "Reachability artefact" — User gesture is `go test -race -v -run TestWorkerPollsRouterDrivesSlice ./internal/scheduler/...`; spec prescribes `sworn run --parallel --release <fixture>` with two-run transcript.
+
+3. Gate 7 (AC-8) — "Crash recovery" is claimed delivered but has no verifiable evidence reference. The proof says "verified by router's stateless routing of `in_progress → implement`" — a logical argument, not a test. No test exercises the scenario: slice in `in_progress` state at worker startup → router returns `implement` → worker dispatches correctly.
+   Evidence: proof.md AC-8 entry has no test name, file path, or artefact path as its evidence reference.
+
+Required to address:
+1. Add an entry to proof.md "Divergence from plan" for `internal/scheduler/pause.go`: explain that PauseEngine was placed in a dedicated file to house the cooperative-pause mechanism for AC-7, with Why / Tracking / Ack.
+2. Produce the prescribed CLI smoke step: run `sworn run --parallel --release <fixture>` on a 2-track fixture (using any available model or a pre-verified fixture that exits quickly), kill mid-run with SIGKILL, re-run, and document both runs' stderr output in proof.md "Reachability artefact." The transcript must show the second run skipping the already-`verified` slice.
+3. Add a test covering the crash-recovery path at S59 level: fixture with a slice in `in_progress` state, fake router scripted to return `{Type: "implement"}` for that slice (simulating the router re-deriving the action on restart), assert the worker dispatches implement. Name the test in proof.md AC-8 evidence reference.
