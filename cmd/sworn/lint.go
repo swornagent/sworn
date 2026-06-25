@@ -23,15 +23,16 @@ import (
 //	status      — check that status.json timestamps are not in the future beyond 5m skew; fail closed
 //	coverage    — map every AC to a test function in the slice diff; fail closed on uncovered ACs
 //	design      — hardcoded colour detection + architecture rule engine (grep, touchpoints, diff-size, external)
-func cmdLint(args []string) int {	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "sworn lint: target required")
-		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols|status|coverage|design> <release>")
+//	mock        — no-mock-boundary enforcement: detects undeclared mock/stub/fixture usage alongside real-infra refs
+func cmdLint(args []string) int {	if len(args) == 0 {		fmt.Fprintln(os.Stderr, "sworn lint: target required")
+		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols|status|coverage|design|mock> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint deps [--base <ref>] <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint touchpoints <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint symbols <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint status <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint coverage --slice <slice-id> --release <release> [--base <ref>]")
 			fmt.Fprintln(os.Stderr, "       sworn lint design --slice <slice-id> --release <release> [--base <ref>]")
+			fmt.Fprintln(os.Stderr, "       sworn lint mock --slice <slice-id> --release <release> [--base <ref>]")
 		return 64
 	}
 	switch args[0] {
@@ -51,9 +52,11 @@ func cmdLint(args []string) int {	if len(args) == 0 {
 		return cmdLintCoverage(args[1:])
 		case "design":
 			return cmdLintDesign(args[1:])
+		case "mock":
+			return cmdLintMock(args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "sworn lint: unknown target %q (known: ac, trace, deps, touchpoints, symbols, status, coverage, design)\n", args[0])
-		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols|status|coverage|design> <release>")
+		fmt.Fprintf(os.Stderr, "sworn lint: unknown target %q (known: ac, trace, deps, touchpoints, symbols, status, coverage, design, mock)\n", args[0])
+		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols|status|coverage|design|mock> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint deps [--base <ref>] <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint touchpoints <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint symbols <slice-id> <release>")
@@ -434,6 +437,67 @@ func cmdLintDesign(args []string) int {
 		fmt.Print(gate.JSONDesign(report))
 	} else {
 		fmt.Print(gate.PrintDesign(report))
+	}
+
+	if report.HasViolations() {
+		return 1
+	}
+	return 0
+}
+// cmdLintMock implements `sworn lint mock --slice <slice-id> --release <release>`.
+//
+// Port of release-mock-check.sh from bash to Go: Rule 10 no-mock boundary
+// enforcement. Scans test files in the slice's diff for mock/stub/fixture/seed
+// usage and detects real-infra references alongside undeclared mocks. Boundary
+// declarations (@mock-boundary comment, open_deferrals entry, architecture-overrides.json)
+// suppress violations.
+// Exits 0 when every mock has a declared boundary, 1 with violations enumerated.
+func cmdLintMock(args []string) int {
+	fs := flag.NewFlagSet("lint mock", flag.ExitOnError)
+	sliceID := fs.String("slice", "", "slice ID to check (e.g. S68-lint-mock)")
+	releaseName := fs.String("release", "", "release name (e.g. 2026-06-19-safe-parallelism)")
+	baseRef := fs.String("base", "", "base ref for git diff (defaults to start_commit or release-wt/<release>)")
+	jsonOut := fs.Bool("json", false, "output as JSON")
+	_ = fs.Parse(args)
+
+	if *sliceID == "" || *releaseName == "" {
+		fmt.Fprintln(os.Stderr, "sworn lint mock: --slice and --release are required")
+		fmt.Fprintln(os.Stderr, "usage: sworn lint mock --slice <slice-id> --release <release> [--base <ref>]")
+		return 64
+	}
+
+	releaseDir, err := resolveReleaseDir(*releaseName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint mock: %v\n", err)
+		return 2
+	}
+
+	sliceDir := filepath.Join(releaseDir, *sliceID)
+	if _, err := os.Stat(sliceDir); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint mock: slice directory not found: %s\n", sliceDir)
+		return 2
+	}
+
+	ref := *baseRef
+	if ref == "" {
+		var err error
+		ref, err = gate.BaseRefForSlice(sliceDir, *releaseName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "sworn lint mock: resolve base ref: %v\n", err)
+			return 2
+		}
+	}
+
+	report, err := gate.RunMock(releaseDir, *sliceID, ref)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint mock: %v\n", err)
+		return 2
+	}
+
+	if *jsonOut {
+		fmt.Print(gate.JSONMock(report))
+	} else {
+		fmt.Print(gate.PrintMock(report))
 	}
 
 	if report.HasViolations() {
