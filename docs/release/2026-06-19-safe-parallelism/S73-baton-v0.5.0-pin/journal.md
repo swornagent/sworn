@@ -116,3 +116,29 @@ by the planner — addressed as divergences in proof.md.
 ### State transition
 
 `planned` → `in_progress` (start implementation) → `implemented` (this commit)
+
+## 2026-06-25 — Planner session: spec corrected (D1+D2 resolved), slice re-enters verification
+
+`/replan-release` resolved the two spec defects this slice was routed here for, and
+reconciled the board. The implementation that landed on this branch (`94e5c7f`) had
+already resolved both defects correctly; the spec is now corrected to match it.
+
+- **D1 (SHA semantics) — fixed.** AC1 / VERSION now require the **resolved commit** SHA
+  `9ae08fb` (what `resolveCommitSHA` + the GitHub commits API return for tag `v0.5.0`),
+  NOT the annotated **tag-object** hash `b8452dd`. Pinning the tag-object hash would have
+  broken `FetchUpstream`'s resolved-SHA verification (the S62 `--upstream` governance gate).
+  The as-built VERSION already pins `9ae08fb` — spec now agrees.
+- **D2 (mechanism gap) — fixed.** In-scope + touchpoints + ACs now require extending the
+  vendor file-map (`internal/baton/source.go` `batonFileMappings` + `RuleSources()`,
+  `internal/adopt/adopt.go` embed, `internal/baton/transform.go` substitutions) so
+  `captain.md`, `architecture.json`, and rule-11 are actually covered by `sworn baton diff`
+  — closing the false-zero-divergence hole. The as-built commit already did this.
+- **Premise fix.** Prior pin was `v0.4.2`/`729f188`, not `cf15842`.
+- **Target.** Kept at **v0.5.0** (human decision 2026-06-25; supersedes the `BRAD-TODO.md`
+  v0.4.3 note).
+- **Placement.** T14 re-opened `merged` → `in_progress` for this S73 tail wave (human
+  decision). S73's commits are linear on T14's merged tip with their own `start_commit`
+  (`84ebacd`), so S48–S62 anchoring is undisturbed.
+
+State stays **`implemented`**, `verification.result: pending`. Next step: a fresh
+`/verify-slice S73-baton-v0.5.0-pin` against the corrected spec.
