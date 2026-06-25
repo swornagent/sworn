@@ -1,6 +1,6 @@
 ---
 title: 'Slice spec — S73-baton-v0.5.0-pin'
-description: 'Update the vendored Baton protocol from cf15842 (pre-v0.5.0) to v0.5.0 (b8452dd) — role prompts, rules, gate scripts, schemas.'
+description: 'Update the vendored Baton protocol from v0.4.2 (commit 729f188) to v0.5.0 (commit 9ae08fb) — role prompts incl. captain.md, rules incl. rule-11 + architecture.json, transform script substitutions; extends the vendor file-map so the new files are actually covered by sworn baton diff.'
 ---
 
 # Slice: `S73-baton-v0.5.0-pin`
@@ -15,7 +15,13 @@ Vendored Baton protocol at `internal/adopt/baton/`. Updated via `sworn baton ven
 
 ## In scope
 
-- Update `internal/adopt/baton/VERSION`: commit SHA `cf158423f...` → `b8452dd19...`, vendored date → `2026-06-25`, rules-added note updated for v0.5.0
+- Update `internal/adopt/baton/VERSION`: `baton-protocol: v0.5.0`; `upstream-sha:` from the prior pin `729f188f...` (v0.4.2) to the **resolved commit SHA `9ae08fb...`** for tag `v0.5.0`; `vendored: 2026-06-25`; refresh `upstream-digest:`; `rules-added` note updated for v0.5.0 (adds rule-11 + role-prompt operational gates).
+  - **SHA semantics (D1):** pin the **commit** the tag resolves to (`git rev-list -n1 v0.5.0` = `9ae08fb...`), NOT the annotated **tag-object** hash (`git rev-parse v0.5.0` = `b8452dd...`). The vendor's `resolveCommitSHA` (`internal/baton/fetch.go`) and the live GitHub commits API both return the commit `9ae08fb`; `FetchUpstream` verifies the resolved SHA against `VERSION` and aborts on mismatch, so a tag-object hash in `upstream-sha` would break the S62 `--upstream` governance gate.
+- **Extend the vendor file-map (D2 — mechanism gap).** The new v0.5.0 files (`captain.md`, `architecture.json`, rule-11) are not in `internal/baton/source.go` `batonFileMappings`, so before this slice `sworn baton diff` / `vendor` inspect only the previously-mapped files and report a **false zero divergence** even when the embed is missing them. In scope:
+  - `internal/baton/source.go`: add mappings `claude/baton/process-global-mutation.md → internal/adopt/baton/rules/11-process-global-mutation.md`, `claude/baton/role-prompts/captain.md → internal/prompt/captain.md`, `claude/baton/architecture.json → internal/adopt/baton/architecture.json`; add `process-global-mutation.md` to `RuleSources()`.
+  - `internal/adopt/adopt.go`: extend the `//go:embed` directive to include `baton/architecture.json`.
+  - `internal/baton/transform.go`: add the v0.5.0 upstream-script → sworn-native substitutions (`release-trace.sh`, `release-audit-design.sh`, `release-coverage.sh`, `release-llm-check.sh`, `release-mock-check.sh`, `release-regression.sh`, `install.sh`, `server-start.sh`/`server-stop.sh`, `install-codex.sh`).
+  - `internal/baton/fetch.go`: tarball prefix `v`-stripping fix for the GitHub codeload (`<repo>-<version-without-v>/`) convention.
 - Re-vendor role prompts from baton v0.5.0 (`claude/baton/role-prompts/{planner,implementer,verifier,captain}.md`):
   - Planner: 16-hat consultant table, six-layer discovery, proactive expertise, canonical architecture, fresh-context handoff
   - Implementer: spec-completeness sniff test, "don't fill gaps from intake" rule, LLM self-checks (ac-satisfaction, security-review, maintainability-review) before `implemented`
@@ -39,23 +45,29 @@ Vendored Baton protocol at `internal/adopt/baton/`. Updated via `sworn baton ven
 ## Planned touchpoints
 
 - `internal/adopt/baton/VERSION`
-- `internal/adopt/baton/rules/*.md`
-- `internal/adopt/baton/role-prompts/*.md`
-- `internal/prompt/VERSION.txt` (if prompt version needs bumping)
+- `internal/adopt/baton/rules/*.md` (incl. new `11-process-global-mutation.md`)
+- `internal/adopt/baton/architecture.json` (new)
+- `internal/prompt/{planner,implementer,verifier,captain}.md` (re-vendored)
+- `internal/baton/source.go` (extend `batonFileMappings` + `RuleSources()`)
+- `internal/baton/transform.go` (v0.5.0 script substitutions)
+- `internal/baton/fetch.go` (codeload tarball prefix fix)
+- `internal/adopt/adopt.go` (embed `baton/architecture.json`)
+- `cmd/sworn/baton_test.go`, `internal/baton/fetch_test.go`, `internal/baton/vendor_test.go`, `internal/prompt/prompt_test.go` (v0.5.0 content assertions)
 
 ## Acceptance checks
 
-- [ ] `internal/adopt/baton/VERSION` references commit `b8452dd` with `vendored: 2026-06-25`
-- [ ] `sworn baton vendor --upstream --tag v0.5.0` succeeds and resolves correct SHA
-- [ ] `sworn baton diff` exits 0 (no divergence from upstream)
+- [ ] `internal/adopt/baton/VERSION` has `baton-protocol: v0.5.0` and `upstream-sha:` = the **resolved commit** `9ae08fb...` (NOT the tag-object `b8452dd...`), with `vendored: 2026-06-25`
+- [ ] `sworn baton vendor --upstream --tag v0.5.0` succeeds and the SHA it resolves matches `VERSION` (no `FetchUpstream` mismatch abort)
+- [ ] `internal/baton/source.go` `batonFileMappings` maps `captain.md`, `architecture.json`, and rule-11 (`process-global-mutation.md`); `RuleSources()` includes `process-global-mutation.md`
+- [ ] `sworn baton diff` exits 0 with the **extended** file-map — i.e. it now inspects `architecture.json`, `captain.md`, and rule-11 and still reports zero divergence (not a false green from an unmapped file)
 - [ ] `sworn version` shows `baton-protocol v0.5.0`
-- [ ] All 4 role prompts match baton v0.5.0 upstream
-- [ ] All vendored rules match baton v0.5.0 upstream
+- [ ] All 4 role prompts (`planner`, `implementer`, `verifier`, `captain`) match baton v0.5.0 upstream
+- [ ] All vendored rules (08–11) and `architecture.json` match baton v0.5.0 upstream
 - [ ] Existing tests pass with no regression
 
 ## Required tests
 
 - **Unit**: `internal/prompt/prompt_test.go` — `TestBatonVersion_NonEmpty` passes, `TestBatonVersion` assert updated
 - **Unit**: `internal/adopt/` — verify vendored files match upstream
+- **Unit**: `internal/baton/` — vendor, diff, transform, fetch tests pass
 - **Reachability artefact**: `sworn version` output showing `baton-protocol v0.5.0`
-- **E2E gate type**: local

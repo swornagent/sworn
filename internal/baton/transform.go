@@ -31,12 +31,22 @@ type replacement struct {
 // The fail-closed guard derives its token list from this table — the single-table
 // derive-both pattern guarantees they can't drift apart (Design Decision §2.1).
 var replacements = []replacement{
+	{token: "release-trace.sh", new: "sworn trace"},
 	{token: "release-verify.sh", new: "sworn verify"},
 	{token: "release-board-status.sh", new: "sworn board"},
+	{token: "release-audit-design.sh", new: "sworn designaudit"},
+	{token: "release-coverage.sh", new: "sworn coverage"},
+	{token: "release-llm-check.sh", new: "sworn llmcheck"},
+	{token: "release-mock-check.sh", new: "sworn mockcheck"},
+	{token: "release-regression.sh", new: "sworn regression"},
 	{token: "design-audit.sh", new: "sworn designaudit"},
 	{token: "captain-route.sh", new: "the sworn internal router"},
 	{token: "port-deriver.sh", new: "native port derivation"},
 	{token: "captain-memory-search.py", new: "sworn memory search"},
+	{token: "install.sh", new: "native binary installation"},
+	{token: "server-start.sh", new: "sworn server start"},
+	{token: "server-stop.sh", new: "sworn server stop"},
+	{token: "install-codex.sh", new: "sworn codex"},
 }
 
 func init() {

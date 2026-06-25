@@ -42,7 +42,7 @@ Release work runs under **track mode** (`docs/baton/track-mode.md`). Each slice 
    - `verification.result == "blocked"`.
    - `spec.md` is unchanged since that verdict: with `<verdict_commit>` = `git -C <worktree_path> log --no-merges -n1 --format=%H --grep='verifier verdict — BLOCKED'`, the diff `git -C <worktree_path> diff <verdict_commit> HEAD -- <spec.md path>` is empty. **If step 5 just merged a re-scoped spec, this diff is non-empty — fall through and verify against the corrected spec; that is the loop self-healing.**
    - The implementation is byte-identical since that verdict: `git -C <worktree_path> log --no-merges --format=%H --grep='^feat' <start_commit>..<verdict_commit>` equals the same command for `<start_commit>..HEAD`.
-   If all three hold, re-emit the recorded verdict's reason verbatim, emit the `blocked_needs_planner` watcher block, and STOP — do not re-commit. If any condition fails, continue.
+   If all three hold, re-emit the recorded verdict's reason verbatim, emit the `blocked_needs_planner` status block, and STOP — do not re-commit. If any condition fails, continue.
 
 Briefly tell the human in one sentence ("Verifying inside track worktree at `<worktree_path>`" — and, if step 5 forward-merged, how many commits were synced from `release-wt`). Then proceed.
 
@@ -60,9 +60,15 @@ Throughout this section, treat `<wt>` as shorthand for `<worktree_path>` from St
 
 If the worktree's `status.json` shows state other than `implemented`, before returning BLOCKED you must (a) confirm you read from `<wt>/...` not the primary repo, and (b) compare against the worktree HEAD's pinned copy via `git -C <wt> show HEAD:docs/release/<release-name>/<slice-id>/status.json`. **Trust the worktree HEAD** if anything disagrees. Only then return `BLOCKED: slice is not in implemented state` if the worktree's HEAD `status.json` still confirms it.
 
+## Project extensions
+
+If `<wt>/docs/baton/extensions/verifier.md` exists, read it and follow it — it is part of your contract, not slice context, so reading it is permitted despite the "nothing else" rule above. Projects use it to add repo-specific steps the universal contract can't know about — e.g. booting a real server or fixture so the no-mock boundary (Rule 10) can be exercised, allocating ports — plus the teardown to run before you emit your verdict. An extension may **add** steps; it may not relax your hard constraints or gates. On any conflict, this prompt wins.
+
 ## Verification gates (in priority order)
 
 Walk these in order. Stop at the first FAIL and emit the verdict.
+
+The verifier does NOT re-run planner or captain checks (traceability, spec-ambiguity, design-review). Those are upstream gates whose artefacts are committed and passed. The verifier trusts the planner and captain. The verifier independently verifies the **implementer's** work — the one role Rule 7 forbids from self-certifying. Mechanical gates (1-7) catch structural failures; LLM gates (3b, 4b, 6b) catch content failures the implementer cannot self-assess.
 
 ### Gate 1 — User-reachable outcome exists
 
@@ -89,6 +95,15 @@ Cross-reference `spec.md` "Required tests" against the actual test files in the 
 - Test command captured in `proof.md` was not actually run (no output, or output is paraphrased): FAIL.
 
 Re-run the test commands yourself. If they fail in your fresh window: FAIL.
+
+### Gate 3b — Implementation satisfies acceptance criteria (LLM)
+
+Run `sworn llmcheck --check ac-satisfaction --slice <slice-id> --release <release-name> --worktree <worktree_path>`.
+
+This is the verifier's core adversarial check: the implementer self-assessed ac-satisfaction before claiming "implemented", but Rule 7 forbids self-certification. The verifier re-runs this check independently.
+- If the LLM provider is not configured, note it and skip (non-blocking).
+- If the check returns FAIL: at least one AC is not satisfied by the implementation. FAIL with the specific ACs and gaps.
+- If PARTIALLY_SATISFIED: investigate. If the gap is in spec ambiguity (AC unclear), BLOCKED. If the gap is in implementation (code missing features), FAIL.
 
 **Before running E2E (browser-driven) tests, start the canonical dev stack from the worktree
 being verified, using whatever invocation the project documents (`pnpm run start:dev`,
@@ -134,6 +149,14 @@ Read `proof.md` "Reachability artefact" section.
 - Artefact is "tests pass" with no user-gesture description: FAIL — Rule 1 explicitly rejects this.
 - Artefact is a Playwright trace that doesn't include the named user gesture: FAIL.
 
+### Gate 4b — Semantic test coverage (LLM, optional when LLM provider configured)
+
+Run `sworn llmcheck --check semantic-coverage --slice <slice-id> --release <release-name> --worktree <worktree_path>`.
+
+- If the LLM provider is not configured, this gate passes automatically (non-blocking).
+- If the check returns FAIL: at least one test does not genuinely verify its AC. Add the findings to the FAIL verdict.
+- Tests that are tautologies (always-pass assertions) or exercise different behaviour than the AC describes are NOT genuine coverage.
+
 ### Gate 5 — No silent deferrals or placeholder logic
 
 Grep the changed files for `TODO`, `FIXME`, `deferred`, `later`, `placeholder`, `XXX`, `HACK`.
@@ -141,7 +164,17 @@ Grep the changed files for `TODO`, `FIXME`, `deferred`, `later`, `placeholder`, 
 - Any hit on a schema, contract, or user-reachable code path without a corresponding Rule 2 entry in `proof.md` "Not delivered": FAIL.
 - Empty function bodies, stub returns, hardcoded happy-path values in production code: FAIL.
 
-### Gate 6 — Claimed scope matches implemented scope
+### Gate 6 — Design conformance (Rule 9, Layer 1)
+
+Run `sworn designaudit --slice <slice-id> --release <release-name> --worktree <worktree_path>`.
+
+- If the script exits non-zero, FAIL with the enumerated violations.
+- Violations listed in the slice's `design-allowlist.json` (escape hatch) are suppressed — the script reads the allowlist automatically.
+- Violations declared in `proof.md` "Not delivered" as Rule 2 deferrals with human or captain acknowledgement are also acceptable — note them but do not FAIL on them.
+- If the project has no design-fidelity config (`docs/baton/design-fidelity.json` absent or `ui_bearing: false`), the gate passes automatically (non-UI project).
+- Hardcoded colours in test files (`*.test.*`, `*.spec.*`, `__tests__/`, `tests/`) are excluded — tests may assert against literal values.
+
+### Gate 7 — Claimed scope matches implemented scope
 
 Read `proof.md` "Delivered" list. For each item, verify the evidence reference (file path, test name, artefact path) points to real, working state.
 
@@ -246,8 +279,9 @@ A BLOCKED verdict means verification cannot complete because the slice's own **c
 
 - **The next step is `/replan-release <release-name>`.** The planner is the only role that can amend a spec and clear `verification.result`. Do not tell the human to "resolve the blocker and re-run `/verify-slice`" — for a *contract* defect that vague instruction is the non-terminating handoff this routing exists to prevent. (This ban does **not** apply to an `INCONCLUSIVE` outcome, where "re-run `/verify-slice` in a clean session" is precisely the correct, terminating recovery.) Do not route to `/implement-slice`: an implementer cannot clear a BLOCKED verdict, and re-opening the slice for implementation re-enters the verifier → planner → verifier loop.
 - **A spec-defect BLOCKED verdict must carry a concrete proposed `spec.md` amendment.** If you are BLOCKing because the spec is factually wrong, incomplete, or self-contradictory, your verdict states the exact change the planner should ratify — the precise sentence, acceptance check, or touchpoint to add, remove, or correct. A BLOCKED verdict that only says "the spec is wrong" forces the planner to re-derive the analysis you already did; carry the amendment so the planner's job is to ratify, not re-investigate.
-- **A BLOCKED verdict MUST populate `verification.violations` in `status.json` with the concrete defect + proposed amendment.** The `violations` array must be non-empty for a BLOCKED verdict — this is the machine-readable field the planner and loop read. The journal prose is supplementary, not a replacement. A deterministic gate rejects any `status.json` with `verification.result == "blocked"` and empty `violations`, so a malformed BLOCKED cannot be handed off.
+- **A BLOCKED verdict MUST populate `verification.violations` in `status.json` with the concrete defect + proposed amendment.** The `violations` array must be non-empty for a BLOCKED verdict — this is the machine-readable field the planner and loop read. The journal prose is supplementary, not a replacement. A deterministic gate rejects any `status.json` with `verification.result == "blocked"` and empty `violations`.
 - A handoff resolves forward to the next role or escalates up to the human; it never returns to its sender. The canonical statement is `$HOME/.claude/baton/session-discipline.md` "Handoff directionality".
+
 ## When verification cannot run (INCONCLUSIVE)
 
 An INCONCLUSIVE verdict means **you could not perform a trustworthy verification this session, and the cause has nothing to do with the slice's contract.** The canonical triggers:
@@ -262,60 +296,50 @@ How to write it (this is load-bearing — the loop reads it):
 - **State the recovery explicitly: re-run `/verify-slice <slice-id> <release-name>` in a clean session.** Never `/replan-release`, never `/implement-slice`. If you revert any partial writes you made before detecting the fault, confirm the working tree is clean before exiting.
 - The autonomous loop auto-re-verifies a bounded number of times; only if the fault persists does it page a human as "environmental," still never as a replan.
 
-## Watcher status block (mandatory)
+## Status block (mandatory)
 
-After your PASS/FAIL/BLOCKED verdict, emit this as the absolute last content of the turn:
+After your PASS/FAIL/BLOCKED verdict, emit this as the absolute last content of the turn.
 
-For PASS, the STATE depends on the next step computed in "Determining the next step" above.
+For PASS — use the next step computed in "Determining the next step" above:
 
-If the track still has a further incomplete slice (auto-advance to implement it):
+If the track still has a further incomplete slice (auto-advance to implement):
 ```
-<!-- WATCHER
 STATE: verified_implement_next
 SLICE: `<slice-id>`
-NEXT: `<next-incomplete-slice-id in this track>`
+NEXT: /implement-slice <next-incomplete-slice-id> <release-name>
 REASON: All six gates passed. `<next-incomplete-slice-id>` is the next slice in track `<track-id>`.
--->
 ```
 
 If every slice in the track is now verified (track ready to merge):
 ```
-<!-- WATCHER
 STATE: verified_awaiting_approval
 SLICE: `<slice-id>`
-NEXT: NONE
-REASON: All six gates passed. Track `<track-id>` is complete — run /merge-track `<track-id>`, then /merge-release `<release-name>` once every track is merged.
--->
+NEXT: /merge-track <track-id> <release-name>
+REASON: All six gates passed. Track `<track-id>` is complete — run /merge-track `<track-id>`.
 ```
 
 For FAIL:
 ```
-<!-- WATCHER
 STATE: blocked_needs_human
 SLICE: `<slice-id>`
 NEXT: NONE
 REASON: `<which gate failed and why, one sentence>`
--->
 ```
 
 For BLOCKED (contract defect → planner):
 ```
-<!-- WATCHER
 STATE: blocked_needs_planner
 SLICE: `<slice-id>`
-NEXT: NONE
+NEXT: /replan-release <release-name>
 REASON: `<specific contract defect or spec gap, one sentence>`
--->
 ```
 
 For INCONCLUSIVE (environmental fault → re-verify in a clean session, NOT a replan):
 ```
-<!-- WATCHER
 STATE: inconclusive_reverify
 SLICE: `<slice-id>`
-NEXT: `/verify-slice <slice-id> <release-name>`
-REASON: `<what made the session untrustworthy, one sentence — e.g. tool channel returned fabricated/contradictory output>`
--->
+NEXT: /verify-slice <slice-id> <release-name>
+REASON: `<what made the session untrustworthy, one sentence>`
 ```
 
-See `docs/baton/watcher-protocol.md` for full reference. The block must be last.
+The NEXT line must contain the literal slash command to run next. The block must be last.
