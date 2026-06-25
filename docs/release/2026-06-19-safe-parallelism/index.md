@@ -79,9 +79,9 @@ tracks:
   - id: T13-sworn-role-parity
     slices: [S45-design-tldr, S46-captain-review, S47-orchestrator-recovery]
     depends_on: [T12-harness-hardening, T17-orchestration-core]
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T13-sworn-role-parity
     worktree_branch: track/2026-06-19-safe-parallelism/T13-sworn-role-parity
-    state: planned
+    state: in_progress
   - id: T14-baton-integration
     slices: [S48-baton-vendor, S49-baton-version, S50-baton-governance, S62-baton-upstream-source, S73-baton-v0.5.0-pin]
     depends_on: [T3-commercial, T15-cli-registry]
