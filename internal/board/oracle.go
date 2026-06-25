@@ -556,3 +556,19 @@ func (a *OracleReaderAdapter) ReadBoard(ctx context.Context, release string) (*B
 	}
 	return a.oracle.ReadBoard(ctx, a.reader, a.releaseRef, release)
 }
+
+// NewOracleReaderAdapterFromRepo is the production convenience constructor.
+// It wraps a *git.Repo as both the oracle backend and content reader, reads
+// index.md from releaseRef to build the track map, and returns an adapter
+// that satisfies the router.OracleReader interface.
+func NewOracleReaderAdapterFromRepo(
+	repo *git.Repo,
+	release, releaseRef string,
+) (*OracleReaderAdapter, error) {
+	oracle := NewGitOracle(repo)
+	reader := &gitRepoReader{
+		show:          repo.Show,
+		catFileExists: repo.CatFileExists,
+	}
+	return NewOracleReaderAdapter(oracle, reader, release, releaseRef)
+}

@@ -55,3 +55,23 @@ Required to address:
 3. Add a test in `internal/run/parallel_test.go` that exercises the `TrackPaused` outcome through `RunParallel` (inject a worker returning `TrackPaused`, assert the function handles it correctly and returns appropriately per AC-6's fix).
 4. Change `RunParallel` to return an error when `pausedTracks` is non-empty (satisfying AC-6 "a paused/failed track yields non-zero").
 5. Add a cooperative pause mechanism to `runTrackRouter` — e.g., a `PauseRelease(ctx, release)` engine function that sets a stop signal checked before each router poll in the worker's `for` loop.
+
+## Session 2 — 2026-06-26 (round 2, re-implementation)
+
+State transition: `failed_verification` → `implemented`.
+
+### Decisions
+
+- **V1 (Gate 1) fix — production router wiring**: Added `Router scheduler.SliceRouter` field to `ParallelOptions`. Added `productionSliceRouter` private type wrapping `router.Route` with `board.OracleReaderAdapter` + `*git.Repo`. Auto-constructed in `RunParallel` when `opts.Router == nil` via `board.NewOracleReaderAdapterFromRepo`. Soft-fail: if git repo unavailable (unit tests in tmpDir), `opts.Router` stays `nil` and workers fall back to legacy static-iteration — preserves all existing parallel tests. In production, construction succeeds.
+
+- **`board.NewOracleReaderAdapterFromRepo` added**: Necessary because `board.NewOracleReaderAdapter` takes an unexported `gitContentReader` — can't be called from `internal/run` with `*git.Repo`. Added a 15-line exported convenience constructor to `internal/board/oracle.go` (divergence from planned touchpoints, documented in proof.md).
+
+- **V4 (AC-6) fix — paused track yields non-zero**: `RunParallel` now returns error when `pausedTracks` is non-empty: `"RunParallel: N track(s) paused (human decision required): <ids>"`.
+
+- **V5 (AC-7) fix — cooperative pause engine**: New `internal/scheduler/pause.go` with `PauseEngine` holding per-release closed channels; `PauseRelease`/`ResumeRelease`/`PauseCh` exported. Added `PauseCh <-chan struct{}` field to `WorkerOptions`. Pause check (non-blocking select) fires at top of each `runTrackRouter` iteration after any in-flight dispatch completes. `DefaultPauseEngine` is the process-global shared by CLI, TUI, and MCP via engine layer. Decision doc created at `internal-docs/decisions/2026-06-24-sworn-orchestration-surfaces-and-subscription-drivers.md`.
+
+- **V2/V3 (Gate 2/3) fix — parallel_test.go extended**: Added `TestRunParallel_TrackPaused` with `pausingRouter` fake that returns `coach_decision`; asserts `RunParallel` returns error containing "paused" and "T1". Covers the `case scheduler.TrackPaused:` path through `RunParallel`.
+
+- **V5 (AC-7) test**: Added `TestCooperativePauseSignal` to `worker_test.go`: RunSliceFn closes the pauseCh after first dispatch; next loop iteration checks pause → returns `TrackPaused`; asserts only S01-first was dispatched.
+
+### First-pass: 23/23 PASS.

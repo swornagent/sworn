@@ -695,6 +695,83 @@ func TestRouterDrivenWorkerSupervisorAcquireRelease(t *testing.T) {
 	}
 }
 
+func TestCooperativePauseSignal(t *testing.T) {
+	// AC-7: engine pause signal is honoured at the next poll boundary —
+	// the worker completes the in-flight dispatch (S01-first), then stops
+	// because the pause channel closes before the second router poll.
+	tmpDir := t.TempDir()
+
+	for _, sid := range []string{"S01-first", "S02-second"} {
+		d := filepath.Join(tmpDir, "docs", "release", "test-pause", sid)
+		os.MkdirAll(d, 0o755)
+		os.WriteFile(filepath.Join(d, "spec.md"), []byte("# test"), 0o644)
+		os.WriteFile(filepath.Join(d, "status.json"), []byte(`{"state":"planned"}`), 0o644)
+	}
+
+	pauseCh := make(chan struct{})
+
+	// Router: first call dispatches S01-first; a second call would advance
+	// to S02-second — but the pause fires before the second poll.
+	router := &fakeRouter{
+		decisions: []SliceDecision{
+			{Type: "implement", Reason: "planned", Target: ""},
+			{Type: "implement", Reason: "next", Target: "S02-second"},
+			{Type: "none", Reason: "terminal"},
+		},
+	}
+
+	var called []string
+	runFn := func(ctx context.Context, wt, specPath, statusPath string) error {
+		sid := filepath.Base(filepath.Dir(specPath))
+		called = append(called, sid)
+		// Close the pause channel once the first dispatch completes — the
+		// next iteration's cooperative pause check will fire before polling.
+		if len(called) == 1 {
+			close(pauseCh)
+		}
+		return nil
+	}
+
+	opts := WorkerOptions{
+		ReleaseName:         "test-pause",
+		PrimaryWorktreeRoot: tmpDir,
+		ProjectDir:          "sworn",
+		TrackInfo: board.TrackInfo{
+			ID:             "T1",
+			Slices:         []string{"S01-first", "S02-second"},
+			WorktreePath:   tmpDir,
+			WorktreeBranch: "track/test/T1",
+		},
+		RunSliceFn: runFn,
+		Router:     router,
+		PauseCh:    pauseCh,
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite not available: %v", err)
+	}
+	defer db.Close()
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+	opts.DB = db
+
+	result := RunTrack(context.Background(), opts)
+	if result != TrackPaused {
+		t.Fatalf("expected TrackPaused after cooperative pause signal, got %s", result)
+	}
+	// S01-first must have been dispatched (in-flight dispatch completed).
+	if len(called) != 1 || called[0] != "S01-first" {
+		t.Errorf("expected only S01-first dispatched before pause, got %v", called)
+	}
+	// S02-second must NOT have been dispatched.
+	for _, s := range called {
+		if s == "S02-second" {
+			t.Error("S02-second was dispatched — cooperative pause was not honoured")
+		}
+	}
+}
+
 func TestRouterDrivenWorkerLegacyFallback(t *testing.T) {
 	// When no Router is configured, fall back to static iteration.
 	tmpDir := t.TempDir()

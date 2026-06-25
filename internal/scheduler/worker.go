@@ -94,6 +94,12 @@ type WorkerOptions struct {
 	// Notifier is the notification dispatcher for track-level failures.
 	// When nil, notifications are skipped.
 	Notifier *account.Notifier
+
+	// PauseCh is the cooperative pause signal for this release. When this
+	// channel is closed, the worker stops at the next router-poll boundary
+	// (after completing any in-flight dispatch). Set via PauseEngine.PauseCh.
+	// When nil, no cooperative pause is checked.
+	PauseCh <-chan struct{}
 }
 
 // RunTrack executes one track's slices sequentially in its own worktree.
@@ -205,6 +211,20 @@ func runTrackRouter(
 			fmt.Fprintf(os.Stderr, "[%s] cancelled at slice %s\n", trackID, currentSlice)
 			releaseTrack(supervisor.StateFailed)
 			return TrackSkipped
+		}
+
+		// Cooperative pause check — fires after any in-flight dispatch
+		// completes, before the next router poll. The engine layer
+		// (PauseEngine) closes the channel; this is a non-blocking check
+		// so a nil channel (release not paused) is always a no-op.
+		if opts.PauseCh != nil {
+			select {
+			case <-opts.PauseCh:
+				fmt.Fprintf(os.Stderr, "[%s] engine pause signal at slice %s — stopping\n", trackID, currentSlice)
+				releaseTrack("paused")
+				return TrackPaused
+			default:
+			}
 		}
 
 		// Poll the router for the current frontier slice.

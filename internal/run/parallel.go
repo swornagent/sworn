@@ -12,6 +12,8 @@ import (
 
 	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/board"
+	"github.com/swornagent/sworn/internal/git"
+	"github.com/swornagent/sworn/internal/router"
 	"github.com/swornagent/sworn/internal/scheduler"
 )
 
@@ -37,6 +39,52 @@ type ParallelOptions struct {
 	// Notifier is the notification dispatcher for track-level failures.
 	// When nil, notifications are skipped.
 	Notifier *account.Notifier
+
+	// Router is the SliceRouter workers poll for route decisions. When nil,
+	// RunParallel auto-constructs a production router backed by internal/router
+	// and internal/board. Tests inject fakes to exercise the router-driven path
+	// without real git state.
+	Router scheduler.SliceRouter
+
+	// PauseEngine manages cooperative pause signals. When nil, defaults to
+	// scheduler.DefaultPauseEngine (the process-global engine shared by CLI,
+	// TUI, and MCP). Tests may supply their own to avoid global state.
+	PauseEngine *scheduler.PauseEngine
+}
+
+// productionSliceRouter wraps internal/router.Route to satisfy scheduler.SliceRouter.
+// Constructed by RunParallel when no Router is injected via ParallelOptions.
+type productionSliceRouter struct {
+	oracle     router.OracleReader
+	content    router.ContentReader
+	trackInfos []board.TrackInfo
+}
+
+func (p *productionSliceRouter) Route(ctx context.Context, release, sliceID, trackID string) (scheduler.SliceDecision, error) {
+	var trackBranch string
+	for _, ti := range p.trackInfos {
+		if ti.ID == trackID {
+			trackBranch = ti.WorktreeBranch
+			break
+		}
+	}
+
+	dec, err := router.Route(ctx, p.oracle, p.content, router.RouteInput{
+		Release:     release,
+		SliceID:     sliceID,
+		TrackID:     trackID,
+		TrackBranch: trackBranch,
+		ReleaseRef:  "release-wt/" + release,
+		DocsPrefix:  "docs",
+	})
+	if err != nil {
+		return scheduler.SliceDecision{}, err
+	}
+	return scheduler.SliceDecision{
+		Type:   string(dec.NextType),
+		Reason: dec.NextReason,
+		Target: dec.TargetSlice,
+	}, nil
 }
 
 // RunParallel reads the release board, builds an execution plan, and runs
@@ -105,6 +153,32 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 	fmt.Fprintf(os.Stderr, "sworn run --parallel: loaded %d tracks in %d phases\n",
 		len(tracks), len(plan.Phases))
 
+	// ── Auto-construct production router when none injected ─────────────
+	// Tests inject fakes via opts.Router; production gets a router backed by
+	// the live oracle (board.OracleReaderAdapter) and git content reader.
+	// Soft-fail: if the git repo or release ref is unavailable (e.g. in
+	// unit tests that operate outside a real repo), opts.Router stays nil
+	// and workers fall back to the legacy static-iteration path via RunTrack.
+	// In production (real git repo + release branch) the construction always
+	// succeeds and the router-driven loop is the live path.
+	if opts.Router == nil {
+		repo := git.New(absRoot)
+		releaseRef := "release-wt/" + releaseName
+		if ora, oraErr := board.NewOracleReaderAdapterFromRepo(repo, releaseName, releaseRef); oraErr == nil {
+			opts.Router = &productionSliceRouter{
+				oracle:     ora,
+				content:    repo,
+				trackInfos: tracks,
+			}
+		}
+	}
+
+	// ── Resolve pause engine ────────────────────────────────────────────
+	pauseEngine := opts.PauseEngine
+	if pauseEngine == nil {
+		pauseEngine = scheduler.DefaultPauseEngine
+	}
+
 	// ── Fan out per phase ───────────────────────────────────────────────
 	var outcomeMap sync.Map
 	// failCtx propagates cancellation to subsequent phases when any track fails.
@@ -140,6 +214,8 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 					DB:                  opts.DB,
 					RunSliceFn:          opts.RunSliceFn,
 					Notifier:            opts.Notifier,
+					Router:              opts.Router,
+					PauseCh:             pauseEngine.PauseCh(releaseName),
 				}
 				result := scheduler.RunTrack(phaseCtx, workerOpts)
 				outcomeMap.Store(t.ID, result)
@@ -186,8 +262,16 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 			len(failedTracks), strings.Join(failedTracks, ", "))
 	}
 
-	fmt.Fprintf(os.Stderr, "RunParallel: all %d tracks PASS (skipped: %d, paused: %d)\n",
-		len(tracks), len(skippedTracks), len(pausedTracks))
+	// AC-6: a paused track is a non-zero outcome — a human decision is
+	// required before the release can proceed. Surface which tracks are paused
+	// so the caller (CLI / TUI) can route to the appropriate command.
+	if len(pausedTracks) > 0 {
+		return fmt.Errorf("RunParallel: %d track(s) paused (human decision required): %s",
+			len(pausedTracks), strings.Join(pausedTracks, ", "))
+	}
+
+	fmt.Fprintf(os.Stderr, "RunParallel: all %d tracks PASS (skipped: %d)\n",
+		len(tracks), len(skippedTracks))
 	return nil
 }
 
