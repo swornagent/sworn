@@ -2,37 +2,38 @@
 
 ## Scope
 
-Update the vendored Baton protocol from v0.4.2 to v0.5.0 — role prompts, rules, gate scripts, schemas. `sworn version` shows `baton-protocol v0.5.0`.
+Update the vendored Baton protocol from v0.4.2 to v0.5.0 — re-vendor actual content so `sworn baton diff` exits 0 (zero divergence) against the v0.5.0 tag. The prior implementation extended the file-map (D2) but never ran the vendor to write v0.5.0 content into the embed.
 
 ## Files changed
 
 ```
-cmd/sworn/baton_test.go
-docs/release/2026-06-19-safe-parallelism/S73-baton-v0.5.0-pin/journal.md
-docs/release/2026-06-19-safe-parallelism/S73-baton-v0.5.0-pin/proof.md
-docs/release/2026-06-19-safe-parallelism/S73-baton-v0.5.0-pin/spec.md
-docs/release/2026-06-19-safe-parallelism/S73-baton-v0.5.0-pin/status.json
-internal/adopt/adopt.go
-internal/adopt/baton/VERSION
+internal/adopt/baton/README.md
 internal/adopt/baton/architecture.json
-internal/baton/fetch.go
-internal/baton/fetch_test.go
-internal/baton/source.go
-internal/baton/testdata/fixture/claude/baton/architecture.json
-internal/baton/testdata/fixture/claude/baton/process-global-mutation.md
-internal/baton/testdata/fixture/claude/baton/role-prompts/captain.md
-internal/baton/transform.go
-internal/baton/vendor_test.go
+internal/adopt/baton/rules/05-session-discipline.md
+internal/adopt/baton/rules/08-requirements-fidelity.md
+internal/adopt/baton/rules/09-design-fidelity.md
+internal/adopt/baton/rules/11-process-global-mutation.md
+internal/prompt/baton/README.md
+internal/prompt/baton/brainstorm-patterns.md
+internal/prompt/baton/rules.md
+internal/prompt/baton/session-discipline.md
+internal/prompt/captain.md
+internal/prompt/implementer.md
+internal/prompt/planner.md
 internal/prompt/prompt_test.go
+internal/prompt/verifier.md
 ```
+
 ## Test results
 
 ```
 $ go test ./internal/prompt/... ./internal/adopt/... ./internal/baton/...
-ok      github.com/swornagent/sworn/internal/prompt     0.004s
-ok      github.com/swornagent/sworn/internal/adopt      0.009s
-ok      github.com/swornagent/sworn/internal/baton      0.961s
+ok  	github.com/swornagent/sworn/internal/prompt	0.004s
+ok  	github.com/swornagent/sworn/internal/adopt	0.008s
+ok  	github.com/swornagent/sworn/internal/baton	0.874s
 ```
+
+All three test suites pass. `go vet ./...` is clean.
 
 ## Reachability artefact
 
@@ -44,13 +45,14 @@ baton-protocol on Baton v0.5.0
 
 ## Delivered
 
-- [x] AC1: `internal/adopt/baton/VERSION` references commit `9ae08fbb1ef28ba5a4918a51018b01ba31b4797b` with `vendored: 2026-06-25` — see `internal/adopt/baton/VERSION`
-- [x] AC2: `sworn baton vendor --upstream --tag v0.5.0` succeeds and resolves correct SHA — upstream vendor resolved `9ae08fbb1ef28ba5a4918a51018b01ba31b4797b`
-- [x] AC3: `sworn baton diff` exits 0 (no divergence from upstream) — verified against baton v0.5.0 tag checkout
-- [x] AC4: `sworn version` shows `baton-protocol v0.5.0` — confirmed (reachability artefact above)
-- [x] AC5: All 4 role prompts match baton v0.5.0 upstream — confirmed by `sworn baton diff` exit 0
-- [x] AC6: All vendored rules match baton v0.5.0 upstream — confirmed by `sworn baton diff` exit 0
-- [x] AC7: Existing tests pass with no regression — all 3 test suites pass (prompt, adopt, baton)
+- [x] AC1: `internal/adopt/baton/VERSION` has `baton-protocol: v0.5.0` and `upstream-sha: 9ae08fbb1ef28ba5a4918a51018b01ba31b4797b` (resolved commit, not tag-object), with `vendored: 2026-06-25`. See `internal/adopt/baton/VERSION`.
+- [x] AC2: `sworn baton vendor --upstream --tag v0.5.0` succeeds and the SHA resolves correctly (no `FetchUpstream` mismatch abort). Verified in prior implementation; VERSION pin unchanged.
+- [x] AC3: `internal/baton/source.go` `batonFileMappings` maps `captain.md`, `architecture.json`, and rule-11 (`process-global-mutation.md`); `RuleSources()` includes `process-global-mutation.md`. See `internal/baton/source.go` (established by prior implementation).
+- [x] AC4: `sworn baton diff ~/projects/baton` exits 0 — zero divergence. Architecture.json is 81 lines of real v0.5.0 content (not `{}`), rules 08/09/11 match upstream, all 4 role prompts match upstream. See reachability evidence below.
+- [x] AC5: `sworn version` shows `baton-protocol v0.5.0` (confirmed — reachability artefact above).
+- [x] AC6: All 4 role prompts (`planner`, `implementer`, `verifier`, `captain`) match baton v0.5.0 upstream — confirmed by `sworn baton diff` exit 0.
+- [x] AC7: All vendored rules (08–11) and `architecture.json` match baton v0.5.0 upstream — confirmed by `sworn baton diff` exit 0.
+- [x] AC8: Existing tests pass with no regression — all 3 test suites pass.
 
 ## Not delivered
 
@@ -58,50 +60,18 @@ baton-protocol on Baton v0.5.0
 
 ## Divergence from plan
 
-1. **AC1 SHA: `9ae08fb` (commit) vs specified `b8452dd` (tag-object).** The spec's AC1 names the tag-object hash `b8452dd`, but the vendor's `FetchUpstream` resolves and pins the commit SHA `9ae08fb` (per GitHub API convention). Using `b8452dd` would cause every subsequent upstream fetch to fail with "SHA mismatch — tag may have been force-moved". The established convention (S48, S62) is to pin the commit SHA. Used `9ae08fb`.
+1. **SHA semantics (D1):** Used commit SHA `9ae08fb` (resolved commit), not tag-object `b8452dd`. Resolved by replan — spec corrected to commit SHA.
+2. **File-map extension (D2):** File-map for captain.md, architecture.json, rule-11 was added by prior implementation. This session completed the actual re-vendor to write v0.5.0 content.
+3. **Prompt test fix:** `TestVerifierHasCatalogConformance` assertion updated from `Gate 6 — Claimed scope matches implemented scope` (incorrect) to `Gate 6 — Design conformance` (actual v0.5.0 heading). The canonical v0.5.0 verifier has Gate 6 as "Design conformance (Rule 9, Layer 1)" and Gate 7 as "Claimed scope matches implemented scope".
 
-2. **File mappings for new v0.5.0 content.** The spec listed `captain.md` and `architecture.json` as in-scope but the `batonFileMappings` in `source.go` lacked entries for these files plus `process-global-mutation.md` (rule 11). Added mappings:
-   - `captain.md` → `internal/prompt/captain.md`
-   - `architecture.json` → `internal/adopt/baton/architecture.json`
-   - `process-global-mutation.md` → `internal/adopt/baton/rules/11-process-global-mutation.md`
-
-3. **Transform substitutions for new v0.5.0 script references.** Upstream v0.5.0 added 9 new script references not in the existing `replacements` table (`release-trace.sh`, `release-audit-design.sh`, `release-coverage.sh`, `release-llm-check.sh`, `release-mock-check.sh`, `release-regression.sh`, `install.sh`, `server-start.sh`, `server-stop.sh`, `install-codex.sh`). Added all to `transform.go`.
-
-4. **Prompt test assertions updated for v0.5.0 content.** v0.5.0 upstream prompts reorganised headings and removed Sworn-specific additions (S36 resolve-dirty-worktree, S51 registry check, S46 deviation/dependency checks). Updated 7 test functions (`TestCaptain_ResolveDirtyWorktree`, `TestPlannerHasPhase2b`, `TestPlannerPhase2bDRYGate`, `TestPlannerPhase2bFastPath`, `TestImplementerHasDeviationCheck`, `TestImplementerHasDependencyDiscipline`, `TestVerifierHasCatalogConformance`) to assert v0.5.0-equivalent headings.
-
-5. **Tarball prefix `v`-stripping fix.** GitHub codeload tarballs strip the leading `v` from semver tags (e.g. tag `v0.5.0` → archive prefix `baton-0.5.0/`). Fixed `fetch.go` `extractTarball`, `fetch_test.go` `makeTarball`, and `cmd/sworn/baton_test.go` `makeUpstreamTarball` to match.
-
-6. **Embed directive updated.** Added `baton/architecture.json` to `internal/adopt/adopt.go` `//go:embed` directive.
-
-## First-pass script output
-
-(Note: `release-verify.sh` has a script-level bug with unbound `PLAYWRIGHT_OPTIN` variable that crashes after checks. Pre-crash output:)
+## AC4 evidence — sworn baton diff exit 0
 
 ```
-release-verify.sh
-  slice:       S73-baton-v0.5.0-pin
-  slice dir:   docs/release/2026-06-19-safe-parallelism/S73-baton-v0.5.0-pin
-  base branch: main
+$ sworn baton diff ~/projects/baton
+In sync — embedded protocol matches pinned source.
 
-== Slice artefacts ==
-  PASS  slice folder exists
-  PASS  spec.md present
-  PASS  status.json present
-  PASS  journal.md present
-  PASS  spec.md has Required tests section
-  PASS  no-playwright opt-out present
-
-== Status ==
-  PASS  status.json is valid JSON
-  state: in_progress
-  (in_progress → expected; transitioning to implemented in this commit)
-
-== Integration branch drift ==
-  PASS  integration branch drift present but does not affect test infrastructure
-
-== Diff vs start_commit ==
-  PASS  14 file(s) changed vs diff base
-
-== Dark-code markers in changed files ==
-  PASS  no dark-code markers in changed source files
+$ echo $?
+0
 ```
+
+Verified against local Baton v0.5.0 checkout at `~/projects/baton` (commit `9ae08fb`).

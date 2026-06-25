@@ -24,7 +24,7 @@ Anchoring fixes all four. The discipline is procedural: every session has a know
 
 ### Session start
 
-- Ask which issue the work belongs to. If none exists, create one before starting.
+- Ask which issue the work belongs to. If none exists, create one before starting. **Exception — Baton release-mode sessions:** when the work is a release-mode command (`/plan-release`, `/replan-release`, `/implement-slice`, `/verify-slice`, `/merge-track`, `/merge-release`) operating on a `docs/release/<name>/` tree, that tree — `index.md`, `intake.md`, and each slice's `spec.md` / `status.json` / `journal.md` — **is** the durable anchor; it is exactly the "equivalent durable tracker" this rule allows. Do **not** open by asking for, or creating, a GitHub issue. Proceed straight to the command's own Step 0.
 - Read the issue's existing comments / linked context. This is what you'd already have known if the previous session had captured properly.
 - Set a goal for the session in plain text — what does "done" look like?
 
@@ -70,6 +70,7 @@ Rule of thumb: *if it would become stale as work progresses, it belongs in an is
 - Quick questions ("how does X work?").
 - One-off fixes that fit in a single commit and don't need cross-session continuity.
 - Spike sessions where the spike branch is itself the artefact and gets deleted.
+- **Baton release-mode sessions** — the release artefact tree under `docs/release/<name>/` is the anchor (see the Session-start exception above). Never prompt the human for a GitHub issue.
 
 If you're unsure whether to anchor: anchor. The cost is one `gh issue create`. The cost of *not* anchoring is the rework discussed in Rule 3.
 

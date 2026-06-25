@@ -176,13 +176,12 @@ func TestImplementerHasDependencyDiscipline(t *testing.T) {
 
 func TestVerifierHasCatalogConformance(t *testing.T) {
 	got := Verifier()
-	// v0.5.0 verifier Gate 6 is "Claimed scope matches implemented scope".
+	// v0.5.0 verifier Gate 6 is "Design conformance (Rule 9, Layer 1)".
 	// (Sworn-specific "Catalog conformance check" is not in canonical baton.)
-	if !strings.Contains(got, "Gate 6 — Claimed scope matches implemented scope") {
-		t.Errorf("Verifier() missing 'Gate 6' heading")
+	if !strings.Contains(got, "Gate 6 — Design conformance") {
+		t.Errorf("Verifier() missing 'Gate 6 — Design conformance' heading")
 	}
 }
-
 // --- Baton protocol embed tests (S21-canonical-baton) ---
 
 func TestBatonRulesNonEmpty(t *testing.T) {

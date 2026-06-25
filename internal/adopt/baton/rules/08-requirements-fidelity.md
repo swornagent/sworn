@@ -27,21 +27,22 @@ This is the same insight the README frames around requirements failure: decades 
 
 The RTM is the enforcement mechanism. It has two axes and threads through the existing artefacts — no separate datastore.
 
-### Horizontal: need → acceptance criterion → test → proof
+### Horizontal: intake need → slice → acceptance criterion → test → proof
 
 ```
-intake.md          spec.md               spec.md             proof.md
---------           --------               --------            --------
-N-01: need  --->   - [ ] AC cites N-01    Required tests  ->  test results
-                   - [ ] AC cites N-01                        reachability
+intake.md          status.json         spec.md               spec.md             proof.md
+--------           ------------        --------               --------            --------
+N-01: need  --->   covers_needs:  -->   - [ ] AC cites N-01    Required tests  ->  test results
+                   [N-01, N-03]         - [ ] AC cites N-01                        reachability
 ```
 
 - **Needs** are enumerated with stable ids (`N-01`, `N-02`, …) in `intake.md`. The planner assigns ids at planning time; they are never reused.
+- **Slice coverage** — every slice declares which intake needs it delivers in `status.json` `covers_needs` (array of need IDs). This is the intake→slice link: a deterministic gate can verify every N-NN appears in at least one slice, and no slice claims a need it doesn't cite in its ACs.
 - **Acceptance criteria** in each `spec.md` cite the need id(s) they satisfy, inline in the AC text (e.g. "WHEN … THE SYSTEM SHALL … (N-01)").
 - **Required tests** in `spec.md` cite the acceptance check they exercise.
 - **Proof** in `proof.md` closes `AC → test → proof` (already required by Rule 6).
 
-The RTM adds the front half: `need → AC`. An orphaned need (no linked AC) or an orphaned AC (cites no need, or cites a need but has no test) is a broken trace.
+The RTM now closes the full chain: `intake need → slice → AC → test → proof`. An orphaned need (no slice covers it, or no AC cites it), an orphaned AC (cites no need, or cites a need but has no test), or a slice that claims a need it doesn't cite in its ACs (mismatch) is a broken trace.
 
 ### Vertical: org objective → release benefit → slice
 
@@ -58,36 +59,57 @@ The vertical trace is the golden thread: line-of-sight from strategy (if declare
 
 ## Enforcement
 
-A deterministic, fail-closed traceability gate builds the matrix from `intake.md` / `spec.md` / `status.json` / `index.md` alone — no separate datastore. It exits non-zero on:
+A deterministic, fail-closed traceability gate — `sworn trace <release-name>` — builds the matrix from `intake.md` / `spec.md` / `status.json` / `index.md` alone. It exits 0 on a fully-traced release, non-zero with enumerated violations on any break.
 
-- An orphaned need (need with no linked acceptance criterion).
-- An orphaned acceptance criterion (cites no need id, or cites a need but has no linked test).
-- A slice with no vertical link (no release goal in intake and no release benefit or org objective on the slice).
+The gate checks:
 
-A fully-traced release prints the matrix and exits 0. The source reference implementation is a `lint trace`-style command; adopters port the check to their own tooling, the same way Rule 7's `sworn verify` is ported.
+- **Orphaned need** — an intake need ID (N-NN) that appears in no slice's `covers_needs`. The intake→slice gap.
+- **Invalid covers** — a slice's `covers_needs` references a need ID not in intake.md.
+- **Unclaimed coverage** — a need ID in `covers_needs` with no AC in that slice's spec citing it. The slice→spec gap.
+- **Free-form AC** — an acceptance check that lacks the EARS `shall` keyword and has no `NOTE:` escape. The AC→structure gap.
+- **"See intake" reference** — any spec content that refers the implementer to intake.md. The spec must stand alone.
+- **Vague AC / scope** — an AC or in-scope item describing no concrete artefact (file, testid, status code, label string, value). The content-density gap.
+
+Run `sworn trace` at two points in the workflow: (a) planner Phase 6 before handoff, and (b) as the DoR gate at `planned → in_progress`. A release that fails the trace may not ship.
 
 ## EARS notation — structured acceptance criteria
 
-The RTM enforces *traceability* (need → AC → test). EARS (Easy Approach to Requirements Syntax) enforces *structure* — each acceptance criterion is a single sentence with a fixed keyword shape, not free-form prose. Together they form the front-end fidelity gate: traced AND well-formed.
+The RTM enforces *traceability* (need → AC → test). EARS (Easy Approach to Requirements Syntax) enforces *structure* — each acceptance criterion follows a fixed keyword pattern, not free-form prose. Together they form the front-end fidelity gate: traced AND well-formed.
+
+EARS was developed at Rolls-Royce PLC in 2009 (Mavin et al., IEEE RE'09) and is used worldwide by Airbus, Bosch, Dyson, Honeywell, Intel, NASA, Rolls-Royce, and Siemens.
 
 A deterministic gate classifies every acceptance check in every slice's `spec.md` by EARS pattern and fails closed on any free-form check that matches no pattern, naming the slice and the offending line.
 
-| Class | Pattern | Example |
-|---|---|---|
-| Ubiquitous | `THE SYSTEM SHALL <action>` | `THE SYSTEM SHALL display the dashboard.` |
-| Event-driven | `WHEN <trigger> THE SYSTEM SHALL <action>` | `WHEN a user clicks save THE SYSTEM SHALL persist the form.` |
-| State-driven | `WHILE <state> THE SYSTEM SHALL <action>` | `WHILE in maintenance mode THE SYSTEM SHALL show a banner.` |
-| Optional-feature | `WHERE <feature> THE SYSTEM SHALL <action>` | `WHERE a premium feature is enabled THE SYSTEM SHALL show the export button.` |
-| Unwanted-behaviour | `IF <condition> THEN THE SYSTEM SHALL <action>` | `IF the database is unreachable THEN THE SYSTEM SHALL return a 503 error.` |
-| Complex | Two or more preconditions combined | `WHEN a user clicks save WHILE the form is valid THE SYSTEM SHALL persist the form.` |
+| Class | Pattern | Keywords | Example |
+|---|---|---|---|
+| Ubiquitous | `<system> shall <response>` | none (always active) | `The API shall return 200 for valid input.` |
+| Event-driven | `When <trigger>, <system> shall <response>` | `When` | `When the user clicks Save, the form shall persist to the backend.` |
+| State-driven | `While <state>, <system> shall <response>` | `While` | `While the modal is open, the page shall not scroll.` |
+| Optional-feature | `Where <feature>, <system> shall <response>` | `Where` | `Where Premium is enabled, the export button shall be visible.` |
+| Unwanted-behaviour | `If <condition>, then <system> shall <response>` | `If … then` | `If the database is unreachable, then the API shall return 503.` |
+| Complex | Two or more keywords combined | e.g. `While … When …` | `While on mobile, when the user taps Edit, the settings sheet shall open.` |
 
-**The `NOTE:` escape.** A line prefixed with `NOTE:` is a deliberate non-requirement note and is excluded from validation — use it for context that is not a testable requirement (a design constraint, a cross-reference, a rationale). Without the escape such lines would fail the gate as free-form.
-
-**Why EARS, not Gherkin.** Gherkin (Given-When-Then) was considered and rejected: EARS is lighter (one sentence per requirement, no scenario tables), is the de-facto notation for agent-authored requirements, and maps cleanly to the checkbox format already used in `spec.md`. The decision is recorded; adopters need not re-litigate it.
+ACs that use no EARS keyword pattern and no `NOTE:` escape are free-form and fail the gate. The `<system>` slot can be implicit (e.g. "the page", "the API", "the component") or omitted — the litmus is the keyword + `shall` structure, not the specific system noun.
 
 ## Spec-quality metric — pre-code soundness + completeness
 
 Before a spec reaches verification or validation, a deterministic, pre-code first-pass computes soundness + completeness from a slice's **acceptance examples** alone — no source code, no model call.
+
+### Structural completeness (the sniff-test gate)
+
+The RTM verifies *traceability* (every need has an AC, every AC has a test) but not *content-density*. A spec can pass traceability while being a thin shadow of its intake section — "fix the windfall bug" passes the EARS check but captures none of the detail the intake elaborated. This is the decomposition-fidelity failure mode: the planner splits intake into slices but fails to decompose the intake-level description into spec-level precision.
+
+Intake is the epic level — broad user outcomes, "what the human wants" in natural language. The spec is the feature/story level — decomposed into concrete, verifiable, implementation-precision acceptance criteria. "Replicate intake detail" is the wrong framing; the spec must *refine* intake detail into finer granularity. Intake says *what* (ticker search); the spec says *where* (`PortfolioEditor.tsx`), *how* (`<TickerSearch />` with `accessToken` prop, Name field `disabled={true}`), and *proves* (testids, status codes, screenshot paths).
+
+A structural-completeness check runs at the `planned → in_progress` transition and fails closed on:
+
+1. **Vague-scope spec** — an AC or in-scope item that could describe *any* slice of its kind ("fix the bug", "add the missing code", "wire up the component"). Every AC must name at least one concrete artefact (a file path, a label string, a data-testid, an assertion value, an HTTP status code). A spec without concretes is a spec that can't be verified — the verifier has nothing concrete to check against.
+2. **Missing detail** — a behavioural detail present in the intake's "What the human wants" section for this slice's scope that has no corresponding AC, in-scope item, or planned touchpoint in the spec. A single unmatched intake detail fails the gate.
+3. **"See intake" reference** — any spec content that refers the implementer to intake.md (directly or indirectly: "see intake", "refer to intake", "as described in the intake"). The spec owns every detail it covers.
+
+This is a deterministic gate, not a model call — it checks for concrete terms (file paths, quoted strings, testids, status codes) and cross-references intake detail against spec content. A spec with no concretes or missing intake detail never reaches implementation.
+
+### Numeric completeness (mutation analysis)
 
 Every spec SHOULD carry a `## Acceptance examples` section with one or more **input → expected-output** pairs per acceptance check:
 

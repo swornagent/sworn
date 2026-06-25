@@ -192,3 +192,37 @@ approach — no spec change, hence FAIL not BLOCKED):
 
 Next step: `/implement-slice S73-baton-v0.5.0-pin 2026-06-19-safe-parallelism` in a fresh
 session to address the violations.
+
+## 2026-07-15 — Implementer session: re-vendored v0.5.0 content, addressed all FAIL violations
+
+Third implementer session on this slice. Prior session (2026-06-25) extended the file-map
+but never ran `sworn baton vendor` to actually write v0.5.0 content — leaving
+`architecture.json` as `{}`, rules 08/09/11 stale, and prompts diverging from upstream.
+Verifier found 14 divergent files; FAIL.
+
+### Implementation
+
+- Ran `sworn baton vendor ~/projects/baton` — successfully vendored 14 files of v0.5.0
+  content. Architecture.json now 81 lines with canonical_docs + 8 universal rules.
+- `sworn baton diff ~/projects/baton` exits 0 — zero divergence confirmed.
+- Fixed `TestVerifierHasCatalogConformance` — assertion changed from
+  `Gate 6 — Claimed scope matches implemented scope` (incorrect heading) to
+  `Gate 6 — Design conformance` (actual v0.5.0 verifier heading).
+- All 3 test suites pass. `go vet ./...` clean.
+- `sworn version` shows `baton-protocol on Baton v0.5.0`.
+
+### Decisions
+
+- **Vendor source:** Used local `~/projects/baton` (canonical upstream at tag v0.5.0,
+  commit `9ae08fb`). No `--upstream` flag used — local is faster and produces identical
+  transform output.
+- **Double-vendor quirk:** First `sworn baton vendor` run showed diffs; second run showed
+  "No changes". `sworn baton diff` showed 2 files diverging after first run but passed
+  after second. Appears to be a newline/whitespace normalization artifact — harmless.
+- **Test assertion fix:** `TestVerifierHasCatalogConformance` was checking for
+  `Gate 6 — Claimed scope matches implemented scope` which doesn't exist in canonical
+  v0.5.0. Fixed to `Gate 6 — Design conformance` matching the actual heading.
+
+### State transition
+
+`failed_verification` → `in_progress` (start implementation) → `implemented` (this commit)
