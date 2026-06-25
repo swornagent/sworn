@@ -79,9 +79,9 @@ tracks:
   - id: T13-sworn-role-parity
     slices: [S45-design-tldr, S46-captain-review, S47-orchestrator-recovery]
     depends_on: [T12-harness-hardening, T17-orchestration-core]
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T13-sworn-role-parity
     worktree_branch: track/2026-06-19-safe-parallelism/T13-sworn-role-parity
-    state: planned
+    state: in_progress
   - id: T14-baton-integration
     slices: [S48-baton-vendor, S49-baton-version, S50-baton-governance, S62-baton-upstream-source, S73-baton-v0.5.0-pin]
     depends_on: [T3-commercial, T15-cli-registry]
@@ -105,7 +105,7 @@ tracks:
     depends_on: [T1-concurrency-core, T12-harness-hardening, T18-cli-polish]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T17-orchestration-core
     worktree_branch: track/2026-06-19-safe-parallelism/T17-orchestration-core
-    state: verified
+    state: merged
   - id: T18-cli-polish
     slices: [S60-init-ui-bearing-fix, S61-cli-output-styling]
     depends_on: [T2-monitoring, T15-cli-registry]
@@ -124,17 +124,17 @@ tracks:
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T20-gate-engine
     worktree_branch: track/2026-06-19-safe-parallelism/T20-gate-engine
     state: merged
-  - id: T21-mcp-lint    slices: [S71-mcp-lint-tools]
+  - id: T21-mcp-lint
+    slices: [S71-mcp-lint-tools]
     depends_on: [T4-mcp, T20-gate-engine]
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T21-mcp-lint
     worktree_branch: track/2026-06-19-safe-parallelism/T21-mcp-lint
-    state: planned
-  - id: T22-tui-gate
-    slices: [S72-tui-gate-display]
+    state: in_progress
+  - id: T22-tui-gate    slices: [S72-tui-gate-display]
     depends_on: [T2-monitoring, T20-gate-engine]
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T22-tui-gate
     worktree_branch: track/2026-06-19-safe-parallelism/T22-tui-gate
-    state: planned
+    state: in_progress
 ---
 
 # Release Board: `2026-06-19-safe-parallelism`
@@ -175,8 +175,7 @@ tracks:
 | `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | merged || `T13-sworn-role-parity` | S45 → S46 → S47 | T12 + T17 | `track/.../T13-sworn-role-parity` | verified |
 | `T14-baton-integration` | S48 → S49 → S50 → S62 → S73 | T3 + T15 | `track/.../T14-baton-integration` | merged |
 | `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged || `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | verified |
-| `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | verified |
-| `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
+| `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | merged || `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
 | `T19-status-hygiene` | S64 | T4 + T12 + T15 | `track/.../T19-status-hygiene` | merged |
 | `T20-gate-engine` | S65 → S66 → S67 → S68 → S69 → S70 | T14 + T15 | `track/.../T20-gate-engine` | merged |
 ### Execution order
@@ -536,11 +535,36 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 - Failed verification: 1
 - Deferred: 0
 
-**Tracks:** Planned: 4 / In progress: 1 / Merged: 14  *(post T19 merge; oracle-authoritative: T5, T14 subsequently merged)*
-> Merged (14): T1, T2, T3, T4, T5, T7, T8, T9, T11, T12, T14, T15, T18, T19. In progress (1): T17. Planned (4): T6, T10, T13, T16.
-## Recent activity
-### 2026-07-20 — track `T20-gate-engine` merged to release-wt (commit 44dd995)
+**Tracks:** Planned: 3 / In progress: 2 / Merged: 17  *(post T17 merge; oracle-authoritative)*
+> Merged (17): T1, T2, T3, T4, T5, T6, T7, T8, T9, T11, T12, T14, T15, T17, T18, T19, T20. In progress (2): T21, T22. Planned (3): T10, T13, T16.## Recent activity
+### 2026-07-20 — track `T17-orchestration-core` merged to release-wt (commit 3c78949)
 
+- **Actor**: track integrator (/merge-track)
+- **Note**: 3 verified slices merged: S57-oracle-reader, S58-slice-router, S59-scheduler-relayer. Track state -> merged. Forward-merged 3 sibling commits into track before merge; tests re-run green.
+
+### 2026-06-26 — slice `S59-scheduler-relayer` → verified (PASS, round 3)
+- **Actor**: verifier (fresh context, artefact-only).
+- **Verdict**: PASS — all six verification gates satisfied.
+  - Gate 1: Production router auto-constructed in `RunParallel` when `opts.Router == nil`; `runTrackRouter` (router-driven poll loop) is live path in production.
+  - Gate 2: All 4 planned touchpoints changed; `pause.go`, `oracle.go` addition, decision doc documented in Divergence from plan.
+  - Gate 3: All 10 required tests pass under `-race`; `go build ./...` exits 0.
+  - Gate 4: Two-run CLI smoke transcript in proof.md demonstrates resumability (S01-first never re-dispatched in Run 2).
+  - Gate 5: No TODO/FIXME/placeholder in S59-specific files.
+  - Gate 7: All 8 ACs have named passing tests as evidence references; AC-8 covered by `TestCrashRecovery`.
+- **Prior FAIL violations**: All 3 round-2 violations closed (Gate 2 pause.go documented; Gate 4 CLI transcript added; Gate 7 AC-8 test added).
+- **State**: S59 → `verified`. Verified: 30 → 31. Failed verification: 2 → 1. T17 → `verified`.
+- **Next**: track T17-orchestration-core is complete (S57/S58/S59 all verified). Next step: `/merge-track T17-orchestration-core 2026-06-19-safe-parallelism`.
+
+### 2026-06-26 — slice `S59-scheduler-relayer` → failed_verification (FAIL)
+
+- **Actor**: verifier (fresh context, artefact-only).
+- **Verdict**: FAIL — 5 violations across Gates 1, 2, 3, and 7.
+- **Critical**: Gate 1 — `cmd/sworn/run.go` calls `RunParallel` with no `Router` in `ParallelOptions`; `RunParallel` never instantiates a router; every `RunTrack` call hits `opts.Router == nil → runTrackLegacy`. The router-driven loop is permanently bypassed in production; AC-1/AC-2/AC-3/AC-7 behaviours are test-only and unreachable from the user entry point `sworn run --parallel --release <name>`.
+- **Other violations**: `parallel_test.go` not modified despite being a planned touchpoint (proof claimed no divergence); `TrackPaused` path through `RunParallel` untested; AC-6 exit-code mismatch (paused → nil instead of non-zero); no cooperative pause signal mechanism.
+- **State**: S59 → `failed_verification`. Verified: 30 → 29. Failed verification: 1 → 2. T17 → `in_progress`.
+- **Next**: re-open `/implement-slice S59-scheduler-relayer 2026-06-19-safe-parallelism` in a fresh session to address all 5 violations.
+
+### 2026-07-20 — track `T20-gate-engine` merged to release-wt (commit 44dd995)
 - **Actor**: track integrator (/merge-track)
 - **Note**: 6 verified slices merged: S65-lint-trace, S66-lint-coverage, S67-lint-design, S68-lint-mock, S69-lint-regress, S70-llm-check. Track state -> merged.
 
