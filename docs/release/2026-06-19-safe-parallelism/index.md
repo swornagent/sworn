@@ -1959,3 +1959,18 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - **Drift gate**: forward-merged 50 commits from release-wt (includes S57-S59, index.md updates). Clean after merge.
 - **State**: S71 → verified. Track T21-mcp-lint now has its only slice verified — track is complete.
 - **Next step**: `/merge-track T21-mcp-lint` (track T21 complete), then `/merge-release 2026-06-19-safe-parallelism` once all tracks merged.
+
+### 2026-07-22 — slice `S53-ledger-cli` → verified (PASS)
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs)
+- **Verdict**: PASS — all seven verification gates satisfied.
+  - Gate 1: User-reachable outcome exists — `sworn ledger` registered via `init()` with `command.Register`; sync/report dispatched from `runLedger`; no-subcommand returns 64.
+  - Gate 2: Planned touchpoints match actual changed files — planned_files all match feat commit; only `internal/ledger/ledger.go` (CountLines addition) diverges — explained in proof.md.
+  - Gate 3: Required tests exist and exercise integration point — `TestLedgerCommandRegistered` proves `command.Lookup("ledger")` reachability (Rule 1); sync/idempotent/gate-count/report tests all PASS; `go build ./...` clean.
+  - Gate 4: Reachability artefact proves the user path — terminal output for `sworn ledger` (usage+exit64), `sworn ledger sync` (87 added then 0 idempotent), `sworn ledger report` (three aggregate tables).
+  - Gate 5: No silent deferrals — zero TODO/FIXME/HACK in all changed files; open_deferrals empty.
+  - Gate 6: Design conformance — no UI-bearing config; auto-passes (non-UI project).
+  - Gate 7: Claimed scope matches implemented scope — all 6 acceptance checks confirmed against code, tests, and proof artefact.
+- **Drift gate**: no drift from release-wt (track already in sync).
+- **State**: S53 → verified. Track T16-verdict-ledger: S52 verified, S53 verified, S54 planned, S55 planned, S56 planned.
+- **Next step**: `/implement-slice S54-ledger-routing 2026-06-19-safe-parallelism` (next slice in T16-verdict-ledger).
