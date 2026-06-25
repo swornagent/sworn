@@ -3,7 +3,7 @@
 ## §1. User-visible change
 
 Running `sworn` with no subcommand (which launches the TUI) no longer emits a
-telemetry event. Previously, the no-args path fired an event with an empty
+telemetry event. Previously, the no-args path sent an event with an empty
 `cmd` field and a `duration_ms` equal to the entire interactive TUI session
 — junk data. After this change, the no-args/TUI path is excluded from firing,
 consistent with the existing `sworn telemetry *` meta-command exclusion. All

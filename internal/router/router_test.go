@@ -168,7 +168,7 @@ func TestDesignReviewCommitTimeNewest(t *testing.T) {
 	release := "test-release"
 	sliceID := "S01-test"
 
-	t.Run("approved-ack present → implement", func(t *testing.T) {
+	t.Run("captain-proceed present → implement", func(t *testing.T) {
 		oracle := &fakeOracle{
 			slices: map[string]board.SliceState{
 				sliceID: {ID: sliceID, State: state.DesignReview, Track: "T1-core"},
@@ -176,7 +176,7 @@ func TestDesignReviewCommitTimeNewest(t *testing.T) {
 		}
 		content := &fakeContent{
 			existing: map[string]bool{
-				docsPrefix + "/release/" + release + "/" + sliceID + "/approved-ack.md": true,
+				docsPrefix + "/release/" + release + "/" + sliceID + "/captain-proceed.md": true,
 			},
 		}
 
@@ -185,7 +185,7 @@ func TestDesignReviewCommitTimeNewest(t *testing.T) {
 			t.Fatalf("Route: %v", err)
 		}
 		if d.NextType != NextImplement {
-			t.Errorf("approved-ack present should route implement, got %s", d.NextType)
+			t.Errorf("captain-proceed present should route implement, got %s", d.NextType)
 		}
 	})
 

@@ -21,7 +21,7 @@
 
 ### Server start
 
-No servers needed — sworn is a pure Go CLI project. `baton-server-start.sh` skipped (designed for fired project with Next.js + Go API).
+No servers needed — sworn is a pure Go CLI project. `baton-server-start.sh` skipped (designed for a project with Next.js + Go API).
 
 ### Deferrals
 

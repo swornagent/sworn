@@ -43,7 +43,7 @@ func Run(ctx context.Context, workspaceRoot, specPath, priorFeedback string, a a
 	if err != nil {
 		return 0, fmt.Errorf("implement: read status: %w", err)
 	}
-	// State transition guard (Coach pin 2): design_review → in_progress
+	// State transition guard: design_review → in_progress
 	// before launching the agent loop.  The Definition of Ready gate
 	// (CheckDoR) is applied at this boundary — a slice whose RTM trace,
 	// requirements-verify, or requirements-validate gates are not satisfied

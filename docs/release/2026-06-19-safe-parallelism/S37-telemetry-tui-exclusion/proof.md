@@ -80,7 +80,7 @@ $ go build ./...
 
 - **Type**: manual-smoke-step
 - **Path**: test output above (unit tests exercise `Fire()` directly via public API with `httptest.Server` transport)
-- **User gesture**: `go test ./internal/telemetry/... -v` — `TestFireSkipsEmptyCmd` asserts no event fired for empty cmd; `TestFireStillFiresRealCmd` asserts real commands still fire; `TestFireTelemetryMetaCommandExcluded` asserts existing exclusion unchanged
+- **User gesture**: `go test ./internal/telemetry/... -v` — `TestFireSkipsEmptyCmd` asserts no event sent for empty cmd; `TestFireStillFiresRealCmd` asserts real commands still send; `TestFireTelemetryMetaCommandExcluded` asserts existing exclusion unchanged
 
 ## Delivered
 

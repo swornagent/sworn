@@ -42,7 +42,7 @@ type OpenAIResponses struct {
 // NewOpenAIResponses constructs an OpenAIResponses driver.
 // apiKey must be non-empty. ReasoningEffort defaults to "medium" if empty.
 // UseWebSearch defaults to false unless SWORN_OPENAI_RESPONSES_USE_WEB_SEARCH
-// is set (Coach pin 3).
+// is set.
 func NewOpenAIResponses(modelID, apiKey string) (*OpenAIResponses, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("model: missing OpenAI API key for responses provider")

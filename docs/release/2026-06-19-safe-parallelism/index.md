@@ -1344,7 +1344,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 - **New track `T12-harness-hardening`** (depends T1; dispatch early): **S29-lint-deps**, **S30-lint-touchpoints**, **S31-lint-symbols**, **S32-designfit-decisions-gate**, **S33-spec-template-hardening**, **S35-mutation-guard**, **S36-captain-resolve-dirty-worktree**. Each hardens the automation against a recurring class the Captain design-gate has been catching by hand (186-review harvest at `internal-docs/captures/2026-06-21-captain-trial-log-harvest.md`).
 - **S34-tui-merge-actor** appended to T2's tail: render the `merge:<track>` actor (now emitted by the coach-loop merge-tag) in the TUI live view + board.
 - **S36** added per Coach direction: dirty worktrees are only worker-caused, so the Captain auto-resolves (commit-by-default, record diff+resolution) rather than paging.
-- **Also landed live this session** (outside the release tree): coach-loop merge-actor tag + post-dispatch worktree-flip guard (sworn#6); verifier `## Status block` watcher-wrapper removed (metadata kept). 10 fired latent bugs filed at `firedau/fired#968–977`.
+- **Also landed live this session** (outside the release tree): coach-loop merge-actor tag + post-dispatch worktree-flip guard (sworn#6); verifier `## Status block` watcher-wrapper removed (metadata kept). 10 latent bugs filed in the private issue tracker.
 - **Release now 45 slices across 12 tracks.** Lightweight add — T12 is a new verified track and S34 appends to T2's tail, so no cross-track forward-merge was needed.
 
 ### 2026-06-21 — track `T11-infra-safety` merged to release-wt (commit d242687)
@@ -1987,3 +1987,17 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - **Drift gate**: no drift from release-wt (track already in sync).
 - **State**: S53 → verified. Track T16-verdict-ledger: S52 verified, S53 verified, S54 verified, S55 planned, S56 planned.
 - **Next step**: `/implement-slice S55-ledger-multirole-cost 2026-06-19-safe-parallelism` (next slice in T16-verdict-ledger).
+
+### 2026-07-24 — slice S27-public-readiness-scrub -> verified (PASS)
+
+- **Actor**: verifier (/verify-slice, fresh context, artefact-only inputs)
+- **Verdict**: PASS - all six verification gates satisfied.
+  - Gate 1: User-reachable outcome exists - all four grep guards return clean; go build ./... passes; prompt tests pass.
+  - Gate 2: Planned touchpoints match actual changed files - 4 planned files already clean pre-slice; ~30 additional files changed matching spec's re-grep instruction.
+  - Gate 3: Required tests exist and exercise integration point - TestEmbeddedPromptsPublicSafe and TestCaptainKeepsRoleVocab independently re-run and pass.
+  - Gate 4: Reachability artefact proves the user path - guard output captured, binary builds and runs, role vocabulary retained.
+  - Gate 5: No silent deferrals - zero TODO/FIXME/HACK in all changed files; open_deferrals empty.
+  - Gate 6: Claimed scope matches implemented scope - all 7 acceptance checks confirmed against live code, tests, and grep guards.
+- **Drift gate**: forward-merged 1 commit from release-wt (index.md update). Clean merge.
+- **State**: S27 -> verified. Track T10-public-readiness complete.
+- **Next step**: /merge-track T10-public-readiness 2026-06-19-safe-parallelism, then /merge-release 2026-06-19-safe-parallelism once all remaining tracks merged.

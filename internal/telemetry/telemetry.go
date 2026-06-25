@@ -44,7 +44,7 @@ import (
 
 // ConfigDir returns the filesystem directory for sworn config and
 // telemetry sentinel files. Hardcoded to ~/.config/sworn/ matching
-// spec ACs exactly (Coach Pin 5, option (a)).
+// spec ACs exactly.
 func ConfigDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -196,11 +196,11 @@ type event struct {
 //
 // It runs in a goroutine and is non-blocking. Returns immediately.
 // Any error (network, non-2xx response, timeout) is silently dropped.
-// The caller passes sworn_version from the main package (Coach Pin 8,
-// option (a)), avoiding circular imports.
+// The caller passes sworn_version from the main package,
+// avoiding circular imports.
 func Fire(cmd, sub, swornVersion string, durationMS int64, exitCode int) {
 	// Meta-command exclusion: sworn telemetry * does NOT fire telemetry
-	// events (Coach Pin 4, option (a)). sworn version and sworn help
+	// events. sworn version and sworn help
 	// still fire — useful version-usage signal.
 	if cmd == "telemetry" {
 		return
@@ -270,7 +270,7 @@ func trimGoVersion(v string) string {
 // the ~/.config/sworn/.telemetry-disclosed sentinel file so that
 // subsequent invocations do not re-display.
 //
-// The neutrality precondition (Coach Pin 6): the disclosure only prints
+// The neutrality precondition: the disclosure only prints
 // if neither .telemetry-enabled nor .no-telemetry exists AND the
 // .telemetry-disclosed sentinel is absent. This prevents re-displaying
 // the disclosure to a user who has already made a consent decision.
@@ -313,7 +313,7 @@ Run 'sworn telemetry status' to check your current setting, or
 // ShowConsent prompts the user for telemetry consent and returns true if
 // the user opted in.
 //
-// Signature (Coach Pin 7):
+// Signature:
 //
 //	ShowConsent(r io.Reader, w io.Writer) (bool, error)
 //

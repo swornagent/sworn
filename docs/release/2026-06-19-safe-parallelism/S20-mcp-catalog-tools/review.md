@@ -17,7 +17,7 @@ Captain proceeds per judgment: spec is not stale.
 ## Pins
 
 1. **[mechanical] §2b.1 — `design_decisions` absent from status.json**
-   What I observed: S20's `status.json` has no `design_decisions` field. `design.md §2` lists 5 explicit decisions (tool-registration pattern, `plan_release` reuse of `CreateRelease`, doc format, options scaffold, overrides convention). S32-designfit-decisions-gate (verified) requires this field. S19's `status.json` (the immediately preceding T3 slice) has a properly populated `design_decisions` array with all 5 decisions in matching form. Trial log: this same missing-field pin fired at S23 and S21.
+   What I observed: S20's `status.json` has no `design_decisions` field. `design.md §2` lists 5 explicit decisions (tool-registration pattern, `plan_release` reuse of `CreateRelease`, doc format, options scaffold, overrides convention). S32-designfit-decisions-gate (verified) requires this field. S19's `status.json` (the immediately preceding T3 slice) has a properly populated `design_decisions` array with all 5 decisions in matching form. Trial log: this same missing-field pin triggered for S23 and S21.
    What to ask the implementer: Add `design_decisions` entries to `status.json` matching §2.1–§2.5 before transitioning to `in_progress`. All five appear Type-2 (implementation choices, not hard-to-reverse architectural commitments). Run `sworn designfit 2026-06-19-safe-parallelism` after adding to confirm the gate passes.
 
 2. **[memory-cited] §2.1 — "stdlib-only approach" framing contradicts [[project_dep_policy]]**

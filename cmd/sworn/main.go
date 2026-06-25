@@ -46,7 +46,7 @@ func main() {
 
 	// Fire telemetry event. Non-blocking — runs in a goroutine.
 	// Meta-command exclusion: sworn telemetry * is excluded from firing
-	// telemetry events (Coach Pin 4, option (a)). This is handled
+	// telemetry events. This is handled
 	// inside telemetry.Fire().
 	telemetry.Fire(cmd, sub, version, time.Since(start).Milliseconds(), exitCode)
 

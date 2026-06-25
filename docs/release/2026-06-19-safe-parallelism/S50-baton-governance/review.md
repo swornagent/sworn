@@ -18,7 +18,7 @@ Critical pins: none
 
 ## Smaller flags (not pins, worth one-line ack)
 - (a) Risk #3 says "don't let docs/baton-governance.md duplicate ADR-0006 prose." The design says the doc "links" the ADR but doesn't explicitly state "link, don't duplicate." The implementer should keep the governance doc as an operational how-to (steps + links) and avoid restating ADR-0006's decision rationale.
-- (b) The governance doc will live in the public sworn repo and link sawy3r/baton#31 (public). Per [[feedback_public_repo_leakage_check]], ensure no private repo refs (firedau/fired, slice IDs from other releases, release codenames) appear in the doc body.
+- (b) The governance doc will live in the public sworn repo and link sawy3r/baton#31 (public). Per [[feedback_public_repo_leakage_check]], ensure no private repo refs (private project refs, slice IDs from other releases, release codenames) appear in the doc body.
 - (c) `sworn baton vendor --check` already does a dry-run diff (prints transform diff without writing). `sworn baton diff` is a separate subcommand that compares committed embed vs transformed source and exits non-zero on divergence. The implementer should ensure the two don't confuse users — `diff` is the governance/fail-closed surface; `vendor --check` is the developer dry-run. Consider whether the help text distinguishes them clearly.
 
 ## Suggested ack reply

@@ -279,16 +279,15 @@ func runTrackRouter(
 			}
 
 		case "redesign":
-			// Strip approved-ack.md so the Design TL;DR gate fires again on
+			// Strip captain-proceed.md so the Design TL;DR gate fires again on
 			// the next implement attempt. Then dispatch implement.
-			stripApprovedAck(workRoot, specBase, currentSlice)
+			stripCaptainProceed(workRoot, specBase, currentSlice)
 
 			specPath := filepath.Join(workRoot, specBase, currentSlice, "spec.md")
 			statusPath := filepath.Join(workRoot, specBase, currentSlice, "status.json")
 
-			fmt.Fprintf(os.Stderr, "[%s] redesign: stripped approved-ack.md for %s, re-running\n",
+			fmt.Fprintf(os.Stderr, "[%s] redesign: stripped captain-proceed.md for %s, re-running\n",
 				trackID, currentSlice)
-
 			if err := opts.RunSliceFn(ctx, workRoot, specPath, statusPath); err != nil {
 				fmt.Fprintf(os.Stderr, "[%s] slice %s failed after redesign: %v\n", trackID, currentSlice, err)
 				releaseTrack(supervisor.StateFailed)
@@ -396,15 +395,14 @@ func findFirstNonTerminal(slices []string) string {
 	return ""
 }
 
-// stripApprovedAck removes approved-ack.md for the given slice so the
+// stripCaptainProceed removes captain-proceed.md for the given slice so the
 // Design TL;DR gate fires again on the next implement dispatch.
-func stripApprovedAck(workRoot, specBase, sliceID string) {
-	ackPath := filepath.Join(workRoot, specBase, sliceID, "approved-ack.md")
+func stripCaptainProceed(workRoot, specBase, sliceID string) {
+	ackPath := filepath.Join(workRoot, specBase, sliceID, "captain-proceed.md")
 	if err := os.Remove(ackPath); err != nil && !os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "stripApprovedAck: remove %s: %v\n", ackPath, err)
+		fmt.Fprintf(os.Stderr, "stripCaptainProceed: remove %s: %v\n", ackPath, err)
 	}
 }
-
 // dirExists checks if a path exists and is a directory.
 func dirExists(path string) bool {
 	info, err := os.Stat(path)

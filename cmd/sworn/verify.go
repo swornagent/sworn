@@ -30,7 +30,7 @@ func cmdVerify(args []string) int {
 	mdl := fs.String("verifier-model", "", "verifier model id (provider/model)")
 	var openDeferrals openDeferralsFlag
 	fs.Var(&openDeferrals, "deferral", "declared Rule-2 deferral (repeatable: 'why - tracking - ack')")
-	_ = fs.Parse(args) // Resolve verifier model with precedence: flag > env > config (Coach Pin 3).
+	_ = fs.Parse(args) // Resolve verifier model with precedence: flag > env > config.
 	var v model.Verifier
 	cfg, cfgErr := config.Load()
 	if cfgErr != nil {

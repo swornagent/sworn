@@ -16,7 +16,7 @@ Concretised the live-remote diff deferral tracking from "future slice / sawy3r/b
 `docs/baton-governance.md` links ADR-0006 rather than duplicating its decision rationale. The governance doc is an operational how-to with steps and links.
 
 ### Flag (b) — public repo hygiene
-Verified `docs/baton-governance.md` contains no private repo refs (no firedau/fired, no release codenames, no slice IDs from other releases). Public-safe.
+Verified `docs/baton-governance.md` contains no private repo refs (no private project names, no release codenames, no slice IDs from other releases). Public-safe.
 
 ### Flag (c) — diff vs vendor --check distinction
 `sworn baton diff --help` explicitly distinguishes the governance/fail-closed diff surface from the developer dry-run (`sworn baton vendor --check`). The help text notes: "'diff' is the fail-closed governance gate — does the embed match the pinned source?"

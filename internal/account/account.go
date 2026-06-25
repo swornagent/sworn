@@ -21,8 +21,8 @@ import (
 // Credentials represents a stored SwornAgent authentication session.
 // Fields are tagged for JSON serialisation to match the file format.
 //
-// Approval note (Coach, approved-ack.md pin 1): json struct tags are required
-// for AC3 compliance. Tier is free-text per Coach decision (approved-ack.md pin 5).
+// Fields are tagged for JSON serialisation to match the file format.
+// Tier is free-text (stored as-is from the auth server).
 type Credentials struct {
 	Token      string    `json:"token"`
 	Email      string    `json:"email"`
@@ -116,7 +116,7 @@ type tokenResponse struct {
 //
 // authEndpoint is parameterised for testability (mock servers in tests).
 // Production uses os.Getenv("SWORN_AUTH_URL") with an ldflags fallback
-// (Coach decision, approved-ack.md pin 4).
+// (see resolveAuthEndpoint for the precedence chain).
 //
 // Returns the access token, email, and any error. Context cancellation
 // aborts polling (returns ctx.Err()).
@@ -199,8 +199,8 @@ func DeviceCodeFlow(ctx context.Context, authEndpoint string) (token, email stri
 // Save writes credentials to a JSON file at <dir>/credentials.json.
 // Creates the directory (mode 0700) if it does not exist. Writes the file
 // with mode 0600 (user-readable only). Following Coach decision
-// (approved-ack.md pin 6), permissions are silently enforced at write time;
-// no Load() check.
+
+// write time; no Load() check.
 func Save(creds Credentials, dir string) error {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("creating credentials directory: %w", err)
@@ -222,7 +222,7 @@ func Save(creds Credentials, dir string) error {
 // Load reads credentials from <dir>/credentials.json. Returns nil, nil if the
 // file does not exist (not logged in). Other errors (permissions, corrupt JSON)
 // are surfaced. No Load() permissions warning per Coach decision
-// (approved-ack.md pin 6).
+
 func Load(dir string) (*Credentials, error) {
 	path := filepath.Join(dir, "credentials.json")
 	data, err := os.ReadFile(path)

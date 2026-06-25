@@ -172,7 +172,7 @@ func (r *repoContentReader) IsAncestor(ancestor, branch string) (bool, error) {
 	return r.repo.IsAncestor(ancestor, branch)
 }
 
-// ---------- JSON output (matching captain-route.sh shape) ----------
+// ---------- JSON output ----------
 
 type routeOutput struct {
 	Version     string        `json:"version"`

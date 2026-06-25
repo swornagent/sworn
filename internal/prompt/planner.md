@@ -148,8 +148,7 @@ For each change, verify:
 3. Does it use existing components or does it duplicate functionality?
 4. Does it respect existing architectural boundaries? (which packages/services own which concerns)
 
-If the project lacks any of these canonical documents, the planner MUST flag it. A project without a canonical schema is a project where every slice invents its own data model — the accumulated divergence is exponentially expensive to fix. Recommend creating the missing canonical artefacts as a pre-release slice or as a parallel planning activity. The getfired project's SCHEMA.md is the exemplar: it was the turning point from "LLM writes something that works" to "LLM writes something that fits the architecture."
-
+If the project lacks any of these canonical documents, the planner MUST flag it. A project without a canonical schema is a project where every slice invents its own data model — the accumulated divergence is exponentially expensive to fix. Recommend creating the missing canonical artefacts as a pre-release slice or as a parallel planning activity.
 #### Layer 5 — Boundaries and constraints
 
 - What's adjacent but explicitly out of scope? (Rule 2 — surface deferrals now, surface them with why + tracking)

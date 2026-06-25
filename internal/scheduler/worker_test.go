@@ -265,7 +265,7 @@ func fakeRunSliceWithAckRemoval(called *[]string, ackRemoved *bool, workRoot str
 		}
 		*called = append(*called, filepath.Base(filepath.Dir(specPath)))
 		if ackRemoved != nil {
-			ackPath := filepath.Join(workRoot, filepath.Dir(specPath), "approved-ack.md")
+			ackPath := filepath.Join(workRoot, filepath.Dir(specPath), "captain-proceed.md")
 			_, err := os.Stat(ackPath)
 			*ackRemoved = os.IsNotExist(err)
 		}
@@ -401,7 +401,7 @@ func TestWorkerResumesSkipsVerified(t *testing.T) {
 }
 
 func TestRedesignStripsAck(t *testing.T) {
-	// AC-3: redesign decision removes approved-ack.md before re-dispatching.
+	// AC-3: redesign decision removes captain-proceed.md before re-dispatching.
 	tmpDir := t.TempDir()
 
 	sid := "S01-redesign"
@@ -409,7 +409,7 @@ func TestRedesignStripsAck(t *testing.T) {
 	os.MkdirAll(d, 0o755)
 	os.WriteFile(filepath.Join(d, "spec.md"), []byte("# test"), 0o644)
 	os.WriteFile(filepath.Join(d, "status.json"), []byte(`{"state":"failed_verification"}`), 0o644)
-	os.WriteFile(filepath.Join(d, "approved-ack.md"), []byte("approved"), 0o644)
+	os.WriteFile(filepath.Join(d, "captain-proceed.md"), []byte("approved"), 0o644)
 
 	router := &fakeRouter{
 		decisions: []SliceDecision{
@@ -449,7 +449,7 @@ func TestRedesignStripsAck(t *testing.T) {
 	}
 
 	if !ackRemoved {
-		t.Error("expected approved-ack.md to be removed after redesign decision")
+		t.Error("expected captain-proceed.md to be removed after redesign decision")
 	}
 	if len(called) != 1 {
 		t.Fatalf("expected 1 RunSlice call after redesign, got %d", len(called))

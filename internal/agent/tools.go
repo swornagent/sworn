@@ -50,8 +50,8 @@ func resolvePath(root, p string) (string, error) {
 }
 
 // ---------------------------------------------------------------------------
-// Tool definitions — each tool provides Schema() model.ToolDef (Captain pin 5:
-// tool definitions live in agent package, serialised via model.ToolDef).
+// Tool definitions — each tool provides Schema() model.ToolDef.
+//
 // ---------------------------------------------------------------------------
 
 // allToolDefs returns the schema for every registered tool.

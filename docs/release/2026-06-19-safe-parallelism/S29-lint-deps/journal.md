@@ -12,7 +12,7 @@ design-review trial-log analysis (`2026-06-21-captain-trial-log-harvest.md`). A
 slice that adds a Go dependency without declaring `go.mod`/`go.sum` in `planned_files`
 trips Gate 2 at verify. Evidence rows: `S04a-tui-foundation` (bubbletea + lipgloss →
 Gate 2 FAIL risk), `S08b-mcp-ops-tools` (yaml.v3 claimed in go.sum but absent), and
-`S31-newrelic-windout-backend` (fired; go.sum diff-review step absent). The fix is a
+`S31-newrelic-windout-backend` (private project; go.sum diff-review step absent). The fix is a
 `sworn lint deps` check that diffs go.mod/go.sum against the slice's planned_files and
 fails closed, paired with a planner note to auto-add those files on any dep change.
 
