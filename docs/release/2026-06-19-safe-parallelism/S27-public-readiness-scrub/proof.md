@@ -14,9 +14,10 @@ genericise coach-loop references across source and release artefacts.
 
 ## Files changed
 
+(Diff base: `release-wt/2026-06-19-safe-parallelism` — the point the track branch was cut from. A single amended implementation commit carries all changes.)
+
 ```
-cmd/sworn/login.go
-cmd/sworn/main.go
+cmd/sworn/login.gocmd/sworn/main.go
 cmd/sworn/route.go
 cmd/sworn/verify.go
 docs/adr/0001-one-binary-embedded-protocol-distribution.md
