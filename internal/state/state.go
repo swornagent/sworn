@@ -77,6 +77,8 @@ type ValidationRecord struct {
 // status.json.
 type Verification struct {
 	Result                  string   `json:"result,omitempty"`
+	Model                   string   `json:"model,omitempty"`
+	Attempt                 int      `json:"attempt,omitempty"`
 	VerifierSessionID       *string  `json:"verifier_session_id,omitempty"`
 	VerifierVerdictAt       *string  `json:"verifier_verdict_at,omitempty"`
 	VerifierWasFreshContext *bool    `json:"verifier_was_fresh_context,omitempty"`

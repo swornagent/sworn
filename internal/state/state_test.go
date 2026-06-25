@@ -242,3 +242,73 @@ func TestTraceFieldsRoundTrip(t *testing.T) {
 		t.Errorf("OrgObjective: want %q, got %q", "Become the standard.", got.OrgObjective)
 	}
 }
+
+func TestVerification_ModelAttemptRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "status.json")
+
+	orig := Status{
+		SliceID: "S52-ledger-projection",
+		State:   Verified,
+		Verification: Verification{
+			Result:  "pass",
+			Model:   "claude-sonnet-4-20250514",
+			Attempt: 2,
+		},
+	}
+	if err := Write(path, &orig); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	if got.Verification.Model != "claude-sonnet-4-20250514" {
+		t.Errorf("Model: want %q, got %q", "claude-sonnet-4-20250514", got.Verification.Model)
+	}
+	if got.Verification.Attempt != 2 {
+		t.Errorf("Attempt: want 2, got %d", got.Verification.Attempt)
+	}
+}
+
+func TestVerification_ModelAttemptOmitEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "status.json")
+
+	// Zero-valued fields should be omitted (omitempty).
+	orig := Status{
+		SliceID: "S52-ledger-projection",
+		State:   Verified,
+		Verification: Verification{
+			Result: "pass",
+		},
+	}
+	if err := Write(path, &orig); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"model"`) {
+		t.Error("zero-valued Model should be omitted from JSON")
+	}
+	if strings.Contains(string(raw), `"attempt"`) {
+		t.Error("zero-valued Attempt should be omitted from JSON")
+	}
+
+	// But they round-trip back as zero values.
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got.Verification.Model != "" {
+		t.Errorf("Model: want empty, got %q", got.Verification.Model)
+	}
+	if got.Verification.Attempt != 0 {
+		t.Errorf("Attempt: want 0, got %d", got.Verification.Attempt)
+	}
+}

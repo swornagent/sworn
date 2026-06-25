@@ -242,6 +242,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	// immediately.
 	var (
 		lastVerdict    verdict.Result
+		lastImplModel string
 		modelIdx       = 0
 		resolveCount   = 0
 		totalAttempts  = 0
@@ -275,6 +276,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		totalAttempts++
 
 		implModelID := escalationModels[modelIdx]
+		lastImplModel = implModelID
 		implAgent, err := opts.NewAgent(implModelID)
 		if err != nil {
 			return fmt.Errorf("RunSlice: create implementer agent for %q: %w", implModelID, err)
@@ -386,6 +388,8 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 				return fmt.Errorf("RunSlice: transition to verified: %w", err)
 			}
 			st.State = state.Verified
+				st.Verification.Model = implModelID
+				st.Verification.Attempt = totalAttempts
 			st.LastUpdatedBy = "run-slice"
 			st.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
 			if err := state.Write(statusPath, st); err != nil {
@@ -426,6 +430,8 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 				if stErr == nil {
 					st.Verification.Result = "blocked"
 					st.Verification.Violations = extractViolations(lastVerdict.Rationale)
+					st.Verification.Model = implModelID
+					st.Verification.Attempt = totalAttempts
 					st.LastUpdatedBy = "run-slice"
 					st.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
 					_ = state.Write(statusPath, st)
@@ -464,6 +470,8 @@ haltFailedVerification:
 	if stErr == nil {
 		_ = st.State.Transition(state.FailedVerification) // ignore — state may already be terminal
 		st.State = state.FailedVerification
+		st.Verification.Model = lastImplModel
+		st.Verification.Attempt = totalAttempts
 		st.LastUpdatedBy = "run-slice"
 		st.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
 		_ = state.Write(statusPath, st)
