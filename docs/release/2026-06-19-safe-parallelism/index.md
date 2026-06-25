@@ -105,7 +105,7 @@ tracks:
     depends_on: [T1-concurrency-core, T12-harness-hardening, T18-cli-polish]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T17-orchestration-core
     worktree_branch: track/2026-06-19-safe-parallelism/T17-orchestration-core
-    state: in_progress
+    state: verified
   - id: T18-cli-polish
     slices: [S60-init-ui-bearing-fix, S61-cli-output-styling]
     depends_on: [T2-monitoring, T15-cli-registry]
@@ -175,7 +175,7 @@ tracks:
 | `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | merged || `T13-sworn-role-parity` | S45 → S46 → S47 | T12 + T17 | `track/.../T13-sworn-role-parity` | verified |
 | `T14-baton-integration` | S48 → S49 → S50 → S62 → S73 | T3 + T15 | `track/.../T14-baton-integration` | merged |
 | `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged || `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | verified |
-| `T17-orchestration-core` | S57 → S58 → **S59 (failed_verification)** | T1 + T12 + T18 | `track/.../T17-orchestration-core` | in_progress |
+| `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | verified |
 | `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
 | `T19-status-hygiene` | S64 | T4 + T12 + T15 | `track/.../T19-status-hygiene` | merged |
 ### Execution order
@@ -508,7 +508,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 | `S56-ledger-cost-routing` | T16 | `--optimize cost\|quality\|balanced`: cheapest model clearing a pass-rate floor; `report` gains cost-per-pass + per-role quality (captain-miss, verifier-overturn) | verified | [spec](./S56-ledger-cost-routing/spec.md) |
 | `S57-oracle-reader` | T17 | `sworn board` reads every slice's authoritative status.json from git refs (track branch > release-wt > worktree), ownership-resolved — the honest board reader the router/TUI/rollup read through | verified | [spec](./S57-oracle-reader/spec.md) |
 | `S58-slice-router` | T17 | `sworn route <slice> <release>` computes the next command purely from committed status.json — the deterministic captain-route.sh port (state machine + design-review/Gate-re-entry/merge) | verified | [spec](./S58-slice-router/spec.md) |
-| `S59-scheduler-relayer` | T17 | `sworn run --parallel` workers poll the router each step (poll-and-route) instead of a static slice list — resumable, dynamic; keeps dependency resolution + worktree isolation + supervisor ownership | failed_verification | [spec](./S59-scheduler-relayer/spec.md) |
+| `S59-scheduler-relayer` | T17 | `sworn run --parallel` workers poll the router each step (poll-and-route) instead of a static slice list — resumable, dynamic; keeps dependency resolution + worktree isolation + supervisor ownership | verified | [spec](./S59-scheduler-relayer/spec.md) |
 | `S60-init-ui-bearing-fix` | T18 | `sworn init` no longer prompts for design tokens / component library in a non-UI-bearing repo; design-system flow gated on `--ui-bearing`; drops the always-true `UIBearing` write | verified | [spec](./S60-init-ui-bearing-fix/spec.md) |
 | `S61-cli-output-styling` | T18 | shared zero-dep `internal/style` ANSI palette gives premium, consistent, TTY/`NO_COLOR`-aware colour across every command + report renderer; plain output byte-identical | verified | [spec](./S61-cli-output-styling/spec.md) |
 | `S65-lint-trace` | T20 | `sworn lint trace <release>` mechanically verifies RTM chain (intake→covers_needs→AC→test), EARS conformance, sniff-test. Exits 0 on fully-traced release, non-zero with violations. | verified | [spec](./S65-lint-trace/spec.md) |## Aggregate state
@@ -539,6 +539,20 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 **Tracks:** Planned: 4 / In progress: 1 / Merged: 14  *(post T19 merge; oracle-authoritative: T5, T14 subsequently merged)*
 > Merged (14): T1, T2, T3, T4, T5, T7, T8, T9, T11, T12, T14, T15, T18, T19. In progress (1): T17. Planned (4): T6, T10, T13, T16.
 ## Recent activity
+### 2026-06-26 — slice `S59-scheduler-relayer` → verified (PASS, round 3)
+
+- **Actor**: verifier (fresh context, artefact-only).
+- **Verdict**: PASS — all six verification gates satisfied.
+  - Gate 1: Production router auto-constructed in `RunParallel` when `opts.Router == nil`; `runTrackRouter` (router-driven poll loop) is live path in production.
+  - Gate 2: All 4 planned touchpoints changed; `pause.go`, `oracle.go` addition, decision doc documented in Divergence from plan.
+  - Gate 3: All 10 required tests pass under `-race`; `go build ./...` exits 0.
+  - Gate 4: Two-run CLI smoke transcript in proof.md demonstrates resumability (S01-first never re-dispatched in Run 2).
+  - Gate 5: No TODO/FIXME/placeholder in S59-specific files.
+  - Gate 7: All 8 ACs have named passing tests as evidence references; AC-8 covered by `TestCrashRecovery`.
+- **Prior FAIL violations**: All 3 round-2 violations closed (Gate 2 pause.go documented; Gate 4 CLI transcript added; Gate 7 AC-8 test added).
+- **State**: S59 → `verified`. Verified: 30 → 31. Failed verification: 2 → 1. T17 → `verified`.
+- **Next**: track T17-orchestration-core is complete (S57/S58/S59 all verified). Next step: `/merge-track T17-orchestration-core 2026-06-19-safe-parallelism`.
+
 ### 2026-06-26 — slice `S59-scheduler-relayer` → failed_verification (FAIL)
 
 - **Actor**: verifier (fresh context, artefact-only).

@@ -111,3 +111,26 @@ State transition: `failed_verification` → `implemented`.
 
 ### First-pass: 23/23 PASS.
 3. Add a test covering the crash-recovery path at S59 level: fixture with a slice in `in_progress` state, fake router scripted to return `{Type: "implement"}` for that slice (simulating the router re-deriving the action on restart), assert the worker dispatches implement. Name the test in proof.md AC-8 evidence reference.
+
+## Verifier verdicts received
+
+### Verdict — 2026-06-26 (round 3)
+
+**PASS**
+
+Slice: `S59-scheduler-relayer`
+Verified against: `2e1d385`
+Verifier session: `fresh, artefact-only`
+
+Gate results:
+- **Gate 1 (User-reachable outcome)**: PASS — `cmd/sworn/run.go:122` calls `run.RunParallel` without setting `Router`; `parallel.go` auto-constructs a `productionSliceRouter` via `board.NewOracleReaderAdapterFromRepo` when `opts.Router == nil`. In a production git repo with `release-wt/<releaseName>` branch, construction succeeds and `opts.Router` is non-nil; `RunTrack` routes to `runTrackRouter` (the router-driven poll loop). The round-1 FAIL (permanently bypassed router) is resolved.
+- **Gate 2 (Touchpoints match)**: PASS — all 4 planned files changed; 3 additional S59 files (`pause.go`, `oracle.go` addition, decision doc) documented in proof.md "Divergence from plan" with Rule 2 entries. Remaining diff is forward-merge artefacts from other tracks, correctly identified.
+- **Gate 3 (Tests exercise integration point)**: PASS — all 8 required tests pass independently: `TestWorkerPollsRouterDrivesSlice`, `TestWorkerResumesSkipsVerified`, `TestRedesignStripsAck`, `TestPauseStateSurfacesNoLoop`, `TestReplanReleasePauses`, `TestMergeTrackDecisionPauses`, `TestRouterDrivenWorkerSupervisorAcquireRelease`, `TestRunParallel_TrackPaused`, `TestCooperativePauseSignal`, `TestCrashRecovery`. All pass under `-race`. `go build ./...` exits 0.
+- **Gate 3b (LLM check)**: SKIP — `bin/release-llm-check.sh` not present; non-blocking.
+- **Gate 4 (Reachability artefact)**: PASS — two-run CLI smoke transcript in proof.md demonstrates resumability: `[T1] running slice S01-first` never printed in either run; router returns `Target: S02-second` for the already-`verified` S01-first, confirming router-driven skip. User gesture documented.
+- **Gate 4b (Semantic coverage)**: SKIP — LLM check not present; non-blocking.
+- **Gate 5 (No silent deferrals)**: PASS — no TODO/FIXME/deferred/placeholder/XXX/HACK in any S59-specific file.
+- **Gate 6 (Design conformance)**: PASS — `docs/baton/design-fidelity.json` absent; non-UI project auto-pass.
+- **Gate 7 (Claimed scope matches)**: PASS — all 8 ACs have named passing tests as evidence references; `TestCrashRecovery` covers AC-8; `docs/decisions/…-subscription-drivers.md` exists and backs AC-7 decision.
+
+All prior FAIL violations (Gate 1 production bypass; Gate 2 pause.go undocumented; Gate 4 no CLI transcript; Gate 7 AC-8 no test) are closed in round 3.
