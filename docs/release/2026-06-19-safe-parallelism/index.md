@@ -1987,3 +1987,17 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - **Drift gate**: no drift from release-wt (track already in sync).
 - **State**: S53 → verified. Track T16-verdict-ledger: S52 verified, S53 verified, S54 verified, S55 planned, S56 planned.
 - **Next step**: `/implement-slice S55-ledger-multirole-cost 2026-06-19-safe-parallelism` (next slice in T16-verdict-ledger).
+
+### 2026-07-24 — slice S27-public-readiness-scrub -> verified (PASS)
+
+- **Actor**: verifier (/verify-slice, fresh context, artefact-only inputs)
+- **Verdict**: PASS - all six verification gates satisfied.
+  - Gate 1: User-reachable outcome exists - all four grep guards return clean; go build ./... passes; prompt tests pass.
+  - Gate 2: Planned touchpoints match actual changed files - 4 planned files already clean pre-slice; ~30 additional files changed matching spec's re-grep instruction.
+  - Gate 3: Required tests exist and exercise integration point - TestEmbeddedPromptsPublicSafe and TestCaptainKeepsRoleVocab independently re-run and pass.
+  - Gate 4: Reachability artefact proves the user path - guard output captured, binary builds and runs, role vocabulary retained.
+  - Gate 5: No silent deferrals - zero TODO/FIXME/HACK in all changed files; open_deferrals empty.
+  - Gate 6: Claimed scope matches implemented scope - all 7 acceptance checks confirmed against live code, tests, and grep guards.
+- **Drift gate**: forward-merged 1 commit from release-wt (index.md update). Clean merge.
+- **State**: S27 -> verified. Track T10-public-readiness complete.
+- **Next step**: /merge-track T10-public-readiness 2026-06-19-safe-parallelism, then /merge-release 2026-06-19-safe-parallelism once all remaining tracks merged.

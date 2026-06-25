@@ -28,8 +28,21 @@ None.
 
 ## Verifier verdicts received
 
-*(None yet.)*
+### 2026-07-24 — PASS
 
+Verifier verdict: **PASS**.
+
+Gate-by-gate assessment:
+- **Gate 1 — User-reachable outcome exists:** PASS. Four grep guards return clean, `go build ./...` passes, prompt tests pass. The public-safe repo outcome is independently verifiable.
+- **Gate 2 — Planned touchpoints match actual changed files:** PASS with documented divergences. 4 planned files (captain.md, verifier.md, bench.go, oai.go) were already clean pre-slice. ~30 additional files changed matching the spec's "re-grep for the live set" instruction. All divergences documented in proof.md §Divergence from plan.
+- **Gate 3 — Required tests exist and exercise integration point:** PASS. `TestEmbeddedPromptsPublicSafe` and `TestCaptainKeepsRoleVocab` in `internal/prompt/prompt_test.go` — independently re-run and pass.
+- **Gate 4 — Reachability artefact proves the user path:** PASS. Guard output, build clean, role-vocab retention. The `sworn run` design-review path is exercised via scheduler/router tests.
+- **Gate 5 — No silent deferrals or placeholder logic:** PASS. No TODO/FIXME/HACK/XXX/placeholder found in changed files. No open deferrals in status.json.
+- **Gate 6 — Claimed scope matches implemented scope:** PASS. All 7 ACs satisfied with evidence in proof.md.
+
+Pre-existing issues (not caused by this slice):
+- `internal/board/index_test.go:TestLiveReleaseBoardsAreValid` fails due to fused YAML lines for T14 and T17 in index.md frontmatter (board oracle warning).
+- `internal/implement/implement_test.go` has a pre-existing build failure (`Run returns 2 values` vs 1 variable assignment).
 ## 2026-07-24 — implemented
 
 State transition: `in_progress` → `implemented`.
