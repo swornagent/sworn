@@ -539,8 +539,30 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 **Tracks:** Planned: 4 / In progress: 1 / Merged: 14  *(post T19 merge; oracle-authoritative: T5, T14 subsequently merged)*
 > Merged (14): T1, T2, T3, T4, T5, T7, T8, T9, T11, T12, T14, T15, T18, T19. In progress (1): T17. Planned (4): T6, T10, T13, T16.
 ## Recent activity
-### 2026-07-20 — track `T20-gate-engine` merged to release-wt (commit 44dd995)
+### 2026-06-26 — slice `S59-scheduler-relayer` → verified (PASS, round 3)
 
+- **Actor**: verifier (fresh context, artefact-only).
+- **Verdict**: PASS — all six verification gates satisfied.
+  - Gate 1: Production router auto-constructed in `RunParallel` when `opts.Router == nil`; `runTrackRouter` (router-driven poll loop) is live path in production.
+  - Gate 2: All 4 planned touchpoints changed; `pause.go`, `oracle.go` addition, decision doc documented in Divergence from plan.
+  - Gate 3: All 10 required tests pass under `-race`; `go build ./...` exits 0.
+  - Gate 4: Two-run CLI smoke transcript in proof.md demonstrates resumability (S01-first never re-dispatched in Run 2).
+  - Gate 5: No TODO/FIXME/placeholder in S59-specific files.
+  - Gate 7: All 8 ACs have named passing tests as evidence references; AC-8 covered by `TestCrashRecovery`.
+- **Prior FAIL violations**: All 3 round-2 violations closed (Gate 2 pause.go documented; Gate 4 CLI transcript added; Gate 7 AC-8 test added).
+- **State**: S59 → `verified`. Verified: 30 → 31. Failed verification: 2 → 1. T17 → `verified`.
+- **Next**: track T17-orchestration-core is complete (S57/S58/S59 all verified). Next step: `/merge-track T17-orchestration-core 2026-06-19-safe-parallelism`.
+
+### 2026-06-26 — slice `S59-scheduler-relayer` → failed_verification (FAIL)
+
+- **Actor**: verifier (fresh context, artefact-only).
+- **Verdict**: FAIL — 5 violations across Gates 1, 2, 3, and 7.
+- **Critical**: Gate 1 — `cmd/sworn/run.go` calls `RunParallel` with no `Router` in `ParallelOptions`; `RunParallel` never instantiates a router; every `RunTrack` call hits `opts.Router == nil → runTrackLegacy`. The router-driven loop is permanently bypassed in production; AC-1/AC-2/AC-3/AC-7 behaviours are test-only and unreachable from the user entry point `sworn run --parallel --release <name>`.
+- **Other violations**: `parallel_test.go` not modified despite being a planned touchpoint (proof claimed no divergence); `TrackPaused` path through `RunParallel` untested; AC-6 exit-code mismatch (paused → nil instead of non-zero); no cooperative pause signal mechanism.
+- **State**: S59 → `failed_verification`. Verified: 30 → 29. Failed verification: 1 → 2. T17 → `in_progress`.
+- **Next**: re-open `/implement-slice S59-scheduler-relayer 2026-06-19-safe-parallelism` in a fresh session to address all 5 violations.
+
+### 2026-07-20 — track `T20-gate-engine` merged to release-wt (commit 44dd995)
 - **Actor**: track integrator (/merge-track)
 - **Note**: 6 verified slices merged: S65-lint-trace, S66-lint-coverage, S67-lint-design, S68-lint-mock, S69-lint-regress, S70-llm-check. Track state -> merged.
 

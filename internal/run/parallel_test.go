@@ -12,6 +12,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/swornagent/sworn/internal/scheduler"
 )// fakeRunSlicePass always returns nil (success).
 func fakeRunSlicePass(_ context.Context, _, _, _ string) error {
 	return nil
@@ -518,5 +520,70 @@ tracks:
 	}
 	if !called["S01-t1-slice"] {
 		t.Error("T1's slice (S01-t1-slice) was not called")
+	}
+}
+
+// pausingRouter is a fake scheduler.SliceRouter that always returns
+// coach_decision (a human-gated pause state) for use in parallel tests.
+type pausingRouter struct{}
+
+func (p *pausingRouter) Route(_ context.Context, _, _, _ string) (scheduler.SliceDecision, error) {
+	return scheduler.SliceDecision{Type: "coach_decision", Reason: "needs Coach approval"}, nil
+}
+
+// TestRunParallel_TrackPaused exercises the TrackPaused path through RunParallel.
+// AC-6: a paused track must yield non-zero exit (RunParallel must return error).
+func TestRunParallel_TrackPaused(t *testing.T) {
+	tmpDir := t.TempDir()
+	releaseDir := filepath.Join(tmpDir, "docs", "release", "test-paused")
+	os.MkdirAll(releaseDir, 0o755)
+
+	os.MkdirAll(filepath.Join(tmpDir, "docs", "release", "test-paused", "S01-pause"), 0o755)
+	os.WriteFile(filepath.Join(tmpDir, "docs", "release", "test-paused", "S01-pause", "spec.md"), []byte("# test"), 0o644)
+	os.WriteFile(filepath.Join(tmpDir, "docs", "release", "test-paused", "S01-pause", "status.json"), []byte(`{"state":"planned"}`), 0o644)
+
+	indexContent := `---
+title: Test Paused
+release_worktree_path: ` + tmpDir + `
+tracks:
+  - id: T1
+    slices: [S01-pause]
+    depends_on: null
+    worktree_path: ` + tmpDir + `
+    worktree_branch: track/test/T1
+    state: planned
+---
+
+# Test
+`
+	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0o644)
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+
+	opts := ParallelOptions{
+		ReleaseName:   "test-paused",
+		WorkspaceRoot: tmpDir,
+		DB:            db,
+		RunSliceFn:    fakeRunSlicePass,
+		ProjectDir:    "sworn",
+		Router:        &pausingRouter{},
+	}
+
+	err = RunParallel(context.Background(), opts)
+	if err == nil {
+		t.Fatal("expected non-zero error for paused track (AC-6), got nil")
+	}
+	if !strings.Contains(err.Error(), "paused") {
+		t.Errorf("error should mention 'paused', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "T1") {
+		t.Errorf("error should mention 'T1', got: %v", err)
 	}
 }
