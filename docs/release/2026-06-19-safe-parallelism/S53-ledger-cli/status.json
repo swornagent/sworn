@@ -3,10 +3,10 @@
   "slice_id": "S53-ledger-cli",
   "release": "2026-06-19-safe-parallelism",
   "track": "T16-verdict-ledger",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-25T18:10:16Z",
+  "last_updated_at": "2026-06-25T18:28:16Z",
   "start_commit": "b7865159add6b1e31bc3b5e7043a7544b377911a",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S53-ledger-cli/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S53-ledger-cli/proof.md",
@@ -17,12 +17,20 @@
     "internal/ledger/query.go",
     "internal/ledger/query_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "cmd/sworn/ledger.go",
+    "cmd/sworn/ledger_test.go",
+    "internal/ledger/query.go",
+    "internal/ledger/query_test.go",
+    "internal/ledger/ledger.go"
+  ],
   "test_commands": [
     "go test ./internal/ledger/... ./cmd/sworn/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "terminal: sworn ledger sync + sworn ledger report output"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "pending",
