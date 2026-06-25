@@ -1,44 +1,41 @@
 ---
-title: Slice journal template
-description: Implementation log for one slice. Append-only. Visible to verifier as context, but verifier verdict is based on proof.md and repo state, not journal prose.
+title: 'Journal: S53-ledger-cli'
+description: Implementation log for S53-ledger-cli — sworn ledger sync + report
 ---
 
-# Journal: `<slice-id>`
-
-> Copy this file to `docs/release/<release-name>/<slice-id>/journal.md`. Append entries chronologically. Do not delete history. Decisions captured here must also land in commit message bodies per Rule 4 — this journal is a working surface, not a substitute for durable capture.
+# Journal: `S53-ledger-cli`
 
 ## Session log
 
-### `<YYYY-MM-DD HH:MM>` — `<session start / state transition>`
+### 2026-07-22 — session start
 
-- **State**: `<planned | in_progress | implemented | failed_verification | verified | deferred | shipped>`
+- **State**: planned → in_progress
 - **Notes**:
-  - `<Decisions made>`
-  - `<Trade-offs encountered>`
-  - `<Subagent dispatches and where their outputs landed>`
+  - Track worktree at `/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T16-verdict-ledger`
+  - Predecessor S52 is verified; dependency gate clear.
 
-### `<YYYY-MM-DD HH:MM>` — `<next event>`
+### 2026-07-22 — implementation complete
 
-- ...
+- **State**: in_progress → implemented
+- **Notes**:
+  - Registered `ledger` command via per-file `init()` calling `command.Register` — follows S51/T15 pattern, avoids editing `commands.go`.
+  - `internal/ledger/query.go` adds `Load`, `PassRateByModelKind`, `AttemptsToPass`, `GateFailureHistogram`, and a `Report` renderer using `text/tabwriter`.
+  - `cmd/sworn/ledger.go` implements `sync` (walk board → Project → Append) and `report` (Load → Render).
+  - Added `CountLines` to `internal/ledger/ledger.go` (S52's file) for accurate idempotent-sync reporting. Non-breaking addition; does not change `Append` signature.
+  - Sync reuses `findRepoRoot()` from `cmd/sworn/baton.go` — same package, no export needed.
+  - Gate counting reads `- [ ]` lines from `spec.md`; non-standard AC styles under-count (acceptable per spec; noted in code).
+  - 16 parse errors on sync from schema-evolved status.json files — `state.Read` can't parse older `open_deferrals` as objects or newer `design_decisions` as arrays. Handled gracefully (errors reported, processing continues).
+  - 31 tests pass (23 in internal/ledger, 8 in cmd/sworn); build clean with no new deps.
+  - Reachability artefact: `sworn ledger sync` → 87 records harvested; `sworn ledger report` → all three aggregates render.
 
 ## Open questions
 
-\<Anything the implementer needs the human to resolve. Each open question blocks state transition to `implemented` until answered.\>
-
-- ...
+None.
 
 ## Deferrals surfaced
 
-`<Per Rule 2: each deferral needs why + tracking + acknowledgement. Cross-link to GitHub issue or punch-list entry. If empty, write "None" explicitly.>`
-
-- ...
+None.
 
 ## Verifier verdicts received
 
-`<Append every verifier verdict here. Even FAIL verdicts stay — they are part of the slice's history.>`
-
-### `<YYYY-MM-DD HH:MM>` — `<PASS | FAIL | BLOCKED>`
-
-- **Verifier session**: `<fresh / inherited — should always be fresh>`
-- **Verdict body**: `<paste the full verifier output>`
-- **Action taken**: `<how the implementer responded>`
+(None yet — awaiting fresh-context verifier session.)
