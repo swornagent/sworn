@@ -11,6 +11,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/agent"
+	"github.com/swornagent/sworn/internal/design"
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/implement"
 	"github.com/swornagent/sworn/internal/model"
@@ -64,6 +65,11 @@ type RunSliceOptions struct {
 	// production *account.Notifier satisfies it implicitly (S07-paging AC1
 	// integration test).
 	Notifier Notifier
+
+	// RegenerateDesign forces regeneration of the design-TL;DR (design.md)
+	// even if it already exists. When false, an existing design.md is left
+	// untouched (S45-design-tldr AC2).
+	RegenerateDesign bool
 }
 
 // Notifier is the one-method seam for dispatching FAIL/BLOCKED notifications.
@@ -145,6 +151,40 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		implementTimeout = DefaultImplementTimeout
 	}
 
+	// ── Design TL;DR (S45) ────────────────────────────────────────────
+	// Generate design.md before the implement loop so the captain review
+	// stage (S46) has an artefact to gate on. The TL;DR uses the first
+	// implementer model, bounded by the same timeout as the implement
+	// step. A hung TL;DR call must not wedge the run: on timeout, warn
+	// and proceed without design.md.
+	{
+		spec, specErr := os.ReadFile(specPath)
+		if specErr == nil {
+			firstModelID := escalationModels[0]
+			designAgent, daErr := opts.NewAgent(firstModelID)
+			if daErr == nil {
+				designCtx := ctx
+				var designCancel context.CancelFunc
+				if implementTimeout > 0 {
+					designCtx, designCancel = context.WithTimeout(ctx, implementTimeout)
+					defer designCancel()
+				}
+				fmt.Fprintf(os.Stderr, "sworn run: generating design TL;DR with %s\n", firstModelID)
+				_, genErr := design.Generate(designCtx, absSliceDir, string(spec), designAgent,
+					design.GenerateOptions{Regenerate: opts.RegenerateDesign})
+				if genErr != nil {
+					if errors.Is(genErr, context.DeadlineExceeded) {
+						fmt.Fprintf(os.Stderr, "sworn run: design TL;DR timed out after %s — proceeding without design.md\n", implementTimeout)
+					} else {
+						fmt.Fprintf(os.Stderr, "sworn run: design TL;DR: %v — proceeding without design.md\n", genErr)
+					}
+				} else {
+					fmt.Fprintf(os.Stderr, "sworn run: design TL;DR written to %s\n",
+						filepath.Join(absSliceDir, "design.md"))
+				}
+			}
+		}
+	}
 	var lastVerdict verdict.Result
 	var priorFeedback string
 	for attempt := 0; attempt < maxAttempts; attempt++ {

@@ -185,8 +185,6 @@ func stdoutAgent(content string) *fakeImplementer {
 func TestRun_PassPath_Merges(t *testing.T) {
 	workspaceRoot, _ := setupTestRepo(t)
 
-	impl := stdoutAgent("hello from sworn run")
-
 	verifier := &fakeVerifier{
 		verdicts: []verdict.Result{
 			{Verdict: verdict.Pass, Rationale: "all good"},
@@ -199,7 +197,7 @@ func TestRun_PassPath_Merges(t *testing.T) {
 		Base:          "main",
 		RetryCap:      0,
 		WorkspaceRoot: workspaceRoot,
-		NewAgent:      func(_ string) (agent.Agent, error) { return impl, nil },
+		NewAgent:      func(_ string) (agent.Agent, error) { return stdoutAgent("hello from sworn run"), nil },
 		NewVerifier:   func(_ string) (model.Verifier, error) { return verifier, nil },
 	})
 	if err != nil {
@@ -572,8 +570,6 @@ func setupFixtureSlice(t *testing.T) (worktreeRoot, specPath, statusPath string,
 func TestRunSlice(t *testing.T) {
 	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
 
-	impl := stdoutAgent("hello from RunSlice")
-
 	verifier := &fakeVerifier{
 		verdicts: []verdict.Result{
 			{Verdict: verdict.Pass, Rationale: "all good"},
@@ -584,7 +580,7 @@ func TestRunSlice(t *testing.T) {
 		VerifierModel:    "fake/verifier",
 		RetryCap:         0,
 		EscalationModels: []string{"fake/impl"},
-		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
+		NewAgent:         func(_ string) (agent.Agent, error) { return stdoutAgent("hello from RunSlice"), nil },
 		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
 	})
 	if err != nil {
