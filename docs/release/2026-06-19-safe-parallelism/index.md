@@ -129,13 +129,13 @@ tracks:
     depends_on: [T4-mcp, T20-gate-engine]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T21-mcp-lint
     worktree_branch: track/2026-06-19-safe-parallelism/T21-mcp-lint
-    state: in_progress
+    state: merged
   - id: T22-tui-gate
-    slices: [S72-tui-gate-display]    depends_on: [T2-monitoring, T20-gate-engine]
+    slices: [S72-tui-gate-display]
+    depends_on: [T2-monitoring, T20-gate-engine]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T22-tui-gate
     worktree_branch: track/2026-06-19-safe-parallelism/T22-tui-gate
-    state: merged---
-
+    state: merged
 # Release Board: `2026-06-19-safe-parallelism`
 
 > Frontmatter is the machine-readable registry; the tables below mirror it.
@@ -177,8 +177,7 @@ tracks:
 | `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | merged || `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
 | `T19-status-hygiene` | S64 | T4 + T12 + T15 | `track/.../T19-status-hygiene` | merged |
 | `T20-gate-engine` | S65 → S66 → S67 → S68 → S69 → S70 | T14 + T15 | `track/.../T20-gate-engine` | merged |
-| `T21-mcp-lint` | S71 | T4 + T20 | `track/.../T21-mcp-lint` | in_progress |
-| `T22-tui-gate` | S72 | T2 + T20 | `track/.../T22-tui-gate` | merged |
+| `T21-mcp-lint` | S71 | T4 + T20 | `track/.../T21-mcp-lint` | merged || `T22-tui-gate` | S72 | T2 + T20 | `track/.../T22-tui-gate` | merged |
 ### Execution order```
 Phase 1:  T1 (sequential)
 Phase 2:  T2, T3, T4, T8, T9, T11, T12, T15 (parallel after T1 — T11/T12 harness-hardening + T15 CLI registry dispatch early)
@@ -1904,6 +1903,11 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - **Drift gate**: clean (rev-list count 0). No forward-merge needed.
 - **State**: S69 → verified. T20-gate-engine remains in_progress (S70-llm-check pending).
 - **Next step**: `/implement-slice S70-llm-check 2026-06-19-safe-parallelism` in a fresh session.
+### 2026-07-21 — track `T21-mcp-lint` merged to release-wt (commit ae328ed)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 1 verified slice merged: S71-mcp-lint-tools (MCP lint tools — 6 gate-engine tools exposed over MCP transport). Track state -> merged. Forward-merged 10 sibling commits (T22 merge) before integration; tests re-run green.
+
 ### 2026-07-21 — track `T22-tui-gate` merged to release-wt (commit cda2b24)
 
 - **Actor**: track integrator (/merge-track)
