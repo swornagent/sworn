@@ -223,6 +223,8 @@ func TestVendorFailsOnUnmappedScriptInSource(t *testing.T) {
 	mustCreate("claude/baton/role-prompts/implementer.md", "# Implementer")
 	mustCreate("claude/baton/role-prompts/planner.md", "# Planner")
 	mustCreate("claude/baton/role-prompts/verifier.md", "# Verifier\nRun `unknown-script.sh` for something.")
+	mustCreate("claude/baton/role-prompts/captain.md", "# Captain")
+	mustCreate("claude/baton/architecture.json", "{}")
 	mustCreate("claude/baton/track-mode.md", "# Track Mode")
 	mustCreate("claude/baton/session-discipline.md", "# Session")
 	mustCreate("claude/baton/brainstorm-patterns.md", "# Brainstorm")

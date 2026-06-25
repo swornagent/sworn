@@ -146,7 +146,9 @@ func makeUpstreamTarball(repoName, tag string, files map[string]string) []byte {
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
 
-	prefix := fmt.Sprintf("%s-%s", repoName, tag)
+	// GitHub strips the leading v from semver tags in tarball paths.
+	cleanTag := strings.TrimPrefix(tag, "v")
+	prefix := fmt.Sprintf("%s-%s", repoName, cleanTag)
 
 	// Add the top-level directory entry first.
 	_ = tw.WriteHeader(&tar.Header{

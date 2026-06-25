@@ -74,3 +74,45 @@ registration to In-scope/touchpoints with the `architecture.json` embed-location
 decision; add the explicit VERSION `baton-protocol`/`vendored` bump step; correct the
 stale premise. No implementer workaround is permitted for these (handoff directionality
 — forward to planner, per session-discipline). Slice remains `planned`.
+
+## 2026-07-15 — Implementer session: implemented
+
+Second implementer session (first session on 2026-06-25 BLOCKED on spec defects and
+routed to /replan-release). Spec defects D1-D4 from prior journal were not resolved
+by the planner — addressed as divergences in proof.md.
+
+### Implementation summary
+
+- Added file mappings in `source.go` for captain.md, architecture.json,
+  process-global-mutation.md (previously unmapped)
+- Added 9 new script reference substitutions in `transform.go` for v0.5.0 upstream
+  scripts (`release-trace.sh`, `release-audit-design.sh`, etc.)
+- Fixed tarball prefix `v`-stripping in `fetch.go` (GitHub convention: tag `v0.5.0`
+  → archive prefix `baton-0.5.0/`)
+- Updated embed directive in `adopt.go` to include `baton/architecture.json`
+- Updated VERSION to v0.5.0 with correct commit SHA `9ae08fb` and digest
+- Updated 7 prompt tests for v0.5.0 reorganized headings
+- Added test fixture files for new mappings (captain.md, architecture.json,
+  process-global-mutation.md)
+- Created architecture.json placeholder for embed compilation
+- Ran `sworn baton vendor ~/projects/baton` (local) and
+  `sworn baton vendor --upstream --tag v0.5.0` (GitHub) successfully
+
+### Decisions and trade-offs
+
+- **SHA divergence (D1):** Used commit SHA `9ae08fb` rather than spec's `b8452dd`
+  (tag-object hash). Follows established convention from S48/S62 where VERSION pins
+  commit SHA. Using tag-object hash would break subsequent `FetchUpstream` calls.
+- **File mapping additions (D2):** Chose `internal/adopt/baton/architecture.json` for
+  architecture.json (follows pattern of other baton artifacts). Captain mapping uses
+  existing `internal/prompt/captain.md` destination.
+- **Prompt test updates:** Sworn-specific prompt enhancements (S36, S46, S51) were
+  overwritten by canonical v0.5.0 content. Updated 7 tests to assert v0.5.0-equivalent
+  headings. Sworn re-enhancements left for future slices (S45-S47).
+- **Script substitutions:** New v0.5.0 scripts mapped to `sworn`-prefixed command names
+  (e.g. `release-trace.sh` → `sworn trace`). These commands don't exist yet (S65-S72
+  gate engine) but the text substitution makes prompts reference sworn-native commands.
+
+### State transition
+
+`planned` → `in_progress` (start implementation) → `implemented` (this commit)

@@ -1,0 +1,81 @@
+{
+  "$schema": "https://",
+  "_description": "Project-level architectural rules. Each rule is a named check run by release-audit-design.sh against the slice's diff. Rules can be suppressed per-release via architecture-overrides.json. Check types: grep (regex), touchpoints (planned-file audit), diff-size (growth limits), external (SAST/lint tool invocation).",
+  "canonical_docs": {
+    "_description": "Canonical architectural source-of-truth documents. The planner consults these during discovery. The architecture audit checks conformance. Declare paths relative to the repo root. Empty arrays = not yet defined — the planner will flag this as a gap.",
+    "data_model": "",
+    "api_contracts": [],
+    "component_hierarchy": [],
+    "architectural_decisions": "",
+    "design_tokens": ""
+  },
+  "rules": [
+    {
+      "id": "no-touchpoints-outside-plan",
+      "description": "Files changed shall be declared in spec.md planned touchpoints",
+      "check": "touchpoints",
+      "severity": "error",
+      "note": "If intentional, add to spec.md planned touchpoints or declare in proof.md divergence"
+    },
+    {
+      "id": "file-size-growth-limit",
+      "description": "No single file shall grow by more than 200 lines in one slice",
+      "check": "diff-size",
+      "max_lines_added": 200,
+      "severity": "warning",
+      "note": "Large additions may indicate monolithic code dumps — split into smaller composable units"
+    },
+    {
+      "id": "file-absolute-size-limit",
+      "description": "No file shall exceed 500 lines",
+      "check": "diff-size",
+      "max_file_lines": 500,
+      "severity": "warning",
+      "note": "Files over 500 lines should be decomposed"
+    },
+    {
+      "id": "no-hardcoded-secrets",
+      "description": "No secrets, keys, or credentials shall appear in source code",
+      "check": "grep",
+      "pattern": "(api_key|apikey|secret|password|token|credential)\\s*[:=]\\s*['\"][^'\"]{8,}|-----BEGIN\\s+(RSA|EC|DSA|OPENSSH)\\s+PRIVATE\\s+KEY-----",
+      "files": "**/*.{ts,tsx,go,js,py,rs,jsx,json,yml,yaml,toml}",
+      "severity": "error",
+      "note": "Secrets detected in diff. Use environment variables or a secrets manager."
+    },
+    {
+      "id": "no-unsafe-sql-concatenation",
+      "description": "SQL queries shall use parameterised queries, not string concatenation",
+      "check": "grep",
+      "pattern": "fmt\\.Sprintf\\(.*(SELECT|INSERT|UPDATE|DELETE|WHERE)|\\+.*(SELECT|INSERT|UPDATE|DELETE).*\\+|f[\"'].*SELECT.*[\"']",
+      "files": "**/*.{go,py,rs,js,ts,jsx,tsx,rb,php,java}",
+      "severity": "error",
+      "note": "SQL injection risk. Use parameterised queries ($1, ?, :name) instead of string interpolation."
+    },
+    {
+      "id": "no-missing-aria-on-interactive",
+      "description": "Interactive elements shall have accessible labels",
+      "check": "grep",
+      "pattern": "<(button|input|select|textarea|a)(?![^>]*aria-label)(?![^>]*aria-labelledby)(?![^>]*data-testid)",
+      "files": "**/*.{tsx,jsx,html,vue,svelte}",
+      "severity": "warning",
+      "note": "Interactive element without aria-label or data-testid. Add an accessible label."
+    },
+    {
+      "id": "no-color-alone-for-meaning",
+      "description": "Colour shall not be the only means of conveying information",
+      "check": "grep",
+      "pattern": "text-(red|green|blue|yellow|violet|orange)-\\d{3}(?!.*aria-)(?!.*sr-only)(?!.*role=)",
+      "files": "**/*.{tsx,jsx,html,vue,svelte}",
+      "severity": "warning",
+      "note": "Colour-only status indicator. WCAG 1.4.1: ensure an additional indicator accompanies the colour."
+    },
+    {
+      "id": "maintainability-review",
+      "description": "Code shall be understandable to a new team member 12 months from now",
+      "check": "external",
+      "command": "echo 'Run: release-llm-check.sh --check maintainability-review'",
+      "severity": "warning",
+      "note": "LLM check for naming clarity, separation of concerns, extension surface, duplication, god objects."
+    }
+  ]
+}
