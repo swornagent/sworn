@@ -123,8 +123,8 @@ tracks:
     depends_on: [T14-baton-integration, T15-cli-registry]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T20-gate-engine
     worktree_branch: track/2026-06-19-safe-parallelism/T20-gate-engine
-    state: verified  - id: T21-mcp-lint
-    slices: [S71-mcp-lint-tools]
+    state: merged
+  - id: T21-mcp-lint    slices: [S71-mcp-lint-tools]
     depends_on: [T4-mcp, T20-gate-engine]
     worktree_path:
     worktree_branch: track/2026-06-19-safe-parallelism/T21-mcp-lint
@@ -178,8 +178,8 @@ tracks:
 | `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | verified |
 | `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
 | `T19-status-hygiene` | S64 | T4 + T12 + T15 | `track/.../T19-status-hygiene` | merged |
+| `T20-gate-engine` | S65 → S66 → S67 → S68 → S69 → S70 | T14 + T15 | `track/.../T20-gate-engine` | merged |
 ### Execution order
-
 ```
 Phase 1:  T1 (sequential)
 Phase 2:  T2, T3, T4, T8, T9, T11, T12, T15 (parallel after T1 — T11/T12 harness-hardening + T15 CLI registry dispatch early)
@@ -539,8 +539,12 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 **Tracks:** Planned: 4 / In progress: 1 / Merged: 14  *(post T19 merge; oracle-authoritative: T5, T14 subsequently merged)*
 > Merged (14): T1, T2, T3, T4, T5, T7, T8, T9, T11, T12, T14, T15, T18, T19. In progress (1): T17. Planned (4): T6, T10, T13, T16.
 ## Recent activity
-### 2026-06-25 — replan: S65-lint-trace spec corrected; BLOCKED verdict cleared (Step 2b)
+### 2026-07-20 — track `T20-gate-engine` merged to release-wt (commit 44dd995)
 
+- **Actor**: track integrator (/merge-track)
+- **Note**: 6 verified slices merged: S65-lint-trace, S66-lint-coverage, S67-lint-design, S68-lint-mock, S69-lint-regress, S70-llm-check. Track state -> merged.
+
+### 2026-06-25 — replan: S65-lint-trace spec corrected; BLOCKED verdict cleared (Step 2b)
 - **Actor**: planner (`/replan-release`, human + Claude).
 - **Trigger**: verifier returned **BLOCKED** on S65 (T20-gate-engine) — spec AC #1 specified
   `sworn lint trace --release <name>` but the implementation, entry point, proof artefact, and
