@@ -81,9 +81,8 @@ tracks:
     depends_on: [T12-harness-hardening, T17-orchestration-core]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T13-sworn-role-parity
     worktree_branch: track/2026-06-19-safe-parallelism/T13-sworn-role-parity
-    state: in_progress
-  - id: T14-baton-integration
-    slices: [S48-baton-vendor, S49-baton-version, S50-baton-governance, S62-baton-upstream-source, S73-baton-v0.5.0-pin]
+    state: merged
+  - id: T14-baton-integration    slices: [S48-baton-vendor, S49-baton-version, S50-baton-governance, S62-baton-upstream-source, S73-baton-v0.5.0-pin]
     depends_on: [T3-commercial, T15-cli-registry]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T14-baton-integration
     worktree_branch: track/2026-06-19-safe-parallelism/T14-baton-integration
@@ -172,8 +171,7 @@ tracks:
 | `T9-telemetry` | S26 | T1 | `track/.../T9-telemetry` | merged |
 | `T10-public-readiness` | S27 | all tracks (incl. T16 + T19) | `track/.../T10-public-readiness` | verified |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
-| `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | merged || `T13-sworn-role-parity` | S45 → S46 → S47 | T12 + T17 | `track/.../T13-sworn-role-parity` | verified |
-| `T14-baton-integration` | S48 → S49 → S50 → S62 → S73 | T3 + T15 | `track/.../T14-baton-integration` | merged |
+| `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | merged || `T13-sworn-role-parity` | S45 → S46 → S47 | T12 + T17 | `track/.../T13-sworn-role-parity` | merged || `T14-baton-integration` | S48 → S49 → S50 → S62 → S73 | T3 + T15 | `track/.../T14-baton-integration` | merged |
 | `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged || `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | verified |
 | `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | merged || `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
 | `T19-status-hygiene` | S64 | T4 + T12 + T15 | `track/.../T19-status-hygiene` | merged |
@@ -538,20 +536,21 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 > `||`-collapsed physical lines repaired.
 
 - Planned: 8
-- In progress: 1
-- Implemented: 0
+- In progress: 0- Implemented: 0
 - Design review: 0
 - Verified: 65
 - Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 2 / In progress: 1 / Merged: 19  *(post T21+T22 merge; oracle-authoritative)*
-> Merged (19): T1, T2, T3, T4, T5, T6, T7, T8, T9, T11, T12, T14, T15, T17, T18, T19, T20, T21, T22. In progress (1): T13. Planned (2): T10, T16.
-
+**Tracks:** Planned: 2 / In progress: 0 / Merged: 20  *(post T13 merge; oracle-authoritative)*> Merged (20): T1, T2, T3, T4, T5, T6, T7, T8, T9, T11, T12, T13, T14, T15, T17, T18, T19, T20, T21, T22. Planned (2): T10, T16.
 ## Recent activity
 
-### 2026-07-21 — slice `S46-captain-review` → verified (PASS)
-- **Actor**: verifier (fresh context, artefact-only).
+### 2026-07-21 — track `T13-sworn-role-parity` merged to release-wt (commit 280593a)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 3 verified slices merged: S45-design-tldr, S46-captain-review, S47-orchestrator-recovery. Track state -> merged. No drift (track tip == release-wt tip).
+
+### 2026-07-21 — slice `S46-captain-review` → verified (PASS)- **Actor**: verifier (fresh context, artefact-only).
 - **Verdict**: PASS — all six verification gates satisfied.
   - Gate 1: Captain review wired into RunSlice — called after design TL;DR, gates implement loop on escalate pins.
   - Gate 2: Planned touchpoints (review.go, review_test.go, slice.go) matched; state.go/prompt.go reused existing (documented).
