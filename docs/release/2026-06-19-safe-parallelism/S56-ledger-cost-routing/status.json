@@ -3,10 +3,10 @@
   "slice_id": "S56-ledger-cost-routing",
   "release": "2026-06-19-safe-parallelism",
   "track": "T16-verdict-ledger",
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-25T20:07:47Z",
+  "last_updated_at": "2026-06-25T20:50:07Z",
   "start_commit": "44bbe155582fc9a45d7110872ae097de18edd658",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S56-ledger-cost-routing/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S56-ledger-cost-routing/proof.md",
@@ -20,7 +20,16 @@
     "internal/config/config_test.go",
     "cmd/sworn/ledger.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/ledger/routing.go",
+    "internal/ledger/routing_test.go",
+    "internal/ledger/query.go",
+    "internal/ledger/query_test.go",
+    "internal/config/config.go",
+    "internal/config/config_test.go",
+    "cmd/sworn/ledger.go",
+    "cmd/sworn/run.go"
+  ],
   "test_commands": [
     "go test ./internal/ledger/... ./internal/config/... ./cmd/sworn/...",
     "go build ./..."
