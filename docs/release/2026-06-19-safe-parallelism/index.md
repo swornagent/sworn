@@ -41,7 +41,8 @@ tracks:
     worktree_branch: track/2026-06-19-safe-parallelism/T6-provider-ux
     state: merged
   - id: T7-mcp-extensions
-    slices: [S20-mcp-catalog-tools]    depends_on: [T3-commercial, T4-mcp]
+    slices: [S20-mcp-catalog-tools]
+    depends_on: [T3-commercial, T4-mcp]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T7-mcp-extensions
     worktree_branch: track/2026-06-19-safe-parallelism/T7-mcp-extensions
     state: merged
@@ -87,7 +88,8 @@ tracks:
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T14-baton-integration
     worktree_branch: track/2026-06-19-safe-parallelism/T14-baton-integration
     state: merged
-  - id: T15-cli-registry    slices: [S51-cli-command-registry]
+  - id: T15-cli-registry
+    slices: [S51-cli-command-registry]
     depends_on: T1-concurrency-core
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T15-cli-registry
     worktree_branch: track/2026-06-19-safe-parallelism/T15-cli-registry
