@@ -60,8 +60,19 @@ Proposed spec.md amendment:
 - Update "Entry point" to be explicit: "Invoked as `sworn lint trace <release>` (positional release name, no --release flag)"
 - Update reachability artefact description in proof.md if needed to match.
 
-## Planner corrections
+### 2026-07-15 — verifier verdict — PASS
+PASS
+Slice: S65-lint-trace
+Reason: All six verification gates satisfied.
+Gate 1 (User-reachable outcome): `sworn lint trace <release>` is wired through lint.go `case "trace"` → `cmdLintTrace`.
+Gate 2 (Planned touchpoints): Planned files (internal/gate/trace.go, internal/gate/trace_test.go, cmd/sworn/lint.go) present. Extra file cmd/sworn/lint_trace_test.go explained in proof.md Divergence section.
+Gate 3 (Required tests exercise integration point): 11 unit tests + 5 integration tests re-run (all PASS). Build + vet clean.
+Gate 4 (Reachability artefact): Binary built and `sworn lint trace 2026-06-19-safe-parallelism` exercised — structured output with correct violations.
+Gate 5 (No silent deferrals): Zero TODO/FIXME/HACK/placeholder markers in all changed files.
+Gate 6 (Claimed scope matches implemented scope): All 6 acceptance checks covered by test evidence.
+Minor observation: proof.md Delivered table item 1 says `--release <name>` instead of positional `<release>`; the test evidence and reachability artefact use the correct positional form. Cosmetic only — does not affect verifiability.
 
+## Planner corrections
 ### 2026-06-25 — spec corrected; BLOCKED verdict cleared (Step 2b)
 
 - **Actor**: planner (`/replan-release`, human + Claude).

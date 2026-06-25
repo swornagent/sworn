@@ -512,8 +512,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 | `S59-scheduler-relayer` | T17 | `sworn run --parallel` workers poll the router each step (poll-and-route) instead of a static slice list — resumable, dynamic; keeps dependency resolution + worktree isolation + supervisor ownership | verified | [spec](./S59-scheduler-relayer/spec.md) |
 | `S60-init-ui-bearing-fix` | T18 | `sworn init` no longer prompts for design tokens / component library in a non-UI-bearing repo; design-system flow gated on `--ui-bearing`; drops the always-true `UIBearing` write | verified | [spec](./S60-init-ui-bearing-fix/spec.md) |
 | `S61-cli-output-styling` | T18 | shared zero-dep `internal/style` ANSI palette gives premium, consistent, TTY/`NO_COLOR`-aware colour across every command + report renderer; plain output byte-identical | verified | [spec](./S61-cli-output-styling/spec.md) |
-| `S65-lint-trace` | T20 | `sworn lint trace <release>` mechanically verifies RTM chain (intake→covers_needs→AC→test), EARS conformance, sniff-test. Exits 0 on fully-traced release, non-zero with violations. | implemented | [spec](./S65-lint-trace/spec.md) |
-## Aggregate state
+| `S65-lint-trace` | T20 | `sworn lint trace <release>` mechanically verifies RTM chain (intake→covers_needs→AC→test), EARS conformance, sniff-test. Exits 0 on fully-traced release, non-zero with violations. | verified | [spec](./S65-lint-trace/spec.md) |## Aggregate state
 > **STALE — the board oracle (`release-board-status.sh --json`) is authoritative; run it for live
 > counts.** This hand-maintained block predates the T16-verdict-ledger, T17-orchestration-core, and
 > T18-cli-polish additions (now **18 tracks, 68 slices**) and is not reconciled per-replan. Counts
@@ -532,10 +531,9 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 
 - Planned: 28
 - In progress: 0
-- Implemented: 1 (S65-lint-trace, BLOCKED on verification)
+- Implemented: 0
 - Design review: 1
-- Verified: 30
-- Note: S65-lint-trace BLOCKED (spec defect); state remains implemented. See Recent activity.
+- Verified: 31
 - Failed verification: 1
 - Deferred: 0
 
@@ -562,8 +560,18 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
   `.verification.result` (`blocked`), so an implemented-then-blocked slice reads `implemented` on
   the board — the replan trigger surfaced via the coach-loop PAGE, not the oracle state field.
 
-### 2026-07-16 — track `T14-baton-integration` merged to release-wt (commit 8daa03d)
+### 2026-07-15 — slice `S65-lint-trace` → verified (PASS verdict)
 
+- **Actor**: fresh-context verifier.
+- **Verdict**: PASS — all six verification gates satisfied.
+  - Gate 1: `sworn lint trace <release>` wired and user-reachable.
+  - Gate 2: Planned touchpoints match actual (extra test file explained in proof.md).
+  - Gate 3: All 16 tests re-run and passing (11 unit + 5 integration).
+  - Gate 4: Reachability artefact exercised against live release.
+  - Gate 5: No TODO/FIXME/HACK/placeholder markers.
+  - Gate 6: All 6 acceptance checks covered by test evidence.
+- **Note**: spec defect from prior BLOCKED verdict corrected via /replan-release. No code changes needed.
+- **Next**: the track T20-gate-engine continues with S66-lint-coverage. /implement-slice S66-lint-coverage 2026-06-19-safe-parallelism.
 - **Actor**: track integrator (/merge-track)
 - **Note**: 5 verified slices merged: S48-baton-vendor, S49-baton-version, S50-baton-governance, S62-baton-upstream-source, S73-baton-v0.5.0-pin. Track state -> merged.
 
