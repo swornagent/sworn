@@ -255,23 +255,22 @@ func TestFromEnv(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "custom provider with key but no base URL",
+			name: "groq provider with key, no base URL — uses preset",
 			env: map[string]string{
-				"SWORN_AZURE_API_KEY": "sk-test",
+				"SWORN_GROQ_API_KEY": "sk-test",
 			},
-			modelID: "azure/gpt-4",
-			wantErr: true,
-		},
-		{
-			name: "custom provider with key and base URL",
-			env: map[string]string{
-				"SWORN_AZURE_API_KEY":  "sk-test",
-				"SWORN_AZURE_BASE_URL": "https://example.openai.azure.com",
-			},
-			modelID: "azure/gpt-4",
+			modelID: "groq/llama-3.3-70b",
 			wantErr: false,
 		},
 		{
+			name: "groq provider with key and base URL override",
+			env: map[string]string{
+				"SWORN_GROQ_API_KEY":  "sk-test",
+				"SWORN_GROQ_BASE_URL": "https://custom-groq.example.com/v1",
+			},
+			modelID: "groq/llama-3.3-70b",
+			wantErr: false,
+		},		{
 			name: "env model override",
 			env: map[string]string{
 				"SWORN_OPENAI_API_KEY": "sk-test",
@@ -295,7 +294,7 @@ func TestFromEnv(t *testing.T) {
 			// Clear relevant env vars first
 			for _, k := range []string{
 				"SWORN_OPENAI_API_KEY", "SWORN_OPENAI_BASE_URL", "SWORN_OPENAI_MODEL",
-				"SWORN_AZURE_API_KEY", "SWORN_AZURE_BASE_URL", "SWORN_AZURE_MODEL",
+				"SWORN_GROQ_API_KEY", "SWORN_GROQ_BASE_URL", "SWORN_GROQ_MODEL",
 				"SWORN_DIRECT", "SWORN_PROXY_URL",
 			} {
 				t.Setenv(k, "")

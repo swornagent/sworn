@@ -8,6 +8,7 @@ import (
 
 	_ "modernc.org/sqlite"
 )
+
 func TestCmdRun_MissingTask(t *testing.T) {
 	exit := cmdRun([]string{})
 	if exit != 64 {
@@ -137,9 +138,12 @@ tracks:
 
 	// ── Environment ───────────────────────────────────────────────────────
 	// SWORN_VERIFIER_MODEL must be set so the verifier-resolution gate
-	// (line 47‑51 of run.go) passes.  SWORN_DB_DRIVER ensures the sqlite
-	// driver is selected.
+	// (line 47‑51 of run.go) passes. SWORN_IMPLEMENTER_MODEL must be set so
+	// the implementer-resolution gate passes (ResolveImplementerModel returns
+	// an error when no source is configured). SWORN_DB_DRIVER ensures the
+	// sqlite driver is selected.
 	t.Setenv("SWORN_VERIFIER_MODEL", "openai/gpt-4o")
+	t.Setenv("SWORN_IMPLEMENTER_MODEL", "openai/gpt-4o-mini")
 	t.Setenv("SWORN_DB_DRIVER", "sqlite")
 
 	// ── Invoke the CLI entry path ────────────────────────────────────────

@@ -1,0 +1,26 @@
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  Settings                                                                    │
+│                                                                              │
+│  Model Configuration                                                         │
+│ ▸ Verifier Model:       anthropic/claude-sonnet-4-6                          │
+│   Implementer Model:    openai/gpt-4o-mini                                   │
+│   Escalation Models:    openai/gpt-4o, openai/o3                             │
+│   Max Attempts:         3                                                    │
+│                                                                              │
+│  API Keys                                                                    │
+│   OpenAI API Key:       ****                                                 │
+│   Anthropic API Key:    (not set)                                            │
+│   Google API Key:       (not set)                                            │
+│   Groq API Key:         (not set)                                            │
+│   Mistral API Key:      (not set)                                            │
+│   DeepSeek API Key:     (not set)                                            │
+│   OpenRouter API Key:   (not set)                                            │
+│   Azure OpenAI API Key: (not set)                                            │
+│   Azure OpenAI Endpoint:(not set)                                            │
+│   OCI Compartment ID:   (not set)                                            │
+│   Ollama Host:          (not set)                                            │
+│                                                                              │
+│                                                                              │
+│ ↑/↓ navigate  Tab/Shift+Tab next/prev  Enter edit  Ctrl+S save  Esc back     │
+│ API keys show as **** when set. Navigate to a field and press Enter to view/ │
+└──────────────────────────────────────────────────────────────────────────────┘

@@ -104,8 +104,8 @@ with the correct base URL and API key.
 - `internal/model/errors.go` (new — typed error taxonomy)
 - `internal/model/errors_test.go` (new)
 - `internal/model/oai.go` (modify — return *model.Error on non-2xx)
-- `cmd/sworn/run.go` (modify — use NewClient + print Error.UserMessage; serialised by T1+T3 dep)
-
+- `internal/model/config.go` (modify — refactor FromEnv to delegate to NewClient)
+- `cmd/sworn/run.go` (modify — LoadDotEnv + print Error.UserMessage; serialised by T1+T3 dep)
 ## Acceptance checks
 
 - [ ] `docs/adr/0007-dep-policy-minimal-justified.md` is committed; it explicitly names

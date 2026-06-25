@@ -3,32 +3,54 @@
   "slice_id": "S14-azure-driver",
   "release": "2026-06-19-safe-parallelism",
   "track": "T5-providers",
-  "state": "planned",
-  "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-20T00:00:00Z",
-  "start_commit": null,
+  "state": "verified",  "owner": "human",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-06-24T05:41:10Z",
+  "start_commit": "e6c92d5",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S14-azure-driver/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S14-azure-driver/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S14-azure-driver/journal.md",
   "planned_files": [
     "internal/model/azure.go",
     "internal/model/azure_test.go",
-    "internal/model/provider.go"
+    "internal/model/provider.go",
+    "internal/model/config.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/model/azure.go",
+    "internal/model/azure_test.go",
+    "internal/model/provider.go",
+    "internal/model/config.go",
+    "internal/model/provider_test.go"
+  ],
   "test_commands": [
     "go test ./internal/model/... -run Azure",
     "go test ./internal/model/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
-  "open_deferrals": [],
+  "reachability_artifacts": [
+    "TestNewClient_AzureRouted — NewClient(azure/gpt-4o) returns *AzureOAI",
+    "TestAzureVerify_ReturnsText — end-to-end Verify() through httptest.Server",
+    "TestAzureVerify_CorrectURL — Azure URL pattern verified"
+  ],
+  "open_deferrals": [
+    {
+      "item": "Azure AD / Entra ID token auth",
+      "why": "Entra token flow requires MSAL and azure-sdk-go; adds a significant dependency for an edge case",
+      "tracking": "post-R3 GitHub issue",
+      "acknowledged": "planning session 2026-06-20"
+    },
+    {
+      "item": "Azure cost modelling",
+      "why": "Pricing varies by deployment tier, region, and commitment",
+      "tracking": "S52-ledger-projection",
+      "acknowledged": "Coach design review ack 2026-07-09"
+    }
+  ],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-06-24T07:06:17Z",
     "violations": []
   }
 }

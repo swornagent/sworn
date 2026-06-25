@@ -135,6 +135,11 @@ var modelPricing = map[string]struct {
 	"o4-mini":      {1.10, 4.40},
 	"o3":           {10.00, 40.00},
 	"o3-mini":      {1.10, 4.40},
+	// gpt-5.x reasoning models (responses API pricing, USD per 1M tokens).
+	// Preliminary — confirm with https://openai.com/api/pricing/.
+	"gpt-5.5":       {1.25, 10.00},
+	"gpt-5.5-pro":   {2.50, 20.00},
+	"gpt-5.3-codex": {3.00, 12.00},
 }
 
 // Verify sends the system prompt + user payload to /chat/completions.
@@ -178,15 +183,15 @@ func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (str
 		return "", 0, fmt.Errorf("model: read response: %w", err)
 	}
 
-	// 402 Payment Required — insufficient credits (Coach ack pin C).
-	// Never silently downgrade to a direct provider call.
-	if resp.StatusCode == http.StatusPaymentRequired {
-		return "", 0, account.ErrInsufficientCredits
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", 0, fmt.Errorf("model: HTTP %d: %s", resp.StatusCode, trimBody(body, 200))
-	}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			me := NewProviderError(resp.StatusCode, "openai", c.Model, body)
+			// 402 Payment Required — insufficient credits (Coach ack pin C).
+			// Never silently downgrade to a direct provider call.
+			if resp.StatusCode == http.StatusPaymentRequired {
+				me.Err = account.ErrInsufficientCredits
+			}
+			return "", 0, me
+		}
 
 	var cr ChatResponse
 	if err := json.Unmarshal(body, &cr); err != nil {
@@ -241,14 +246,14 @@ func (c *OAI) Chat(ctx context.Context, messages []ChatMessage, tools []ToolDef)
 		return nil, fmt.Errorf("model: read response: %w", err)
 	}
 
-	// 402 Payment Required — insufficient credits (Coach ack pin C).
-	if resp.StatusCode == http.StatusPaymentRequired {
-		return nil, account.ErrInsufficientCredits
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("model: HTTP %d: %s", resp.StatusCode, trimBody(body, 200))
-	}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			me := NewProviderError(resp.StatusCode, "openai", c.Model, body)
+			// 402 Payment Required — insufficient credits (Coach ack pin C).
+			if resp.StatusCode == http.StatusPaymentRequired {
+				me.Err = account.ErrInsufficientCredits
+			}
+			return nil, me
+		}
 
 	var cr ChatResponse
 	if err := json.Unmarshal(body, &cr); err != nil {

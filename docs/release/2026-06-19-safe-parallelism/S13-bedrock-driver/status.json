@@ -3,11 +3,11 @@
   "slice_id": "S13-bedrock-driver",
   "release": "2026-06-19-safe-parallelism",
   "track": "T5-providers",
-  "state": "planned",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-20T00:00:00Z",
-  "start_commit": null,
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-09T00:00:00Z",
+  "start_commit": "91f7768873a5b0acdb2686e00c2eab302cec3277",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S13-bedrock-driver/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S13-bedrock-driver/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S13-bedrock-driver/journal.md",
@@ -15,22 +15,71 @@
     "internal/model/bedrock.go",
     "internal/model/bedrock_test.go",
     "internal/model/provider.go",
+    "internal/model/config.go",
     "go.mod",
     "go.sum"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/model/bedrock.go",
+    "internal/model/bedrock_test.go",
+    "internal/model/provider.go",
+    "internal/model/config.go",
+    "internal/model/provider_test.go",
+    "go.mod",
+    "go.sum",
+    "docs/release/2026-06-19-safe-parallelism/S13-bedrock-driver/status.json",
+    "docs/release/2026-06-19-safe-parallelism/S13-bedrock-driver/proof.md",
+    "docs/release/2026-06-19-safe-parallelism/S13-bedrock-driver/journal.md"
+  ],
   "test_commands": [
     "go test ./internal/model/... -run Bedrock",
     "go test ./internal/model/...",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
-  "open_deferrals": [],
+  "reachability_artifacts": [
+    "TestNewClient_BedrockRouted — model.NewClient dispatches bedrock/* → *Bedrock",
+    "TestBedrockVerify_ReturnsText — full Verify() path through mocked Converse API"
+  ],
+  "open_deferrals": [
+    {
+      "item": "Live AWS integration test (TestBedrockVerify_Live)",
+      "why": "requires real AWS credentials; skipped unless SWORN_LIVE_TESTS=1 and AWS_ACCESS_KEY_ID",
+      "tracking": "S13-bedrock-driver spec §Deferrals allowed",
+      "acknowledged": "Brad, design-review 2026-07-09"
+    }
+  ],
+  "design_decisions": [
+    {
+      "id": "D1",
+      "description": "Mock strategy: httptest.Server + BaseEndpoint override on bedrockruntime.NewFromConfig — exercises real SDK serialisation path without AWS credentials",
+      "type_2": true
+    },
+    {
+      "id": "D2",
+      "description": "Region resolution: param → AWS_REGION → AWS_DEFAULT_REGION → us-east-1",
+      "type_2": true
+    },
+    {
+      "id": "D3",
+      "description": "Pricing table: 6 Bedrock models sourced from AWS Bedrock pricing page; keys use anthropic. prefix for Claude models per parseModelID behaviour",
+      "type_2": true
+    },
+    {
+      "id": "D4",
+      "description": "Converse API types: use bedrockruntime types directly — no Anthropic SDK types in this file",
+      "type_2": true
+    },
+    {
+      "id": "D5",
+      "description": "Error classification: parse smithyhttp.ResponseError for HTTP status code; route through NewProviderError for consistent taxonomy",
+      "type_2": true
+    }
+  ],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "result": "pass",
+    "verifier_session_id": "fresh-verifier-2026-06-24",
+    "verifier_verdict_at": "2026-06-24T04:40:57Z",
+    "verifier_was_fresh_context": true,
     "violations": []
   }
 }

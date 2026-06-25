@@ -514,3 +514,77 @@ func TestDefaultConfig_ImplementerDefaults(t *testing.T) {
 		t.Errorf("Implementer.MaxAttempts = %d, want 3", cfg.Implementer.MaxAttempts)
 	}
 }
+
+// --- S17 config Save tests ---
+
+func TestSave_WritesFile(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	t.Setenv("SWORN_CONFIG_PATH", configPath)
+
+	cfg := Config{
+		Version: 1,
+		Verifier: ModelSetting{
+			Model: "anthropic/claude-sonnet-4-6",
+		},
+		Implementer: ModelSetting{
+			Model:            "openai/gpt-4o-mini",
+			EscalationModels: []string{"openai/gpt-4o", "openai/o3"},
+			MaxAttempts:      3,
+		},
+	}
+
+	if err := Save(cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Read back and verify round-trip.
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.Verifier.Model != "anthropic/claude-sonnet-4-6" {
+		t.Errorf("Verifier.Model = %q, want anthropic/claude-sonnet-4-6", loaded.Verifier.Model)
+	}
+	if loaded.Implementer.Model != "openai/gpt-4o-mini" {
+		t.Errorf("Implementer.Model = %q, want openai/gpt-4o-mini", loaded.Implementer.Model)
+	}
+	if len(loaded.Implementer.EscalationModels) != 2 {
+		t.Errorf("EscalationModels len = %d, want 2", len(loaded.Implementer.EscalationModels))
+	}
+	if loaded.Implementer.MaxAttempts != 3 {
+		t.Errorf("MaxAttempts = %d, want 3", loaded.Implementer.MaxAttempts)
+	}
+}
+
+func TestSave_CreatesParentDirs(t *testing.T) {
+	dir := t.TempDir()
+	// Point config path at a subdirectory that doesn't exist.
+	configPath := filepath.Join(dir, "does-not-exist", "sub", "config.json")
+	t.Setenv("SWORN_CONFIG_PATH", configPath)
+
+	cfg := Config{
+		Version: 1,
+		Verifier: ModelSetting{
+			Model: "anthropic/claude-sonnet-4-6",
+		},
+	}
+
+	if err := Save(cfg); err != nil {
+		t.Fatalf("Save with non-existent parent dirs: %v", err)
+	}
+
+	// Verify the file was created.
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		t.Errorf("config file was not created at %s", configPath)
+	}
+
+	// Verify we can load it back.
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load after Save with new dirs: %v", err)
+	}
+	if loaded.Verifier.Model != "anthropic/claude-sonnet-4-6" {
+		t.Errorf("Verifier.Model = %q", loaded.Verifier.Model)
+	}
+}

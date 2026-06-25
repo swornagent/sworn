@@ -10,8 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"errors"
+
 	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/config"
+	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/run"
 )
 
@@ -39,6 +42,11 @@ func cmdRun(args []string) int {
 
 	_ = fs.Parse(args)
 
+	// ── Load .env files ────────────────────────────────────────────────
+	if err := model.LoadDotEnv(); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn run: load .env: %v\n", err)
+		return 1
+	}
 	// ── Basic CLI usage validation (before model resolution) ────────────
 	if *parallel {
 		if *releaseName == "" {
@@ -120,12 +128,12 @@ func cmdRun(args []string) int {
 			Notifier:      notifier,
 		})
 		if err != nil {
+			printModelError(err)
 			fmt.Fprintf(os.Stderr, "sworn run: parallel: %v\n", err)
 			return 1
 		}
 		return 0
 	}
-
 	// ── Single-slice mode ──────────────────────────────────────────────
 	err = run.Run(context.Background(), run.Options{
 		Task:             *task,
@@ -138,6 +146,7 @@ func cmdRun(args []string) int {
 		Notifier:         notifier,
 	})
 	if err != nil {
+		printModelError(err)
 		fmt.Fprintf(os.Stderr, "sworn run: %v\n", err)
 		return 1
 	}
@@ -170,9 +179,7 @@ func resolveImplementTimeout(flagVal time.Duration, envVal string) time.Duration
 		}
 	}
 	return run.DefaultImplementTimeout
-}
-
-// parseEscalationFlag splits a comma-separated escalation models string into
+} // parseEscalationFlag splits a comma-separated escalation models string into
 // a []string. Returns nil when the flag is empty.
 func parseEscalationFlag(raw string) []string {
 	if raw == "" {
@@ -207,4 +214,15 @@ func openDefaultDB() (*sql.DB, error) {
 	}
 	db.SetMaxOpenConns(1)
 	return db, nil
+}
+
+// printModelError unwraps a *model.Error from err (via errors.As) and
+// prints its UserMessage to stderr. This gives the user actionable
+// guidance (e.g. "check the API key", "out of credits") instead of
+// raw provider JSON. If err is not a *model.Error, nothing is printed.
+func printModelError(err error) {
+	var me *model.Error
+	if errors.As(err, &me) {
+		fmt.Fprintf(os.Stderr, "sworn run: %s\n", me.UserMessage())
+	}
 }

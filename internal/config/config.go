@@ -1,8 +1,12 @@
 // Package config loads sworn's configuration with precedence: env > file > default.
 // Config is the single source for model selections and provider settings consumed by
 // sworn verify (and later sworn run). It never logs API keys.
+//
+// Extension points (for S17/S09):
+//   - Save writes the current config to disk (creating parent dirs if needed).
+//   - EnvPath returns the path to ~/.sworn/.env.
+//   - LoadEnv / WriteEnv read and write provider API keys in .env format.
 package config
-
 import (
 	"encoding/json"
 	"fmt"
@@ -10,8 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-)
-// Config is the sworn runtime configuration. All model selections are
+)// Config is the sworn runtime configuration. All model selections are
 // "provider/model" strings (e.g. "openai/gpt-4.1") as used by model.FromEnv.
 //
 // For UI-bearing projects, the DesignSystem field declares the project's
@@ -251,4 +254,127 @@ func ResolveMaxAttempts(flagN int, cfg Config) int {
 		return cfg.Implementer.MaxAttempts
 	}
 	return 3
+}
+
+// Save writes the Config as JSON to the file at Path(), creating parent
+// directories if they do not exist. File permissions are 0600 (owner read/write)
+// to match the security profile of Scaffold — the file may contain model
+// selections that should not be world-readable. Returns an error if marshalling
+// or writing fails.
+func Save(cfg Config) error {
+	p := Path()
+	if p == "" {
+		return fmt.Errorf("config: cannot determine config path; set $SWORN_CONFIG_PATH")
+	}
+	dir := filepath.Dir(p)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("config: creating parent dirs for %s: %w", p, err)
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("config: marshalling config: %w", err)
+	}
+	if err := os.WriteFile(p, data, 0600); err != nil {
+		return fmt.Errorf("config: writing %s: %w", p, err)
+	}
+	return nil
+}
+
+// EnvPath returns the path to the sworn .env file: ~/.sworn/.env.
+// Does not create the file or its directory.
+func EnvPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".sworn", ".env")
+}
+
+// LoadEnv reads ~/.sworn/.env and returns a map of keys to values.
+// Keys are uppercase (e.g. "OPENAI_API_KEY"). Returns an empty map
+// (not nil) if the file does not exist.
+func LoadEnv() (map[string]string, error) {
+	p := EnvPath()
+	data, err := os.ReadFile(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]string{}, nil
+		}
+		return nil, fmt.Errorf("config: reading %s: %w", p, err)
+	}
+	result := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		eqIdx := strings.IndexByte(line, '=')
+		if eqIdx < 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:eqIdx])
+		val := strings.TrimSpace(line[eqIdx+1:])
+		if key != "" {
+			result[key] = val
+		}
+	}
+	return result, nil
+}
+
+// WriteEnv writes a set of key=value pairs to ~/.sworn/.env, preserving existing
+// lines not present in the updates map. If a key already exists, its line is
+// replaced in-place; if a key is new, it is appended. Creates the file and parent
+// directories if they do not exist.
+func WriteEnv(updates map[string]string) error {
+	// Read existing file.
+	p := EnvPath()
+	existing := map[string]int{} // key -> line index
+	var lines []string
+	data, err := os.ReadFile(p)
+	if err == nil {
+		raw := string(data)
+		lines = strings.Split(raw, "\n")
+		// Drop trailing empty line from split.
+		if len(lines) > 0 && lines[len(lines)-1] == "" {
+			lines = lines[:len(lines)-1]
+		}
+		for i, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+				continue
+			}
+			eqIdx := strings.IndexByte(trimmed, '=')
+			if eqIdx < 0 {
+				continue
+			}
+			key := strings.TrimSpace(trimmed[:eqIdx])
+			if key != "" {
+				existing[key] = i
+			}
+		}
+	} else {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("config: reading %s: %w", p, err)
+		}
+		lines = nil
+	}
+
+	// Update existing lines and collect new keys.
+	for key, val := range updates {
+		if idx, ok := existing[key]; ok {
+			lines[idx] = fmt.Sprintf("%s=%s", key, val)
+		} else {
+			lines = append(lines, fmt.Sprintf("%s=%s", key, val))
+		}
+	}
+	// Ensure trailing newline.
+	content := strings.Join(lines, "\n") + "\n"
+
+	dir := filepath.Dir(p)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("config: creating .env parent dirs: %w", err)
+	}
+	if err := os.WriteFile(p, []byte(content), 0600); err != nil {
+		return fmt.Errorf("config: writing %s: %w", p, err)
+	}
+	return nil
 }

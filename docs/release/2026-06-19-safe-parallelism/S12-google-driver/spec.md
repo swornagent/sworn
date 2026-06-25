@@ -54,6 +54,11 @@ A GCP user sets `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, and uses
 - `internal/model/google.go` (new)
 - `internal/model/google_test.go` (new)
 - `internal/model/provider.go` (modify — register google/* and vertex/* prefixes)
+- `internal/model/config.go` (modify — wire Google/Vertex key handling into `FromEnv`:
+  vertex ADC bypass + `envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY")` for the
+  google prefix, so the documented user outcome works through `sworn run` → `FromEnv`)
+- `internal/model/provider_test.go` (modify — remove `google/*` from the
+  `TestNewClient_NativeStub` table since google is now a registered driver)
 - `go.mod`, `go.sum` (modify — add google.golang.org/genai)
 
 ## Acceptance checks

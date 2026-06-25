@@ -1,0 +1,34 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S73-baton-v0.5.0-pin",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T14-baton-integration",
+  "covers_needs": [],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-25T10:00:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S73-baton-v0.5.0-pin/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S73-baton-v0.5.0-pin/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S73-baton-v0.5.0-pin/journal.md",
+  "planned_files": [
+    "internal/adopt/baton/VERSION",
+    "internal/adopt/baton/rules/*.md",
+    "internal/adopt/baton/role-prompts/*.md"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/prompt/...",
+    "go test ./internal/adopt/..."
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}
