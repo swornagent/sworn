@@ -39,8 +39,7 @@ tracks:
     depends_on: [T2-monitoring, T5-providers, T18-cli-polish]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T6-provider-ux
     worktree_branch: track/2026-06-19-safe-parallelism/T6-provider-ux
-    state: in_progress
-  - id: T7-mcp-extensions
+    state: verified  - id: T7-mcp-extensions
     slices: [S20-mcp-catalog-tools]
     depends_on: [T3-commercial, T4-mcp]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T7-mcp-extensions
@@ -1704,3 +1703,17 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - **Gates passed**: 1–6.
 - **Drift gate**: clean (rev-list count 0). Verified against track HEAD bb4ea79.
 - **State**: S64 → verified. Track T19-status-hygiene now complete (only slice S64 verified). Next: `/merge-track T19-status-hygiene`.
+
+### 2026-07-15 — slice `S17-tui-provider-config` → verified (PASS)
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs).
+- **Verdict**: PASS — all six gates satisfied.
+  - Gate 1: User-reachable outcome exists — `sworn` (no args) → TUI board → press `s` opens settings panel (wired in model.go).
+  - Gate 2: Planned touchpoints match — files match (model.go divergence documented); captures/ path used.
+  - Gate 3: Required tests exist and exercise integration point — 5 Settings tests + config Save tests; re-ran `go test ./internal/tui/... -run Settings`, `go test ./internal/config/... -run Save`, `go build ./...` (all PASS).
+  - Gate 4: Reachability artefact — `captures/S17-settings-panel.txt` shows panel with models + masked keys.
+  - Gate 5: No silent deferrals — no TODO/FIXME in .go files; open_deferral for test button is Rule 2 compliant.
+  - Gate 6: Claimed scope matches — all Delivered items have evidence; Not delivered are documented deferrals.
+- **Gates passed**: 1–6.
+- **Drift gate**: forward-merged 1 commit from release-wt; clean after merge.
+- **State**: S17 → verified. Track T6-provider-ux now has its only slice verified. Next: `/merge-track T6-provider-ux`.
+- **Note**: TUI text capture (not PNG) is authentic for Bubble Tea; path fixed to captures/.
