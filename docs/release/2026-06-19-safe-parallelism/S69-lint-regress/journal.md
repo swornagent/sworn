@@ -29,3 +29,14 @@ description: 'Session notes for implementing sworn regress.'
 
 - Running the test suite per-slice (that's implementer/verifier territory)
 - Modifying test configuration
+## Verifier verdicts received
+
+- **PASS** (2026-07-18T12:00:00Z)
+  - Verifier: fresh-context session, track worktree at `/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T20-gate-engine`
+  - All 6 gates passed. No violations.
+  - Gate 1 ✅ user-reachable — `sworn regress` wired through command registry
+  - Gate 2 ✅ planned touchpoints match (commands.go divergence documented)
+  - Gate 3 ✅ 5 tests pass via testRunner abstraction
+  - Gate 4 ✅ reachability artefact shows CLI output
+  - Gate 5 ✅ no silent deferrals in code
+  - Gate 6 ✅ scope matches — all 5 ACs delivered

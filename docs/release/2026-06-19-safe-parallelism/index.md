@@ -1857,3 +1857,16 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - **Drift gate**: clean (rev-list count 0). No forward-merge needed.
 - **State**: S68 → verified. T20-gate-engine remains in_progress (S69-lint-regress, S70-llm-check pending).
 - **Next step**: `/implement-slice S69-lint-regress 2026-06-19-safe-parallelism` in a fresh session.
+### 2026-07-18 — slice `S69-lint-regress` → verified (PASS)
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs)
+- **Verdict**: PASS — all six gates satisfied.
+  - Gate 1: User-reachable outcome exists — `sworn regress --release <name>` wired via `cmd/sworn/regress.go`, registered in command registry.
+  - Gate 2: Planned touchpoints match actual changed files — `regress.go`, `regress_test.go`, `regress.go` + `commands.go` (1 registration call, divergence documented).
+  - Gate 3: Required tests exist and exercise integration point — `go test ./internal/gate/... -run Regress -count=1` PASS (0.003s), `go build ./...` PASS, `go vet ./internal/gate/... ./cmd/sworn/...` PASS.
+  - Gate 4: Reachability artefact — `sworn regress --release 2026-06-19-safe-parallelism` runs all three suites (Go, TS, golden fixtures).
+  - Gate 5: No silent deferrals — zero TODO/FIXME/HACK in all changed files.
+  - Gate 6: Claimed scope matches implemented scope — all 5 acceptance checks traced to implementation + passing tests.
+- **Drift gate**: clean (rev-list count 0). No forward-merge needed.
+- **State**: S69 → verified. T20-gate-engine remains in_progress (S70-llm-check pending).
+- **Next step**: `/implement-slice S70-llm-check 2026-06-19-safe-parallelism` in a fresh session.
