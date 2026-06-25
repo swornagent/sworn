@@ -1829,3 +1829,17 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - **Verdict**: BLOCKED. Gate 1 and Gate 6 violations due to spec inconsistency on CLI entry point (`--release` in AC vs positional in entry point and impl). See journal.md for details and proposed spec amendment.
 - **State**: S65 remains `implemented` (BLOCKED does not change state). verification.result = "blocked". T20-gate-engine remains in_progress.
 - **Next step**: `/replan-release 2026-06-19-safe-parallelism` (planner to ratify spec amendment).
+
+### 2026-07-15 — slice `S67-lint-design` → verified (PASS)
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs)
+- **Verdict**: PASS — all six gates satisfied.
+  - Gate 1: User-reachable outcome exists — `cmdLint` → `cmdLintDesign` → `gate.RunDesign` via `sworn lint design --slice --release` CLI.
+  - Gate 2: Planned touchpoints match actual changed files — status.json planned_files matches actual_files (5 files each). Minor: `archrules_test.go` missing from spec's Planned touchpoints section but acknowledged in proof.md.
+  - Gate 3: Required tests exist and exercise integration point — 39/39 tests pass; `go build ./...` and `go vet ./...` clean.
+  - Gate 4: Reachability artefact — `sworn lint design --slice S67-lint-design --release 2026-06-19-safe-parallelism` produces clean output (0 violations). Missing config files gracefully handled.
+  - Gate 5: No silent deferrals — no TODO/FIXME/HACK in changed Go files; open_deferrals empty.
+  - Gate 6: Claimed scope matches implemented scope — all 8 acceptance checks traced to implementation + tests.
+- **Drift gate**: clean (rev-list count 0). No forward-merge needed.
+- **State**: S67 → verified. T20-gate-engine remains in_progress (S68-lint-mock, S69-lint-regress, S70-llm-check pending).
+- **Next step**: `/implement-slice S68-lint-mock 2026-06-19-safe-parallelism` in a fresh session.
