@@ -129,14 +129,14 @@ tracks:
     depends_on: [T4-mcp, T20-gate-engine]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T21-mcp-lint
     worktree_branch: track/2026-06-19-safe-parallelism/T21-mcp-lint
-    state: in_progress
+    state: merged
   - id: T22-tui-gate
     slices: [S72-tui-gate-display]
     depends_on: [T2-monitoring, T20-gate-engine]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T22-tui-gate
     worktree_branch: track/2026-06-19-safe-parallelism/T22-tui-gate
-    state: merged---
-
+    state: merged
+---
 # Release Board: `2026-06-19-safe-parallelism`
 
 > Frontmatter is the machine-readable registry; the tables below mirror it.
@@ -178,9 +178,11 @@ tracks:
 | `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | merged || `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
 | `T19-status-hygiene` | S64 | T4 + T12 + T15 | `track/.../T19-status-hygiene` | merged |
 | `T20-gate-engine` | S65 → S66 → S67 → S68 → S69 → S70 | T14 + T15 | `track/.../T20-gate-engine` | merged |
-| `T21-mcp-lint` | S71 | T4 + T20 | `track/.../T21-mcp-lint` | in_progress |
+| `T21-mcp-lint` | S71 | T4 + T20 | `track/.../T21-mcp-lint` | merged |
 | `T22-tui-gate` | S72 | T2 + T20 | `track/.../T22-tui-gate` | merged |
-### Execution order```
+
+### Execution order
+```
 Phase 1:  T1 (sequential)
 Phase 2:  T2, T3, T4, T8, T9, T11, T12, T15 (parallel after T1 — T11/T12 harness-hardening + T15 CLI registry dispatch early)
           T18 (after T2 + T15 — CLI-output polish: init --ui-bearing fix + shared internal/style colour across the command surface; lands before the verified tracks that share its files)
@@ -511,8 +513,15 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 | `S59-scheduler-relayer` | T17 | `sworn run --parallel` workers poll the router each step (poll-and-route) instead of a static slice list — resumable, dynamic; keeps dependency resolution + worktree isolation + supervisor ownership | verified | [spec](./S59-scheduler-relayer/spec.md) |
 | `S60-init-ui-bearing-fix` | T18 | `sworn init` no longer prompts for design tokens / component library in a non-UI-bearing repo; design-system flow gated on `--ui-bearing`; drops the always-true `UIBearing` write | verified | [spec](./S60-init-ui-bearing-fix/spec.md) |
 | `S61-cli-output-styling` | T18 | shared zero-dep `internal/style` ANSI palette gives premium, consistent, TTY/`NO_COLOR`-aware colour across every command + report renderer; plain output byte-identical | verified | [spec](./S61-cli-output-styling/spec.md) |
-| `S65-lint-trace` | T20 | `sworn lint trace <release>` mechanically verifies RTM chain (intake→covers_needs→AC→test), EARS conformance, sniff-test. Exits 0 on fully-traced release, non-zero with violations. | verified | [spec](./S65-lint-trace/spec.md) |## Aggregate state
-> **STALE — the board oracle (`release-board-status.sh --json`) is authoritative; run it for live
+| `S65-lint-trace` | T20 | `sworn lint trace <release>` mechanically verifies RTM chain (intake→covers_needs→AC→test), EARS conformance, sniff-test. Exits 0 on fully-traced release, non-zero with violations. | verified | [spec](./S65-lint-trace/spec.md) |
+| `S66-lint-coverage` | T20 | Maps every AC to a passing test; coverage-gap exit | verified | [spec](./S66-lint-coverage/spec.md) |
+| `S67-lint-design` | T20 | `sworn lint design` — design conformance, architecture rules, file/packaging conventions | verified | [spec](./S67-lint-design/spec.md) |
+| `S68-lint-mock` | T20 | `sworn lint mock` — mock boundary enforcement, no infra mock at validated boundaries | verified | [spec](./S68-lint-mock/spec.md) |
+| `S69-lint-regress` | T20 | `sworn regress` — regression suite runner for Go/TS/golden fixtures | verified | [spec](./S69-lint-regress/spec.md) |
+| `S70-llm-check` | T20 | `sworn llm-check` — structured LLM quality gates (ac, ambiguity, design, security, coverage, maintainability) | verified | [spec](./S70-llm-check/spec.md) |
+| `S71-mcp-lint-tools` | T21 | MCP lint tools (sworn.lint, sworn.lint_trace, sworn.lint_coverage, sworn.lint_design, sworn.lint_mock, sworn.llm_check) | verified | [spec](./S71-mcp-lint-tools/spec.md) |
+
+## Aggregate state> **STALE — the board oracle (`release-board-status.sh --json`) is authoritative; run it for live
 > counts.** This hand-maintained block predates the T16-verdict-ledger, T17-orchestration-core, and
 > T18-cli-polish additions (now **18 tracks, 68 slices**) and is not reconciled per-replan. Counts
 > below are a historical snapshot only. The board is actively moving under the coach loop — run the
@@ -528,16 +537,24 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 > S07 `planned` despite `implemented`). Three duplicate rows (S22/S23/S24) and several
 > `||`-collapsed physical lines repaired.
 
-- Planned: 28
-- In progress: 0
+- Planned: 8
+- In progress: 1
 - Implemented: 0
-- Design review: 1
-- Verified: 31
-- Failed verification: 1
+- Design review: 0
+- Verified: 64
+- Failed verification: 0
 - Deferred: 0
 
-**Tracks:** Planned: 3 / In progress: 2 / Merged: 17  *(post T17 merge; oracle-authoritative)*
-> Merged (17): T1, T2, T3, T4, T5, T6, T7, T8, T9, T11, T12, T14, T15, T17, T18, T19, T20. In progress (2): T21, T22. Planned (3): T10, T13, T16.## Recent activity
+**Tracks:** Planned: 2 / In progress: 1 / Merged: 19  *(post T21+T22 merge; oracle-authoritative)*
+> Merged (19): T1, T2, T3, T4, T5, T6, T7, T8, T9, T11, T12, T14, T15, T17, T18, T19, T20, T21, T22. In progress (1): T13. Planned (2): T10, T16.
+
+## Recent activity
+
+### 2026-06-26 — track `T21-mcp-lint` merged to release-wt (commit ae328ed)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 1 verified slice merged: S71-mcp-lint-tools. Track state -> merged. Forward-merged 10 sibling commits (T22-tui-gate merge) into track before integration; index.md conflict resolved (T22 state + frontmatter `---` fence restored).
+
 ### 2026-07-20 — track `T17-orchestration-core` merged to release-wt (commit 3c78949)
 
 - **Actor**: track integrator (/merge-track)
@@ -1898,7 +1915,26 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 - **Drift gate**: clean (rev-list count 0). No forward-merge needed.
 - **State**: S69 → verified. T20-gate-engine remains in_progress (S70-llm-check pending).
 - **Next step**: `/implement-slice S70-llm-check 2026-06-19-safe-parallelism` in a fresh session.
+### 2026-07-21 — track `T21-mcp-lint` merged to release-wt (commit ae328ed)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 1 verified slice merged: S71-mcp-lint-tools (MCP lint tools — 6 gate-engine tools exposed over MCP transport). Track state -> merged. Forward-merged 10 sibling commits (T22 merge) before integration; tests re-run green.
+
 ### 2026-07-21 — track `T22-tui-gate` merged to release-wt (commit cda2b24)
 
 - **Actor**: track integrator (/merge-track)
 - **Note**: 1 verified slice merged: S72-tui-gate-display (per-slice gate results in TUI board view). Track state -> merged.
+
+### 2026-07-20 — slice `S71-mcp-lint-tools` → verified (PASS)
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs)
+- **Verdict**: PASS — all six verification gates satisfied.
+  - Gate 1: User-reachable outcome exists — `RegisterLintTools` wired into `sworn mcp` (cmd/sworn/mcp.go:37); all 6 tools reachable via `tools/list`.
+  - Gate 2: Planned touchpoints match actual changed files — planned_files `[internal/mcp/lint.go, internal/mcp/lint_test.go, cmd/sworn/mcp.go]` match feat commit exactly. No unexplained files.
+  - Gate 3: Required tests exist and exercise integration point — 7 lint tests PASS; `go build ./...` and `go vet ./...` clean.
+  - Gate 4: Reachability artefact proves the user path — live binary `tools/list` returns all 6 lint tools; `sworn.lint_trace` returns structured JSON via STDIO transport.
+  - Gate 5: No silent deferrals — zero TODO/FIXME/HACK in all changed files; open_deferrals empty.
+  - Gate 6: Claimed scope matches implemented scope — all 5 acceptance checks confirmed against live code and tests.
+- **Drift gate**: forward-merged 50 commits from release-wt (includes S57-S59, index.md updates). Clean after merge.
+- **State**: S71 → verified. Track T21-mcp-lint now has its only slice verified — track is complete.
+- **Next step**: `/merge-track T21-mcp-lint` (track T21 complete), then `/merge-release 2026-06-19-safe-parallelism` once all tracks merged.

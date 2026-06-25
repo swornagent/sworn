@@ -34,11 +34,12 @@ All diagnostic logs go to stderr; stdout is reserved for the protocol.
 	mcp.RegisterOpsTools(server, ".")
 	mcp.RegisterPlanTools(server, ".")
 	mcp.RegisterCatalogTools(server, ".")
+	mcp.RegisterLintTools(server, ".")
 	mcp.RegisterResources(server, ".")
 	mcp.RegisterPrompts(server)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
 	// Trap interrupt to shut down cleanly.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt)
