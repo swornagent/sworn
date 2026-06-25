@@ -14,8 +14,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-)// Config is the sworn runtime configuration. All model selections are
-// "provider/model" strings (e.g. "openai/gpt-4.1") as used by model.FromEnv.
+
+	"github.com/swornagent/sworn/internal/ledger"
+)
+
+// Config is the sworn runtime configuration. All model selections are// "provider/model" strings (e.g. "openai/gpt-4.1") as used by model.FromEnv.
 //
 // For UI-bearing projects, the DesignSystem field declares the project's
 // design tokens source and component library, used by sworn designaudit (S09)
@@ -188,10 +191,15 @@ var DefaultEscalationModels = []string{
 //  1. --implementer-model flag
 //  2. $SWORN_IMPLEMENTER_MODEL env var
 //  3. config file (implementer.model)
-//  4. first entry of config file implementer.escalation_models
+//  4. ledger recommendation for sliceKind (when corpus is confident)
+//  5. first entry of config file implementer.escalation_models
+//
+// sliceKind is the rubric dimension (e.g. "harness", "provider"). When
+// empty, the ledger lookup is skipped. ledgerPath is the path to
+// docs/ledger/verdicts.jsonl; when empty, the ledger lookup is skipped.
 //
 // Returns an error when no source provides a model.
-func ResolveImplementerModel(flagModel string, cfg Config) (string, error) {
+func ResolveImplementerModel(flagModel string, cfg Config, sliceKind string, ledgerPath string) (string, error) {
 	if flagModel != "" {
 		return flagModel, nil
 	}
@@ -201,6 +209,18 @@ func ResolveImplementerModel(flagModel string, cfg Config) (string, error) {
 	if cfg.Implementer.Model != "" {
 		return cfg.Implementer.Model, nil
 	}
+
+	// Ledger-backed default: when sliceKind is non-empty and the corpus
+	// has a confident recommendation, use it.
+	if sliceKind != "" && ledgerPath != "" {
+		records, err := ledger.Load(ledgerPath)
+		if err == nil {
+			if rec, ok := ledger.RecommendModel(records, sliceKind); ok {
+				return rec.Model, nil
+			}
+		}
+	}
+
 	if len(cfg.Implementer.EscalationModels) > 0 {
 		return cfg.Implementer.EscalationModels[0], nil
 	}
@@ -209,7 +229,6 @@ func ResolveImplementerModel(flagModel string, cfg Config) (string, error) {
 		Path(),
 	)
 }
-
 // ResolveEscalationModels returns the ordered escalation model list from the
 // first available source, in precedence order:
 //

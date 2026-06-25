@@ -20,13 +20,14 @@ func init() {
 	})
 }
 
-// runLedger dispatches sworn ledger (sync | report).
+// runLedger dispatches sworn ledger (sync | report | recommend).
 func runLedger(args []string) int {
 	if len(args) == 0 {
 		fmt.Fprint(os.Stderr, "sworn ledger — manage the verdict ledger\n\n")
 		fmt.Fprint(os.Stderr, "usage:\n")
-		fmt.Fprint(os.Stderr, "  sworn ledger sync     harvest every release board into docs/ledger/verdicts.jsonl\n")
-		fmt.Fprint(os.Stderr, "  sworn ledger report   print pass-rate, attempts-to-pass, and gate-failure aggregates\n")
+		fmt.Fprint(os.Stderr, "  sworn ledger sync        harvest every release board into docs/ledger/verdicts.jsonl\n")
+		fmt.Fprint(os.Stderr, "  sworn ledger report      print pass-rate, attempts-to-pass, and gate-failure aggregates\n")
+		fmt.Fprint(os.Stderr, "  sworn ledger recommend <kind>  rank models for a slice kind by measured pass-rate\n")
 		return 64
 	}
 	switch args[0] {
@@ -34,13 +35,15 @@ func runLedger(args []string) int {
 		return cmdLedgerSync(args[1:])
 	case "report":
 		return cmdLedgerReport(args[1:])
+	case "recommend":
+		return cmdLedgerRecommend(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown ledger subcommand %q\n\n", args[0])
 		fmt.Fprint(os.Stderr, "usage: sworn ledger sync\n")
 		fmt.Fprint(os.Stderr, "usage: sworn ledger report\n")
+		fmt.Fprint(os.Stderr, "usage: sworn ledger recommend <kind>\n")
 		return 64
-	}
-}
+	}}
 
 // cmdLedgerSync walks every docs/release/*/*/status.json, projects each
 // terminal verdict into a Record, and appends it to docs/ledger/verdicts.jsonl.
@@ -144,5 +147,47 @@ func cmdLedgerReport(args []string) int {
 
 	var r ledger.Report
 	r.Render(os.Stdout, records)
+	return 0
+}
+// cmdLedgerRecommend loads the verdict corpus and prints the ranked model
+// recommendation for the given slice kind (e.g. "harness", "provider").
+// With no kind argument, it prints usage and exits non-zero.
+func cmdLedgerRecommend(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprint(os.Stderr, "usage: sworn ledger recommend <kind>\n")
+		fmt.Fprint(os.Stderr, "\n")
+		fmt.Fprint(os.Stderr, "  <kind> is a slice-dimension label: harness, provider, commercial, memory, etc.\n")
+		return 64
+	}
+	kind := args[0]
+
+	repoRoot, err := findRepoRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ledger recommend: %v\n", err)
+		return 1
+	}
+
+	ledgerPath := filepath.Join(repoRoot, "docs", "ledger", "verdicts.jsonl")
+	records, err := ledger.Load(ledgerPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ledger recommend: %v\n", err)
+		return 1
+	}
+
+	if len(records) == 0 {
+		fmt.Printf("No verdict records for kind %q — run 'sworn ledger sync' first.\n", kind)
+		return 0
+	}
+
+	rec, ok := ledger.RecommendModel(records, kind)
+	if !ok {
+		fmt.Printf("No confident recommendation for kind %q (need at least %d verdicts per model).\n", kind, ledger.MinSampleSize)
+		return 0
+	}
+
+	fmt.Printf("Recommendation for %q:\n", kind)
+	fmt.Printf("  model:      %s\n", rec.Model)
+	fmt.Printf("  pass-rate:  %.0f%%\n", rec.PassRate*100)
+	fmt.Printf("  sample:     %d verdicts\n", rec.Sample)
 	return 0
 }
