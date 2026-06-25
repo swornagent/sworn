@@ -7,11 +7,10 @@ import (
 	"path/filepath"
 
 	"github.com/swornagent/sworn/internal/ears"
+	"github.com/swornagent/sworn/internal/gate"
 	"github.com/swornagent/sworn/internal/lint"
-	"github.com/swornagent/sworn/internal/rtm"
 	"github.com/swornagent/sworn/internal/style"
 )
-
 // cmdLint dispatches `sworn lint <target> <release>`.
 //
 // Targets:
@@ -22,13 +21,18 @@ import (
 //	touchpoints — reconcile design file/package refs against planned_files + collision matrix; fail closed
 //	symbols     — grep backtick identifiers from design.md against live codebase; advisory warn-only
 //	status      — check that status.json timestamps are not in the future beyond 5m skew; fail closed
-func cmdLint(args []string) int {	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "sworn lint: target required")
-		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols|status> <release>")
+//	coverage    — map every AC to a test function in the slice diff; fail closed on uncovered ACs
+//	design      — hardcoded colour detection + architecture rule engine (grep, touchpoints, diff-size, external)
+//	mock        — no-mock-boundary enforcement: detects undeclared mock/stub/fixture usage alongside real-infra refs
+func cmdLint(args []string) int {	if len(args) == 0 {		fmt.Fprintln(os.Stderr, "sworn lint: target required")
+		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols|status|coverage|design|mock> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint deps [--base <ref>] <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint touchpoints <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint symbols <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint status <release>")
+		fmt.Fprintln(os.Stderr, "       sworn lint coverage --slice <slice-id> --release <release> [--base <ref>]")
+			fmt.Fprintln(os.Stderr, "       sworn lint design --slice <slice-id> --release <release> [--base <ref>]")
+			fmt.Fprintln(os.Stderr, "       sworn lint mock --slice <slice-id> --release <release> [--base <ref>]")
 		return 64
 	}
 	switch args[0] {
@@ -44,15 +48,24 @@ func cmdLint(args []string) int {	if len(args) == 0 {
 		return cmdLintSymbols(args[1:])
 	case "status":
 		return cmdLintStatus(args[1:])
+	case "coverage":
+		return cmdLintCoverage(args[1:])
+		case "design":
+			return cmdLintDesign(args[1:])
+		case "mock":
+			return cmdLintMock(args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "sworn lint: unknown target %q (known: ac, trace, deps, touchpoints, symbols, status)\n", args[0])
-		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols|status> <release>")
+		fmt.Fprintf(os.Stderr, "sworn lint: unknown target %q (known: ac, trace, deps, touchpoints, symbols, status, coverage, design, mock)\n", args[0])
+		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols|status|coverage|design|mock> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint deps [--base <ref>] <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint touchpoints <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint symbols <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint status <release>")
 		return 64
-	}} // cmdLintAC implements `sworn lint ac <release>`.
+	}
+}
+
+// cmdLintAC implements `sworn lint ac <release>`.
 // Classifies every acceptance check in every slice's spec.md by EARS pattern
 // and fails closed (non-zero exit) on any free-form check that matches no
 // pattern, naming the slice + the offending line. A release whose every AC is
@@ -97,10 +110,14 @@ func cmdLintAC(args []string) int {
 
 // cmdLintTrace implements `sworn lint trace <release>`.
 //
-// Builds the 2-D requirements traceability matrix for a release and fails
-// closed (non-zero exit) on any broken trace: an orphaned need, an orphaned
-// acceptance criterion (no need or no test), or a slice with no vertical link.
-// A fully-traced release prints the matrix and exits 0.
+// Port of the canonical baton release-trace.sh: builds the full RTM + EARS +
+// sniff-test gate for Rule 8. Verifies the full requirements-fidelity chain:
+//
+//	intake → slice (covers_needs) → AC (spec.md citations) → test (Required tests)
+//
+// Plus structural-completeness sniff-test and EARS conformance.
+// Fails closed (non-zero exit) on any violation.
+// A fully-traced release prints the report and exits 0.
 func cmdLintTrace(args []string) int {
 	fs := flag.NewFlagSet("lint trace", flag.ExitOnError)
 	_ = fs.Parse(args)
@@ -118,27 +135,19 @@ func cmdLintTrace(args []string) int {
 		return 2
 	}
 
-	m, violations, err := rtm.Build(releaseDir)
+	report, err := gate.RunTrace(releaseDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sworn lint trace: %v\n", err)
 		return 2
 	}
 
-	fmt.Print(rtm.Print(m))
+	fmt.Print(gate.PrintReport(report))
 
-	if len(violations) > 0 {
-		fmt.Fprintln(os.Stderr, style.Danger(fmt.Sprintf("\n%d trace violation(s) found:", len(violations))))
-		for _, v := range violations {
-			fmt.Fprintf(os.Stderr, "  %s\n", v.String())
-		}
+	if report.HasViolations() {
 		return 1
 	}
-
-	fmt.Printf("\nAll traces verified. %d needs, %d acceptance criteria, %d tests, %d slices.\n",
-		len(m.Needs), len(m.ACs), len(m.Tests), len(m.Slices))
 	return 0
 }
-
 // cmdLintDeps implements `sworn lint deps <slice-id> <release>`.
 //
 // Checks that go.mod / go.sum changes in the slice's diff are declared in the
@@ -311,5 +320,188 @@ func cmdLintStatus(args []string) int {
 	}
 
 	fmt.Printf("All status timestamps within allowed window for %s\n", releaseName)
+	return 0
+}
+// cmdLintCoverage implements `sworn lint coverage --slice <slice-id> --release <release>`.
+//
+// Extracts acceptance checks from the slice's spec.md, scans the test files in
+// the slice's diff for test functions (Go, TypeScript, Python patterns), and
+// keyword-matches each AC against the discovered tests.  Prints a coverage map
+// showing each AC mapped to its best-match test (file:line) and exits 0 when
+// every AC is covered, 1 with uncovered ACs enumerated.
+func cmdLintCoverage(args []string) int {
+	fs := flag.NewFlagSet("lint coverage", flag.ExitOnError)
+	sliceID := fs.String("slice", "", "slice ID to check (e.g. S66-lint-coverage)")
+	releaseName := fs.String("release", "", "release name (e.g. 2026-06-19-safe-parallelism)")
+	baseRef := fs.String("base", "", "base ref for git diff (defaults to start_commit or release-wt/<release>)")
+	jsonOut := fs.Bool("json", false, "output as JSON")
+	_ = fs.Parse(args)
+
+	if *sliceID == "" || *releaseName == "" {
+		fmt.Fprintln(os.Stderr, "sworn lint coverage: --slice and --release are required")
+		fmt.Fprintln(os.Stderr, "usage: sworn lint coverage --slice <slice-id> --release <release> [--base <ref>]")
+		return 64
+	}
+
+	releaseDir, err := resolveReleaseDir(*releaseName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint coverage: %v\n", err)
+		return 2
+	}
+
+	sliceDir := filepath.Join(releaseDir, *sliceID)
+	if _, err := os.Stat(sliceDir); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint coverage: slice directory not found: %s\n", sliceDir)
+		return 2
+	}
+
+	ref := *baseRef
+	if ref == "" {
+		var err error
+		ref, err = gate.BaseRefForSlice(sliceDir, *releaseName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "sworn lint coverage: resolve base ref: %v\n", err)
+			return 2
+		}
+	}
+
+	report, err := gate.RunCoverage(releaseDir, *sliceID, ref)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint coverage: %v\n", err)
+		return 2
+	}
+
+	if *jsonOut {
+		fmt.Print(gate.JSONCoverage(report))
+	} else {
+		fmt.Print(gate.PrintCoverage(report))
+	}
+
+	if report.HasViolations() {
+		return 1
+	}
+	return 0
+}
+
+// cmdLintDesign implements `sworn lint design --slice <slice-id> --release <release>`.
+//
+// Port of bin/release-audit-design.sh from bash to Go. Runs hardcoded colour
+// detection in UI files from the slice's diff, then executes the architecture
+// rule engine (grep, touchpoints, diff-size, external) from docs/baton/architecture.json.
+// Reads docs/baton/design-fidelity.json for design token exemptions and the
+// per-slice design-allowlist.json for escape-hatch suppression.
+// Exits 0 on clean pass, 1 with enumerated violations.
+func cmdLintDesign(args []string) int {
+	fs := flag.NewFlagSet("lint design", flag.ExitOnError)
+	sliceID := fs.String("slice", "", "slice ID to check (e.g. S67-lint-design)")
+	releaseName := fs.String("release", "", "release name (e.g. 2026-06-19-safe-parallelism)")
+	baseRef := fs.String("base", "", "base ref for git diff (defaults to start_commit or release-wt/<release>)")
+	jsonOut := fs.Bool("json", false, "output as JSON")
+	_ = fs.Parse(args)
+
+	if *sliceID == "" || *releaseName == "" {
+		fmt.Fprintln(os.Stderr, "sworn lint design: --slice and --release are required")
+		fmt.Fprintln(os.Stderr, "usage: sworn lint design --slice <slice-id> --release <release> [--base <ref>]")
+		return 64
+	}
+
+	releaseDir, err := resolveReleaseDir(*releaseName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint design: %v\n", err)
+		return 2
+	}
+
+	sliceDir := filepath.Join(releaseDir, *sliceID)
+	if _, err := os.Stat(sliceDir); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint design: slice directory not found: %s\n", sliceDir)
+		return 2
+	}
+
+	ref := *baseRef
+	if ref == "" {
+		var err error
+		ref, err = gate.BaseRefForSlice(sliceDir, *releaseName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "sworn lint design: resolve base ref: %v\n", err)
+			return 2
+		}
+	}
+
+	report, err := gate.RunDesign(releaseDir, *sliceID, ref)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint design: %v\n", err)
+		return 2
+	}
+
+	if *jsonOut {
+		fmt.Print(gate.JSONDesign(report))
+	} else {
+		fmt.Print(gate.PrintDesign(report))
+	}
+
+	if report.HasViolations() {
+		return 1
+	}
+	return 0
+}
+// cmdLintMock implements `sworn lint mock --slice <slice-id> --release <release>`.
+//
+// Port of release-mock-check.sh from bash to Go: Rule 10 no-mock boundary
+// enforcement. Scans test files in the slice's diff for mock/stub/fixture/seed
+// usage and detects real-infra references alongside undeclared mocks. Boundary
+// declarations (@mock-boundary comment, open_deferrals entry, architecture-overrides.json)
+// suppress violations.
+// Exits 0 when every mock has a declared boundary, 1 with violations enumerated.
+func cmdLintMock(args []string) int {
+	fs := flag.NewFlagSet("lint mock", flag.ExitOnError)
+	sliceID := fs.String("slice", "", "slice ID to check (e.g. S68-lint-mock)")
+	releaseName := fs.String("release", "", "release name (e.g. 2026-06-19-safe-parallelism)")
+	baseRef := fs.String("base", "", "base ref for git diff (defaults to start_commit or release-wt/<release>)")
+	jsonOut := fs.Bool("json", false, "output as JSON")
+	_ = fs.Parse(args)
+
+	if *sliceID == "" || *releaseName == "" {
+		fmt.Fprintln(os.Stderr, "sworn lint mock: --slice and --release are required")
+		fmt.Fprintln(os.Stderr, "usage: sworn lint mock --slice <slice-id> --release <release> [--base <ref>]")
+		return 64
+	}
+
+	releaseDir, err := resolveReleaseDir(*releaseName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint mock: %v\n", err)
+		return 2
+	}
+
+	sliceDir := filepath.Join(releaseDir, *sliceID)
+	if _, err := os.Stat(sliceDir); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint mock: slice directory not found: %s\n", sliceDir)
+		return 2
+	}
+
+	ref := *baseRef
+	if ref == "" {
+		var err error
+		ref, err = gate.BaseRefForSlice(sliceDir, *releaseName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "sworn lint mock: resolve base ref: %v\n", err)
+			return 2
+		}
+	}
+
+	report, err := gate.RunMock(releaseDir, *sliceID, ref)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn lint mock: %v\n", err)
+		return 2
+	}
+
+	if *jsonOut {
+		fmt.Print(gate.JSONMock(report))
+	} else {
+		fmt.Print(gate.PrintMock(report))
+	}
+
+	if report.HasViolations() {
+		return 1
+	}
 	return 0
 }

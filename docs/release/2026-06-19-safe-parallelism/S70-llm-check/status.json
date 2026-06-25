@@ -4,15 +4,15 @@
   "release": "2026-06-19-safe-parallelism",
   "track": "T20-gate-engine",
   "covers_needs": [],
-  "state": "planned",
-  "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-25T11:00:00Z",
-  "start_commit": null,
+  "state": "verified",
+  "owner": "verifier",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-20T14:30:00Z",
+  "start_commit": "9e7e882f30d51c9ff75e78bd39a9578368e9df2f",
   "planned_files": ["internal/gate/llmcheck.go", "internal/gate/llmcheck_test.go", "cmd/sworn/llmcheck.go"],
-  "actual_files": [],
+  "actual_files": ["internal/gate/llmcheck.go", "internal/gate/llmcheck_test.go", "cmd/sworn/llmcheck.go", "cmd/sworn/commands.go"],
   "test_commands": ["go test ./internal/gate/...", "go build ./..."],
-  "reachability_artifacts": [],
+  "reachability_artifacts": ["bin/sworn llm-check --type spec-ambiguity (CLI integration, exit 2/config error without model)"],
   "open_deferrals": [],
-  "verification": { "result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": [] }
+  "verification": { "result": "pass", "verifier_session_id": null, "verifier_verdict_at": "2026-07-20T14:30:00Z", "verifier_was_fresh_context": true, "violations": [] }
 }

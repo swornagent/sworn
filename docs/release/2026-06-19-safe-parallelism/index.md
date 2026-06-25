@@ -123,8 +123,7 @@ tracks:
     depends_on: [T14-baton-integration, T15-cli-registry]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T20-gate-engine
     worktree_branch: track/2026-06-19-safe-parallelism/T20-gate-engine
-    state: in_progress
-  - id: T21-mcp-lint
+    state: verified  - id: T21-mcp-lint
     slices: [S71-mcp-lint-tools]
     depends_on: [T4-mcp, T20-gate-engine]
     worktree_path:
@@ -512,8 +511,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 | `S59-scheduler-relayer` | T17 | `sworn run --parallel` workers poll the router each step (poll-and-route) instead of a static slice list — resumable, dynamic; keeps dependency resolution + worktree isolation + supervisor ownership | failed_verification | [spec](./S59-scheduler-relayer/spec.md) |
 | `S60-init-ui-bearing-fix` | T18 | `sworn init` no longer prompts for design tokens / component library in a non-UI-bearing repo; design-system flow gated on `--ui-bearing`; drops the always-true `UIBearing` write | verified | [spec](./S60-init-ui-bearing-fix/spec.md) |
 | `S61-cli-output-styling` | T18 | shared zero-dep `internal/style` ANSI palette gives premium, consistent, TTY/`NO_COLOR`-aware colour across every command + report renderer; plain output byte-identical | verified | [spec](./S61-cli-output-styling/spec.md) |
-## Aggregate state
-
+| `S65-lint-trace` | T20 | `sworn lint trace <release>` mechanically verifies RTM chain (intake→covers_needs→AC→test), EARS conformance, sniff-test. Exits 0 on fully-traced release, non-zero with violations. | verified | [spec](./S65-lint-trace/spec.md) |## Aggregate state
 > **STALE — the board oracle (`release-board-status.sh --json`) is authoritative; run it for live
 > counts.** This hand-maintained block predates the T16-verdict-ledger, T17-orchestration-core, and
 > T18-cli-polish additions (now **18 tracks, 68 slices**) and is not reconciled per-replan. Counts
@@ -534,8 +532,8 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 - In progress: 0
 - Implemented: 0
 - Design review: 1
-- Verified: 29
-- Failed verification: 2
+- Verified: 31
+- Failed verification: 1
 - Deferred: 0
 
 **Tracks:** Planned: 4 / In progress: 1 / Merged: 14  *(post T19 merge; oracle-authoritative: T5, T14 subsequently merged)*
@@ -570,10 +568,33 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
   `.verification.result` (`blocked`), so an implemented-then-blocked slice reads `implemented` on
   the board — the replan trigger surfaced via the coach-loop PAGE, not the oracle state field.
 
-### 2026-07-16 — track `T14-baton-integration` merged to release-wt (commit 8daa03d)
+### 2026-07-15 — slice `S65-lint-trace` → verified (PASS verdict)
 
+- **Actor**: fresh-context verifier.
+- **Verdict**: PASS — all six verification gates satisfied.
+  - Gate 1: `sworn lint trace <release>` wired and user-reachable.
+  - Gate 2: Planned touchpoints match actual (extra test file explained in proof.md).
+  - Gate 3: All 16 tests re-run and passing (11 unit + 5 integration).
+  - Gate 4: Reachability artefact exercised against live release.
+  - Gate 5: No TODO/FIXME/HACK/placeholder markers.
+  - Gate 6: All 6 acceptance checks covered by test evidence.
+- **Note**: spec defect from prior BLOCKED verdict corrected via /replan-release. No code changes needed.
+- **Next**: the track T20-gate-engine continues with S66-lint-coverage. /implement-slice S66-lint-coverage 2026-06-19-safe-parallelism.
 - **Actor**: track integrator (/merge-track)
 - **Note**: 5 verified slices merged: S48-baton-vendor, S49-baton-version, S50-baton-governance, S62-baton-upstream-source, S73-baton-v0.5.0-pin. Track state -> merged.
+
+### 2026-06-25 -- slice S66-lint-coverage -> verified (PASS verdict)
+
+- **Actor**: fresh-context verifier.
+- **Verdict**: PASS -- all six verification gates satisfied.
+  - Gate 1: `sworn lint coverage` wired and user-reachable.
+  - Gate 2: Planned touchpoints match actual changed files.
+  - Gate 3: All 16 tests re-run and passing.
+  - Gate 4: Reachability artefact exercised against live release.
+  - Gate 5: No TODO/FIXME/placeholder/deferred markers.
+  - Gate 7: All 4 acceptance checks covered by test evidence.
+- **Note**: status.json start_commit is stale (2d9ec30 -> should be 99571af). Does not affect verification but should be corrected on next implementer re-entry.
+- **Next**: the track T20-gate-engine continues with S67-lint-design. /implement-slice S67-lint-design 2026-06-19-safe-parallelism.
 
 ### 2026-06-25 — verify: S73-baton-v0.5.0-pin → FAIL (embed not synced to v0.5.0)
 - **Actor**: verifier (fresh context, artefact-only), `/verify-slice`
@@ -1810,3 +1831,50 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 
 - **Actor**: track integrator (/merge-track)
 - **Note**: 1 verified slice merged: S17-tui-provider-config. Track state -> merged.
+
+### 2026-07-15 — slice `S65-lint-trace` → blocked (BLOCKED)
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs)
+- **Verdict**: BLOCKED. Gate 1 and Gate 6 violations due to spec inconsistency on CLI entry point (`--release` in AC vs positional in entry point and impl). See journal.md for details and proposed spec amendment.
+- **State**: S65 remains `implemented` (BLOCKED does not change state). verification.result = "blocked". T20-gate-engine remains in_progress.
+- **Next step**: `/replan-release 2026-06-19-safe-parallelism` (planner to ratify spec amendment).
+
+### 2026-07-15 — slice `S67-lint-design` → verified (PASS)
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs)
+- **Verdict**: PASS — all six gates satisfied.
+  - Gate 1: User-reachable outcome exists — `cmdLint` → `cmdLintDesign` → `gate.RunDesign` via `sworn lint design --slice --release` CLI.
+  - Gate 2: Planned touchpoints match actual changed files — status.json planned_files matches actual_files (5 files each). Minor: `archrules_test.go` missing from spec's Planned touchpoints section but acknowledged in proof.md.
+  - Gate 3: Required tests exist and exercise integration point — 39/39 tests pass; `go build ./...` and `go vet ./...` clean.
+  - Gate 4: Reachability artefact — `sworn lint design --slice S67-lint-design --release 2026-06-19-safe-parallelism` produces clean output (0 violations). Missing config files gracefully handled.
+  - Gate 5: No silent deferrals — no TODO/FIXME/HACK in changed Go files; open_deferrals empty.
+  - Gate 6: Claimed scope matches implemented scope — all 8 acceptance checks traced to implementation + tests.
+- **Drift gate**: clean (rev-list count 0). No forward-merge needed.
+- **State**: S67 → verified. T20-gate-engine remains in_progress (S68-lint-mock, S69-lint-regress, S70-llm-check pending).
+- **Next step**: `/implement-slice S68-lint-mock 2026-06-19-safe-parallelism` in a fresh session.
+
+### 2026-07-17 — slice `S68-lint-mock` → verified (PASS)
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs)
+- **Verdict**: PASS — all six gates satisfied.
+  - Gate 1: User-reachable outcome exists — `sworn lint mock` wired via `cmd/sworn/lint.go:55`.
+  - Gate 2: Planned touchpoints match actual changed files — `mock.go`, `mock_test.go`, `lint.go` all match spec; no unexplained production files.
+  - Gate 3: Required tests exist and exercise integration point — `go test ./internal/gate/...` PASS (0.051s), `go build ./...` PASS, `go vet ./internal/gate/...` PASS.
+  - Gate 4: Reachability artefact — `sworn lint mock --slice S68-lint-mock --release 2026-06-19-safe-parallelism` produces structured output (22 mock usages, 0 violations). JSON mode confirmed.
+  - Gate 5: No silent deferrals — zero TODO/FIXME/HACK in all changed files; open_deferrals empty.
+  - Gate 6: Claimed scope matches implemented scope — all 6 acceptance checks traced to implementation + passing tests.
+- **Drift gate**: clean (rev-list count 0). No forward-merge needed.
+- **State**: S68 → verified. T20-gate-engine remains in_progress (S69-lint-regress, S70-llm-check pending).
+- **Next step**: `/implement-slice S69-lint-regress 2026-06-19-safe-parallelism` in a fresh session.
+### 2026-07-18 — slice `S69-lint-regress` → verified (PASS)
+
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs)
+- **Verdict**: PASS — all six gates satisfied.
+  - Gate 1: User-reachable outcome exists — `sworn regress --release <name>` wired via `cmd/sworn/regress.go`, registered in command registry.
+  - Gate 2: Planned touchpoints match actual changed files — `regress.go`, `regress_test.go`, `regress.go` + `commands.go` (1 registration call, divergence documented).
+  - Gate 3: Required tests exist and exercise integration point — `go test ./internal/gate/... -run Regress -count=1` PASS (0.003s), `go build ./...` PASS, `go vet ./internal/gate/... ./cmd/sworn/...` PASS.
+  - Gate 4: Reachability artefact — `sworn regress --release 2026-06-19-safe-parallelism` runs all three suites (Go, TS, golden fixtures).
+  - Gate 5: No silent deferrals — zero TODO/FIXME/HACK in all changed files.
+  - Gate 6: Claimed scope matches implemented scope — all 5 acceptance checks traced to implementation + passing tests.
+- **Drift gate**: clean (rev-list count 0). No forward-merge needed.
+- **State**: S69 → verified. T20-gate-engine remains in_progress (S70-llm-check pending).
+- **Next step**: `/implement-slice S70-llm-check 2026-06-19-safe-parallelism` in a fresh session.

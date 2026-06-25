@@ -93,11 +93,20 @@ func init() {
 		Summary: "manage the SwornAgent memory store",
 		Run:     cmdMemory,
 	})
+	command.Register(command.Command{
+		Name:    "regress",
+		Summary: "run full test suite regression against a merged release worktree",
+		Run:     cmdRegress,
+	})
+	command.Register(command.Command{
+		Name:    "llm-check",
+		Summary: "run an LLM-based quality check against a slice",
+		Run:     cmdLLMCheck,
+	})
 
 	// version and help are registered as aliases (multiple names → same handler).
 	command.Register(command.Command{
-		Name:    "version",
-		Summary: "print sworn binary and baton-protocol versions",
+		Name:    "version",		Summary: "print sworn binary and baton-protocol versions",
 		Run:     cmdVersion,
 	})
 	command.Register(command.Command{

@@ -96,7 +96,8 @@ Test outcome.
 	status := `{
   "slice_id": "S01-test-slice",
   "state": "planned",
-  "release_benefit": "The release delivers value to users."
+  "covers_needs": ["N-01", "N-02"],
+  "release_benefit": "The release delivers value to users.",
 }`
 	os.WriteFile(filepath.Join(sliceDir, "status.json"), []byte(status), 0644)
 
@@ -173,7 +174,8 @@ Test outcome.
 	os.WriteFile(filepath.Join(sliceDir, "spec.md"), []byte(spec), 0644)
 	status := `{
   "slice_id": "S01-test-slice",
-  "state": "planned"
+  "covers_needs": ["N-01"],
+  "state": "planned",
 }`
 	os.WriteFile(filepath.Join(sliceDir, "status.json"), []byte(status), 0644)
 
@@ -249,7 +251,8 @@ Test outcome.
 	os.WriteFile(filepath.Join(sliceDir, "spec.md"), []byte(spec), 0644)
 	status := `{
   "slice_id": "S01-test-slice",
-  "state": "planned"
+  "covers_needs": ["N-01"],
+  "state": "planned",
 }`
 	os.WriteFile(filepath.Join(sliceDir, "status.json"), []byte(status), 0644)
 
