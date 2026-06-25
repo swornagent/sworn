@@ -4,10 +4,10 @@
   "release": "2026-06-19-safe-parallelism",
   "track": "T20-gate-engine",
   "covers_needs": [],
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-25T03:13:22Z",
+  "last_updated_at": "2026-06-25T03:17:27Z",
   "start_commit": "45ab01f1b9974f9d72dd06716fb33ae88aad0ed5",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S65-lint-trace/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S65-lint-trace/proof.md",
@@ -17,12 +17,20 @@
     "internal/gate/trace_test.go",
     "cmd/sworn/lint.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/gate/trace.go",
+    "internal/gate/trace_test.go",
+    "cmd/sworn/lint.go",
+    "cmd/sworn/lint_trace_test.go"
+  ],
   "test_commands": [
     "go test ./internal/gate/...",
+    "go test -run TestLintTrace ./cmd/sworn/",
     "go build ./..."
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "sworn lint trace 2026-06-19-safe-parallelism (live release)"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "pending",
