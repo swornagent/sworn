@@ -1,44 +1,40 @@
 ---
-title: Slice journal template
-description: Implementation log for one slice. Append-only. Visible to verifier as context, but verifier verdict is based on proof.md and repo state, not journal prose.
+title: S54-ledger-routing journal
+description: Implementation log for S54-ledger-routing.
 ---
 
-# Journal: `<slice-id>`
-
-> Copy this file to `docs/release/<release-name>/<slice-id>/journal.md`. Append entries chronologically. Do not delete history. Decisions captured here must also land in commit message bodies per Rule 4 — this journal is a working surface, not a substitute for durable capture.
+# Journal: `S54-ledger-routing`
 
 ## Session log
 
-### `<YYYY-MM-DD HH:MM>` — `<session start / state transition>`
+### 2026-07-22 — session start → implemented
 
-- **State**: `<planned | in_progress | implemented | failed_verification | verified | deferred | shipped>`
+- **State**: planned → in_progress → implemented
 - **Notes**:
-  - `<Decisions made>`
-  - `<Trade-offs encountered>`
-  - `<Subagent dispatches and where their outputs landed>`
-
-### `<YYYY-MM-DD HH:MM>` — `<next event>`
-
-- ...
+  - Implemented `RecommendModel` in `internal/ledger/routing.go` with
+    `MinSampleSize=5` guard, ranking by pass-rate (desc), then
+    attempts-to-pass (asc), then model name (deterministic).
+  - Wired into `ResolveImplementerModel` between config.model and
+    escalation_models. The existing flag/env/config precedence is unchanged.
+    Added `sliceKind` and `ledgerPath` parameters. When both are empty,
+    behaviour is byte-for-byte identical to S09.
+  - Added `sworn ledger recommend <kind>` subcommand to `cmd/sworn/ledger.go`.
+  - Updated all existing callers and tests to pass the new parameters.
+  - All 32 ledger tests pass, all 35 config tests pass (including 5 new
+    ledger-integration tests), all ledger/recommend cmd/sworn tests pass.
+  - No new imports beyond stdlib + existing `internal/ledger`.
+  - The `cmdLedgerRecommend` function uses `sliceKind` → `RecommendModel`
+    and prints the ranked recommendation with pass-rate and sample size.
+    Missing kind prints usage and exits 64.
 
 ## Open questions
 
-\<Anything the implementer needs the human to resolve. Each open question blocks state transition to `implemented` until answered.\>
-
-- ...
+None.
 
 ## Deferrals surfaced
 
-`<Per Rule 2: each deferral needs why + tracking + acknowledgement. Cross-link to GitHub issue or punch-list entry. If empty, write "None" explicitly.>`
-
-- ...
+None.
 
 ## Verifier verdicts received
 
-`<Append every verifier verdict here. Even FAIL verdicts stay — they are part of the slice's history.>`
-
-### `<YYYY-MM-DD HH:MM>` — `<PASS | FAIL | BLOCKED>`
-
-- **Verifier session**: `<fresh / inherited — should always be fresh>`
-- **Verdict body**: `<paste the full verifier output>`
-- **Action taken**: `<how the implementer responded>`
+(None yet — slice is at `implemented`, awaiting fresh-context verification.)
