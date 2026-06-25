@@ -7,11 +7,11 @@ description: 'Port release-trace.sh from bash to Go: `sworn lint trace` — mech
 
 ## User outcome
 
-A developer runs `sworn lint trace --release <name>` and receives a structured report of every traceability gap: orphaned intake needs, missing covers_needs, unclaimed coverage, free-form ACs lacking EARS conformance, and vague-scope specs without concrete artefacts. Exits 0 on fully-traced release, non-zero with violations.
+A developer runs `sworn lint trace <release>` and receives a structured report of every traceability gap: orphaned intake needs, missing covers_needs, unclaimed coverage, free-form ACs lacking EARS conformance, and vague-scope specs without concrete artefacts. Exits 0 on fully-traced release, non-zero with violations. The release name is a **positional** argument, consistent with every sibling `sworn lint` subcommand (`ac`, `deps`, `touchpoints`, `symbols`, `status`) — there is no `--release` flag.
 
 ## Entry point
 
-New `internal/gate/trace.go` package. CLI registration via `internal/command` registry (S51 pattern). Invoked as `sworn lint trace`.
+New `internal/gate/trace.go` package. CLI registration via `internal/command` registry (S51 pattern). Invoked as `sworn lint trace <release>` — the release name is the sole positional argument (`fs.Arg(0)`), matching the arg-parsing convention of the other `sworn lint` subcommands in `cmd/sworn/lint.go`. No `--release` flag.
 
 ## In scope
 
@@ -35,7 +35,7 @@ New `internal/gate/trace.go` package. CLI registration via `internal/command` re
 
 ## Acceptance checks
 
-- [ ] `sworn lint trace --release <name>` exits 0 on fully-traced release
+- [ ] `sworn lint trace <release>` (release name as positional arg, no `--release` flag) exits 0 on fully-traced release
 - [ ] Detects orphaned needs and reports which N-NN is missing from covers_needs
 - [ ] Detects unclaimed coverage (covers_needs ID not cited in AC)
 - [ ] Detects free-form ACs lacking `shall` EARS keyword
@@ -45,5 +45,5 @@ New `internal/gate/trace.go` package. CLI registration via `internal/command` re
 ## Required tests
 
 - **Unit**: `internal/gate/trace_test.go` — fixture-based tests with known-pass and known-fail release fixtures
-- **Reachability artefact**: `sworn lint trace --release <fixture-release>` output showing PASS and FAIL scenarios
+- **Reachability artefact**: `sworn lint trace <fixture-release>` output showing PASS and FAIL scenarios
 - **E2E gate type**: local

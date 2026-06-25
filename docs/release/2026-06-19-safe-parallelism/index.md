@@ -541,6 +541,26 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 **Tracks:** Planned: 4 / In progress: 1 / Merged: 14  *(post T19 merge; oracle-authoritative: T5, T14 subsequently merged)*
 > Merged (14): T1, T2, T3, T4, T5, T7, T8, T9, T11, T12, T14, T15, T18, T19. In progress (1): T17. Planned (4): T6, T10, T13, T16.
 ## Recent activity
+### 2026-06-25 — replan: S65-lint-trace spec corrected; BLOCKED verdict cleared (Step 2b)
+
+- **Actor**: planner (`/replan-release`, human + Claude).
+- **Trigger**: verifier returned **BLOCKED** on S65 (T20-gate-engine) — spec AC #1 specified
+  `sworn lint trace --release <name>` but the implementation, entry point, proof artefact, and
+  tests all use positional `sworn lint trace <release>`. Contract mismatch; no owner but the planner.
+- **Adjudication**: implementation is correct. Every sibling `sworn lint` subcommand
+  (`ac`/`deps`/`touchpoints`/`symbols`/`status`) takes the release positionally; none use
+  `--release`. The spec's flag form was the defect. Ratifies the verifier's proposed amendment.
+- **Correction**: S65 `spec.md` user-outcome / entry-point / AC #1 / reachability artefact all
+  moved to positional `sworn lint trace <release>` (no `--release` flag). `verification.result`
+  cleared `blocked` → `pending`; `state` → `implemented` (existing impl already satisfies it);
+  `start_commit` (45ab01f) + `actual_files` preserved from the track branch.
+- **Also this pass**: repaired two fused index.md frontmatter lines (T7, T15); removed a stray
+  superseded S73 draft from the primary checkout.
+- **Next**: fresh `/verify-slice S65-lint-trace 2026-06-19-safe-parallelism` — no code change needed.
+- **Note (process)**: the board oracle reports `.state` (`implemented`), not
+  `.verification.result` (`blocked`), so an implemented-then-blocked slice reads `implemented` on
+  the board — the replan trigger surfaced via the coach-loop PAGE, not the oracle state field.
+
 ### 2026-07-16 — track `T14-baton-integration` merged to release-wt (commit 8daa03d)
 
 - **Actor**: track integrator (/merge-track)
