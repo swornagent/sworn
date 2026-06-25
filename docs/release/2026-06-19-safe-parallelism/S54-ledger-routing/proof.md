@@ -202,5 +202,5 @@ no unplanned files were modified.
 
 ```
 $ $HOME/.claude/bin/release-verify.sh S54-ledger-routing 2026-06-19-safe-parallelism
-(see below — run separately after status → implemented)
+FIRST-PASS PASS — 23 checks passed, 0 failed
 ```
