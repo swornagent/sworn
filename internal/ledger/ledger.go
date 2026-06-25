@@ -99,8 +99,26 @@ func SliceKind(track string) string {
 	}
 	return rest
 }
-// Key returns a deduplication key for a Record.
-// Two records with the same SliceID + Verdict + Ts are the same entry.
+// CountLines returns the number of non-empty lines in the ledger file.
+// Returns 0 if the file does not exist.
+func CountLines(path string) int {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+
+	n := 0
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		if strings.TrimSpace(scanner.Text()) != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// Key returns a deduplication key for a Record.// Two records with the same SliceID + Verdict + Ts are the same entry.
 func Key(r Record) string {
 	return fmt.Sprintf("%s|%s|%s", r.SliceID, r.Verdict, r.Ts)
 }

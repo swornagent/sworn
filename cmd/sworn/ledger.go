@@ -55,16 +55,17 @@ func cmdLedgerSync(args []string) int {
 	ledgerPath := filepath.Join(repoRoot, "docs", "ledger", "verdicts.jsonl")
 
 	// Walk the release board hierarchy.
-	releasesDir := filepath.Join(repoRoot, "docs", "release")
-	pattern := filepath.Join(releasesDir, "*", "*", "status.json")
-
+	pattern := filepath.Join(repoRoot, "docs", "release", "*", "*", "status.json")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ledger sync: glob: %v\n", err)
 		return 1
 	}
 
-	added := 0
+	// Count existing lines so we can report actual additions vs idempotent no-ops.
+	before := ledger.CountLines(ledgerPath)
+
+	attempted := 0
 	skipped := 0
 	errors := 0
 
@@ -91,10 +92,11 @@ func cmdLedgerSync(args []string) int {
 			errors++
 			continue
 		}
-		added++
+		attempted++
 	}
 
-	fmt.Printf("ledger sync: %d added, %d skipped (no terminal verdict), %d errors\n", added, skipped, errors)
+	actualAdded := ledger.CountLines(ledgerPath) - before
+	fmt.Printf("ledger sync: %d added, %d skipped (no terminal verdict), %d errors\n", actualAdded, skipped, errors)
 	if errors > 0 {
 		return 1
 	}
