@@ -550,8 +550,19 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 
 ## Recent activity
 
-### 2026-06-26 — track `T21-mcp-lint` merged to release-wt (commit ae328ed)
+### 2026-07-21 — slice `S46-captain-review` → verified (PASS)
+- **Actor**: verifier (fresh context, artefact-only).
+- **Verdict**: PASS — all six verification gates satisfied.
+  - Gate 1: Captain review wired into RunSlice — called after design TL;DR, gates implement loop on escalate pins.
+  - Gate 2: Planned touchpoints (review.go, review_test.go, slice.go) matched; state.go/prompt.go reused existing (documented).
+  - Gate 3: 5 unit tests (EscalatePinHalts, CleanDesignProceeds, PinsClassified, ReviewModelError, FormatPinsAsFeedbackNil) pass with `go test -race`.
+  - Gate 4: Integration in RunSlice exercised by TestRunSlice* e2e tests.
+  - Gate 5: No TODO/FIXME/HACK/placeholder in S46 code.
+  - Gate 6: All 8 delivered items verified against the code.
+- **State**: S46 → `verified`. T13 → `in_progress` (S47-orchestrator-recovery still planned).
+- **Next**: Next slice in track T13 is S47-orchestrator-recovery: `/implement-slice S47-orchestrator-recovery 2026-06-19-safe-parallelism`.
 
+### 2026-06-26 — track `T21-mcp-lint` merged to release-wt (commit ae328ed)
 - **Actor**: track integrator (/merge-track)
 - **Note**: 1 verified slice merged: S71-mcp-lint-tools. Track state -> merged. Forward-merged 10 sibling commits (T22-tui-gate merge) into track before integration; index.md conflict resolved (T22 state + frontmatter `---` fence restored).
 

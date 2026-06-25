@@ -16,8 +16,20 @@
 
 - Pin parsing is deliberately simple — it looks for tag patterns rather than parsing the full captain output format. This trades parse precision for robustness: a captain model that produces slightly different formatting still generates a usable review.md. The downside is that pin details (observations, actions) are only in review.md, not in the structured result. This is acceptable because the structured result is only used for the gate decision and feedback injection — both of which only need the tag and summary.
 
-### Files changed
+## Verifier verdicts received
 
+### 2026-07-21 — Verifier verdict
+
+**PASS** — All six verification gates satisfied.
+
+Gate 1 (User-reachable outcome): ✓ — Captain review wired into RunSlice, called after design TL;DR, gates implement loop on escalate pins.
+Gate 2 (Planned touchpoints match actual): ✓ — review.go, review_test.go, slice.go; state.go/prompt.go untouched by design (reused existing).
+Gate 3 (Required tests exist): ✓ — 5 unit tests all pass with go test -race.
+Gate 4 (Reachability artefact): ✓ — Integration in RunSlice exercised by TestRunSlice* suite.
+Gate 5 (No silent deferrals): ✓ — No TODO/FIXME/HACK in S46 code.
+Gate 6 (Claimed scope matches implemented): ✓ — All 8 delivered items verified. Not-delivered items (captain.model, interactive mode) are spec-acknowledged.
+
+### Files changed
 - `internal/captain/review.go` — new: Captain Review function, pin parsing, review.md generation
 - `internal/captain/review_test.go` — new: tests for escalate halt, clean proceed, pin classification
 - `internal/run/slice.go` — modified: captain review step inserted between TL;DR and implement loop
