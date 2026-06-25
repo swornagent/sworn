@@ -4,15 +4,19 @@
   "release": "2026-06-19-safe-parallelism",
   "track": "T20-gate-engine",
   "covers_needs": [],
-  "state": "planned",
-  "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-25T11:00:00Z",
-  "start_commit": null,
+  "state": "verified",
+  "owner": "verifier",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-17T12:00:00Z",  "start_commit": "f11f9d8908d6652014afb079036260074753ac50",
   "planned_files": ["internal/gate/mock.go", "internal/gate/mock_test.go", "cmd/sworn/lint.go"],
-  "actual_files": [],
+  "actual_files": ["internal/gate/mock.go", "internal/gate/mock_test.go", "cmd/sworn/lint.go"],
   "test_commands": ["go test ./internal/gate/...", "go build ./..."],
-  "reachability_artifacts": [],
+  "reachability_artifacts": ["manual-smoke-step: sworn lint mock --slice S68-lint-mock --release 2026-06-19-safe-parallelism"],
   "open_deferrals": [],
-  "verification": { "result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": [] }
-}
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": null,
+    "verifier_verdict_at": "2026-07-17T12:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": []
+  }}
