@@ -52,8 +52,21 @@ None.
 
 ## Verifier verdicts received
 
-(None yet — slice just reached `implemented`)
+### 2026-07-22 — verification session (fresh context, worktree-anchored)
 
+**Verdict: PASS**
+
+Gate 1 — User-reachable outcome exists: PASS. `ledger.Project`/`ledger.Append` published in `internal/ledger`; `state.Verification.Model`/`Attempt` populated at all three verdict-record sites in `internal/run/slice.go` (PASS line ~391, BLOCKED line ~433, haltFailedVerification line ~473).
+
+Gate 2 — Planned touchpoints match actual changed files: PASS. Planned: ledger.go, ledger_test.go, state.go, state_test.go, slice.go. Actual: exactly those five plus expected docs artefacts (journal.md, proof.md, status.json, index.md). No unexplained deltas.
+
+Gate 3 — Required tests exist and exercise integration point: PASS. `ledger_test.go`: 5 Project cases (pass/fail/blocked/pending/empty), 17 SliceKind cases, 3 Append cases, Key test. `state_test.go`: ModelAttemptRoundTrip, ModelAttemptOmitEmpty. Run tests (TestRunSlice, TestRunSliceFail, TestRunSlice_BlockedNotifies) exercise all three verdict-record paths. All re-run and pass.
+
+Gate 4 — Reachability artefact confirms user path: PASS. `go test ./internal/ledger/... ./internal/state/... ./internal/run/...` re-run and all pass (58 tests). `go vet` clean. `go build ./...` clean. `go.mod` unchanged — zero new deps.
+
+Gate 5 — No silent deferrals or placeholder logic: PASS. Grep for TODO/FIXME/placeholder/deferred/HACK/XXX — empty in all production code. Spec's two deferrals (verifier-model capture, remote emission) properly documented with why/tracking/ack.
+
+Gate 6 — Claimed scope matches implemented scope: PASS. All 7 acceptance checks delivered with test evidence. One divergence noted: `SliceKind("T16-verdict-ledger")` returns `"verdict"` not `"ledger"` as spec example suggests; the first-segment rule is mechanically consistent across all 22 tracks, documented in journal.md.
 ## Design decisions
 
 ### SliceKind for T16-verdict-ledger

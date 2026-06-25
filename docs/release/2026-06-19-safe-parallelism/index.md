@@ -172,8 +172,7 @@ tracks:
 | `T10-public-readiness` | S27 | all tracks (incl. T16 + T19) | `track/.../T10-public-readiness` | verified |
 | `T11-infra-safety` | S28 | T1 | `track/.../T11-infra-safety` | merged |
 | `T12-harness-hardening` | S29 → S30 → S31 → S32 → S33 → S35 → S36 → S37 → S38 → S41 → S42 → S43 → S44 | T1 | `track/.../T12-harness-hardening` | merged || `T13-sworn-role-parity` | S45 → S46 → S47 | T12 + T17 | `track/.../T13-sworn-role-parity` | merged || `T14-baton-integration` | S48 → S49 → S50 → S62 → S73 | T3 + T15 | `track/.../T14-baton-integration` | merged |
-| `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged || `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | verified |
-| `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | merged || `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
+| `T15-cli-registry` | S51 | T1 | `track/.../T15-cli-registry` | merged || `T16-verdict-ledger` | S52 → S53 → S54 → S55 → S56 | T6 + T12 + T13 | `track/.../T16-verdict-ledger` | in_progress (S52 verified) || `T17-orchestration-core` | S57 → S58 → S59 | T1 + T12 + T18 | `track/.../T17-orchestration-core` | merged || `T18-cli-polish` | S60 → S61 | T2 + T15 | `track/.../T18-cli-polish` | merged |
 | `T19-status-hygiene` | S64 | T4 + T12 + T15 | `track/.../T19-status-hygiene` | merged |
 | `T20-gate-engine` | S65 → S66 → S67 → S68 → S69 → S70 | T14 + T15 | `track/.../T20-gate-engine` | merged |
 | `T21-mcp-lint` | S71 | T4 + T20 | `track/.../T21-mcp-lint` | merged |
