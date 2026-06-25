@@ -29,6 +29,7 @@ var batonFileMappings = []FileMapping{
 	{Source: "claude/baton/requirements-fidelity.md", Dest: "internal/adopt/baton/rules/08-requirements-fidelity.md"},
 	{Source: "claude/baton/design-fidelity.md", Dest: "internal/adopt/baton/rules/09-design-fidelity.md"},
 	{Source: "claude/baton/customer-journey-validation.md", Dest: "internal/adopt/baton/rules/10-customer-journey-validation.md"},
+	{Source: "claude/baton/process-global-mutation.md", Dest: "internal/adopt/baton/rules/11-process-global-mutation.md"},
 
 	// Adopt README
 	{Source: "claude/baton/README.md", Dest: "internal/adopt/baton/README.md"},
@@ -37,6 +38,10 @@ var batonFileMappings = []FileMapping{
 	{Source: "claude/baton/role-prompts/implementer.md", Dest: "internal/prompt/implementer.md"},
 	{Source: "claude/baton/role-prompts/planner.md", Dest: "internal/prompt/planner.md"},
 	{Source: "claude/baton/role-prompts/verifier.md", Dest: "internal/prompt/verifier.md"},
+	{Source: "claude/baton/role-prompts/captain.md", Dest: "internal/prompt/captain.md"},
+
+	// Architecture rules (v0.5.0)
+	{Source: "claude/baton/architecture.json", Dest: "internal/adopt/baton/architecture.json"},
 
 	// Baton protocol documents (embedded under internal/prompt/baton/)
 	{Source: "claude/baton/track-mode.md", Dest: "internal/prompt/baton/track-mode.md"},
@@ -90,5 +95,6 @@ func RuleSources() []string {
 		"claude/baton/requirements-fidelity.md",
 		"claude/baton/design-fidelity.md",
 		"claude/baton/customer-journey-validation.md",
+		"claude/baton/process-global-mutation.md",
 	}
 }

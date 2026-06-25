@@ -9,12 +9,12 @@ A portable, project-agnostic process package for engineering teams working with 
 
 The package contains four kinds of artefact, in increasing order of operational specificity:
 
-1. **Rules** (seven, listed below) — the underlying engineering discipline. Adoptable independently or together.
-2. **Role prompts** (planner, implementer, verifier) — paste-into-session prompts that operationalise the rules for a specific role in a release.
+1. **Rules** (ten, listed below) — the underlying engineering discipline. Adoptable independently or together.
+2. **Role prompts** (planner, implementer, verifier, captain) — paste-into-session prompts that operationalise the rules for a specific role in a release. The **Captain** runs design-review (Rule 9). Authority over strategy and product/architecture sits with the **Coach** — the human-in-the-loop who owns the team; the agent roles surface decisions to the Coach but never self-authorise them.
 3. **Templates** (slice folder, release intake, release board) — fillable artefacts that become the durable record of a release.
 4. **Brainstorm patterns** (Option Matrix, Decision Card, Scope-Ceiling Bar, Dependency Graph, Deferral Card) — visual decision surfaces that make planning decisions discrete, visible, and capturable.
 
-Rules 1-5 can be adopted on their own; the rest of the package is needed only when Rules 6 and 7 (Proof Bundle + Adversarial Verification) are in play. See `INSTALL.md` for adoption paths.
+Rules 1-5 can be adopted on their own; the rest of the package is needed only when Rules 6–11 (Proof Bundle through Process-Global Mutation Guard — the harness-enforced rules) are in play. See `INSTALL.md` for adoption paths.
 
 ## Core principle — DRY applied bidirectionally to knowledge
 
@@ -30,7 +30,7 @@ Knowledge that survives both directions of DRY is **codified, organised, traceab
 - **Traceable** — origin and decision path are visible, not inferred.
 - **Auditable** — verifiable from external evidence, not from someone's recollection.
 
-The seven rules below are facets of this principle. Each rule prevents one specific way knowledge gets repeated, lost, or re-litigated.
+The eleven rules below are facets of this principle. Each rule prevents one specific way knowledge gets repeated, lost, or re-litigated.
 
 ## Why this matters — insulation against requirements failure
 
@@ -63,9 +63,9 @@ AI-assisted engineering has a small number of recurring failure modes that compo
 5. **Completion overclaiming** — the implementer's session declares the slice done while only a thin slice actually landed; the next session's stocktake re-discovers the gap. *(The cost is repetition: the work that wasn't done gets re-planned, re-scoped, and re-attempted.)*
 6. **Self-certification** — the implementer's reasoning thread also writes the proof bundle. Optimism contaminates the certification. *(The cost is repetition: gaps appear in verification rather than implementation, and propagate downstream.)*
 
-Every failure mode is a violation of bidirectional DRY on knowledge. This package codifies seven rules that intervene at each failure mode's source. Adopt them whole, in fragments, or as a starting point for your own rule-set.
+Every failure mode is a violation of bidirectional DRY on knowledge. This package codifies eleven rules that intervene at each failure mode's source. Adopt them whole, in fragments, or as a starting point for your own rule-set.
 
-## The seven rules
+## The eleven rules
 
 | Rule | What it does | Forward DRY ↔ Backward DRY | File |
 |---|---|---|---|
@@ -76,18 +76,25 @@ Every failure mode is a violation of bidirectional DRY on knowledge. This packag
 | 5. Session Discipline | Implementation sessions anchored to GitHub Issues (or equivalent durable tracker). Captures at session boundaries. | Anchor context to a durable home ↔ Don't rebuild context from chat history | `session-discipline.md` |
 | 6. Proof Bundle | Completion claims require a structured proof file written from live repo state — `git diff`, test output, reachability artefact — before any task is marked done. | Verify once against repo reality ↔ Don't recall plan-state as repo-state | `proof-bundle.md` |
 | 7. Adversarial Verification | The verifier must be a fresh-context session loaded only with slice artefacts; the implementer cannot certify its own work. Returns PASS / FAIL / BLOCKED. | Certify once with independent context ↔ Don't let optimism authenticate itself | `adversarial-verification.md` |
+| 8. Requirements Fidelity | The spec is not an axiom: every need is verified (29148 quality), validated (human sense-check), and traced (need → AC → test → proof) so a need can't drop silently between intake and spec. | Verify the requirement once, before delivery ↔ Don't re-discover a dropped need downstream | `requirements-fidelity.md` |
+| 9. Design Fidelity | Design stays human-owned, with judgement calibrated to each choice's stakes (reversibility × blast-radius); Type-1 choices carry a recorded human decision the model can't self-authorise. | Decide the design once, with the right human attention ↔ Don't re-litigate or reverse-engineer the choice later | `design-fidelity.md` |
+| 10. Customer Journey Validation | Critical end-to-end journeys are a ratified, version-controlled artefact, re-walked against real boundaries; a journey walked over a mocked boundary proves nothing. | Capture the journey once and re-walk it for real ↔ Don't ship a stale or mock-faked end-to-end path | `customer-journey-validation.md` |
+| 11. Process-Global Mutation Guard | Any change mutating process-global state (working directory, environment, worktree/branch selection) must guarantee restore, assert the target before acting, and show a reachability artefact proving the guard. Especially load-bearing under parallel/multi-worktree execution. | Mutate scoped and restore once ↔ Don't let an unrestored mutation silently corrupt the next unit of work | `process-global-mutation.md` |
 
 ## Release Mode harness
 
-Rules 6 and 7 are operationalised through a small repo-native harness that ships with the package:
+Rules 6 through 11 are operationalised through a comprehensive harness:
 
+- **Gate scripts (7)** — `sworn trace` (RTM + EARS + sniff-test), `sworn coverage` (AC → test mapping), `sworn designaudit` (colours + architecture rules), `sworn mockcheck` (undeclared mock boundaries), `sworn regression` (post-merge full suite), `sworn verify` (proof bundle structure), `sworn board` (state machine verifier).
+- **LLM check types (6)** — `spec-ambiguity` (planner), `design-review` (captain), `ac-satisfaction` (implementer + verifier), `security-review` (implementer + verifier), `semantic-coverage` (verifier), `maintainability-review` (implementer + verifier). Deterministic (temp=0), structured prompts, structured JSON output, fail-closed.
 - **Slice folder template** — `release-mode-template/{spec,journal,proof}.md` + `status.json`, plus release-level `intake.md` + `index.md`. Copy to `docs/release/YYYY-MM-DD-<theme>/<slice-id>/` and fill in per slice.
-- **Role prompts** — `role-prompts/planner.md`, `role-prompts/implementer.md`, and `role-prompts/verifier.md`. Paste verbatim into agent sessions. The verifier prompt must always go into a *fresh* context window.
+- **Role prompts** — `role-prompts/planner.md`, `role-prompts/implementer.md`, `role-prompts/verifier.md`, and `role-prompts/captain.md`. Paste verbatim into agent sessions. The verifier prompt must always go into a *fresh* context window. The captain prompt runs `/design-review` (Rule 9), surfacing design pins for the Coach to acknowledge or push back on.
+- **JSON Schemas (5)** — `slice-status-v1.json`, `architecture-rules-v1.json`, `design-fidelity-v1.json`, `design-allowlist-v1.json`, `architecture-overrides-v1.json`. Hosted at `baton.sawy3r.net/schemas/`.
 - **Brainstorm patterns** — `brainstorm-patterns.md`. Five visual patterns (Option Matrix, Decision Card, Scope-Ceiling Bar, Dependency Graph, Deferral Card) that make planning decisions discrete, visible, and capturable. Mandatory during Phase 2/3 of the planner role.
-- **First-pass verifier script** — `sworn verify` in the source repo. Deterministic checks that gate access to LLM verifier time. Catches missing artefacts, dark-code markers, and structural issues at $0 cost.
-- **Track mode** — `track-mode.md`. The model for *safe parallelism*: slices are grouped into touchpoint-disjoint **tracks**, each implemented sequentially in its own `git worktree` on a `track/<release>/<track-id>` branch. Tracks run in parallel; `/merge-track` lands a finished track on the release branch and `/merge-release` lands the release on the version branch. Supersedes the earlier one-worktree-per-release model and its `release/slice/<slice-id>` recovery ref (the track branch is now its own durable anchor).
+- **Track mode** — `track-mode.md`. The model for *safe parallelism*: slices are grouped into touchpoint-disjoint **tracks**, each implemented sequentially in its own `git worktree` on a `track/<release>/<track-id>` branch. Tracks run in parallel; `/merge-track` lands a finished track on the release branch and `/merge-release` lands the release on the version branch. Supersedes the earlier one-worktree-per-release model.
+- **Architecture rules** — `architecture.json`. Project-level architectural rules with four check types (grep, touchpoints, diff-size, external). Declares canonical architectural documents (data model, API contracts, component hierarchy, ADRs, design tokens). Per-release overrides via `architecture-overrides.json`. Per-slice escape hatches via `design-allowlist.json`.
 
-The harness is intentionally minimal: four artefact files per slice (plus the release-level intake + index pair), three role prompts, five brainstorm patterns, one shell script. It is not an orchestration framework. It is the floor needed to make Rules 6 and 7 enforceable rather than advisory.
+The harness is intentional: mechanical gates catch missing structure, LLM checks catch content failures, and adversarial verification ensures no role certifies its own work. It is the floor needed to make Rules 6 through 11 enforceable rather than advisory.
 
 ## Provenance
 

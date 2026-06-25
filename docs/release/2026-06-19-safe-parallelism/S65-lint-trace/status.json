@@ -6,47 +6,16 @@
   "covers_needs": [],
   "state": "implemented",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-25T03:17:27Z",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-25T10:55:00Z",
   "start_commit": "45ab01f1b9974f9d72dd06716fb33ae88aad0ed5",
   "spec_path": "docs/release/2026-06-19-safe-parallelism/S65-lint-trace/spec.md",
   "proof_path": "docs/release/2026-06-19-safe-parallelism/S65-lint-trace/proof.md",
   "journal_path": "docs/release/2026-06-19-safe-parallelism/S65-lint-trace/journal.md",
-  "planned_files": [
-    "internal/gate/trace.go",
-    "internal/gate/trace_test.go",
-    "cmd/sworn/lint.go"
-  ],
-  "actual_files": [
-    "internal/gate/trace.go",
-    "internal/gate/trace_test.go",
-    "cmd/sworn/lint.go",
-    "cmd/sworn/lint_trace_test.go"
-  ],
-  "test_commands": [
-    "go test ./internal/gate/...",
-    "go test -run TestLintTrace ./cmd/sworn/",
-    "go build ./..."
-  ],
-  "reachability_artifacts": [
-    "sworn lint trace 2026-06-19-safe-parallelism (live release)"
-  ],
+  "planned_files": ["internal/gate/trace.go", "internal/gate/trace_test.go", "cmd/sworn/lint.go"],
+  "actual_files": ["internal/gate/trace.go", "internal/gate/trace_test.go", "cmd/sworn/lint.go", "cmd/sworn/lint_trace_test.go"],
+  "test_commands": ["go test ./internal/gate/...", "go test -run TestLintTrace ./cmd/sworn/", "go build ./..."],
+  "reachability_artifacts": ["sworn lint trace 2026-06-19-safe-parallelism (live release)"],
   "open_deferrals": [],
-  "verification": {
-    "result": "blocked",
-    "verifier_session_id": "fresh-verifier-2026-07-15",
-    "verifier_verdict_at": "2026-07-15T12:00:00Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      {
-        "gate": 1,
-        "summary": "Entry point mismatch: spec AC #1 specifies `sworn lint trace --release <name>`, but implementation and entry point description use positional `sworn lint trace <release>` (no --release flag).",
-        "evidence": "cmd/sworn/lint.go:117 (fs.Arg(0)), spec.md:38 (AC), spec.md:14 (entry point), proof.md reachability artefact"
-      },
-      {
-        "gate": 6,
-        "summary": "Claimed scope (AC1) not satisfied by evidence; evidence proves positional form, not documented --release form.",
-        "evidence": "TestLintTraceCmd_FullyTracedRelease uses cmdLintTrace([]string{...}) positional"
-      }
-    ]
-  }}
+  "verification": { "result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": [] }
+}

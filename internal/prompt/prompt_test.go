@@ -105,14 +105,15 @@ func TestVerifyStateless_NotAgenticVerifier(t *testing.T) {
 
 func TestCaptain_ResolveDirtyWorktree(t *testing.T) {
 	got := Captain()
-	if !strings.Contains(got, "resolve-dirty-worktree") {
-		t.Errorf("Captain() missing resolve-dirty-worktree function name")
+	// v0.5.0 Captain has a design-review function that checks for
+	// drift and stale state before code is written. The specific
+	// "resolve-dirty-worktree" function name was a Sworn-native
+	// addition (S36) not present in canonical baton v0.5.0.
+	if !strings.Contains(got, "design-review") {
+		t.Errorf("Captain() missing design-review function")
 	}
-	if !strings.Contains(got, "commits the work by default") {
-		t.Errorf("Captain() missing commits-the-work-by-default rule for dirty worktree resolution")
-	}
-	if !strings.Contains(got, "Discard only if clearly wrong") {
-		t.Errorf("Captain() missing Discard-only-if-clearly-wrong guard")
+	if !strings.Contains(got, "Step 1 — Drift detection") {
+		t.Errorf("Captain() missing drift detection step")
 	}
 }
 func TestBatonVersion_NonEmpty(t *testing.T) {	if got := BatonVersion(); got == "" {
@@ -121,54 +122,66 @@ func TestBatonVersion_NonEmpty(t *testing.T) {	if got := BatonVersion(); got == 
 }
 func TestPlannerHasPhase2b(t *testing.T) {
 	got := Planner()
+	// v0.5.0 planner uses "Phase 2 — Discovery" with Layers 1-6
+	// instead of the Sworn-specific Phase 2b headings.
 	headings := []string{
-		"Registry check",
-		"Design consultation",
-		"Architecture conformance",
-		"Capture",
+		"Phase 2 — Discovery",
+		"Phase 3 — Propose decomposition",
+		"Phase 3b — Group slices into tracks",
+		"Phase 6 — Handoff",
 	}
 	for _, h := range headings {
 		if !strings.Contains(got, h) {
-			t.Errorf("Planner() missing Phase 2b heading %q", h)
+			t.Errorf("Planner() missing heading %q", h)
 		}
 	}
 }
 
 func TestPlannerPhase2bDRYGate(t *testing.T) {
 	got := Planner()
-	if !strings.Contains(got, "docs/decisions.md") {
-		t.Errorf("Planner() missing DRY gate reference to docs/decisions.md")
+	// v0.5.0 planner has Phase 3b for track grouping
+	// (Sworn-specific "docs/decisions.md DRY gate" is not present).
+	if !strings.Contains(got, "Phase 3b — Group slices into tracks") {
+		t.Errorf("Planner() missing Phase 3b heading")
 	}
 }
 
 func TestPlannerPhase2bFastPath(t *testing.T) {
 	got := Planner()
-	if !strings.Contains(got, "do not block") {
-		t.Errorf("Planner() missing fast-path guard: 'do not block' for missing catalog files")
+	// v0.5.0 planner has a hard-constraint stop guard.
+	if !strings.Contains(got, "stop and force a") {
+		t.Errorf("Planner() missing stop guard")
 	}
 }
 
 func TestImplementerHasDeviationCheck(t *testing.T) {
 	got := Implementer()
-	if !strings.Contains(got, "Deviation check") {
-		t.Errorf("Implementer() missing 'Deviation check' heading")
+	// v0.5.0 implementer has "Required reading at session start"
+	// and fresh-context boundary as pre-flight discipline.
+	// (Sworn-specific "Deviation check" and "Worktree cleanliness gate"
+	// headings are not in canonical baton v0.5.0.)
+	if !strings.Contains(got, "Required reading at session start") {
+		t.Errorf("Implementer() missing 'Required reading at session start' heading")
 	}
 }
 
 func TestImplementerHasDependencyDiscipline(t *testing.T) {
 	got := Implementer()
-	if !strings.Contains(got, "Dependency discipline") {
-		t.Errorf("Implementer() missing 'Dependency discipline' heading")
+	// v0.5.0 implementer has explicit hard constraints and
+	// "What you must never do" section.
+	if !strings.Contains(got, "What you must never do") {
+		t.Errorf("Implementer() missing 'What you must never do' section")
 	}
 }
 
 func TestVerifierHasCatalogConformance(t *testing.T) {
 	got := Verifier()
-	if !strings.Contains(got, "Catalog conformance check") {
-		t.Errorf("Verifier() missing 'Catalog conformance check' heading")
+	// v0.5.0 verifier Gate 6 is "Design conformance (Rule 9, Layer 1)".
+	// (Sworn-specific "Catalog conformance check" is not in canonical baton.)
+	if !strings.Contains(got, "Gate 6 — Design conformance") {
+		t.Errorf("Verifier() missing 'Gate 6 — Design conformance' heading")
 	}
 }
-
 // --- Baton protocol embed tests (S21-canonical-baton) ---
 
 func TestBatonRulesNonEmpty(t *testing.T) {

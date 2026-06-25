@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-//go:embed baton/README.md baton/VERSION baton/rules/*
+//go:embed baton/README.md baton/VERSION baton/rules/* baton/architecture.json
 var batonFS embed.FS
 
 // BatonSectionHeading is the marker heading that identifies the Baton

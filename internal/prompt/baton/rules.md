@@ -390,7 +390,7 @@ Anchoring fixes all four. The discipline is procedural: every session has a know
 
 ### Session start
 
-- Ask which issue the work belongs to. If none exists, create one before starting.
+- Ask which issue the work belongs to. If none exists, create one before starting. **Exception — Baton release-mode sessions:** when the work is a release-mode command (`/plan-release`, `/replan-release`, `/implement-slice`, `/verify-slice`, `/merge-track`, `/merge-release`) operating on a `docs/release/<name>/` tree, that tree — `index.md`, `intake.md`, and each slice's `spec.md` / `status.json` / `journal.md` — **is** the durable anchor; it is exactly the "equivalent durable tracker" this rule allows. Do **not** open by asking for, or creating, a GitHub issue. Proceed straight to the command's own Step 0.
 - Read the issue's existing comments / linked context. This is what you'd already have known if the previous session had captured properly.
 - Set a goal for the session in plain text — what does "done" look like?
 
@@ -436,6 +436,7 @@ Rule of thumb: *if it would become stale as work progresses, it belongs in an is
 - Quick questions ("how does X work?").
 - One-off fixes that fit in a single commit and don't need cross-session continuity.
 - Spike sessions where the spike branch is itself the artefact and gets deleted.
+- **Baton release-mode sessions** — the release artefact tree under `docs/release/<name>/` is the anchor (see the Session-start exception above). Never prompt the human for a GitHub issue.
 
 If you're unsure whether to anchor: anchor. The cost is one `gh issue create`. The cost of *not* anchoring is the rework discussed in Rule 3.
 
@@ -758,21 +759,22 @@ This is the same insight the README frames around requirements failure: decades 
 
 The RTM is the enforcement mechanism. It has two axes and threads through the existing artefacts — no separate datastore.
 
-### Horizontal: need → acceptance criterion → test → proof
+### Horizontal: intake need → slice → acceptance criterion → test → proof
 
 ```
-intake.md          spec.md               spec.md             proof.md
---------           --------               --------            --------
-N-01: need  --->   - [ ] AC cites N-01    Required tests  ->  test results
-                   - [ ] AC cites N-01                        reachability
+intake.md          status.json         spec.md               spec.md             proof.md
+--------           ------------        --------               --------            --------
+N-01: need  --->   covers_needs:  -->   - [ ] AC cites N-01    Required tests  ->  test results
+                   [N-01, N-03]         - [ ] AC cites N-01                        reachability
 ```
 
 - **Needs** are enumerated with stable ids (`N-01`, `N-02`, …) in `intake.md`. The planner assigns ids at planning time; they are never reused.
+- **Slice coverage** — every slice declares which intake needs it delivers in `status.json` `covers_needs` (array of need IDs). This is the intake→slice link: a deterministic gate can verify every N-NN appears in at least one slice, and no slice claims a need it doesn't cite in its ACs.
 - **Acceptance criteria** in each `spec.md` cite the need id(s) they satisfy, inline in the AC text (e.g. "WHEN … THE SYSTEM SHALL … (N-01)").
 - **Required tests** in `spec.md` cite the acceptance check they exercise.
 - **Proof** in `proof.md` closes `AC → test → proof` (already required by Rule 6).
 
-The RTM adds the front half: `need → AC`. An orphaned need (no linked AC) or an orphaned AC (cites no need, or cites a need but has no test) is a broken trace.
+The RTM now closes the full chain: `intake need → slice → AC → test → proof`. An orphaned need (no slice covers it, or no AC cites it), an orphaned AC (cites no need, or cites a need but has no test), or a slice that claims a need it doesn't cite in its ACs (mismatch) is a broken trace.
 
 ### Vertical: org objective → release benefit → slice
 
@@ -789,36 +791,57 @@ The vertical trace is the golden thread: line-of-sight from strategy (if declare
 
 ## Enforcement
 
-A deterministic, fail-closed traceability gate builds the matrix from `intake.md` / `spec.md` / `status.json` / `index.md` alone — no separate datastore. It exits non-zero on:
+A deterministic, fail-closed traceability gate — `sworn trace <release-name>` — builds the matrix from `intake.md` / `spec.md` / `status.json` / `index.md` alone. It exits 0 on a fully-traced release, non-zero with enumerated violations on any break.
 
-- An orphaned need (need with no linked acceptance criterion).
-- An orphaned acceptance criterion (cites no need id, or cites a need but has no linked test).
-- A slice with no vertical link (no release goal in intake and no release benefit or org objective on the slice).
+The gate checks:
 
-A fully-traced release prints the matrix and exits 0. The source reference implementation is a `lint trace`-style command; adopters port the check to their own tooling, the same way Rule 7's `sworn verify` is ported.
+- **Orphaned need** — an intake need ID (N-NN) that appears in no slice's `covers_needs`. The intake→slice gap.
+- **Invalid covers** — a slice's `covers_needs` references a need ID not in intake.md.
+- **Unclaimed coverage** — a need ID in `covers_needs` with no AC in that slice's spec citing it. The slice→spec gap.
+- **Free-form AC** — an acceptance check that lacks the EARS `shall` keyword and has no `NOTE:` escape. The AC→structure gap.
+- **"See intake" reference** — any spec content that refers the implementer to intake.md. The spec must stand alone.
+- **Vague AC / scope** — an AC or in-scope item describing no concrete artefact (file, testid, status code, label string, value). The content-density gap.
+
+Run `sworn trace` at two points in the workflow: (a) planner Phase 6 before handoff, and (b) as the DoR gate at `planned → in_progress`. A release that fails the trace may not ship.
 
 ## EARS notation — structured acceptance criteria
 
-The RTM enforces *traceability* (need → AC → test). EARS (Easy Approach to Requirements Syntax) enforces *structure* — each acceptance criterion is a single sentence with a fixed keyword shape, not free-form prose. Together they form the front-end fidelity gate: traced AND well-formed.
+The RTM enforces *traceability* (need → AC → test). EARS (Easy Approach to Requirements Syntax) enforces *structure* — each acceptance criterion follows a fixed keyword pattern, not free-form prose. Together they form the front-end fidelity gate: traced AND well-formed.
+
+EARS was developed at Rolls-Royce PLC in 2009 (Mavin et al., IEEE RE'09) and is used worldwide by Airbus, Bosch, Dyson, Honeywell, Intel, NASA, Rolls-Royce, and Siemens.
 
 A deterministic gate classifies every acceptance check in every slice's `spec.md` by EARS pattern and fails closed on any free-form check that matches no pattern, naming the slice and the offending line.
 
-| Class | Pattern | Example |
-|---|---|---|
-| Ubiquitous | `THE SYSTEM SHALL <action>` | `THE SYSTEM SHALL display the dashboard.` |
-| Event-driven | `WHEN <trigger> THE SYSTEM SHALL <action>` | `WHEN a user clicks save THE SYSTEM SHALL persist the form.` |
-| State-driven | `WHILE <state> THE SYSTEM SHALL <action>` | `WHILE in maintenance mode THE SYSTEM SHALL show a banner.` |
-| Optional-feature | `WHERE <feature> THE SYSTEM SHALL <action>` | `WHERE a premium feature is enabled THE SYSTEM SHALL show the export button.` |
-| Unwanted-behaviour | `IF <condition> THEN THE SYSTEM SHALL <action>` | `IF the database is unreachable THEN THE SYSTEM SHALL return a 503 error.` |
-| Complex | Two or more preconditions combined | `WHEN a user clicks save WHILE the form is valid THE SYSTEM SHALL persist the form.` |
+| Class | Pattern | Keywords | Example |
+|---|---|---|---|
+| Ubiquitous | `<system> shall <response>` | none (always active) | `The API shall return 200 for valid input.` |
+| Event-driven | `When <trigger>, <system> shall <response>` | `When` | `When the user clicks Save, the form shall persist to the backend.` |
+| State-driven | `While <state>, <system> shall <response>` | `While` | `While the modal is open, the page shall not scroll.` |
+| Optional-feature | `Where <feature>, <system> shall <response>` | `Where` | `Where Premium is enabled, the export button shall be visible.` |
+| Unwanted-behaviour | `If <condition>, then <system> shall <response>` | `If … then` | `If the database is unreachable, then the API shall return 503.` |
+| Complex | Two or more keywords combined | e.g. `While … When …` | `While on mobile, when the user taps Edit, the settings sheet shall open.` |
 
-**The `NOTE:` escape.** A line prefixed with `NOTE:` is a deliberate non-requirement note and is excluded from validation — use it for context that is not a testable requirement (a design constraint, a cross-reference, a rationale). Without the escape such lines would fail the gate as free-form.
-
-**Why EARS, not Gherkin.** Gherkin (Given-When-Then) was considered and rejected: EARS is lighter (one sentence per requirement, no scenario tables), is the de-facto notation for agent-authored requirements, and maps cleanly to the checkbox format already used in `spec.md`. The decision is recorded; adopters need not re-litigate it.
+ACs that use no EARS keyword pattern and no `NOTE:` escape are free-form and fail the gate. The `<system>` slot can be implicit (e.g. "the page", "the API", "the component") or omitted — the litmus is the keyword + `shall` structure, not the specific system noun.
 
 ## Spec-quality metric — pre-code soundness + completeness
 
 Before a spec reaches verification or validation, a deterministic, pre-code first-pass computes soundness + completeness from a slice's **acceptance examples** alone — no source code, no model call.
+
+### Structural completeness (the sniff-test gate)
+
+The RTM verifies *traceability* (every need has an AC, every AC has a test) but not *content-density*. A spec can pass traceability while being a thin shadow of its intake section — "fix the windfall bug" passes the EARS check but captures none of the detail the intake elaborated. This is the decomposition-fidelity failure mode: the planner splits intake into slices but fails to decompose the intake-level description into spec-level precision.
+
+Intake is the epic level — broad user outcomes, "what the human wants" in natural language. The spec is the feature/story level — decomposed into concrete, verifiable, implementation-precision acceptance criteria. "Replicate intake detail" is the wrong framing; the spec must *refine* intake detail into finer granularity. Intake says *what* (ticker search); the spec says *where* (`PortfolioEditor.tsx`), *how* (`<TickerSearch />` with `accessToken` prop, Name field `disabled={true}`), and *proves* (testids, status codes, screenshot paths).
+
+A structural-completeness check runs at the `planned → in_progress` transition and fails closed on:
+
+1. **Vague-scope spec** — an AC or in-scope item that could describe *any* slice of its kind ("fix the bug", "add the missing code", "wire up the component"). Every AC must name at least one concrete artefact (a file path, a label string, a data-testid, an assertion value, an HTTP status code). A spec without concretes is a spec that can't be verified — the verifier has nothing concrete to check against.
+2. **Missing detail** — a behavioural detail present in the intake's "What the human wants" section for this slice's scope that has no corresponding AC, in-scope item, or planned touchpoint in the spec. A single unmatched intake detail fails the gate.
+3. **"See intake" reference** — any spec content that refers the implementer to intake.md (directly or indirectly: "see intake", "refer to intake", "as described in the intake"). The spec owns every detail it covers.
+
+This is a deterministic gate, not a model call — it checks for concrete terms (file paths, quoted strings, testids, status codes) and cross-references intake detail against spec content. A spec with no concretes or missing intake detail never reaches implementation.
+
+### Numeric completeness (mutation analysis)
 
 Every spec SHOULD carry a `## Acceptance examples` section with one or more **input → expected-output** pairs per acceptance check:
 
@@ -950,6 +973,30 @@ This is the design-time counterpart to the delivery first-pass: cheap, determini
 
 ## Design-system input (UI-bearing projects)
 
+### Canonical architecture — the source of truth
+
+LLMs are optimisers: they produce working code but not necessarily well-architected code. Without explicit constraints, every slice reinvents patterns. The antidote is canonical architectural documents — the source of truth that every slice conforms to.
+
+A project declares its canonical docs in `docs/baton/architecture.json` `canonical_docs`:
+
+```json
+{
+  "canonical_docs": {
+    "data_model": "docs/data_models/SCHEMA.md",
+    "api_contracts": ["docs/api/openapi.yaml"],
+    "component_hierarchy": ["packages/ui/README.md"],
+    "architectural_decisions": "docs/adrs/",
+    "design_tokens": "tokens.json"
+  }
+}
+```
+
+The planner consults these during Layer 4 discovery and flags gaps. The architecture audit script checks slice diffs for conformance: new entities must match the canonical schema patterns, new components must extend (not duplicate) the component hierarchy, API changes must follow the established contract shapes.
+
+If a project lacks any of these documents, the planner MUST flag it. A project with no canonical data model is a project where every slice invents its own — the accumulated divergence is exponentially more expensive to fix than the upfront cost of defining the schema. Recommend creating missing canonical artefacts as a pre-release or parallel planning activity.
+
+### Design-system input (UI-bearing projects)
+
 Design fidelity for a UI requires a declared source of truth. Every UI-bearing project declares its design system before design conformance can be audited. The design system is a three-tier concept:
 
 | Tier | Name | Role |
@@ -979,15 +1026,21 @@ A two-layer conformance audit guards UI-bearing projects against design drift.
 
 ### Layer 1 — Deterministic first-pass (machine-check)
 
-Scans UI source files for three categories of drift:
+The mechanical gate is `sworn designaudit` — run by the verifier as Gate 6 of the verification workflow. It scans UI files in the slice's diff for:
 
-| Category | Pattern | Example violation |
+| Category | Pattern | Detection |
 |---|---|---|
-| **Hardcoded colour** | `color: #ff0000` | Hex literal in a CSS property — use `var(--color-primary)` |
-| **Off-scale spacing** | `margin: 17px` | Hard-coded value off the spacing scale — use `var(--spacing-4)` |
-| **Recreated component** | `function Button()` in app code | Component re-defined outside the library when a library `Button` exists |
+| **Hardcoded colour** | Hex `#ff0000`, `rgb()`, `hsl()` | Regex scan of diff; compared against declared design tokens |
+| **Off-scale spacing** | Hardcoded `px`/`rem` values off the spacing scale | Requires token config with spacing scale |
+| **Recreated component** | Duplicate primitive impl outside component library | Requires component library path mapping |
 
-Each violation reports `file:line: [kind] message`. A sanctioned exception marker (an inline allow-comment) suppresses a single line's violation and records a deliberate, human-approved deviation.
+**Escape hatch.** Three levels of accepted deviation:
+
+1. **Per-line allowlist.** `design-allowlist.json` in the slice folder, maps `file:line` patterns to rationale. The script reads it automatically. For pre-existing violations an implementer cannot fix (e.g. legacy code outside slice scope).
+2. **Rule 2 deferral.** Listed in `proof.md` "Not delivered" with all three Rule 2 elements: why (pre-existing, out of scope), tracking (slice or issue), and **explicit human or captain acknowledgement**. The verifier reads `proof.md` and accepts the deferral.
+3. **Per-project token config.** Declared in `docs/baton/design-fidelity.json` with `token_source` pointing to the design-token file. Colours matching declared tokens pass automatically; only undeclared colours flag.
+
+The script exits 0 on clean pass, non-zero with `file:line [kind] value` violations. Projects without a design-fidelity config (`ui_bearing: false` or absent) pass automatically.
 
 ### Layer 2 — Human cohesion verdict (human-owned)
 
@@ -1110,3 +1163,81 @@ This reads as a Rule 2 concern too — an undeclared mock is a species of silent
 ## Provenance
 
 Rule 10 was introduced in the `2026-06-16-fidelity-layer` cycle. It closes the integration gap above per-slice verification: a release of individually-verified slices can still leave a cross-slice user path broken or stale. The no-mock boundary is folded in as Rule 10's enforcement teeth — the recognition that an end-to-end journey only counts as evidence if it ran against real boundaries, not mocks.
+
+---
+title: Rule 11 — Process-Global Mutation Guard
+description: Any change that mutates process-global state (working directory, environment, or which worktree/branch a tool acts on) must guarantee restore, assert the target before acting, and show a reachability artefact proving the guard.
+---
+
+# Rule 11 — Process-Global Mutation Guard
+
+## The rule
+
+Any change — test or production — that mutates **process-global state** (the
+working directory, environment variables, or which git worktree/branch the
+process operates on) must satisfy all three of the following before the owning
+slice can reach `verified`:
+
+1. **Guaranteed restore.** Mutated state must be restored before the owning
+   unit of work returns — via a test-framework scoped helper, a deferred
+   restore, or a cleanup callback that runs irrespective of outcome. Prefer
+   *scoped* mutation (invoking the tool with an explicit working-directory
+   argument, or a child process) over mutating the ambient process and
+   restoring it.
+
+2. **Fail-closed target assertion.** Any operation that acts on a path or
+   worktree — especially a `git` operation carrying a directory argument —
+   must first assert the target exists and is the expected directory. If the
+   path is empty, missing, or unexpected, the operation must not proceed.
+
+3. **Reachability artefact.** The slice cannot be marked `verified` without
+   evidence the guard exists and fires: a test exercising the restore path, or
+   an explicit smoke step demonstrating the assertion firing on a bad target.
+
+## Why
+
+In a parallel or multi-worktree harness, process-global state is shared across
+units of work: a mutation left unrestored is silently inherited by the next
+test, or the next operation in the same process. The worst case is a git
+operation that runs in an unexpected (or empty) directory and corrupts branch
+state — a worktree silently flipped to its base branch — surfacing later as an
+unrelated-looking failure. Wherever sessions run concurrently against a shared
+base, this is a systematic failure class, not an incidental one.
+
+## How to apply
+
+- **Implementers:** prefer scoped mutation (pass an explicit working directory
+  to the tool, or use a framework directory/env helper that auto-restores) over
+  mutating the ambient process; when you must mutate, pair it with a deferred
+  restore. Assert any path/worktree target before acting on it. Cite the
+  guarding test or smoke step in `proof.md`.
+- **Captains (design review):** scan any design that touches the working
+  directory, environment, or worktree selection. Flag any occurrence lacking
+  (1) restore, (2) a fail-closed target assertion, and (3) a reachability
+  artefact.
+- **Verifiers:** the reachability gate must specifically demonstrate the guard
+  when the slice's diff touches process-global state.
+
+## When this rule applies
+
+- Any slice that changes the process working directory, environment variables,
+  or which worktree/branch a tool operates on.
+- Any slice that creates, switches, or removes git worktrees.
+- Any test that mutates the working directory, environment, or process
+  arguments without a framework-scoped, auto-restoring helper.
+
+## When this rule does NOT apply
+
+- Tests that mutate only framework-scoped state with automatic restore — the
+  framework itself is the guard.
+- Single-worktree, single-session workflows with no shared process state: the
+  failure class does not arise, though the discipline remains good practice.
+
+## Provenance
+
+Codified after a recurring failure class in multi-worktree release harnesses: a
+git operation run against a stale or empty directory silently flipped a
+worktree to its base branch, and the pattern recurred across slices until the
+guard was made a standing design-review check. It composes Rule 9 (design
+review flags the unsafe design) with Rules 1/6 (reachability/proof that the
+guard fires), specialised onto one high-blast-radius pattern.
