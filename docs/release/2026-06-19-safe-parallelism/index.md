@@ -124,13 +124,13 @@ tracks:
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T20-gate-engine
     worktree_branch: track/2026-06-19-safe-parallelism/T20-gate-engine
     state: merged
-  - id: T21-mcp-lint    slices: [S71-mcp-lint-tools]
+  - id: T21-mcp-lint
+    slices: [S71-mcp-lint-tools]
     depends_on: [T4-mcp, T20-gate-engine]
-    worktree_path:
+    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T21-mcp-lint
     worktree_branch: track/2026-06-19-safe-parallelism/T21-mcp-lint
-    state: planned
-  - id: T22-tui-gate
-    slices: [S72-tui-gate-display]
+    state: in_progress
+  - id: T22-tui-gate    slices: [S72-tui-gate-display]
     depends_on: [T2-monitoring, T20-gate-engine]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T22-tui-gate
     worktree_branch: track/2026-06-19-safe-parallelism/T22-tui-gate
