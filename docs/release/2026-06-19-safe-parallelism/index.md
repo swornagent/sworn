@@ -512,8 +512,8 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 | `S59-scheduler-relayer` | T17 | `sworn run --parallel` workers poll the router each step (poll-and-route) instead of a static slice list — resumable, dynamic; keeps dependency resolution + worktree isolation + supervisor ownership | verified | [spec](./S59-scheduler-relayer/spec.md) |
 | `S60-init-ui-bearing-fix` | T18 | `sworn init` no longer prompts for design tokens / component library in a non-UI-bearing repo; design-system flow gated on `--ui-bearing`; drops the always-true `UIBearing` write | verified | [spec](./S60-init-ui-bearing-fix/spec.md) |
 | `S61-cli-output-styling` | T18 | shared zero-dep `internal/style` ANSI palette gives premium, consistent, TTY/`NO_COLOR`-aware colour across every command + report renderer; plain output byte-identical | verified | [spec](./S61-cli-output-styling/spec.md) |
+| `S65-lint-trace` | T20 | `sworn lint trace <release>` mechanically verifies RTM chain (intake→covers_needs→AC→test), EARS conformance, sniff-test. Exits 0 on fully-traced release, non-zero with violations. | implemented | [spec](./S65-lint-trace/spec.md) |
 ## Aggregate state
-
 > **STALE — the board oracle (`release-board-status.sh --json`) is authoritative; run it for live
 > counts.** This hand-maintained block predates the T16-verdict-ledger, T17-orchestration-core, and
 > T18-cli-polish additions (now **18 tracks, 68 slices**) and is not reconciled per-replan. Counts
@@ -532,9 +532,10 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 
 - Planned: 28
 - In progress: 0
-- Implemented: 0
+- Implemented: 1 (S65-lint-trace, BLOCKED on verification)
 - Design review: 1
 - Verified: 30
+- Note: S65-lint-trace BLOCKED (spec defect); state remains implemented. See Recent activity.
 - Failed verification: 1
 - Deferred: 0
 
@@ -1739,3 +1740,9 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
 
 - **Actor**: track integrator (/merge-track)
 - **Note**: 1 verified slice merged: S17-tui-provider-config. Track state -> merged.
+
+### 2026-07-15 — slice `S65-lint-trace` → blocked (BLOCKED)
+- **Actor**: verifier (`/verify-slice`, fresh context, artefact-only inputs)
+- **Verdict**: BLOCKED. Gate 1 and Gate 6 violations due to spec inconsistency on CLI entry point (`--release` in AC vs positional in entry point and impl). See journal.md for details and proposed spec amendment.
+- **State**: S65 remains `implemented` (BLOCKED does not change state). verification.result = "blocked". T20-gate-engine remains in_progress.
+- **Next step**: `/replan-release 2026-06-19-safe-parallelism` (planner to ratify spec amendment).

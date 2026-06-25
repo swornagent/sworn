@@ -33,10 +33,20 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
-  }
-}
+    "result": "blocked",
+    "verifier_session_id": "fresh-verifier-2026-07-15",
+    "verifier_verdict_at": "2026-07-15T12:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      {
+        "gate": 1,
+        "summary": "Entry point mismatch: spec AC #1 specifies `sworn lint trace --release <name>`, but implementation and entry point description use positional `sworn lint trace <release>` (no --release flag).",
+        "evidence": "cmd/sworn/lint.go:117 (fs.Arg(0)), spec.md:38 (AC), spec.md:14 (entry point), proof.md reachability artefact"
+      },
+      {
+        "gate": 6,
+        "summary": "Claimed scope (AC1) not satisfied by evidence; evidence proves positional form, not documented --release form.",
+        "evidence": "TestLintTraceCmd_FullyTracedRelease uses cmdLintTrace([]string{...}) positional"
+      }
+    ]
+  }}

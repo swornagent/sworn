@@ -47,3 +47,14 @@ None.
 - 25 unit/integration tests in `internal/gate/trace_test.go` covering all check types
 - 5 integration tests in `cmd/sworn/lint_trace_test.go` (existing, updated for covers_needs)
 - Tested against the actual `2026-06-19-safe-parallelism` release: correctly identifies 465 violations (454 free-form ACs, 11 orphaned needs), matching the bash script's expected behavior
+## Verifier verdicts received
+
+### 2026-07-15 — verifier verdict — BLOCKED
+BLOCKED
+Slice: S65-lint-trace
+Reason: The spec is internally inconsistent on the CLI entry point. "Entry point" section says "Invoked as `sworn lint trace`." (positional arg), but Acceptance check #1 specifies `sworn lint trace --release <name>`. Implementation (cmdLintTrace uses fs.Arg(0), no flag), proof.md reachability artefact, and all tests use positional form. The AC as written is not satisfied by the delivered code. This is a contract defect (spec inconsistency), not an implementation gap an implementer can close without changing the spec.
+Proposed spec.md amendment: 
+- Change AC #1 to: `sworn lint trace <release>` exits 0 on fully-traced release
+- Update "User outcome" to remove "--release" (use positional)
+- Update "Entry point" to be explicit: "Invoked as `sworn lint trace <release>` (positional release name, no --release flag)"
+- Update reachability artefact description in proof.md if needed to match.
