@@ -69,5 +69,5 @@ Vendored Baton protocol at `internal/adopt/baton/`. Updated via `sworn baton ven
 
 - **Unit**: `internal/prompt/prompt_test.go` — `TestBatonVersion_NonEmpty` passes, `TestBatonVersion` assert updated
 - **Unit**: `internal/adopt/` — verify vendored files match upstream
+- **Unit**: `internal/baton/` — vendor, diff, transform, fetch tests pass
 - **Reachability artefact**: `sworn version` output showing `baton-protocol v0.5.0`
-- **E2E gate type**: local

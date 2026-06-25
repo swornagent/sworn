@@ -218,7 +218,10 @@ func extractTarball(data []byte, destDir, repoName, tag string) error {
 	}
 	defer gr.Close()
 	tr := tar.NewReader(gr)
-	prefix := fmt.Sprintf("%s-%s/", repoName, tag)
+	// GitHub strips the leading v from semver tags in tarball paths
+	// (e.g. tag "v0.5.0" -> archive prefix "baton-0.5.0/").
+	cleanTag := strings.TrimPrefix(tag, "v")
+	prefix := fmt.Sprintf("%s-%s/", repoName, cleanTag)
 
 	for {
 		hdr, err := tr.Next()
