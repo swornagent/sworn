@@ -45,94 +45,147 @@ Two deeper smells compound it:
    *simultaneously* a machine contract and a human document, edited by both. That
    is why they drift: there is no single source of truth.
 
-The question this ADR answers: **where is the boundary between machine-owned
-structured data and human-authored prose, and what format owns each side?**
+### Two consumption models and one human
+
+The boundary must serve both ways Baton is consumed:
+
+- **A — Baton as a standalone protocol.** Installed by an LLM or via the install
+  script; a human drives the slash commands manually in their LLM interface,
+  and/or scripts their own automation, and/or has an agentic orchestrator (Hermes)
+  run the loop end to end. Here the **LLM (or automation) emits the records** from
+  the human's conversation.
+- **B — Sworn, the reference implementation.** Baton in an autonomous loop with the
+  verified-releases capability. Here the **binary and worker LLMs emit the
+  records**; the human reviews at gates.
+
+In *every* model the human's authoring surface is **conversation**, and their
+control surface is **review of a rendered view, then approve/reject**. A human
+never sits down and hand-types a record's JSON — config aside, hand-authoring JSON
+is a developer taste most humans (the project owner included) do not share. This
+is decisive for the boundary below: JSON-for-records costs the human nothing,
+because no human ever edits the raw record.
+
+The question this ADR answers: **what does each artifact's source format need to
+be, given that records are emitted (never hand-authored) and reviewed as renders,
+config is structured, and only documents are composed by hand?**
 
 ## Decision
 
-### The boundary: records vs prose
+### The discriminator: emitted vs hand-authored
 
-The discriminator is **how the content is authored**, not whether it is
-human-readable (almost everything is):
+The line is not "records vs prose" — almost everything is human-readable, and most
+of what looks like prose is in fact emitted, then reviewed. The line is **who
+produces the artifact and how**. That sorts every artifact into three buckets:
 
-- **Records** — content with *fields*: state, the track/slice/dependency graph,
-  acceptance-criterion entries (id + EARS clause + trace links + test refs), proof
-  *facts* (files-changed list, test command + exit code, reachability path,
-  delivered/not-delivered items), journey definitions, ledger/cost rows. Humans
-  *read* these as tables; they do not *compose* them as sentences.
-  → **JSON is the source of truth. Markdown, where wanted, is a render.**
+1. **Records** — board, spec, proof, status, journeys, ledger. Content with
+   *fields*: state, the track/slice/dependency graph, acceptance criteria (id +
+   EARS clause + trace + test refs), proof facts (files changed, test results,
+   reachability, delivered/not-delivered), journey definitions + walk status,
+   ledger/cost rows. **JSON, always emitted** by the LLM, the binary, or a UI form
+   — **never hand-authored** — and **rendered to markdown for human review.**
+   Human judgement that belongs in a record (a Rule 9 design decision, a Rule 8
+   validation sense-check, a journey ratification, a ship attestation) is a
+   **structured field with a prose rationale**: the human says a sentence, the tool
+   wraps it. Still never raw JSON.
 
-- **Prose** — content authored by writing sentences: intake narrative, design
-  rationale / ADR bodies, the explanatory part of a spec, session/handoff notes.
-  Forcing these into JSON string fields loses headings, lists, links, and clean
-  prose diffs, and fights Rules 8/9 (deliberately human-owned).
-  → **Markdown is the source of truth. The machine never parses it.**
+2. **Config** — architecture rules, design-system declaration, model/provider
+   settings, per-release/per-slice overrides. **JSON**, authored via the **hosted
+   UI** (the preferred path) or, in standalone Baton, by the LLM or install script.
+   The existing design/architecture schemas already live here.
+
+3. **Documents** — ADRs, guides, READMEs, longform captures. **Markdown,
+   hand- or LLM-authored**, living *outside* the loop record graph. This is the
+   only place a human composes markdown by hand.
+
+What this reclassifies: intake narrative and "spec rationale" — filed as
+hand-authored prose in this ADR's first draft — are really **LLM-drafted,
+human-reviewed records with prose fields**, not things a human types into either a
+JSON or a markdown editor. True hand-authored markdown shrinks to bucket 3.
 
 ### The invariant
 
-> **The machine reads JSON only. Humans compose prose only in markdown the machine
-> never parses. Any artifact that is *both* is split along the records/prose seam —
-> structured half in JSON, prose half in markdown.**
+> **No human ever hand-authors a record. Records are emitted as JSON (LLM / binary
+> / UI form), validated against a schema, and rendered to markdown for review.
+> Config is JSON authored through a UI or script. Markdown is hand-authored only
+> for documents outside the record graph. The machine parses JSON only — never
+> prose.**
 
-The split is **per artifact, not per file**: `index.md` / `spec.md` / `proof.md`
-are each both today, which is exactly why they are fragile.
+If any flow asks a human to hand-edit a record's JSON, that is the bug.
+
+### Rendering is the implementation's job, not the protocol's
+
+Baton (the protocol) defines the **JSON record + its schema**. *How* a record is
+shown to a human is an affordance each implementation layers on top:
+
+- Standalone Baton (model A): the LLM renders a view on request ("show me the
+  board"); the human reviews in chat.
+- Sworn (model B): renders markdown views and provides review surfaces
+  (`sworn top`, the TUI, gate prompts).
+- Hosted: renders records in the web UI; config and decisions captured via forms.
+
+This keeps the layering clean — **protocol = schema'd records; everything
+human-facing = renderer** — and means the protocol does not mandate a rendering
+engine. Where a rendered markdown file is committed (e.g. `index.md`), it is a
+build artifact of its JSON source (see the drift guard in Consequences).
 
 ### Per-artifact mapping
 
 Per slice:
 
-| Artifact | Kind | Source format |
-|---|---|---|
-| `status.json` | state machine | JSON *(already; this is the proof of the pattern)* |
-| `spec.json` | id, scope, ACs (EARS + trace + test refs), touchpoints | JSON |
-| `spec.md` | rationale / human prose | Markdown (prose section; machine ignores) |
-| `proof.json` | files changed, test results, reachability ref, delivered / not-delivered | JSON |
-| `proof.md` | human-readable bundle | Rendered from `proof.json` |
+| Artifact | Bucket | Source | Human sees |
+|---|---|---|---|
+| `status.json` | record | JSON *(already — the proof of the pattern)* | rendered state in TUI/board |
+| `spec.json` | record | JSON (id, scope, ACs as EARS + trace + test refs, touchpoints) | rendered `spec` view |
+| `proof.json` | record | JSON (files changed, test results, reachability, delivered/not-delivered) | rendered `proof` bundle |
 
 Per release:
 
-| Artifact | Kind | Source format |
-|---|---|---|
-| `board.json` | tracks / slices / deps / state / worktree paths | JSON (the graph the oracle reads) |
-| `index.md` | board tables + dependency diagram + session-log narrative | Rendered (tables from `board.json`) + hand-authored prose section the machine never parses |
+| Artifact | Bucket | Source | Human sees |
+|---|---|---|---|
+| `board.json` | record | JSON (tracks / slices / deps / state / worktree paths) | rendered `index.md` (tables + dependency diagram) |
+| arch / design configs | config | JSON | hosted UI form (or LLM/script in standalone) |
+| ADRs, guides | document | Markdown (hand/LLM-authored) | the markdown itself |
 
-### Two mechanisms (use both, per artifact)
+### Authoring path for emitted records
 
-1. **Render** — JSON is source, markdown is generated (board tables, proof
-   bundle). Use where humans want to *see the structured data* in readable form.
-2. **Sidecar / opaque body** — a JSON file (or strict JSON frontmatter) carries
-   the contract; a separate markdown body is pure prose the machine treats as
-   opaque. Use where the prose is genuinely independent (spec rationale, intake).
-   No renderer needed.
-
-Both guarantee the corruption immunity: the machine only ever touches JSON, whose
-integrity survives reflow/newline damage; prose corruption cannot break the state
-machine because nothing parses the prose.
-
-### Authoring path for generated records
-
-Records the planner/implementer/verifier *produce* should be emitted via
-schema-constrained structured output (validated against a JSON Schema such as the
-existing `slice-status-v1.json`), not written as markdown and scraped back. A
-validated tool-call round-trip is far more durable than free-text-plus-scanner.
+Records the planner/implementer/verifier *produce* are emitted via
+schema-constrained structured output (validated against the published JSON Schema),
+not written as markdown and scraped back. In standalone Baton this is the slash
+command instructing the LLM to emit against the schema; in Sworn it is the binary's
+structured-output call; in hosted it is a form write. All three validate on the way
+in. A validated round-trip is far more durable than free-text-plus-scanner — and it
+is the same mechanism in every consumption model, which is what makes the protocol
+portable.
 
 ## Options considered
 
-- **A — Full JSON (everything is JSON, all markdown rendered).** Purest
-  single-source story. Rejected: it pushes intake / ADR / rationale into JSON
-  string fields, which is hostile to author and diff and fights Rules 8/9. The
-  purity is not worth making human-owned prose miserable.
-- **B — Split by authorship (chosen).** JSON is canonical for records; markdown is
-  canonical for prose; hybrids are split. Gets Option A's robustness guarantee —
-  *machine reads JSON only* — without the prose cost.
-- **C — Status quo, harden the parsers in place.** Keep markdown/YAML sources;
+(Named to avoid collision with the A/B *consumption models* above.)
+
+- **Opt-1 — Everything JSON, including hand-authored prose.** Purest single-source
+  story. Rejected: it pushes documents (ADRs, guides) and rationale into JSON
+  string fields — hostile to author and diff, and it fights Rules 8/9. The purity
+  is not worth making the document bucket miserable, and it buys nothing, because
+  records are emitted anyway.
+- **Opt-2 — Three buckets by emitted-vs-hand-authored (chosen).** Records are
+  emitted JSON, validated and rendered; config is JSON via UI/script; documents are
+  hand-authored markdown outside the record graph. Gets the robustness guarantee —
+  *machine parses JSON only, no human hand-authors a record* — while leaving the one
+  bucket humans actually compose (documents) as markdown.
+- **Opt-3 — Status quo, harden the parsers in place.** Keep markdown/YAML sources;
   replace the bespoke scanners with a real parser + validate-on-write. Cheapest,
   but YAML's whitespace-significance keeps the corruption *possible* rather than
   *impossible*, and the dual-authored drift remains. Adopted only as the near-term
-  step *toward* B (it is a strict win regardless), not as the end state.
+  step *toward* Opt-2 (it is a strict win regardless), not as the end state.
 
 ## Consequences
 
+- **The record schemas are Baton's API surface (model A).** For an arbitrary LLM
+  running the slash commands — or someone's automation, or Hermes — to emit a
+  board / spec / proof / journey that is valid and interoperable, each record type
+  needs a **published schema it can be pointed at** (structured-output target +
+  validator). Baton today publishes schemas for *config* and the *status leaf* but
+  not the records that flow through the loop; closing that gap is what makes "a
+  protocol any LLM can drive" true rather than aspirational. See Appendix A.
 - **Migration.** Existing live boards and slice folders migrate to the split
   format; the planner / replan flows that write them, and the Baton oracle that
   reads them, update accordingly. The board format is Baton protocol surface
@@ -143,7 +196,7 @@ validated tool-call round-trip is far more durable than free-text-plus-scanner.
   diverge (someone hand-edits a generated `index.md`). Fail closed: treat rendered
   `.md` as build artifacts and add a CI check asserting `committed.md ==
   render(json)`, failing on divergence. This keeps single-source-of-truth honest.
-- **Near-term independent win (does not require ratifying B).** Replace the bespoke
+- **Near-term independent win (does not require ratifying Opt-2).** Replace the bespoke
   `strings.Split` / `HasPrefix` scanners in `internal/board` and `internal/lint`
   with marshaller round-trips and run the validator as a write-time post-condition.
   Tracked separately (relates to `sworn#20`, `sworn lint --fix`).
@@ -159,3 +212,57 @@ validated tool-call round-trip is far more durable than free-text-plus-scanner.
   surfaces stay human-owned and why this is a Type-1 decision.
 - `docs/captures/2026-06-26-v0.1.0-release-test-plan.md` — the corruption instance
   that motivated this ADR.
+
+## Appendix A — Schema inventory and gaps (as of 2026-06-26)
+
+Five schemas are published at `baton.sawy3r.net/schemas/` (canonical `$id`; the
+`/schemas/` index returns 404 — no directory listing, but each file resolves at its
+`$id`). They cover **config** and the **status leaf** — the edges of the loop — but
+not the records that flow through it.
+
+### Published (overlap)
+
+| Schema | Bucket | What it covers |
+|---|---|---|
+| `slice-status-v1` | record (leaf) | one slice's runtime state |
+| `architecture-rules-v1` | config | project architectural rules |
+| `architecture-overrides-v1` | config | per-release rule overrides |
+| `design-fidelity-v1` | config | design-system declaration (Rule 9) |
+| `design-allowlist-v1` | config | per-slice design escape hatch |
+
+### Gaps (records used, no schema)
+
+| Needed schema | Bucket | Today in sworn | Rule | Cost |
+|---|---|---|---|---|
+| `board-v1` | record | `index.md` YAML frontmatter, hand-parsed | — | **High value** — corruption surface; oracle input; `board.json` |
+| `spec-v1` | record | `spec.md` (markdown) | 8 | Defines ACs (EARS) + scope + touchpoints + trace; not JSON yet |
+| `proof-v1` | record | `proof.md` (markdown) | 6 | Proof facts: files changed, tests, reachability, delivered/not-delivered |
+| `journeys-v1` | record | `.sworn/journeys.json` — **already JSON** (`internal/journey` structs) | 10 | **Cheap** — struct exists; publish a schema |
+| `ledger-v1` | record | ledger — **already JSON** (`internal/ledger`, `"v":1`) | — | **Cheap** — sworn-side; publish a schema |
+
+### Alignment problems on top of the gaps
+
+1. **sworn points at a placeholder URL.** Emitted records carry
+   `"$schema": "https://example.com/schemas/baton/slice-status-v1.json"`, not the
+   canonical `baton.sawy3r.net` `$id`. Hardcoded in `internal/run/run.go:293`,
+   `internal/mcp/tools_plan.go:55`, and every committed `status.json`.
+2. **`slice-status-v1` is ahead of what sworn emits.** The hosted schema includes
+   `covers_needs`, `validation`, `design_decisions`, `release_base`,
+   `release_benefit`, `org_objective`; sampled emitted files stop at `verification`.
+   Decide whether the schema is **authoritative** (sworn must emit those) or
+   **descriptive**, and reconcile.
+3. **The four design schemas describe the dead bash harness.** Their `description`
+   fields cite `release-audit-design.sh`, not `sworn designaudit`. Confirm the field
+   contracts still match what the Go binary reads before adopters see them.
+
+### Sequencing (leverage-first)
+
+1. `board-v1` — unblocks the anti-corruption centerpiece and the oracle simplification.
+2. `spec-v1` — the Rule 8 contract everything traces to.
+3. `proof-v1` — Rule 6.
+4. `journeys-v1` + `ledger-v1` — nearly free; completes the set.
+5. Reconcile `slice-status-v1` drift and fix the `example.com` URL in one pass.
+6. De-bash the four design-schema descriptions.
+
+Items 1–4 are the **Baton-protocol push** (publish the record API). The URL fix,
+validate-on-write, and renderers are the **Sworn implementation** work.
