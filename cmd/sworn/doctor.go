@@ -13,7 +13,7 @@ import (
 	"github.com/swornagent/sworn/internal/lint"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/style"
-)// checkLevel classifies a doctor check result.
+) // checkLevel classifies a doctor check result.
 type checkLevel int
 
 const (
@@ -90,7 +90,7 @@ var batonRuleFiles = []string{
 }
 
 // batonRulesIndexHeading is the heading the README.md must carry.
-const batonRulesIndexHeading = "## The seven rules"
+const batonRulesIndexHeading = "## The eleven rules"
 
 // minPromptLength is the minimum byte length for an embedded prompt.
 const minPromptLength = 500
@@ -213,7 +213,8 @@ func cmdDoctor(args []string) int {
 
 	// --- Group 3: Local Baton sync (optional) ---
 	batonHome := os.Getenv("SWORN_BATON_HOME")
-	if batonHome == "" {		home, _ := os.UserHomeDir()
+	if batonHome == "" {
+		home, _ := os.UserHomeDir()
 		batonHome = filepath.Join(home, ".claude", "baton")
 	}
 	if _, err := os.Stat(batonHome); err == nil {
@@ -434,7 +435,8 @@ func checkEmbeddedPrompts() []checkResult {
 		})
 	}
 
-	return results}
+	return results
+}
 
 // checkRepoArtifacts checks for legacy Baton artifacts in the repo.
 func checkRepoArtifacts(repoRoot string) []checkResult {
@@ -538,7 +540,8 @@ func checkStatusTimestamps(repoRoot string) []checkResult {
 }
 
 // checkBatonSync compares the embedded Baton docs against the local ~/.claude/baton/.
-func checkBatonSync(batonHome string) []checkResult {	var results []checkResult
+func checkBatonSync(batonHome string) []checkResult {
+	var results []checkResult
 
 	// Compare rules files.
 	mismatches := 0

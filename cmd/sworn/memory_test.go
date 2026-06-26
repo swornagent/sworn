@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 )
+
 // TestCmdMemory_Status_NoConfig verifies that sworn memory status exits 0
 // with no config file and shows "using defaults".
 func TestCmdMemory_Status_NoConfig(t *testing.T) {
@@ -24,8 +25,12 @@ func TestCmdMemory_Status_NoConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Ensure no config files exist.
-	os.Unsetenv("HOME") // prevent ~/.config/sworn/memory.json from existing
+	// Ensure no config files exist. Point HOME at a fresh empty temp dir
+	// rather than unsetting it: t.Setenv auto-restores HOME after the test,
+	// so the mutation can't leak into later tests in this package (Rule 11 —
+	// an unrestored HOME unset broke TestRouteIntegration / TestCmdRun_Parallel,
+	// which resolve config and shell out to `go build`).
+	t.Setenv("HOME", t.TempDir()) // prevent ~/.config/sworn/memory.json from existing
 
 	// Since the function calls os.Getwd and memory.Load, we can't easily
 	// fake the global config path. Instead, test the function directly
@@ -144,6 +149,7 @@ func TestCmdMemory_Status_SetAPIKey(t *testing.T) {
 		t.Errorf("output must not contain the raw API key value, got:\n%s", output)
 	}
 }
+
 // TestCmdMemory_Status_UnknownHarness verifies that an unknown harness ID
 // triggers an error exit.
 func TestCmdMemory_Status_UnknownHarness(t *testing.T) {
