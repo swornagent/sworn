@@ -397,41 +397,38 @@ func checkEmbeddedPrompts() []checkResult {
 		})
 	}
 
-	// Check VERSION.txt — the embedded prompt version (tightened: ERROR on non-semver).
-	v := baton.Version()
-	if v == "" {
+	// Single source of truth for the Baton protocol version: the pin in
+	// internal/adopt/baton/VERSION, read via baton.Version(). There is no
+	// second version file (the embedded prompt package carries none). Fail
+	// closed if the pin is missing, not a semver tag, or incomplete — a shipped
+	// binary's pin must carry both upstream-sha and upstream-digest so the
+	// vendored bytes are traceable to an exact upstream commit.
+	pin := baton.Version()
+	upstream, _ := baton.ReadUpstreamPin()
+	switch {
+	case pin == "":
 		results = append(results, checkResult{
 			level:  levelError,
-			name:   "baton/VERSION.txt",
+			name:   "baton/VERSION (baton-protocol)",
 			detail: "version file empty or unparseable",
 		})
-	} else if !baton.IsSemverTag(v) {
-		results = append(results, checkResult{
-			level:  levelError,
-			name:   "baton/VERSION.txt",
-			detail: fmt.Sprintf("version=%s — not a valid semver tag (must be vMAJOR.MINOR.PATCH)", v),
-		})
-	} else {
-		results = append(results, checkResult{
-			level:  levelOK,
-			name:   "baton/VERSION.txt",
-			detail: fmt.Sprintf("version=%s", v),
-		})
-	}
-
-	// Check baton-protocol pin is a semver tag, not a SHA (fail-closed).
-	pin := baton.Version()
-	if !baton.IsSemverTag(pin) {
+	case !baton.IsSemverTag(pin):
 		results = append(results, checkResult{
 			level:  levelError,
 			name:   "baton/VERSION (baton-protocol)",
 			detail: fmt.Sprintf("pin=%s — [ERROR] baton-protocol must be a semver tag (vMAJOR.MINOR.PATCH), not a SHA", pin),
 		})
-	} else {
+	case upstream.SHA == "" || upstream.Digest == "":
+		results = append(results, checkResult{
+			level:  levelError,
+			name:   "baton/VERSION (baton-protocol)",
+			detail: fmt.Sprintf("on Baton %s — [ERROR] pin incomplete: upstream-sha and upstream-digest must both be set in internal/adopt/baton/VERSION", pin),
+		})
+	default:
 		results = append(results, checkResult{
 			level:  levelOK,
 			name:   "baton/VERSION (baton-protocol)",
-			detail: fmt.Sprintf("on Baton %s", pin),
+			detail: fmt.Sprintf("on Baton %s (single source of truth; sha+digest pinned)", pin),
 		})
 	}
 

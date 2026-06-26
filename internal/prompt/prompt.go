@@ -1,12 +1,15 @@
 // Package prompt embeds the Baton role prompts (planner, implementer, verifier,
 // captain) and the full Baton protocol documents (rules, track-mode,
 // session-discipline, brainstorm-patterns) into the sworn binary via go:embed.
-// The prompts are vendored verbatim from the open Baton protocol
-// (~/.claude/baton/role-prompts/). The baton/ subdirectory contains the
-// canonical Baton protocol documents served via sworn://baton/* MCP resources.
+// The prompts are vendored verbatim from canonical Baton
+// (github.com/sawy3r/baton) at the SHA pinned in internal/adopt/baton/VERSION —
+// NOT from any local ~/.claude/baton install. The baton/ subdirectory contains
+// the canonical Baton protocol documents served via sworn://baton/* MCP
+// resources.
 //
-// Vendored Baton protocol version is recorded in VERSION.txt and surfaced by
-// `sworn version`.
+// The Baton protocol version has a single source of truth: the pin in
+// internal/adopt/baton/VERSION, read via baton.Version() and surfaced by
+// `sworn version`. This package does not carry its own version file.
 package prompt
 
 import (
@@ -16,7 +19,7 @@ import (
 	"github.com/swornagent/sworn/internal/baton"
 )
 
-//go:embed verifier.md implementer.md planner.md captain.md verify-stateless.md requirements-verifier.md design-tldr.md VERSION.txt baton/*
+//go:embed verifier.md implementer.md planner.md captain.md verify-stateless.md requirements-verifier.md design-tldr.md baton/*
 var fs embed.FS
 var (
 	verifier             string
@@ -75,9 +78,13 @@ func Captain() string { return captain }
 // design-generation step in sworn run (S45).
 func DesignTLDR() string { return designTLDR }
 
-// BatonVersion returns the vendored Baton protocol version string (e.g. "on Baton v0.4.2").
-func BatonVersion() string { return "on Baton " + baton.Version() } // TrackMode returns the embedded Baton track-mode.md content.
-func TrackMode() string    { return trackMode }
+// BatonVersion returns the vendored Baton protocol version string
+// ("on Baton vX.Y.Z"), read from the single pin in internal/adopt/baton/VERSION
+// via baton.Version().
+func BatonVersion() string { return "on Baton " + baton.Version() }
+
+// TrackMode returns the embedded Baton track-mode.md content.
+func TrackMode() string { return trackMode }
 
 // Baton returns the content of a single Baton protocol document from the
 // embedded baton/ subdirectory. name is the filename relative to baton/
@@ -94,7 +101,8 @@ func Baton(name string) (string, error) {
 // BatonAll returns all embedded Baton protocol documents keyed by filename.
 // The map includes every file in the baton/ subdirectory: "rules.md",
 // "track-mode.md", "session-discipline.md", "brainstorm-patterns.md",
-// "README.md", "VERSION.txt".
+// "README.md". (No version file — the Baton protocol version's single source
+// of truth is internal/adopt/baton/VERSION, read via baton.Version().)
 func BatonAll() map[string]string {
 	entries, err := fs.ReadDir("baton")
 	if err != nil {

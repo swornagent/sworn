@@ -49,6 +49,28 @@ func TestIsSemverTag(t *testing.T) {
 	}
 }
 
+// TestUpstreamPinComplete enforces that the single Baton version source of truth
+// (internal/adopt/baton/VERSION) carries a COMPLETE pin: a semver protocol tag,
+// an upstream-sha, and an upstream-digest. A shipped binary must trace its
+// vendored bytes to an exact upstream commit; an incomplete pin is the drift
+// that let three contradictory version files (v0.4.2 / v0.5.0 / v1.0.0) ship
+// unnoticed before this was the single source of truth.
+func TestUpstreamPinComplete(t *testing.T) {
+	pin, err := ReadUpstreamPin()
+	if err != nil {
+		t.Fatalf("ReadUpstreamPin() error: %v", err)
+	}
+	if pin.SHA == "" {
+		t.Error("upstream-sha is empty in internal/adopt/baton/VERSION — pin incomplete")
+	}
+	if pin.Digest == "" {
+		t.Error("upstream-digest is empty in internal/adopt/baton/VERSION — pin incomplete")
+	}
+	if v := Version(); !IsSemverTag(v) {
+		t.Errorf("baton-protocol = %q — not a semver tag", v)
+	}
+}
+
 func TestVersionIsSemverNotSha(t *testing.T) {
 	// Version() reads from the adopt embed which should contain a semver tag
 	// after S49 reconciliation. The test verifies the live embed.

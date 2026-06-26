@@ -196,9 +196,26 @@ func TestBatonRulesNonEmpty(t *testing.T) {
 	}
 }
 
+// TestNoEmbeddedVersionFile is the fail-closed guard for the single-source-of-
+// truth invariant: the Baton protocol version lives ONLY in
+// internal/adopt/baton/VERSION (read via baton.Version()). This package must not
+// re-introduce a competing version file. Three contradictory VERSION files
+// (v0.4.2 / v0.5.0 / v1.0.0) once shipped silently because nothing guarded this;
+// this test makes a recurrence a hard, detectable build failure.
+func TestNoEmbeddedVersionFile(t *testing.T) {
+	for _, p := range []string{"VERSION.txt", "VERSION", "baton/VERSION.txt", "baton/VERSION"} {
+		if _, err := fs.ReadFile(p); err == nil {
+			t.Errorf("embed contains competing version file %q — the Baton protocol version has a single source of truth at internal/adopt/baton/VERSION; remove this file", p)
+		}
+	}
+}
+
 func TestBatonAllKeys(t *testing.T) {
 	all := BatonAll()
-	required := []string{"rules.md", "track-mode.md", "session-discipline.md", "brainstorm-patterns.md", "README.md", "VERSION.txt"}
+	// NB: no VERSION.txt — the Baton protocol version has a single source of
+	// truth at internal/adopt/baton/VERSION (read via baton.Version()); this
+	// package carries no version file of its own.
+	required := []string{"rules.md", "track-mode.md", "session-discipline.md", "brainstorm-patterns.md", "README.md"}
 	for _, k := range required {
 		if v, ok := all[k]; !ok {
 			t.Errorf("BatonAll() missing key %q", k)
