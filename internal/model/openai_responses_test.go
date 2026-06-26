@@ -406,7 +406,8 @@ func TestOpenAIResponses_ErrorResponse(t *testing.T) {
 	}
 	if me.Status != 429 {
 		t.Errorf("status = %d, want 429", me.Status)
-	}}
+	}
+}
 
 func TestConvertMessages_SystemPreservation(t *testing.T) {
 	instructions, input := convertMessages([]ChatMessage{

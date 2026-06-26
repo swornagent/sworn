@@ -24,7 +24,7 @@ type settingsField struct {
 // It is embedded in the root Model when the user presses 's' from the board view.
 type SettingsView struct {
 	fields     []settingsField
-	cursor     int    // index of currently selected field
+	cursor     int // index of currently selected field
 	config     config.Config
 	envValues  map[string]string // loaded from ~/.sworn/.env
 	saver      func(config.Config) error
@@ -79,6 +79,7 @@ func NewSettingsViewWith(cfg config.Config, envVals map[string]string, saver fun
 		},
 	}
 }
+
 // Init implements tea.Model.
 func (sv *SettingsView) Init() tea.Cmd {
 	return nil
@@ -132,7 +133,8 @@ func (sv *SettingsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // handleEditKey handles keyboard input when a field is in edit mode.
-func (sv *SettingsView) handleEditKey(idx int, msg tea.KeyMsg) (tea.Model, tea.Cmd) {	f := &sv.fields[idx]
+func (sv *SettingsView) handleEditKey(idx int, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	f := &sv.fields[idx]
 	switch msg.String() {
 	case "esc":
 		// Cancel edit — restore original value.
@@ -193,7 +195,7 @@ func (sv *SettingsView) restoreConfigField(idx int) {
 }
 
 // save validates, writes config + .env, and returns to board.
-func (sv *SettingsView) save() (tea.Model, tea.Cmd) {	// Validate model fields are non-empty (warn only).
+func (sv *SettingsView) save() (tea.Model, tea.Cmd) { // Validate model fields are non-empty (warn only).
 	if strings.TrimSpace(sv.fields[0].value) == "" {
 		sv.warningMsg = "Warning: Verifier Model is empty"
 		return sv, nil
@@ -243,7 +245,8 @@ func (sv *SettingsView) save() (tea.Model, tea.Cmd) {	// Validate model fields a
 		}
 	}
 	if len(envUpdates) > 0 {
-		if err := sv.envWriter(envUpdates); err != nil {			sv.errMessage = fmt.Sprintf("Env save failed: %v", err)
+		if err := sv.envWriter(envUpdates); err != nil {
+			sv.errMessage = fmt.Sprintf("Env save failed: %v", err)
 			return sv, nil
 		}
 		// Update local env cache.

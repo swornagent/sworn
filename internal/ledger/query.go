@@ -283,9 +283,9 @@ func CaptainMissRate(records []Record) float64 {
 func VerifierOverturnRate(records []Record) float64 {
 	// Group records by SliceID.
 	type verdicts struct {
-		first  string
-		last   string
-		count  int
+		first string
+		last  string
+		count int
 	}
 	m := make(map[string]*verdicts)
 	for _, r := range records {

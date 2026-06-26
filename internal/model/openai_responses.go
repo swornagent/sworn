@@ -92,28 +92,28 @@ type reasoningConfig struct {
 
 // responsesToolItem can represent either a function tool or a built-in tool.
 type responsesToolItem struct {
-	Type     string              `json:"type"`
-	Function *ToolFunction       `json:"function,omitempty"`
-	Name     string              `json:"name,omitempty"`
-	WebSearch *webSearchPreview   `json:"web_search_preview,omitempty"`
+	Type      string            `json:"type"`
+	Function  *ToolFunction     `json:"function,omitempty"`
+	Name      string            `json:"name,omitempty"`
+	WebSearch *webSearchPreview `json:"web_search_preview,omitempty"`
 }
 
 type webSearchPreview struct{}
 
 // responsesOutput is a single output item from the /v1/responses response.
 type responsesOutput struct {
-	Type    string `json:"type"`
-	CallID  string `json:"call_id,omitempty"`
-	Name    string `json:"name,omitempty"`
-	Arguments string `json:"arguments,omitempty"`
-	Status  string `json:"status,omitempty"`
-	Role    string `json:"role,omitempty"`
-	Content []responsesContentItem `json:"content,omitempty"`
+	Type      string                 `json:"type"`
+	CallID    string                 `json:"call_id,omitempty"`
+	Name      string                 `json:"name,omitempty"`
+	Arguments string                 `json:"arguments,omitempty"`
+	Status    string                 `json:"status,omitempty"`
+	Role      string                 `json:"role,omitempty"`
+	Content   []responsesContentItem `json:"content,omitempty"`
 }
 
 type responsesContentItem struct {
-	Type      string `json:"type"`
-	Text      string `json:"text,omitempty"`
+	Type       string `json:"type"`
+	Text       string `json:"text,omitempty"`
 	Transcript string `json:"transcript,omitempty"`
 }
 
@@ -382,8 +382,8 @@ func convertToChatResponse(output []responsesOutput, usage *responsesUsage) *Cha
 				},
 			})
 
-		// reasoning, web_search_call, etc. are ignored —
-		// they don't map to ChatResponse fields.
+			// reasoning, web_search_call, etc. are ignored —
+			// they don't map to ChatResponse fields.
 		}
 	}
 

@@ -58,6 +58,7 @@ type Journey struct {
 	// Empty when no regression scaffold has been generated.
 	RegressionTestPath string `json:"regression_test_path,omitempty"`
 }
+
 // JourneyStep is one step within a critical customer journey.
 type JourneyStep struct {
 	// Order is the step's position in the journey (1-indexed).
@@ -101,10 +102,10 @@ type JourneyArtefact struct {
 func NewArtefact() *JourneyArtefact {
 	now := time.Now().UTC().Format(time.RFC3339)
 	return &JourneyArtefact{
-		Version:   1,
-		CreatedAt: now,
-		UpdatedAt: now,
-		Journeys:  []Journey{},
+		Version:    1,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		Journeys:   []Journey{},
 		IsRatified: false,
 	}
 }
@@ -280,7 +281,8 @@ func ListJourneys(a *JourneyArtefact) []string {
 // In a future iteration this will be model-driven (
 // "the model drafts candidate journeys from the app"). For now it produces
 // a well-structured template with guidance.
-func DraftTemplate(projectRoot string) (*JourneyArtefact, error) {	a := NewArtefact()
+func DraftTemplate(projectRoot string) (*JourneyArtefact, error) {
+	a := NewArtefact()
 
 	// Scan the project to discover high-level structure.
 	entries := scanProjectStructure(projectRoot)

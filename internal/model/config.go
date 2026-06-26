@@ -106,7 +106,8 @@ func FromEnv(modelID string) (Verifier, error) {
 		// OCI uses SDK config file (~/.oci/config) and OCI_CLI_REGION —
 		// no API key required. The compartment ID is checked later.
 		key = "compartment"
-	case "google":		key = envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY")
+	case "google":
+		key = envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY")
 	case "openai-responses":
 		key = envOrAlias("OPENAI_API_KEY", "SWORN_OPENAI_API_KEY")
 	case "azure":
@@ -177,7 +178,7 @@ func swornProviderConfig() ProviderConfig {
 		AzureAPIKey:         os.Getenv("SWORN_AZURE_OPENAI_API_KEY"),
 		AzureEndpoint:       os.Getenv("SWORN_AZURE_OPENAI_ENDPOINT"),
 		AzureAPIVersion:     os.Getenv("SWORN_AZURE_OPENAI_API_VERSION"),
-		OCICompartmentID:    os.Getenv("OCI_COMPARTMENT_ID"),	}
+		OCICompartmentID:    os.Getenv("OCI_COMPARTMENT_ID")}
 }
 
 // parseModelID splits "provider/model" into its parts. The first "/" is the

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 )
+
 func TestTransition_LegalMoves(t *testing.T) {
 	tests := []struct {
 		from, to State

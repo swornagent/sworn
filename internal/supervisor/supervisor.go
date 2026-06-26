@@ -16,10 +16,10 @@ import (
 
 // State constants for the tracks table.
 const (
-	StatePlanned  = "planned"
-	StateRunning  = "running"
-	StateDone     = "done"
-	StateFailed   = "failed"
+	StatePlanned = "planned"
+	StateRunning = "running"
+	StateDone    = "done"
+	StateFailed  = "failed"
 )
 
 // ErrTrackOwned is returned by Acquire when another process already owns the
@@ -103,6 +103,7 @@ func (s *Supervisor) Reap() (int, error) {
 
 	return reaped, nil
 }
+
 // Acquire attempts to claim ownership of a track. It inserts a row into the
 // tracks table with the current PID and state=running. If a row already exists
 // for this track+release and the owner PID is alive, it returns ErrTrackOwned.
@@ -192,6 +193,7 @@ func (s *Supervisor) Acquire(trackID string) error {
 	_ = s.logEvent(trackID, "acquired", fmt.Sprintf("PID %d (replaced stale)", s.pid))
 	return nil
 }
+
 // Release marks a track as done or failed and clears the PID, releasing
 // ownership. It is safe to call multiple times; a row that doesn't exist
 // is silently ignored.
@@ -216,7 +218,8 @@ func (s *Supervisor) Release(trackID string, state string) error {
 
 // MustRelease is a defer-safe convenience wrapper for Release calls. It logs
 // the error rather than panicking.
-func (s *Supervisor) MustRelease(trackID string, state string) {	if err := s.Release(trackID, state); err != nil {
+func (s *Supervisor) MustRelease(trackID string, state string) {
+	if err := s.Release(trackID, state); err != nil {
 		fmt.Fprintf(os.Stderr, "supervisor: release %s/%s: %v\n", s.release, trackID, err)
 	}
 }

@@ -32,9 +32,9 @@ func (f *fakeOracle) ReadBoard(_ context.Context, _ string) (*board.BoardState, 
 }
 
 type fakeContent struct {
-	commitTimes  map[string]int64
-	existing     map[string]bool
-	ancestors    map[string]bool // "ancestor|branch" → true
+	commitTimes map[string]int64
+	existing    map[string]bool
+	ancestors   map[string]bool // "ancestor|branch" → true
 }
 
 func (f *fakeContent) LastCommitTime(_, path string) (int64, error) {
@@ -78,12 +78,12 @@ func TestBlockedPrecedesState(t *testing.T) {
 	oracle := &fakeOracle{
 		slices: map[string]board.SliceState{
 			"S01-test": {
-				ID:     "S01-test",
-				State:  state.Verified,
-				Track:  "T1-core",
-				Blocked: true,
+				ID:            "S01-test",
+				State:         state.Verified,
+				Track:         "T1-core",
+				Blocked:       true,
 				BlockedReason: "spec defect",
-				Violations: []string{"spec defect: ambiguous AC"},
+				Violations:    []string{"spec defect: ambiguous AC"},
 			},
 		},
 	}
@@ -131,7 +131,7 @@ func TestInProgressRoutesImplement(t *testing.T) {
 
 func TestImplementedRoutesVerify(t *testing.T) {
 	tests := []struct {
-		name             string
+		name               string
 		verificationResult string
 	}{
 		{"no verdict", ""},
@@ -265,9 +265,9 @@ func TestFailedVerificationGateClassification(t *testing.T) {
 			oracle := &fakeOracle{
 				slices: map[string]board.SliceState{
 					"S01-test": {
-						ID:     "S01-test",
-						State:  state.FailedVerification,
-						Track:  "T1-core",
+						ID:         "S01-test",
+						State:      state.FailedVerification,
+						Track:      "T1-core",
 						Violations: []string{gate + ": missing reachability"},
 					},
 				},
@@ -287,9 +287,9 @@ func TestFailedVerificationGateClassification(t *testing.T) {
 		oracle := &fakeOracle{
 			slices: map[string]board.SliceState{
 				"S01-test": {
-					ID:     "S01-test",
-					State:  state.FailedVerification,
-					Track:  "T1-core",
+					ID:         "S01-test",
+					State:      state.FailedVerification,
+					Track:      "T1-core",
 					Violations: []string{"Gate 3: test failure", "Gate 4: missing artefact", "Gate 5: undeclared deferral"},
 				},
 			},
@@ -390,48 +390,48 @@ func TestVerifiedWalksTrackThenMerges(t *testing.T) {
 		}
 	})
 
-		t.Run("next planned sibling with design.md → review", func(t *testing.T) {
-			input := defaultInput()
-			input.SliceID = "S01-done"
-			docsPrefix := input.DocsPrefix
-			release := input.Release
+	t.Run("next planned sibling with design.md → review", func(t *testing.T) {
+		input := defaultInput()
+		input.SliceID = "S01-done"
+		docsPrefix := input.DocsPrefix
+		release := input.Release
 
-			oracle := &fakeOracle{
-				slices: map[string]board.SliceState{
-					"S01-done":   {ID: "S01-done", State: state.Verified, Track: "T1-core"},
-					"S02-review": {ID: "S02-review", State: state.Planned, Track: "T1-core"},
-				},
-				board: &board.BoardState{
-					Release: release,
-					Tracks: []board.TrackState{
-						{
-							ID:    "T1-core",
-							State: "in_progress",
-							Slices: []board.SliceState{
-								{ID: "S01-done", State: state.Verified, Track: "T1-core"},
-								{ID: "S02-review", State: state.Planned, Track: "T1-core"},
-							},
+		oracle := &fakeOracle{
+			slices: map[string]board.SliceState{
+				"S01-done":   {ID: "S01-done", State: state.Verified, Track: "T1-core"},
+				"S02-review": {ID: "S02-review", State: state.Planned, Track: "T1-core"},
+			},
+			board: &board.BoardState{
+				Release: release,
+				Tracks: []board.TrackState{
+					{
+						ID:    "T1-core",
+						State: "in_progress",
+						Slices: []board.SliceState{
+							{ID: "S01-done", State: state.Verified, Track: "T1-core"},
+							{ID: "S02-review", State: state.Planned, Track: "T1-core"},
 						},
 					},
 				},
-			}
-			content := &fakeContent{
-				existing: map[string]bool{
-					docsPrefix + "/release/" + release + "/S02-review/design.md": true,
-				},
-			}
+			},
+		}
+		content := &fakeContent{
+			existing: map[string]bool{
+				docsPrefix + "/release/" + release + "/S02-review/design.md": true,
+			},
+		}
 
-			d, err := Route(context.Background(), oracle, content, input)
-			if err != nil {
-				t.Fatalf("Route: %v", err)
-			}
-			if d.NextType != NextReview {
-				t.Errorf("planned sibling with design.md should route review, got %s", d.NextType)
-			}
-			if d.TargetSlice != "S02-review" {
-				t.Errorf("TargetSlice should be S02-review, got %s", d.TargetSlice)
-			}
-		})
+		d, err := Route(context.Background(), oracle, content, input)
+		if err != nil {
+			t.Fatalf("Route: %v", err)
+		}
+		if d.NextType != NextReview {
+			t.Errorf("planned sibling with design.md should route review, got %s", d.NextType)
+		}
+		if d.TargetSlice != "S02-review" {
+			t.Errorf("TargetSlice should be S02-review, got %s", d.TargetSlice)
+		}
+	})
 
 	t.Run("track done, others ongoing → merge-track", func(t *testing.T) {
 		oracle := &fakeOracle{

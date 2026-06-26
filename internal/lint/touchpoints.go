@@ -14,8 +14,8 @@ import (
 
 // touchpointViolation represents a single touchpoint check failure.
 type touchpointViolation struct {
-	Kind     string // "undeclared", "collision", "migration"
-	Detail   string // human-readable description
+	Kind   string // "undeclared", "collision", "migration"
+	Detail string // human-readable description
 }
 
 // Violations is a collection of touchpoint violations, implementing error.
@@ -91,6 +91,7 @@ func isFilePath(token string) bool {
 	}
 	return false
 }
+
 // migrationPrefixRe matches a 6-digit numeric prefix followed by an underscore
 // (e.g. "000012_" in "000012_create_users.sql").
 var migrationPrefixRe = regexp.MustCompile(`\b(\d{6})_`)
@@ -181,6 +182,7 @@ func plannedFilesContainPrefix(plannedSet map[string]bool, prefix string) bool {
 	}
 	return false
 }
+
 // extractSectionRefs extracts back-ticked file/package references from the
 // "## In scope" and "## Planned touchpoints" sections of a spec.md file.
 // Only back-ticked tokens that look like paths (contain '/' or a known extension)
@@ -320,9 +322,9 @@ func parseTouchpointMatrix(indexPath, thisTrack string, plannedFiles []string) (
 
 	// Parse data rows.
 	var rowData []struct {
-		file          string
-		isDocShared   bool
-		trackMarks    map[string]bool // track id → has ✓
+		file        string
+		isDocShared bool
+		trackMarks  map[string]bool // track id → has ✓
 	}
 
 	for i := separatorLine + 1; i < len(lines); i++ {
@@ -350,9 +352,9 @@ func parseTouchpointMatrix(indexPath, thisTrack string, plannedFiles []string) (
 		}
 
 		rowData = append(rowData, struct {
-			file          string
-			isDocShared   bool
-			trackMarks    map[string]bool
+			file        string
+			isDocShared bool
+			trackMarks  map[string]bool
 		}{file, isDocShared, trackMarks})
 	}
 

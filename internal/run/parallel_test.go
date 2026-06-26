@@ -14,7 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/swornagent/sworn/internal/scheduler"
-)// fakeRunSlicePass always returns nil (success).
+) // fakeRunSlicePass always returns nil (success).
 func fakeRunSlicePass(_ context.Context, _, _, _ string) error {
 	return nil
 }
@@ -268,6 +268,7 @@ func TestRunParallel_MissingIndex(t *testing.T) {
 		t.Fatal("expected error for missing index.md, got nil")
 	}
 }
+
 // TestRunParallel_FailureCascade exercises AC-3 semantic:
 // T1 fails → T3 (depends_on T1) is skipped, T2 (independent) completes normally.
 // Verifier Fix 3: wires fakeRunSliceFail into a real cascade test.

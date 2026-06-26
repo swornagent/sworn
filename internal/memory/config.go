@@ -69,10 +69,10 @@ func IsValidEmbeddingProvider(p string) bool {
 
 // EmbeddingConfig holds the embedding provider configuration.
 type EmbeddingConfig struct {
-	Provider   EmbeddingProvider `json:"provider"`
-	Model      string            `json:"model"`
-	APIKeyEnv  string            `json:"api_key_env"`
-	BaseURL    string            `json:"base_url"`
+	Provider  EmbeddingProvider `json:"provider"`
+	Model     string            `json:"model"`
+	APIKeyEnv string            `json:"api_key_env"`
+	BaseURL   string            `json:"base_url"`
 }
 
 // MemoryConfig represents the sworn memory system configuration.
@@ -129,10 +129,10 @@ func Defaults() (*MemoryConfig, error) {
 		Harnesses:  []string{string(HarnessClaudeCode)},
 		ExtraPaths: []string{},
 		Embedding: EmbeddingConfig{
-			Provider:   ProviderVoyage,
-			Model:      "voyage-code-3",
-			APIKeyEnv:  "VOYAGE_API_KEY",
-			BaseURL:    "",
+			Provider:  ProviderVoyage,
+			Model:     "voyage-code-3",
+			APIKeyEnv: "VOYAGE_API_KEY",
+			BaseURL:   "",
 		},
 		IndexPath: filepath.Join(os.Getenv("HOME"), ".sworn", "memory.db"),
 	}

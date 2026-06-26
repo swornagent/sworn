@@ -9,6 +9,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/journey"
 )
+
 // TestJourneysImpactCmd_MissingArtefact verifies AC2 via CLI:
 // WHEN no journeys artefact exists, sworn journeys --impact <release>
 // exits non-zero and directs to S11.

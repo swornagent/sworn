@@ -395,7 +395,7 @@ title: S01-test-slice
 ## Acceptance checks
 
 - [ ] Fix the reported bug in production.
-`,	})
+`})
 
 	r, err := RunTrace(dir)
 	if err != nil {
@@ -464,7 +464,7 @@ title: S01-all-ears
 - [ ] WHERE a feature is enabled, THE SYSTEM SHALL provide access. (N-04)
 - [ ] IF a condition holds, THEN THE SYSTEM SHALL take action. (N-05)
 - [ ] WHEN a trigger fires and WHILE in a state, THE SYSTEM SHALL respond with a complex pattern. (N-06)
-`,	})
+`})
 
 	r, err := RunTrace(dir)
 	if err != nil {
@@ -594,7 +594,7 @@ title: S01-test-slice
 ## Acceptance checks
 
 - [ ] fix the reported error in the component
-`,	})
+`})
 
 	r, err := RunTrace(dir)
 	if err != nil {

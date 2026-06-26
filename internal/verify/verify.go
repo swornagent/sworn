@@ -9,6 +9,7 @@
 // initialised at program start and are read-only thereafter (concurrent reads
 // are safe in Go). Verified by S03 concurrent_test.go under -race.
 package verify
+
 import (
 	"context"
 	"fmt"
@@ -35,6 +36,7 @@ type Input struct {
 	Verifier      model.Verifier // nil -> Unconfigured (fails closed)
 	OpenDeferrals []string       // Rule-2 deferrals from status.json (S10 no-mock-boundary)
 }
+
 // Run executes the protocol and returns a fail-closed Result.
 func Run(ctx context.Context, in Input) verdict.Result {
 	// --- Deterministic first-pass ($0 gate) ---
@@ -98,7 +100,8 @@ func Run(ctx context.Context, in Input) verdict.Result {
 		result.Rationale = b.String() + result.Rationale
 	}
 
-	return result}
+	return result
+}
 
 func buildPayload(spec, diff, proof string) string {
 	var b strings.Builder
@@ -169,7 +172,8 @@ func stripMarkdown(line string) string {
 	t = strings.TrimRight(t, "*_`")
 	return strings.TrimSpace(t)
 }
-func blocked(gate, why string) verdict.Result {	return verdict.Result{Verdict: verdict.Blocked, FailedGate: gate, Rationale: why}
+func blocked(gate, why string) verdict.Result {
+	return verdict.Result{Verdict: verdict.Blocked, FailedGate: gate, Rationale: why}
 }
 
 func readNonEmpty(path string) (string, error) {

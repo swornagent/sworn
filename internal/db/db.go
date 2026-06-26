@@ -69,7 +69,7 @@ func Open(dbPath string) (*sql.DB, error) {
 	if _, err := conn.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("db: enable WAL: %w", err)
-	}	// Enable foreign keys.
+	} // Enable foreign keys.
 	if _, err := conn.Exec("PRAGMA foreign_keys=ON"); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("db: enable foreign keys: %w", err)

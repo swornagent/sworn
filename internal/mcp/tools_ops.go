@@ -31,6 +31,7 @@ var execSwornRun = func(ctx context.Context, swornPath, sliceID, repoRoot string
 	}
 	return cmd.Process.Pid, nil
 }
+
 // ---- Input Schemas (JSON Schema) ----
 
 var getBoardSchema = json.RawMessage(`{
@@ -355,7 +356,8 @@ func (ot *OpsTools) handleRerunSlice(ctx context.Context, params json.RawMessage
 		return textResult(fmt.Sprintf("State reset to in_progress, but failed to start subprocess: %v", err)), nil
 	}
 
-	return textResult(fmt.Sprintf("Slice %q reset to in_progress. Subprocess started (PID: %d). Check get_board for state updates.", p.SliceID, pid)), nil}
+	return textResult(fmt.Sprintf("Slice %q reset to in_progress. Subprocess started (PID: %d). Check get_board for state updates.", p.SliceID, pid)), nil
+}
 
 // ---- 5. patch_slice ----
 

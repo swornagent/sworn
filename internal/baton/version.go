@@ -14,6 +14,7 @@ var versionForTest string
 var upstreamPinForTest *UpstreamPin
 
 var semverTagRE = regexp.MustCompile(`^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$`)
+
 // Version returns the embedded Baton protocol version string (a semver tag
 // like "v0.4.2") read from the adopt embed. If the embed is missing or the
 // baton-protocol line cannot be parsed, it returns "".
@@ -61,6 +62,7 @@ func ReadUpstreamPin() (UpstreamPin, error) {
 	}
 	return parseUpstreamPin(string(data)), nil
 }
+
 // WriteUpstreamPin writes the resolved SHA and computed digest into the
 // VERSION file at repoRoot/internal/adopt/baton/VERSION. Existing
 // upstream-sha / upstream-digest lines are updated; if absent, they are

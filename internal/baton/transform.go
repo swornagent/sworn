@@ -40,7 +40,7 @@ var replacements = []replacement{
 	{token: "release-mock-check.sh", new: "sworn mockcheck"},
 	{token: "release-regression.sh", new: "sworn regression"},
 	{token: "design-audit.sh", new: "sworn designaudit"},
-	{token: "port-deriver.sh", new: "native port derivation"},	{token: "captain-memory-search.py", new: "sworn memory search"},
+	{token: "port-deriver.sh", new: "native port derivation"}, {token: "captain-memory-search.py", new: "sworn memory search"},
 	{token: "install.sh", new: "native binary installation"},
 	{token: "server-start.sh", new: "sworn server start"},
 	{token: "server-stop.sh", new: "sworn server stop"},

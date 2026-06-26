@@ -52,7 +52,8 @@ func TestIsEnabled_Neither(t *testing.T) {
 	}
 }
 
-func TestIsEnabled_OptedIn_NoOverrides(t *testing.T) {	dir := t.TempDir()
+func TestIsEnabled_OptedIn_NoOverrides(t *testing.T) {
+	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 	cfgDir := filepath.Join(dir, ".config", "sworn")
 	if err := os.MkdirAll(cfgDir, 0700); err != nil {
@@ -276,7 +277,8 @@ func TestFireSilentOnError(t *testing.T) {
 func TestFireTelemetryMetaCommandExcluded(t *testing.T) {
 	var hit bool
 	hitMu := sync.Mutex{}
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {		hitMu.Lock()
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hitMu.Lock()
 		hit = true
 		hitMu.Unlock()
 		w.WriteHeader(http.StatusOK)

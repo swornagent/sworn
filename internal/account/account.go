@@ -30,6 +30,7 @@ type Credentials struct {
 	WebhookURL string    `json:"webhook_url,omitempty"`
 	ExpiresAt  time.Time `json:"expires_at"`
 }
+
 // configDir returns the platform-appropriate config directory for sworn.
 // On Linux: $HOME/.config/sworn, on macOS: $HOME/Library/Application Support/sworn.
 // Uses os.UserConfigDir() for correct XDG/macOS resolution.

@@ -19,7 +19,9 @@ import (
 	"github.com/swornagent/sworn/internal/orchestrator"
 	"github.com/swornagent/sworn/internal/state"
 	"github.com/swornagent/sworn/internal/verdict"
-	"github.com/swornagent/sworn/internal/verify")
+	"github.com/swornagent/sworn/internal/verify"
+)
+
 // DefaultImplementTimeout is the per-attempt deadline applied to the implement
 // step inside RunSlice when no explicit timeout is configured. 15 minutes is
 // generous enough for most implement steps but prevents a hung agent from
@@ -145,7 +147,6 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		implementTimeout = DefaultImplementTimeout
 	}
 
-
 	// dispatches accumulates per-role dispatch costs (S55) for the verdict
 	// ledger. Populated by the captain review, implement, and verify stages;
 	// written to status.json at each terminal state transition.
@@ -233,13 +234,13 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 						// into the first implement attempt.
 						if fb := reviewResult.FormatPinsAsFeedback(); fb != "" {
 							priorFeedback = fb
-						// Record captain dispatch for per-role cost ledger (S55).
-						dispatches = append(dispatches, state.Dispatch{
-							Role:    "captain",
-							Model:   firstModelID,
-							CostUSD: reviewResult.CostUSD,
-							Attempt: 1,
-						})
+							// Record captain dispatch for per-role cost ledger (S55).
+							dispatches = append(dispatches, state.Dispatch{
+								Role:    "captain",
+								Model:   firstModelID,
+								CostUSD: reviewResult.CostUSD,
+								Attempt: 1,
+							})
 						}
 					}
 				}
@@ -254,12 +255,12 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	// retries before the triage advances to the next model; BLOCKED halts
 	// immediately.
 	var (
-		lastVerdict    verdict.Result
+		lastVerdict   verdict.Result
 		lastImplModel string
-		modelIdx       = 0
-		resolveCount   = 0
-		totalAttempts  = 0
-		firstAttempt   = true
+		modelIdx      = 0
+		resolveCount  = 0
+		totalAttempts = 0
+		firstAttempt  = true
 	)
 	for {
 		// ── Guard: model index out of range ─────────────────────────
@@ -299,7 +300,8 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		fmt.Fprintf(os.Stderr, "sworn run: attempt %d (model %d/%d, resolve %d/%d) — implementing with %s\n",
 			totalAttempts, modelIdx+1, len(escalationModels), resolveCount, maxResolves, implModelID)
 
-		var implCost float64; var implErr error
+		var implCost float64
+		var implErr error
 		if implementTimeout > 0 {
 			implCtx, cancel := context.WithTimeout(ctx, implementTimeout)
 			defer cancel() // safe: each iteration has its own defer
@@ -339,7 +341,6 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 				goto haltFailedVerification
 			}
 		}
-
 
 		// Record implementer dispatch for per-role cost ledger (S55).
 		dispatches = append(dispatches, state.Dispatch{
@@ -417,9 +418,9 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 				return fmt.Errorf("RunSlice: transition to verified: %w", err)
 			}
 			st.State = state.Verified
-				st.Verification.Model = implModelID
+			st.Verification.Model = implModelID
 			st.Verification.Dispatches = dispatches
-				st.Verification.Attempt = totalAttempts
+			st.Verification.Attempt = totalAttempts
 			st.LastUpdatedBy = "run-slice"
 			st.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
 			if err := state.Write(statusPath, st); err != nil {
@@ -529,7 +530,8 @@ haltFailedVerification:
 		"RunSlice: verification failed after %d attempts (last verdict: %s). "+
 			"Escalate to human. Slice reached failed_verification on worktree %s.",
 		totalAttempts, lastVerdict.Verdict, worktreeRoot,
-	)}
+	)
+}
 
 // writeTempFile writes content to a temporary file in dir matching pattern.
 func writeTempFile(dir, pattern, content string) (string, error) {

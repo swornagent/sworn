@@ -30,21 +30,21 @@ import (
 type CheckType string
 
 const (
-	CheckACSatisfaction     CheckType = "ac-satisfaction"
-	CheckSpecAmbiguity       CheckType = "spec-ambiguity"
-	CheckDesignReview        CheckType = "design-review"
-	CheckSecurityReview      CheckType = "security-review"
-	CheckSemanticCoverage    CheckType = "semantic-coverage"
+	CheckACSatisfaction        CheckType = "ac-satisfaction"
+	CheckSpecAmbiguity         CheckType = "spec-ambiguity"
+	CheckDesignReview          CheckType = "design-review"
+	CheckSecurityReview        CheckType = "security-review"
+	CheckSemanticCoverage      CheckType = "semantic-coverage"
 	CheckMaintainabilityReview CheckType = "maintainability-review"
 )
 
 // ValidCheckTypes is the set of recognised --type values.
 var ValidCheckTypes = map[CheckType]bool{
-	CheckACSatisfaction:     true,
-	CheckSpecAmbiguity:       true,
-	CheckDesignReview:        true,
-	CheckSecurityReview:      true,
-	CheckSemanticCoverage:    true,
+	CheckACSatisfaction:        true,
+	CheckSpecAmbiguity:         true,
+	CheckDesignReview:          true,
+	CheckSecurityReview:        true,
+	CheckSemanticCoverage:      true,
 	CheckMaintainabilityReview: true,
 }
 
@@ -52,12 +52,12 @@ var ValidCheckTypes = map[CheckType]bool{
 
 // LLMCheckReport holds the full structured result of an LLM check.
 type LLMCheckReport struct {
-	CheckType   CheckType       `json:"check_type"`
-	Slice       string          `json:"slice"`
-	Release     string          `json:"release"`
-	Verdict     string          `json:"verdict"` // "PASS" or "FAIL"
-	Findings    []LLMFinding    `json:"findings"`
-	RawResponse string          `json:"raw_response,omitempty"`
+	CheckType   CheckType    `json:"check_type"`
+	Slice       string       `json:"slice"`
+	Release     string       `json:"release"`
+	Verdict     string       `json:"verdict"` // "PASS" or "FAIL"
+	Findings    []LLMFinding `json:"findings"`
+	RawResponse string       `json:"raw_response,omitempty"`
 }
 
 // LLMFinding is one structured finding from the model's response.

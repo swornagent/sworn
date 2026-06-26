@@ -21,8 +21,8 @@ func (f fakeVerifier) Verify(context.Context, string, string) (string, float64, 
 
 // capturingVerifier records the system prompt it is handed by verify.Run.
 type capturingVerifier struct {
-	reply        string
-	cost         float64
+	reply          string
+	cost           float64
 	capturedPrompt string
 }
 
@@ -170,7 +170,8 @@ func TestParseVerdict_ProsePreambleBlocks(t *testing.T) {
 // TestRun_SystemPromptIsStateless validates that verify.Run passes the
 // stateless judge prompt (VerifyStateless) to the model, NOT the agentic
 // verifier role prompt (Verifier).
-func TestRun_SystemPromptIsStateless(t *testing.T) {	cv := &capturingVerifier{reply: "PASS - looks good", cost: 0.01}
+func TestRun_SystemPromptIsStateless(t *testing.T) {
+	cv := &capturingVerifier{reply: "PASS - looks good", cost: 0.01}
 	in := Input{
 		SpecPath: writeTmp(t, "spec.md", "must do X"),
 		DiffPath: writeTmp(t, "c.diff", "+ did X"),
@@ -195,6 +196,7 @@ func TestRun_SystemPromptIsStateless(t *testing.T) {	cv := &capturingVerifier{re
 		}
 	}
 }
+
 // --- S10: No-mock-boundary tests ---
 
 func TestCheckBoundaryMocks_UndeclaredDbMockFails(t *testing.T) {
@@ -397,7 +399,8 @@ func statusJSONFile(path string) string {
 	return path
 }
 
-func TestCheckBoundaryMocks_StubDbDetected(t *testing.T) {	diff := "+func TestDB(t *testing.T) {\n+	var db stubDB\n+}"
+func TestCheckBoundaryMocks_StubDbDetected(t *testing.T) {
+	diff := "+func TestDB(t *testing.T) {\n+	var db stubDB\n+}"
 	report := CheckBoundaryMocks(diff, nil)
 	if len(report.UndeclaredMocks) != 1 {
 		t.Fatalf("want 1 undeclared stub for db boundary, got %d", len(report.UndeclaredMocks))

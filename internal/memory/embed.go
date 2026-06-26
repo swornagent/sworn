@@ -11,7 +11,7 @@ type Embedder interface {
 	// The returned slice must have the same length as the input slice,
 	// and the embeddings must be in the same order.
 	Embed(ctx context.Context, texts []string) ([][]float32, error)
-	
+
 	// Model returns the name of the model being used.
 	Model() string
 }

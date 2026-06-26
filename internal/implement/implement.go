@@ -34,7 +34,8 @@ import (
 // priorFeedback is the prior verifier's rationale. When non-empty, it is
 // injected into the user prompt ahead of the spec so the agent can address
 // the named failures.
-func Run(ctx context.Context, workspaceRoot, specPath, priorFeedback string, a agent.Agent) (costUSD float64, err error) {	sliceDir := filepath.Dir(specPath)
+func Run(ctx context.Context, workspaceRoot, specPath, priorFeedback string, a agent.Agent) (costUSD float64, err error) {
+	sliceDir := filepath.Dir(specPath)
 	statusPath := filepath.Join(sliceDir, "status.json")
 	proofPath := filepath.Join(sliceDir, "proof.md")
 
@@ -124,6 +125,7 @@ func Run(ctx context.Context, workspaceRoot, specPath, priorFeedback string, a a
 
 	return cost, nil
 }
+
 // generateProof writes proof.md in the slice directory from live repo state.
 // Every machine-producible section is generated from actual git output and
 // test runs — not from the model's narration.

@@ -282,7 +282,8 @@ func TestEmptyDirDoesNotTouchCwd(t *testing.T) {
 	}
 }
 
-func TestMerge(t *testing.T) {	r := setupRepo(t)
+func TestMerge(t *testing.T) {
+	r := setupRepo(t)
 	writeFile(t, r.Dir, "f.txt", "base")
 	r.Stage("f.txt")
 	r.Commit("initial on main")
@@ -316,7 +317,6 @@ func TestMerge(t *testing.T) {	r := setupRepo(t)
 		t.Fatal("HEAD unchanged after merge")
 	}
 }
-
 
 func TestShow(t *testing.T) {
 	r := setupRepo(t)

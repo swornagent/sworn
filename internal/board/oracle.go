@@ -16,6 +16,7 @@ import (
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/state"
 )
+
 // ResolvedFrom records which ref level resolved a slice's status.json.
 type ResolvedFrom string
 
@@ -37,18 +38,18 @@ const (
 // SliceState is the authoritative per-slice board entry — read from the
 // slice's owning track branch (or release-wt / working-tree fallback).
 type SliceState struct {
-	ID              string       `json:"id"`
-	State           state.State  `json:"state"`
-	Owner           string       `json:"owner,omitempty"`
-	LastUpdated     string       `json:"lastUpdated,omitempty"`
-	Track           string       `json:"track"`
-	Actionable      bool         `json:"actionable"`
-	DependsOnTracks []string     `json:"dependsOnTracks"`
+	ID              string      `json:"id"`
+	State           state.State `json:"state"`
+	Owner           string      `json:"owner,omitempty"`
+	LastUpdated     string      `json:"lastUpdated,omitempty"`
+	Track           string      `json:"track"`
+	Actionable      bool        `json:"actionable"`
+	DependsOnTracks []string    `json:"dependsOnTracks"`
 	// Blocked visibility (S57 spec, ref 2026-06-23 replan):
 	// A slice with verification.result == "blocked" MUST be visible
 	// regardless of its underlying state.
-	Blocked       bool        `json:"blocked"`
-	BlockedReason string      `json:"blocked_reason,omitempty"`
+	Blocked       bool         `json:"blocked"`
+	BlockedReason string       `json:"blocked_reason,omitempty"`
 	BlockedOwner  BlockedOwner `json:"blocked_owner,omitempty"`
 	// VerificationResult is the raw verification.result field from status.json.
 	// Exposed for the router (S58) to route on failed_verification and implemented
@@ -66,6 +67,7 @@ type TrackState struct {
 	Slices         []SliceState `json:"slices"`
 	WorktreeBranch string       `json:"-"`
 }
+
 // BoardState is the full release board.
 type BoardState struct {
 	Release string       `json:"release"`
@@ -112,7 +114,8 @@ type OracleReader interface {
 // Oracle reads slice state from git refs with ownership resolution.
 // All methods accept a gitContentReader; the production caller passes
 // a gitRepoReader wrapping *git.Repo.
-type Oracle struct {	reader gitContentReader
+type Oracle struct {
+	reader gitContentReader
 }
 
 // NewOracle returns an Oracle backed by the given gitContentReader.
@@ -254,7 +257,8 @@ func parseStatusJSON(raw string, sliceID, trackID string, trackMap map[string]Tr
 		BlockedOwner:       blockedOwner,
 		VerificationResult: s.Verification.Result,
 		Violations:         s.Verification.Violations,
-	}, nil}
+	}, nil
+}
 
 // isActionable returns true when a slice is in a state where it can be
 // picked up by a worker (the router/scheduler can act on it).
@@ -408,7 +412,8 @@ func (o *Oracle) ReadBoard(
 			WorktreeBranch: ti.WorktreeBranch,
 			Slices:         make([]SliceState, 0, len(ti.Slices)),
 		}
-		for _, sid := range ti.Slices {			trackBranch := "refs/heads/" + ti.WorktreeBranch
+		for _, sid := range ti.Slices {
+			trackBranch := "refs/heads/" + ti.WorktreeBranch
 			if ti.WorktreeBranch == "" {
 				trackBranch = "" // track not materialised yet
 			}
@@ -473,6 +478,7 @@ func extractFrontmatterBody(text string) string {
 	}
 	return rest[:idx]
 }
+
 // NewGitOracle returns an Oracle backed by a *git.Repo. This is the
 // production constructor; tests use NewOracle with a fake reader.
 func NewGitOracle(repo *git.Repo) *Oracle {

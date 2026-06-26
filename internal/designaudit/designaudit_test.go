@@ -279,9 +279,9 @@ func TestDesignAudit_ZeroPxAllowed(t *testing.T) {
 // TestDesignAudit_Print covers Print and PrintCompact for all report states.
 func TestDesignAudit_Print(t *testing.T) {
 	tests := []struct {
-		name   string
-		report *Report
-		wantIn string // substring expected in Print output
+		name          string
+		report        *Report
+		wantIn        string // substring expected in Print output
 		wantCompactIn string
 	}{
 		{

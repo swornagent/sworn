@@ -13,12 +13,12 @@ import (
 	"testing"
 
 	"github.com/swornagent/sworn/internal/state"
-)// ---- Fixture helpers ----
+) // ---- Fixture helpers ----
 
 type fixtureRelease struct {
-	Root   string // temp dir root
-	Dir    string // docs/release/<name>/
-	Name   string
+	Root string // temp dir root
+	Dir  string // docs/release/<name>/
+	Name string
 }
 
 func setupFixtureRelease(t *testing.T, name string) *fixtureRelease {
@@ -180,7 +180,8 @@ func opsToolRoundTrip(t *testing.T, repoRoot string) (stdinWriter io.Writer, std
 	readResponse(t, r)
 	return w, r, func() {}
 }
-func callTool(t *testing.T, w io.Writer, r *bufio.Reader, name string, args json.RawMessage) *ToolResult {	t.Helper()
+func callTool(t *testing.T, w io.Writer, r *bufio.Reader, name string, args json.RawMessage) *ToolResult {
+	t.Helper()
 	params := struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments,omitempty"`
@@ -202,7 +203,8 @@ func callTool(t *testing.T, w io.Writer, r *bufio.Reader, name string, args json
 	return &result
 }
 
-func toolText(t *testing.T, w io.Writer, r *bufio.Reader, name string, args json.RawMessage) string {	t.Helper()
+func toolText(t *testing.T, w io.Writer, r *bufio.Reader, name string, args json.RawMessage) string {
+	t.Helper()
 	result := callTool(t, w, r, name, args)
 	if len(result.Content) == 0 {
 		return ""

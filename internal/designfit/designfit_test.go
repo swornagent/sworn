@@ -83,10 +83,10 @@ func TestDesignfit_Type2WithNotedDefault(t *testing.T) {
 		SliceID: "S01-test",
 		DesignDecisions: []state.DesignDecision{
 			{
-				Choice:         "button-color",
-				StakeClass:     state.Type2,
-				HumanDecision:  "default noted — use primary-600",
-				Rationale:      "matches existing palette, low blast-radius",
+				Choice:        "button-color",
+				StakeClass:    state.Type2,
+				HumanDecision: "default noted — use primary-600",
+				Rationale:     "matches existing palette, low blast-radius",
 			},
 		},
 	})
@@ -108,18 +108,18 @@ func TestDesignfit_Type1WithHumanDecision(t *testing.T) {
 		SliceID: "S01-test",
 		DesignDecisions: []state.DesignDecision{
 			{
-				Choice:         "database-engine",
-				StakeClass:     state.Type1,
-				Options:        []string{"PostgreSQL", "SQLite"},
-				HumanDecision:  "PostgreSQL",
-				Rationale:      "migrations matter and we already have the infra",
+				Choice:        "database-engine",
+				StakeClass:    state.Type1,
+				Options:       []string{"PostgreSQL", "SQLite"},
+				HumanDecision: "PostgreSQL",
+				Rationale:     "migrations matter and we already have the infra",
 			},
 			{
-				Choice:         "auth-provider",
-				StakeClass:     state.Type1,
-				Options:        []string{"Auth0", "Clerk"},
-				HumanDecision:  "Auth0 — existing integration",
-				Rationale:      "already in use, no migration cost",
+				Choice:        "auth-provider",
+				StakeClass:    state.Type1,
+				Options:       []string{"Auth0", "Clerk"},
+				HumanDecision: "Auth0 — existing integration",
+				Rationale:     "already in use, no migration cost",
 			},
 		},
 	})
@@ -168,10 +168,10 @@ func TestDesignfit_ArchitecturallySignificantMustBeType1(t *testing.T) {
 		SliceID: "S01-test",
 		DesignDecisions: []state.DesignDecision{
 			{
-				Choice:                    "state-management",
-				StakeClass:                state.Type2, // incorrectly Type-2
+				Choice:                     "state-management",
+				StakeClass:                 state.Type2, // incorrectly Type-2
 				ArchitecturallySignificant: true,
-				Rationale:                 "need to pick a state lib",
+				Rationale:                  "need to pick a state lib",
 			},
 		},
 	})
@@ -202,12 +202,12 @@ func TestDesignfit_ArchitecturallySignificantType1Passes(t *testing.T) {
 		SliceID: "S01-test",
 		DesignDecisions: []state.DesignDecision{
 			{
-				Choice:                    "routing-framework",
-				StakeClass:                state.Type1,
+				Choice:                     "routing-framework",
+				StakeClass:                 state.Type1,
 				ArchitecturallySignificant: true,
-				Options:                   []string{"react-router", "tanstack-router"},
-				HumanDecision:             "tanstack-router — type-safe routes",
-				Rationale:                 "type-safe routing reduces runtime errors",
+				Options:                    []string{"react-router", "tanstack-router"},
+				HumanDecision:              "tanstack-router — type-safe routes",
+				Rationale:                  "type-safe routing reduces runtime errors",
 			},
 		},
 	})
@@ -233,11 +233,11 @@ func TestDesignfit_MultipleSlices(t *testing.T) {
 	// S01: one Type-1 WITHOUT decision -> violation
 	writeReleaseSlice(t, releaseDir, "S01-pass", []state.DesignDecision{
 		{
-			Choice:         "cache-strategy",
-			StakeClass:     state.Type1,
-			Options:        []string{"redis", "memcached"},
-			HumanDecision:  "redis",
-			Rationale:      "already running redis for queues",
+			Choice:        "cache-strategy",
+			StakeClass:    state.Type1,
+			Options:       []string{"redis", "memcached"},
+			HumanDecision: "redis",
+			Rationale:     "already running redis for queues",
 		},
 	})
 
@@ -327,6 +327,7 @@ func TestDesignfit_EmptyRelease(t *testing.T) {
 		t.Errorf("expected 0 slices checked, got %d", report.SlicesChecked)
 	}
 }
+
 // TestType1ImpliedEmptyDecisionsFails verifies AC1: a slice whose planned_files
 // touch an architecturally-significant prefix (cmd/sworn/) but whose
 // design_decisions is empty records a violation — the gate fails closed.

@@ -74,7 +74,7 @@ func SelectDefault(models []ModelEntry, cells []CellResult, taskNames []string) 
 	}
 	if len(safe) == 0 {
 		return "", fmt.Errorf("bench: no safe-hosted model results — cannot select default")
-	}	// Sort: highest pass-rate → lowest cost → fewest non-pass.
+	} // Sort: highest pass-rate → lowest cost → fewest non-pass.
 	sort.Slice(safe, func(i, j int) bool {
 		if safe[i].passRate != safe[j].passRate {
 			return safe[i].passRate > safe[j].passRate

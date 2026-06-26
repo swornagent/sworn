@@ -39,9 +39,9 @@ func NewOllama(modelID, host string) *Ollama {
 }
 
 type ollamaChatRequest struct {
-	Model    string            `json:"model"`
-	Stream   bool              `json:"stream"`
-	Messages []ollamaMessage   `json:"messages"`
+	Model    string          `json:"model"`
+	Stream   bool            `json:"stream"`
+	Messages []ollamaMessage `json:"messages"`
 }
 
 type ollamaMessage struct {

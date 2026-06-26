@@ -106,7 +106,7 @@ type Verification struct {
 	// Populated by RunSlice (S55); consumed by ledger.Project (v:2 Records)
 	// and S56 cost-aware routing.
 	Dispatches []Dispatch `json:"dispatches,omitempty"`
-}// StakeClass classifies a design decision by its stakes = reversibility x blast-radius.
+} // StakeClass classifies a design decision by its stakes = reversibility x blast-radius.
 // Type-1 (high stakes / hard-to-reverse) requires a recorded human decision.
 // Type-2 (low stakes / reversible) may proceed with a noted default.
 // See docs/baton/rules/09-design-fidelity.md.

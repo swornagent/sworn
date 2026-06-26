@@ -8,7 +8,7 @@ import (
 
 func TestDiscoverClaudeCode(t *testing.T) {
 	dir := t.TempDir()
-	
+
 	// Create MEMORY.md
 	memoryMD := `- [First Entry](first.md)
 - [Second Entry](second.md)
@@ -78,7 +78,7 @@ Do that.
 
 func TestDiscoverCustomPath(t *testing.T) {
 	dir := t.TempDir()
-	
+
 	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("A content"), 0644); err != nil {
 		t.Fatal(err)
 	}

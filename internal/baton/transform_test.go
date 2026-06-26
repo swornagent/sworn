@@ -27,7 +27,7 @@ func TestTransformStripsScriptRefs(t *testing.T) {
 			want: "`sworn designaudit <project-dir>` wraps `sworn designaudit`.",
 		},
 		{
-			name: "port-deriver.sh → native port derivation",			in:   "These paths are consumed by `port-deriver.sh`.",
+			name: "port-deriver.sh → native port derivation", in: "These paths are consumed by `port-deriver.sh`.",
 			want: "These paths are consumed by `native port derivation`.",
 		},
 		{
@@ -187,4 +187,5 @@ func TestReplacementsAndGuardDerivedFromSameTable(t *testing.T) {
 		if !strings.Contains(out, r.new) {
 			t.Errorf("Transform(%q): replacement %q not found in output: %q", r.token, r.new, out)
 		}
-	}}
+	}
+}

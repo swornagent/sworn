@@ -11,6 +11,7 @@ import (
 	"github.com/swornagent/sworn/internal/reqverify"
 	"github.com/swornagent/sworn/internal/state"
 )
+
 // ---------------------------------------------------------------------------
 // Fake verifier for reqverify tests
 // ---------------------------------------------------------------------------
@@ -50,6 +51,7 @@ func failingReply(acs []reqverify.AC, sliceID string) string {
 	}
 	return b.String()
 }
+
 // ---------------------------------------------------------------------------// Release directory fixture builder
 // ---------------------------------------------------------------------------
 

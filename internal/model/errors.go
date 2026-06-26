@@ -108,6 +108,7 @@ func IsTransient(err error) bool {
 	}
 	return true // unknown errors are assumed transient (retry once)
 }
+
 // UserMessage returns an actionable message suitable for end-user display.
 func (e *Error) UserMessage() string {
 	switch e.Kind {

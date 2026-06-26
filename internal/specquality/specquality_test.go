@@ -368,7 +368,7 @@ func TestExtractCommandRefs(t *testing.T) {
 		{"sworn lint ac exits 0", []string{"sworn lint", "sworn lint ac"}},
 		{"runs sworn verify", []string{"sworn verify"}},
 		{"no commands here", nil},
-		{"sworn specquality and sworn reqvalidate", []string{"sworn reqvalidate", "sworn specquality"}},	}
+		{"sworn specquality and sworn reqvalidate", []string{"sworn reqvalidate", "sworn specquality"}}}
 	for _, tt := range tests {
 		result := extractCommandRefs(tt.input)
 		if !stringSliceEqual(result, tt.expected) {

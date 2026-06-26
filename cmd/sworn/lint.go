@@ -11,6 +11,7 @@ import (
 	"github.com/swornagent/sworn/internal/lint"
 	"github.com/swornagent/sworn/internal/style"
 )
+
 // cmdLint dispatches `sworn lint <target> <release>`.
 //
 // Targets:
@@ -24,15 +25,17 @@ import (
 //	coverage    — map every AC to a test function in the slice diff; fail closed on uncovered ACs
 //	design      — hardcoded colour detection + architecture rule engine (grep, touchpoints, diff-size, external)
 //	mock        — no-mock-boundary enforcement: detects undeclared mock/stub/fixture usage alongside real-infra refs
-func cmdLint(args []string) int {	if len(args) == 0 {		fmt.Fprintln(os.Stderr, "sworn lint: target required")
+func cmdLint(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "sworn lint: target required")
 		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols|status|coverage|design|mock> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint deps [--base <ref>] <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint touchpoints <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint symbols <slice-id> <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint status <release>")
 		fmt.Fprintln(os.Stderr, "       sworn lint coverage --slice <slice-id> --release <release> [--base <ref>]")
-			fmt.Fprintln(os.Stderr, "       sworn lint design --slice <slice-id> --release <release> [--base <ref>]")
-			fmt.Fprintln(os.Stderr, "       sworn lint mock --slice <slice-id> --release <release> [--base <ref>]")
+		fmt.Fprintln(os.Stderr, "       sworn lint design --slice <slice-id> --release <release> [--base <ref>]")
+		fmt.Fprintln(os.Stderr, "       sworn lint mock --slice <slice-id> --release <release> [--base <ref>]")
 		return 64
 	}
 	switch args[0] {
@@ -50,10 +53,10 @@ func cmdLint(args []string) int {	if len(args) == 0 {		fmt.Fprintln(os.Stderr, "
 		return cmdLintStatus(args[1:])
 	case "coverage":
 		return cmdLintCoverage(args[1:])
-		case "design":
-			return cmdLintDesign(args[1:])
-		case "mock":
-			return cmdLintMock(args[1:])
+	case "design":
+		return cmdLintDesign(args[1:])
+	case "mock":
+		return cmdLintMock(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "sworn lint: unknown target %q (known: ac, trace, deps, touchpoints, symbols, status, coverage, design, mock)\n", args[0])
 		fmt.Fprintln(os.Stderr, "usage: sworn lint <ac|trace|deps|touchpoints|symbols|status|coverage|design|mock> <release>")
@@ -148,6 +151,7 @@ func cmdLintTrace(args []string) int {
 	}
 	return 0
 }
+
 // cmdLintDeps implements `sworn lint deps <slice-id> <release>`.
 //
 // Checks that go.mod / go.sum changes in the slice's diff are declared in the
@@ -322,6 +326,7 @@ func cmdLintStatus(args []string) int {
 	fmt.Printf("All status timestamps within allowed window for %s\n", releaseName)
 	return 0
 }
+
 // cmdLintCoverage implements `sworn lint coverage --slice <slice-id> --release <release>`.
 //
 // Extracts acceptance checks from the slice's spec.md, scans the test files in
@@ -444,6 +449,7 @@ func cmdLintDesign(args []string) int {
 	}
 	return 0
 }
+
 // cmdLintMock implements `sworn lint mock --slice <slice-id> --release <release>`.
 //
 // Port of release-mock-check.sh from bash to Go: Rule 10 no-mock boundary

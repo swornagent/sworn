@@ -247,7 +247,7 @@ title: S01-test
 
 func TestRunLLMCheck_InvalidType(t *testing.T) {
 	dir := fixture(t, map[string]string{
-		"S01-test/spec.md": "# spec",
+		"S01-test/spec.md":     "# spec",
 		"S01-test/status.json": `{}`,
 	})
 

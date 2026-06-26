@@ -47,6 +47,7 @@ type ReviewResult struct {
 	RawOutput       string  // full model output for review.md
 	CostUSD         float64 // dispatch cost from token usage; 0 if unpriced
 }
+
 // Review runs the captain design-review for one slice. It takes the TL;DR
 // (design.md content), the spec, and a model agent, prompts the captain to
 // review the design, parses the pin list, and writes review.md to sliceDir.

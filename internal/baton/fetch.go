@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 )
+
 // FetchUpstream downloads and verifies a Baton release tarball from the public
 // GitHub repo at the pinned semver tag, then extracts it into a temp source
 // directory — stdlib only, no git binary, no module dependency.

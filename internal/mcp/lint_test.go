@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 )
+
 // TestRegisterLintTools_ToolList verifies all 6 lint tools are discoverable via
 // the tools/list method. This is the primary acceptance check: an MCP client
 // connecting to sworn mcp can see the lint tools.
@@ -58,7 +59,8 @@ func TestLintTools_RequireRelease(t *testing.T) {
 	params := json.RawMessage(`{"release": "nonexistent"}`)
 	result, err := callRegisteredTool(s, "sworn.lint_trace", params)
 	if err == nil {
-		t.Errorf("expected error for nonexistent release, got result: %v", result)	}
+		t.Errorf("expected error for nonexistent release, got result: %v", result)
+	}
 	if err != nil && !strings.Contains(err.Error(), "not found") {
 		t.Errorf("expected 'not found' error, got: %v", err)
 	}

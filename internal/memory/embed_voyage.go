@@ -91,7 +91,8 @@ func (e *voyageEmbedder) EmbedQuery(ctx context.Context, query string) ([]float3
 	return vResp.Data[0].Embedding, nil
 }
 
-func (e *voyageEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, error) {	if len(texts) == 0 {
+func (e *voyageEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	if len(texts) == 0 {
 		return nil, nil
 	}
 

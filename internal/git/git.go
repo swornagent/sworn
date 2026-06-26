@@ -113,6 +113,7 @@ func (r *Repo) CatFileExists(ref, path string) (bool, error) {
 	}
 	return true, nil
 }
+
 // LastCommitTime returns the Unix epoch timestamp (seconds) of the last commit
 // that touched path on ref. Returns 0 if the file has never been committed.
 // Wraps `git log -1 --format=%ct ref -- path`.

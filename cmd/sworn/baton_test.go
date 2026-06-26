@@ -456,7 +456,7 @@ func TestBatonVendorUpstream_NoTagUsesPinned(t *testing.T) {
 	}
 }
 
-func TestBatonVendorUpstream_LocalBackCompat(t *testing.T) {	// Without --upstream, the command should use the local-dir path (S48 back-compat).
+func TestBatonVendorUpstream_LocalBackCompat(t *testing.T) { // Without --upstream, the command should use the local-dir path (S48 back-compat).
 	fixture, err := filepath.Abs(filepath.Join("..", "..", "internal", "baton", "testdata", "fixture"))
 	if err != nil {
 		t.Fatal(err)

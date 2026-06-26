@@ -270,7 +270,7 @@ func TestFromEnv(t *testing.T) {
 			},
 			modelID: "groq/llama-3.3-70b",
 			wantErr: false,
-		},		{
+		}, {
 			name: "env model override",
 			env: map[string]string{
 				"SWORN_OPENAI_API_KEY": "sk-test",

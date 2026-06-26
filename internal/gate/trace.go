@@ -435,6 +435,7 @@ func parseAcceptanceChecks(text string) []string {
 	}
 	return acs
 }
+
 // classifyEARS determines the EARS pattern for an AC that contains "shall".
 func classifyEARS(ac string) string {
 	keywordCount := 0
@@ -535,14 +536,14 @@ func PrintReport(r *TraceReport) string {
 	b.WriteString("\n")
 
 	checkLabels := map[string]string{
-		"intake-structure":  "Intake structure",
-		"orphaned-need":     "Orphaned need",
-		"invalid-covers":    "Invalid covers_needs reference",
+		"intake-structure":   "Intake structure",
+		"orphaned-need":      "Orphaned need",
+		"invalid-covers":     "Invalid covers_needs reference",
 		"unclaimed-coverage": "Unclaimed coverage",
-		"ears-conformance":  "EARS conformance",
-		"see-intake":        "\"See intake\" reference",
-		"vague-ac":          "Vague acceptance criterion",
-		"vague-scope":       "Vague in-scope item",
+		"ears-conformance":   "EARS conformance",
+		"see-intake":         "\"See intake\" reference",
+		"vague-ac":           "Vague acceptance criterion",
+		"vague-scope":        "Vague in-scope item",
 	}
 
 	for i, v := range r.Violations {
@@ -594,4 +595,3 @@ func truncate(s string, n int) string {
 	}
 	return s[:n-3] + "..."
 }
-

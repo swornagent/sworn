@@ -10,7 +10,8 @@ import (
 
 	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/board"
-	"github.com/swornagent/sworn/internal/supervisor")
+	"github.com/swornagent/sworn/internal/supervisor"
+)
 
 // TrackResult is the outcome of a single worker goroutine.
 type TrackResult string
@@ -52,10 +53,10 @@ type SliceRouter interface {
 // failing it. These surface to the human (via stderr prefix) and let other
 // tracks continue.
 var pauseSet = map[string]bool{
-	"coach_decision":  true,
-	"replan-release":  true,
-	"merge-track":     true,
-	"merge-release":   true,
+	"coach_decision": true,
+	"replan-release": true,
+	"merge-track":    true,
+	"merge-release":  true,
 }
 
 // ── WorkerOptions ───────────────────────────────────────────────────────
@@ -245,7 +246,8 @@ func runTrackRouter(
 			currentSlice = decision.Target
 		}
 
-		switch decision.Type {		case "implement", "verify":
+		switch decision.Type {
+		case "implement", "verify":
 			// Both implement and verify dispatch to RunSliceFn, which handles
 			// the full implement→verify loop in production (run.RunSlice).
 			// A separate verify-only step would be needed for a genuine
@@ -403,6 +405,7 @@ func stripCaptainProceed(workRoot, specBase, sliceID string) {
 		fmt.Fprintf(os.Stderr, "stripCaptainProceed: remove %s: %v\n", ackPath, err)
 	}
 }
+
 // dirExists checks if a path exists and is a directory.
 func dirExists(path string) bool {
 	info, err := os.Stat(path)
@@ -418,4 +421,3 @@ func defaultRunSliceFn(ctx context.Context, worktreeRoot, specPath, statusPath s
 func DefaultRunSliceFn() func(context.Context, string, string, string) error {
 	return defaultRunSliceFn
 }
-

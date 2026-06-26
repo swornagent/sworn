@@ -54,9 +54,9 @@ type modelStats struct {
 	model      string
 	passRate   float64
 	sample     int
-	attempts   int    // best attempt that passed (or max int if none)
+	attempts   int     // best attempt that passed (or max int if none)
 	meanCost   float64 // mean TotalCostUSD per record
-	isUnpriced bool   // true when costRecords == 0 (all records have $0 cost)
+	isUnpriced bool    // true when costRecords == 0 (all records have $0 cost)
 }
 
 // MinSampleSize is the minimum number of verdicts for a (model, slice_kind)

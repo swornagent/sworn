@@ -57,7 +57,8 @@ func TestBedrockVerify_ReturnsText(t *testing.T) {
 
 	b := newTestBedrock(srv.URL, "anthropic.claude-sonnet-4-6", "us-east-1")
 	text, cost, err := b.Verify(context.Background(), "be strict", "verify this diff")
-	if err != nil {		t.Fatalf("unexpected error: %v", err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 	if text != "PASS - all checks pass" {
 		t.Fatalf("want %q, got %q", "PASS - all checks pass", text)

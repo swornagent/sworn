@@ -9,6 +9,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/baton"
 )
+
 // runDoctorInDir runs cmdDoctor with the given args in the given directory,
 // capturing stdout+stderr. Returns exit code and combined output.
 func runDoctorInDir(t *testing.T, dir string, args ...string) (int, string) {
@@ -71,7 +72,8 @@ func TestDoctorAllOK(t *testing.T) {
 
 	// Group 1: baton/rules/ should be OK (11/11).
 	if !strings.Contains(output, "11/11 rule files present") {
-		t.Errorf("expected 11/11 rule files present\nOutput:\n%s", output)	}
+		t.Errorf("expected 11/11 rule files present\nOutput:\n%s", output)
+	}
 
 	// Group 1: planner.md should have all Phase 1-6 headings.
 	if !strings.Contains(output, "headings=all present") {
@@ -500,6 +502,7 @@ func TestDoctorFailsOnShaPin(t *testing.T) {
 		t.Errorf("expected 'baton/VERSION (baton-protocol)' check in output\nOutput:\n%s", output)
 	}
 }
+
 // TestDoctorStatusTimestamps verifies that `sworn doctor` reports [ERROR]
 // when docs/release/ contains status.json files with future timestamps.
 func TestDoctorStatusTimestamps(t *testing.T) {

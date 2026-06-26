@@ -250,7 +250,8 @@ func TestEmbeddedPromptsPublicSafe(t *testing.T) {
 		"[[" + "feedback_",
 		"S21 stall",
 	}
-	for name, text := range prompts {		for _, token := range banned {
+	for name, text := range prompts {
+		for _, token := range banned {
 			if strings.Contains(text, token) {
 				t.Errorf("%s() contains banned token %q", name, token)
 			}

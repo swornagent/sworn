@@ -8,6 +8,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/ledger"
 )
+
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	if cfg.Version != 1 {
@@ -184,8 +185,8 @@ func TestValidate_uiBearingWithoutDesignSystem(t *testing.T) {
 		{
 			name: "ui_bearing true with design_system succeeds",
 			cfg: Config{
-				Version:    1,
-				UIBearing:  true,
+				Version:   1,
+				UIBearing: true,
 				DesignSystem: &DesignSystem{
 					TokenSource:      "tokens.json",
 					ComponentLibrary: "packages/ui",
@@ -328,12 +329,14 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
+
 // --- S09 implementer model config tests ---
 
 func TestResolveImplementerModel_FlagWins(t *testing.T) {
 	cfg := DefaultConfig()
 	m, err := ResolveImplementerModel("openai/gpt-4.1", cfg, "", "", "quality", 0)
-	if err != nil {		t.Fatal(err)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if m != "openai/gpt-4.1" {
 		t.Errorf("got %q, want openai/gpt-4.1", m)
@@ -387,7 +390,8 @@ func TestResolveImplementerModel_EscalationFallback(t *testing.T) {
 func TestResolveImplementerModel_Error(t *testing.T) {
 	cfg := Config{Version: 1}
 	_, err := ResolveImplementerModel("", cfg, "", "", "quality", 0)
-	if err == nil {		t.Fatal("expected error when no implementer model is configured")
+	if err == nil {
+		t.Fatal("expected error when no implementer model is configured")
 	}
 	msg := err.Error()
 	if !contains(msg, "sworn init") {
@@ -705,8 +709,8 @@ func TestResolveImplementerModel_CostModeViaConfig(t *testing.T) {
 
 func TestResolveEscalationModels_FlagWins(t *testing.T) {
 	cfg := DefaultConfig()
-		flag := []string{"custom/model1", "custom/model2"}
-		got := ResolveEscalationModels(flag, cfg)
+	flag := []string{"custom/model1", "custom/model2"}
+	got := ResolveEscalationModels(flag, cfg)
 	if len(got) != 2 || got[0] != "custom/model1" || got[1] != "custom/model2" {
 		t.Errorf("got %v, want [custom/model1 custom/model2]", got)
 	}
@@ -747,7 +751,7 @@ func TestResolveEscalationModels_DefaultFallback(t *testing.T) {
 
 func TestResolveMaxAttempts_FlagWins(t *testing.T) {
 	cfg := Config{
-		Version: 1,
+		Version:     1,
 		Implementer: ModelSetting{MaxAttempts: 3},
 	}
 	n := ResolveMaxAttempts(5, cfg)
@@ -758,7 +762,7 @@ func TestResolveMaxAttempts_FlagWins(t *testing.T) {
 
 func TestResolveMaxAttempts_ConfigUsed(t *testing.T) {
 	cfg := Config{
-		Version: 1,
+		Version:     1,
 		Implementer: ModelSetting{MaxAttempts: 7},
 	}
 	n := ResolveMaxAttempts(-1, cfg)

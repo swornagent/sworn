@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 )
+
 // fakeVerifier returns a canned reply for model dispatch.
 type fakeVerifier struct {
 	reply string
@@ -315,11 +316,13 @@ AC 2 (S01-test): FAIL — incomplete [lacks trigger condition]`
 	if grades[1].Violation == nil {
 		t.Fatal("AC 2: want Violation, got nil")
 	}
-	if grades[1].Violation.Characteristic != "incomplete" {		t.Errorf("AC 2: want characteristic 'complete', got %q", grades[1].Violation.Characteristic)
+	if grades[1].Violation.Characteristic != "incomplete" {
+		t.Errorf("AC 2: want characteristic 'complete', got %q", grades[1].Violation.Characteristic)
 	}
 }
 
-func TestParseGrades_MissingResultsBlocks(t *testing.T) {	acs := []AC{
+func TestParseGrades_MissingResultsBlocks(t *testing.T) {
+	acs := []AC{
 		{SliceID: "S01-test", Index: 1, Content: "THE SYSTEM SHALL do X."},
 	}
 	reply := `Some analysis without a RESULTS section.`
@@ -484,7 +487,8 @@ AC 2 (S01-test): FAIL — incomplete [lacks trigger condition]`
 	if len(report.Violations) != 1 {
 		t.Fatalf("want 1 violation, got %d", len(report.Violations))
 	}
-	if report.Violations[0].Characteristic != "incomplete" {		t.Errorf("want characteristic complete, got %q", report.Violations[0].Characteristic)
+	if report.Violations[0].Characteristic != "incomplete" {
+		t.Errorf("want characteristic complete, got %q", report.Violations[0].Characteristic)
 	}
 	if report.FailedACs != 1 {
 		t.Errorf("want 1 failed, got %d", report.FailedACs)

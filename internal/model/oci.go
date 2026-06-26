@@ -45,7 +45,7 @@ func NewOCI(modelID, compartmentID string) (*OCI, error) {
 	o := &OCI{
 		ModelID:       modelID,
 		CompartmentID: compartmentID,
-	}	// Best-effort client creation; defer error to Verify call.
+	} // Best-effort client creation; defer error to Verify call.
 	configProvider := common.DefaultConfigProvider()
 	client, err := generativeaiinference.NewGenerativeAiInferenceClientWithConfigurationProvider(configProvider)
 	if err != nil {

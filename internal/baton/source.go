@@ -70,7 +70,8 @@ func ValidateSource(sourceDir string) error {
 				return fmt.Errorf("baton: source file missing: %s (expected at %s)", m.Source, p)
 			}
 			return fmt.Errorf("baton: cannot stat source file %s: %w", m.Source, err)
-		}	}
+		}
+	}
 	return nil
 }
 

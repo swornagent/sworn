@@ -252,4 +252,5 @@ func TestBoardCLI_BlockedVisibility(t *testing.T) {
 				}
 			}
 		}
-	}}
+	}
+}

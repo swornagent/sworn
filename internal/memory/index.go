@@ -147,7 +147,8 @@ func (idx *Index) AllEntries(ctx context.Context) ([]Entry, error) {
 }
 
 // Close closes the database connection.
-func (idx *Index) Close() error {	return idx.db.Close()
+func (idx *Index) Close() error {
+	return idx.db.Close()
 }
 
 // HasEntry returns true if an entry with the given ID exists in the index.

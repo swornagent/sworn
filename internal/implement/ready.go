@@ -39,6 +39,7 @@ func (v agentVerifier) Verify(ctx context.Context, systemPrompt, userPayload str
 	}
 	return resp.Choices[0].Message.Content, 0.0, nil
 }
+
 // DoRResult captures the Definition of Ready evaluation for one slice.
 // Passed is true only when every gate passes.
 type DoRResult struct {

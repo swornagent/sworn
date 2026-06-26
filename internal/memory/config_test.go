@@ -19,7 +19,7 @@ func TestEncodeProjectPath(t *testing.T) {
 	}{
 		{"/home/brad/projects/sworn", "-home-brad-projects-sworn"},
 		{"/home/user/my-project", "-home-user-my-project"},
-		{"/", ""},       // root becomes empty after TrimRight
+		{"/", ""}, // root becomes empty after TrimRight
 		{"/var/www/app", "-var-www-app"},
 	}
 
@@ -38,6 +38,7 @@ func TestEncodeProjectPath(t *testing.T) {
 		}
 	}
 }
+
 // TestLoadMerge verifies that per-project config overrides global config:
 // - Project values win on conflict (harnesses replaced)
 // - Global values preserved where project doesn't override
@@ -219,6 +220,7 @@ func TestAPIKeyEnvNotLeaked(t *testing.T) {
 	// level in cmd/sworn/memory_test.go (TestCmdMemory_Status_SetAPIKey)
 	// which calls cmdMemoryStatus() with stdout capture.
 }
+
 // TestIsValidHarnessID verifies the harness ID validation.
 func TestIsValidHarnessID(t *testing.T) {
 	if !IsValidHarnessID("claude-code") {

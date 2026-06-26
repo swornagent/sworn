@@ -106,8 +106,8 @@ func init() {
 
 	// version and help are registered as aliases (multiple names → same handler).
 	command.Register(command.Command{
-		Name:    "version",		Summary: "print sworn binary and baton-protocol versions",
-		Run:     cmdVersion,
+		Name: "version", Summary: "print sworn binary and baton-protocol versions",
+		Run: cmdVersion,
 	})
 	command.Register(command.Command{
 		Name:    "--version",

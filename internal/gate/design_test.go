@@ -279,7 +279,7 @@ func TestColorViolation_String(t *testing.T) {
 func TestFindRepoRoot(t *testing.T) {
 	// Create a mock repo structure.
 	dir := fixture(t, map[string]string{
-		".git/HEAD":          "ref: refs/heads/main",
+		".git/HEAD":                        "ref: refs/heads/main",
 		"docs/release/r1/S01-test/spec.md": "test",
 	})
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 )
+
 // ProviderConfig holds per-provider API keys and optional overrides.
 // Fields use the canonical env var names (OPENAI_API_KEY, etc.).
 type ProviderConfig struct {
@@ -29,7 +30,7 @@ type ProviderConfig struct {
 	// directly by the OCI driver (S15). OCICompartmentID is a SwornAgent-specific
 	// routing param — not an SDK auth var — and is stored here.
 	OCICompartmentID string
-}// ProviderConfigFromEnv reads per-provider configuration from environment variables. The SWORN_OPENAI_API_KEY alias is checked as a fallback when
+} // ProviderConfigFromEnv reads per-provider configuration from environment variables. The SWORN_OPENAI_API_KEY alias is checked as a fallback when
 // OPENAI_API_KEY is empty (backward compatibility per spec Risk #1).
 func ProviderConfigFromEnv() ProviderConfig {
 	return ProviderConfig{
@@ -54,6 +55,7 @@ func ProviderConfigFromEnv() ProviderConfig {
 		OCICompartmentID:    os.Getenv("OCI_COMPARTMENT_ID"),
 	}
 }
+
 // envOrAlias returns the value of the canonical env var, or the alias if the
 // canonical is empty. This implements the spec's backward-compat requirement:
 // canonical key wins; SWORN_OPENAI_API_KEY is a fallback only.
@@ -147,8 +149,8 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 			APIKey:  pcfg.GitHubToken,
 		}, nil
 
-		case "openai-responses":
-			return NewOpenAIResponses(model, pcfg.OpenAIKey)
+	case "openai-responses":
+		return NewOpenAIResponses(model, pcfg.OpenAIKey)
 
 	// Native drivers.
 	case "anthropic":
@@ -174,7 +176,7 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 		// output normalisation from claude-cli. Claude-CLI ships first.
 		// Tracking: https://github.com/swornagent/sworn/issues/19.
 		return nil, fmt.Errorf("%w: codex support deferred (S63-deferral-1)", ErrDriverNotRegistered)
-		default:
+	default:
 		return nil, fmt.Errorf("%w: unknown provider %q", ErrDriverNotRegistered, provider)
 	}
 }

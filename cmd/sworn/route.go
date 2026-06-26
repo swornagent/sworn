@@ -175,25 +175,25 @@ func (r *repoContentReader) IsAncestor(ancestor, branch string) (bool, error) {
 // ---------- JSON output ----------
 
 type routeOutput struct {
-	Version     string        `json:"version"`
-	GeneratedAt string        `json:"generated_at"`
-	Slice       routeSlice    `json:"slice"`
-	Next        routeNext     `json:"next"`
+	Version     string     `json:"version"`
+	GeneratedAt string     `json:"generated_at"`
+	Slice       routeSlice `json:"slice"`
+	Next        routeNext  `json:"next"`
 }
 
 type routeSlice struct {
-	ID           string             `json:"id"`
-	Release      string             `json:"release"`
-	TrackID      string             `json:"track_id"`
-	State        string             `json:"state"`
-	Verification routeVerification  `json:"verification"`
+	ID           string            `json:"id"`
+	Release      string            `json:"release"`
+	TrackID      string            `json:"track_id"`
+	State        string            `json:"state"`
+	Verification routeVerification `json:"verification"`
 }
 
 type routeVerification struct {
-	Result                *string  `json:"result"`
-	Reason                *string  `json:"reason"`
-	Violations            []string `json:"violations"`
-	VerifierWasFreshContext bool    `json:"verifier_was_fresh_context"`
+	Result                  *string  `json:"result"`
+	Reason                  *string  `json:"reason"`
+	Violations              []string `json:"violations"`
+	VerifierWasFreshContext bool     `json:"verifier_was_fresh_context"`
 }
 
 type routeNext struct {
@@ -307,7 +307,8 @@ func printRoutePretty(sliceID, release, trackID string, ss board.SliceState, dec
 	case "in_progress":
 		stateColoured = style.Warn(stateColoured)
 	case "planned":
-		stateColoured = style.Dim(stateColoured)	}
+		stateColoured = style.Dim(stateColoured)
+	}
 	fmt.Printf("State:      %s\n", stateColoured)
 
 	if ss.VerificationResult != "" {
@@ -318,12 +319,14 @@ func printRoutePretty(sliceID, release, trackID string, ss board.SliceState, dec
 		case "fail":
 			verdictColoured = style.Danger("FAIL")
 		case "blocked":
-			verdictColoured = style.Warn("BLOCKED")		}
+			verdictColoured = style.Warn("BLOCKED")
+		}
 		fmt.Printf("Last verdict: %s\n", verdictColoured)
 
 		reason := buildVerificationReason(ss.Violations)
 		if reason != "" {
-			fmt.Printf("  %s\n", style.Dim(reason))		}
+			fmt.Printf("  %s\n", style.Dim(reason))
+		}
 		if len(ss.Violations) > 0 {
 			fmt.Println("  Violations:")
 			for _, v := range ss.Violations {
@@ -334,7 +337,8 @@ func printRoutePretty(sliceID, release, trackID string, ss board.SliceState, dec
 	fmt.Println()
 
 	if decision.NextType == "none" || decision.NextCommand == "" {
-		fmt.Printf("%s %s\n", style.Dim("Next:"), style.Bold(style.Dim("no command — see reason below")))	} else {
+		fmt.Printf("%s %s\n", style.Dim("Next:"), style.Bold(style.Dim("no command — see reason below")))
+	} else {
 		fmt.Printf("%s %s\n", style.Bold("Next:"), style.Accent(decision.NextCommand))
 	}
 	fmt.Println()

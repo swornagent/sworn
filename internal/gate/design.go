@@ -24,20 +24,20 @@ import (
 
 // DesignReport holds the full structured result of RunDesign.
 type DesignReport struct {
-	Release          string           `json:"release"`
-	Slice            string           `json:"slice"`
-	ColorViolations  []ColorViolation `json:"color_violations"`
-	ArchRules        *ArchRulesReport `json:"arch_rules"`
-	TotalViolations  int              `json:"total_violations"`
-	Verdict          string           `json:"verdict"`
-	Exempt           bool             `json:"exempt,omitempty"`
+	Release         string           `json:"release"`
+	Slice           string           `json:"slice"`
+	ColorViolations []ColorViolation `json:"color_violations"`
+	ArchRules       *ArchRulesReport `json:"arch_rules"`
+	TotalViolations int              `json:"total_violations"`
+	Verdict         string           `json:"verdict"`
+	Exempt          bool             `json:"exempt,omitempty"`
 }
 
 // ColorViolation is a single hardcoded colour finding.
 type ColorViolation struct {
 	File  string `json:"file"`
 	Line  int    `json:"line"`
-	Kind  string `json:"kind"`  // "hex", "rgb", "hsl"
+	Kind  string `json:"kind"` // "hex", "rgb", "hsl"
 	Value string `json:"value"`
 }
 
@@ -55,11 +55,11 @@ func (r *DesignReport) HasViolations() bool {
 
 // DesignFidelityConfig is the optional design system config from docs/baton/design-fidelity.json.
 type DesignFidelityConfig struct {
-	Schema        string           `json:"$schema"`
-	UIBearing     bool             `json:"ui_bearing"`
-	DesignSystem  *DesignSystem    `json:"design_system,omitempty"`
-	TokenSource   string           `json:"token_source,omitempty"`
-	Tokens        []DesignToken    `json:"tokens,omitempty"`
+	Schema       string        `json:"$schema"`
+	UIBearing    bool          `json:"ui_bearing"`
+	DesignSystem *DesignSystem `json:"design_system,omitempty"`
+	TokenSource  string        `json:"token_source,omitempty"`
+	Tokens       []DesignToken `json:"tokens,omitempty"`
 }
 
 // DesignSystem holds the design system declaration.
