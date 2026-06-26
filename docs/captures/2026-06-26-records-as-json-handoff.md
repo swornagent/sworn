@@ -112,11 +112,36 @@ Published at `baton.sawy3r.net/schemas/` (canonical `$id`; the `/schemas/` index
 - Sworn **#20** (index.md corruption root-cause + `sworn lint --fix`), **#22**
   (replace bespoke scanners with marshaller round-trips + write-time validation).
 
-## Remaining work A — Baton pure-spec (TONIGHT, external-facing)
+## Remaining work A — Baton pure-spec
 
-All in the `sawy3r/baton` repo, on `feat/role-prompts-records` (→ PR #52). This is
-a public-facing identity rewrite — Baton stops shipping tooling and becomes the
-spec.
+All in the `sawy3r/baton` repo, on `feat/role-prompts-records` (→ PR #52).
+
+**A1 — external-facing landing + install: DONE** (commits through `c17be08`):
+strip `bin/` (`72154c5`); templates → JSON (`board.json`/`spec.json`/`proof.json`);
+`install.sh` + `install-codex.sh` to pure-spec; `design-fidelity.md`; top-level
+`README.md` rewrite + new "Baton is pure spec" section + `sworn` as reference impl.
+
+**A2 — residual old-model references: TODO** (15 files still carry `bin/` gates /
+`spec.md`/`proof.md`/`index.md` / "16 hats"). The migration touched the four role
+*prompts* but not the rest. Highest-priority first:
+- **`claude/commands/*.md` (8 files)** — the user-invoked slash-command wrappers.
+  These carry their own Step-0 worktree-discovery logic (read `index.md`, the
+  `awk` materialise hack), `bin/` gate calls, and `spec.md`/`proof.md` reads. They
+  are as load-bearing as the role prompts — migrate them the same way
+  (board.json/spec.json/proof.json, abstract gate refs, delete the awk hack).
+- **`claude/baton/README.md`** — the *embedded/installed* docs-package README
+  (distinct from the repo landing page already done). It is vendored into Sworn and
+  its `## The eleven rules` heading is what `cmd/sworn/doctor.go` checks — keep that
+  heading verbatim.
+- **Rule docs** `adversarial-verification.md`, `requirements-fidelity.md` (reference
+  `spec.md`/`proof.md`/gates); `AGENTS-fragment.md`; `INSTALL.md` (bin/ install
+  steps); `architecture.json`; `RULES-HISTORY.md`; `ROADMAP.md`.
+- `release-mode-template/status.json` — check its `$schema` URL.
+Find them all: `grep -rlE "release-(verify|board|trace|coverage|audit|mock|regression|llm)|bin/release|/(spec|proof|index)\.md|16 hats" claude/ ROADMAP.md`
+
+The original numbered list below is the A1 record (now done).
+
+### A1 detail (done)
 
 1. **Strip `bin/`** — `git rm -r bin/` (the bash gates + `.mjs` oracle + HTML
    dashboard). All gate logic now lives in Sworn (Go).
