@@ -2,12 +2,16 @@
 
 ## Status
 
-Proposed (2026-06-26). **Type-1 decision (Baton Rule 9):** structural and hard to
-reverse — the board/spec/proof formats are Baton protocol surface and existing
-live boards must migrate. This ADR records options and rationale for Coach
-ratification; it is not self-accepted. The near-term scanner-replacement work
-(see Consequences) stands on its own and does not depend on ratifying the larger
-format change.
+Accepted (2026-06-26) — ratified by the Coach (Brad), who directed the
+records-as-JSON work to proceed and Baton to be perfected ahead of slicing it into
+the reference implementation as a new release. **Type-1 decision (Baton Rule 9):**
+structural and hard to reverse — the board/spec/proof formats are Baton protocol
+surface and existing live boards must migrate. The near-term scanner-replacement
+work (see Consequences) stands on its own and does not depend on this format change.
+
+Execution is tracked on the Baton repo: epic `sawy3r/baton#50`, with record-schema
+issues #45 (board), #46 (spec), #47 (proof), #48 (journeys) and role-prompt update
+#49. `ledger` is treated as reference-implementation (Sworn) surface, not protocol.
 
 ## Context
 
