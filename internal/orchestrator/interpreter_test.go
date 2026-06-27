@@ -20,7 +20,7 @@ func (f *fakeClassifier) Verify(ctx context.Context, systemPrompt, userPayload s
 	return f.text, 0.001, f.err
 }
 
-func TestInterpret_TableDriven(t *testing.T) {
+func TestInterpreter_TableDriven(t *testing.T) {
 	tests := []struct {
 		name           string
 		rawOutput      string
@@ -113,7 +113,7 @@ func TestInterpret_TableDriven(t *testing.T) {
 	}
 }
 
-func TestInterpret_ParsesVerdictCaseInsensitive(t *testing.T) {
+func TestInterpreter_ParsesVerdictCaseInsensitive(t *testing.T) {
 	cases := []struct{ text, want string }{
 		{"pass", "PASS"},
 		{"PASS", "PASS"},
@@ -137,7 +137,7 @@ func TestInterpret_ParsesVerdictCaseInsensitive(t *testing.T) {
 	}
 }
 
-func TestErrInterpretInconclusive(t *testing.T) {
+func TestInterpreterErrInterpretInconclusive(t *testing.T) {
 	err := orchestrator.ErrInterpretInconclusive("S01-test", "ambiguous prose that does not parse to a verdict")
 	if err == nil {
 		t.Fatal("expected non-nil error")
@@ -150,7 +150,7 @@ func TestErrInterpretInconclusive(t *testing.T) {
 	}
 }
 
-func TestErrInterpretInconclusive_TruncatesLongPreview(t *testing.T) {
+func TestInterpreterErrInterpretInconclusive_TruncatesLongPreview(t *testing.T) {
 	longRaw := strings.Repeat("x", 200)
 	err := orchestrator.ErrInterpretInconclusive("S01-test", longRaw)
 	if err == nil {
