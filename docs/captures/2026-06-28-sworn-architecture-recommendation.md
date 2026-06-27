@@ -204,6 +204,36 @@ enough.
   "keyless-full-loop" journey this release was meant to declare IS that gate; it was not enforced on the
   release that defines it. A full verifier plus mocked ACs equals confident green over a DOA build.
 
+### 3.6 The fix at the source: the Planner establishes E2E capability first (greenfield)
+
+The cleanest fix is not a new gate bolted on at verification time — it is a **precondition created at
+planning time**, and the **Planner** is the role that owns preconditions. Decision (Brad, 2026-06-28):
+
+> When planning a greenfield release (or any release whose affordance has no end-to-end/integration
+> harness), the Planner's FIRST slice establishes that harness. Feature slices `depend_on` it. The
+> Rule-1 reachability and Rule-8 Definition-of-Ready gates fail closed until it exists.
+
+Mechanics:
+- **Detect** at plan time (and reusable at `sworn init`): does a capability exist that can exercise the
+  full integrated flow through the real integration point? (Not unit; not a mocked leaf.)
+- **If absent → Slice 0:** the Planner drafts a foundational "establish E2E/SIT harness" slice as the
+  first item. For a CLI/library the deliverable is a binary-smoke / end-to-end invocation scaffold
+  (boot the built binary, run the affordance over a fixture, assert it works); for a web app it is the
+  Playwright/E2E suite. This slice's own reachability artefact is the harness running green.
+- **Sequence:** every feature slice declares `depends_on` the harness slice; DoR fails closed for any
+  feature slice planned before the harness exists, so the loop physically cannot certify features on
+  unit-green.
+- **Ownership:** Planner-owned (it is a requirements/Definition-of-Ready concern, Baton Rule 8), with
+  the Sworn engine detecting capability and the gate enforcing the dependency. This is the active form
+  of the proof-visibility theme's "`sworn init` test-capability detection": detect AND establish, not
+  merely advise.
+
+This is the single highest-leverage change: it converts "the loop hopes the project already has an E2E
+harness" into "the loop builds the harness first," which is exactly what would have stopped Sworn from
+being built DOA. It pairs with the driver-contract architecture (which removes the in-process bug class)
+to cover both halves — the harness catches what unit cannot, and the driver prevents the bugs in the
+first place.
+
 ## 4. Prioritised recommendations (mapped to release tracks + properties)
 
 | # | Recommendation | Property | Track | Effort |
@@ -219,6 +249,7 @@ enough.
 | 9 | S27 already landed: nil-factory defaults + always-emit content (interim, keep until #4) | Resilience | T1/FT-2 | done |
 | 10 | **Add the missing test levels as wired gates: a SIT gate (boot `sworn loop` end-to-end through the real integration point, Rule 1) and a UAT gate (Rule-10 no-mock journey against real infra + human attestation) — a release cannot certify on unit-green alone** | Resilience/Correctness | FT-3 + Rule-1 + Rule-10 | M | see §3.5 |
 | 11 | Rename `sworn run` → `sworn loop` (loop-engineering terminology); `run` kept as deprecated alias | Elegance | — | done |
+| 12 | **Planner establishes the E2E/SIT harness as Slice 0 on greenfield (precondition at plan time); feature slices depend_on it; Rule-1/Rule-8 fail closed until it exists** | Correctness (source fix) | Planner role + Rule 8 | M | see §3.6 — highest leverage |
 
 Recommendation #4 is the keystone: it subsumes most of the model-layer audit gaps and is the single
 change that would have prevented the dogfood's headline failures. #1, #2, #3 are small and turn the loop
@@ -228,6 +259,9 @@ from "crashes the release on any hiccup" into "banks progress and stops safely."
 
 ## 5. Sequencing
 
+0. **Source fix (highest leverage):** #12 — the Planner establishes the E2E/SIT harness as Slice 0 on
+   greenfield, with Rule-1/Rule-8 failing closed until it exists. This prevents the DOA class at its
+   root for every future build, independent of the engine internals. Do this first.
 1. **Stabilise (small, immediate):** #1, #2, #3, #7. These make the loop survivable without touching the
    model layer. After these, the existing in-process loop (with S27) can at least bank partial work and
    isolate failures.
