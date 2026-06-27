@@ -74,11 +74,10 @@ func ollamaHost() string {
 	return "http://localhost:11434"
 }
 
-// ErrDriverNotRegistered is returned when a model ID prefix maps to a driver
+// ErrDriverNotImplemented is returned when a model ID prefix maps to a driver
 // that has not yet been implemented. Some drivers (e.g. codex) are not yet
 // available; see S63-deferral-1.
-var ErrDriverNotRegistered = constErr("driver not registered (not yet implemented; see slices S11-S16)")
-
+var ErrDriverNotImplemented = constErr("driver not implemented (not yet available; see slices S11-S16)")
 // NewClient dispatches a model ID like "openai/gpt-4o" or "groq/llama-3.3-70b"
 // to the correct driver. OAI-compat providers get an &OAI{} with the correct
 // base URL preset. Native drivers return an appropriate implementation. Model
@@ -175,8 +174,8 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 		// TODO: codex exec support — different invocation shapes and
 		// output normalisation from claude-cli. Claude-CLI ships first.
 		// Tracking: https://github.com/swornagent/sworn/issues/19.
-		return nil, fmt.Errorf("%w: codex support deferred (S63-deferral-1)", ErrDriverNotRegistered)
+		return nil, fmt.Errorf("%w: codex support deferred (S63-deferral-1)", ErrDriverNotImplemented)
 	default:
-		return nil, fmt.Errorf("%w: unknown provider %q", ErrDriverNotRegistered, provider)
+		return nil, fmt.Errorf("%w: unknown provider %q", ErrDriverNotImplemented, provider)
 	}
 }

@@ -61,7 +61,7 @@ func newClaudeCLI(model string) *cliDriver {
 // invocation shapes and output normalisation; claude-cli ships first.
 // Tracking: https://github.com/swornagent/sworn/issues/19.
 func newCodexCLI(model string) (*cliDriver, error) {
-	return nil, fmt.Errorf("%w: codex support deferred (S63-deferral-1)", ErrDriverNotRegistered)
+	return nil, fmt.Errorf("%w: codex support deferred (S63-deferral-1)", ErrDriverNotImplemented)
 }
 
 // Verify dispatches the role prompt by spawning the CLI binary with the system
