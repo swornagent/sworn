@@ -3,11 +3,14 @@
   "slice_id": "S15-spec-proof-records",
   "release": "2026-06-27-conformance-foundation",
   "track": "T4-records-as-json",
-  "covers_needs": ["N-04", "N-08"],
-  "state": "planned",
+  "covers_needs": [
+    "N-04",
+    "N-08"
+  ],
+  "state": "in_progress",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-27T00:00:00Z",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-06-27T23:27:55Z",
   "start_commit": null,
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S15-spec-proof-records/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S15-spec-proof-records/proof.md",
@@ -21,7 +24,9 @@
     "internal/baton/schemas/proof-v1.json"
   ],
   "actual_files": [],
-  "test_commands": ["go test ./internal/implement/... ./internal/gate/... -v"],
+  "test_commands": [
+    "go test ./internal/implement/... ./internal/gate/... -v"
+  ],
   "reachability_artifacts": [],
   "open_deferrals": [],
   "verification": {
