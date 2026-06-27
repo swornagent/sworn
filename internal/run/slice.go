@@ -97,6 +97,14 @@ type Notifier interface {
 // On verifier BLOCKED: returns error immediately (no state change).
 // On verifier FAIL after all retries: transitions to failed_verification and
 // returns a non-nil error.
+// checkProofAbsent returns true when proof.md is absent or empty.
+// This is the proof-mandatory gate (S11).
+func checkProofAbsent(proofPath string) bool {
+	proofBytes, err := os.ReadFile(proofPath)
+	return err != nil || strings.TrimSpace(string(proofBytes)) == ""
+}
+
+
 func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, opts RunSliceOptions) error {
 	// ── Validate mandatory options ────────────────────────────────────
 	if specPath == "" {
@@ -147,7 +155,10 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	maxResolves := 1
 	_ = opts.RetryCap // RetryCap is superseded by the triage policy; kept for API compat.
 
-	absSliceDir := filepath.Join(worktreeRoot, filepath.Dir(specPath))
+	absSliceDir := filepath.Dir(specPath)
+	if !filepath.IsAbs(specPath) {
+		absSliceDir = filepath.Join(worktreeRoot, absSliceDir)
+	}
 	proofPath := filepath.Join(absSliceDir, "proof.md")
 	// ── Resolve implement timeout ──────────────────────────────────────
 	// 0 means use default; negative means no timeout; positive is used as-is.
@@ -265,7 +276,6 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	// immediately.
 	var (
 		lastVerdict   verdict.Result
-		lastImplModel string
 		modelIdx      = 0
 		resolveCount  = 0
 		totalAttempts = 0
@@ -299,7 +309,6 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		totalAttempts++
 
 		implModelID := escalationModels[modelIdx]
-		lastImplModel = implModelID
 		implAgent, err := opts.NewAgent(implModelID)
 		if err != nil {
 			return fmt.Errorf("RunSlice: create implementer agent for %q: %w", implModelID, err)
@@ -378,8 +387,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		// ── Proof mandatory gate ───────────────────────────────────
 		// Before dispatching the verifier, check that proof.md exists
 		// and is non-empty. Absent proof -> BLOCKED immediately.
-		proofBytes, proofErr := os.ReadFile(proofPath)
-		if proofErr != nil || strings.TrimSpace(string(proofBytes)) == "" {
+		if checkProofAbsent(proofPath) {
 			lastVerdict = verdict.Result{
 				Verdict:    verdict.Blocked,
 				FailedGate: "proof_absent",
@@ -397,7 +405,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			stBlk, _ := state.Read(statusPath)
 			if stBlk != nil {
 				stBlk.Verification.Result = "blocked"
-				stBlk.Verification.Model = implModelID
+				stBlk.Verification.Model = opts.VerifierModel
 				stBlk.Verification.Attempt = totalAttempts
 				stBlk.Verification.Dispatches = dispatches
 				stBlk.LastUpdatedBy = "run-slice"
@@ -455,7 +463,8 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		if specErr != nil {
 			return fmt.Errorf("RunSlice: read spec for agentic verify: %w", specErr)
 		}
-		proofStr := string(proofBytes)
+		proofBytes2, _ := os.ReadFile(proofPath)
+		proofStr := string(proofBytes2)
 		specStr := string(specContent)
 
 		result, runErr := verify.RunAgentic(ctx, specStr, diff, proofStr, verifierAgent)
@@ -532,7 +541,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 				if stErr == nil {
 					st.Verification.Result = "blocked"
 					st.Verification.Violations = extractViolations(lastVerdict.Rationale)
-					st.Verification.Model = implModelID
+					st.Verification.Model = opts.VerifierModel
 					st.Verification.Attempt = totalAttempts
 					st.Verification.Dispatches = dispatches
 					st.LastUpdatedBy = "run-slice"
@@ -573,7 +582,7 @@ haltFailedVerification:
 	if stErr == nil {
 		_ = st.State.Transition(state.FailedVerification) // ignore — state may already be terminal
 		st.State = state.FailedVerification
-		st.Verification.Model = lastImplModel
+		st.Verification.Model = opts.VerifierModel
 		st.Verification.Attempt = totalAttempts
 		st.Verification.Dispatches = dispatches
 		st.LastUpdatedBy = "run-slice"

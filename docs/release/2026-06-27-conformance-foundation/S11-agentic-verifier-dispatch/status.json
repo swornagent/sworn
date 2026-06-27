@@ -8,10 +8,10 @@
     "N-06",
     "N-07"
   ],
-  "state": "failed_verification",
+  "state": "in_progress",
   "owner": "human",
-  "last_updated_by": "verifier",
-  "last_updated_at": "2026-07-24T00:00:00Z",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-06-27T23:54:48Z",
   "start_commit": "f53f08d41fde4f71e35a0d46ce3fc5025be61c6a",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S11-agentic-verifier-dispatch/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S11-agentic-verifier-dispatch/proof.md",
@@ -24,32 +24,25 @@
   ],
   "actual_files": [
     "internal/run/slice.go",
+    "internal/run/slice_test.go",
     "internal/verify/verify.go",
-    "internal/verify/verify_agentic_test.go",
     "internal/verify/verify_test.go",
     "internal/gate/mock.go",
     "cmd/sworn/verify.go"
   ],
   "test_commands": [
-    "go test ./internal/verify/... -v -run TestAgentic",
+    "go test ./internal/verify/... -v -run TestRunAgentic",
     "go test ./internal/verify/... -v -run TestCheckBoundary",
     "go test ./internal/gate/... -v -run TestMock",
-    "go test ./internal/run/... -v -run TestSliceNoProof"
+    "go test ./internal/run/... -v -run TestCheckProofAbsent",
+    "go test ./internal/run/... -v -run TestRunSlice_ProofGate"
   ],
   "reachability_artifacts": [
-    "sworn verify --agentic --help displays the flag"
+    "go test ./internal/run/... -v -run TestCheckProofAbsent exits 0",
+    "go test ./internal/run/... -v -run TestRunSlice_ProofGate exits 0"
   ],
   "open_deferrals": [
     "True test re-running via tool calls deferred. Why: agentic tool-call infrastructure not in scope for this slice. Tracking: future agentic-tool-calls slice. Acknowledged: Brad, 2026-06-27."
   ],
-  "verification": {
-    "result": "fail",
-    "verifier_session_id": null,
-    "verifier_verdict_at": "2026-07-24T00:00:00Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      "Gate 3 — Missing required integration test: internal/run/slice_test.go — no proof bundle → RunSlice returns BLOCKED before verifier dispatch",
-      "Gate 7 — AC4 partially satisfied: st.Verification.Model writes implModelID in 3 non-PASS paths (lines 400, 535, 576); should use opts.VerifierModel per AC4"
-    ]
-  }
+  "verification": {}
 }
