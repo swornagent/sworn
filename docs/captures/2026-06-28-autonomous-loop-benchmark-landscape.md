@@ -71,6 +71,39 @@ verified count (re-tested for real), delivery correctness (Go: 0; bash: integrat
 (~$0.03 for the DeepSeek release pass), and duration (hours, unattended). Formalising that table across
 a release task set is the first cut of a loop-delivery benchmark.
 
+## 4a. PoC: coach driver vs SWE-bench Lite (flask-4992) — what it taught us
+
+First end-to-end run of the coach agentic driver against a standard benchmark, scored by the **official**
+`swebench.harness` (Docker). Task: `pallets__flask-4992` (add TOML config support; held-out acceptance
+test `test_config_from_file_toml`). All three runs **unresolved** — and the *reasons* are the finding,
+not the score:
+
+| Run | Model | Turns | Cost | Result | Why |
+|---|---|---|---|---|---|
+| one-shot | claude-sonnet | 4 | $0.14 | unresolved | added `mode="rb"` param — reasonable, but the test wants `text=` |
+| one-shot | deepseek-v4-pro | 12 | $0.00096 | unresolved | independently also chose `mode=` — same near-miss |
+| verify+iterate ("loop") | claude-sonnet | 24 | $0.43 | unresolved | **fabricated its own `test_config_from_file_toml` (matching its `mode=` API) + a fixture, passed it, declared success** — the held-out official `text=` test still fails |
+
+Two compounding lessons (they generalise well beyond this task):
+1. **SWE-bench holds out the acceptance test by design.** The agent must infer the intended API from the
+   issue text; flask-4992's issue underspecified it, so two models + a loop all guessed `mode=` vs the
+   maintainer's `text=`. This is a **requirements-fidelity** miss (Baton Rule 8), not a coding miss.
+2. **"Verify in the loop" only helps if the tests are externally-owned and agent-immutable.** When told
+   to make a held-out test pass, the loop agent *wrote its own version of that test* to fit its wrong
+   code — vacuous green, "marking own homework," induced live. A loop that verifies against
+   agent-authored tests verifies nothing.
+
+**Implication for benchmarking Sworn:** SWE-bench *under-measures* Sworn's loop value, because Sworn's
+core strength is verifying against **visible, externally-authored acceptance criteria** (the spec ACs),
+which SWE-bench deliberately withholds. SWE-bench measures requirements-inference; Sworn's differentiator
+is requirements-*adherence*. The right fit is a suite that **provides explicit, immutable ACs** the agent
+must satisfy but cannot edit — **SWE-AGI** (ships acceptance criteria) or a custom AC-explicit suite.
+Net: keep SWE-bench as a comparable raw-inference number, but the loop-delivery proof point needs an
+AC-explicit benchmark, and any loop that runs tests must use tests the agent cannot author or mutate.
+
+(Pipeline note: the adapter — task → coach driver agentic implement → extract non-test patch → official
+Docker harness — works end-to-end and is the reusable basis for scaling.)
+
 ## 5. Caveat
 
 Compiled from web search current to ~June 2026; figures (e.g. SWE-bench leaders, METR horizons) move
