@@ -12,71 +12,19 @@ After a `sworn run` session the Coach can run `sworn telemetry decisions --relea
 ## Files changed
 
 ```
-$ git diff --name-only release-wt/2026-06-27-conformance-foundation
+$ git diff --name-only f1744f6d7b29265b786da7c3597cc224ab12291a
 cmd/sworn/run.go
 cmd/sworn/telemetry.go
-docs/release/2026-06-27-conformance-foundation/S01-llm-interpreter/journal.md
-docs/release/2026-06-27-conformance-foundation/S01-llm-interpreter/proof.md
-docs/release/2026-06-27-conformance-foundation/S01-llm-interpreter/status.json
-docs/release/2026-06-27-conformance-foundation/S22-pin-bump/journal.md
-docs/release/2026-06-27-conformance-foundation/S22-pin-bump/proof.md
-docs/release/2026-06-27-conformance-foundation/S22-pin-bump/status.json
-docs/release/2026-06-27-conformance-foundation/S23-version-centralise-doctor/journal.md
-docs/release/2026-06-27-conformance-foundation/S23-version-centralise-doctor/proof.md
-docs/release/2026-06-27-conformance-foundation/S23-version-centralise-doctor/status.json
-docs/release/2026-06-27-conformance-foundation/index.md
-internal/adopt/baton/VERSION
-internal/baton/diff.go
-internal/baton/fetch.go
-internal/baton/fetch_test.go
-internal/baton/source.go
-internal/baton/testdata/fixture/claude/baton/README.md
-internal/baton/testdata/fixture/claude/baton/adversarial-verification.md
-internal/baton/testdata/fixture/claude/baton/architecture.json
-internal/baton/testdata/fixture/claude/baton/brainstorm-patterns.md
-internal/baton/testdata/fixture/claude/baton/capture-discipline.md
-internal/baton/testdata/fixture/claude/baton/commit-messages-as-capture.md
-internal/baton/testdata/fixture/claude/baton/customer-journey-validation.md
-internal/baton/testdata/fixture/claude/baton/design-fidelity.md
-internal/baton/testdata/fixture/claude/baton/no-silent-deferrals.md
-internal/baton/testdata/fixture/claude/baton/process-global-mutation.md
-internal/baton/testdata/fixture/claude/baton/proof-bundle.md
-internal/baton/testdata/fixture/claude/baton/reachability-gate.md
-internal/baton/testdata/fixture/claude/baton/requirements-fidelity.md
-internal/baton/testdata/fixture/claude/baton/role-prompts/captain.md
-internal/baton/testdata/fixture/claude/baton/role-prompts/implementer.md
-internal/baton/testdata/fixture/claude/baton/role-prompts/planner.md
-internal/baton/testdata/fixture/claude/baton/role-prompts/verifier.md
-internal/baton/testdata/fixture/claude/baton/session-discipline.md
-internal/baton/testdata/fixture/claude/baton/track-mode.md
-internal/baton/vendor.go
-internal/baton/vendor_test.go
-internal/baton/version.go
-internal/baton/version_test.go
+docs/release/2026-06-27-conformance-foundation/S02-orchestrator-decision-log/journal.md
+docs/release/2026-06-27-conformance-foundation/S02-orchestrator-decision-log/proof.md
+docs/release/2026-06-27-conformance-foundation/S02-orchestrator-decision-log/status.json
 internal/db/db.go
-internal/orchestrator/interpreter.go
-internal/orchestrator/interpreter_test.go
-internal/prompt/VERSION.txt
-internal/prompt/baton/VERSION.txt
-internal/prompt/prompt.go
-internal/prompt/prompt_test.go
 internal/run/run.go
 internal/run/slice.go
 internal/scheduler/worker.go
-internal/scheduler/worker_test.go
+internal/supervisor/decisions.go
+internal/supervisor/decisions_test.go
 ```
-
-### S02-specific changed files
-
-- `internal/db/db.go` — added `decisions` table to schema
-- `internal/supervisor/decisions.go` (new) — RecordDecision, RecordTriage, QueryDecisions
-- `internal/supervisor/decisions_test.go` (new) — unit tests
-- `internal/scheduler/worker.go` — added RecordDecision call after router poll
-- `internal/run/slice.go` — added DB field to RunSliceOptions + RecordTriage calls after triage
-- `cmd/sworn/telemetry.go` — added `decisions` subcommand
-- `cmd/sworn/run.go` — wired DB into RunSliceOptions
-- `internal/run/run.go` — wired DB into RunSliceOptions
-
 ## Test results
 
 ### Go (unit)
