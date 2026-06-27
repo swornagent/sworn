@@ -6,7 +6,7 @@
   "covers_needs": [
     "N-21"
   ],
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-25T00:00:00Z",
@@ -19,9 +19,20 @@
     "internal/prompt/orchestrator-notes.md",
     "internal/prompt/captain.md"
   ],
-  "actual_files": [],
-  "test_commands": [],
-  "reachability_artifacts": [],
+  "actual_files": [
+    "internal/prompt/design-reviewer.md",
+    "internal/prompt/orchestrator-notes.md",
+    "internal/prompt/captain.md"
+  ],
+  "test_commands": [
+    "go test ./internal/prompt/ -v -count=1"
+  ],
+  "reachability_artifacts": [
+    "cat internal/prompt/design-reviewer.md",
+    "cat internal/prompt/orchestrator-notes.md",
+    "grep -n \"release orchestrator\" internal/prompt/captain.md",
+    "go test ./internal/prompt/ -v -run TestCaptain -count=1"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "pending",
