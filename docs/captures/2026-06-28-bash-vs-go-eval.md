@@ -57,6 +57,25 @@ The bash verifier is the agentic, test-re-running verifier.md (sonnet); the supe
 independently confirms its verdicts. The run also flowed past the targets into the second slice of each
 track (e.g. T4 S13→S14), i.e. it is genuinely progressing the release, not stalling.
 
+### Same-model contrast (the cleanest proof: harness, not model)
+
+DeepSeek was run BOTH ways. Re-tested by the supervisor:
+
+| Slice | deepseek-v4-pro via **Go** in-process loop | deepseek-v4-pro via **bash** driver loop |
+|---|---|---|
+| S08 | correct production code but NO test; never `verified` | **verified** — fail-fast `run.go:358` + `capabilities_test.go` passing |
+| S13 | good early attempt LOST to retry-reset; never `verified` | **verified** — `baton.Validate` wired into `state.Write()` `state.go:197`; tests pass |
+| S22 | (Go never reached it cleanly) | **verified** |
+
+Identical model, opposite result. The Go loop crashed/cascaded and reached `verified` for nothing; the
+bash loop drove the same model to genuinely-correct, integrated, tested `verified` slices. This isolates
+the cause to the engine, not the model — the central thesis of the architecture recommendation.
+
+(Run still in progress at capture: S11/S24 in_progress, S01 planned. Bounded steps — captain/interp —
+used claude haiku/sonnet per coach defaults. Run ID: ~/.coach/sworn-eval-coach-deepseek.)
+
+### Earlier note (headless supervisory session)
+
 **DeepSeek + glm via bash:** both **cold-started cleanly**, and the oai-compat driver itself works
 end-to-end (a direct `oai-compat.sh dispatch` to `deepseek/deepseek-v4-pro` returned a clean result,
 cost $0.000364, 806 tokens — confirmed reaching the API). They produced no committed work ONLY because
