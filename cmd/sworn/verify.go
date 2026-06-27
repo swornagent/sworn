@@ -8,11 +8,11 @@ import (
 	"os"
 	"strings"
 
+	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/config"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/verify"
 )
-
 // openDeferralsFlag implements flag.Value to accept repeated --deferral flags.
 type openDeferralsFlag []string
 
@@ -28,6 +28,7 @@ func cmdVerify(args []string) int {
 	diff := fs.String("diff", "", "path to the unified diff, or - for stdin (required)")
 	proof := fs.String("proof", "", "path to the proof bundle (optional in this build)")
 	mdl := fs.String("verifier-model", "", "verifier model id (provider/model)")
+	agentic := fs.Bool("agentic", false, "use agentic verifier (full verifier.md role via Chat) instead of stateless judge")
 	var openDeferrals openDeferralsFlag
 	fs.Var(&openDeferrals, "deferral", "declared Rule-2 deferral (repeatable: 'why - tracking - ack')")
 	_ = fs.Parse(args) // Resolve verifier model with precedence: flag > env > config.
@@ -61,6 +62,45 @@ func cmdVerify(args []string) int {
 	}
 	// v remains nil when no model is configured -> Unconfigured (fail-closed).
 
+	// ── Agentic path (--agentic flag) ──────────────────────────────
+	if *agentic {
+		// Read spec, diff, proof content for the agentic payload.
+		specContent, sErr := readFileContent(*spec)
+		if sErr != nil {
+			fmt.Fprintf(os.Stderr, "sworn verify: read spec: %v\n", sErr)
+			return 2
+		}
+		diffContent, dErr := readFileContent(*diff)
+		if dErr != nil {
+			fmt.Fprintf(os.Stderr, "sworn verify: read diff: %v\n", dErr)
+			return 2
+		}
+		proofContent, _ := readFileContent(*proof) // proof is optional
+
+		// Create an agentic verifier (agent.Agent, not model.Verifier).
+		va, vaErr := model.FromEnv(resolvedModel)
+		if vaErr != nil {
+			fmt.Fprintf(os.Stderr, "sworn verify: create agentic verifier: %v\n", vaErr)
+			return 2
+		}
+		verifierAgent, ok := va.(agent.Agent)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "sworn verify: model %q does not support agent interface\n", resolvedModel)
+			return 2
+		}
+
+		result, rErr := verify.RunAgentic(context.Background(), specContent, diffContent, proofContent, verifierAgent)
+		if rErr != nil {
+			fmt.Fprintf(os.Stderr, "sworn verify: agentic dispatch: %v\n", rErr)
+			return 2
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(result)
+		return result.ExitCode()
+	}
+
+	// ── Stateless path (default) ───────────────────────────────────
 	res := verify.Run(context.Background(), verify.Input{
 		SpecPath:      *spec,
 		DiffPath:      *diff,
@@ -73,4 +113,19 @@ func cmdVerify(args []string) int {
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(res)
 	return res.ExitCode()
+}
+
+// readFileContent reads a file and returns its content as a string.
+// If path is "-", reads from stdin. Returns empty string with no error for
+// empty path.
+func readFileContent(path string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+	if path == "-" {
+		b, err := os.ReadFile("/dev/stdin")
+		return string(b), err
+	}
+	b, err := os.ReadFile(path)
+	return string(b), err
 }

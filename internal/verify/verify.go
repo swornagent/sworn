@@ -17,16 +17,20 @@ import (
 	"os"
 	"strings"
 
+	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/verdict"
 )
-
 // systemPrompt is the sworn-authored stateless judge prompt, vendored at
 // build time via go:embed (internal/prompt). It instructs the model to judge
 // from SPEC+DIFF+PROOF only with a verdict-leading reply — no tools, no repo.
 var systemPrompt = prompt.VerifyStateless()
 
+// verifierRolePrompt is the full Baton verifier.md role prompt (the agentic
+// verifier). It instructs the model to re-run tests, read live repo state,
+// and return PASS/FAIL/BLOCKED. Used by RunAgentic.
+var verifierRolePrompt = prompt.Verifier()
 // Input is everything a verification needs.
 type Input struct {
 	SpecPath      string
@@ -103,8 +107,56 @@ func Run(ctx context.Context, in Input) verdict.Result {
 	return result
 }
 
-func buildPayload(spec, diff, proof string) string {
-	var b strings.Builder
+// RunAgentic executes the agentic verification protocol: it dispatches the
+// full verifier.md role prompt via agent.Chat() (no tools), which instructs
+// the model to re-run tests, read live repo state, and return a verdict.
+//
+// This is the canonical "agentic verifier" path — the verifier gets fresh
+// context (it reads the live repo) and is not limited to a single-shot
+// stateless judge. The model receives the full verifier role prompt as the
+// system message and the SPEC+DIFF+PROOF payload as the user message.
+//
+// The caller (RunSlice) is responsible for the proof-mandatory check and
+// no-mock wiring before calling RunAgentic.
+func RunAgentic(ctx context.Context, spec, diff, proof string, verifierAgent agent.Agent) (verdict.Result, error) {
+	userPayload := buildPayload(spec, diff, proof)
+
+	messages := []model.ChatMessage{
+		{Role: "system", Content: verifierRolePrompt},
+		{Role: "user", Content: userPayload},
+	}
+
+	resp, err := verifierAgent.Chat(ctx, messages, nil) // no tools — the verifier role reads only
+	if err != nil {
+		return blocked("verifier_agentic_dispatch", err.Error()), nil
+	}
+
+	if len(resp.Choices) == 0 {
+		return blocked("verifier_agentic_dispatch", "empty response choices"), nil
+	}
+
+	text := resp.Choices[0].Message.Content
+	cost := computeAgenticCost(resp.Usage)
+	result := parseVerdict(text, cost)
+	// Override the FailedGate for agentic path — the verifier role prompt
+	// instructs the model to return PASS/FAIL/BLOCKED directly, so an
+	// unparseable output is a BLOCKED on the agentic dispatch itself.
+	if result.Verdict == verdict.Blocked && result.FailedGate == "unparseable_verdict" {
+		result.FailedGate = "verifier_agentic_unparseable"
+	}
+	return result, nil
+}
+
+// computeAgenticCost computes a nominal cost from a UsageBlock.
+// Uses the same ~$2/1M tokens estimate as agent.computeCost for consistency.
+func computeAgenticCost(usage *model.UsageBlock) float64 {
+	if usage == nil {
+		return 0
+	}
+	return float64(usage.TotalTokens) * 0.000002 // ~$2/1M tokens
+}
+
+func buildPayload(spec, diff, proof string) string {	var b strings.Builder
 	b.WriteString("## SPEC\n")
 	b.WriteString(spec)
 	b.WriteString("\n\n## DIFF\n")
@@ -255,8 +307,12 @@ var knownBoundaryPatterns = []boundaryPattern{
 	{Keyword: "Premium", Boundary: "entitlement"},
 	{Keyword: "subscription", Boundary: "entitlement"},
 	{Keyword: "Subscription", Boundary: "entitlement"},
+	{Keyword: "credits", Boundary: "entitlement"},
+	{Keyword: "Credits", Boundary: "entitlement"},
+	{Keyword: "keyless", Boundary: "entitlement"},
+	{Keyword: "Keyless", Boundary: "entitlement"},
+	{Keyword: "claude -p", Boundary: "entitlement"},
 }
-
 // mockMarkerPatterns are tokens on a line that suggest a mock/stub/fake/test
 // double is being created or assigned.  At least one boundary pattern must also
 // match for the line to be flagged.
