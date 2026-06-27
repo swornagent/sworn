@@ -76,7 +76,8 @@ Proof record generated with correct files_changed.
   "start_commit": "` + startCommit + `",
   "planned_files": ["changed.txt"],
   "test_commands": ["echo ok"],
-  "open_deferrals": ["deferred-feature: not in scope (tracked: issue-DEFER-001, acknowledged: owner)"],  "verification": {"result": "pending"}
+  "open_deferrals": ["postponed-feature: not in scope (tracked: issue-DEFER-001, acknowledged: owner)"],
+  "verification": {"result": "pending"}
 }`
 	statusPath := filepath.Join(dir, "status.json")
 	if err := os.WriteFile(statusPath, []byte(status), 0o644); err != nil {
@@ -123,9 +124,8 @@ Proof record generated with correct files_changed.
 	if len(rec.NotDelivered) != 1 {
 		t.Errorf("not_delivered length = %d, want 1", len(rec.NotDelivered))
 	}
-	if len(rec.NotDelivered) > 0 && !strings.Contains(rec.NotDelivered[0], "deferred-feature") {
-		t.Errorf("not_delivered[0] = %q, want text about deferred-feature", rec.NotDelivered[0])
-	}
+	if len(rec.NotDelivered) > 0 && !strings.Contains(rec.NotDelivered[0], "postponed-feature") {
+		t.Errorf("not_delivered[0] = %q, want text about postponed-feature", rec.NotDelivered[0])	}
 }
 
 func TestFilesChangedFromGit_FallbackToStatus(t *testing.T) {
