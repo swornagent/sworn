@@ -10,10 +10,12 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"path/filepath"
 	"syscall"
 	"time"
-)
 
+	"github.com/swornagent/sworn/internal/db"
+)
 // State constants for the tracks table.
 const (
 	StatePlanned = "planned"
@@ -243,4 +245,47 @@ func pidAlive(pid int) bool {
 		return false
 	}
 	return syscall.Kill(pid, syscall.Signal(0)) == nil
+}
+
+// Open opens (or creates) the SQLite database for the supervisor event store
+// at .sworn/supervisor-<release>.db under workspaceRoot. It applies schema
+// migrations (events table) and enables WAL mode. Returns the database handle.
+func Open(release, workspaceRoot string) (*sql.DB, error) {
+	dbPath := filepath.Join(workspaceRoot, ".sworn", "supervisor-"+release+".db")
+	return db.Open(dbPath)
+}
+
+// Event is a single row from the events table.
+type Event struct {
+	ID      int64  `json:"id"`
+	TrackID string `json:"track_id"`
+	Release string `json:"release"`
+	Event   string `json:"event"`
+	Detail  string `json:"detail"`
+	TS      string `json:"ts"`
+}
+
+// QueryEvents returns all events for the given release from the database.
+func QueryEvents(database *sql.DB, release string) ([]Event, error) {
+	rows, err := database.Query(
+		`SELECT id, track_id, release, event, detail, ts FROM events WHERE release = ? ORDER BY id`,
+		release,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("supervisor: query events: %w", err)
+	}
+	defer rows.Close()
+
+	var events []Event
+	for rows.Next() {
+		var e Event
+		if err := rows.Scan(&e.ID, &e.TrackID, &e.Release, &e.Event, &e.Detail, &e.TS); err != nil {
+			return events, fmt.Errorf("supervisor: scan event: %w", err)
+		}
+		events = append(events, e)
+	}
+	if err := rows.Err(); err != nil {
+		return events, fmt.Errorf("supervisor: iterate events: %w", err)
+	}
+	return events, nil
 }
