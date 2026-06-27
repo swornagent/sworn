@@ -31,9 +31,9 @@ tracks:
   - id: T5-role-ontology
     slices: [S18-orchestrator-formalized, S19-captain-split, S20-role-revendor, S21-sworn-run-task]
     depends_on: T6-contract-revendor
-    worktree_path: # set by first /implement-slice in this track
+    worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T5-role-ontology
     worktree_branch: track/2026-06-27-conformance-foundation/T5-role-ontology
-    state: planned
+    state: in_progress
   - id: T6-contract-revendor
     slices: [S22-pin-bump, S23-version-centralise-doctor]
     depends_on: null
