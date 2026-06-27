@@ -13,9 +13,8 @@ type driverWithCapabilities struct {
 var capabilityRegistry = []driverWithCapabilities{
 	{Name: "openai", Capabilities: CapVerify | CapChat},
 	{Name: "openai-responses", Capabilities: CapVerify | CapChat},
-	{Name: "anthropic", Capabilities: CapVerify},
-	{Name: "claude-cli", Capabilities: CapVerify},
-	{Name: "azure", Capabilities: CapVerify},
+	{Name: "anthropic", Capabilities: CapVerify | CapChat},
+	{Name: "claude-cli", Capabilities: CapVerify | CapChat}, {Name: "azure", Capabilities: CapVerify},
 	{Name: "bedrock", Capabilities: CapVerify},
 	{Name: "google", Capabilities: CapVerify},
 	{Name: "vertex", Capabilities: CapVerify},

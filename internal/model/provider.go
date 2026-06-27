@@ -78,6 +78,7 @@ func ollamaHost() string {
 // that has not yet been implemented. Some drivers (e.g. codex) are not yet
 // available; see S63-deferral-1.
 var ErrDriverNotImplemented = constErr("driver not implemented (not yet available; see slices S11-S16)")
+
 // NewClient dispatches a model ID like "openai/gpt-4o" or "groq/llama-3.3-70b"
 // to the correct driver. OAI-compat providers get an &OAI{} with the correct
 // base URL preset. Native drivers return an appropriate implementation. Model

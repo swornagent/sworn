@@ -15,16 +15,14 @@ func TestCapabilities_AllDrivers(t *testing.T) {
 		// Chat-capable drivers.
 		{name: "OAI", cp: &OAI{}, want: CapVerify | CapChat},
 		{name: "OpenAIResponses", cp: &OpenAIResponses{}, want: CapVerify | CapChat},
-
+		{name: "Anthropic", cp: &Anthropic{}, want: CapVerify | CapChat},
+		{name: "cliDriver", cp: &cliDriver{}, want: CapVerify | CapChat},
 		// Verify-only drivers.
-		{name: "Anthropic", cp: &Anthropic{}, want: CapVerify},
-		{name: "cliDriver", cp: &cliDriver{}, want: CapVerify},
 		{name: "AzureOAI", cp: &AzureOAI{}, want: CapVerify},
 		{name: "Bedrock", cp: &Bedrock{}, want: CapVerify},
 		{name: "Google", cp: &Google{}, want: CapVerify},
 		{name: "OCI", cp: &OCI{}, want: CapVerify},
 		{name: "Ollama", cp: &Ollama{}, want: CapVerify},
-
 		// Unconfigured returns 0.
 		{name: "Unconfigured", cp: Unconfigured{}, want: 0},
 	}
@@ -46,6 +44,8 @@ func TestCapabilities_ChatBit(t *testing.T) {
 	chatDrivers := []CapabilityProvider{
 		&OAI{},
 		&OpenAIResponses{},
+		&Anthropic{},
+		&cliDriver{},
 	}
 	for _, cp := range chatDrivers {
 		if cp.Capabilities()&CapChat == 0 {
@@ -55,8 +55,6 @@ func TestCapabilities_ChatBit(t *testing.T) {
 
 	// Drivers that must NOT have Chat set.
 	noChatDrivers := []CapabilityProvider{
-		&Anthropic{},
-		&cliDriver{},
 		&AzureOAI{},
 		&Bedrock{},
 		&Google{},

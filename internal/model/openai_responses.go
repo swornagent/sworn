@@ -42,6 +42,7 @@ type OpenAIResponses struct {
 // Capabilities returns CapVerify | CapChat — the OpenAIResponses driver
 // supports both single-shot verification and multi-turn chat via /v1/responses.
 func (o *OpenAIResponses) Capabilities() Capability { return CapVerify | CapChat }
+
 // NewOpenAIResponses constructs an OpenAIResponses driver.
 // apiKey must be non-empty. ReasoningEffort defaults to "medium" if empty.
 // UseWebSearch defaults to false unless SWORN_OPENAI_RESPONSES_USE_WEB_SEARCH

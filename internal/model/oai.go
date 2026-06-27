@@ -94,7 +94,8 @@ type ChatResponse struct {
 		} `json:"message"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
-	Usage *UsageBlock `json:"usage"`
+	Usage   *UsageBlock `json:"usage"`
+	CostUSD float64     `json:"-"` // computed by driver from Usage × pricing
 }
 
 // ToolCall is a single tool invocation the model requests in a response.
@@ -116,6 +117,12 @@ type UsageBlock struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+	// InputTokens / OutputTokens are provider-agnostic aliases for drivers
+	// whose native response shape uses different field names (e.g. Anthropic's
+	// input_tokens / output_tokens). OAI-derived drivers populate both sets;
+	// native drivers populate only InputTokens/OutputTokens.
+	InputTokens  int `json:"input_tokens,omitempty"`
+	OutputTokens int `json:"output_tokens,omitempty"`
 }
 
 // modelPricing maps a model ID to USD per 1M tokens. A model not in the table
@@ -150,7 +157,8 @@ var modelPricing = map[string]struct {
 // single-shot verification and multi-turn chat.
 func (c *OAI) Capabilities() Capability { return CapVerify | CapChat }
 
-func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {	reqBody := chatRequest{
+func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
+	reqBody := chatRequest{
 		Model: c.Model,
 		Messages: []ChatMessage{
 			{Role: "system", Content: systemPrompt},

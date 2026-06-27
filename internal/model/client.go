@@ -44,6 +44,7 @@ func (Unconfigured) Verify(context.Context, string, string) (string, float64, er
 
 // Capabilities returns 0 — the unconfigured driver has no capabilities.
 func (Unconfigured) Capabilities() Capability { return 0 }
+
 // ErrNotConfigured signals no verifier model/key was provided.
 var ErrNotConfigured = constErr("verifier model not configured (pass --verifier-model and the provider key)")
 

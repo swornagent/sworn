@@ -38,15 +38,15 @@ func NewAnthropic(modelID, apiKey string) (*Anthropic, error) {
 	}, nil
 }
 
-
-	// Capabilities returns CapVerify — the Anthropic driver supports single-shot
-	// verification. Chat support is deferred to S10-agentic-chat-anthropic.
-	func (a *Anthropic) Capabilities() Capability { return CapVerify }
+// Capabilities returns CapVerify | CapChat — the Anthropic driver supports both
+// single-shot verification and multi-turn chat (S10-agentic-chat-anthropic).
+func (a *Anthropic) Capabilities() Capability { return CapVerify | CapChat }
 
 // Verify sends the system prompt as a system message and userPayload as a
 // single user turn to the Anthropic Messages API. It returns the text from
 // the first text content block, the compute cost in USD, or an error.
-func (a *Anthropic) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {	msg, err := a.Client.Messages.New(ctx, anthropic.MessageNewParams{
+func (a *Anthropic) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
+	msg, err := a.Client.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     anthropic.Model(a.Model),
 		MaxTokens: a.MaxTokens,
 		System: []anthropic.TextBlockParam{
@@ -78,11 +78,86 @@ func (a *Anthropic) Verify(ctx context.Context, systemPrompt, userPayload string
 	// (no tools); the only content we care about is type "text".
 	for _, block := range msg.Content {
 		if block.Type == "text" {
-			cost := computeAnthropicCost(a.Model, msg.Usage)
+			cost := ComputeCost(a.Model, int(msg.Usage.InputTokens), int(msg.Usage.OutputTokens))
 			return block.Text, cost, nil
 		}
 	}
 	return "", 0, fmt.Errorf("model: no text content in Anthropic response")
+}
+
+// Chat sends a multi-message conversation to the Anthropic Messages API.
+// System messages are extracted and sent via the System parameter; user and
+// assistant messages are mapped to the Messages array. Tool definitions are
+// accepted for interface compatibility but not passed to the API (Anthropic
+// tool-use is deferred — see S10 spec out-of-scope).
+//
+// The returned ChatResponse carries the first text block as content, actual
+// token counts in Usage.InputTokens / Usage.OutputTokens, and a computed
+// CostUSD from the Pricing table (not always 0).
+func (a *Anthropic) Chat(ctx context.Context, messages []ChatMessage, tools []ToolDef) (*ChatResponse, error) {
+	// Separate system messages from user/assistant messages.
+	var systemBlocks []anthropic.TextBlockParam
+	var msgParams []anthropic.MessageParam
+
+	for _, m := range messages {
+		switch m.Role {
+		case "system":
+			systemBlocks = append(systemBlocks, anthropic.TextBlockParam{Text: m.Content})
+		case "user":
+			msgParams = append(msgParams,
+				anthropic.NewUserMessage(anthropic.NewTextBlock(m.Content)))
+		case "assistant":
+			msgParams = append(msgParams,
+				anthropic.NewAssistantMessage(anthropic.NewTextBlock(m.Content)))
+			// Other roles (tool, etc.) are silently skipped — Anthropic
+			// tool-use is deferred (S10 out-of-scope).
+		}
+	}
+
+	msg, err := a.Client.Messages.New(ctx, anthropic.MessageNewParams{
+		Model:     anthropic.Model(a.Model),
+		MaxTokens: a.MaxTokens,
+		System:    systemBlocks,
+		Messages:  msgParams,
+	})
+	if err != nil {
+		if code, ok := anthropicStatusCode(err); ok {
+			return nil, NewProviderError(code, "anthropic", a.Model, nil)
+		}
+		return nil, fmt.Errorf("model: anthropic chat dispatch: %w", err)
+	}
+
+	// Extract the first text block.
+	for _, block := range msg.Content {
+		if block.Type == "text" {
+			inputTokens := int(msg.Usage.InputTokens)
+			outputTokens := int(msg.Usage.OutputTokens)
+			return &ChatResponse{
+				Choices: []struct {
+					Message struct {
+						Content   string     `json:"content"`
+						ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+					} `json:"message"`
+					FinishReason string `json:"finish_reason"`
+				}{
+					{
+						Message: struct {
+							Content   string     `json:"content"`
+							ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+						}{Content: block.Text},
+						FinishReason: string(msg.StopReason),
+					},
+				},
+				Usage: &UsageBlock{
+					InputTokens:  inputTokens,
+					OutputTokens: outputTokens,
+					TotalTokens:  inputTokens + outputTokens,
+				},
+				CostUSD: ComputeCost(a.Model, inputTokens, outputTokens),
+			}, nil
+		}
+	}
+	return nil, fmt.Errorf("model: no text content in Anthropic chat response")
 }
 
 // anthropicStatusCode extracts the HTTP status code from an anthropic-sdk-go
@@ -108,28 +183,4 @@ func anthropicStatusCode(err error) (int, bool) {
 		return 0, false
 	}
 	return code, true
-}
-
-// anthropicPricing maps model IDs to USD per 1M tokens.
-// Prices sourced from Anthropic's public pricing page (2026-06-23 snapshot).
-// Unknown claude-* models get zero cost (same posture as OAI).
-var anthropicPricing = map[string]struct {
-	inputPricePer1M  float64
-	outputPricePer1M float64
-}{
-	"claude-opus-4-8":   {15.00, 75.00},
-	"claude-sonnet-4-6": {3.00, 15.00},
-	"claude-haiku-4-5":  {1.00, 5.00},
-}
-
-// computeAnthropicCost returns the USD cost for a verify call from token
-// counts. Returns 0 for unknown models (the caller still received a verdict).
-func computeAnthropicCost(model string, usage anthropic.Usage) float64 {
-	p, ok := anthropicPricing[model]
-	if !ok {
-		return 0
-	}
-	inputCost := float64(usage.InputTokens) / 1_000_000 * p.inputPricePer1M
-	outputCost := float64(usage.OutputTokens) / 1_000_000 * p.outputPricePer1M
-	return inputCost + outputCost
 }
