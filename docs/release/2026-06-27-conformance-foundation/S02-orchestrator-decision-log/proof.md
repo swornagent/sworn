@@ -25,6 +25,7 @@ internal/scheduler/worker.go
 internal/supervisor/decisions.go
 internal/supervisor/decisions_test.go
 ```
+
 ## Test results
 
 ### Go (unit)
@@ -45,11 +46,11 @@ PASS
 ok  	github.com/swornagent/sworn/internal/supervisor	0.008s
 ```
 
-### Go (full supervisor)
+### Go (full supervisor suite)
 
 ```
 $ go test ./internal/supervisor/... -v
-<all 14 tests pass — see full output in test run>
+(all 14 tests pass)
 PASS
 ok  	github.com/swornagent/sworn/internal/supervisor	0.386s
 ```
@@ -83,12 +84,11 @@ None — all five acceptance checks are delivered.
 
 - The `RecordDecision` and `RecordTriage` functions accept string parameters (action, reason) rather than the full `SliceDecision` / `triage.Output` structs. This avoids a circular import: `supervisor` cannot import `scheduler` (which already imports `supervisor`). The callers unwrap the struct fields at the call site. No loss of fidelity.
 - `RecordTriage` is called inside `internal/run/slice.go` rather than `internal/scheduler/worker.go` (the spec says both calls are in worker.go). This is a structural necessity: `triage.Decide()` is called inside `RunSlice`, and the DB handle is plumbed via `RunSliceOptions.DB`. The intent (record every triage output) is unchanged.
-- `start_commit` is set to `release-wt/2026-06-27-conformance-foundation` (track branch base) — the verifier's diff will include S01's changes plus S02's additions in this track.
 
 ## First-pass script output
 
 ```
-$ $HOME/.claude/bin/release-verify.sh S02-orchestrator-decision-log 2026-06-27-conformance-foundation
+$ PLAYWRIGHT_OPTIN=0 release-verify.sh S02-orchestrator-decision-log 2026-06-27-conformance-foundation
 
 == Slice artefacts ==
   PASS  slice folder exists
@@ -101,22 +101,33 @@ $ $HOME/.claude/bin/release-verify.sh S02-orchestrator-decision-log 2026-06-27-c
 == Status ==
   PASS  status.json is valid JSON
   state: implemented
+  PASS  state is 'implemented' (eligible for verifier review)
 
 == Integration branch drift ==
   PASS  worktree branch is current with release/v0.1.0 (no drift)
 
 == Diff vs start_commit (verifier base) ==
-  <will be populated after commit>
+  diff base: start_commit f1744f6d7b29265b786da7c3597cc224ab12291a
+  PASS  11 file(s) changed vs diff base
 
 == Dark-code markers in changed files ==
-  <will be populated after commit>
+  PASS  no dark-code markers in changed source files
 
 == Proof bundle structural checks ==
-  <will be populated after commit>
+  PASS  proof.md has all 7 required sections
+  PASS  no template placeholders
+  PASS  Not delivered deferrals carry non-placeholder tracking refs
+  PASS  Files changed count (11) consistent with diff vs start_commit (11)
 
 == Frontmatter YAML safety ==
   PASS  spec.md frontmatter is strict-YAML safe
 
 == Test results section scope ==
-  PASS  Test results section references expected test commands
+  PASS  Test results section contains no Playwright runner output
+
+== First-pass verdict ==
+  checks passed: 23
+  checks failed: 0
+
+FIRST-PASS PASS
 ```
