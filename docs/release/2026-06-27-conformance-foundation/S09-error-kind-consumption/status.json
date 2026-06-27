@@ -3,12 +3,14 @@
   "slice_id": "S09-error-kind-consumption",
   "release": "2026-06-27-conformance-foundation",
   "track": "T2-model-layer",
-  "covers_needs": ["N-18"],
-  "state": "planned",
+  "covers_needs": [
+    "N-18"
+  ],
+  "state": "in_progress",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-27T00:00:00Z",
-  "start_commit": null,
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-06-27T23:00:52Z",
+  "start_commit": "11bc26f695b09e4eede4f4677e99c7faaf65c7d5",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S09-error-kind-consumption/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S09-error-kind-consumption/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S09-error-kind-consumption/journal.md",
@@ -17,7 +19,9 @@
     "internal/model/errors.go"
   ],
   "actual_files": [],
-  "test_commands": ["go test ./internal/run/... -v -run TestTerminalError"],
+  "test_commands": [
+    "go test ./internal/run/... -v -run TestTerminalError"
+  ],
   "reachability_artifacts": [],
   "open_deferrals": [],
   "verification": {
