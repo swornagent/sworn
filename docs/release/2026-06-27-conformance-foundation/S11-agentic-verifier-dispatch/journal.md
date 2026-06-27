@@ -27,3 +27,27 @@
 ### State transition
 
 `planned → in_progress → implemented`
+
+---
+
+## Verifier verdicts received
+
+### Verdict 1 — FAIL (2026-07-24T00:00:00Z)
+
+FAIL
+
+Slice: `S11-agentic-verifier-dispatch`
+
+Violations:
+1. Gate 3 — Missing required integration test: spec requires `internal/run/slice_test.go` — "add scenario: no proof bundle → RunSlice returns BLOCKED before verifier dispatch". This test does not exist. The `TestSliceNoProof` test command in `status.json` returns "no tests to run."
+   Evidence: `go test ./internal/run/... -v -run TestSliceNoProof` returns 0 tests
+
+2. Gate 7 — AC4 (Verification.Model fix) partially satisfied: `st.Verification.Model` writes `implModelID` in three non-PASS paths, violating AC4 which states "`st.Verification.Model` in the written status.json MUST equal the verifier model ID, not the implementer model ID":
+   - `internal/run/slice.go:400`: proof-blocked path writes `stBlk.Verification.Model = implModelID`
+   - `internal/run/slice.go:535`: agentic-BLOCKED path writes `st.Verification.Model = implModelID`
+   - `internal/run/slice.go:576`: halted-FAIL path writes `st.Verification.Model = lastImplModel`
+   The PASS path (line 490) correctly uses `opts.VerifierModel`.
+
+Required to address:
+1. Add integration test in `internal/run/slice_test.go` for no-proof → BLOCKED scenario
+2. Replace `implModelID`/`lastImplModel` with `opts.VerifierModel` on lines 400, 535, and 576 of `internal/run/slice.go`
