@@ -130,8 +130,8 @@ tracks:
 | `S10-agentic-chat-anthropic` | T2 | The native Anthropic driver supports agentic Chat; a keyless run via claude-cli is a valid implementer path; cost is populated from real token counts (not always 0) | planned | [spec](./S10-agentic-chat-anthropic/spec.md) | — |
 | `S11-agentic-verifier-dispatch` | T3 | The engine dispatches the agentic verifier.md role (test-re-running, live-repo) for the verify step; verifier_was_fresh_context is set honestly; Verification.Model records the actual model used | planned | [spec](./S11-agentic-verifier-dispatch/spec.md) | — |
 | `S12-first-pass-demote` | T3 | The stateless LLM judge is demoted to a labelled deterministic first-pass (structure/mock/dark-code checks only); it no longer drives the slice to `verified`; verifier.md is re-vendored from canonical | planned | [spec](./S12-first-pass-demote/spec.md) | — |
-| `S13-schema-embed-validate` | T4 | All baton schemas (*-v1.json) are embedded in the binary; every record write validates against its schema; missing/invalid records fail closed; example.com $schema placeholder replaced | verified | [spec](./S13-schema-embed-validate/spec.md) | [proof](./S13-schema-embed-validate/proof.md) || `S14-board-json` | T4 | board.json is the oracle's source of truth; the oracle renders/drifts index.md from board.json; existing releases auto-migrate board.json from index.md frontmatter on first oracle read | planned | [spec](./S14-board-json/spec.md) | — |
-| `S15-spec-proof-records` | T4 | spec.json (spec-v1) and proof.json (proof-v1) records are emitted and validated; proof sections (delivered, not_delivered, divergence, reachability) are derived from live ACs and state, not constant boilerplate | planned | [spec](./S15-spec-proof-records/spec.md) | — |
+| `S13-schema-embed-validate` | T4 | All baton schemas (*-v1.json) are embedded in the binary; every record write validates against its schema; missing/invalid records fail closed; example.com $schema placeholder replaced | verified | [spec](./S13-schema-embed-validate/spec.md) | [proof](./S13-schema-embed-validate/proof.md) |
+| `S14-board-json` | T4 | board.json is the oracle's source of truth; the oracle renders/drifts index.md from board.json; existing releases auto-migrate board.json from index.md frontmatter on first oracle read | verified | [spec](./S14-board-json/spec.md) | [proof](./S14-board-json/proof.md) || `S15-spec-proof-records` | T4 | spec.json (spec-v1) and proof.json (proof-v1) records are emitted and validated; proof sections (delivered, not_delivered, divergence, reachability) are derived from live ACs and state, not constant boilerplate | planned | [spec](./S15-spec-proof-records/spec.md) | — |
 | `S16-journeys-attestations-align` | T4 | journeys-v1 and attestations-v1 records align to canonical nested shapes; $schema field populated; validate-on-write enabled; both writers fail closed on invalid data | planned | [spec](./S16-journeys-attestations-align/spec.md) | — |
 | `S17-journeys-declare` | T4 | Three Rule-10 critical journeys (keyless-full-loop, loop-verifier-negative, ship-a-release) are declared in .sworn/journeys.json and human-ratified; entitlement/credits no-mock boundary declared | planned | [spec](./S17-journeys-declare/spec.md) | — |
 | `S18-orchestrator-formalized` | T5 | The Orchestrator role is formally specified as a Sworn-side artefact in docs/baton/; the deterministic-vs-agentic design choice is recorded as a Type-1 decision in status.json | planned | [spec](./S18-orchestrator-formalized/spec.md) | — |
@@ -159,10 +159,10 @@ tracks:
 
 ## Aggregate state
 
-- Planned: 25
+- Planned: 24
 - In progress: 0
 - Implemented (awaiting verification): 1 (S27-parallel-dispatch-fix)
-- Verified (awaiting merge): 1 (S13-schema-embed-validate)
+- Verified (awaiting merge): 2 (S13-schema-embed-validate, S14-board-json)
 - Failed verification: 0
 - Deferred: 0
 - Shipped: 0
