@@ -3,12 +3,14 @@
   "slice_id": "S18-orchestrator-formalized",
   "release": "2026-06-27-conformance-foundation",
   "track": "T5-role-ontology",
-  "covers_needs": ["N-20"],
+  "covers_needs": [
+    "N-20"
+  ],
   "state": "in_progress",
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-25T00:00:00Z",
-  "start_commit": null,
+  "start_commit": "993a4332cf5d40d035ab22e7bb8fa0a01e4acc92",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S18-orchestrator-formalized/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S18-orchestrator-formalized/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S18-orchestrator-formalized/journal.md",
