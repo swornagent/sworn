@@ -8,7 +8,7 @@
     "N-06",
     "N-07"
   ],
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-24T00:00:00Z",
@@ -22,13 +22,23 @@
     "internal/gate/mock.go",
     "cmd/sworn/verify.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/run/slice.go",
+    "internal/verify/verify.go",
+    "internal/verify/verify_agentic_test.go",
+    "internal/verify/verify_test.go",
+    "internal/gate/mock.go",
+    "cmd/sworn/verify.go"
+  ],
   "test_commands": [
     "go test ./internal/verify/... -v -run TestAgentic",
+    "go test ./internal/verify/... -v -run TestCheckBoundary",
     "go test ./internal/gate/... -v -run TestMock",
     "go test ./internal/run/... -v -run TestSliceNoProof"
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "sworn verify --agentic --help displays the flag"
+  ],
   "open_deferrals": [
     "True test re-running via tool calls deferred. Why: agentic tool-call infrastructure not in scope for this slice. Tracking: future agentic-tool-calls slice. Acknowledged: Brad, 2026-06-27."
   ],
