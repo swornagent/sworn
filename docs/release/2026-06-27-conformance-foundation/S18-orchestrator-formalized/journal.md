@@ -31,3 +31,25 @@ No subagent dispatches needed — slice is two markdown files with no code chang
 ### Out-of-scope discoveries
 
 None. The `docs/baton/` directory already existed (with README.md, rules/, VERSION); the new `roles/` and `decisions/` directories are net-new and don't overwrite existing files (per spec risk mitigation).
+## Verifier verdicts received
+
+### 2026-06-27T23:43:10Z — PASS (fresh context)
+
+**Verifier session**: fresh, artefact-only. No prior implementer context loaded.
+
+**Gates walked**:
+1. **Gate 1 — User-reachable outcome exists**: PASS. Both `docs/baton/roles/orchestrator.md` (107 lines) and `docs/baton/decisions/orchestrator-model.md` (89 lines) exist and are non-empty. Documentation slice; user reachability is `cat` or file-open.
+2. **Gate 2 — Planned touchpoints match actual changed files**: PASS. Both planned files are in the diff. Slice artefacts (journal, proof, status) + drift-gate index.md merge are expected non-scope noise.
+3. **Gate 3 — Required tests exist and exercise the integration point**: PASS. Both `cat` commands succeed; files are non-empty with substantive content.
+4. **Gate 3b — LLM AC satisfaction check**: SKIPPED (LLM provider not configured; non-blocking).
+5. **Gate 4 — Reachability artefact proves the user path**: PASS. Manual-smoke-step: both files exist, non-empty, contain the Orchestrator role name and Type-1 decision record.
+6. **Gate 5 — No silent deferrals or placeholder logic**: PASS. The single grep hit ("later") is a future-consequence statement ("If the hosted-layer agentic orchestrator is built later..."), not a code deferral.
+7. **Gate 6 — Design conformance**: PASS. No `docs/baton/design-fidelity.json` → non-UI project; gate passes automatically.
+8. **Gate 7 — Claimed scope matches implemented scope**: PASS. All 5 ACs verified against live file content:
+   - AC1: orchestrator.md exists, "Orchestrator" named (27 occurrences), 6 responsibilities, relationship table mapping all 5 Baton roles.
+   - AC2: orchestrator-model.md exists, `**StakeClass:** Type-1` on line 9.
+   - AC3: "deterministic Go engine" as decided option, "Brad Sawyer" as decision-maker, "2026-06-27" as date.
+   - AC4: 5-point rationale rejecting LLM-driven orchestrator option.
+   - AC5: Both files are valid Markdown with YAML frontmatter.
+
+**Verdict**: PASS. Slice verified against commit `b6b40e7b`. Next step: `/implement-slice S19-captain-split 2026-06-27-conformance-foundation`.

@@ -135,8 +135,7 @@ tracks:
 | `S15-spec-proof-records` | T4 | spec.json (spec-v1) and proof.json (proof-v1) records are emitted and validated; proof sections (delivered, not_delivered, divergence, reachability) are derived from live ACs and state, not constant boilerplate | planned | [spec](./S15-spec-proof-records/spec.md) | — |
 | `S16-journeys-attestations-align` | T4 | journeys-v1 and attestations-v1 records align to canonical nested shapes; $schema field populated; validate-on-write enabled; both writers fail closed on invalid data | planned | [spec](./S16-journeys-attestations-align/spec.md) | — |
 | `S17-journeys-declare` | T4 | Three Rule-10 critical journeys (keyless-full-loop, loop-verifier-negative, ship-a-release) are declared in .sworn/journeys.json and human-ratified; entitlement/credits no-mock boundary declared | planned | [spec](./S17-journeys-declare/spec.md) | — |
-| `S18-orchestrator-formalized` | T5 | The Orchestrator role is formally specified as a Sworn-side artefact in docs/baton/; the deterministic-vs-agentic design choice is recorded as a Type-1 decision in status.json | planned | [spec](./S18-orchestrator-formalized/spec.md) | — |
-| `S19-captain-split` | T5 | captain.md is split: design-reviewer.md (Baton Rule-9 surface) and orchestrator-notes.md (Sworn engine mapping); each file references the correct owner | planned | [spec](./S19-captain-split/spec.md) | — |
+| `S18-orchestrator-formalized` | T5 | The Orchestrator role is formally specified as a Sworn-side artefact in docs/baton/; the deterministic-vs-agentic design choice is recorded as a Type-1 decision in status.json | verified | [spec](./S18-orchestrator-formalized/spec.md) | [proof](./S18-orchestrator-formalized/proof.md) || `S19-captain-split` | T5 | captain.md is split: design-reviewer.md (Baton Rule-9 surface) and orchestrator-notes.md (Sworn engine mapping); each file references the correct owner | planned | [spec](./S19-captain-split/spec.md) | — |
 | `S20-role-revendor` | T5 | planner.md, implementer.md, captain.md are re-vendored from canonical post-records-as-JSON; VERSION.txt is bumped to match; run after T6 merges | planned | [spec](./S20-role-revendor/spec.md) | — |
 | `S21-sworn-run-task` | T5 | `sworn run --task "<description>"` dispatches the planner role to draft a concrete-AC spec, then runs implement+verify over that spec; direction C (planner-assist quickstart) | planned | [spec](./S21-sworn-run-task/spec.md) | — |
 | `S22-pin-bump` | T6 | The vendor pin references a canonical HEAD containing the baton/ layout (≥ records-as-JSON); source map coherent with the new pin; re-vendor would succeed | verified | [spec](./S22-pin-bump/spec.md) | [proof](./S22-pin-bump/proof.md) || `S23-version-centralise-doctor` | T6 | VERSION is centralised to a single source; doctor detects SHA-vs-HEAD drift and pre-JSON-prompt pin staleness; both checks fail closed | verified | [spec](./S23-version-centralise-doctor/spec.md) | [proof](./S23-version-centralise-doctor/proof.md) || `S24-dispatch-enrich` | T7 | Dispatch record captures duration_ms, input_tokens, output_tokens, real_cost_usd (from model pricing map), and the model-id confirmed in the response | planned | [spec](./S24-dispatch-enrich/spec.md) | — |
@@ -158,11 +157,10 @@ tracks:
 
 ## Aggregate state
 
-- Planned: 24
+- Planned: 23
 - In progress: 0
 - Implemented (awaiting verification): 1 (S27-parallel-dispatch-fix)
-- Verified (awaiting merge): 2 (S22-pin-bump, S23-version-centralise-doctor)
-- Failed verification: 0
+- Verified (awaiting merge): 3 (S18-orchestrator-formalized, S22-pin-bump, S23-version-centralise-doctor)- Failed verification: 0
 - Deferred: 0
 - Shipped: 0
 
@@ -195,3 +193,9 @@ tracks:
 
 - **Actor**: track integrator (/merge-track)
 - **Note**: 2 verified slices merged: S22-pin-bump, S23-version-centralise-doctor. Track state → merged.
+
+### 2026-06-27 — S18-orchestrator-formalized verified (commit b6b40e7)
+
+- **Actor**: verifier (/verify-slice)
+- **Verdict**: PASS (all 7 gates). Documentation-only slice — `docs/baton/roles/orchestrator.md` and `docs/baton/decisions/orchestrator-model.md` created.
+- **Next**: `/implement-slice S19-captain-split 2026-06-27-conformance-foundation`
