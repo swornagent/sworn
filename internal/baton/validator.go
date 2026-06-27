@@ -19,6 +19,12 @@ const SchemaURI = "https://baton.sawy3r.net/schemas/slice-status-v1.json"
 // BoardSchemaURI is the canonical $schema URI for board-v1.json.
 const BoardSchemaURI = "https://baton.sawy3r.net/schemas/board-v1.json"
 
+// SpecSchemaURI is the canonical $schema URI for spec-v1.json.
+const SpecSchemaURI = "https://baton.sawy3r.net/schemas/spec-v1.json"
+
+// ProofSchemaURI is the canonical $schema URI for proof-v1.json.
+const ProofSchemaURI = "https://baton.sawy3r.net/schemas/proof-v1.json"
+
 // requiredFields lists the top-level string fields that must be present
 // and non-empty in every status.json payload.
 var requiredFields = []string{"slice_id", "release", "track", "state"}
@@ -64,6 +70,10 @@ func Validate(schemaName string, data []byte) error {
 		return validateSliceStatus(data)
 	case "board-v1":
 		return validateBoard(data)
+	case "spec-v1":
+		return validateSpec(data)
+	case "proof-v1":
+		return validateProof(data)
 	default:
 		return fmt.Errorf("validator: no validation rules for schema %q", schemaName)
 	}
@@ -214,5 +224,116 @@ func validateBoard(data []byte) error {
 		}
 	}
 
+	return nil
+}
+
+// validateSpec validates data against the spec-v1 schema.
+func validateSpec(data []byte) error {
+	var m map[string]interface{}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return fmt.Errorf("validator: invalid JSON: %w", err)
+	}
+
+	if len(m) == 0 {
+		return fmt.Errorf("validator: empty object — required fields missing: schema_version, slice_id, release")
+	}
+
+	// schema_version must be 1.
+	sv, ok := m["schema_version"]
+	if !ok {
+		return fmt.Errorf("validator: missing required field \"schema_version\"")
+	}
+	var svInt int
+	switch v := sv.(type) {
+	case float64:
+		svInt = int(v)
+	case int:
+		svInt = v
+	default:
+		return fmt.Errorf("validator: schema_version must be a number, got %T", sv)
+	}
+	if svInt != 1 {
+		return fmt.Errorf("validator: schema_version must be 1, got %d", svInt)
+	}
+
+	// slice_id must be present and non-empty.
+	if err := checkNonEmptyString(m, "slice_id"); err != nil {
+		return err
+	}
+
+	// release must be present and non-empty.
+	if err := checkNonEmptyString(m, "release"); err != nil {
+		return err
+	}
+
+	// $schema must be the canonical spec URI if present.
+	if schema, ok := m["$schema"]; ok {
+		if s, isStr := schema.(string); isStr && s != SpecSchemaURI && s != "" {
+			return fmt.Errorf("validator: $schema must be %q, got %q", SpecSchemaURI, s)
+		}
+	}
+
+	return nil
+}
+
+// validateProof validates data against the proof-v1 schema.
+func validateProof(data []byte) error {
+	var m map[string]interface{}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return fmt.Errorf("validator: invalid JSON: %w", err)
+	}
+
+	if len(m) == 0 {
+		return fmt.Errorf("validator: empty object — required fields missing: schema_version, slice_id, release")
+	}
+
+	// schema_version must be 1.
+	sv, ok := m["schema_version"]
+	if !ok {
+		return fmt.Errorf("validator: missing required field \"schema_version\"")
+	}
+	var svInt int
+	switch v := sv.(type) {
+	case float64:
+		svInt = int(v)
+	case int:
+		svInt = v
+	default:
+		return fmt.Errorf("validator: schema_version must be a number, got %T", sv)
+	}
+	if svInt != 1 {
+		return fmt.Errorf("validator: schema_version must be 1, got %d", svInt)
+	}
+
+	// slice_id must be present and non-empty.
+	if err := checkNonEmptyString(m, "slice_id"); err != nil {
+		return err
+	}
+
+	// release must be present and non-empty.
+	if err := checkNonEmptyString(m, "release"); err != nil {
+		return err
+	}
+
+	// $schema must be the canonical proof URI if present.
+	if schema, ok := m["$schema"]; ok {
+		if s, isStr := schema.(string); isStr && s != ProofSchemaURI && s != "" {
+			return fmt.Errorf("validator: $schema must be %q, got %q", ProofSchemaURI, s)
+		}
+	}
+
+	return nil
+}
+
+// checkNonEmptyString verifies that m[f] is a non-empty string.
+func checkNonEmptyString(m map[string]interface{}, f string) error {
+	v, ok := m[f]
+	if !ok {
+		return fmt.Errorf("validator: missing required field %q", f)
+	}
+	s, ok := v.(string)
+	if !ok || strings.TrimSpace(s) == "" {
+		return fmt.Errorf("validator: field %q must be a non-empty string", f)
+	}
 	return nil
 }

@@ -20,10 +20,24 @@ var SliceStatusV1 []byte
 //go:embed board-v1.json
 var BoardV1 []byte
 
+// SpecV1 is the canonical spec-v1.json schema, embedded at build time.
+// It validates every spec.json written by the implementer.
+//
+//go:embed spec-v1.json
+var SpecV1 []byte
+
+// ProofV1 is the canonical proof-v1.json schema, embedded at build time.
+// It validates every proof.json written by the implementer.
+//
+//go:embed proof-v1.json
+var ProofV1 []byte
+
 // SchemaMap maps a short schema name (e.g. "slice-status-v1") to its
 // embedded bytes. Callers use this to look up the schema by the name
 // they store in the $schema field.
 var SchemaMap = map[string][]byte{
 	"slice-status-v1": SliceStatusV1,
 	"board-v1":        BoardV1,
+	"spec-v1":         SpecV1,
+	"proof-v1":        ProofV1,
 }
