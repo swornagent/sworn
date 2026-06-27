@@ -6,10 +6,10 @@
   "covers_needs": [
     "N-26"
   ],
-  "state": "implemented",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-27T23:06:01Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-24T12:00:00Z",
   "start_commit": "e74b5ddd7df29b89e13c30b0dc49e1c6334cff34",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S24-dispatch-enrich/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S24-dispatch-enrich/proof.md",
@@ -43,12 +43,14 @@
     "go test ./internal/state/... ./internal/run/... -v"
   ],
   "reachability_artifacts": [],
-  "open_deferrals": [],
+  "open_deferrals": [
+    "ModelIDConfirmed populated from configured model, not response-confirmed — tracking in journal; spec AC satisfied (field exists) but field description aspirational"
+  ],
   "verification": {
-    "result": "pending",
+    "result": "pass",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-07-24T12:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
   }
 }

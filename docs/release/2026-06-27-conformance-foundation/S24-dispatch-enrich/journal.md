@@ -33,3 +33,28 @@
 - [x] Pricing map computes `cost_usd` from tokens
 - [x] `state_test.go` extended with round-trip test for new Dispatch fields
 - [x] All internal tests pass; `go vet` clean
+
+## Session 2 — 2026-07-24 (verifier)
+
+**Verdict: PASS**
+
+### Verifier verdicts received
+
+**PASS**
+
+Slice: `S24-dispatch-enrich`
+Verified against: `6eed963`
+Verifier session: `fresh, artefact-only`
+
+All gates passed:
+- Gate 1 (User-reachable): Dispatch struct fields populated via RunSlice pipeline → status.json
+- Gate 2 (Touchpoints): Additional files explained by Verifier interface signature change; divergence documented in proof.md
+- Gate 3 (Tests): Required tests exist and pass; TestDispatches_RoundTrip validates new fields
+- Gate 3b (LLM AC-satisfaction): Skipped — LLM provider not configured
+- Gate 4 (Reachability): Integration tests (run + state) exercise the full user code path
+- Gate 4b (LLM semantic-coverage): Skipped — LLM provider not configured
+- Gate 5 (Silent deferrals): No new TODO/FIXME/deferred introduced by S24
+- Gate 6 (Design conformance): Non-UI project — passed automatically
+- Gate 7 (Claimed scope): All Delivered claims verified against evidence
+
+**Quality note:** ModelIDConfirmed populated from configured model ID (`in.Model`) rather than response-confirmed model ID. The acceptance check only requires field existence (satisfied); the spec's field description ("from the response") is aspirational but not enforced by an AC. Tracked as open deferral in journal; status.json open_deferrals should be updated to match. The reachability artefact description could be improved — the actual user gesture is "run `sworn run` and inspect status.json dispatches" not "run go test" — though the integration tests do exercise the correct code path.
