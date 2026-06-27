@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -18,10 +19,10 @@ import (
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/orchestrator"
 	"github.com/swornagent/sworn/internal/state"
+	"github.com/swornagent/sworn/internal/supervisor"
 	"github.com/swornagent/sworn/internal/verdict"
 	"github.com/swornagent/sworn/internal/verify"
 )
-
 // DefaultImplementTimeout is the per-attempt deadline applied to the implement
 // step inside RunSlice when no explicit timeout is configured. 15 minutes is
 // generous enough for most implement steps but prevents a hung agent from
@@ -78,8 +79,11 @@ type RunSliceOptions struct {
 	// clean verdict, the interpreter classifies it with a bounded cheap-model
 	// call. If nil, the existing VerifierModel's client is used as a fallback.
 	InterpretVerifier model.Verifier
-}
 
+	// DB is the supervisor database handle. When non-nil, RunSlice records
+	// triage decisions via supervisor.RecordTriage (S02-orchestrator-decision-log).
+	DB *sql.DB
+}
 // Notifier is the one-method seam for dispatching FAIL/BLOCKED notifications.
 // *account.Notifier satisfies it; tests supply fakes. Declared in the consumer
 // package (internal/run) rather than account so the test injection point lives
@@ -136,10 +140,13 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		return fmt.Errorf("RunSlice: start_commit not set in %s", statusPath)
 	}
 
+	// Capture release and slice ID for decision-log writes (S02).
+	releaseName := st.Release
+	sliceID := st.SliceID
+
 	// ── Build escalation list ─────────────────────────────────────────
 	escalationModels := opts.EscalationModels
-	if opts.ImplementerModel != "" {
-		escalationModels = append([]string{opts.ImplementerModel}, escalationModels...)
+	if opts.ImplementerModel != "" {		escalationModels = append([]string{opts.ImplementerModel}, escalationModels...)
 	}
 	if len(escalationModels) == 0 {
 		escalationModels = DefaultEscalationModels
@@ -341,8 +348,12 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 				MaxResolves:    maxResolves,
 			})
 			fmt.Fprintf(os.Stderr, "sworn run: triage (implementer error): %s — %s\n", triageOut.Action, triageOut.Reason)
-			switch triageOut.Action {
-			case orchestrator.ResolveInPlace:
+			// Record triage decision (S02 — decision log). Best-effort (AC4).
+			if opts.DB != nil {
+				_ = supervisor.RecordTriage(opts.DB, releaseName, sliceID,
+					string(triageOut.Action), triageOut.Reason)
+			}
+			switch triageOut.Action {			case orchestrator.ResolveInPlace:
 				resolveCount++
 				priorFeedback = fmt.Sprintf("implementer error: %v", implErr)
 				continue
@@ -493,8 +504,13 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		})
 		fmt.Fprintf(os.Stderr, "sworn run: triage: %s — %s\n", triageOut.Action, triageOut.Reason)
 
-		switch triageOut.Action {
-		case orchestrator.ResolveInPlace:
+		// Record triage decision (S02 — decision log). Best-effort (AC4).
+		if opts.DB != nil {
+			_ = supervisor.RecordTriage(opts.DB, releaseName, sliceID,
+				string(triageOut.Action), triageOut.Reason)
+		}
+
+		switch triageOut.Action {		case orchestrator.ResolveInPlace:
 			// Retry same model with S44 feedback (the verifier's rationale).
 			resolveCount++
 			priorFeedback = lastVerdict.Rationale

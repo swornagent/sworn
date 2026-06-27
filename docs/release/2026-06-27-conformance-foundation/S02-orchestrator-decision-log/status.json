@@ -4,10 +4,10 @@
   "release": "2026-06-27-conformance-foundation",
   "track": "T1-orchestration",
   "covers_needs": ["N-11"],
-  "state": "planned",
+  "state": "implemented",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-27T00:00:00Z",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-06-28T12:00:00Z",
   "start_commit": null,
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S02-orchestrator-decision-log/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S02-orchestrator-decision-log/proof.md",
@@ -18,9 +18,22 @@
     "internal/scheduler/worker.go",
     "cmd/sworn/telemetry.go"
   ],
-  "actual_files": [],
-  "test_commands": ["go test ./internal/supervisor/... -v -run TestDecisions"],
-  "reachability_artifacts": [],
+  "actual_files": [
+    "internal/supervisor/decisions.go",
+    "internal/supervisor/decisions_test.go",
+    "internal/scheduler/worker.go",
+    "internal/run/slice.go",
+    "cmd/sworn/telemetry.go",
+    "cmd/sworn/run.go",
+    "internal/run/run.go",
+    "internal/db/db.go"
+  ],
+  "test_commands": [
+    "go test ./internal/supervisor/... -v -run 'TestRecordDecision|TestRecordTriage|TestQueryDecisions'"
+  ],
+  "reachability_artifacts": [
+    "manual-smoke-step: sworn telemetry decisions --release <name> after a sworn run session"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "pending",

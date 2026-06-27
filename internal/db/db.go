@@ -46,6 +46,15 @@ var schema = []string{
 		detail      TEXT NOT NULL DEFAULT '',
 		ts          TEXT NOT NULL
 	)`,
+	`CREATE TABLE IF NOT EXISTS decisions (
+		id          INTEGER PRIMARY KEY AUTOINCREMENT,
+		slice_id    TEXT NOT NULL,
+		release     TEXT NOT NULL,
+		role        TEXT NOT NULL,
+		action      TEXT NOT NULL,
+		reason      TEXT NOT NULL DEFAULT '',
+		recorded_at TEXT NOT NULL
+	)`,
 }
 
 // Open opens (or creates) the SQLite database at the given path and applies

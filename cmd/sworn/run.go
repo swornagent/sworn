@@ -117,10 +117,10 @@ func cmdRun(args []string) int {
 				RetryCap:         maxAttempts,
 				ImplementTimeout: implementTimeout,
 				Notifier:         notifier,
+				DB:               database,
 			})
 		}
-		err = run.RunParallel(context.Background(), run.ParallelOptions{
-			ReleaseName:   *releaseName,
+		err = run.RunParallel(context.Background(), run.ParallelOptions{			ReleaseName:   *releaseName,
 			WorkspaceRoot: ".",
 			DB:            database,
 			RunSliceFn:    runSliceFn,

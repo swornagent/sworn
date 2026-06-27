@@ -240,10 +240,14 @@ func runTrackRouter(
 		fmt.Fprintf(os.Stderr, "[%s] router: %s → %s (%s)\n",
 			trackID, currentSlice, decision.Type, decision.Reason)
 
+		// Record the routing decision (S02 — decision log). Best-effort:
+		// a decision-log write failure must not abort the run (AC4).
+		_ = supervisor.RecordDecision(opts.DB, opts.ReleaseName, currentSlice,
+			decision.Type, decision.Reason)
+
 		// Advance to the target slice BEFORE dispatching — the router's
 		// Target field tells us which slice the decision applies to.
-		if decision.Target != "" && decision.Target != currentSlice {
-			fmt.Fprintf(os.Stderr, "[%s] advanced to next slice: %s\n", trackID, decision.Target)
+		if decision.Target != "" && decision.Target != currentSlice {			fmt.Fprintf(os.Stderr, "[%s] advanced to next slice: %s\n", trackID, decision.Target)
 			currentSlice = decision.Target
 		}
 
