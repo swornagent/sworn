@@ -97,3 +97,21 @@ None — all acceptance checks satisfied.
 ## First-pass script output
 
 See below (run after proof.md created).
+## First-pass script output
+
+```
+== First-pass verdict ==
+  checks passed: 21
+  checks failed: 1
+
+FIRST-PASS FAIL
+
+  FAIL  dark-code markers found in changed source files (must be Rule 2 deferrals)
+  hits:
+    internal/model/cli.go:
+    1:+	return nil, fmt.Errorf("%w: codex support deferred (S63-deferral-1)", ErrDriverNotImplemented)
+    internal/model/provider.go:
+    3:+		return nil, fmt.Errorf("%w: codex support deferred (S63-deferral-1)", ErrDriverNotImplemented)
+```
+
+The single FAIL is dark-code markers from S63-deferral-1 — pre-existing Rule 2 deferrals (why: "codex support deferred", tracking: "S63-deferral-1", acknowledged: S63 spec). The sentinel rename (`ErrDriverNotRegistered` → `ErrDriverNotImplemented`) touched the surrounding lines but did not introduce or change the deferral. These deferrals existed before this slice and are not in scope for S09. See `journal.md` "Out-of-scope deferrals" and proof.md "Divergence from plan".
