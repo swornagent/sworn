@@ -56,7 +56,7 @@ func TestBedrockVerify_ReturnsText(t *testing.T) {
 	defer srv.Close()
 
 	b := newTestBedrock(srv.URL, "anthropic.claude-sonnet-4-6", "us-east-1")
-	text, cost, err := b.Verify(context.Background(), "be strict", "verify this diff")
+text, cost, _, _, err := b.Verify(context.Background(), "be strict", "verify this diff")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestBedrockVerify_APIError(t *testing.T) {
 	defer srv.Close()
 
 	b := newTestBedrock(srv.URL, "anthropic.claude-sonnet-4-5", "us-east-1")
-	_, _, err := b.Verify(context.Background(), "be strict", "verify this diff")
+_, _, _, _, err := b.Verify(context.Background(), "be strict", "verify this diff")
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
@@ -97,7 +97,7 @@ func TestBedrockVerify_AuthError(t *testing.T) {
 	defer srv.Close()
 
 	b := newTestBedrock(srv.URL, "anthropic.claude-sonnet-4-5", "us-east-1")
-	_, _, err := b.Verify(context.Background(), "be strict", "verify this diff")
+_, _, _, _, err := b.Verify(context.Background(), "be strict", "verify this diff")
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
@@ -195,7 +195,7 @@ func TestBedrockVerify_UnknownModelCostIsZero(t *testing.T) {
 	defer srv.Close()
 
 	b := newTestBedrock(srv.URL, "anthropic.unknown-model", "us-east-1")
-	_, cost, err := b.Verify(context.Background(), "be strict", "verify")
+_, cost, _, _, err := b.Verify(context.Background(), "be strict", "verify")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestBedrockVerify_NonHTTPErrorIsTransient(t *testing.T) {
 	defer srv.Close()
 
 	b := newTestBedrock(srv.URL, "anthropic.claude-sonnet-4-5", "us-east-1")
-	_, _, err := b.Verify(context.Background(), "be strict", "verify this diff")
+_, _, _, _, err := b.Verify(context.Background(), "be strict", "verify this diff")
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
@@ -257,7 +257,7 @@ func TestBedrockVerify_Live(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewBedrock error: %v", err)
 	}
-	text, _, err := b.Verify(context.Background(), "Reply with PASS.", "verify")
+text, _, _, _, err := b.Verify(context.Background(), "Reply with PASS.", "verify")
 	if err != nil {
 		t.Fatalf("Verify error: %v", err)
 	}

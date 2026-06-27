@@ -58,8 +58,8 @@ var _ agent.Agent = (*quickFakeAgent)(nil)
 
 type alwaysPassVerifier struct{}
 
-func (v *alwaysPassVerifier) Verify(_ context.Context, _, _ string) (string, float64, error) {
-	return string(verdict.Pass), 0, nil
+func (v *alwaysPassVerifier) Verify(_ context.Context, _, _ string) (string, float64, int64, int64, error) {
+	return string(verdict.Pass), 0, 0, 0, nil
 }
 
 var _ model.Verifier = (*alwaysPassVerifier)(nil)
@@ -379,12 +379,12 @@ type failThenPassVerifier struct {
 	failReason string
 }
 
-func (v *failThenPassVerifier) Verify(_ context.Context, _, _ string) (string, float64, error) {
+func (v *failThenPassVerifier) Verify(_ context.Context, _, _ string) (string, float64, int64, int64, error) {
 	v.calls++
 	if v.calls == 1 {
-		return v.failReason, 0, nil
+		return v.failReason, 0, 0, 0, nil
 	}
-	return string(verdict.Pass), 0, nil
+	return string(verdict.Pass), 0, 0, 0, nil
 }
 
 var _ model.Verifier = (*failThenPassVerifier)(nil)
@@ -394,8 +394,8 @@ type verdictReplyVerifier struct {
 	expectedReply string
 }
 
-func (v *verdictReplyVerifier) Verify(_ context.Context, _, _ string) (string, float64, error) {
-	return v.expectedReply, 0, nil
+func (v *verdictReplyVerifier) Verify(_ context.Context, _, _ string) (string, float64, int64, int64, error) {
+	return v.expectedReply, 0, 0, 0, nil
 }
 
 var _ model.Verifier = (*verdictReplyVerifier)(nil)

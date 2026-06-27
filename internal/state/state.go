@@ -78,12 +78,15 @@ type ValidationRecord struct {
 // deterministically — downstream consumers (S56) treat 0 as "no signal",
 // never as "free".
 type Dispatch struct {
-	Role    string  `json:"role"`
-	Model   string  `json:"model"`
-	CostUSD float64 `json:"cost_usd"`
-	Attempt int     `json:"attempt"`
+	Role             string  `json:"role"`
+	Model            string  `json:"model"`
+	CostUSD          float64 `json:"cost_usd"`
+	Attempt          int     `json:"attempt"`
+	DurationMS       int64   `json:"duration_ms,omitempty"`
+	InputTokens      int64   `json:"input_tokens,omitempty"`
+	OutputTokens     int64   `json:"output_tokens,omitempty"`
+	ModelIDConfirmed string  `json:"model_id_confirmed,omitempty"`
 }
-
 // Verification holds the per-slice verification record (verdict, session
 // metadata, violations). It mirrors the nested "verification" object in
 // status.json.

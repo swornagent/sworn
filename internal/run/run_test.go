@@ -96,13 +96,13 @@ type fakeVerifier struct {
 	next     int
 }
 
-func (f *fakeVerifier) Verify(_ context.Context, _, _ string) (string, float64, error) {
+func (f *fakeVerifier) Verify(_ context.Context, _, _ string) (string, float64, int64, int64, error) {
 	if f.next >= len(f.verdicts) {
-		return "PASS", 0, nil
+		return "PASS", 0, 0, 0, nil
 	}
 	v := f.verdicts[f.next]
 	f.next++
-	return string(v.Verdict) + ": " + v.Rationale, v.CostUSD, nil
+	return string(v.Verdict) + ": " + v.Rationale, v.CostUSD, 0, 0, nil
 }
 
 var _ model.Verifier = (*fakeVerifier)(nil)
@@ -119,11 +119,11 @@ type textVerifier struct {
 	capture *string
 }
 
-func (v *textVerifier) Verify(_ context.Context, systemPrompt, _ string) (string, float64, error) {
+func (v *textVerifier) Verify(_ context.Context, systemPrompt, _ string) (string, float64, int64, int64, error) {
 	if v.capture != nil {
 		*v.capture = systemPrompt
 	}
-	return v.reply, 0, nil
+	return v.reply, 0, 0, 0, nil
 }
 
 var _ model.Verifier = (*textVerifier)(nil)

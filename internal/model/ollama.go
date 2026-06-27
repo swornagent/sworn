@@ -63,7 +63,7 @@ type ollamaChatResponse struct {
 // Verify sends the system prompt and user payload to Ollama's /api/chat.
 // It returns the model's response text, a cost of 0.0 (Ollama is free), or
 // an error on non-200 status or an "error" field in the JSON response.
-func (o *Ollama) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
+func (o *Ollama) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
 	reqBody := ollamaChatRequest{
 		Model:  o.Model,
 		Stream: false,
@@ -75,13 +75,13 @@ func (o *Ollama) Verify(ctx context.Context, systemPrompt, userPayload string) (
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(reqBody); err != nil {
-		return "", 0, fmt.Errorf("ollama: marshal request: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("ollama: marshal request: %w", err)
 	}
 
 	url := strings.TrimRight(o.Host, "/") + "/api/chat"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &buf)
 	if err != nil {
-		return "", 0, fmt.Errorf("ollama: build request: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("ollama: build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -91,27 +91,27 @@ func (o *Ollama) Verify(ctx context.Context, systemPrompt, userPayload string) (
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", 0, fmt.Errorf("ollama: dispatch: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("ollama: dispatch: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", 0, fmt.Errorf("ollama: read response: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("ollama: read response: %w", err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", 0, fmt.Errorf("ollama: non-ok status %d: %s", resp.StatusCode, string(body))
+		return "", 0, 0, 0, fmt.Errorf("ollama: non-ok status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var cr ollamaChatResponse
 	if err := json.Unmarshal(body, &cr); err != nil {
-		return "", 0, fmt.Errorf("ollama: unmarshal response: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("ollama: unmarshal response: %w", err)
 	}
 
 	if cr.Error != "" {
-		return "", 0, fmt.Errorf("ollama: %s", cr.Error)
+		return "", 0, 0, 0, fmt.Errorf("ollama: %s", cr.Error)
 	}
 
-	return cr.Message.Content, 0, nil
+	return cr.Message.Content, 0, 0, 0, nil
 }

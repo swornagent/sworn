@@ -325,14 +325,13 @@ func TestDispatches_RoundTrip(t *testing.T) {
 			Result: "pass",
 			Model:  "claude-sonnet-4-20250514",
 			Dispatches: []Dispatch{
-				{Role: "implementer", Model: "claude-sonnet-4-20250514", CostUSD: 0.0420, Attempt: 1},
-				{Role: "verifier", Model: "claude-sonnet-4-20250514", CostUSD: 0.0085, Attempt: 1},
-				{Role: "captain", Model: "claude-sonnet-4-20250514", CostUSD: 0.0120, Attempt: 1},
+				{Role: "implementer", Model: "claude-sonnet-4-20250514", CostUSD: 0.0420, Attempt: 1, DurationMS: 4200, InputTokens: 1000, OutputTokens: 500},
+				{Role: "verifier", Model: "claude-sonnet-4-20250514", CostUSD: 0.0085, Attempt: 1, DurationMS: 850, InputTokens: 200, OutputTokens: 100, ModelIDConfirmed: "claude-sonnet-4-20250514"},
+				{Role: "captain", Model: "claude-sonnet-4-20250514", CostUSD: 0.0120, Attempt: 1, DurationMS: 1200},
 			},
 		},
 	}
-	if err := Write(path, &orig); err != nil {
-		t.Fatalf("write: %v", err)
+	if err := Write(path, &orig); err != nil {		t.Fatalf("write: %v", err)
 	}
 
 	got, err := Read(path)
@@ -355,8 +354,24 @@ func TestDispatches_RoundTrip(t *testing.T) {
 	if got.Verification.Dispatches[2].Role != "captain" {
 		t.Errorf("dispatch[2].Role: want captain, got %s", got.Verification.Dispatches[2].Role)
 	}
+	// S24 fields — round-trip preserves new Dispatch fields.
+	if got.Verification.Dispatches[0].DurationMS != 4200 {
+		t.Errorf("dispatch[0].DurationMS: want 4200, got %d", got.Verification.Dispatches[0].DurationMS)
+	}
+	if got.Verification.Dispatches[0].InputTokens != 1000 {
+		t.Errorf("dispatch[0].InputTokens: want 1000, got %d", got.Verification.Dispatches[0].InputTokens)
+	}
+	if got.Verification.Dispatches[0].OutputTokens != 500 {
+		t.Errorf("dispatch[0].OutputTokens: want 500, got %d", got.Verification.Dispatches[0].OutputTokens)
+	}
+	if got.Verification.Dispatches[1].ModelIDConfirmed != "claude-sonnet-4-20250514" {
+		t.Errorf("dispatch[1].ModelIDConfirmed: want claude-sonnet-4-20250514, got %s", got.Verification.Dispatches[1].ModelIDConfirmed)
+	}
+	// Zero-value S24 fields on captain dispatch round-trip correctly.
+	if got.Verification.Dispatches[2].InputTokens != 0 {
+		t.Errorf("dispatch[2].InputTokens: want 0 (zero value), got %d", got.Verification.Dispatches[2].InputTokens)
+	}
 }
-
 func TestDispatches_OmitEmpty(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "status.json")

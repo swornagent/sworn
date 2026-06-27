@@ -15,8 +15,8 @@ type fakeVerifier struct {
 	cost  float64
 }
 
-func (f fakeVerifier) Verify(context.Context, string, string) (string, float64, error) {
-	return f.reply, f.cost, nil
+func (f fakeVerifier) Verify(context.Context, string, string) (string, float64, int64, int64, error) {
+	return f.reply, f.cost, 0, 0, nil
 }
 
 // writeFixture creates a slice spec.md under a temp release directory.
@@ -537,8 +537,8 @@ func TestRun_ModelErrorBlocks(t *testing.T) {
 // errorVerifier returns an error on dispatch, simulating a model failure.
 type errorVerifier struct{}
 
-func (errorVerifier) Verify(context.Context, string, string) (string, float64, error) {
-	return "", 0, fmt.Errorf("model unavailable")
+func (errorVerifier) Verify(context.Context, string, string) (string, float64, int64, int64, error) {
+	return "", 0, 0, 0, fmt.Errorf("model unavailable")
 }
 
 // --- Print / PrintCompact tests ---

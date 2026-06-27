@@ -16,12 +16,12 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/verdict"
 )
-
 // systemPrompt is the sworn-authored stateless judge prompt, vendored at
 // build time via go:embed (internal/prompt). It instructs the model to judge
 // from SPEC+DIFF+PROOF only with a verdict-leading reply — no tools, no repo.
@@ -82,12 +82,17 @@ func Run(ctx context.Context, in Input) verdict.Result {
 	if v == nil {
 		v = model.Unconfigured{}
 	}
-	text, cost, err := v.Verify(ctx, systemPrompt, buildPayload(spec, diff, proof))
+	start := time.Now()
+	text, cost, inputTokens, outputTokens, err := v.Verify(ctx, systemPrompt, buildPayload(spec, diff, proof))
+	durationMS := time.Since(start).Milliseconds()
 	if err != nil {
 		return blocked("verifier_dispatch", err.Error())
 	}
 	result := parseVerdict(text, cost)
-
+	result.DurationMS = durationMS
+	result.InputTokens = inputTokens
+	result.OutputTokens = outputTokens
+	result.ModelIDConfirmed = in.Model // configured model ID; confirmed ID is from the response (set by parseVerdict caller)
 	// Surface declared boundary mocks in the result rationale so the caller
 	// sees them as known deferrals (AC2 — no-mock-boundary).
 	if len(report.DeclaredMocks) > 0 {

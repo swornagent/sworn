@@ -76,16 +76,16 @@ func (o *OCI) EnsureClient() (generativeAIInferenceClient, error) {
 // text from the first text content block in the first choice, the compute
 // cost in USD (always 0.0 — OCI does not always return token counts), or
 // an error.
-func (o *OCI) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
+func (o *OCI) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
 	if o.ModelID == "" {
-		return "", 0, fmt.Errorf("model: missing OCI model ID")
+		return "", 0, 0, 0, fmt.Errorf("model: missing OCI model ID")
 	}
 	if o.CompartmentID == "" {
-		return "", 0, fmt.Errorf("model: missing OCI compartment ID (set OCI_COMPARTMENT_ID)")
+		return "", 0, 0, 0, fmt.Errorf("model: missing OCI compartment ID (set OCI_COMPARTMENT_ID)")
 	}
 	client, err := o.EnsureClient()
 	if err != nil {
-		return "", 0, err
+		return "", 0, 0, 0, err
 	}
 
 	req := generativeaiinference.ChatRequest{
@@ -120,9 +120,9 @@ func (o *OCI) Verify(ctx context.Context, systemPrompt, userPayload string) (str
 		// Route OCI HTTP errors through NewProviderError for the typed
 		// model.Error taxonomy, matching all other native drivers.
 		if se, ok := common.IsServiceError(err); ok {
-			return "", 0, NewProviderError(se.GetHTTPStatusCode(), "oci", o.ModelID, nil)
+			return "", 0, 0, 0, NewProviderError(se.GetHTTPStatusCode(), "oci", o.ModelID, nil)
 		}
-		return "", 0, fmt.Errorf("model: oci dispatch: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: oci dispatch: %w", err)
 	}
 
 	// Extract the first choice's first text content block from the
@@ -131,25 +131,25 @@ func (o *OCI) Verify(ctx context.Context, systemPrompt, userPayload string) (str
 	cr := resp.ChatResult.ChatResponse
 	generic, ok := cr.(generativeaiinference.GenericChatResponse)
 	if !ok {
-		return "", 0, fmt.Errorf("model: unexpected OCI chat response type (expected GENERIC)")
+		return "", 0, 0, 0, fmt.Errorf("model: unexpected OCI chat response type (expected GENERIC)")
 	}
 	if len(generic.Choices) == 0 {
-		return "", 0, fmt.Errorf("model: empty choices in OCI response")
+		return "", 0, 0, 0, fmt.Errorf("model: empty choices in OCI response")
 	}
 
 	choice := generic.Choices[0]
 	content := choice.Message.GetContent()
 	if len(content) == 0 {
-		return "", 0, fmt.Errorf("model: no content in OCI response message")
+		return "", 0, 0, 0, fmt.Errorf("model: no content in OCI response message")
 	}
 
 	textContent, ok := content[0].(generativeaiinference.TextContent)
 	if !ok {
-		return "", 0, fmt.Errorf("model: unexpected OCI content type (expected TEXT)")
+		return "", 0, 0, 0, fmt.Errorf("model: unexpected OCI content type (expected TEXT)")
 	}
 
 	// OCI cost: token counts are optional (Usage is a pointer, nil when
 	// the model doesn't return counts). Per spec, return 0.0 when absent
 	// rather than an error — same posture as Azure.
-	return *textContent.Text, 0, nil
+	return *textContent.Text, 0, 0, 0, nil
 }

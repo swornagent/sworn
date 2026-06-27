@@ -15,8 +15,8 @@ type fakeVerifier struct {
 	cost  float64
 }
 
-func (f fakeVerifier) Verify(context.Context, string, string) (string, float64, error) {
-	return f.reply, f.cost, nil
+func (f fakeVerifier) Verify(context.Context, string, string) (string, float64, int64, int64, error) {
+	return f.reply, f.cost, 0, 0, nil
 }
 
 // capturingVerifier records the system prompt it is handed by verify.Run.
@@ -26,10 +26,9 @@ type capturingVerifier struct {
 	capturedPrompt string
 }
 
-func (c *capturingVerifier) Verify(_ context.Context, systemPrompt, _ string) (string, float64, error) {
+func (c *capturingVerifier) Verify(_ context.Context, systemPrompt, _ string) (string, float64, int64, int64, error) {
 	c.capturedPrompt = systemPrompt
-	return c.reply, c.cost, nil
-}
+	return c.reply, c.cost, 0, 0, nil}
 func writeTmp(t *testing.T, name, content string) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), name)

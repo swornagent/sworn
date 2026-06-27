@@ -41,7 +41,7 @@ func NewAnthropic(modelID, apiKey string) (*Anthropic, error) {
 // Verify sends the system prompt as a system message and userPayload as a
 // single user turn to the Anthropic Messages API. It returns the text from
 // the first text content block, the compute cost in USD, or an error.
-func (a *Anthropic) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
+func (a *Anthropic) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
 	msg, err := a.Client.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     anthropic.Model(a.Model),
 		MaxTokens: a.MaxTokens,
@@ -59,7 +59,7 @@ func (a *Anthropic) Verify(ctx context.Context, systemPrompt, userPayload string
 		// through NewProviderError so the caller's ClassifyHTTP / IsTerminal
 		// / IsTransient logic works unchanged.
 		if code, ok := anthropicStatusCode(err); ok {
-			return "", 0, NewProviderError(code, "anthropic", a.Model, nil)
+			return "", 0, 0, 0, NewProviderError(code, "anthropic", a.Model, nil)
 		}
 		// Fallback: a non-HTTP error (DNS failure, TLS handshake, connection
 		// refused, etc.). This error is not a *model.Error — IsTransient in
@@ -67,7 +67,7 @@ func (a *Anthropic) Verify(ctx context.Context, systemPrompt, userPayload string
 		// "unknown errors are assumed transient"), so the caller's retry
 		// policy will treat this as transient and retry. We preserve the
 		// original error message rather than wrapping with NewProviderError.
-		return "", 0, fmt.Errorf("model: anthropic dispatch: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: anthropic dispatch: %w", err)
 	}
 
 	// Extract the first text block. SwornAgent uses single-shot verify calls
@@ -75,12 +75,11 @@ func (a *Anthropic) Verify(ctx context.Context, systemPrompt, userPayload string
 	for _, block := range msg.Content {
 		if block.Type == "text" {
 			cost := computeAnthropicCost(a.Model, msg.Usage)
-			return block.Text, cost, nil
+			return block.Text, cost, int64(msg.Usage.InputTokens), int64(msg.Usage.OutputTokens), nil
 		}
 	}
-	return "", 0, fmt.Errorf("model: no text content in Anthropic response")
+	return "", 0, 0, 0, fmt.Errorf("model: no text content in Anthropic response")
 }
-
 // anthropicStatusCode extracts the HTTP status code from an anthropic-sdk-go
 // error. The SDK's internal *apierror.Error formats as:
 //

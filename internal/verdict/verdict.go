@@ -25,12 +25,15 @@ const (
 
 // Result is the machine-readable verdict emitted by `swornagent verify`.
 type Result struct {
-	Verdict    Verdict `json:"verdict"`
-	FailedGate string  `json:"failed_gate,omitempty"`
-	Rationale  string  `json:"rationale"`
-	CostUSD    float64 `json:"cost_usd"`
+	Verdict          Verdict `json:"verdict"`
+	FailedGate       string  `json:"failed_gate,omitempty"`
+	Rationale        string  `json:"rationale"`
+	CostUSD          float64 `json:"cost_usd"`
+	InputTokens      int64   `json:"input_tokens,omitempty"`
+	OutputTokens     int64   `json:"output_tokens,omitempty"`
+	DurationMS       int64   `json:"duration_ms,omitempty"`
+	ModelIDConfirmed string  `json:"model_id_confirmed,omitempty"`
 }
-
 // ExitCode maps a verdict to a process exit code. 0 only for PASS; everything
 // else is non-zero so a CI required-check blocks the merge by default.
 func (r Result) ExitCode() int {

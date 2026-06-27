@@ -64,7 +64,7 @@ func NewGoogleVertex(modelID, project, location string) (*Google, error) {
 // Verify sends the system prompt as a SystemInstruction and userPayload as a
 // single user turn to the Gemini/Vertex API. It returns the text from the
 // first text part of the first candidate, the compute cost in USD, or an error.
-func (g *Google) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
+func (g *Google) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
 	resp, err := g.Client.Models.GenerateContent(ctx, g.Model,
 		genai.Text(userPayload),
 		&genai.GenerateContentConfig{
@@ -77,31 +77,30 @@ func (g *Google) Verify(ctx context.Context, systemPrompt, userPayload string) (
 		// Route through NewProviderError for the model.Error taxonomy.
 		var apiErr genai.APIError
 		if errors.As(err, &apiErr) {
-			return "", 0, NewProviderError(apiErr.Code, "google", g.Model, nil)
+			return "", 0, 0, 0, NewProviderError(apiErr.Code, "google", g.Model, nil)
 		}
 		// Fallback: non-HTTP error (DNS failure, TLS handshake, connection
 		// refused, etc.). This error is not a *model.Error — IsTransient
 		// returns true for unknown error types, so the caller's retry policy
 		// will treat this as transient and retry.
-		return "", 0, fmt.Errorf("model: google dispatch: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: google dispatch: %w", err)
 	}
 
 	// Extract the first candidate's first text part. SwornAgent uses
 	// single-shot verify calls (no tools); the only content we care about
 	// is the text field of the first part.
 	if len(resp.Candidates) == 0 {
-		return "", 0, fmt.Errorf("model: no candidates in Google response")
+		return "", 0, 0, 0, fmt.Errorf("model: no candidates in Google response")
 	}
 	candidate := resp.Candidates[0]
 	if candidate.Content == nil || len(candidate.Content.Parts) == 0 {
-		return "", 0, fmt.Errorf("model: no content parts in Google response")
+		return "", 0, 0, 0, fmt.Errorf("model: no content parts in Google response")
 	}
 	text := candidate.Content.Parts[0].Text
 
 	cost := computeGoogleCost(g.Model, resp.UsageMetadata)
-	return text, cost, nil
+	return text, cost, 0, 0, nil
 }
-
 // googlePricing maps model IDs to USD per 1M tokens.
 // Prices sourced from Google's public pricing page:
 //
