@@ -25,9 +25,9 @@ tracks:
   - id: T4-records-as-json
     slices: [S13-schema-embed-validate, S14-board-json, S15-spec-proof-records, S16-journeys-attestations-align, S17-journeys-declare]
     depends_on: null
-    worktree_path: # set by first /implement-slice in this track
+    worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T4-records-as-json
     worktree_branch: track/2026-06-27-conformance-foundation/T4-records-as-json
-    state: planned
+    state: in_progress
   - id: T5-role-ontology
     slices: [S18-orchestrator-formalized, S19-captain-split, S20-role-revendor, S21-sworn-run-task]
     depends_on: T6-contract-revendor
@@ -43,9 +43,9 @@ tracks:
   - id: T7-telemetry-eval
     slices: [S24-dispatch-enrich, S25-event-store-durable, S26-eval-projections]
     depends_on: null
-    worktree_path: # set by first /implement-slice in this track
+    worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T7-telemetry-eval
     worktree_branch: track/2026-06-27-conformance-foundation/T7-telemetry-eval
-    state: planned
+    state: in_progress
 ---
 
 # Release Board: `2026-06-27-conformance-foundation`
