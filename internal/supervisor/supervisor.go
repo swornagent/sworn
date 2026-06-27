@@ -39,10 +39,10 @@ func (e *ErrTrackOwned) Error() string {
 // Supervisor manages worker process ownership for a release.
 type Supervisor struct {
 	db      *sql.DB
+	eventDB *sql.DB
 	release string
 	pid     int
 }
-
 // New creates a Supervisor bound to the given database and release name.
 func New(db *sql.DB, release string) *Supervisor {
 	return &Supervisor{
@@ -226,11 +226,22 @@ func (s *Supervisor) MustRelease(trackID string, state string) {
 	}
 }
 
+// SetEventDB sets an alternative database for event writes. When non-nil,
+// logEvent writes events to this database instead of the main DB. This
+// allows process-ownership to use sworn.db while events are routed to a
+// release-specific supervisor-<release>.db.
+func (s *Supervisor) SetEventDB(db *sql.DB) {
+	s.eventDB = db
+}
+
 // logEvent writes an audit event to the events table. Errors are silently
 // dropped — auditing should never block the critical path.
 func (s *Supervisor) logEvent(trackID, event, detail string) error {
-	_, err := s.db.Exec(
-		`INSERT INTO events (track_id, release, event, detail, ts)
+	target := s.db
+	if s.eventDB != nil {
+		target = s.eventDB
+	}
+	_, err := target.Exec(		`INSERT INTO events (track_id, release, event, detail, ts)
 		 VALUES (?, ?, ?, ?, ?)`,
 		trackID, s.release, event, detail, time.Now().UTC().Format(time.RFC3339),
 	)

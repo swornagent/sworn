@@ -132,12 +132,12 @@ func cmdRun(args []string) int {
 			ReleaseName:   *releaseName,
 			WorkspaceRoot: ".",
 			DB:            database,
+			EventDB:       eventDB,
 			RunSliceFn:    runSliceFn,
 			ProjectDir:    "sworn",
 			Notifier:      notifier,
 		})
-		if err != nil {
-			printModelError(err)
+		if err != nil {			printModelError(err)
 			fmt.Fprintf(os.Stderr, "sworn run: parallel: %v\n", err)
 			return 1
 		}
