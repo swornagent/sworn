@@ -17,6 +17,10 @@ import (
 	"github.com/swornagent/sworn/internal/baton"
 )
 
+// testBatonTag is a test-only Baton version tag.
+var testBatonTag = "v9.8.7"
+
+
 func TestBatonDiffExitsNonZeroOnDivergence(t *testing.T) {
 	fixture, err := filepath.Abs(filepath.Join("..", "..", "internal", "baton", "testdata", "fixture"))
 	if err != nil {
@@ -238,7 +242,7 @@ func vendorFixtureFiles() map[string]string {
 }
 
 func TestBatonVendorUpstream_Success(t *testing.T) {
-	owner, repo, tag := "sawy3r", "baton", "v0.4.2"
+	owner, repo, tag := "sawy3r", "baton", testBatonTag
 	commitSHA := "abc123def4567890123456789012345678abcdef"
 
 	files := vendorFixtureFiles()
@@ -319,7 +323,7 @@ func TestBatonVendorUpstream_Success(t *testing.T) {
 }
 
 func TestBatonVendorUpstream_DigestMismatch(t *testing.T) {
-	owner, repo, tag := "sawy3r", "baton", "v0.4.2"
+	owner, repo, tag := "sawy3r", "baton", testBatonTag
 	commitSHA := "abc123def4567890123456789012345678abcdef"
 
 	files := vendorFixtureFiles()
@@ -369,7 +373,7 @@ func TestBatonVendorUpstream_DigestMismatch(t *testing.T) {
 }
 
 func TestBatonVendorUpstream_NoTagUsesPinned(t *testing.T) {
-	owner, repo, tag := "sawy3r", "baton", "v0.4.2"
+	owner, repo, tag := "sawy3r", "baton", testBatonTag
 	commitSHA := "abc123def4567890123456789012345678abcdef"
 
 	// Set the pinned version so Version() returns this tag when --tag is empty.

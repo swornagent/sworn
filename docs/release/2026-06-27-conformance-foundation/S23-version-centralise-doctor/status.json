@@ -4,11 +4,12 @@
   "release": "2026-06-27-conformance-foundation",
   "track": "T6-contract-revendor",
   "covers_needs": ["N-25"],
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-25T00:00:00Z",
-  "start_commit": "0411554639af29906fba3509c4eefa7a8e8e2045",  "spec_path": "docs/release/2026-06-27-conformance-foundation/S23-version-centralise-doctor/spec.md",
+  "start_commit": "0411554639af29906fba3509c4eefa7a8e8e2045",
+  "spec_path": "docs/release/2026-06-27-conformance-foundation/S23-version-centralise-doctor/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S23-version-centralise-doctor/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S23-version-centralise-doctor/journal.md",
   "planned_files": [
@@ -16,9 +17,19 @@
     "internal/prompt/prompt.go",
     "internal/baton/version.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go",
+    "cmd/sworn/baton_test.go",
+    "internal/baton/version.go",
+    "internal/baton/version_test.go",
+    "internal/baton/fetch.go",
+    "internal/baton/fetch_test.go",
+    "internal/prompt/prompt.go",
+    "internal/prompt/prompt_test.go"
+  ],
   "test_commands": ["go test ./cmd/sworn/... -v -run TestDoctorPin"],
-  "reachability_artifacts": [],
+  "reachability_artifacts": ["sworn doctor output: baton/pin-currency OK, baton/prompt-currency OK"],
   "open_deferrals": [],
   "verification": {
     "result": "pending",

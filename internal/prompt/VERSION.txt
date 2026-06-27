@@ -1,4 +1,0 @@
-# Bump this version whenever prompt files are re-vendored from upstream Baton
-# (~/.claude/baton/role-prompts/). The version is surfaced by `sworn version`.
-# Canonical upstream commit: 42eb48b (v0.6.1)
-v0.6.1

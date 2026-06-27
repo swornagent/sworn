@@ -16,6 +16,11 @@ import (
 	"testing"
 )
 
+// testVersionTag is a test-only Baton version tag used in fetch tests.
+// It is not the real Baton protocol version.
+var testVersionTag = "v9.8.7"
+
+
 // makeTarball creates a gzipped tar archive in memory with the GitHub-style
 // top-level prefix <repo>-<tag>/. Each entry in files is a relative path
 // within the archive (e.g. "README.md" maps to <repo>-<tag>/README.md).
@@ -137,7 +142,7 @@ func TestFetchUpstream_Success(t *testing.T) {
 	t.Cleanup(clearTestPin)
 	t.Cleanup(func() { baseURLForTest = "" })
 
-	owner, name, tag := "sawy3r", "baton", "v0.4.2"
+	owner, name, tag := "sawy3r", "baton", testVersionTag
 	commitSHA := "abc123def456"
 	files := map[string]string{
 		"README.md":                         "# Baton",
@@ -186,7 +191,7 @@ func TestFetchUpstream_SHAMismatch(t *testing.T) {
 	t.Cleanup(clearTestPin)
 	t.Cleanup(func() { baseURLForTest = "" })
 
-	owner, name, tag := "sawy3r", "baton", "v0.4.2"
+	owner, name, tag := "sawy3r", "baton", testVersionTag
 	commitSHA := "abc123"
 	files := map[string]string{"README.md": "# Baton"}
 	tarball := makeTarball(name, tag, files)
@@ -213,7 +218,7 @@ func TestFetchUpstream_DigestMismatch(t *testing.T) {
 	t.Cleanup(clearTestPin)
 	t.Cleanup(func() { baseURLForTest = "" })
 
-	owner, name, tag := "sawy3r", "baton", "v0.4.2"
+	owner, name, tag := "sawy3r", "baton", testVersionTag
 	commitSHA := "abc123"
 	files := map[string]string{"README.md": "# Baton"}
 	tarball := makeTarball(name, tag, files)
@@ -239,7 +244,7 @@ func TestFetchUpstream_NoDigestPinBootstrap(t *testing.T) {
 	t.Cleanup(clearTestPin)
 	t.Cleanup(func() { baseURLForTest = "" })
 
-	owner, name, tag := "sawy3r", "baton", "v0.4.2"
+	owner, name, tag := "sawy3r", "baton", testVersionTag
 	commitSHA := "abc123"
 	files := map[string]string{"README.md": "# Baton"}
 	tarball := makeTarball(name, tag, files)
@@ -271,7 +276,7 @@ func TestFetchUpstream_NoSHAPinBootstrap(t *testing.T) {
 	t.Cleanup(clearTestPin)
 	t.Cleanup(func() { baseURLForTest = "" })
 
-	owner, name, tag := "sawy3r", "baton", "v0.4.2"
+	owner, name, tag := "sawy3r", "baton", testVersionTag
 	commitSHA := "abc123"
 	files := map[string]string{"README.md": "# Baton"}
 	tarball := makeTarball(name, tag, files)
@@ -303,7 +308,7 @@ func TestFetchUpstream_APINotFound(t *testing.T) {
 	t.Cleanup(clearTestPin)
 	t.Cleanup(func() { baseURLForTest = "" })
 
-	owner, name, tag := "sawy3r", "baton", "v0.4.2"
+	owner, name, tag := "sawy3r", "baton", testVersionTag
 	commitSHA := "abc123"
 	tarball := makeTarball(name, tag, map[string]string{"README.md": "# Baton"})
 	digest := tarballDigest(tarball)
@@ -327,7 +332,7 @@ func TestFetchUpstream_CodeloadNotFound(t *testing.T) {
 	t.Cleanup(clearTestPin)
 	t.Cleanup(func() { baseURLForTest = "" })
 
-	owner, name, tag := "sawy3r", "baton", "v0.4.2"
+	owner, name, tag := "sawy3r", "baton", testVersionTag
 	commitSHA := "abc123"
 	tarball := makeTarball(name, tag, map[string]string{"README.md": "# Baton"})
 	digest := tarballDigest(tarball)
@@ -351,7 +356,7 @@ func TestFetchUpstream_ServerError(t *testing.T) {
 	t.Cleanup(clearTestPin)
 	t.Cleanup(func() { baseURLForTest = "" })
 
-	owner, name, tag := "sawy3r", "baton", "v0.4.2"
+	owner, name, tag := "sawy3r", "baton", testVersionTag
 	commitSHA := "abc123"
 	tarball := makeTarball(name, tag, map[string]string{"README.md": "# Baton"})
 	digest := tarballDigest(tarball)
@@ -372,7 +377,7 @@ func TestFetchUpstream_BadGzip(t *testing.T) {
 	t.Cleanup(clearTestPin)
 	t.Cleanup(func() { baseURLForTest = "" })
 
-	owner, name, tag := "sawy3r", "baton", "v0.4.2"
+	owner, name, tag := "sawy3r", "baton", testVersionTag
 	commitSHA := "abc123"
 	// Not real gzip — will fail on decompress.
 	badTarball := []byte("this is not a gzip file")
@@ -398,8 +403,8 @@ func TestFetchUpstream_RepoFormatValidation(t *testing.T) {
 	t.Cleanup(func() { baseURLForTest = "" })
 
 	// Set up a test server so "owner/name" doesn't hit real network.
-	tb := makeTarball("baton", "v0.4.2", map[string]string{"README.md": "# Baton"})
-	ts := ghTestServer("sawy3r", "baton", "v0.4.2", "abc123", tb, nil)
+	tb := makeTarball("baton", testVersionTag, map[string]string{"README.md": "# Baton"})
+	ts := ghTestServer("sawy3r", "baton", testVersionTag, "abc123", tb, nil)
 	defer ts.Close()
 	baseURLForTest = ts.URL
 	setTestPin("abc123", tarballDigest(tb))
@@ -415,7 +420,7 @@ func TestFetchUpstream_RepoFormatValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.repo, func(t *testing.T) {
-			_, err := FetchUpstream(context.Background(), tt.repo, "v0.4.2")
+			_, err := FetchUpstream(context.Background(), tt.repo, testVersionTag)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("FetchUpstream(repo=%q) error = %v, wantErr = %v", tt.repo, err, tt.wantErr)
 			}
