@@ -1,0 +1,102 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S58-slice-router",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T17-orchestration-core",
+  "state": "verified",  "owner": "human",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-15T03:30:00Z",  "start_commit": "a82b95034bc4c7f42c5ad9e248392a108bd00620",  "spec_path": "docs/release/2026-06-19-safe-parallelism/S58-slice-router/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S58-slice-router/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S58-slice-router/journal.md",
+  "planned_files": [
+    "internal/router/router.go",
+    "internal/router/router_test.go",
+    "internal/router/parity_test.go",
+    "internal/board/oracle.go",
+    "cmd/sworn/route.go",
+    "cmd/sworn/route_test.go",
+    "internal/git/git.go"
+  ],
+  "actual_files": [
+    "cmd/sworn/route.go",
+    "cmd/sworn/route_test.go",
+    "internal/board/oracle.go",
+    "internal/git/git.go",
+    "internal/router/parity_test.go",
+    "internal/router/router.go",
+    "internal/router/router_test.go"
+  ],
+  "test_commands": [
+    "go test -race ./internal/router/...",
+    "go test -race ./internal/git/...",
+    "go build ./..."
+  ],
+  "reachability_artifacts": [
+    "cmd/sworn/route_test.go \u2014 TestRouteIntegration runs sworn route against a fixture repo covering every state branch"
+  ],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": "fresh-verifier-2026-06-24",
+    "verifier_verdict_at": "2026-06-24T15:34:53Z",
+    "verifier_was_fresh_context": true,
+    "violations": [],
+    "routing": ""
+  },  "design_decisions": [
+    {
+      "choice": "OracleReader interface defined in internal/board with router-friendly signatures (ReadSliceStatus, ReadBoard hiding ref/track-map resolution).",
+      "stake_class": "Type-2",
+      "options": [
+        "Define router-friendly interface in internal/board",
+        "Pass *Oracle directly with full params to Route"
+      ],
+      "human_decision": "Define router-friendly interface in internal/board; CLI constructs Oracle+reader, passes interface to router.",
+      "rationale": "Keeps the router testable with fakes; hides git-ref resolution from the pure decision function.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "LastCommitTime added to internal/git/git.go as method on *Repo wrapping `git log -1 --format=%ct`.",
+      "stake_class": "Type-2",
+      "options": [
+        "Add to *git.Repo",
+        "Define in router package with os/exec"
+      ],
+      "human_decision": "Add to *git.Repo; also add IsAncestor. Both declared in planned_files.",
+      "rationale": "git.Repo is the single git-operation surface; new methods are additive (no existing method modified).",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "CommitTimeReader is a separate interface in internal/router for commit-time queries; do NOT add LastCommitTime to board.gitContentReader.",
+      "stake_class": "Type-2",
+      "options": [
+        "Separate CommitTimeReader interface",
+        "Add LastCommitTime to board.gitContentReader"
+      ],
+      "human_decision": "Separate CommitTimeReader interface. board.gitContentReader is the board-oracle contract; adding LastCommitTime breaks cmd/sworn/board.go's oracleReader.",
+      "rationale": "Interface segregation: board oracle reads state, router queries commit times. Different concerns, different interfaces.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "Design-review routing: approved-ack.md via CatFileExists (committed-ref); design/review/decline via LastCommitTime on track branch.",
+      "stake_class": "Type-2",
+      "options": [
+        "CatFileExists for approved-ack.md; LastCommitTime for others (committed-ref, stricter)",
+        "os.Stat + git log -1 matching bash script exactly"
+      ],
+      "human_decision": "CatFileExists for approved-ack.md; LastCommitTime for others. Committed-ref check; slightly stricter than bash (uncommitted approved-ack.md \u2192 absent).",
+      "rationale": "Router reads committed state; avoids working-tree dependency. Stricter means uncommitted approved-ack is invisible \u2014 implementer must commit after coach ack.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "verification.reason: use strings.Join(violations, \"; \") as fallback; no Reason field added to state.Verification.",
+      "stake_class": "Type-2",
+      "options": [
+        "strings.Join(violations) only",
+        "Add Reason string to state.Verification"
+      ],
+      "human_decision": "Use strings.Join(violations, \"; \") only. No status.json has ever set verification.reason; the jq // fallback was never populated in practice.",
+      "rationale": "No production data carries the field; adding it to state.Verification is spec fiction. The bash jq is pure defensive fallback.",
+      "architecturally_significant": false
+    }
+  ]
+}

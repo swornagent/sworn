@@ -1,0 +1,45 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S12-journey-impact-analysis",
+  "release": "2026-06-16-fidelity-layer",
+  "track": "T2-delivery-cutover",
+  "state": "verified",
+  "owner": "human",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-19T00:00:00Z",
+  "start_commit": "2fec084df2239d5442db2cc7ac7fbfb06ddeb0b6",
+  "spec_path": "docs/release/2026-06-16-fidelity-layer/S12-journey-impact-analysis/spec.md",
+  "proof_path": "docs/release/2026-06-16-fidelity-layer/S12-journey-impact-analysis/proof.md",
+  "journal_path": "docs/release/2026-06-16-fidelity-layer/S12-journey-impact-analysis/journal.md",
+  "planned_files": [
+    "internal/journey/journey.go",
+    "internal/journey/impact_test.go",
+    "cmd/sworn/journeys.go",
+    "internal/adopt/baton/rules/10-customer-journey-validation.md"
+  ],
+  "actual_files": [
+    "internal/journey/impact.go",
+    "internal/journey/impact_test.go",
+    "cmd/sworn/journeys.go",
+    "cmd/sworn/journeys_impact_test.go",
+    "cmd/sworn/main.go",
+    "internal/adopt/baton/rules/10-customer-journey-validation.md"
+  ],
+  "test_commands": [
+    "go test ./internal/journey/...",
+    "go test ./cmd/sworn/ -run TestJourneysImpact"
+  ],
+  "reachability_artifacts": [
+    "docs/release/2026-06-16-fidelity-layer/S12-journey-impact-analysis/proof.md#smoke-test-output"
+  ],
+  "open_deferrals": [
+    "Step->surface matching precision tracks S11 provisional schema, refined via /replan-release (acknowledged 2026-06-16)"
+  ],
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": null,
+    "verifier_verdict_at": "2026-06-19T00:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": []
+  }
+}

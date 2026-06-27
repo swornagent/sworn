@@ -1,0 +1,44 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S56-ledger-cost-routing",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T16-verdict-ledger",
+  "state": "verified",
+  "owner": "human",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-25T21:01:50Z",  "start_commit": "44bbe155582fc9a45d7110872ae097de18edd658",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S56-ledger-cost-routing/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S56-ledger-cost-routing/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S56-ledger-cost-routing/journal.md",
+  "planned_files": [
+    "internal/ledger/routing.go",
+    "internal/ledger/routing_test.go",
+    "internal/ledger/query.go",
+    "internal/ledger/query_test.go",
+    "internal/config/config.go",
+    "internal/config/config_test.go",
+    "cmd/sworn/ledger.go"
+  ],
+  "actual_files": [
+    "internal/ledger/routing.go",
+    "internal/ledger/routing_test.go",
+    "internal/ledger/query.go",
+    "internal/ledger/query_test.go",
+    "internal/config/config.go",
+    "internal/config/config_test.go",
+    "cmd/sworn/ledger.go",
+    "cmd/sworn/run.go"
+  ],
+  "test_commands": [
+    "go test ./internal/ledger/... ./internal/config/... ./cmd/sworn/...",
+    "go build ./..."
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": null,
+    "verifier_verdict_at": "2026-06-25T21:01:50Z",
+    "verifier_was_fresh_context": true,
+    "violations": []
+  }}

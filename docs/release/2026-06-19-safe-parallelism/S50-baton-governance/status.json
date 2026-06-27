@@ -1,0 +1,90 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S50-baton-governance",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T14-baton-integration",
+  "state": "verified",  "owner": "human",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-07T12:30:00Z",
+  "start_commit": "94a1223",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S50-baton-governance/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S50-baton-governance/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S50-baton-governance/journal.md",
+  "depends_on": [
+    "S48-baton-vendor"
+  ],
+  "planned_files": [
+    "internal/baton/diff.go",
+    "internal/baton/diff_test.go",
+    "cmd/sworn/baton.go",
+    "docs/baton-governance.md",
+    "docs/adr/0006-baton-protocol-sync.md"
+  ],
+  "actual_files": [
+    "internal/baton/diff.go",
+    "internal/baton/diff_test.go",
+    "cmd/sworn/baton.go",
+    "cmd/sworn/baton_test.go",
+    "docs/baton-governance.md"
+  ],
+  "test_commands": [
+    "go test -race ./internal/baton/... ./cmd/sworn/...",
+    "go build ./..."
+  ],
+  "reachability_artifacts": [
+    "cmd/sworn/baton_test.go — TestBatonDiffExitsZeroWhenInSync (clean, exit 0)",
+    "cmd/sworn/baton_test.go — TestBatonDiffExitsNonZeroOnDivergence (divergent, exit non-zero)"
+  ],
+  "design_decisions": [
+    {
+      "id": "DD-001",
+      "classification": "Type-2",
+      "summary": "Diff opts struct vs reusing VendorOpts — Diff gets its own DiffOpts with SourceDir + RepoRoot, narrower interface, self-documenting that this isn't a vendor operation",
+      "justification": "The contract is different (returns []Divergence, never writes), and adding CheckOnly to a diff opts would be misleading."
+    },
+    {
+      "id": "DD-002",
+      "classification": "Type-2",
+      "summary": "Divergence type — File (embed-relative path) + Reason (short descriptor)",
+      "justification": "The CLI prints <file>: <reason> per line; the spec asks for file path plus a short reason."
+    },
+    {
+      "id": "DD-003",
+      "classification": "Type-2",
+      "summary": "Reusing the Vendor transform/mapping code paths exactly — Diff calls the same batonFileMappings, ValidateSource, and Transform that Vendor uses",
+      "justification": "Spec Risk #1 — any code-path fork makes a clean tree show false divergence."
+    },
+    {
+      "id": "DD-004",
+      "classification": "Type-2",
+      "summary": "Exit code convention — 0=in sync, 1=divergent, 64=usage error, consistent with sworn baton vendor",
+      "justification": "The sworn CLI already uses 64 for usage errors; 1 for divergence is unambiguous."
+    },
+    {
+      "id": "DD-005",
+      "classification": "Type-2",
+      "summary": "ADR-0006 finalisation — confirm no open question remains and note in proof.md that the enforcement the ADR describes now exists; no edit to ADR file itself unless an open question is found (none is)",
+      "justification": "ADR is already Status: accepted; finalisation means confirming enforcement exists."
+    }
+  ],
+  "open_deferrals": [
+    {
+      "item": "CI wiring for sworn baton diff",
+      "why": "CI configuration is a separate harness change; this slice delivers the diff command and governance doc",
+      "tracking": "S50 proof.md 'Not delivered'",
+      "acknowledgement": "Coach, 2026-07-07"
+    },
+    {
+      "item": "Live-remote diff (network fetch of upstream tag)",
+      "why": "Network fetch boundary requires S62-baton-upstream-source infrastructure",
+      "tracking": "S62-baton-upstream-source",
+      "acknowledgement": "Coach, 2026-07-07"
+    }
+  ],
+  "verification": {
+    "verifier_session_id": "fresh-verifier-2026-06-24",
+    "verifier_verdict_at": "2026-06-24T03:46:51Z",
+    "verifier_was_fresh_context": true,
+    "result": "pass",
+    "violations": []
+  }}

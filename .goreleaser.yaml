@@ -1,0 +1,92 @@
+# Goreleaser configuration for SwornAgent (sworn CLI).
+# Triggered by .github/workflows/release.yml on v* tag push.
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: sworn
+    main: ./cmd/sworn
+    binary: sworn
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    flags:
+      - -trimpath
+
+archives:
+  - formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore"
+      - Merge pull request
+      - Merge branch
+
+brews:
+  - name: sworn
+    repository:
+      owner: swornagent
+      name: homebrew-tap
+    homepage: https://github.com/swornagent/sworn
+    description: "Provider-neutral adversarial verification for coding agents"
+    license: MIT
+    test: |
+      system "#{bin}/sworn version"
+
+dockers:
+  - image_templates:
+      - "ghcr.io/swornagent/sworn:{{ .Version }}-amd64"
+    goos: linux
+    goarch: amd64
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+    dockerfile: Dockerfile
+  - image_templates:
+      - "ghcr.io/swornagent/sworn:{{ .Version }}-arm64"
+    goos: linux
+    goarch: arm64
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+    dockerfile: Dockerfile
+
+docker_manifests:
+  - name_template: "ghcr.io/swornagent/sworn:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/swornagent/sworn:{{ .Version }}-amd64"
+      - "ghcr.io/swornagent/sworn:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/swornagent/sworn:latest"
+    image_templates:
+      - "ghcr.io/swornagent/sworn:{{ .Version }}-amd64"
+      - "ghcr.io/swornagent/sworn:{{ .Version }}-arm64"
+
+release:
+  github:
+    owner: swornagent
+    name: sworn

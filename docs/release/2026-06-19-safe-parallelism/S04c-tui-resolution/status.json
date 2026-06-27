@@ -1,0 +1,54 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S04c-tui-resolution",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T2-monitoring",
+  "state": "verified",
+  "owner": "human",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-28T12:30:00Z",
+  "start_commit": "83e38dd14e85460a26cc03970aee731d6aff1abd",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S04c-tui-resolution/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S04c-tui-resolution/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S04c-tui-resolution/journal.md",
+  "planned_files": [
+    "docs/adr/0005-tui-dep-bubbles.md",
+    "go.mod",
+    "go.sum",
+    "internal/tui/blocked.go",
+    "internal/tui/open_ai.go",
+    "internal/tui/model.go",
+    "internal/tui/tui_test.go"
+  ],
+  "actual_files": [
+    "docs/adr/0005-tui-dep-bubbles.md",
+    "go.mod",
+    "go.sum",
+    "internal/state/state.go",
+    "internal/tui/blocked.go",
+    "internal/tui/board.go",
+    "internal/tui/model.go",
+    "internal/tui/open_ai.go",
+    "internal/tui/styles.go",
+    "internal/tui/tui_test.go"
+  ],
+  "test_commands": [
+    "go test ./internal/tui/... -v",
+    "go vet ./internal/tui/...",
+    "go test ./..."
+  ],
+  "reachability_artifacts": [
+    "manual-smoke-step: run sworn top, navigate to failed_verification slice, press Enter, observe blocked panel with violations, press [4] to view proof, press [2] to verify context file written"
+  ],
+  "open_deferrals": [
+    "AI tool list beyond CC + Codex: configurable via SWORN_AI_TOOLS env post-R3. Why: two tools cover immediate use cases. Tracking: TBD. Acknowledged: Coach, 2026-06-21.",
+    "Auto-fix [1] stubbed to inline message: shows sworn run command instead of subprocess. Why: subprocess management from Bubble Tea is non-trivial. Tracking: TBD. Acknowledged: Coach, 2026-06-21."
+  ],
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": null,
+    "verifier_verdict_at": "2026-06-28T12:30:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": []
+  }
+}

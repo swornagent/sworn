@@ -1,0 +1,37 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S15-sworn-top-evidence",
+  "release": "2026-06-16-fidelity-layer",
+  "track": "T4-evidence-surface",
+  "state": "verified",  "owner": "agent",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-18T14:15:54Z",  "start_commit": "e3b0ec2",  "spec_path": "docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence/spec.md",
+  "proof_path": "docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence/proof.md",
+  "journal_path": "docs/release/2026-06-16-fidelity-layer/S15-sworn-top-evidence/journal.md",
+  "planned_files": [
+    "cmd/sworn/top.go",
+    "cmd/sworn/top_test.go",
+    "cmd/sworn/main.go"
+  ],
+  "actual_files": [
+    "cmd/sworn/top.go",
+    "cmd/sworn/top_test.go",
+    "cmd/sworn/main.go",
+    "internal/journey/walkthrough.go",
+    "internal/journey/walkthrough_test.go"
+  ],
+  "test_commands": [
+    "go test ./cmd/sworn/ -run TestTop",
+    "go test ./internal/journey/ -run TestLoadAttestations",
+    "go test ./internal/journey/ -run TestAttestation"
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": null,
+    "verifier_verdict_at": "2026-06-18T14:15:54Z",
+    "verifier_was_fresh_context": true,
+    "violations": []
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S13-walkthrough-attestation",
+  "release": "2026-06-16-fidelity-layer",
+  "track": "T2-delivery-cutover",
+  "state": "verified",
+  "owner": "verifier",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-26T13:00:00Z",
+  "start_commit": "affb5227a0f94c6a3731f2d1091ca113b500a44d",
+  "spec_path": "docs/release/2026-06-16-fidelity-layer/S13-walkthrough-attestation/spec.md",
+  "proof_path": "docs/release/2026-06-16-fidelity-layer/S13-walkthrough-attestation/proof.md",
+  "journal_path": "docs/release/2026-06-16-fidelity-layer/S13-walkthrough-attestation/journal.md",
+  "planned_files": [
+    "cmd/sworn/ship.go",
+    "cmd/sworn/main.go",
+    "internal/journey/shipgate.go",
+    "internal/journey/shipgate_test.go",
+    "internal/adopt/baton/rules/10-customer-journey-validation.md"
+  ],
+  "actual_files": [
+    "cmd/sworn/ship.go",
+    "cmd/sworn/main.go",
+    "cmd/sworn/ship_test.go",
+    "internal/journey/shipgate.go",
+    "internal/journey/shipgate_test.go",
+    "internal/adopt/baton/rules/10-customer-journey-validation.md",
+    "internal/journey/walkthrough.go",
+    "docs/release/2026-06-16-fidelity-layer/index.md"
+  ],
+  "test_commands": [
+    "go test ./internal/journey/...",
+    "go test ./cmd/sworn/ -run TestShip"
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [
+    "Attestation fields track S11 provisional journey schema, refined via /replan-release (acknowledged 2026-06-16)"
+  ],
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": null,
+    "verifier_verdict_at": "2026-06-26T13:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": []
+  }
+}

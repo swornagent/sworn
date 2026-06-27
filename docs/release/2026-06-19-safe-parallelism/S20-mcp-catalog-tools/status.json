@@ -1,0 +1,62 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S20-mcp-catalog-tools",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T7-mcp-extensions",
+  "state": "verified",  "owner": "human",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-07T12:00:00Z",
+  "start_commit": "43fafbe1823baa18cca2ee81134105a1b3eb9d32",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S20-mcp-catalog-tools/journal.md",
+  "planned_files": [
+    "internal/mcp/catalog.go",
+    "internal/mcp/catalog_test.go",
+    "cmd/sworn/mcp.go"
+  ],
+  "design_decisions": [
+    {
+      "type": "Type-2",
+      "choice": "Tool registration pattern: Create RegisterCatalogTools as a separate function in internal/mcp/catalog.go, following the existing RegisterPlanTools(s *Server, repoRoot string) convention. Registered in cmd/sworn/mcp.go alongside the other three registrations. Stdlib is sufficient for this slice's text-file ops; no new dependency, no ADR required."
+    },
+    {
+      "type": "Type-2",
+      "choice": "plan_release reuse of CreateRelease helper: The CreateRelease helper already exists in tools_plan.go (S08c's internal function). plan_release calls it for new releases and returns structured JSON. No duplication."
+    },
+    {
+      "type": "Type-2",
+      "choice": "docs/considerations.md and docs/decisions.md format: Plain Markdown section structures (## design_system, ## architecture.patterns, ## [type] dimensions for considerations; ### <TYPE>: <title> entries for decisions). No YAML frontmatter needed \u2014 just parseable section headers for the status/dimension tools and full-text for search."
+    },
+    {
+      "type": "Type-2",
+      "choice": "check_design_system options scaffold: Static three-option template (Reuse as-is / Extend with variant / Build new) emitted by the handler. The AI enriches it conversationally. No model call needed in the tool."
+    },
+    {
+      "type": "Type-2",
+      "choice": "record_decision overrides convention: Follow the spec's append-only design. When overriding, record a new entry with overrides: <prior-decision-date> rather than editing. The overrides field is recorded in the decision entry body; no schema enforcement."
+    }
+  ],
+  "actual_files": [
+    "internal/mcp/catalog.go",
+    "internal/mcp/catalog_test.go",
+    "cmd/sworn/mcp.go"
+  ],
+  "test_commands": [
+    "go test ./internal/mcp/... -run Catalog",
+    "go test ./internal/mcp/...",
+    "go build ./..."
+  ],
+  "reachability_artifacts": [
+    "manual-smoke-step: sworn mcp \u2192 connect Claude Code \u2192 call get_induction_status"
+  ],
+  "open_deferrals": [
+    "Semantic/vector search on decisions.md \u2014 post-R3. **Acknowledged**: Coach, 2026-06-20"
+  ],
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": "fresh-2026-06-23T11:13:04Z",
+    "verifier_verdict_at": "2026-06-23T11:13:04Z",
+    "verifier_was_fresh_context": true,
+    "violations": []
+  }}

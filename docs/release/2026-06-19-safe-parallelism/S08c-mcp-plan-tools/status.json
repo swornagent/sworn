@@ -1,0 +1,52 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S08c-mcp-plan-tools",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T4-mcp",
+  "state": "verified",
+  "owner": "human",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-21T23:45:00Z",
+  "start_commit": "ef0ec299f4ab6f86f8ab38acb2b2057ba0f8b3a4",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S08c-mcp-plan-tools/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S08c-mcp-plan-tools/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S08c-mcp-plan-tools/journal.md",
+  "planned_files": [
+    "internal/mcp/tools_plan.go",
+    "internal/mcp/resources.go",
+    "internal/mcp/prompts.go",
+    "internal/mcp/server.go",
+    "internal/mcp/tools_test.go",
+    "cmd/sworn/mcp.go",
+    "internal/prompt/prompt.go",
+    "internal/prompt/baton/track-mode.md",
+    "docs/mcp-setup.md"
+  ],
+  "actual_files": [
+    "cmd/sworn/mcp.go",
+    "docs/mcp-setup.md",
+    "internal/mcp/prompts.go",
+    "internal/mcp/resources.go",
+    "internal/mcp/server.go",
+    "internal/mcp/tools_plan.go",
+    "internal/mcp/tools_plan_test.go",
+    "internal/prompt/baton/track-mode.md",
+    "internal/prompt/prompt.go"
+  ],
+  "test_commands": [
+    "go test ./internal/mcp/..."
+  ],
+  "reachability_artifacts": [
+    "manual-smoke-step: stdio JSON-RPC smoke test (transcript in proof.md)"
+  ],
+  "open_deferrals": [
+    "sworn://baton/rules MCP resource — deferred to S21-canonical-baton (source rules.md not yet built); Rule-2, Coach ack 2026-06-21; touchpoint note only, no hard T4->T3 dep"
+  ],
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": "fresh-context-verify-S08c",
+    "verifier_verdict_at": "2026-06-21T23:45:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": []
+  }
+}

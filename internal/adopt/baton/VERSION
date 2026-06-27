@@ -1,0 +1,6 @@
+baton-protocol: v0.5.0
+upstream: github.com/sawy3r/baton
+vendored: 2026-06-25
+upstream-sha: 9ae08fbb1ef28ba5a4918a51018b01ba31b4797b
+upstream-digest: sha256:5e67ec0fac5c0f9431049e4d505f8eb87153467d353d7e07a608eccf831662bf
+rules-added: 08-requirements-fidelity (2026-06-16-fidelity-layer S01), 09-design-fidelity (2026-06-16-fidelity-layer S07), 10-customer-journey-validation (2026-06-16-fidelity-layer S11), 11-process-global-mutation (2026-06-19-safe-parallelism), role-prompt-operational-gates (v0.4.1/v0.4.2 implementer/verifier canonical prompts)

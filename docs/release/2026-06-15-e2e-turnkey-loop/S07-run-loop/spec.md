@@ -10,8 +10,7 @@ description: `sworn run` — the end-to-end orchestration: implement → verify 
 A developer runs `sworn run --task "<what to build>"` and the binary executes the
 full loop: spec → implement → verify → (on FAIL: retry / escalate the model up to
 N, then surface to the human) → **gated merge on PASS only**. This is the turnkey
-E2E payoff.
-
+end-to-end payoff.
 ## Entry point
 
 CLI: `sworn run` (`cmd/sworn/run.go`).
@@ -43,8 +42,8 @@ CLI: `sworn run` (`cmd/sworn/run.go`).
 - **Integration**: fake implementer + verifier models scripted for the PASS path
   (→ merged) and the FAIL path (→ not merged, escalated). Assert merge happens
   **only** when state == `verified`.
-
-## Risks
+- **CLI reachability**: `cmd/sworn/run_test.go` exercises `cmdRun` flag parsing
+  and error paths through the integration point (`sworn run`).## Risks
 
 - Infinite retry — hard cap + escalate.
 - Merging unverified work — hard gate on `state == verified` (the core invariant).

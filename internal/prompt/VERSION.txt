@@ -1,0 +1,3 @@
+# Bump this version whenever prompt files are re-vendored from upstream Baton
+# (~/.claude/baton/role-prompts/). The version is surfaced by `sworn version`.
+v0.4.2

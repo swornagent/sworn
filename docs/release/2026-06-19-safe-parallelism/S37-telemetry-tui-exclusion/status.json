@@ -1,0 +1,52 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S37-telemetry-tui-exclusion",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T12-harness-hardening",
+  "state": "verified",
+  "owner": "human",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-04T20:30:00Z",  "start_commit": "0daa67343a3f33b2061b728e9c3a8e28d3614546",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S37-telemetry-tui-exclusion/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S37-telemetry-tui-exclusion/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S37-telemetry-tui-exclusion/journal.md",
+  "planned_files": ["internal/telemetry/telemetry.go", "internal/telemetry/telemetry_test.go"],
+  "actual_files": ["internal/telemetry/telemetry.go", "internal/telemetry/telemetry_test.go", "docs/release/2026-06-19-safe-parallelism/S37-telemetry-tui-exclusion/status.json", "docs/release/2026-06-19-safe-parallelism/S37-telemetry-tui-exclusion/proof.md"],
+  "test_commands": ["go test ./internal/telemetry/...", "go build ./..."],
+  "reachability_artifacts": [
+    "go test ./internal/telemetry/... -v — TestFireSkipsEmptyCmd PASS, TestFireStillFiresRealCmd PASS, TestFireTelemetryMetaCommandExcluded PASS"
+  ],
+  "open_deferrals": [],
+  "verification": {"result": "pass", "verifier_session_id": "verifier-S37-2026-07-04", "verifier_verdict_at": "2026-07-04T20:30:00Z", "verifier_was_fresh_context": true, "violations": []},  "design_decisions": [
+    {
+      "choice": "Mirror the existing meta-command exclusion shape: add `cmd == \"\"` early-return immediately after `cmd == \"telemetry\"` inside Fire().",
+      "stake_class": "Type-2",
+      "options": ["Add check after Fire() goroutine spawn", "Add check at call site in cmd/sworn/main.go", "Mirror existing early-return pattern inside Fire()"],
+      "rationale": "The existing `cmd == \"telemetry\"` early-return (line 205-207 of telemetry.go) is the pattern: check, return before spawning the goroutine. Adding `cmd == \"\"` immediately after is the obvious, minimal extension. Consistency with the existing codebase and zero new patterns."
+    },
+    {
+      "choice": "Empty string is the precise no-args/TUI signal — no separate flag or parameter.",
+      "stake_class": "Type-2",
+      "options": ["Check cmd == \"\" (empty string)", "Check len(os.Args) <= 1 at call site", "Add a separate isTUI parameter to Fire()"],
+      "rationale": "Every real subcommand has a name resolved by the command registry. An empty `cmd` means `os.Args` had ≤1 element — exactly the TUI launch path in main.go's dispatch(). No risk of false positives."
+    },
+    {
+      "choice": "Hard-coded exclusion — no new exported API, config toggle, or environment variable.",
+      "stake_class": "Type-2",
+      "options": ["Hard-coded unconditional exclusion", "Configurable via env var or flag", "Opt-out sentinel file like .no-telemetry"],
+      "rationale": "The spec says 'extend Fire()' — this is a hard-coded exclusion, not a configurable policy. Adding a toggle would be over-engineering for a slice this narrow."
+    },
+    {
+      "choice": "Check-and-return happens synchronously inside Fire(), before the goroutine spawn.",
+      "stake_class": "Type-2",
+      "options": ["Check inside Fire() before goroutine spawn", "Signal goroutine to cancel via context", "Check in main.go before calling Fire()"],
+      "rationale": "Matches the existing `cmd == \"telemetry\"` check exactly — the exclusion is decided before the goroutine spawn. No race window, no goroutine to cancel."
+    },
+    {
+      "choice": "Two-test strategy: one negative (empty cmd → no-op) + one positive (real cmd still fires).",
+      "stake_class": "Type-2",
+      "options": ["One negative + one positive guard test", "Single table-driven test with all cases", "Three separate tests (empty, telemetry, real)"],
+      "rationale": "TestFireSkipsEmptyCmd asserts the transport is never called for cmd=\"\". TestFireStillFiresRealCmd asserts Fire(\"verify\", ...) still hits the transport — this guards against an over-broad exclusion. The existing TestFireTelemetryMetaCommandExcluded covers the meta-command case."
+    }
+  ]
+}

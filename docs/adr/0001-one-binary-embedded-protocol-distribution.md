@@ -37,7 +37,7 @@ Separately, the bash TUI (`coach top`) has hit its limits.
 
 ## Consequences
 
-- The bash reference loop (`coach-loop`, `captain-*`) is a **bridge** reference
+- The bash reference loop is a **bridge** reference
   implementation (ships sooner); the destination is `swornagent run` (Go, embedded).
   The wedge (`swornagent verify`) ships first regardless.
 - "Package it right from the start" → favours investing in `swornagent run` sooner

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S08-design-system-input",
+  "release": "2026-06-16-fidelity-layer",
+  "track": "T3-leaf-gates",
+  "state": "verified",
+  "owner": "human",
+  "last_updated_by": "planner (/replan-release round 5 — cleared blocked, routes to implementer)",
+  "last_updated_at": "2026-06-20T10:00:00Z",
+  "start_commit": "9b3b637a6afd5563838aa1a665eac3672208926e",
+  "spec_path": "docs/release/2026-06-16-fidelity-layer/S08-design-system-input/spec.md",
+  "proof_path": "docs/release/2026-06-16-fidelity-layer/S08-design-system-input/proof.md",
+  "journal_path": "docs/release/2026-06-16-fidelity-layer/S08-design-system-input/journal.md",
+  "planned_files": [
+    "internal/config/config.go",
+    "internal/config/config_test.go",
+    "internal/config/init.go",
+    "internal/adopt/baton/rules/09-design-fidelity.md"
+  ],
+  "actual_files": [
+    "internal/config/config.go",
+    "internal/config/config_test.go",
+    "internal/config/init.go",
+    "cmd/sworn/init.go",
+    "cmd/sworn/init_design_system_test.go",
+    "cmd/sworn/main.go",
+    "cmd/sworn/reqverify.go",
+    "internal/adopt/baton/rules/09-design-fidelity.md"
+  ],
+  "test_commands": [
+    "go test ./internal/config/...",
+    "go test ./cmd/sworn/... -run TestCmdInit"
+  ],
+  "reachability_artifacts": [
+    "manual smoke step: sworn init with --ui-bearing flag"
+  ],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": null,
+    "verifier_verdict_at": "2026-06-20T12:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": []
+  }
+}

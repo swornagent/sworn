@@ -8,7 +8,7 @@ protocol.
 
 Brand: **SwornAgent**. CLI binary: **`sworn`**.
 
-> Status: early scaffold (S1 — provider-neutral verifier core). The model
+> Status: early development (S1 — provider-neutral verifier core). The model
 > dispatch leg is stubbed (fails closed) until the OpenAI-compatible client lands.
 
 ## What it is

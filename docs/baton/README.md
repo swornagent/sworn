@@ -44,10 +44,14 @@ human — works in this repo. Full text in [`rules/`](./rules/):
    only with the slice artefacts and live repo state. The implementer never
    certifies its own work; the verifier fails closed (absence of evidence is
    FAIL, not optimistic PASS).
+8. **[Requirements Fidelity](./rules/08-requirements-fidelity.md)** — the spec
+   is not an axiom. Requirements are verified (quality), validated
+   (sense-check), and traced (need -> AC -> test -> proof) so a need cannot
+   drop silently between intake and spec. The 2-D requirements traceability
+   matrix (RTM) enforces this fail-closed.
 
 This last rule is the one SwornAgent productises: **independent, fresh-context,
 fail-closed verification of a change against its spec.**
-
 ## How the product consumes this
 
 - The `sworn` binary embeds these rules and the derived role prompts

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://example.com/schemas/baton/slice-status-v1.json",
+  "slice_id": "S04b-tui-live",
+  "release": "2026-06-19-safe-parallelism",
+  "track": "T2-monitoring",
+  "state": "verified",
+  "owner": "human",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-21T00:00:00Z",  "start_commit": "33ff7ad",
+  "spec_path": "docs/release/2026-06-19-safe-parallelism/S04b-tui-live/spec.md",
+  "proof_path": "docs/release/2026-06-19-safe-parallelism/S04b-tui-live/proof.md",
+  "journal_path": "docs/release/2026-06-19-safe-parallelism/S04b-tui-live/journal.md",
+  "planned_files": ["internal/tui/concurrent.go","internal/tui/model.go","internal/tui/tui_test.go","internal/tui/styles.go"],
+  "actual_files": ["internal/tui/concurrent.go","internal/tui/model.go","internal/tui/styles.go","internal/tui/tui_test.go","docs/release/2026-06-19-safe-parallelism/S04b-tui-live/journal.md","docs/release/2026-06-19-safe-parallelism/S04b-tui-live/proof.md"],
+  "test_commands": ["go test ./internal/tui/... -v -count=1","go build ./...","go vet ./..."],
+  "reachability_artifacts": ["TestAutoTransitionToLive: auto-transitions when in-progress tracks exist in DB","TestLiveBoardToggle: l/b toggle between board and live views","TestConcurrentStatusPoll: LiveView polls DB and populates rows with elapsed time","TestModelTickForwarding: tickMsg reaches LiveView through Model.Update() — tick chain stays alive","TestCreditBalanceDisplayed: credits file parsed correctly","TestCreditBalanceAbsent: missing credits file shows –","TestHasInProgressTracks: DB query correctly detects in-progress tracks","Smoke step: run `sworn run --parallel` in fixture repo, then `sworn` in separate terminal, navigate to release, observe live view with incrementing elapsed time"],  "open_deferrals": [
+    {"item": "Blocked-slice TL;DR panel", "why": "spec Out of scope — S04c", "tracking": "S04c-tui-resolution", "acknowledged": "Coach, 2026-06-21"},
+    {"item": "Notification of state changes", "why": "spec Out of scope — S07", "tracking": "S07-paging", "acknowledged": "Coach, 2026-06-21"},
+    {"item": "Credits purchase flow", "why": "spec Out of scope — S06b", "tracking": "S06b-sworn-proxy-credits", "acknowledged": "Coach, 2026-06-21"}
+  ],
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": "fresh-context-artefact-only",
+    "verifier_verdict_at": "2026-06-21T00:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": []  },
+  "design_decisions": [
+    {
+      "choice": "db-path-anchored",
+      "stake_class": "Type-2",
+      "options": ["<workspaceRoot>/.sworn/sworn.db", "XDG data dir", "config file path"],
+      "human_decision": "",
+      "rationale": "TUI discovers repoRoot via git; DB path is filepath.Join(repoRoot, \".sworn\", \"sworn.db\"). The run-loop creates it there. SQLite WAL supports concurrent readers."
+    },
+    {
+      "choice": "polling-mechanism",
+      "stake_class": "Type-2",
+      "options": ["time.Tick goroutine", "tea.Tick chained messages"],
+      "human_decision": "",
+      "rationale": "tea.Tick delivers tickMsg to Update, staying within Bubble Tea's single-goroutine model. Avoids goroutine lifecycle management."
+    },
+    {
+      "choice": "data-source-live",
+      "stake_class": "Type-2",
+      "options": ["status.json files", "SQLite tracks table", "both"],
+      "human_decision": "",
+      "rationale": "Live view reads from tracks SQLite table (tracks.started_at, current_slice, state). Board view reads status.json. Two distinct sources with different freshness characteristics."
+    },
+    {
+      "choice": "viewlive-nesting",
+      "stake_class": "Type-2",
+      "options": ["sibling of viewBoard", "sub-state within viewBoard", "separate top-level state"],
+      "human_decision": "",
+      "rationale": "viewLive is a sibling of viewBoard in the root model's state machine. l/b toggles between them; esc returns to viewReleases from either. Clean keyboard semantics."
+    },
+    {
+      "choice": "credits-file-path",
+      "stake_class": "Type-2",
+      "options": ["os.UserHomeDir()/.config/sworn/credits.json", "config.Path() directory", "XDG data dir"],
+      "human_decision": "",
+      "rationale": "Uses os.UserHomeDir() + /.config/sworn/credits.json matching the config pattern. Spec prescribes ~/.config/sworn/credits.json explicitly."
+    }
+  ]
+}
