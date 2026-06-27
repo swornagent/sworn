@@ -10,7 +10,7 @@
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-27T22:57:27Z",
-  "start_commit": null,
+  "start_commit": "6be6054ab49c84bc0bd1498eba9937f90eff721b",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S01-llm-interpreter/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S01-llm-interpreter/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S01-llm-interpreter/journal.md",
