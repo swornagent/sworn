@@ -6,22 +6,35 @@
   "covers_needs": [
     "N-27"
   ],
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-25T00:00:00Z",
-  "start_commit": "3122d5f50538010d20442829c6dcb75edd352d96",  "spec_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/spec.md",
+  "start_commit": "3122d5f50538010d20442829c6dcb75edd352d96",
+  "spec_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/journal.md",
   "planned_files": [
     "internal/supervisor/supervisor.go",
     "cmd/sworn/telemetry.go"
   ],
-  "actual_files": [],
-  "test_commands": [
-    "go test ./internal/supervisor/... -v -run TestPersistence"
+  "actual_files": [
+    "internal/supervisor/supervisor.go",
+    "internal/supervisor/supervisor_test.go",
+    "cmd/sworn/telemetry.go",
+    "cmd/sworn/run.go",
+    "internal/run/parallel.go",
+    "internal/scheduler/worker.go"
   ],
-  "reachability_artifacts": [],
+  "test_commands": [
+    "go test ./internal/supervisor/... -v -run TestPersistence",
+    "go test ./internal/supervisor/... -v",
+    "go test ./internal/run/... ./internal/scheduler/... -v"
+  ],
+  "reachability_artifacts": [
+    "go test ./internal/supervisor/... -v -run TestPersistence exits 0",
+    "Wiring trace: eventDB from cmd/sworn/run.go → ParallelOptions → WorkerOptions → supervisor.SetEventDB"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "pending",

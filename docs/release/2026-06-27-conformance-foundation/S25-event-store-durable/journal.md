@@ -47,3 +47,41 @@ Violations:
 
 Required to address:
 - Wire `eventDB` into `run.RunParallel` so events from a run are written to the release-specific `.sworn/supervisor-<release>.db`. This requires adding an event store DB field to `RunParallelOptions` and passing `eventDB` at `cmd/sworn/run.go:131`.
+
+## Session 2 — 2026-07-25 (re-implementation after verifier FAIL)
+
+### Addresses
+
+- Gate 7 violation (AC3): eventDB not passed to RunParallel — fixed
+- Gate 5 violation (silent deferral): no longer applicable; the gap is closed
+
+### Changes
+
+1. **supervisor.go**: Added eventDB *sql.DB field to Supervisor struct. Added SetEventDB(db *sql.DB) method. Updated logEvent to write to s.eventDB when non-nil, falling back to s.db for backward compatibility.
+
+2. **run/parallel.go**: Added EventDB *sql.DB to ParallelOptions. Passed to WorkerOptions in the worker construction.
+
+3. **scheduler/worker.go**: Added EventDB *sql.DB to WorkerOptions. In RunTrack, call sup.SetEventDB(opts.EventDB) when non-nil, before Acquire (so the acquired event lands in the correct DB).
+
+4. **cmd/sworn/run.go**: Pass EventDB: eventDB in the ParallelOptions construction.
+
+### Wiring trace
+
+cmd/sworn/run.go:114 -> supervisor.Open -> .sworn/supervisor-<release>.db
+cmd/sworn/run.go:135 -> ParallelOptions.EventDB
+run/parallel.go:220  -> WorkerOptions.EventDB
+worker.go:136-138    -> sup.SetEventDB(eventDB)
+supervisor.go:252    -> logEvent -> s.eventDB (not s.db)
+
+### Test results
+
+All supervisor tests pass (10/10), including TestPersistence and TestEventsLogged.
+All run package tests pass (31/31).
+All scheduler package tests pass (24/24).
+go vet clean on affected packages.
+
+### Decisions
+
+- SetEventDB approach (rather than a second parameter to New) keeps the API backward-compatible: tests that don't set it continue to write events to the main DB.
+- Event DB is set before Acquire so even the initial acquired event goes to the release-specific store.
+- No changes needed to telemetry.go — it already opens and queries the release-specific DB via supervisor.Open.
