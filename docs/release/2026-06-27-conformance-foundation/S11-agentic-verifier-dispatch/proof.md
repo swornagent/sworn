@@ -6,26 +6,15 @@ Fix two verifier-identified violations in the agentic verifier dispatch: (1) `Ve
 
 ## Files changed
 
-This session (c89aa6e → HEAD):
 ```
-docs/release/2026-06-27-conformance-foundation/S11-agentic-verifier-dispatch/status.json
-```
+$ git diff --name-only c89aa6e997c65e83fc6eb465ca3c32aff4f1dc68..HEAD
 
-Full slice (f53f08d → HEAD, includes prior implementation):
-```
-cmd/sworn/verify.go
 docs/release/2026-06-27-conformance-foundation/S11-agentic-verifier-dispatch/journal.md
 docs/release/2026-06-27-conformance-foundation/S11-agentic-verifier-dispatch/proof.md
 docs/release/2026-06-27-conformance-foundation/S11-agentic-verifier-dispatch/status.json
-docs/release/2026-06-27-conformance-foundation/index.md
-internal/gate/mock.go
-internal/run/slice.go
-internal/run/slice_test.go
-internal/verify/verify.go
-internal/verify/verify_agentic_test.go
-internal/verify/verify_test.go
 ```
 
+The implementation code changes (slice.go, slice_test.go) are in the start_commit itself (c89aa6e). This session's subsequent commits update only the documentation artefacts (journal, proof, status).
 ## Changes made (this session)
 
 ### Violation 1 — AC4 Verification.Model fix
