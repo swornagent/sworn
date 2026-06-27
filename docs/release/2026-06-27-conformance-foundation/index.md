@@ -1,7 +1,7 @@
 ---
 title: 'Release board — 2026-06-27-conformance-foundation'
 description: 'Closes Sworn''s structural Baton-conformance gaps: records-as-JSON, orchestration completeness, agentic verifier, model-layer service, role ontology, contract/re-vendor, telemetry/eval from day 1.'
-release_worktree_path: # set by first /implement-slice in this release
+release_worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation
 release_worktree_branch: release-wt/2026-06-27-conformance-foundation
 tracks:
   - id: T1-orchestration
