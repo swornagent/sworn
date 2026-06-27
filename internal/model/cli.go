@@ -22,6 +22,10 @@ type cliDriver struct {
 	timeout time.Duration // subprocess deadline
 }
 
+// Capabilities returns CapVerify — the CLI driver supports verification.
+// Chat is deferred (claude-code may add agentic Chat in future).
+func (d *cliDriver) Capabilities() Capability { return CapVerify }
+
 // claudeBin returns the path to the claude binary from CLAUDE_BIN env,
 // defaulting to "claude" (resolved from PATH at exec time).
 func claudeBin() string {

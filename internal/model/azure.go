@@ -74,6 +74,10 @@ func NewAzureOAI(deployment, endpoint, apiKey, apiVersion string) (*AzureOAI, er
 //
 // No logging of API keys, request bodies, or response payloads — per
 // AGENTS.md Security.
+// Capabilities returns CapVerify — the Azure OpenAI driver supports
+// single-shot verification. Chat is available via the OAI adapter path.
+func (a *AzureOAI) Capabilities() Capability { return CapVerify }
+
 func (a *AzureOAI) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
 	reqBody := chatRequest{
 		Model: a.Deployment,

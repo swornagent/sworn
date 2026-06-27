@@ -146,8 +146,11 @@ var modelPricing = map[string]struct {
 // On any HTTP error, timeout, or unparseable response it returns an error
 // (not a panic) — the caller (verify.Run) maps errors to BLOCKED, fulfilling
 // spec AC4.
-func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
-	reqBody := chatRequest{
+// Capabilities returns CapVerify | CapChat — the OAI driver supports both
+// single-shot verification and multi-turn chat.
+func (c *OAI) Capabilities() Capability { return CapVerify | CapChat }
+
+func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {	reqBody := chatRequest{
 		Model: c.Model,
 		Messages: []ChatMessage{
 			{Role: "system", Content: systemPrompt},

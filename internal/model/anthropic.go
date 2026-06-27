@@ -38,11 +38,15 @@ func NewAnthropic(modelID, apiKey string) (*Anthropic, error) {
 	}, nil
 }
 
+
+	// Capabilities returns CapVerify — the Anthropic driver supports single-shot
+	// verification. Chat support is deferred to S10-agentic-chat-anthropic.
+	func (a *Anthropic) Capabilities() Capability { return CapVerify }
+
 // Verify sends the system prompt as a system message and userPayload as a
 // single user turn to the Anthropic Messages API. It returns the text from
 // the first text content block, the compute cost in USD, or an error.
-func (a *Anthropic) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
-	msg, err := a.Client.Messages.New(ctx, anthropic.MessageNewParams{
+func (a *Anthropic) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {	msg, err := a.Client.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     anthropic.Model(a.Model),
 		MaxTokens: a.MaxTokens,
 		System: []anthropic.TextBlockParam{
