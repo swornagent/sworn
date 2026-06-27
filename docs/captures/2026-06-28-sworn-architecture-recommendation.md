@@ -162,6 +162,38 @@ nothing) — failing at the meta level. The recursion is the point: **Sworn, the
 reachability and no-mock journeys, was produced by a loop that did not enforce them on Sworn itself, and
 shipped DOA as the direct result.**
 
+**Mapped to classic delivery test levels (the precise framing):** the agents performed *unit testing*
+only. The bugs that shipped live exactly where the higher levels would have caught them — and Baton's
+rule-set already encodes those levels; they simply were not enforced as gates.
+
+| Level | What it proves | Would have caught | Baton rule | State in the loop that built Sworn |
+|---|---|---|---|---|
+| Unit / component | a leaf behaves against its spec, boundaries mocked | (nothing system-level) | per-slice verifier | DONE — green, and misleading |
+| **SIT** (system integration, flow) | the assembled components wire together; the real integration point executes end-to-end | nil-factory SIGSEGV, cold-start gaps, dispatch-never-fires | **Rule 1** (reach through the integration point, not the leaf) | NOT RUN — no test booted `sworn loop --parallel` |
+| **UAT** (acceptance, real output + end-to-end UX, no mocks) | the system delivers the real outcome against real infra | `content,omitempty` (only a real provider rejects it), "does the loop actually verify a slice" | **Rule 10** (no-mock journey + human attestation) | NOT RUN — gate exists as an opt-in command, never wired |
+
+The lesson in one line: **unit-green is not delivery-green.** A full per-slice verifier sits at the
+unit/component tier; it structurally cannot see a SIT- or UAT-class defect. Sworn shipped on unit-green
+alone because the SIT and UAT gates Baton defines were never wired into the loop.
+
+**Why this hit Sworn and not Fired — the harness factor (root cause of the gap).** On the Fired project a
+full E2E Playwright suite already existed, so the agents *tap into it*: SIT and UAT happen for free, the
+agents' work is exercised end-to-end, and the loop/verifier can run it. **Sworn is greenfield** — no
+integration or E2E harness existed, so unit tests were the ceiling the agents could reach. The DOA
+outcome was not the loop failing; it was the loop faithfully shipping unit-green on a project that had no
+SIT/UAT layer to tap into. The corollary is uncomfortable and important: **greenfield is exactly where
+the loop is most dangerous** — the projects with no E2E harness are the ones where `verified` means
+least, and "build me a new X" is the most common ask.
+
+Product implication for Sworn (aligns with the proof-visibility theme / `sworn init` test-capability
+detection): Sworn must treat the *absence* of a SIT/UAT harness as a first-class, detected condition —
+and on detecting it either bootstrap a minimal harness or refuse to certify a slice on unit-green alone.
+There is no excuse even for greenfield: the cheapest SIT gate needs no Playwright — just **boot the
+assembled binary and run the affordance** (`sworn loop --parallel` over a tiny fixture release with a
+stub provider, asserting it dispatches without crashing). That single smoke test would have caught the
+nil-factory SIGSEGV and the cold-start crash before any slice was called `verified`. For a CLI/library
+the SIT floor is "the built binary runs"; for a web app it is the Playwright/E2E suite Fired already has.
+
 Implication for the recommendation: the fix is two-pronged, and the architecture half alone is not
 enough.
 - **Architecture** (sections 1-3): delegate the loop to a driver so the whole class of in-process
@@ -185,7 +217,7 @@ enough.
 | 7 | Tool-exec cache/env hygiene (GOCACHE/GOMODCACHE/HOME outside worktree) | Memory | FT-1 | S |
 | 8 | Telemetry KPI = verified-slices per token/$/hour (duration, real cost, model-id, rework) | Perf | FT-7 | M |
 | 9 | S27 already landed: nil-factory defaults + always-emit content (interim, keep until #4) | Resilience | T1/FT-2 | done |
-| 10 | **Reachability ACs through the real integration point (no mocked-leaf green) + wire the Rule-10 no-mock end-to-end gate so a release can't certify until `sworn loop` boots and runs a slice against real infra** | Resilience/Correctness | FT-3 + Rule-10 | M | see §3.5 |
+| 10 | **Add the missing test levels as wired gates: a SIT gate (boot `sworn loop` end-to-end through the real integration point, Rule 1) and a UAT gate (Rule-10 no-mock journey against real infra + human attestation) — a release cannot certify on unit-green alone** | Resilience/Correctness | FT-3 + Rule-1 + Rule-10 | M | see §3.5 |
 | 11 | Rename `sworn run` → `sworn loop` (loop-engineering terminology); `run` kept as deprecated alias | Elegance | — | done |
 
 Recommendation #4 is the keystone: it subsumes most of the model-layer audit gaps and is the single
