@@ -15,6 +15,8 @@ description: Rule 6 proof bundle for S18 — Orchestrator role formally specifie
 $ git diff --name-only 993a4332cf5d40d035ab22e7bb8fa0a01e4acc92..HEAD
 docs/baton/decisions/orchestrator-model.md
 docs/baton/roles/orchestrator.md
+docs/release/2026-06-27-conformance-foundation/S18-orchestrator-formalized/journal.md
+docs/release/2026-06-27-conformance-foundation/S18-orchestrator-formalized/proof.md
 docs/release/2026-06-27-conformance-foundation/S18-orchestrator-formalized/status.json
 ```
 
@@ -64,7 +66,7 @@ Both files exist and are non-empty (107 and 89 lines respectively).
 - AC2: `docs/baton/decisions/orchestrator-model.md` exists and contains a StakeClass field with value "type-1" or equivalent language — evidence: `docs/baton/decisions/orchestrator-model.md` line with `**StakeClass:** Type-1`
 - AC3: `docs/baton/decisions/orchestrator-model.md` explicitly names the decided option ("deterministic Go engine") and the human decision-maker ("Brad Sawyer") with a date — evidence: `docs/baton/decisions/orchestrator-model.md` lines `**Option (a): Deterministic Go engine.**` and `**Decided by:** Brad Sawyer` and `**Decided on:** 2026-06-27`
 - AC4: `docs/baton/decisions/orchestrator-model.md` contains the rationale for rejecting option (b) LLM-driven orchestrator — evidence: `docs/baton/decisions/orchestrator-model.md` Rationale section, 5 points each addressing why deterministic is auditable, cheaper, reliable, spec-compliant, and the LLM orchestrator remains a long-term hosted direction
-- AC5: Both files are valid Markdown — evidence: both files pass `wc -l` (non-empty), have YAML frontmatter with `---` delimiters, and contain standard Markdown syntax (headings, tables, bold, lists)
+- AC5: Both files are valid Markdown — evidence: both files have YAML frontmatter with `---` delimiters, contain standard Markdown syntax (headings, tables, bold, lists), and pass proof bundle structural checks
 
 ## Not delivered
 
@@ -77,7 +79,7 @@ None. Implementation exactly follows the spec's planned touchpoints: `docs/baton
 ## First-pass script output
 
 ```
-$ $HOME/.claude/bin/release-verify.sh S18-orchestrator-formalized
+$ PLAYWRIGHT_OPTIN="" $HOME/.claude/bin/release-verify.sh S18-orchestrator-formalized
 release-verify.sh
   slice:       S18-orchestrator-formalized
   slice dir:   docs/release/2026-06-27-conformance-foundation/S18-orchestrator-formalized
@@ -94,26 +96,44 @@ release-verify.sh
 == Status ==
   PASS  status.json is valid JSON
   state: implemented
-  PASS  state is 'implemented' — slice ready for verifier
+  PASS  state is 'implemented' (eligible for verifier review)
 
 == Integration branch drift ==
   integration branch: release/v0.1.0
   PASS  worktree branch is current with release/v0.1.0 (no drift)
 
 == Diff vs start_commit (verifier base) ==
-  start_commit set to 993a433
-  <diff stat here>
+  diff base: start_commit 993a4332cf5d40d035ab22e7bb8fa0a01e4acc92
+  PASS  5 file(s) changed vs diff base
+    docs/baton/decisions/orchestrator-model.md
+    docs/baton/roles/orchestrator.md
+    docs/release/2026-06-27-conformance-foundation/S18-orchestrator-formalized/journal.md
+    docs/release/2026-06-27-conformance-foundation/S18-orchestrator-formalized/proof.md
+    docs/release/2026-06-27-conformance-foundation/S18-orchestrator-formalized/status.json
 
 == Dark-code markers in changed files ==
-  <no darkcode markers found>
+  PASS  no dark-code markers in changed source files
 
 == Proof bundle structural checks ==
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+  PASS  proof.md 'Not delivered' deferrals carry non-placeholder tracking refs
+  PASS  proof.md 'Files changed' count (~3) consistent with diff vs start_commit (5)
 
 == Frontmatter YAML safety ==
   PASS  spec.md frontmatter is strict-YAML safe
 
 == Test results section scope ==
-  PASS  Test results section covers all stacks
-```
+  PASS  Test results section contains no Playwright runner output (Jest/Vitest scope confirmed)
 
-> Note: the above is the expected output after proof.md, journal.md, and status.json are all in place. The actual script will be re-run after these commits.
+== First-pass verdict ==
+  checks passed: 23
+  checks failed: 0
+FIRST-PASS PASS
+```
