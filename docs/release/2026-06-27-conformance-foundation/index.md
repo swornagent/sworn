@@ -118,7 +118,7 @@ tracks:
 
 | ID | Track | User outcome | State | Spec | Proof |
 |---|---|---|---|---|---|
-| `S01-llm-interpreter` | T1 | Non-typed implementer/verifier outcomes route through a bounded cheap-model decision step; the loop never stalls on routine ambiguity | planned | [spec](./S01-llm-interpreter/spec.md) | — |
+| `S01-llm-interpreter` | T1 | Non-typed implementer/verifier outcomes route through a bounded cheap-model decision step; the loop never stalls on routine ambiguity | verified | [spec](./S01-llm-interpreter/spec.md) | [proof](./S01-llm-interpreter/proof.md) |
 | `S02-orchestrator-decision-log` | T1 | Every routing decision and triage output is persisted to the supervisor SQLite; the Coach can query the decision trail after a run | planned | [spec](./S02-orchestrator-decision-log/spec.md) | — |
 | `S03-crash-recovery` | T1 | A slice that hits error_max_turns PAGEs the Coach instead of looping; the cross-run circuit breaker halts a fingerprinted repeated failure | planned | [spec](./S03-crash-recovery/spec.md) | — |
 | `S04-scheduler-dependent-track` | T1 | A dependent track's worktree branches from the dependency tip after finishTrack auto-merges to release-wt, so it always starts with the dependency's code | planned | [spec](./S04-scheduler-dependent-track/spec.md) | — |
@@ -160,15 +160,15 @@ tracks:
 
 ## Aggregate state
 
-- Planned: 26
+- Planned: 25
 - In progress: 0
 - Implemented (awaiting verification): 1 (S27-parallel-dispatch-fix)
-- Verified (awaiting merge): 0
+- Verified (awaiting merge): 1 (S01-llm-interpreter)
 - Failed verification: 0
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 7 / In progress: 0 / Merged: 0
+**Tracks:** Planned: 6 / In progress: 1 (T1-orchestration) / Merged: 0
 
 ## Rule-10 journeys to declare (in T4 S17)
 

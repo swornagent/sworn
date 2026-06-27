@@ -30,3 +30,21 @@
 
 - **Interpreter not auto-wired**: The interpreter engine is complete but opt-in. This avoids breaking tests that depend on the unparseable→BLOCKED path. The caller must explicitly set `InterpretVerifier`. This is a known deferral (tracked in proof.md Not Delivered) — the CLI flag wiring is a follow-up.
 - **No fallback to verifier model**: Earlier drafts fell back to using the verifier's own model client for the interpreter call. This was removed because it changed behaviour for existing tests (the fake verifier returns empty text, causing the interpreter to return INCONCLUSIVE where BLOCKED was expected).
+## 2026-06-28: Verifier verdict
+
+### Verdict: PASS
+
+**Verifier session:** Fresh, artefact-only. Verifier anchored at track worktree T1-orchestration.
+
+**Gate summary:**
+- Gate 1 (User-reachable outcome): PASS -- interpreter wired into worker goroutine path via run/slice.go.
+- Gate 2 (Touchpoint match): PASS -- planned touchpoints all changed; additions documented in Divergence.
+- Gate 3 (Required tests): PASS -- 10 unit + 2 integration tests all pass.
+- Gate 3b (AC LLM): SKIPPED (LLM provider not configured).
+- Gate 4 (Reachability): PASS -- test command exits 0, matches spec prescription.
+- Gate 4b (Semantic coverage LLM): SKIPPED.
+- Gate 5 (Silent deferrals): PASS -- no TODO/FIXME/placeholder markers.
+- Gate 6 (Design conformance): PASS (non-UI project).
+- Gate 7 (Scope match): PASS -- all 6 ACs have verified evidence.
+
+**Next step:** /implement-slice S02-orchestrator-decision-log 2026-06-27-conformance-foundation
