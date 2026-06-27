@@ -6,7 +6,7 @@
   "covers_needs": [
     "N-20"
   ],
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-25T00:00:00Z",
@@ -18,9 +18,17 @@
     "docs/baton/roles/orchestrator.md",
     "docs/baton/decisions/orchestrator-model.md"
   ],
-  "actual_files": [],
-  "test_commands": [],
-  "reachability_artifacts": [],
+  "actual_files": [
+    "docs/baton/roles/orchestrator.md",
+    "docs/baton/decisions/orchestrator-model.md"
+  ],
+  "test_commands": [
+    "cat docs/baton/roles/orchestrator.md",
+    "cat docs/baton/decisions/orchestrator-model.md"
+  ],
+  "reachability_artifacts": [
+    "manual-smoke-step: cat docs/baton/roles/orchestrator.md and docs/baton/decisions/orchestrator-model.md"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "pending",
