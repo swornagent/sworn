@@ -10,7 +10,7 @@
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-27T22:37:01Z",
-  "start_commit": null,
+  "start_commit": "e74b5ddd7df29b89e13c30b0dc49e1c6334cff34",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S24-dispatch-enrich/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S24-dispatch-enrich/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S24-dispatch-enrich/journal.md",
