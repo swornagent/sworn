@@ -141,6 +141,37 @@ because the loop cannot bank progress.
 
 ---
 
+### 3.5 The verification gap that shipped Sworn DOA (the recursive lesson)
+
+**Sworn was built by the bash coach-loop using the FULL agentic, fresh-context, test-re-running
+verifier — and it still shipped DOA.** This is the most important lesson, and it corrects an earlier
+over-claim that the bash verifier's "mechanical teeth" made it sound. A rigorous per-slice verifier is
+necessary but not sufficient.
+
+Why a full verifier passed a DOA system: per-slice verification checks each slice against its own spec
+ACs and tests, but those tests **mocked the boundary** — the slices that built the parallel loop were
+exercised with an injected fake `NewAgent`/`NewVerifier` and mock models, so their unit tests went green
+without ever running the real `sworn loop --parallel` from a cold board against a real provider. Green
+leaves did not compose into a working binary. Nothing in the loop ran the assembled affordance
+end-to-end, so the nil-factory SIGSEGV, the `content,omitempty` serialization wall, and the cold-start
+gaps were all invisible to a verifier that only ever saw mocked, leaf-level slices.
+
+This is precisely **Baton Rule 1** (the first failing test must render through the integration point that
+owns the affordance, not the leaf) and **Rule 10** (a journey walked over a mocked boundary proves
+nothing) — failing at the meta level. The recursion is the point: **Sworn, the tool built to enforce
+reachability and no-mock journeys, was produced by a loop that did not enforce them on Sworn itself, and
+shipped DOA as the direct result.**
+
+Implication for the recommendation: the fix is two-pronged, and the architecture half alone is not
+enough.
+- **Architecture** (sections 1-3): delegate the loop to a driver so the whole class of in-process
+  wire/loop bugs cannot exist.
+- **Gates**: make per-slice ACs demand a *real* reachability artefact (the integration point executes,
+  not a mocked leaf), and wire the **Rule-10 no-mock end-to-end journey** gate so a release cannot
+  certify until `sworn loop` actually boots and runs a slice against real infra from a cold board. The
+  "keyless-full-loop" journey this release was meant to declare IS that gate; it was not enforced on the
+  release that defines it. A full verifier plus mocked ACs equals confident green over a DOA build.
+
 ## 4. Prioritised recommendations (mapped to release tracks + properties)
 
 | # | Recommendation | Property | Track | Effort |
@@ -154,6 +185,8 @@ because the loop cannot bank progress.
 | 7 | Tool-exec cache/env hygiene (GOCACHE/GOMODCACHE/HOME outside worktree) | Memory | FT-1 | S |
 | 8 | Telemetry KPI = verified-slices per token/$/hour (duration, real cost, model-id, rework) | Perf | FT-7 | M |
 | 9 | S27 already landed: nil-factory defaults + always-emit content (interim, keep until #4) | Resilience | T1/FT-2 | done |
+| 10 | **Reachability ACs through the real integration point (no mocked-leaf green) + wire the Rule-10 no-mock end-to-end gate so a release can't certify until `sworn loop` boots and runs a slice against real infra** | Resilience/Correctness | FT-3 + Rule-10 | M | see §3.5 |
+| 11 | Rename `sworn run` → `sworn loop` (loop-engineering terminology); `run` kept as deprecated alias | Elegance | — | done |
 
 Recommendation #4 is the keystone: it subsumes most of the model-layer audit gaps and is the single
 change that would have prevented the dogfood's headline failures. #1, #2, #3 are small and turn the loop
