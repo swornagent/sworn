@@ -4,10 +4,10 @@
   "release": "2026-06-27-conformance-foundation",
   "track": "T6-contract-revendor",
   "covers_needs": ["N-24"],
-  "state": "implemented",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-28T00:00:00Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-24T00:00:00Z",
   "start_commit": "bdc51c26beb2f8aff9c7e0dedac81f04411793d9",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S22-pin-bump/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S22-pin-bump/proof.md",
@@ -43,10 +43,10 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "pass",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-07-24T00:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
   }
 }
