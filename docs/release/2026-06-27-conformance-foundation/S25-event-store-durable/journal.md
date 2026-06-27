@@ -34,3 +34,16 @@
 ### Out-of-scope discoveries
 
 - None.
+## Verifier verdicts received
+
+### 2026-06-28 — Verifier session (fresh context)
+
+**Verdict: FAIL**
+
+Violations:
+1. **Gate 7** — AC3 not satisfied: `sworn telemetry events --release <name>` queries supervisor-<release>.db which has zero events after a `sworn run --parallel`. The `eventDB` opened at `cmd/sworn/run.go:114` is never passed to `run.RunParallel` (line 131 only receives `database` = sworn.db). The journal admits this gap at lines 24-28. Evidence: `cmd/sworn/run.go:114-120` opens `eventDB` then `defer eventDB.Close()` without passing it anywhere; `RunParallelOptions` (`internal/run/parallel.go:21-29`) has no field for an event store DB.
+
+2. **Gate 5** — Silent deferral: proof.md "Not delivered" claims "None" but journal.md lines 23-32 admit "sworn telemetry events may return empty if events were written to sworn.db rather than supervisor-<release>.db." A deferral without Rule 2 tracking (#NNN) or human acknowledgement, on a spec that states "Deferrals allowed? No."
+
+Required to address:
+- Wire `eventDB` into `run.RunParallel` so events from a run are written to the release-specific `.sworn/supervisor-<release>.db`. This requires adding an event store DB field to `RunParallelOptions` and passing `eventDB` at `cmd/sworn/run.go:131`.

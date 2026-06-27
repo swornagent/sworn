@@ -6,10 +6,10 @@
   "covers_needs": [
     "N-27"
   ],
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-27T23:31:05Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-28T10:00:00Z",
   "start_commit": "d00e44dea7cb1405b4e96b91dd42d7b9b19af4f8",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/proof.md",
@@ -33,10 +33,13 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
+    "result": "fail",
+    "verifier_session_id": "fresh",
+    "verifier_verdict_at": "2026-06-28T10:00:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "Gate 7 — AC3 not satisfied: eventDB opened at cmd/sworn/run.go:114 is never passed to run.RunParallel; sworn telemetry events --release <name> queries an empty DB",
+      "Gate 5 — Silent deferral: proof.md claims None not delivered but journal.md admits events may not route to the release-specific DB"
+    ]
   }
 }
