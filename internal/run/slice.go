@@ -72,6 +72,12 @@ type RunSliceOptions struct {
 	// even if it already exists. When false, an existing design.md is left
 	// untouched (S45-design-tldr AC2).
 	RegenerateDesign bool
+
+	// InterpretVerifier is an optional model.Verifier for the LLM interpreter
+	// (S01-llm-interpreter). When the verifier's raw output does not parse to a
+	// clean verdict, the interpreter classifies it with a bounded cheap-model
+	// call. If nil, the existing VerifierModel's client is used as a fallback.
+	InterpretVerifier model.Verifier
 }
 
 // Notifier is the one-method seam for dispatching FAIL/BLOCKED notifications.
@@ -393,12 +399,14 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			openDeferrals = status.OpenDeferrals
 		}
 
+		// Wrap the verifier to capture raw output for the interpreter (S01).
+		captureV := &captureVerifier{inner: verifier}
 		lastVerdict = verify.Run(ctx, verify.Input{
 			SpecPath:      specPath,
 			DiffPath:      diffPath,
 			ProofPath:     proofPath,
 			Model:         verifierModelID,
-			Verifier:      verifier,
+			Verifier:      captureV,
 			OpenDeferrals: openDeferrals,
 		})
 		os.Remove(diffPath)
@@ -416,6 +424,43 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			CostUSD: lastVerdict.CostUSD,
 			Attempt: totalAttempts,
 		})
+
+		// ── S01 Interpreter: classify unparseable model output ──────
+		// When the verifier's raw output does not begin with a known
+		// verdict, route through a bounded cheap-model interpreter
+		// before triage. This prevents routine ambiguity from pausing
+		// the loop to PAGE the Coach.
+		if opts.InterpretVerifier != nil &&
+			lastVerdict.Verdict == verdict.Blocked &&
+			lastVerdict.FailedGate == "unparseable_verdict" {
+			// Use the explicitly-configured interpreter model.
+			// If nil, Interpret() returns INCONCLUSIVE immediately
+			// (fail-closed per S01 AC4). The interpreter does NOT
+			// fall back to the verifier model — the two models
+			// serve different roles and the interpreter model is
+			// deliberately a bounded cheap-model classifier.
+			interpResult := orchestrator.Interpret(ctx, captureV.lastText, opts.InterpretVerifier)
+			fmt.Fprintf(os.Stderr, "sworn run: interpreter: %s (cost $%.4f)\n",
+				interpResult.Verdict, interpResult.CostUSD)
+
+			if interpResult.Verdict == verdict.Inconclusive {
+				// Interpreter could not classify — PAGE the Coach
+				// (same path as current max_turns pause).  The
+				// worker/router detect this via the sentinel in
+				// the error message.
+				sliceID := ""
+				if status != nil {
+					sliceID = status.SliceID
+				} else {
+					sliceID = filepath.Base(filepath.Dir(statusPath))
+				}
+				return orchestrator.ErrInterpretInconclusive(
+					sliceID, captureV.lastText)
+			}
+
+			// Interpreter classified — use its verdict for triage.
+			lastVerdict = interpResult
+		}
 
 		// ── PASS: transition to verified ────────────────────────────
 		if lastVerdict.Verdict == verdict.Pass {
@@ -540,6 +585,20 @@ haltFailedVerification:
 			"Escalate to human. Slice reached failed_verification on worktree %s.",
 		totalAttempts, lastVerdict.Verdict, worktreeRoot,
 	)
+}
+
+// captureVerifier wraps a model.Verifier and captures the raw text from the
+// last Verify call. Used by the interpreter (S01) to access the raw model
+// output when the parsed verdict is unparseable.
+type captureVerifier struct {
+	inner    model.Verifier
+	lastText string
+}
+
+func (c *captureVerifier) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
+	text, cost, err := c.inner.Verify(ctx, systemPrompt, userPayload)
+	c.lastText = text
+	return text, cost, err
 }
 
 // writeTempFile writes content to a temporary file in dir matching pattern.

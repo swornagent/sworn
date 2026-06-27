@@ -7,11 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/board"
-	"github.com/swornagent/sworn/internal/supervisor"
-)
+	"github.com/swornagent/sworn/internal/orchestrator"
+	"github.com/swornagent/sworn/internal/supervisor")
 
 // TrackResult is the outcome of a single worker goroutine.
 type TrackResult string
@@ -259,6 +260,13 @@ func runTrackRouter(
 			fmt.Fprintf(os.Stderr, "[%s] running slice %s\n", trackID, currentSlice)
 
 			if err := opts.RunSliceFn(ctx, workRoot, specPath, statusPath); err != nil {
+				// S01: interpreter INCONCLUSIVE → PAGE the Coach (pause, not fail).
+				if strings.Contains(err.Error(), orchestrator.InterpreterInconclusiveSentinel) {
+					fmt.Fprintf(os.Stderr, "[%s] paused: interpreter inconclusive for %s — %v\n",
+						trackID, currentSlice, err)
+					releaseTrack("paused")
+					return TrackPaused
+				}
 				fmt.Fprintf(os.Stderr, "[%s] slice %s failed: %v\n", trackID, currentSlice, err)
 
 				if opts.Notifier != nil {
@@ -291,6 +299,13 @@ func runTrackRouter(
 			fmt.Fprintf(os.Stderr, "[%s] redesign: stripped captain-proceed.md for %s, re-running\n",
 				trackID, currentSlice)
 			if err := opts.RunSliceFn(ctx, workRoot, specPath, statusPath); err != nil {
+				// S01: interpreter INCONCLUSIVE → PAGE the Coach (pause, not fail).
+				if strings.Contains(err.Error(), orchestrator.InterpreterInconclusiveSentinel) {
+					fmt.Fprintf(os.Stderr, "[%s] paused: interpreter inconclusive for %s — %v\n",
+						trackID, currentSlice, err)
+					releaseTrack("paused")
+					return TrackPaused
+				}
 				fmt.Fprintf(os.Stderr, "[%s] slice %s failed after redesign: %v\n", trackID, currentSlice, err)
 				releaseTrack(supervisor.StateFailed)
 				return TrackFail
@@ -338,6 +353,13 @@ func runTrackLegacy(
 		statusPath := filepath.Join(workRoot, specBase, sliceID, "status.json")
 
 		if err := opts.RunSliceFn(ctx, workRoot, specPath, statusPath); err != nil {
+			// S01: interpreter INCONCLUSIVE → PAGE the Coach (pause, not fail).
+			if strings.Contains(err.Error(), orchestrator.InterpreterInconclusiveSentinel) {
+				fmt.Fprintf(os.Stderr, "[%s] paused: interpreter inconclusive for %s — %v\n",
+					trackID, sliceID, err)
+				releaseTrack("paused")
+				return TrackPaused
+			}
 			fmt.Fprintf(os.Stderr, "[%s] slice %s failed: %v\n", trackID, sliceID, err)
 
 			if opts.Notifier != nil {

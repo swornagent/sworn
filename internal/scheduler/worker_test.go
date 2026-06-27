@@ -874,3 +874,103 @@ func TestCrashRecovery(t *testing.T) {
 		t.Fatalf("expected implement dispatch for %q, got %v", sid, called)
 	}
 }
+
+// TestRunTrack_InterpreterInconclusivePauses proves that when RunSliceFn
+// returns an INTERPRETER_INCONCLUSIVE error (S01), the worker pauses the
+// track rather than failing it. This is the worker-side integration test
+// for AC3/AC6: the non-typed-output -> interpreter -> triage path results
+// in a PAGE event (track paused).
+func TestRunTrack_InterpreterInconclusivePauses(t *testing.T) {
+	trackID := "T1-interp"
+	sliceID := "S01-interp-test"
+
+	tmpDir := t.TempDir()
+	absSpecDir := filepath.Join(tmpDir, "docs", "release", "test-interp", sliceID)
+	os.MkdirAll(absSpecDir, 0o755)
+	os.WriteFile(filepath.Join(absSpecDir, "spec.md"), []byte("# test"), 0o644)
+	os.WriteFile(filepath.Join(absSpecDir, "status.json"), []byte(`{"state":"in_progress"}`), 0o644)
+
+	var called []string
+	runSliceFn := func(ctx context.Context, worktreeRoot, specPath, statusPath string) error {
+		called = append(called, filepath.Base(filepath.Dir(statusPath)))
+		return fmt.Errorf("INTERPRETER_INCONCLUSIVE: interpreter could not classify output for %s (raw preview: ambiguous text)", sliceID)
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite not available: %v", err)
+	}
+	defer db.Close()
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+
+	opts := WorkerOptions{
+		ReleaseName:         "test-interp",
+		PrimaryWorktreeRoot: tmpDir,
+		ProjectDir:          "sworn",
+		TrackInfo: board.TrackInfo{
+			ID:             trackID,
+			Slices:         []string{sliceID},
+			WorktreePath:   tmpDir,
+			WorktreeBranch: "track/test-interp/" + trackID,
+		},
+		RunSliceFn: runSliceFn,
+		DB:         db,
+	}
+
+	result := RunTrack(context.Background(), opts)
+	if result != TrackPaused {
+		t.Fatalf("expected TrackPaused for interpreter INCONCLUSIVE, got %s", result)
+	}
+	if len(called) != 1 {
+		t.Fatalf("expected 1 RunSliceFn call, got %d", len(called))
+	}
+}
+
+// TestRunTrack_InterpreterSentinelIsNotNormalFailure proves that a normal
+// RunSliceFn error (without the interpreter sentinel) still results in
+// TrackFail - the sentinel check is specific and does not weaken the
+// existing error handling.
+func TestRunTrack_InterpreterSentinelIsNotNormalFailure(t *testing.T) {
+	trackID := "T1-normal-fail"
+	sliceID := "S01-normal-fail"
+
+	tmpDir := t.TempDir()
+	absSpecDir := filepath.Join(tmpDir, "docs", "release", "test-normal-fail", sliceID)
+	os.MkdirAll(absSpecDir, 0o755)
+	os.WriteFile(filepath.Join(absSpecDir, "spec.md"), []byte("# test"), 0o644)
+	os.WriteFile(filepath.Join(absSpecDir, "status.json"), []byte(`{"state":"in_progress"}`), 0o644)
+
+	var called []string
+	runSliceFn := func(ctx context.Context, worktreeRoot, specPath, statusPath string) error {
+		called = append(called, filepath.Base(filepath.Dir(statusPath)))
+		return fmt.Errorf("RunSlice: verification failed after 3 attempts")
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite not available: %v", err)
+	}
+	defer db.Close()
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+
+	opts := WorkerOptions{
+		ReleaseName:         "test-normal-fail",
+		PrimaryWorktreeRoot: tmpDir,
+		ProjectDir:          "sworn",
+		TrackInfo: board.TrackInfo{
+			ID:             trackID,
+			Slices:         []string{sliceID},
+			WorktreePath:   tmpDir,
+			WorktreeBranch: "track/test-normal-fail/" + trackID,
+		},
+		RunSliceFn: runSliceFn,
+		DB:         db,
+	}
+
+	result := RunTrack(context.Background(), opts)
+	if result != TrackFail {
+		t.Fatalf("expected TrackFail for normal verification failure, got %s", result)
+	}
+}
