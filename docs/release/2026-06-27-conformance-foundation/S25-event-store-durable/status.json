@@ -6,10 +6,10 @@
   "covers_needs": [
     "N-27"
   ],
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-28T12:00:00Z",
+  "last_updated_at": "2026-06-27T23:31:05Z",
   "start_commit": "d00e44dea7cb1405b4e96b91dd42d7b9b19af4f8",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/proof.md",
@@ -18,11 +18,19 @@
     "internal/supervisor/supervisor.go",
     "cmd/sworn/telemetry.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/supervisor/supervisor.go",
+    "internal/supervisor/supervisor_test.go",
+    "cmd/sworn/telemetry.go",
+    "cmd/sworn/run.go"
+  ],
   "test_commands": [
     "go test ./internal/supervisor/... -v -run TestPersistence"
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "go test ./internal/supervisor/... -v -run TestPersistence exits 0",
+    "sworn telemetry events --release <name> binary invocation exits 0"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "pending",
