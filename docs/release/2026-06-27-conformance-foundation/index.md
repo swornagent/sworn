@@ -39,7 +39,7 @@ tracks:
     depends_on: null
     worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T6-contract-revendor
     worktree_branch: track/2026-06-27-conformance-foundation/T6-contract-revendor
-    state: in_progress
+    state: merged
   - id: T7-telemetry-eval
     slices: [S24-dispatch-enrich, S25-event-store-durable, S26-eval-projections]
     depends_on: null
@@ -71,7 +71,7 @@ tracks:
 | `T3-agentic-verifier` | S11 → S12 | — | `track/.../T3-agentic-verifier` | planned |
 | `T4-records-as-json` | S13 → S14 → S15 → S16 → S17 | — | `track/.../T4-records-as-json` | planned |
 | `T5-role-ontology` | S18 → S19 → S20 → S21 | T6-contract-revendor | `track/.../T5-role-ontology` | planned |
-| `T6-contract-revendor` | S22 → S23 | — | `track/.../T6-contract-revendor` | planned |
+| `T6-contract-revendor` | S22 → S23 | — | `track/.../T6-contract-revendor` | merged |
 | `T7-telemetry-eval` | S24 → S25 → S26 | — | `track/.../T7-telemetry-eval` | planned |
 
 ### Touchpoint matrix (DRAFT — finalised once specs are written)
@@ -166,7 +166,7 @@ tracks:
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 7 / In progress: 0 / Merged: 0
+**Tracks:** Planned: 1 / In progress: 5 / Merged: 1
 
 ## Rule-10 journeys to declare (in T4 S17)
 
@@ -188,3 +188,10 @@ tracks:
 - T4 S17 (journeys-declare) requires T4 S16 (journeys shape aligned) to be implemented first — sequential within T4.
 - `internal/run/slice.go` is a documented shared file between T2 (error-halt, lines ~321-327) and T3 (verifier dispatch, lines ~412-429). Merge-track for the second track must resolve the conflict on this file.
 - `internal/state/state.go` is a documented shared file between T4 (Write() validation, line ~184) and T7 (Dispatch struct, line ~80). Regions are well-separated and non-overlapping.
+
+## Recent activity
+
+### 2026-06-28 — track `T6-contract-revendor` merged to release-wt (commit 0b039d0)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 2 verified slices merged: S22-pin-bump, S23-version-centralise-doctor. Track state → merged.
