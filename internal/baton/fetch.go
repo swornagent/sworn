@@ -36,7 +36,7 @@ import (
 // strips it so every mapped path resolves correctly.
 //
 // repo must be "owner/name" format.
-// tag must be a semver tag (e.g. "v0.4.2").
+// tag must be a semver tag (e.g. "vX.Y.Z").
 //
 // On any error (network failure, non-2xx, tag not found, SHA mismatch, digest
 // mismatch, bad gzip, tar error), the returned error is non-nil and no files
@@ -220,7 +220,7 @@ func extractTarball(data []byte, destDir, repoName, tag string) error {
 	defer gr.Close()
 	tr := tar.NewReader(gr)
 	// GitHub strips the leading v from semver tags in tarball paths
-	// (e.g. tag "v0.5.0" -> archive prefix "baton-0.5.0/").
+	// (e.g. tag "vX.Y.Z" -> archive prefix "baton-X.Y.Z/").
 	cleanTag := strings.TrimPrefix(tag, "v")
 	prefix := fmt.Sprintf("%s-%s/", repoName, cleanTag)
 

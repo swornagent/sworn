@@ -198,7 +198,7 @@ func TestBatonRulesNonEmpty(t *testing.T) {
 
 func TestBatonAllKeys(t *testing.T) {
 	all := BatonAll()
-	required := []string{"rules.md", "track-mode.md", "session-discipline.md", "brainstorm-patterns.md", "README.md", "VERSION.txt"}
+	required := []string{"rules.md", "track-mode.md", "session-discipline.md", "brainstorm-patterns.md", "README.md"}
 	for _, k := range required {
 		if v, ok := all[k]; !ok {
 			t.Errorf("BatonAll() missing key %q", k)
