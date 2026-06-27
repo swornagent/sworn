@@ -59,8 +59,7 @@ func TestReadWrite_RoundTrip(t *testing.T) {
 	path := filepath.Join(dir, "status.json")
 
 	orig := Status{
-		Schema:                "https://example.com/schemas/baton/slice-status-v1.json",
-		SliceID:               "S05-state-and-git",
+		Schema:                "https://baton.sawy3r.net/schemas/slice-status-v1.json",		SliceID:               "S05-state-and-git",
 		Release:               "2026-06-15-e2e-turnkey-loop",
 		Track:                 "T2-orchestration",
 		State:                 InProgress,
@@ -134,7 +133,12 @@ func TestWrite_RoundTripPreservesJSONShape(t *testing.T) {
 	s := Status{
 		Schema:  "v1",
 		SliceID: "S01",
+		Release: "2026-06-27-conformance-foundation",
+		Track:   "T4-records-as-json",
 		State:   Planned,
+		Verification: Verification{
+			Result: "pending",
+		},
 	}
 	if err := Write(path, &s); err != nil {
 		t.Fatal(err)
@@ -142,8 +146,7 @@ func TestWrite_RoundTripPreservesJSONShape(t *testing.T) {
 
 	// Read back raw bytes and check key fields are present.
 	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
+	if err != nil {		t.Fatal(err)
 	}
 
 	var m map[string]interface{}
@@ -219,10 +222,15 @@ func TestTraceFieldsRoundTrip(t *testing.T) {
 
 	orig := Status{
 		SliceID:        "S01-rtm-spine",
+		Release:        "2026-06-27-conformance-foundation",
+		Track:          "T4-records-as-json",
 		State:          Planned,
 		NeedIDs:        []string{"N-01", "N-02"},
 		ReleaseBenefit: "The release delivers value.",
 		OrgObjective:   "Become the standard.",
+		Verification: Verification{
+			Result: "pending",
+		},
 	}
 	if err := Write(path, &orig); err != nil {
 		t.Fatalf("write: %v", err)
@@ -250,6 +258,8 @@ func TestVerification_ModelAttemptRoundTrip(t *testing.T) {
 
 	orig := Status{
 		SliceID: "S52-ledger-projection",
+		Release: "2026-06-27-conformance-foundation",
+		Track:   "T4-records-as-json",
 		State:   Verified,
 		Verification: Verification{
 			Result:  "pass",
@@ -281,6 +291,8 @@ func TestVerification_ModelAttemptOmitEmpty(t *testing.T) {
 	// Zero-valued fields should be omitted (omitempty).
 	orig := Status{
 		SliceID: "S52-ledger-projection",
+		Release: "2026-06-27-conformance-foundation",
+		Track:   "T4-records-as-json",
 		State:   Verified,
 		Verification: Verification{
 			Result: "pass",
@@ -320,6 +332,8 @@ func TestDispatches_RoundTrip(t *testing.T) {
 
 	orig := Status{
 		SliceID: "S55-ledger-multirole-cost",
+		Release: "2026-06-27-conformance-foundation",
+		Track:   "T4-records-as-json",
 		State:   Verified,
 		Verification: Verification{
 			Result: "pass",
@@ -340,8 +354,7 @@ func TestDispatches_RoundTrip(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 
-	if len(got.Verification.Dispatches) != 3 {
-		t.Fatalf("Dispatches: want 3, got %d", len(got.Verification.Dispatches))
+	if len(got.Verification.Dispatches) != 3 {		t.Fatalf("Dispatches: want 3, got %d", len(got.Verification.Dispatches))
 	}
 	if got.Verification.Dispatches[0].Role != "implementer" {
 		t.Errorf("dispatch[0].Role: want implementer, got %s", got.Verification.Dispatches[0].Role)
@@ -363,6 +376,8 @@ func TestDispatches_OmitEmpty(t *testing.T) {
 
 	orig := Status{
 		SliceID: "S55-ledger-multirole-cost",
+		Release: "2026-06-27-conformance-foundation",
+		Track:   "T4-records-as-json",
 		State:   Verified,
 		Verification: Verification{
 			Result: "pass",
@@ -387,5 +402,70 @@ func TestDispatches_OmitEmpty(t *testing.T) {
 	}
 	if got.Verification.Dispatches != nil {
 		t.Errorf("Dispatches: want nil, got %v", got.Verification.Dispatches)
+	}
+}
+
+// TestWrite_MalformedStatus verifies that Write() fails closed on a// Status that would produce invalid JSON per the embedded schema.
+func TestWrite_MalformedStatus(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "status.json")
+
+	// Missing required slice_id.
+	s := Status{
+		SliceID: "", // deliberately empty — fails validation
+		State:   Planned,
+	}
+	err := Write(path, &s)
+	if err == nil {
+		t.Fatal("Write() with empty slice_id: want validation error, got nil")
+	}
+	if !strings.Contains(err.Error(), "validation failed") {
+		t.Errorf("want 'validation failed' in error, got: %v", err)
+	}
+
+	// Confirm the file was NOT written.
+	if _, statErr := os.Stat(path); statErr == nil {
+		t.Error("status.json should not exist after a failed validated write")
+	}
+}
+
+// TestWrite_SetsCanonicalSchema verifies that Write() always sets the
+// canonical $schema URI regardless of what the caller provides.
+func TestWrite_SetsCanonicalSchema(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "status.json")
+
+	s := Status{
+		Schema:  "https://example.com/old-placeholder.json",
+		SliceID: "S13-schema-embed-validate",
+		Release: "2026-06-27-conformance-foundation",
+		Track:   "T4-records-as-json",
+		State:   InProgress,
+		Verification: Verification{
+			Result: "pending",
+		},
+	}
+	if err := Write(path, &s); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got.Schema != "https://baton.sawy3r.net/schemas/slice-status-v1.json" {
+		t.Errorf("Schema: want canonical URI, got %q", got.Schema)
+	}
+
+	// Also check raw JSON.
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `https://baton.sawy3r.net/schemas/slice-status-v1.json`) {
+		t.Error("raw JSON should contain the canonical $schema URI")
+	}
+	if strings.Contains(string(raw), "example.com") {
+		t.Error("raw JSON should not contain example.com")
 	}
 }
