@@ -19,9 +19,9 @@ tracks:
   - id: T3-agentic-verifier
     slices: [S11-agentic-verifier-dispatch, S12-first-pass-demote]
     depends_on: null
-    worktree_path: # set by first /implement-slice in this track
+    worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T3-agentic-verifier
     worktree_branch: track/2026-06-27-conformance-foundation/T3-agentic-verifier
-    state: planned
+    state: in_progress
   - id: T4-records-as-json
     slices: [S13-schema-embed-validate, S14-board-json, S15-spec-proof-records, S16-journeys-attestations-align, S17-journeys-declare]
     depends_on: null
