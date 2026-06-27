@@ -225,7 +225,7 @@ func upstreamTestServer(owner, name, tag, commitSHA string, tarball []byte) *htt
 func vendorFixtureFiles() map[string]string {
 	files := make(map[string]string)
 	for _, m := range baton.AllMappings() {
-		if m.Source == "claude/baton/rules.md" {
+		if m.Source == "baton/rules.md" {
 			continue // sentinel — concatenated by Vendor, not a source file
 		}
 		// Deduplicate: same source mapped to multiple destinations.

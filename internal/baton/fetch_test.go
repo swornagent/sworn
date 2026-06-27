@@ -141,7 +141,7 @@ func TestFetchUpstream_Success(t *testing.T) {
 	commitSHA := "abc123def456"
 	files := map[string]string{
 		"README.md":                         "# Baton",
-		"claude/baton/reachability-gate.md": "# Rule 1",
+		"baton/reachability-gate.md": "# Rule 1",
 	}
 	tarball := makeTarball(name, tag, files)
 	digest := tarballDigest(tarball)
