@@ -9,6 +9,12 @@ description: 'Centralise the three coexisting VERSION strings to a single canoni
 
 `sworn doctor` reports PIN-STALE when the embedded vendor pin predates the `baton/` layout; reports PROMPT-STALE when embedded prompts contain pre-records-as-JSON markers; `internal/baton/version.go` and `internal/prompt/prompt.go` read version from the same canonical source (not hardcoded strings); `sworn version` outputs a single consistent version string.
 
+## Reuse existing work (do not redo the centralisation half)
+
+The **VERSION-centralisation** part of this slice is **already implemented** on branch `fix/centralise-baton-version` (origin `4d17e35`), with a green proof bundle at `docs/captures/2026-06-27-centralise-baton-version-ref.md` (it was closed as sworn#24, not merged). That work: deletes the zombie `internal/prompt/VERSION.txt` + `internal/prompt/baton/VERSION.txt`, consolidates the doctor version check into one, adds `TestNoEmbeddedVersionFile` + `TestUpstreamPinComplete`, and repoints `internal/prompt/prompt.go`'s origin comments to the canonical git repo. **Lift it (cherry-pick `4d17e35`)** rather than redoing it. Then ADD the two NEW doctor drift checks below (`baton/pin-currency`, `baton/prompt-currency`) — those were **not** in sworn#24 and are the new scope of this slice.
+
+NB the audit's "three version strings" were `v0.4.2` (internal/prompt), `v0.5.0` (the adopt VERSION's `baton-protocol:`), and `v1.0.0` (internal/prompt/baton/VERSION.txt). The `4d17e35` branch already removes the two `internal/prompt` ones; confirm the centralisation against that branch's state.
+
 ## Entry point
 
 `cmd/sworn/doctor.go` (audit ref: `cmd/sworn/doctor.go:419-449`); `internal/baton/version.go`; `internal/prompt/prompt.go`.
