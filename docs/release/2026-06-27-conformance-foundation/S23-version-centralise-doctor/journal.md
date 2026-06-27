@@ -28,3 +28,19 @@
 ### Subagent dispatches
 
 None.
+## Verifier verdicts received
+
+### Verdict 1 — 2026-07-25: PASS
+
+**Verifier session:** fresh-context, artefact-only.  
+**Commit:** `ca39980` (HEAD of `track/2026-06-27-conformance-foundation/T6-contract-revendor`).
+
+**Gate-by-gate:**
+
+1. **User-reachable outcome** — PASS. `sworn doctor` run confirms both new checks (`baton/pin-currency`, `baton/prompt-currency`) appear in Group 1 output with OK status.
+2. **Planned touchpoints** — PASS. All three planned files changed. Extra files are test files and comment-only changes in direct service of AC5 (hardcoded version removal).
+3. **Required tests** — PASS. `TestDoctorPin` with 4 sub-tests all pass on re-run; tests exercise `checkPinCurrency()`/`checkPromptCurrency()` through the integration point.
+4. **Reachability artefact** — PASS. `sworn doctor` output confirms `[OK] baton/pin-currency` and `[OK] baton/prompt-currency`.
+5. **No silent deferrals** — PASS. Zero TODO/FIXME/placeholder/HACK hits in changed files.
+6. **Design conformance** — PASS (not a UI-bearing project).
+7. **Claimed scope** — PASS. All 8 Delivered items have verifiable evidence references that resolve to real code.
