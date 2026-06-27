@@ -14,9 +14,16 @@ import _ "embed"
 //go:embed slice-status-v1.json
 var SliceStatusV1 []byte
 
+// BoardV1 is the canonical board-v1.json schema, embedded at build time.
+// It validates every board.json written by the board package.
+//
+//go:embed board-v1.json
+var BoardV1 []byte
+
 // SchemaMap maps a short schema name (e.g. "slice-status-v1") to its
 // embedded bytes. Callers use this to look up the schema by the name
 // they store in the $schema field.
 var SchemaMap = map[string][]byte{
 	"slice-status-v1": SliceStatusV1,
+	"board-v1":        BoardV1,
 }
