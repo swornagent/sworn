@@ -6,8 +6,7 @@
   "covers_needs": ["N-19"],
   "state": "in_progress",  "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-24T12:00:00Z",  "start_commit": null,
-  "spec_path": "docs/release/2026-06-27-conformance-foundation/S10-agentic-chat-anthropic/spec.md",
+  "last_updated_at": "2026-07-24T12:00:00Z",  "start_commit": "0f7b4d5e7f794dc6c4713fa96231b14a2687cd0f",  "spec_path": "docs/release/2026-06-27-conformance-foundation/S10-agentic-chat-anthropic/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S10-agentic-chat-anthropic/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S10-agentic-chat-anthropic/journal.md",
   "planned_files": [
