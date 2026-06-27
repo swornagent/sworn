@@ -219,15 +219,15 @@ func TestVendorFailsOnUnmappedScriptInSource(t *testing.T) {
 	for _, rule := range RuleSources() {
 		mustCreate(rule, "# Rule\nNo scripts here.")
 	}
-	mustCreate("claude/baton/README.md", "# README")
-	mustCreate("claude/baton/role-prompts/implementer.md", "# Implementer")
-	mustCreate("claude/baton/role-prompts/planner.md", "# Planner")
-	mustCreate("claude/baton/role-prompts/verifier.md", "# Verifier\nRun `unknown-script.sh` for something.")
-	mustCreate("claude/baton/role-prompts/captain.md", "# Captain")
-	mustCreate("claude/baton/architecture.json", "{}")
-	mustCreate("claude/baton/track-mode.md", "# Track Mode")
-	mustCreate("claude/baton/session-discipline.md", "# Session")
-	mustCreate("claude/baton/brainstorm-patterns.md", "# Brainstorm")
+	mustCreate("baton/README.md", "# README")
+	mustCreate("baton/role-prompts/implementer.md", "# Implementer")
+	mustCreate("baton/role-prompts/planner.md", "# Planner")
+	mustCreate("baton/role-prompts/verifier.md", "# Verifier\nRun `unknown-script.sh` for something.")
+	mustCreate("baton/role-prompts/captain.md", "# Captain")
+	mustCreate("baton/architecture.json", "{}")
+	mustCreate("baton/track-mode.md", "# Track Mode")
+	mustCreate("baton/session-discipline.md", "# Session")
+	mustCreate("baton/brainstorm-patterns.md", "# Brainstorm")
 
 	tmpRepo := t.TempDir()
 	for _, m := range batonFileMappings {

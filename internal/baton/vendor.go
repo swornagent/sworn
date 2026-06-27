@@ -60,7 +60,7 @@ func Vendor(opts VendorOpts) (*VendorResult, error) {
 
 		var transformed string
 
-		if m.Source == "claude/baton/rules.md" {
+		if m.Source == "baton/rules.md" {
 			// Concatenate all individual rules into a single document.
 			var buf bytes.Buffer
 			for _, ruleSrc := range RuleSources() {
