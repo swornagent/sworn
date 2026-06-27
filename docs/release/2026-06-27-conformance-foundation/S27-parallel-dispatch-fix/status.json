@@ -1,0 +1,39 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S27-parallel-dispatch-fix",
+  "release": "2026-06-27-conformance-foundation",
+  "track": "T1-orchestration",
+  "covers_needs": ["N-27-parallel-dispatch"],
+  "state": "implemented",
+  "owner": "agent",
+  "last_updated_by": "coach",
+  "last_updated_at": "2026-06-28T00:00:00Z",
+  "start_commit": "707ba1a38b0a098f1396099aa57823e59dde9cf0",
+  "spec_path": "docs/release/2026-06-27-conformance-foundation/S27-parallel-dispatch-fix/spec.md",
+  "proof_path": "docs/release/2026-06-27-conformance-foundation/S27-parallel-dispatch-fix/proof.md",
+  "journal_path": "docs/release/2026-06-27-conformance-foundation/S27-parallel-dispatch-fix/journal.md",
+  "planned_files": [
+    "internal/run/slice.go",
+    "internal/model/oai.go",
+    "internal/run/factory_default_test.go",
+    "internal/model/content_tag_test.go"
+  ],
+  "actual_files": [
+    "internal/run/slice.go",
+    "internal/model/oai.go",
+    "internal/run/factory_default_test.go",
+    "internal/model/content_tag_test.go"
+  ],
+  "test_commands": ["go test ./internal/run/... ./internal/model/... -run 'TestRunSliceDefaultsNilFactories|TestChatMessageAlwaysEmitsContent'"],
+  "reachability_artifacts": [
+    "docs/captures/2026-06-28-sworn-eval-findings.md (dogfood: pre-fix SIGSEGV at slice.go design/verify; post-fix the parallel loop dispatched + ran multi-turn tool sessions)"
+  ],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}

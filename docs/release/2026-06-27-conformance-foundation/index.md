@@ -5,7 +5,7 @@ release_worktree_path: # set by first /implement-slice in this release
 release_worktree_branch: release-wt/2026-06-27-conformance-foundation
 tracks:
   - id: T1-orchestration
-    slices: [S01-llm-interpreter, S02-orchestrator-decision-log, S03-crash-recovery, S04-scheduler-dependent-track, S05-merge-gate-oracle, S06-invariant2-enforcement, S07-pause-resume-committed]
+    slices: [S01-llm-interpreter, S02-orchestrator-decision-log, S03-crash-recovery, S04-scheduler-dependent-track, S05-merge-gate-oracle, S06-invariant2-enforcement, S07-pause-resume-committed, S27-parallel-dispatch-fix]
     depends_on: null
     worktree_path: # set by first /implement-slice in this track
     worktree_branch: track/2026-06-27-conformance-foundation/T1-orchestration
@@ -66,7 +66,7 @@ tracks:
 
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
-| `T1-orchestration` | S01 → S02 → S03 → S04 → S05 → S06 → S07 | — | `track/.../T1-orchestration` | planned |
+| `T1-orchestration` | S01 → S02 → S03 → S04 → S05 → S06 → S07 → S27 | — | `track/.../T1-orchestration` | planned |
 | `T2-model-layer` | S08 → S09 → S10 | — | `track/.../T2-model-layer` | planned |
 | `T3-agentic-verifier` | S11 → S12 | — | `track/.../T3-agentic-verifier` | planned |
 | `T4-records-as-json` | S13 → S14 → S15 → S16 → S17 | — | `track/.../T4-records-as-json` | planned |
@@ -144,6 +144,7 @@ tracks:
 | `S24-dispatch-enrich` | T7 | Dispatch record captures duration_ms, input_tokens, output_tokens, real_cost_usd (from model pricing map), and the model-id confirmed in the response | planned | [spec](./S24-dispatch-enrich/spec.md) | — |
 | `S25-event-store-durable` | T7 | The supervisor SQLite event store survives process restart; events written during a run are queryable after a new `sworn run` starts against the same release | planned | [spec](./S25-event-store-durable/spec.md) | — |
 | `S26-eval-projections` | T7 | `sworn telemetry` reports per-model rework rate, mean tokens-per-turn, mean latency_ms, and estimated cost; output is machine-readable JSON and human-readable table | planned | [spec](./S26-eval-projections/spec.md) | — |
+| `S27-parallel-dispatch-fix` | T1 | `sworn run --parallel` can dispatch an agentic implementer and run a multi-turn tool session (nil agent/verifier factories defaulted; tool-only turns no longer drop the required `content` field). Surfaced by the 2026-06-28 dogfood | implemented | [spec](./S27-parallel-dispatch-fix/spec.md) | [proof](./S27-parallel-dispatch-fix/proof.md) |
 
 ### State legend
 
@@ -161,7 +162,7 @@ tracks:
 
 - Planned: 26
 - In progress: 0
-- Implemented (awaiting verification): 0
+- Implemented (awaiting verification): 1 (S27-parallel-dispatch-fix)
 - Verified (awaiting merge): 0
 - Failed verification: 0
 - Deferred: 0

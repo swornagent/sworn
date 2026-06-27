@@ -108,6 +108,15 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	if opts.VerifierModel == "" {
 		return fmt.Errorf("RunSlice: VerifierModel is required")
 	}
+	// EVAL SUPERVISOR FIX (2026-06-28): parallel mode's runSliceFn does not wire
+	// NewAgent, so it was nil here → SIGSEGV at the design-TL;DR dispatch. Mirror
+	// run.Run's default (run.go:107-108) so the parallel loop can dispatch agents.
+	if opts.NewAgent == nil {
+		opts.NewAgent = newAgentFromModel
+	}
+	if opts.NewVerifier == nil {
+		opts.NewVerifier = newVerifierFromModel
+	}
 
 	repo := git.New(worktreeRoot)
 

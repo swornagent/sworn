@@ -78,7 +78,7 @@ type chatRequest struct {
 // Exported so callers (agent package) can build message history.
 type ChatMessage struct {
 	Role       string     `json:"role"`
-	Content    string     `json:"content,omitempty"`
+	Content    string     `json:"content"` // EVAL FIX 2026-06-28: omitempty dropped 'content' on tool-only assistant turns → OpenAI "content: got null" / DeepSeek "missing field content". Always emit (incl "").
 	Name       string     `json:"name,omitempty"`
 	ToolCallID *string    `json:"tool_call_id,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
