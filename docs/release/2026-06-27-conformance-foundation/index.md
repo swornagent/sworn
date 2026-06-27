@@ -126,7 +126,7 @@ tracks:
 | `S06-invariant2-enforcement` | T1 | The loop enforces track-mode invariant-2 at dispatch time; an attempted concurrent dispatch of two tracks with overlapping touchpoints is blocked with a named report | planned | [spec](./S06-invariant2-enforcement/spec.md) | — |
 | `S07-pause-resume-committed` | T1 | `sworn run --resume` correctly identifies the first non-terminal slice by reading committed status.json (not working-tree); resumes from the right slice after a crash | planned | [spec](./S07-pause-resume-committed/spec.md) | — |
 | `S08-capability-descriptor` | T2 | Every model driver exposes Capabilities(); implementer-model resolution fails fast at startup with a descriptive error if the selected driver does not support agentic Chat | verified | [spec](./S08-capability-descriptor/spec.md) | [proof](./S08-capability-descriptor/proof.md) |
-| `S09-error-kind-consumption` | T2 | KindAuth, KindCredits, and other terminal Error{Kind}s halt the loop immediately without retry; the factory sentinel is correctly named | planned | [spec](./S09-error-kind-consumption/spec.md) | — |
+| `S09-error-kind-consumption` | T2 | KindAuth, KindCredits, and other terminal Error{Kind}s halt the loop immediately without retry; the factory sentinel is correctly named | verified | [spec](./S09-error-kind-consumption/spec.md) | [proof](./S09-error-kind-consumption/proof.md) |
 | `S10-agentic-chat-anthropic` | T2 | The native Anthropic driver supports agentic Chat; a keyless run via claude-cli is a valid implementer path; cost is populated from real token counts (not always 0) | planned | [spec](./S10-agentic-chat-anthropic/spec.md) | — |
 | `S11-agentic-verifier-dispatch` | T3 | The engine dispatches the agentic verifier.md role (test-re-running, live-repo) for the verify step; verifier_was_fresh_context is set honestly; Verification.Model records the actual model used | planned | [spec](./S11-agentic-verifier-dispatch/spec.md) | — |
 | `S12-first-pass-demote` | T3 | The stateless LLM judge is demoted to a labelled deterministic first-pass (structure/mock/dark-code checks only); it no longer drives the slice to `verified`; verifier.md is re-vendored from canonical | planned | [spec](./S12-first-pass-demote/spec.md) | — |
@@ -160,10 +160,10 @@ tracks:
 
 ## Aggregate state
 
-- Planned: 25
+- Planned: 24
 - In progress: 0
 - Implemented (awaiting verification): 1 (S27-parallel-dispatch-fix)
-- Verified (awaiting merge): 1 (S08-capability-descriptor)
+- Verified (awaiting merge): 2 (S08-capability-descriptor, S09-error-kind-consumption)
 - Failed verification: 0
 - Deferred: 0
 - Shipped: 0
@@ -172,6 +172,8 @@ tracks:
 ## Recent activity
 
 - 2026-06-28 ~09:15 — S08-capability-descriptor **verified** (PASS). All 6 gates clear. `newAgentFromModel` capability gate fires before agent assertion; all 10 drivers expose `Capabilities()`. Next: `/implement-slice S09-error-kind-consumption`.
+- 2026-07-25 — S09-error-kind-consumption **verified** (PASS). All 7 gates clear. Terminal-error halt (KindAuth/KindCredits) placed before triage path; `ErrDriverNotRegistered` → `ErrDriverNotImplemented` rename consistent across 18 references; `IsTerminal()` correctly returns true only for KindAuth/Credits. Next: `/implement-slice S10-agentic-chat-anthropic`.
+
 **Tracks:** Planned: 7 / In progress: 0 / Merged: 0
 
 ## Rule-10 journeys to declare (in T4 S17)

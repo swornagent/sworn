@@ -22,3 +22,30 @@
 ### Touchpoint discipline
 
 - `internal/run/slice.go` is a documented shared file (T2: lines ~322-337; T3: lines ~412-429). Edits restricted to the error-handling section only. No scope bleed into the T3 region.
+## Verifier verdicts received
+
+### Verdict 1: 2026-07-25 — PASS
+
+PASS
+
+Slice: `S09-error-kind-consumption`
+Verified against: `eded2ba` (HEAD of track/2026-06-27-conformance-foundation/T2-model-layer)
+Verifier session: fresh, artefact-only
+
+**Gate 1** — User-reachable outcome exists: PASS. `RunSlice()` in `internal/run/slice.go` is the integration point for `sworn run`. Tests drive through the full pipeline.
+
+**Gate 2** — Planned touchpoints match actual changed files: PASS. `errors.go` was not changed (sentinel lived in `provider.go`); all extra model files are rename ripple. Documented in proof.md "Divergence from plan".
+
+**Gate 3** — Required tests exist and exercise the integration point: PASS. `slice_terminal_test.go` table-driven tests pass (7/7). `go test ./internal/model/...` passes.
+
+**Gate 4** — Reachability artefact proves the user path: PASS. `go test ./internal/run/... -v -run TestTerminalError` exits 0, re-run confirmed.
+
+**Gate 5** — No silent deferrals or placeholder logic: PASS. Pre-existing S63-deferral-1 markers are Rule 2 acknowledged; no new deferrals introduced.
+
+**Gate 6** — Design conformance: auto-PASS (non-UI project).
+
+**Gate 7** — Claimed scope matches implemented scope: PASS. All 5 Delivered items verified against live evidence.
+
+Re-ran all test commands; `go vet` clean. Terminal-error halt correctly placed before triage path. `ErrDriverNotRegistered` fully renamed to `ErrDriverNotImplemented` (zero old references, 18 new). The `IsTerminal()` function correctly returns true only for KindAuth and KindCredits.
+
+**Next step:** `/implement-slice S10-agentic-chat-anthropic 2026-06-27-conformance-foundation` (next planned slice in T2-model-layer).

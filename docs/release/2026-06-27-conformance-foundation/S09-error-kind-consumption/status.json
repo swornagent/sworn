@@ -6,10 +6,10 @@
   "covers_needs": [
     "N-18"
   ],
-  "state": "implemented",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-27T23:10:57Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-25T00:00:00Z",
   "start_commit": "11bc26f695b09e4eede4f4677e99c7faaf65c7d5",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S09-error-kind-consumption/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S09-error-kind-consumption/proof.md",
@@ -37,10 +37,10 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "pass",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-07-25T00:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
   }
 }
