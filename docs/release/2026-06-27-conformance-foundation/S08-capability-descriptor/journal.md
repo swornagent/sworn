@@ -46,3 +46,22 @@ None. All spec scope is implemented.
 - `internal/run/capabilities_test.go`: 3 subtests (reject-no-chat, reject-zero-caps, accept-chat)
 - All existing tests continue to pass.
 - `go vet` clean.
+## 2026-06-28 — Verifier verdicts received
+
+### Verdict 1 (2026-06-28 ~immediate)
+
+**PASS**
+
+Slice: `S08-capability-descriptor`
+Verified against: `0549f1f`
+Verifier session: fresh, artefact-only
+
+All six gates passed:
+1. **User-reachable outcome** — `newAgentFromModel` is wired into `sworn run` via `opts.NewAgent = newAgentFromModel` in `run.go:108` and `slice.go:115`. Capability gate fires before agent assertion.
+2. **Planned touchpoints** — `env.go` (no driver struct) and `config.go` (spec-optional) not changed, explained in Divergence. `ollama.go` and `openai_responses.go` added to satisfy AC1 "ALL drivers" — minor touchpoint-list gap, not material.
+3. **Required tests** — `capabilities_test.go` (model) + `capabilities_test.go` (run) both exist, exercise the integration point, all pass.
+4. **Reachability artefact** — test command exits 0; integration test exercises `newAgentFromModel` capability gate.
+5. **No silent deferrals** — "deferred" comments in anthropic/cli/ollama are explanatory, not deferrals.
+6. **Claimed scope** — all 7 Delivered items verified against live code.
+
+Next step: `/implement-slice S09-error-kind-consumption 2026-06-27-conformance-foundation`

@@ -4,10 +4,10 @@
   "release": "2026-06-27-conformance-foundation",
   "track": "T2-model-layer",
   "covers_needs": ["N-17"],
-  "state": "implemented",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-28T08:45:00Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-28T09:15:00Z",
   "start_commit": "297f5f9fb2fd4e5d523a92ba8751a0ed871712f2",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S08-capability-descriptor/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S08-capability-descriptor/proof.md",
@@ -46,10 +46,10 @@
   "reachability_artifacts": ["go test ./internal/model/... ./internal/run/... -v -run TestCapabilit exits 0"],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "result": "pass",
+    "verifier_session_id": "fresh-artefact-only-20260628",
+    "verifier_verdict_at": "2026-06-28T09:15:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
   }
 }
