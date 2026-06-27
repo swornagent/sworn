@@ -12,7 +12,7 @@
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-27T23:54:48Z",
-  "start_commit": "f53f08d41fde4f71e35a0d46ce3fc5025be61c6a",
+  "start_commit": "c89aa6e997c65e83fc6eb465ca3c32aff4f1dc68",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S11-agentic-verifier-dispatch/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S11-agentic-verifier-dispatch/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S11-agentic-verifier-dispatch/journal.md",
