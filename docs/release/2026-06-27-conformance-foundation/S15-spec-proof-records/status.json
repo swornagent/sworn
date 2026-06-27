@@ -7,10 +7,10 @@
     "N-04",
     "N-08"
   ],
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-27T23:27:55Z",
+  "last_updated_at": "2026-06-27T23:52:46Z",
   "start_commit": "2bffa271b7765122a761c2dad03978573f078a1b",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S15-spec-proof-records/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S15-spec-proof-records/proof.md",
@@ -23,11 +23,31 @@
     "internal/baton/schemas/spec-v1.json",
     "internal/baton/schemas/proof-v1.json"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/implement/spec_record.go",
+    "internal/implement/proof_record.go",
+    "internal/implement/implement.go",
+    "internal/implement/implement_test.go",
+    "internal/implement/ready_test.go",
+    "internal/gate/trace.go",
+    "internal/gate/trace_test.go",
+    "internal/baton/validator.go",
+    "internal/baton/schemas/embed.go",
+    "internal/baton/schemas/spec-v1.json",
+    "internal/baton/schemas/proof-v1.json",
+    "internal/implement/spec_record_test.go",
+    "internal/implement/proof_record_test.go",
+    "docs/release/2026-06-27-conformance-foundation/S15-spec-proof-records/proof.md",
+    "docs/release/2026-06-27-conformance-foundation/S15-spec-proof-records/journal.md"
+  ],
   "test_commands": [
     "go test ./internal/implement/... ./internal/gate/... -v"
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "go test ./internal/implement/... ./internal/gate/... -v \u2014 all tests pass",
+    "grep -rn scripts/release-verify.sh internal/implement/ \u2014 zero matches",
+    "go vet ./... \u2014 clean"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "pending",
