@@ -234,6 +234,34 @@ being built DOA. It pairs with the driver-contract architecture (which removes t
 to cover both halves — the harness catches what unit cannot, and the driver prevents the bugs in the
 first place.
 
+### 3.7 Pre-merge guided human walkthrough (the human UAT acceptance gate)
+
+The automated harness (§3.6) is the SIT half. The human half of UAT is a **guided walkthrough run at the
+very end of the release, before it merges into base.** Decision (Brad, 2026-06-28): add an optional,
+overridable, strongly-recommended human acceptance gate at the close of the loop.
+
+- **When:** after every slice is `verified` and the SIT harness is green, but BEFORE the
+  `release → base` merge — while the release is still open. This is deliberate: a critical miss caught
+  here is fixed cheaply in-release; the same miss caught after merge is a base-level regression. It is
+  the last high-leverage human checkpoint.
+- **Guided, not blank:** the engine generates the walk from the release's touched **Rule-10 critical
+  journeys** + the **impact analysis** (changed touchpoints, which Sworn already computes via
+  `journeys --impact`). The human is handed an ordered route — "exercise these N end-to-end flows that
+  this release changed" — not an empty "attest yes/no." The human judges what automation structurally
+  cannot: does the assembled product actually feel right, end to end.
+- **Outcome:** accept → records a human attestation and unblocks merge; reject-with-notes → release
+  stays open and routes to fix. 
+- **Optional + overridable, but logged:** the human may skip/override, but the override is a recorded,
+  attributed Rule-2 decision (why + who + when) — never a silent gap. Default posture is "run it."
+- **Relationship to `sworn ship`:** complementary, two moments. This gate is the PRE-MERGE human catch
+  (release open, base still clean). `sworn ship` is the existing POST-merge, cutover real-infra
+  attestation (Rule 10, mocks-off, in production). A release passes through both: guided walk before
+  base, real-infra attestation before live.
+
+Together §3.6 + §3.7 make the human-in-the-loop meaningful at exactly the two moments it matters — the
+machine proves the flow (SIT harness), the human accepts the experience (guided UAT) before base, and
+attests on real infra before ship. This is the acceptance spine the DOA build never had.
+
 ## 4. Prioritised recommendations (mapped to release tracks + properties)
 
 | # | Recommendation | Property | Track | Effort |
@@ -250,6 +278,7 @@ first place.
 | 10 | **Add the missing test levels as wired gates: a SIT gate (boot `sworn loop` end-to-end through the real integration point, Rule 1) and a UAT gate (Rule-10 no-mock journey against real infra + human attestation) — a release cannot certify on unit-green alone** | Resilience/Correctness | FT-3 + Rule-1 + Rule-10 | M | see §3.5 |
 | 11 | Rename `sworn run` → `sworn loop` (loop-engineering terminology); `run` kept as deprecated alias | Elegance | — | done |
 | 12 | **Planner establishes the E2E/SIT harness as Slice 0 on greenfield (precondition at plan time); feature slices depend_on it; Rule-1/Rule-8 fail closed until it exists** | Correctness (source fix) | Planner role + Rule 8 | M | see §3.6 — highest leverage |
+| 13 | **Pre-merge guided human walkthrough (UAT): engine generates the route from touched Rule-10 journeys + impact analysis; run before `release → base`; optional + overridable but the override is a logged Rule-2 decision** | Correctness (human acceptance) | Rule 10 + merge gate | M | see §3.7 |
 
 Recommendation #4 is the keystone: it subsumes most of the model-layer audit gaps and is the single
 change that would have prevented the dogfood's headline failures. #1, #2, #3 are small and turn the loop
