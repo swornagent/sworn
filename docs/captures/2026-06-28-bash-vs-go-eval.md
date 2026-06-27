@@ -66,6 +66,13 @@ DeepSeek was run BOTH ways. Re-tested by the supervisor:
 | S08 | correct production code but NO test; never `verified` | **verified** — fail-fast `run.go:358` + `capabilities_test.go` passing |
 | S13 | good early attempt LOST to retry-reset; never `verified` | **verified** — `baton.Validate` wired into `state.Write()` `state.go:197`; tests pass |
 | S22 | (Go never reached it cleanly) | **verified** |
+| S01 | orphaned leaf, not wired to worker.go, no test; never `verified` | **verified** — `Interpret()` wired into worker.go, interpreter_test present, scheduler package builds (confirmed at the committed verified commit f1744f6) |
+
+DeepSeek via bash ultimately swept ALL THREE targets (S01/S08/S13) to genuinely-correct `verified`,
+matching the Claude combo. (Re-test note: always build the COMMITTED verified commit, not the live
+worktree — the running loop leaves worker.go dirty mid-dispatch, which transiently fails to compile; the
+committed S01 commit builds clean. Don't-trust-the-loop cuts both ways: verify the artefact, not the
+in-flight tree.)
 
 Identical model, opposite result. The Go loop crashed/cascaded and reached `verified` for nothing; the
 bash loop drove the same model to genuinely-correct, integrated, tested `verified` slices. This isolates
