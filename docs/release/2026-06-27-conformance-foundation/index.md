@@ -119,8 +119,7 @@ tracks:
 | ID | Track | User outcome | State | Spec | Proof |
 |---|---|---|---|---|---|
 | `S01-llm-interpreter` | T1 | Non-typed implementer/verifier outcomes route through a bounded cheap-model decision step; the loop never stalls on routine ambiguity | planned | [spec](./S01-llm-interpreter/spec.md) | — |
-| `S02-orchestrator-decision-log` | T1 | Every routing decision and triage output is persisted to the supervisor SQLite; the Coach can query the decision trail after a run | planned | [spec](./S02-orchestrator-decision-log/spec.md) | — |
-| `S03-crash-recovery` | T1 | A slice that hits error_max_turns PAGEs the Coach instead of looping; the cross-run circuit breaker halts a fingerprinted repeated failure | planned | [spec](./S03-crash-recovery/spec.md) | — |
+| `S02-orchestrator-decision-log` | T1 | Every routing decision and triage output is persisted to the supervisor SQLite; the Coach can query the decision trail after a run | failed_verification | [spec](./S02-orchestrator-decision-log/spec.md) | — || `S03-crash-recovery` | T1 | A slice that hits error_max_turns PAGEs the Coach instead of looping; the cross-run circuit breaker halts a fingerprinted repeated failure | planned | [spec](./S03-crash-recovery/spec.md) | — |
 | `S04-scheduler-dependent-track` | T1 | A dependent track's worktree branches from the dependency tip after finishTrack auto-merges to release-wt, so it always starts with the dependency's code | planned | [spec](./S04-scheduler-dependent-track/spec.md) | — |
 | `S05-merge-gate-oracle` | T1 | `sworn merge-track` and `sworn merge-release` route verified-check through board.Oracle; invariant-4 conflict detected and reported; CLI merge commands available | planned | [spec](./S05-merge-gate-oracle/spec.md) | — |
 | `S06-invariant2-enforcement` | T1 | The loop enforces track-mode invariant-2 at dispatch time; an attempted concurrent dispatch of two tracks with overlapping touchpoints is blocked with a named report | planned | [spec](./S06-invariant2-enforcement/spec.md) | — |
@@ -158,11 +157,11 @@ tracks:
 
 ## Aggregate state
 
-- Planned: 24
+- Planned: 23
 - In progress: 0
 - Implemented (awaiting verification): 1 (S27-parallel-dispatch-fix)
 - Verified (awaiting merge): 2 (S22-pin-bump, S23-version-centralise-doctor)
-- Failed verification: 0
+- Failed verification: 1 (S02-orchestrator-decision-log)
 - Deferred: 0
 - Shipped: 0
 
@@ -191,7 +190,12 @@ tracks:
 
 ## Recent activity
 
-### 2026-06-28 — track `T6-contract-revendor` merged to release-wt (commit 0b039d0)
+### 2026-07-25 — S02-orchestrator-decision-log verifier verdict: FAIL
 
+- **Actor**: verifier (/verify-slice)
+- **Verdict**: FAIL — Gate 3: missing integration test in worker_test.go asserting RecordDecision called once per routing event
+- **Next step**: /implement-slice S02-orchestrator-decision-log 2026-06-27-conformance-foundation to add the missing test
+
+### 2026-06-28 — track `T6-contract-revendor` merged to release-wt (commit 0b039d0)
 - **Actor**: track integrator (/merge-track)
 - **Note**: 2 verified slices merged: S22-pin-bump, S23-version-centralise-doctor. Track state → merged.

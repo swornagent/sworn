@@ -42,3 +42,22 @@ All changed files match the spec's planned touchpoints plus the necessary wiring
 - `internal/run/run.go` — wiring DB into options (necessary, single-slice mode)
 
 No cross-track touchpoint collisions.
+## Verifier verdicts received
+
+### Verifier session 1 — FAIL
+
+```
+FAIL
+
+Slice: `S02-orchestrator-decision-log`
+
+Violations:
+1. Gate 3 — Missing required integration test: spec requires "Integration: internal/scheduler/worker_test.go (or new worker_decisions_test.go) — run a mock slice, assert RecordDecision called once per routing event." No such test exists in the codebase. The worker_test.go has comprehensive worker tests but none assert that RecordDecision or RecordTriage are called during a mock slice run.
+
+Required to address:
+1. Add an integration test to internal/scheduler/worker_test.go (or create a new internal/scheduler/worker_decisions_test.go) that runs a mock slice through the worker and asserts that RecordDecision is called once per routing event, with correct slice_id and decision fields (action, reason).
+```
+
+Additional observations (not violations):
+- AC4 spec says "log a warning" on DB unavailability; implementation discards errors silently via `_ =`. Acceptable given "must not abort the run" is satisfied, but consider adding a stderr warning.
+- All other gates (1, 2, 4, 5, 6, 7) PASS. The implementation is otherwise well-structured, all tests pass, go vet clean.
