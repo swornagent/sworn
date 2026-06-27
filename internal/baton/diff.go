@@ -48,7 +48,7 @@ func Diff(opts DiffOpts) ([]Divergence, error) {
 
 		var transformed string
 
-		if m.Source == "claude/baton/rules.md" {
+		if m.Source == "baton/rules.md" {
 			// Concatenate all individual rules into a single document,
 			// identically to Vendor.
 			var buf bytes.Buffer
