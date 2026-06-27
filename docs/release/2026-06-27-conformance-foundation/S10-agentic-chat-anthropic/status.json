@@ -4,11 +4,10 @@
   "release": "2026-06-27-conformance-foundation",
   "track": "T2-model-layer",
   "covers_needs": ["N-19"],
-  "state": "implemented",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-24T12:30:00Z",
-  "start_commit": "0f7b4d5e7f794dc6c4713fa96231b14a2687cd0f",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-24T13:00:00Z",  "start_commit": "0f7b4d5e7f794dc6c4713fa96231b14a2687cd0f",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S10-agentic-chat-anthropic/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S10-agentic-chat-anthropic/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S10-agentic-chat-anthropic/journal.md",
@@ -43,10 +42,9 @@
     "Anthropic tool-use/function-calling: not implemented in Chat(); tools parameter accepted for interface compatibility but ignored. Why: Anthropic tool-use is a different API shape, deferred per spec out-of-scope. Tracking: future slice. Acknowledged: Brad, spec.md."
   ],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "result": "pass",
+    "verifier_session_id": "2026-07-24-verifier-fresh",
+    "verifier_verdict_at": "2026-07-24T13:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
-  }
-}
+  }}
