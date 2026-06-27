@@ -316,6 +316,24 @@ The dispatcher inherits the repo's settings. If the repo wants to isolate caches
 
 ---
 
+## Part A-bis — LIVE bug observed 2026-06-28: merge-track confirmation-stall loop
+
+During the DeepSeek sworn-build coach run, T2 (fully built + verified: S08/S09/S10, 17 commits) got
+stuck in an infinite `/merge-track` retry (9+ dispatches, ~every 50s). Same pair this report keeps naming:
+1. **Interactive role behavior in an autonomous context.** The `/merge-track` agent emits a
+   "**Merge confirmation — Track T2… No blockers**" summary and STOPS to await a human go-ahead instead of
+   executing the merge. Correct for a human at a slash command; a stall for the unattended loop.
+2. **Interpreter gap (FT-1).** The loop can't classify an "awaiting-confirmation" output as a verdict, so
+   it re-routes `/merge-track`, the agent re-asks, and it loops forever (never PAGEs, never proceeds).
+
+Fix has both halves: (a) in autonomous mode the merge decision should be a DETERMINISTIC gate
+(verified-check via the board oracle), not an agent asking permission — if the gate is green, execute;
+(b) the interpreter must classify "needs-confirmation / awaiting-input" as a distinct outcome that
+auto-proceeds when the gate is green or PAGEs once, never silently re-loops. This is exactly the sworn
+FT-1 interpreter + merge-gate-oracle (S05) work.
+
+---
+
 ## Part B: Running the Eval via Coach-Loop — Feasibility & Commands
 
 ### Release Selection & Configuration
