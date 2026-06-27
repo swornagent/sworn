@@ -1,0 +1,32 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S20-role-revendor",
+  "release": "2026-06-27-conformance-foundation",
+  "track": "T5-role-ontology",
+  "covers_needs": ["N-22"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-27T00:00:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-27-conformance-foundation/S20-role-revendor/spec.md",
+  "proof_path": "docs/release/2026-06-27-conformance-foundation/S20-role-revendor/proof.md",
+  "journal_path": "docs/release/2026-06-27-conformance-foundation/S20-role-revendor/journal.md",
+  "planned_files": [
+    "internal/prompt/planner.md",
+    "internal/prompt/implementer.md",
+    "internal/prompt/captain.md",
+    "internal/prompt/VERSION.txt"
+  ],
+  "actual_files": [],
+  "test_commands": ["go build ./..."],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}

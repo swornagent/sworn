@@ -1,0 +1,38 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S11-agentic-verifier-dispatch",
+  "release": "2026-06-27-conformance-foundation",
+  "track": "T3-agentic-verifier",
+  "covers_needs": ["N-01", "N-06", "N-07"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-27T00:00:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-27-conformance-foundation/S11-agentic-verifier-dispatch/spec.md",
+  "proof_path": "docs/release/2026-06-27-conformance-foundation/S11-agentic-verifier-dispatch/proof.md",
+  "journal_path": "docs/release/2026-06-27-conformance-foundation/S11-agentic-verifier-dispatch/journal.md",
+  "planned_files": [
+    "internal/run/slice.go",
+    "internal/verify/verify.go",
+    "internal/gate/mock.go",
+    "cmd/sworn/verify.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/verify/... -v -run TestAgentic",
+    "go test ./internal/gate/... -v -run TestMock",
+    "go test ./internal/run/... -v -run TestSliceNoProof"
+  ],
+  "reachability_artifacts": [],
+  "open_deferrals": [
+    "True test re-running via tool calls deferred. Why: agentic tool-call infrastructure not in scope for this slice. Tracking: future agentic-tool-calls slice. Acknowledged: Brad, 2026-06-27."
+  ],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}

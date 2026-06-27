@@ -1,0 +1,29 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S06-invariant2-enforcement",
+  "release": "2026-06-27-conformance-foundation",
+  "track": "T1-orchestration",
+  "covers_needs": ["N-15"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-27T00:00:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-27-conformance-foundation/S06-invariant2-enforcement/spec.md",
+  "proof_path": "docs/release/2026-06-27-conformance-foundation/S06-invariant2-enforcement/proof.md",
+  "journal_path": "docs/release/2026-06-27-conformance-foundation/S06-invariant2-enforcement/journal.md",
+  "planned_files": [
+    "internal/run/parallel.go"
+  ],
+  "actual_files": [],
+  "test_commands": ["go test ./internal/run/... -v -run TestInvariant2"],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}

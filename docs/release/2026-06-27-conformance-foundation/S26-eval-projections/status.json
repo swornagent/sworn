@@ -1,0 +1,29 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S26-eval-projections",
+  "release": "2026-06-27-conformance-foundation",
+  "track": "T7-telemetry-eval",
+  "covers_needs": ["N-28"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-27T00:00:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-27-conformance-foundation/S26-eval-projections/spec.md",
+  "proof_path": "docs/release/2026-06-27-conformance-foundation/S26-eval-projections/proof.md",
+  "journal_path": "docs/release/2026-06-27-conformance-foundation/S26-eval-projections/journal.md",
+  "planned_files": [
+    "cmd/sworn/telemetry.go"
+  ],
+  "actual_files": [],
+  "test_commands": ["go test ./cmd/sworn/... -v -run TestTelemetry"],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}

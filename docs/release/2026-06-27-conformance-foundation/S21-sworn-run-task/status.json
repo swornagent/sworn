@@ -1,0 +1,29 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S21-sworn-run-task",
+  "release": "2026-06-27-conformance-foundation",
+  "track": "T5-role-ontology",
+  "covers_needs": ["N-23"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-27T00:00:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-27-conformance-foundation/S21-sworn-run-task/spec.md",
+  "proof_path": "docs/release/2026-06-27-conformance-foundation/S21-sworn-run-task/proof.md",
+  "journal_path": "docs/release/2026-06-27-conformance-foundation/S21-sworn-run-task/journal.md",
+  "planned_files": [
+    "cmd/sworn/task.go"
+  ],
+  "actual_files": [],
+  "test_commands": ["go test ./cmd/sworn/... -v -run TestTask", "sworn run --task 'hello' --dry-run"],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}

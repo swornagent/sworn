@@ -1,0 +1,32 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S02-orchestrator-decision-log",
+  "release": "2026-06-27-conformance-foundation",
+  "track": "T1-orchestration",
+  "covers_needs": ["N-11"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-27T00:00:00Z",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-06-27-conformance-foundation/S02-orchestrator-decision-log/spec.md",
+  "proof_path": "docs/release/2026-06-27-conformance-foundation/S02-orchestrator-decision-log/proof.md",
+  "journal_path": "docs/release/2026-06-27-conformance-foundation/S02-orchestrator-decision-log/journal.md",
+  "planned_files": [
+    "internal/supervisor/decisions.go",
+    "internal/supervisor/decisions_test.go",
+    "internal/scheduler/worker.go",
+    "cmd/sworn/telemetry.go"
+  ],
+  "actual_files": [],
+  "test_commands": ["go test ./internal/supervisor/... -v -run TestDecisions"],
+  "reachability_artifacts": [],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  }
+}
