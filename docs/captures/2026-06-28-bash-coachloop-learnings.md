@@ -347,6 +347,11 @@ when set (autonomous loop) AND the Step 1.4 gate `<ready_to_merge>` is true, pro
 so its confirm is correct. This is the interim fix; the three-tier Captain-in-session design below is the
 fuller long-term form.
 
+**VALIDATED in anger 2026-06-28:** post-fix, the deepseek build's `/merge-track T2` logged "all 3 slices
+verified and readyToMerge: true. Let me proceed through the merge steps." → "✅ Track T2-model-layer
+merged. Merge commit 71ec0803" — no stall, gate-authorized auto-proceed. The loop carried on (T6 merged,
+T5 active) and resumed autonomously building the rest of the release.
+
 **Design fix (Brad, 2026-06-28) — interpreter as a bounded in-session responder.** Keep the merge
 dispatch session OPEN; when the agent asks "proceed?", the interpreter replies "proceed" in-session and
 the same session executes the merge. Turns classify-and-retry into respond-and-continue using the chat
