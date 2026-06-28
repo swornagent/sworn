@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
-
 	_ "modernc.org/sqlite"
 
 	"github.com/swornagent/sworn/internal/board"
@@ -1439,4 +1439,103 @@ func TestDependentTrack_MergeTrackDecisionPausesWhenNoMergeTrackFn(t *testing.T)
 	if result != TrackPaused {
 		t.Fatalf("expected TrackPaused for merge-track when MergeTrackFn is nil, got %s", result)
 	}
+}
+
+// TestDependentTrack_WorktreeBranchesFromMergedTip is the AC5 integration test.
+//
+// It proves that when a dependency track merges into release-wt via
+// finishTrack / MergeTrackFn, a dependent track's worktree created from
+// release-wt gets the dependency's code. Uses real git repos.
+//
+// Scenario: T_dep → T_main. T_dep merges its code into release-wt.
+// T_main's worktree is then created branching from release-wt. The
+// dependency's file MUST be present in T_main's worktree.
+func TestDependentTrack_WorktreeBranchesFromMergedTip(t *testing.T) {
+	// Skip if git is not available.
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available — skipping integration test")
+	}
+
+	tmpDir := t.TempDir()
+
+	// 1. Create a bare "origin" repo.
+	barePath := filepath.Join(tmpDir, "origin.git")
+	runGit(t, tmpDir, "init", "--bare", barePath)
+
+	// 2. Clone a "release worktree" from the bare repo.
+	releasePath := filepath.Join(tmpDir, "release-wt")
+	runGit(t, tmpDir, "clone", barePath, releasePath)
+
+	// 3. In the release worktree, create the release-wt branch with an
+	//    initial file, and push it so the bare repo has the branch.
+	runGit(t, releasePath, "checkout", "-b", "release-wt/2026-06-27-conformance-foundation")
+	writeFile(t, filepath.Join(releasePath, "before.txt"), "before-merge\n")
+	runGit(t, releasePath, "add", "before.txt")
+	runGit(t, releasePath, "commit", "-m", "initial release-wt")
+	runGit(t, releasePath, "push", "origin", "release-wt/2026-06-27-conformance-foundation")
+
+	// 4. Create a track branch (T_dep) off release-wt, add a dependency
+	//    file, and push it.
+	runGit(t, releasePath, "checkout", "-b", "track/2026-06-27-conformance-foundation/T_dep")
+	writeFile(t, filepath.Join(releasePath, "dependency.txt"), "dep-code\n")
+	runGit(t, releasePath, "add", "dependency.txt")
+	runGit(t, releasePath, "commit", "-m", "T_dep: add dependency file")
+	runGit(t, releasePath, "push", "origin", "track/2026-06-27-conformance-foundation/T_dep")
+
+	// 5. Switch back to release-wt and merge the track branch —
+	//    simulating what ProductionMergeTrack does inside finishTrack.
+	runGit(t, releasePath, "checkout", "release-wt/2026-06-27-conformance-foundation")
+	runGit(t, releasePath, "merge", "--no-ff", "track/2026-06-27-conformance-foundation/T_dep", "--no-edit")
+	runGit(t, releasePath, "push", "origin", "release-wt/2026-06-27-conformance-foundation")
+
+	// 6. Now simulate a dependent track (T_main) being created: run
+	//    `git worktree add -b <branch> release-wt/<release>`, which
+	//    branches from the live release-wt tip.
+	dependentPath := filepath.Join(tmpDir, "dependent-worktree")
+	runGit(t, releasePath, "worktree", "add", dependentPath,
+		"-b", "track/2026-06-27-conformance-foundation/T_main",
+		"release-wt/2026-06-27-conformance-foundation")
+
+	// 7. ASSERT: T_main's worktree has both the pre-merge file AND the
+	//    dependency's file, proving it branched from the post-T_dep tip.
+	beforeContent := readFile(t, filepath.Join(dependentPath, "before.txt"))
+	if beforeContent != "before-merge\n" {
+		t.Errorf("before.txt = %q, want %q", beforeContent, "before-merge\n")
+	}
+
+	depContent := readFile(t, filepath.Join(dependentPath, "dependency.txt"))
+	if depContent != "dep-code\n" {
+		t.Fatalf("dependency.txt = %q, want %q — dependent worktree did not get dependency's code", depContent, "dep-code\n")
+	}
+}
+
+// ── Test helpers ──────────────────────────────────────────────────────────
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, string(out))
+	}
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll %s: %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile %s: %v", path, err)
+	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile %s: %v", path, err)
+	}
+	return string(data)
 }
