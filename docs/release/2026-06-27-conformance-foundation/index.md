@@ -45,7 +45,7 @@ tracks:
     depends_on: [T2-model-layer, T3-agentic-verifier]
     worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T7-telemetry-eval
     worktree_branch: track/2026-06-27-conformance-foundation/T7-telemetry-eval
-    state: in_progress
+    state: merged
 ---
 
 # Release Board: `2026-06-27-conformance-foundation`
@@ -187,6 +187,11 @@ tracks:
 - **The agentic verify surface — `internal/verify/verify.go`, `internal/verify/verify_test.go`, `internal/model/openai_responses.go` — is DOCUMENTED SHARED across T3-agentic-verifier (the agentic migration: `RunAgentic`/`RunFirstPass`, `prompt.Verifier()`) and T7-telemetry-eval (S24 dispatch-enrich: input/output token + duration capture).** T7 therefore **depend_on T3-agentic-verifier**, and S24's telemetry must be captured in the **agentic `RunAgentic`** path (cost/usage come from `resp.Usage`), NOT via a stateless `Verify`-signature change. (Added 2026-06-28 replan: the original matrix declared `verify.go` T3-only; T7/S24 built telemetry on the pre-agentic stateless `verify.Run`, so T7/S26's forward-merge collided with the merged agentic rewrite — an overlapping (not additive) conflict requiring a one-time design reconciliation, not a clean combine. The durable fix is declaring the surface shared, sequencing T7 after T3, and re-homing S24 telemetry into `RunAgentic`.)
 
 ## Recent activity
+
+### 2026-06-28 — track `T7-telemetry-eval` merged to release-wt (commit 05fe2c1)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 3 verified slices merged: S24-dispatch-enrich, S25-event-store-durable, S26-eval-projections. Track state → merged.
 
 ### 2026-06-28 — slice `S26-eval-projections` verified (PASS)
 
