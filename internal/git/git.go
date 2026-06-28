@@ -163,6 +163,76 @@ func (r *Repo) IsAncestor(ancestor, branch string) (bool, error) {
 	return true, nil
 }
 
+// MergeDryRun runs `git merge --no-commit --no-ff <branch>` and returns
+// conflicting file paths when the merge would produce conflicts. On a clean
+// merge it returns (nil, nil) — the caller is responsible for calling
+// ResetMerge() to undo the dry-run.
+//
+// This mutates the working tree (process-global mutation — Rule 11). The
+// caller must assert the target worktree/branch is the expected one before
+// calling, and must call ResetMerge or MergeAbort after.
+func (r *Repo) MergeDryRun(branch string) (conflictFiles []string, err error) {
+	_, err = r.run("merge", "--no-commit", "--no-ff", branch)
+	if err == nil {
+		// Clean merge — caller should reset.
+		return nil, nil
+	}
+
+	// Merge failed — check if it's a conflict.
+	if !strings.Contains(err.Error(), "CONFLICT") &&
+		!strings.Contains(err.Error(), "Merge conflict") &&
+		!strings.Contains(err.Error(), "Automatic merge failed") &&
+		!strings.Contains(err.Error(), "exit status 1") {
+		return nil, err
+	}
+
+	// Gather conflicted files.
+	out, listErr := r.run("diff", "--name-only", "--diff-filter=U")
+	if listErr != nil {
+		return nil, fmt.Errorf("merge conflict but failed to list conflicted files: %w", listErr)
+	}
+
+	if out == "" {
+		return nil, nil
+	}
+
+	for _, f := range strings.Split(out, "\n") {
+		f = strings.TrimSpace(f)
+		if f != "" {
+			conflictFiles = append(conflictFiles, f)
+		}
+	}
+	return conflictFiles, nil
+}
+
+// ResetMerge undoes a dry-run merge: `git reset --merge HEAD`.
+// Call after MergeDryRun on a clean merge (no conflicts) to restore the
+// working tree.
+func (r *Repo) ResetMerge() error {
+	_, err := r.run("reset", "--merge", "HEAD")
+	return err
+}
+
+// MergeAbort aborts an in-progress merge: `git merge --abort`.
+// Call after MergeDryRun when conflicts were detected.
+func (r *Repo) MergeAbort() error {
+	_, err := r.run("merge", "--abort")
+	return err
+}
+
+// StatusPorcelain returns the output of `git status --porcelain` for the repo.
+func (r *Repo) StatusPorcelain() (string, error) {
+	return r.run("status", "--porcelain")
+}
+
+// CurrentBranch returns the name of the currently checked-out branch.
+func (r *Repo) CurrentBranch() (string, error) {
+	out, err := r.run("rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return out, nil
+}
 // run executes a git command in r.Dir and returns stdout (trimmed). On
 // non-zero exit it returns stderr as the error.//
 // It refuses to run when Dir is empty — executing git in the ambient cwd

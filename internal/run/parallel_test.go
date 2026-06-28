@@ -4,13 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
 	_ "modernc.org/sqlite"
 
 	"github.com/swornagent/sworn/internal/scheduler"
@@ -586,5 +586,325 @@ tracks:
 	}
 	if !strings.Contains(err.Error(), "T1") {
 		t.Errorf("error should mention 'T1', got: %v", err)
+	}
+}
+
+// ── Invariant-2 tests (S06) ─────────────────────────────────────────────────
+
+// fakePlannedFilesFn returns a PlannedFilesFn that maps track IDs to their
+// planned files. Missing tracks get empty slices (fail open).
+func fakePlannedFilesFn(files map[string][]string) func(context.Context, string) ([]string, error) {
+	return func(_ context.Context, trackID string) ([]string, error) {
+		if f, ok := files[trackID]; ok {
+			return f, nil
+		}
+		return nil, nil
+	}
+}
+
+// TestInvariant2_OverlapBlocksSecondTrack exercises AC-1: two tracks with
+// overlapping planned_files → the second track is blocked at dispatch time
+// with the INVARIANT-2 message, then retried in the follow-up phase after
+// the first track completes. The retry succeeds (no conflict), so RunParallel
+// returns nil. The test captures stderr to verify the INVARIANT-2 message
+// was emitted.
+func TestInvariant2_OverlapBlocksSecondTrack(t *testing.T) {
+	tmpDir := t.TempDir()
+	releaseDir := filepath.Join(tmpDir, "docs", "release", "test-inv2-overlap")
+	os.MkdirAll(releaseDir, 0o755)
+
+	os.MkdirAll(filepath.Join(tmpDir, "docs", "release", "test-inv2-overlap", "S01-t1"), 0o755)
+	os.WriteFile(filepath.Join(tmpDir, "docs", "release", "test-inv2-overlap", "S01-t1", "spec.md"), []byte("# t1"), 0o644)
+	os.WriteFile(filepath.Join(tmpDir, "docs", "release", "test-inv2-overlap", "S01-t1", "status.json"), []byte(`{"state":"implemented"}`), 0o644)
+	os.MkdirAll(filepath.Join(tmpDir, "docs", "release", "test-inv2-overlap", "S02-t2"), 0o755)
+	os.WriteFile(filepath.Join(tmpDir, "docs", "release", "test-inv2-overlap", "S02-t2", "spec.md"), []byte("# t2"), 0o644)
+	os.WriteFile(filepath.Join(tmpDir, "docs", "release", "test-inv2-overlap", "S02-t2", "status.json"), []byte(`{"state":"implemented"}`), 0o644)
+
+	indexContent := "---\n" +
+		"title: Test Invariant-2 Overlap\n" +
+		"release_worktree_path: " + tmpDir + "\n" +
+		"tracks:\n" +
+		"  - id: T1\n" +
+		"    slices: [S01-t1]\n" +
+		"    depends_on: null\n" +
+		"    worktree_path: " + tmpDir + "\n" +
+		"    worktree_branch: track/test/T1\n" +
+		"    state: planned\n" +
+		"  - id: T2\n" +
+		"    slices: [S02-t2]\n" +
+		"    depends_on: null\n" +
+		"    worktree_path: " + tmpDir + "\n" +
+		"    worktree_branch: track/test/T2\n" +
+		"    state: planned\n" +
+		"---\n\n" +
+		"# Test\n"
+	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0o644)
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+
+	// Capture stderr to verify the INVARIANT-2 message.
+	origStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	opts := ParallelOptions{
+		ReleaseName:   "test-inv2-overlap",
+		WorkspaceRoot: tmpDir,
+		DB:            db,
+		RunSliceFn:    fakeRunSlicePass,
+		ProjectDir:    "sworn",
+		PlannedFilesFn: fakePlannedFilesFn(map[string][]string{
+			"T1": {"internal/run/parallel.go"},
+			"T2": {"internal/run/parallel.go"},
+		}),
+	}
+
+	err = RunParallel(context.Background(), opts)
+
+	// Restore stderr and read captured output.
+	w.Close()
+	var stderrBuf strings.Builder
+	io.Copy(&stderrBuf, r)
+	os.Stderr = origStderr
+	stderr := stderrBuf.String()
+
+	// RunParallel should return nil — T1 runs, T2 is blocked initially,
+	// then retried in the follow-up phase and succeeds.
+	if err != nil {
+		t.Fatalf("RunParallel: expected nil (T2 retried and passed), got: %v", err)
+	}
+
+	// AC-1: verify the INVARIANT-2 message was logged.
+	if !strings.Contains(stderr, "INVARIANT-2") {
+		t.Error("stderr should contain 'INVARIANT-2'")
+	}
+	// Captain pin 4: assert shared prefix through "both write" so message
+	// and test can't drift.
+	if !strings.Contains(stderr, "both write") {
+		t.Errorf("stderr should contain shared prefix 'both write', got: %s", stderr)
+	}
+	if !strings.Contains(stderr, "T2") {
+		t.Errorf("stderr should mention T2 (blocked track), got: %s", stderr)
+	}
+	if !strings.Contains(stderr, "internal/run/parallel.go") {
+		t.Errorf("stderr should mention the overlapping file, got: %s", stderr)
+	}
+}
+// TestInvariant2_NoOverlapBothRun exercises: disjoint planned_files → both
+// tracks launch and pass.
+func TestInvariant2_NoOverlapBothRun(t *testing.T) {
+	tmpDir := t.TempDir()
+	releaseDir := filepath.Join(tmpDir, "docs", "release", "test-inv2-no-overlap")
+	os.MkdirAll(releaseDir, 0o755)
+
+	os.MkdirAll(filepath.Join(tmpDir, "docs", "release", "test-inv2-no-overlap", "S01-t1"), 0o755)
+	os.WriteFile(filepath.Join(tmpDir, "docs", "release", "test-inv2-no-overlap", "S01-t1", "spec.md"), []byte("# t1"), 0o644)
+	os.WriteFile(filepath.Join(tmpDir, "docs", "release", "test-inv2-no-overlap", "S01-t1", "status.json"), []byte(`{"state":"implemented"}`), 0o644)
+	os.MkdirAll(filepath.Join(tmpDir, "docs", "release", "test-inv2-no-overlap", "S02-t2"), 0o755)
+	os.WriteFile(filepath.Join(tmpDir, "docs", "release", "test-inv2-no-overlap", "S02-t2", "spec.md"), []byte("# t2"), 0o644)
+	os.WriteFile(filepath.Join(tmpDir, "docs", "release", "test-inv2-no-overlap", "S02-t2", "status.json"), []byte(`{"state":"implemented"}`), 0o644)
+
+	indexContent := "---\n" +
+		"title: Test Invariant-2 No Overlap\n" +
+		"release_worktree_path: " + tmpDir + "\n" +
+		"tracks:\n" +
+		"  - id: T1\n" +
+		"    slices: [S01-t1]\n" +
+		"    depends_on: null\n" +
+		"    worktree_path: " + tmpDir + "\n" +
+		"    worktree_branch: track/test/T1\n" +
+		"    state: planned\n" +
+		"  - id: T2\n" +
+		"    slices: [S02-t2]\n" +
+		"    depends_on: null\n" +
+		"    worktree_path: " + tmpDir + "\n" +
+		"    worktree_branch: track/test/T2\n" +
+		"    state: planned\n" +
+		"---\n\n" +
+		"# Test\n"
+	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0o644)
+
+	var mu sync.Mutex
+	ran := make(map[string]bool)
+	runSliceFn := func(_ context.Context, _, specPath, _ string) error {
+		sliceID := filepath.Base(filepath.Dir(specPath))
+		mu.Lock()
+		ran[sliceID] = true
+		mu.Unlock()
+		return nil
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+
+	opts := ParallelOptions{
+		ReleaseName:   "test-inv2-no-overlap",
+		WorkspaceRoot: tmpDir,
+		DB:            db,
+		RunSliceFn:    runSliceFn,
+		ProjectDir:    "sworn",
+		PlannedFilesFn: fakePlannedFilesFn(map[string][]string{
+			"T1": {"internal/run/parallel.go"},
+			"T2": {"internal/run/slice.go"},
+		}),
+	}
+
+	err = RunParallel(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("RunParallel: expected nil (disjoint files), got: %v", err)
+	}
+
+	if !ran["S01-t1"] {
+		t.Error("T1's slice was not called")
+	}
+	if !ran["S02-t2"] {
+		t.Error("T2's slice was not called")
+	}
+}
+
+// TestInvariant2_DocumentedSharedExempt exercises AC-3: overlapping
+// planned_files that are in the DOCUMENTED SHARED list → both tracks launch.
+func TestInvariant2_DocumentedSharedExempt(t *testing.T) {
+	tmpDir := t.TempDir()
+	releaseDir := filepath.Join(tmpDir, "docs", "release", "test-inv2-docshared")
+	os.MkdirAll(releaseDir, 0o755)
+
+	os.MkdirAll(filepath.Join(tmpDir, "docs", "release", "test-inv2-docshared", "S01-t1"), 0o755)
+	os.WriteFile(filepath.Join(tmpDir, "docs", "release", "test-inv2-docshared", "S01-t1", "spec.md"), []byte("# t1"), 0o644)
+	os.WriteFile(filepath.Join(tmpDir, "docs", "release", "test-inv2-docshared", "S01-t1", "status.json"), []byte(`{"state":"implemented"}`), 0o644)
+	os.MkdirAll(filepath.Join(tmpDir, "docs", "release", "test-inv2-docshared", "S02-t2"), 0o755)
+	os.WriteFile(filepath.Join(tmpDir, "docs", "release", "test-inv2-docshared", "S02-t2", "spec.md"), []byte("# t2"), 0o644)
+	os.WriteFile(filepath.Join(tmpDir, "docs", "release", "test-inv2-docshared", "S02-t2", "status.json"), []byte(`{"state":"implemented"}`), 0o644)
+
+	indexContent := "---\n" +
+		"title: Test Invariant-2 Documented Shared\n" +
+		"release_worktree_path: " + tmpDir + "\n" +
+		"tracks:\n" +
+		"  - id: T1\n" +
+		"    slices: [S01-t1]\n" +
+		"    depends_on: null\n" +
+		"    worktree_path: " + tmpDir + "\n" +
+		"    worktree_branch: track/test/T1\n" +
+		"    state: planned\n" +
+		"  - id: T2\n" +
+		"    slices: [S02-t2]\n" +
+		"    depends_on: null\n" +
+		"    worktree_path: " + tmpDir + "\n" +
+		"    worktree_branch: track/test/T2\n" +
+		"    state: planned\n" +
+		"---\n\n" +
+		"# Test\n\n" +
+		"| File | T1 | T2 |\n" +
+		"|------|----|----|\n" +
+		"| " + "`" + "internal/model/oai.go" + "`" + " | ✓ (DOCUMENTED SHARED) | ✓ |\n"
+	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0o644)
+
+	var mu sync.Mutex
+	ran := make(map[string]bool)
+	runSliceFn := func(_ context.Context, _, specPath, _ string) error {
+		sliceID := filepath.Base(filepath.Dir(specPath))
+		mu.Lock()
+		ran[sliceID] = true
+		mu.Unlock()
+		return nil
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+
+	opts := ParallelOptions{
+		ReleaseName:   "test-inv2-docshared",
+		WorkspaceRoot: tmpDir,
+		DB:            db,
+		RunSliceFn:    runSliceFn,
+		ProjectDir:    "sworn",
+		PlannedFilesFn: fakePlannedFilesFn(map[string][]string{
+			"T1": {"internal/model/oai.go"},
+			"T2": {"internal/model/oai.go"},
+		}),
+	}
+
+	err = RunParallel(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("RunParallel: expected nil (documented shared exempt), got: %v", err)
+	}
+
+	if !ran["S01-t1"] {
+		t.Error("T1's slice was not called")
+	}
+	if !ran["S02-t2"] {
+		t.Error("T2's slice was not called")
+	}
+}
+
+// TestInvariant2_OracleReadFailureFailsOpen exercises AC-4: when
+// PlannedFilesFn returns an error, the track launches (fail open).
+func TestInvariant2_OracleReadFailureFailsOpen(t *testing.T) {
+	tmpDir := t.TempDir()
+	releaseDir := filepath.Join(tmpDir, "docs", "release", "test-inv2-failopen")
+	os.MkdirAll(releaseDir, 0o755)
+
+	os.MkdirAll(filepath.Join(tmpDir, "docs", "release", "test-inv2-failopen", "S01-t1"), 0o755)
+	os.WriteFile(filepath.Join(tmpDir, "docs", "release", "test-inv2-failopen", "S01-t1", "spec.md"), []byte("# t1"), 0o644)
+	os.WriteFile(filepath.Join(tmpDir, "docs", "release", "test-inv2-failopen", "S01-t1", "status.json"), []byte(`{"state":"implemented"}`), 0o644)
+
+	indexContent := "---\n" +
+		"title: Test Invariant-2 Fail Open\n" +
+		"release_worktree_path: " + tmpDir + "\n" +
+		"tracks:\n" +
+		"  - id: T1\n" +
+		"    slices: [S01-t1]\n" +
+		"    depends_on: null\n" +
+		"    worktree_path: " + tmpDir + "\n" +
+		"    worktree_branch: track/test/T1\n" +
+		"    state: planned\n" +
+		"---\n\n" +
+		"# Test\n"
+	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0o644)
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+
+	errorPlannedFilesFn := func(_ context.Context, trackID string) ([]string, error) {
+		return nil, fmt.Errorf("simulated oracle read failure")
+	}
+
+	opts := ParallelOptions{
+		ReleaseName:    "test-inv2-failopen",
+		WorkspaceRoot:  tmpDir,
+		DB:             db,
+		RunSliceFn:     fakeRunSlicePass,
+		ProjectDir:     "sworn",
+		PlannedFilesFn: errorPlannedFilesFn,
+	}
+
+	err = RunParallel(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("RunParallel: expected nil (fail open), got: %v", err)
 	}
 }

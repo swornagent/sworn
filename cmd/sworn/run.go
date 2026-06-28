@@ -19,6 +19,7 @@ import (
 	"github.com/swornagent/sworn/internal/run"
 	"github.com/swornagent/sworn/internal/supervisor"
 )
+
 // cmdRun implements the `sworn run` subcommand.
 //
 //	sworn run --task "<description>" [--implementer-model <provider/model>]
@@ -42,7 +43,7 @@ func cmdRun(args []string) int {
 	releaseName := fs.String("release", "", "release name for --parallel mode (e.g. 2026-06-19-safe-parallelism)")
 	implTimeout := fs.Duration("implement-timeout", 0, "per-attempt implement deadline (0 = use default; negative = no timeout)")
 	dryRun := fs.Bool("dry-run", false, "verify planner dispatch would be called without actually running")
-
+	resume := fs.Bool("resume", false, "resume an in-flight parallel release — each track seeds from committed state (alias: every --parallel run already does this, the flag makes the contract explicit)")
 	_ = fs.Parse(args)
 
 	// ── Load .env files ────────────────────────────────────────────────
@@ -61,6 +62,10 @@ func cmdRun(args []string) int {
 		return 64
 	}
 
+	if *resume && !*parallel {
+		fmt.Fprintln(os.Stderr, "sworn run: --resume requires --parallel")
+		return 64
+	}
 	// ── Dry-run short-circuit: skip model/config loading, verify reachability ─
 	if *dryRun && !*parallel {
 		return cmdRunTask(*task, "", "", nil, 0, 0, true, nil)
@@ -133,18 +138,20 @@ func cmdRun(args []string) int {
 				RetryCap:         maxAttempts,
 				ImplementTimeout: implementTimeout,
 				Notifier:         notifier,
+				DB:               database,
 			})
 		}
-		err = run.RunParallel(context.Background(), run.ParallelOptions{
-			ReleaseName:   *releaseName,
+		err = run.RunParallel(context.Background(), run.ParallelOptions{ReleaseName: *releaseName,
 			WorkspaceRoot: ".",
 			DB:            database,
 			EventDB:       eventDB,
 			RunSliceFn:    runSliceFn,
 			ProjectDir:    "sworn",
 			Notifier:      notifier,
+			MergeTrackFn:  run.ProductionMergeTrack,
 		})
-		if err != nil {			printModelError(err)
+		if err != nil {
+			printModelError(err)
 			fmt.Fprintf(os.Stderr, "sworn run: parallel: %v\n", err)
 			return 1
 		}
@@ -204,6 +211,7 @@ func openDefaultDB() (*sql.DB, error) {
 	}
 	return db.Open(filepath.Join(wd, db.DefaultDir, db.DefaultName))
 }
+
 // printModelError unwraps a *model.Error from err (via errors.As) and
 // prints its UserMessage to stderr. This gives the user actionable
 // guidance (e.g. "check the API key", "out of credits") instead of

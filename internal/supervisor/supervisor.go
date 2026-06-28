@@ -248,11 +248,25 @@ func (s *Supervisor) logEvent(trackID, event, detail string) error {
 	return err
 }
 
+// RecordPage writes a PAGE event to the events table so the Coach can see
+// escalations. detail should be "max_turns" or "circuit_breaker". This is
+// a best-effort write — failure does not abort the run (AC4 pattern).
+func RecordPage(db *sql.DB, release, sliceID, detail string) error {
+	if db == nil {
+		return nil
+	}
+	_, err := db.Exec(
+		`INSERT INTO events (track_id, release, event, detail, ts)
+		 VALUES (?, ?, 'page', ?, ?)`,
+		sliceID, release, detail, time.Now().UTC().Format(time.RFC3339),
+	)
+	return err
+}
+
 // pidAlive returns true if pid corresponds to a live process.
 // Uses syscall.Kill(pid, 0) which is the POSIX-specified way to check
 // process existence without sending a signal.
-func pidAlive(pid int) bool {
-	if pid <= 0 {
+func pidAlive(pid int) bool {	if pid <= 0 {
 		return false
 	}
 	return syscall.Kill(pid, syscall.Signal(0)) == nil

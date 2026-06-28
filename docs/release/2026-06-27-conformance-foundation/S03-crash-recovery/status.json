@@ -4,11 +4,10 @@
   "release": "2026-06-27-conformance-foundation",
   "track": "T1-orchestration",
   "covers_needs": ["N-12"],
-  "state": "planned",
-  "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-27T00:00:00Z",
-  "start_commit": null,
+  "state": "verified",  "owner": "human",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-28T12:30:00Z",
+  "start_commit": "c38138e7bf58aeefbc02ca018264c95c240b80c9",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S03-crash-recovery/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S03-crash-recovery/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S03-crash-recovery/journal.md",
@@ -17,18 +16,29 @@
     "internal/supervisor/circuit.go",
     "internal/supervisor/circuit_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "internal/agent/agent.go",
+    "internal/db/db.go",
+    "internal/run/slice.go",
+    "internal/scheduler/worker.go",
+    "internal/scheduler/worker_test.go",
+    "internal/supervisor/circuit.go",
+    "internal/supervisor/circuit_test.go",
+    "internal/supervisor/supervisor.go"
+  ],
   "test_commands": [
     "go test ./internal/supervisor/... -v -run TestCircuit",
     "go test ./internal/scheduler/... -v -run TestMaxTurns"
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "go test ./internal/supervisor/... -v -run TestShouldBreak",
+    "go test ./internal/scheduler/... -v -run TestRunTrack_MaxTurnsPauses"
+  ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "result": "pass",
+    "verifier_session_id": "verify-slice-S03-crash-recovery-2026-07-28",
+    "verifier_verdict_at": "2026-07-28T13:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
-  }
-}
+  }}

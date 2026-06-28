@@ -224,9 +224,9 @@ func Run(ctx context.Context, opts Options) error {
 		NewAgent:         opts.NewAgent,
 		NewVerifier:      opts.NewVerifier,
 		Notifier:         opts.Notifier,
+		DB:               database,
 	})
-	if err != nil { // Re-wrap Blocked errors to preserve the run: prefix for
-		// existing tests that check "verification blocked".
+	if err != nil { // Re-wrap Blocked errors to preserve the run: prefix for		// existing tests that check "verification blocked".
 		if IsBlocked(err) {
 			return fmt.Errorf("run: %s", err)
 		}

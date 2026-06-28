@@ -29,14 +29,43 @@ type BoardRecord struct {
 
 // BoardTrack is one track entry in a BoardRecord.
 type BoardTrack struct {
-	ID             string   `json:"id"`
-	Slices         []string `json:"slices"`
-	DependsOn      []string `json:"depends_on,omitempty"`
-	WorktreePath   string   `json:"worktree_path,omitempty"`
-	WorktreeBranch string   `json:"worktree_branch"`
-	State          string   `json:"state"`
+	ID             string     `json:"id"`
+	Slices         []string   `json:"slices"`
+	DependsOn      StringList `json:"depends_on,omitempty"`
+	WorktreePath   string     `json:"worktree_path,omitempty"`
+	WorktreeBranch string     `json:"worktree_branch"`
+	State          string     `json:"state"`
 }
 
+// StringList is a []string that can unmarshal from a JSON string, array, or null.
+// board.json records depends_on as a plain string (e.g. "T2-model-layer") or null,
+// but the Go type system expects []string. This adapter normalises both.
+type StringList []string
+
+// UnmarshalJSON implements json.Unmarshaler. Accepts:
+//   - null → empty slice
+//   - "string" → single-element slice
+//   - ["a","b"] → normal slice
+func (sl *StringList) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*sl = nil
+		return nil
+	}
+	if len(data) > 0 && data[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+		*sl = StringList{s}
+		return nil
+	}
+	var arr []string
+	if err := json.Unmarshal(data, &arr); err != nil {
+		return err
+	}
+	*sl = StringList(arr)
+	return nil
+}
 // ReadBoard reads board.json from docs/release/<release>/board.json. If the
 // file does not exist, it performs a lazy migration: reads the index.md
 // frontmatter, builds a BoardRecord from it, and writes board.json so
