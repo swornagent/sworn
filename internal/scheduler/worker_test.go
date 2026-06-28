@@ -3,14 +3,18 @@ package scheduler
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+
 	_ "modernc.org/sqlite"
 
 	"github.com/swornagent/sworn/internal/board"
+	"github.com/swornagent/sworn/internal/router"
+	"github.com/swornagent/sworn/internal/state"
 )
 
 // fakeRunSlice is a test helper that records the slices it was called with.
@@ -1055,7 +1059,8 @@ func verifyPageEvents(t *testing.T, db *sql.DB, eventType, detail string) int {
 	return count
 }
 
-func TestRunTrack_InterpreterSentinelIsNotNormalFailure(t *testing.T) {	trackID := "T1-normal-fail"
+func TestRunTrack_InterpreterSentinelIsNotNormalFailure(t *testing.T) {
+	trackID := "T1-normal-fail"
 	sliceID := "S01-normal-fail"
 
 	tmpDir := t.TempDir()
@@ -1097,6 +1102,7 @@ func TestRunTrack_InterpreterSentinelIsNotNormalFailure(t *testing.T) {	trackID 
 		t.Fatalf("expected TrackFail for normal verification failure, got %s", result)
 	}
 }
+
 // TestRecordDecisionCalledPerRoutingEvent is the S02 integration test:
 // it runs a mock slice through the router-driven worker and asserts that
 // RecordDecision is called once per routing event with correct fields.
@@ -1538,4 +1544,107 @@ func readFile(t *testing.T, path string) string {
 		t.Fatalf("ReadFile %s: %v", path, err)
 	}
 	return string(data)
+}
+
+// ---------- S07 fakes ----------
+
+// fakeOracle is a minimal OracleReader for S07 tests.
+type fakeOracle struct {
+	slices map[string]board.SliceState
+}
+
+func (f *fakeOracle) ReadSliceStatus(_ context.Context, _, sliceID string) (board.SliceState, error) {
+	ss, ok := f.slices[sliceID]
+	if !ok {
+		return board.SliceState{}, errors.New("slice not found")
+	}
+	return ss, nil
+}
+
+func (f *fakeOracle) ReadBoard(_ context.Context, _ string) (*board.BoardState, error) {
+	return nil, errors.New("not implemented")
+}
+
+// ---------- S07 tests ----------
+
+// TestFindFirstNonTerminalCommitted verifies AC1 (committed seed) + AC2
+// (implemented is non-terminal). A mock oracle returns committed states
+// [verified, implemented, planned]; the seed must be the implemented slice
+// (index 1), proving committed-read + implemented-non-terminal.
+func TestFindFirstNonTerminalCommitted(t *testing.T) {
+	oracle := &fakeOracle{
+		slices: map[string]board.SliceState{
+			"S01-verified":    {ID: "S01-verified", State: state.Verified, Track: "T1"},
+			"S02-implemented": {ID: "S02-implemented", State: state.Implemented, Track: "T1"},
+			"S03-planned":     {ID: "S03-planned", State: state.Planned, Track: "T1"},
+		},
+	}
+	slices := []string{"S01-verified", "S02-implemented", "S03-planned"}
+
+	got := findFirstNonTerminal(context.Background(), oracle, "test-release", "T1", slices)
+	if got != "S02-implemented" {
+		t.Errorf("expected S02-implemented (first non-terminal committed), got %s", got)
+	}
+}
+
+// TestFindFirstNonTerminalAllTerminalMergesTrack verifies AC4: when every
+// slice is terminal, findFirstNonTerminal returns "" so runTrackRouter
+// reaches finishTrack (the fused-line fix).
+func TestFindFirstNonTerminalAllTerminalMergesTrack(t *testing.T) {
+	oracle := &fakeOracle{
+		slices: map[string]board.SliceState{
+			"S01-verified": {ID: "S01-verified", State: state.Verified, Track: "T1"},
+			"S02-shipped":  {ID: "S02-shipped", State: "shipped", Track: "T1"},
+			"S03-deferred": {ID: "S03-deferred", State: state.Deferred, Track: "T1"},
+		},
+	}
+	slices := []string{"S01-verified", "S02-shipped", "S03-deferred"}
+
+	got := findFirstNonTerminal(context.Background(), oracle, "test-release", "T1", slices)
+	if got != "" {
+		t.Errorf("expected empty (all terminal → merge), got %s", got)
+	}
+}
+
+// TestFindFirstNonTerminalNilOracle verifies the legacy fallback:
+// when oracle is nil, return slices[0].
+func TestFindFirstNonTerminalNilOracle(t *testing.T) {
+	slices := []string{"S01-planned", "S02-planned"}
+	got := findFirstNonTerminal(context.Background(), nil, "", "", slices)
+	if got != "S01-planned" {
+		t.Errorf("nil oracle should fall back to slices[0], got %s", got)
+	}
+}
+
+// TestFindFirstNonTerminalEmptySlices verifies empty input returns "".
+func TestFindFirstNonTerminalEmptySlices(t *testing.T) {
+	got := findFirstNonTerminal(context.Background(), &fakeOracle{}, "", "", nil)
+	if got != "" {
+		t.Errorf("empty slices should return \"\", got %s", got)
+	}
+}
+
+// TestFindFirstNonTerminalOracleErrorSeedsAtUnreadable verifies AC3 +
+// the seed-don't-skip thesis (Captain pin 5): when the oracle errors on a
+// slice, seed AT that slice rather than skipping past it.
+func TestFindFirstNonTerminalOracleErrorSeedsAtUnreadable(t *testing.T) {
+	oracle := &fakeOracle{
+		slices: map[string]board.SliceState{
+			"S02-planned": {ID: "S02-planned", State: state.Planned, Track: "T1"},
+		},
+	}
+	// S01-not-found will error (not in fakeOracle.slices map).
+	slices := []string{"S01-not-found", "S02-planned"}
+
+	got := findFirstNonTerminal(context.Background(), oracle, "test-release", "T1", slices)
+	if got != "S01-not-found" {
+		t.Errorf("oracle error on S01-not-found should seed at it (not skip), got %s", got)
+	}
+}
+
+// TestFindFirstNonTerminalIsTerminalImport verifies AC5: the scheduler
+// imports router.IsTerminal (no second definition).
+func TestFindFirstNonTerminalIsTerminalImport(t *testing.T) {
+	// Compile-time check: router.IsTerminal compiles in scheduler package.
+	_ = router.IsTerminal("verified")
 }

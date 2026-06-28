@@ -17,6 +17,7 @@ import (
 	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/git"
 )
+
 // NextType enumerates the kinds of next command the router can recommend.
 type NextType string
 
@@ -47,6 +48,17 @@ type Decision struct {
 type OracleReader interface {
 	ReadSliceStatus(ctx context.Context, release, sliceID string) (board.SliceState, error)
 	ReadBoard(ctx context.Context, release string) (*board.BoardState, error)
+}
+
+// IsTerminal returns true for slice states that are terminal in the state
+// machine: verified, shipped, deferred. The router and the scheduler seed
+// share this single definition — no divergent terminal-set.
+func IsTerminal(state string) bool {
+	switch state {
+	case "verified", "shipped", "deferred":
+		return true
+	}
+	return false
 }
 
 // ContentReader is the git-object-read interface for commit-time queries,
@@ -302,13 +314,7 @@ func routeVerified(ctx context.Context, oracle OracleReader, content ContentRead
 		}
 
 		// Terminal states: skip (verified, shipped, deferred).
-		terminal := false
-		switch string(s.State) {
-		case "verified", "shipped", "deferred":
-			terminal = true
-		}
-
-		if !terminal {
+		if !IsTerminal(string(s.State)) {
 			return routeNextSlice(ctx, content, s, input)
 		}
 	}
@@ -389,10 +395,7 @@ func routeMergeDecision(
 	undone := 0
 	for _, t := range boardState.Tracks {
 		for _, s := range t.Slices {
-			switch string(s.State) {
-			case "verified", "shipped", "deferred":
-				// terminal
-			default:
+			if !IsTerminal(string(s.State)) {
 				undone++
 			}
 		}
@@ -557,6 +560,7 @@ func isDocumentedShared(path string, documentedShared map[string]bool) bool {
 	}
 	return false
 }
+
 // touchpointRow holds a parsed row from the index.md touchpoint matrix.
 type touchpointRow struct {
 	filePath string
@@ -627,6 +631,7 @@ func normalizeFilePath(raw string) string {
 	s = strings.TrimSpace(s)
 	return s
 }
+
 // parseTouchpointMatrix parses the markdown table in the Touchpoint matrix
 // section of an index.md body. Returns parsed rows.
 func parseTouchpointMatrix(body string) ([]touchpointRow, error) {

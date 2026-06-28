@@ -766,6 +766,30 @@ func TestIsDocumentedShared(t *testing.T) {	shared := map[string]bool{
 	}
 }
 
+func TestIsTerminal(t *testing.T) {
+	tests := []struct {
+		state string
+		want  bool
+	}{
+		{"verified", true},
+		{"shipped", true},
+		{"deferred", true},
+		{"planned", false},
+		{"in_progress", false},
+		{"implemented", false},
+		{"failed_verification", false},
+		{"bogus", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		got := IsTerminal(tt.state)
+		if got != tt.want {
+			t.Errorf("IsTerminal(%q) = %v, want %v", tt.state, got, tt.want)
+		}
+	}
+}
+
 func TestNormalizeFilePath(t *testing.T) {
 	tests := []struct {
 		raw  string

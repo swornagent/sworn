@@ -17,6 +17,7 @@ import (
 	"github.com/swornagent/sworn/internal/router"
 	"github.com/swornagent/sworn/internal/scheduler"
 )
+
 // ParallelOptions configures the RunParallel concurrent execution.
 type ParallelOptions struct {
 	// ReleaseName is the release name (e.g. "2026-06-19-safe-parallelism").
@@ -68,7 +69,7 @@ type ParallelOptions struct {
 	// against the release-wt/<release> ref. Tests inject a fake to exercise
 	// invariant-2 enforcement (S06) without real git state.
 	PlannedFilesFn func(ctx context.Context, trackID string) ([]string, error)
-}// productionSliceRouter wraps internal/router.Route to satisfy scheduler.SliceRouter.
+} // productionSliceRouter wraps internal/router.Route to satisfy scheduler.SliceRouter.
 // Constructed by RunParallel when no Router is injected via ParallelOptions.
 type productionSliceRouter struct {
 	oracle     router.OracleReader
@@ -177,10 +178,12 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 	// and workers fall back to the legacy static-iteration path via RunTrack.
 	// In production (real git repo + release branch) the construction always
 	// succeeds and the router-driven loop is the live path.
+	var ora router.OracleReader
 	if opts.Router == nil {
 		repo := git.New(absRoot)
 		releaseRef := "release-wt/" + releaseName
-		if ora, oraErr := board.NewOracleReaderAdapterFromRepo(repo, releaseName, releaseRef); oraErr == nil {
+		if o, oraErr := board.NewOracleReaderAdapterFromRepo(repo, releaseName, releaseRef); oraErr == nil {
+			ora = o
 			opts.Router = &productionSliceRouter{
 				oracle:     ora,
 				content:    repo,
@@ -283,6 +286,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 					RunSliceFn:          opts.RunSliceFn,
 					Notifier:            opts.Notifier,
 					Router:              opts.Router,
+					Oracle:              ora,
 					PauseCh:             pauseEngine.PauseCh(releaseName),
 					MergeTrackFn:        opts.MergeTrackFn,
 				}
@@ -345,6 +349,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 						RunSliceFn:          opts.RunSliceFn,
 						Notifier:            opts.Notifier,
 						Router:              opts.Router,
+						Oracle:              ora,
 						PauseCh:             pauseEngine.PauseCh(releaseName),
 						MergeTrackFn:        opts.MergeTrackFn,
 					}
@@ -390,7 +395,8 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 		}
 	}
 
-	if len(failedTracks) > 0 {		return fmt.Errorf("RunParallel: %d track(s) failed: %s",
+	if len(failedTracks) > 0 {
+		return fmt.Errorf("RunParallel: %d track(s) failed: %s",
 			len(failedTracks), strings.Join(failedTracks, ", "))
 	}
 
@@ -411,7 +417,8 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 
 	fmt.Fprintf(os.Stderr, "RunParallel: all %d tracks PASS (skipped: %d, blocked: %d)\n",
 		len(tracks), len(skippedTracks), len(blockedTracksList))
-	return nil}
+	return nil
+}
 
 // extractFrontmatter returns the content between the first --- and second ---
 // in a markdown file with YAML frontmatter.
@@ -465,7 +472,8 @@ func ProductionMergeTrack(releasePath, trackID, branch string) error {
 	mergeCmd := exec.Command("git", "merge", "--no-ff", branch, "--no-edit")
 	mergeCmd.Dir = releasePath
 	_, err := mergeCmd.CombinedOutput()
-	if err == nil {		return nil
+	if err == nil {
+		return nil
 	}
 
 	// Attempt 2: fetch from origin, then merge origin/<branch>.
@@ -487,7 +495,8 @@ func ProductionMergeTrack(releasePath, trackID, branch string) error {
 }
 
 // dirExists checks if a path exists and is a directory.
-func dirExists(path string) bool {	info, err := os.Stat(path)
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
 }
 
@@ -496,8 +505,8 @@ func dirExists(path string) bool {	info, err := os.Stat(path)
 // plannedFilesKey is a track-id → planned_files map key used in the default
 // planned-files reader closure.
 type plannedFilesKey struct {
-	absRoot     string
-	releaseName string
+	absRoot       string
+	releaseName   string
 	slicesByTrack map[string][]string
 }
 
@@ -603,4 +612,3 @@ func makePlannedFilesReader(absRoot, releaseName string, tracks []board.TrackInf
 		return allFiles, nil
 	}
 }
-

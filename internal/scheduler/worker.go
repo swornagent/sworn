@@ -9,11 +9,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/account"
+	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/orchestrator"
-	"github.com/swornagent/sworn/internal/supervisor")
+	"github.com/swornagent/sworn/internal/router"
+	"github.com/swornagent/sworn/internal/supervisor"
+)
 
 // TrackResult is the outcome of a single worker goroutine.
 type TrackResult string
@@ -25,6 +27,7 @@ const (
 	TrackPaused  TrackResult = "paused"
 	TrackBlocked TrackResult = "blocked"
 )
+
 // ── Router interface (S59) ──────────────────────────────────────────────
 
 // SliceDecision is the router's output for a slice — what action to take next.
@@ -96,6 +99,11 @@ type WorkerOptions struct {
 	// compatibility (RunTrackLegacy behaviour).
 	Router SliceRouter
 
+	// Oracle is the committed-state reader consumed by findFirstNonTerminal
+	// to seed the resume frontier from git-visible state (S07). When nil,
+	// findFirstNonTerminal falls back to returning slices[0] (legacy).
+	// The production path sets this from the live oracle via RunParallel.
+	Oracle router.OracleReader
 	// ProjectDir is the project directory name used for worktree naming.
 	ProjectDir string
 
@@ -126,6 +134,7 @@ type WorkerOptions struct {
 	// board's track state to "merged" atomically if desired.
 	MergeTrackFn func(releasePath, trackID, branch string) error
 }
+
 // RunTrack executes one track's slices sequentially in its own worktree.
 // It is designed to be called as a goroutine from RunParallel.
 //
@@ -227,9 +236,10 @@ func runTrackRouter(
 	specBase := filepath.Join("docs", "release", opts.ReleaseName)
 
 	// Determine the first non-terminal slice in the track.
-	currentSlice := findFirstNonTerminal(opts.TrackInfo.Slices)
+	currentSlice := findFirstNonTerminal(ctx, opts.Oracle, opts.ReleaseName, opts.TrackInfo.ID, opts.TrackInfo.Slices)
 	if currentSlice == "" {
-		// All slices already in a terminal state.		return finishTrack(ctx, opts, workRoot, trackID, trackBranch, releaseTrack)
+		// All slices already in a terminal state.
+		return finishTrack(ctx, opts, workRoot, trackID, trackBranch, releaseTrack)
 	}
 
 	for {
@@ -272,7 +282,8 @@ func runTrackRouter(
 
 		// Advance to the target slice BEFORE dispatching — the router's
 		// Target field tells us which slice the decision applies to.
-		if decision.Target != "" && decision.Target != currentSlice {			fmt.Fprintf(os.Stderr, "[%s] advanced to next slice: %s\n", trackID, decision.Target)
+		if decision.Target != "" && decision.Target != currentSlice {
+			fmt.Fprintf(os.Stderr, "[%s] advanced to next slice: %s\n", trackID, decision.Target)
 			currentSlice = decision.Target
 		}
 
@@ -394,7 +405,7 @@ func runTrackRouter(
 			releaseTrack("paused")
 			return TrackPaused
 
-		case "none":			// Terminal — no more slices.
+		case "none": // Terminal — no more slices.
 			return finishTrack(ctx, opts, workRoot, trackID, trackBranch, releaseTrack)
 
 		default:
@@ -488,17 +499,22 @@ func runTrackLegacy(
 // intentional and each gate is accounted for:
 //
 // (1) verified-check: satisfied by the router — the router only emits
-//     "merge-track" / "none" after all slices are verified.
+//
+//	"merge-track" / "none" after all slices are verified.
+//
 // (2) invariant-4 classifier (conflict detection): bare git merge still
-//     fails on conflict → TrackFail, which surfaces to the human.
-//     Diagnostic quality is lower than S05's classifier (no file-level
-//     conflict report), but the invariant-2 disjoint-touchpoints guarantee
-//     makes conflicts impossible in production.
+//
+//	fails on conflict → TrackFail, which surfaces to the human.
+//	Diagnostic quality is lower than S05's classifier (no file-level
+//	conflict report), but the invariant-2 disjoint-touchpoints guarantee
+//	makes conflicts impossible in production.
+//
 // (3) index.md state update to "merged": not performed by auto-merge.
-//     The board oracle reads track state from index.md; a bare merge does
-//     not update it. This is acceptable because the phase barrier is the
-//     ordering mechanism, not state polling. (Per Pin 1 resolution (a):
-//     waitForDependencies is dropped; the phase barrier enforces AC1.)
+//
+//	The board oracle reads track state from index.md; a bare merge does
+//	not update it. This is acceptable because the phase barrier is the
+//	ordering mechanism, not state polling. (Per Pin 1 resolution (a):
+//	waitForDependencies is dropped; the phase barrier enforces AC1.)
 func finishTrack(
 	ctx context.Context,
 	opts WorkerOptions,
@@ -527,19 +543,39 @@ func finishTrack(
 	fmt.Fprintf(os.Stderr, "[%s] done\n", trackID)
 	return TrackPass
 }
-// findFirstNonTerminal returns the first slice ID in the track that is not
-// in a terminal state. Returns "" if all// slices are terminal — the track is fully done and resumability skips it.
+
+// findFirstNonTerminal returns the first slice ID in the track whose committed
+// state (read via the oracle) is non-terminal per router.IsTerminal. Returns ""
+// if all slices are terminal — the track is fully done and should merge.
 //
-// This is a best-effort helper for the worker at startup. The authoritative
-// state machine lives in the router (S58); this function only determines the
-// initial frontier slice for the first Route() call.
-func findFirstNonTerminal(slices []string) string {
+// When oracle is nil, falls back to returning slices[0] (legacy behaviour).
+//
+// The authoritative state machine lives in the router; this function determines
+// the initial frontier slice for the first Route() call.
+func findFirstNonTerminal(ctx context.Context, oracle router.OracleReader, release, trackID string, slices []string) string {
+	if len(slices) == 0 {
+		return ""
+	}
+
+	// Legacy fallback: no oracle wired → return first slice.
+	if oracle == nil {
+		return slices[0]
+	}
+
 	for _, sid := range slices {
-		// We can't read committed state here (no router wired yet for the
-		// first call). The router will handle this on the first Route() call.
-		// We just return the first slice; the router will skip terminal ones
-		// and return a Target for the actual frontier.
-		return sid
+		ss, err := oracle.ReadSliceStatus(ctx, release, sid)
+		if err != nil {
+			// AC3: on read error (e.g. track ref doesn't exist yet), seed AT
+			// this slice rather than skipping past it. Skipping re-introduces
+			// the forward-only abandonment that DD-1 prevents. The oracle's
+			// track→release-wt fallback handles nonexistent refs internally;
+			// a hard error (malformed content) is rare and seeding at the
+			// unreadable slice is the safest default.
+			return sid
+		}
+		if !router.IsTerminal(string(ss.State)) {
+			return sid
+		}
 	}
 	return ""
 }
