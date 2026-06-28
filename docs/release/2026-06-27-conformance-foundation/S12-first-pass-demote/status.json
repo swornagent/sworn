@@ -34,16 +34,9 @@
   "reachability_artifacts": [],
   "open_deferrals": [],
   "verification": {
-    "result": "blocked",
+    "result": "pending",
     "verifier_session_id": null,
-    "verifier_verdict_at": "2026-07-25T03:30:00Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      {
-        "gate": "drift-gate",
-        "summary": "Forward-merge of release-wt/2026-06-27-conformance-foundation into track/2026-06-27-conformance-foundation/T3-agentic-verifier conflicted on internal/model/oai.go (code conflict)",
-        "evidence": "T2-model-layer (S08 Capability type + S10-agentic-chat-anthropic) and T3-agentic-verifier ancestry (S10-provider-foundation, S39 OpenAI responses, S27 parallel-dispatch) both modified internal/model/oai.go",
-        "proposed_amendment": "Add depends_on: [T2-model-layer] to track T3-agentic-verifier in index.md, re-materialise T3 worktree from merged T2 base"
-      }
-    ]
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": false,
+    "violations": []
   }}
