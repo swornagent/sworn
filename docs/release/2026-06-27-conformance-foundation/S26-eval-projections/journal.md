@@ -31,3 +31,47 @@
 ### Pre-existing issue fixed
 
 - `reqverify_test.go` had a build break from S24: `fakeVerifier.Verify` and `errVerifier.Verify` returned 3 values but the interface now requires 5 (added `int64, int64` for input/output tokens). Mechanical fix: added `0, 0` return values. Noted here for transparency.
+## Verifier verdicts received
+
+### 2026-06-28T06:08:39Z — BLOCKED (fresh-context verifier, Rule 7)
+
+**Verdict: BLOCKED — drift gate (Step 0.5) forward-merge conflict, route to /replan-release.**
+
+Before any verification gate could run, the mandatory drift gate forward-merged
+`release-wt/2026-06-27-conformance-foundation` into the track worktree
+(`track/2026-06-27-conformance-foundation/T7-telemetry-eval`, 62 commits behind).
+The merge conflicted on **code and test** files, not just docs:
+
+- `internal/model/openai_responses.go`
+- `internal/verify/verify.go`
+- `internal/verify/verify_test.go`
+- `docs/release/2026-06-27-conformance-foundation/index.md` (docs-only)
+
+Per the verifier contract, a code/test conflict on the `release-wt` forward-merge
+is a track-mode invariant-2 (touchpoint-disjointness) / invariant-4 failure — the
+touchpoint matrix was wrong. The merge was aborted (`git merge --abort`,
+tree restored clean at `d103796`); the verifier does not resolve cross-track
+semantic merges (editing production code is forbidden).
+
+**Root cause (cross-track touchpoint collision):**
+- T7 track commit `1c5bb53` (`feat(model): land S24-dispatch-enrich`) changed
+  `model.Verify` → `(string, float64, int64, int64, error)` (token accounting) and
+  edited `internal/verify/verify.go` + `verify_test.go`.
+- Already-merged T3-agentic-verifier (`release-wt` commits `5369850` S11,
+  `df48e66` S12) rewrote the same files: `Verify` is `(string, float64, error)`,
+  `verify.Run` → `RunFirstPass`, and `RunAgentic` + `verifierRolePrompt` added.
+
+The two changesets are semantically incompatible. **S26-eval-projections itself is
+innocent** (scope: `cmd/sworn/telemetry.go` + tests) — but it cannot reach
+`verified` while its track cannot integrate with `release-wt`.
+
+**Proposed spec/replan amendment:** declare
+`internal/model/openai_responses.go`, `internal/verify/verify.go`, and
+`internal/verify/verify_test.go` as a SHARED touchpoint between
+T3-agentic-verifier and T7-telemetry-eval; re-group/re-sequence so T7 rebases
+onto the merged T3 work, re-applying S24's token-accounting return values on top
+of T3's RunFirstPass/RunAgentic split. After the planner forward-syncs the
+corrected base into the T7 track branch (conflict-free), re-run
+`/verify-slice S26-eval-projections`.
+
+**Next step:** `/replan-release 2026-06-27-conformance-foundation`

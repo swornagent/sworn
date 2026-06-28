@@ -8,8 +8,8 @@
   ],
   "state": "implemented",
   "owner": "implementer",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-28T13:20:00Z",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-28T06:08:39Z",
   "start_commit": "91eca8ca85258152f4eec40a9ce4e269ee3a3cf3",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S26-eval-projections/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S26-eval-projections/proof.md",
@@ -29,10 +29,15 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
+    "result": "blocked",
+    "verifier_session_id": "verify-slice-2026-06-28T06:08:39Z",
+    "verifier_verdict_at": "2026-06-28T06:08:39Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "Drift gate (Step 0.5) — forward-merge of release-wt/2026-06-27-conformance-foundation into track/2026-06-27-conformance-foundation/T7-telemetry-eval conflicted on CODE and TEST files, so verification cannot proceed. Conflicted files: internal/model/openai_responses.go, internal/verify/verify.go, internal/verify/verify_test.go (plus docs/.../index.md, docs-only). This is a track-mode invariant-2 (touchpoint-disjointness) / invariant-4 failure: the touchpoint matrix placed T7-telemetry-eval and T3-agentic-verifier as disjoint, but both own these files.",
+      "Root cause: T7 commit 1c5bb53 (feat(model): land S24-dispatch-enrich) changed model.Verify to return (string, float64, int64, int64, error) — adding input/output token accounting — and edited internal/verify/verify.go + verify_test.go. The already-merged T3-agentic-verifier track (release-wt commits 5369850 S11 agentic-verifier-dispatch and df48e66 S12 first-pass-demote) rewrote the same files: Verify is (string, float64, error), verify.Run was renamed RunFirstPass, and RunAgentic + verifierRolePrompt were added. The two changesets are semantically incompatible and cannot be auto-merged.",
+      "S26-eval-projections itself is innocent of the collision (its scope is cmd/sworn/telemetry.go + tests), but it cannot reach 'verified' while its track is unintegrable with release-wt. The verifier may not edit production code to resolve a cross-track semantic merge; that is planner-directed integration work.",
+      "Proposed /replan-release amendment: declare internal/model/openai_responses.go, internal/verify/verify.go, and internal/verify/verify_test.go as a SHARED touchpoint between T3-agentic-verifier and T7-telemetry-eval, and re-group/re-sequence so T7 rebases onto the merged T3 work. S24-dispatch-enrich's token-accounting return values must be re-applied on top of T3's RunFirstPass/RunAgentic split (the new Verify signature must carry the input/output token int64s through the RunFirstPass path), and the duration/token/cost surfacing in verify.go must be reconciled with the agentic verifier's FailedGate override. After the planner forward-syncs the corrected base into the T7 track branch (conflict-free), re-run /verify-slice S26-eval-projections."
+    ]
   }
 }
