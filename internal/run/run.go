@@ -224,9 +224,9 @@ func Run(ctx context.Context, opts Options) error {
 		NewAgent:         opts.NewAgent,
 		NewVerifier:      opts.NewVerifier,
 		Notifier:         opts.Notifier,
+		DB:               database,
 	})
-	if err != nil { // Re-wrap Blocked errors to preserve the run: prefix for
-		// existing tests that check "verification blocked".
+	if err != nil { // Re-wrap Blocked errors to preserve the run: prefix for		// existing tests that check "verification blocked".
 		if IsBlocked(err) {
 			return fmt.Errorf("run: %s", err)
 		}
@@ -345,13 +345,25 @@ func newAgentFromModel(modelID string) (agent.Agent, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// ── Chat capability gate (S08) ─────────────────────────────────
+	// The implementer role requires Chat. Check CapabilityProvider before
+	// asserting agent.Agent — a driver that supports Verify but not Chat
+	// should fail fast here, not mid-run.
+	if cp, ok := v.(model.CapabilityProvider); !ok || cp.Capabilities()&model.CapChat == 0 {
+		provider := modelID
+		if idx := strings.IndexByte(modelID, '/'); idx >= 0 {
+			provider = modelID[:idx]
+		}
+		return nil, fmt.Errorf("driver %s does not support Chat — required for the implementer role", provider)
+	}
+
 	a, ok := v.(agent.Agent)
 	if !ok {
 		return nil, fmt.Errorf("model %q does not support agent interface", modelID)
 	}
 	return a, nil
 }
-
 func newVerifierFromModel(modelID string) (model.Verifier, error) {
 	return model.FromEnv(modelID)
 }

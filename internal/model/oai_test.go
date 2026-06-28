@@ -104,7 +104,7 @@ func TestOAI_Verify(t *testing.T) {
 				APIKey:  "sk-test",
 				Client:  tt.client,
 			}
-			text, cost, err := o.Verify(context.Background(), "be strict", "verify this diff")
+text, cost, _, _, err := o.Verify(context.Background(), "be strict", "verify this diff")
 			if tt.wantErr && err == nil {
 				t.Fatal("want error, got nil")
 			}
@@ -126,7 +126,7 @@ func TestOAI_Verify_GarbledJSON(t *testing.T) {
 		w.Write([]byte(`not json`))
 	})
 	o := &OAI{BaseURL: srv.URL, Model: "gpt-4.1-mini", APIKey: "sk-test"}
-	_, _, err := o.Verify(context.Background(), "be strict", "verify this diff")
+_, _, _, _, err := o.Verify(context.Background(), "be strict", "verify this diff")
 	if err == nil {
 		t.Fatal("want unmarshal error, got nil")
 	}
@@ -139,7 +139,7 @@ func TestOAI_Verify_MissingUsageBlock(t *testing.T) {
 		w.Write(oaiResp([]struct{ content string }{{"PASS"}}, nil))
 	})
 	o := &OAI{BaseURL: srv.URL, Model: "gpt-4.1-mini", APIKey: "sk-test"}
-	_, cost, err := o.Verify(context.Background(), "be strict", "verify this diff")
+_, cost, _, _, err := o.Verify(context.Background(), "be strict", "verify this diff")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestOAI_Verify_EmptyChoices(t *testing.T) {
 		w.Write(oaiResp(nil, &UsageBlock{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}))
 	})
 	o := &OAI{BaseURL: srv.URL, Model: "gpt-4.1-mini", APIKey: "sk-test"}
-	_, _, err := o.Verify(context.Background(), "be strict", "verify this diff")
+_, _, _, _, err := o.Verify(context.Background(), "be strict", "verify this diff")
 	if err == nil {
 		t.Fatal("want error on empty choices, got nil")
 	}
@@ -369,7 +369,7 @@ func TestFromEnvUsesProxy(t *testing.T) {
 	}
 
 	// Dispatch a request through the verifier to confirm it hits the proxy.
-	_, _, err = v.Verify(context.Background(), "system", "user")
+_, _, _, _, err = v.Verify(context.Background(), "system", "user")
 	if err != nil {
 		t.Fatalf("Verify failed: %v", err)
 	}
@@ -412,7 +412,7 @@ func TestFromEnvBypassProxy(t *testing.T) {
 		t.Fatalf("FromEnv failed: %v", err)
 	}
 
-	_, _, err = v.Verify(context.Background(), "system", "user")
+_, _, _, _, err = v.Verify(context.Background(), "system", "user")
 	if err != nil {
 		t.Fatalf("Verify failed: %v", err)
 	}
@@ -531,7 +531,7 @@ func TestFromEnvInsufficientCredits(t *testing.T) {
 		t.Fatalf("FromEnv failed: %v", err)
 	}
 
-	_, _, err = v.Verify(context.Background(), "system", "user")
+_, _, _, _, err = v.Verify(context.Background(), "system", "user")
 	if err == nil {
 		t.Fatal("expected error for 402, got nil")
 	}

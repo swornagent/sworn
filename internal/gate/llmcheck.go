@@ -265,7 +265,7 @@ func RunLLMCheck(ctx context.Context, checkType CheckType, sliceDir string, diff
 	userPayload := buildUserPayload(checkType, string(specContent), diffContent)
 
 	// Call the model.
-	rawResponse, _, err := verifier.Verify(ctx, systemPrompt, userPayload)
+	rawResponse, _, _, _, err := verifier.Verify(ctx, systemPrompt, userPayload) 
 	if err != nil {
 		return nil, fmt.Errorf("llm-check: model call failed: %w", err)
 	}

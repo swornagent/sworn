@@ -15,9 +15,8 @@ type mockVerifier struct {
 	err     error
 }
 
-func (m *mockVerifier) Verify(_ context.Context, _, _ string) (string, float64, error) {
-	return m.text, m.costUSD, m.err
-}
+func (m *mockVerifier) Verify(_ context.Context, _, _ string) (string, float64, int64, int64, error) {
+	return m.text, m.costUSD, 0, 0, m.err}
 
 // --- prompt building tests ---
 

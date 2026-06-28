@@ -14,8 +14,10 @@ import (
 
 	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/config"
+	"github.com/swornagent/sworn/internal/db"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/run"
+	"github.com/swornagent/sworn/internal/supervisor"
 )
 
 // cmdRun implements the `sworn run` subcommand.
@@ -29,39 +31,50 @@ import (
 //	           [--implementer-model <provider/model>]
 //	           [--implement-timeout <duration>]
 func cmdRun(args []string) int {
-	fs := flag.NewFlagSet("loop", flag.ExitOnError)
-	task := fs.String("task", "", "plain-language task description (required for single-slice mode)")
+	fs := flag.NewFlagSet("run", flag.ExitOnError)
+	task := fs.String("task", "", "dispatch planner for a single-slice task and run implement+verify")
 	implModel := fs.String("implementer-model", "", "implementer model (provider/model)")
 	verifierModel := fs.String("verifier-model", "", "verifier model (provider/model)")
 	base := fs.String("base", "main", "base branch to merge into on PASS")
+	_ = base
 	retryCap := fs.Int("retry-cap", -1, "max retries before escalating to human (-1 = use all escalation models)")
 	escalationFlag := fs.String("escalation-models", "", "comma-separated model escalation path (provider/model,...)")
 	parallel := fs.Bool("parallel", false, "run tracks concurrently from release board")
 	releaseName := fs.String("release", "", "release name for --parallel mode (e.g. 2026-06-19-safe-parallelism)")
 	implTimeout := fs.Duration("implement-timeout", 0, "per-attempt implement deadline (0 = use default; negative = no timeout)")
-
+	dryRun := fs.Bool("dry-run", false, "verify planner dispatch would be called without actually running")
+	resume := fs.Bool("resume", false, "resume an in-flight parallel release — each track seeds from committed state (alias: every --parallel run already does this, the flag makes the contract explicit)")
 	_ = fs.Parse(args)
 
 	// ── Load .env files ────────────────────────────────────────────────
 	if err := model.LoadDotEnv(); err != nil {
-		fmt.Fprintf(os.Stderr, "sworn loop: load .env: %v\n", err)
+		fmt.Fprintf(os.Stderr, "sworn run: load .env: %v\n", err)
 		return 1
 	}
 	// ── Basic CLI usage validation (before model resolution) ────────────
 	if *parallel {
 		if *releaseName == "" {
-			fmt.Fprintln(os.Stderr, "sworn loop: --release is required with --parallel")
+			fmt.Fprintln(os.Stderr, "sworn run: --release is required with --parallel")
 			return 64
 		}
 	} else if *task == "" {
-		fmt.Fprintln(os.Stderr, "sworn loop: --task is required (or use --parallel --release)")
+		fmt.Fprintln(os.Stderr, "sworn run: --task is required (or use --parallel --release)")
 		return 64
+	}
+
+	if *resume && !*parallel {
+		fmt.Fprintln(os.Stderr, "sworn run: --resume requires --parallel")
+		return 64
+	}
+	// ── Dry-run short-circuit: skip model/config loading, verify reachability ─
+	if *dryRun && !*parallel {
+		return cmdRunTask(*task, "", "", nil, 0, 0, true, nil)
 	}
 
 	// ── Load config ────────────────────────────────────────────────────
 	cfg, cfgErr := config.Load()
 	if cfgErr != nil {
-		fmt.Fprintf(os.Stderr, "sworn loop: load config: %v\n", cfgErr)
+		fmt.Fprintf(os.Stderr, "sworn run: load config: %v\n", cfgErr)
 		return 1
 	}
 
@@ -73,14 +86,14 @@ func cmdRun(args []string) int {
 	// ── Resolve verifier model ─────────────────────────────────────────
 	verifier, err := config.ResolveVerifierModel(*verifierModel, cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "sworn loop: %v\n", err)
+		fmt.Fprintf(os.Stderr, "sworn run: %v\n", err)
 		return 2
 	}
 
 	// ── Resolve implementer model ──────────────────────────────────────
 	impl, err := config.ResolveImplementerModel(*implModel, cfg, "", "", "quality", 0)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "sworn loop: %v\n", err)
+		fmt.Fprintf(os.Stderr, "sworn run: %v\n", err)
 		return 2
 	}
 
@@ -104,11 +117,19 @@ func cmdRun(args []string) int {
 	if *parallel {
 		database, dbErr := openDefaultDB()
 		if dbErr != nil {
-			fmt.Fprintf(os.Stderr, "sworn loop: open database: %v\n", dbErr)
+			fmt.Fprintf(os.Stderr, "sworn run: open database: %v\n", dbErr)
 			return 1
 		}
 		defer database.Close()
 
+		// Open the release-specific event store so events survive process exit.
+		eventDB, evErr := supervisor.Open(*releaseName, ".")
+		if evErr != nil {
+			fmt.Fprintf(os.Stderr, "sworn run: open event store: %v\n", evErr)
+			database.Close()
+			return 1
+		}
+		defer eventDB.Close()
 		runSliceFn := func(ctx context.Context, worktreeRoot, specPath, statusPath string) error {
 			return run.RunSlice(ctx, worktreeRoot, specPath, statusPath, run.RunSliceOptions{
 				ImplementerModel: impl,
@@ -117,40 +138,27 @@ func cmdRun(args []string) int {
 				RetryCap:         maxAttempts,
 				ImplementTimeout: implementTimeout,
 				Notifier:         notifier,
+				DB:               database,
 			})
 		}
-		err = run.RunParallel(context.Background(), run.ParallelOptions{
-			ReleaseName:   *releaseName,
+		err = run.RunParallel(context.Background(), run.ParallelOptions{ReleaseName: *releaseName,
 			WorkspaceRoot: ".",
 			DB:            database,
+			EventDB:       eventDB,
 			RunSliceFn:    runSliceFn,
 			ProjectDir:    "sworn",
 			Notifier:      notifier,
+			MergeTrackFn:  run.ProductionMergeTrack,
 		})
 		if err != nil {
 			printModelError(err)
-			fmt.Fprintf(os.Stderr, "sworn loop: parallel: %v\n", err)
+			fmt.Fprintf(os.Stderr, "sworn run: parallel: %v\n", err)
 			return 1
 		}
 		return 0
 	}
 	// ── Single-slice mode ──────────────────────────────────────────────
-	err = run.Run(context.Background(), run.Options{
-		Task:             *task,
-		ImplementerModel: impl,
-		VerifierModel:    verifier,
-		Base:             *base,
-		RetryCap:         maxAttempts,
-		EscalationModels: escalationModels,
-		ImplementTimeout: implementTimeout,
-		Notifier:         notifier,
-	})
-	if err != nil {
-		printModelError(err)
-		fmt.Fprintf(os.Stderr, "sworn loop: %v\n", err)
-		return 1
-	}
-	return 0
+	return cmdRunTask(*task, impl, verifier, escalationModels, maxAttempts, implementTimeout, *dryRun, notifier)
 }
 
 // resolveImplementTimeout returns the per-attempt implement timeout from the
@@ -195,25 +203,13 @@ func parseEscalationFlag(raw string) []string {
 	return models
 }
 
-// openDefaultDB opens the default sworn SQLite database.
+// openDefaultDB opens the default sworn SQLite database with schema initialization.
 func openDefaultDB() (*sql.DB, error) {
 	wd, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("getwd: %w", err)
 	}
-	dbPath := wd + "/.sworn/sworn.db"
-
-	driver := os.Getenv("SWORN_DB_DRIVER")
-	if driver == "" {
-		driver = "sqlite"
-	}
-
-	db, err := sql.Open(driver, dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("open db %s: %w", dbPath, err)
-	}
-	db.SetMaxOpenConns(1)
-	return db, nil
+	return db.Open(filepath.Join(wd, db.DefaultDir, db.DefaultName))
 }
 
 // printModelError unwraps a *model.Error from err (via errors.As) and
@@ -223,6 +219,6 @@ func openDefaultDB() (*sql.DB, error) {
 func printModelError(err error) {
 	var me *model.Error
 	if errors.As(err, &me) {
-		fmt.Fprintf(os.Stderr, "sworn loop: %s\n", me.UserMessage())
+		fmt.Fprintf(os.Stderr, "sworn run: %s\n", me.UserMessage())
 	}
 }

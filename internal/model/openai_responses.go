@@ -39,6 +39,10 @@ type OpenAIResponses struct {
 	UseWebSearch    bool         // include built-in web_search tool
 }
 
+// Capabilities returns CapVerify | CapChat — the OpenAIResponses driver
+// supports both single-shot verification and multi-turn chat via /v1/responses.
+func (o *OpenAIResponses) Capabilities() Capability { return CapVerify | CapChat }
+
 // NewOpenAIResponses constructs an OpenAIResponses driver.
 // apiKey must be non-empty. ReasoningEffort defaults to "medium" if empty.
 // UseWebSearch defaults to false unless SWORN_OPENAI_RESPONSES_USE_WEB_SEARCH
@@ -137,7 +141,7 @@ type responsesUsage struct {
 // Verify sends the system prompt + user payload to /v1/responses.
 // On any HTTP error, timeout, or unparseable response it returns an error
 // (not a panic) — the caller (verify.Run) maps errors to BLOCKED.
-func (c *OpenAIResponses) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
+func (c *OpenAIResponses) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
 	input := []responsesInput{}
 	if userPayload != "" {
 		input = append(input, responsesInput{Role: "user", Content: userPayload})
@@ -147,13 +151,13 @@ func (c *OpenAIResponses) Verify(ctx context.Context, systemPrompt, userPayload 
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(reqBody); err != nil {
-		return "", 0, fmt.Errorf("model: marshal responses request: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: marshal responses request: %w", err)
 	}
 
 	url := strings.TrimRight(c.BaseURL, "/") + "/responses"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &buf)
 	if err != nil {
-		return "", 0, fmt.Errorf("model: build responses request: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: build responses request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -164,13 +168,13 @@ func (c *OpenAIResponses) Verify(ctx context.Context, systemPrompt, userPayload 
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", 0, fmt.Errorf("model: responses dispatch: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: responses dispatch: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", 0, fmt.Errorf("model: read responses response: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: read responses response: %w", err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -178,18 +182,18 @@ func (c *OpenAIResponses) Verify(ctx context.Context, systemPrompt, userPayload 
 		if resp.StatusCode == http.StatusPaymentRequired {
 			me.Err = account.ErrInsufficientCredits
 		}
-		return "", 0, me
+		return "", 0, 0, 0, me
 	}
 
 	var ar responsesAPIResponse
 	if err := json.Unmarshal(body, &ar); err != nil {
-		return "", 0, fmt.Errorf("model: unmarshal responses response: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: unmarshal responses response: %w", err)
 	}
 
 	text := extractOutputText(ar.Output)
 	usage := convertUsage(ar.Usage)
 	cost := computeCost(c.Model, usage)
-	return text, cost, nil
+	return text, cost, 0, 0, nil
 }
 
 // ---------------------------------------------------------------------------

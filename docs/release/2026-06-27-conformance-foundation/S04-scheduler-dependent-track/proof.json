@@ -1,0 +1,65 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S04-scheduler-dependent-track",
+  "release": "2026-06-27-conformance-foundation",
+  "scope": "When a release has a track with depends_on, the scheduler places the dependent track in a later topological phase; the dependency auto-merges to release-wt via MergeTrackFn in finishTrack before the phase barrier releases, so the dependent track's worktree branches from the post-merge release-wt tip.",
+  "files_changed": [
+    "internal/scheduler/worker.go",
+    "internal/run/parallel.go",
+    "internal/scheduler/worker_test.go",
+    "cmd/sworn/run.go",
+    "docs/release/2026-06-27-conformance-foundation/S04-scheduler-dependent-track/status.json"
+  ],  "test_results": [
+    {
+      "command": "go test ./internal/scheduler/... -v -run TestDependentTrack",
+      "passed": true,
+      "exit_code": 0,
+      "output": "=== RUN   TestDependentTrack_MergeTrackFnCalled\n[T1] starting\n[T1] router: S01-final → none (terminal)\n[T1] auto-merging into release-wt\n[T1] auto-merged into release-wt\n[T1] done\n--- PASS: TestDependentTrack_MergeTrackFnCalled (0.00s)\n=== RUN   TestDependentTrack_MergeTrackFnErrorFails\n[T1] starting\n[T1] router: S01-failmerge → none (terminal)\n[T1] auto-merging into release-wt\n[T1] auto-merge failed: simulated merge conflict\n--- PASS: TestDependentTrack_MergeTrackFnErrorFails (0.00s)\n=== RUN   TestDependentTrack_MergeTrackDecisionAutoMerges\n[T1] starting\n[T1] router: S01-automerge → merge-track (track fully verified)\n[T1] auto-merging into release-wt\n[T1] auto-merged into release-wt\n[T1] done\n--- PASS: TestDependentTrack_MergeTrackDecisionAutoMerges (0.00s)\n=== RUN   TestDependentTrack_MergeTrackDecisionPausesWhenNoMergeTrackFn\n[T1] starting\n[T1] router: S01-nomergefn → merge-track (track fully verified)\n[T1] paused: merge-track — track fully verified\n--- PASS: TestDependentTrack_MergeTrackDecisionPausesWhenNoMergeTrackFn (0.00s)\n=== RUN   TestDependentTrack_WorktreeBranchesFromMergedTip\n--- PASS: TestDependentTrack_WorktreeBranchesFromMergedTip (0.10s)\nPASS"
+    },
+    {
+      "command": "go test ./internal/scheduler/... -v -run TestBuildPlan",
+      "passed": true,
+      "exit_code": 0,
+      "output": "=== RUN   TestBuildPlan_TwoIndependentTracks\n--- PASS: TestBuildPlan_TwoIndependentTracks (0.00s)\n=== RUN   TestBuildPlan_DependencyOrdering\n--- PASS: TestBuildPlan_DependencyOrdering (0.00s)\n=== RUN   TestBuildPlan_FailurePropagation\n--- PASS: TestBuildPlan_FailurePropagation (0.00s)\n=== RUN   TestBuildPlan_AllSucceed\n--- PASS: TestBuildPlan_AllSucceed (0.00s)\n=== RUN   TestBuildPlan_NonExistentDep\n--- PASS: TestBuildPlan_NonExistentDep (0.00s)\n=== RUN   TestBuildPlan_CycleDetection\n--- PASS: TestBuildPlan_CycleDetection (0.00s)\n=== RUN   TestBuildPlan_MultiDependency\n--- PASS: TestBuildPlan_MultiDependency (0.00s)\n=== RUN   TestBuildPlan_Empty\n--- PASS: TestBuildPlan_Empty (0.00s)\nPASS"
+    }
+  ],  "reachability": {
+    "type": "cli-run",
+    "evidence": "go test ./internal/scheduler/... -v -run TestDependentTrack exits 0 — 5/5 subtests pass. AC5 integration test (TestDependentTrack_WorktreeBranchesFromMergedTip) sets up a real bare git repo, simulates a dependency track merge into release-wt, creates a dependent worktree, and asserts the dependency's file is present."
+  },
+  "delivered": [
+    {
+      "item": "AC1: Topological phase ordering via BuildPlan (Kahn's algorithm) + phase barrier in RunParallel (wg.Wait per phase)",
+      "evidence": "internal/scheduler/scheduler.go:35-118 (BuildPlan), internal/run/parallel.go:196-237 (phase barrier), TestBuildPlan_DependencyOrdering + TestBuildPlan_MultiDependency"
+    },
+    {
+      "item": "AC2: Dependent track worktree branches from live release-wt HEAD (post-dependency tip)",
+      "evidence": "internal/scheduler/worker.go:179-182 (git worktree add -b <branch> release-wt/<release>), TestDependentTrack_WorktreeBranchesFromMergedTip"
+    },
+    {
+      "item": "AC3: Auto-merge via MergeTrackFn in finishTrack before track goroutine returns",
+      "evidence": "internal/scheduler/worker.go:494-521 (finishTrack), TestDependentTrack_MergeTrackFnCalled, TestDependentTrack_MergeTrackDecisionAutoMerges"
+    },
+    {
+      "item": "AC4: Dependency track FAIL cancels dependents via failCancel; dependent tracks in later phases skipped",
+      "evidence": "internal/run/parallel.go:229-230 (TrackFail → failCancel), internal/run/parallel.go:201-204 (phaseCtx.Err check), TestDependentTrack_MergeTrackFnErrorFails"
+    },
+    {
+      "item": "AC5: Two-track integration scenario over real git repo asserts dependent worktree branches from post-dependency tip",
+      "evidence": "internal/scheduler/worker_test.go:1450-1523 (TestDependentTrack_WorktreeBranchesFromMergedTip)"
+    },
+    {
+      "item": "ProductionMergeTrack: local-merge-first, fetch+merge fallback, .git guard for test-only temp dirs",
+      "evidence": "internal/run/parallel.go:324-355"
+    },
+    {
+      "item": "Design review Pin 1: dropped waitForDependencies; phase barrier is the ordering mechanism",
+      "evidence": "internal/scheduler/worker.go:112-118 (comment), internal/run/parallel.go:235-236 (wg.Wait barrier)"
+    },
+    {
+      "item": "Design review Pin 2: S05 gate bypass documentation in finishTrack",
+      "evidence": "internal/scheduler/worker.go:477-493 (comment block)"
+    }
+  ],
+  "not_delivered": [],
+  "divergence": []
+}

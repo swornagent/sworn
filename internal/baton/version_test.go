@@ -11,7 +11,7 @@ func TestIsSemverTag(t *testing.T) {
 	}{
 		// Valid semver tags
 		{"v0.3.0", true},
-		{"v1.0.0", true},
+		{"v2.0.0", true},
 		{"v0.0.0", true},
 		{"v10.20.30", true},
 

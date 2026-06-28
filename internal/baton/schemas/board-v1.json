@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://baton.sawy3r.net/schemas/board-v1.json",
+  "title": "Baton Release Board",
+  "description": "Machine-readable release board record — the oracle's source of truth, replacing index.md YAML frontmatter.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema_version", "release", "tracks"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://baton.sawy3r.net/schemas/board-v1.json"
+    },
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "release": {
+      "type": "string",
+      "minLength": 1
+    },
+    "release_worktree_path": {
+      "type": "string"
+    },
+    "release_worktree_branch": {
+      "type": "string"
+    },
+    "tracks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "state", "worktree_branch"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "slices": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "depends_on": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "worktree_path": {
+            "type": "string"
+          },
+          "worktree_branch": {
+            "type": "string",
+            "minLength": 1
+          },
+          "state": {
+            "type": "string",
+            "enum": ["planned", "in_progress", "merged"]
+          }
+        }
+      }
+    }
+  }
+}
