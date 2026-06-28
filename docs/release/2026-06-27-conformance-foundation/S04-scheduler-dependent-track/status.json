@@ -28,10 +28,9 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "blocked",
-    "verifier_session_id": "fresh-context-verifier-S04-2026-07-28",
-    "verifier_verdict_at": "2026-07-28T00:00:00Z",
-    "verifier_was_fresh_context": true,
-    "violations": [],
-    "blocked_reason": "forward-merge of release-wt/2026-06-27-conformance-foundation into track/2026-06-27-conformance-foundation/T1-orchestration conflicted on internal/run/slice.go — the touchpoint matrix was wrong (track-mode invariant 4). Route to /replan-release 2026-06-27-conformance-foundation to re-group."
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": false,
+    "violations": []
   }}
