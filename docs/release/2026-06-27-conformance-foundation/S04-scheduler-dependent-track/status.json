@@ -3,10 +3,12 @@
   "slice_id": "S04-scheduler-dependent-track",
   "release": "2026-06-27-conformance-foundation",
   "track": "T1-orchestration",
-  "covers_needs": ["N-13"],
-  "state": "implemented",
-  "owner": "verifier",
-  "last_updated_by": "verifier",
+  "covers_needs": [
+    "N-13"
+  ],
+  "state": "in_progress",
+  "owner": "implementer",
+  "last_updated_by": "coach",
   "last_updated_at": "2026-06-28T00:00:00Z",
   "start_commit": "8d32fe06527a39e00cc2a29e5b3f142fec97fa9f",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S04-scheduler-dependent-track/spec.md",
@@ -22,20 +24,18 @@
     "internal/scheduler/worker.go",
     "internal/scheduler/worker_test.go"
   ],
-  "test_commands": ["go test ./internal/scheduler/... -v -run TestDependentTrack"],
+  "test_commands": [
+    "go test ./internal/scheduler/... -v -run TestDependentTrack"
+  ],
   "reachability_artifacts": [
     "go test ./internal/scheduler/... -v -run TestDependentTrack exits 0"
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "blocked",
-    "verifier_session_id": "fresh-artefact-only",
-    "verifier_verdict_at": "2026-06-28T00:00:00Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      "Gate 1/3b (AC4 contract defect): spec.md prescribes a depends_on POLLING mechanism (In-scope: 'poll until the dependency track's state is merged in the oracle'; AC1: 'SHALL NOT start until merged'; AC4: 'polls with a configurable interval (default 30s) and surfaces the stall'), but the implementation dropped polling per design-review Pin 1 (waitForDependencies/DependencyOracle/DependsOnPollInterval removed — proof.json divergence) and substituted a topological phase barrier (scheduler.BuildPlan + wg.Wait per phase in internal/run/parallel.go). spec.md was never reconciled with the ratified design. The phase barrier cannot satisfy AC4: a PAUSED dependency does not trigger failCancel() (only TrackFail does, parallel.go), so the dependent track starts on a release-wt tip lacking the dependency's merge (violates AC1 + AC4 'SHALL not start the dependent track'); a STUCK dependency blocks wg.Wait forever (violates AC4 'but also not deadlock'). An implementer cannot satisfy AC4 as written without re-introducing the ratified-dropped polling — a contract defect, not an implementer fix.",
-      "Gate 5/Rule 2 (silent deferral): the paused/stuck-dependency gap is acknowledged in the implementer's journal (deferred to S07) but proof.json not_delivered is empty — no why+tracking+acknowledgement deferral covering AC4's pause/stall handling.",
-      "Gate 3 (AC5 / required Integration test missing): spec's 'Test' acceptance check and 'Integration' required test demand a two-track scenario (T_dep -> T_main) asserting T_main's worktree branches from the post-T_dep release-wt tip. No such test exists — the four TestDependentTrack_* tests are single-track MergeTrackFn-invocation tests; parallel_test.go tests (DependentTrackRunsAfterSuccess, FailureCascade, TrackPaused) assert ordering/skip but never assert the branch point.",
-      "Proposed spec.md amendment: reconcile spec.md with the ratified phase-barrier design. (a) Rewrite In-scope + AC1/AC4 to describe the topological-phase + finishTrack auto-merge ordering mechanism (remove 'poll until merged in the oracle' and 'configurable interval (default 30s)'); add an explicit AC for dependency pause/failure (e.g. 'WHEN a dependency track pauses or fails before merging, THE SYSTEM SHALL skip its dependent tracks, surface the stall via log/TUI, and not deadlock'); reword AC5 to require a test asserting the dependent worktree is created from the post-dependency release-wt tip under that mechanism; and require an implementer change handling the paused/stuck cases (or a human/Captain-ratified Rule 2 deferral to S07). OR (b) reject Pin 1 and restore the waitForDependencies/DependencyOracle/DependsOnPollInterval polling design with its tests."
-    ]
-  }}
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": false,
+    "violations": []
+  }
+}
