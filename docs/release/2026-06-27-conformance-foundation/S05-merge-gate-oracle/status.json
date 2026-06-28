@@ -7,11 +7,10 @@
     "N-05",
     "N-14"
   ],
-  "state": "implemented",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-28T20:25:00Z",
-  "start_commit": "cd4d4869a84ba4dc2aa94e58a051260eee6a897a",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-28T21:00:00Z",  "start_commit": "cd4d4869a84ba4dc2aa94e58a051260eee6a897a",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S05-merge-gate-oracle/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S05-merge-gate-oracle/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S05-merge-gate-oracle/journal.md",
@@ -63,7 +62,8 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
-    "violations": []
-  }
-}
+    "result": "pass",
+    "violations": [],
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-28T21:00:00Z"
+  }}

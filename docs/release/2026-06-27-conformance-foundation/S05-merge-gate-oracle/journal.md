@@ -94,3 +94,24 @@ Verifier note: Gates 1, 2, 5, 6, 7 PASS. The core logic (Invariant4Check, ParseD
 - `go test ./internal/board/...` — all pass (including StringList unmarshal)
 - MCP round-trip tests timeout — pre-existing issue (noted in first pass)
 - Smoke test: `sworn merge-track T1-orchestration` — exit 1, correctly blocks on unverified slices
+---
+
+## 2026-07-28 — Verifier verdicts received (round 2)
+
+### PASS
+
+Slice: `S05-merge-gate-oracle`
+Verified against: `9065d45` (worktree HEAD)
+Verifier session: fresh, artefact-only
+
+All seven gates pass:
+
+- **Gate 1** — User-reachable outcome exists: `sworn merge-track` and `sworn merge-release` CLI subcommands registered and dispatchable. Smoke test correctly reads slice states via oracle and exits non-zero naming unverified slices.
+- **Gate 2** — Planned touchpoints match actual changed files: `cmd/sworn/merge.go`, `internal/router/router.go` in both plan and diff. `internal/board/board.go` (StringList unmarshaler) and `internal/git/git.go` acknowledged as necessary divergences. `internal/mcp/tools_ops.go` pre-satisfied from prior S04 slice.
+- **Gate 3** — Required tests exist and exercise integration points: 6 CLI-level merge tests pass. 7 router tests pass. All board and git tests pass.
+- **Gate 3b** — LLM ac-satisfaction: skipped (no model configured, non-blocking).
+- **Gate 4** — Reachability artefact: CLI smoke test produces spec-expected output (exit 1, names unverified slices by oracle state). AC4 exact message confirmed at merge.go:266.
+- **Gate 4b** — Semantic coverage: skipped (no model configured, non-blocking).
+- **Gate 5** — No silent deferrals or placeholder logic: zero TODO/FIXME/placeholder/XXX/HACK hits in changed production code.
+- **Gate 6** — Design conformance: exempt (Go CLI project, not ui_bearing).
+- **Gate 7** — Claimed scope matches implemented scope: all 6 ACs verified with evidence references that point to real, working state.
