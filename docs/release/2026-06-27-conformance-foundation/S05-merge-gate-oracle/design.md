@@ -119,27 +119,11 @@ For the current release, the documented shared files (from `index.md` § Touchpo
 
 2. **Merge abort state**: `git merge --no-commit --no-ff` followed by conflict detection and `git merge --abort` should always restore to a clean state. If `merge --abort` fails (e.g., the repo was already in a conflicted merge), the function must surface the error. The dirty-tree pre-check catches this.
 
-3. **Oracle injection into MCP tools**: `RegisterOpsTools` currently takes only `repoRoot`. Adding a `*git.Repo` parameter changes the function signature, which affects the server startup code. Need to audit all callers of `RegisterOpsTools`.<｜end▁of▁thinking｜>
-
-<｜｜DSML｜｜parameter name="new_string" string="true">### New test files
-- `cmd/sworn/merge_test.go` — CLI table tests with mock oracle + mock git
-- `internal/router/router_test.go` — add invariant-4 classifier tests
-- `internal/mcp/tools_test.go` — add oracle-backed merge tests
-
----
-
-## Risks / pins for reviewer
-
-1. **Touchpoint matrix parser fragility**: the markdown table parser must handle the current `index.md` table format. If the format changes, the parser breaks. Mitigation: parse defensively (column-based matching, normalize whitespace). An alternative is to read `planned_files` from each slice's `status.json` on the release-wt ref and compute the intersection — this is more robust but requires reading every slice's status.json. **Design choice**: use the index.md touchpoint matrix (it's the canonical declaration of shared files) with a fallback to status.json planned_files.
-
-2. **Merge abort state**: `git merge --no-commit --no-ff` followed by conflict detection and `git merge --abort` should always restore to a clean state. If `merge --abort` fails (e.g., the repo was already in a conflicted merge), the function must surface the error. The dirty-tree pre-check catches this.
-
 3. **Oracle injection into MCP tools**: `RegisterOpsTools` currently takes only `repoRoot`. Adding a `*git.Repo` parameter changes the function signature, which affects the server startup code. Need to audit all callers of `RegisterOpsTools`.
 
 ## AC traceability
 
 Each acceptance check maps to a planned change:
-
 - **AC1** (all verified → merge, exit 0) → `cmd/sworn/merge.go` cmdMergeTrack gate-1
 - **AC2** (unverified → exit non-zero) → `cmd/sworn/merge.go` cmdMergeTrack gate-1 + `internal/mcp/tools_ops.go` handleApproveMerge
 - **AC3** (invariant-4 conflict → BLOCK message) → `internal/router/router.go` Invariant4Check

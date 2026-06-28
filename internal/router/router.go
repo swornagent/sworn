@@ -9,12 +9,14 @@ package router
 import (
 	"context"
 	"fmt"
+	"os"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/swornagent/sworn/internal/board"
+	"github.com/swornagent/sworn/internal/git"
 )
-
 // NextType enumerates the kinds of next command the router can recommend.
 type NextType string
 
@@ -473,4 +475,239 @@ func buildVerificationReason(ss board.SliceState) string {
 		return "no violations recorded"
 	}
 	return strings.Join(ss.Violations, "; ")
+}
+
+// Invariant4Check performs a dry-run merge of trackBranch into the current
+// branch and checks that any conflicted files are documented shared files.
+// If a conflict is on a file NOT in documentedShared, it returns an error
+// naming the offending file. On a clean merge or all-documented-shared
+// conflicts, it restores the working tree and returns nil.
+//
+// Rule 11 (process-global mutation guard): this function mutates the working
+// tree. The caller must assert the target worktree and branch are expected
+// before calling. The function restores the tree via abort/reset in every path.
+func Invariant4Check(repo *git.Repo, trackBranch string, documentedShared map[string]bool) error {
+	// Rule 11 — fail-closed target assertion: the repo must have a Dir set.
+	if repo == nil || repo.Dir == "" {
+		return fmt.Errorf("invariant-4: repo.Dir is empty — refusing to operate on ambient working directory")
+	}
+
+	// Gate 0: working tree must be clean.
+	porcelain, err := repo.StatusPorcelain()
+	if err != nil {
+		return fmt.Errorf("invariant-4: pre-check: %w", err)
+	}
+	if strings.TrimSpace(porcelain) != "" {
+		return fmt.Errorf("invariant-4: working tree is not clean — commit or stash changes before merging")
+	}
+
+	// Run the dry-run merge.
+	conflictFiles, err := repo.MergeDryRun(trackBranch)
+	if err != nil {
+		// MergeDryRun returned a real error (not a conflict).
+		return fmt.Errorf("invariant-4: dry-run merge: %w", err)
+	}
+
+	if len(conflictFiles) == 0 {
+		// Clean merge — undo it.
+		if resetErr := repo.ResetMerge(); resetErr != nil {
+			return fmt.Errorf("invariant-4: clean merge but reset failed: %w", resetErr)
+		}
+		return nil
+	}
+
+	// Conflicts detected. Check each against the documented-shared set.
+	var violations []string
+	for _, f := range conflictFiles {
+		if !isDocumentedShared(f, documentedShared) {
+			violations = append(violations, f)
+		}
+	}
+
+	// Abort the merge in every path.
+	if abortErr := repo.MergeAbort(); abortErr != nil {
+		return fmt.Errorf("invariant-4: merge abort failed: %w", abortErr)
+	}
+
+	if len(violations) > 0 {
+		return fmt.Errorf("BLOCK: invariant-4 violation — conflict on %s (not a documented shared file)",
+			strings.Join(violations, ", "))
+	}
+
+	// All conflicts are on documented shared files — invariant-4 satisfied.
+	return nil
+}
+
+// isDocumentedShared checks whether a conflicted file path matches any entry
+// in the documented-shared set. Uses prefix matching: a conflict on
+// "internal/model/oai.go" matches the documented-shared entry
+// "internal/model/oai.go + drivers".
+func isDocumentedShared(path string, documentedShared map[string]bool) bool {
+	if documentedShared[path] {
+		return true
+	}
+	// Prefix match: the documented-shared keys may be base paths
+	// like "internal/model/oai.go"; a conflict on "internal/model/oai.go"
+	// should match.
+	for key := range documentedShared {
+		if strings.HasPrefix(path, key) || strings.HasPrefix(key, path) {
+			return true
+		}
+	}
+	return false
+}
+
+// touchpointRow holds a parsed row from the index.md touchpoint matrix.
+type touchpointRow struct {
+	filePath string
+	tracks   map[string]bool // track ID → has checkmark
+}
+
+// ParseDocumentedShared reads an index.md at the given path and extracts the
+// documented-shared file set from the touchpoint matrix. A file is documented
+// shared when it is explicitly marked "(DOCUMENTED SHARED)" in the first
+// column, OR when ≥2 tracks have a checkmark (✓) for that file.
+func ParseDocumentedShared(indexPath string) (map[string]bool, error) {
+	data, err := os.ReadFile(indexPath)
+	if err != nil {
+		return nil, fmt.Errorf("parse documented shared: read index.md: %w", err)
+	}
+
+	rows, err := parseTouchpointMatrix(string(data))
+	if err != nil {
+		return nil, fmt.Errorf("parse documented shared: %w", err)
+	}
+
+	shared := make(map[string]bool)
+	for _, row := range rows {
+		// Explicitly marked as DOCUMENTED SHARED.
+		if strings.Contains(row.filePath, "DOCUMENTED SHARED") {
+			key := normalizeFilePath(row.filePath)
+			if key != "" {
+				shared[key] = true
+			}
+			continue
+		}
+		// ≥2 tracks have checkmarks.
+		count := 0
+		for _, has := range row.tracks {
+			if has {
+				count++
+			}
+		}
+		if count >= 2 {
+			key := normalizeFilePath(row.filePath)
+			if key != "" {
+				shared[key] = true
+			}
+		}
+	}
+	return shared, nil
+}
+
+// normalizeFilePath strips backtick quoting, trims whitespace, and removes
+// leading/trailing markers from a file path cell in the touchpoint matrix.
+func normalizeFilePath(raw string) string {
+	s := strings.TrimSpace(raw)
+	s = strings.Trim(s, "`")
+	// Remove parenthesised annotations like "(DOCUMENTED SHARED)" or "(new)".
+	s = regexp.MustCompile(`\s*\([^)]*\)`).ReplaceAllString(s, "")
+	// Remove trailing annotations like " + drivers".
+	s = regexp.MustCompile(`\s+\+.*$`).ReplaceAllString(s, "")
+	s = strings.TrimSpace(s)
+	return s
+}
+
+// parseTouchpointMatrix parses the markdown table in the Touchpoint matrix
+// section of an index.md body. Returns parsed rows.
+func parseTouchpointMatrix(body string) ([]touchpointRow, error) {
+	// Find the Touchpoint matrix table.
+	idx := strings.Index(body, "### Touchpoint matrix")
+	if idx < 0 {
+		idx = strings.Index(body, "## Touchpoint matrix")
+	}
+	if idx < 0 {
+		// Try "Touchpoint matrix" anywhere.
+		idx = strings.Index(body, "Touchpoint matrix")
+	}
+	if idx < 0 {
+		return nil, fmt.Errorf("touchpoint matrix not found in index.md")
+	}
+
+	tableSection := body[idx:]
+
+	// Find the table header line (starts with | File / surface |).
+	lines := strings.Split(tableSection, "\n")
+	headerIdx := -1
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "| File") || strings.HasPrefix(strings.TrimSpace(line), "| `") {
+			// If it's a separator line like |---|---|..., skip.
+			if strings.Contains(line, "---") && !strings.Contains(line, "`") {
+				continue
+			}
+			if strings.Contains(line, "File") {
+				headerIdx = i
+				break
+			}
+		}
+	}
+	if headerIdx < 0 {
+		return nil, fmt.Errorf("touchpoint matrix header not found")
+	}
+
+	// Parse the header to extract track columns.
+	headerCells := splitTableRow(lines[headerIdx])
+	if len(headerCells) < 2 {
+		return nil, fmt.Errorf("touchpoint matrix header has too few columns")
+	}
+	// Track columns start at index 1 (index 0 is "File / surface").
+	trackIDs := headerCells[1:]
+
+	// Find the separator line (next line, should be |---|...).
+	sepIdx := headerIdx + 1
+	if sepIdx >= len(lines) || !strings.Contains(lines[sepIdx], "---") {
+		return nil, fmt.Errorf("touchpoint matrix separator not found after header")
+	}
+
+	var rows []touchpointRow
+	for i := sepIdx + 1; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		if line == "" || !strings.HasPrefix(line, "|") {
+			// End of table.
+			break
+		}
+		cells := splitTableRow(line)
+		if len(cells) < 2 {
+			continue
+		}
+		filePath := cells[0]
+
+		trackChecks := make(map[string]bool)
+		for j, cell := range cells[1:] {
+			if j < len(trackIDs) {
+				trackChecks[trackIDs[j]] = strings.Contains(cell, "✓")
+			}
+		}
+		rows = append(rows, touchpointRow{
+			filePath: filePath,
+			tracks:   trackChecks,
+		})
+	}
+
+	return rows, nil
+}
+
+// splitTableRow splits a markdown table row by |, trimming whitespace.
+func splitTableRow(line string) []string {
+	// Remove leading and trailing |.
+	s := strings.TrimSpace(line)
+	s = strings.TrimPrefix(s, "|")
+	s = strings.TrimSuffix(s, "|")
+
+	parts := strings.Split(s, "|")
+	result := make([]string, len(parts))
+	for i, p := range parts {
+		result[i] = strings.TrimSpace(p)
+	}
+	return result
 }

@@ -6,9 +6,9 @@ import (
 	"os"
 	"os/signal"
 
+	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/mcp"
 )
-
 func cmdMcp(args []string) int {
 	// sworn mcp starts the MCP server. All arguments are ignored — the server
 	// reads JSON-RPC 2.0 requests from stdin and writes responses to stdout.
@@ -31,13 +31,12 @@ All diagnostic logs go to stderr; stdout is reserved for the protocol.
 	// Register operations tools (S08b) — get_board, get_blocked, get_slice_context,
 	// rerun_slice, patch_slice, approve_merge, defer_slice, get_credits, list_releases.
 	// Planning tools (S08c) register here in a later slice.
-	mcp.RegisterOpsTools(server, ".")
+	mcp.RegisterOpsTools(server, ".", git.New("."))
 	mcp.RegisterPlanTools(server, ".")
 	mcp.RegisterCatalogTools(server, ".")
 	mcp.RegisterLintTools(server, ".")
 	mcp.RegisterResources(server, ".")
 	mcp.RegisterPrompts(server)
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	// Trap interrupt to shut down cleanly.
