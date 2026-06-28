@@ -63,6 +63,10 @@ type ollamaChatResponse struct {
 // Verify sends the system prompt and user payload to Ollama's /api/chat.
 // It returns the model's response text, a cost of 0.0 (Ollama is free), or
 // an error on non-200 status or an "error" field in the JSON response.
+
+// Capabilities returns CapVerify — the Ollama driver supports single-shot
+// verification. Chat is deferred (Ollama does not yet support tool-calling).
+func (o *Ollama) Capabilities() Capability { return CapVerify }
 func (o *Ollama) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
 	reqBody := ollamaChatRequest{
 		Model:  o.Model,

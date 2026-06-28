@@ -15,10 +15,10 @@ tracks:
     depends_on: null
     worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T2-model-layer
     worktree_branch: track/2026-06-27-conformance-foundation/T2-model-layer
-    state: in_progress
+    state: merged
   - id: T3-agentic-verifier
     slices: [S11-agentic-verifier-dispatch, S12-first-pass-demote]
-    depends_on: null
+    depends_on: T2-model-layer
     worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T3-agentic-verifier
     worktree_branch: track/2026-06-27-conformance-foundation/T3-agentic-verifier
     state: in_progress
@@ -42,7 +42,7 @@ tracks:
     state: merged
   - id: T7-telemetry-eval
     slices: [S24-dispatch-enrich, S25-event-store-durable, S26-eval-projections]
-    depends_on: null
+    depends_on: T2-model-layer
     worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T7-telemetry-eval
     worktree_branch: track/2026-06-27-conformance-foundation/T7-telemetry-eval
     state: in_progress
@@ -62,21 +62,21 @@ tracks:
 
 ## Tracks
 
-> T5-role-ontology depends_on T6-contract-revendor (prompt re-vendor needs the pin bump to land first, as both touch `internal/prompt/`). All other tracks are parallel-safe.
+> T5-role-ontology depends_on T6-contract-revendor (prompt re-vendor needs the pin bump to land first, as both touch `internal/prompt/`). T3-agentic-verifier and T7-telemetry-eval depend_on T2-model-layer (all three touch `internal/model/oai.go` + drivers). The genuinely-parallel set is T1/T2/T4/T6; T3/T7 follow T2, T5 follows T6.
 
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
 | `T1-orchestration` | S01 → S02 → S03 → S04 → S05 → S06 → S07 → S27 | — | `track/.../T1-orchestration` | planned |
-| `T2-model-layer` | S08 → S09 → S10 | — | `track/.../T2-model-layer` | planned |
-| `T3-agentic-verifier` | S11 → S12 | — | `track/.../T3-agentic-verifier` | planned |
+| `T2-model-layer` | S08 → S09 → S10 | — | `track/.../T2-model-layer` | merged |
+| `T3-agentic-verifier` | S11 → S12 | T2-model-layer | `track/.../T3-agentic-verifier` | planned |
 | `T4-records-as-json` | S13 → S14 → S15 → S16 → S17 | — | `track/.../T4-records-as-json` | planned |
 | `T5-role-ontology` | S18 → S19 → S20 → S21 | T6-contract-revendor | `track/.../T5-role-ontology` | planned |
 | `T6-contract-revendor` | S22 → S23 | — | `track/.../T6-contract-revendor` | merged |
-| `T7-telemetry-eval` | S24 → S25 → S26 | — | `track/.../T7-telemetry-eval` | planned |
+| `T7-telemetry-eval` | S24 → S25 → S26 | T2-model-layer | `track/.../T7-telemetry-eval` | planned |
 
 ### Touchpoint matrix (DRAFT — finalised once specs are written)
 
-> Two documented shared files exist. All other rows are single-track. The matrix proves the five parallel tracks (T1/T2/T3/T4/T6/T7) are disjoint; T5 is sequenced after T6.
+> Documented shared files: `internal/run/slice.go` (T2/T3), `internal/state/state.go` (T4/T7), and `internal/model/oai.go` + drivers (T2/T3/T7). After the 2026-06-28 replan, **T3 and T7 depend_on T2-model-layer** (they share `oai.go`) and **T5 depends_on T6** — so the genuinely-parallel set is T1/T2/T4/T6; T3/T7 follow T2, T5 follows T6.
 
 | File / surface | T1 | T2 | T3 | T4 | T5 | T6 | T7 |
 |---|---|---|---|---|---|---|---|
@@ -92,6 +92,7 @@ tracks:
 | `internal/model/registry.go` (new) | | ✓ | | | | | |
 | `internal/config/config.go` | | ✓ | | | | | |
 | `internal/run/run.go` | | ✓ | | | | | |
+| `internal/model/oai.go` + drivers (DOCUMENTED SHARED) | | ✓ Capabilities/Chat | ✓ verifier model-calls | | | | ✓ S24 dispatch tokens/cost |
 | `internal/run/slice.go` (DOCUMENTED SHARED) | | ✓ error-halt §321 | ✓ verifier §412 | | | | |
 | `internal/verify/verify.go` | | | ✓ | | | | |
 | `internal/prompt/verifier.md` | | | ✓ | | | | |
@@ -127,8 +128,10 @@ tracks:
 | `S07-pause-resume-committed` | T1 | `sworn run --resume` correctly identifies the first non-terminal slice by reading committed status.json (not working-tree); resumes from the right slice after a crash | planned | [spec](./S07-pause-resume-committed/spec.md) | — |
 | `S08-capability-descriptor` | T2 | Every model driver exposes Capabilities(); implementer-model resolution fails fast at startup with a descriptive error if the selected driver does not support agentic Chat | planned | [spec](./S08-capability-descriptor/spec.md) | — |
 | `S09-error-kind-consumption` | T2 | KindAuth, KindCredits, and other terminal Error{Kind}s halt the loop immediately without retry; the factory sentinel is correctly named | planned | [spec](./S09-error-kind-consumption/spec.md) | — |
-| `S10-agentic-chat-anthropic` | T2 | The native Anthropic driver supports agentic Chat; a keyless run via claude-cli is a valid implementer path; cost is populated from real token counts (not always 0) | planned | [spec](./S10-agentic-chat-anthropic/spec.md) | — |
-| `S11-agentic-verifier-dispatch` | T3 | The engine dispatches the agentic verifier.md role (test-re-running, live-repo) for the verify step; verifier_was_fresh_context is set honestly; Verification.Model records the actual model used | **verified** | [spec](./S11-agentic-verifier-dispatch/spec.md) | [proof](./S11-agentic-verifier-dispatch/proof.md) || `S12-first-pass-demote` | T3 | The stateless LLM judge is demoted to a labelled deterministic first-pass (structure/mock/dark-code checks only); it no longer drives the slice to `verified`; verifier.md is re-vendored from canonical | implemented (BLOCKED) | [spec](./S12-first-pass-demote/spec.md) | — || `S13-schema-embed-validate` | T4 | All baton schemas (*-v1.json) are embedded in the binary; every record write validates against its schema; missing/invalid records fail closed; example.com $schema placeholder replaced | planned | [spec](./S13-schema-embed-validate/spec.md) | — |
+| `S10-agentic-chat-anthropic` | T2 | The native Anthropic driver supports agentic Chat; a keyless run via claude-cli is a valid implementer path; cost is populated from real token counts (not always 0) | verified | [spec](./S10-agentic-chat-anthropic/spec.md) | [proof](./S10-agentic-chat-anthropic/proof.md) |
+| `S11-agentic-verifier-dispatch` | T3 | The engine dispatches the agentic verifier.md role (test-re-running, live-repo) for the verify step; verifier_was_fresh_context is set honestly; Verification.Model records the actual model used | verified | [spec](./S11-agentic-verifier-dispatch/spec.md) | [proof](./S11-agentic-verifier-dispatch/proof.md) |
+| `S12-first-pass-demote` | T3 | The stateless LLM judge is demoted to a labelled deterministic first-pass (structure/mock/dark-code checks only); it no longer drives the slice to `verified`; verifier.md is re-vendored from canonical | implemented | [spec](./S12-first-pass-demote/spec.md) | — |
+| `S13-schema-embed-validate` | T4 | All baton schemas (*-v1.json) are embedded in the binary; every record write validates against its schema; missing/invalid records fail closed; example.com $schema placeholder replaced | planned | [spec](./S13-schema-embed-validate/spec.md) | — |
 | `S14-board-json` | T4 | board.json is the oracle's source of truth; the oracle renders/drifts index.md from board.json; existing releases auto-migrate board.json from index.md frontmatter on first oracle read | planned | [spec](./S14-board-json/spec.md) | — |
 | `S15-spec-proof-records` | T4 | spec.json (spec-v1) and proof.json (proof-v1) records are emitted and validated; proof sections (delivered, not_delivered, divergence, reachability) are derived from live ACs and state, not constant boilerplate | planned | [spec](./S15-spec-proof-records/spec.md) | — |
 | `S16-journeys-attestations-align` | T4 | journeys-v1 and attestations-v1 records align to canonical nested shapes; $schema field populated; validate-on-write enabled; both writers fail closed on invalid data | planned | [spec](./S16-journeys-attestations-align/spec.md) | — |
@@ -156,15 +159,15 @@ tracks:
 
 ## Aggregate state
 
-- Planned: 24
+- Planned: 23
 - In progress: 0
 - Implemented (awaiting verification): 1 (S27-parallel-dispatch-fix)
-- Verified (awaiting merge): 2 (S22-pin-bump, S23-version-centralise-doctor)
+- Verified (awaiting merge): 0
 - Failed verification: 0
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 1 / In progress: 5 / Merged: 1
+**Tracks:** Planned: 1 / In progress: 4 / Merged: 2
 
 ## Rule-10 journeys to declare (in T4 S17)
 
@@ -186,20 +189,31 @@ tracks:
 - T4 S17 (journeys-declare) requires T4 S16 (journeys shape aligned) to be implemented first — sequential within T4.
 - `internal/run/slice.go` is a documented shared file between T2 (error-halt, lines ~321-327) and T3 (verifier dispatch, lines ~412-429). Merge-track for the second track must resolve the conflict on this file.
 - `internal/state/state.go` is a documented shared file between T4 (Write() validation, line ~184) and T7 (Dispatch struct, line ~80). Regions are well-separated and non-overlapping.
+- **`internal/model/oai.go` (and the model drivers anthropic/azure/bedrock/cli/google/oci/ollama) is DOCUMENTED SHARED across T2-model-layer (Capability/Chat methods), T3-agentic-verifier (verifier model-call paths), and T7-telemetry-eval (S24 dispatch token/cost enrichment).** T3 and T7 therefore **depend_on T2-model-layer** for their model-touching slices: they must carry T2's merged base before those slices, and merge-track resolves the combine. (Added 2026-06-28 replan: the original matrix under-declared this single most-shared surface, causing recurring merge conflicts on `oai.go` — T7/S25 and T3/S12 both BLOCKED on it. Declaring it shared + sequencing T3/T7 after T2 is the durable fix.)
 
 ## Recent activity
 
-### 2026-07-25 — S12-first-pass-demote verification BLOCKED
+### 2026-06-28 — replan: T3 & T7 depend_on T2; S12 drift-gate BLOCK cleared
 
-- **Actor**: verifier (/verify-slice)
-- **Note**: Drift-gate forward-merge of release-wt conflicted on `internal/model/oai.go` — code-level touchpoint collision between T2-model-layer (S08, S10) and T3-agentic-verifier ancestry (S10-provider-foundation, S39, S27). Track-mode invariant 4 violated. Proposed amendment: add `depends_on: [T2-model-layer]` to T3-agentic-verifier in index.md, re-materialise T3 worktree from merged T2 base.
-- **Next**: `/replan-release 2026-06-27-conformance-foundation`
+- **Actor**: Coach (manual replan — /replan-release unavailable for index.md-era boards)
+- **Note**: `internal/model/oai.go` + drivers declared DOCUMENTED SHARED across T2/T3/T7; T3-agentic-verifier and T7-telemetry-eval now depend_on T2-model-layer. T3 forward-merged release-wt (carrying T2's merged `oai.go` base); the `oai.go` conflict was resolved by combining T2's `Capabilities()` with T3's `RunFirstPass` rename. S12-first-pass-demote verification reset blocked → pending for fresh verification.
+
+### 2026-07-28 — track `T2-model-layer` merged to release-wt (commit 71ec0803)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 3 verified slices merged: S08-capability-descriptor, S09-error-kind-consumption, S10-agentic-chat-anthropic. Track state → merged.
 
 ### 2026-07-25 — S11-agentic-verifier-dispatch verified (PASS)
+
 - **Actor**: verifier (/verify-slice)
 - **Note**: All six verification gates pass. Agentic verifier dispatch wired via `sworn run` and `sworn verify --agentic`. Proof mandatory gate, Verification.Model fix, no-mock wiring, entitlement keywords all confirmed.
-- **Next**: `/implement-slice S12-first-pass-demote 2026-06-27-conformance-foundation`
+
+### 2026-07-24 — slice `S10-agentic-chat-anthropic` verified (PASS)
+
+- **Actor**: verifier (/verify-slice)
+- **Note**: All 7 gates passed. Track T2-model-layer is now complete (3/3 slices verified). Next step: /merge-track T2-model-layer.
 
 ### 2026-06-28 — track `T6-contract-revendor` merged to release-wt (commit 0b039d0)
+
 - **Actor**: track integrator (/merge-track)
 - **Note**: 2 verified slices merged: S22-pin-bump, S23-version-centralise-doctor. Track state → merged.
