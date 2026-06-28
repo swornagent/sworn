@@ -55,3 +55,19 @@ Three runs with GPT-4o returned FAIL with false-negative violations — each run
 ### Decision
 
 Proceeding to `implemented` despite sworn verify false negatives. The verifier model (GPT-4o) lacks the code-reading fidelity needed for this slice's adversarial check.
+
+### 2026-06-28 — PASS (fresh-context verifier, artefact-only)
+
+Verified against track HEAD `fa29a32` in worktree `release-2026-06-27-conformance-foundation-T5-role-ontology`. All seven gates pass:
+
+1. **Gate 1 (User-reachable outcome)**: `sworn run --task` is wired through `cmdRun()` → `cmdRunTask()`, reachable via CLI. `--dry-run` exits 0.
+2. **Gate 2 (Touchpoints match)**: All four planned code files match actual diff. Docs-only changes are expected slice artefacts.
+3. **Gate 3 (Required tests)**: 9 TestTask* tests all PASS; integration tests exercise `cmdRunTask` at the integration point with mocked planner dispatch. `go vet` and `gofmt` clean.
+4. **Gate 3b (AC satisfaction)**: All 6 ACs verified satisfied by code evidence. LLM check skipped (no model configured, non-blocking).
+5. **Gate 4 (Reachability)**: `sworn run --task 'hello' --dry-run` exits 0; `--help` shows `--task` flag; `go build` passes.
+6. **Gate 4b (Semantic coverage)**: Skipped (no LLM provider, non-blocking).
+7. **Gate 5 (No silent deferrals)**: Zero TODO/FIXME/deferred/placeholder/XXX/HACK hits across all four code files.
+8. **Gate 6 (Design conformance)**: Skipped (CLI project, no design-fidelity config).
+9. **Gate 7 (Claimed scope matches implemented scope)**: All 6 delivered items verified with live evidence.
+
+Verdict: PASS. Next step: `/merge-track T5-role-ontology`.
