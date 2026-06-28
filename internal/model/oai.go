@@ -151,8 +151,8 @@ var modelPricing = map[string]struct {
 
 // Verify sends the system prompt + user payload to /chat/completions.
 // On any HTTP error, timeout, or unparseable response it returns an error
-// (not a panic) — the caller (verify.Run) maps errors to BLOCKED, fulfilling
-// spec AC4.
+// (not a panic) — the caller (verify.RunFirstPass) maps errors to BLOCKED,
+// fulfilling spec AC4.
 // Capabilities returns CapVerify | CapChat — the OAI driver supports both
 // single-shot verification and multi-turn chat.
 func (c *OAI) Capabilities() Capability { return CapVerify | CapChat }

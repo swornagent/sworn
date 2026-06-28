@@ -112,8 +112,7 @@ var _ model.Verifier = (*fakeVerifier)(nil)
 // ---------------------------------------------------------------------------
 
 // textVerifier returns a fixed reply text. When capture is non-nil, it records
-// the system prompt it receives from verify.Run. Used for S03 reachability tests
-// that must inspect what prompt the run loop wired.
+// the system prompt it receives from verify.RunFirstPass. Used for S03 reachability tests// that must inspect what prompt the run loop wired.
 type textVerifier struct {
 	reply   string
 	capture *string

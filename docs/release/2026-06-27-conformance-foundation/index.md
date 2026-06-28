@@ -237,3 +237,9 @@ tracks:
 - **Verdict**: PASS (all 7 gates). `design-reviewer.md` (293 lines, self-contained design-review role prompt), `orchestrator-notes.md` (62 lines, states orchestrator is realised by Sworn engine), and `captain.md` (updated with split-notice header). All 24 prompt tests pass.
 - **Next**: `/implement-slice S20-role-revendor 2026-06-27-conformance-foundation`
 
+
+### 2026-07-28 — S12-first-pass-demote verified (PASS)
+
+- **Actor**: verifier (/verify-slice, fresh context)
+- **Note**: All 5 acceptance checks satisfied; verifier.md is byte-for-byte canonical; RunFirstPass correctly short-circuits agentic dispatch on FAIL/BLOCKED and never writes state.Verified. T3-agentic-verifier track now complete (S11+S12 both verified). Next: /merge-track T3-agentic-verifier.
+
