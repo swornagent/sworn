@@ -134,10 +134,34 @@ Why this is the right benchmark for sworn (vs §4a SWE-bench):
   the coverage of the ACs it can see; closing the last gap needs a verifier that reasons from the SPEC to
   invent spec-grounded edge checks beyond the given tests. Same lesson as flask-4992, now measured.
 
-Note: this is the IMPLEMENT-ONLY unit (self-verify). The full loop (independent adversarial verify +
-retry/escalate across models) is the next fidelity step; the delta (full-loop − implement-only) is the
-loop-lift proof point. Adapter (task → driver implement against public tests → held-out private scoring)
-works end-to-end and is reusable across the 20+ SWE-AGI suites.
+Note: the above is the IMPLEMENT-ONLY unit (self-verify). The loop-lift experiment follows.
+
+### 4c. Loop-lift experiment — independent verify + retry (the surprising, instructive result)
+
+Ran the loop's distinctive tier on DeepSeek's 74/98 INI build: an INDEPENDENT, fresh-context verify
+(deepseek, 11 turns, $0.003) → retry on its findings (deepseek, 30 turns, $0.003) → re-score private.
+
+- **Verify worked:** it ran public tests (10/10) then, reasoning from `specs/ini.md`, found REAL
+  spec-grounded gaps the public tests don't cover (backslash line-continuation lost after quoted values
+  — with a concrete breaking input + line cite; `:` separator not rejected in unquoted values; etc.).
+  This is what self-verify structurally cannot do — independent spec-grounded review broke the
+  public-test ceiling at the *finding* stage.
+- **But the retry net-REGRESSED: 74/98 → 73/98 (−1).** The fix kept public tests 10/10 green yet moved
+  the private suite DOWN by one: fixing one spec corner silently regressed a different private edge the
+  agent cannot see. Crucially, **the regression is invisible to the loop** (public stays green), so more
+  iterations won't recover it.
+
+**Lesson (the strongest AC-completeness evidence of the day):** the loop's verify+retry is **not reliably
+additive when the visible ACs are incomplete** — it can trade coverage as easily as gain it, because the
+implementer/verifier are blind to the held-out ACs. The lever for higher delivery-correctness is NOT more
+loop passes; it is **more complete, visible, agent-immutable acceptance criteria** (Planner-established;
+Rule 8). A negative delta proves this harder than a positive one would. Caveat: N=1 (one suite, one model,
+one verify+retry pass) — directional, not conclusive; a firmer number needs a sweep across suites/models
+and multi-pass escalation. But the mechanism (loop blind to held-out ACs → unguarded retry regresses) is
+real and reproduces the flask-4992 lesson quantitatively.
+
+Adapter (task → driver implement against public tests → independent verify → retry → held-out private
+scoring) works end-to-end and is reusable across the 20+ SWE-AGI suites.
 
 ## 5. Caveat
 
