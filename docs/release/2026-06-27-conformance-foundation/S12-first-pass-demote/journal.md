@@ -16,3 +16,14 @@
 
 ### Pre-existing test failures (not caused by S12)
 - `TestRunSlice_FailNotifiesOnce`, `TestRunSlice_BlockedNotifies`, `TestRunSlice_NilNotifierNoOp` fail because the fake verifier returns unparseable output → BLOCKED rather than FAIL. These test failures pre-date S12.
+## Verifier verdicts received
+
+### Verdict — 2026-07-25T03:30:00Z — BLOCKED
+
+**Result:** BLOCKED
+
+**Reason:** Drift-gate forward-merge of `release-wt/2026-06-27-conformance-foundation` into `track/2026-06-27-conformance-foundation/T3-agentic-verifier` produced a code conflict on `internal/model/oai.go`. This is a touchpoint-matrix violation (track-mode invariant 4): T2-model-layer (via release-wt) and T3-agentic-verifier's ancestry both modified the same file. Release-wt carries S08 (`Capability` type + `CapabilityProvider` interface) and S10-agentic-chat-anthropic (`Chat()`), while the track carries S10-provider-foundation, S39 (OpenAI responses), and S27 parallel-dispatch — all touching `internal/model/oai.go`. The planner must re-group or sequence these tracks.
+
+**Proposed spec.md amendment:** Add `depends_on: [T2-model-layer]` to track T3-agentic-verifier in `docs/release/2026-06-27-conformance-foundation/index.md`, and re-materialise the T3 worktree from a base that includes T2-model-layer's merged changes. This ensures the track inherits `internal/model/oai.go` changes from T2-model-layer before layering its own.
+
+**Next step:** `/replan-release 2026-06-27-conformance-foundation`
