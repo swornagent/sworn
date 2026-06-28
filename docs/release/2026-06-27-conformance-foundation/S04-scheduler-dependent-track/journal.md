@@ -113,3 +113,18 @@ An implementer cannot close AC4 within the spec as written without re-introducin
 Additionally, the spec's "Test" acceptance check / "Integration" required test ("run a two-track scenario (T_dep → T_main) … assert T_main's worktree branches from the post-T_dep release-wt tip") has no corresponding test. The four `TestDependentTrack_*` tests are single-track `MergeTrackFn`-invocation tests; the `parallel_test.go` tests (`DependentTrackRunsAfterSuccess`, `FailureCascade`, `TrackPaused`) assert ordering/skip but never assert the branch point. (Legal implementer fix in isolation, but rolls up under this BLOCKED — the AC must be reconciled to the chosen mechanism first.)
 
 **Proposed spec amendment for planner**: Reconcile `spec.md` with the ratified phase-barrier design. Either (a) rewrite the In-scope bullets and AC1/AC4 to describe the topological-phase + finishTrack auto-merge ordering mechanism — remove "poll until the dependency track's state is merged in the oracle" and "polls with a configurable interval (default 30s)", and add an explicit AC for dependency pause/failure, e.g. "WHEN a dependency track pauses or fails before merging, THE SYSTEM SHALL skip (not start) its dependent tracks, surface the stall via log/TUI, and not deadlock" — and reword AC5 to require a test asserting a dependent track's worktree is created from the post-dependency `release-wt` tip under that mechanism; OR (b) reject design-review Pin 1 and restore the `waitForDependencies` / `DependencyOracle` / `DependsOnPollInterval` polling design with its tests. Path (a) must be backed by an implementer change handling the paused/stuck-dependency cases the phase barrier currently does not (deferring them to S07 requires a Rule 2 entry in `proof.json` ratified by the human/Captain, which is presently absent).
+
+### 2026-07-28 — FAIL (Gate 2: inaccurate files_changed)
+
+**FAIL**: Gate 2 — Planned touchpoints vs actual changed files.
+
+Violations:
+1. **Gate 2 — `internal/scheduler/scheduler.go` claimed as changed but shows zero delta.** The file appears in `proof.json` `files_changed` and `status.json` `actual_files`, but `git diff start_commit..HEAD` shows zero changes to this file. The `BuildPlan` function at scheduler.go:35-118 was committed by `5bb3666` (S02b, 2026-06-20) — a different slice in a different release — and was not modified in any S04 commit. The evidence reference for AC1 (`scheduler.go:35-118`) is real code that exists, but claiming it as a file changed by this slice is factually incorrect.
+
+Required to address:
+1. Remove `"internal/scheduler/scheduler.go"` from `proof.json` `files_changed` array.
+2. Remove `"internal/scheduler/scheduler.go"` from `status.json` `actual_files` array.
+
+Remediation is a legal implementer fix — documentation-only, within implementer authority, does not require spec or planner changes.
+
+All other gates pass: Gate 1 (user-reachable via `sworn run`), Gate 3 (13/13 tests re-run and pass), Gate 4 (AC5 integration test with real git repo proves the user path), Gate 5 (no silent deferrals), Gate 6 (non-UI project, no design-fidelity config), Gate 7 (all delivered items have real, verifiable evidence — the AC1 evidence at scheduler.go:35-118 is real code even though the file wasn't changed by this slice; `proof.json` `delivered` AC1 also cites `parallel.go:196-237` which IS in the S04 diff).
