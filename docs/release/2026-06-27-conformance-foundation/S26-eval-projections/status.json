@@ -6,10 +6,12 @@
   "covers_needs": [
     "N-28"
   ],
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "implementer",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-28T13:00:00Z",  "start_commit": "91eca8ca85258152f4eec40a9ce4e269ee3a3cf3",  "spec_path": "docs/release/2026-06-27-conformance-foundation/S26-eval-projections/spec.md",
+  "last_updated_at": "2026-07-28T13:20:00Z",
+  "start_commit": "91eca8ca85258152f4eec40a9ce4e269ee3a3cf3",
+  "spec_path": "docs/release/2026-06-27-conformance-foundation/S26-eval-projections/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S26-eval-projections/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S26-eval-projections/journal.md",
   "planned_files": [
@@ -18,10 +20,13 @@
   "actual_files": [
     "cmd/sworn/telemetry.go",
     "cmd/sworn/telemetry_test.go"
-  ],  "test_commands": [
+  ],
+  "test_commands": [
     "go test ./cmd/sworn/... -v -run TestTelemetry"
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "smoke: sworn telemetry report --release 2026-06-27-conformance-foundation exits 0"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "pending",
