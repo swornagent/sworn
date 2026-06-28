@@ -10,7 +10,7 @@
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-28T14:00:00Z",
-  "start_commit": null,
+  "start_commit": "602e477ff099cbc234b0b536c88f48b848702a4e",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S21-sworn-run-task/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S21-sworn-run-task/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S21-sworn-run-task/journal.md",
