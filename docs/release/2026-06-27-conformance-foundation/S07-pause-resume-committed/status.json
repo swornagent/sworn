@@ -3,11 +3,14 @@
   "slice_id": "S07-pause-resume-committed",
   "release": "2026-06-27-conformance-foundation",
   "track": "T1-orchestration",
-  "covers_needs": ["N-16"],
-  "state": "design_review",
+  "covers_needs": [
+    "N-16"
+  ],
+  "state": "in_progress",
   "owner": "implementer",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-28T23:00:00Z",  "start_commit": null,
+  "last_updated_at": "2026-07-28T23:00:00Z",
+  "start_commit": null,
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S07-pause-resume-committed/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S07-pause-resume-committed/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S07-pause-resume-committed/journal.md",
@@ -17,7 +20,9 @@
     "cmd/sworn/run.go"
   ],
   "actual_files": [],
-  "test_commands": ["go test ./internal/scheduler/... ./internal/router/... -run 'TestFindFirstNonTerminal|TestIsTerminal' -v"],
+  "test_commands": [
+    "go test ./internal/scheduler/... ./internal/router/... -run 'TestFindFirstNonTerminal|TestIsTerminal' -v"
+  ],
   "reachability_artifacts": [],
   "open_deferrals": [],
   "design_decisions": [
