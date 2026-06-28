@@ -34,10 +34,10 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": false,
-    "violations": []
-  }
-}
+    "result": "blocked",
+    "verifier_session_id": "2026-07-28-drift-gate",
+    "verifier_verdict_at": "2026-07-28T17:45:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [],
+    "blocked_reason": "forward-merge of release-wt/2026-06-27-conformance-foundation into track/2026-06-27-conformance-foundation/T1-orchestration conflicted on cmd/sworn/telemetry.go (code) — the touchpoint matrix was wrong (track-mode invariant 4). T1-orchestration and at least one other track both modified cmd/sworn/telemetry.go."
+  }}

@@ -86,8 +86,13 @@ Design review acknowledged with DECISION: PROCEED. Two mechanical pins applied i
 - `pauseSet` map declared at worker.go:54-62 is dead code (noted by the Captain). Removed as out of scope for S04 — low-priority cleanup.
 ## Verifier verdicts received
 
-### 2026-07-28 — BLOCKED
+### 2026-07-28 — BLOCKED (drift gate — code conflict on telemetry.go)
 
+**BLOCKED**: forward-merge of `release-wt/2026-06-27-conformance-foundation` into `track/2026-06-27-conformance-foundation/T1-orchestration` conflicted on `cmd/sworn/telemetry.go` (code), `docs/release/2026-06-27-conformance-foundation/.captain-trial-log.md` (docs), and `docs/release/2026-06-27-conformance-foundation/index.md` (docs). The code conflict on `cmd/sworn/telemetry.go` means the touchpoint matrix was wrong (track-mode invariant 4) — T1-orchestration and at least one other track both modified the same code file. Route to `/replan-release 2026-06-27-conformance-foundation` to re-group tracks so no code file appears in more than one track's planned_files.
+
+**Proposed spec amendment for planner**: audit `cmd/sworn/telemetry.go` across all tracks in release `2026-06-27-conformance-foundation`. At least two tracks claim it. The planner must move the file into a single track or split it so tracks are touchpoint-disjoint.
+
+### 2026-07-28 — BLOCKED
 **BLOCKED**: forward-merge of `release-wt/2026-06-27-conformance-foundation` into `track/2026-06-27-conformance-foundation/T1-orchestration` conflicted on `internal/run/slice.go` (code) — the touchpoint matrix was wrong (track-mode invariant 4). Both T1-orchestration and another track modified the same file. Route to `/replan-release 2026-06-27-conformance-foundation` to re-group tracks so no code file appears in more than one track's planned_files.
 
 **Proposed spec amendment for planner**: audit `internal/run/slice.go` across all tracks in release `2026-06-27-conformance-foundation`. At least two tracks claim it — T1-orchestration (S04: `internal/run/parallel.go`) and the track that landed the conflicting change. The planner must move the file into a single track or split the file so tracks are touchpoint-disjoint.
