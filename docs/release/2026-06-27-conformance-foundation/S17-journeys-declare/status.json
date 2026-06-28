@@ -6,11 +6,10 @@
   "covers_needs": [
     "N-09"
   ],
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-28T04:20:00Z",
-  "start_commit": "6f68d6024e8ecfe69e264f325b23db01dbbf78df",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-28T14:30:00Z",  "start_commit": "6f68d6024e8ecfe69e264f325b23db01dbbf78df",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S17-journeys-declare/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S17-journeys-declare/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S17-journeys-declare/journal.md",
@@ -34,10 +33,15 @@
     "reachability_test_path for each journey is TBD (manual attestation at ship cutover). Why: real-infra walk requires a deployed release. Tracking: /mark-shipped ceremony for this release. Acknowledged: Brad, 2026-06-27."
   ],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
-  }
-}
+    "result": "fail",
+    "verifier_session_id": "fresh-context-verify-S17-20260628",
+    "verifier_verdict_at": "2026-06-28T14:30:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      {
+        "gate": 2,
+        "summary": "3 code files modified but not in spec touchpoints and not explained in proof.json divergence",
+        "evidence": "internal/journey/journey.go, internal/journey/journey_test.go, internal/baton/schemas/journeys-v1.json"
+      }
+    ]
+  }}

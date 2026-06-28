@@ -39,3 +39,21 @@ All 53 journey tests pass (`go test ./internal/journey/...`). `go vet` clean. `g
 ### Open deferrals
 
 - `reachability_test_path` for each journey is TBD (manual attestation at ship cutover). Pre-existing deferral carried forward.
+
+## Verifier verdicts received
+
+### 2026-06-28 — FAIL (Gate 2)
+
+- **Actor**: verifier (/verify-slice, fresh context)
+- **Verdict**: FAIL
+- **Violations**:
+  1. Gate 2 — 3 code files (`internal/journey/journey.go`, `internal/journey/journey_test.go`, `internal/baton/schemas/journeys-v1.json`) were modified in the S17 implementation commit but are not listed in the spec's "Planned touchpoints" and are not explained in proof.json's `divergence` section. The spec only lists `.sworn/journeys.json` as a planned touchpoint; the design.md covers these files under "Files to touch" and the proof.json `files_changed` correctly lists them, but the `divergence` section must explain why implementation touched files not enumerated in the spec touchpoints.
+- **Required to address**: Add `internal/journey/journey.go`, `internal/journey/journey_test.go`, and `internal/baton/schemas/journeys-v1.json` to the proof.json `divergence` section with an explanation that they were modified to support the `NoMockBoundary` field (struct addition, schema update, test fixture).
+- **Next**: `/implement-slice S17-journeys-declare 2026-06-27-conformance-foundation` (fresh session)
+- **All other gates (1, 3, 4, 5, 6, 7): PASS**
+  - Gate 1: `sworn journeys --check .` exits 0, lists 3 ratified journeys
+  - Gate 3: All tests pass (`go test ./internal/journey/...`), go vet clean
+  - Gate 4: Reachability artefact confirmed (CLI run + TestCheck_S17Journeys)
+  - Gate 5: No TODO/FIXME/deferred/placeholder in production code
+  - Gate 6: Project is not ui_bearing — exempt
+  - Gate 7: All 9 delivered items verified against evidence references
