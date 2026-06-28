@@ -345,6 +345,24 @@ This upgrades the FT-1 interpreter spec from one-shot output-classifier to bound
 it may answer an agent's clarifying question ONLY when a deterministic gate supplies the authoritative
 answer; otherwise PAGE once (never silent re-loop). Maps to sworn S01-llm-interpreter + S05-merge-gate.
 
+**Design evolution (Brad, 2026-06-28) — three-tier confirmation/escalation with session continuity:**
+- **Tier 1 — interpreter (haiku): classify.** Clean verdicts (DONE/RETRY/BLOCKED) route deterministically.
+- **Tier 2 — Captain (sonnet/opus): adjudicate.** When the worker emits a confirmation/clarification the
+  interpreter can't resolve, the Captain (the Rule-9 judgment + escalation authority) reads it, HOLDS THE
+  SESSION OPEN, and either ANSWERS so the worker proceeds in-session, or — only if it's unclear or touches
+  a point that must go to a human (Type-1 / design / policy) — escalates. Right role for a judgment call;
+  tiering keeps cost down (Captain only on the ambiguous moments, not every dispatch).
+- **Tier 3 — human PAGE, with the worker session HELD OPEN.** On escalation the worker session is NOT
+  killed; it is suspended so the human's answer RESUMES the same session with full context — no full
+  rework (the difference between losing 24 turns and losing nothing).
+
+Implementation notes: (a) "hold the session open" = CHECKPOINT-AND-RESUME, not a live held process — a
+page can last hours; persist + resume (`claude --resume <session-id>` for claude-cli; saved conversation
+transcript replayed for oai-compat) so it survives long pauses and process restarts. (b) Gate stays the
+authority for mechanical answers (Captain relays the oracle's verdict on a merge; it does not rubber-stamp).
+(c) Log the Captain's answer / escalation reason to the orchestrator decision-log (S02) for the audit
+trail (who confirmed the merge, why) — load-bearing for the regulated-delivery story.
+
 ---
 
 ## Part B: Running the Eval via Coach-Loop — Feasibility & Commands
