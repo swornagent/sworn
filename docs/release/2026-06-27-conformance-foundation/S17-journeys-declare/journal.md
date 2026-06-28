@@ -40,6 +40,28 @@ All 53 journey tests pass (`go test ./internal/journey/...`). `go vet` clean. `g
 
 - `reachability_test_path` for each journey is TBD (manual attestation at ship cutover). Pre-existing deferral carried forward.
 
+## 2026-06-28 — Re-implementation session (fix Gate 2 proof.json divergence)
+
+**State transition:** `failed_verification` → `in_progress` → `implemented`
+
+### Root cause
+
+Verifier returned FAIL on Gate 2: `internal/journey/journey.go`, `internal/journey/journey_test.go`, and `internal/baton/schemas/journeys-v1.json` were modified by the S17 implementation but were not listed in the spec's planned touchpoints AND were not explained in the `divergence` section of `proof.json`. The `files_changed` list and `proof.md` already documented these files; the omission was only in the `divergence` JSON array.
+
+### Fix applied
+
+Added a second entry to `proof.json`'s `divergence` array and matching bullet to `proof.md` explaining that:
+- AC4 requires each journey to declare a `no_mock_boundary` field
+- That field did not exist on the `Journey` struct or in the journeys-v1 schema before this slice
+- The 3 code files are the minimum changes to deliver AC4 (struct extension, schema update, test assertion)
+- They were implicit in the spec outcome but not enumerated in the planned touchpoints list
+
+No code changes — the implementation was correct; only the proof bundle was incomplete.
+
+### Verification gate
+
+`sworn verify` first-pass: **PASS** (cost: $0.017). Same entitlement/mock deferral used as original session to handle the false-positive `no_mock_boundary` heuristic matches.
+
 ## Verifier verdicts received
 
 ### 2026-06-28 — FAIL (Gate 2)

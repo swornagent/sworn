@@ -77,11 +77,15 @@
     {
       "from_plan": "Spec note: '.sworn/journeys.json commits to the integration branch directly (not a track branch)' — reinterpreted per design.md: file committed to track branch per track-mode flow; reaches integration branch via /merge-track + /merge-release. This is the correct flow for all track-mode artefacts.",
       "reason": "track-mode invariant: all file changes flow through track branches to release-wt"
+    },
+    {
+      "from_plan": "Spec planned touchpoints listed only '.sworn/journeys.json'; implementation also modified internal/journey/journey.go, internal/journey/journey_test.go, and internal/baton/schemas/journeys-v1.json.",
+      "reason": "AC4 requires each journey to declare a no_mock_boundary field. That field did not exist on the Journey struct or in the journeys-v1 schema before this slice. journey.go: added NoMockBoundary string field. journeys-v1.json: added no_mock_boundary property so the artefact validates (AC2 + Pin 2). journey_test.go: TestCheck_S17Journeys asserts NoMockBoundary != \"\" on each journey (Pin 3 from design review). These changes are the minimum required to deliver AC4 and were implicit in the spec outcome but not enumerated as touchpoints in the planned touchpoints list."
     }
   ],
   "sworn_verify": {
     "verdict": "PASS",
-    "cost_usd": 0.0021245,
-    "note": "First-pass boundary_mock false-positive on no_mock_boundary field values — matched by deferral for heuristic workaround."
+    "cost_usd": 0.017062,
+    "note": "First-pass boundary_mock false-positive on no_mock_boundary field values — matched by entitlement+mock deferral for heuristic workaround. Gate 2 divergence section updated to explain 3 extra code files (internal/journey/journey.go, internal/journey/journey_test.go, internal/baton/schemas/journeys-v1.json)."
   }
 }
