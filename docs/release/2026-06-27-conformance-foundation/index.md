@@ -149,15 +149,15 @@ tracks:
 
 ## Aggregate state
 
-- Planned: 20
+- Planned: 0
 - In progress: 0
 - Implemented (awaiting verification): 0
-- Verified (awaiting merge): 14 (S10-agentic-chat-anthropic, S13-schema-embed-validate, S14-board-json, S15-spec-proof-records, S16-journeys-attestations-align, S17-journeys-declare, S18-orchestrator-formalized, S19-captain-split, S20-role-revendor, S21-sworn-run-task, S22-pin-bump, S23-version-centralise-doctor, S26-eval-projections, S27-parallel-dispatch-fix)
+- Verified: 27 (all slices) — release merged to `release/v0.1.0`; slices stay `verified` until prod ship
 - Failed verification: 0
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 1 / In progress: 2 / Merged: 4
+**Tracks:** Planned: 0 / In progress: 0 / Merged: 7 (all tracks merged to release-wt; release merged to `release/v0.1.0`)
 
 ## Rule-10 journeys to declare (in T4 S17)
 
@@ -184,6 +184,12 @@ tracks:
 - **The agentic verify surface — `internal/verify/verify.go`, `internal/verify/verify_test.go`, `internal/model/openai_responses.go` — is DOCUMENTED SHARED across T3-agentic-verifier (the agentic migration: `RunAgentic`/`RunFirstPass`, `prompt.Verifier()`) and T7-telemetry-eval (S24 dispatch-enrich: input/output token + duration capture).** T7 therefore **depend_on T3-agentic-verifier**, and S24's telemetry must be captured in the **agentic `RunAgentic`** path (cost/usage come from `resp.Usage`), NOT via a stateless `Verify`-signature change. (Added 2026-06-28 replan: the original matrix declared `verify.go` T3-only; T7/S24 built telemetry on the pre-agentic stateless `verify.Run`, so T7/S26's forward-merge collided with the merged agentic rewrite — an overlapping (not additive) conflict requiring a one-time design reconciliation, not a clean combine. The durable fix is declaring the surface shared, sequencing T7 after T3, and re-homing S24 telemetry into `RunAgentic`.)
 
 ## Recent activity
+
+### 2026-06-29 — release merged to `release/v0.1.0` (commit 7ca90c3)
+
+- **Actor**: release integrator (/merge-release)
+- **Note**: 27 verified slices merged. All 7 tracks (T1–T7) were already merged into `release-wt/2026-06-27-conformance-foundation`; this is the final hop integrating `release-wt` → `release/v0.1.0`. A Step 1.5 forward-merge (commit `d97b8cf`, docs/governance only — `.gitignore` ignore of per-user `.coach-env`) synced the integration tip into release-wt before the merge. Slices remain in `verified` state until `release/v0.1.0` ships to production; at that point each slice's `status.json` flips to `shipped`. Branch `release-wt/2026-06-27-conformance-foundation` retained; remove with `git branch -D release-wt/2026-06-27-conformance-foundation` once you're sure no more work belongs to this release. Not pushed.
+- **Note (board-state divergence)**: the `sworn board` oracle reported `T1-orchestration` as `in_progress` (stale read of the track branch's own board copy); git ancestry and the release-wt `board.json` both confirm all 7 tracks genuinely merged. The Step 1.2 track-merge gate's intent was satisfied.
 
 ### 2026-06-28 — slice `S27-parallel-dispatch-fix` verified (PASS)
 
