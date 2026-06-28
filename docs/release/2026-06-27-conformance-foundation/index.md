@@ -120,7 +120,8 @@ tracks:
 |---|---|---|---|---|---|
 | `S01-llm-interpreter` | T1 | Non-typed implementer/verifier outcomes route through a bounded cheap-model decision step; the loop never stalls on routine ambiguity | planned | [spec](./S01-llm-interpreter/spec.md) | — |
 | `S02-orchestrator-decision-log` | T1 | Every routing decision and triage output is persisted to the supervisor SQLite; the Coach can query the decision trail after a run | verified | [spec](./S02-orchestrator-decision-log/spec.md) | [proof](./S02-orchestrator-decision-log/proof.md) |
-| `S03-crash-recovery` | T1 | A slice that hits error_max_turns PAGEs the Coach instead of looping; the cross-run circuit breaker halts a fingerprinted repeated failure | planned | [spec](./S03-crash-recovery/spec.md) | — || `S04-scheduler-dependent-track` | T1 | A dependent track's worktree branches from the dependency tip after finishTrack auto-merges to release-wt, so it always starts with the dependency's code | planned | [spec](./S04-scheduler-dependent-track/spec.md) | — |
+| `S03-crash-recovery` | T1 | A slice that hits error_max_turns PAGEs the Coach instead of looping; the cross-run circuit breaker halts a fingerprinted repeated failure | verified | [spec](./S03-crash-recovery/spec.md) | [proof](./S03-crash-recovery/proof.md) |
+| `S04-scheduler-dependent-track` | T1 | A dependent track's worktree branches from the dependency tip after finishTrack auto-merges to release-wt, so it always starts with the dependency's code | planned | [spec](./S04-scheduler-dependent-track/spec.md) | — |
 | `S05-merge-gate-oracle` | T1 | `sworn merge-track` and `sworn merge-release` route verified-check through board.Oracle; invariant-4 conflict detected and reported; CLI merge commands available | planned | [spec](./S05-merge-gate-oracle/spec.md) | — |
 | `S06-invariant2-enforcement` | T1 | The loop enforces track-mode invariant-2 at dispatch time; an attempted concurrent dispatch of two tracks with overlapping touchpoints is blocked with a named report | planned | [spec](./S06-invariant2-enforcement/spec.md) | — |
 | `S07-pause-resume-committed` | T1 | `sworn run --resume` correctly identifies the first non-terminal slice by reading committed status.json (not working-tree); resumes from the right slice after a crash | planned | [spec](./S07-pause-resume-committed/spec.md) | — |
@@ -156,10 +157,10 @@ tracks:
 
 ## Aggregate state
 
-- Planned: 22
+- Planned: 21
 - In progress: 0
 - Implemented (awaiting verification): 1 (S27-parallel-dispatch-fix)
-- Verified (awaiting merge): 1 (S02-orchestrator-decision-log)
+- Verified (awaiting merge): 2 (S02-orchestrator-decision-log, S03-crash-recovery)
 - Failed verification: 0
 - Deferred: 0
 - Shipped: 0
@@ -188,6 +189,13 @@ tracks:
 - `internal/state/state.go` is a documented shared file between T4 (Write() validation, line ~184) and T7 (Dispatch struct, line ~80). Regions are well-separated and non-overlapping.
 
 ## Recent activity
+
+### 2026-07-28 — S03-crash-recovery verifier verdict: PASS
+
+- **Actor**: verifier (/verify-slice)
+- **Verdict**: PASS — All 7 gates pass. Max-turns PAGE + circuit breaker reachable via `sworn run` → worker.go. All 5 ACs satisfied.
+- **Next step**: /implement-slice S04-scheduler-dependent-track 2026-06-27-conformance-foundation
+
 
 ### 2026-07-28 — S02-orchestrator-decision-log verifier verdict: PASS
 

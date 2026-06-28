@@ -19,3 +19,25 @@
 
 - 11 circuit tests covering: 3 consecutive → true, <3 → false, interleaved → false, reset after diff → true, nil DB → false, empty DB → false, fingerprint determinism, different slice/error → different FP, first-line-only, cross-slice isolation
 - 2 max-turns worker tests: legacy path and router-driven path
+---
+
+## Verifier verdicts received
+
+### Session 2026-07-28 — PASS
+
+**Verdict:** PASS
+
+**Verifier session:** fresh, artefact-only (no prior implementer context)
+
+**Verified against commit:** `9e20e38b0b369a6e461f105b043e809dd942ad2c`
+
+**Gates:**
+1. ✅ User-reachable outcome exists — max-turns PAGE + circuit breaker reachable via `sworn run` → worker.go
+2. ✅ Planned touchpoints match actual — all additional files (agent.go, db.go, run/slice.go, supervisor.go, worker_test.go) directly serve spec scope items
+3. ✅ Required tests exist and pass — 11 circuit tests + 2 max-turns worker tests re-run green
+4. ✅ Reachability artefact proves user path — `go test ./internal/supervisor/... -v -run TestShouldBreak` exits 0; `go test ./internal/scheduler/... -v -run TestRunTrack_MaxTurnsPauses` exits 0
+5. ✅ No silent deferrals — zero dark-code markers in changed source files
+6. ✅ Design conformance — auto-pass (non-UI project)
+7. ✅ Claimed scope matches implemented — all 12 Delivered items verified against live code
+
+**All 5 acceptance checks satisfied.**
