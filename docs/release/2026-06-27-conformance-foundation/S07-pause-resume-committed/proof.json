@@ -1,0 +1,28 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S07-pause-resume-committed",
+  "release": "2026-06-27-conformance-foundation",
+  "files_changed": "[
+  "cmd/sworn/run.go",
+  "internal/router/router.go",
+  "internal/router/router_test.go",
+  "internal/run/parallel.go",
+  "internal/scheduler/worker.go",
+  "internal/scheduler/worker_test.go"
+]",
+  "test_results": {
+    "command": "go test ./internal/scheduler/... ./internal/router/... -run 'TestFindFirstNonTerminal|TestIsTerminal' -v",
+    "output": ""=== RUN   TestFindFirstNonTerminalCommitted\n--- PASS: TestFindFirstNonTerminalCommitted (0.00s)\n=== RUN   TestFindFirstNonTerminalAllTerminalMergesTrack\n--- PASS: TestFindFirstNonTerminalAllTerminalMergesTrack (0.00s)\n=== RUN   TestFindFirstNonTerminalNilOracle\n--- PASS: TestFindFirstNonTerminalNilOracle (0.00s)\n=== RUN   TestFindFirstNonTerminalEmptySlices\n--- PASS: TestFindFirstNonTerminalEmptySlices (0.00s)\n=== RUN   TestFindFirstNonTerminalOracleErrorSeedsAtUnreadable\n--- PASS: TestFindFirstNonTerminalOracleErrorSeedsAtUnreadable (0.00s)\n=== RUN   TestFindFirstNonTerminalIsTerminalImport\n--- PASS: TestFindFirstNonTerminalIsTerminalImport (0.00s)\nPASS\nok  \tgithub.com/swornagent/sworn/internal/scheduler\t(cached)\n=== RUN   TestIsTerminal\n--- PASS: TestIsTerminal (0.00s)\nPASS\nok  \tgithub.com/swornagent/sworn/internal/router\t(cached)\n""
+  },
+  "reachability_artefact": "go test ./internal/scheduler/... ./internal/router/... -run 'TestFindFirstNonTerminal|TestIsTerminal' -v exits 0 (7 tests, all PASS). Integration-point reachability: TestFindFirstNonTerminalCommitted verifies committed-state oracle read via findFirstNonTerminal; the production path wires Oracle via RunParallel (internal/run/parallel.go) hoisting ora to function scope and setting WorkerOptions.Oracle at both construction sites.",
+  "delivered": [
+    "AC1 — committed seed: findFirstNonTerminal reads committed state via oracle.ReadSliceStatus (not slices[0] unconditionally)",
+    "AC2 — implemented is non-terminal: router.IsTerminal(\"implemented\") returns false; findFirstNonTerminal seeds at the implemented slice (proved by TestFindFirstNonTerminalCommitted)",
+    "AC3 — track-ref-unreadable fallback: on oracle error, seed AT the unreadable slice rather than skipping (proved by TestFindFirstNonTerminalOracleErrorSeedsAtUnreadable; CatFileExists swallows missing-ref per router review pin 5)",
+    "AC4 — all-terminal track merges: fused-line fix separates comment from return statement; findFirstNonTerminal returns \"\" when all terminal; runTrackRouter reaches finishTrack (proved by TestFindFirstNonTerminalAllTerminalMergesTrack)",
+    "AC5 — single terminal-set: router.IsTerminal exported, consumed by both router (router.go) and scheduler (findFirstNonTerminal); no second definition (proved by TestFindFirstNonTerminalIsTerminalImport + TestIsTerminal covering 9 cases)",
+    "AC6 — --resume observable contract: flag added to cmd/sworn/run.go; --resume without --parallel exits 64; help text states every --parallel run seeds from committed state"
+  ],
+  "not_delivered": [],
+  "divergence": "Pin 5 (Captain review): design.md originally planned to skip on oracle read error; changed to seed AT the unreadable slice per the seed-don't-skip thesis (consistent with DD-1's no-abandonment principle). All 5 Captain pins addressed inline."
+}
