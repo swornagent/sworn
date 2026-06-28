@@ -6,31 +6,11 @@ Demote the stateless LLM judge to a deterministic first-pass gate (`RunFirstPass
 
 ## Files changed
 
-Verifier diff base (start_commit..HEAD):
 ```
 $ git diff --name-only df48e66f0cb8bfbb8e010cbfc689280547e9904b
 docs/release/2026-06-27-conformance-foundation/S12-first-pass-demote/proof.md
 docs/release/2026-06-27-conformance-foundation/S12-first-pass-demote/status.json
-```
-
-Full implementation diff (parent of start_commit..HEAD, 13 files in 2 commits):
-```
-$ git diff --name-only df48e66f0cb8bfbb8e010cbfc689280547e9904b^..HEAD
-cmd/sworn/verify.go
-docs/release/2026-06-27-conformance-foundation/S12-first-pass-demote/journal.md
-docs/release/2026-06-27-conformance-foundation/S12-first-pass-demote/status.json
-internal/bench/runner.go
-internal/model/oai.go
-internal/model/openai_responses.go
-internal/prompt/VERSION.txt
-internal/prompt/verifier.md
-internal/run/run_test.go
-internal/run/slice.go
-internal/verify/concurrent_test.go
-internal/verify/verify.go
-internal/verify/verify_test.go
-```
-## Test results
+```## Test results
 
 ```
 $ go test ./internal/verify/... -v -count=1
@@ -116,7 +96,7 @@ None. All in-scope items delivered.
 
 - `RunFirstPass` in `RunSlice` writes diff to a temp file (path-based API). The `Input.DiffPath` field expects a file path, not a string. Adding a `DiffContent` string field was considered but explicitly avoided to maintain caller compatibility as specified.
 - The `Input` struct retains `Model` and `Verifier` fields for compatibility even though `RunFirstPass` ignores them.
-
+- The start_commit `df48e66` includes all implementation changes (13 files across 2 commits). The full implementation diff: `cmd/sworn/verify.go`, `internal/bench/runner.go`, `internal/model/oai.go`, `internal/model/openai_responses.go`, `internal/prompt/VERSION.txt`, `internal/prompt/verifier.md`, `internal/run/run_test.go`, `internal/run/slice.go`, `internal/verify/concurrent_test.go`, `internal/verify/concurrent_test.go`, `internal/verify/verify.go`, `internal/verify/verify_test.go`, plus journal.md and status.json.
 ## First-pass script output
 
 ```
