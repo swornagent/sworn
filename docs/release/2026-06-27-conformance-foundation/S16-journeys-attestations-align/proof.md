@@ -64,4 +64,8 @@ None. All in-scope items delivered.
 
 ## First-pass script output
 
-(Run after `release-verify.sh`)
+```
+FIRST-PASS PASS
+checks passed: 23
+checks failed: 0
+```
