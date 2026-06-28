@@ -38,3 +38,27 @@
 - `go build ./...` passes clean
 - `go test ./internal/router/...` — all 17 tests pass
 - `go test ./internal/git/...` — all tests pass (including new MergeDryRun via git.Repo)
+---
+
+## 2026-07-28 — Verifier verdicts received
+
+### FAIL
+
+Slice: `S05-merge-gate-oracle`
+Verified against: `99f52ee` (worktree HEAD)
+Verifier session: fresh, artefact-only
+
+Violations:
+
+1. **Gate 3** — Required tests not created
+   Evidence: `proof.json` `not_delivered` confirms `cmd/sworn/merge_test.go` not created. `spec.md` Required tests section prescribes Unit (`cmd/sworn/merge_test.go` with mock oracle + mock git, table test for unverified-block and oracle-routing) and Integration (add scenario to existing `cmd/sworn/` tests). Neither exists. Deferral lacks proper Rule 2 acknowledgment — acknowledged to "implementer session 2026-07-28" (self), not to the human decision-maker.
+
+2. **Gate 4** — Reachability artefact is leaf-level, not integration-point demonstration
+   Evidence: `proof.json` `reachability_artefact` = `go test ./internal/router/... -v -run TestInvariant4CheckCleanMerge` — leaf component test, not CLI command invocation. `spec.md` Required tests prescribes `go test ./cmd/sworn/... -v -run TestMergeTrack` or smoke step `sworn merge-track --dry-run on a real release board`. Captain Pin 7 (approved-ack.md): "Real reachability artefact. Beyond the mock-oracle/mock-git unit tests, capture the spec's smoke step — sworn merge-track --dry-run against the live board, exit code observed." Rule 1 explicitly rejects "tests pass" as sole proof of life for a user-facing CLI command.
+
+Required to address:
+1. Create `cmd/sworn/merge_test.go` with mock oracle + mock git table tests for merge-track and merge-release CLI subcommands (unverified-slice rejection, oracle routing, invariant-4 classification)
+2. Add an integration test scenario to existing `cmd/sworn/` tests exercising merge-track through the CLI entry point
+3. Produce a reachability artefact showing `sworn merge-track --dry-run` (or similar live CLI invocation) against a real release board with observed exit code
+
+Verifier note: Gates 1, 2, 5, 6, 7 PASS. The core logic (Invariant4Check, ParseDocumentedShared, oracle-backed state reads, journey gate) is correctly implemented and tested at the router/leaf level. The gap is exclusively in the CLI integration-point tests and the integration-point reachability artefact — both prescribed by the spec and reinforced by the captain's approved-ack.

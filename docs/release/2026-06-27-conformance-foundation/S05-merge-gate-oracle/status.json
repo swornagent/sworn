@@ -7,11 +7,10 @@
     "N-05",
     "N-14"
   ],
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-28T05:15:00Z",
-  "start_commit": "cd4d4869a84ba4dc2aa94e58a051260eee6a897a",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-28T19:50:00Z",  "start_commit": "cd4d4869a84ba4dc2aa94e58a051260eee6a897a",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S05-merge-gate-oracle/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S05-merge-gate-oracle/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S05-merge-gate-oracle/journal.md",
@@ -60,10 +59,20 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
-  }
-}
+    "result": "fail",
+    "verifier_session_id": "2026-07-28T19:50:00Z",
+    "verifier_verdict_at": "2026-07-28T19:50:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      {
+        "gate": 3,
+        "summary": "Required tests (cmd/sworn/merge_test.go, integration scenario) not created. Spec requires Unit: cmd/sworn/merge_test.go with mock oracle + mock git; deferral lacks proper Rule 2 acknowledgment (self-acknowledged to 'implementer session 2026-07-28', not to human decision-maker).",
+        "evidence": "proof.json not_delivered: 'cmd/sworn/merge_test.go: CLI-level unit tests not created — requires mock oracle + mock git infrastructure beyond slice scope. Core logic (Invariant4Check, ParseDocumentedShared) is covered by router tests.' spec.md Required tests section explicitly mandates both unit and integration tests."
+      },
+      {
+        "gate": 4,
+        "summary": "Reachability artefact is leaf-level router test (go test ./internal/router/...), not the CLI integration-point demonstration the spec prescribes. Rule 1 rejects 'tests pass' as sole proof of life for a user-facing CLI command.",
+        "evidence": "proof.json reachability_artefact: 'go test ./internal/router/... -v -run TestInvariant4CheckCleanMerge passes'. spec.md prescribes 'go test ./cmd/sworn/... -v -run TestMergeTrack' or 'sworn merge-track --dry-run on a real release board'. Captain Pin 7: 'Real reachability artefact. Beyond the mock-oracle/mock-git unit tests, capture the spec's smoke step.'"
+      }
+    ]
+  }}
