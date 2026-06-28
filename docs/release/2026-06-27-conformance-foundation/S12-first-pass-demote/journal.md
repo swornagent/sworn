@@ -27,3 +27,27 @@
 **Proposed spec.md amendment:** Add `depends_on: [T2-model-layer]` to track T3-agentic-verifier in `docs/release/2026-06-27-conformance-foundation/index.md`, and re-materialise the T3 worktree from a base that includes T2-model-layer's merged changes. This ensures the track inherits `internal/model/oai.go` changes from T2-model-layer before layering its own.
 
 **Next step:** `/replan-release 2026-06-27-conformance-foundation`
+
+### Verdict — 2026-07-28T00:00:00Z — FAIL
+
+**Result:** FAIL
+
+**Violations:**
+
+1. Gate 4 — Reachability artefact makes a false claim: proof.md asserts `diff internal/prompt/verifier.md ~/.claude/baton/role-prompts/verifier.md` shows no output (files identical), but re-running the diff shows significant differences:
+   - Internal uses `bin/release-llm-check.sh` / `bin/release-audit-design.sh`; canonical uses `sworn llm-check` / `sworn designaudit`
+   - Internal has hybrid `index.md`/`board.json` references; canonical uses only `board.json`
+   - Internal references `spec.md`/`proof.md`; canonical references `spec.json`/`proof.json`
+   Evidence: re-run `diff internal/prompt/verifier.md ~/.claude/baton/role-prompts/verifier.md` produces non-empty output.
+
+2. Gate 7 — Delivered item 5 ("internal/prompt/verifier.md content matches canonical… verified by diff — no output") is not delivered as claimed. The re-vendor was not performed correctly: the internal file diverges from canonical on command invocations and artefact file extensions.
+
+3. Spec AC #4 — `internal/prompt/verifier.md` content does NOT match canonical.
+
+**Required to address:**
+1. Either copy canonical `~/.claude/baton/role-prompts/verifier.md` byte-for-byte into `internal/prompt/verifier.md`, OR document the project-specific adaptations honestly in proof.md (with the actual diff shown, not claimed empty).
+2. If keeping project adaptations, update Delivered item 5 to accurately describe the re-vendor state rather than claiming byte-for-byte identity.
+3. Fix VERSION.txt which incorrectly states the change direction as "bin/release-llm-check.sh → sworn llmcheck" when the code change went in the opposite direction.
+4. Re-run the reachability artefact commands and capture honest output in proof.md.
+
+**Next step:** `/implement-slice S12-first-pass-demote 2026-06-27-conformance-foundation` in a fresh session to address the numbered violations.
