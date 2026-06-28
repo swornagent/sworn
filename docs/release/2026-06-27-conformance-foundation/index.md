@@ -15,7 +15,7 @@ tracks:
     depends_on: null
     worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T2-model-layer
     worktree_branch: track/2026-06-27-conformance-foundation/T2-model-layer
-    state: in_progress
+    state: merged
   - id: T3-agentic-verifier
     slices: [S11-agentic-verifier-dispatch, S12-first-pass-demote]
     depends_on: null
@@ -67,7 +67,7 @@ tracks:
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
 | `T1-orchestration` | S01 → S02 → S03 → S04 → S05 → S06 → S07 → S27 | — | `track/.../T1-orchestration` | planned |
-| `T2-model-layer` | S08 → S09 → S10 | — | `track/.../T2-model-layer` | planned |
+| `T2-model-layer` | S08 → S09 → S10 | — | `track/.../T2-model-layer` | merged |
 | `T3-agentic-verifier` | S11 → S12 | — | `track/.../T3-agentic-verifier` | planned |
 | `T4-records-as-json` | S13 → S14 → S15 → S16 → S17 | — | `track/.../T4-records-as-json` | planned |
 | `T5-role-ontology` | S18 → S19 → S20 → S21 | T6-contract-revendor | `track/.../T5-role-ontology` | planned |
@@ -127,8 +127,7 @@ tracks:
 | `S07-pause-resume-committed` | T1 | `sworn run --resume` correctly identifies the first non-terminal slice by reading committed status.json (not working-tree); resumes from the right slice after a crash | planned | [spec](./S07-pause-resume-committed/spec.md) | — |
 | `S08-capability-descriptor` | T2 | Every model driver exposes Capabilities(); implementer-model resolution fails fast at startup with a descriptive error if the selected driver does not support agentic Chat | planned | [spec](./S08-capability-descriptor/spec.md) | — |
 | `S09-error-kind-consumption` | T2 | KindAuth, KindCredits, and other terminal Error{Kind}s halt the loop immediately without retry; the factory sentinel is correctly named | planned | [spec](./S09-error-kind-consumption/spec.md) | — |
-| `S10-agentic-chat-anthropic` | T2 | The native Anthropic driver supports agentic Chat; a keyless run via claude-cli is a valid implementer path; cost is populated from real token counts (not always 0) | planned | [spec](./S10-agentic-chat-anthropic/spec.md) | — |
-| `S11-agentic-verifier-dispatch` | T3 | The engine dispatches the agentic verifier.md role (test-re-running, live-repo) for the verify step; verifier_was_fresh_context is set honestly; Verification.Model records the actual model used | planned | [spec](./S11-agentic-verifier-dispatch/spec.md) | — |
+| `S10-agentic-chat-anthropic` | T2 | The native Anthropic driver supports agentic Chat; a keyless run via claude-cli is a valid implementer path; cost is populated from real token counts (not always 0) | verified | [spec](./S10-agentic-chat-anthropic/spec.md) | [proof](./S10-agentic-chat-anthropic/proof.md) || `S11-agentic-verifier-dispatch` | T3 | The engine dispatches the agentic verifier.md role (test-re-running, live-repo) for the verify step; verifier_was_fresh_context is set honestly; Verification.Model records the actual model used | planned | [spec](./S11-agentic-verifier-dispatch/spec.md) | — |
 | `S12-first-pass-demote` | T3 | The stateless LLM judge is demoted to a labelled deterministic first-pass (structure/mock/dark-code checks only); it no longer drives the slice to `verified`; verifier.md is re-vendored from canonical | planned | [spec](./S12-first-pass-demote/spec.md) | — |
 | `S13-schema-embed-validate` | T4 | All baton schemas (*-v1.json) are embedded in the binary; every record write validates against its schema; missing/invalid records fail closed; example.com $schema placeholder replaced | planned | [spec](./S13-schema-embed-validate/spec.md) | — |
 | `S14-board-json` | T4 | board.json is the oracle's source of truth; the oracle renders/drifts index.md from board.json; existing releases auto-migrate board.json from index.md frontmatter on first oracle read | planned | [spec](./S14-board-json/spec.md) | — |
@@ -159,11 +158,11 @@ tracks:
 - Planned: 23
 - In progress: 0
 - Implemented (awaiting verification): 1 (S27-parallel-dispatch-fix)
-- Verified (awaiting merge): 3 (S18-orchestrator-formalized, S22-pin-bump, S23-version-centralise-doctor)- Failed verification: 0
-- Deferred: 0
+- Verified (awaiting merge): 3 (S18-orchestrator-formalized, S22-pin-bump, S23-version-centralise-doctor)
+- Failed verification: 0- Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 1 / In progress: 5 / Merged: 1
+**Tracks:** Planned: 1 / In progress: 4 / Merged: 2
 
 ## Rule-10 journeys to declare (in T4 S17)
 
@@ -187,6 +186,16 @@ tracks:
 - `internal/state/state.go` is a documented shared file between T4 (Write() validation, line ~184) and T7 (Dispatch struct, line ~80). Regions are well-separated and non-overlapping.
 
 ## Recent activity
+
+### 2026-07-28 — track `T2-model-layer` merged to release-wt (commit 71ec0803)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 3 verified slices merged: S08-capability-descriptor, S09-error-kind-consumption, S10-agentic-chat-anthropic. Track state → merged.
+
+### 2026-07-24 — slice `S10-agentic-chat-anthropic` verified (PASS)
+
+- **Actor**: verifier (/verify-slice)
+- **Note**: All 7 gates passed. Track T2-model-layer is now complete (3/3 slices verified). Next step: /merge-track T2-model-layer.
 
 ### 2026-06-28 — track `T6-contract-revendor` merged to release-wt (commit 0b039d0)
 

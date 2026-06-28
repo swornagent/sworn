@@ -127,7 +127,7 @@ func FromEnv(modelID string) (Verifier, error) {
 	verifier, err := NewClient(modelID, pcfg)
 	if err != nil {
 		// If NewClient returned a not-registered error, surface it directly.
-		if errorsIs(err, ErrDriverNotRegistered) {
+		if errorsIs(err, ErrDriverNotImplemented) {
 			return nil, err
 		}
 		return nil, fmt.Errorf("model: %w", err)
@@ -151,7 +151,7 @@ func FromEnv(modelID string) (Verifier, error) {
 // model package).
 func errorsIs(err, target error) bool {
 	// Simple equality check; sufficient for sentinel errors like
-	// ErrDriverNotRegistered which is a constErr.
+	// ErrDriverNotImplemented which is a constErr.
 	return err.Error() == target.Error()
 }
 

@@ -320,6 +320,21 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		}
 
 		if implErr != nil {
+			// Terminal errors halt immediately (S09 AC1): KindAuth and KindCredits
+			// cannot succeed on retry. Return a BLOCKED verdict before the triage
+			// path so the orchestrator routes to /replan-release, not retry/escalate.
+			if model.IsTerminal(implErr) {
+				var me *model.Error
+				if model.AsError(implErr, &me) {
+					kindLabel := "Kind" + strings.ToUpper(me.Kind.String()[:1]) + me.Kind.String()[1:]
+					reason := fmt.Sprintf("%s: %s — halting; check provider credentials",
+						kindLabel, me.UserMessage())
+					fmt.Fprintf(os.Stderr, "sworn run: terminal error — %s\n", reason)
+					return fmt.Errorf("%s%s", errVerdictBlockedPrefix, reason)
+				}
+				fmt.Fprintf(os.Stderr, "sworn run: terminal error — %v\n", implErr)
+				return fmt.Errorf("%s%s", errVerdictBlockedPrefix, implErr.Error())
+			}
 			if errors.Is(implErr, context.DeadlineExceeded) {
 				fmt.Fprintf(os.Stderr, "sworn run: implement attempt %d timed out after %s\n",
 					totalAttempts, implementTimeout)
