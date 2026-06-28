@@ -327,11 +327,25 @@ stuck in an infinite `/merge-track` retry (9+ dispatches, ~every 50s). Same pair
    it re-routes `/merge-track`, the agent re-asks, and it loops forever (never PAGEs, never proceeds).
 
 **Corrected mechanism (from the log):** the haiku interpreter DOES run on the merge output — the log
-shows `interpretation RETRY`. So it is not deterministic-only. The problem is that the interpreter is a
-**classifier** (verdicts: DONE / RETRY / BLOCKED), not a **responder**: it reads "confirmation — no
-blockers, awaiting go-ahead," sees the merge did not COMPLETE, and returns RETRY → re-dispatch → the
-agent re-asks → RETRY → infinite loop. It can read the question but has no action to answer it; and the
-dispatch is one-shot, so a "proceed" verdict has nowhere to go (the session already closed).
+shows `interpretation RETRY`. So it is not deterministic-only. The interpreter is a **classifier**
+(DONE/RETRY/BLOCKED), not a responder: it sees the merge did not COMPLETE and returns RETRY → re-dispatch
+→ re-ask → loop.
+
+**ROOT CAUSE (found 2026-06-28) — a dangling auto-confirm flag.** The coach-loop ALREADY passes
+`BATON_AUTO_CONFIRM=1` as the dispatch env_prefix for `/merge-track`
+(`coach-loop` ~line where `dispatch_and_interpret "$MERGE_TRACK_MODEL" "/merge-track …" … "BATON_AUTO_CONFIRM=1"`).
+But NO command honoured it — `grep -rl BATON_AUTO_CONFIRM ~/.claude/commands` returned nothing. So
+`merge-track.md` Step 3 unconditionally called `AskUserQuestion`; with no human, the agent emits the
+confirmation summary and ends the turn → the merge never executes → RETRY loop. The wiring was half-done:
+loop sets the flag, command ignores it.
+
+**FIX APPLIED (one file).** `~/.claude/commands/merge-track.md` Step 3 now honours `BATON_AUTO_CONFIRM`:
+when set (autonomous loop) AND the Step 1.4 gate `<ready_to_merge>` is true, proceed without
+`AskUserQuestion` (the deterministic gate is the authorization) and log an `auto-confirm` line; when unset
+(human driving), keep the interactive confirm. Minimal, uses the existing flag, human UX unchanged.
+`merge-release` does NOT need it — the loop `page_coach`s a human to run it (human-triggered by design),
+so its confirm is correct. This is the interim fix; the three-tier Captain-in-session design below is the
+fuller long-term form.
 
 **Design fix (Brad, 2026-06-28) — interpreter as a bounded in-session responder.** Keep the merge
 dispatch session OPEN; when the agent asks "proceed?", the interpreter replies "proceed" in-session and
