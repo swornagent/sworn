@@ -11,7 +11,11 @@ Master index: `docs/captures/2026-06-28-synthesis-and-forward-plan.md`. All day'
 - **coach-loop fixes → canonical Baton, released v0.6.2** (pushed + GH release): merge-track honours `BATON_AUTO_CONFIRM` (1de3baf→re-authored); implement-slice **restores the Design TL;DR gate** (45aa433→re-authored). Both **re-installed to ~/.claude** via `baton/install-claude.sh`. Design-review gate now fires.
 - **Canonical replan (target 1) DONE**: `docs/release/2026-06-27-conformance-foundation/index.md` on `release/v0.1.0` — `internal/model/oai.go`+drivers declared DOCUMENTED SHARED across T2/T3/T7; **T3 & T7 `depends_on: T2-model-layer`** (clean, no inline comment).
 
-## REMAINING — pick up here
+## REMAINING — DONE 2026-06-28 (see `2026-06-28-resume-deepseek-replan-and-branch-cleanup-proof.md`)
+- **Item 1 (deepseek replan) ✓** — release-wt `a061677` (T3/T7 depend_on T2, oai.go shared); T3 `befd019` (S12 BLOCK→pending) + `dfe5514` (forward-merge, oai.go combine compiles, verify tests green). Loop was already RUNNING (not paused); it auto-un-parked T3 and dispatched a fresh verifier on S12. No manual `coach loop` needed (singleton guard).
+- **Item 2 (branch cleanup) ✓** — all 35 `release-wt/*`+`track/*` branches + worktrees deleted (0 remain). Out-of-scope leftovers (`fix/centralise-baton-version`, `refactor/baton-vendor-paths`, `sworn/*`, `T3-commercial`, etc.) left for a human call — see proof bundle "Not delivered".
+
+## (original) REMAINING — pick up here
 1. **Target 2 — deepseek build replan** (`~/sworn-eval-coach-deepseek`, the running eval clone; origin removed, isolated). It is PAUSED with **S12-first-pass-demote BLOCKED** (touchpoint conflict: T3 & T2 both touch `internal/model/oai.go`). Apply the same fix in its `index.md` (oai.go shared T2/T3/T7; T3/T7 depend_on T2 — NO inline comments), **clear S12's `verification.result` → pending** in the T3 worktree status.json, **forward-merge `release-wt` into the T3 worktree resolving oai.go (combine both sides)**, commit, then RESUME:
    ```bash
    cd ~/sworn-eval-coach-deepseek
