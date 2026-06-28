@@ -333,11 +333,18 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		}
 
 		if implErr != nil {
+			// Max-turns exhaustion: PAGE the Coach (pause, not fail).
+			// The worker detects this via the sentinel and halts the track.
+			if errors.Is(implErr, agent.ErrMaxTurns) {
+				fmt.Fprintf(os.Stderr, "sworn run: max turns exhausted for %s — paging Coach\n", sliceID)
+				return fmt.Errorf("%s: max turns exhausted for %s",
+					errVerdictMaxTurnsPrefix, sliceID)
+			}
+
 			// Terminal errors halt immediately (S09 AC1): KindAuth and KindCredits
 			// cannot succeed on retry. Return a BLOCKED verdict before the triage
 			// path so the orchestrator routes to /replan-release, not retry/escalate.
-			if model.IsTerminal(implErr) {
-				var me *model.Error
+			if model.IsTerminal(implErr) {				var me *model.Error
 				if model.AsError(implErr, &me) {
 					kindLabel := "Kind" + strings.ToUpper(me.Kind.String()[:1]) + me.Kind.String()[1:]
 					reason := fmt.Sprintf("%s: %s — halting; check provider credentials",
@@ -685,11 +692,17 @@ func extractViolations(rationale string) []string {
 	return violations
 }
 
-// Sentinel error string prefixes used by RunSlice. Callers can// strings.Contains on the returned error to distinguish exit causes.
+// Sentinel error string prefixes used by RunSlice. Callers can
+// strings.Contains on the returned error to distinguish exit causes.
 const (
-	errVerdictBlockedPrefix = "RunSlice: verification blocked:"
-	errVerdictFailPrefix    = "RunSlice: verification failed after"
+	errVerdictBlockedPrefix    = "RunSlice: verification blocked:"
+	errVerdictFailPrefix       = "RunSlice: verification failed after"
+	errVerdictMaxTurnsPrefix   = "RunSlice: max turns exhausted:"
 )
+
+// ErrMaxTurnsSentinel is the substring check for max-turns exhaustion errors
+// returned by RunSlice. The worker/router detect it to PAGE the Coach.
+const ErrMaxTurnsSentinel = "RunSlice: max turns exhausted:"
 
 // IsBlocked reports whether err is a BLOCKED-verdict error from RunSlice.
 func IsBlocked(err error) bool {
@@ -699,4 +712,9 @@ func IsBlocked(err error) bool {
 // IsFailed reports whether err is a FAIL-exhausted error from RunSlice.
 func IsFailed(err error) bool {
 	return err != nil && strings.Contains(err.Error(), errVerdictFailPrefix)
+}
+
+// IsMaxTurnsExhausted reports whether err is a max-turns exhaustion error from RunSlice.
+func IsMaxTurnsExhausted(err error) bool {
+	return err != nil && strings.Contains(err.Error(), errVerdictMaxTurnsPrefix)
 }

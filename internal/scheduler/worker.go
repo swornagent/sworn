@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/orchestrator"
@@ -271,6 +272,24 @@ func runTrackRouter(
 					releaseTrack("paused")
 					return TrackPaused
 				}
+				// S03: max-turns exhaustion -> PAGE the Coach (pause, not fail).
+				if strings.Contains(err.Error(), agent.MaxTurnsSentinel) {
+					fmt.Fprintf(os.Stderr, "[%s] paused: max turns exhausted for %s - %v\n",
+						trackID, currentSlice, err)
+					_ = supervisor.RecordPage(opts.DB, opts.ReleaseName, currentSlice, "max_turns")
+					releaseTrack("paused")
+					return TrackPaused
+				}
+				// S03 circuit breaker: check cross-run failure fingerprint.
+				fingerprint := supervisor.Fingerprint(currentSlice, err.Error())
+				_ = supervisor.RecordFailure(opts.DB, opts.ReleaseName, currentSlice, fingerprint)
+				if supervisor.ShouldBreak(opts.DB, opts.ReleaseName, currentSlice, fingerprint) {
+					fmt.Fprintf(os.Stderr, "[%s] paused: circuit breaker for %s - %v\n",
+						trackID, currentSlice, err)
+					_ = supervisor.RecordPage(opts.DB, opts.ReleaseName, currentSlice, "circuit_breaker")
+					releaseTrack("paused")
+					return TrackPaused
+				}
 				fmt.Fprintf(os.Stderr, "[%s] slice %s failed: %v\n", trackID, currentSlice, err)
 
 				if opts.Notifier != nil {
@@ -307,6 +326,24 @@ func runTrackRouter(
 				if strings.Contains(err.Error(), orchestrator.InterpreterInconclusiveSentinel) {
 					fmt.Fprintf(os.Stderr, "[%s] paused: interpreter inconclusive for %s — %v\n",
 						trackID, currentSlice, err)
+					releaseTrack("paused")
+					return TrackPaused
+				}
+				// S03: max-turns exhaustion -> PAGE the Coach (pause, not fail).
+				if strings.Contains(err.Error(), agent.MaxTurnsSentinel) {
+					fmt.Fprintf(os.Stderr, "[%s] paused: max turns exhausted for %s - %v\n",
+						trackID, currentSlice, err)
+					_ = supervisor.RecordPage(opts.DB, opts.ReleaseName, currentSlice, "max_turns")
+					releaseTrack("paused")
+					return TrackPaused
+				}
+				// S03 circuit breaker: check cross-run failure fingerprint.
+				fingerprint := supervisor.Fingerprint(currentSlice, err.Error())
+				_ = supervisor.RecordFailure(opts.DB, opts.ReleaseName, currentSlice, fingerprint)
+				if supervisor.ShouldBreak(opts.DB, opts.ReleaseName, currentSlice, fingerprint) {
+					fmt.Fprintf(os.Stderr, "[%s] paused: circuit breaker for %s - %v\n",
+						trackID, currentSlice, err)
+					_ = supervisor.RecordPage(opts.DB, opts.ReleaseName, currentSlice, "circuit_breaker")
 					releaseTrack("paused")
 					return TrackPaused
 				}
@@ -361,6 +398,24 @@ func runTrackLegacy(
 			if strings.Contains(err.Error(), orchestrator.InterpreterInconclusiveSentinel) {
 				fmt.Fprintf(os.Stderr, "[%s] paused: interpreter inconclusive for %s — %v\n",
 					trackID, sliceID, err)
+				releaseTrack("paused")
+				return TrackPaused
+			}
+			// S03: max-turns exhaustion -> PAGE the Coach (pause, not fail).
+			if strings.Contains(err.Error(), agent.MaxTurnsSentinel) {
+				fmt.Fprintf(os.Stderr, "[%s] paused: max turns exhausted for %s - %v\n",
+					trackID, sliceID, err)
+				_ = supervisor.RecordPage(opts.DB, opts.ReleaseName, sliceID, "max_turns")
+				releaseTrack("paused")
+				return TrackPaused
+			}
+			// S03 circuit breaker: check cross-run failure fingerprint.
+			fingerprint := supervisor.Fingerprint(sliceID, err.Error())
+			_ = supervisor.RecordFailure(opts.DB, opts.ReleaseName, sliceID, fingerprint)
+			if supervisor.ShouldBreak(opts.DB, opts.ReleaseName, sliceID, fingerprint) {
+				fmt.Fprintf(os.Stderr, "[%s] paused: circuit breaker for %s - %v\n",
+					trackID, sliceID, err)
+				_ = supervisor.RecordPage(opts.DB, opts.ReleaseName, sliceID, "circuit_breaker")
 				releaseTrack("paused")
 				return TrackPaused
 			}

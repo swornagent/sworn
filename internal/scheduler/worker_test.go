@@ -927,12 +927,135 @@ func TestRunTrack_InterpreterInconclusivePauses(t *testing.T) {
 	}
 }
 
-// TestRunTrack_InterpreterSentinelIsNotNormalFailure proves that a normal
-// RunSliceFn error (without the interpreter sentinel) still results in
-// TrackFail - the sentinel check is specific and does not weaken the
-// existing error handling.
-func TestRunTrack_InterpreterSentinelIsNotNormalFailure(t *testing.T) {
-	trackID := "T1-normal-fail"
+// TestRunTrack_MaxTurnsPausesLegacy proves that when RunSliceFn
+// returns a max-turns exhaustion error (S03), the legacy worker path pauses the
+// track rather than failing it.  The worker detects the sentinel in the error
+// message and emits a PAGE event via RecordPage.
+func TestRunTrack_MaxTurnsPausesLegacy(t *testing.T) {
+	trackID := "T1-maxturns"
+	sliceID := "S03-maxturns-legacy"
+
+	tmpDir := t.TempDir()
+	absSpecDir := filepath.Join(tmpDir, "docs", "release", "test-maxturns", sliceID)
+	os.MkdirAll(absSpecDir, 0o755)
+	os.WriteFile(filepath.Join(absSpecDir, "spec.md"), []byte("# test"), 0o644)
+	os.WriteFile(filepath.Join(absSpecDir, "status.json"), []byte(`{"state":"in_progress"}`), 0o644)
+
+	var called []string
+	runSliceFn := func(ctx context.Context, worktreeRoot, specPath, statusPath string) error {
+		called = append(called, filepath.Base(filepath.Dir(statusPath)))
+		return fmt.Errorf("RunSlice: max turns exhausted: max turns exhausted for %s", sliceID)
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite not available: %v", err)
+	}
+	defer db.Close()
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+
+	opts := WorkerOptions{
+		ReleaseName:         "test-maxturns",
+		PrimaryWorktreeRoot: tmpDir,
+		ProjectDir:          "sworn",
+		TrackInfo: board.TrackInfo{
+			ID:             trackID,
+			Slices:         []string{sliceID},
+			WorktreePath:   tmpDir,
+			WorktreeBranch: "track/test-maxturns/" + trackID,
+		},
+		RunSliceFn: runSliceFn,
+		DB:         db,
+		Router:     nil, // legacy path
+	}
+
+	result := RunTrack(context.Background(), opts)
+	if result != TrackPaused {
+		t.Fatalf("expected TrackPaused for max-turns exhaustion (legacy), got %s", result)
+	}
+	if len(called) != 1 {
+		t.Fatalf("expected 1 RunSliceFn call, got %d", len(called))
+	}
+}
+
+// TestRunTrack_MaxTurnsPausesRouter proves that when RunSliceFn returns a
+// max-turns exhaustion error (S03), the router-driven worker path also pauses
+// the track. Same sentinel detection as the legacy path.
+func TestRunTrack_MaxTurnsPausesRouter(t *testing.T) {
+	trackID := "T1-maxturns-router"
+	sliceID := "S03-maxturns-router"
+
+	tmpDir := t.TempDir()
+	absSpecDir := filepath.Join(tmpDir, "docs", "release", "test-maxturns-router", sliceID)
+	os.MkdirAll(absSpecDir, 0o755)
+	os.WriteFile(filepath.Join(absSpecDir, "spec.md"), []byte("# test"), 0o644)
+	os.WriteFile(filepath.Join(absSpecDir, "status.json"), []byte(`{"state":"in_progress"}`), 0o644)
+
+	var called []string
+	runSliceFn := func(ctx context.Context, worktreeRoot, specPath, statusPath string) error {
+		called = append(called, filepath.Base(filepath.Dir(statusPath)))
+		return fmt.Errorf("RunSlice: max turns exhausted: max turns exhausted for %s", sliceID)
+	}
+
+	router := &fakeRouter{
+		decisions: []SliceDecision{
+			{Type: "implement", Reason: "planned", Target: ""},
+		},
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite not available: %v", err)
+	}
+	defer db.Close()
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+
+	opts := WorkerOptions{
+		ReleaseName:         "test-maxturns-router",
+		PrimaryWorktreeRoot: tmpDir,
+		ProjectDir:          "sworn",
+		TrackInfo: board.TrackInfo{
+			ID:             trackID,
+			Slices:         []string{sliceID},
+			WorktreePath:   tmpDir,
+			WorktreeBranch: "track/test-maxturns-router/" + trackID,
+		},
+		RunSliceFn: runSliceFn,
+		DB:         db,
+		Router:     router,
+	}
+
+	result := RunTrack(context.Background(), opts)
+	if result != TrackPaused {
+		t.Fatalf("expected TrackPaused for max-turns exhaustion (router), got %s", result)
+	}
+	if len(called) != 1 {
+		t.Fatalf("expected 1 RunSliceFn call, got %d", len(called))
+	}
+}
+
+// verifyPageEvents checks that events matching eventType+detail are present
+// in the events table. Returns the count of matching rows.
+func verifyPageEvents(t *testing.T, db *sql.DB, eventType, detail string) int {
+	t.Helper()
+	rows, err := db.Query(
+		`SELECT COUNT(*) FROM events WHERE event = ? AND detail = ?`,
+		eventType, detail,
+	)
+	if err != nil {
+		t.Fatalf("query events: %v", err)
+	}
+	defer rows.Close()
+	var count int
+	if rows.Next() {
+		rows.Scan(&count)
+	}
+	return count
+}
+
+func TestRunTrack_InterpreterSentinelIsNotNormalFailure(t *testing.T) {	trackID := "T1-normal-fail"
 	sliceID := "S01-normal-fail"
 
 	tmpDir := t.TempDir()
