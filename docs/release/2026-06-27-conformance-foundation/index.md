@@ -134,8 +134,7 @@ tracks:
 | `S15-spec-proof-records` | T4 | spec.json (spec-v1) and proof.json (proof-v1) records are emitted and validated; proof sections (delivered, not_delivered, divergence, reachability) are derived from live ACs and state, not constant boilerplate | planned | [spec](./S15-spec-proof-records/spec.md) | — |
 | `S16-journeys-attestations-align` | T4 | journeys-v1 and attestations-v1 records align to canonical nested shapes; $schema field populated; validate-on-write enabled; both writers fail closed on invalid data | planned | [spec](./S16-journeys-attestations-align/spec.md) | — |
 | `S17-journeys-declare` | T4 | Three Rule-10 critical journeys (keyless-full-loop, loop-verifier-negative, ship-a-release) are declared in .sworn/journeys.json and human-ratified; entitlement/credits no-mock boundary declared | planned | [spec](./S17-journeys-declare/spec.md) | — |
-| `S18-orchestrator-formalized` | T5 | The Orchestrator role is formally specified as a Sworn-side artefact in docs/baton/; the deterministic-vs-agentic design choice is recorded as a Type-1 decision in status.json | verified | [spec](./S18-orchestrator-formalized/spec.md) | [proof](./S18-orchestrator-formalized/proof.md) || `S19-captain-split` | T5 | captain.md is split: design-reviewer.md (Baton Rule-9 surface) and orchestrator-notes.md (Sworn engine mapping); each file references the correct owner | verified | [spec](./S19-captain-split/spec.md) | [proof](./S19-captain-split/proof.md) || `S20-role-revendor` | T5 | planner.md, implementer.md, captain.md are re-vendored from canonical post-records-as-JSON; VERSION.txt is bumped to match; run after T6 merges | planned | [spec](./S20-role-revendor/spec.md) | — |
-| `S21-sworn-run-task` | T5 | `sworn run --task "<description>"` dispatches the planner role to draft a concrete-AC spec, then runs implement+verify over that spec; direction C (planner-assist quickstart) | planned | [spec](./S21-sworn-run-task/spec.md) | — |
+| `S18-orchestrator-formalized` | T5 | The Orchestrator role is formally specified as a Sworn-side artefact in docs/baton/; the deterministic-vs-agentic design choice is recorded as a Type-1 decision in status.json | verified | [spec](./S18-orchestrator-formalized/spec.md) | [proof](./S18-orchestrator-formalized/proof.md) || `S19-captain-split` | T5 | captain.md is split: design-reviewer.md (Baton Rule-9 surface) and orchestrator-notes.md (Sworn engine mapping); each file references the correct owner | verified | [spec](./S19-captain-split/spec.md) | [proof](./S19-captain-split/proof.md) || `S20-role-revendor` | T5 | planner.md, implementer.md, captain.md are re-vendored from canonical post-records-as-JSON; VERSION.txt is bumped to match; run after T6 merges | verified | [spec](./S20-role-revendor/spec.md) | [proof](./S20-role-revendor/proof.md) || `S21-sworn-run-task` | T5 | `sworn run --task "<description>"` dispatches the planner role to draft a concrete-AC spec, then runs implement+verify over that spec; direction C (planner-assist quickstart) | planned | [spec](./S21-sworn-run-task/spec.md) | — |
 | `S22-pin-bump` | T6 | The vendor pin references a canonical HEAD containing the baton/ layout (≥ records-as-JSON); source map coherent with the new pin; re-vendor would succeed | verified | [spec](./S22-pin-bump/spec.md) | [proof](./S22-pin-bump/proof.md) || `S23-version-centralise-doctor` | T6 | VERSION is centralised to a single source; doctor detects SHA-vs-HEAD drift and pre-JSON-prompt pin staleness; both checks fail closed | verified | [spec](./S23-version-centralise-doctor/spec.md) | [proof](./S23-version-centralise-doctor/proof.md) || `S24-dispatch-enrich` | T7 | Dispatch record captures duration_ms, input_tokens, output_tokens, real_cost_usd (from model pricing map), and the model-id confirmed in the response | planned | [spec](./S24-dispatch-enrich/spec.md) | — |
 | `S25-event-store-durable` | T7 | The supervisor SQLite event store survives process restart; events written during a run are queryable after a new `sworn run` starts against the same release | planned | [spec](./S25-event-store-durable/spec.md) | — |
 | `S26-eval-projections` | T7 | `sworn telemetry` reports per-model rework rate, mean tokens-per-turn, mean latency_ms, and estimated cost; output is machine-readable JSON and human-readable table | planned | [spec](./S26-eval-projections/spec.md) | — |
@@ -155,11 +154,12 @@ tracks:
 
 ## Aggregate state
 
-- Planned: 23
+- Planned: 22
 - In progress: 0
 - Implemented (awaiting verification): 1 (S27-parallel-dispatch-fix)
-- Verified (awaiting merge): 3 (S18-orchestrator-formalized, S22-pin-bump, S23-version-centralise-doctor)
-- Failed verification: 0- Deferred: 0
+- Verified (awaiting merge): 4 (S18-orchestrator-formalized, S20-role-revendor, S22-pin-bump, S23-version-centralise-doctor)
+- Failed verification: 0
+- Deferred: 0
 - Shipped: 0
 
 **Tracks:** Planned: 1 / In progress: 4 / Merged: 2
@@ -187,6 +187,13 @@ tracks:
 
 ## Recent activity
 
+
+
+### 2026-07-28 — slice `S20-role-revendor` verified (PASS)
+
+- **Actor**: verifier (/verify-slice)
+- **Verdict**: PASS (all 7 gates). `planner.md`, `implementer.md`, `captain.md` re-vendored from canonical post-records-as-JSON; `implementer.md` has 1-line public-safety scrub; `VERSION.txt` = 42eb48b (matches S22 pin). All prompt tests + go build pass.
+- **Next**: `/implement-slice S21-sworn-run-task 2026-06-27-conformance-foundation`
 ### 2026-07-28 — track `T2-model-layer` merged to release-wt (commit 71ec0803)
 
 - **Actor**: track integrator (/merge-track)
