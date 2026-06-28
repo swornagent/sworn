@@ -76,3 +76,24 @@ The prior session's implementation (RunFirstPass rename, first-pass integration,
 - Kept original `start_commit` (`df48e66`) — it is the correct diff base covering all S12 implementation.
 - `sworn verify` (full agentic verifier) requires API key; deterministic first-pass checks run via `release-verify.sh` (all PASS).
 - Prior session's implementation (`RunFirstPass` rename, `RunSlice` integration, tests, caller updates) is unchanged and correct — this session only fixes the verifier.md re-vendor.
+
+### Verdict — 2026-07-28T14:30:00Z — PASS
+
+**Result:** PASS
+
+**Verified against:** `42f646408dc8cca51057d3247e014d6e476ca71e`
+
+**Verifier session:** fresh, artefact-only
+
+**Gate summary:**
+- Gate 1 (User-reachable outcome): PASS — `RunFirstPass()` wired through `sworn run` engine and `sworn verify` CLI
+- Gate 2 (Touchpoints match): PASS — extra files are tests, T2-model-layer forward-merge noise, or Risk-anticipated updates
+- Gate 3 (Required tests): PASS — all 33 `./internal/verify/...` tests pass on re-run
+- Gate 3b (LLM ac-satisfaction): SKIPPED — no LLM configured (non-blocking)
+- Gate 4 (Reachability artefact): PASS — `diff` exits 0 (byte-for-byte canonical match), `grep verify.Run` exits 1, no v0.4.2 references
+- Gate 4b (Semantic coverage): SKIPPED — no LLM configured
+- Gate 5 (No silent deferrals): PASS — zero markers in S12 source files
+- Gate 6 (Design conformance): PASS — non-UI project (no design-fidelity config)
+- Gate 7 (Claimed scope matches implemented): PASS — all 8 delivered items verified against live code
+
+All five acceptance checks satisfied.
