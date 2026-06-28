@@ -30,15 +30,17 @@ import (
 //	           [--implement-timeout <duration>]
 func cmdRun(args []string) int {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
-	task := fs.String("task", "", "plain-language task description (required for single-slice mode)")
+	task := fs.String("task", "", "dispatch planner for a single-slice task and run implement+verify")
 	implModel := fs.String("implementer-model", "", "implementer model (provider/model)")
 	verifierModel := fs.String("verifier-model", "", "verifier model (provider/model)")
 	base := fs.String("base", "main", "base branch to merge into on PASS")
+	_ = base
 	retryCap := fs.Int("retry-cap", -1, "max retries before escalating to human (-1 = use all escalation models)")
 	escalationFlag := fs.String("escalation-models", "", "comma-separated model escalation path (provider/model,...)")
 	parallel := fs.Bool("parallel", false, "run tracks concurrently from release board")
 	releaseName := fs.String("release", "", "release name for --parallel mode (e.g. 2026-06-19-safe-parallelism)")
 	implTimeout := fs.Duration("implement-timeout", 0, "per-attempt implement deadline (0 = use default; negative = no timeout)")
+	dryRun := fs.Bool("dry-run", false, "verify planner dispatch would be called without actually running")
 
 	_ = fs.Parse(args)
 
@@ -56,6 +58,11 @@ func cmdRun(args []string) int {
 	} else if *task == "" {
 		fmt.Fprintln(os.Stderr, "sworn run: --task is required (or use --parallel --release)")
 		return 64
+	}
+
+	// ── Dry-run short-circuit: skip model/config loading, verify reachability ─
+	if *dryRun && !*parallel {
+		return cmdRunTask(*task, "", "", nil, 0, 0, true, nil)
 	}
 
 	// ── Load config ────────────────────────────────────────────────────
@@ -136,22 +143,7 @@ func cmdRun(args []string) int {
 		return 0
 	}
 	// ── Single-slice mode ──────────────────────────────────────────────
-	err = run.Run(context.Background(), run.Options{
-		Task:             *task,
-		ImplementerModel: impl,
-		VerifierModel:    verifier,
-		Base:             *base,
-		RetryCap:         maxAttempts,
-		EscalationModels: escalationModels,
-		ImplementTimeout: implementTimeout,
-		Notifier:         notifier,
-	})
-	if err != nil {
-		printModelError(err)
-		fmt.Fprintf(os.Stderr, "sworn run: %v\n", err)
-		return 1
-	}
-	return 0
+	return cmdRunTask(*task, impl, verifier, escalationModels, maxAttempts, implementTimeout, *dryRun, notifier)
 }
 
 // resolveImplementTimeout returns the per-attempt implement timeout from the

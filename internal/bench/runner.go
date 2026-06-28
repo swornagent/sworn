@@ -52,8 +52,7 @@ type CellResult struct {
 }
 
 // Run executes the benchmark across models × tasks. Each cell is a single
-// verify.Run call with a freshly-constructed OAI client (Pin 3). Caller
-// provides the API key directly.
+// RunFirstPass call with a freshly-constructed OAI client (Pin 3). Caller// provides the API key directly.
 func Run(ctx context.Context, models []ModelEntry, tasks []Task, apiKey string) ([]CellResult, error) {
 	var results []CellResult
 	for _, m := range models {
@@ -63,8 +62,7 @@ func Run(ctx context.Context, models []ModelEntry, tasks []Task, apiKey string) 
 			APIKey:  apiKey,
 		}
 		for _, t := range tasks {
-			res := verify.Run(ctx, verify.Input{
-				SpecPath:  t.SpecPath,
+			res := verify.RunFirstPass(ctx, verify.Input{				SpecPath:  t.SpecPath,
 				DiffPath:  t.DiffPath,
 				ProofPath: "",
 				Model:     m.ModelID,
