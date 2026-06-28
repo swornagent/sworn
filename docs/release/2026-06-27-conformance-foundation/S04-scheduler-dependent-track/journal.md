@@ -122,8 +122,24 @@ session per Rule 7.
   is the documentation fix.
 
 ## Verifier verdicts received
-### 2026-07-28 — BLOCKED (drift gate — code conflict on telemetry.go)
+### 2026-07-28 — PASS
 
+**PASS**
+
+Slice: `S04-scheduler-dependent-track`
+Verified against: `c33438beee38e0ee38fee2589940f23769fe59b9`
+Verifier session: fresh, artefact-only
+
+All seven gates pass:
+- **Gate 1** — User-reachable: `sworn run --release <name>` → `RunParallel` → `BuildPlan` + `RunTrack`/`finishTrack`. Production code wired through `cmd/sworn/run.go`.
+- **Gate 2** — Planned touchpoints match: `internal/scheduler/worker.go`, `internal/run/parallel.go`, plus expected test file `internal/scheduler/worker_test.go`. Note: `proof.json` `files_changed` includes `cmd/sworn/run.go` (forward-merge noise from S25 commits) — not an S04 change; `status.json` `actual_files` is correct. Minor documentation hygiene item, not a gate failure.
+- **Gate 3** — 13/13 tests pass (5 DependentTrack + 8 BuildPlan); tests exercise the integration point (`RunTrack`, `BuildPlan`, `finishTrack`, phase barrier). AC5 integration test uses real git repos.
+- **Gate 4** — Reachability artefact: AC5 test with real git repo proves dependent worktree branches from post-dependency `release-wt` tip.
+- **Gate 5** — No silent deferrals or placeholder logic. One Rule 2 deferral (paused/stuck dependency → S07) properly documented with why + tracking + acknowledgement.
+- **Gate 6** — Non-UI project; no design-fidelity config; passes automatically.
+- **Gate 7** — All 8 delivered items have verifiable evidence references pointing to real, working code.
+
+### 2026-07-28 — BLOCKED (drift gate — code conflict on telemetry.go)
 **BLOCKED**: forward-merge of `release-wt/2026-06-27-conformance-foundation` into `track/2026-06-27-conformance-foundation/T1-orchestration` conflicted on `cmd/sworn/telemetry.go` (code), `docs/release/2026-06-27-conformance-foundation/.captain-trial-log.md` (docs), and `docs/release/2026-06-27-conformance-foundation/index.md` (docs). The code conflict on `cmd/sworn/telemetry.go` means the touchpoint matrix was wrong (track-mode invariant 4) — T1-orchestration and at least one other track both modified the same code file. Route to `/replan-release 2026-06-27-conformance-foundation` to re-group tracks so no code file appears in more than one track's planned_files.
 
 **Proposed spec amendment for planner**: audit `cmd/sworn/telemetry.go` across all tracks in release `2026-06-27-conformance-foundation`. At least two tracks claim it. The planner must move the file into a single track or split it so tracks are touchpoint-disjoint.
