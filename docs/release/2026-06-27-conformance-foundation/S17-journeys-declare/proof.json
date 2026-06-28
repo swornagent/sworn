@@ -1,0 +1,87 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S17-journeys-declare",
+  "release": "2026-06-27-conformance-foundation",
+  "scope": "Declare three Rule-10 critical journeys (keyless-full-loop, loop-verifier-negative, ship-a-release) in .sworn/journeys.json using the canonical journeys-v1 shape; ratify and commit so journey.Check() passes.",
+  "files_changed": [
+    ".sworn/journeys.json",
+    "docs/release/2026-06-27-conformance-foundation/S17-journeys-declare/design.md",
+    "docs/release/2026-06-27-conformance-foundation/S17-journeys-declare/status.json",
+    "internal/baton/schemas/journeys-v1.json",
+    "internal/journey/journey.go",
+    "internal/journey/journey_test.go"
+  ],
+  "test_results": [
+    {
+      "command": "go test ./internal/journey/... -v -run TestCheck",
+      "passed": true,
+      "exit_code": 0,
+      "output": "=== RUN   TestCheck_MissingArtefact\n--- PASS: TestCheck_MissingArtefact (0.00s)\n=== RUN   TestCheck_UnratifiedArtefact\n--- PASS: TestCheck_UnratifiedArtefact (0.00s)\n=== RUN   TestCheck_RatifiedArtefact\n--- PASS: TestCheck_RatifiedArtefact (0.00s)\n=== RUN   TestCheck_S17Journeys\n--- PASS: TestCheck_S17Journeys (0.00s)\nPASS\nok  \tgithub.com/swornagent/sworn/internal/journey\t0.005s"
+    },
+    {
+      "command": "go test ./internal/journey/...",
+      "passed": true,
+      "exit_code": 0,
+      "output": "ok  \tgithub.com/swornagent/sworn/internal/journey\t0.021s"
+    }
+  ],
+  "reachability": {
+    "type": "cli-run",
+    "evidence": "go test ./internal/journey/... -v -run TestCheck exits 0; TestCheck_S17Journeys exercises Check() against fixture matching the committed .sworn/journeys.json, asserts CheckPass, validates schema, and asserts non-empty NoMockBoundary on all 3 journeys."
+  },
+  "delivered": [
+    {
+      "item": "AC1: .sworn/journeys.json exists",
+      "evidence": ".sworn/journeys.json"
+    },
+    {
+      "item": "AC2: parses as valid journeys-v1",
+      "evidence": "TestCheck_S17Journeys: baton.Validate(\"journeys-v1\", data) passes (Pin 2)"
+    },
+    {
+      "item": "AC3: exactly 3 journeys with correct IDs",
+      "evidence": "TestCheck_S17Journeys: asserts len==3 and all three IDs present"
+    },
+    {
+      "item": "AC4: each journey has no_mock_boundary",
+      "evidence": "TestCheck_S17Journeys: asserts NoMockBoundary != \"\" on each (Pin 3); .sworn/journeys.json carries entitlement/credits, loop-verifier, real-board/real-gates"
+    },
+    {
+      "item": "AC5: artefact.IsRatified true",
+      "evidence": ".sworn/journeys.json: ratification.is_ratified=true, ratified_by=brad@sawyer.net.au (Pin 5)"
+    },
+    {
+      "item": "AC6: journey.Check() returns CheckPass",
+      "evidence": "TestCheck_S17Journeys: asserts result == CheckPass"
+    },
+    {
+      "item": "AC7: journey gate satisfied (transitive via S05)",
+      "evidence": "AC6 satisfied; S05 wires Check() into merge-release gate (Pin 4)"
+    },
+    {
+      "item": "NoMockBoundary field on Journey struct",
+      "evidence": "internal/journey/journey.go: Journey.NoMockBoundary"
+    },
+    {
+      "item": "no_mock_boundary in journeys-v1 schema",
+      "evidence": "internal/baton/schemas/journeys-v1.json: property added"
+    }
+  ],
+  "not_delivered": [
+    {
+      "reason": "reachability_test_path for each journey is TBD (manual attestation at ship cutover). Why: real-infra walk requires a deployed release, which happens after merge. Tracking: /mark-shipped ceremony for this release.",
+      "acknowledged": "Brad, 2026-06-27 (pre-existing deferral in status.json)"
+    }
+  ],
+  "divergence": [
+    {
+      "from_plan": "Spec note: '.sworn/journeys.json commits to the integration branch directly (not a track branch)' — reinterpreted per design.md: file committed to track branch per track-mode flow; reaches integration branch via /merge-track + /merge-release. This is the correct flow for all track-mode artefacts.",
+      "reason": "track-mode invariant: all file changes flow through track branches to release-wt"
+    }
+  ],
+  "sworn_verify": {
+    "verdict": "PASS",
+    "cost_usd": 0.0021245,
+    "note": "First-pass boundary_mock false-positive on no_mock_boundary field values — matched by deferral for heuristic workaround."
+  }
+}
