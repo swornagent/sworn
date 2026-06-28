@@ -33,7 +33,7 @@ tracks:
     depends_on: T6-contract-revendor
     worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T5-role-ontology
     worktree_branch: track/2026-06-27-conformance-foundation/T5-role-ontology
-    state: in_progress
+    state: merged
   - id: T6-contract-revendor
     slices: [S22-pin-bump, S23-version-centralise-doctor]
     depends_on: null
@@ -70,7 +70,7 @@ tracks:
 | `T2-model-layer` | S08 → S09 → S10 | — | `track/.../T2-model-layer` | merged |
 | `T3-agentic-verifier` | S11 → S12 | T2-model-layer | `track/.../T3-agentic-verifier` | planned |
 | `T4-records-as-json` | S13 → S14 → S15 → S16 → S17 | — | `track/.../T4-records-as-json` | planned |
-| `T5-role-ontology` | S18 → S19 → S20 → S21 | T6-contract-revendor | `track/.../T5-role-ontology` | planned |
+| `T5-role-ontology` | S18 → S19 → S20 → S21 | T6-contract-revendor | `track/.../T5-role-ontology` | merged |
 | `T6-contract-revendor` | S22 → S23 | — | `track/.../T6-contract-revendor` | merged |
 | `T7-telemetry-eval` | S24 → S25 → S26 | T2-model-layer | `track/.../T7-telemetry-eval` | planned |
 
@@ -162,7 +162,7 @@ tracks:
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 1 / In progress: 4 / Merged: 2
+**Tracks:** Planned: 1 / In progress: 3 / Merged: 3
 
 ## Rule-10 journeys to declare (in T4 S17)
 
@@ -187,6 +187,11 @@ tracks:
 - **`internal/model/oai.go` (and the model drivers anthropic/azure/bedrock/cli/google/oci/ollama) is DOCUMENTED SHARED across T2-model-layer (Capability/Chat methods), T3-agentic-verifier (verifier model-call paths), and T7-telemetry-eval (S24 dispatch token/cost enrichment).** T3 and T7 therefore **depend_on T2-model-layer** for their model-touching slices: they must carry T2's merged base before those slices, and merge-track resolves the combine. (Added 2026-06-28 replan: the original matrix under-declared this single most-shared surface, causing recurring merge conflicts on `oai.go` — T7/S25 and T3/S12 both BLOCKED on it. Declaring it shared + sequencing T3/T7 after T2 is the durable fix.)
 
 ## Recent activity
+
+### 2026-06-28 — track `T5-role-ontology` merged to release-wt (commit 605a76c)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 4 verified slices merged: S18-orchestrator-formalized, S19-captain-split, S20-role-revendor, S21-sworn-run-task. Track state → merged.
 
 ### 2026-06-28 — slice `S21-sworn-run-task` verified (PASS)
 
