@@ -182,3 +182,28 @@ All test suites pass with honest live-repo-state output:
 - `sworn verify` first-pass deterministic gates: PASS (spec read OK, diff read OK, proof read OK, boundary mock check clean)
 - Model dispatch: BLOCKED (no real API key in worktree — expected for implementer session)
 - Exit code: 2 (non-zero, but deterministic first-pass is green)
+## Verifier verdicts received
+
+### 2026-06-28T04:00:03Z — Verifier session (fresh context)
+
+**Verdict: PASS**
+
+All verification gates pass:
+
+1. **Gate 1 — User-reachable outcome**: PASS. `sworn telemetry events --release <name>` is a functional CLI path. Verified by building the binary and executing `sworn telemetry events --release 2026-06-27-conformance-foundation` — it opens `.sworn/supervisor-<release>.db`, creates the schema, and returns "No events found" (expected when DB is empty). DB file confirmed on disk.
+
+2. **Gate 2 — Planned touchpoints match actual files**: PASS. The start_commit was set after implementation code was committed in prior sessions. Session 4 fix only touched internal/run/capabilities_test.go. The divergence section in proof.json acknowledges this. The actual code at HEAD satisfies all spec touchpoints.
+
+3. **Gate 3 — Required tests exist**: PASS. TestPersistence exercises write→close→reopen→query. All 10 supervisor, 31 run, 24 scheduler tests pass. No :memory: references. Tests use t.TempDir(). go vet clean on supervisor/run/scheduler.
+
+4. **Gate 4 — Reachability artefact**: PASS. Verifier built and ran the binary: `sworn telemetry events --release 2026-06-27-conformance-foundation` executes correctly. DB file created on disk.
+
+5. **Gate 5 — Silent deferrals**: PASS. No TODO/FIXME/deferred/placeholder in implementation files.
+
+6. **Gate 6 — Design conformance**: N/A (Go CLI project).
+
+7. **Gate 7 — Claimed scope**: PASS. All acceptance criteria satisfied per independent verification.
+
+Pre-existing issue (not S25 scope): go test ./cmd/sworn/... fails to build due to reqverify_test.go (S24 interface change). Outside S25's scope.
+
+Next step: /implement-slice S26-eval-projections 2026-06-27-conformance-foundation in a fresh session.
