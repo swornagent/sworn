@@ -4,10 +4,10 @@
   "release": "2026-06-27-conformance-foundation",
   "track": "T3-agentic-verifier",
   "covers_needs": ["N-07"],
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-28T02:00:00Z",
+  "last_updated_at": "2026-07-28T02:15:00Z",
   "start_commit": "df48e66f0cb8bfbb8e010cbfc689280547e9904b",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S12-first-pass-demote/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S12-first-pass-demote/proof.md",
@@ -31,17 +31,16 @@
     "internal/prompt/VERSION.txt"
   ],
   "test_commands": ["go test ./internal/verify/... -v"],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "manual-smoke-step: diff internal/prompt/verifier.md ~/.claude/baton/role-prompts/verifier.md exits 0",
+    "manual-smoke-step: grep verify.Run exits 1 (no bare references)"
+  ],
   "open_deferrals": [],
   "verification": {
-    "result": "fail",
-    "verifier_session_id": "2026-07-28T00:00:00Z",
-    "verifier_verdict_at": "2026-07-28T00:00:00Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      "Gate 4: Reachability artefact false — proof claims verifier.md diff shows no output, but diff shows substantial differences (command invocations, artefact file extensions)",
-      "Gate 7: Delivered item 5 not delivered — internal/prompt/verifier.md content does not match canonical",
-      "Spec AC #4: internal/prompt/verifier.md content does NOT match canonical"
-    ]
+    "result": "pending",
+    "verifier_session_id": "",
+    "verifier_verdict_at": "",
+    "verifier_was_fresh_context": false,
+    "violations": []
   }
 }

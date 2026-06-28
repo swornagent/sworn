@@ -51,3 +51,28 @@
 4. Re-run the reachability artefact commands and capture honest output in proof.md.
 
 **Next step:** `/implement-slice S12-first-pass-demote 2026-06-27-conformance-foundation` in a fresh session to address the numbered violations.
+## Session: 2026-07-28T02:00:00Z (re-entry)
+
+### Addressing verifier FAIL violations
+
+The prior session's implementation (RunFirstPass rename, first-pass integration, tests) was correct. The only issue: `internal/prompt/verifier.md` was not a byte-for-byte copy of canonical — it had project-local adaptations (command paths, artefact extensions).
+
+**Fix applied:**
+1. **`internal/prompt/verifier.md`**: byte-for-byte copy of `~/.claude/baton/role-prompts/verifier.md`. `diff` exits 0 with no output.
+2. **`internal/prompt/VERSION.txt`**: corrected to accurately describe the byte-for-byte re-vendor (prior version incorrectly claimed the change direction).
+3. **`proof.md`**: reachability artefact now shows honest output — `diff` exits 0 (files identical), no false claims.
+
+### Verification of all ACs
+
+| AC | Description | Result |
+|----|-------------|--------|
+| AC #1 | No bare `verify.Run` in non-test code | PASS — grep exits 1 |
+| AC #2 | `RunFirstPass()` PASS does NOT write `state.Verified` | PASS — function comment + code path confirmed |
+| AC #3 | `RunFirstPass()` FAIL/BLOCKED short-circuits `RunAgentic()` | PASS — `RunSlice` early return confirmed |
+| AC #4 | `verifier.md` matches canonical (diff exits 0) | PASS — byte-for-byte identical |
+| AC #5 | No `v0.4.2` or stale section headings in verifier.md | PASS — grep count: 0 |
+
+### Decisions
+- Kept original `start_commit` (`df48e66`) — it is the correct diff base covering all S12 implementation.
+- `sworn verify` (full agentic verifier) requires API key; deterministic first-pass checks run via `release-verify.sh` (all PASS).
+- Prior session's implementation (`RunFirstPass` rename, `RunSlice` integration, tests, caller updates) is unchanged and correct — this session only fixes the verifier.md re-vendor.
