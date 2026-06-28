@@ -79,7 +79,7 @@ func cmdJourneysCheck(projectRoot string) int {
 
 	switch result {
 	case journey.CheckPass:
-		fmt.Printf("Journeys artefact found and ratified by %s.\n", artefact.RatifiedBy)
+		fmt.Printf("Journeys artefact found and ratified by %s.\n", artefact.Ratification.By)
 		fmt.Println()
 		for _, j := range journey.ListJourneys(artefact) {
 			fmt.Println("  ", j)
@@ -116,7 +116,7 @@ func cmdJourneysElicit(projectRoot string) int {
 
 	if result == journey.CheckPass {
 		fmt.Printf("Journeys artefact already exists and is ratified (by %s).\n",
-			existingArtefact.RatifiedBy)
+			existingArtefact.Ratification.By)
 		fmt.Println("Current journeys:")
 		for _, j := range journey.ListJourneys(existingArtefact) {
 			fmt.Println("  ", j)
@@ -300,7 +300,7 @@ func cmdJourneysRegen(projectRoot, releaseName string) int { // 1. Load and veri
 
 	// Report results.
 	fmt.Printf("Release: %s\n", releaseName)
-	fmt.Printf("Journeys artefact: found and ratified (by %s)\n", artefact.RatifiedBy)
+	fmt.Printf("Journeys artefact: found and ratified (by %s)\n", artefact.Ratification.By)
 	fmt.Println()
 
 	if len(generated) > 0 {
