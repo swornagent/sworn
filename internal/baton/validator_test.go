@@ -83,12 +83,13 @@ func TestValidate_MissingTrack(t *testing.T) {
   "state": "in_progress",
   "verification": { "result": "pending" }
 }`)
-	err := Validate("slice-status-v1", payload)
-	if err == nil {
-		t.Fatal("missing track: want error, got nil")
-	}
-	if !strings.Contains(err.Error(), "track") {
-		t.Errorf("want error mentioning track, got: %v", err)
+	// track is OPTIONAL: single-slice `sworn run` writes an empty track, and the
+	// canonical slice-status-v1 required set is [slice_id, release, state,
+	// verification] — not track. Missing track must validate cleanly.
+	// (2026-06-28: previously asserted track was required, which broke every
+	// single-slice run and ~28 internal/run tests.)
+	if err := Validate("slice-status-v1", payload); err != nil {
+		t.Fatalf("missing track must be allowed (optional), got error: %v", err)
 	}
 }
 

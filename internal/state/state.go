@@ -188,6 +188,16 @@ func Write(path string, s *Status) error {
 	// Set the canonical $schema field.
 	s.Schema = baton.SchemaURI
 
+	// Default verification.result to "pending" when unset. A freshly-created
+	// status (e.g. single-slice `sworn run`, which sets no verdict) has no
+	// verification result yet, but slice-status-v1 requires verification.result
+	// to be present; "pending" is the canonical not-yet-verified value. Without
+	// this, every initial status write (and ~28 run tests) failed validation.
+	// (2026-06-28 reconcile.)
+	if s.Verification.Result == "" {
+		s.Verification.Result = "pending"
+	}
+
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return fmt.Errorf("state: marshal: %w", err)

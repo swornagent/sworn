@@ -31,8 +31,13 @@ const JourneysSchemaURI = "https://baton.sawy3r.net/schemas/journeys-v1.json"
 // AttestationsSchemaURI is the canonical $schema URI for attestations-v1.json.
 const AttestationsSchemaURI = "https://baton.sawy3r.net/schemas/attestations-v1.json"
 // requiredFields lists the top-level string fields that must be present
-// and non-empty in every status.json payload.
-var requiredFields = []string{"slice_id", "release", "track", "state"}
+// and non-empty in every status.json payload. `track` is intentionally NOT
+// required: single-slice `sworn run` (non-track mode) writes an empty track
+// (run.go sets Track: ""), and the canonical slice-status-v1 schema's required
+// set is [slice_id, release, state, verification] — track is optional. Requiring
+// it here diverged from the schema and broke every single-slice run + ~28
+// internal/run tests (2026-06-28 reconcile).
+var requiredFields = []string{"slice_id", "release", "state"}
 
 // validStates is the canonical set of valid slice states.
 var validStates = map[string]bool{
