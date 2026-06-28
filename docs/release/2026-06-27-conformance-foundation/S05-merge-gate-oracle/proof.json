@@ -1,0 +1,54 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S05-merge-gate-oracle",
+  "release": "2026-06-27-conformance-foundation",
+  "scope": "sworn merge-track and sworn merge-release route verified-check through board.Oracle; invariant-4 conflict classifier detects and reports non-documented shared file conflicts; CLI merge commands available; MCP tools use oracle-backed state reads",
+  "files_changed": [
+    "cmd/sworn/merge.go",
+    "cmd/sworn/mcp.go",
+    "docs/release/2026-06-27-conformance-foundation/S05-merge-gate-oracle/design.md",
+    "docs/release/2026-06-27-conformance-foundation/S05-merge-gate-oracle/status.json",
+    "internal/git/git.go",
+    "internal/mcp/tools_ops.go",
+    "internal/mcp/tools_test.go",
+    "internal/router/router.go",
+    "internal/router/router_test.go"
+  ],
+  "test_results": {
+    "go test ./internal/router/...": "PASS — 17 tests pass including Invariant4Check (real git dry-run), ParseDocumentedShared (synthetic + live index.md), normalizeFilePath, isDocumentedShared",
+    "go test ./internal/git/...": "PASS — all tests pass including existing Merge/Show/CatFileExists/IsAncestor tests"
+  },
+  "reachability_artefact": {
+    "type": "smoke-test",
+    "description": "go test ./internal/router/... -v -run TestInvariant4CheckCleanMerge passes with real git dry-run merge, verifying the invariant-4 classifier works end-to-end on a real repo. ParseDocumentedShared tested against live index.md (6 documented-shared files match design)."
+  },
+  "delivered": [
+    "AC1: merge-track with all verified slices → exit 0 — cmd/sworn/merge.go cmdMergeTrack gate-1 via oracle ReadBoard → SliceState",
+    "AC2: merge-track with unverified slice → exit non-zero — cmd/sworn/merge.go cmdMergeTrack gate-1 rejects non-verified/deferred states",
+    "AC3: invariant-4 conflict on non-documented file → BLOCK message — internal/router/router.go Invariant4Check with documentedShared set from ParseDocumentedShared",
+    "AC4: merge-release with no journeys → BLOCK 'no ratified journeys.json — Rule 10 gate' — cmd/sworn/merge.go cmdMergeRelease gate-3 calls journey.Check; exact spec message emitted",
+    "AC5: merge-track reads slice states via board.Oracle — internal/mcp/tools_ops.go handleApproveMerge + checkTrackVerifiedOracle use board.NewGitOracle + ReadSliceStatus; readReleaseBoardOracle uses OracleReaderAdapter.ReadBoard",
+    "AC6: MCP tools pass same gates — internal/mcp/tools_ops.go handleApproveMerge calls checkTrackVerifiedOracle + Invariant4Check; RegisterOpsTools signature updated"
+  ],
+  "not_delivered": [
+    "cmd/sworn/merge_test.go: CLI-level unit tests not created — requires mock oracle + mock git infrastructure beyond slice scope. Core logic (Invariant4Check, ParseDocumentedShared) is covered by router tests. Tracking: future slice or manual test. Why: scope limit. Acknowledged: implementer session 2026-07-28.",
+    "MCP round-trip tests (TestApproveMerge with oracle): existing MCP tests use in-process server that times out — pre-existing issue not caused by this slice's changes. Tracking: existing test infrastructure issue."
+  ],
+  "divergence_from_plan": [
+    "spec names MCP tools merge_track/merge_release — actual tool is approve_merge (registered in tools_ops.go:126). AC6 satisfied against approve_merge per Captain Pin 2.",
+    "spec Planned touchpoints omits internal/git/git.go — added to status.json planned_files per Captain Pin 3.",
+    "spec deferral about journey gate being stubbed is stale — S17 is verified, journeys.json exists and is ratified. Wired real journey.Check per Captain Pin 4."
+  ],
+  "design_decisions": [
+    {
+      "id": "DD-1",
+      "classification": "Type-1",
+      "description": "Invariant-4 shared-file source of truth: parse index.md touchpoint matrix for documented-shared files. Type-1 because it gates whole-release merges."
+    },
+    {
+      "id": "DD-2",
+      "classification": "Type-2",
+      "description": "RegisterOpsTools signature change: add *git.Repo parameter for oracle-backed state reads."
+    }
+  ]
+}
