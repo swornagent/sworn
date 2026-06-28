@@ -24,3 +24,17 @@
 - Re-vendoring captain.md from canonical (S20)
 - Changing the design-review logic itself
 - Any changes to the production Go code paths
+## 2026-06-28T00:02:13Z — Verifier verdict (PASS)
+
+**Verdict:** PASS
+**Verified against:** 589a233f47f0f5d0edbce78bb45dbc000c8ed86a
+**Verifier session:** fresh, artefact-only
+
+Gate walk:
+1. User-reachable outcome exists — `design-reviewer.md`, `orchestrator-notes.md`, and updated `captain.md` are all real prompt artefacts; `prompt.Captain()` continues to work (tests pass).
+2. Planned touchpoints match actual changed files — all three planned files are the only production files changed.
+3. Required tests exist and exercise the integration point — 24/24 tests pass, including `TestCaptain_NonEmpty`, `TestCaptain_ResolveDirtyWorktree`, `TestCaptainKeepsRoleVocab`.
+4. Reachability artefact proves the user path — all artefacts exist on disk, non-empty, with correct content.
+5. No silent deferrals or placeholder logic — zero TODO/FIXME/deferred/placeholder hits.
+6. Design conformance — non-UI project, auto-pass.
+7. Claimed scope matches implemented scope — all five delivered items match spec acceptance checks with valid evidence references.
