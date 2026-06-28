@@ -5,10 +5,9 @@
 // (~/.claude/baton/role-prompts/). The baton/ subdirectory contains the
 // canonical Baton protocol documents served via sworn://baton/* MCP resources.
 //
-// Vendored Baton protocol version is recorded in VERSION.txt and surfaced by
-// `sworn version`.
+// Baton protocol version is read from the canonical source (internal/adopt/baton/VERSION)
+// via internal/baton.Version() — no separate VERSION.txt.
 package prompt
-
 import (
 	"embed"
 	"fmt"
@@ -16,10 +15,9 @@ import (
 	"github.com/swornagent/sworn/internal/baton"
 )
 
-//go:embed verifier.md implementer.md planner.md captain.md verify-stateless.md requirements-verifier.md design-tldr.md VERSION.txt baton/*
+//go:embed verifier.md implementer.md planner.md captain.md verify-stateless.md requirements-verifier.md design-tldr.md baton/*
 var fs embed.FS
-var (
-	verifier             string
+var (	verifier             string
 	implementer          string
 	planner              string
 	captain              string
@@ -94,9 +92,8 @@ func Baton(name string) (string, error) {
 // BatonAll returns all embedded Baton protocol documents keyed by filename.
 // The map includes every file in the baton/ subdirectory: "rules.md",
 // "track-mode.md", "session-discipline.md", "brainstorm-patterns.md",
-// "README.md", "VERSION.txt".
-func BatonAll() map[string]string {
-	entries, err := fs.ReadDir("baton")
+// "README.md".
+func BatonAll() map[string]string {	entries, err := fs.ReadDir("baton")
 	if err != nil {
 		// The baton/ directory must exist in the embed — this is a
 		// build-time invariant enforced by the go:embed directive.

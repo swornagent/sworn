@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "title": "Baton Proof Record",
+  "description": "Machine-readable proof record derived from live repo state — the evidence bundle for a verified slice.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema_version", "slice_id", "release"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://baton.sawy3r.net/schemas/proof-v1.json"
+    },
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "slice_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "release": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scope": {
+      "type": "string"
+    },
+    "files_changed": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "test_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "command": { "type": "string" },
+          "exit_code": { "type": "integer" },
+          "output": { "type": "string" }
+        }
+      }
+    },
+    "reachability_artifacts": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "delivered": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "not_delivered": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "divergence": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

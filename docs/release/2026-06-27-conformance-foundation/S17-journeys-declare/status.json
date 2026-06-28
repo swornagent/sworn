@@ -3,29 +3,40 @@
   "slice_id": "S17-journeys-declare",
   "release": "2026-06-27-conformance-foundation",
   "track": "T4-records-as-json",
-  "covers_needs": ["N-09"],
-  "state": "planned",
+  "covers_needs": [
+    "N-09"
+  ],
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-27T00:00:00Z",
-  "start_commit": null,
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-28T16:30:00Z",
+  "start_commit": "6f68d6024e8ecfe69e264f325b23db01dbbf78df",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S17-journeys-declare/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S17-journeys-declare/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S17-journeys-declare/journal.md",
   "planned_files": [
     ".sworn/journeys.json"
   ],
-  "actual_files": [],
-  "test_commands": ["go test ./internal/journey/... -v -run TestCheck"],
-  "reachability_artifacts": [],
+  "actual_files": [
+    ".sworn/journeys.json",
+    "internal/journey/journey.go",
+    "internal/journey/journey_test.go",
+    "internal/baton/schemas/journeys-v1.json",
+    "docs/release/2026-06-27-conformance-foundation/S17-journeys-declare/design.md"
+  ],
+  "test_commands": [
+    "go test ./internal/journey/... -v -run TestCheck"
+  ],
+  "reachability_artifacts": [
+    "go test ./internal/journey/... -v -run TestCheck exits 0; TestCheck_S17Journeys asserts CheckPass"
+  ],
   "open_deferrals": [
     "reachability_test_path for each journey is TBD (manual attestation at ship cutover). Why: real-infra walk requires a deployed release. Tracking: /mark-shipped ceremony for this release. Acknowledged: Brad, 2026-06-27."
   ],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-06-28T16:30:00Z",
     "violations": []
   }
 }

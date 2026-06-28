@@ -53,7 +53,7 @@ func TestOCIVerify_ReturnsText(t *testing.T) {
 		CompartmentID: "ocid1.compartment.oc1..test",
 	}
 
-	text, cost, err := o.Verify(context.Background(), "be strict", "verify this diff")
+text, cost, _, _, err := o.Verify(context.Background(), "be strict", "verify this diff")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestOCIVerify_MissingCompartment(t *testing.T) {
 		ModelID:       "cohere.command-r-plus",
 		CompartmentID: "",
 	}
-	_, _, err := o.Verify(context.Background(), "be strict", "verify this diff")
+_, _, _, _, err := o.Verify(context.Background(), "be strict", "verify this diff")
 	if err == nil {
 		t.Fatal("Verify with empty compartmentID returned nil error")
 	}
@@ -108,7 +108,7 @@ func TestOCIVerify_MissingTokenCount(t *testing.T) {
 		CompartmentID: "ocid1.compartment.oc1..test",
 	}
 
-	_, cost, err := o.Verify(context.Background(), "be strict", "verify this diff")
+_, cost, _, _, err := o.Verify(context.Background(), "be strict", "verify this diff")
 	if err != nil {
 		t.Fatalf("unexpected error on nil usage: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestOCIVerify_MissingModelID(t *testing.T) {
 		ModelID:       "",
 		CompartmentID: "ocid1.compartment.oc1..test",
 	}
-	_, _, err := o.Verify(context.Background(), "be strict", "verify this diff")
+_, _, _, _, err := o.Verify(context.Background(), "be strict", "verify this diff")
 	if err == nil {
 		t.Fatal("Verify with empty modelID returned nil error")
 	}

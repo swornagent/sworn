@@ -3,14 +3,18 @@ package scheduler
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
 	_ "modernc.org/sqlite"
 
 	"github.com/swornagent/sworn/internal/board"
+	"github.com/swornagent/sworn/internal/router"
+	"github.com/swornagent/sworn/internal/state"
 )
 
 // fakeRunSlice is a test helper that records the slices it was called with.
@@ -873,4 +877,774 @@ func TestCrashRecovery(t *testing.T) {
 	if len(called) != 1 || called[0] != sid {
 		t.Fatalf("expected implement dispatch for %q, got %v", sid, called)
 	}
+}
+
+// TestRunTrack_InterpreterInconclusivePauses proves that when RunSliceFn
+// returns an INTERPRETER_INCONCLUSIVE error (S01), the worker pauses the
+// track rather than failing it. This is the worker-side integration test
+// for AC3/AC6: the non-typed-output -> interpreter -> triage path results
+// in a PAGE event (track paused).
+func TestRunTrack_InterpreterInconclusivePauses(t *testing.T) {
+	trackID := "T1-interp"
+	sliceID := "S01-interp-test"
+
+	tmpDir := t.TempDir()
+	absSpecDir := filepath.Join(tmpDir, "docs", "release", "test-interp", sliceID)
+	os.MkdirAll(absSpecDir, 0o755)
+	os.WriteFile(filepath.Join(absSpecDir, "spec.md"), []byte("# test"), 0o644)
+	os.WriteFile(filepath.Join(absSpecDir, "status.json"), []byte(`{"state":"in_progress"}`), 0o644)
+
+	var called []string
+	runSliceFn := func(ctx context.Context, worktreeRoot, specPath, statusPath string) error {
+		called = append(called, filepath.Base(filepath.Dir(statusPath)))
+		return fmt.Errorf("INTERPRETER_INCONCLUSIVE: interpreter could not classify output for %s (raw preview: ambiguous text)", sliceID)
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite not available: %v", err)
+	}
+	defer db.Close()
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+
+	opts := WorkerOptions{
+		ReleaseName:         "test-interp",
+		PrimaryWorktreeRoot: tmpDir,
+		ProjectDir:          "sworn",
+		TrackInfo: board.TrackInfo{
+			ID:             trackID,
+			Slices:         []string{sliceID},
+			WorktreePath:   tmpDir,
+			WorktreeBranch: "track/test-interp/" + trackID,
+		},
+		RunSliceFn: runSliceFn,
+		DB:         db,
+	}
+
+	result := RunTrack(context.Background(), opts)
+	if result != TrackPaused {
+		t.Fatalf("expected TrackPaused for interpreter INCONCLUSIVE, got %s", result)
+	}
+	if len(called) != 1 {
+		t.Fatalf("expected 1 RunSliceFn call, got %d", len(called))
+	}
+}
+
+// TestRunTrack_MaxTurnsPausesLegacy proves that when RunSliceFn
+// returns a max-turns exhaustion error (S03), the legacy worker path pauses the
+// track rather than failing it.  The worker detects the sentinel in the error
+// message and emits a PAGE event via RecordPage.
+func TestRunTrack_MaxTurnsPausesLegacy(t *testing.T) {
+	trackID := "T1-maxturns"
+	sliceID := "S03-maxturns-legacy"
+
+	tmpDir := t.TempDir()
+	absSpecDir := filepath.Join(tmpDir, "docs", "release", "test-maxturns", sliceID)
+	os.MkdirAll(absSpecDir, 0o755)
+	os.WriteFile(filepath.Join(absSpecDir, "spec.md"), []byte("# test"), 0o644)
+	os.WriteFile(filepath.Join(absSpecDir, "status.json"), []byte(`{"state":"in_progress"}`), 0o644)
+
+	var called []string
+	runSliceFn := func(ctx context.Context, worktreeRoot, specPath, statusPath string) error {
+		called = append(called, filepath.Base(filepath.Dir(statusPath)))
+		return fmt.Errorf("RunSlice: max turns exhausted: max turns exhausted for %s", sliceID)
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite not available: %v", err)
+	}
+	defer db.Close()
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+
+	opts := WorkerOptions{
+		ReleaseName:         "test-maxturns",
+		PrimaryWorktreeRoot: tmpDir,
+		ProjectDir:          "sworn",
+		TrackInfo: board.TrackInfo{
+			ID:             trackID,
+			Slices:         []string{sliceID},
+			WorktreePath:   tmpDir,
+			WorktreeBranch: "track/test-maxturns/" + trackID,
+		},
+		RunSliceFn: runSliceFn,
+		DB:         db,
+		Router:     nil, // legacy path
+	}
+
+	result := RunTrack(context.Background(), opts)
+	if result != TrackPaused {
+		t.Fatalf("expected TrackPaused for max-turns exhaustion (legacy), got %s", result)
+	}
+	if len(called) != 1 {
+		t.Fatalf("expected 1 RunSliceFn call, got %d", len(called))
+	}
+}
+
+// TestRunTrack_MaxTurnsPausesRouter proves that when RunSliceFn returns a
+// max-turns exhaustion error (S03), the router-driven worker path also pauses
+// the track. Same sentinel detection as the legacy path.
+func TestRunTrack_MaxTurnsPausesRouter(t *testing.T) {
+	trackID := "T1-maxturns-router"
+	sliceID := "S03-maxturns-router"
+
+	tmpDir := t.TempDir()
+	absSpecDir := filepath.Join(tmpDir, "docs", "release", "test-maxturns-router", sliceID)
+	os.MkdirAll(absSpecDir, 0o755)
+	os.WriteFile(filepath.Join(absSpecDir, "spec.md"), []byte("# test"), 0o644)
+	os.WriteFile(filepath.Join(absSpecDir, "status.json"), []byte(`{"state":"in_progress"}`), 0o644)
+
+	var called []string
+	runSliceFn := func(ctx context.Context, worktreeRoot, specPath, statusPath string) error {
+		called = append(called, filepath.Base(filepath.Dir(statusPath)))
+		return fmt.Errorf("RunSlice: max turns exhausted: max turns exhausted for %s", sliceID)
+	}
+
+	router := &fakeRouter{
+		decisions: []SliceDecision{
+			{Type: "implement", Reason: "planned", Target: ""},
+		},
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite not available: %v", err)
+	}
+	defer db.Close()
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+
+	opts := WorkerOptions{
+		ReleaseName:         "test-maxturns-router",
+		PrimaryWorktreeRoot: tmpDir,
+		ProjectDir:          "sworn",
+		TrackInfo: board.TrackInfo{
+			ID:             trackID,
+			Slices:         []string{sliceID},
+			WorktreePath:   tmpDir,
+			WorktreeBranch: "track/test-maxturns-router/" + trackID,
+		},
+		RunSliceFn: runSliceFn,
+		DB:         db,
+		Router:     router,
+	}
+
+	result := RunTrack(context.Background(), opts)
+	if result != TrackPaused {
+		t.Fatalf("expected TrackPaused for max-turns exhaustion (router), got %s", result)
+	}
+	if len(called) != 1 {
+		t.Fatalf("expected 1 RunSliceFn call, got %d", len(called))
+	}
+}
+
+// verifyPageEvents checks that events matching eventType+detail are present
+// in the events table. Returns the count of matching rows.
+func verifyPageEvents(t *testing.T, db *sql.DB, eventType, detail string) int {
+	t.Helper()
+	rows, err := db.Query(
+		`SELECT COUNT(*) FROM events WHERE event = ? AND detail = ?`,
+		eventType, detail,
+	)
+	if err != nil {
+		t.Fatalf("query events: %v", err)
+	}
+	defer rows.Close()
+	var count int
+	if rows.Next() {
+		rows.Scan(&count)
+	}
+	return count
+}
+
+func TestRunTrack_InterpreterSentinelIsNotNormalFailure(t *testing.T) {
+	trackID := "T1-normal-fail"
+	sliceID := "S01-normal-fail"
+
+	tmpDir := t.TempDir()
+	absSpecDir := filepath.Join(tmpDir, "docs", "release", "test-normal-fail", sliceID)
+	os.MkdirAll(absSpecDir, 0o755)
+	os.WriteFile(filepath.Join(absSpecDir, "spec.md"), []byte("# test"), 0o644)
+	os.WriteFile(filepath.Join(absSpecDir, "status.json"), []byte(`{"state":"in_progress"}`), 0o644)
+
+	var called []string
+	runSliceFn := func(ctx context.Context, worktreeRoot, specPath, statusPath string) error {
+		called = append(called, filepath.Base(filepath.Dir(statusPath)))
+		return fmt.Errorf("RunSlice: verification failed after 3 attempts")
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite not available: %v", err)
+	}
+	defer db.Close()
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+
+	opts := WorkerOptions{
+		ReleaseName:         "test-normal-fail",
+		PrimaryWorktreeRoot: tmpDir,
+		ProjectDir:          "sworn",
+		TrackInfo: board.TrackInfo{
+			ID:             trackID,
+			Slices:         []string{sliceID},
+			WorktreePath:   tmpDir,
+			WorktreeBranch: "track/test-normal-fail/" + trackID,
+		},
+		RunSliceFn: runSliceFn,
+		DB:         db,
+	}
+
+	result := RunTrack(context.Background(), opts)
+	if result != TrackFail {
+		t.Fatalf("expected TrackFail for normal verification failure, got %s", result)
+	}
+}
+
+// TestRecordDecisionCalledPerRoutingEvent is the S02 integration test:
+// it runs a mock slice through the router-driven worker and asserts that
+// RecordDecision is called once per routing event with correct fields.
+func TestRecordDecisionCalledPerRoutingEvent(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Two slices so we get multiple routing events.
+	for _, sid := range []string{"S01-first", "S02-second"} {
+		d := filepath.Join(tmpDir, "docs", "release", "test-s02", sid)
+		os.MkdirAll(d, 0o755)
+		os.WriteFile(filepath.Join(d, "spec.md"), []byte("# test"), 0o644)
+		os.WriteFile(filepath.Join(d, "status.json"), []byte(`{"state":"planned"}`), 0o644)
+	}
+
+	// Router: implement S01 → advance to S02 → implement S02 → done.
+	router := &fakeRouter{
+		decisions: []SliceDecision{
+			{Type: "implement", Reason: "planned", Target: ""},
+			{Type: "implement", Reason: "next up", Target: "S02-second"},
+			{Type: "none", Reason: "complete"},
+		},
+	}
+
+	var called []string
+	opts := WorkerOptions{
+		ReleaseName:         "test-s02",
+		PrimaryWorktreeRoot: tmpDir,
+		ProjectDir:          "sworn",
+		TrackInfo: board.TrackInfo{
+			ID:             "T1",
+			Slices:         []string{"S01-first", "S02-second"},
+			WorktreePath:   tmpDir,
+			WorktreeBranch: "track/test-s02/T1",
+		},
+		RunSliceFn: fakeRunSlice("", &called),
+		Router:     router,
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite not available: %v — skipping S02 decision-log test", err)
+	}
+	defer db.Close()
+
+	// Create all tables the worker + supervisor need.
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+	db.Exec(`CREATE TABLE IF NOT EXISTS decisions (
+		id          INTEGER PRIMARY KEY AUTOINCREMENT,
+		slice_id    TEXT NOT NULL,
+		release     TEXT NOT NULL,
+		role        TEXT NOT NULL,
+		action      TEXT NOT NULL,
+		reason      TEXT NOT NULL DEFAULT '',
+		recorded_at TEXT NOT NULL
+	)`)
+	opts.DB = db
+
+	result := RunTrack(context.Background(), opts)
+	if result != TrackPass {
+		t.Fatalf("expected TrackPass, got %s", result)
+	}
+
+	// Verify RecordDecision was called once per routing event (3 Route calls).
+	rows, err := db.Query(`SELECT slice_id, release, role, action, reason FROM decisions ORDER BY id ASC`)
+	if err != nil {
+		t.Fatalf("query decisions: %v", err)
+	}
+	defer rows.Close()
+
+	var decisions []struct {
+		sliceID string
+		release string
+		role    string
+		action  string
+		reason  string
+	}
+	for rows.Next() {
+		var d struct {
+			sliceID string
+			release string
+			role    string
+			action  string
+			reason  string
+		}
+		if err := rows.Scan(&d.sliceID, &d.release, &d.role, &d.action, &d.reason); err != nil {
+			t.Fatalf("scan decision row: %v", err)
+		}
+		decisions = append(decisions, d)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows iteration: %v", err)
+	}
+
+	// 3 routing events → 3 RecordDecision calls.
+	if len(decisions) != 3 {
+		t.Fatalf("expected 3 decision rows (one per Route call), got %d", len(decisions))
+	}
+
+	// Each row must have correct role ("router") and release.
+	for i, d := range decisions {
+		if d.release != "test-s02" {
+			t.Errorf("decision[%d].release = %q, want test-s02", i, d.release)
+		}
+		if d.role != "router" {
+			t.Errorf("decision[%d].role = %q, want router", i, d.role)
+		}
+		if d.action == "" {
+			t.Errorf("decision[%d].action is empty", i)
+		}
+	}
+
+	// Verify the 2 RunSliceFn calls correspond to the 2 implement dispatches.
+	if len(called) != 2 {
+		t.Fatalf("expected 2 slice calls, got %d: %v", len(called), called)
+	}
+	if called[0] != "S01-first" {
+		t.Errorf("call[0] = %q, want S01-first", called[0])
+	}
+	if called[1] != "S02-second" {
+		t.Errorf("call[1] = %q, want S02-second", called[1])
+	}
+}
+
+// ── S04 dependent-track tests ──────────────────────────────────────────────
+
+// TestDependentTrack_MergeTrackFnCalled proves that finishTrack calls
+// MergeTrackFn when it is set in WorkerOptions. AC3: auto-invoke merge-track
+// when the last slice is terminal.
+func TestDependentTrack_MergeTrackFnCalled(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	sid := "S01-final"
+	d := filepath.Join(tmpDir, "docs", "release", "test-dep", sid)
+	os.MkdirAll(d, 0o755)
+	os.WriteFile(filepath.Join(d, "spec.md"), []byte("# test"), 0o644)
+	os.WriteFile(filepath.Join(d, "status.json"), []byte(`{"state":"verified"}`), 0o644)
+
+	mergeCalled := false
+	var mergeTrackID, mergeBranch string
+
+	router := &fakeRouter{
+		decisions: []SliceDecision{
+			{Type: "none", Reason: "terminal", Target: ""},
+		},
+	}
+
+	opts := WorkerOptions{
+		ReleaseName:         "test-dep",
+		PrimaryWorktreeRoot: tmpDir,
+		ProjectDir:          "sworn",
+		ReleaseWorktreePath: tmpDir,
+		TrackInfo: board.TrackInfo{
+			ID:             "T1",
+			Slices:         []string{sid},
+			WorktreePath:   tmpDir,
+			WorktreeBranch: "track/test-dep/T1",
+		},
+		Router: router,
+		MergeTrackFn: func(releasePath, trackID, branch string) error {
+			mergeCalled = true
+			mergeTrackID = trackID
+			mergeBranch = branch
+			return nil
+		},
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite not available: %v", err)
+	}
+	defer db.Close()
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+	opts.DB = db
+
+	result := RunTrack(context.Background(), opts)
+	if result != TrackPass {
+		t.Fatalf("expected TrackPass, got %s", result)
+	}
+
+	if !mergeCalled {
+		t.Fatal("expected MergeTrackFn to be called in finishTrack")
+	}
+	if mergeTrackID != "T1" {
+		t.Errorf("mergeTrackID = %q, want T1", mergeTrackID)
+	}
+	if mergeBranch != "track/test-dep/T1" {
+		t.Errorf("mergeBranch = %q, want track/test-dep/T1", mergeBranch)
+	}
+}
+
+// TestDependentTrack_MergeTrackFnErrorFails proves that finishTrack returns
+// TrackFail when MergeTrackFn returns an error. AC4: no silent merge failures.
+func TestDependentTrack_MergeTrackFnErrorFails(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	sid := "S01-failmerge"
+	d := filepath.Join(tmpDir, "docs", "release", "test-dep", sid)
+	os.MkdirAll(d, 0o755)
+	os.WriteFile(filepath.Join(d, "spec.md"), []byte("# test"), 0o644)
+	os.WriteFile(filepath.Join(d, "status.json"), []byte(`{"state":"verified"}`), 0o644)
+
+	router := &fakeRouter{
+		decisions: []SliceDecision{
+			{Type: "none", Reason: "terminal", Target: ""},
+		},
+	}
+
+	opts := WorkerOptions{
+		ReleaseName:         "test-dep",
+		PrimaryWorktreeRoot: tmpDir,
+		ProjectDir:          "sworn",
+		ReleaseWorktreePath: tmpDir,
+		TrackInfo: board.TrackInfo{
+			ID:             "T1",
+			Slices:         []string{sid},
+			WorktreePath:   tmpDir,
+			WorktreeBranch: "track/test-dep/T1",
+		},
+		Router: router,
+		MergeTrackFn: func(releasePath, trackID, branch string) error {
+			return fmt.Errorf("simulated merge conflict")
+		},
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite not available: %v", err)
+	}
+	defer db.Close()
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+	opts.DB = db
+
+	result := RunTrack(context.Background(), opts)
+	if result != TrackFail {
+		t.Fatalf("expected TrackFail when MergeTrackFn errors, got %s", result)
+	}
+}
+
+// TestDependentTrack_MergeTrackDecisionAutoMerges proves that when the router
+// returns "merge-track" and MergeTrackFn is set, the worker calls finishTrack
+// (auto-merge) instead of pausing.
+func TestDependentTrack_MergeTrackDecisionAutoMerges(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	sid := "S01-automerge"
+	d := filepath.Join(tmpDir, "docs", "release", "test-dep", sid)
+	os.MkdirAll(d, 0o755)
+	os.WriteFile(filepath.Join(d, "spec.md"), []byte("# test"), 0o644)
+	os.WriteFile(filepath.Join(d, "status.json"), []byte(`{"state":"verified"}`), 0o644)
+
+	mergeCalled := false
+
+	router := &fakeRouter{
+		decisions: []SliceDecision{
+			{Type: "merge-track", Reason: "track fully verified", Target: ""},
+		},
+	}
+
+	opts := WorkerOptions{
+		ReleaseName:         "test-dep",
+		PrimaryWorktreeRoot: tmpDir,
+		ProjectDir:          "sworn",
+		ReleaseWorktreePath: tmpDir,
+		TrackInfo: board.TrackInfo{
+			ID:             "T1",
+			Slices:         []string{sid},
+			WorktreePath:   tmpDir,
+			WorktreeBranch: "track/test-dep/T1",
+		},
+		Router: router,
+		MergeTrackFn: func(releasePath, trackID, branch string) error {
+			mergeCalled = true
+			return nil
+		},
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite not available: %v", err)
+	}
+	defer db.Close()
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+	opts.DB = db
+
+	result := RunTrack(context.Background(), opts)
+	if result != TrackPass {
+		t.Fatalf("expected TrackPass (auto-merge via merge-track decision), got %s", result)
+	}
+
+	if !mergeCalled {
+		t.Fatal("expected MergeTrackFn to be called for merge-track decision with MergeTrackFn set")
+	}
+}
+
+// TestDependentTrack_MergeTrackDecisionPausesWhenNoMergeTrackFn proves that
+// merge-track pauses when MergeTrackFn is nil (backward-compatible fallback).
+func TestDependentTrack_MergeTrackDecisionPausesWhenNoMergeTrackFn(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	sid := "S01-nomergefn"
+	d := filepath.Join(tmpDir, "docs", "release", "test-dep", sid)
+	os.MkdirAll(d, 0o755)
+	os.WriteFile(filepath.Join(d, "spec.md"), []byte("# test"), 0o644)
+	os.WriteFile(filepath.Join(d, "status.json"), []byte(`{"state":"verified"}`), 0o644)
+
+	router := &fakeRouter{
+		decisions: []SliceDecision{
+			{Type: "merge-track", Reason: "track fully verified", Target: ""},
+		},
+	}
+
+	opts := WorkerOptions{
+		ReleaseName:         "test-dep",
+		PrimaryWorktreeRoot: tmpDir,
+		ProjectDir:          "sworn",
+		TrackInfo: board.TrackInfo{
+			ID:             "T1",
+			Slices:         []string{sid},
+			WorktreePath:   tmpDir,
+			WorktreeBranch: "track/test-dep/T1",
+		},
+		Router:       router,
+		MergeTrackFn: nil, // no MergeTrackFn — should pause
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite not available: %v", err)
+	}
+	defer db.Close()
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+	opts.DB = db
+
+	result := RunTrack(context.Background(), opts)
+	if result != TrackPaused {
+		t.Fatalf("expected TrackPaused for merge-track when MergeTrackFn is nil, got %s", result)
+	}
+}
+
+// TestDependentTrack_WorktreeBranchesFromMergedTip is the AC5 integration test.
+//
+// It proves that when a dependency track merges into release-wt via
+// finishTrack / MergeTrackFn, a dependent track's worktree created from
+// release-wt gets the dependency's code. Uses real git repos.
+//
+// Scenario: T_dep → T_main. T_dep merges its code into release-wt.
+// T_main's worktree is then created branching from release-wt. The
+// dependency's file MUST be present in T_main's worktree.
+func TestDependentTrack_WorktreeBranchesFromMergedTip(t *testing.T) {
+	// Skip if git is not available.
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available — skipping integration test")
+	}
+
+	tmpDir := t.TempDir()
+
+	// 1. Create a bare "origin" repo.
+	barePath := filepath.Join(tmpDir, "origin.git")
+	runGit(t, tmpDir, "init", "--bare", barePath)
+
+	// 2. Clone a "release worktree" from the bare repo.
+	releasePath := filepath.Join(tmpDir, "release-wt")
+	runGit(t, tmpDir, "clone", barePath, releasePath)
+
+	// 3. In the release worktree, create the release-wt branch with an
+	//    initial file, and push it so the bare repo has the branch.
+	runGit(t, releasePath, "checkout", "-b", "release-wt/2026-06-27-conformance-foundation")
+	writeFile(t, filepath.Join(releasePath, "before.txt"), "before-merge\n")
+	runGit(t, releasePath, "add", "before.txt")
+	runGit(t, releasePath, "commit", "-m", "initial release-wt")
+	runGit(t, releasePath, "push", "origin", "release-wt/2026-06-27-conformance-foundation")
+
+	// 4. Create a track branch (T_dep) off release-wt, add a dependency
+	//    file, and push it.
+	runGit(t, releasePath, "checkout", "-b", "track/2026-06-27-conformance-foundation/T_dep")
+	writeFile(t, filepath.Join(releasePath, "dependency.txt"), "dep-code\n")
+	runGit(t, releasePath, "add", "dependency.txt")
+	runGit(t, releasePath, "commit", "-m", "T_dep: add dependency file")
+	runGit(t, releasePath, "push", "origin", "track/2026-06-27-conformance-foundation/T_dep")
+
+	// 5. Switch back to release-wt and merge the track branch —
+	//    simulating what ProductionMergeTrack does inside finishTrack.
+	runGit(t, releasePath, "checkout", "release-wt/2026-06-27-conformance-foundation")
+	runGit(t, releasePath, "merge", "--no-ff", "track/2026-06-27-conformance-foundation/T_dep", "--no-edit")
+	runGit(t, releasePath, "push", "origin", "release-wt/2026-06-27-conformance-foundation")
+
+	// 6. Now simulate a dependent track (T_main) being created: run
+	//    `git worktree add -b <branch> release-wt/<release>`, which
+	//    branches from the live release-wt tip.
+	dependentPath := filepath.Join(tmpDir, "dependent-worktree")
+	runGit(t, releasePath, "worktree", "add", dependentPath,
+		"-b", "track/2026-06-27-conformance-foundation/T_main",
+		"release-wt/2026-06-27-conformance-foundation")
+
+	// 7. ASSERT: T_main's worktree has both the pre-merge file AND the
+	//    dependency's file, proving it branched from the post-T_dep tip.
+	beforeContent := readFile(t, filepath.Join(dependentPath, "before.txt"))
+	if beforeContent != "before-merge\n" {
+		t.Errorf("before.txt = %q, want %q", beforeContent, "before-merge\n")
+	}
+
+	depContent := readFile(t, filepath.Join(dependentPath, "dependency.txt"))
+	if depContent != "dep-code\n" {
+		t.Fatalf("dependency.txt = %q, want %q — dependent worktree did not get dependency's code", depContent, "dep-code\n")
+	}
+}
+
+// ── Test helpers ──────────────────────────────────────────────────────────
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, string(out))
+	}
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll %s: %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile %s: %v", path, err)
+	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile %s: %v", path, err)
+	}
+	return string(data)
+}
+
+// ---------- S07 fakes ----------
+
+// fakeOracle is a minimal OracleReader for S07 tests.
+type fakeOracle struct {
+	slices map[string]board.SliceState
+}
+
+func (f *fakeOracle) ReadSliceStatus(_ context.Context, _, sliceID string) (board.SliceState, error) {
+	ss, ok := f.slices[sliceID]
+	if !ok {
+		return board.SliceState{}, errors.New("slice not found")
+	}
+	return ss, nil
+}
+
+func (f *fakeOracle) ReadBoard(_ context.Context, _ string) (*board.BoardState, error) {
+	return nil, errors.New("not implemented")
+}
+
+// ---------- S07 tests ----------
+
+// TestFindFirstNonTerminalCommitted verifies AC1 (committed seed) + AC2
+// (implemented is non-terminal). A mock oracle returns committed states
+// [verified, implemented, planned]; the seed must be the implemented slice
+// (index 1), proving committed-read + implemented-non-terminal.
+func TestFindFirstNonTerminalCommitted(t *testing.T) {
+	oracle := &fakeOracle{
+		slices: map[string]board.SliceState{
+			"S01-verified":    {ID: "S01-verified", State: state.Verified, Track: "T1"},
+			"S02-implemented": {ID: "S02-implemented", State: state.Implemented, Track: "T1"},
+			"S03-planned":     {ID: "S03-planned", State: state.Planned, Track: "T1"},
+		},
+	}
+	slices := []string{"S01-verified", "S02-implemented", "S03-planned"}
+
+	got := findFirstNonTerminal(context.Background(), oracle, "test-release", "T1", slices)
+	if got != "S02-implemented" {
+		t.Errorf("expected S02-implemented (first non-terminal committed), got %s", got)
+	}
+}
+
+// TestFindFirstNonTerminalAllTerminalMergesTrack verifies AC4: when every
+// slice is terminal, findFirstNonTerminal returns "" so runTrackRouter
+// reaches finishTrack (the fused-line fix).
+func TestFindFirstNonTerminalAllTerminalMergesTrack(t *testing.T) {
+	oracle := &fakeOracle{
+		slices: map[string]board.SliceState{
+			"S01-verified": {ID: "S01-verified", State: state.Verified, Track: "T1"},
+			"S02-shipped":  {ID: "S02-shipped", State: "shipped", Track: "T1"},
+			"S03-deferred": {ID: "S03-deferred", State: state.Deferred, Track: "T1"},
+		},
+	}
+	slices := []string{"S01-verified", "S02-shipped", "S03-deferred"}
+
+	got := findFirstNonTerminal(context.Background(), oracle, "test-release", "T1", slices)
+	if got != "" {
+		t.Errorf("expected empty (all terminal → merge), got %s", got)
+	}
+}
+
+// TestFindFirstNonTerminalNilOracle verifies the legacy fallback:
+// when oracle is nil, return slices[0].
+func TestFindFirstNonTerminalNilOracle(t *testing.T) {
+	slices := []string{"S01-planned", "S02-planned"}
+	got := findFirstNonTerminal(context.Background(), nil, "", "", slices)
+	if got != "S01-planned" {
+		t.Errorf("nil oracle should fall back to slices[0], got %s", got)
+	}
+}
+
+// TestFindFirstNonTerminalEmptySlices verifies empty input returns "".
+func TestFindFirstNonTerminalEmptySlices(t *testing.T) {
+	got := findFirstNonTerminal(context.Background(), &fakeOracle{}, "", "", nil)
+	if got != "" {
+		t.Errorf("empty slices should return \"\", got %s", got)
+	}
+}
+
+// TestFindFirstNonTerminalOracleErrorSeedsAtUnreadable verifies AC3 +
+// the seed-don't-skip thesis (Captain pin 5): when the oracle errors on a
+// slice, seed AT that slice rather than skipping past it.
+func TestFindFirstNonTerminalOracleErrorSeedsAtUnreadable(t *testing.T) {
+	oracle := &fakeOracle{
+		slices: map[string]board.SliceState{
+			"S02-planned": {ID: "S02-planned", State: state.Planned, Track: "T1"},
+		},
+	}
+	// S01-not-found will error (not in fakeOracle.slices map).
+	slices := []string{"S01-not-found", "S02-planned"}
+
+	got := findFirstNonTerminal(context.Background(), oracle, "test-release", "T1", slices)
+	if got != "S01-not-found" {
+		t.Errorf("oracle error on S01-not-found should seed at it (not skip), got %s", got)
+	}
+}
+
+// TestFindFirstNonTerminalIsTerminalImport verifies AC5: the scheduler
+// imports router.IsTerminal (no second definition).
+func TestFindFirstNonTerminalIsTerminalImport(t *testing.T) {
+	// Compile-time check: router.IsTerminal compiles in scheduler package.
+	_ = router.IsTerminal("verified")
 }

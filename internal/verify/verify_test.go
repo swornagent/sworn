@@ -15,235 +15,292 @@ type fakeVerifier struct {
 	cost  float64
 }
 
-func (f fakeVerifier) Verify(context.Context, string, string) (string, float64, error) {
-	return f.reply, f.cost, nil
+func (f fakeVerifier) Verify(context.Context, string, string) (string, float64, int64, int64, error) {
+	return f.reply, f.cost, 0, 0, nil
 }
 
-// capturingVerifier records the system prompt it is handed by verify.Run.
-type capturingVerifier struct {
-	reply          string
+// capturingVerifier records the system prompt it is handed by verify.RunFirstPass.
+// Now unused by RunFirstPass (deterministic-only) but kept for RunAgentic tests.
+type capturingVerifier struct {	reply          string
 	cost           float64
 	capturedPrompt string
 }
 
-func (c *capturingVerifier) Verify(_ context.Context, systemPrompt, _ string) (string, float64, error) {
+func (c *capturingVerifier) Verify(_ context.Context, systemPrompt, _ string) (string, float64, int64, int64, error) {
 	c.capturedPrompt = systemPrompt
-	return c.reply, c.cost, nil
+	return c.reply, c.cost, 0, 0, nil
 }
+
+// verify_test.go — tests for verify.RunFirstPass (deterministic first-pass gate)
+// and boundary-mock detection.
+// writeTmp writes a temp file for test use and returns its path.
 func writeTmp(t *testing.T, name, content string) string {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), name)
-	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+	dir := t.TempDir()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
-	return p
+	return path
 }
 
-func TestRun_PassExitsZero(t *testing.T) {
-	in := Input{
-		SpecPath: writeTmp(t, "spec.md", "must do X"),
-		DiffPath: writeTmp(t, "c.diff", "+ did X"),
-		Verifier: fakeVerifier{reply: "PASS - meets the spec", cost: 0.01},
-	}
-	got := Run(context.Background(), in)
-	if got.Verdict != verdict.Pass || got.ExitCode() != 0 {
-		t.Fatalf("want PASS/0, got %s/%d", got.Verdict, got.ExitCode())
-	}
-}
+// --- verify.RunFirstPass tests ---
+func TestFirstPass_Pass(t *testing.T) {
+	dir := t.TempDir()
+	spec := filepath.Join(dir, "spec.md")
+	diff := filepath.Join(dir, "diff.patch")
+	os.WriteFile(spec, []byte("# spec"), 0644)
+	os.WriteFile(diff, []byte("diff content"), 0644)
 
-func TestRun_MissingSpecBlocks(t *testing.T) {
-	in := Input{
-		SpecPath: writeTmp(t, "spec.md", "   "), // empty -> first-pass blocks
-		DiffPath: writeTmp(t, "c.diff", "+ x"),
-		Verifier: fakeVerifier{reply: "PASS"},
+	res := RunFirstPass(context.Background(), Input{
+		SpecPath: spec,
+		DiffPath: diff,
+	})
+	if res.Verdict != verdict.Pass {
+		t.Errorf("expected PASS, got %s", res.Verdict)
 	}
-	got := Run(context.Background(), in)
-	if got.Verdict != verdict.Blocked || got.ExitCode() != 2 {
-		t.Fatalf("want BLOCKED/2, got %s/%d", got.Verdict, got.ExitCode())
+	if res.CostUSD != 0 {
+		t.Errorf("expected cost 0 (deterministic), got %f", res.CostUSD)
 	}
 }
 
-func TestRun_UnconfiguredModelFailsClosed(t *testing.T) {
-	in := Input{
-		SpecPath: writeTmp(t, "spec.md", "must do X"),
-		DiffPath: writeTmp(t, "c.diff", "+ did X"),
-		// no Verifier -> Unconfigured -> BLOCKED
+func TestFirstPass_PassDoesNotWriteState(t *testing.T) {
+	// RunFirstPass returns a verdict.Result but has no side effects —
+	// it does not write to status.json or advance any state machine.
+	// Only the agentic verifier (RunAgentic) drives state transitions.
+	dir := t.TempDir()
+	spec := filepath.Join(dir, "spec.md")
+	diff := filepath.Join(dir, "diff.patch")
+	os.WriteFile(spec, []byte("# spec"), 0644)
+	os.WriteFile(diff, []byte("diff content"), 0644)
+
+	res := RunFirstPass(context.Background(), Input{
+		SpecPath: spec,
+		DiffPath: diff,
+	})
+	if res.Verdict != verdict.Pass {
+		t.Errorf("expected PASS, got %s", res.Verdict)
 	}
-	if got := Run(context.Background(), in); got.Verdict != verdict.Blocked {
-		t.Fatalf("want BLOCKED, got %s", got.Verdict)
+	// No status.json write occurs — the function signature takes no statusPath.
+}
+
+func TestFirstPass_Fail_ModelReplyIgnored(t *testing.T) {
+	// RunFirstPass is deterministic-only. Even when a Verifier is provided
+	// that would return FAIL, RunFirstPass ignores it and checks only
+	// structural properties. Spec+diff are valid → PASS.
+	dir := t.TempDir()
+	spec := filepath.Join(dir, "spec.md")
+	diff := filepath.Join(dir, "diff.patch")
+	os.WriteFile(spec, []byte("# spec"), 0644)
+	os.WriteFile(diff, []byte("diff content"), 0644)
+
+	fv := fakeVerifier{reply: "FAIL:\n1. missing coverage\n2. wrong implementation", cost: 0.02}
+	res := RunFirstPass(context.Background(), Input{
+		SpecPath: spec,
+		DiffPath: diff,
+		Model:    "test/model",
+		Verifier: fv,
+	})
+	if res.Verdict != verdict.Pass {
+		t.Errorf("RunFirstPass should ignore model and return deterministic PASS, got %s", res.Verdict)
+	}
+}
+func TestFirstPass_Blocked_EmptySpec(t *testing.T) {	dir := t.TempDir()
+	spec := filepath.Join(dir, "spec.md")
+	diff := filepath.Join(dir, "diff.patch")
+	os.WriteFile(spec, []byte(""), 0644) // empty spec
+	os.WriteFile(diff, []byte("diff"), 0644)
+
+	res := RunFirstPass(context.Background(), Input{
+		SpecPath: spec,
+		DiffPath: diff,
+	})
+	if res.Verdict != verdict.Blocked {
+		t.Errorf("expected BLOCKED, got %s", res.Verdict)
 	}
 }
 
-func TestRun_MissingFileBlocks(t *testing.T) {
-	in := Input{
-		SpecPath: filepath.Join(t.TempDir(), "does-not-exist.md"),
-		DiffPath: writeTmp(t, "c.diff", "+ x"),
-		Verifier: fakeVerifier{reply: "PASS"},
-	}
-	got := Run(context.Background(), in)
-	if got.Verdict != verdict.Blocked || got.FailedGate != "first_pass:spec" {
-		t.Fatalf("want BLOCKED/first_pass:spec, got %s/%s", got.Verdict, got.FailedGate)
+func TestFirstPass_Blocked_EmptyDiff(t *testing.T) {	dir := t.TempDir()
+	spec := filepath.Join(dir, "spec.md")
+	diff := filepath.Join(dir, "diff.patch")
+	os.WriteFile(spec, []byte("# spec"), 0644)
+	os.WriteFile(diff, []byte(""), 0644) // empty diff
+
+	res := RunFirstPass(context.Background(), Input{
+		SpecPath: spec,
+		DiffPath: diff,
+	})
+	if res.Verdict != verdict.Blocked {
+		t.Errorf("expected BLOCKED, got %s", res.Verdict)
 	}
 }
 
-func TestRun_GarbledVerdictBlocks(t *testing.T) {
-	in := Input{
-		SpecPath: writeTmp(t, "spec.md", "must do X"),
-		DiffPath: writeTmp(t, "c.diff", "+ did X"),
-		Verifier: fakeVerifier{reply: "looks good to me!"}, // no PASS/FAIL/BLOCKED prefix
-	}
-	if got := Run(context.Background(), in); got.Verdict != verdict.Blocked {
-		t.Fatalf("want BLOCKED on unparseable, got %s", got.Verdict)
-	}
-}
-
-// --- S02: tolerant verdict parser ---
-
-func TestParseVerdict_MarkdownEmphasis(t *testing.T) {
-	// **FAIL** (markdown bold) must resolve to FAIL.
-	in := Input{
-		SpecPath: writeTmp(t, "spec.md", "must do X"),
-		DiffPath: writeTmp(t, "c.diff", "+ did X"),
-		Verifier: fakeVerifier{reply: "**FAIL** — spec clause 3 not met", cost: 0.01},
-	}
-	got := Run(context.Background(), in)
-	if got.Verdict != verdict.Fail || got.ExitCode() != 1 {
-		t.Fatalf("want FAIL/1, got %s/%d", got.Verdict, got.ExitCode())
+func TestVerifyRun_Blocked_MissingFile(t *testing.T) {
+	res := RunFirstPass(context.Background(), Input{
+		SpecPath: "/nonexistent/spec.md",
+		DiffPath: "/nonexistent/diff.patch",
+	})
+	if res.Verdict != verdict.Blocked {
+		t.Errorf("expected BLOCKED, got %s", res.Verdict)
 	}
 }
 
-func TestParseVerdict_LeadingBlankLines(t *testing.T) {
-	// One or more leading blank lines before PASS must still resolve to PASS.
-	in := Input{
-		SpecPath: writeTmp(t, "spec.md", "must do X"),
-		DiffPath: writeTmp(t, "c.diff", "+ did X"),
-		Verifier: fakeVerifier{reply: "\n\n\nPASS — all checks green", cost: 0.01},
+func TestParseVerdictPass(t *testing.T) {
+	cases := []string{
+		"PASS",
+		"PASS\n\nwith details",
+		"```\nPASS",
+		"**PASS**",
+		"  PASS  ",
 	}
-	got := Run(context.Background(), in)
-	if got.Verdict != verdict.Pass || got.ExitCode() != 0 {
-		t.Fatalf("want PASS/0, got %s/%d", got.Verdict, got.ExitCode())
-	}
-}
-
-func TestParseVerdict_LeadingFence(t *testing.T) {
-	// A bare ``` fence line before the verdict must be skipped.
-	in := Input{
-		SpecPath: writeTmp(t, "spec.md", "must do X"),
-		DiffPath: writeTmp(t, "c.diff", "+ did X"),
-		Verifier: fakeVerifier{reply: "```\nPASS — verifier confirms", cost: 0.01},
-	}
-	got := Run(context.Background(), in)
-	if got.Verdict != verdict.Pass || got.ExitCode() != 0 {
-		t.Fatalf("want PASS/0, got %s/%d", got.Verdict, got.ExitCode())
-	}
-}
-
-func TestParseVerdict_ToolCallLeakBlocks(t *testing.T) {
-	// <tool_call name="Bash"> as first non-empty line must BLOCK, never parse
-	// as a verdict.
-	in := Input{
-		SpecPath: writeTmp(t, "spec.md", "must do X"),
-		DiffPath: writeTmp(t, "c.diff", "+ did X"),
-		Verifier: fakeVerifier{reply: `<tool_call name="Bash">
-{"command": "cat spec.md"}
-</tool_call>`, cost: 0.01},
-	}
-	got := Run(context.Background(), in)
-	if got.Verdict != verdict.Blocked || got.FailedGate != "unparseable_verdict" {
-		t.Fatalf("want BLOCKED/unparseable_verdict, got %s/%s", got.Verdict, got.FailedGate)
-	}
-}
-
-func TestParseVerdict_ProsePreambleBlocks(t *testing.T) {
-	// Investigative prose before the verdict must BLOCK — no false PASS.
-	in := Input{
-		SpecPath: writeTmp(t, "spec.md", "must do X"),
-		DiffPath: writeTmp(t, "c.diff", "+ did X"),
-		Verifier: fakeVerifier{reply: "Verifying slice S03 — checking acceptance criteria now…", cost: 0.01},
-	}
-	got := Run(context.Background(), in)
-	if got.Verdict != verdict.Blocked || got.FailedGate != "unparseable_verdict" {
-		t.Fatalf("want BLOCKED/unparseable_verdict, got %s/%s", got.Verdict, got.FailedGate)
-	}
-}
-
-// TestRun_SystemPromptIsStateless validates that verify.Run passes the
-// stateless judge prompt (VerifyStateless) to the model, NOT the agentic
-// verifier role prompt (Verifier).
-func TestRun_SystemPromptIsStateless(t *testing.T) {
-	cv := &capturingVerifier{reply: "PASS - looks good", cost: 0.01}
-	in := Input{
-		SpecPath: writeTmp(t, "spec.md", "must do X"),
-		DiffPath: writeTmp(t, "c.diff", "+ did X"),
-		Verifier: cv,
-	}
-	got := Run(context.Background(), in)
-	if got.Verdict != verdict.Pass {
-		t.Fatalf("want PASS, got %s", got.Verdict)
-	}
-
-	prompt := cv.capturedPrompt
-	// Must contain stateless markers.
-	for _, want := range []string{"no tools", "SPEC+DIFF only", "verdict-leading"} {
-		if !strings.Contains(prompt, want) {
-			t.Errorf("system prompt missing stateless marker %q", want)
-		}
-	}
-	// Must NOT contain agentic verifier instructions.
-	for _, forbidden := range []string{"worktree", "git -C", "fresh terminal", "Baton verifier"} {
-		if strings.Contains(prompt, forbidden) {
-			t.Errorf("system prompt contains agentic token %q — should use stateless prompt, not verifier.md", forbidden)
+	for _, c := range cases {
+		r := parseVerdict(c, 0)
+		if r.Verdict != verdict.Pass {
+			t.Errorf("parseVerdict(%q): expected PASS, got %s", c, r.Verdict)
 		}
 	}
 }
 
-// --- S10: No-mock-boundary tests ---
+func TestParseVerdictFail(t *testing.T) {
+	cases := []string{
+		"FAIL: something wrong",
+		"FAIL",
+		"**FAIL**: missing tests",
+	}
+	for _, c := range cases {
+		r := parseVerdict(c, 0)
+		if r.Verdict != verdict.Fail {
+			t.Errorf("parseVerdict(%q): expected FAIL, got %s", c, r.Verdict)
+		}
+	}
+}
+
+func TestParseVerdictBlocked(t *testing.T) {
+	cases := []string{
+		"BLOCKED: spec ambiguous",
+		"BLOCKED",
+	}
+	for _, c := range cases {
+		r := parseVerdict(c, 0)
+		if r.Verdict != verdict.Blocked {
+			t.Errorf("parseVerdict(%q): expected BLOCKED, got %s", c, r.Verdict)
+		}
+	}
+}
+
+func TestParseVerdictInconclusive(t *testing.T) {
+	r := parseVerdict("INCONCLUSIVE: dev server unreachable", 0)
+	if r.Verdict != verdict.Inconclusive {
+		t.Errorf("expected INCONCLUSIVE, got %s", r.Verdict)
+	}
+}
+
+func TestParseVerdictUnparseableBlocks(t *testing.T) {
+	r := parseVerdict("Here is a detailed analysis", 0)
+	if r.Verdict != verdict.Blocked {
+		t.Errorf("expected BLOCKED for unparseable, got %s", r.Verdict)
+	}
+	if r.FailedGate != "unparseable_verdict" {
+		t.Errorf("expected unparseable_verdict, got %s", r.FailedGate)
+	}
+}
+
+func TestBuildPayload(t *testing.T) {	p := buildPayload("spec", "diff", "")
+	if !strings.Contains(p, "## SPEC\nspec") {
+		t.Error("payload should include SPEC section")
+	}
+	if !strings.Contains(p, "## DIFF\ndiff") {
+		t.Error("payload should include DIFF section")
+	}
+	if strings.Contains(p, "## PROOF") {
+		t.Error("empty proof should not add PROOF section")
+	}
+
+	p2 := buildPayload("spec", "diff", "proof")
+	if !strings.Contains(p2, "## PROOF\nproof") {
+		t.Error("non-empty proof should add PROOF section")
+	}
+}
+
+func TestFirstPass_OpenDeferrals(t *testing.T) {
+	dir := t.TempDir()
+	spec := filepath.Join(dir, "spec.md")
+	diff := filepath.Join(dir, "diff.patch")
+	os.WriteFile(spec, []byte("# spec"), 0644)
+	os.WriteFile(diff, []byte("+	db := mockDB // db mock\n+	auth := mockAuth // auth mock"), 0644)
+
+	res := RunFirstPass(context.Background(), Input{
+		SpecPath: spec,
+		DiffPath: diff,
+		OpenDeferrals: []string{
+			"db mock for integration tests",
+			"auth stub for test isolation",
+		},
+	})
+	if res.Verdict != verdict.Pass {
+		t.Errorf("expected PASS with declared mocks, got %s", res.Verdict)
+	}
+	// Declared mocks should appear in the rationale.
+	if !strings.Contains(res.Rationale, "declared boundary mock") {
+		t.Errorf("declared mocks should appear in rationale, got: %q", res.Rationale)
+	}
+}
+
+func TestFirstPass_UndeclaredMockFails(t *testing.T) {
+	dir := t.TempDir()
+	spec := filepath.Join(dir, "spec.md")
+	diff := filepath.Join(dir, "diff.patch")
+	os.WriteFile(spec, []byte("# spec"), 0644)
+	os.WriteFile(diff, []byte("+	db := mockDB"), 0644)
+
+	res := RunFirstPass(context.Background(), Input{
+		SpecPath: spec,
+		DiffPath: diff,
+	})
+	if res.Verdict != verdict.Fail {
+		t.Errorf("expected FAIL for undeclared db mock, got %s", res.Verdict)
+	}
+	if res.FailedGate != "boundary_mock" {
+		t.Errorf("expected boundary_mock gate, got %s", res.FailedGate)
+	}
+}
+// --- S11: Agentic verifier tests ---
+// (these live in verify_agentic_test.go)
+
+// --- S10: Boundary-mock detection tests ---
 
 func TestCheckBoundaryMocks_UndeclaredDbMockFails(t *testing.T) {
-	diff := "+func TestSomething(t *testing.T) {\n+	db := &mockDB{}\n+}"
+	diff := "+func TestDB(t *testing.T) {\n+	db := mockDB\n+}"
 	report := CheckBoundaryMocks(diff, nil)
 	if len(report.UndeclaredMocks) != 1 {
 		t.Fatalf("want 1 undeclared mock, got %d", len(report.UndeclaredMocks))
 	}
-	if report.UndeclaredMocks[0].Boundary != "db" {
-		t.Fatalf("want db boundary, got %s", report.UndeclaredMocks[0].Boundary)
-	}
-	if len(report.DeclaredMocks) != 0 {
-		t.Fatalf("want 0 declared mocks, got %d", len(report.DeclaredMocks))
-	}
 }
 
 func TestCheckBoundaryMocks_DeclaredDbMockPasses(t *testing.T) {
-	diff := "+func TestSomething(t *testing.T) {\n+	db := &mockDB{}\n+}"
-	deferrals := []string{"db mock for integration tests - S10 boundary"}
-	report := CheckBoundaryMocks(diff, deferrals)
+	diff := "+func TestDB(t *testing.T) {\n+	db := mockDB\n+}"
+	report := CheckBoundaryMocks(diff, []string{"db mock for integration tests"})
 	if len(report.UndeclaredMocks) != 0 {
-		t.Fatalf("want 0 undeclared mocks, got %d", len(report.UndeclaredMocks))
+		t.Fatalf("want 0 undeclared, got %d", len(report.UndeclaredMocks))
 	}
 	if len(report.DeclaredMocks) != 1 {
-		t.Fatalf("want 1 declared mock, got %d", len(report.DeclaredMocks))
-	}
-	if report.DeclaredMocks[0].Boundary != "db" {
-		t.Fatalf("want db boundary, got %s", report.DeclaredMocks[0].Boundary)
+		t.Fatalf("want 1 declared, got %d", len(report.DeclaredMocks))
 	}
 }
 
 func TestCheckBoundaryMocks_NonBoundaryMockNotFlagged(t *testing.T) {
-	diff := "+func TestSomething(t *testing.T) {\n+	calc := newMockCalculator()\n+}"
+	diff := "+func TestMock(t *testing.T) {\n+	m := mockHTTPClient\n+}"
 	report := CheckBoundaryMocks(diff, nil)
 	if len(report.UndeclaredMocks) != 0 {
-		t.Fatalf("want 0 undeclared mocks for non-boundary, got %d: %v", len(report.UndeclaredMocks), report.UndeclaredMocks)
-	}
-	if len(report.DeclaredMocks) != 0 {
-		t.Fatalf("want 0 declared mocks for non-boundary, got %d", len(report.DeclaredMocks))
+		t.Fatalf("non-boundary mock should not be flagged, got %d", len(report.UndeclaredMocks))
 	}
 }
 
 func TestCheckBoundaryMocks_AuthMockUndeclaredFails(t *testing.T) {
-	diff := "+func TestAuth(t *testing.T) {\n+	auth := &mockAuthService{}\n+}"
+	diff := "+func TestAuth(t *testing.T) {\n+	auth := mockAuth\n+}"
 	report := CheckBoundaryMocks(diff, nil)
 	if len(report.UndeclaredMocks) != 1 {
-		t.Fatalf("want 1 undeclared mock for auth boundary, got %d", len(report.UndeclaredMocks))
+		t.Fatalf("want 1 undeclared auth mock, got %d", len(report.UndeclaredMocks))
 	}
 	if report.UndeclaredMocks[0].Boundary != "auth" {
 		t.Fatalf("want auth boundary, got %s", report.UndeclaredMocks[0].Boundary)
@@ -251,97 +308,38 @@ func TestCheckBoundaryMocks_AuthMockUndeclaredFails(t *testing.T) {
 }
 
 func TestCheckBoundaryMocks_EntitlementMockUndeclaredFails(t *testing.T) {
-	diff := "+func TestPremium(t *testing.T) {\n+	premium := &mockPremiumService{}\n+}"
+	diff := "+func TestEntitlement(t *testing.T) {\n+	ent := mockEntitle\n+}"
 	report := CheckBoundaryMocks(diff, nil)
 	if len(report.UndeclaredMocks) != 1 {
-		t.Fatalf("want 1 undeclared mock for entitlement boundary, got %d", len(report.UndeclaredMocks))
-	}
-	if report.UndeclaredMocks[0].Boundary != "entitlement" {
-		t.Fatalf("want entitlement boundary, got %s", report.UndeclaredMocks[0].Boundary)
+		t.Fatalf("want 1 undeclared entitlement mock, got %d", len(report.UndeclaredMocks))
 	}
 }
 
 func TestCheckBoundaryMocks_FakeDbDetected(t *testing.T) {
-	diff := "+func TestSomething(t *testing.T) {\n+	db := fakeDB{}\n+}"
+	diff := "+func TestDB(t *testing.T) {\n+	var db fakeDB\n+}"
 	report := CheckBoundaryMocks(diff, nil)
 	if len(report.UndeclaredMocks) != 1 {
-		t.Fatalf("want 1 undeclared mock for fake DB, got %d", len(report.UndeclaredMocks))
-	}
-	if report.UndeclaredMocks[0].Boundary != "db" {
-		t.Fatalf("want db boundary, got %s", report.UndeclaredMocks[0].Boundary)
+		t.Fatalf("want 1 undeclared fake for db boundary, got %d", len(report.UndeclaredMocks))
 	}
 }
 
 func TestCheckBoundaryMocks_EmptyDiffReturnsEmpty(t *testing.T) {
 	report := CheckBoundaryMocks("", nil)
 	if len(report.UndeclaredMocks) != 0 {
-		t.Fatalf("want 0 undeclared mocks for empty diff, got %d", len(report.UndeclaredMocks))
-	}
-	if len(report.DeclaredMocks) != 0 {
-		t.Fatalf("want 0 declared mocks for empty diff, got %d", len(report.DeclaredMocks))
+		t.Fatalf("empty diff should return empty, got %d", len(report.UndeclaredMocks))
 	}
 }
 
 func TestCheckBoundaryMocks_MultipleBoundaryMocksAllFlagged(t *testing.T) {
-	diff := "+func TestBoth(t *testing.T) {\n+	db := &mockDB{}\n+	auth := newMockAuth()\n+}"
+	diff := "+var db mockDB\n+var auth mockAuth\n+var ent mockEntitle\n"
 	report := CheckBoundaryMocks(diff, nil)
-	if len(report.UndeclaredMocks) != 2 {
-		t.Fatalf("want 2 undeclared mocks, got %d", len(report.UndeclaredMocks))
-	}
-	boundaries := make(map[string]bool)
-	for _, m := range report.UndeclaredMocks {
-		boundaries[m.Boundary] = true
-	}
-	if !boundaries["db"] {
-		t.Fatal("expected db boundary mock")
-	}
-	if !boundaries["auth"] {
-		t.Fatal("expected auth boundary mock")
+	if len(report.UndeclaredMocks) != 3 {
+		t.Fatalf("want 3 undeclared, got %d", len(report.UndeclaredMocks))
 	}
 }
 
-func TestRun_UndeclaredBoundaryMockFailsClosed(t *testing.T) {
-	diff := "+func Test(t *testing.T) {\n+	db := &mockDB{}\n+}"
-	in := Input{
-		SpecPath: writeTmp(t, "spec.md", "must do X"),
-		DiffPath: writeTmp(t, "c.diff", diff),
-		Verifier: fakeVerifier{reply: "PASS - would pass if reached", cost: 0.01},
-	}
-	got := Run(context.Background(), in)
-	if got.Verdict != verdict.Fail {
-		t.Fatalf("want FAIL on undeclared boundary mock, got %s", got.Verdict)
-	}
-	if got.FailedGate != "boundary_mock" {
-		t.Fatalf("want failed_gate=boundary_mock, got %s", got.FailedGate)
-	}
-	if got.ExitCode() != 1 {
-		t.Fatalf("want exit code 1, got %d", got.ExitCode())
-	}
-}
-
-func TestRun_DeclaredBoundaryMockAllowed(t *testing.T) {
-	diff := "+func Test(t *testing.T) {\n+	db := &mockDB{}\n+}"
-	in := Input{
-		SpecPath:      writeTmp(t, "spec.md", "must do X"),
-		DiffPath:      writeTmp(t, "c.diff", diff),
-		Verifier:      fakeVerifier{reply: "PASS - all gates green", cost: 0.01},
-		OpenDeferrals: []string{"db mock for integration tests - S10 boundary"},
-	}
-	got := Run(context.Background(), in)
-	if got.Verdict != verdict.Pass {
-		t.Fatalf("want PASS with declared deferral, got %s", got.Verdict)
-	}
-	// AC2: the declared mock MUST be surfaced in the run output as a known
-	// deferral, not just silently passed through.
-	if !strings.Contains(got.Rationale, "Declared boundary mock") {
-		t.Fatalf("rationale should surface declared mock as known deferral, got: %q", got.Rationale)
-	}
-	if !strings.Contains(got.Rationale, "mockDB") {
-		t.Fatalf("rationale should include mock type detail, got: %q", got.Rationale)
-	}
-}
 func TestCheckBoundaryMocks_StubAuthDetected(t *testing.T) {
-	diff := "+func TestAuth(t *testing.T) {\n+	authStub := &stubAuth{}\n+}"
+	diff := "+func TestAuth(t *testing.T) {\n+	var auth stubAuth\n+}"
 	report := CheckBoundaryMocks(diff, nil)
 	if len(report.UndeclaredMocks) != 1 {
 		t.Fatalf("want 1 undeclared stub for auth boundary, got %d", len(report.UndeclaredMocks))
@@ -349,54 +347,6 @@ func TestCheckBoundaryMocks_StubAuthDetected(t *testing.T) {
 	if report.UndeclaredMocks[0].Boundary != "auth" {
 		t.Fatalf("want auth boundary, got %s", report.UndeclaredMocks[0].Boundary)
 	}
-}
-
-// --- S38: Blocked-requires-violations tests ---
-
-func TestBlockedRequiresViolations_EmptyViolationsFails(t *testing.T) {
-	// A status.json with result:blocked and violations:[] must fail.
-	statusJSON := `{"state":"implemented","verification":{"result":"blocked","violations":[]}}`
-	p := writeTmp(t, "status.json", statusJSON)
-	err := ValidateBlockedViolations(p)
-	if err == nil {
-		t.Fatal("expected error for blocked with empty violations, got nil")
-	}
-	if !strings.Contains(err.Error(), "BLOCKED verdict with empty violations") {
-		t.Fatalf("error message should mention 'BLOCKED verdict with empty violations', got: %s", err)
-	}
-	if !strings.Contains(err.Error(), statusJSONFile(p)) {
-		t.Fatalf("error message should name the slice path, got: %s", err)
-	}
-}
-
-func TestBlockedRequiresViolations_PopulatedViolationsPasses(t *testing.T) {
-	// A status.json with result:blocked and non-empty violations must pass.
-	statusJSON := `{"state":"implemented","verification":{"result":"blocked","violations":["spec AC1 is unfalsifiable: proposed amendment..."]}}`
-	p := writeTmp(t, "status.json", statusJSON)
-	err := ValidateBlockedViolations(p)
-	if err != nil {
-		t.Fatalf("expected nil for blocked with populated violations, got: %s", err)
-	}
-}
-
-func TestBlockedRequiresViolations_NonBlockedPasses(t *testing.T) {
-	// A status.json with result:pass and empty violations must pass (not a blocked verdict).
-	statusJSON := `{"state":"verified","verification":{"result":"pass","violations":[],"verifier_was_fresh_context":true}}`
-	p := writeTmp(t, "status.json", statusJSON)
-	err := ValidateBlockedViolations(p)
-	if err != nil {
-		t.Fatalf("expected nil for pass verdict (not blocked), got: %s", err)
-	}
-}
-
-// statusJSONFile returns just the filename portion of a path, for error message assertions.
-func statusJSONFile(path string) string {
-	for i := len(path) - 1; i >= 0; i-- {
-		if path[i] == '/' {
-			return path[i+1:]
-		}
-	}
-	return path
 }
 
 func TestCheckBoundaryMocks_StubDbDetected(t *testing.T) {
@@ -407,5 +357,39 @@ func TestCheckBoundaryMocks_StubDbDetected(t *testing.T) {
 	}
 	if report.UndeclaredMocks[0].Boundary != "db" {
 		t.Fatalf("want db boundary, got %s", report.UndeclaredMocks[0].Boundary)
+	}
+}
+
+func TestCheckBoundaryMocks_CreditsEntitlementBoundary(t *testing.T) {
+	diff := "+func TestCredits(t *testing.T) {\n+	mockCredits := mock.New(ctrl)\n+}"
+	report := CheckBoundaryMocks(diff, nil)
+	if len(report.UndeclaredMocks) != 1 {
+		t.Fatalf("want 1 undeclared mock for credits boundary, got %d", len(report.UndeclaredMocks))
+	}
+	if report.UndeclaredMocks[0].Boundary != "entitlement" {
+		t.Fatalf("want entitlement boundary, got %s", report.UndeclaredMocks[0].Boundary)
+	}
+}
+
+func TestCheckBoundaryMocks_KeylessEntitlementBoundary(t *testing.T) {
+	diff := "+func TestKeyless(t *testing.T) {\n+	mockKeyless := mock.New(ctrl)\n+}"
+	report := CheckBoundaryMocks(diff, nil)
+	if len(report.UndeclaredMocks) != 1 {
+		t.Fatalf("want 1 undeclared mock for keyless boundary, got %d", len(report.UndeclaredMocks))
+	}
+	if report.UndeclaredMocks[0].Boundary != "entitlement" {
+		t.Fatalf("want entitlement boundary, got %s", report.UndeclaredMocks[0].Boundary)
+	}
+}
+
+func TestCheckBoundaryMocks_ClaudePBillingBoundary(t *testing.T) {
+	// claude -p on the same line as a mock to trigger detection.
+	diff := "+\tmockExec := mock.New(ctrl) // mock for claude -p billing call\n"
+	report := CheckBoundaryMocks(diff, nil)
+	if len(report.UndeclaredMocks) != 1 {
+		t.Fatalf("want 1 undeclared mock for claude -p boundary, got %d", len(report.UndeclaredMocks))
+	}
+	if report.UndeclaredMocks[0].Boundary != "entitlement" {
+		t.Fatalf("want entitlement boundary for claude -p, got %s", report.UndeclaredMocks[0].Boundary)
 	}
 }

@@ -171,11 +171,10 @@ func RunTrace(releaseDir string) (*TraceReport, error) {
 		}
 		sliceID := e.Name()
 		sliceDir := filepath.Join(releaseDir, sliceID)
-		statusPath := filepath.Join(sliceDir, "status.json")
 		specPath := filepath.Join(sliceDir, "spec.md")
 
 		// Parse status.json for covers_needs.
-		covers := parseCoversNeeds(statusPath)
+		covers := parseCoversNeeds(sliceDir)
 		slices = append(slices, sliceStatus{ID: sliceID, Covers: covers})
 		coversMap[sliceID] = covers
 		for _, nid := range covers {
@@ -384,8 +383,33 @@ func parseBoldNeeds(text string) []need {
 	return needs
 }
 
-// parseCoversNeeds reads the covers_needs array from a status.json file.
-func parseCoversNeeds(statusPath string) []string {
+// parseCoversNeeds reads the covers_needs array for a slice.
+// It prefers spec.json (spec-v1 record) when it exists; falls back to
+// regex-parsing status.json covers_needs for older slices without spec.json.
+func parseCoversNeeds(sliceDir string) []string {
+	// Try spec.json first (machine-written, always correct).
+	specJSONPath := filepath.Join(sliceDir, "spec.json")
+	if data, err := os.ReadFile(specJSONPath); err == nil {
+		var m map[string]interface{}
+		if json.Unmarshal(data, &m) == nil {
+			if cn, ok := m["covers_needs"]; ok {
+				if arr, ok := cn.([]interface{}); ok {
+					var ids []string
+					for _, v := range arr {
+						if s, ok := v.(string); ok && s != "" {
+							ids = append(ids, s)
+						}
+					}
+					if len(ids) > 0 {
+						return ids
+					}
+				}
+			}
+		}
+	}
+
+	// Fall back to status.json regex extraction.
+	statusPath := filepath.Join(sliceDir, "status.json")
 	data, err := os.ReadFile(statusPath)
 	if err != nil {
 		return nil
@@ -411,7 +435,6 @@ func parseCoversNeeds(statusPath string) []string {
 	}
 	return ids
 }
-
 // parseAcceptanceChecks extracts checkbox AC lines from spec.md.
 // NOTE lines (informational, not verifiable) are excluded.
 func parseAcceptanceChecks(text string) []string {

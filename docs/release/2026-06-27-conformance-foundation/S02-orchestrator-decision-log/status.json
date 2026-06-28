@@ -3,12 +3,14 @@
   "slice_id": "S02-orchestrator-decision-log",
   "release": "2026-06-27-conformance-foundation",
   "track": "T1-orchestration",
-  "covers_needs": ["N-11"],
-  "state": "planned",
+  "covers_needs": [
+    "N-11"
+  ],
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-27T00:00:00Z",
-  "start_commit": null,
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-28T00:00:00Z",
+  "start_commit": "f1744f6d7b29265b786da7c3597cc224ab12291a",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S02-orchestrator-decision-log/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S02-orchestrator-decision-log/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S02-orchestrator-decision-log/journal.md",
@@ -18,15 +20,30 @@
     "internal/scheduler/worker.go",
     "cmd/sworn/telemetry.go"
   ],
-  "actual_files": [],
-  "test_commands": ["go test ./internal/supervisor/... -v -run TestDecisions"],
-  "reachability_artifacts": [],
+  "actual_files": [
+    "internal/supervisor/decisions.go",
+    "internal/supervisor/decisions_test.go",
+    "internal/scheduler/worker.go",
+    "internal/scheduler/worker_test.go",
+    "internal/run/slice.go",
+    "cmd/sworn/telemetry.go",
+    "cmd/sworn/run.go",
+    "internal/run/run.go",
+    "internal/db/db.go"
+  ],
+  "test_commands": [
+    "go test ./internal/supervisor/... -v -run 'TestRecordDecision|TestRecordTriage|TestQueryDecisions'",
+    "go test ./internal/scheduler/... -v -run 'TestRecordDecisionCalledPerRoutingEvent'"
+  ],
+  "reachability_artifacts": [
+    "manual-smoke-step: sworn telemetry decisions --release <name> after a sworn run session"
+  ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "result": "pass",
+    "verifier_session_id": "fresh-context-verify-slice",
+    "verifier_verdict_at": "2026-07-28T00:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
   }
 }

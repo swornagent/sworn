@@ -7,9 +7,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/swornagent/sworn/internal/account"
+	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/board"
+	"github.com/swornagent/sworn/internal/orchestrator"
+	"github.com/swornagent/sworn/internal/router"
 	"github.com/swornagent/sworn/internal/supervisor"
 )
 
@@ -21,6 +25,7 @@ const (
 	TrackFail    TrackResult = "fail"
 	TrackSkipped TrackResult = "skipped"
 	TrackPaused  TrackResult = "paused"
+	TrackBlocked TrackResult = "blocked"
 )
 
 // ── Router interface (S59) ──────────────────────────────────────────────
@@ -80,6 +85,11 @@ type WorkerOptions struct {
 	// DB is the SQLite database handle for the supervisor.
 	DB *sql.DB
 
+	// EventDB is the release-specific event store database handle. When set,
+	// the supervisor routes event writes to this DB instead of DB. When nil,
+	// events are written to DB (backward-compatible default).
+	EventDB *sql.DB
+
 	// RunSliceFn is the function that runs a single slice's implement→verify
 	// loop. Tests inject a fake; production uses run.RunSlice.
 	RunSliceFn func(ctx context.Context, worktreeRoot, specPath, statusPath string) error
@@ -89,6 +99,11 @@ type WorkerOptions struct {
 	// compatibility (RunTrackLegacy behaviour).
 	Router SliceRouter
 
+	// Oracle is the committed-state reader consumed by findFirstNonTerminal
+	// to seed the resume frontier from git-visible state (S07). When nil,
+	// findFirstNonTerminal falls back to returning slices[0] (legacy).
+	// The production path sets this from the live oracle via RunParallel.
+	Oracle router.OracleReader
 	// ProjectDir is the project directory name used for worktree naming.
 	ProjectDir string
 
@@ -101,6 +116,23 @@ type WorkerOptions struct {
 	// (after completing any in-flight dispatch). Set via PauseEngine.PauseCh.
 	// When nil, no cooperative pause is checked.
 	PauseCh <-chan struct{}
+
+	// MergeTrackFn is invoked when a track finishes (all slices terminal).
+	// It merges the track branch into the release worktree. When nil,
+	// auto-merge is skipped (backward-compatible with tests and legacy
+	// callers that don't wire the production merge).
+	//
+	// The phase barrier in RunParallel (wg.Wait per phase) guarantees that
+	// dependent tracks don't start until the earlier phase's goroutines
+	// have returned — so by the time finishTrack calls MergeTrackFn, the
+	// release-wt HEAD has already been updated before the next phase's
+	// goroutines begin. No polling loop is needed; the phase barrier is the
+	// ordering mechanism. See Pin 1 in S04 design review.
+	//
+	// Signature: func(releaseWorktreePath, trackID, trackBranch string) error.
+	// The trackID parameter is included so the merge function can update the
+	// board's track state to "merged" atomically if desired.
+	MergeTrackFn func(releasePath, trackID, branch string) error
 }
 
 // RunTrack executes one track's slices sequentially in its own worktree.
@@ -129,6 +161,9 @@ func RunTrack(ctx context.Context, opts WorkerOptions) TrackResult {
 
 	// ── Supervisor acquire ──────────────────────────────────────────────
 	sup := supervisor.New(opts.DB, opts.ReleaseName)
+	if opts.EventDB != nil {
+		sup.SetEventDB(opts.EventDB)
+	}
 	if err := sup.Acquire(trackID); err != nil {
 		fmt.Fprintf(os.Stderr, "[%s] supervisor acquire error: %v\n", trackID, err)
 		return TrackFail
@@ -201,9 +236,10 @@ func runTrackRouter(
 	specBase := filepath.Join("docs", "release", opts.ReleaseName)
 
 	// Determine the first non-terminal slice in the track.
-	currentSlice := findFirstNonTerminal(opts.TrackInfo.Slices)
+	currentSlice := findFirstNonTerminal(ctx, opts.Oracle, opts.ReleaseName, opts.TrackInfo.ID, opts.TrackInfo.Slices)
 	if currentSlice == "" {
-		// All slices already in a terminal state.		return finishTrack(ctx, opts, workRoot, trackID, trackBranch, releaseTrack)
+		// All slices already in a terminal state.
+		return finishTrack(ctx, opts, workRoot, trackID, trackBranch, releaseTrack)
 	}
 
 	for {
@@ -239,6 +275,11 @@ func runTrackRouter(
 		fmt.Fprintf(os.Stderr, "[%s] router: %s → %s (%s)\n",
 			trackID, currentSlice, decision.Type, decision.Reason)
 
+		// Record the routing decision (S02 — decision log). Best-effort:
+		// a decision-log write failure must not abort the run (AC4).
+		_ = supervisor.RecordDecision(opts.DB, opts.ReleaseName, currentSlice,
+			decision.Type, decision.Reason)
+
 		// Advance to the target slice BEFORE dispatching — the router's
 		// Target field tells us which slice the decision applies to.
 		if decision.Target != "" && decision.Target != currentSlice {
@@ -259,6 +300,31 @@ func runTrackRouter(
 			fmt.Fprintf(os.Stderr, "[%s] running slice %s\n", trackID, currentSlice)
 
 			if err := opts.RunSliceFn(ctx, workRoot, specPath, statusPath); err != nil {
+				// S01: interpreter INCONCLUSIVE → PAGE the Coach (pause, not fail).
+				if strings.Contains(err.Error(), orchestrator.InterpreterInconclusiveSentinel) {
+					fmt.Fprintf(os.Stderr, "[%s] paused: interpreter inconclusive for %s — %v\n",
+						trackID, currentSlice, err)
+					releaseTrack("paused")
+					return TrackPaused
+				}
+				// S03: max-turns exhaustion -> PAGE the Coach (pause, not fail).
+				if strings.Contains(err.Error(), agent.MaxTurnsSentinel) {
+					fmt.Fprintf(os.Stderr, "[%s] paused: max turns exhausted for %s - %v\n",
+						trackID, currentSlice, err)
+					_ = supervisor.RecordPage(opts.DB, opts.ReleaseName, currentSlice, "max_turns")
+					releaseTrack("paused")
+					return TrackPaused
+				}
+				// S03 circuit breaker: check cross-run failure fingerprint.
+				fingerprint := supervisor.Fingerprint(currentSlice, err.Error())
+				_ = supervisor.RecordFailure(opts.DB, opts.ReleaseName, currentSlice, fingerprint)
+				if supervisor.ShouldBreak(opts.DB, opts.ReleaseName, currentSlice, fingerprint) {
+					fmt.Fprintf(os.Stderr, "[%s] paused: circuit breaker for %s - %v\n",
+						trackID, currentSlice, err)
+					_ = supervisor.RecordPage(opts.DB, opts.ReleaseName, currentSlice, "circuit_breaker")
+					releaseTrack("paused")
+					return TrackPaused
+				}
 				fmt.Fprintf(os.Stderr, "[%s] slice %s failed: %v\n", trackID, currentSlice, err)
 
 				if opts.Notifier != nil {
@@ -291,19 +357,55 @@ func runTrackRouter(
 			fmt.Fprintf(os.Stderr, "[%s] redesign: stripped captain-proceed.md for %s, re-running\n",
 				trackID, currentSlice)
 			if err := opts.RunSliceFn(ctx, workRoot, specPath, statusPath); err != nil {
+				// S01: interpreter INCONCLUSIVE → PAGE the Coach (pause, not fail).
+				if strings.Contains(err.Error(), orchestrator.InterpreterInconclusiveSentinel) {
+					fmt.Fprintf(os.Stderr, "[%s] paused: interpreter inconclusive for %s — %v\n",
+						trackID, currentSlice, err)
+					releaseTrack("paused")
+					return TrackPaused
+				}
+				// S03: max-turns exhaustion -> PAGE the Coach (pause, not fail).
+				if strings.Contains(err.Error(), agent.MaxTurnsSentinel) {
+					fmt.Fprintf(os.Stderr, "[%s] paused: max turns exhausted for %s - %v\n",
+						trackID, currentSlice, err)
+					_ = supervisor.RecordPage(opts.DB, opts.ReleaseName, currentSlice, "max_turns")
+					releaseTrack("paused")
+					return TrackPaused
+				}
+				// S03 circuit breaker: check cross-run failure fingerprint.
+				fingerprint := supervisor.Fingerprint(currentSlice, err.Error())
+				_ = supervisor.RecordFailure(opts.DB, opts.ReleaseName, currentSlice, fingerprint)
+				if supervisor.ShouldBreak(opts.DB, opts.ReleaseName, currentSlice, fingerprint) {
+					fmt.Fprintf(os.Stderr, "[%s] paused: circuit breaker for %s - %v\n",
+						trackID, currentSlice, err)
+					_ = supervisor.RecordPage(opts.DB, opts.ReleaseName, currentSlice, "circuit_breaker")
+					releaseTrack("paused")
+					return TrackPaused
+				}
 				fmt.Fprintf(os.Stderr, "[%s] slice %s failed after redesign: %v\n", trackID, currentSlice, err)
 				releaseTrack(supervisor.StateFailed)
 				return TrackFail
 			}
 
-		case "coach_decision", "replan-release", "merge-track", "merge-release":
+		case "merge-track":
+			// When MergeTrackFn is wired, auto-merge (same as the terminal
+			// "none" path). When nil, preserve the human-gated pause for
+			// backward compatibility with callers that haven't wired it yet.
+			if opts.MergeTrackFn != nil {
+				return finishTrack(ctx, opts, workRoot, trackID, trackBranch, releaseTrack)
+			}
+			// Human-gated pause — surface and pause this track.
+			fmt.Fprintf(os.Stderr, "[%s] paused: %s — %s\n", trackID, decision.Type, decision.Reason)
+			releaseTrack("paused")
+			return TrackPaused
+
+		case "coach_decision", "replan-release", "merge-release":
 			// Human-gated pause states — surface and pause this track.
 			fmt.Fprintf(os.Stderr, "[%s] paused: %s — %s\n", trackID, decision.Type, decision.Reason)
 			releaseTrack("paused")
 			return TrackPaused
 
-		case "none":
-			// Terminal — no more slices.
+		case "none": // Terminal — no more slices.
 			return finishTrack(ctx, opts, workRoot, trackID, trackBranch, releaseTrack)
 
 		default:
@@ -338,6 +440,31 @@ func runTrackLegacy(
 		statusPath := filepath.Join(workRoot, specBase, sliceID, "status.json")
 
 		if err := opts.RunSliceFn(ctx, workRoot, specPath, statusPath); err != nil {
+			// S01: interpreter INCONCLUSIVE → PAGE the Coach (pause, not fail).
+			if strings.Contains(err.Error(), orchestrator.InterpreterInconclusiveSentinel) {
+				fmt.Fprintf(os.Stderr, "[%s] paused: interpreter inconclusive for %s — %v\n",
+					trackID, sliceID, err)
+				releaseTrack("paused")
+				return TrackPaused
+			}
+			// S03: max-turns exhaustion -> PAGE the Coach (pause, not fail).
+			if strings.Contains(err.Error(), agent.MaxTurnsSentinel) {
+				fmt.Fprintf(os.Stderr, "[%s] paused: max turns exhausted for %s - %v\n",
+					trackID, sliceID, err)
+				_ = supervisor.RecordPage(opts.DB, opts.ReleaseName, sliceID, "max_turns")
+				releaseTrack("paused")
+				return TrackPaused
+			}
+			// S03 circuit breaker: check cross-run failure fingerprint.
+			fingerprint := supervisor.Fingerprint(sliceID, err.Error())
+			_ = supervisor.RecordFailure(opts.DB, opts.ReleaseName, sliceID, fingerprint)
+			if supervisor.ShouldBreak(opts.DB, opts.ReleaseName, sliceID, fingerprint) {
+				fmt.Fprintf(os.Stderr, "[%s] paused: circuit breaker for %s - %v\n",
+					trackID, sliceID, err)
+				_ = supervisor.RecordPage(opts.DB, opts.ReleaseName, sliceID, "circuit_breaker")
+				releaseTrack("paused")
+				return TrackPaused
+			}
 			fmt.Fprintf(os.Stderr, "[%s] slice %s failed: %v\n", trackID, sliceID, err)
 
 			if opts.Notifier != nil {
@@ -363,9 +490,33 @@ func runTrackLegacy(
 	return finishTrack(ctx, opts, workRoot, trackID, trackBranch, releaseTrack)
 }
 
-// finishTrack pushes the track branch and releases the supervisor.
+// finishTrack pushes the track branch, auto-merges into release-wt (when
+// MergeTrackFn is wired), and releases the supervisor.
+//
+// ── S05 gate bypass documentation (Pin 2, S04 design review) ──────────
+//
+// Auto-merge bypasses the sworn merge-track CLI gate (S05). The bypass is
+// intentional and each gate is accounted for:
+//
+// (1) verified-check: satisfied by the router — the router only emits
+//
+//	"merge-track" / "none" after all slices are verified.
+//
+// (2) invariant-4 classifier (conflict detection): bare git merge still
+//
+//	fails on conflict → TrackFail, which surfaces to the human.
+//	Diagnostic quality is lower than S05's classifier (no file-level
+//	conflict report), but the invariant-2 disjoint-touchpoints guarantee
+//	makes conflicts impossible in production.
+//
+// (3) index.md state update to "merged": not performed by auto-merge.
+//
+//	The board oracle reads track state from index.md; a bare merge does
+//	not update it. This is acceptable because the phase barrier is the
+//	ordering mechanism, not state polling. (Per Pin 1 resolution (a):
+//	waitForDependencies is dropped; the phase barrier enforces AC1.)
 func finishTrack(
-	_ context.Context,
+	ctx context.Context,
 	opts WorkerOptions,
 	workRoot, trackID, trackBranch string,
 	releaseTrack func(string),
@@ -376,23 +527,55 @@ func finishTrack(
 	pushCmd.Dir = workRoot
 	_ = pushCmd.Run()
 
+	// Auto-merge track into release-wt when MergeTrackFn is wired.
+	// The phase barrier in RunParallel (wg.Wait per phase) guarantees that
+	// dependent tracks don't start until this merge completes — no polling
+	// loop needed. See Pin 1 in S04 design review.
+	if opts.MergeTrackFn != nil {
+		fmt.Fprintf(os.Stderr, "[%s] auto-merging into release-wt\n", trackID)
+		if err := opts.MergeTrackFn(opts.ReleaseWorktreePath, trackID, trackBranch); err != nil {
+			fmt.Fprintf(os.Stderr, "[%s] auto-merge failed: %v\n", trackID, err)
+			return TrackFail
+		}
+		fmt.Fprintf(os.Stderr, "[%s] auto-merged into release-wt\n", trackID)
+	}
+
 	fmt.Fprintf(os.Stderr, "[%s] done\n", trackID)
 	return TrackPass
 }
 
-// findFirstNonTerminal returns the first slice ID in the track that is not
-// in a terminal state. Returns "" if all// slices are terminal — the track is fully done and resumability skips it.
+// findFirstNonTerminal returns the first slice ID in the track whose committed
+// state (read via the oracle) is non-terminal per router.IsTerminal. Returns ""
+// if all slices are terminal — the track is fully done and should merge.
 //
-// This is a best-effort helper for the worker at startup. The authoritative
-// state machine lives in the router (S58); this function only determines the
-// initial frontier slice for the first Route() call.
-func findFirstNonTerminal(slices []string) string {
+// When oracle is nil, falls back to returning slices[0] (legacy behaviour).
+//
+// The authoritative state machine lives in the router; this function determines
+// the initial frontier slice for the first Route() call.
+func findFirstNonTerminal(ctx context.Context, oracle router.OracleReader, release, trackID string, slices []string) string {
+	if len(slices) == 0 {
+		return ""
+	}
+
+	// Legacy fallback: no oracle wired → return first slice.
+	if oracle == nil {
+		return slices[0]
+	}
+
 	for _, sid := range slices {
-		// We can't read committed state here (no router wired yet for the
-		// first call). The router will handle this on the first Route() call.
-		// We just return the first slice; the router will skip terminal ones
-		// and return a Target for the actual frontier.
-		return sid
+		ss, err := oracle.ReadSliceStatus(ctx, release, sid)
+		if err != nil {
+			// AC3: on read error (e.g. track ref doesn't exist yet), seed AT
+			// this slice rather than skipping past it. Skipping re-introduces
+			// the forward-only abandonment that DD-1 prevents. The oracle's
+			// track→release-wt fallback handles nonexistent refs internally;
+			// a hard error (malformed content) is rare and seeding at the
+			// unreadable slice is the safest default.
+			return sid
+		}
+		if !router.IsTerminal(string(ss.State)) {
+			return sid
+		}
 	}
 	return ""
 }

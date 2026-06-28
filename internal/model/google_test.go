@@ -59,7 +59,7 @@ func TestGoogleVerify_GeminiAPI(t *testing.T) {
 	defer srv.Close()
 
 	g := newTestGoogle(srv.URL, "gemini-2.0-flash")
-	text, cost, err := g.Verify(context.Background(), "be strict", "verify this diff")
+text, cost, _, _, err := g.Verify(context.Background(), "be strict", "verify this diff")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestGoogleVerify_APIError(t *testing.T) {
 	defer srv.Close()
 
 	g := newTestGoogle(srv.URL, "gemini-2.0-flash")
-	_, _, err := g.Verify(context.Background(), "be strict", "verify this diff")
+_, _, _, _, err := g.Verify(context.Background(), "be strict", "verify this diff")
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
@@ -101,7 +101,7 @@ func TestGoogleVerify_AuthError(t *testing.T) {
 	defer srv.Close()
 
 	g := newTestGoogle(srv.URL, "gemini-2.0-flash")
-	_, _, err := g.Verify(context.Background(), "be strict", "verify this diff")
+_, _, _, _, err := g.Verify(context.Background(), "be strict", "verify this diff")
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
@@ -124,7 +124,7 @@ func TestGoogleVerify_NonHTTPErrorIsTransient(t *testing.T) {
 	defer srv.Close()
 
 	g := newTestGoogle(srv.URL, "gemini-2.0-flash")
-	_, _, err := g.Verify(context.Background(), "be strict", "verify this diff")
+_, _, _, _, err := g.Verify(context.Background(), "be strict", "verify this diff")
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
@@ -141,7 +141,7 @@ func TestGoogleVerify_CostCalculation(t *testing.T) {
 	defer srv.Close()
 
 	g := newTestGoogle(srv.URL, "gemini-2.0-flash")
-	_, cost, err := g.Verify(context.Background(), "be strict", "verify")
+_, cost, _, _, err := g.Verify(context.Background(), "be strict", "verify")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestGoogleVerify_UnknownModelCostIsZero(t *testing.T) {
 	defer srv.Close()
 
 	g := newTestGoogle(srv.URL, "gemini-unknown-model")
-	_, cost, err := g.Verify(context.Background(), "be strict", "verify")
+_, cost, _, _, err := g.Verify(context.Background(), "be strict", "verify")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -336,7 +336,7 @@ func TestGoogleVerify_Live(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewGoogleGemini error: %v", err)
 	}
-	text, _, err := g.Verify(context.Background(), "Reply with PASS.", "verify")
+text, _, _, _, err := g.Verify(context.Background(), "Reply with PASS.", "verify")
 	if err != nil {
 		t.Fatalf("Verify error: %v", err)
 	}

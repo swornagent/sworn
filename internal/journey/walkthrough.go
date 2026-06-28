@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/swornagent/sworn/internal/baton"
 )
 
 // WalkStatus is the human-walkthrough status of a critical customer journey.
@@ -34,9 +36,9 @@ type Attestation struct {
 	// Status is the walkthrough result: walked-pass, walked-fail, or un-walked.
 	Status WalkStatus `json:"status"`
 	// WalkedBy records who performed the walkthrough (mandatory for pass/fail).
-	WalkedBy string `json:"walked_by,omitempty"`
+	WalkedBy string `json:"walked_by"`
 	// WalkedAt is when the walkthrough was performed (ISO 8601).
-	WalkedAt string `json:"walked_at,omitempty"`
+	WalkedAt string `json:"walked_at"`
 	// RealInfra asserts the walkthrough ran against real infrastructure.
 	RealInfra bool `json:"real_infra"`
 	// MocksOff asserts no mock or stub was active during the walkthrough.
@@ -45,11 +47,27 @@ type Attestation struct {
 	Notes string `json:"notes,omitempty"`
 }
 
+// Boundary describes the walkthrough boundary context.
+type Boundary struct {
+	// Name is the boundary context (e.g. "production", "staging").
+	Name string `json:"name"`
+	// MockBanned is true when no mocks or stubs were active.
+	MockBanned bool `json:"mock_banned"`
+	// EntitlementBoundary is the entitlement boundary path or identifier.
+	EntitlementBoundary string `json:"entitlement_boundary"`
+}
+
 // AttestationArtefact is the durable, per-project attestation artefact.
 // It lives at .sworn/attestations.json and is populated by sworn ship (S13).
 type AttestationArtefact struct {
+	// Schema identifies the canonical JSON Schema for this artefact.
+	Schema string `json:"$schema"`
 	// Version for forward compatibility.
 	Version int `json:"version"`
+	// Ratification carries human-ratification metadata as a nested object.
+	Ratification Ratification `json:"ratification"`
+	// Boundary describes the walkthrough boundary context.
+	Boundary Boundary `json:"boundary"`
 	// Attestations is the list of journey attestations.
 	Attestations []Attestation `json:"attestations"`
 }
@@ -72,8 +90,19 @@ func LoadAttestations(projectRoot string) (*AttestationArtefact, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &AttestationArtefact{
+				Schema: baton.AttestationsSchemaURI,
 				Version:      1,
 				Attestations: []Attestation{},
+				Ratification: Ratification{
+					By:         "",
+					At:         "",
+					IsRatified: false,
+				},
+				Boundary: Boundary{
+					Name:                "",
+					MockBanned:          false,
+					EntitlementBoundary: "",
+				},
 			}, nil
 		}
 		return nil, fmt.Errorf("journey: read attestations %s: %w", path, err)
@@ -86,10 +115,45 @@ func LoadAttestations(projectRoot string) (*AttestationArtefact, error) {
 	if a.Version == 0 {
 		a.Version = 1
 	}
+	if a.Schema == "" {
+		a.Schema = baton.AttestationsSchemaURI
+	}
 	if a.Attestations == nil {
 		a.Attestations = []Attestation{}
 	}
 	return &a, nil
+}
+
+// SaveAttestations serialises the attestation artefact to .sworn/attestations.json
+// under the given project root. It creates the .sworn directory if needed.
+// Before writing, it validates the serialised JSON against the embedded
+// attestations-v1 schema.
+func SaveAttestations(projectRoot string, a *AttestationArtefact) error {
+	path := AttestationArtefactPath(projectRoot)
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("journey: mkdir %s: %w", dir, err)
+	}
+
+	// Ensure $schema is set.
+	if a.Schema == "" {
+		a.Schema = baton.AttestationsSchemaURI
+	}
+
+	data, err := json.MarshalIndent(a, "", "  ")
+	if err != nil {
+		return fmt.Errorf("journey: marshal attestations: %w", err)
+	}
+
+	// Validate against the embedded attestations-v1 schema before writing.
+	if err := baton.Validate("attestations-v1", data); err != nil {
+		return fmt.Errorf("journey: attestation validation failed — not written: %w", err)
+	}
+
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("journey: write attestations %s: %w", path, err)
+	}
+	return nil
 }
 
 // AttestationStatus returns the walkthrough status for a given journey ID.
