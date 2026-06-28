@@ -6,10 +6,10 @@
   "covers_needs": [
     "N-27"
   ],
-  "state": "failed_verification",
+  "state": "in_progress",
   "owner": "human",
-  "last_updated_by": "verifier",
-  "last_updated_at": "2026-07-25T00:00:00Z",  "start_commit": "3122d5f50538010d20442829c6dcb75edd352d96",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-06-28T00:00:00Z",  "start_commit": "3122d5f50538010d20442829c6dcb75edd352d96",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/journal.md",
