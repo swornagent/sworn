@@ -543,12 +543,13 @@ func Invariant4Check(repo *git.Repo, trackBranch string, documentedShared map[st
 // "internal/model/oai.go" matches the documented-shared entry
 // "internal/model/oai.go + drivers".
 func isDocumentedShared(path string, documentedShared map[string]bool) bool {
+	if path == "" {
+		return false
+	}
 	if documentedShared[path] {
 		return true
 	}
-	// Prefix match: the documented-shared keys may be base paths
-	// like "internal/model/oai.go"; a conflict on "internal/model/oai.go"
-	// should match.
+	// Prefix match: the documented-shared keys may be base paths.
 	for key := range documentedShared {
 		if strings.HasPrefix(path, key) || strings.HasPrefix(key, path) {
 			return true
@@ -556,7 +557,6 @@ func isDocumentedShared(path string, documentedShared map[string]bool) bool {
 	}
 	return false
 }
-
 // touchpointRow holds a parsed row from the index.md touchpoint matrix.
 type touchpointRow struct {
 	filePath string
@@ -609,7 +609,17 @@ func ParseDocumentedShared(indexPath string) (map[string]bool, error) {
 // leading/trailing markers from a file path cell in the touchpoint matrix.
 func normalizeFilePath(raw string) string {
 	s := strings.TrimSpace(raw)
-	s = strings.Trim(s, "`")
+	// Strip leading backtick.
+	s = strings.TrimPrefix(s, "`")
+	// Strip trailing backtick — it may be followed by annotations.
+	if idx := strings.Index(s, "`"); idx >= 0 {
+		// Only strip if the backtick is at the end or followed by space/paren.
+		after := s[idx+1:]
+		if after == "" || after[0] == ' ' || after[0] == '(' {
+			s = s[:idx] + after
+		}
+	}
+	s = strings.TrimSpace(s)
 	// Remove parenthesised annotations like "(DOCUMENTED SHARED)" or "(new)".
 	s = regexp.MustCompile(`\s*\([^)]*\)`).ReplaceAllString(s, "")
 	// Remove trailing annotations like " + drivers".
@@ -617,7 +627,6 @@ func normalizeFilePath(raw string) string {
 	s = strings.TrimSpace(s)
 	return s
 }
-
 // parseTouchpointMatrix parses the markdown table in the Touchpoint matrix
 // section of an index.md body. Returns parsed rows.
 func parseTouchpointMatrix(body string) ([]touchpointRow, error) {
