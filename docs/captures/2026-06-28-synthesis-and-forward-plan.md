@@ -125,3 +125,24 @@ the same inputs."
 - merge-release left human-triggered by design (no change); confirm that stays the intended posture.
 - The three-tier interpreter/Captain design is captured but not yet implemented in coach loop or Go.
 - Driver-contract re-architecture for Go is recommended, not yet sliced.
+
+## 5. Live-build finding (2026-06-28) — recurring touchpoint conflicts (planning + invariant-2 gap)
+
+The deepseek build hit the SAME class of BLOCK three times: `internal/model/oai.go` (and other
+`internal/model/*`) is modified by T2-model-layer, T3-agentic-verifier, AND T7-telemetry-eval, but the
+touchpoint matrix declared none of them shared. Each track branched before T2 merged, so each collides at
+merge → BLOCKED → /replan. Diagnosis:
+- **Planning-fidelity gap (Rule 8/9):** the planner under-declared the shared surface. `internal/model/oai.go`
+  is genuinely shared across the three model-touching tracks (T2 owns the drivers; T3's verifier calls models;
+  T7's dispatch reads tokens/cost) — it should have been DOCUMENTED SHARED, or T3/T7 sequenced depends_on T2.
+- **Invariant-4 works; invariant-2 is missing:** the merge-time conflict detector correctly catches and BLOCKs;
+  there is no dispatch-time touchpoint-disjointness enforcement to PREVENT overlapping tracks running in
+  parallel (the conformance release's own S06 is exactly this gap).
+- **The restored design-review gate is the early catch:** the Captain reviews design.md's planned touchpoints
+  and can flag cross-track overlap BEFORE code — turning a merge-time BLOCK into a plan-time amendment. An
+  argument for the §3.8 detailed-design-role scrutiny extending to touchpoint completeness, not just AC
+  completeness.
+- **Interim handling:** each conflict resolved by the agreed not-human-authored auto-replan (forward-merge
+  release-wt into the track, combine both sides on oai.go, document the shared file, clear the block, resume) —
+  T7/S25 and T3/S12. The durable fix is a proper /replan-release declaring internal/model/* shared across
+  T2/T3/T7 (or sequencing them) so the recurrence stops.
