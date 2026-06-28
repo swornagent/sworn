@@ -29,3 +29,24 @@
 ### Files changed
 
 See `git diff --name-only 2bffa27..HEAD` for the full list (13 files: 2 new schemas, 2 new source files, 2 new test files, 7 modified files).
+---
+
+## Verifier verdicts received
+
+### Verdict 1 — PASS (2025-07-25)
+
+**Verifier session:** fresh, artefact-only
+**Verified against commit:** 8deee4b4d342e11b0a0cb659c0a5d3ac2f2e572f
+
+**Gate results:**
+- Gate 1 (User-reachable outcome): PASS — Run() → WriteSpecRecord/WriteProofRecord wired through internal/run/slice.go → cmd/sworn/
+- Gate 2 (Planned touchpoints match): PASS — 7 extra files are structural dependencies (test files, embed.go, validator.go) implied by spec scope
+- Gate 3 (Required tests exercise integration): PASS — all tests re-run and pass (130+ tests, 0 failures)
+- Gate 3b (AC satisfaction LLM): SKIPPED (no LLM provider configured)
+- Gate 4 (Reachability artefact): PASS — go test ./internal/implement/... ./internal/gate/... -v exits 0, verified fresh
+- Gate 4b (Semantic coverage LLM): SKIPPED (no LLM provider configured)
+- Gate 5 (No silent deferrals): PASS — two hits are false positives (state map value + ADR-0007 scope boundary)
+- Gate 6 (Design conformance): PASS — no design-fidelity config (non-UI project)
+- Gate 7 (Claimed scope matches implemented): PASS — all 12 Delivered items verified against live code
+
+**Next step:** Track T4-records-as-json's next incomplete slice is S16-journeys-attestations-align. Run /implement-slice S16-journeys-attestations-align 2026-06-27-conformance-foundation in a fresh session.
