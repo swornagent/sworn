@@ -224,8 +224,8 @@ func TestCodex_Deferred(t *testing.T) {
 		if !strings.Contains(err.Error(), "codex support deferred") {
 			t.Errorf("error = %v, want codex support deferred", err)
 		}
-		if !strings.Contains(err.Error(), ErrDriverNotRegistered.Error()) {
-			t.Errorf("error should wrap ErrDriverNotRegistered: %v", err)
+		if !strings.Contains(err.Error(), ErrDriverNotImplemented.Error()) {
+			t.Errorf("error should wrap ErrDriverNotImplemented: %v", err)
 		}
 	})
 

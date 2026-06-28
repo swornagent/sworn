@@ -65,6 +65,10 @@ func resolveBedrockRegion() string {
 // single user turn to the Bedrock Converse API. It returns the text from the
 // first text content block in the assistant response, the compute cost in USD,
 // or an error.
+// Capabilities returns CapVerify — the Bedrock driver supports single-shot
+// verification. Chat is available via the Anthropic SDK path.
+func (b *Bedrock) Capabilities() Capability { return CapVerify }
+
 func (b *Bedrock) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
 	output, err := b.Client.Converse(ctx, &bedrockruntime.ConverseInput{
 		ModelId: aws.String(b.ModelID),
