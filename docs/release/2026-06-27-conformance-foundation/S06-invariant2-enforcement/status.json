@@ -3,11 +3,13 @@
   "slice_id": "S06-invariant2-enforcement",
   "release": "2026-06-27-conformance-foundation",
   "track": "T1-orchestration",
-  "covers_needs": ["N-15"],
-  "state": "planned",
+  "covers_needs": [
+    "N-15"
+  ],
+  "state": "design_review",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-27T00:00:00Z",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-06-28T10:51:14Z",
   "start_commit": null,
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S06-invariant2-enforcement/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S06-invariant2-enforcement/proof.md",
@@ -16,7 +18,9 @@
     "internal/run/parallel.go"
   ],
   "actual_files": [],
-  "test_commands": ["go test ./internal/run/... -v -run TestInvariant2"],
+  "test_commands": [
+    "go test ./internal/run/... -v -run TestInvariant2"
+  ],
   "reachability_artifacts": [],
   "open_deferrals": [],
   "verification": {
