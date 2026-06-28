@@ -32,3 +32,22 @@
 
 - `stderr` capture for INVARIANT-2 log verification (AC-1 test). Simpler than plumbing a logger interface but couples test to `os.Stderr`.
 - PlannedFilesFn default reads from release-wt ref — requires git repo at run time, which is fine for production but means the default path is not exercised in unit tests (which inject fakes). This is the established pattern in this file (Router, MergeTrackFn, etc.).
+
+## Verifier verdicts received
+
+### 2026-07-28T22:30:00Z — PASS
+
+Verifier session: fresh, artefact-only. Verdict: PASS.
+
+All 6 gates passed:
+- Gate 1 (User-reachable): `RunParallel` is the core of `sworn run`; the disjointness check is wired into the dispatch path before goroutine launch.
+- Gate 2 (Touchpoints): `parallel_test.go` is the test file; `worker.go` adds the single `TrackBlocked` constant — minimal necessary cross-file touch. Both documented in `actual_files`.
+- Gate 3 (Tests): 4 `TestInvariant2_*` tests pass, exercising the integration point via `RunParallel` with injected `PlannedFilesFn`.
+- Gate 3b (AC satisfaction LLM): Skipped — LLM provider not configured (non-blocking).
+- Gate 4 (Reachability): Test output shows INVARIANT-2 message and track blocking/retry in stderr.
+- Gate 4b (Semantic coverage LLM): Skipped — LLM provider not configured (non-blocking).
+- Gate 5 (Deferrals): No TODO/FIXME/placeholder in production code.
+- Gate 6 (Design): Non-UI project — passes automatically.
+- Gate 7 (Claims): All 5 AC delivery claims verified against live code.
+
+Next step: `/implement-slice S07-pause-resume-committed 2026-06-27-conformance-foundation`
