@@ -96,11 +96,11 @@ func TestNewClient_NativeStub(t *testing.T) {
 	for _, modelID := range nativeProviders {
 		_, err := NewClient(modelID, cfg)
 		if err == nil {
-			t.Errorf("NewClient(%q) returned nil error, want ErrDriverNotRegistered", modelID)
+			t.Errorf("NewClient(%q) returned nil error, want ErrDriverNotImplemented", modelID)
 			continue
 		}
-		if !errors.Is(err, ErrDriverNotRegistered) {
-			t.Errorf("NewClient(%q) error = %v, want ErrDriverNotRegistered", modelID, err)
+		if !errors.Is(err, ErrDriverNotImplemented) {
+			t.Errorf("NewClient(%q) error = %v, want ErrDriverNotImplemented", modelID, err)
 		}
 	}
 }
@@ -110,8 +110,8 @@ func TestNewClient_Unknown(t *testing.T) {
 	if err == nil {
 		t.Fatal("NewClient(unknown/model) returned nil error")
 	}
-	if !errors.Is(err, ErrDriverNotRegistered) {
-		t.Errorf("error = %v, want ErrDriverNotRegistered", err)
+	if !errors.Is(err, ErrDriverNotImplemented) {
+		t.Errorf("error = %v, want ErrDriverNotImplemented", err)
 	}
 }
 

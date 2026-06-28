@@ -3,12 +3,14 @@
   "slice_id": "S09-error-kind-consumption",
   "release": "2026-06-27-conformance-foundation",
   "track": "T2-model-layer",
-  "covers_needs": ["N-18"],
-  "state": "planned",
+  "covers_needs": [
+    "N-18"
+  ],
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-27T00:00:00Z",
-  "start_commit": null,
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-25T00:00:00Z",
+  "start_commit": "11bc26f695b09e4eede4f4677e99c7faaf65c7d5",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S09-error-kind-consumption/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S09-error-kind-consumption/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S09-error-kind-consumption/journal.md",
@@ -16,15 +18,29 @@
     "internal/run/slice.go",
     "internal/model/errors.go"
   ],
-  "actual_files": [],
-  "test_commands": ["go test ./internal/run/... -v -run TestTerminalError"],
-  "reachability_artifacts": [],
+  "actual_files": [
+    "internal/run/slice.go",
+    "internal/run/slice_terminal_test.go",
+    "internal/model/provider.go",
+    "internal/model/cli.go",
+    "internal/model/config.go",
+    "internal/model/bedrock_test.go",
+    "internal/model/provider_test.go",
+    "internal/model/cli_test.go"
+  ],
+  "test_commands": [
+    "go test ./internal/run/... -v -run TestTerminalError",
+    "go test ./internal/model/..."
+  ],
+  "reachability_artifacts": [
+    "go test ./internal/run/... -v -run TestTerminalError exits 0"
+  ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "pass",
     "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "verifier_verdict_at": "2026-07-25T00:00:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
   }
 }
