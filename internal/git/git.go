@@ -32,6 +32,13 @@ func (r *Repo) Init() error {
 	return err
 }
 
+// Config sets a git config key to val in the repository (equivalent to
+// `git config <key> <val>`).
+func (r *Repo) Config(key, val string) error {
+	_, err := r.run("config", key, val)
+	return err
+}
+
 // Branch creates and checks out a new branch named name.
 func (r *Repo) Branch(name string) error {
 	_, err := r.run("checkout", "-b", name)

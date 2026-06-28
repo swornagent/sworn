@@ -1,7 +1,1 @@
-verifier.md: re-vendored byte-for-byte from canonical ~/.claude/baton/role-prompts/verifier.md
-commit: N/A (local sync)
-date: 2026-07-28
-note: Byte-for-byte copy of canonical verifier.md (see diff proof in proof.md).
-Prior adaptation had project-local command paths; canonical uses board.json,
-spec.json/proof.json, sworn llm-check, sworn designaudit.
-This is NOT the full pin bump (that's S22/T6); it records the re-vendor for S12.
+42eb48b
