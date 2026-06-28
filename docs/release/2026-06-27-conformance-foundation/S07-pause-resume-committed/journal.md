@@ -38,3 +38,25 @@
 **Snapshot:** 7 new tests, 6 changed files, 242 insertions / 53 deletions. All existing tests pass. `sworn verify` requires API key not available in this environment.
 
 **Next:** `/verify-slice S07-pause-resume-committed 2026-06-27-conformance-foundation`
+
+## 2026-07-28 — Verifier verdict
+
+### Verifier verdicts received
+
+**PASS** — All six gates passed:
+
+| Gate | Result | Detail |
+|------|--------|--------|
+| Gate 1 — User-reachable outcome | PASS | `sworn run --parallel [--resume]` → `RunParallel` → `WorkerOptions.Oracle` → `runTrackRouter` → `findFirstNonTerminal(ctx, opts.Oracle, ...)`. Wired end-to-end. |
+| Gate 2 — Planned touchpoints | PASS | All three planned files changed; `internal/run/parallel.go` is necessary oracle-threading plumbing described in design.md. Test + docs files expected adjuncts. |
+| Gate 3 — Required tests | PASS | 6 scheduler tests + 1 router table test (9 cases) = 7 test functions. All PASS with `go test`. Integration-point reachability via committed-state oracle mock. |
+| Gate 4 — Reachability artefact | PASS | Go test output for `TestFindFirstNonTerminal*` + `TestIsTerminal` with user-gesture description referencing the `RunParallel` integration path. |
+| Gate 5 — No silent deferrals | PASS | Zero TODO/FIXME/deferred/placeholder hits in production code. |
+| Gate 6 — Design conformance | PASS | Non-UI project (no design-fidelity.json). |
+| Gate 7 — Claimed scope | PASS | All 6 ACs mapped to deliverable evidence; all evidence references verified. |
+
+- `go vet` clean
+- `go build ./...` compiles
+- `go test ./internal/scheduler/... ./internal/router/...` — all pass
+
+**Next step:** `/verify-slice S27-parallel-dispatch-fix 2026-06-27-conformance-foundation` (next unverified slice in T1-orchestration).

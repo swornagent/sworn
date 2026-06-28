@@ -6,11 +6,10 @@
   "covers_needs": [
     "N-16"
   ],
-  "state": "implemented",
-  "owner": "implementer",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-28T23:00:00Z",
-  "start_commit": "28143b83b1a7ace1707a79952e7557dc921f0304",
+  "state": "verified",
+  "owner": "verifier",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-28T23:30:00Z",  "start_commit": "28143b83b1a7ace1707a79952e7557dc921f0304",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S07-pause-resume-committed/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S07-pause-resume-committed/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S07-pause-resume-committed/journal.md",
@@ -58,10 +57,9 @@
     }
   ],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "result": "pass",
+    "verifier_session_id": "fresh-artefact-only",
+    "verifier_verdict_at": "2026-07-28T23:30:00Z",
+    "verifier_was_fresh_context": true,
     "violations": []
-  }
-}
+  }}
