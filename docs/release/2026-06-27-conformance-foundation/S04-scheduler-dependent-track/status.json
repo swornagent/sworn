@@ -4,20 +4,28 @@
   "release": "2026-06-27-conformance-foundation",
   "track": "T1-orchestration",
   "covers_needs": ["N-13"],
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "implementer",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-28T00:00:00Z",
-  "start_commit": "8d32fe06527a39e00cc2a29e5b3f142fec97fa9f",  "spec_path": "docs/release/2026-06-27-conformance-foundation/S04-scheduler-dependent-track/spec.md",
-  "proof_path": "docs/release/2026-06-27-conformance-foundation/S04-scheduler-dependent-track/proof.md",
+  "start_commit": "8d32fe06527a39e00cc2a29e5b3f142fec97fa9f",
+  "spec_path": "docs/release/2026-06-27-conformance-foundation/S04-scheduler-dependent-track/spec.md",
+  "proof_path": "docs/release/2026-06-27-conformance-foundation/S04-scheduler-dependent-track/proof.json",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S04-scheduler-dependent-track/journal.md",
   "planned_files": [
     "internal/scheduler/worker.go",
     "internal/run/parallel.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "cmd/sworn/run.go",
+    "internal/run/parallel.go",
+    "internal/scheduler/worker.go",
+    "internal/scheduler/worker_test.go"
+  ],
   "test_commands": ["go test ./internal/scheduler/... -v -run TestDependentTrack"],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "go test ./internal/scheduler/... -v -run TestDependentTrack exits 0"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "pending",

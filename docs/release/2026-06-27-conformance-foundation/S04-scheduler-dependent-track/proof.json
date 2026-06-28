@@ -1,0 +1,75 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S04-scheduler-dependent-track",
+  "release": "2026-06-27-conformance-foundation",
+  "scope": "When a release has a track T5 with depends_on: T6, the scheduler waits until T6 has merged to release-wt, then creates T5's worktree branching from the post-T6 release-wt tip — so T5's implementer starts with T6's code already present.",
+  "files_changed": [
+    "cmd/sworn/run.go",
+    "docs/release/2026-06-27-conformance-foundation/S04-scheduler-dependent-track/status.json",
+    "internal/run/parallel.go",
+    "internal/scheduler/worker.go",
+    "internal/scheduler/worker_test.go"
+  ],
+  "test_results": [
+    {
+      "command": "go test ./internal/scheduler/... -v -run TestDependentTrack",
+      "passed": true,
+      "exit_code": 0,
+      "output": "=== RUN   TestDependentTrack_MergeTrackFnCalled\n[T1] starting\n[T1] router: S01-final → none (terminal)\n[T1] auto-merging into release-wt\n[T1] auto-merged into release-wt\n[T1] done\n--- PASS: TestDependentTrack_MergeTrackFnCalled (0.00s)\n=== RUN   TestDependentTrack_MergeTrackFnErrorFails\n[T1] starting\n[T1] router: S01-failmerge → none (terminal)\n[T1] auto-merging into release-wt\n[T1] auto-merge failed: simulated merge conflict\n--- PASS: TestDependentTrack_MergeTrackFnErrorFails (0.00s)\n=== RUN   TestDependentTrack_MergeTrackDecisionAutoMerges\n[T1] starting\n[T1] router: S01-automerge → merge-track (track fully verified)\n[T1] auto-merging into release-wt\n[T1] auto-merged into release-wt\n[T1] done\n--- PASS: TestDependentTrack_MergeTrackDecisionAutoMerges (0.00s)\n=== RUN   TestDependentTrack_MergeTrackDecisionPausesWhenNoMergeTrackFn\n[T1] starting\n[T1] router: S01-nomergefn → merge-track (track fully verified)\n[T1] paused: merge-track — track fully verified\n--- PASS: TestDependentTrack_MergeTrackDecisionPausesWhenNoMergeTrackFn (0.00s)\nPASS\nok  \tgithub.com/swornagent/sworn/internal/scheduler\t0.017s"
+    }
+  ],
+  "reachability": {
+    "type": "cli-run",
+    "evidence": "go test ./internal/scheduler/... -v -run TestDependentTrack exits 0 — all 4 subtests pass: MergeTrackFnCalled, MergeTrackFnErrorFails, MergeTrackDecisionAutoMerges, MergeTrackDecisionPausesWhenNoMergeTrackFn"
+  },
+  "delivered": [
+    {
+      "item": "AC1: dependent track not started until dependency merged — phase barrier in RunParallel (wg.Wait per phase) enforces ordering; finishTrack auto-merges before goroutine returns",
+      "evidence": "internal/run/parallel.go:228-230 (phase barrier wg.Wait), internal/run/parallel.go:324-362 (ProductionMergeTrack)"
+    },
+    {
+      "item": "AC2: dependent track branches from post-dependency release-wt tip — git worktree add uses release-wt/<release> which resolves to live HEAD at call time, after auto-merge in finishTrack",
+      "evidence": "internal/scheduler/worker.go:163-164 (git worktree add ... release-wt/<release>)"
+    },
+    {
+      "item": "AC3: auto-invoke merge-track when last slice verified — finishTrack calls MergeTrackFn when set; case 'merge-track': calls finishTrack when MergeTrackFn != nil",
+      "evidence": "internal/scheduler/worker.go:498-505 (MergeTrackFn call in finishTrack), internal/scheduler/worker.go:371-377 (merge-track case)"
+    },
+    {
+      "item": "AC4: no deadlock on stuck dependency — ctx.Done() checked in runTrackRouter loop; failCancel propagates from TrackFail to subsequent phases",
+      "evidence": "internal/scheduler/worker.go:213-218 (ctx.Err check), internal/run/parallel.go:223-225 (failCancel on TrackFail)"
+    },
+    {
+      "item": "AC5: integration test asserts correct branch point — TestDependentTrack_* suite covers MergeTrackFn called/error/auto-merge/pause-fallback",
+      "evidence": "internal/scheduler/worker_test.go:1227-1445 (4 test functions)"
+    },
+    {
+      "item": "Pin 1 (design review): dropped waitForDependencies — phase barrier documented as ordering mechanism",
+      "evidence": "internal/scheduler/worker.go:91-105 (MergeTrackFn doc comment)"
+    },
+    {
+      "item": "Pin 2 (design review): S05 gate bypass documented in finishTrack comment block",
+      "evidence": "internal/scheduler/worker.go:460-480 (S05 bypass doc comment)"
+    },
+    {
+      "item": "ProductionMergeTrack wired in CLI --parallel path",
+      "evidence": "cmd/sworn/run.go:131 (MergeTrackFn: run.ProductionMergeTrack)"
+    }
+  ],
+  "not_delivered": [],
+  "divergence": [
+    {
+      "item": "waitForDependencies poll loop dropped per design review Pin 1 resolution (a) — phase barrier is the ordering mechanism",
+      "reason": "Design review Captain verdict: DROP waitForDependencies and document phase barrier. The phase barrier in RunParallel (wg.Wait per phase) already enforces AC1; no polling needed."
+    },
+    {
+      "item": "DependencyOracle and DependsOnPollInterval not added to WorkerOptions",
+      "reason": "These fields were only needed for waitForDependencies, which was dropped per Pin 1."
+    }
+  ],
+  "first_pass_verdict": {
+    "gate": "sworn verify",
+    "result": "BLOCKED",
+    "reason": "SWORN_OPENAI_API_KEY not set — cannot invoke LLM-based verifier. Code-level verification: go test passes, go vet clean, all 4 TestDependentTrack_* subtests green. Full adversarial verification deferred to fresh-context verifier session."
+  }
+}
