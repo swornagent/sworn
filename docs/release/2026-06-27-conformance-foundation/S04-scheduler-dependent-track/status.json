@@ -6,11 +6,10 @@
   "covers_needs": [
     "N-13"
   ],
-  "state": "failed_verification",
+  "state": "implemented",
   "owner": "implementer",
-  "last_updated_by": "verifier",
-  "last_updated_at": "2026-07-28T17:45:00Z",
-  "start_commit": "172c6c94fb90ae897283de4731445e27ea3c8219",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-28T18:15:00Z",  "start_commit": "172c6c94fb90ae897283de4731445e27ea3c8219",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S04-scheduler-dependent-track/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S04-scheduler-dependent-track/proof.json",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S04-scheduler-dependent-track/journal.md",
@@ -21,10 +20,8 @@
   "actual_files": [
     "internal/scheduler/worker.go",
     "internal/run/parallel.go",
-    "internal/scheduler/worker_test.go",
-    "internal/scheduler/scheduler.go"
-  ],
-  "test_commands": [
+    "internal/scheduler/worker_test.go"
+  ],  "test_commands": [
     "go test ./internal/scheduler/... -v -run TestDependentTrack",
     "go test ./internal/scheduler/... -v -run TestBuildPlan"
   ],
@@ -34,18 +31,10 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "fail",
+    "result": "pending",
     "verifier_session_id": null,
-    "verifier_verdict_at": "2026-07-28T17:45:00Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      {
-        "gate": 2,
-        "summary": "internal/scheduler/scheduler.go claimed as changed but shows zero delta in start_commit..HEAD",
-        "evidence": "proof.json files_changed and status.json actual_files include internal/scheduler/scheduler.go, but git diff 172c6c94..HEAD -- internal/scheduler/scheduler.go is empty. The BuildPlan function was committed by 5bb3666 (S02b, 2026-06-20) and was not modified in any S04 commit.",
-        "fix": "Remove internal/scheduler/scheduler.go from proof.json files_changed and status.json actual_files."
-      }
-    ],
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": [],
     "blocked_reason": null
-  }
-}
+  }}

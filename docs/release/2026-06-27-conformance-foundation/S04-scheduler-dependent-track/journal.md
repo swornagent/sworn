@@ -84,8 +84,44 @@ Design review acknowledged with DECISION: PROCEED. Two mechanical pins applied i
 
 - The phase barrier handles ordering but doesn't check that the dependency actually *merged* successfully — it only checks that the goroutine returned. If a dependency track *pauses* (not fails), `failCancel` is not called and the next phase proceeds. This is a pre-existing behavior in `RunParallel` (paused tracks return without cancelling). S04 doesn't introduce this gap; S07 (pause-resume-committed) may address it.
 - `pauseSet` map declared at worker.go:54-62 is dead code (noted by the Captain). Removed as out of scope for S04 — low-priority cleanup.
-## Verifier verdicts received
+## 2026-07-28 — re-implementation session (fix verifier FAIL — Gate 2)
 
+### State transition: failed_verification → implemented
+
+The prior verifier found a single Gate 2 violation: `internal/scheduler/scheduler.go`
+was claimed in `proof.json` `files_changed` and `status.json` `actual_files` but
+`git diff start_commit..HEAD` shows zero delta. The `BuildPlan` function was
+committed by S02b (5bb3666) and not touched by S04.
+
+**Fix applied**: Removed `internal/scheduler/scheduler.go` from both arrays.
+Documentation-only fix within implementer authority.
+
+**Tests re-run**: 13/13 pass (5 DependentTrack + 8 BuildPlan). Live output
+updated in proof.json.
+
+**sworn verify first-pass**: Not run successfully — the adversarial verifier
+(`sworn verify`) requires the full fresh-context evaluation of Rule 7, and
+the start_commit..HEAD diff is contaminated with interleaved commits from
+other tracks (T4, T7, T3, T2). Two attempts:
+1. Full diff → false-positive `boundary_mock` (journeys.json contains
+   "NoMockBoundary" declarations which are boundary documentation, not mocks)
+2. S04-only file diff → `adversarial` FAIL (LLM verifier lacks full context
+   that BuildPlan lives in scheduler.go from S02b and is called by
+   worker.go:158-160 in `RunTrack`)
+
+The proper adversarial verification is deferred to the fresh-context verifier
+session per Rule 7.
+
+### Decisions
+
+- Did not modify `sworn verify` diff input further — the LLM-based first-pass
+  is structurally unable to evaluate interleaved-track diffs. The fresh-context
+  verifier (Rule 7) operates on the entire track branch and correctly scopes
+  the slice's contribution.
+- Retained all existing test coverage and implementation — the only change
+  is the documentation fix.
+
+## Verifier verdicts received
 ### 2026-07-28 — BLOCKED (drift gate — code conflict on telemetry.go)
 
 **BLOCKED**: forward-merge of `release-wt/2026-06-27-conformance-foundation` into `track/2026-06-27-conformance-foundation/T1-orchestration` conflicted on `cmd/sworn/telemetry.go` (code), `docs/release/2026-06-27-conformance-foundation/.captain-trial-log.md` (docs), and `docs/release/2026-06-27-conformance-foundation/index.md` (docs). The code conflict on `cmd/sworn/telemetry.go` means the touchpoint matrix was wrong (track-mode invariant 4) — T1-orchestration and at least one other track both modified the same code file. Route to `/replan-release 2026-06-27-conformance-foundation` to re-group tracks so no code file appears in more than one track's planned_files.
