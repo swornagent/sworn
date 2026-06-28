@@ -6,10 +6,11 @@
   "covers_needs": [
     "N-27"
   ],
-  "state": "in_progress",
+  "state": "planned",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-28T00:00:00Z",  "start_commit": "3122d5f50538010d20442829c6dcb75edd352d96",
+  "last_updated_by": "coach-reconcile",
+  "last_updated_at": "2026-06-28T00:00:00Z",
+  "start_commit": "3122d5f50538010d20442829c6dcb75edd352d96",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/journal.md",
@@ -52,4 +53,5 @@
         "evidence": "git diff 3122d5f..HEAD -- cmd/sworn/run.go shows +4/-2 lines"
       }
     ]
-  }}
+  }
+}
