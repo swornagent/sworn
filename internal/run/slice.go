@@ -13,14 +13,14 @@ import (
 	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/captain"
 	"github.com/swornagent/sworn/internal/design"
+	"github.com/swornagent/sworn/internal/gate"
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/implement"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/orchestrator"
 	"github.com/swornagent/sworn/internal/state"
 	"github.com/swornagent/sworn/internal/verdict"
-	"github.com/swornagent/sworn/internal/verify"
-)
+	"github.com/swornagent/sworn/internal/verify")
 
 // DefaultImplementTimeout is the per-attempt deadline applied to the implement
 // step inside RunSlice when no explicit timeout is configured. 15 minutes is
@@ -97,6 +97,14 @@ type Notifier interface {
 // On verifier BLOCKED: returns error immediately (no state change).
 // On verifier FAIL after all retries: transitions to failed_verification and
 // returns a non-nil error.
+// checkProofAbsent returns true when proof.md is absent or empty.
+// This is the proof-mandatory gate (S11).
+func checkProofAbsent(proofPath string) bool {
+	proofBytes, err := os.ReadFile(proofPath)
+	return err != nil || strings.TrimSpace(string(proofBytes)) == ""
+}
+
+
 func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, opts RunSliceOptions) error {
 	// ── Validate mandatory options ────────────────────────────────────
 	if specPath == "" {
@@ -147,7 +155,10 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	maxResolves := 1
 	_ = opts.RetryCap // RetryCap is superseded by the triage policy; kept for API compat.
 
-	absSliceDir := filepath.Join(worktreeRoot, filepath.Dir(specPath))
+	absSliceDir := filepath.Dir(specPath)
+	if !filepath.IsAbs(specPath) {
+		absSliceDir = filepath.Join(worktreeRoot, absSliceDir)
+	}
 	proofPath := filepath.Join(absSliceDir, "proof.md")
 	// ── Resolve implement timeout ──────────────────────────────────────
 	// 0 means use default; negative means no timeout; positive is used as-is.
@@ -266,7 +277,6 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	// immediately.
 	var (
 		lastVerdict   verdict.Result
-		lastImplModel string
 		modelIdx      = 0
 		resolveCount  = 0
 		totalAttempts = 0
@@ -300,7 +310,6 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		totalAttempts++
 
 		implModelID := escalationModels[modelIdx]
-		lastImplModel = implModelID
 		implAgent, err := opts.NewAgent(implModelID)
 		if err != nil {
 			return fmt.Errorf("RunSlice: create implementer agent for %q: %w", implModelID, err)
@@ -389,36 +398,164 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			return fmt.Errorf("RunSlice: compute diff: %w", err)
 		}
 
-		// ── Verify ──────────────────────────────────────────────────
+		// ── Verify (agentic) ─────────────────────────────────────────
 		verifierModelID := opts.VerifierModel
-		verifier, err := opts.NewVerifier(verifierModelID)
-		if err != nil {
-			return fmt.Errorf("RunSlice: create verifier for %q: %w", verifierModelID, err)
+
+		// ── Proof mandatory gate ───────────────────────────────────
+		// Before dispatching the verifier, check that proof.md exists
+		// and is non-empty. Absent proof -> BLOCKED immediately.
+		if checkProofAbsent(proofPath) {
+			lastVerdict = verdict.Result{
+				Verdict:    verdict.Blocked,
+				FailedGate: "proof_absent",
+				Rationale:  "proof bundle absent — fail closed",
+			}
+			fmt.Fprintf(os.Stderr, "sworn run: BLOCKED — proof bundle absent\n")
+			// Record the BLOCKED dispatch for cost ledger.
+			dispatches = append(dispatches, state.Dispatch{
+				Role:    "verifier",
+				Model:   opts.VerifierModel,
+				CostUSD: 0,
+				Attempt: totalAttempts,
+			})
+			// Commit blocked state.
+			stBlk, _ := state.Read(statusPath)
+			if stBlk != nil {
+				stBlk.Verification.Result = "blocked"
+				stBlk.Verification.Model = opts.VerifierModel
+				stBlk.Verification.Attempt = totalAttempts
+				stBlk.Verification.Dispatches = dispatches
+				stBlk.LastUpdatedBy = "run-slice"
+				stBlk.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
+				_ = state.Write(statusPath, stBlk)
+				_ = repo.Stage(statusPath)
+				_ = repo.Commit("chore(run): verification blocked — proof bundle absent")
+			}
+			// Notify on BLOCKED.
+			if opts.Notifier != nil {
+				stNotify, _ := state.Read(statusPath)
+				if stNotify != nil {
+					summary := "proof bundle absent — fail closed"
+					opts.Notifier.Notify(ctx, account.NotifyEvent{
+						Release:           stNotify.Release,
+						Track:             stNotify.Track,
+						SliceID:           stNotify.SliceID,
+						State:             "blocked",
+						ViolationsSummary: summary,
+						WorktreePath:      worktreeRoot,
+					})
+				}
+			}
+			return fmt.Errorf("RunSlice: verification blocked: proof bundle absent — fail closed")
+		}
+		// ── No-mock wiring (S10) ────────────────────────────────────
+		// Run the mock lint gate before the agentic verifier dispatch.
+		// Violations that are not in open_deferrals are appended as
+		// warnings; undeclared mocks do not BLOCK by themselves (the
+		// deferral path is the user's explicit choice).
+		{
+			absSliceDir := filepath.Dir(specPath)
+			mockReport, mockErr := gate.RunMock(filepath.Dir(absSliceDir), filepath.Base(absSliceDir), startCommit)
+			if mockErr == nil && mockReport.HasViolations() {
+				fmt.Fprintf(os.Stderr, "sworn run: mock lint: %d undeclared boundary violation(s)\n",
+					mockReport.TotalViolations)
+				// Append violations as informational warnings to the run log.
+				for _, v := range mockReport.Violations {
+					fmt.Fprintf(os.Stderr, "sworn run:   - %s:%d %s\n", v.File, v.Line, v.Msg)
+				}
+			}
+		}
+		// ── First-pass deterministic gate (S12) ────────────────────
+			// RunFirstPass catches structural blockers (empty spec,
+			// empty diff, undeclared boundary mocks) before the expensive
+			// agentic verifier is dispatched. A FAIL or BLOCKED here
+			// short-circuits and prevents the agentic call entirely.
+			{
+				stFP, _ := state.Read(statusPath)
+				var openDeferrals []string
+				if stFP != nil {
+					openDeferrals = stFP.OpenDeferrals
+				}
+				// Write diff to temp file for RunFirstPass (it reads paths).
+				diffPath, tmpErr := writeTempFile("", "firstpass-diff-*.patch", diff)
+				if tmpErr != nil {
+					return fmt.Errorf("RunSlice: write diff for first-pass: %w", tmpErr)
+				}
+				defer os.Remove(diffPath)
+				fpResult := verify.RunFirstPass(ctx, verify.Input{
+					SpecPath:      specPath,
+					DiffPath:      diffPath,
+					ProofPath:     proofPath,
+					OpenDeferrals: openDeferrals,
+				})
+				if fpResult.Verdict != verdict.Pass {
+					lastVerdict = fpResult
+					fmt.Fprintf(os.Stderr, "sworn run: first-pass %s — %s\n",
+						fpResult.Verdict, fpResult.Rationale)
+					// Record the BLOCKED/FAIL dispatch for cost ledger
+					// (zero cost — deterministic).
+					dispatches = append(dispatches, state.Dispatch{
+						Role:    "first_pass",
+						Model:   "deterministic",
+						CostUSD: 0,
+						Attempt: totalAttempts,
+					})
+					// Commit blocked/failed state and return.
+					stBlk, _ := state.Read(statusPath)
+					if stBlk != nil {
+						stBlk.Verification.Result = "blocked"
+						stBlk.Verification.Model = "first_pass"
+						stBlk.Verification.Attempt = totalAttempts
+						stBlk.Verification.Dispatches = dispatches
+						stBlk.LastUpdatedBy = "run-slice"
+						stBlk.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
+						_ = state.Write(statusPath, stBlk)
+						_ = repo.Stage(statusPath)
+						_ = repo.Commit("chore(run): verification blocked — first-pass: " + fpResult.FailedGate)
+					}
+					if opts.Notifier != nil {
+						stNotify, _ := state.Read(statusPath)
+						if stNotify != nil {
+							summary := fpResult.Rationale
+							if len(summary) > 200 {
+								summary = summary[:197] + "..."
+							}
+							opts.Notifier.Notify(ctx, account.NotifyEvent{
+								Release:           stNotify.Release,
+								Track:             stNotify.Track,
+								SliceID:           stNotify.SliceID,
+								State:             "blocked",
+								ViolationsSummary: summary,
+								WorktreePath:      worktreeRoot,
+							})
+						}
+					}
+					return fmt.Errorf("RunSlice: first-pass %s: %s", fpResult.Verdict, fpResult.Rationale)
+				}
+			}
+			// ── Dispatch agentic verifier ───────────────────────────────		// Create an agent (not just a Verifier) for the verifier model
+		// so we can dispatch the full verifier.md role prompt via Chat().
+		verifierAgent, vaErr := opts.NewAgent(verifierModelID)
+		if vaErr != nil {
+			return fmt.Errorf("RunSlice: create agentic verifier for %q: %w", verifierModelID, vaErr)
 		}
 
-		fmt.Fprintf(os.Stderr, "sworn run: verifying with %s\n", verifierModelID)
+		fmt.Fprintf(os.Stderr, "sworn run: verifying (agentic) with %s\n", verifierModelID)
 
-		diffPath, err := writeTempFile(worktreeRoot, "sworn-diff-*.patch", diff)
-		if err != nil {
-			return fmt.Errorf("RunSlice: write diff temp: %w", err)
+		// Read spec and diff content for the agentic payload.
+		specContent, specErr := os.ReadFile(specPath)
+		if specErr != nil {
+			return fmt.Errorf("RunSlice: read spec for agentic verify: %w", specErr)
 		}
+		proofBytes2, _ := os.ReadFile(proofPath)
+		proofStr := string(proofBytes2)
+		specStr := string(specContent)
 
-		// Read open_deferrals from status.json for boundary-mock check (S10).
-		status, stErr := state.Read(statusPath)
-		var openDeferrals []string
-		if stErr == nil {
-			openDeferrals = status.OpenDeferrals
+		result, runErr := verify.RunAgentic(ctx, specStr, diff, proofStr, verifierAgent)
+		if runErr != nil {
+			return fmt.Errorf("RunSlice: agentic verify dispatch: %w", runErr)
 		}
-
-		lastVerdict = verify.Run(ctx, verify.Input{
-			SpecPath:      specPath,
-			DiffPath:      diffPath,
-			ProofPath:     proofPath,
-			Model:         verifierModelID,
-			Verifier:      verifier,
-			OpenDeferrals: openDeferrals,
-		})
-		os.Remove(diffPath)
+		lastVerdict = result
 
 		fmt.Fprintf(os.Stderr, "sworn run: verdict %s (cost $%.4f)\n",
 			lastVerdict.Verdict, lastVerdict.CostUSD)
@@ -447,7 +584,8 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 				return fmt.Errorf("RunSlice: transition to verified: %w", err)
 			}
 			st.State = state.Verified
-			st.Verification.Model = implModelID
+			st.Verification.Model = opts.VerifierModel
+			st.Verification.VerifierWasFreshContext = boolPtr(true)
 			st.Verification.Dispatches = dispatches
 			st.Verification.Attempt = totalAttempts
 			st.LastUpdatedBy = "run-slice"
@@ -458,6 +596,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			return nil
 		}
 
+	// triageVerdict label no longer needed
 		// ── Non-PASS: run triage (S47) ──────────────────────────────
 		triageOut := orchestrator.Decide(orchestrator.Input{
 			Verdict:        lastVerdict.Verdict,
@@ -490,7 +629,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 				if stErr == nil {
 					st.Verification.Result = "blocked"
 					st.Verification.Violations = extractViolations(lastVerdict.Rationale)
-					st.Verification.Model = implModelID
+					st.Verification.Model = opts.VerifierModel
 					st.Verification.Attempt = totalAttempts
 					st.Verification.Dispatches = dispatches
 					st.LastUpdatedBy = "run-slice"
@@ -531,7 +670,7 @@ haltFailedVerification:
 	if stErr == nil {
 		_ = st.State.Transition(state.FailedVerification) // ignore — state may already be terminal
 		st.State = state.FailedVerification
-		st.Verification.Model = lastImplModel
+		st.Verification.Model = opts.VerifierModel
 		st.Verification.Attempt = totalAttempts
 		st.Verification.Dispatches = dispatches
 		st.LastUpdatedBy = "run-slice"
@@ -615,15 +754,18 @@ func extractViolations(rationale string) []string {
 	return violations
 }
 
-// Sentinel error string prefixes used by RunSlice. Callers can// strings.Contains on the returned error to distinguish exit causes.
-const (
-	errVerdictBlockedPrefix = "RunSlice: verification blocked:"
+// Sentinel error string prefixes used by RunSlice. Callers can use
+// strings.Contains on the returned error to distinguish exit causes.
+const (	errVerdictBlockedPrefix = "RunSlice: verification blocked:"
 	errVerdictFailPrefix    = "RunSlice: verification failed after"
 )
 
+// boolPtr returns a pointer to a bool value. Used for nullable bool fields
+// in status.json (e.g. verifier_was_fresh_context).
+func boolPtr(b bool) *bool { return &b }
+
 // IsBlocked reports whether err is a BLOCKED-verdict error from RunSlice.
-func IsBlocked(err error) bool {
-	return err != nil && strings.Contains(err.Error(), errVerdictBlockedPrefix)
+func IsBlocked(err error) bool {	return err != nil && strings.Contains(err.Error(), errVerdictBlockedPrefix)
 }
 
 // IsFailed reports whether err is a FAIL-exhausted error from RunSlice.

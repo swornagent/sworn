@@ -138,11 +138,13 @@ Test outcome.
 
 	status := `{
   "slice_id": "S06-target-slice",
+  "release": "test-release",
+  "track": "T1-test",
   "state": "planned",
-  "release_benefit": "The release delivers value to users."
+  "release_benefit": "The release delivers value to users.",
+  "verification": {"result": "pending"}
 }`
 	os.WriteFile(filepath.Join(sliceDir, "status.json"), []byte(status), 0644)
-
 	for _, mod := range mods {
 		mod(dir)
 	}
@@ -199,8 +201,9 @@ func writeValidationRecord(t *testing.T, releaseDir, sliceID string, humanRatifi
 		SliceID:    sliceID,
 		Release:    "test-release",
 		Track:      "T1-test",
-		State:      state.Planned,
-		Validation: v,
+		State:        state.Planned,
+		Validation:   v,
+		Verification: state.Verification{Result: "pending"},
 	}
 	if err := state.Write(filepath.Join(dir, "status.json"), &s); err != nil {
 		t.Fatal(err)

@@ -139,6 +139,14 @@ var (
 		{regexp.MustCompile(`\bAPI_KEY\b`), "API_KEY"},
 		{regexp.MustCompile(`\bSECRET_KEY\b`), "SECRET_KEY"},
 
+		// Entitlement / billing — credits, subscription, keyless, claude -p.
+		{regexp.MustCompile(`\bcredits\b`), "credits"},
+		{regexp.MustCompile(`\bCredits\b`), "Credits"},
+		{regexp.MustCompile(`\bsubscription\b`), "subscription"},
+		{regexp.MustCompile(`\bSubscription\b`), "Subscription"},
+		{regexp.MustCompile(`\bkeyless\b`), "keyless"},
+		{regexp.MustCompile(`\bKeyless\b`), "Keyless"},
+		{regexp.MustCompile(`\bclaude -p\b`), "claude -p"},
 		// Connection strings (checked after named env vars, before localhost).
 		{regexp.MustCompile(`postgres://`), "postgres-uri"},
 		{regexp.MustCompile(`mysql://`), "mysql-uri"},

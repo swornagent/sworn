@@ -17,6 +17,17 @@ func writeFixture(t *testing.T, dir, sliceID string, status *state.Status) strin
 	if err := os.MkdirAll(sliceDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// Default the required fields (slice_id, release, state) for fixtures that
+	// only care about design decisions — validate-on-write enforces them.
+	if status.Release == "" {
+		status.Release = "test-release"
+	}
+	if status.SliceID == "" {
+		status.SliceID = sliceID
+	}
+	if status.State == "" {
+		status.State = state.InProgress
+	}
 	if err := state.Write(filepath.Join(sliceDir, "status.json"), status); err != nil {
 		t.Fatal(err)
 	}
@@ -33,6 +44,8 @@ func writeReleaseSlice(t *testing.T, releaseDir, sliceID string, decisions []sta
 	}
 	st := &state.Status{
 		SliceID:         sliceID,
+		Release:         filepath.Base(releaseDir),
+		State:           state.InProgress,
 		DesignDecisions: decisions,
 	}
 	if err := state.Write(filepath.Join(sliceDir, "status.json"), st); err != nil {

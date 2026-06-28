@@ -8,12 +8,11 @@ import (
 	"github.com/swornagent/sworn/internal/verdict"
 )
 
-// TestConcurrentVerifySameInput runs N goroutines all calling verify.Run with
-// the same Input and the same fakeVerifier concurrently. Every goroutine must
-// return the same verdict (PASS) — the race detector is the primary assertion
-// mechanism, proving no package-level state is corrupted by concurrent Run calls.
-func TestConcurrentVerifySameInput(t *testing.T) {
-	const goroutines = 4
+// TestConcurrentVerifySameInput runs N goroutines all calling verify.RunFirstPass with
+// the same Input concurrently. Every goroutine must return the same verdict (PASS) —
+// the race detector is the primary assertion mechanism, proving no package-level state
+// is corrupted by concurrent RunFirstPass calls.
+func TestConcurrentVerifySameInput(t *testing.T) {	const goroutines = 4
 
 	in := Input{
 		SpecPath: writeTmp(t, "spec.md", "must do X"),
@@ -28,7 +27,7 @@ func TestConcurrentVerifySameInput(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			results[idx] = Run(context.Background(), in)
+			results[idx] = RunFirstPass(context.Background(), in)
 		}(i)
 	}
 	wg.Wait()
@@ -46,18 +45,18 @@ func TestConcurrentVerifySameInput(t *testing.T) {
 }
 
 // TestConcurrentVerifyIndependentInputs runs two goroutines each with different
-// specs and different mock verifiers concurrently. Each result must match its
-// own expected verdict — no cross-contamination between the verification runs.
+// inputs concurrently. Each result must match its own expected verdict —
+// no cross-contamination between the verification runs.
+// Since RunFirstPass is deterministic, inputs differ on structural properties
+// (empty spec vs valid spec) rather than model replies.
 func TestConcurrentVerifyIndependentInputs(t *testing.T) {
 	in1 := Input{
 		SpecPath: writeTmp(t, "spec1.md", "must do X"),
 		DiffPath: writeTmp(t, "diff1.diff", "+ did X"),
-		Verifier: fakeVerifier{reply: "PASS — spec 1 satisfied", cost: 0.01},
 	}
 	in2 := Input{
-		SpecPath: writeTmp(t, "spec2.md", "must do Y"),
+		SpecPath: writeTmp(t, "spec2.md", ""), // empty spec → BLOCKED
 		DiffPath: writeTmp(t, "diff2.diff", "+ did not do Y"),
-		Verifier: fakeVerifier{reply: "FAIL — spec clause 3 not met", cost: 0.02},
 	}
 
 	var wg sync.WaitGroup
@@ -66,31 +65,31 @@ func TestConcurrentVerifyIndependentInputs(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		result1 = Run(context.Background(), in1)
+		result1 = RunFirstPass(context.Background(), in1)
 	}()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		result2 = Run(context.Background(), in2)
+		result2 = RunFirstPass(context.Background(), in2)
 	}()
 
 	wg.Wait()
 
-	// Result 1 must be PASS.
+	// Result 1 must be PASS (valid spec + diff).
 	if result1.Verdict != verdict.Pass {
-		t.Errorf("input 1 (PASS verifier): want PASS, got %s (exit code %d)", result1.Verdict, result1.ExitCode())
+		t.Errorf("input 1 (valid spec): want PASS, got %s (exit code %d)", result1.Verdict, result1.ExitCode())
 	}
 	if result1.ExitCode() != 0 {
 		t.Errorf("input 1: want exit code 0, got %d", result1.ExitCode())
 	}
 
-	// Result 2 must be FAIL (independent failure, not cross-contaminated
-	// by input 1's PASS verifier).
-	if result2.Verdict != verdict.Fail {
-		t.Errorf("input 2 (FAIL verifier): want FAIL, got %s (exit code %d)", result2.Verdict, result2.ExitCode())
+	// Result 2 must be BLOCKED (empty spec — independent failure,
+	// not cross-contaminated by input 1's PASS).
+	if result2.Verdict != verdict.Blocked {
+		t.Errorf("input 2 (empty spec): want BLOCKED, got %s (exit code %d)", result2.Verdict, result2.ExitCode())
 	}
-	if result2.ExitCode() != 1 {
-		t.Errorf("input 2: want exit code 1, got %d", result2.ExitCode())
+	if result2.ExitCode() != 2 {
+		t.Errorf("input 2: want exit code 2, got %d", result2.ExitCode())
 	}
 }

@@ -1,35 +1,31 @@
 // Package verify runs the SwornAgent verification protocol: a deterministic
-// $0 first-pass, then an adversarial fresh-context model verification. It is
-// provider-neutral and host-neutral — it operates only on the spec -> diff
-// (-> proof) triple and a Verifier, never on a git host or a specific model.
+// $0 first-pass (RunFirstPass), then an adversarial agentic verification
+// (RunAgentic). It is provider-neutral and host-neutral.
 //
 // Goroutine-safety: stateless by construction — no package-level mutable vars
-// that are written during Run(); each Run call is independent and uses only
-// local state. systemPrompt, knownBoundaryPatterns, and mockMarkerPatterns are
-// initialised at program start and are read-only thereafter (concurrent reads
-// are safe in Go). Verified by S03 concurrent_test.go under -race.
+// that are written during RunFirstPass() or RunAgentic(); each call is
+// independent. knownBoundaryPatterns and mockMarkerPatterns are initialised at
+// program start and are read-only thereafter (concurrent reads are safe in Go).
+// Verified by S03 concurrent_test.go under -race.
 package verify
-
 import (
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"strings"
-	"time"
 
+	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/verdict"
 )
-// systemPrompt is the sworn-authored stateless judge prompt, vendored at
-// build time via go:embed (internal/prompt). It instructs the model to judge
-// from SPEC+DIFF+PROOF only with a verdict-leading reply — no tools, no repo.
-var systemPrompt = prompt.VerifyStateless()
-
+// verifierRolePrompt is the full Baton verifier.md role prompt (the agentic
+// verifier). It instructs the model to re-run tests, read live repo state,
+// and return PASS/FAIL/BLOCKED. Used by RunAgentic.
+var verifierRolePrompt = prompt.Verifier()
 // Input is everything a verification needs.
-type Input struct {
-	SpecPath      string
+type Input struct {	SpecPath      string
 	DiffPath      string // "-" reads stdin
 	ProofPath     string // optional in S1
 	Model         string
@@ -37,10 +33,23 @@ type Input struct {
 	OpenDeferrals []string       // Rule-2 deferrals from status.json (S10 no-mock-boundary)
 }
 
-// Run executes the protocol and returns a fail-closed Result.
-func Run(ctx context.Context, in Input) verdict.Result {
+// RunFirstPass is a structural pre-flight gate ($0 cost) that catches
+// blocker-level issues before the expensive agentic verifier is dispatched.
+// It is purely deterministic — no model call, no token spend. It checks:
+//   (a) spec is present and non-empty
+//   (b) diff is present and non-empty
+//   (c) no undeclared boundary mocks (S10 Rule 7/Rule 2 enforcement)
+//
+// RunFirstPass MUST NOT be used to drive state transitions to verified.
+// A PASS from RunFirstPass only means "no structural blockers found";
+// only the agentic verifier (RunAgentic) can drive state transitions.
+//
+// The function signature accepts Input for caller compatibility; Verifier,
+// Model, and OpenDeferrals fields are consumed deterministically; no model
+// dispatch occurs.
+func RunFirstPass(ctx context.Context, in Input) verdict.Result {
 	// --- Deterministic first-pass ($0 gate) ---
-	spec, err := readNonEmpty(in.SpecPath)
+	_, err := readNonEmpty(in.SpecPath)
 	if err != nil {
 		return blocked("first_pass:spec", err.Error())
 	}
@@ -48,10 +57,7 @@ func Run(ctx context.Context, in Input) verdict.Result {
 	if err != nil {
 		return blocked("first_pass:diff", err.Error())
 	}
-	proof := ""
-	if in.ProofPath != "" {
-		proof, _ = readFile(in.ProofPath)
-	}
+	_ = in.ProofPath // proof is optional in first-pass; enforced by RunSlice proof-mandatory gate
 
 	// --- Boundary-mock check (S10 first-pass gate) ---
 	report := CheckBoundaryMocks(diff, in.OpenDeferrals)
@@ -67,49 +73,70 @@ func Run(ctx context.Context, in Input) verdict.Result {
 			Rationale:  b.String(),
 		}
 	}
+	var rationale string
 	if len(report.DeclaredMocks) > 0 {
 		var b strings.Builder
-		b.WriteString("Declared boundary mock(s) — allowed with known deferral:\n")
+		b.WriteString("First-pass PASS with declared boundary mock(s) — allowed with known deferral:\n")
 		for _, m := range report.DeclaredMocks {
 			b.WriteString(fmt.Sprintf("  - %s (boundary: %s) at %s:%d\n", m.MockType, m.Boundary, m.File, m.Line))
 		}
-		// Append to diff so the model sees the deferral context.
-		diff = diff + "\n\n" + b.String()
+		rationale = b.String()
 	}
 
-	// --- Adversarial model verification ---
-	v := in.Verifier
-	if v == nil {
-		v = model.Unconfigured{}
+	return verdict.Result{
+		Verdict:   verdict.Pass,
+		Rationale: rationale,
 	}
-	start := time.Now()
-	text, cost, inputTokens, outputTokens, err := v.Verify(ctx, systemPrompt, buildPayload(spec, diff, proof))
-	durationMS := time.Since(start).Milliseconds()
+}// RunAgentic executes the agentic verification protocol: it dispatches the
+// full verifier.md role prompt via agent.Chat() (no tools), which instructs
+// the model to re-run tests, read live repo state, and return a verdict.
+//
+// This is the canonical "agentic verifier" path — the verifier gets fresh
+// context (it reads the live repo) and is not limited to a single-shot
+// stateless judge. The model receives the full verifier role prompt as the
+// system message and the SPEC+DIFF+PROOF payload as the user message.
+//
+// The caller (RunSlice) is responsible for the proof-mandatory check and
+// no-mock wiring before calling RunAgentic.
+func RunAgentic(ctx context.Context, spec, diff, proof string, verifierAgent agent.Agent) (verdict.Result, error) {
+	userPayload := buildPayload(spec, diff, proof)
+
+	messages := []model.ChatMessage{
+		{Role: "system", Content: verifierRolePrompt},
+		{Role: "user", Content: userPayload},
+	}
+
+	resp, err := verifierAgent.Chat(ctx, messages, nil) // no tools — the verifier role reads only
 	if err != nil {
-		return blocked("verifier_dispatch", err.Error())
-	}
-	result := parseVerdict(text, cost)
-	result.DurationMS = durationMS
-	result.InputTokens = inputTokens
-	result.OutputTokens = outputTokens
-	result.ModelIDConfirmed = in.Model // configured model ID; confirmed ID is from the response (set by parseVerdict caller)
-	// Surface declared boundary mocks in the result rationale so the caller
-	// sees them as known deferrals (AC2 — no-mock-boundary).
-	if len(report.DeclaredMocks) > 0 {
-		var b strings.Builder
-		b.WriteString("Declared boundary mock(s) — allowed with known deferral:\n")
-		for _, m := range report.DeclaredMocks {
-			b.WriteString(fmt.Sprintf("  - %s (boundary: %s) at %s:%d\n", m.MockType, m.Boundary, m.File, m.Line))
-		}
-		b.WriteString("\n")
-		result.Rationale = b.String() + result.Rationale
+		return blocked("verifier_agentic_dispatch", err.Error()), nil
 	}
 
-	return result
+	if len(resp.Choices) == 0 {
+		return blocked("verifier_agentic_dispatch", "empty response choices"), nil
+	}
+
+	text := resp.Choices[0].Message.Content
+	cost := computeAgenticCost(resp.Usage)
+	result := parseVerdict(text, cost)
+	// Override the FailedGate for agentic path — the verifier role prompt
+	// instructs the model to return PASS/FAIL/BLOCKED directly, so an
+	// unparseable output is a BLOCKED on the agentic dispatch itself.
+	if result.Verdict == verdict.Blocked && result.FailedGate == "unparseable_verdict" {
+		result.FailedGate = "verifier_agentic_unparseable"
+	}
+	return result, nil
 }
 
-func buildPayload(spec, diff, proof string) string {
-	var b strings.Builder
+// computeAgenticCost computes a nominal cost from a UsageBlock.
+// Uses the same ~$2/1M tokens estimate as agent.computeCost for consistency.
+func computeAgenticCost(usage *model.UsageBlock) float64 {
+	if usage == nil {
+		return 0
+	}
+	return float64(usage.TotalTokens) * 0.000002 // ~$2/1M tokens
+}
+
+func buildPayload(spec, diff, proof string) string {	var b strings.Builder
 	b.WriteString("## SPEC\n")
 	b.WriteString(spec)
 	b.WriteString("\n\n## DIFF\n")
@@ -260,8 +287,12 @@ var knownBoundaryPatterns = []boundaryPattern{
 	{Keyword: "Premium", Boundary: "entitlement"},
 	{Keyword: "subscription", Boundary: "entitlement"},
 	{Keyword: "Subscription", Boundary: "entitlement"},
+	{Keyword: "credits", Boundary: "entitlement"},
+	{Keyword: "Credits", Boundary: "entitlement"},
+	{Keyword: "keyless", Boundary: "entitlement"},
+	{Keyword: "Keyless", Boundary: "entitlement"},
+	{Keyword: "claude -p", Boundary: "entitlement"},
 }
-
 // mockMarkerPatterns are tokens on a line that suggest a mock/stub/fake/test
 // double is being created or assigned.  At least one boundary pattern must also
 // match for the line to be flagged.

@@ -275,7 +275,7 @@ git -C <wt> add docs/release/<release-name>/<slice-id>/review.md docs/release/<r
 git -C <wt> commit -m "chore(release/<release-name>/<slice-id>): design review — <N> pins surfaced (<a> mech, <b> mem, <c> esc)"
 ```
 
-If the design passes review (PROCEED verdict), run `sworn llmcheck --check design-review --slice <slice-id> --release <release-name> --worktree <wt>` to catch design conformance issues the pin-driven review might miss — patterns conflicting with project memory, duplicated functionality, unjustified new patterns. Address any findings before the implementer proceeds to code.
+If the design passes review (PROCEED verdict), run `bin/release-llm-check.sh --check design-review --slice <slice-id> --release <release-name> --worktree <wt>` to catch design conformance issues the pin-driven review might miss — patterns conflicting with project memory, duplicated functionality, unjustified new patterns. Address any findings before the implementer proceeds to code.
 
 Briefly summarise to the Coach:
 - Total pins by tag

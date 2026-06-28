@@ -101,7 +101,7 @@ func AnalyzeImpact(projectRoot, releaseDir string) (*ImpactResult, error) {
 
 	return &ImpactResult{
 		ArtefactFound:   true,
-		IsRatified:      artefact.IsRatified,
+		IsRatified:      artefact.Ratification.IsRatified,
 		JourneysTouched: touched,
 		AllJourneyIDs:   allIDs,
 		ReleaseName:     releaseName,

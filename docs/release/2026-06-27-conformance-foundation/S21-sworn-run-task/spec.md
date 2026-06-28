@@ -37,7 +37,9 @@ description: 'sworn run --task "<description>" dispatches the planner role to dr
 ## Planned touchpoints
 
 - `cmd/sworn/task.go` (new — task subcommand, independent of run.go)
-
+- `cmd/sworn/task_test.go` (new — unit and integration tests for task subcommand)
+- `cmd/sworn/run.go` (modify — delegate `--task` flag to cmdRunTask; gofmt clean)
+- `internal/git/git.go` (modify — add Config() method for ephemeral git repo setup)
 ## Acceptance checks
 
 - [ ] `sworn run --task "add a greeting endpoint" --dry-run` compiles and exits without error (dry-run verifies the planner dispatch would be called without actually running)
