@@ -332,6 +332,47 @@ func TestEventsLogged(t *testing.T) {
 	}
 }
 
+func TestPersistence(t *testing.T) {
+	// Write an event → close the DB → reopen → verify the event survives.
+	dir := t.TempDir()
+
+	// Open and write.
+	db1, err := Open("test-release", dir)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	sup1 := New(db1, "test-release")
+	if err := sup1.Acquire("T1-persist"); err != nil {
+		db1.Close()
+		t.Fatalf("acquire: %v", err)
+	}
+	if err := db1.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	// Reopen and verify.
+	db2, err := Open("test-release", dir)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer db2.Close()
+
+	events, err := QueryEvents(db2, "test-release")
+	if err != nil {
+		t.Fatalf("QueryEvents: %v", err)
+	}
+
+	foundAcquired := false
+	for _, e := range events {
+		if e.TrackID == "T1-persist" && e.Event == "acquired" {
+			foundAcquired = true
+			break
+		}
+	}
+	if !foundAcquired {
+		t.Fatalf("expected an 'acquired' event for T1-persist after reopen, got %d events", len(events))
+	}
+}
 // asErr checks if err can be assigned to target via type assertion.
 func asErr(err error, target interface{}) bool {
 	if err == nil {

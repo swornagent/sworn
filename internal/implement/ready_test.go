@@ -22,9 +22,8 @@ type fakeVerifier struct {
 	reply string
 }
 
-func (f fakeVerifier) Verify(_ context.Context, _, _ string) (string, float64, error) {
-	return f.reply, 0.0, nil
-}
+func (f fakeVerifier) Verify(_ context.Context, _, _ string) (string, float64, int64, int64, error) {
+	return f.reply, 0.0, 0, 0, nil}
 
 // passingReply returns a reply that grades every AC as PASS.
 // Format must match reqverify's parseGrades expectations:

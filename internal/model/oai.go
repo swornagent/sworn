@@ -87,6 +87,7 @@ type ChatMessage struct {
 // ChatResponse contains only the fields SwornAgent needs. Other fields from
 // the provider's response are silently ignored (normalisation per Risk #1).
 type ChatResponse struct {
+	Model   string `json:"model"`
 	Choices []struct {
 		Message struct {
 			Content   string     `json:"content"`
@@ -97,7 +98,6 @@ type ChatResponse struct {
 	Usage   *UsageBlock `json:"usage"`
 	CostUSD float64     `json:"-"` // computed by driver from Usage × pricing
 }
-
 // ToolCall is a single tool invocation the model requests in a response.
 // Exported so the agent package can reconstruct message history.
 type ToolCall struct {
@@ -157,7 +157,7 @@ var modelPricing = map[string]struct {
 // single-shot verification and multi-turn chat.
 func (c *OAI) Capabilities() Capability { return CapVerify | CapChat }
 
-func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
+func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
 	reqBody := chatRequest{
 		Model: c.Model,
 		Messages: []ChatMessage{
@@ -168,13 +168,13 @@ func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (str
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(reqBody); err != nil {
-		return "", 0, fmt.Errorf("model: marshal request: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: marshal request: %w", err)
 	}
 
 	url := strings.TrimRight(c.BaseURL, "/") + "/chat/completions"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &buf)
 	if err != nil {
-		return "", 0, fmt.Errorf("model: build request: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: build request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -185,13 +185,13 @@ func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (str
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", 0, fmt.Errorf("model: dispatch: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: dispatch: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", 0, fmt.Errorf("model: read response: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: read response: %w", err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -201,21 +201,25 @@ func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (str
 		if resp.StatusCode == http.StatusPaymentRequired {
 			me.Err = account.ErrInsufficientCredits
 		}
-		return "", 0, me
+		return "", 0, 0, 0, me
 	}
 
 	var cr ChatResponse
 	if err := json.Unmarshal(body, &cr); err != nil {
-		return "", 0, fmt.Errorf("model: unmarshal response: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: unmarshal response: %w", err)
 	}
 	if len(cr.Choices) == 0 {
-		return "", 0, fmt.Errorf("model: empty choices in response")
+		return "", 0, 0, 0, fmt.Errorf("model: empty choices in response")
 	}
 
 	cost := computeCost(c.Model, cr.Usage)
-	return cr.Choices[0].Message.Content, cost, nil
+	var inputTokens, outputTokens int64
+	if cr.Usage != nil {
+		inputTokens = int64(cr.Usage.PromptTokens)
+		outputTokens = int64(cr.Usage.CompletionTokens)
+	}
+	return cr.Choices[0].Message.Content, cost, inputTokens, outputTokens, nil
 }
-
 // Chat sends a multi-message conversation (possibly with tool definitions// and tool-call history) to /chat/completions. It returns the full
 // ChatResponse so the caller can inspect tool_calls and finish_reason.
 // Cost is the sum of all Chat calls in the loop — tracked by the caller.

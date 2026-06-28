@@ -14,10 +14,11 @@ import (
 
 	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/config"
+	"github.com/swornagent/sworn/internal/db"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/run"
+	"github.com/swornagent/sworn/internal/supervisor"
 )
-
 // cmdRun implements the `sworn run` subcommand.
 //
 //	sworn run --task "<description>" [--implementer-model <provider/model>]
@@ -116,6 +117,14 @@ func cmdRun(args []string) int {
 		}
 		defer database.Close()
 
+		// Open the release-specific event store so events survive process exit.
+		eventDB, evErr := supervisor.Open(*releaseName, ".")
+		if evErr != nil {
+			fmt.Fprintf(os.Stderr, "sworn run: open event store: %v\n", evErr)
+			database.Close()
+			return 1
+		}
+		defer eventDB.Close()
 		runSliceFn := func(ctx context.Context, worktreeRoot, specPath, statusPath string) error {
 			return run.RunSlice(ctx, worktreeRoot, specPath, statusPath, run.RunSliceOptions{
 				ImplementerModel: impl,
@@ -130,12 +139,12 @@ func cmdRun(args []string) int {
 			ReleaseName:   *releaseName,
 			WorkspaceRoot: ".",
 			DB:            database,
+			EventDB:       eventDB,
 			RunSliceFn:    runSliceFn,
 			ProjectDir:    "sworn",
 			Notifier:      notifier,
 		})
-		if err != nil {
-			printModelError(err)
+		if err != nil {			printModelError(err)
 			fmt.Fprintf(os.Stderr, "sworn run: parallel: %v\n", err)
 			return 1
 		}
@@ -187,27 +196,14 @@ func parseEscalationFlag(raw string) []string {
 	return models
 }
 
-// openDefaultDB opens the default sworn SQLite database.
+// openDefaultDB opens the default sworn SQLite database with schema initialization.
 func openDefaultDB() (*sql.DB, error) {
 	wd, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("getwd: %w", err)
 	}
-	dbPath := wd + "/.sworn/sworn.db"
-
-	driver := os.Getenv("SWORN_DB_DRIVER")
-	if driver == "" {
-		driver = "sqlite"
-	}
-
-	db, err := sql.Open(driver, dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("open db %s: %w", dbPath, err)
-	}
-	db.SetMaxOpenConns(1)
-	return db, nil
+	return db.Open(filepath.Join(wd, db.DefaultDir, db.DefaultName))
 }
-
 // printModelError unwraps a *model.Error from err (via errors.As) and
 // prints its UserMessage to stderr. This gives the user actionable
 // guidance (e.g. "check the API key", "out of credits") instead of

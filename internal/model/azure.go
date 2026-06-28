@@ -74,12 +74,12 @@ func NewAzureOAI(deployment, endpoint, apiKey, apiVersion string) (*AzureOAI, er
 //
 // No logging of API keys, request bodies, or response payloads — per
 // AGENTS.md Security.
+
 // Capabilities returns CapVerify — the Azure OpenAI driver supports
 // single-shot verification. Chat is available via the OAI adapter path.
 func (a *AzureOAI) Capabilities() Capability { return CapVerify }
 
-func (a *AzureOAI) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
-	reqBody := chatRequest{
+func (a *AzureOAI) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {	reqBody := chatRequest{
 		Model: a.Deployment,
 		Messages: []ChatMessage{
 			{Role: "system", Content: systemPrompt},
@@ -89,7 +89,7 @@ func (a *AzureOAI) Verify(ctx context.Context, systemPrompt, userPayload string)
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(reqBody); err != nil {
-		return "", 0, fmt.Errorf("model: marshal request: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: marshal request: %w", err)
 	}
 
 	// Build the Azure URL:
@@ -99,7 +99,7 @@ func (a *AzureOAI) Verify(ctx context.Context, systemPrompt, userPayload string)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &buf)
 	if err != nil {
-		return "", 0, fmt.Errorf("model: build request: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: build request: %w", err)
 	}
 	req.Header.Set("api-key", a.APIKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -110,28 +110,28 @@ func (a *AzureOAI) Verify(ctx context.Context, systemPrompt, userPayload string)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", 0, fmt.Errorf("model: azure dispatch: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: azure dispatch: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", 0, fmt.Errorf("model: read response: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: read response: %w", err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", 0, NewProviderError(resp.StatusCode, "azure", a.Deployment, body)
+		return "", 0, 0, 0, NewProviderError(resp.StatusCode, "azure", a.Deployment, body)
 	}
 
 	var cr ChatResponse
 	if err := json.Unmarshal(body, &cr); err != nil {
-		return "", 0, fmt.Errorf("model: unmarshal response: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: unmarshal response: %w", err)
 	}
 	if len(cr.Choices) == 0 {
-		return "", 0, fmt.Errorf("model: empty choices in response")
+		return "", 0, 0, 0, fmt.Errorf("model: empty choices in response")
 	}
 
 	// Azure cost is not modelled (pricing varies by deployment tier, region,
 	// and commitment). Return 0 — the caller still received a verdict.
-	return cr.Choices[0].Message.Content, 0, nil
+	return cr.Choices[0].Message.Content, 0, 0, 0, nil
 }

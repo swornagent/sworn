@@ -25,9 +25,14 @@ type ParallelOptions struct {
 	// WorkspaceRoot is the primary repo root.
 	WorkspaceRoot string
 
-	// DB is the SQLite database handle (for supervisor).
+	// DB is the SQLite database handle (for supervisor process ownership).
 	DB *sql.DB
 
+	// EventDB is the release-specific event store database handle. When set,
+	// events written by the supervisor are routed to this DB instead of DB.
+	// This separates process-ownership state (sworn.db) from durable event
+	// storage (supervisor-<release>.db). When nil, events are written to DB.
+	EventDB *sql.DB
 	// RunSliceFn is the per-slice implementation+verification function.
 	// Production: run.RunSlice. Tests inject fakes.
 	RunSliceFn func(ctx context.Context, worktreeRoot, specPath, statusPath string) error
@@ -212,6 +217,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 					PrimaryWorktreeRoot: absRoot,
 					ProjectDir:          opts.ProjectDir,
 					DB:                  opts.DB,
+					EventDB:             opts.EventDB,
 					RunSliceFn:          opts.RunSliceFn,
 					Notifier:            opts.Notifier,
 					Router:              opts.Router,
@@ -219,7 +225,6 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 				}
 				result := scheduler.RunTrack(phaseCtx, workerOpts)
 				outcomeMap.Store(t.ID, result)
-
 				if result == scheduler.TrackFail {
 					failCancel()
 				}

@@ -88,9 +88,8 @@ type AC struct {
 // Verifier is the model interface reqverify needs — a subset of model.Verifier
 // so the package has no dependency on the model package.
 type Verifier interface {
-	Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error)
+	Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error)
 }
-
 // Run executes requirements verification over a release directory.
 //
 // It discovers every slice's spec.md, extracts all acceptance criteria, builds
@@ -116,10 +115,9 @@ func Run(ctx context.Context, releaseDir string, verifier Verifier, systemPrompt
 	payload := buildPayload(acs)
 
 	// 3. Dispatch to model.
-	reply, _, err := verifier.Verify(ctx, systemPrompt, payload)
+	reply, _, _, _, err := verifier.Verify(ctx, systemPrompt, payload)
 	if err != nil {
-		return report, fmt.Errorf("reqverify: model dispatch: %w", err)
-	}
+		return report, fmt.Errorf("reqverify: model dispatch: %w", err)	}
 
 	// 4. Parse per-AC grades from the model response.
 	grades, err := parseGrades(reply, acs)

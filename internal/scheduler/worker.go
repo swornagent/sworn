@@ -80,6 +80,11 @@ type WorkerOptions struct {
 	// DB is the SQLite database handle for the supervisor.
 	DB *sql.DB
 
+	// EventDB is the release-specific event store database handle. When set,
+	// the supervisor routes event writes to this DB instead of DB. When nil,
+	// events are written to DB (backward-compatible default).
+	EventDB *sql.DB
+
 	// RunSliceFn is the function that runs a single slice's implement→verify
 	// loop. Tests inject a fake; production uses run.RunSlice.
 	RunSliceFn func(ctx context.Context, worktreeRoot, specPath, statusPath string) error
@@ -129,6 +134,9 @@ func RunTrack(ctx context.Context, opts WorkerOptions) TrackResult {
 
 	// ── Supervisor acquire ──────────────────────────────────────────────
 	sup := supervisor.New(opts.DB, opts.ReleaseName)
+	if opts.EventDB != nil {
+		sup.SetEventDB(opts.EventDB)
+	}
 	if err := sup.Acquire(trackID); err != nil {
 		fmt.Fprintf(os.Stderr, "[%s] supervisor acquire error: %v\n", trackID, err)
 		return TrackFail

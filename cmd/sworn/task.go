@@ -107,7 +107,7 @@ func cmdRunTask(
 	)
 
 	fmt.Fprintf(os.Stderr, "sworn run: dispatching planner with %s...\n", plannerModelID)
-	reply, _, err := plannerV.Verify(context.Background(), systemPrompt, userMsg)
+	reply, _, _, _, err := plannerV.Verify(context.Background(), systemPrompt, userMsg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sworn run: planner dispatch error: %v\n", err)
 		// Keep artefacts for inspection.
