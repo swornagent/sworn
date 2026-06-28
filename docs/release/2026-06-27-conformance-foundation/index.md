@@ -128,8 +128,7 @@ tracks:
 | `S08-capability-descriptor` | T2 | Every model driver exposes Capabilities(); implementer-model resolution fails fast at startup with a descriptive error if the selected driver does not support agentic Chat | planned | [spec](./S08-capability-descriptor/spec.md) | — |
 | `S09-error-kind-consumption` | T2 | KindAuth, KindCredits, and other terminal Error{Kind}s halt the loop immediately without retry; the factory sentinel is correctly named | planned | [spec](./S09-error-kind-consumption/spec.md) | — |
 | `S10-agentic-chat-anthropic` | T2 | The native Anthropic driver supports agentic Chat; a keyless run via claude-cli is a valid implementer path; cost is populated from real token counts (not always 0) | planned | [spec](./S10-agentic-chat-anthropic/spec.md) | — |
-| `S11-agentic-verifier-dispatch` | T3 | The engine dispatches the agentic verifier.md role (test-re-running, live-repo) for the verify step; verifier_was_fresh_context is set honestly; Verification.Model records the actual model used | planned | [spec](./S11-agentic-verifier-dispatch/spec.md) | — |
-| `S12-first-pass-demote` | T3 | The stateless LLM judge is demoted to a labelled deterministic first-pass (structure/mock/dark-code checks only); it no longer drives the slice to `verified`; verifier.md is re-vendored from canonical | planned | [spec](./S12-first-pass-demote/spec.md) | — |
+| `S11-agentic-verifier-dispatch` | T3 | The engine dispatches the agentic verifier.md role (test-re-running, live-repo) for the verify step; verifier_was_fresh_context is set honestly; Verification.Model records the actual model used | **verified** | [spec](./S11-agentic-verifier-dispatch/spec.md) | [proof](./S11-agentic-verifier-dispatch/proof.md) || `S12-first-pass-demote` | T3 | The stateless LLM judge is demoted to a labelled deterministic first-pass (structure/mock/dark-code checks only); it no longer drives the slice to `verified`; verifier.md is re-vendored from canonical | planned | [spec](./S12-first-pass-demote/spec.md) | — |
 | `S13-schema-embed-validate` | T4 | All baton schemas (*-v1.json) are embedded in the binary; every record write validates against its schema; missing/invalid records fail closed; example.com $schema placeholder replaced | planned | [spec](./S13-schema-embed-validate/spec.md) | — |
 | `S14-board-json` | T4 | board.json is the oracle's source of truth; the oracle renders/drifts index.md from board.json; existing releases auto-migrate board.json from index.md frontmatter on first oracle read | planned | [spec](./S14-board-json/spec.md) | — |
 | `S15-spec-proof-records` | T4 | spec.json (spec-v1) and proof.json (proof-v1) records are emitted and validated; proof sections (delivered, not_delivered, divergence, reachability) are derived from live ACs and state, not constant boilerplate | planned | [spec](./S15-spec-proof-records/spec.md) | — |
@@ -191,7 +190,12 @@ tracks:
 
 ## Recent activity
 
-### 2026-06-28 — track `T6-contract-revendor` merged to release-wt (commit 0b039d0)
+### 2026-07-25 — S11-agentic-verifier-dispatch verified (PASS)
 
+- **Actor**: verifier (/verify-slice)
+- **Note**: All six verification gates pass. Agentic verifier dispatch wired via `sworn run` and `sworn verify --agentic`. Proof mandatory gate, Verification.Model fix, no-mock wiring, entitlement keywords all confirmed.
+- **Next**: `/implement-slice S12-first-pass-demote 2026-06-27-conformance-foundation`
+
+### 2026-06-28 — track `T6-contract-revendor` merged to release-wt (commit 0b039d0)
 - **Actor**: track integrator (/merge-track)
 - **Note**: 2 verified slices merged: S22-pin-bump, S23-version-centralise-doctor. Track state → merged.

@@ -8,11 +8,10 @@
     "N-06",
     "N-07"
   ],
-  "state": "implemented",
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-27T23:58:09Z",
-  "start_commit": "c89aa6e997c65e83fc6eb465ca3c32aff4f1dc68",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-25T02:30:00Z",  "start_commit": "c89aa6e997c65e83fc6eb465ca3c32aff4f1dc68",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S11-agentic-verifier-dispatch/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S11-agentic-verifier-dispatch/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S11-agentic-verifier-dispatch/journal.md",
@@ -44,5 +43,10 @@
   "open_deferrals": [
     "True test re-running via tool calls deferred. Why: agentic tool-call infrastructure not in scope for this slice. Tracking: future agentic-tool-calls slice. Acknowledged: Brad, 2026-06-27."
   ],
-  "verification": {}
-}
+  "verification": {
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-25T02:30:00Z",
+    "verifier_commit": "9133dc0",
+    "violations": []
+  }}

@@ -79,3 +79,28 @@ Required to address:
 ### State transition
 
 `failed_verification → in_progress → implemented`
+
+---
+
+## Verifier verdicts received
+
+### Verdict 2 — PASS (2026-07-25T02:30:00Z)
+
+PASS
+
+Slice: `S11-agentic-verifier-dispatch`
+Verified against: `9133dc0` (track branch tip after forward-merge of release-wt/2026-06-27-conformance-foundation)
+Verifier session: fresh, artefact-only
+
+All six gates pass:
+- Gate 1: User-reachable outcome — agentic verifier wired via `sworn run` (slice.go:470) and `sworn verify --agentic` (verify.go:66), both dispatch `RunAgentic()`.
+- Gate 2: Planned touchpoints match — all four planned files changed; extra test files (`verify_agentic_test.go`, `verify_test.go`, `slice_test.go`) are accounted for in Required tests.
+- Gate 3: Required tests exist and pass — `TestRunAgentic*` (5 tests PASS), `TestCheckBoundaryMocks*` (13 tests PASS), `TestMock*` (3 tests PASS), `TestCheckProofAbsent` (PASS), `TestRunSlice_ProofGate_Integration` (PASS). Build+vet clean.
+- Gate 3b: skipped (LLM check script not configured).
+- Gate 4: Reachability artefacts exist — `TestCheckProofAbsent` exits 0, `TestRunSlice_ProofGate_Integration` exits 0, `sworn verify --agentic --help` displays flag.
+- Gate 4b: skipped (no LLM check script).
+- Gate 5: No silent deferrals — grep clean on production files.
+- Gate 6: Design conformance — auto-pass (no design-fidelity config, CLI project).
+- Gate 7: All 7 delivered items have verifiable evidence; all 7 acceptance checks satisfied.
+
+Next step: `/implement-slice S12-first-pass-demote 2026-06-27-conformance-foundation` (next incomplete slice in track T3-agentic-verifier).
