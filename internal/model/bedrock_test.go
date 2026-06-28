@@ -166,16 +166,16 @@ func TestNewClient_BedrockRouted(t *testing.T) {
 	// This may fail in CI environments without AWS credentials. The routing
 	// test validates the provider.go switch case works; if config load fails,
 	// we log and skip the type assertion but still confirm the error path is
-	// reached (not ErrDriverNotRegistered, which would mean routing failed).
+	// reached (not ErrDriverNotImplemented, which would mean routing failed).
 	cfg := ProviderConfig{}
 	v, err := NewClient("bedrock/amazon.nova-pro-v1:0", cfg)
 	if err != nil {
 		// Accept config-load failure as valid (no AWS creds in CI).
 		if strings.Contains(err.Error(), "load AWS config") {
 			t.Logf("config load failed as expected without AWS creds: %v", err)
-			// Verify it's NOT ErrDriverNotRegistered (routing worked).
-			if errors.Is(err, ErrDriverNotRegistered) {
-				t.Fatal("routing failed: got ErrDriverNotRegistered")
+			// Verify it's NOT ErrDriverNotImplemented (routing worked).
+			if errors.Is(err, ErrDriverNotImplemented) {
+				t.Fatal("routing failed: got ErrDriverNotImplemented")
 			}
 			return
 		}

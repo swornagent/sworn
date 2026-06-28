@@ -76,6 +76,10 @@ func (o *OCI) EnsureClient() (generativeAIInferenceClient, error) {
 // text from the first text content block in the first choice, the compute
 // cost in USD (always 0.0 — OCI does not always return token counts), or
 // an error.
+// Capabilities returns CapVerify — the OCI driver supports single-shot
+// verification.
+func (o *OCI) Capabilities() Capability { return CapVerify }
+
 func (o *OCI) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
 	if o.ModelID == "" {
 		return "", 0, 0, 0, fmt.Errorf("model: missing OCI model ID")

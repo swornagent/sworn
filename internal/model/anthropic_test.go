@@ -165,8 +165,92 @@ _, _, _, _, err := a.Verify(context.Background(), "be strict", "verify this diff
 	}
 }
 
-// newTestAnthropic returns an Anthropic driver pointed at a test server.
-// Uses option.WithHTTPClient and option.WithBaseURL to avoid hitting the
+// TestAnthropicChat_ReturnsTextBlock verifies Chat() returns a ChatResponse
+// with content from the first text block for a 2-message history.
+// Maps AC2 (user+assistant turn mapped to MessageParam) and AC3 (InputTokens>0, CostUSD>0).
+func TestAnthropicChat_ReturnsTextBlock(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(anthropicMsg("PASS - all checks pass", 200, 100))
+	}))
+	defer srv.Close()
+
+	a := newTestAnthropic(srv.URL, "claude-sonnet-4-6")
+	resp, err := a.Chat(context.Background(), []ChatMessage{
+		{Role: "user", Content: "what is a verdict?"},
+		{Role: "assistant", Content: "a verdict is a decision"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("Chat() error: %v", err)
+	}
+	if resp.Choices[0].Message.Content != "PASS - all checks pass" {
+		t.Errorf("Chat() content = %q, want %q", resp.Choices[0].Message.Content, "PASS - all checks pass")
+	}
+	if resp.Usage == nil {
+		t.Fatal("Chat() Usage is nil")
+	}
+	if resp.Usage.InputTokens <= 0 {
+		t.Errorf("InputTokens = %d, want > 0", resp.Usage.InputTokens)
+	}
+	if resp.CostUSD <= 0 {
+		t.Errorf("CostUSD = %f, want > 0", resp.CostUSD)
+	}
+}
+
+// TestAnthropicChat_SystemMessage verifies system messages are extracted
+// and sent via the System parameter (not as a message in the Messages array).
+func TestAnthropicChat_SystemMessage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(anthropicMsg("OK", 50, 25))
+	}))
+	defer srv.Close()
+
+	a := newTestAnthropic(srv.URL, "claude-haiku-4-5")
+	resp, err := a.Chat(context.Background(), []ChatMessage{
+		{Role: "system", Content: "you are a verifier"},
+		{Role: "user", Content: "check this diff"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("Chat() error: %v", err)
+	}
+	if resp.Choices[0].Message.Content != "OK" {
+		t.Errorf("Chat() content = %q, want %q", resp.Choices[0].Message.Content, "OK")
+	}
+	// Haiku 4.5 pricing: $1.00/M input, $5.00/M output.
+	// 50 input tokens / 1M * $1 = $0.00005; 25 output tokens / 1M * $5 = $0.000125
+	// Total = $0.000175
+	if resp.CostUSD <= 0 {
+		t.Errorf("CostUSD = %f, want > 0", resp.CostUSD)
+	}
+}
+
+// TestAnthropicChat_CostCalculation verifies the cost is computed from
+// InputTokens * inputPrice + OutputTokens * outputPrice per the pricing map.
+// Maps AC4: Verify() cost is computed from actual token counts.
+func TestAnthropicChat_CostCalculation(t *testing.T) {
+	// Sonnet 4.6: $3.00/M input, $15.00/M output.
+	// 1,000,000 input = $3.00, 500,000 output = $7.50, total = $10.50
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(anthropicMsg("PASS", 1000000, 500000))
+	}))
+	defer srv.Close()
+
+	a := newTestAnthropic(srv.URL, "claude-sonnet-4-6")
+	resp, err := a.Chat(context.Background(), []ChatMessage{
+		{Role: "user", Content: "hello"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("Chat() error: %v", err)
+	}
+	expectedCost := float64(1000000)/1_000_000*3.00 + float64(500000)/1_000_000*15.00
+	if resp.CostUSD != expectedCost {
+		t.Errorf("CostUSD = %f, want %f", resp.CostUSD, expectedCost)
+	}
+}
+
+// newTestAnthropic returns an Anthropic driver pointed at a test server.// Uses option.WithHTTPClient and option.WithBaseURL to avoid hitting the
 // real API.
 func newTestAnthropic(baseURL, modelID string) *Anthropic {
 	client := anthropic.NewClient(

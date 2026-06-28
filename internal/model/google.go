@@ -64,8 +64,12 @@ func NewGoogleVertex(modelID, project, location string) (*Google, error) {
 // Verify sends the system prompt as a SystemInstruction and userPayload as a
 // single user turn to the Gemini/Vertex API. It returns the text from the
 // first text part of the first candidate, the compute cost in USD, or an error.
-func (g *Google) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
-	resp, err := g.Client.Models.GenerateContent(ctx, g.Model,
+
+// Capabilities returns CapVerify — the Google driver supports single-shot
+// verification. Chat is available via the genai SDK.
+func (g *Google) Capabilities() Capability { return CapVerify }
+
+func (g *Google) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {	resp, err := g.Client.Models.GenerateContent(ctx, g.Model,
 		genai.Text(userPayload),
 		&genai.GenerateContentConfig{
 			SystemInstruction: genai.NewContentFromText(systemPrompt, ""),
