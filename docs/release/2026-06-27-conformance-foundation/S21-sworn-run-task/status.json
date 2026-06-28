@@ -6,41 +6,32 @@
   "covers_needs": [
     "N-23"
   ],
-  "state": "failed_verification",
-  "owner": "verifier",
-  "last_updated_by": "verifier",
-  "last_updated_at": "2026-06-28T03:41:21Z",
-  "start_commit": "602e477ff099cbc234b0b536c88f48b848702a4e",
+  "state": "in_progress",
+  "owner": "implementer",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-28T00:00:00Z",
+  "start_commit": "",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S21-sworn-run-task/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S21-sworn-run-task/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S21-sworn-run-task/journal.md",
   "planned_files": [
-    "cmd/sworn/task.go"
-  ],
-  "actual_files": [
     "cmd/sworn/task.go",
     "cmd/sworn/task_test.go",
     "cmd/sworn/run.go",
     "internal/git/git.go"
   ],
+  "actual_files": [],
   "test_commands": [
     "go test ./cmd/sworn/... -v -run TestTask",
     "sworn run --task 'hello' --dry-run"
   ],
-  "reachability_artifacts": [
-    "sworn run --task hello --dry-run (exits 0)"
-  ],
+  "reachability_artifacts": [],
   "open_deferrals": [],
   "verification": {
-    "result": "fail",
-    "verifier_session_id": "fresh-artefact-only",
-    "verifier_verdict_at": "2026-06-28T03:41:21Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      "Gate 3 — Required tests are absent and do not exercise the integration point (Rule 1). spec.md 'Required tests' mandates a unit test that mocks planner dispatch and verifies spec.md is written with ACs, plus the 'no ACs' error path. The delivered tests (cmd/sworn/task_test.go) only exercise the leaf helpers hasAcceptanceChecks and extractSpecFromReply; no test invokes cmdRunTask (the function owning the `sworn run --task` outcome), mocks the planner Verify() call, or asserts that spec.md is written. AC2/AC3(integration)/AC4/AC5 are covered by no automated test.",
-      "Gate 5 — Placeholder test with no assertions. cmd/sworn/task_test.go:129-134 TestTaskDryRunFlagAccepted has an empty body (only a comment) and passes vacuously; it is not surfaced as a Rule 2 deferral in proof.md 'Not delivered'.",
-      "Gate 2 — Undeclared, unexplained touchpoint. internal/git/git.go is changed (new Config() method used by task.go:167-168, plus the unrelated Branch() function reformatted onto a single line) but is not in spec.md 'Planned touchpoints' and proof.md 'Divergence from plan' states 'None' — it never mentions internal/git/git.go.",
-      "Quality (AGENTS.md 'Keep go vet clean and code gofmt'd') — all four changed files fail gofmt -l: cmd/sworn/task.go (line 142 collapses two struct fields onto one line), cmd/sworn/run.go (over-indented lines 37/43/145, brace+comment on line 174), cmd/sworn/task_test.go, and internal/git/git.go (Branch() collapsed onto one line — churn damage to a file shared with other tracks)."
-    ]
+    "result": "pending",
+    "verifier_session_id": "",
+    "verifier_verdict_at": "",
+    "verifier_was_fresh_context": false,
+    "violations": []
   }
 }

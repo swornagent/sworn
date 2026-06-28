@@ -17,8 +17,11 @@ import (
 	"github.com/swornagent/sworn/internal/state"
 )
 
-// cmdRunTask implements the real planner-assist single-slice quickstart path
-// for `sworn run --task`. It dispatches the planner role to draft a concrete
+// plannerFromEnv is the planner model factory. In production it delegates to
+// model.FromEnv; tests replace it with a mock to avoid real API calls.
+var plannerFromEnv = model.FromEnv
+
+// cmdRunTask implements the real planner-assist single-slice quickstart path// for `sworn run --task`. It dispatches the planner role to draft a concrete
 // spec.md with EARS ACs, then runs implement+verify over that spec.
 //
 // S21-sworn-run-task: direction C — honest demo/on-ramp replacing the stub
@@ -81,7 +84,7 @@ func cmdRunTask(
 	}
 
 	// ── 3. Dispatch planner ───────────────────────────────────────────────
-	plannerV, err := model.FromEnv(plannerModelID)
+	plannerV, err := plannerFromEnv(plannerModelID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sworn run: create planner model: %v\n", err)
 		os.RemoveAll(taskRoot)
@@ -135,12 +138,12 @@ func cmdRunTask(
 	statusPath := filepath.Join(sliceDir, "status.json")
 	releaseName := "task-" + ts
 	st := &state.Status{
-		Schema:        "https://baton.sawy3r.net/schemas/slice-status-v1.json",
-		SliceID:       "S01-task",
-		Release:       releaseName,
-		Track:         "",
-		NeedIDs:       []string{"N/A-task-mode"},		State:         state.InProgress,
-		Owner:         "sworn-run",
+		Schema:  "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+		SliceID: "S01-task",
+		Release: releaseName,
+		Track:   "",
+		NeedIDs: []string{"N/A-task-mode"},
+		State:   state.InProgress, Owner: "sworn-run",
 		LastUpdatedBy: "planner-dispatch",
 		LastUpdatedAt: time.Now().UTC().Format(time.RFC3339),
 		SpecPath:      "S01-task/spec.md",
@@ -233,6 +236,7 @@ func resolvePlannerModel(implModel string) (string, error) {
 	// Hardcoded fallback — the planner can work with any Verify-capable model.
 	return "openai/gpt-4o", nil
 }
+
 // hasAcceptanceChecks returns true if the spec content contains at least one
 // acceptance check line in markdown checkbox format (- [ ]).
 func hasAcceptanceChecks(content string) bool {

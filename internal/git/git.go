@@ -40,7 +40,8 @@ func (r *Repo) Config(key, val string) error {
 }
 
 // Branch creates and checks out a new branch named name.
-func (r *Repo) Branch(name string) error {	_, err := r.run("checkout", "-b", name)
+func (r *Repo) Branch(name string) error {
+	_, err := r.run("checkout", "-b", name)
 	return err
 }
 

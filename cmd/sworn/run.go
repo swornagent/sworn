@@ -34,13 +34,13 @@ func cmdRun(args []string) int {
 	implModel := fs.String("implementer-model", "", "implementer model (provider/model)")
 	verifierModel := fs.String("verifier-model", "", "verifier model (provider/model)")
 	base := fs.String("base", "main", "base branch to merge into on PASS")
-		_ = base
+	_ = base
 	retryCap := fs.Int("retry-cap", -1, "max retries before escalating to human (-1 = use all escalation models)")
 	escalationFlag := fs.String("escalation-models", "", "comma-separated model escalation path (provider/model,...)")
 	parallel := fs.Bool("parallel", false, "run tracks concurrently from release board")
 	releaseName := fs.String("release", "", "release name for --parallel mode (e.g. 2026-06-19-safe-parallelism)")
 	implTimeout := fs.Duration("implement-timeout", 0, "per-attempt implement deadline (0 = use default; negative = no timeout)")
-		dryRun := fs.Bool("dry-run", false, "verify planner dispatch would be called without actually running")
+	dryRun := fs.Bool("dry-run", false, "verify planner dispatch would be called without actually running")
 
 	_ = fs.Parse(args)
 
@@ -142,7 +142,7 @@ func cmdRun(args []string) int {
 		return 0
 	}
 	// ── Single-slice mode ──────────────────────────────────────────────
-		return cmdRunTask(*task, impl, verifier, escalationModels, maxAttempts, implementTimeout, *dryRun, notifier)
+	return cmdRunTask(*task, impl, verifier, escalationModels, maxAttempts, implementTimeout, *dryRun, notifier)
 }
 
 // resolveImplementTimeout returns the per-attempt implement timeout from the
