@@ -18,7 +18,7 @@ tracks:
     state: merged
   - id: T3-agentic-verifier
     slices: [S11-agentic-verifier-dispatch, S12-first-pass-demote]
-    depends_on: null
+    depends_on: T2-model-layer
     worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T3-agentic-verifier
     worktree_branch: track/2026-06-27-conformance-foundation/T3-agentic-verifier
     state: in_progress
@@ -42,7 +42,7 @@ tracks:
     state: merged
   - id: T7-telemetry-eval
     slices: [S24-dispatch-enrich, S25-event-store-durable, S26-eval-projections]
-    depends_on: null
+    depends_on: T2-model-layer
     worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T7-telemetry-eval
     worktree_branch: track/2026-06-27-conformance-foundation/T7-telemetry-eval
     state: in_progress
@@ -62,21 +62,21 @@ tracks:
 
 ## Tracks
 
-> T5-role-ontology depends_on T6-contract-revendor (prompt re-vendor needs the pin bump to land first, as both touch `internal/prompt/`). All other tracks are parallel-safe.
+> T5-role-ontology depends_on T6-contract-revendor (prompt re-vendor needs the pin bump to land first, as both touch `internal/prompt/`). T3-agentic-verifier and T7-telemetry-eval depend_on T2-model-layer (all three touch `internal/model/oai.go` + drivers). The genuinely-parallel set is T1/T2/T4/T6; T3/T7 follow T2, T5 follows T6.
 
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
 | `T1-orchestration` | S01 → S02 → S03 → S04 → S05 → S06 → S07 → S27 | — | `track/.../T1-orchestration` | planned |
 | `T2-model-layer` | S08 → S09 → S10 | — | `track/.../T2-model-layer` | merged |
-| `T3-agentic-verifier` | S11 → S12 | — | `track/.../T3-agentic-verifier` | planned |
+| `T3-agentic-verifier` | S11 → S12 | T2-model-layer | `track/.../T3-agentic-verifier` | planned |
 | `T4-records-as-json` | S13 → S14 → S15 → S16 → S17 | — | `track/.../T4-records-as-json` | planned |
 | `T5-role-ontology` | S18 → S19 → S20 → S21 | T6-contract-revendor | `track/.../T5-role-ontology` | planned |
 | `T6-contract-revendor` | S22 → S23 | — | `track/.../T6-contract-revendor` | merged |
-| `T7-telemetry-eval` | S24 → S25 → S26 | — | `track/.../T7-telemetry-eval` | planned |
+| `T7-telemetry-eval` | S24 → S25 → S26 | T2-model-layer | `track/.../T7-telemetry-eval` | planned |
 
 ### Touchpoint matrix (DRAFT — finalised once specs are written)
 
-> Two documented shared files exist. All other rows are single-track. The matrix proves the five parallel tracks (T1/T2/T3/T4/T6/T7) are disjoint; T5 is sequenced after T6.
+> Documented shared files: `internal/run/slice.go` (T2/T3), `internal/state/state.go` (T4/T7), and `internal/model/oai.go` + drivers (T2/T3/T7). After the 2026-06-28 replan, **T3 and T7 depend_on T2-model-layer** (they share `oai.go`) and **T5 depends_on T6** — so the genuinely-parallel set is T1/T2/T4/T6; T3/T7 follow T2, T5 follows T6.
 
 | File / surface | T1 | T2 | T3 | T4 | T5 | T6 | T7 |
 |---|---|---|---|---|---|---|---|
@@ -92,6 +92,7 @@ tracks:
 | `internal/model/registry.go` (new) | | ✓ | | | | | |
 | `internal/config/config.go` | | ✓ | | | | | |
 | `internal/run/run.go` | | ✓ | | | | | |
+| `internal/model/oai.go` + drivers (DOCUMENTED SHARED) | | ✓ Capabilities/Chat | ✓ verifier model-calls | | | | ✓ S24 dispatch tokens/cost |
 | `internal/run/slice.go` (DOCUMENTED SHARED) | | ✓ error-halt §321 | ✓ verifier §412 | | | | |
 | `internal/verify/verify.go` | | | ✓ | | | | |
 | `internal/prompt/verifier.md` | | | ✓ | | | | |
@@ -187,6 +188,7 @@ tracks:
 - T4 S17 (journeys-declare) requires T4 S16 (journeys shape aligned) to be implemented first — sequential within T4.
 - `internal/run/slice.go` is a documented shared file between T2 (error-halt, lines ~321-327) and T3 (verifier dispatch, lines ~412-429). Merge-track for the second track must resolve the conflict on this file.
 - `internal/state/state.go` is a documented shared file between T4 (Write() validation, line ~184) and T7 (Dispatch struct, line ~80). Regions are well-separated and non-overlapping.
+- **`internal/model/oai.go` (and the model drivers anthropic/azure/bedrock/cli/google/oci/ollama) is DOCUMENTED SHARED across T2-model-layer (Capability/Chat methods), T3-agentic-verifier (verifier model-call paths), and T7-telemetry-eval (S24 dispatch token/cost enrichment).** T3 and T7 therefore **depend_on T2-model-layer** for their model-touching slices: they must carry T2's merged base before those slices, and merge-track resolves the combine. (Added 2026-06-28 replan: the original matrix under-declared this single most-shared surface, causing recurring merge conflicts on `oai.go` — T7/S25 and T3/S12 both BLOCKED on it. Declaring it shared + sequencing T3/T7 after T2 is the durable fix.)
 
 ## Recent activity
 
