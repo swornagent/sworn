@@ -18,7 +18,7 @@ tracks:
     state: planned
   - id: T3-agentic-verifier
     slices: [S11-agentic-verifier-dispatch, S12-first-pass-demote]
-    depends_on: T2-model-layer  # 2026-06-28 replan: shares internal/model/oai.go with T2 (verifier model-calls)
+    depends_on: T2-model-layer
     worktree_path: # set by first /implement-slice in this track
     worktree_branch: track/2026-06-27-conformance-foundation/T3-agentic-verifier
     state: planned
@@ -42,7 +42,7 @@ tracks:
     state: planned
   - id: T7-telemetry-eval
     slices: [S24-dispatch-enrich, S25-event-store-durable, S26-eval-projections]
-    depends_on: T2-model-layer  # 2026-06-28 replan: S24 shares internal/model/oai.go with T2 (dispatch token/cost)
+    depends_on: T2-model-layer
     worktree_path: # set by first /implement-slice in this track
     worktree_branch: track/2026-06-27-conformance-foundation/T7-telemetry-eval
     state: planned
