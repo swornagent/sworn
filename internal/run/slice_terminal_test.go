@@ -153,7 +153,9 @@ func TestTerminalError_NilError_Continues(t *testing.T) {
 		RetryCap:         0,
 		ImplementTimeout: -1,
 		NewAgent: func(_ string) (agent.Agent, error) {
-			return &markedAgent{called: &called}, nil
+			// Agentic verify dispatches the verifier through NewAgent; route it
+			// to alwaysPassVerifier so the happy path reaches a PASS verdict.
+			return &verifierAwareAgent{impl: &markedAgent{called: &called}, v: &alwaysPassVerifier{}}, nil
 		},
 		NewVerifier: func(_ string) (model.Verifier, error) {
 			return &alwaysPassVerifier{}, nil
