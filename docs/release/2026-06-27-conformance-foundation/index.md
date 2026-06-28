@@ -21,7 +21,7 @@ tracks:
     depends_on: T2-model-layer
     worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T3-agentic-verifier
     worktree_branch: track/2026-06-27-conformance-foundation/T3-agentic-verifier
-    state: in_progress
+    state: merged
   - id: T4-records-as-json
     slices: [S13-schema-embed-validate, S14-board-json, S15-spec-proof-records, S16-journeys-attestations-align, S17-journeys-declare]
     depends_on: null
@@ -75,7 +75,7 @@ tracks:
 
 ### Touchpoint matrix (DRAFT — finalised once specs are written)
 
-> Documented shared files: `internal/run/slice.go` (T2/T3), `internal/state/state.go` (T4/T7), and `internal/model/oai.go` + drivers (T2/T3/T7). After the 2026-06-28 replan, **T3 and T7 depend_on T2-model-layer** (they share `oai.go`) and **T5 depends_on T6** — so the genuinely-parallel set is T1/T2/T4/T6; T3/T7 follow T2, T5 follows T6.
+> Documented shared files: `internal/run/slice.go` (T1/T2/T3), `internal/state/state.go` (T4/T7), and `internal/model/oai.go` + drivers (T2/T3/T7). After the 2026-06-28 replan, **T3 and T7 depend_on T2-model-layer** (they share `oai.go`) and **T5 depends_on T6** — so the genuinely-parallel set is T1/T2/T4/T6; T3/T7 follow T2, T5 follows T6.
 
 | File / surface | T1 | T2 | T3 | T4 | T5 | T6 | T7 |
 |---|---|---|---|---|---|---|---|
@@ -92,7 +92,7 @@ tracks:
 | `internal/config/config.go` | | ✓ | | | | | |
 | `internal/run/run.go` | | ✓ | | | | | |
 | `internal/model/oai.go` + drivers (DOCUMENTED SHARED) | | ✓ Capabilities/Chat | ✓ verifier model-calls | | | | ✓ S24 dispatch tokens/cost |
-| `internal/run/slice.go` (DOCUMENTED SHARED) | | ✓ error-halt §321 | ✓ verifier §412 | | | | |
+| `internal/run/slice.go` (DOCUMENTED SHARED) | ✓ S01 verdict path | ✓ error-halt §321 | ✓ verifier §412 | | | | |
 | `internal/verify/verify.go` | | | ✓ | | | | |
 | `internal/prompt/verifier.md` | | | ✓ | | | | |
 | `internal/state/state.go` (DOCUMENTED SHARED) | | | | ✓ Write() §184 | | | ✓ Dispatch §80 |
@@ -158,7 +158,7 @@ tracks:
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 1 / In progress: 3 / Merged: 3
+**Tracks:** Planned: 1 / In progress: 2 / Merged: 4
 
 ## Rule-10 journeys to declare (in T4 S17)
 
@@ -173,12 +173,13 @@ tracks:
 - **Hosted/SaaS layer**: attestation + credits. Why: private-repo scope. Tracking: sworn-internal. Acknowledged: Brad, 2026-06-27.
 - **Codex exec driver**: GH #19. Why: codex environment complexity; not a conformance gap. Acknowledged: Brad, 2026-06-27.
 - **sworn init test-capability detection**: proof-visibility theme. Why: FT-4 lays the foundation; extend sworn init in a dedicated release. Tracking: project memory project_proof_visibility_theme. Acknowledged: Brad, 2026-06-27.
+- **S01-llm-interpreter verify-side wiring descoped**: the agentic-verifier migration (S11/S12) made the verifier return a typed verdict (BLOCKED on unparseable), superseding S01's cheap-interpreter rescue on the verify path. Why: S01 was built against the stateless judge; with the agentic verifier the two overlap, and S01 is not integrated anywhere yet. The 2026-06-28 S04 forward-merge takes the agentic `lastVerdict = result` base and drops S01's stateless `verify.Run` + interpreter block from `internal/run/slice.go`. Tracking: re-home S01 onto the agentic/implementer path in a future slice if it earns its place (option A). Acknowledged: Brad, 2026-06-28.
 
 ## Cross-slice notes
 
 - T5 depends_on T6: S20-role-revendor requires the pin bump from T6 before copying new canonical prompt files.
 - T4 S17 (journeys-declare) requires T4 S16 (journeys shape aligned) to be implemented first — sequential within T4.
-- `internal/run/slice.go` is a documented shared file between T2 (error-halt, lines ~321-327) and T3 (verifier dispatch, lines ~412-429). Merge-track for the second track must resolve the conflict on this file.
+- `internal/run/slice.go` is a documented shared file across **T1** (S01 interpreter on the verdict path), T2 (error-halt, lines ~321-327) and T3 (verifier dispatch, lines ~412-429). The original matrix under-declared T1, causing S04's forward-merge BLOCK. The T1 vs T3 sides diverged on the verdict source (T1's stateless `verify.Run` + S01 interpreter vs T3's agentic `lastVerdict = result`); resolved 2026-06-28 in favour of the agentic base (see the S01 Rule-2 deferral below).
 - `internal/state/state.go` is a documented shared file between T4 (Write() validation, line ~184) and T7 (Dispatch struct, line ~80). Regions are well-separated and non-overlapping.
 - **`internal/model/oai.go` (and the model drivers anthropic/azure/bedrock/cli/google/oci/ollama) is DOCUMENTED SHARED across T2-model-layer (Capability/Chat methods), T3-agentic-verifier (verifier model-call paths), and T7-telemetry-eval (S24 dispatch token/cost enrichment).** T3 and T7 therefore **depend_on T2-model-layer** for their model-touching slices: they must carry T2's merged base before those slices, and merge-track resolves the combine. (Added 2026-06-28 replan: the original matrix under-declared this single most-shared surface, causing recurring merge conflicts on `oai.go` — T7/S25 and T3/S12 both BLOCKED on it. Declaring it shared + sequencing T3/T7 after T2 is the durable fix.)
 
@@ -194,6 +195,10 @@ tracks:
 - **Actor**: verifier (/verify-slice)
 - **Note**: All 7 gates passed. Nested ratification/boundary shapes, $schema fields, validate-on-write confirmed.
 
+### 2026-06-28 — track `T3-agentic-verifier` merged to release-wt (commit 29a1c8a)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 2 verified slices merged: S11-agentic-verifier-dispatch, S12-first-pass-demote. Track state → merged.
 ### 2026-06-28 — track `T5-role-ontology` merged to release-wt (commit 605a76c)
 
 - **Actor**: track integrator (/merge-track)
@@ -241,4 +246,10 @@ tracks:
 - **Actor**: verifier (/verify-slice)
 - **Verdict**: PASS (all 7 gates). `design-reviewer.md` (293 lines, self-contained design-review role prompt), `orchestrator-notes.md` (62 lines, states orchestrator is realised by Sworn engine), and `captain.md` (updated with split-notice header). All 24 prompt tests pass.
 - **Next**: `/implement-slice S20-role-revendor 2026-06-27-conformance-foundation`
+
+
+### 2026-07-28 — S12-first-pass-demote verified (PASS)
+
+- **Actor**: verifier (/verify-slice, fresh context)
+- **Note**: All 5 acceptance checks satisfied; verifier.md is byte-for-byte canonical; RunFirstPass correctly short-circuits agentic dispatch on FAIL/BLOCKED and never writes state.Verified. T3-agentic-verifier track now complete (S11+S12 both verified). Next: /merge-track T3-agentic-verifier.
 
