@@ -9,7 +9,9 @@
   "state": "in_progress",
   "owner": "implementer",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-28T16:50:00Z",  "spec_path": "docs/release/2026-06-27-conformance-foundation/S04-scheduler-dependent-track/spec.md",
+  "last_updated_at": "2026-07-28T16:50:00Z",
+  "start_commit": "172c6c94fb90ae897283de4731445e27ea3c8219",
+  "spec_path": "docs/release/2026-06-27-conformance-foundation/S04-scheduler-dependent-track/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S04-scheduler-dependent-track/proof.json",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S04-scheduler-dependent-track/journal.md",
   "planned_files": [
