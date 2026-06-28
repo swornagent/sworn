@@ -202,11 +202,12 @@ Add a greeting endpoint to the demo server.
 	defer restorePlanner()
 
 	exitCode := cmdRunTask("add a greeting endpoint", "", "", nil, 0, 0, false, nil)
-	// cmdRunTask may exit non-zero if run.RunSlice fails (expected —
-	// the ephemeral task-run doesn't have a real Go module). We only
-	// assert that the planner dispatch succeeded and spec.md was written.
-	_ = exitCode
-
+	// cmdRunTask exits non-zero when run.RunSlice fails (expected in test env —
+	// no real Go module or verifier model). AC5: on FAIL, exit non-zero and
+	// keep spec+proof artefacts for inspection.
+	if exitCode == 0 {
+		t.Error("expected non-zero exit when RunSlice fails (AC5)")
+	}
 	// Verify spec.md was written in the task-runs directory.
 	taskRunsDir := filepath.Join(tmpDir, ".sworn", "task-runs")
 	entries, err := os.ReadDir(taskRunsDir)
@@ -264,9 +265,32 @@ No acceptance checks defined.
 	restorePlanner := setupMockPlanner(noACsSpec, nil)
 	defer restorePlanner()
 
+	// Capture stderr to verify the exact error message.
+	origStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
 	exitCode := cmdRunTask("some task", "", "", nil, 0, 0, false, nil)
+
+	w.Close()
+	var stderrBuf strings.Builder
+	// Drain the pipe (best-effort; test won't hang if short).
+	buf := make([]byte, 1024)
+	for {
+		n, _ := r.Read(buf)
+		if n == 0 {
+			break
+		}
+		stderrBuf.Write(buf[:n])
+	}
+	os.Stderr = origStderr
+
 	if exitCode != 2 {
 		t.Errorf("expected exit code 2 for no-ACs planner output, got %d", exitCode)
+	}
+	stderrOut := stderrBuf.String()
+	if !strings.Contains(stderrOut, "planner output contained no acceptance criteria") {
+		t.Errorf("expected error message on stderr, got: %s", stderrOut)
 	}
 
 	// Verify planner output was saved for inspection.
@@ -278,8 +302,20 @@ No acceptance checks defined.
 	if len(entries) == 0 {
 		t.Fatal("no task-run directories created (should keep artefacts on failure)")
 	}
-}
 
+	// Verify planner-output.txt exists.
+	var plannerOutputPath string
+	for _, e := range entries {
+		candidate := filepath.Join(taskRunsDir, e.Name(), "S01-task", "planner-output.txt")
+		if _, err := os.Stat(candidate); err == nil {
+			plannerOutputPath = candidate
+			break
+		}
+	}
+	if plannerOutputPath == "" {
+		t.Error("planner-output.txt not saved for inspection on no-ACs failure")
+	}
+}
 func TestTaskRunIntegration_PlannerDispatchError(t *testing.T) {
 	_, restoreWd := chdirTaskTemp(t)
 	defer restoreWd()
