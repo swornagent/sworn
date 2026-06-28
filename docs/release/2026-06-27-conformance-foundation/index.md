@@ -15,7 +15,7 @@ tracks:
     depends_on: null
     worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T2-model-layer
     worktree_branch: track/2026-06-27-conformance-foundation/T2-model-layer
-    state: in_progress
+    state: merged
   - id: T3-agentic-verifier
     slices: [S11-agentic-verifier-dispatch, S12-first-pass-demote]
     depends_on: null
@@ -67,7 +67,7 @@ tracks:
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
 | `T1-orchestration` | S01 → S02 → S03 → S04 → S05 → S06 → S07 → S27 | — | `track/.../T1-orchestration` | planned |
-| `T2-model-layer` | S08 → S09 → S10 | — | `track/.../T2-model-layer` | planned |
+| `T2-model-layer` | S08 → S09 → S10 | — | `track/.../T2-model-layer` | merged |
 | `T3-agentic-verifier` | S11 → S12 | — | `track/.../T3-agentic-verifier` | planned |
 | `T4-records-as-json` | S13 → S14 → S15 → S16 → S17 | — | `track/.../T4-records-as-json` | planned |
 | `T5-role-ontology` | S18 → S19 → S20 → S21 | T6-contract-revendor | `track/.../T5-role-ontology` | planned |
@@ -160,12 +160,12 @@ tracks:
 - Planned: 23
 - In progress: 0
 - Implemented (awaiting verification): 1 (S27-parallel-dispatch-fix)
-- Verified (awaiting merge): 3 (S22-pin-bump, S23-version-centralise-doctor, S10-agentic-chat-anthropic)
+- Verified (awaiting merge): 0
 - Failed verification: 0
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 1 / In progress: 5 / Merged: 1
+**Tracks:** Planned: 1 / In progress: 4 / Merged: 2
 
 ## Rule-10 journeys to declare (in T4 S17)
 
@@ -189,6 +189,11 @@ tracks:
 - `internal/state/state.go` is a documented shared file between T4 (Write() validation, line ~184) and T7 (Dispatch struct, line ~80). Regions are well-separated and non-overlapping.
 
 ## Recent activity
+
+### 2026-07-28 — track `T2-model-layer` merged to release-wt (commit 71ec0803)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 3 verified slices merged: S08-capability-descriptor, S09-error-kind-consumption, S10-agentic-chat-anthropic. Track state → merged.
 
 ### 2026-07-24 — slice `S10-agentic-chat-anthropic` verified (PASS)
 
