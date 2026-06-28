@@ -262,6 +262,36 @@ Together §3.6 + §3.7 make the human-in-the-loop meaningful at exactly the two 
 machine proves the flow (SIT harness), the human accepts the experience (guided UAT) before base, and
 attests on real infra before ship. This is the acceptance spine the DOA build never had.
 
+### 3.8 AC-completeness scrutiny by the detailed-design roles (Brad, 2026-06-28)
+
+The AC-completeness ceiling (§3.5; quantified by the loop-lift −1 result in the benchmark doc) is the
+binding limit on delivery-correctness: the loop cannot exceed the coverage of the ACs it can verify
+against, and the Planner authors ACs *before* the detailed design exists — so it misses ACs only visible
+once you are in the code/spec detail. Proposal: the roles doing the detailed work — the **design-reviewer
+(Captain)** primarily, the **implementer** secondarily — scrutinise whether the spec's ACs are COMPLETE
+against the spec SOURCE (RFC / standard / intake) and PROPOSE candidate additional ACs.
+
+Guardrails (so it closes the gap rather than gaming it):
+- **Propose ≠ ratify.** Agents PROPOSE candidate ACs; a human (or the Planner under human oversight)
+  RATIFIES; the verifier only ever checks ratified ACs. Self-applied ACs are the homework-marking trap
+  (an agent adds ACs it trivially passes). The AC set stays externally-owned and agent-immutable.
+- **Ground in the spec source, not invention.** A valid candidate is "logically entailed by the spec
+  source but missing from the AC list" (e.g. the INI spec mandates backslash-continuation-after-quoted;
+  the AC list omitted it). New requirements not in the source = scope creep → reject. Bounds the
+  subjectivity.
+- **Prefer the reviewer as proposer.** The design-reviewer is more objective than the implementer (which
+  has an incentive to propose self-satisfying ACs). Implementer-hit gaps feed in as candidates, not
+  self-applied.
+- **Timing.** Land additions at design-review (before implement); gaps found mid-implement become a
+  tracked spec amendment + re-verify of affected slices.
+
+Baton placement: extends **Rule 8** (requirements fidelity → AC completeness is re-scrutinised by the
+detailed-design roles, human-ratified) and **Rule 9** (Captain design-review scope includes "are the ACs
+complete *for this design*?"). Consistent with "rules capture human judgement, they don't self-notice":
+the loop SOLICITS candidate ACs; the human still judges. Directly addresses the loop-lift ceiling — had
+the missing edge-case ACs been proposed + ratified into the visible set, the retry would have verified
+against them instead of regressing blind.
+
 ## 4. Prioritised recommendations (mapped to release tracks + properties)
 
 | # | Recommendation | Property | Track | Effort |
