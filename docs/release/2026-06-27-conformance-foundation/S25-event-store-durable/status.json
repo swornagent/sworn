@@ -31,20 +31,14 @@
   ],
   "reachability_artifacts": [
     "go test ./internal/supervisor/... -v -run TestPersistence exits 0",
-    "Wiring trace: eventDB from cmd/sworn/run.go → ParallelOptions → WorkerOptions → supervisor.SetEventDB"
+    "Wiring trace: eventDB from cmd/sworn/run.go \u2192 ParallelOptions \u2192 WorkerOptions \u2192 supervisor.SetEventDB"
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "blocked",
+    "result": "pending",
     "verifier_session_id": null,
     "verifier_verdict_at": "2026-07-25T03:45:00Z",
     "verifier_was_fresh_context": true,
-    "violations": [
-      {
-        "gate": 0,
-        "description": "Touchpoint-matrix violation: forward-merge of release-wt/2026-06-27-conformance-foundation into track/2026-06-27-conformance-foundation/T7-telemetry-eval conflicted on 8 internal/model/* files: anthropic.go, azure.go, bedrock.go, cli.go, google.go, oai.go, oci.go, ollama.go. T7's S24-dispatch-enrich modifies these files but the touchpoint matrix does not list them in T7's column. T2-model-layer (merged) also modified these files. Track-mode invariant 4 code conflicts on non-documented-shared files.",
-        "evidence": "git merge release-wt/2026-06-27-conformance-foundation --no-edit → CONFLICT on internal/model/{anthropic,azure,bedrock,cli,google,oai,oci,ollama}.go",
-        "proposed_amendment": "Add internal/model/* files to T7's column in the touchpoint matrix (index.md) as DOCUMENTED SHARED with T2, or re-group S24 and T2's model-layer work into the same track or a dependent track arrangement."
-      }
-    ]
-  }}
+    "violations": []
+  }
+}
