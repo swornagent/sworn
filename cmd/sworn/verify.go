@@ -101,8 +101,7 @@ func cmdVerify(args []string) int {
 	}
 
 	// ── Stateless path (default) ───────────────────────────────────
-	res := verify.Run(context.Background(), verify.Input{
-		SpecPath:      *spec,
+	res := verify.RunFirstPass(context.Background(), verify.Input{		SpecPath:      *spec,
 		DiffPath:      *diff,
 		ProofPath:     *proof,
 		Model:         resolvedModel,

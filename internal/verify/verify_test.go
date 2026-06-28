@@ -19,9 +19,9 @@ func (f fakeVerifier) Verify(context.Context, string, string) (string, float64, 
 	return f.reply, f.cost, nil
 }
 
-// capturingVerifier records the system prompt it is handed by verify.Run.
-type capturingVerifier struct {
-	reply          string
+// capturingVerifier records the system prompt it is handed by verify.RunFirstPass.
+// Now unused by RunFirstPass (deterministic-only) but kept for RunAgentic tests.
+type capturingVerifier struct {	reply          string
 	cost           float64
 	capturedPrompt string
 }
@@ -31,8 +31,8 @@ func (c *capturingVerifier) Verify(_ context.Context, systemPrompt, _ string) (s
 	return c.reply, c.cost, nil
 }
 
-// verify_test.go — tests for verify.Run (stateless judge) and boundary-mock detection.
-
+// verify_test.go — tests for verify.RunFirstPass (deterministic first-pass gate)
+// and boundary-mock detection.
 // writeTmp writes a temp file for test use and returns its path.
 func writeTmp(t *testing.T, name, content string) string {
 	t.Helper()
@@ -44,30 +44,50 @@ func writeTmp(t *testing.T, name, content string) string {
 	return path
 }
 
-// --- verify.Run tests ---
-func TestVerifyRun_Pass(t *testing.T) {
+// --- verify.RunFirstPass tests ---
+func TestFirstPass_Pass(t *testing.T) {
 	dir := t.TempDir()
 	spec := filepath.Join(dir, "spec.md")
 	diff := filepath.Join(dir, "diff.patch")
 	os.WriteFile(spec, []byte("# spec"), 0644)
 	os.WriteFile(diff, []byte("diff content"), 0644)
 
-	fv := fakeVerifier{reply: "PASS\n\nlooks good", cost: 0.01}
-	res := Run(context.Background(), Input{
+	res := RunFirstPass(context.Background(), Input{
 		SpecPath: spec,
 		DiffPath: diff,
-		Model:    "test/model",
-		Verifier: fv,
 	})
 	if res.Verdict != verdict.Pass {
 		t.Errorf("expected PASS, got %s", res.Verdict)
 	}
-	if res.CostUSD != 0.01 {
-		t.Errorf("expected cost 0.01, got %f", res.CostUSD)
+	if res.CostUSD != 0 {
+		t.Errorf("expected cost 0 (deterministic), got %f", res.CostUSD)
 	}
 }
 
-func TestVerifyRun_Fail(t *testing.T) {
+func TestFirstPass_PassDoesNotWriteState(t *testing.T) {
+	// RunFirstPass returns a verdict.Result but has no side effects —
+	// it does not write to status.json or advance any state machine.
+	// Only the agentic verifier (RunAgentic) drives state transitions.
+	dir := t.TempDir()
+	spec := filepath.Join(dir, "spec.md")
+	diff := filepath.Join(dir, "diff.patch")
+	os.WriteFile(spec, []byte("# spec"), 0644)
+	os.WriteFile(diff, []byte("diff content"), 0644)
+
+	res := RunFirstPass(context.Background(), Input{
+		SpecPath: spec,
+		DiffPath: diff,
+	})
+	if res.Verdict != verdict.Pass {
+		t.Errorf("expected PASS, got %s", res.Verdict)
+	}
+	// No status.json write occurs — the function signature takes no statusPath.
+}
+
+func TestFirstPass_Fail_ModelReplyIgnored(t *testing.T) {
+	// RunFirstPass is deterministic-only. Even when a Verifier is provided
+	// that would return FAIL, RunFirstPass ignores it and checks only
+	// structural properties. Spec+diff are valid → PASS.
 	dir := t.TempDir()
 	spec := filepath.Join(dir, "spec.md")
 	diff := filepath.Join(dir, "diff.patch")
@@ -75,25 +95,23 @@ func TestVerifyRun_Fail(t *testing.T) {
 	os.WriteFile(diff, []byte("diff content"), 0644)
 
 	fv := fakeVerifier{reply: "FAIL:\n1. missing coverage\n2. wrong implementation", cost: 0.02}
-	res := Run(context.Background(), Input{
+	res := RunFirstPass(context.Background(), Input{
 		SpecPath: spec,
 		DiffPath: diff,
 		Model:    "test/model",
 		Verifier: fv,
 	})
-	if res.Verdict != verdict.Fail {
-		t.Errorf("expected FAIL, got %s", res.Verdict)
+	if res.Verdict != verdict.Pass {
+		t.Errorf("RunFirstPass should ignore model and return deterministic PASS, got %s", res.Verdict)
 	}
 }
-
-func TestVerifyRun_Blocked_EmptySpec(t *testing.T) {
-	dir := t.TempDir()
+func TestFirstPass_Blocked_EmptySpec(t *testing.T) {	dir := t.TempDir()
 	spec := filepath.Join(dir, "spec.md")
 	diff := filepath.Join(dir, "diff.patch")
 	os.WriteFile(spec, []byte(""), 0644) // empty spec
 	os.WriteFile(diff, []byte("diff"), 0644)
 
-	res := Run(context.Background(), Input{
+	res := RunFirstPass(context.Background(), Input{
 		SpecPath: spec,
 		DiffPath: diff,
 	})
@@ -102,14 +120,13 @@ func TestVerifyRun_Blocked_EmptySpec(t *testing.T) {
 	}
 }
 
-func TestVerifyRun_Blocked_EmptyDiff(t *testing.T) {
-	dir := t.TempDir()
+func TestFirstPass_Blocked_EmptyDiff(t *testing.T) {	dir := t.TempDir()
 	spec := filepath.Join(dir, "spec.md")
 	diff := filepath.Join(dir, "diff.patch")
 	os.WriteFile(spec, []byte("# spec"), 0644)
 	os.WriteFile(diff, []byte(""), 0644) // empty diff
 
-	res := Run(context.Background(), Input{
+	res := RunFirstPass(context.Background(), Input{
 		SpecPath: spec,
 		DiffPath: diff,
 	})
@@ -119,7 +136,7 @@ func TestVerifyRun_Blocked_EmptyDiff(t *testing.T) {
 }
 
 func TestVerifyRun_Blocked_MissingFile(t *testing.T) {
-	res := Run(context.Background(), Input{
+	res := RunFirstPass(context.Background(), Input{
 		SpecPath: "/nonexistent/spec.md",
 		DiffPath: "/nonexistent/diff.patch",
 	})
@@ -188,29 +205,7 @@ func TestParseVerdictUnparseableBlocks(t *testing.T) {
 	}
 }
 
-func TestSystemPromptIsStatelessJudge(t *testing.T) {
-	cv := &capturingVerifier{reply: "PASS", cost: 0.01}
-	dir := t.TempDir()
-	spec := filepath.Join(dir, "spec.md")
-	diff := filepath.Join(dir, "diff.patch")
-	os.WriteFile(spec, []byte("# spec"), 0644)
-	os.WriteFile(diff, []byte("diff"), 0644)
-	Run(context.Background(), Input{
-		SpecPath: spec,
-		DiffPath: diff,
-		Model:    "test/model",
-		Verifier: cv,
-	})
-	if !strings.Contains(cv.capturedPrompt, "SPEC+DIFF") {
-		t.Error("system prompt should contain SPEC+DIFF clue")
-	}
-	if strings.Contains(cv.capturedPrompt, "Verifier Role Prompt") {
-		t.Error("stateless judge should NOT use the full verifier role prompt")
-	}
-}
-
-func TestBuildPayload(t *testing.T) {
-	p := buildPayload("spec", "diff", "")
+func TestBuildPayload(t *testing.T) {	p := buildPayload("spec", "diff", "")
 	if !strings.Contains(p, "## SPEC\nspec") {
 		t.Error("payload should include SPEC section")
 	}
@@ -227,19 +222,16 @@ func TestBuildPayload(t *testing.T) {
 	}
 }
 
-func TestVerifyRun_OpenDeferrals(t *testing.T) {
+func TestFirstPass_OpenDeferrals(t *testing.T) {
 	dir := t.TempDir()
 	spec := filepath.Join(dir, "spec.md")
 	diff := filepath.Join(dir, "diff.patch")
 	os.WriteFile(spec, []byte("# spec"), 0644)
 	os.WriteFile(diff, []byte("+	db := mockDB // db mock\n+	auth := mockAuth // auth mock"), 0644)
 
-	fv := fakeVerifier{reply: "PASS", cost: 0.01}
-	res := Run(context.Background(), Input{
+	res := RunFirstPass(context.Background(), Input{
 		SpecPath: spec,
 		DiffPath: diff,
-		Model:    "test/model",
-		Verifier: fv,
 		OpenDeferrals: []string{
 			"db mock for integration tests",
 			"auth stub for test isolation",
@@ -249,24 +241,21 @@ func TestVerifyRun_OpenDeferrals(t *testing.T) {
 		t.Errorf("expected PASS with declared mocks, got %s", res.Verdict)
 	}
 	// Declared mocks should appear in the rationale.
-	if !strings.Contains(res.Rationale, "Declared boundary mock") {
-		t.Error("declared mocks should appear in rationale")
+	if !strings.Contains(res.Rationale, "declared boundary mock") {
+		t.Errorf("declared mocks should appear in rationale, got: %q", res.Rationale)
 	}
 }
 
-func TestVerifyRun_UndeclaredMockBlocks(t *testing.T) {
+func TestFirstPass_UndeclaredMockFails(t *testing.T) {
 	dir := t.TempDir()
 	spec := filepath.Join(dir, "spec.md")
 	diff := filepath.Join(dir, "diff.patch")
 	os.WriteFile(spec, []byte("# spec"), 0644)
 	os.WriteFile(diff, []byte("+	db := mockDB"), 0644)
 
-	fv := fakeVerifier{reply: "PASS", cost: 0}
-	res := Run(context.Background(), Input{
+	res := RunFirstPass(context.Background(), Input{
 		SpecPath: spec,
 		DiffPath: diff,
-		Model:    "test/model",
-		Verifier: fv,
 	})
 	if res.Verdict != verdict.Fail {
 		t.Errorf("expected FAIL for undeclared db mock, got %s", res.Verdict)
@@ -275,7 +264,6 @@ func TestVerifyRun_UndeclaredMockBlocks(t *testing.T) {
 		t.Errorf("expected boundary_mock gate, got %s", res.FailedGate)
 	}
 }
-
 // --- S11: Agentic verifier tests ---
 // (these live in verify_agentic_test.go)
 

@@ -144,8 +144,7 @@ var modelPricing = map[string]struct {
 
 // Verify sends the system prompt + user payload to /chat/completions.
 // On any HTTP error, timeout, or unparseable response it returns an error
-// (not a panic) — the caller (verify.Run) maps errors to BLOCKED, fulfilling
-// spec AC4.
+// (not a panic) — the caller (verify.RunFirstPass) maps errors to BLOCKED, fulfilling// spec AC4.
 func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
 	reqBody := chatRequest{
 		Model: c.Model,

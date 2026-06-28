@@ -136,9 +136,8 @@ type responsesUsage struct {
 
 // Verify sends the system prompt + user payload to /v1/responses.
 // On any HTTP error, timeout, or unparseable response it returns an error
-// (not a panic) — the caller (verify.Run) maps errors to BLOCKED.
-func (c *OpenAIResponses) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
-	input := []responsesInput{}
+// (not a panic) — the caller (verify.RunFirstPass) maps errors to BLOCKED.
+func (c *OpenAIResponses) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {	input := []responsesInput{}
 	if userPayload != "" {
 		input = append(input, responsesInput{Role: "user", Content: userPayload})
 	}

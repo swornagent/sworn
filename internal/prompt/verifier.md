@@ -98,7 +98,7 @@ Re-run the test commands yourself. If they fail in your fresh window: FAIL.
 
 ### Gate 3b — Implementation satisfies acceptance criteria (LLM)
 
-Run `sworn llmcheck --check ac-satisfaction --slice <slice-id> --release <release-name> --worktree <worktree_path>`.
+Run `bin/release-llm-check.sh --check ac-satisfaction --slice <slice-id> --release <release-name> --worktree <worktree_path>`.
 
 This is the verifier's core adversarial check: the implementer self-assessed ac-satisfaction before claiming "implemented", but Rule 7 forbids self-certification. The verifier re-runs this check independently.
 - If the LLM provider is not configured, note it and skip (non-blocking).
@@ -151,7 +151,7 @@ Read `proof.md` "Reachability artefact" section.
 
 ### Gate 4b — Semantic test coverage (LLM, optional when LLM provider configured)
 
-Run `sworn llmcheck --check semantic-coverage --slice <slice-id> --release <release-name> --worktree <worktree_path>`.
+Run `bin/release-llm-check.sh --check semantic-coverage --slice <slice-id> --release <release-name> --worktree <worktree_path>`.
 
 - If the LLM provider is not configured, this gate passes automatically (non-blocking).
 - If the check returns FAIL: at least one test does not genuinely verify its AC. Add the findings to the FAIL verdict.
@@ -166,7 +166,7 @@ Grep the changed files for `TODO`, `FIXME`, `deferred`, `later`, `placeholder`, 
 
 ### Gate 6 — Design conformance (Rule 9, Layer 1)
 
-Run `sworn designaudit --slice <slice-id> --release <release-name> --worktree <worktree_path>`.
+Run `bin/release-audit-design.sh --slice <slice-id> --release <release-name> --worktree <worktree_path>`.
 
 - If the script exits non-zero, FAIL with the enumerated violations.
 - Violations listed in the slice's `design-allowlist.json` (escape hatch) are suppressed — the script reads the allowlist automatically.

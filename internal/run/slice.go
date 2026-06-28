@@ -448,8 +448,75 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 				}
 			}
 		}
-		// ── Dispatch agentic verifier ───────────────────────────────
-		// Create an agent (not just a Verifier) for the verifier model
+		// ── First-pass deterministic gate (S12) ────────────────────
+			// RunFirstPass catches structural blockers (empty spec,
+			// empty diff, undeclared boundary mocks) before the expensive
+			// agentic verifier is dispatched. A FAIL or BLOCKED here
+			// short-circuits and prevents the agentic call entirely.
+			{
+				stFP, _ := state.Read(statusPath)
+				var openDeferrals []string
+				if stFP != nil {
+					openDeferrals = stFP.OpenDeferrals
+				}
+				// Write diff to temp file for RunFirstPass (it reads paths).
+				diffPath, tmpErr := writeTempFile("", "firstpass-diff-*.patch", diff)
+				if tmpErr != nil {
+					return fmt.Errorf("RunSlice: write diff for first-pass: %w", tmpErr)
+				}
+				defer os.Remove(diffPath)
+				fpResult := verify.RunFirstPass(ctx, verify.Input{
+					SpecPath:      specPath,
+					DiffPath:      diffPath,
+					ProofPath:     proofPath,
+					OpenDeferrals: openDeferrals,
+				})
+				if fpResult.Verdict != verdict.Pass {
+					lastVerdict = fpResult
+					fmt.Fprintf(os.Stderr, "sworn run: first-pass %s — %s\n",
+						fpResult.Verdict, fpResult.Rationale)
+					// Record the BLOCKED/FAIL dispatch for cost ledger
+					// (zero cost — deterministic).
+					dispatches = append(dispatches, state.Dispatch{
+						Role:    "first_pass",
+						Model:   "deterministic",
+						CostUSD: 0,
+						Attempt: totalAttempts,
+					})
+					// Commit blocked/failed state and return.
+					stBlk, _ := state.Read(statusPath)
+					if stBlk != nil {
+						stBlk.Verification.Result = "blocked"
+						stBlk.Verification.Model = "first_pass"
+						stBlk.Verification.Attempt = totalAttempts
+						stBlk.Verification.Dispatches = dispatches
+						stBlk.LastUpdatedBy = "run-slice"
+						stBlk.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
+						_ = state.Write(statusPath, stBlk)
+						_ = repo.Stage(statusPath)
+						_ = repo.Commit("chore(run): verification blocked — first-pass: " + fpResult.FailedGate)
+					}
+					if opts.Notifier != nil {
+						stNotify, _ := state.Read(statusPath)
+						if stNotify != nil {
+							summary := fpResult.Rationale
+							if len(summary) > 200 {
+								summary = summary[:197] + "..."
+							}
+							opts.Notifier.Notify(ctx, account.NotifyEvent{
+								Release:           stNotify.Release,
+								Track:             stNotify.Track,
+								SliceID:           stNotify.SliceID,
+								State:             "blocked",
+								ViolationsSummary: summary,
+								WorktreePath:      worktreeRoot,
+							})
+						}
+					}
+					return fmt.Errorf("RunSlice: first-pass %s: %s", fpResult.Verdict, fpResult.Rationale)
+				}
+			}
+			// ── Dispatch agentic verifier ───────────────────────────────		// Create an agent (not just a Verifier) for the verifier model
 		// so we can dispatch the full verifier.md role prompt via Chat().
 		verifierAgent, vaErr := opts.NewAgent(verifierModelID)
 		if vaErr != nil {
