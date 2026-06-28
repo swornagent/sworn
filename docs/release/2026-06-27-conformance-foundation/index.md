@@ -31,15 +31,15 @@ tracks:
   - id: T5-role-ontology
     slices: [S18-orchestrator-formalized, S19-captain-split, S20-role-revendor, S21-sworn-run-task]
     depends_on: T6-contract-revendor
-    worktree_path: # set by first /implement-slice in this track
+    worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T5-role-ontology
     worktree_branch: track/2026-06-27-conformance-foundation/T5-role-ontology
-    state: planned
+    state: in_progress
   - id: T6-contract-revendor
     slices: [S22-pin-bump, S23-version-centralise-doctor]
     depends_on: null
     worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T6-contract-revendor
     worktree_branch: track/2026-06-27-conformance-foundation/T6-contract-revendor
-    state: in_progress
+    state: merged
   - id: T7-telemetry-eval
     slices: [S24-dispatch-enrich, S25-event-store-durable, S26-eval-projections]
     depends_on: null
@@ -68,10 +68,10 @@ tracks:
 |---|---|---|---|---|
 | `T1-orchestration` | S01 → S02 → S03 → S04 → S05 → S06 → S07 → S27 | — | `track/.../T1-orchestration` | planned |
 | `T2-model-layer` | S08 → S09 → S10 | — | `track/.../T2-model-layer` | planned |
-| `T3-agentic-verifier` | S11 → S12 | — | `track/.../T3-agentic-verifier` | in_progress |
+| `T3-agentic-verifier` | S11 → S12 | — | `track/.../T3-agentic-verifier` | planned |
 | `T4-records-as-json` | S13 → S14 → S15 → S16 → S17 | — | `track/.../T4-records-as-json` | planned |
 | `T5-role-ontology` | S18 → S19 → S20 → S21 | T6-contract-revendor | `track/.../T5-role-ontology` | planned |
-| `T6-contract-revendor` | S22 → S23 | — | `track/.../T6-contract-revendor` | planned |
+| `T6-contract-revendor` | S22 → S23 | — | `track/.../T6-contract-revendor` | merged |
 | `T7-telemetry-eval` | S24 → S25 → S26 | — | `track/.../T7-telemetry-eval` | planned |
 
 ### Touchpoint matrix (DRAFT — finalised once specs are written)
@@ -128,7 +128,8 @@ tracks:
 | `S08-capability-descriptor` | T2 | Every model driver exposes Capabilities(); implementer-model resolution fails fast at startup with a descriptive error if the selected driver does not support agentic Chat | planned | [spec](./S08-capability-descriptor/spec.md) | — |
 | `S09-error-kind-consumption` | T2 | KindAuth, KindCredits, and other terminal Error{Kind}s halt the loop immediately without retry; the factory sentinel is correctly named | planned | [spec](./S09-error-kind-consumption/spec.md) | — |
 | `S10-agentic-chat-anthropic` | T2 | The native Anthropic driver supports agentic Chat; a keyless run via claude-cli is a valid implementer path; cost is populated from real token counts (not always 0) | planned | [spec](./S10-agentic-chat-anthropic/spec.md) | — |
-| `S11-agentic-verifier-dispatch` | T3 | The engine dispatches the agentic verifier.md role (test-re-running, live-repo) for the verify step; verifier_was_fresh_context is set honestly; Verification.Model records the actual model used | failed_verification | [spec](./S11-agentic-verifier-dispatch/spec.md) | [proof](./S11-agentic-verifier-dispatch/proof.md) || `S12-first-pass-demote` | T3 | The stateless LLM judge is demoted to a labelled deterministic first-pass (structure/mock/dark-code checks only); it no longer drives the slice to `verified`; verifier.md is re-vendored from canonical | planned | [spec](./S12-first-pass-demote/spec.md) | — |
+| `S11-agentic-verifier-dispatch` | T3 | The engine dispatches the agentic verifier.md role (test-re-running, live-repo) for the verify step; verifier_was_fresh_context is set honestly; Verification.Model records the actual model used | planned | [spec](./S11-agentic-verifier-dispatch/spec.md) | — |
+| `S12-first-pass-demote` | T3 | The stateless LLM judge is demoted to a labelled deterministic first-pass (structure/mock/dark-code checks only); it no longer drives the slice to `verified`; verifier.md is re-vendored from canonical | planned | [spec](./S12-first-pass-demote/spec.md) | — |
 | `S13-schema-embed-validate` | T4 | All baton schemas (*-v1.json) are embedded in the binary; every record write validates against its schema; missing/invalid records fail closed; example.com $schema placeholder replaced | planned | [spec](./S13-schema-embed-validate/spec.md) | — |
 | `S14-board-json` | T4 | board.json is the oracle's source of truth; the oracle renders/drifts index.md from board.json; existing releases auto-migrate board.json from index.md frontmatter on first oracle read | planned | [spec](./S14-board-json/spec.md) | — |
 | `S15-spec-proof-records` | T4 | spec.json (spec-v1) and proof.json (proof-v1) records are emitted and validated; proof sections (delivered, not_delivered, divergence, reachability) are derived from live ACs and state, not constant boilerplate | planned | [spec](./S15-spec-proof-records/spec.md) | — |
@@ -138,9 +139,7 @@ tracks:
 | `S19-captain-split` | T5 | captain.md is split: design-reviewer.md (Baton Rule-9 surface) and orchestrator-notes.md (Sworn engine mapping); each file references the correct owner | planned | [spec](./S19-captain-split/spec.md) | — |
 | `S20-role-revendor` | T5 | planner.md, implementer.md, captain.md are re-vendored from canonical post-records-as-JSON; VERSION.txt is bumped to match; run after T6 merges | planned | [spec](./S20-role-revendor/spec.md) | — |
 | `S21-sworn-run-task` | T5 | `sworn run --task "<description>"` dispatches the planner role to draft a concrete-AC spec, then runs implement+verify over that spec; direction C (planner-assist quickstart) | planned | [spec](./S21-sworn-run-task/spec.md) | — |
-| `S22-pin-bump` | T6 | The vendor pin references a canonical HEAD containing the baton/ layout (≥ records-as-JSON); source map coherent with the new pin; re-vendor would succeed | planned | [spec](./S22-pin-bump/spec.md) | — |
-| `S23-version-centralise-doctor` | T6 | VERSION is centralised to a single source; doctor detects SHA-vs-HEAD drift and pre-JSON-prompt pin staleness; both checks fail closed | planned | [spec](./S23-version-centralise-doctor/spec.md) | — |
-| `S24-dispatch-enrich` | T7 | Dispatch record captures duration_ms, input_tokens, output_tokens, real_cost_usd (from model pricing map), and the model-id confirmed in the response | planned | [spec](./S24-dispatch-enrich/spec.md) | — |
+| `S22-pin-bump` | T6 | The vendor pin references a canonical HEAD containing the baton/ layout (≥ records-as-JSON); source map coherent with the new pin; re-vendor would succeed | verified | [spec](./S22-pin-bump/spec.md) | [proof](./S22-pin-bump/proof.md) || `S23-version-centralise-doctor` | T6 | VERSION is centralised to a single source; doctor detects SHA-vs-HEAD drift and pre-JSON-prompt pin staleness; both checks fail closed | verified | [spec](./S23-version-centralise-doctor/spec.md) | [proof](./S23-version-centralise-doctor/proof.md) || `S24-dispatch-enrich` | T7 | Dispatch record captures duration_ms, input_tokens, output_tokens, real_cost_usd (from model pricing map), and the model-id confirmed in the response | planned | [spec](./S24-dispatch-enrich/spec.md) | — |
 | `S25-event-store-durable` | T7 | The supervisor SQLite event store survives process restart; events written during a run are queryable after a new `sworn run` starts against the same release | planned | [spec](./S25-event-store-durable/spec.md) | — |
 | `S26-eval-projections` | T7 | `sworn telemetry` reports per-model rework rate, mean tokens-per-turn, mean latency_ms, and estimated cost; output is machine-readable JSON and human-readable table | planned | [spec](./S26-eval-projections/spec.md) | — |
 | `S27-parallel-dispatch-fix` | T1 | `sworn run --parallel` can dispatch an agentic implementer and run a multi-turn tool session (nil agent/verifier factories defaulted; tool-only turns no longer drop the required `content` field). Surfaced by the 2026-06-28 dogfood | implemented | [spec](./S27-parallel-dispatch-fix/spec.md) | [proof](./S27-parallel-dispatch-fix/proof.md) |
@@ -159,15 +158,15 @@ tracks:
 
 ## Aggregate state
 
-- Planned: 25
+- Planned: 24
 - In progress: 0
 - Implemented (awaiting verification): 1 (S27-parallel-dispatch-fix)
-- Verified (awaiting merge): 0
-- Failed verification: 1
+- Verified (awaiting merge): 2 (S22-pin-bump, S23-version-centralise-doctor)
+- Failed verification: 0
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 6 / In progress: 1 / Merged: 0
+**Tracks:** Planned: 1 / In progress: 5 / Merged: 1
 
 ## Rule-10 journeys to declare (in T4 S17)
 
@@ -189,3 +188,10 @@ tracks:
 - T4 S17 (journeys-declare) requires T4 S16 (journeys shape aligned) to be implemented first — sequential within T4.
 - `internal/run/slice.go` is a documented shared file between T2 (error-halt, lines ~321-327) and T3 (verifier dispatch, lines ~412-429). Merge-track for the second track must resolve the conflict on this file.
 - `internal/state/state.go` is a documented shared file between T4 (Write() validation, line ~184) and T7 (Dispatch struct, line ~80). Regions are well-separated and non-overlapping.
+
+## Recent activity
+
+### 2026-06-28 — track `T6-contract-revendor` merged to release-wt (commit 0b039d0)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 2 verified slices merged: S22-pin-bump, S23-version-centralise-doctor. Track state → merged.
