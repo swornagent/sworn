@@ -21,7 +21,7 @@ tracks:
     depends_on: T2-model-layer
     worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T3-agentic-verifier
     worktree_branch: track/2026-06-27-conformance-foundation/T3-agentic-verifier
-    state: in_progress
+    state: merged
   - id: T4-records-as-json
     slices: [S13-schema-embed-validate, S14-board-json, S15-spec-proof-records, S16-journeys-attestations-align, S17-journeys-declare]
     depends_on: null
@@ -162,7 +162,7 @@ tracks:
 - Deferred: 0
 - Shipped: 0
 
-**Tracks:** Planned: 1 / In progress: 3 / Merged: 3
+**Tracks:** Planned: 1 / In progress: 2 / Merged: 4
 
 ## Rule-10 journeys to declare (in T4 S17)
 
@@ -187,6 +187,11 @@ tracks:
 - **`internal/model/oai.go` (and the model drivers anthropic/azure/bedrock/cli/google/oci/ollama) is DOCUMENTED SHARED across T2-model-layer (Capability/Chat methods), T3-agentic-verifier (verifier model-call paths), and T7-telemetry-eval (S24 dispatch token/cost enrichment).** T3 and T7 therefore **depend_on T2-model-layer** for their model-touching slices: they must carry T2's merged base before those slices, and merge-track resolves the combine. (Added 2026-06-28 replan: the original matrix under-declared this single most-shared surface, causing recurring merge conflicts on `oai.go` — T7/S25 and T3/S12 both BLOCKED on it. Declaring it shared + sequencing T3/T7 after T2 is the durable fix.)
 
 ## Recent activity
+
+### 2026-06-28 — track `T3-agentic-verifier` merged to release-wt (commit 29a1c8a)
+
+- **Actor**: track integrator (/merge-track)
+- **Note**: 2 verified slices merged: S11-agentic-verifier-dispatch, S12-first-pass-demote. Track state → merged.
 
 ### 2026-06-28 — track `T5-role-ontology` merged to release-wt (commit 605a76c)
 
