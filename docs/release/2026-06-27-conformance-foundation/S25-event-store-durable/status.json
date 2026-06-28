@@ -35,21 +35,16 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "fail",
+    "result": "blocked",
     "verifier_session_id": null,
-    "verifier_verdict_at": "2026-07-25T00:00:00Z",
+    "verifier_verdict_at": "2026-07-25T03:45:00Z",
     "verifier_was_fresh_context": true,
     "violations": [
       {
-        "gate": 2,
-        "description": "Planned touchpoint cmd/sworn/telemetry.go was not changed. File already queries on-disk DB via supervisor.Open() from prior slice S24 — no change needed. Proof.md does not explain the non-change in Not delivered or Divergence from plan.",
-        "evidence": "git diff 3122d5f..HEAD -- cmd/sworn/telemetry.go is empty"
-      },
-      {
-        "gate": 2,
-        "description": "cmd/sworn/run.go was changed (added EventDB: eventDB to ParallelOptions) but is not in planned touchpoints. Proof.md references it implicitly in the wiring trace but does not explicitly call it out as a divergence from plan.",
-        "evidence": "git diff 3122d5f..HEAD -- cmd/sworn/run.go shows +4/-2 lines"
+        "gate": 0,
+        "description": "Touchpoint-matrix violation: forward-merge of release-wt/2026-06-27-conformance-foundation into track/2026-06-27-conformance-foundation/T7-telemetry-eval conflicted on 8 internal/model/* files: anthropic.go, azure.go, bedrock.go, cli.go, google.go, oai.go, oci.go, ollama.go. T7's S24-dispatch-enrich modifies these files but the touchpoint matrix does not list them in T7's column. T2-model-layer (merged) also modified these files. Track-mode invariant 4 code conflicts on non-documented-shared files.",
+        "evidence": "git merge release-wt/2026-06-27-conformance-foundation --no-edit → CONFLICT on internal/model/{anthropic,azure,bedrock,cli,google,oai,oci,ollama}.go",
+        "proposed_amendment": "Add internal/model/* files to T7's column in the touchpoint matrix (index.md) as DOCUMENTED SHARED with T2, or re-group S24 and T2's model-layer work into the same track or a dependent track arrangement."
       }
     ]
-  }
-}
+  }}

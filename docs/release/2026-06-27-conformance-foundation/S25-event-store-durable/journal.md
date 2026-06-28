@@ -121,3 +121,15 @@ Required to address:
 ### Test results
 
 All unchanged from Session 2 — supervisor 10/10, run 31/31, scheduler 24/24.
+
+## Verifier verdicts received
+
+### 2026-07-25 — Verifier session (fresh context)
+
+**Verdict: BLOCKED**
+
+Reason: Forward-merge of `release-wt/2026-06-27-conformance-foundation` into `track/2026-06-27-conformance-foundation/T7-telemetry-eval` conflicted on 8 `internal/model/*` files: `internal/model/anthropic.go`, `internal/model/azure.go`, `internal/model/bedrock.go`, `internal/model/cli.go`, `internal/model/google.go`, `internal/model/oai.go`, `internal/model/oci.go`, `internal/model/ollama.go`. T7's S24-dispatch-enrich modifies these files but the touchpoint matrix does not list them in T7's column. T2-model-layer (merged) also modified these files. Track-mode invariant 4: code conflicts on non-documented-shared files are a planner error.
+
+Proposed index.md amendment: Add `internal/model/*` files to T7's column in the touchpoint matrix as DOCUMENTED SHARED with T2 (T2 model-layer already merged), or re-group the colliding slices (S24 and T2's model-layer work) into the same track or a dependent track arrangement. The matrix currently lists only `internal/state/state.go (DOCUMENTED SHARED)` for T7; it must also list all `internal/model/*` files that S24 touches.
+
+Next step: `/replan-release 2026-06-27-conformance-foundation`.
