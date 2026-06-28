@@ -6,11 +6,11 @@
   "covers_needs": [
     "N-27"
   ],
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-25T02:00:00Z",
-  "start_commit": "3122d5f50538010d20442829c6dcb75edd352d96",
+  "last_updated_at": "2026-07-25T02:15:00Z",
+  "start_commit": "a403f836a258c7aae3549908a0a72b9471b59c26",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/journal.md",
@@ -20,8 +20,6 @@
   ],
   "actual_files": [
     "internal/supervisor/supervisor.go",
-    "internal/supervisor/supervisor_test.go",
-    "cmd/sworn/telemetry.go",
     "cmd/sworn/run.go",
     "internal/run/parallel.go",
     "internal/scheduler/worker.go"

@@ -4,18 +4,25 @@
 
 Make the supervisor SQLite event store durable across process restarts. Events written during a `sworn run` session persist to a `.sworn/supervisor-<release>.db` file and are queryable after process exit via `sworn telemetry events --release <name>`.
 
-This is a re-implementation after verifier FAIL (2026-06-28): the prior implementation opened `eventDB` but never wired it into `RunParallel`, so events landed in `sworn.db` rather than `supervisor-<release>.db`. This session fixes that wiring.
+This is a re-implementation after verifier FAIL (2026-06-28): the prior implementation opened `eventDB` but never wired it into `RunParallel`, so events landed in `sworn.db` rather than `supervisor-<release>.db`. This session fixes that wiring. This third pass (2026-07-25) addresses the verifier's Gate 2 documentation violations only — the code is unchanged from Session 2's implementation.
 
 ## Files changed
 
 ```
-git diff 3122d5f..HEAD --stat
+git diff a403f83..HEAD --stat
+ docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/proof.md  | ...
+ docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/status.json | ...
+```
+
+The code diff from `start_commit` a403f83 is documentation-only — proof.md divergence section and status.json actual_files.
+
+Underlying implementation diff (from prior session `3122d5f..bc26459`):
+```
  cmd/sworn/run.go                                        |  4 ++--
- .../S25-event-store-durable/status.json                 | 24 ++++++++++--------------
  internal/run/parallel.go                                |  9 +++++++--
  internal/scheduler/worker.go                            | 10 +++++++++-
  internal/supervisor/supervisor.go                       | 17 ++++++++++++++---
- 5 files changed, 42 insertions(+), 32 deletions(-)
+ 4 files changed, 32 insertions(+), 8 deletions(-)
 ```
 
 ## Test results
@@ -88,7 +95,7 @@ All existing tests (including `TestEventsLogged` and `TestPersistence`) pass wit
 - [x] `cmd/sworn/run.go` passes `EventDB: eventDB` to `ParallelOptions`. File: `cmd/sworn/run.go:135`
 - [x] AC1: `.sworn/supervisor-<release>.db` file created by `supervisor.Open()` (unchanged from prior implementation)
 - [x] AC2: `db.Open()` is idempotent — re-opening existing file does not error (unchanged)
-- [x] AC3: `sworn telemetry events --release <name>` now queries the same DB that `sworn run --parallel` writes to (the wiring fix)
+- [x] AC3: `sworn telemetry events --release <name>` now queries the same DB that `sworn run --parallel` writes to (the wiring fix from Session 2)
 - [x] AC4: All existing tests continue to use `t.TempDir()` — `newTestSupervisor` unchanged
 - [x] AC5: `TestPersistence` validates the full persistence cycle (unchanged)
 
@@ -98,5 +105,7 @@ None.
 
 ## Divergence from plan
 
-- `internal/scheduler/worker.go` was edited beyond the planned touchpoints — `EventDB` field added to `WorkerOptions` and `SetEventDB` call inserted in `RunTrack`. This was necessary to thread the event DB handle from `RunParallel` through to the supervisor.
-- `internal/run/parallel.go` was edited beyond the planned touchpoints — `EventDB` field added to `ParallelOptions` and passed to `WorkerOptions`. This was necessary to accept the event DB from the CLI layer.
+- **`cmd/sworn/telemetry.go` (planned but not changed):** This file was already wired to query the on-disk DB via `supervisor.Open()` from prior slice S24 — no change was needed for S25. The planned touchpoint was over-specified. No diff from `start_commit`.
+- **`cmd/sworn/run.go` (changed but not in planned touchpoints):** Added `EventDB: eventDB` to `ParallelOptions` (+4/-2 lines). This was necessary to thread the release-specific event DB handle from the CLI layer into the run machinery.
+- **`internal/run/parallel.go` (changed, not planned):** `EventDB` field added to `ParallelOptions` and passed to `WorkerOptions`. Necessary to accept the event DB from the CLI layer.
+- **`internal/scheduler/worker.go` (changed, not planned):** `EventDB` field added to `WorkerOptions` and `SetEventDB` call inserted in `RunTrack`. Necessary to thread the event DB handle from `RunParallel` through to the supervisor where events are logged.

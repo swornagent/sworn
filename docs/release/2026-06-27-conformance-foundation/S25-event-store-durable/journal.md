@@ -100,3 +100,24 @@ Required to address:
 - Update proof.md "Divergence from plan" to note that `cmd/sworn/telemetry.go` was already wired from prior slice (no change needed)
 - Update proof.md "Divergence from plan" to explicitly list `cmd/sworn/run.go` as a divergence (necessary wiring addition)
 - Update status.json `actual_files` to remove `cmd/sworn/telemetry.go` and `internal/supervisor/supervisor_test.go` (not changed in this slice's diff)
+## Session 3 — 2026-07-25 (documentation fix after verifier FAIL #2)
+
+### Addresses
+
+- Gate 2 violation 1: proof.md did not explain why `cmd/sworn/telemetry.go` was not changed (already wired from S24)
+- Gate 2 violation 2: proof.md did not explicitly list `cmd/sworn/run.go` as a divergence from planned touchpoints
+- status.json `actual_files` included `cmd/sworn/telemetry.go` and `internal/supervisor/supervisor_test.go` which were not changed in this slice's diff
+
+### Changes
+
+1. **proof.md — Divergence from plan:** Added explicit entry for `cmd/sworn/telemetry.go` (no change needed — pre-wired from S24) and `cmd/sworn/run.go` (changed but not in planned touchpoints).
+2. **status.json — actual_files:** Removed `cmd/sworn/telemetry.go` and `internal/supervisor/supervisor_test.go` (not in diff). Now: `["internal/supervisor/supervisor.go", "cmd/sworn/run.go", "internal/run/parallel.go", "internal/scheduler/worker.go"]`.
+
+### Decisions
+
+- No code changes — the implementation from Session 2 is correct. This session is documentation-only per verifier instructions.
+- The over-specification of planned touchpoints (telemetry.go already wired from S24) is a planning issue, not an implementation issue.
+
+### Test results
+
+All unchanged from Session 2 — supervisor 10/10, run 31/31, scheduler 24/24.
