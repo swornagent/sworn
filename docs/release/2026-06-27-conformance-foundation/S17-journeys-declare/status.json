@@ -4,7 +4,7 @@
   "release": "2026-06-27-conformance-foundation",
   "track": "T4-records-as-json",
   "covers_needs": ["N-09"],
-  "state": "design_review",
+  "state": "in_progress",
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-28T00:00:00Z",
