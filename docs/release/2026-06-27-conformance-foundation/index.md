@@ -27,7 +27,7 @@ tracks:
     depends_on: null
     worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T4-records-as-json
     worktree_branch: track/2026-06-27-conformance-foundation/T4-records-as-json
-    state: in_progress
+    state: merged
   - id: T5-role-ontology
     slices: [S18-orchestrator-formalized, S19-captain-split, S20-role-revendor, S21-sworn-run-task]
     depends_on: T6-contract-revendor
@@ -69,7 +69,7 @@ tracks:
 | `T1-orchestration` | S01 → S02 → S03 → S04 → S05 → S06 → S07 → S27 | — | `track/.../T1-orchestration` | planned |
 | `T2-model-layer` | S08 → S09 → S10 | — | `track/.../T2-model-layer` | merged |
 | `T3-agentic-verifier` | S11 → S12 | T2-model-layer | `track/.../T3-agentic-verifier` | planned |
-| `T4-records-as-json` | S13 → S14 → S15 → S16 → S17 | — | `track/.../T4-records-as-json` | in_progress |
+| `T4-records-as-json` | S13 → S14 → S15 → S16 → S17 | — | `track/.../T4-records-as-json` | merged |
 | `T5-role-ontology` | S18 → S19 → S20 → S21 | T6-contract-revendor | `track/.../T5-role-ontology` | merged || `T6-contract-revendor` | S22 → S23 | — | `track/.../T6-contract-revendor` | merged |
 | `T7-telemetry-eval` | S24 → S25 → S26 | T2-model-layer | `track/.../T7-telemetry-eval` | planned |
 
