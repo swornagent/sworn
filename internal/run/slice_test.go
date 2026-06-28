@@ -225,9 +225,9 @@ func TestImplementTimeoutEscalates(t *testing.T) {
 				return &blockingFakeAgent{}, nil
 			case "working":
 				return &markedAgent{called: &slot2Called}, nil
-								case "fake/verifier":
-						return &passingVerifierAgent{}, nil
-				default:
+			case "fake/verifier":
+				return &passingVerifierAgent{}, nil
+			default:
 				return nil, fmt.Errorf("unknown model: %s", modelID)
 			}
 		},
@@ -493,7 +493,9 @@ func TestRetryPassesVerifierRationale(t *testing.T) {
 				return agent0, nil
 			}
 			if modelID == "fake/verifier" {
-				return &passingVerifierAgent{}, nil
+				// Agentic verify dispatches the verifier through NewAgent; route
+				// it to the scripted fail-then-pass verifier so the retry fires.
+				return &verifierAwareAgent{impl: stdoutAgent(""), v: verifier}, nil
 			}
 			return nil, fmt.Errorf("unknown model: %s", modelID)
 		},
@@ -575,7 +577,9 @@ func TestRetryFeedbackResolvesToPass(t *testing.T) {
 				return agent0, nil
 			}
 			if modelID == "fake/verifier" {
-				return &passingVerifierAgent{}, nil
+				// Agentic verify dispatches the verifier through NewAgent; route
+				// it to the scripted fail-then-pass verifier so the retry fires.
+				return &verifierAwareAgent{impl: stdoutAgent(""), v: verifier}, nil
 			}
 			return nil, fmt.Errorf("unknown model: %s", modelID)
 		},
