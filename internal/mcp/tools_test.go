@@ -175,7 +175,8 @@ func opsToolRoundTrip(t *testing.T, repoRoot string) (stdinWriter io.Writer, std
 	t.Helper()
 	w, r, s := testRoundTrip(t)
 	RegisterOpsTools(s, repoRoot, nil)
-	// Perform initialize handshake	sendRequest(t, w, "initialize", jsonID(1), json.RawMessage(`{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0"}}`))
+	// Perform initialize handshake
+	sendRequest(t, w, "initialize", jsonID(1), json.RawMessage(`{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0"}}`))
 	readResponse(t, r)
 	return w, r, func() {}
 }
