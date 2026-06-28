@@ -36,7 +36,8 @@ Release work runs under **track mode** — read `docs/baton/track-mode.md` first
    a. **Ensure the release worktree exists.** If `release_worktree_path` is unset in frontmatter, this is also the first `/implement-slice` in the release: parse the integration branch from `index.md` "Release summary" → `Target version / integration branch`, then `git worktree add $HOME/projects/<REPO_BASENAME>-worktrees/release-<release-name> -b release-wt/<release-name> <integration-branch>`. Record `release_worktree_path` + `release_worktree_branch` in frontmatter.
    b. **Dependency gate.** If the track's `depends_on` names another track, read that track's `state`. If it is not `merged`, BLOCK: "Track `<track-id>` depends on `<other-track>` (state `<state>`). A dependent track may only start once its predecessor has merged to `release-wt`."
    c. **Materialise the track worktree** from the release branch: `git worktree add $HOME/projects/<REPO_BASENAME>-worktrees/release-<release-name>-<track-id> -b track/<release-name>/<track-id> release-wt/<release-name>`.
-   d. Set this track's `worktree_path` and `state: in_progress` in `index.md` frontmatter. **Use a line-oriented edit, NOT a freehand multi-line replacement** — a dropped newline fuses the next `- id:` track entry onto this entry's last line and the board reader silently absorbs that track. Use this `awk` (one line at a time — it cannot fuse entries) with the abort-on-corruption guard:      ```bash
+   d. Set this track's `worktree_path` and `state: in_progress` in `index.md` frontmatter. **Use a line-oriented edit, NOT a freehand multi-line replacement** — a dropped newline fuses the next `- id:` track entry onto this entry's last line and the board reader silently absorbs that track (it vanishes from `coach top`; see a known issue with freehand multi-line replacement). Use this `awk` (one line at a time — it cannot fuse entries) with the abort-on-corruption guard:
+      ```bash
       F=index.md   # the release index for <release-name>
       before=$(grep -cE '^[[:space:]]*-[[:space:]]+id:' "$F")
       awk -v t='<track-id>' -v wt='<worktree_path>' '
@@ -98,11 +99,11 @@ Before touching code, confirm the slice's acceptance criteria satisfy Rule 8 (Re
 3. Write tests at the integration point that owns the user-facing affordance (Rule 1).
 4. Maintain `journal.md` as you go — decisions, trade-offs, anything a verifier might need context on.
 5. When you believe the slice is done:
-   - Run `sworn coverage --slice <slice-id> --release <release-name> --worktree <worktree_path>` — every AC must have a matching test. Fix uncovered ACs before proceeding.
-   - Run `sworn llmcheck --check ac-satisfaction --slice <slice-id> --release <release-name> --worktree <worktree_path>` — confirm every AC is genuinely satisfied by the implementation. Fix gaps before proceeding.
-   - If the project has security rules in `docs/baton/architecture.json`, run `sworn llmcheck --check security-review --slice <slice-id> --release <release-name> --worktree <worktree_path>` — address any findings.
+   - Run `bin/release-coverage.sh --slice <slice-id> --release <release-name> --worktree <worktree_path>` — every AC must have a matching test. Fix uncovered ACs before proceeding.
+   - Run `bin/release-llm-check.sh --check ac-satisfaction --slice <slice-id> --release <release-name> --worktree <worktree_path>` — confirm every AC is genuinely satisfied by the implementation. Fix gaps before proceeding.
+   - If the project has security rules in `docs/baton/architecture.json`, run `bin/release-llm-check.sh --check security-review --slice <slice-id> --release <release-name> --worktree <worktree_path>` — address any findings.
    - Run all relevant test commands and capture output.
-   - Run `sworn verify <slice-id>` and address any failures.
+   - Run `$HOME/.claude/bin/release-verify.sh <slice-id>` and address any failures.
    - Generate `proof.md` from live repo state (see Rule 6 template).
    - Update `status.json` → `implemented`.
    - **Stop.** Do not run a verifier prompt in this session. Do not declare PASS.
@@ -150,7 +151,7 @@ When the slice reaches `implemented`, respond with:
 
 - Slice id and current state.
 - Path to `proof.md`.
-- Output of `sworn verify <slice-id>`.
+- Output of `$HOME/.claude/bin/release-verify.sh <slice-id>`.
 - One sentence: "Ready for fresh-context verification."
 
 That message is the entire wrap-up. Do not summarise the implementation, do not enumerate "what was delivered" in prose. The proof bundle is the wrap-up. Anything you write in prose has no evidentiary weight.
