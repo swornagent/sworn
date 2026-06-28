@@ -6,7 +6,7 @@ release_worktree_branch: release-wt/2026-06-27-conformance-foundation
 tracks:
   - id: T1-orchestration
     slices: [S01-llm-interpreter, S02-orchestrator-decision-log, S03-crash-recovery, S04-scheduler-dependent-track, S05-merge-gate-oracle, S06-invariant2-enforcement, S07-pause-resume-committed, S27-parallel-dispatch-fix]
-    depends_on: null
+    depends_on: [T2-model-layer, T3-agentic-verifier]
     worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T1-orchestration
     worktree_branch: track/2026-06-27-conformance-foundation/T1-orchestration
     state: in_progress
@@ -42,7 +42,7 @@ tracks:
     state: merged
   - id: T7-telemetry-eval
     slices: [S24-dispatch-enrich, S25-event-store-durable, S26-eval-projections]
-    depends_on: T2-model-layer
+    depends_on: [T2-model-layer, T3-agentic-verifier]
     worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T7-telemetry-eval
     worktree_branch: track/2026-06-27-conformance-foundation/T7-telemetry-eval
     state: in_progress
@@ -75,7 +75,7 @@ tracks:
 
 ### Touchpoint matrix (DRAFT — finalised once specs are written)
 
-> Documented shared files: `internal/run/slice.go` (T1/T2/T3), `internal/state/state.go` (T4/T7), and `internal/model/oai.go` + drivers (T2/T3/T7). After the 2026-06-28 replan, **T3 and T7 depend_on T2-model-layer** (they share `oai.go`) and **T5 depends_on T6** — so the genuinely-parallel set is T1/T2/T4/T6; T3/T7 follow T2, T5 follows T6.
+> Documented shared files: `internal/run/slice.go` (T1/T2/T3), `internal/state/state.go` (T4/T7), `internal/model/oai.go` + drivers (T2/T3/T7), and the **agentic verify surface** `internal/verify/verify.go` + `internal/verify/verify_test.go` + `internal/model/openai_responses.go` (T3 agentic + T7 S24 telemetry). After the 2026-06-28 replan, **T1 and T7 depend_on [T2-model-layer, T3-agentic-verifier]** (they extend the merged model + agentic-verify base) and **T5 depends_on T6** — so the genuinely-parallel set is T2/T4/T6; T3 follows T2; T1/T7 follow T2+T3; T5 follows T6.
 
 | File / surface | T1 | T2 | T3 | T4 | T5 | T6 | T7 |
 |---|---|---|---|---|---|---|---|
@@ -93,7 +93,9 @@ tracks:
 | `internal/run/run.go` | | ✓ | | | | | |
 | `internal/model/oai.go` + drivers (DOCUMENTED SHARED) | | ✓ Capabilities/Chat | ✓ verifier model-calls | | | | ✓ S24 dispatch tokens/cost |
 | `internal/run/slice.go` (DOCUMENTED SHARED) | ✓ S01 verdict path | ✓ error-halt §321 | ✓ verifier §412 | | | | |
-| `internal/verify/verify.go` | | | ✓ | | | | |
+| `internal/verify/verify.go` (DOCUMENTED SHARED) | | | ✓ agentic Run/RunAgentic/RunFirstPass | | | | ✓ S24 telemetry (tokens/duration in RunAgentic) |
+| `internal/model/openai_responses.go` (DOCUMENTED SHARED) | | ✓ | ✓ verifier Verify | | | | ✓ S24 tokens |
+| `internal/verify/verify_test.go` (DOCUMENTED SHARED) | | | ✓ | | | | ✓ S24 fake-verifier sig |
 | `internal/prompt/verifier.md` | | | ✓ | | | | |
 | `internal/state/state.go` (DOCUMENTED SHARED) | | | | ✓ Write() §184 | | | ✓ Dispatch §80 |
 | `internal/board/oracle.go` | | | | ✓ | | | |
@@ -183,6 +185,7 @@ tracks:
 - `internal/run/slice.go` is a documented shared file across **T1** (S01 interpreter on the verdict path), T2 (error-halt, lines ~321-327) and T3 (verifier dispatch, lines ~412-429). The original matrix under-declared T1, causing S04's forward-merge BLOCK. The T1 vs T3 sides diverged on the verdict source (T1's stateless `verify.Run` + S01 interpreter vs T3's agentic `lastVerdict = result`); resolved 2026-06-28 in favour of the agentic base (see the S01 Rule-2 deferral below).
 - `internal/state/state.go` is a documented shared file between T4 (Write() validation, line ~184) and T7 (Dispatch struct, line ~80). Regions are well-separated and non-overlapping.
 - **`internal/model/oai.go` (and the model drivers anthropic/azure/bedrock/cli/google/oci/ollama) is DOCUMENTED SHARED across T2-model-layer (Capability/Chat methods), T3-agentic-verifier (verifier model-call paths), and T7-telemetry-eval (S24 dispatch token/cost enrichment).** T3 and T7 therefore **depend_on T2-model-layer** for their model-touching slices: they must carry T2's merged base before those slices, and merge-track resolves the combine. (Added 2026-06-28 replan: the original matrix under-declared this single most-shared surface, causing recurring merge conflicts on `oai.go` — T7/S25 and T3/S12 both BLOCKED on it. Declaring it shared + sequencing T3/T7 after T2 is the durable fix.)
+- **The agentic verify surface — `internal/verify/verify.go`, `internal/verify/verify_test.go`, `internal/model/openai_responses.go` — is DOCUMENTED SHARED across T3-agentic-verifier (the agentic migration: `RunAgentic`/`RunFirstPass`, `prompt.Verifier()`) and T7-telemetry-eval (S24 dispatch-enrich: input/output token + duration capture).** T7 therefore **depend_on T3-agentic-verifier**, and S24's telemetry must be captured in the **agentic `RunAgentic`** path (cost/usage come from `resp.Usage`), NOT via a stateless `Verify`-signature change. (Added 2026-06-28 replan: the original matrix declared `verify.go` T3-only; T7/S24 built telemetry on the pre-agentic stateless `verify.Run`, so T7/S26's forward-merge collided with the merged agentic rewrite — an overlapping (not additive) conflict requiring a one-time design reconciliation, not a clean combine. The durable fix is declaring the surface shared, sequencing T7 after T3, and re-homing S24 telemetry into `RunAgentic`.)
 
 ## Recent activity
 
