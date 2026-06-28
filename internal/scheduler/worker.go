@@ -23,8 +23,8 @@ const (
 	TrackFail    TrackResult = "fail"
 	TrackSkipped TrackResult = "skipped"
 	TrackPaused  TrackResult = "paused"
+	TrackBlocked TrackResult = "blocked"
 )
-
 // ── Router interface (S59) ──────────────────────────────────────────────
 
 // SliceDecision is the router's output for a slice — what action to take next.
