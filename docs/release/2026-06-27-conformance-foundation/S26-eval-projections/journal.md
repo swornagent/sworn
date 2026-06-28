@@ -75,3 +75,23 @@ corrected base into the T7 track branch (conflict-free), re-run
 `/verify-slice S26-eval-projections`.
 
 **Next step:** `/replan-release 2026-06-27-conformance-foundation`
+
+### 2026-06-28T17:30:00Z — PASS (fresh-context verifier, Rule 7)
+
+**Verdict: PASS**
+
+Slice: `S26-eval-projections`
+Verified against: `227729d feat(telemetry): land S26-eval-projections — per-model eval report`
+
+All seven verification gates passed:
+
+1. **Gate 1 — User-reachable outcome exists**: `sworn telemetry report --release <name>` wired via `commands.go:89` → `cmdTelemetry` → `telemetryReport`, builds and exits 0.
+2. **Gate 2 — Planned touchpoints match actual**: `cmd/sworn/telemetry.go` matched plan; `telemetry_test.go` expected (required tests); `reqverify_test.go` mechanical fix documented in divergence.
+3. **Gate 3 — Required tests exist and exercise integration point**: 17 tests pass across `TestTelemetryReportIntegration`, `TestAggregateByModel_*`, `TestCollectDispatches_IntegratesWithTempDir`, `TestFormatVal`, `TestOutputTable`, `TestTelemetryReportNoDispatches`, `TestTelemetryReport_ReworkRateFromAttempt`.
+4. **Gate 3b — AC satisfaction**: All 5 acceptance criteria verified — table output (AC2), JSON output (AC3), zero-duration exclusion (AC4), two-slice rework+token test (AC5), compile+exit (AC1).
+5. **Gate 4 — Reachability artefact**: `sworn telemetry report --release 2026-06-27-conformance-foundation` exits 0 (both table and --json paths).
+6. **Gate 5 — No silent deferrals**: Zero TODOs/FIXMEs/placeholders in production or test code.
+7. **Gate 6 — Design conformance**: No design-fidelity.json (CLI project) — auto-pass.
+8. **Gate 7 — Claimed scope matches implemented**: All 7 delivered items verified with live evidence.
+
+Verifier session: fresh, artefact-only, Rule 7 compliant.

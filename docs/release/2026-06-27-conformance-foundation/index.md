@@ -136,8 +136,7 @@ tracks:
 | `S15-spec-proof-records` | T4 | spec.json (spec-v1) and proof.json (proof-v1) records are emitted and validated; proof sections (delivered, not_delivered, divergence, reachability) are derived from live ACs and state, not constant boilerplate | verified | [spec](./S15-spec-proof-records/spec.md) | [proof](./S15-spec-proof-records/proof.md) || `S16-journeys-attestations-align` | T4 | journeys-v1 and attestations-v1 records align to canonical nested shapes; $schema field populated; validate-on-write enabled; both writers fail closed on invalid data | verified | [spec](./S16-journeys-attestations-align/spec.md) | [proof](./S16-journeys-attestations-align/proof.md) |
 | `S17-journeys-declare` | T4 | Three Rule-10 critical journeys (keyless-full-loop, loop-verifier-negative, ship-a-release) are declared in .sworn/journeys.json and human-ratified; entitlement/credits no-mock boundary declared | verified | [spec](./S17-journeys-declare/spec.md) | [proof](./S17-journeys-declare/proof.json) || `S18-orchestrator-formalized` | T5 | The Orchestrator role is formally specified as a Sworn-side artefact in docs/baton/; the deterministic-vs-agentic design choice is recorded as a Type-1 decision in status.json | verified | [spec](./S18-orchestrator-formalized/spec.md) | [proof](./S18-orchestrator-formalized/proof.md) || `S19-captain-split` | T5 | captain.md is split: design-reviewer.md (Baton Rule-9 surface) and orchestrator-notes.md (Sworn engine mapping); each file references the correct owner | verified | [spec](./S19-captain-split/spec.md) | [proof](./S19-captain-split/proof.md) || `S20-role-revendor` | T5 | planner.md, implementer.md, captain.md are re-vendored from canonical post-records-as-JSON; VERSION.txt is bumped to match; run after T6 merges | verified | [spec](./S20-role-revendor/spec.md) | [proof](./S20-role-revendor/proof.md) || `S21-sworn-run-task` | T5 | `sworn run --task "<description>"` dispatches the planner role to draft a concrete-AC spec, then runs implement+verify over that spec; direction C (planner-assist quickstart) | verified | [spec](./S21-sworn-run-task/spec.md) | [proof](./S21-sworn-run-task/proof.md) || `S22-pin-bump` | T6 | The vendor pin references a canonical HEAD containing the baton/ layout (≥ records-as-JSON); source map coherent with the new pin; re-vendor would succeed | verified | [spec](./S22-pin-bump/spec.md) | [proof](./S22-pin-bump/proof.md) || `S23-version-centralise-doctor` | T6 | VERSION is centralised to a single source; doctor detects SHA-vs-HEAD drift and pre-JSON-prompt pin staleness; both checks fail closed | verified | [spec](./S23-version-centralise-doctor/spec.md) | [proof](./S23-version-centralise-doctor/proof.md) || `S24-dispatch-enrich` | T7 | Dispatch record captures duration_ms, input_tokens, output_tokens, real_cost_usd (from model pricing map), and the model-id confirmed in the response | planned | [spec](./S24-dispatch-enrich/spec.md) | — |
 | `S25-event-store-durable` | T7 | The supervisor SQLite event store survives process restart; events written during a run are queryable after a new `sworn run` starts against the same release | planned | [spec](./S25-event-store-durable/spec.md) | — |
-| `S26-eval-projections` | T7 | `sworn telemetry` reports per-model rework rate, mean tokens-per-turn, mean latency_ms, and estimated cost; output is machine-readable JSON and human-readable table | planned | [spec](./S26-eval-projections/spec.md) | — |
-| `S27-parallel-dispatch-fix` | T1 | `sworn run --parallel` can dispatch an agentic implementer and run a multi-turn tool session (nil agent/verifier factories defaulted; tool-only turns no longer drop the required `content` field). Surfaced by the 2026-06-28 dogfood | implemented | [spec](./S27-parallel-dispatch-fix/spec.md) | [proof](./S27-parallel-dispatch-fix/proof.md) |
+| `S26-eval-projections` | T7 | `sworn telemetry` reports per-model rework rate, mean tokens-per-turn, mean latency_ms, and estimated cost; output is machine-readable JSON and human-readable table | verified | [spec](./S26-eval-projections/spec.md) | [proof](./S26-eval-projections/proof.json) || `S27-parallel-dispatch-fix` | T1 | `sworn run --parallel` can dispatch an agentic implementer and run a multi-turn tool session (nil agent/verifier factories defaulted; tool-only turns no longer drop the required `content` field). Surfaced by the 2026-06-28 dogfood | implemented | [spec](./S27-parallel-dispatch-fix/spec.md) | [proof](./S27-parallel-dispatch-fix/proof.md) |
 
 ### State legend
 
@@ -153,10 +152,10 @@ tracks:
 
 ## Aggregate state
 
-- Planned: 21
+- Planned: 20
 - In progress: 0
 - Implemented (awaiting verification): 1 (S27-parallel-dispatch-fix)
-- Verified (awaiting merge): 12 (S10-agentic-chat-anthropic, S13-schema-embed-validate, S14-board-json, S15-spec-proof-records, S16-journeys-attestations-align, S17-journeys-declare, S18-orchestrator-formalized, S19-captain-split, S20-role-revendor, S21-sworn-run-task, S22-pin-bump, S23-version-centralise-doctor)
+- Verified (awaiting merge): 13 (S10-agentic-chat-anthropic, S13-schema-embed-validate, S14-board-json, S15-spec-proof-records, S16-journeys-attestations-align, S17-journeys-declare, S18-orchestrator-formalized, S19-captain-split, S20-role-revendor, S21-sworn-run-task, S22-pin-bump, S23-version-centralise-doctor, S26-eval-projections)
 - Failed verification: 0
 - Deferred: 0
 - Shipped: 0
@@ -188,6 +187,13 @@ tracks:
 - **The agentic verify surface — `internal/verify/verify.go`, `internal/verify/verify_test.go`, `internal/model/openai_responses.go` — is DOCUMENTED SHARED across T3-agentic-verifier (the agentic migration: `RunAgentic`/`RunFirstPass`, `prompt.Verifier()`) and T7-telemetry-eval (S24 dispatch-enrich: input/output token + duration capture).** T7 therefore **depend_on T3-agentic-verifier**, and S24's telemetry must be captured in the **agentic `RunAgentic`** path (cost/usage come from `resp.Usage`), NOT via a stateless `Verify`-signature change. (Added 2026-06-28 replan: the original matrix declared `verify.go` T3-only; T7/S24 built telemetry on the pre-agentic stateless `verify.Run`, so T7/S26's forward-merge collided with the merged agentic rewrite — an overlapping (not additive) conflict requiring a one-time design reconciliation, not a clean combine. The durable fix is declaring the surface shared, sequencing T7 after T3, and re-homing S24 telemetry into `RunAgentic`.)
 
 ## Recent activity
+
+### 2026-06-28 — slice `S26-eval-projections` verified (PASS)
+
+- **Actor**: verifier (/verify-slice, fresh context)
+- **Verdict**: PASS. All 7 gates passed: Gate 1 (user-reachable via `sworn telemetry report`), Gate 2 (touchpoints match), Gate 3 (17 tests pass), Gate 4 (smoke `sworn telemetry report` exits 0), Gate 5 (no silent deferrals), Gate 6 (non-UI exempt), Gate 7 (all 7 delivered items verified).
+- **Next**: `/merge-track T7-telemetry-eval 2026-06-27-conformance-foundation` (all 3 slices in T7 are now verified)
+
 
 ### 2026-06-28 — slice `S17-journeys-declare` verified (PASS)
 
