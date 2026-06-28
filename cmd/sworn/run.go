@@ -126,6 +126,7 @@ func cmdRun(args []string) int {
 			RunSliceFn:    runSliceFn,
 			ProjectDir:    "sworn",
 			Notifier:      notifier,
+			MergeTrackFn:  run.ProductionMergeTrack,
 		})
 		if err != nil {
 			printModelError(err)

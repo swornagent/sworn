@@ -103,8 +103,24 @@ type WorkerOptions struct {
 	// (after completing any in-flight dispatch). Set via PauseEngine.PauseCh.
 	// When nil, no cooperative pause is checked.
 	PauseCh <-chan struct{}
-}
 
+	// MergeTrackFn is invoked when a track finishes (all slices terminal).
+	// It merges the track branch into the release worktree. When nil,
+	// auto-merge is skipped (backward-compatible with tests and legacy
+	// callers that don't wire the production merge).
+	//
+	// The phase barrier in RunParallel (wg.Wait per phase) guarantees that
+	// dependent tracks don't start until the earlier phase's goroutines
+	// have returned — so by the time finishTrack calls MergeTrackFn, the
+	// release-wt HEAD has already been updated before the next phase's
+	// goroutines begin. No polling loop is needed; the phase barrier is the
+	// ordering mechanism. See Pin 1 in S04 design review.
+	//
+	// Signature: func(releaseWorktreePath, trackID, trackBranch string) error.
+	// The trackID parameter is included so the merge function can update the
+	// board's track state to "merged" atomically if desired.
+	MergeTrackFn func(releasePath, trackID, branch string) error
+}
 // RunTrack executes one track's slices sequentially in its own worktree.
 // It is designed to be called as a goroutine from RunParallel.
 //
@@ -352,14 +368,25 @@ func runTrackRouter(
 				return TrackFail
 			}
 
-		case "coach_decision", "replan-release", "merge-track", "merge-release":
+		case "merge-track":
+			// When MergeTrackFn is wired, auto-merge (same as the terminal
+			// "none" path). When nil, preserve the human-gated pause for
+			// backward compatibility with callers that haven't wired it yet.
+			if opts.MergeTrackFn != nil {
+				return finishTrack(ctx, opts, workRoot, trackID, trackBranch, releaseTrack)
+			}
+			// Human-gated pause — surface and pause this track.
+			fmt.Fprintf(os.Stderr, "[%s] paused: %s — %s\n", trackID, decision.Type, decision.Reason)
+			releaseTrack("paused")
+			return TrackPaused
+
+		case "coach_decision", "replan-release", "merge-release":
 			// Human-gated pause states — surface and pause this track.
 			fmt.Fprintf(os.Stderr, "[%s] paused: %s — %s\n", trackID, decision.Type, decision.Reason)
 			releaseTrack("paused")
 			return TrackPaused
 
-		case "none":
-			// Terminal — no more slices.
+		case "none":			// Terminal — no more slices.
 			return finishTrack(ctx, opts, workRoot, trackID, trackBranch, releaseTrack)
 
 		default:
@@ -444,9 +471,28 @@ func runTrackLegacy(
 	return finishTrack(ctx, opts, workRoot, trackID, trackBranch, releaseTrack)
 }
 
-// finishTrack pushes the track branch and releases the supervisor.
+// finishTrack pushes the track branch, auto-merges into release-wt (when
+// MergeTrackFn is wired), and releases the supervisor.
+//
+// ── S05 gate bypass documentation (Pin 2, S04 design review) ──────────
+//
+// Auto-merge bypasses the sworn merge-track CLI gate (S05). The bypass is
+// intentional and each gate is accounted for:
+//
+// (1) verified-check: satisfied by the router — the router only emits
+//     "merge-track" / "none" after all slices are verified.
+// (2) invariant-4 classifier (conflict detection): bare git merge still
+//     fails on conflict → TrackFail, which surfaces to the human.
+//     Diagnostic quality is lower than S05's classifier (no file-level
+//     conflict report), but the invariant-2 disjoint-touchpoints guarantee
+//     makes conflicts impossible in production.
+// (3) index.md state update to "merged": not performed by auto-merge.
+//     The board oracle reads track state from index.md; a bare merge does
+//     not update it. This is acceptable because the phase barrier is the
+//     ordering mechanism, not state polling. (Per Pin 1 resolution (a):
+//     waitForDependencies is dropped; the phase barrier enforces AC1.)
 func finishTrack(
-	_ context.Context,
+	ctx context.Context,
 	opts WorkerOptions,
 	workRoot, trackID, trackBranch string,
 	releaseTrack func(string),
@@ -457,10 +503,22 @@ func finishTrack(
 	pushCmd.Dir = workRoot
 	_ = pushCmd.Run()
 
+	// Auto-merge track into release-wt when MergeTrackFn is wired.
+	// The phase barrier in RunParallel (wg.Wait per phase) guarantees that
+	// dependent tracks don't start until this merge completes — no polling
+	// loop needed. See Pin 1 in S04 design review.
+	if opts.MergeTrackFn != nil {
+		fmt.Fprintf(os.Stderr, "[%s] auto-merging into release-wt\n", trackID)
+		if err := opts.MergeTrackFn(opts.ReleaseWorktreePath, trackID, trackBranch); err != nil {
+			fmt.Fprintf(os.Stderr, "[%s] auto-merge failed: %v\n", trackID, err)
+			return TrackFail
+		}
+		fmt.Fprintf(os.Stderr, "[%s] auto-merged into release-wt\n", trackID)
+	}
+
 	fmt.Fprintf(os.Stderr, "[%s] done\n", trackID)
 	return TrackPass
 }
-
 // findFirstNonTerminal returns the first slice ID in the track that is not
 // in a terminal state. Returns "" if all// slices are terminal — the track is fully done and resumability skips it.
 //

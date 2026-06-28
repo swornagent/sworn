@@ -50,8 +50,13 @@ type ParallelOptions struct {
 	// scheduler.DefaultPauseEngine (the process-global engine shared by CLI,
 	// TUI, and MCP). Tests may supply their own to avoid global state.
 	PauseEngine *scheduler.PauseEngine
-}
 
+	// MergeTrackFn is invoked when a track finishes to auto-merge the track
+	// branch into the release worktree. When nil, auto-merge is skipped
+	// (tests and legacy paths). The production CLI sets this to
+	// ProductionMergeTrack.
+	MergeTrackFn func(releasePath, trackID, branch string) error
+}
 // productionSliceRouter wraps internal/router.Route to satisfy scheduler.SliceRouter.
 // Constructed by RunParallel when no Router is injected via ParallelOptions.
 type productionSliceRouter struct {
@@ -216,6 +221,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 					Notifier:            opts.Notifier,
 					Router:              opts.Router,
 					PauseCh:             pauseEngine.PauseCh(releaseName),
+					MergeTrackFn:        opts.MergeTrackFn,
 				}
 				result := scheduler.RunTrack(phaseCtx, workerOpts)
 				outcomeMap.Store(t.ID, result)
@@ -308,8 +314,47 @@ func extractReleaseWorktreePath(body string) string {
 	return ""
 }
 
+// ProductionMergeTrack merges a track branch into the release worktree.
+// Called from finishTrack when MergeTrackFn is wired in WorkerOptions.
+//
+// Strategy: try a local merge first (the branch may already be reachable from
+// the release worktree without a fetch — common in test scenarios and when
+// the release worktree shares object storage). If that fails, fetch the branch
+// from origin (just pushed by finishTrack) and retry with origin/<branch>.
+func ProductionMergeTrack(releasePath, trackID, branch string) error {
+	// Guard: if the release path is not a git worktree, skip the merge.
+	// This happens in tests (temp dirs) and is harmless — the merge is a
+	// production-only operation.
+	if !dirExists(filepath.Join(releasePath, ".git")) {
+		return nil
+	}
+
+	// Attempt 1: merge the local branch name directly.
+	mergeCmd := exec.Command("git", "merge", "--no-ff", branch, "--no-edit")
+	mergeCmd.Dir = releasePath
+	_, err := mergeCmd.CombinedOutput()
+	if err == nil {		return nil
+	}
+
+	// Attempt 2: fetch from origin, then merge origin/<branch>.
+	fetchCmd := exec.Command("git", "fetch", "origin", branch)
+	fetchCmd.Dir = releasePath
+	if out, fetchErr := fetchCmd.CombinedOutput(); fetchErr != nil {
+		return fmt.Errorf("ProductionMergeTrack: merge %s: %v (local)\n  fetch %s: %v\n  %s",
+			branch, err, branch, fetchErr, string(out))
+	}
+
+	mergeCmd2 := exec.Command("git", "merge", "--no-ff", "origin/"+branch, "--no-edit")
+	mergeCmd2.Dir = releasePath
+	output2, err2 := mergeCmd2.CombinedOutput()
+	if err2 != nil {
+		return fmt.Errorf("ProductionMergeTrack: merge %s: %v (local)\n  merge origin/%s: %v\n  %s",
+			branch, err, branch, err2, string(output2))
+	}
+	return nil
+}
+
 // dirExists checks if a path exists and is a directory.
-func dirExists(path string) bool {
-	info, err := os.Stat(path)
+func dirExists(path string) bool {	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
 }
