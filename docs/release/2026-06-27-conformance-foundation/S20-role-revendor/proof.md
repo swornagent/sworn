@@ -130,7 +130,23 @@ Manual smoke step:
 
 None. All six acceptance checks satisfied (AC2 with documented 1-line public-safety deviation).
 
-## Divergence from plan
+## First-pass script output
 
+```
+$ release-verify.sh S20-role-revendor 2026-06-27-conformance-foundation
+FIRST-PASS PASS — 23 checks passed, 0 failed
+
+  Slice artefacts:      6/6 PASS
+  Status:               2/2 PASS (state: implemented)
+  Integration drift:    1/1 PASS
+  Diff vs start_commit: 1/1 PASS (7 files changed)
+  Dark-code markers:    1/1 PASS
+  Proof bundle struct:  9/9 PASS
+  Frontmatter YAML:     1/1 PASS
+  Test results scope:   1/1 PASS
+  Journal.md:           1/1 PASS
+```
+
+## Divergence from plan
 - **implementer.md public-safety scrub**: Canonical `implementer.md` contains `[[feedback_materialise_newline_eats_next_track_entry]]` — an internal wiki reference banned by the public-safety test (`TestEmbeddedPromptsPublicSafe`). Replaced with "a known issue with freehand multi-line replacement". This is a 1-line, 1-token deviation required for public-repo compliance. `planner.md` and `captain.md` required no scrubbing.
 - **VERSION.txt vs S23 removal**: S23 removed `internal/prompt/VERSION.txt` as dead (version centralized to `internal/adopt/baton/VERSION`). S20's spec explicitly requires creating it with the S22 pin SHA. Created per spec. The file is not embedded by `prompt.go` (go:embed directive was removed in S23). If this is a spec defect, the verifier should flag it.
