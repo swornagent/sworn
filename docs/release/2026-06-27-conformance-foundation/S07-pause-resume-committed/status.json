@@ -3,27 +3,47 @@
   "slice_id": "S07-pause-resume-committed",
   "release": "2026-06-27-conformance-foundation",
   "track": "T1-orchestration",
-  "covers_needs": [
-    "N-16"
-  ],
-  "state": "design_review",
+  "covers_needs": ["N-16"],
+  "state": "planned",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-28T11:48:54Z",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-06-28T00:00:00Z",
   "start_commit": null,
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S07-pause-resume-committed/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S07-pause-resume-committed/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S07-pause-resume-committed/journal.md",
   "planned_files": [
     "internal/scheduler/worker.go",
+    "internal/router/router.go",
     "cmd/sworn/run.go"
   ],
   "actual_files": [],
-  "test_commands": [
-    "go test ./internal/scheduler/... -v -run TestFindFirstNonTerminalCommitted"
-  ],
+  "test_commands": ["go test ./internal/scheduler/... ./internal/router/... -run 'TestFindFirstNonTerminal|TestIsTerminal' -v"],
   "reachability_artifacts": [],
   "open_deferrals": [],
+  "design_decisions": [
+    {
+      "id": "DD-1",
+      "classification": "Type-1",
+      "description": "Terminal-set semantics for the resume seed = {verified, shipped, deferred} (the router's definition); implemented is NON-terminal. Replaces the original AC2 ('skip past implemented'), which would have abandoned implemented-but-unverified slices because the frontier walk is forward-only.",
+      "rationale": "The router already treats implemented as non-terminal (routeImplemented drives implemented -> /verify-slice). A divergent seed that skips implemented lands on a later slice the forward-only router can never return to, so a crashed-mid-verify slice is abandoned. Seeding at implemented re-enters verification, recovering the work.",
+      "acknowledged": "Coach decision (Brad) 2026-06-28; Captain review pins 1 & 2"
+    },
+    {
+      "id": "DD-2",
+      "classification": "Type-1",
+      "description": "Unify the terminal-set in one exported router.IsTerminal helper consumed by both router (router.go:307, :393) and the scheduler seed. No divergent terminal definition in the scheduler.",
+      "rationale": "The router comment at worker.go:533-535 already declares the router the single source of truth for the state machine. A second terminal definition in the scheduler contradicts that and risks drift (the original design dropped 'deferred' and added 'implemented'). One helper, two consumers.",
+      "acknowledged": "Coach decision (Brad) 2026-06-28; Captain review pin 3"
+    },
+    {
+      "id": "DD-3",
+      "classification": "Type-2",
+      "description": "findFirstNonTerminal signature gains the oracle reader + release/track context (already in scope at runTrackRouter). Reversible, local refactor.",
+      "rationale": "The seed must read committed state; the oracle reader is already constructed and wired into WorkerOptions (parallel.go:183/275/337), so threading it to the seed is minimal.",
+      "acknowledged": "Coach decision (Brad) 2026-06-28"
+    }
+  ],
   "verification": {
     "result": "pending",
     "verifier_session_id": null,
