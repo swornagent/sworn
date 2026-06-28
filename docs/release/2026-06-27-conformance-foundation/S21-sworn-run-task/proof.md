@@ -110,5 +110,66 @@ None. Implementation matches the spec's planned touchpoints (`cmd/sworn/task.go`
 
 ```
 $ $HOME/.claude/bin/release-verify.sh S21-sworn-run-task 2026-06-27-conformance-foundation
-(See below — run after status transition to implemented)
+release-verify.sh
+  slice:       S21-sworn-run-task
+  slice dir:   docs/release/2026-06-27-conformance-foundation/S21-sworn-run-task
+  base branch: main
+
+== Slice artefacts ==
+  PASS  slice folder exists
+  PASS  spec.md present
+  PASS  proof.md present
+  PASS  status.json present
+  PASS  journal.md present
+  PASS  spec.md has Required tests section
+
+== Status ==
+  PASS  status.json is valid JSON
+  state: implemented
+  PASS  state is 'implemented' (eligible for verifier review)
+
+== Integration branch drift ==
+  integration branch: release/v0.1.0
+  PASS  worktree branch is current with release/v0.1.0 (no drift)
+
+== Diff vs start_commit (verifier base) ==
+  diff base: start_commit 602e477ff099cbc234b0b536c88f48b848702a4e
+  PASS  7 file(s) changed vs diff base
+  (first 20)
+    cmd/sworn/run.go
+    cmd/sworn/task.go
+    cmd/sworn/task_test.go
+    docs/release/2026-06-27-conformance-foundation/S21-sworn-run-task/journal.md
+    docs/release/2026-06-27-conformance-foundation/S21-sworn-run-task/proof.md
+    docs/release/2026-06-27-conformance-foundation/S21-sworn-run-task/status.json
+    internal/git/git.go
+
+== Dark-code markers in changed files ==
+  PASS  no dark-code markers in changed source files
+
+== Proof bundle structural checks ==
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+  PASS  proof.md 'Not delivered' deferrals carry non-placeholder tracking refs
+  PASS  proof.md 'Files changed' count (~5) consistent with diff vs start_commit (7)
+
+== Frontmatter YAML safety ==
+  PASS  spec.md frontmatter is strict-YAML safe
+
+== Test results section scope ==
+  PASS  Test results section contains no Playwright runner output (Jest/Vitest scope confirmed)
+
+== First-pass verdict ==
+  checks passed: 23
+  checks failed: 0
+
+FIRST-PASS PASS
+Open a FRESH session and paste role-prompts/verifier.md to perform adversarial verification.
+Do NOT run the verifier in this same session — Rule 7 requires a fresh context window.
 ```
