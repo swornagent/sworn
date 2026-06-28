@@ -18,7 +18,7 @@ Master index: `docs/captures/2026-06-28-synthesis-and-forward-plan.md`. All day'
    COACH_ENV_FILE="$PWD/.coach-env" coach loop          # add --bg to daemonize
    ```
    T2/T6 already merged; T7/S25 already resolved earlier. Build state visible via `coach top` / the oracle in that clone.
-2. **Clean stale branches in the MAIN repo** (`~/projects/sworn`) — leftover from the Go-eval clones that kept `origin` and pushed: `release-wt/2026-06-15-e2e-turnkey-loop`, `release-wt/2026-06-16-fidelity-layer`, `release-wt/2026-06-16-verify-stateless-contract`, `release-wt/2026-06-19-safe-parallelism`, and `track/2026-06-27-conformance-foundation/*`. These make `sworn board` read stale state in the main repo. Delete them (they're not the canonical plan; the plan lives on `release/v0.1.0`).
+2. **Stale branch cleanup — PARTIALLY DONE.** Deleted `track/2026-06-27-conformance-foundation/*` (5 branches; the Go-eval pollution that made the main-repo oracle read stale state — now it reads the fixed `release/v0.1.0` plan). **~35 older `release-wt/*` + `track/*`** from historical eval releases (06-15/06-16/06-19 etc.) REMAIN — not mass-deleted under low context. Review `git branch --list 'release-wt/*' 'track/*'` and delete the eval leftovers (keep nothing that the real release history needs; the canonical plan lives on `release/v0.1.0`, not these branches). Lesson: future eval clones must remove `origin` (like the coach clones did) so they can't push branches back.
 
 ## Key gotchas (don't re-trip)
 - **YAML inline comments break the frontmatter parser** — `depends_on: X  # note` parses the comment into the value. Keep frontmatter values bare.
