@@ -8,8 +8,7 @@
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-25T03:00:00Z",
-  "start_commit": null,
-  "spec_path": "docs/release/2026-06-27-conformance-foundation/S16-journeys-attestations-align/spec.md",
+  "start_commit": "f9e064972f86b3da96ac85e5aff21223ab082991",  "spec_path": "docs/release/2026-06-27-conformance-foundation/S16-journeys-attestations-align/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S16-journeys-attestations-align/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S16-journeys-attestations-align/journal.md",
   "planned_files": [

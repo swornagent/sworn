@@ -32,12 +32,27 @@ var SpecV1 []byte
 //go:embed proof-v1.json
 var ProofV1 []byte
 
+// JourneysV1 is the canonical journeys-v1.json schema, embedded at build time.
+// It validates every journeys.json written by the journey package.
+//
+//go:embed journeys-v1.json
+var JourneysV1 []byte
+
+// AttestationsV1 is the canonical attestations-v1.json schema, embedded at
+// build time. It validates every attestations.json written by the journey
+// package.
+//
+//go:embed attestations-v1.json
+var AttestationsV1 []byte
+
 // SchemaMap maps a short schema name (e.g. "slice-status-v1") to its
 // embedded bytes. Callers use this to look up the schema by the name
 // they store in the $schema field.
 var SchemaMap = map[string][]byte{
-	"slice-status-v1": SliceStatusV1,
-	"board-v1":        BoardV1,
-	"spec-v1":         SpecV1,
-	"proof-v1":        ProofV1,
+	"slice-status-v1":  SliceStatusV1,
+	"board-v1":         BoardV1,
+	"spec-v1":          SpecV1,
+	"proof-v1":         ProofV1,
+	"journeys-v1":      JourneysV1,
+	"attestations-v1":  AttestationsV1,
 }

@@ -25,6 +25,11 @@ const SpecSchemaURI = "https://baton.sawy3r.net/schemas/spec-v1.json"
 // ProofSchemaURI is the canonical $schema URI for proof-v1.json.
 const ProofSchemaURI = "https://baton.sawy3r.net/schemas/proof-v1.json"
 
+// JourneysSchemaURI is the canonical $schema URI for journeys-v1.json.
+const JourneysSchemaURI = "https://baton.sawy3r.net/schemas/journeys-v1.json"
+
+// AttestationsSchemaURI is the canonical $schema URI for attestations-v1.json.
+const AttestationsSchemaURI = "https://baton.sawy3r.net/schemas/attestations-v1.json"
 // requiredFields lists the top-level string fields that must be present
 // and non-empty in every status.json payload.
 var requiredFields = []string{"slice_id", "release", "track", "state"}
@@ -74,8 +79,11 @@ func Validate(schemaName string, data []byte) error {
 		return validateSpec(data)
 	case "proof-v1":
 		return validateProof(data)
-	default:
-		return fmt.Errorf("validator: no validation rules for schema %q", schemaName)
+	case "journeys-v1":
+		return validateJourneys(data)
+	case "attestations-v1":
+		return validateAttestations(data)
+	default:		return fmt.Errorf("validator: no validation rules for schema %q", schemaName)
 	}
 }
 
@@ -334,6 +342,167 @@ func checkNonEmptyString(m map[string]interface{}, f string) error {
 	s, ok := v.(string)
 	if !ok || strings.TrimSpace(s) == "" {
 		return fmt.Errorf("validator: field %q must be a non-empty string", f)
+	}
+	return nil
+}
+// validateJourneys validates data against the journeys-v1 schema.
+func validateJourneys(data []byte) error {
+	var m map[string]interface{}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return fmt.Errorf("validator: invalid JSON: %w", err)
+	}
+
+	if len(m) == 0 {
+		return fmt.Errorf("validator: empty object — required fields missing: version, created_at, updated_at, ratification, journeys")
+	}
+
+	// $schema must be the canonical URI.
+	if err := checkStringField(m, "$schema", JourneysSchemaURI); err != nil {
+		return err
+	}
+
+	// version must be present.
+	if _, ok := m["version"]; !ok {
+		return fmt.Errorf("validator: missing required field \"version\"")
+	}
+
+	// created_at and updated_at must be non-empty strings.
+	if err := checkNonEmptyString(m, "created_at"); err != nil {
+		return err
+	}
+	if err := checkNonEmptyString(m, "updated_at"); err != nil {
+		return err
+	}
+
+	// ratification must be an object with is_ratified.
+	rat, ok := m["ratification"]
+	if !ok {
+		return fmt.Errorf("validator: missing required field \"ratification\"")
+	}
+	ratMap, ok := rat.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("validator: ratification must be an object, got %T", rat)
+	}
+	if _, ok := ratMap["is_ratified"]; !ok {
+		return fmt.Errorf("validator: ratification.is_ratified is required")
+	}
+
+	// by and at must be present (may be empty when unratified).
+	// Only require non-empty when ratified.
+	if isRat, _ := ratMap["is_ratified"].(bool); isRat {
+		if err := checkNonEmptyString(ratMap, "by"); err != nil {
+			return fmt.Errorf("validator: ratification.%w", err)
+		}
+		if err := checkNonEmptyString(ratMap, "at"); err != nil {
+			return fmt.Errorf("validator: ratification.%w", err)
+		}
+	} else {
+		// Ensure by and at keys exist even if empty.
+		if _, ok := ratMap["by"]; !ok {
+			return fmt.Errorf("validator: ratification.by is required")
+		}
+		if _, ok := ratMap["at"]; !ok {
+			return fmt.Errorf("validator: ratification.at is required")
+		}
+	}
+
+	// journeys must be present (may be empty array).
+	if _, ok := m["journeys"]; !ok {
+		return fmt.Errorf("validator: missing required field \"journeys\"")
+	}
+
+	return nil
+}
+
+// validateAttestations validates data against the attestations-v1 schema.
+func validateAttestations(data []byte) error {
+	var m map[string]interface{}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return fmt.Errorf("validator: invalid JSON: %w", err)
+	}
+
+	if len(m) == 0 {
+		return fmt.Errorf("validator: empty object — required fields missing: version, ratification, boundary, attestations")
+	}
+
+	// $schema must be the canonical URI.
+	if err := checkStringField(m, "$schema", AttestationsSchemaURI); err != nil {
+		return err
+	}
+
+	// version must be present.
+	if _, ok := m["version"]; !ok {
+		return fmt.Errorf("validator: missing required field \"version\"")
+	}
+
+	// ratification must be an object with is_ratified.
+	rat, ok := m["ratification"]
+	if !ok {
+		return fmt.Errorf("validator: missing required field \"ratification\"")
+	}
+	ratMap, ok := rat.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("validator: ratification must be an object, got %T", rat)
+	}
+	if _, ok := ratMap["is_ratified"]; !ok {
+		return fmt.Errorf("validator: ratification.is_ratified is required")
+	}
+
+	// by and at must be present (may be empty when unratified).
+	if isRat, _ := ratMap["is_ratified"].(bool); isRat {
+		if err := checkNonEmptyString(ratMap, "by"); err != nil {
+			return fmt.Errorf("validator: ratification.%w", err)
+		}
+		if err := checkNonEmptyString(ratMap, "at"); err != nil {
+			return fmt.Errorf("validator: ratification.%w", err)
+		}
+	} else {
+		if _, ok := ratMap["by"]; !ok {
+			return fmt.Errorf("validator: ratification.by is required")
+		}
+		if _, ok := ratMap["at"]; !ok {
+			return fmt.Errorf("validator: ratification.at is required")
+		}
+	}
+	// boundary must be an object with name, mock_banned, entitlement_boundary.
+	bound, ok := m["boundary"]
+	if !ok {
+		return fmt.Errorf("validator: missing required field \"boundary\"")
+	}
+	boundMap, ok := bound.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("validator: boundary must be an object, got %T", bound)
+	}
+	if err := checkNonEmptyString(boundMap, "name"); err != nil {
+		return fmt.Errorf("validator: boundary.%w", err)
+	}
+	if _, ok := boundMap["mock_banned"]; !ok {
+		return fmt.Errorf("validator: boundary.mock_banned is required")
+	}
+	if err := checkNonEmptyString(boundMap, "entitlement_boundary"); err != nil {
+		return fmt.Errorf("validator: boundary.%w", err)
+	}
+
+	// attestations must be present (may be empty array).
+	if _, ok := m["attestations"]; !ok {
+		return fmt.Errorf("validator: missing required field \"attestations\"")
+	}
+
+	return nil
+}
+
+// checkStringField verifies that m[f] is a string equal to expected.
+func checkStringField(m map[string]interface{}, f string, expected string) error {
+	v, ok := m[f]
+	if !ok {
+		return fmt.Errorf("validator: missing required field %q", f)
+	}
+	s, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("validator: field %q must be a string, got %T", f, v)
+	}
+	if s != expected {
+		return fmt.Errorf("validator: field %q must be %q, got %q", f, expected, s)
 	}
 	return nil
 }
