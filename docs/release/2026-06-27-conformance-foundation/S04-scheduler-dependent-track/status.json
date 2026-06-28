@@ -6,11 +6,10 @@
   "covers_needs": [
     "N-13"
   ],
-  "state": "planned",
+  "state": "design_review",
   "owner": "implementer",
-  "last_updated_by": "coach-reconcile",
-  "last_updated_at": "2026-06-28T00:00:00Z",
-  "start_commit": "8d32fe06527a39e00cc2a29e5b3f142fec97fa9f",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-28T14:00:00Z",  "start_commit": "8d32fe06527a39e00cc2a29e5b3f142fec97fa9f",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S04-scheduler-dependent-track/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S04-scheduler-dependent-track/proof.json",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S04-scheduler-dependent-track/journal.md",
