@@ -6,10 +6,10 @@
   "covers_needs": [
     "N-13"
   ],
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "implementer",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-28T16:50:00Z",
+  "last_updated_at": "2026-07-28T17:00:00Z",
   "start_commit": "172c6c94fb90ae897283de4731445e27ea3c8219",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S04-scheduler-dependent-track/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S04-scheduler-dependent-track/proof.json",
@@ -19,16 +19,18 @@
     "internal/run/parallel.go"
   ],
   "actual_files": [
-    "cmd/sworn/run.go",
-    "internal/run/parallel.go",
     "internal/scheduler/worker.go",
-    "internal/scheduler/worker_test.go"
+    "internal/run/parallel.go",
+    "internal/scheduler/worker_test.go",
+    "internal/scheduler/scheduler.go"
   ],
   "test_commands": [
-    "go test ./internal/scheduler/... -v -run TestDependentTrack"
+    "go test ./internal/scheduler/... -v -run TestDependentTrack",
+    "go test ./internal/scheduler/... -v -run TestBuildPlan"
   ],
   "reachability_artifacts": [
-    "go test ./internal/scheduler/... -v -run TestDependentTrack exits 0"
+    "go test ./internal/scheduler/... -v -run TestDependentTrack exits 0",
+    "go test ./internal/scheduler/... -v -run TestBuildPlan exits 0"
   ],
   "open_deferrals": [],
   "verification": {

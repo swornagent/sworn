@@ -1,9 +1,49 @@
 # S04-scheduler-dependent-track — Implementation Journal
 
-## 2026-07-28 — implementation session
+## 2026-07-28 — re-implementation session (post-replan, design-review PROCEED)
 
 ### State transition: design_review → in_progress → implemented
 
+This session resumes S04 after a replan reconciled the spec to the ratified
+phase-barrier design. The design review (Captain) returned DECISION: PROCEED
+with 2 mechanical pins already applied in the prior implementation session.
+
+The prior implementation code was already on the track branch (commit 3aeaff7).
+This session:
+
+1. **Verified the existing implementation** matches the reconciled spec:
+   - `BuildPlan` (scheduler.go:35-118): topological phase ordering via Kahn's
+     algorithm ✓
+   - `finishTrack` (worker.go:494-521): calls MergeTrackFn before returning ✓
+   - `RunParallel` (parallel.go:196-237): per-phase wg.Wait barrier ✓
+   - `failCancel` (parallel.go:229-230): cancels dependent phases ✓
+   - `ProductionMergeTrack` (parallel.go:324-355): local-merge-first with
+     fetch fallback + .git guard ✓
+
+2. **Added the AC5 integration test** — `TestDependentTrack_WorktreeBranchesFromMergedTip`
+   — which was required by the spec but absent. This test sets up a real bare git
+   repo, simulates a dependency track merging into release-wt, creates a dependent
+   worktree, and asserts the dependency's file is present.
+
+3. **All 13 tests pass** (8 BuildPlan + 5 DependentTrack).
+
+### Decisions
+
+- The AC5 integration test was missing from the prior implementation. Added it
+  now to satisfy the spec's Required Tests section.
+- Chose to use real git repos (bare repo + clone + worktree add) for the AC5
+  test rather than mocking, since the behaviour under test IS the git worktree
+  branch-point semantics.
+
+### Trade-offs
+
+- The AC5 test requires `git` on PATH and skips gracefully if unavailable.
+  This is acceptable for an integration test — the unit tests (MergeTrackFn
+  injection) cover the logic paths without git.
+
+## 2026-07-28 — implementation session (original)
+
+### State transition: design_review → in_progress → implemented
 Design review acknowledged with DECISION: PROCEED. Two mechanical pins applied inline:
 
 **Pin 1**: Dropped `waitForDependencies` entirely. The phase barrier in `RunParallel` (`wg.Wait()` per phase) already enforces AC1 (dependent tracks don't start until dependency-phase goroutines return). `finishTrack` calls `MergeTrackFn` before returning, so the release-wt tip is updated before the phase barrier releases the next phase. AC4 handled by `ctx.Done()` + `failCancel` on `TrackFail`.
