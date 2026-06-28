@@ -9,15 +9,16 @@
   "state": "in_progress",
   "owner": "implementer",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-28T13:00:00Z",  "start_commit": null,
-  "spec_path": "docs/release/2026-06-27-conformance-foundation/S26-eval-projections/spec.md",
+  "last_updated_at": "2026-07-28T13:00:00Z",  "start_commit": "91eca8ca85258152f4eec40a9ce4e269ee3a3cf3",  "spec_path": "docs/release/2026-06-27-conformance-foundation/S26-eval-projections/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S26-eval-projections/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S26-eval-projections/journal.md",
   "planned_files": [
     "cmd/sworn/telemetry.go"
   ],
-  "actual_files": [],
-  "test_commands": [
+  "actual_files": [
+    "cmd/sworn/telemetry.go",
+    "cmd/sworn/telemetry_test.go"
+  ],  "test_commands": [
     "go test ./cmd/sworn/... -v -run TestTelemetry"
   ],
   "reachability_artifacts": [],

@@ -14,16 +14,14 @@ type fakeVerifier struct {
 }
 
 func (f fakeVerifier) Verify(context.Context, string, string) (string, float64, int64, int64, error) {
-	return f.reply, f.cost, nil
+	return f.reply, f.cost, 0, 0, nil
 }
-
 // errVerifier returns an error on dispatch, simulating a model failure.
 type errVerifier struct{}
 
 func (errVerifier) Verify(context.Context, string, string) (string, float64, int64, int64, error) {
-	return "", 0, context.Canceled
+	return "", 0, 0, 0, context.Canceled
 }
-
 // writeReqverifyFixture creates a slice spec.md under a temp release directory.
 func writeReqverifyFixture(t *testing.T, releaseDir, sliceID, spec string) {
 	t.Helper()

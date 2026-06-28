@@ -44,8 +44,7 @@ Use `fmt.Printf` with fixed-width columns (same style as the existing `telemetry
 
 2. **`ModelIDConfirmed` may be empty for post-S24 dispatches.** The S24 spec says `model_id_confirmed` is `omitempty` and populated "from the model's usage response." If a model response doesn't return a model ID in a field the code captures, `model_id_confirmed` will be empty. The fallback to `model` handles this gracefully.
 
-3. **Glob pattern assumes `docs/release/` prefix.** This repo uses `docs/release/` for release artefacts. Per `board.go §49-56`, some repos use `apps/docs/content/docs/release/` (Fumadocs). The `sworn board` oracle handles this with a fallback check. For the telemetry report, I'll follow the simpler `docs/release/` pattern used by `ledger.go` — if the Fumadocs prefix is needed, it can be added as a follow-up. **Pin:** this is a known gap; the spec only names `docs/release/`.
-
+3. **Glob pattern assumes `docs/release/` prefix.** This repo uses `docs/release/` for release artefacts. Some repos use `apps/docs/content/docs/release/` (Fumadocs — see internal/board/oracle.go:132,381,516 for the fallback). The `sworn board` oracle handles this with a fallback check. For the telemetry report, I'll follow the simpler `docs/release/` pattern used by `ledger.go` — both this report and ledger.go only handle `docs/release/`, so the Fumadocs prefix is out of scope for this slice. **Pin:** this is a known gap; the spec only names `docs/release/`.
 ## AC traceability
 
 | AC | Planned change |
