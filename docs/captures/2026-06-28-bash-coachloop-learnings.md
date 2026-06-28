@@ -382,6 +382,23 @@ authority for mechanical answers (Captain relays the oracle's verdict on a merge
 (c) Log the Captain's answer / escalation reason to the orchestrator decision-log (S02) for the audit
 trail (who confirmed the merge, why) — load-bearing for the regulated-delivery story.
 
+**Page TYPES (Brad, 2026-06-28) — informational (non-blocking) vs blocking.** Not every page should halt
+the loop. Classify by whether the issue is **human-authored**:
+- **Informational page (notify + CONTINUE):** for system-resolvable / not-human-authored issues (e.g. a
+  touchpoint-matrix conflict the loop's own work created, with a deterministic amendment). Notify the
+  human for visibility and give them an **intervention window**, but the loop auto-remediates and keeps
+  going — the human can step in if they choose, otherwise it proceeds. The human isn't on the critical
+  path for a problem they didn't create.
+- **Blocking page (halt + WAIT):** for genuine human-judgment issues (Type-1 design, ambiguous
+  requirements, policy) — the loop pauses with the worker session held open (above) until the human answers.
+The Captain (the adjudicator tier) decides which: if it can derive a safe deterministic remediation,
+informational + auto-proceed; if the call needs human judgement, blocking. Live example: the deepseek
+build's S25 touchpoint-conflict BLOCK (T7 modified `internal/model/*` outside its declared matrix,
+colliding with merged T2) is NOT human-authored — it should be an informational page + auto-replan
+(document the shared files / resolve the conflict), not a hard halt for the Coach. (Also exposed: the page
+LINE carried only `BLOCKED … run /replan-release`; the rich reason — violation + evidence + proposed
+amendment — lives in `status.json` `verification.violations` and must be surfaced on the page.)
+
 ---
 
 ## Part B: Running the Eval via Coach-Loop — Feasibility & Commands
