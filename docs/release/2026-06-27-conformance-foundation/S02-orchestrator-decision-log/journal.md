@@ -61,3 +61,28 @@ Required to address:
 Additional observations (not violations):
 - AC4 spec says "log a warning" on DB unavailability; implementation discards errors silently via `_ =`. Acceptable given "must not abort the run" is satisfied, but consider adding a stderr warning.
 - All other gates (1, 2, 4, 5, 6, 7) PASS. The implementation is otherwise well-structured, all tests pass, go vet clean.
+
+## 2026-07-25: Implementation session 2 (re-entry after failed_verification)
+
+### State transitions
+
+`failed_verification → in_progress → implemented`
+
+### Decisions
+
+1. **Integration test added to `internal/scheduler/worker_test.go`.**
+   The verifier's sole violation was a missing integration test asserting RecordDecision is called during a worker run. Added `TestRecordDecisionCalledPerRoutingEvent` which:
+   - Creates an in-memory SQLite DB with `tracks`, `events`, and `decisions` tables
+   - Configures a fakeRouter with 3 decisions (implement S01, implement S02, none)
+   - Runs RunTrack to completion
+   - Queries the decisions table and asserts 3 rows with correct `role = "router"`, `release`, and non-empty `action`
+   
+   No other code changes were needed — the original implementation correctly calls RecordDecision in `runTrackRouter()`.
+
+2. **Forward-merge artifacts in diff scope.**
+   Between the original implementation (2026-06-28) and this re-entry (2026-07-25), T6-contract-revendor (S22-pin-bump, S23-version-centralise-doctor) merged to `release-wt` and was forward-ported to this track branch. The diff `f1744f6..HEAD` now shows 54 files (up from 11). All 42 extra files are sibling-track artifacts with no overlap with S02's planned touchpoints. Noted in proof.md Divergence from plan.
+
+### Trade-offs
+
+- No trade-offs in this session — the fix is a single test addition.
+- The verifier's secondary observation about AC4 ("log a warning" vs silent discard) is a design-fit concern, not a correctness violation. The implementation meets AC4's core requirement (must not abort the run). Adding a stderr warning is deferred as a future enhancement.

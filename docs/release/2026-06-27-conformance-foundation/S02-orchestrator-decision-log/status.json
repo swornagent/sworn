@@ -6,11 +6,12 @@
   "covers_needs": [
     "N-11"
   ],
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-25T01:00:00Z",
-  "start_commit": "f1744f6d7b29265b786da7c3597cc224ab12291a",  "spec_path": "docs/release/2026-06-27-conformance-foundation/S02-orchestrator-decision-log/spec.md",
+  "last_updated_at": "2026-07-25T01:30:00Z",
+  "start_commit": "f1744f6d7b29265b786da7c3597cc224ab12291a",
+  "spec_path": "docs/release/2026-06-27-conformance-foundation/S02-orchestrator-decision-log/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S02-orchestrator-decision-log/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S02-orchestrator-decision-log/journal.md",
   "planned_files": [
@@ -23,6 +24,7 @@
     "internal/supervisor/decisions.go",
     "internal/supervisor/decisions_test.go",
     "internal/scheduler/worker.go",
+    "internal/scheduler/worker_test.go",
     "internal/run/slice.go",
     "cmd/sworn/telemetry.go",
     "cmd/sworn/run.go",
@@ -30,19 +32,18 @@
     "internal/db/db.go"
   ],
   "test_commands": [
-    "go test ./internal/supervisor/... -v -run 'TestRecordDecision|TestRecordTriage|TestQueryDecisions'"
+    "go test ./internal/supervisor/... -v -run 'TestRecordDecision|TestRecordTriage|TestQueryDecisions'",
+    "go test ./internal/scheduler/... -v -run 'TestRecordDecisionCalledPerRoutingEvent'"
   ],
   "reachability_artifacts": [
     "manual-smoke-step: sworn telemetry decisions --release <name> after a sworn run session"
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "fail",
+    "result": "pending",
     "verifier_session_id": null,
-    "verifier_verdict_at": "2026-07-25T00:00:00Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      "Gate 3 — Missing required integration test: spec requires \"Integration: internal/scheduler/worker_test.go (or new worker_decisions_test.go) — run a mock slice, assert RecordDecision called once per routing event.\" No such test exists."
-    ]
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": false,
+    "violations": []
   }
 }

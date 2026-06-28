@@ -1,6 +1,6 @@
 ---
 title: 'Proof Bundle: S02-orchestrator-decision-log'
-description: Rule 6 proof bundle for S02 — decision log persistence and query surface.
+description: Rule 6 proof bundle for S02 — decision log persistence and query surface. Re-entry session addressing verifier violation (missing integration test).
 ---
 
 # Proof Bundle: `S02-orchestrator-decision-log`
@@ -13,22 +13,67 @@ After a `sworn run` session the Coach can run `sworn telemetry decisions --relea
 
 ```
 $ git diff --name-only f1744f6d7b29265b786da7c3597cc224ab12291a
+cmd/sworn/baton_test.go
+cmd/sworn/doctor.go
+cmd/sworn/doctor_test.go
 cmd/sworn/run.go
 cmd/sworn/telemetry.go
 docs/release/2026-06-27-conformance-foundation/S02-orchestrator-decision-log/journal.md
 docs/release/2026-06-27-conformance-foundation/S02-orchestrator-decision-log/proof.md
 docs/release/2026-06-27-conformance-foundation/S02-orchestrator-decision-log/status.json
+docs/release/2026-06-27-conformance-foundation/S22-pin-bump/journal.md
+docs/release/2026-06-27-conformance-foundation/S22-pin-bump/proof.md
+docs/release/2026-06-27-conformance-foundation/S22-pin-bump/status.json
+docs/release/2026-06-27-conformance-foundation/S23-version-centralise-doctor/journal.md
+docs/release/2026-06-27-conformance-foundation/S23-version-centralise-doctor/proof.md
+docs/release/2026-06-27-conformance-foundation/S23-version-centralise-doctor/status.json
+docs/release/2026-06-27-conformance-foundation/index.md
+internal/adopt/baton/VERSION
+internal/baton/diff.go
+internal/baton/fetch.go
+internal/baton/fetch_test.go
+internal/baton/source.go
+internal/baton/testdata/fixture/baton/README.md
+internal/baton/testdata/fixture/baton/adversarial-verification.md
+internal/baton/testdata/fixture/baton/architecture.json
+internal/baton/testdata/fixture/baton/brainstorm-patterns.md
+internal/baton/testdata/fixture/baton/capture-discipline.md
+internal/baton/testdata/fixture/baton/commit-messages-as-capture.md
+internal/baton/testdata/fixture/baton/customer-journey-validation.md
+internal/baton/testdata/fixture/baton/design-fidelity.md
+internal/baton/testdata/fixture/baton/no-silent-deferrals.md
+internal/baton/testdata/fixture/baton/process-global-mutation.md
+internal/baton/testdata/fixture/baton/proof-bundle.md
+internal/baton/testdata/fixture/baton/reachability-gate.md
+internal/baton/testdata/fixture/baton/requirements-fidelity.md
+internal/baton/testdata/fixture/baton/role-prompts/captain.md
+internal/baton/testdata/fixture/baton/role-prompts/implementer.md
+internal/baton/testdata/fixture/baton/role-prompts/planner.md
+internal/baton/testdata/fixture/baton/role-prompts/verifier.md
+internal/baton/testdata/fixture/baton/session-discipline.md
+internal/baton/testdata/fixture/baton/track-mode.md
+internal/baton/vendor.go
+internal/baton/vendor_test.go
+internal/baton/version.go
+internal/baton/version_test.go
 internal/db/db.go
+internal/prompt/VERSION.txt
+internal/prompt/baton/VERSION.txt
+internal/prompt/prompt.go
+internal/prompt/prompt_test.go
 internal/run/run.go
 internal/run/slice.go
 internal/scheduler/worker.go
+internal/scheduler/worker_test.go
 internal/supervisor/decisions.go
 internal/supervisor/decisions_test.go
 ```
 
+54 files total. S02-scoped files (12): `cmd/sworn/run.go`, `cmd/sworn/telemetry.go`, `internal/db/db.go`, `internal/run/run.go`, `internal/run/slice.go`, `internal/scheduler/worker.go`, `internal/scheduler/worker_test.go`, `internal/supervisor/decisions.go`, `internal/supervisor/decisions_test.go`, plus 3 docs artefacts. Remaining 42 files are forward-merge artifacts from T6-contract-revendor (S22-pin-bump, S23-version-centralise-doctor → merged to release-wt → forward-ported to this track branch). See Divergence from plan.
+
 ## Test results
 
-### Go (unit)
+### Unit: supervisor decisions tests
 
 ```
 $ go test ./internal/supervisor/... -v -run 'TestRecordDecision|TestRecordTriage|TestQueryDecisions'
@@ -43,16 +88,34 @@ $ go test ./internal/supervisor/... -v -run 'TestRecordDecision|TestRecordTriage
 === RUN   TestRecordDecision_DoesNotAbortOnError
 --- PASS: TestRecordDecision_DoesNotAbortOnError (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/internal/supervisor	0.008s
+ok  	github.com/swornagent/sworn/internal/supervisor	0.009s
 ```
 
-### Go (full supervisor suite)
+### Integration: worker decision-log test (NEW — addresses verifier violation)
 
 ```
-$ go test ./internal/supervisor/... -v
-(all 14 tests pass)
+$ go test ./internal/scheduler/... -v -run 'TestRecordDecisionCalledPerRoutingEvent'
+=== RUN   TestRecordDecisionCalledPerRoutingEvent
+[T1] starting
+[T1] router: S01-first → implement (planned)
+[T1] running slice S01-first
+[T1] router: S01-first → implement (next up)
+[T1] advanced to next slice: S02-second
+[T1] running slice S02-second
+[T1] router: S02-second → none (complete)
+[T1] done
+--- PASS: TestRecordDecisionCalledPerRoutingEvent (0.00s)
 PASS
-ok  	github.com/swornagent/sworn/internal/supervisor	0.386s
+ok  	github.com/swornagent/sworn/internal/scheduler	0.012s
+```
+
+### Full scheduler suite
+
+```
+$ go test ./internal/scheduler/... -v -count=1
+(all 24 tests pass)
+PASS
+ok  	github.com/swornagent/sworn/internal/scheduler	0.053s
 ```
 
 ### Go vet
@@ -76,19 +139,23 @@ $ go vet ./...
 - AC4: IF the supervisor DB is unavailable at RecordDecision time, THE SYSTEM SHALL log a warning and continue (decision-log failure must not abort the run) — evidence: worker.go uses `_ = supervisor.RecordDecision(...)` (error discarded); slice.go uses `if opts.DB != nil { _ = ... }` guard; `decisions_test.go` TestRecordDecision_DoesNotAbortOnError verifies closed-DB error is returned (safe to discard)
 - AC5: `decisions_test.go` verifies: RecordDecision writes a row with correct fields; RecordTriage writes a row with correct fields; query returns rows in insertion order — evidence: `internal/supervisor/decisions_test.go` TestRecordDecision_WritesRow, TestRecordTriage_WritesRow, TestQueryDecisions_ReturnsInInsertOrder
 
+**Integration test (verifier violation resolved):** `internal/scheduler/worker_test.go` TestRecordDecisionCalledPerRoutingEvent — runs a mock 2-slice track through the router-driven worker with an in-memory SQLite DB that includes the decisions table; after the run, queries the decisions table and asserts 3 rows (one per Route call), each with correct `role = "router"`, `release = "test-s02"`, and non-empty `action`.
+
 ## Not delivered
 
-None — all five acceptance checks are delivered.
+None — all five acceptance checks delivered. Integration test added to resolve verifier violation.
 
 ## Divergence from plan
 
 - The `RecordDecision` and `RecordTriage` functions accept string parameters (action, reason) rather than the full `SliceDecision` / `triage.Output` structs. This avoids a circular import: `supervisor` cannot import `scheduler` (which already imports `supervisor`). The callers unwrap the struct fields at the call site. No loss of fidelity.
 - `RecordTriage` is called inside `internal/run/slice.go` rather than `internal/scheduler/worker.go` (the spec says both calls are in worker.go). This is a structural necessity: `triage.Decide()` is called inside `RunSlice`, and the DB handle is plumbed via `RunSliceOptions.DB`. The intent (record every triage output) is unchanged.
+- **Forward-merge artifacts in diff:** 42 of 54 files in `git diff f1744f6..HEAD` are from sibling track T6-contract-revendor (S22-pin-bump, S23-version-centralise-doctor), which merged to `release-wt/2026-06-27-conformance-foundation` and was forward-ported to this track branch via `git merge release-wt/...`. These files include `internal/baton/*`, `internal/prompt/*`, `internal/adopt/baton/*`, `cmd/sworn/baton_test.go`, `cmd/sworn/doctor.go`, `cmd/sworn/doctor_test.go`, and docs artefacts for S22/S23. None overlap with S02's planned touchpoints.
 
 ## First-pass script output
 
+
 ```
-$ PLAYWRIGHT_OPTIN=0 release-verify.sh S02-orchestrator-decision-log 2026-06-27-conformance-foundation
+$ release-verify.sh S02-orchestrator-decision-log 2026-06-27-conformance-foundation
 
 == Slice artefacts ==
   PASS  slice folder exists
@@ -108,7 +175,7 @@ $ PLAYWRIGHT_OPTIN=0 release-verify.sh S02-orchestrator-decision-log 2026-06-27-
 
 == Diff vs start_commit (verifier base) ==
   diff base: start_commit f1744f6d7b29265b786da7c3597cc224ab12291a
-  PASS  11 file(s) changed vs diff base
+  PASS  54 file(s) changed vs diff base
 
 == Dark-code markers in changed files ==
   PASS  no dark-code markers in changed source files
@@ -117,7 +184,7 @@ $ PLAYWRIGHT_OPTIN=0 release-verify.sh S02-orchestrator-decision-log 2026-06-27-
   PASS  proof.md has all 7 required sections
   PASS  no template placeholders
   PASS  Not delivered deferrals carry non-placeholder tracking refs
-  PASS  Files changed count (11) consistent with diff vs start_commit (11)
+  PASS  Files changed count (~54) consistent with diff vs start_commit (54)
 
 == Frontmatter YAML safety ==
   PASS  spec.md frontmatter is strict-YAML safe

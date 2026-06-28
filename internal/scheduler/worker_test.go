@@ -974,3 +974,126 @@ func TestRunTrack_InterpreterSentinelIsNotNormalFailure(t *testing.T) {
 		t.Fatalf("expected TrackFail for normal verification failure, got %s", result)
 	}
 }
+// TestRecordDecisionCalledPerRoutingEvent is the S02 integration test:
+// it runs a mock slice through the router-driven worker and asserts that
+// RecordDecision is called once per routing event with correct fields.
+func TestRecordDecisionCalledPerRoutingEvent(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Two slices so we get multiple routing events.
+	for _, sid := range []string{"S01-first", "S02-second"} {
+		d := filepath.Join(tmpDir, "docs", "release", "test-s02", sid)
+		os.MkdirAll(d, 0o755)
+		os.WriteFile(filepath.Join(d, "spec.md"), []byte("# test"), 0o644)
+		os.WriteFile(filepath.Join(d, "status.json"), []byte(`{"state":"planned"}`), 0o644)
+	}
+
+	// Router: implement S01 → advance to S02 → implement S02 → done.
+	router := &fakeRouter{
+		decisions: []SliceDecision{
+			{Type: "implement", Reason: "planned", Target: ""},
+			{Type: "implement", Reason: "next up", Target: "S02-second"},
+			{Type: "none", Reason: "complete"},
+		},
+	}
+
+	var called []string
+	opts := WorkerOptions{
+		ReleaseName:         "test-s02",
+		PrimaryWorktreeRoot: tmpDir,
+		ProjectDir:          "sworn",
+		TrackInfo: board.TrackInfo{
+			ID:             "T1",
+			Slices:         []string{"S01-first", "S02-second"},
+			WorktreePath:   tmpDir,
+			WorktreeBranch: "track/test-s02/T1",
+		},
+		RunSliceFn: fakeRunSlice("", &called),
+		Router:     router,
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite not available: %v — skipping S02 decision-log test", err)
+	}
+	defer db.Close()
+
+	// Create all tables the worker + supervisor need.
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+	db.Exec(`CREATE TABLE IF NOT EXISTS decisions (
+		id          INTEGER PRIMARY KEY AUTOINCREMENT,
+		slice_id    TEXT NOT NULL,
+		release     TEXT NOT NULL,
+		role        TEXT NOT NULL,
+		action      TEXT NOT NULL,
+		reason      TEXT NOT NULL DEFAULT '',
+		recorded_at TEXT NOT NULL
+	)`)
+	opts.DB = db
+
+	result := RunTrack(context.Background(), opts)
+	if result != TrackPass {
+		t.Fatalf("expected TrackPass, got %s", result)
+	}
+
+	// Verify RecordDecision was called once per routing event (3 Route calls).
+	rows, err := db.Query(`SELECT slice_id, release, role, action, reason FROM decisions ORDER BY id ASC`)
+	if err != nil {
+		t.Fatalf("query decisions: %v", err)
+	}
+	defer rows.Close()
+
+	var decisions []struct {
+		sliceID string
+		release string
+		role    string
+		action  string
+		reason  string
+	}
+	for rows.Next() {
+		var d struct {
+			sliceID string
+			release string
+			role    string
+			action  string
+			reason  string
+		}
+		if err := rows.Scan(&d.sliceID, &d.release, &d.role, &d.action, &d.reason); err != nil {
+			t.Fatalf("scan decision row: %v", err)
+		}
+		decisions = append(decisions, d)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows iteration: %v", err)
+	}
+
+	// 3 routing events → 3 RecordDecision calls.
+	if len(decisions) != 3 {
+		t.Fatalf("expected 3 decision rows (one per Route call), got %d", len(decisions))
+	}
+
+	// Each row must have correct role ("router") and release.
+	for i, d := range decisions {
+		if d.release != "test-s02" {
+			t.Errorf("decision[%d].release = %q, want test-s02", i, d.release)
+		}
+		if d.role != "router" {
+			t.Errorf("decision[%d].role = %q, want router", i, d.role)
+		}
+		if d.action == "" {
+			t.Errorf("decision[%d].action is empty", i)
+		}
+	}
+
+	// Verify the 2 RunSliceFn calls correspond to the 2 implement dispatches.
+	if len(called) != 2 {
+		t.Fatalf("expected 2 slice calls, got %d: %v", len(called), called)
+	}
+	if called[0] != "S01-first" {
+		t.Errorf("call[0] = %q, want S01-first", called[0])
+	}
+	if called[1] != "S02-second" {
+		t.Errorf("call[1] = %q, want S02-second", called[1])
+	}
+}
