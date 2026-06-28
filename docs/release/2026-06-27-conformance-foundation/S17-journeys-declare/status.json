@@ -3,12 +3,14 @@
   "slice_id": "S17-journeys-declare",
   "release": "2026-06-27-conformance-foundation",
   "track": "T4-records-as-json",
-  "covers_needs": ["N-09"],
+  "covers_needs": [
+    "N-09"
+  ],
   "state": "in_progress",
   "owner": "human",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-06-28T00:00:00Z",
-  "start_commit": null,
+  "start_commit": "6f68d6024e8ecfe69e264f325b23db01dbbf78df",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S17-journeys-declare/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S17-journeys-declare/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S17-journeys-declare/journal.md",
@@ -16,7 +18,9 @@
     ".sworn/journeys.json"
   ],
   "actual_files": [],
-  "test_commands": ["go test ./internal/journey/... -v -run TestCheck"],
+  "test_commands": [
+    "go test ./internal/journey/... -v -run TestCheck"
+  ],
   "reachability_artifacts": [],
   "open_deferrals": [
     "reachability_test_path for each journey is TBD (manual attestation at ship cutover). Why: real-infra walk requires a deployed release. Tracking: /mark-shipped ceremony for this release. Acknowledged: Brad, 2026-06-27."
