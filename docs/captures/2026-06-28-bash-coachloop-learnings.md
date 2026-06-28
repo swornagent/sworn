@@ -326,11 +326,24 @@ stuck in an infinite `/merge-track` retry (9+ dispatches, ~every 50s). Same pair
 2. **Interpreter gap (FT-1).** The loop can't classify an "awaiting-confirmation" output as a verdict, so
    it re-routes `/merge-track`, the agent re-asks, and it loops forever (never PAGEs, never proceeds).
 
-Fix has both halves: (a) in autonomous mode the merge decision should be a DETERMINISTIC gate
-(verified-check via the board oracle), not an agent asking permission — if the gate is green, execute;
-(b) the interpreter must classify "needs-confirmation / awaiting-input" as a distinct outcome that
-auto-proceeds when the gate is green or PAGEs once, never silently re-loops. This is exactly the sworn
-FT-1 interpreter + merge-gate-oracle (S05) work.
+**Corrected mechanism (from the log):** the haiku interpreter DOES run on the merge output — the log
+shows `interpretation RETRY`. So it is not deterministic-only. The problem is that the interpreter is a
+**classifier** (verdicts: DONE / RETRY / BLOCKED), not a **responder**: it reads "confirmation — no
+blockers, awaiting go-ahead," sees the merge did not COMPLETE, and returns RETRY → re-dispatch → the
+agent re-asks → RETRY → infinite loop. It can read the question but has no action to answer it; and the
+dispatch is one-shot, so a "proceed" verdict has nowhere to go (the session already closed).
+
+**Design fix (Brad, 2026-06-28) — interpreter as a bounded in-session responder.** Keep the merge
+dispatch session OPEN; when the agent asks "proceed?", the interpreter replies "proceed" in-session and
+the same session executes the merge. Turns classify-and-retry into respond-and-continue using the chat
+interface's existing multi-turn nature — no human, no new interactivity model. CRITICAL GUARDRAIL: the
+interpreter's "proceed" must be authorized by the DETERMINISTIC merge gate (all slices verified via the
+oracle + no blockers), not the interpreter's own opinion — else it is a cheap model rubber-stamping a
+merge (homework-marking). The gate computes the truth; the interpreter only relays it into the open
+session. Non-interactive in spirit (gated, mechanical decision), chat-interactive in mechanism.
+This upgrades the FT-1 interpreter spec from one-shot output-classifier to bounded in-session responder:
+it may answer an agent's clarifying question ONLY when a deterministic gate supplies the authoritative
+answer; otherwise PAGE once (never silent re-loop). Maps to sworn S01-llm-interpreter + S05-merge-gate.
 
 ---
 
