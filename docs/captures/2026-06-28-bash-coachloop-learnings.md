@@ -401,6 +401,19 @@ amendment — lives in `status.json` `verification.violations` and must be surfa
 
 ---
 
+## Part A-ter — LIVE finding 2026-06-28: design-review (Captain) gate not firing
+
+Observed in the deepseek sworn build: the Rule-9 Captain design-review gate is NOT running for any slice in
+`2026-06-27-conformance-foundation`. Evidence: no `design.md` generated for any slice; no captain/
+design-review dispatch in the log (only `implement S19-captain-split`, a slice *about* captain); no
+`review.md` for any release slice (the review.md files present are from an older release). Slices go
+implement → verify → merge with no design review. Likely cause (same class as the Go DoR finding): the loop
+routes `planned → implement` directly, bypassing the `design_review` edge the captain gate is wired to.
+IMPLICATION: design-review is the proposed home for AC-completeness scrutiny (§3.8 of the recommendation),
+so getting the Captain gate to actually fire on the planned→implement path is a PREREQUISITE for that idea.
+The conformance audit rated Captain design-review "full — built + engine-wired"; live, it is not exercised
+in the autonomous loop flow.
+
 ## Part B: Running the Eval via Coach-Loop — Feasibility & Commands
 
 ### Release Selection & Configuration
