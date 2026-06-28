@@ -1,0 +1,77 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S21-sworn-run-task",
+  "release": "2026-06-27-conformance-foundation",
+  "scope": "sworn run --task: real single-slice planner-assist quickstart (direction C) — dispatches the planner role to draft a concrete-AC spec.md, then runs implement+verify over that spec",
+  "files_changed": [
+    "cmd/sworn/run.go",
+    "cmd/sworn/task.go",
+    "cmd/sworn/task_test.go",
+    "docs/release/2026-06-27-conformance-foundation/S21-sworn-run-task/journal.md",
+    "docs/release/2026-06-27-conformance-foundation/S21-sworn-run-task/proof.md",
+    "docs/release/2026-06-27-conformance-foundation/S21-sworn-run-task/spec.md",
+    "docs/release/2026-06-27-conformance-foundation/S21-sworn-run-task/status.json",
+    "docs/release/2026-06-27-conformance-foundation/index.md",
+    "internal/git/git.go"
+  ],
+  "test_results": {
+    "go_test": "PASS\nok  github.com/swornagent/sworn/cmd/sworn  0.031s",
+    "go_vet": "PASS",
+    "gofmt": "PASS (all four source files clean)",
+    "go_build": "PASS (exit 0)"
+  },
+  "reachability_artifacts": [
+    {
+      "type": "cli-smoke",
+      "command": "sworn run --task 'hello' --dry-run",
+      "exit_code": 0,
+      "output": "sworn run --task: planner dispatch would be called\n  task:         hello\n  planner model: openai/gpt-4o-mini\n  verifier model:"
+    },
+    {
+      "type": "cli-smoke",
+      "command": "sworn run --help",
+      "output_contains": "--task string\n    dispatch planner for a single-slice task and run implement+verify"
+    },
+    {
+      "type": "build",
+      "command": "go build ./cmd/sworn/...",
+      "exit_code": 0
+    }
+  ],
+  "delivered": [
+    {
+      "ac": "AC1",
+      "description": "sworn run --task --dry-run compiles and exits without error",
+      "evidence": "go build exit 0; sworn run --task 'hello' --dry-run exits 0; TestTaskDryRunFlagAccepted passes"
+    },
+    {
+      "ac": "AC2",
+      "description": "planner returns valid spec -> spec.md created and implement begins",
+      "evidence": "TestTaskRunIntegration_PlannerReturnsValidSpec: mock planner returns valid spec, cmdRunTask creates .sworn/task-runs/<ts>/S01-task/spec.md with ACs, status.json created, git repo initialised"
+    },
+    {
+      "ac": "AC3",
+      "description": "planner output has no ACs -> exit with error message",
+      "evidence": "TestTaskRunIntegration_PlannerReturnsNoACs: exit code 2, stderr contains 'planner output contained no acceptance criteria — cannot implement', planner-output.txt saved"
+    },
+    {
+      "ac": "AC4",
+      "description": "implement+verify PASS -> print proof bundle path, exit 0",
+      "evidence": "cmdRunTask lines 214-217: on RunSlice success, prints 'proof bundle: <path>' and returns 0"
+    },
+    {
+      "ac": "AC5",
+      "description": "implement+verify FAIL -> print failure reason, exit non-zero, keep artefacts",
+      "evidence": "TestTaskRunIntegration_PlannerReturnsValidSpec: RunSlice fails (no verifier model), exit non-zero, spec.md and status.json persisted"
+    },
+    {
+      "ac": "AC6",
+      "description": "sworn run --help shows --task flag",
+      "evidence": "sworn run --help output includes '-task string' with description"
+    }
+  ],
+  "not_delivered": [],
+  "divergence": {
+    "internal/git/git.go": "Added Config() method needed by task.go for ephemeral git repo setup (user.email/user.name). Declared in spec.md Planned touchpoints and status.json planned_files. Branch() reformatted to multi-line by gofmt — cosmetic only."
+  }
+}
