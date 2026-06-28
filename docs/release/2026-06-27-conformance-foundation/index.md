@@ -189,8 +189,15 @@ tracks:
 
 ## Recent activity
 
-### 2026-06-28 — track `T6-contract-revendor` merged to release-wt (commit 0b039d0)
+### 2026-07-25 — verifier: `S25-event-store-durable` FAILED verification (re-verify after re-implementation)
 
+- **Actor**: verifier (/verify-slice)
+- **Verdict**: FAIL — 2 violations
+- **Gate 2**: `cmd/sworn/telemetry.go` in planned touchpoints but not changed — file already queries on-disk DB via `supervisor.Open()` from prior slice S24. Proof.md does not explain the non-change.
+- **Gate 2**: `cmd/sworn/run.go` changed but not in planned touchpoints — added `EventDB: eventDB` wiring. Proof.md does not explicitly call out this divergence.
+- **Required fix**: Update proof.md Divergence from plan to note telemetry.go non-change and run.go divergence; update status.json actual_files to match real diff.
+
+### 2026-06-28 — track `T6-contract-revendor` merged to release-wt (commit 0b039d0)
 - **Actor**: track integrator (/merge-track)
 - **Note**: 2 verified slices merged: S22-pin-bump, S23-version-centralise-doctor. Track state → merged.
 

@@ -85,3 +85,18 @@ go vet clean on affected packages.
 - SetEventDB approach (rather than a second parameter to New) keeps the API backward-compatible: tests that don't set it continue to write events to the main DB.
 - Event DB is set before Acquire so even the initial acquired event goes to the release-specific store.
 - No changes needed to telemetry.go — it already opens and queries the release-specific DB via supervisor.Open.
+
+## Verifier verdicts received
+
+### 2026-07-25 — Verifier session (fresh context)
+
+**Verdict: FAIL**
+
+Violations:
+1. **Gate 2** — Planned touchpoint `cmd/sworn/telemetry.go` was not changed. The file already queries the on-disk DB via `supervisor.Open()` (pre-existing from prior slice S24), so no change was needed. Journal Session 2 acknowledges this but proof.md does not explain the non-change in "Not delivered" or "Divergence from plan".
+2. **Gate 2** — `cmd/sworn/run.go` was changed (added `EventDB: eventDB` to ParallelOptions) but is not in planned touchpoints. Proof.md references it implicitly in the wiring trace but does not explicitly call it out as a divergence from plan.
+
+Required to address:
+- Update proof.md "Divergence from plan" to note that `cmd/sworn/telemetry.go` was already wired from prior slice (no change needed)
+- Update proof.md "Divergence from plan" to explicitly list `cmd/sworn/run.go` as a divergence (necessary wiring addition)
+- Update status.json `actual_files` to remove `cmd/sworn/telemetry.go` and `internal/supervisor/supervisor_test.go` (not changed in this slice's diff)
