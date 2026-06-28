@@ -104,6 +104,41 @@ AC-explicit benchmark, and any loop that runs tests must use tests the agent can
 (Pipeline note: the adapter — task → coach driver agentic implement → extract non-test patch → official
 Docker harness — works end-to-end and is the reusable basis for scaling.)
 
+## 4b. PoC: coach driver vs SWE-AGI (ini parser) — the AC-explicit benchmark
+
+The AC-explicit follow-up to §4a — the fit sworn actually wants. Task: SWE-AGI `ini` suite (build a MoonBit
+INI parser from `TASK.md` + `specs/ini.md` + a frozen API scaffold + visible public tests; scored on a
+held-out 1650-line private suite). Implement-only run (single agentic driver dispatch; self-verify against
+the externally-owned public tests via `moon test`; private tests applied only at scoring).
+
+| Model | Private suite (pub+priv) | Turns | Cost | Code | Anti-gaming guard |
+|---|---|---|---|---|---|
+| claude-sonnet | **81/98 (83%)** | 106 | $5.21 | 1 file (`ini.mbt`) | clean — no frozen-file edits |
+| deepseek-v4-pro | 74/98 (76%) | 94 | **$0.006** | 5 files (lexer/parser/types/encoder/ini) | clean |
+
+Why this is the right benchmark for sworn (vs §4a SWE-bench):
+- **Explicit, externally-owned, agent-immutable ACs.** Visible public tests are the legitimate
+  iterate-against target; the frozen `*_spec.mbt`/`*_test.mbt` can't be edited (the guard confirmed
+  neither model touched them — no flask-4992-style fabrication). This measures requirements *adherence*,
+  sworn's actual strength.
+- **Partial credit + real construction.** Both built genuine spec-grounded parsers; DeepSeek even
+  decomposed into a clean 5-file architecture. This is spec-comprehension + long-horizon construction,
+  not retrieval.
+- **Efficiency axis is stark.** Claude 83% vs DeepSeek 76%, but DeepSeek for ~1/800th the cost
+  ($0.006 vs $5.21). On verified-slices-per-dollar (the loop-delivery economic axis), DeepSeek dominates.
+  (Driver cost figures are approximate — the known cost-accounting limitation — but the order of
+  magnitude is real.)
+- **The AC-completeness ceiling, quantified.** Both passed 100% of the *visible* public tests yet capped
+  at 76–83% of the *full* private suite, each missing different held-out edge cases (Claude:
+  backslash-at-EOL; DeepSeek: comment-char-in-quoted-value). The loop's verify tier can only get you to
+  the coverage of the ACs it can see; closing the last gap needs a verifier that reasons from the SPEC to
+  invent spec-grounded edge checks beyond the given tests. Same lesson as flask-4992, now measured.
+
+Note: this is the IMPLEMENT-ONLY unit (self-verify). The full loop (independent adversarial verify +
+retry/escalate across models) is the next fidelity step; the delta (full-loop − implement-only) is the
+loop-lift proof point. Adapter (task → driver implement against public tests → held-out private scoring)
+works end-to-end and is reusable across the 20+ SWE-AGI suites.
+
 ## 5. Caveat
 
 Compiled from web search current to ~June 2026; figures (e.g. SWE-bench leaders, METR horizons) move
