@@ -6,10 +6,10 @@
   "covers_needs": [
     "N-23"
   ],
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "human",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-28T14:00:00Z",
+  "last_updated_at": "2026-07-28T14:45:00Z",
   "start_commit": "602e477ff099cbc234b0b536c88f48b848702a4e",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S21-sworn-run-task/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S21-sworn-run-task/proof.md",
@@ -17,12 +17,19 @@
   "planned_files": [
     "cmd/sworn/task.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "cmd/sworn/task.go",
+    "cmd/sworn/task_test.go",
+    "cmd/sworn/run.go",
+    "internal/git/git.go"
+  ],
   "test_commands": [
     "go test ./cmd/sworn/... -v -run TestTask",
     "sworn run --task 'hello' --dry-run"
   ],
-  "reachability_artifacts": [],
+  "reachability_artifacts": [
+    "sworn run --task hello --dry-run (exits 0)"
+  ],
   "open_deferrals": [],
   "verification": {
     "result": "pending",
