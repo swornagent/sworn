@@ -19,6 +19,8 @@ func writeDesignfitFixture(t *testing.T, dir, sliceID string, decisions []state.
 	}
 	st := &state.Status{
 		SliceID:         sliceID,
+		Release:         filepath.Base(releaseDir),
+		State:           state.InProgress,
 		DesignDecisions: decisions,
 	}
 	if err := state.Write(filepath.Join(sliceDir, "status.json"), st); err != nil {
@@ -153,6 +155,8 @@ func writeReleaseSliceTest(t *testing.T, releaseDir, sliceID string, decisions [
 	}
 	st := &state.Status{
 		SliceID:         sliceID,
+		Release:         filepath.Base(releaseDir),
+		State:           state.InProgress,
 		DesignDecisions: decisions,
 	}
 	if err := state.Write(filepath.Join(sliceDir, "status.json"), st); err != nil {

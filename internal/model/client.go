@@ -28,9 +28,49 @@ type CapabilityProvider interface {
 
 // Verifier dispatches one fresh-context verification and returns the model's raw
 // verdict text plus the dispatch cost in USD (0 if the provider does not report
-// cost).
+// cost). Token counts (input/output) and the confirmed model ID from the response
+// are returned for dispatch-record enrichment (S24).
 type Verifier interface {
-	Verify(ctx context.Context, systemPrompt, userPayload string) (text string, costUSD float64, err error)
+	Verify(ctx context.Context, systemPrompt, userPayload string) (text string, costUSD float64, inputTokens int64, outputTokens int64, err error)
+}
+
+// ModelPricing holds the USD cost per 1M tokens for a model.
+type ModelPricing struct {
+	InputPricePer1M  float64
+	OutputPricePer1M float64
+}
+
+// PriceForModel returns the pricing for a model ID across all known provider
+// pricing maps. Returns (0, 0, false) for unknown models.
+func PriceForModel(modelID string) (ModelPricing, bool) {
+	// Check OAI pricing map.
+	if p, ok := modelPricing[modelID]; ok {
+		return ModelPricing{InputPricePer1M: p.promptCostPer1M, OutputPricePer1M: p.completionCostPer1M}, true
+	}
+	// Check Anthropic pricing map.
+	if p, ok := anthropicPricing[modelID]; ok {
+		return ModelPricing{InputPricePer1M: p.inputPricePer1M, OutputPricePer1M: p.outputPricePer1M}, true
+	}
+	// Check Google pricing map.
+	if p, ok := googlePricing[modelID]; ok {
+		return ModelPricing{InputPricePer1M: p.inputPricePer1M, OutputPricePer1M: p.outputPricePer1M}, true
+	}
+	// Check Bedrock pricing map.
+	if p, ok := bedrockPricing[modelID]; ok {
+		return ModelPricing{InputPricePer1M: p.inputPricePer1M, OutputPricePer1M: p.outputPricePer1M}, true
+	}
+	return ModelPricing{}, false
+}
+// ComputeCostFromTokens returns the USD cost for a model given token counts.
+// Returns 0 for unknown models.
+func ComputeCostFromTokens(modelID string, inputTokens, outputTokens int64) float64 {
+	p, ok := PriceForModel(modelID)
+	if !ok {
+		return 0
+	}
+	inputCost := float64(inputTokens) / 1_000_000 * p.InputPricePer1M
+	outputCost := float64(outputTokens) / 1_000_000 * p.OutputPricePer1M
+	return inputCost + outputCost
 }
 
 // Unconfigured is the default until a provider client is wired (next slice:
@@ -38,8 +78,8 @@ type Verifier interface {
 // rather than silently passing.
 type Unconfigured struct{}
 
-func (Unconfigured) Verify(context.Context, string, string) (string, float64, error) {
-	return "", 0, ErrNotConfigured
+func (Unconfigured) Verify(context.Context, string, string) (string, float64, int64, int64, error) {
+	return "", 0, 0, 0, ErrNotConfigured
 }
 
 // Capabilities returns 0 — the unconfigured driver has no capabilities.

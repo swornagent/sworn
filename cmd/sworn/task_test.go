@@ -17,8 +17,8 @@ type mockVerifier struct {
 	err   error
 }
 
-func (m *mockVerifier) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
-	return m.reply, 0, m.err
+func (m *mockVerifier) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
+	return m.reply, 0, 0, 0, m.err
 }
 
 // ── Leaf helper tests (fast, no I/O) ──────────────────────────────────────

@@ -37,7 +37,7 @@ func Interpret(ctx context.Context, rawOutput string, classifier model.Verifier)
 		}
 	}
 
-	text, costUSD, err := classifier.Verify(ctx, interpreterSystemPrompt, rawOutput)
+	text, costUSD, _, _, err := classifier.Verify(ctx, interpreterSystemPrompt, rawOutput)
 	if err != nil {
 		return verdict.Result{
 			Verdict:   verdict.Inconclusive,

@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://baton.sawy3r.net/schemas/attestations-v1.json",
+  "title": "Baton Attestations Artefact",
+  "description": "Canonical schema for the durable attestations artefact (.sworn/attestations.json). An attestation records one human-walkthrough of a critical customer journey against real infrastructure.",
+  "type": "object",
+  "required": ["$schema", "version", "ratification", "boundary", "attestations"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://baton.sawy3r.net/schemas/attestations-v1.json"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "ratification": {
+      "type": "object",
+      "required": ["by", "at", "is_ratified"],
+      "properties": {
+        "by": {
+          "type": "string",
+          "description": "Who ratified the attestations (email or identifier)."
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the attestations were last ratified (ISO 8601)."
+        },
+        "is_ratified": {
+          "type": "boolean",
+          "description": "True when the attestations have been human-ratified."
+        }
+      }
+    },
+    "boundary": {
+      "type": "object",
+      "required": ["name", "mock_banned", "entitlement_boundary"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name of the boundary context (e.g. 'production', 'staging')."
+        },
+        "mock_banned": {
+          "type": "boolean",
+          "description": "True when no mocks or stubs were active during walkthrough."
+        },
+        "entitlement_boundary": {
+          "type": "string",
+          "description": "The entitlement boundary path or identifier."
+        }
+      }
+    },
+    "attestations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["journey_id", "status", "walked_by", "walked_at", "real_infra", "mocks_off"],
+        "properties": {
+          "journey_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["un-walked", "walked-pass", "walked-fail"]
+          },
+          "walked_by": {
+            "type": "string"
+          },
+          "walked_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "real_infra": {
+            "type": "boolean"
+          },
+          "mocks_off": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

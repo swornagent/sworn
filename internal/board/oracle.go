@@ -362,43 +362,73 @@ func (o *Oracle) ReadSliceStatus(
 	return SliceState{}, "", fmt.Errorf("slice %s: status.json not found on any ref (track, release-wt, or working tree)", sliceID)
 }
 
-// ReadBoard reads the full release board: every track and every slice's
-// authoritative state. It first reads index.md from a git ref to build the
-// track→slice map, then resolves each slice via ReadSliceStatus.
-// The releaseRef is a git ref (e.g. "refs/heads/release-wt/<release>")
-// where the authoritative index.md lives.
-func (o *Oracle) ReadBoard(
-	ctx context.Context,
-	reader gitContentReader,
-	releaseRef string,
-	release string,
-) (*BoardState, error) {
-	// Step 1: read index.md from the release ref (Coach flag b).
+// readTrackInfos reads track metadata from board.json (preferred) or
+// index.md frontmatter (legacy fallback) using git refs. It returns the
+// parsed TrackInfo list used by ReadBoard and NewOracleReaderAdapter.
+func (o *Oracle) readTrackInfos(reader gitContentReader, releaseRef, release string) ([]TrackInfo, error) {
+	// Try board.json first (post-migration releases).
+	boardPath := "docs/release/" + release + "/board.json"
+	rawBoard, err := reader.Show(releaseRef, boardPath)
+	if err == nil {
+		var br BoardRecord
+		if err := json.Unmarshal([]byte(rawBoard), &br); err != nil {
+			return nil, fmt.Errorf("parse board.json from %s: %w", releaseRef, err)
+		}
+		return boardTracksToTrackInfos(br.Tracks), nil
+	}
+
+	// Try Fumadocs prefix for board.json.
+	fumaBoardPath := "apps/docs/content/docs/release/" + release + "/board.json"
+	rawBoard, err = reader.Show(releaseRef, fumaBoardPath)
+	if err == nil {
+		var br BoardRecord
+		if err := json.Unmarshal([]byte(rawBoard), &br); err != nil {
+			return nil, fmt.Errorf("parse board.json from %s: %w", releaseRef, err)
+		}
+		return boardTracksToTrackInfos(br.Tracks), nil
+	}
+
+	// Fallback: read index.md frontmatter (legacy — board.json not yet migrated).
 	indexPath := "docs/release/" + release + "/index.md"
 	rawIndex, err := reader.Show(releaseRef, indexPath)
 	if err != nil {
-		// Try the Fumadocs prefix fallback.
 		fumaPath := "apps/docs/content/docs/release/" + release + "/index.md"
 		rawIndex2, err2 := reader.Show(releaseRef, fumaPath)
 		if err2 != nil {
-			return nil, fmt.Errorf("read index.md from %s: %v (also tried %s: %v)",
-				indexPath, err, fumaPath, err2)
+			return nil, fmt.Errorf("read board.json: %v; read index.md: %v (also tried %s: %v)",
+				err, err, fumaPath, err2)
 		}
 		rawIndex = rawIndex2
 	}
 
-	// Extract frontmatter body for ParseTracks.
 	fmBody := extractFrontmatterBody(rawIndex)
+	return ParseTracks(fmBody), nil
+}
 
-	// Step 2: parse tracks from frontmatter.
-	trackInfos := ParseTracks(fmBody)
-	trackMap := make(map[string]TrackInfo, len(trackInfos))
-	for _, ti := range trackInfos {
-		trackMap[ti.ID] = ti
+// ReadBoard reads the full release board: every track and every slice's
+// authoritative state. It first reads board.json from a git ref to build the
+// track→slice map (falling back to index.md YAML frontmatter for legacy
+// releases that have not yet migrated), then resolves each slice via
+// ReadSliceStatus.
+// The releaseRef is a git ref (e.g. "refs/heads/release-wt/<release>")
+// where the authoritative board.json / index.md lives.
+func (o *Oracle) ReadBoard(	ctx context.Context,
+	reader gitContentReader,
+	releaseRef string,
+	release string,
+) (*BoardState, error) {
+	// Step 1: try board.json first (post-migration releases).
+	// Fall back to index.md YAML frontmatter for legacy releases.
+	trackInfos, err := o.readTrackInfos(reader, releaseRef, release)
+	if err != nil {
+		return nil, err
 	}
 
-	// Step 3: for each track, build its SliceState list by resolving each
-	// slice through ReadSliceStatus using the track's own branch as the
+	trackMap := make(map[string]TrackInfo, len(trackInfos))
+	for _, ti := range trackInfos {		trackMap[ti.ID] = ti
+	}
+
+	// Step 2: for each track, build its SliceState list by resolving each	// slice through ReadSliceStatus using the track's own branch as the
 	// primary ref and releaseRef as the release-wt fallback.
 	board := &BoardState{
 		Release: release,
@@ -509,20 +539,11 @@ func NewOracleReaderAdapter(
 	reader gitContentReader,
 	release, releaseRef string,
 ) (*OracleReaderAdapter, error) {
-	// Read index.md from releaseRef.
-	indexPath := "docs/release/" + release + "/index.md"
-	rawIndex, err := reader.Show(releaseRef, indexPath)
+	// Read track metadata from board.json (preferred) or index.md (legacy).
+	trackInfos, err := oracle.readTrackInfos(reader, releaseRef, release)
 	if err != nil {
-		fumaPath := "apps/docs/content/docs/release/" + release + "/index.md"
-		rawIndex2, err2 := reader.Show(releaseRef, fumaPath)
-		if err2 != nil {
-			return nil, fmt.Errorf("read index.md: %v (also tried %s: %v)", err, fumaPath, err2)
-		}
-		rawIndex = rawIndex2
+		return nil, err
 	}
-
-	fmBody := extractFrontmatterBody(rawIndex)
-	trackInfos := ParseTracks(fmBody)
 	trackMap := make(map[string]TrackInfo, len(trackInfos))
 	for _, ti := range trackInfos {
 		trackMap[ti.ID] = ti
@@ -536,7 +557,6 @@ func NewOracleReaderAdapter(
 		trackMap:   trackMap,
 	}, nil
 }
-
 // ReadSliceStatus reads a single slice's status, resolving via the owner track
 // branch → release-wt → HEAD priority chain. Implements router.OracleReader.
 func (a *OracleReaderAdapter) ReadSliceStatus(ctx context.Context, release, sliceID string) (SliceState, error) {

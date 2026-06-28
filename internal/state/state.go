@@ -10,8 +10,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-)
 
+	"github.com/swornagent/sworn/internal/baton"
+)
 // State is a Baton slice state. The canonical state machine is:
 //
 //	planned → in_progress → implemented → verified | failed_verification
@@ -78,12 +79,15 @@ type ValidationRecord struct {
 // deterministically — downstream consumers (S56) treat 0 as "no signal",
 // never as "free".
 type Dispatch struct {
-	Role    string  `json:"role"`
-	Model   string  `json:"model"`
-	CostUSD float64 `json:"cost_usd"`
-	Attempt int     `json:"attempt"`
+	Role             string  `json:"role"`
+	Model            string  `json:"model"`
+	CostUSD          float64 `json:"cost_usd"`
+	Attempt          int     `json:"attempt"`
+	DurationMS       int64   `json:"duration_ms,omitempty"`
+	InputTokens      int64   `json:"input_tokens,omitempty"`
+	OutputTokens     int64   `json:"output_tokens,omitempty"`
+	ModelIDConfirmed string  `json:"model_id_confirmed,omitempty"`
 }
-
 // Verification holds the per-slice verification record (verdict, session
 // metadata, violations). It mirrors the nested "verification" object in
 // status.json.
@@ -181,17 +185,37 @@ func Read(path string) (*Status, error) {
 }
 
 // Write serialises s as indented JSON to path. File mode is 0644.
+// Before writing it sets the canonical $schema field on s and validates
+// the marshalled data against the embedded slice-status-v1 schema.
 func Write(path string, s *Status) error {
+	// Set the canonical $schema field.
+	s.Schema = baton.SchemaURI
+
+	// Default verification.result to "pending" when unset. A freshly-created
+	// status (e.g. single-slice `sworn run`, which sets no verdict) has no
+	// verification result yet, but slice-status-v1 requires verification.result
+	// to be present; "pending" is the canonical not-yet-verified value. Without
+	// this, every initial status write (and ~28 run tests) failed validation.
+	// (2026-06-28 reconcile.)
+	if s.Verification.Result == "" {
+		s.Verification.Result = "pending"
+	}
+
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return fmt.Errorf("state: marshal: %w", err)
 	}
+
+	// Validate against the embedded schema before writing to disk.
+	if err := baton.Validate("slice-status-v1", data); err != nil {
+		return fmt.Errorf("state: validation failed: %w", err)
+	}
+
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("state: write %s: %w", path, err)
 	}
 	return nil
 }
-
 // TransitionGate checks a state transition through a gate callback.
 // It first validates that the transition from s to next is legal
 // (via s.Transition(next)), then invokes gate. The gate function should

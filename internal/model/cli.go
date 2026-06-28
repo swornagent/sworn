@@ -75,7 +75,7 @@ func newCodexCLI(model string) (*cliDriver, error) {
 //
 // costUSD is always 0.0 — plain-text capture from subprocess stdout gives no
 // usage metadata (pin 6a: flag from Coach ack).
-func (d *cliDriver) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
+func (d *cliDriver) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
 	// Concatenate systemPrompt + userPayload as a single prompt argument.
 	// (system + user concatenated as a single prompt).
 	prompt := systemPrompt + "\n\n" + userPayload
@@ -89,13 +89,13 @@ func (d *cliDriver) Verify(ctx context.Context, systemPrompt, userPayload string
 
 	stdout, err := cmd.Output()
 	if err != nil {
-		return "", 0, d.classifyError(ctx, err)
+		return "", 0, 0, 0, d.classifyError(ctx, err)
 	}
 
 	// costUSD is always 0 with plain-text subprocess capture.
 	// The driver does no output parsing — stdout IS the verdict text.
 	// Trim trailing whitespace/newlines (fmt.Println in test fakes adds \n).
-	return strings.TrimSpace(string(stdout)), 0, nil
+	return strings.TrimSpace(string(stdout)), 0, 0, 0, nil
 }
 
 // Chat stacks the message history as a single concatenated prompt and invokes
@@ -153,9 +153,7 @@ func (d *cliDriver) Chat(ctx context.Context, messages []ChatMessage, tools []To
 		Usage:   &UsageBlock{},
 		CostUSD: 0,
 	}, nil
-}
-
-// classifyError maps subprocess errors to typed model.Error values.
+}// classifyError maps subprocess errors to typed model.Error values.
 func (d *cliDriver) classifyError(ctx context.Context, err error) *Error {
 	// Deadline exceeded → the call timed out.
 	if ctx.Err() == context.DeadlineExceeded {

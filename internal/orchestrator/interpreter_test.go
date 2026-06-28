@@ -16,8 +16,8 @@ type fakeClassifier struct {
 	err  error
 }
 
-func (f *fakeClassifier) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
-	return f.text, 0.001, f.err
+func (f *fakeClassifier) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
+	return f.text, 0.001, 0, 0, f.err
 }
 
 func TestInterpreter_TableDriven(t *testing.T) {

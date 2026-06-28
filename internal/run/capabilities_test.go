@@ -16,11 +16,10 @@ type fakeCapDriver struct {
 	caps model.Capability
 }
 
-func (f *fakeCapDriver) Verify(context.Context, string, string) (string, float64, error) {
-	return "PASS", 0, nil
+func (f *fakeCapDriver) Verify(context.Context, string, string) (string, float64, int64, int64, error) {
+	return "PASS", 0, 0, 0, nil
 }
 func (f *fakeCapDriver) Capabilities() model.Capability { return f.caps }
-
 var _ model.Verifier = (*fakeCapDriver)(nil)
 var _ model.CapabilityProvider = (*fakeCapDriver)(nil)
 

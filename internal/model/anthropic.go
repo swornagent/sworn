@@ -45,7 +45,7 @@ func (a *Anthropic) Capabilities() Capability { return CapVerify | CapChat }
 // Verify sends the system prompt as a system message and userPayload as a
 // single user turn to the Anthropic Messages API. It returns the text from
 // the first text content block, the compute cost in USD, or an error.
-func (a *Anthropic) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
+func (a *Anthropic) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
 	msg, err := a.Client.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     anthropic.Model(a.Model),
 		MaxTokens: a.MaxTokens,
@@ -63,7 +63,7 @@ func (a *Anthropic) Verify(ctx context.Context, systemPrompt, userPayload string
 		// through NewProviderError so the caller's ClassifyHTTP / IsTerminal
 		// / IsTransient logic works unchanged.
 		if code, ok := anthropicStatusCode(err); ok {
-			return "", 0, NewProviderError(code, "anthropic", a.Model, nil)
+			return "", 0, 0, 0, NewProviderError(code, "anthropic", a.Model, nil)
 		}
 		// Fallback: a non-HTTP error (DNS failure, TLS handshake, connection
 		// refused, etc.). This error is not a *model.Error — IsTransient in
@@ -71,18 +71,18 @@ func (a *Anthropic) Verify(ctx context.Context, systemPrompt, userPayload string
 		// "unknown errors are assumed transient"), so the caller's retry
 		// policy will treat this as transient and retry. We preserve the
 		// original error message rather than wrapping with NewProviderError.
-		return "", 0, fmt.Errorf("model: anthropic dispatch: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: anthropic dispatch: %w", err)
 	}
 
 	// Extract the first text block. SwornAgent uses single-shot verify calls
 	// (no tools); the only content we care about is type "text".
 	for _, block := range msg.Content {
 		if block.Type == "text" {
-			cost := ComputeCost(a.Model, int(msg.Usage.InputTokens), int(msg.Usage.OutputTokens))
-			return block.Text, cost, nil
+			cost := computeAnthropicCost(a.Model, msg.Usage)
+			return block.Text, cost, int64(msg.Usage.InputTokens), int64(msg.Usage.OutputTokens), nil
 		}
 	}
-	return "", 0, fmt.Errorf("model: no text content in Anthropic response")
+	return "", 0, 0, 0, fmt.Errorf("model: no text content in Anthropic response")
 }
 
 // Chat sends a multi-message conversation to the Anthropic Messages API.
@@ -158,9 +158,7 @@ func (a *Anthropic) Chat(ctx context.Context, messages []ChatMessage, tools []To
 		}
 	}
 	return nil, fmt.Errorf("model: no text content in Anthropic chat response")
-}
-
-// anthropicStatusCode extracts the HTTP status code from an anthropic-sdk-go
+}// anthropicStatusCode extracts the HTTP status code from an anthropic-sdk-go
 // error. The SDK's internal *apierror.Error formats as:
 //
 //	'<METHOD> "<URL>": <CODE> <TEXT> [(Request-ID: <ID>)] <JSON>'
@@ -183,4 +181,28 @@ func anthropicStatusCode(err error) (int, bool) {
 		return 0, false
 	}
 	return code, true
+}
+
+// anthropicPricing maps model IDs to USD per 1M tokens.
+// Prices sourced from Anthropic's public pricing page (2026-06-23 snapshot).
+// Unknown claude-* models get zero cost (same posture as OAI).
+var anthropicPricing = map[string]struct {
+	inputPricePer1M  float64
+	outputPricePer1M float64
+}{
+	"claude-opus-4-8":   {15.00, 75.00},
+	"claude-sonnet-4-6": {3.00, 15.00},
+	"claude-haiku-4-5":  {1.00, 5.00},
+}
+
+// computeAnthropicCost returns the USD cost for a verify call from token
+// counts. Returns 0 for unknown models (the caller still received a verdict).
+func computeAnthropicCost(model string, usage anthropic.Usage) float64 {
+	p, ok := anthropicPricing[model]
+	if !ok {
+		return 0
+	}
+	inputCost := float64(usage.InputTokens) / 1_000_000 * p.inputPricePer1M
+	outputCost := float64(usage.OutputTokens) / 1_000_000 * p.outputPricePer1M
+	return inputCost + outputCost
 }

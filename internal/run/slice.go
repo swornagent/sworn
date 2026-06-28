@@ -252,9 +252,10 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 						defer reviewCancel()
 					}
 					fmt.Fprintf(os.Stderr, "sworn run: running captain design-review with %s\n", firstModelID)
+					captainStart := time.Now()
 					reviewResult, revErr := captain.Review(reviewCtx, absSliceDir, string(specBytes), string(designBytes), captainAgent, worktreeRoot)
-					if revErr != nil {
-						if errors.Is(revErr, context.DeadlineExceeded) {
+					captainDurationMS := time.Since(captainStart).Milliseconds()
+					if revErr != nil {						if errors.Is(revErr, context.DeadlineExceeded) {
 							fmt.Fprintf(os.Stderr, "sworn run: captain review timed out — proceeding without review\n")
 						} else {
 							fmt.Fprintf(os.Stderr, "sworn run: captain review error: %v — proceeding without review\n", revErr)
@@ -272,12 +273,12 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 							priorFeedback = fb
 							// Record captain dispatch for per-role cost ledger (S55).
 							dispatches = append(dispatches, state.Dispatch{
-								Role:    "captain",
-								Model:   firstModelID,
-								CostUSD: reviewResult.CostUSD,
-								Attempt: 1,
-							})
-						}
+								Role:       "captain",
+								Model:      firstModelID,
+								CostUSD:    reviewResult.CostUSD,
+								Attempt:    1,
+								DurationMS: captainDurationMS,
+							})						}
 					}
 				}
 			}
@@ -336,6 +337,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 
 		var implCost float64
 		var implErr error
+		implStart := time.Now()
 		if implementTimeout > 0 {
 			implCtx, cancel := context.WithTimeout(ctx, implementTimeout)
 			defer cancel() // safe: each iteration has its own defer
@@ -343,7 +345,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		} else {
 			implCost, implErr = implement.Run(ctx, worktreeRoot, specPath, priorFeedback, implAgent)
 		}
-
+		implDurationMS := time.Since(implStart).Milliseconds()
 		if implErr != nil {
 			// Max-turns exhaustion: PAGE the Coach (pause, not fail).
 			// The worker detects this via the sentinel and halts the track.
@@ -406,12 +408,12 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 
 		// Record implementer dispatch for per-role cost ledger (S55).
 		dispatches = append(dispatches, state.Dispatch{
-			Role:    "implementer",
-			Model:   implModelID,
-			CostUSD: implCost,
-			Attempt: totalAttempts,
-		})
-		// ── Commit agent changes ────────────────────────────────────
+			Role:       "implementer",
+			Model:      implModelID,
+			CostUSD:    implCost,
+			Attempt:    totalAttempts,
+			DurationMS: implDurationMS,
+		})		// ── Commit agent changes ────────────────────────────────────
 		if err := repo.Stage("."); err != nil {
 			return fmt.Errorf("RunSlice: stage agent changes: %w", err)
 		}
@@ -592,10 +594,14 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 
 		// Record verifier dispatch for per-role cost ledger (S55).
 		dispatches = append(dispatches, state.Dispatch{
-			Role:    "verifier",
-			Model:   opts.VerifierModel,
-			CostUSD: lastVerdict.CostUSD,
-			Attempt: totalAttempts,
+			Role:             "verifier",
+			Model:            opts.VerifierModel,
+			CostUSD:          lastVerdict.CostUSD,
+			Attempt:          totalAttempts,
+			DurationMS:       lastVerdict.DurationMS,
+			InputTokens:      lastVerdict.InputTokens,
+			OutputTokens:     lastVerdict.OutputTokens,
+			ModelIDConfirmed: lastVerdict.ModelIDConfirmed,
 		})
 		// ── PASS: transition to verified ────────────────────────────
 		if lastVerdict.Verdict == verdict.Pass {
@@ -738,10 +744,10 @@ type captureVerifier struct {
 	lastText string
 }
 
-func (c *captureVerifier) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
-	text, cost, err := c.inner.Verify(ctx, systemPrompt, userPayload)
+func (c *captureVerifier) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
+	text, cost, inTok, outTok, err := c.inner.Verify(ctx, systemPrompt, userPayload)
 	c.lastText = text
-	return text, cost, err
+	return text, cost, inTok, outTok, err
 }
 
 // writeTempFile writes content to a temporary file in dir matching pattern.

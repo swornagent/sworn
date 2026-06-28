@@ -3,12 +3,14 @@
   "slice_id": "S25-event-store-durable",
   "release": "2026-06-27-conformance-foundation",
   "track": "T7-telemetry-eval",
-  "covers_needs": ["N-27"],
-  "state": "planned",
+  "covers_needs": [
+    "N-27"
+  ],
+  "state": "verified",
   "owner": "human",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-06-27T00:00:00Z",
-  "start_commit": null,
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-28T04:00:03Z",
+  "start_commit": "a403f836a258c7aae3549908a0a72b9471b59c26",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/journal.md",
@@ -16,15 +18,28 @@
     "internal/supervisor/supervisor.go",
     "cmd/sworn/telemetry.go"
   ],
-  "actual_files": [],
-  "test_commands": ["go test ./internal/supervisor/... -v -run TestPersistence"],
-  "reachability_artifacts": [],
+  "actual_files": [
+    "internal/supervisor/supervisor.go",
+    "cmd/sworn/run.go",
+    "internal/run/parallel.go",
+    "internal/scheduler/worker.go"
+  ],
+  "test_commands": [
+    "go test ./internal/supervisor/... -v -run TestPersistence",
+    "go test ./internal/supervisor/... -v",
+    "go test ./internal/run/... ./internal/scheduler/... -v"
+  ],
+  "reachability_artifacts": [
+    "go test ./internal/supervisor/... -v -run TestPersistence exits 0",
+    "Wiring trace: eventDB from cmd/sworn/run.go -> ParallelOptions -> WorkerOptions -> supervisor.SetEventDB",
+    "sworn telemetry events --release 2026-06-27-conformance-foundation exits 0 (verified by verifier in fresh session)"
+  ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
+    "result": "pass",
+    "verifier_session_id": "2026-06-28T04:00:03Z",
+    "verifier_verdict_at": "2026-06-28T04:00:03Z",
+    "verifier_was_fresh_context": true,
     "violations": []
   }
 }

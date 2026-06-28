@@ -157,9 +157,8 @@ type fakeVerifier struct {
 	err  error
 }
 
-func (f *fakeVerifier) Verify(_ context.Context, _, _ string) (string, float64, error) {
-	return f.text, f.cost, f.err
-}
+func (f *fakeVerifier) Verify(_ context.Context, _, _ string) (string, float64, int64, int64, error) {
+	return f.text, f.cost, 0, 0, f.err}
 
 // Ensure fakeVerifier implements model.Verifier.
 var _ model.Verifier = (*fakeVerifier)(nil)

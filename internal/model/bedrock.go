@@ -65,12 +65,12 @@ func resolveBedrockRegion() string {
 // single user turn to the Bedrock Converse API. It returns the text from the
 // first text content block in the assistant response, the compute cost in USD,
 // or an error.
+
 // Capabilities returns CapVerify — the Bedrock driver supports single-shot
 // verification. Chat is available via the Anthropic SDK path.
 func (b *Bedrock) Capabilities() Capability { return CapVerify }
 
-func (b *Bedrock) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
-	output, err := b.Client.Converse(ctx, &bedrockruntime.ConverseInput{
+func (b *Bedrock) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {	output, err := b.Client.Converse(ctx, &bedrockruntime.ConverseInput{
 		ModelId: aws.String(b.ModelID),
 		System: []types.SystemContentBlock{
 			&types.SystemContentBlockMemberText{Value: systemPrompt},
@@ -91,23 +91,23 @@ func (b *Bedrock) Verify(ctx context.Context, systemPrompt, userPayload string) 
 		// (non-HTTP / transient — IsTransient returns true for unknown types).
 		var respErr *smithyhttp.ResponseError
 		if errors.As(err, &respErr) {
-			return "", 0, NewProviderError(respErr.HTTPStatusCode(), "bedrock", b.ModelID, nil)
+			return "", 0, 0, 0, NewProviderError(respErr.HTTPStatusCode(), "bedrock", b.ModelID, nil)
 		}
-		return "", 0, fmt.Errorf("model: bedrock dispatch: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: bedrock dispatch: %w", err)
 	}
 
 	// Extract the first text block from the assistant message.
 	msg, ok := output.Output.(*types.ConverseOutputMemberMessage)
 	if !ok {
-		return "", 0, fmt.Errorf("model: unexpected Converse output type (expected message)")
+		return "", 0, 0, 0, fmt.Errorf("model: unexpected Converse output type (expected message)")
 	}
 	for _, block := range msg.Value.Content {
 		if textBlock, ok := block.(*types.ContentBlockMemberText); ok {
 			cost := computeBedrockCost(b.ModelID, output.Usage)
-			return textBlock.Value, cost, nil
+			return textBlock.Value, cost, 0, 0, nil
 		}
 	}
-	return "", 0, fmt.Errorf("model: no text content in Bedrock response")
+	return "", 0, 0, 0, fmt.Errorf("model: no text content in Bedrock response")
 }
 
 // bedrockPricing maps model IDs to USD per 1M tokens.
