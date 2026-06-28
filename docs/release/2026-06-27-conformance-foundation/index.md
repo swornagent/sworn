@@ -66,8 +66,7 @@ tracks:
 
 | Track | Slices (in order) | Depends on | Branch | State |
 |---|---|---|---|---|
-| `T1-orchestration` | S01 → S02 → S03 → S04 → S05 → S06 → S07 → S27 | — | `track/.../T1-orchestration` | planned |
-| `T2-model-layer` | S08 → S09 → S10 | — | `track/.../T2-model-layer` | merged |
+| `T1-orchestration` | S01 → S02 → S03 → S04 → S05 → S06 → S07 → S27 | — | `track/.../T1-orchestration` | in_progress || `T2-model-layer` | S08 → S09 → S10 | — | `track/.../T2-model-layer` | merged |
 | `T3-agentic-verifier` | S11 → S12 | — | `track/.../T3-agentic-verifier` | planned |
 | `T4-records-as-json` | S13 → S14 → S15 → S16 → S17 | — | `track/.../T4-records-as-json` | planned |
 | `T5-role-ontology` | S18 → S19 → S20 → S21 | T6-contract-revendor | `track/.../T5-role-ontology` | planned |
@@ -121,8 +120,7 @@ tracks:
 | `S01-llm-interpreter` | T1 | Non-typed implementer/verifier outcomes route through a bounded cheap-model decision step; the loop never stalls on routine ambiguity | planned | [spec](./S01-llm-interpreter/spec.md) | — |
 | `S02-orchestrator-decision-log` | T1 | Every routing decision and triage output is persisted to the supervisor SQLite; the Coach can query the decision trail after a run | verified | [spec](./S02-orchestrator-decision-log/spec.md) | [proof](./S02-orchestrator-decision-log/proof.md) |
 | `S03-crash-recovery` | T1 | A slice that hits error_max_turns PAGEs the Coach instead of looping; the cross-run circuit breaker halts a fingerprinted repeated failure | verified | [spec](./S03-crash-recovery/spec.md) | [proof](./S03-crash-recovery/proof.md) |
-| `S04-scheduler-dependent-track` | T1 | A dependent track's worktree branches from the dependency tip after finishTrack auto-merges to release-wt, so it always starts with the dependency's code | planned | [spec](./S04-scheduler-dependent-track/spec.md) | — |
-| `S05-merge-gate-oracle` | T1 | `sworn merge-track` and `sworn merge-release` route verified-check through board.Oracle; invariant-4 conflict detected and reported; CLI merge commands available | planned | [spec](./S05-merge-gate-oracle/spec.md) | — |
+| `S04-scheduler-dependent-track` | T1 | A dependent track's worktree branches from the dependency tip after finishTrack auto-merges to release-wt, so it always starts with the dependency's code | implemented | [spec](./S04-scheduler-dependent-track/spec.md) | [proof](./S04-scheduler-dependent-track/proof.md) || `S05-merge-gate-oracle` | T1 | `sworn merge-track` and `sworn merge-release` route verified-check through board.Oracle; invariant-4 conflict detected and reported; CLI merge commands available | planned | [spec](./S05-merge-gate-oracle/spec.md) | — |
 | `S06-invariant2-enforcement` | T1 | The loop enforces track-mode invariant-2 at dispatch time; an attempted concurrent dispatch of two tracks with overlapping touchpoints is blocked with a named report | planned | [spec](./S06-invariant2-enforcement/spec.md) | — |
 | `S07-pause-resume-committed` | T1 | `sworn run --resume` correctly identifies the first non-terminal slice by reading committed status.json (not working-tree); resumes from the right slice after a crash | planned | [spec](./S07-pause-resume-committed/spec.md) | — |
 | `S08-capability-descriptor` | T2 | Every model driver exposes Capabilities(); implementer-model resolution fails fast at startup with a descriptive error if the selected driver does not support agentic Chat | planned | [spec](./S08-capability-descriptor/spec.md) | — |
@@ -190,11 +188,16 @@ tracks:
 
 ## Recent activity
 
-### 2026-07-28 — S03-crash-recovery verifier verdict: PASS
+### 2026-07-28 — S04-scheduler-dependent-track verifier verdict: BLOCKED
 
 - **Actor**: verifier (/verify-slice)
+- **Verdict**: BLOCKED — forward-merge of release-wt into track/2026-06-27-conformance-foundation/T1-orchestration conflicted on internal/run/slice.go (code). Touchpoint matrix wrong (track-mode invariant 4). Both T1-orchestration and another track modified the same file.
+- **Next step**: /replan-release 2026-06-27-conformance-foundation to re-group tracks so each code file belongs to exactly one track.
+
+### 2026-07-28 — S03-crash-recovery verifier verdict: PASS
+- **Actor**: verifier (/verify-slice)
 - **Verdict**: PASS — All 7 gates pass. Max-turns PAGE + circuit breaker reachable via `sworn run` → worker.go. All 5 ACs satisfied.
-- **Next step**: /implement-slice S04-scheduler-dependent-track 2026-06-27-conformance-foundation
+- **Next step**: /replan-release 2026-06-27-conformance-foundation — S04 verification BLOCKED on touchpoint-matrix conflict in internal/run/slice.go
 
 
 ### 2026-07-28 — S02-orchestrator-decision-log verifier verdict: PASS

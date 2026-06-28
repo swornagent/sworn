@@ -44,3 +44,10 @@ Design review acknowledged with DECISION: PROCEED. Two mechanical pins applied i
 
 - The phase barrier handles ordering but doesn't check that the dependency actually *merged* successfully — it only checks that the goroutine returned. If a dependency track *pauses* (not fails), `failCancel` is not called and the next phase proceeds. This is a pre-existing behavior in `RunParallel` (paused tracks return without cancelling). S04 doesn't introduce this gap; S07 (pause-resume-committed) may address it.
 - `pauseSet` map declared at worker.go:54-62 is dead code (noted by the Captain). Removed as out of scope for S04 — low-priority cleanup.
+## Verifier verdicts received
+
+### 2026-07-28 — BLOCKED
+
+**BLOCKED**: forward-merge of `release-wt/2026-06-27-conformance-foundation` into `track/2026-06-27-conformance-foundation/T1-orchestration` conflicted on `internal/run/slice.go` (code) — the touchpoint matrix was wrong (track-mode invariant 4). Both T1-orchestration and another track modified the same file. Route to `/replan-release 2026-06-27-conformance-foundation` to re-group tracks so no code file appears in more than one track's planned_files.
+
+**Proposed spec amendment for planner**: audit `internal/run/slice.go` across all tracks in release `2026-06-27-conformance-foundation`. At least two tracks claim it — T1-orchestration (S04: `internal/run/parallel.go`) and the track that landed the conflicting change. The planner must move the file into a single track or split the file so tracks are touchpoint-disjoint.
