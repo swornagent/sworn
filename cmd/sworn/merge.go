@@ -151,14 +151,13 @@ func cmdMergeTrack(args []string) int {
 	indexPath := filepath.Join(projectRoot, "docs", "release", rel, "index.md")
 	docShared, err := router.ParseDocumentedShared(indexPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "sworn merge-track: warning: touchpoint matrix parse: %v — proceeding without invariant-4 check\n", err)
-	} else {
-		if err := router.Invariant4Check(releaseRepo, trackBranch, docShared); err != nil {
-			fmt.Fprintf(os.Stderr, "sworn merge-track: BLOCK: %v\n", err)
-			return 1
-		}
+		fmt.Fprintf(os.Stderr, "sworn merge-track: warning: touchpoint matrix parse: %v — using empty documented-shared set (all conflicts will block)\n", err)
+		docShared = make(map[string]bool)
 	}
-
+	if err := router.Invariant4Check(releaseRepo, trackBranch, docShared); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn merge-track: BLOCK: %v\n", err)
+		return 1
+	}
 	// Execute the merge.
 	if err := releaseRepo.Merge(trackBranch); err != nil {
 		fmt.Fprintf(os.Stderr, "sworn merge-track: merge failed: %v\n", err)
