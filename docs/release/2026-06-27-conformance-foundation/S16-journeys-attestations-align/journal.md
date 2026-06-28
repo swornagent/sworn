@@ -24,3 +24,21 @@
 - The validator uses structural required-fields checks rather than full JSON Schema validation (consistent with S13's approach). Full validation is deferred to ADR-0007.
 
 **Subagent dispatches:** None.
+## Verifier verdicts received
+
+### 2026-07-28 — Verifier session (fresh context)
+
+**Verdict: PASS**
+
+All seven verification gates passed:
+
+1. **Gate 1 — User-reachable outcome exists**: PASS — `sworn journeys` CLI command registered at `cmd/sworn/commands.go:59`, wired through `JourneyArtefact` and `AttestationArtefact` structs in `internal/journey/`.
+2. **Gate 2 — Planned touchpoints match actual files**: PASS — All planned files changed plus expected additions (tests, embed.go, validator.go, cmd wiring, impact.go field rename).
+3. **Gate 3 — Required tests exist**: PASS — 51/51 tests pass (`go test ./internal/journey/... -v`), `go vet` clean. Tests exercise nested shape round-trip and validate-on-write paths.
+4. **Gate 4 — Reachability artefact**: PASS — Test run exits 0, confirming all unit + integration tests covering journey and attestation models pass.
+5. **Gate 5 — No silent deferrals**: PASS — No TODO/FIXME/deferred/placeholder in S16-changed code.
+6. **Gate 6 — Design conformance**: PASS — Non-UI Go CLI project.
+7. **Gate 7 — Claimed scope matches implemented**: PASS — All 7 delivered claims verified with evidence.
+
+**Verified against**: commit `5ea66c4` (feat: land S16)
+**Verifier session**: fresh, artefact-only
