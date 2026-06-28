@@ -79,3 +79,18 @@ No code changes — the implementation was correct; only the proof bundle was in
   - Gate 5: No TODO/FIXME/deferred/placeholder in production code
   - Gate 6: Project is not ui_bearing — exempt
   - Gate 7: All 9 delivered items verified against evidence references
+### 2026-06-28 — PASS (all 7 gates)
+
+- **Actor**: verifier (/verify-slice, fresh context)
+- **Verdict**: PASS
+- **Gates**:
+  1. Gate 1 (User-reachable outcome): PASS — `.sworn/journeys.json` exists, `journey.Check()` returns CheckPass, `sworn journeys --check` confirms ratification
+  2. Gate 2 (Planned touchpoints): PASS — divergence section adequately explains the 3 extra code files
+  3. Gate 3 (Required tests): PASS — `go test ./internal/journey/... -v -run TestCheck` passes (4/4)
+  4. Gate 3b (LLM ac-satisfaction): SKIP (no model configured)
+  5. Gate 4 (Reachability): PASS — `sworn journeys --check` exits 0
+  6. Gate 4b (LLM semantic-coverage): SKIP (no model configured)
+  7. Gate 5 (No silent deferrals): PASS — no TODOs/FIXMEs in production code
+  8. Gate 6 (Design conformance): PASS — non-UI project
+  9. Gate 7 (Claimed scope): PASS — all 9 delivered items verified against evidence references
+- **Next**: `/merge-track T4-records-as-json 2026-06-27-conformance-foundation` (all slices in T4 are now verified)

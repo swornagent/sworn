@@ -6,10 +6,11 @@
   "covers_needs": [
     "N-09"
   ],
-  "state": "implemented",
-  "owner": "implementer",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-06-28T15:30:00Z",  "start_commit": "6f68d6024e8ecfe69e264f325b23db01dbbf78df",
+  "state": "verified",
+  "owner": "human",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-28T16:30:00Z",
+  "start_commit": "6f68d6024e8ecfe69e264f325b23db01dbbf78df",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S17-journeys-declare/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S17-journeys-declare/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S17-journeys-declare/journal.md",
@@ -33,6 +34,9 @@
     "reachability_test_path for each journey is TBD (manual attestation at ship cutover). Why: real-infra walk requires a deployed release. Tracking: /mark-shipped ceremony for this release. Acknowledged: Brad, 2026-06-27."
   ],
   "verification": {
-    "result": "pending"
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-06-28T16:30:00Z",
+    "violations": []
   }
 }
