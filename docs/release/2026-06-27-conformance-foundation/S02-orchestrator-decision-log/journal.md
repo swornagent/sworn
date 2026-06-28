@@ -86,3 +86,24 @@ Additional observations (not violations):
 
 - No trade-offs in this session — the fix is a single test addition.
 - The verifier's secondary observation about AC4 ("log a warning" vs silent discard) is a design-fit concern, not a correctness violation. The implementation meets AC4's core requirement (must not abort the run). Adding a stderr warning is deferred as a future enhancement.
+
+## Verifier verdicts received
+
+### Verifier session 2 — PASS
+
+```
+PASS
+
+Slice: `S02-orchestrator-decision-log`
+Verified against: `8267745`
+Verifier session: `<fresh, artefact-only>`
+
+All 7 gates pass:
+- Gate 1: User-reachable outcome exists — `sworn run` → worker → RecordDecision/RecordTriage; query via `sworn telemetry decisions --release <name>`
+- Gate 2: Planned touchpoints match actual changed files — divergences (worker_test.go, slice.go, run.go, db.go) explained in proof.md; sibling-track forward-merge artifacts documented
+- Gate 3: Required tests exist and exercise the integration point — unit tests pass, integration test TestRecordDecisionCalledPerRoutingEvent exercises worker with mock router
+- Gate 4: Reachability artefact — manual smoke step documented; query surface wired and buildable
+- Gate 5: No silent deferrals — grep clean on all S02-scoped files
+- Gate 6: Design conformance — N/A (no design-fidelity config; CLI project)
+- Gate 7: Claimed scope matches implemented scope — all 5 ACs have verifiable evidence references
+```
