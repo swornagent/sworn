@@ -4,8 +4,10 @@
 
 Demote the stateless LLM judge to a deterministic first-pass gate (`RunFirstPass`). Re-vendor `verifier.md` from canonical. The first-pass catches structural blockers before the agentic verifier runs; a PASS from the first‑pass does NOT drive state transitions.
 
-## Files changed (vs start_commit)
+## Files changed (vs parent of start_commit, capturing full implementation diff)
 
+```
+$ git diff --name-only df48e66f0cb8bfbb8e010cbfc689280547e9904b^..HEAD
 ```
 cmd/sworn/verify.go
 docs/release/2026-06-27-conformance-foundation/S12-first-pass-demote/journal.md
