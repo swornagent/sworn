@@ -201,8 +201,21 @@ $ ~/.claude/bin/release-verify.sh S12-first-pass-demote 2026-06-27-conformance-f
   PASS  journal.md present
   PASS  spec.md has Required tests section
   PASS  status.json is valid JSON
+  PASS  state is 'implemented' (eligible for verifier review)
   PASS  worktree branch is current with release/v0.1.0 (no drift)
-  PASS  37 file(s) changed vs diff base
-  PASS  no dark-code markers in changed source files
+  PASS  39 file(s) changed vs diff base
+  FAIL  dark-code markers found in changed source files
+  PASS  proof.md has all 7 required sections
+  PASS  no obvious template placeholders left in proof.md
+  PASS  proof.md 'Not delivered' deferrals carry non-placeholder tracking refs
+  PASS  proof.md 'Files changed' count consistent with diff
   PASS  spec.md frontmatter is strict-YAML safe
-```
+  PASS  Test results section scope confirmed
+
+22/23 checks passed, 1 failed → FIRST-PASS FAIL
+
+The single FAIL is "dark-code markers found in changed source files" —
+these are all in files from the T2-model-layer forward-merge (anthropic.go,
+cli.go, ollama.go, provider.go), NOT in any S12 actual_files. The markers
+are legitimate Rule 2 deferrals from S08/S09/S10. S12's own files contain
+no dark-code markers.
