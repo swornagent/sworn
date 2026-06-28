@@ -2,12 +2,14 @@
   "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
   "slice_id": "S05-merge-gate-oracle",
   "release": "2026-06-27-conformance-foundation",
-  "scope": "sworn merge-track and sworn merge-release route verified-check through board.Oracle; invariant-4 conflict classifier detects and reports non-documented shared file conflicts; CLI merge commands available; MCP tools use oracle-backed state reads",
+  "scope": "sworn merge-track and sworn merge-release route verified-check through board.Oracle; invariant-4 conflict classifier detects and reports non-documented shared file conflicts; CLI merge commands available; MCP tools use oracle-backed state reads; CLI-level integration tests exercise merge-track and merge-release through the sworn binary",
   "files_changed": [
     "cmd/sworn/merge.go",
+    "cmd/sworn/merge_test.go",
     "cmd/sworn/mcp.go",
     "docs/release/2026-06-27-conformance-foundation/S05-merge-gate-oracle/design.md",
     "docs/release/2026-06-27-conformance-foundation/S05-merge-gate-oracle/status.json",
+    "internal/board/board.go",
     "internal/git/git.go",
     "internal/mcp/tools_ops.go",
     "internal/mcp/tools_test.go",
@@ -15,29 +17,35 @@
     "internal/router/router_test.go"
   ],
   "test_results": {
-    "go test ./internal/router/...": "PASS — 17 tests pass including Invariant4Check (real git dry-run), ParseDocumentedShared (synthetic + live index.md), normalizeFilePath, isDocumentedShared",
-    "go test ./internal/git/...": "PASS — all tests pass including existing Merge/Show/CatFileExists/IsAncestor tests"
+    "go test ./cmd/sworn/... -run TestMerge": "PASS — 6 tests pass: TestMergeTrack_AllVerified, TestMergeTrack_UnverifiedSlice, TestMergeTrack_Invariant4Conflict, TestMergeRelease_NoJourneys, TestMergeRelease_Pass, TestMergeTrack_OracleRouting",
+    "go test ./internal/router/...": "PASS — all 17 tests including Invariant4Check (real git dry-run), ParseDocumentedShared (synthetic + live index.md), normalizeFilePath, isDocumentedShared",
+    "go test ./internal/git/...": "PASS — all tests pass including existing Merge/Show/CatFileExists/IsAncestor tests",
+    "go test ./internal/board/...": "PASS — all tests pass including StringList unmarshal (string, null, array forms)"
   },
   "reachability_artefact": {
-    "type": "smoke-test",
-    "description": "go test ./internal/router/... -v -run TestInvariant4CheckCleanMerge passes with real git dry-run merge, verifying the invariant-4 classifier works end-to-end on a real repo. ParseDocumentedShared tested against live index.md (6 documented-shared files match design)."
+    "type": "cli-smoke-test",
+    "command": "/tmp/sworn-smoke merge-track T1-orchestration --release 2026-06-27-conformance-foundation",
+    "exit_code": 1,
+    "output": "Cannot merge track \"T1-orchestration\" — the following slices are not verified:\n  - S05-merge-gate-oracle: state is unknown\n  - S06-invariant2-enforcement: state is planned\n  - S07-pause-resume-committed: state is planned\n  - S27-parallel-dispatch-fix: state is implemented",
+    "description": "CLI-level smoke test: sworn merge-track with the live release board correctly reads slice states via oracle (track branch refs), identifies unverified slices by name, and exits non-zero. Demonstrates the CLI entry point, oracle routing (AC5), and unverified-slice blocking (AC2) end-to-end against real git refs."
   },
   "delivered": [
-    "AC1: merge-track with all verified slices → exit 0 — cmd/sworn/merge.go cmdMergeTrack gate-1 via oracle ReadBoard → SliceState",
-    "AC2: merge-track with unverified slice → exit non-zero — cmd/sworn/merge.go cmdMergeTrack gate-1 rejects non-verified/deferred states",
-    "AC3: invariant-4 conflict on non-documented file → BLOCK message — internal/router/router.go Invariant4Check with documentedShared set from ParseDocumentedShared",
-    "AC4: merge-release with no journeys → BLOCK 'no ratified journeys.json — Rule 10 gate' — cmd/sworn/merge.go cmdMergeRelease gate-3 calls journey.Check; exact spec message emitted",
-    "AC5: merge-track reads slice states via board.Oracle — internal/mcp/tools_ops.go handleApproveMerge + checkTrackVerifiedOracle use board.NewGitOracle + ReadSliceStatus; readReleaseBoardOracle uses OracleReaderAdapter.ReadBoard",
-    "AC6: MCP tools pass same gates — internal/mcp/tools_ops.go handleApproveMerge calls checkTrackVerifiedOracle + Invariant4Check; RegisterOpsTools signature updated"
+    "AC1: merge-track with all verified slices → exit 0 — TestMergeTrack_AllVerified passes; cmd/sworn/merge.go cmdMergeTrack gate-1 via oracle ReadBoard → SliceState",
+    "AC2: merge-track with unverified slice → exit non-zero — TestMergeTrack_UnverifiedSlice passes; smoke test 'sworn merge-track T1-orchestration' returns non-zero naming unverified slices",
+    "AC3: invariant-4 conflict on non-documented file → BLOCK message — TestMergeTrack_Invariant4Conflict passes; internal/router/router.go Invariant4Check with empty documentedShared set when matrix parse fails",
+    "AC4: merge-release with no journeys → BLOCK 'no ratified journeys.json — Rule 10 gate' — TestMergeRelease_NoJourneys passes; cmd/sworn/merge.go cmdMergeRelease gate-3 calls journey.Check; exact spec message emitted",
+    "AC5: merge-track reads slice states via board.Oracle — TestMergeTrack_OracleRouting passes (track branch has verified, working tree has planned; oracle reads from track ref priority 1); smoke test confirms",
+    "AC6: MCP tools pass same gates via internal/mcp/tools_ops.go — existing implementation from first pass (handleApproveMerge uses checkTrackVerifiedOracle + Invariant4Check; RegisterOpsTools signature updated); approved per Captain Pin 2 (AC6 targets approve_merge, not merge_track)"
   ],
   "not_delivered": [
-    "cmd/sworn/merge_test.go: CLI-level unit tests not created — requires mock oracle + mock git infrastructure beyond slice scope. Core logic (Invariant4Check, ParseDocumentedShared) is covered by router tests. Tracking: future slice or manual test. Why: scope limit. Acknowledged: implementer session 2026-07-28.",
-    "MCP round-trip tests (TestApproveMerge with oracle): existing MCP tests use in-process server that times out — pre-existing issue not caused by this slice's changes. Tracking: existing test infrastructure issue."
+    "MCP round-trip tests (TestApproveMerge with oracle): existing MCP tests use in-process server that times out on this branch — pre-existing issue not caused by this slice's changes. Tracking: existing test infrastructure issue. Why: pre-existing timeout in mcp/server_test.go. Acknowledged: implementer session 2026-07-28 (first pass), carried forward."
   ],
   "divergence_from_plan": [
     "spec names MCP tools merge_track/merge_release — actual tool is approve_merge (registered in tools_ops.go:126). AC6 satisfied against approve_merge per Captain Pin 2.",
     "spec Planned touchpoints omits internal/git/git.go — added to status.json planned_files per Captain Pin 3.",
-    "spec deferral about journey gate being stubbed is stale — S17 is verified, journeys.json exists and is ratified. Wired real journey.Check per Captain Pin 4."
+    "spec deferral about journey gate being stubbed is stale — S17 is verified, journeys.json exists and is ratified. Wired real journey.Check per Captain Pin 4.",
+    "Added internal/board/board.go StringList unmarshaler to handle board.json depends_on string/null/array forms — pre-existing bug surfaced by smoke test against live board; fix needed for oracle-backed board reads to work",
+    "Fixed invariant-4 empty-fallback: when touchpoint matrix parse fails, Invariant4Check now runs with empty documentedShared set instead of being skipped entirely — ensures AC3 contracts are enforced even without a matrix"
   ],
   "design_decisions": [
     {

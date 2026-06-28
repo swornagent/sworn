@@ -7,10 +7,11 @@
     "N-05",
     "N-14"
   ],
-  "state": "failed_verification",
+  "state": "implemented",
   "owner": "human",
-  "last_updated_by": "verifier",
-  "last_updated_at": "2026-07-28T19:50:00Z",  "start_commit": "cd4d4869a84ba4dc2aa94e58a051260eee6a897a",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-28T20:25:00Z",
+  "start_commit": "cd4d4869a84ba4dc2aa94e58a051260eee6a897a",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S05-merge-gate-oracle/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S05-merge-gate-oracle/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S05-merge-gate-oracle/journal.md",
@@ -22,9 +23,11 @@
   ],
   "actual_files": [
     "cmd/sworn/merge.go",
+    "cmd/sworn/merge_test.go",
     "cmd/sworn/mcp.go",
     "docs/release/2026-06-27-conformance-foundation/S05-merge-gate-oracle/design.md",
     "docs/release/2026-06-27-conformance-foundation/S05-merge-gate-oracle/status.json",
+    "internal/board/board.go",
     "internal/git/git.go",
     "internal/mcp/tools_ops.go",
     "internal/mcp/tools_test.go",
@@ -32,6 +35,7 @@
     "internal/router/router_test.go"
   ],
   "test_commands": [
+    "go test ./cmd/sworn/... -run TestMerge -v -count=1",
     "go test ./internal/router/... -v -run TestInvariant4",
     "go test ./internal/router/... -v -run TestParseDocumented",
     "go test ./internal/router/... -v -run TestNormalizeFilePath",
@@ -39,7 +43,7 @@
     "go test ./internal/git/... -count=1"
   ],
   "reachability_artifacts": [
-    "smoke: go test ./internal/router/... passes all 17 router tests including Invariant4Check with real git dry-run"
+    "cli-smoke: sworn merge-track T1-orchestration --release 2026-06-27-conformance-foundation (exit 1, correctly blocks on unverified S05/S06/S07/S27)"
   ],
   "design_decisions": [
     {
@@ -59,20 +63,7 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "fail",
-    "verifier_session_id": "2026-07-28T19:50:00Z",
-    "verifier_verdict_at": "2026-07-28T19:50:00Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      {
-        "gate": 3,
-        "summary": "Required tests (cmd/sworn/merge_test.go, integration scenario) not created. Spec requires Unit: cmd/sworn/merge_test.go with mock oracle + mock git; deferral lacks proper Rule 2 acknowledgment (self-acknowledged to 'implementer session 2026-07-28', not to human decision-maker).",
-        "evidence": "proof.json not_delivered: 'cmd/sworn/merge_test.go: CLI-level unit tests not created — requires mock oracle + mock git infrastructure beyond slice scope. Core logic (Invariant4Check, ParseDocumentedShared) is covered by router tests.' spec.md Required tests section explicitly mandates both unit and integration tests."
-      },
-      {
-        "gate": 4,
-        "summary": "Reachability artefact is leaf-level router test (go test ./internal/router/...), not the CLI integration-point demonstration the spec prescribes. Rule 1 rejects 'tests pass' as sole proof of life for a user-facing CLI command.",
-        "evidence": "proof.json reachability_artefact: 'go test ./internal/router/... -v -run TestInvariant4CheckCleanMerge passes'. spec.md prescribes 'go test ./cmd/sworn/... -v -run TestMergeTrack' or 'sworn merge-track --dry-run on a real release board'. Captain Pin 7: 'Real reachability artefact. Beyond the mock-oracle/mock-git unit tests, capture the spec's smoke step.'"
-      }
-    ]
-  }}
+    "result": "pending",
+    "violations": []
+  }
+}

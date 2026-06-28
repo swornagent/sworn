@@ -62,3 +62,35 @@ Required to address:
 3. Produce a reachability artefact showing `sworn merge-track --dry-run` (or similar live CLI invocation) against a real release board with observed exit code
 
 Verifier note: Gates 1, 2, 5, 6, 7 PASS. The core logic (Invariant4Check, ParseDocumentedShared, oracle-backed state reads, journey gate) is correctly implemented and tested at the router/leaf level. The gap is exclusively in the CLI integration-point tests and the integration-point reachability artefact — both prescribed by the spec and reinforced by the captain's approved-ack.
+
+---
+
+## 2026-07-28 — Re-implementation session (address verifier FAIL)
+
+### State transition: failed_verification → in_progress → implemented
+
+**Verifier violations addressed:**
+1. **Gate 3 (missing CLI tests):** Created `cmd/sworn/merge_test.go` with 6 CLI-level tests:
+   - `TestMergeTrack_AllVerified` — builds sworn binary, creates fixture repo, merges track with all slices verified → exit 0
+   - `TestMergeTrack_UnverifiedSlice` — unverified slice → exit non-zero with message naming slice
+   - `TestMergeTrack_Invariant4Conflict` — both-modified file conflict on non-documented-shared file → BLOCK with invariant-4 message
+   - `TestMergeRelease_NoJourneys` — no journeys.json → BLOCK "Rule 10 gate"
+   - `TestMergeRelease_Pass` — all gates passed → exit 0
+   - `TestMergeTrack_OracleRouting` — track branch has verified, working tree has planned; oracle reads from track branch (priority 1) → exit 0
+
+2. **Gate 4 (CLI reachability):** Smoke test `sworn merge-track T1-orchestration --release 2026-06-27-conformance-foundation` returns exit 1 and correctly names unverified slices (S05/S06/S07/S27) — demonstrates CLI entry point with live board and real git oracle.
+
+**Additional fixes made during re-implementation:**
+
+3. **Invariant-4 empty-fallback:** Fixed `cmd/sworn/merge.go` → when `ParseDocumentedShared` fails (no touchpoint matrix), run `Invariant4Check` with empty `documentedShared` map instead of skipping. This ensures AC3 contracts are enforced even without a matrix — any conflict on any file blocks.
+
+4. **BoardTrack DependsOn parsing:** Added `StringList` type in `internal/board/board.go` with custom `UnmarshalJSON` that accepts JSON string, null, and array forms. The live board.json has `depends_on` as a string (`"T2-model-layer"`) or null, which the `[]string` type couldn't unmarshal. This fix was required for the smoke test to work against the live board.
+
+### Build results
+- `go build ./...` — clean
+- `go test ./cmd/sworn/...` — all tests pass (including 6 new merge tests, 22.9s)
+- `go test ./internal/router/...` — 17 tests pass
+- `go test ./internal/git/...` — all pass
+- `go test ./internal/board/...` — all pass (including StringList unmarshal)
+- MCP round-trip tests timeout — pre-existing issue (noted in first pass)
+- Smoke test: `sworn merge-track T1-orchestration` — exit 1, correctly blocks on unverified slices
