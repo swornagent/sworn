@@ -151,3 +151,34 @@ All other gates pass:
 
 Required to address:
 - Update proof.md test results section to honestly report that `go test ./internal/run/...` fails to build, or fix `capabilities_test.go` to match the updated `model.Verifier` interface (add `inputTokens int64, outputTokens int64` return values to `fakeCapDriver.Verify`).
+
+## Session 4 — 2026-06-28 (re-implementation after verifier FAIL Gate 3)
+
+### Addresses
+
+- Gate 3 violation: `go test ./internal/run/...` build break — `fakeCapDriver.Verify` returned `(string, float64, error)` but `model.Verifier` now requires `(string, float64, int64, int64, error)` (input/output token counts added by S24 dispatch-enrich).
+
+### Changes
+
+1. **internal/run/capabilities_test.go**: Updated `fakeCapDriver.Verify` signature to return `(string, float64, int64, int64, error)` — added `0, 0` for `inputTokens`/`outputTokens`. The fake driver doesn't track tokens, so zero values are correct.
+
+### Decisions
+
+- Targeted fix: the underlying implementation from Session 2 (supervisor.go, run/parallel.go, scheduler/worker.go, cmd/sworn/run.go) is unchanged and correct per prior verifier gates (Gates 1, 2, 4, 5, 6, 7 all passed in the 2026-06-28 verifier session). This session only fixes the build break.
+- `fakeCapDriver.Verify` returns `0, 0` for token counts — the fake is not a real model, so zero tokens is accurate.
+- No other fakes needed updating — grep confirmed `fakeCapDriver` was the only compile-breaking mismatch.
+
+### Test results
+
+All test suites pass with honest live-repo-state output:
+- `go test ./internal/supervisor/... -v -run TestPersistence` → PASS (0.05s)
+- `go test ./internal/supervisor/... -v` → 10/10 PASS
+- `go test ./internal/run/... -v` → ALL PASS (3.848s) — including `TestCapabilities_NewAgentRejectsNonChat` (the previously-broken test)
+- `go test ./internal/scheduler/... -v` → 24/24 PASS
+- `go vet ./internal/supervisor/... ./internal/run/... ./internal/scheduler/...` → clean
+
+### Proof-bundle verification gate
+
+- `sworn verify` first-pass deterministic gates: PASS (spec read OK, diff read OK, proof read OK, boundary mock check clean)
+- Model dispatch: BLOCKED (no real API key in worktree — expected for implementer session)
+- Exit code: 2 (non-zero, but deterministic first-pass is green)

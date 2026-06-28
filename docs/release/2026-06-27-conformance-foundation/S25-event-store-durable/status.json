@@ -6,10 +6,11 @@
   "covers_needs": [
     "N-27"
   ],
-  "state": "failed_verification",
+  "state": "implemented",
   "owner": "human",
-  "last_updated_by": "verifier",
-  "last_updated_at": "2026-06-28T01:27:33Z",  "start_commit": "a403f836a258c7aae3549908a0a72b9471b59c26",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-06-28T03:45:38Z",
+  "start_commit": "a403f836a258c7aae3549908a0a72b9471b59c26",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/journal.md",
@@ -30,18 +31,15 @@
   ],
   "reachability_artifacts": [
     "go test ./internal/supervisor/... -v -run TestPersistence exits 0",
-    "Wiring trace: eventDB from cmd/sworn/run.go \u2192 ParallelOptions \u2192 WorkerOptions \u2192 supervisor.SetEventDB"
+    "Wiring trace: eventDB from cmd/sworn/run.go \u2192 ParallelOptions \u2192 WorkerOptions \u2192 supervisor.SetEventDB",
+    "go test ./internal/run/... -v exits 0 \u2014 fakeCapDriver.Verify now matches model.Verifier (5 return values); capability gate tests build and pass"
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "fail",
+    "result": "pending",
     "verifier_session_id": null,
-    "verifier_verdict_at": "2026-06-28T01:27:33Z",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      {
-        "gate": 3,
-        "description": "go test ./internal/run/... does not build (Verify interface mismatch in capabilities_test.go). Proof.md test results claim '31 tests PASS' but output is not from live repo state."
-      }
-    ]
-  }}
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": false,
+    "violations": []
+  }
+}
