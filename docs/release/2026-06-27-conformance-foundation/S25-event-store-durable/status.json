@@ -6,11 +6,10 @@
   "covers_needs": [
     "N-27"
   ],
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "human",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-25T02:15:00Z",
-  "start_commit": "a403f836a258c7aae3549908a0a72b9471b59c26",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-06-28T01:27:33Z",  "start_commit": "a403f836a258c7aae3549908a0a72b9471b59c26",
   "spec_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/spec.md",
   "proof_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/proof.md",
   "journal_path": "docs/release/2026-06-27-conformance-foundation/S25-event-store-durable/journal.md",
@@ -35,10 +34,14 @@
   ],
   "open_deferrals": [],
   "verification": {
-    "result": "pending",
+    "result": "fail",
     "verifier_session_id": null,
-    "verifier_verdict_at": "2026-07-25T03:45:00Z",
+    "verifier_verdict_at": "2026-06-28T01:27:33Z",
     "verifier_was_fresh_context": true,
-    "violations": []
-  }
-}
+    "violations": [
+      {
+        "gate": 3,
+        "description": "go test ./internal/run/... does not build (Verify interface mismatch in capabilities_test.go). Proof.md test results claim '31 tests PASS' but output is not from live repo state."
+      }
+    ]
+  }}

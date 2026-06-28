@@ -188,8 +188,14 @@ tracks:
 
 ## Recent activity
 
-### 2026-07-28 — track `T2-model-layer` merged to release-wt (commit 71ec0803)
+### 2026-06-28 — verifier: `S25-event-store-durable` FAILED verification (Gate 3)
 
+- **Actor**: verifier (/verify-slice)
+- **Verdict**: FAIL — 1 violation
+- **Gate 3**: `go test ./internal/run/...` does not build (Verify interface mismatch in `capabilities_test.go`). Proof.md claims "31 tests PASS" but output is not from live repo state.
+- **Note**: All other gates pass. The core deliverable (durable event store, wiring, persistence test) is sound. Remediation: update proof.md test results to honestly report the build failure, or fix `capabilities_test.go` to match the updated `model.Verifier` interface.
+
+### 2026-07-28 — track `T2-model-layer` merged to release-wt (commit 71ec0803)
 - **Actor**: track integrator (/merge-track)
 - **Note**: 3 verified slices merged: S08-capability-descriptor, S09-error-kind-consumption, S10-agentic-chat-anthropic. Track state → merged.
 

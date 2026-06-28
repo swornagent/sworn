@@ -133,3 +133,21 @@ Reason: Forward-merge of `release-wt/2026-06-27-conformance-foundation` into `tr
 Proposed index.md amendment: Add `internal/model/*` files to T7's column in the touchpoint matrix as DOCUMENTED SHARED with T2 (T2 model-layer already merged), or re-group the colliding slices (S24 and T2's model-layer work) into the same track or a dependent track arrangement. The matrix currently lists only `internal/state/state.go (DOCUMENTED SHARED)` for T7; it must also list all `internal/model/*` files that S24 touches.
 
 Next step: `/replan-release 2026-06-27-conformance-foundation`.
+### 2026-06-28 — Verifier session (fresh context)
+
+**Verdict: FAIL**
+
+Violations:
+1. **Gate 3** — `go test ./internal/run/...` does not build (Verify interface mismatch in `capabilities_test.go`: `fakeCapDriver` has `Verify(ctx, string, string) (string, float64, error)` but `model.Verifier` requires `Verify(ctx, string, string) (string, float64, int64, int64, error)` — missing `inputTokens`/`outputTokens` return values). Proof.md test results claim "31 tests PASS" but output is not from live repo state. The test output is fabricated or copied from a stale run.
+
+All other gates pass:
+- Gate 1: Wiring trace (`cmd/sworn/run.go:114` -> `ParallelOptions.EventDB` -> `WorkerOptions.EventDB` -> `SetEventDB`) is complete and user-reachable via `sworn telemetry events`
+- Gate 2: Divergences (telemetry.go not changed, run.go/parallel.go/worker.go added) are documented in proof.md
+- Gate 3 (supervisor): `TestPersistence` passes, full supervisor suite 10/10
+- Gate 4: `TestPersistence` validates write->close->reopen->query cycle; wiring trace confirmed
+- Gate 5: No TODO/FIXME/placeholder/deferred found in changed files
+- Gate 6: Non-UI project (Go CLI) — gate passes automatically
+- Gate 7: All 11 Delivered claims verified against evidence
+
+Required to address:
+- Update proof.md test results section to honestly report that `go test ./internal/run/...` fails to build, or fix `capabilities_test.go` to match the updated `model.Verifier` interface (add `inputTokens int64, outputTokens int64` return values to `fakeCapDriver.Verify`).
