@@ -10,8 +10,8 @@ Demote the stateless LLM judge to a deterministic first-pass gate (`RunFirstPass
 $ git diff --name-only df48e66f0cb8bfbb8e010cbfc689280547e9904b
 docs/release/2026-06-27-conformance-foundation/S12-first-pass-demote/proof.md
 docs/release/2026-06-27-conformance-foundation/S12-first-pass-demote/status.json
-```## Test results
-
+```
+## Test results
 ```
 $ go test ./internal/verify/... -v -count=1
 
