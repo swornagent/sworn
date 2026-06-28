@@ -36,8 +36,7 @@ No new Go commands needed — the existing `journey.Check()` and `journey.SaveAr
 | AC4 each has `no_mock_boundary` | new struct field + JSON content |
 | AC5 `artefact.IsRatified` true | `ratification.is_ratified: true` in JSON |
 | AC6 `journey.Check()` returns CheckPass | covered by `TestCheck_S17Journeys` |
-| AC7 `sworn merge-release` doesn't BLOCK | `sworn journeys --check` exits 0 when file is present + ratified |
-
+| AC7 `sworn merge-release` doesn't BLOCK | AC6 (`journey.Check()` → `CheckPass`) + S05 gate wiring → AC7 satisfied transitively. Until S05 ships, `sworn merge-release` has no journey gate; `sworn journeys --check` exits 0 is the direct reachability artefact for this slice. |
 ## Risks / pins
 
 - **Risk**: `Journey.NoMockBoundary` is a string field — if the schema ever adds an enum, existing artefacts with arbitrary strings would fail. **Mitigation**: schema currently has no enum for this field; noted as forward-compatible.

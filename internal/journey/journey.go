@@ -58,8 +58,13 @@ type Journey struct {
 	// generated regression test file (e.g. "internal/journey/journey_J01_test.go").
 	// Empty when no regression scaffold has been generated.
 	RegressionTestPath string `json:"regression_test_path,omitempty"`
-}
 
+	// NoMockBoundary declares the boundary that must cross real infrastructure
+	// (not a mock) when this journey is walked. e.g. "entitlement/credits",
+	// "loop-verifier", "real-board/real-gates". Rule 10 enforcement: a mock at
+	// this boundary during journey validation fails the gate.
+	NoMockBoundary string `json:"no_mock_boundary,omitempty"`
+}
 // JourneyStep is one step within a critical customer journey.
 type JourneyStep struct {
 	// Order is the step's position in the journey (1-indexed).

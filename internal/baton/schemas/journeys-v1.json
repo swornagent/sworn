@@ -4,7 +4,14 @@
   "title": "Baton Journeys Artefact",
   "description": "Canonical schema for the durable journeys artefact (.sworn/journeys.json). A journey is an ordered, end-to-end path a user type takes across the app to achieve an outcome, crossing many slices.",
   "type": "object",
-  "required": ["$schema", "version", "created_at", "updated_at", "ratification", "journeys"],
+  "required": [
+    "$schema",
+    "version",
+    "created_at",
+    "updated_at",
+    "ratification",
+    "journeys"
+  ],
   "properties": {
     "$schema": {
       "type": "string",
@@ -24,7 +31,11 @@
     },
     "ratification": {
       "type": "object",
-      "required": ["by", "at", "is_ratified"],
+      "required": [
+        "by",
+        "at",
+        "is_ratified"
+      ],
       "properties": {
         "by": {
           "type": "string",
@@ -45,7 +56,11 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "user_type", "outcome"],
+        "required": [
+          "id",
+          "user_type",
+          "outcome"
+        ],
         "properties": {
           "id": {
             "type": "string"
@@ -60,7 +75,10 @@
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["order", "description"],
+              "required": [
+                "order",
+                "description"
+              ],
               "properties": {
                 "order": {
                   "type": "integer"
@@ -82,6 +100,10 @@
           },
           "regression_test_path": {
             "type": "string"
+          },
+          "no_mock_boundary": {
+            "type": "string",
+            "description": "Boundary that must cross real infrastructure (not mock) when this journey is walked. Rule 10 enforcement."
           }
         }
       }
