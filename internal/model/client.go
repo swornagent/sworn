@@ -16,6 +16,11 @@ type Capability uint
 const (
 	CapVerify Capability = 1 << iota
 	CapChat
+	// CapStructuredOutput advertises that a driver implements StructuredOutput:
+	// it can be handed a JSON Schema and forced to emit a single conforming JSON
+	// object (ADR-0011 authoring path). Additive — a driver that does not set
+	// this bit is unchanged.
+	CapStructuredOutput
 )
 
 // CapabilityProvider exposes the capabilities of a model driver. Every driver
@@ -24,6 +29,28 @@ const (
 // string-parsing dispatch.
 type CapabilityProvider interface {
 	Capabilities() Capability
+}
+
+// StructuredOutput dispatches a chat completion constrained to emit a single
+// JSON object conforming to the supplied JSON Schema (ADR-0011 authoring path;
+// ADR-0009 invariant: "the machine parses JSON only — never prose"). It is an
+// ADDITIVE interface — a driver opts in by implementing it and advertising
+// CapStructuredOutput; Verify and Chat signatures are untouched.
+//
+// Contract:
+//   - schema is the LENIENT canonical JSON Schema (opaque bytes, no name).
+//     Drivers using OpenAI strict response_format project it to the strict
+//     profile at call time (D1); drivers using the tool-call fallback pass it
+//     through unchanged as a single forced tool's parameters.
+//   - The emitted JSON object is returned normalised into the first choice's
+//     Content (Choices[0].Message.Content) regardless of which path produced it.
+//   - ChatStructured is fail-closed at the WIRE level only: it guarantees the
+//     content is non-empty and parses as a JSON object, erroring otherwise.
+//     SEMANTIC validation against the canonical schema BY NAME
+//     (baton.ValidateSchema) is the caller's responsibility — the schema layer
+//     stays decoupled from this wire layer because the name never crosses here.
+type StructuredOutput interface {
+	ChatStructured(ctx context.Context, messages []ChatMessage, schema []byte) (*ChatResponse, error)
 }
 
 // Verifier dispatches one fresh-context verification and returns the model's raw

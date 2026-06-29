@@ -26,6 +26,11 @@ type OAI struct {
 	Model   string // e.g. gpt-4.1
 	APIKey  string
 	Client  *http.Client // nil means http.DefaultClient
+	// Structured selects the ChatStructured emission mechanism (ADR-0011). The
+	// zero value means this driver does not advertise CapStructuredOutput. Set
+	// by the factory per provider: openai → StructuredResponseFormat,
+	// deepseek → StructuredToolCall.
+	Structured StructuredMode
 }
 
 // ToolDef describes a tool the model may call. Name, Description, and the
@@ -69,9 +74,11 @@ func (td ToolDef) MarshalJSON() ([]byte, error) {
 }
 
 type chatRequest struct {
-	Model    string        `json:"model"`
-	Messages []ChatMessage `json:"messages"`
-	Tools    []ToolDef     `json:"tools,omitempty"`
+	Model          string          `json:"model"`
+	Messages       []ChatMessage   `json:"messages"`
+	Tools          []ToolDef       `json:"tools,omitempty"`
+	ToolChoice     json.RawMessage `json:"tool_choice,omitempty"`
+	ResponseFormat *responseFormat `json:"response_format,omitempty"`
 }
 
 // ChatMessage is a single message in a /chat/completions conversation.
@@ -153,9 +160,18 @@ var modelPricing = map[string]struct {
 // On any HTTP error, timeout, or unparseable response it returns an error
 // (not a panic) — the caller (verify.RunFirstPass) maps errors to BLOCKED,
 // fulfilling spec AC4.
-// Capabilities returns CapVerify | CapChat — the OAI driver supports both
-// single-shot verification and multi-turn chat.
-func (c *OAI) Capabilities() Capability { return CapVerify | CapChat }
+// Capabilities returns CapVerify | CapChat, plus CapStructuredOutput when the
+// driver has been configured with a structured-output mode (set by the factory
+// for providers that support it, e.g. openai/deepseek). A zero-value OAI (no
+// Structured mode) advertises only Verify+Chat, so existing constructions are
+// unchanged.
+func (c *OAI) Capabilities() Capability {
+	caps := CapVerify | CapChat
+	if c.Structured != structuredUnsupported {
+		caps |= CapStructuredOutput
+	}
+	return caps
+}
 
 func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
 	reqBody := chatRequest{
@@ -227,12 +243,18 @@ func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (str
 // No logging of message content — per AGENTS.md Security. The message
 // history may contain file contents and command output.
 func (c *OAI) Chat(ctx context.Context, messages []ChatMessage, tools []ToolDef) (*ChatResponse, error) {
-	reqBody := chatRequest{
+	return c.postChat(ctx, chatRequest{
 		Model:    c.Model,
 		Messages: messages,
 		Tools:    tools,
-	}
+	})
+}
 
+// postChat marshals reqBody, POSTs it to /chat/completions, and normalises the
+// response into a ChatResponse (status mapping, empty-choices guard, and the
+// reasoning_content fallback). Shared by Chat and ChatStructured so both paths
+// get identical wire handling.
+func (c *OAI) postChat(ctx context.Context, reqBody chatRequest) (*ChatResponse, error) {
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(reqBody); err != nil {
 		return nil, fmt.Errorf("model: marshal request: %w", err)
@@ -282,6 +304,66 @@ func (c *OAI) Chat(ctx context.Context, messages []ChatMessage, tools []ToolDef)
 	cr.Choices[0].Message.Content = reasoningFallback(body, cr.Choices[0].Message.Content)
 
 	return &cr, nil
+}
+
+// ChatStructured implements StructuredOutput. Per the OAI driver's configured
+// Structured mode it either sets a strict json_schema response_format (the
+// lenient schema is projected to the strict profile at call time, D1) or forces
+// a single function tool whose parameters ARE the schema. The emitted JSON
+// object is normalised into Choices[0].Message.Content regardless of path, and
+// the wire-level fail-closed guard (non-empty, parses as a JSON object) is
+// applied. Semantic validation by schema name is the caller's (ADR-0011).
+func (c *OAI) ChatStructured(ctx context.Context, messages []ChatMessage, schema []byte) (*ChatResponse, error) {
+	reqBody := chatRequest{Model: c.Model, Messages: messages}
+
+	switch c.Structured {
+	case StructuredResponseFormat:
+		strict, err := strictProjection(schema)
+		if err != nil {
+			return nil, err
+		}
+		reqBody.ResponseFormat = &responseFormat{
+			Type: "json_schema",
+			JSONSchema: &jsonSchemaSpec{
+				Name:   schemaName(schema),
+				Schema: json.RawMessage(strict),
+				Strict: true,
+			},
+		}
+	case StructuredToolCall:
+		// One function tool whose parameters ARE the lenient schema; force it.
+		reqBody.Tools = []ToolDef{{
+			Name:        structuredToolName,
+			Description: "Return the result as a single JSON object matching the parameters schema.",
+			Parameters:  json.RawMessage(schema),
+		}}
+		reqBody.ToolChoice = json.RawMessage(
+			`{"type":"function","function":{"name":"` + structuredToolName + `"}}`)
+	default:
+		return nil, fmt.Errorf("model: driver for %q does not support structured output", c.Model)
+	}
+
+	cr, err := c.postChat(ctx, reqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	// Tool-call path: the object is the forced call's arguments — lift it into
+	// Content so callers read one place across both paths.
+	if c.Structured == StructuredToolCall {
+		tcs := cr.Choices[0].Message.ToolCalls
+		if len(tcs) == 0 {
+			return nil, fmt.Errorf("model: structured output: model returned no tool call")
+		}
+		cr.Choices[0].Message.Content = tcs[0].Function.Arguments
+	}
+
+	content, err := normaliseStructuredContent(cr.Choices[0].Message.Content)
+	if err != nil {
+		return nil, err
+	}
+	cr.Choices[0].Message.Content = content
+	return cr, nil
 }
 // reasoningFallback returns content unchanged unless it is empty — in which case
 // it extracts reasoning_content from the raw response body. Thinking models

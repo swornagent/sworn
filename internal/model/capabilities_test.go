@@ -14,7 +14,9 @@ func TestCapabilities_AllDrivers(t *testing.T) {
 	}{
 		// Chat-capable drivers.
 		{name: "OAI", cp: &OAI{}, want: CapVerify | CapChat},
-		{name: "OpenAIResponses", cp: &OpenAIResponses{}, want: CapVerify | CapChat},
+		{name: "OAI-structured-responseformat", cp: &OAI{Structured: StructuredResponseFormat}, want: CapVerify | CapChat | CapStructuredOutput},
+		{name: "OAI-structured-toolcall", cp: &OAI{Structured: StructuredToolCall}, want: CapVerify | CapChat | CapStructuredOutput},
+		{name: "OpenAIResponses", cp: &OpenAIResponses{}, want: CapVerify | CapChat | CapStructuredOutput},
 		{name: "Anthropic", cp: &Anthropic{}, want: CapVerify | CapChat},
 		{name: "cliDriver", cp: &cliDriver{}, want: CapVerify | CapChat},
 		// Verify-only drivers.
@@ -85,5 +87,12 @@ func TestCapabilities_InterfaceAssertion(t *testing.T) {
 		&Google{},
 		&OCI{},
 		&Ollama{},
+	}
+
+	// Compile-time guard: drivers advertising CapStructuredOutput must satisfy
+	// the StructuredOutput interface (ADR-0011 — no decorative capability bits).
+	var _ = []StructuredOutput{
+		&OAI{},
+		&OpenAIResponses{},
 	}
 }

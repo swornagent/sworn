@@ -93,16 +93,18 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 	switch provider {
 	case "openai":
 		return &OAI{
-			BaseURL: "https://api.openai.com/v1",
-			Model:   model,
-			APIKey:  pcfg.OpenAIKey,
+			BaseURL:    "https://api.openai.com/v1",
+			Model:      model,
+			APIKey:     pcfg.OpenAIKey,
+			Structured: StructuredResponseFormat, // native strict json_schema (ADR-0011)
 		}, nil
 
 	case "deepseek":
 		return &OAI{
-			BaseURL: "https://api.deepseek.com/v1",
-			Model:   model,
-			APIKey:  pcfg.DeepSeekKey,
+			BaseURL:    "https://api.deepseek.com/v1",
+			Model:      model,
+			APIKey:     pcfg.DeepSeekKey,
+			Structured: StructuredToolCall, // no strict response_format; forced-tool fallback
 		}, nil
 
 	case "groq":
