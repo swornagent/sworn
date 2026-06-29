@@ -113,7 +113,7 @@ A two-layer conformance audit guards UI-bearing projects against design drift.
 
 ### Layer 1 — Deterministic first-pass (machine-check)
 
-The mechanical gate is `sworn designaudit` — run by the verifier as Gate 6 of the verification workflow. It scans UI files in the slice's diff for:
+The mechanical gate is the design-conformance gate (reference implementation: `sworn designaudit`) — run by the verifier as Gate 6 of the verification workflow. It scans UI files in the slice's diff for:
 
 | Category | Pattern | Detection |
 |---|---|---|

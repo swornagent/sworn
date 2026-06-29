@@ -10,10 +10,37 @@ description: Inline "deferred" comments are rationalisations, not decisions, unl
 An inline code comment marking something as "deferred" / "later" / "future" / "TODO" is **not a decision**. It becomes one only when all three of the following are present:
 
 1. **Why** — a concrete reason the deferral is necessary (framework limitation, blocking dependency, explicit scope cut). Not "we ran out of time on this PR."
-2. **Tracking** — a linked GitHub issue, plan task, or punch-list item that the decision lives in. Not just the inline comment.
+2. **Tracking** — a **concrete, resolvable reference** the work lives in (see "What counts as tracking" below). Not just the inline comment.
 3. **Acknowledgement** — the user, product owner, or decision-maker has been told, in plain text, that this item is being deferred.
 
 Without all three, the inline comment is dark code's data-model cousin: it looks tracked, isn't.
+
+### What counts as tracking (hardened)
+
+A deferral's **Tracking** is satisfied **only** by one of:
+
+- **An owning slice id** — a concrete slice that will deliver the deferred work, e.g. `S14-board-json`. The slice must actually exist (planned or beyond) in a release; a slice id you invent on the spot but never create does not count.
+- **A tracker ref** — an item in whatever issue tool the project uses, **tool-agnostic**: GitHub `#123` (or a `gh` issue URL), Jira `ABC-123`, Linear `ENG-123`, or an explicit issue URL.
+
+The following are **NOT** tracking — a deferral whose only "tracking" is one of these is a **violation**, not a decision:
+
+- Vague futures: "a follow-up slice", "a future slice", "later", "future concern", "future cleanup", "future enhancement", "when X is built".
+- A **release-theme** or epic name (e.g. "the proof-visibility theme") — a theme is not a tracked unit of work.
+- A **decision record** (ADR-NNNN) — it records *why*, not a tracked *work item*.
+- A **process or ceremony** name (`/mark-shipped`, "ship cutover").
+- A **circular self-reference** — the deferral pointing at its own `not_delivered` / `open_deferrals` entry.
+
+If you cannot fill Tracking with a real owning-slice id or tracker ref, you do not have a deferral — you have a punt. **Create the tracking item first** (file the issue, or add the owning slice), then record the deferral citing it.
+
+### Where deferrals hide
+
+The same triple applies wherever work is punted, not just inline comments. Audit **all** of these surfaces:
+
+- inline code comments (`// deferred` / `// TODO` / `// later` / `// future`);
+- a slice's `proof.json` / `proof.md` **`## Not delivered`** section;
+- a slice's `status.json` **`open_deferrals`** array;
+- a slice's `spec.json` / `spec.md` **`## Out of scope`** block (an out-of-scope item is fine *only* if it names the owning slice that does deliver it; an out-of-scope item that simply punts the work with no owner is an untracked deferral);
+- user-visible "coming soon" / "deferred" labels (see "The UI-label cousin").
 
 ## Why
 
