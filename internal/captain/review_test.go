@@ -223,3 +223,36 @@ func TestFormatPinsAsFeedbackNil(t *testing.T) {
 		t.Fatalf("expected empty string for empty result, got %q", got)
 	}
 }
+
+// TestSummaryLineNotCountedAsEscalate locks the #34 fix: the captain's summary
+// line ("Pins: N total — … 0 [escalate]") contains the "[escalate]" substring
+// and must NOT be counted as an escalate pin. The real 2026-06-29 review had
+// the summary twice (body + suggested-ack) → the old substring scan counted 2
+// phantom escalate pins and halted a run with zero real escalate pins.
+func TestSummaryLineNotCountedAsEscalate(t *testing.T) {
+	dir := t.TempDir()
+	spec := "# Test spec\n\n## User outcome\n\nTest.\n"
+	design := "## §1 User-visible change\n\nTest change.\n"
+
+	canned := "## Pins\n\n" +
+		"1. [mechanical] §4.1 — Out-of-scope tool-use described as tracked but no issue number cited.\n\n" +
+		"Pins: 1 total — 1 [mechanical], 0 [memory-cited], 0 [escalate]\n\n" +
+		"## Suggested acknowledgement reply\n\n" +
+		"Pins: 1 total — 1 [mechanical], 0 [memory-cited], 0 [escalate]\n" +
+		"1. **Missing tracker** — file the issue and cite the number.\n"
+
+	fa := fakeAgent{text: canned}
+	result, err := Review(context.Background(), dir, spec, design, fa, "/tmp/wt")
+	if err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	if result.EscalateCount != 0 {
+		t.Fatalf("expected 0 escalate pins (summary lines must not count), got %d", result.EscalateCount)
+	}
+	if result.HasEscalatePins {
+		t.Fatal("expected HasEscalatePins=false, got true")
+	}
+	if len(result.Pins) != 1 || result.Pins[0].Tag != Mechanical {
+		t.Fatalf("expected exactly 1 mechanical pin, got %d pins: %+v", len(result.Pins), result.Pins)
+	}
+}
