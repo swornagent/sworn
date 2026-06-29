@@ -290,7 +290,12 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 					PauseCh:             pauseEngine.PauseCh(releaseName),
 					MergeTrackFn:        opts.MergeTrackFn,
 				}
-				result := scheduler.RunTrack(phaseCtx, workerOpts)
+				// Run on the parent ctx, NOT phaseCtx (#33): a sibling track's
+				// failCancel() must not cancel this track mid-run. Tracks in a
+				// phase are independent — a failure is recorded in outcomeMap and
+				// only gates dependent tracks in *later* phases (the phaseCtx.Err()
+				// check at launch, after the wg.Wait barrier).
+				result := scheduler.RunTrack(ctx, workerOpts)
 				outcomeMap.Store(t.ID, result)
 				if result == scheduler.TrackFail {
 					failCancel()
@@ -353,7 +358,12 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 						PauseCh:             pauseEngine.PauseCh(releaseName),
 						MergeTrackFn:        opts.MergeTrackFn,
 					}
-					result := scheduler.RunTrack(phaseCtx, workerOpts)
+					// Run on the parent ctx, NOT phaseCtx (#33): a sibling track's
+				// failCancel() must not cancel this track mid-run. Tracks in a
+				// phase are independent — a failure is recorded in outcomeMap and
+				// only gates dependent tracks in *later* phases (the phaseCtx.Err()
+				// check at launch, after the wg.Wait barrier).
+				result := scheduler.RunTrack(ctx, workerOpts)
 					outcomeMap.Store(tt.ID, result)
 					if result == scheduler.TrackFail {
 						failCancel()
