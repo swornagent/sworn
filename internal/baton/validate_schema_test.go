@@ -39,3 +39,30 @@ func TestValidateSchema_GoodAndBad(t *testing.T) {
 		t.Errorf("unknown schema should error, got %v", err)
 	}
 }
+
+// TestValidateSchema_VerifierVerdict proves the ADR-0011 keystone schema enforces
+// its core contract: the verdict enum is real, and a FAIL/BLOCKED verdict MUST
+// carry at least one violation (the allOf conditional that structurally prevents
+// a verifier from failing a slice without citing why).
+func TestValidateSchema_VerifierVerdict(t *testing.T) {
+	pass := `{"schema_version": 1, "verdict": "PASS", "rationale": "all checks satisfied"}`
+	if err := ValidateSchema("verifier-verdict-v1", []byte(pass)); err != nil {
+		t.Errorf("valid PASS verdict rejected: %v", err)
+	}
+
+	failWithViolations := `{"schema_version": 1, "verdict": "FAIL", "rationale": "AC3 unmet",
+		"violations": [{"gate": "adversarial", "description": "AC3 not satisfied"}]}`
+	if err := ValidateSchema("verifier-verdict-v1", []byte(failWithViolations)); err != nil {
+		t.Errorf("valid FAIL+violations verdict rejected: %v", err)
+	}
+
+	failNoViolations := `{"schema_version": 1, "verdict": "FAIL", "rationale": "vague"}`
+	if err := ValidateSchema("verifier-verdict-v1", []byte(failNoViolations)); err == nil {
+		t.Error("FAIL without violations accepted — allOf conditional not enforced")
+	}
+
+	badEnum := `{"schema_version": 1, "verdict": "MAYBE", "rationale": "x"}`
+	if err := ValidateSchema("verifier-verdict-v1", []byte(badEnum)); err == nil {
+		t.Error("out-of-enum verdict accepted — verdict enum not enforced")
+	}
+}

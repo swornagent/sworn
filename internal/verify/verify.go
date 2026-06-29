@@ -10,12 +10,14 @@
 package verify
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
 	"github.com/swornagent/sworn/internal/agent"
+	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/verdict"
@@ -87,17 +89,72 @@ func RunFirstPass(ctx context.Context, in Input) verdict.Result {
 		Verdict:   verdict.Pass,
 		Rationale: rationale,
 	}
-}// RunAgentic executes the agentic verification protocol: it dispatches the
-// full verifier.md role prompt via agent.Chat() (no tools), which instructs
-// the model to re-run tests, read live repo state, and return a verdict.
+}// verifierEmitSchema is the model-authored JUDGEMENT subset of
+// verifier-verdict-v1 handed to ChatStructured (ADR-0011 authoring path). It
+// deliberately stays inside OpenAI's strict-mode keyword subset — no minLength /
+// pattern / format (those would break a strict response_format target; see the
+// internal/model/structured.go strict-projection constraint). The canonical
+// verifier-verdict-v1.json schema (which DOES carry minLength/format) is what
+// baton.ValidateSchema validates the stamped emission against; the two agree on
+// the judgement core and any drift fails closed (validation → INCONCLUSIVE).
+// The "title" sets the OpenAI json_schema name (^[a-zA-Z0-9_-]+$).
+var verifierEmitSchema = []byte(`{
+  "title": "verifier-verdict-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "rationale"],
+  "properties": {
+    "verdict": { "type": "string", "enum": ["PASS", "FAIL", "BLOCKED", "INCONCLUSIVE"] },
+    "rationale": { "type": "string" },
+    "failed_gate": { "type": "string" },
+    "routing": { "type": "string", "enum": ["needs_planner", "needs_human", "needs_implementer"] },
+    "violations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gate", "description"],
+        "properties": {
+          "gate": { "type": "string" },
+          "description": { "type": "string" },
+          "evidence": { "type": "string" },
+          "proposed_amendment": { "type": "string" }
+        }
+      }
+    }
+  }
+}`)
+
+// structuredVerdict is the typed view of the model's emitted judgement. It is
+// parsed from the validated emission, never scraped from prose.
+type structuredVerdict struct {
+	Verdict    string `json:"verdict"`
+	Rationale  string `json:"rationale"`
+	FailedGate string `json:"failed_gate"`
+	Routing    string `json:"routing"`
+	Violations []struct {
+		Gate        string `json:"gate"`
+		Description string `json:"description"`
+		Evidence    string `json:"evidence"`
+	} `json:"violations"`
+}
+
+// RunAgentic executes the agentic verification protocol: it dispatches the full
+// verifier.md role prompt and the SPEC+DIFF+PROOF payload, and the verifier
+// EMITS its verdict as a schema-constrained structured-output object
+// (verifier-verdict-v1), which is validated before acceptance (ADR-0011
+// authoring path). This replaces the prior prose reply scraped by HasPrefix —
+// the one live ADR-0009 invariant breach in the hot path.
 //
-// This is the canonical "agentic verifier" path — the verifier gets fresh
-// context (it reads the live repo) and is not limited to a single-shot
-// stateless judge. The model receives the full verifier role prompt as the
-// system message and the SPEC+DIFF+PROOF payload as the user message.
+// Fail-closed at every boundary: a verifier driver that cannot emit structured
+// output, a dispatch error, a malformed emission, or an emission that fails
+// schema validation (e.g. a FAIL verdict that cites no violations) all resolve
+// to INCONCLUSIVE — never an optimistic or scraped verdict.
 //
 // The caller (RunSlice) is responsible for the proof-mandatory check and
-// no-mock wiring before calling RunAgentic.
+// no-mock wiring before calling RunAgentic, and stamps the identity triple
+// (slice_id, release) into status.json post-emission — the model payload is
+// judgement-only (ADR-0011 §3.3 g).
 func RunAgentic(ctx context.Context, spec, diff, proof string, verifierAgent agent.Agent) (verdict.Result, error) {
 	userPayload := buildPayload(spec, diff, proof)
 
@@ -106,25 +163,76 @@ func RunAgentic(ctx context.Context, spec, diff, proof string, verifierAgent age
 		{Role: "user", Content: userPayload},
 	}
 
-	resp, err := verifierAgent.Chat(ctx, messages, nil) // no tools — the verifier role reads only
+	// The verifier must emit a schema-constrained object. A driver that does not
+	// advertise CapStructuredOutput cannot be trusted to a prose verdict any
+	// more (ADR-0009) — fail closed to INCONCLUSIVE.
+	so, ok := verifierAgent.(model.StructuredOutput)
+	if !ok {
+		return inconclusive("verifier_structured_unsupported",
+			"verifier driver does not support structured output (ADR-0011) — cannot emit verifier-verdict-v1"), nil
+	}
+
+	resp, err := so.ChatStructured(ctx, messages, verifierEmitSchema)
 	if err != nil {
-		return blocked("verifier_agentic_dispatch", err.Error()), nil
+		return inconclusive("verifier_structured_dispatch", err.Error()), nil
 	}
-
 	if len(resp.Choices) == 0 {
-		return blocked("verifier_agentic_dispatch", "empty response choices"), nil
+		return inconclusive("verifier_structured_dispatch", "empty response choices"), nil
 	}
 
-	text := resp.Choices[0].Message.Content
-	cost := computeAgenticCost(resp.Usage)
-	result := parseVerdict(text, cost)
-	// Override the FailedGate for agentic path — the verifier role prompt
-	// instructs the model to return PASS/FAIL/BLOCKED directly, so an
-	// unparseable output is a BLOCKED on the agentic dispatch itself.
-	if result.Verdict == verdict.Blocked && result.FailedGate == "unparseable_verdict" {
-		result.FailedGate = "verifier_agentic_unparseable"
+	return acceptStructuredVerdict(resp.Choices[0].Message.Content, resp.Usage), nil
+}
+
+// acceptStructuredVerdict validates the emitted judgement against the canonical
+// verifier-verdict-v1 schema and maps it to a verdict.Result. Any failure along
+// the way is INCONCLUSIVE (fail-closed) — the verdict is taken from the typed,
+// validated object, never inferred from prose.
+func acceptStructuredVerdict(emitted string, usage *model.UsageBlock) verdict.Result {
+	cost := computeAgenticCost(usage)
+
+	// Stamp the binary-owned fields the model does not author, then validate the
+	// completed record against the canonical schema (this is where the
+	// FAIL/BLOCKED ⇒ violations≥1 invariant is enforced).
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(emitted), &obj); err != nil {
+		return inconclusiveCost("verifier_structured_malformed",
+			fmt.Sprintf("emitted verdict is not a JSON object: %v", err), cost)
 	}
-	return result, nil
+	obj["schema_version"] = 1
+	obj["$schema"] = "https://baton.sawy3r.net/schemas/verifier-verdict-v1.json"
+	stamped, err := json.Marshal(obj)
+	if err != nil {
+		return inconclusiveCost("verifier_structured_malformed", err.Error(), cost)
+	}
+	if err := baton.ValidateSchema("verifier-verdict-v1", stamped); err != nil {
+		return inconclusiveCost("verifier_verdict_invalid",
+			fmt.Sprintf("emitted verdict failed verifier-verdict-v1 validation: %v", err), cost)
+	}
+
+	var sv structuredVerdict
+	if err := json.Unmarshal([]byte(emitted), &sv); err != nil {
+		return inconclusiveCost("verifier_structured_malformed", err.Error(), cost)
+	}
+
+	res := verdict.Result{
+		Verdict:    verdict.Verdict(sv.Verdict), // schema-validated to the 4-value enum
+		Rationale:  sv.Rationale,
+		FailedGate: sv.FailedGate,
+		Routing:    sv.Routing,
+		CostUSD:    cost,
+	}
+	if usage != nil {
+		res.InputTokens = int64(usage.PromptTokens)
+		res.OutputTokens = int64(usage.CompletionTokens)
+	}
+	for _, v := range sv.Violations {
+		if v.Gate != "" {
+			res.Violations = append(res.Violations, v.Gate+": "+v.Description)
+		} else {
+			res.Violations = append(res.Violations, v.Description)
+		}
+	}
+	return res
 }
 
 // computeAgenticCost computes a nominal cost from a UsageBlock.
@@ -148,64 +256,27 @@ func buildPayload(spec, diff, proof string) string {	var b strings.Builder
 	return b.String()
 }
 
-// parseVerdict extracts the verdict from the model's reply. It tolerates common
-// model output variations — leading blank lines, markdown emphasis, a leading
-// code fence — while remaining fail-closed: only a leading PASS/FAIL/BLOCKED/
-// INCONCLUSIVE token on the first substantive line passes; anything else blocks.
-func parseVerdict(text string, cost float64) verdict.Result {
-	line := firstVerdictLine(text)
-	t := stripMarkdown(line)
-	upper := strings.ToUpper(t)
-	switch {
-	case strings.HasPrefix(upper, "PASS"):
-		return verdict.Result{Verdict: verdict.Pass, Rationale: text, CostUSD: cost}
-	case strings.HasPrefix(upper, "FAIL"):
-		return verdict.Result{Verdict: verdict.Fail, FailedGate: "adversarial", Rationale: text, CostUSD: cost}
-	case strings.HasPrefix(upper, "BLOCKED"):
-		return verdict.Result{Verdict: verdict.Blocked, FailedGate: "adversarial", Rationale: text, CostUSD: cost}
-	case strings.HasPrefix(upper, "INCONCLUSIVE"):
-		return verdict.Result{Verdict: verdict.Inconclusive, FailedGate: "adversarial", Rationale: text, CostUSD: cost}
-	default:
-		return verdict.Result{Verdict: verdict.Blocked, FailedGate: "unparseable_verdict",
-			Rationale: "verifier reply did not start with PASS/FAIL/BLOCKED/INCONCLUSIVE", CostUSD: cost}
-	}
-}
+// NOTE (ADR-0011): parseVerdict / firstVerdictLine / stripMarkdown — the prose
+// HasPrefix verdict scrape — were deleted with the keystone Step-3 pilot. The
+// verifier now EMITS a schema-constrained verifier-verdict-v1 object
+// (acceptStructuredVerdict above); there is no prose verdict to parse.
 
-// firstVerdictLine returns the first non-empty line that is not a bare code
-// fence.  Leading blank lines are skipped; a line containing only ``` is treated
-// as a fence and skipped so that ```\nPASS resolves to PASS.
-func firstVerdictLine(text string) string {
-	lines := strings.Split(text, "\n")
-	for _, line := range lines {
-		t := strings.TrimSpace(line)
-		if t == "" {
-			continue
-		}
-		// A bare code fence line — skip it, the verdict follows.
-		if t == "```" {
-			continue
-		}
-		return t
-	}
-	return ""
-}
-
-// stripMarkdown removes surrounding markdown emphasis characters (*, _, `) and
-// a leading code-fence marker (```) from a single line.  It trims space before
-// and after so the result is ready for prefix matching.
-func stripMarkdown(line string) string {
-	t := strings.TrimSpace(line)
-	if strings.HasPrefix(t, "```") {
-		t = strings.TrimPrefix(t, "```")
-	}
-	t = strings.TrimSpace(t)
-	// Strip surrounding emphasis — any run of *, _, ` on both sides.
-	t = strings.TrimLeft(t, "*_`")
-	t = strings.TrimRight(t, "*_`")
-	return strings.TrimSpace(t)
-}
 func blocked(gate, why string) verdict.Result {
 	return verdict.Result{Verdict: verdict.Blocked, FailedGate: gate, Rationale: why}
+}
+
+// inconclusive builds a fail-closed INCONCLUSIVE result for the structured
+// authoring path: a verifier that could not emit, or emitted an unparseable or
+// schema-invalid object, is treated as not-yet-determinate (re-verify), never
+// as a scraped or optimistic verdict (ADR-0011).
+func inconclusive(gate, why string) verdict.Result {
+	return verdict.Result{Verdict: verdict.Inconclusive, FailedGate: gate, Rationale: why}
+}
+
+// inconclusiveCost is inconclusive with the dispatch cost attached (the call was
+// made and billed even though the emission was not acceptable).
+func inconclusiveCost(gate, why string, cost float64) verdict.Result {
+	return verdict.Result{Verdict: verdict.Inconclusive, FailedGate: gate, Rationale: why, CostUSD: cost}
 }
 
 func readNonEmpty(path string) (string, error) {

@@ -73,7 +73,27 @@ func (v *passingVerifierAgent) Chat(_ context.Context, _ []model.ChatMessage, _ 
 	}, nil
 }
 
-var _ agent.Agent = (*passingVerifierAgent)(nil)
+// ChatStructured satisfies model.StructuredOutput so the ADR-0011 structured
+// verifier path accepts this fake; it emits a schema-valid PASS verdict.
+func (v *passingVerifierAgent) ChatStructured(_ context.Context, _ []model.ChatMessage, _ []byte) (*model.ChatResponse, error) {
+	return &model.ChatResponse{
+		Choices: []struct {
+			Message struct {
+				Content   string           `json:"content"`
+				ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
+		}{{Message: struct {
+			Content   string           `json:"content"`
+			ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
+		}{Content: structuredVerdictReply("PASS")}, FinishReason: "stop"}},
+	}, nil
+}
+
+var (
+	_ agent.Agent            = (*passingVerifierAgent)(nil)
+	_ model.StructuredOutput = (*passingVerifierAgent)(nil)
+)
 
 // ---------------------------------------------------------------------------
 // alwaysPassVerifier — returns PASS for every verify call
