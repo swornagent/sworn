@@ -13,6 +13,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/oracle/oci-go-sdk/v65 v65.118.1
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	google.golang.org/genai v1.61.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.52.0
