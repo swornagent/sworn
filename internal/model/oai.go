@@ -218,7 +218,7 @@ func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (str
 		inputTokens = int64(cr.Usage.PromptTokens)
 		outputTokens = int64(cr.Usage.CompletionTokens)
 	}
-	return cr.Choices[0].Message.Content, cost, inputTokens, outputTokens, nil
+	return reasoningFallback(body, cr.Choices[0].Message.Content), cost, inputTokens, outputTokens, nil
 }
 // Chat sends a multi-message conversation (possibly with tool definitions// and tool-call history) to /chat/completions. It returns the full
 // ChatResponse so the caller can inspect tool_calls and finish_reason.
@@ -277,9 +277,33 @@ func (c *OAI) Chat(ctx context.Context, messages []ChatMessage, tools []ToolDef)
 	if len(cr.Choices) == 0 {
 		return nil, fmt.Errorf("model: empty choices in response")
 	}
+	// Reasoning-model fallback: thinking models may leave Content empty and put
+	// the answer in reasoning_content (DeepSeek V4-pro). Don't drop it.
+	cr.Choices[0].Message.Content = reasoningFallback(body, cr.Choices[0].Message.Content)
 
 	return &cr, nil
 }
+// reasoningFallback returns content unchanged unless it is empty — in which case
+// it extracts reasoning_content from the raw response body. Thinking models
+// (DeepSeek V4-pro / reasoner) put their answer in reasoning_content and may
+// leave content blank. Mirrors the coach-loop oai-compat reasoning fallback.
+func reasoningFallback(body []byte, content string) string {
+	if content != "" {
+		return content
+	}
+	var rp struct {
+		Choices []struct {
+			Message struct {
+				ReasoningContent string `json:"reasoning_content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(body, &rp); err == nil && len(rp.Choices) > 0 {
+		return rp.Choices[0].Message.ReasoningContent
+	}
+	return content
+}
+
 func computeCost(model string, usage *UsageBlock) float64 {
 	p, ok := modelPricing[model]
 	if !ok || usage == nil {
