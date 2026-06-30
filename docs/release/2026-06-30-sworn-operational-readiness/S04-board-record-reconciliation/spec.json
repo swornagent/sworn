@@ -55,6 +55,12 @@
       "type": "ubiquitous",
       "ears_keyword": "shall",
       "text": "After the change, `go build ./...` SHALL succeed and `go test ./internal/board/...` SHALL pass (including new tests for both release shapes)."
+    },
+    {
+      "id": "AC-07",
+      "type": "unwanted",
+      "ears_keyword": "If",
+      "text": "If sworn writes the board back (WriteBoard / materialise), the round-trip SHALL preserve every field of the canonical `release` object (name, vertical_trace, target_version, integration_branch) — no field dropped — exactly as the D6 deferral round-trip requires. A read->write fixture test SHALL prove vertical_trace survives. (Achievable by preserving the raw object on the Release type and re-emitting it; a legacy string round-trips as a string.)"
     }
   ]
 }
