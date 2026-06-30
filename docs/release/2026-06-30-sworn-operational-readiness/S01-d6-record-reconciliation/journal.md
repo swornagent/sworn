@@ -42,6 +42,15 @@ before any code is written).
   one layer up and **out of S01's scope** (`oracle.go` is a touchpoint here only for
   `parseStatusJSON`). No S01 work item — context only.
 
+### Forward-merge before re-review (track hygiene)
+- The track was cut from `release-wt` at `ed7a707`, before the human's board.json oracle fix
+  (`3cfd54c`) and a subsequent replan that added track `T3-consumer-repo-hygiene` /
+  `S03-sworn-self-ignore` (`364765d`). Propagated by **merge, not copy**:
+  `git merge --no-ff release-wt/2026-06-30-...` into the track. Disjoint file sets (release-wt owns
+  board.json/index.md, track owns the slice design artefacts) → clean merges, no conflict. Drift
+  gate reads 0 (`rev-list --count track..release-wt == 0`) after the merge; board.json on the track
+  is the corrected string form + `schema_version` and carries all three tracks. Track pushed.
+
 ### Next
 - `/design-review S01-d6-record-reconciliation 2026-06-30-sworn-operational-readiness` (Captain) to
   ratify D1 (record `human_decision`), then the Coach acknowledges PROCEED before implementation.
