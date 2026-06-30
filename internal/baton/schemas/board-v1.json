@@ -16,8 +16,15 @@
       "const": 1
     },
     "release": {
-      "type": "string",
-      "minLength": 1
+      "description": "Release identifier. Canonical baton board-v1 emits an object {name, ...}; the legacy string form (the release name) is accepted for back-compat.",
+      "oneOf": [
+        { "type": "string", "minLength": 1 },
+        {
+          "type": "object",
+          "required": ["name"],
+          "properties": { "name": { "type": "string", "minLength": 1 } }
+        }
+      ]
     },
     "release_worktree_path": {
       "type": "string"

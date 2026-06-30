@@ -175,14 +175,25 @@ func validateBoard(data []byte) error {
 		return fmt.Errorf("validator: schema_version must be 1, got %d", svInt)
 	}
 
-	// release must be present and non-empty.
+	// release must be present and identify a non-empty name. Canonical baton
+	// board-v1 emits `release` as an object {name, ...}; older boards emit a
+	// bare string. Accept both (the Go reader, board.Release, does the same).
 	rel, ok := m["release"]
 	if !ok {
 		return fmt.Errorf("validator: missing required field \"release\"")
 	}
-	relStr, ok := rel.(string)
-	if !ok || strings.TrimSpace(relStr) == "" {
-		return fmt.Errorf("validator: release must be a non-empty string")
+	switch v := rel.(type) {
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return fmt.Errorf("validator: release string must be non-empty")
+		}
+	case map[string]interface{}:
+		name, _ := v["name"].(string)
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("validator: release object must have a non-empty \"name\"")
+		}
+	default:
+		return fmt.Errorf("validator: release must be a non-empty string or an object with a name")
 	}
 
 	// tracks must be present.

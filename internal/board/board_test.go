@@ -53,8 +53,8 @@ func TestReadBoard_LazyMigration(t *testing.T) {
 	}
 
 	// Verify BoardRecord from lazy migration.
-	if br.Release != "test-release" {
-		t.Errorf("release: got %q, want %q", br.Release, "test-release")
+	if br.Release.Name != "test-release" {
+		t.Errorf("release: got %q, want %q", br.Release.Name, "test-release")
 	}
 	if br.SchemaVersion != 1 {
 		t.Errorf("schema_version: got %d, want 1", br.SchemaVersion)
@@ -120,7 +120,7 @@ func TestReadBoard_ExistingBoardJSON(t *testing.T) {
 	// Pre-write a board.json that differs from index.md frontmatter.
 	br := &BoardRecord{
 		SchemaVersion:         1,
-		Release:               "test-release",
+		Release:               StringRelease("test-release"),
 		ReleaseWorktreePath:   "/tmp/test-release",
 		ReleaseWorktreeBranch: "release-wt/test-release",
 		Tracks: []BoardTrack{
@@ -165,7 +165,7 @@ func TestWriteBoard_Validation(t *testing.T) {
 
 	// Missing required fields should fail validation.
 	br := &BoardRecord{
-		Release: "test-release",
+		Release: StringRelease("test-release"),
 		Tracks: []BoardTrack{
 			{
 				ID:             "T-bad",
@@ -187,7 +187,7 @@ func TestWriteBoard_RoundTrip(t *testing.T) {
 	repoRoot := setupReleaseDir(t, "test-release", baseFrontmatter())
 
 	br := &BoardRecord{
-		Release:               "test-release",
+		Release:               StringRelease("test-release"),
 		ReleaseWorktreePath:   "/tmp/test-release",
 		ReleaseWorktreeBranch: "release-wt/test-release",
 		Tracks: []BoardTrack{

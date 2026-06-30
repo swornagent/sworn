@@ -21,10 +21,59 @@ import (
 // It mirrors the index.md YAML frontmatter but in typed JSON form.
 type BoardRecord struct {
 	SchemaVersion         int          `json:"schema_version"`
-	Release               string       `json:"release"`
+	Release               Release      `json:"release"`
 	ReleaseWorktreePath   string       `json:"release_worktree_path,omitempty"`
 	ReleaseWorktreeBranch string       `json:"release_worktree_branch,omitempty"`
 	Tracks                []BoardTrack `json:"tracks"`
+}
+
+// Release identifies a release on the board. Canonical baton board-v1 emits
+// `release` as an object {name, vertical_trace, target_version, ...}; older
+// boards (and sworn's own pre-reconcile output) emit a bare string. This type
+// reads BOTH so the oracle can load real coach-produced boards, and preserves
+// the full object verbatim so a write-back never drops a field (the same
+// round-trip-fidelity rule as the D6 deferral migration). A legacy string
+// round-trips as a string.
+type Release struct {
+	Name string
+	// raw holds the canonical object form verbatim (nil for the string form),
+	// so MarshalJSON can re-emit every field unchanged.
+	raw json.RawMessage
+}
+
+// StringRelease constructs a Release from a bare name (string form). Used by
+// the index.md migration path, which only knows the release name.
+func StringRelease(name string) Release { return Release{Name: name} }
+
+// UnmarshalJSON accepts either a JSON string (legacy) or a JSON object with a
+// required, non-empty `name` (canonical baton). Anything else fails closed.
+func (r *Release) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		r.Name, r.raw = s, nil
+		return nil
+	}
+	var o struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(b, &o); err != nil {
+		return fmt.Errorf("board release: not a string or {name} object: %w", err)
+	}
+	if o.Name == "" {
+		return fmt.Errorf("board release object missing required \"name\"")
+	}
+	r.Name = o.Name
+	r.raw = append(json.RawMessage(nil), b...)
+	return nil
+}
+
+// MarshalJSON re-emits the canonical object verbatim when present (preserving
+// vertical_trace etc.), or the bare name as a string for the legacy form.
+func (r Release) MarshalJSON() ([]byte, error) {
+	if r.raw != nil {
+		return r.raw, nil
+	}
+	return json.Marshal(r.Name)
 }
 
 // BoardTrack is one track entry in a BoardRecord.
@@ -154,7 +203,7 @@ func migrateFromIndex(repoRoot, release string) (*BoardRecord, error) {
 
 	br := &BoardRecord{
 		SchemaVersion:         1,
-		Release:               release,
+		Release:               StringRelease(release),
 		ReleaseWorktreePath:   releaseWTPath,
 		ReleaseWorktreeBranch: releaseWTBranch,
 		Tracks:                trackInfosToBoardTracks(trackInfos),
