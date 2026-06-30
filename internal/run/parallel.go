@@ -139,7 +139,15 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 
 	releaseWorktreePath := extractReleaseWorktreePath(fm)
 	if releaseWorktreePath == "" {
-		return fmt.Errorf("RunParallel: release_worktree_path not set in frontmatter of %s", indexPath)
+		// Cold-start (eval finding 1, completion): a freshly-planned board carries
+		// the placeholder "release_worktree_path: # set by first /implement-slice"
+		// which strips to empty. Rather than require the private Driver-1 scaffold
+		// to have filled it, default to a REPO-LOCAL path (a <repo>-worktrees
+		// sibling) so the engine self-bootstraps the release worktree below. The
+		// track worktrees then default to siblings of this path (worker.go).
+		releaseWorktreePath = filepath.Join(filepath.Dir(absRoot),
+			filepath.Base(absRoot)+"-worktrees", "release-"+releaseName)
+		fmt.Fprintf(os.Stderr, "RunParallel: release_worktree_path unset — defaulting to %s (cold-start)\n", releaseWorktreePath)
 	}
 
 	// Parse tracks from frontmatter.
