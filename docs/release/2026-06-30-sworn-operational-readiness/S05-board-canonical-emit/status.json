@@ -3,7 +3,7 @@
   "slice_id": "S05-board-canonical-emit",
   "release": "2026-06-30-sworn-operational-readiness",
   "track": "T4-board-record-reconciliation",
-  "state": "implemented",
+  "state": "in_progress",
   "covers_needs": ["N-08"],
   "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S05-board-canonical-emit/spec.json",
   "proof_path": "docs/release/2026-06-30-sworn-operational-readiness/S05-board-canonical-emit/proof.md",

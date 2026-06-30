@@ -142,6 +142,27 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
   — why: non-blocking tuning, not a hard stop; tracking: this intake's out-of-scope +
   eval findings 5/6 in `2026-06-30-session-handoff.md`; acknowledged 2026-06-30 (Brad).
 
+### 2026-07-01 — No-wild-data: go strict + migrate, drop all back-compat (S01 deferral + S05 reader)
+
+- **Context**: Brad — the old boards/artefacts are all his own; no one in the wild has them *yet*.
+  So back-compat tolerance has no durable beneficiary; it is pure debt, and a strict reader is
+  more fail-closed (fails loud on a non-migrated artefact instead of silently tolerating it). The
+  compat-free window is open and expires the day there are external users — spend it now.
+- **Decision (deferral / S01)**: replace the `anyOf` (acknowledgement OR acknowledged_by) with the
+  STRICT ADDITIVE canonical shape — `why` + `tracking` + `acknowledgement` (Rule-2 plain-text
+  evidence) + `acknowledged_by` (who), optional `acknowledged_at`. Additive, not a swap: a name is
+  not the "told in plain text" evidence, and a bare structured field is easier to stamp vacuously
+  (weakening No-Silent-Deferrals). Migrate the 127 coach deferrals (add acknowledgement); PR the
+  shape UP to baton (supersedes #38's loosen-baton). S01 AC-10 amended, AC-11 added; S01 → in_progress.
+- **Decision (board reader / S05)**: drop the lenient reader too — `Release.UnmarshalJSON` goes
+  object-only (a string release fails closed). Migrate the operator's string boards at cutover.
+  S05 AC-03 amended, AC-04 reworded, AC-06 (migration) added; S05 → in_progress.
+- **Sequencing (both)**: the strict schema/reader and the data migrations must land together at
+  CUTOVER — a strict binary fails closed on unmigrated data and a pre-canonical binary fails on
+  migrated data, so the migrations must not run mid-flight. Do NOT run the fired loop on a strict
+  binary until the 127-deferral migration + board migration are applied. Code (AC-10 / strict
+  reader) is implementer work now; the migrations are the deliberate cutover step.
+
 ### 2026-07-01 — Add S05-board-canonical-emit (T4): right-moving-forward, not permanent back-compat
 
 - **Context**: Brad questioned whether S04's back-compat (oneOf string|object schema + tolerant
