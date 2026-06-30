@@ -1,0 +1,54 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "schema_version": 1,
+  "slice_id": "S05-board-canonical-emit",
+  "release": "2026-06-30-sworn-operational-readiness",
+  "user_outcome": "sworn always EMITS and VALIDATES the canonical baton object form for a board's `release` (strict), while its reader still tolerates a legacy bare string — so the schema no longer carries a string-tolerance divergence from canonical baton, and any existing string board converts to canonical the next time sworn writes it.",
+  "rationale": "S04 unblocked reading real coach boards by making BoardRecord.Release accept both string and object AND relaxing the embedded board-v1 schema + validator to a oneOf [string, object]. That schema/validator relaxation is permanent vendor drift from canonical baton (object-only), so every future `sworn baton vendor` re-pull of board-v1 would conflict on that field forever (the #38 class). S05 applies Postel's law: strict on what we emit/validate (canonical object-only — schema + validator + writer), liberal on what we read (the tolerant unmarshaler stays). The writer now emits the object form even for a name-only release, so sworn never writes the legacy string form again and existing string boards (op-readiness/release-hygiene/conformance) self-heal to canonical on next write — no migration slice needed. Safe to tighten: `baton.Validate(\"board-v1\")` is called only in WriteBoard on freshly-marshaled (now always object) output, and ValidateSchema is not wired for boards, so nothing enforces the schema against on-disk string boards. Builds on S04 (verified, immutable) as a separate slice per Rule 7. Out of scope: full canonical board-v1 parity (nested release.worktree etc.) — that is the broader baton re-vendor.",
+  "covers_needs": ["N-08"],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "chore",
+    "rationale": "Three small edits on S04's verified base: MarshalJSON emits object, schema release object-only, validator object-only; plus a test update. Reader unchanged.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    "internal/board/board.go",
+    "internal/baton/schemas/board-v1.json",
+    "internal/baton/validator.go",
+    "internal/board/board_release_test.go"
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "Release.MarshalJSON SHALL emit the canonical object form {\"name\": ...} for a name-only release (raw absent), so sworn never writes the legacy bare-string release form. A release read from a canonical object SHALL still re-emit its full object verbatim (raw preserved)."
+    },
+    {
+      "id": "AC-02",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When a board.json carrying a legacy string `release` is read and then written, the written form SHALL be the canonical object {\"name\": <the string>} — i.e. the string board self-heals to canonical on write. Proven by TestRelease_StringReadEmitsCanonicalObject."
+    },
+    {
+      "id": "AC-03",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "The embedded board-v1 schema `release` SHALL be object-only (type object, required name) — no string alternative — matching canonical baton's object form (additionalProperties:true to accept the canonical extras without enumerating them); the legacy validator SHALL likewise require the object form. The READER (Release.UnmarshalJSON) SHALL remain tolerant of the legacy string."
+    },
+    {
+      "id": "AC-04",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When `sworn board --release 2026-06-28-yearSnapshot-schema-cleanup` is run against the live fired repo with the S05 binary, it SHALL still read the real coach object-form board (reader tolerance preserved). Reachability artefact: the board output."
+    },
+    {
+      "id": "AC-05",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "After the change, `go build ./...` SHALL succeed and `go test ./...` SHALL pass (full suite — no WriteBoard/migrate test regresses on the canonical-emit change)."
+    }
+  ]
+}

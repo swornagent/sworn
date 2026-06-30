@@ -29,7 +29,7 @@
     },
     {
       "id": "T4-board-record-reconciliation",
-      "slices": ["S04-board-record-reconciliation"],
+      "slices": ["S04-board-record-reconciliation", "S05-board-canonical-emit"],
       "depends_on": [],
       "worktree_branch": "track/2026-06-30-sworn-operational-readiness/T4-board-record-reconciliation",
       "state": "in_progress"

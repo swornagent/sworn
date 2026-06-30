@@ -16,15 +16,13 @@
       "const": 1
     },
     "release": {
-      "description": "Release identifier. Canonical baton board-v1 emits an object {name, ...}; the legacy string form (the release name) is accepted for back-compat.",
-      "oneOf": [
-        { "type": "string", "minLength": 1 },
-        {
-          "type": "object",
-          "required": ["name"],
-          "properties": { "name": { "type": "string", "minLength": 1 } }
-        }
-      ]
+      "description": "Release identifier — the canonical baton object form {name, ...}. sworn emits this form; its reader tolerates a legacy bare string for old boards, but the schema (what sworn validates on write) is canonical object-only. additionalProperties:true accepts the canonical extras (target_version, vertical_trace, ...) without enumerating them here (full canonical parity is the board-v1 re-vendor follow-up).",
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 }
+      }
     },
     "release_worktree_path": {
       "type": "string"

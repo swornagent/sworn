@@ -68,12 +68,17 @@ func (r *Release) UnmarshalJSON(b []byte) error {
 }
 
 // MarshalJSON re-emits the canonical object verbatim when present (preserving
-// vertical_trace etc.), or the bare name as a string for the legacy form.
+// vertical_trace etc.). For a name-only release it STILL emits the canonical
+// object form {"name": ...} — sworn never writes the legacy bare-string form
+// (S05: strict emit, lenient read). Any existing string board therefore
+// converts to canonical the next time sworn writes it.
 func (r Release) MarshalJSON() ([]byte, error) {
 	if r.raw != nil {
 		return r.raw, nil
 	}
-	return json.Marshal(r.Name)
+	return json.Marshal(struct {
+		Name string `json:"name"`
+	}{Name: r.Name})
 }
 
 // BoardTrack is one track entry in a BoardRecord.

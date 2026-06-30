@@ -175,25 +175,21 @@ func validateBoard(data []byte) error {
 		return fmt.Errorf("validator: schema_version must be 1, got %d", svInt)
 	}
 
-	// release must be present and identify a non-empty name. Canonical baton
-	// board-v1 emits `release` as an object {name, ...}; older boards emit a
-	// bare string. Accept both (the Go reader, board.Release, does the same).
+	// release must be the canonical object form {name, ...} with a non-empty
+	// name. sworn always EMITS this form (board.Release.MarshalJSON), so what
+	// WriteBoard validates is always an object; the legacy bare string is
+	// tolerated only by the READER (board.Release.UnmarshalJSON), never written.
 	rel, ok := m["release"]
 	if !ok {
 		return fmt.Errorf("validator: missing required field \"release\"")
 	}
-	switch v := rel.(type) {
-	case string:
-		if strings.TrimSpace(v) == "" {
-			return fmt.Errorf("validator: release string must be non-empty")
-		}
-	case map[string]interface{}:
-		name, _ := v["name"].(string)
-		if strings.TrimSpace(name) == "" {
-			return fmt.Errorf("validator: release object must have a non-empty \"name\"")
-		}
-	default:
-		return fmt.Errorf("validator: release must be a non-empty string or an object with a name")
+	relObj, ok := rel.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("validator: release must be an object with a \"name\" (canonical board-v1)")
+	}
+	name, _ := relObj["name"].(string)
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("validator: release object must have a non-empty \"name\"")
 	}
 
 	// tracks must be present.

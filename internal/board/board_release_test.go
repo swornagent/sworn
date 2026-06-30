@@ -70,13 +70,16 @@ func TestRelease_RoundTripPreservesObjectFields(t *testing.T) {
 	}
 }
 
-func TestRelease_StringRoundTripsAsString(t *testing.T) {
+func TestRelease_StringReadEmitsCanonicalObject(t *testing.T) {
+	// S05: a legacy bare string is READ tolerantly, but re-emitted in the
+	// canonical object form — sworn never writes the legacy string form, so
+	// an existing string board converts to canonical on the next write.
 	var rel Release
 	if err := json.Unmarshal([]byte(`"legacy"`), &rel); err != nil {
 		t.Fatalf("unmarshal string: %v", err)
 	}
 	out, _ := json.Marshal(rel)
-	if string(out) != `"legacy"` {
-		t.Errorf("string release round-trip = %s, want \"legacy\"", out)
+	if string(out) != `{"name":"legacy"}` {
+		t.Errorf("string release emit = %s, want canonical object {\"name\":\"legacy\"}", out)
 	}
 }
