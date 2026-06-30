@@ -51,6 +51,33 @@ before any code is written).
   gate reads 0 (`rev-list --count track..release-wt == 0`) after the merge; board.json on the track
   is the corrected string form + `schema_version` and carries all three tracks. Track pushed.
 
+### Design review outcome (Captain → Coach) — 2026-07-01
+PASS-with-pins. 6 pins + 5 flags; design anchors verified live, scope bounded, round-trip trap
+surfaced. Two pins needed the Coach's call:
+
+- **Pin 2 (D1 Type-1 ratification) — DONE.** Coach (Brad) ratified the carrier representation
+  (structs + `Extra` overflow + custom marshalers). Recorded in `status.json`
+  `design_decisions[0].human_decision`; `sworn designfit` now PASSES (3 slices clear).
+- **Pin 1 (write-back validation gap) — RESOLVED as Option A (reconcile the schema), routed to
+  replan.** Grounding: real fired data has **127 object deferrals using `acknowledged_by`, none
+  with the schema-required `acknowledgement`** — so `state.Write` validation (not just read) fails
+  on real data. Read-only would just relocate the fired run's death to the first write-back. Coach
+  ratified Option A: relax `slice-status-v1` `open_deferrals.required` to accept **either**
+  `acknowledgement` **or** `acknowledged_by` (`anyOf`), keeping Rule 2 intent. This needs a small
+  **/replan-release** to add an AC ("real `acknowledged_by`-only deferral round-trips through Write
+  without a validation error") + fold the schema relaxation into S01 scope, planner-ratified before
+  `in_progress` (Rule 8). The schema is vendored from Baton → upstream mirror tracked as **#38**
+  (PR-up follow-up; sworn-local patch lands now).
+
+Pins 3–6 + flags (a)–(e) are implementer-owned, to address inline during implementation:
+byte-stable round-trip assertion (map-based marshal), compile-thread the new types
+(slice.go:712/718 via `violationsFromStrings`, tools_ops.go:601, tools_plan.go:70, verify.Input
+through RunFirstPass/CheckBoundaryMocks/isDeclared), edit-corruption grep + FULL `go test ./...`
+with per-package timeout, update the stale `verdict.go:42` `// Kept as []string` comment, confirm
+no `switch result` defaults `inconclusive` into pass, oracle `blockedReason` via `ViolationStrings()[0]`,
+and grep-confirm the not-touched report types don't alias `state.Verification.Violations`.
+
 ### Next
-- `/design-review S01-d6-record-reconciliation 2026-06-30-sworn-operational-readiness` (Captain) to
-  ratify D1 (record `human_decision`), then the Coach acknowledges PROCEED before implementation.
+- `/replan-release 2026-06-30-sworn-operational-readiness` — add the `acknowledged_by` write-back AC
+  + schema required-set relaxation to S01 (Pin 1, Option A). Then S01 returns to design-review-clear
+  and proceeds to `in_progress`.
