@@ -1,0 +1,20 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/board-v1.json",
+  "release": {
+    "name": "2026-06-30-sworn-operational-readiness",
+    "target_version": "v0.1.0",
+    "integration_branch": "release/v0.1.0",
+    "vertical_trace": {
+      "benefit": "sworn drives a real coach-produced release to merged unattended, so getfired's blocked release can land via the autonomous loop instead of a human going in circles.",
+      "org_objective": "sworn becomes the operational delivery loop (coach-loop is retired)."
+    }
+  },
+  "tracks": [
+    {
+      "id": "T1-operational-unblock",
+      "slices": ["S01-d6-record-reconciliation"],
+      "depends_on": [],
+      "state": "planned"
+    }
+  ]
+}
