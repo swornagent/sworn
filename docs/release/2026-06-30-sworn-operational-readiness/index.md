@@ -19,7 +19,7 @@ release overnight. Parallelism out of scope (serial is acceptable).
 
 | Track | Slices | depends_on | State |
 |-------|--------|------------|-------|
-| `T1-operational-unblock` | `S01-d6-record-reconciliation` | — | planned |
+| `T1-operational-unblock` | `S01-d6-record-reconciliation` | — | in_progress |
 | `T2-board-render` | `S02-board-render` | — | planned |
 
 Two independent tracks (touchpoint-disjoint, see matrix). Serial execution is fine —
