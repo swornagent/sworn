@@ -179,14 +179,13 @@ func RunTrack(ctx context.Context, opts WorkerOptions) TrackResult {
 
 	// ── Materialise track worktree if absent ────────────────────────────
 	if trackWorktreePath == "" {
-		homeDir, err := os.UserHomeDir()
+		p, err := defaultTrackWorktreePath(opts.ReleaseWorktreePath, opts.ProjectDir, opts.ReleaseName, trackID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[%s] cannot determine home dir: %v\n", trackID, err)
 			releaseTrack(supervisor.StateFailed)
 			return TrackFail
 		}
-		trackWorktreePath = filepath.Join(homeDir, "projects", opts.ProjectDir+"-worktrees",
-			"release-"+opts.ReleaseName+"-"+trackID)
+		trackWorktreePath = p
 	}
 
 	if !dirExists(trackWorktreePath) {
@@ -593,6 +592,29 @@ func stripCaptainProceed(workRoot, specBase, sliceID string) {
 func dirExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
+}
+
+// defaultTrackWorktreePath returns where a track worktree should live when the
+// board doesn't pin one. It is REPO-LOCAL — a sibling of the release worktree —
+// so a run in any repo keeps its worktrees beside that repo's release worktree.
+// The old default (~/projects/<projectDir>-worktrees, projectDir hardcoded
+// "sworn") was identical for every repo, so a fired-repo run silently
+// materialised — and could collide on — sworn's worktree tree (eval finding 3).
+// The ~/projects fallback is reached only when no release worktree path is
+// known, which never happens in production (the board sets it).
+func defaultTrackWorktreePath(releaseWorktreePath, projectDir, releaseName, trackID string) (string, error) {
+	base := "release-" + releaseName + "-" + trackID
+	if releaseWorktreePath != "" {
+		return filepath.Join(filepath.Dir(releaseWorktreePath), base), nil
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	if projectDir == "" {
+		projectDir = "sworn"
+	}
+	return filepath.Join(homeDir, "projects", projectDir+"-worktrees", base), nil
 }
 
 // defaultRunSliceFn is the production RunSlice wrapper.

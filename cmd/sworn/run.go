@@ -141,12 +141,20 @@ func cmdRun(args []string) int {
 				DB:               database,
 			})
 		}
+		// Derive the project dir from the working directory so track worktrees
+		// are named per-repo — a fired-repo run must not reuse "sworn". This is
+		// only the fallback name now; the repo-local default keys off the release
+		// worktree path (worker.go).
+		projectDir := "sworn"
+		if wd, wdErr := os.Getwd(); wdErr == nil {
+			projectDir = filepath.Base(wd)
+		}
 		err = run.RunParallel(context.Background(), run.ParallelOptions{ReleaseName: *releaseName,
 			WorkspaceRoot: ".",
 			DB:            database,
 			EventDB:       eventDB,
 			RunSliceFn:    runSliceFn,
-			ProjectDir:    "sworn",
+			ProjectDir:    projectDir,
 			Notifier:      notifier,
 			MergeTrackFn:  run.ProductionMergeTrack,
 		})
