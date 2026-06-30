@@ -5,7 +5,8 @@ package state
 // and verification.violations as arrays of OBJECTS, not []string. They cover
 // AC-01 (read object form), AC-02 (loss-free byte-stable round trip), AC-03
 // (typed structs preserving unknown keys), AC-07 (inconclusive result enum), and
-// AC-10 (write-back of real acknowledged_by-only deferrals + schema fail-closed).
+// AC-10 (canonical strict-additive deferral round-trips through Write; a deferral
+// missing acknowledgement or acknowledged_by fails closed against the schema).
 
 import (
 	"bytes"
@@ -17,12 +18,15 @@ import (
 	"github.com/swornagent/sworn/internal/baton"
 )
 
-// firedShapedStatus carries fired's real object shapes verbatim: open_deferrals
-// items as {id, description, why, tracking, acknowledged_by} (note: no top-level
-// "item" and no schema-required "acknowledgement" — acknowledged_by stands in for
-// it) and verification.violations as {gate, description, evidence}. This is the
-// exact shape that produced "cannot unmarshal object into Go struct field ... of
-// type string" on the old []string carriers.
+// firedShapedStatus carries fired's real PRE-MIGRATION object shapes verbatim:
+// open_deferrals items as {id, description, why, tracking, acknowledged_by} (note:
+// no top-level "item" and no acknowledgement — real coach data carries who
+// (acknowledged_by) but not yet the canonical plain-text acknowledgement, which
+// the AC-11 cutover migration adds) and verification.violations as {gate,
+// description, evidence}. state.Read must tolerate this real data (Read unmarshals,
+// it does not schema-validate); it is the exact shape that produced "cannot
+// unmarshal object into Go struct field ... of type string" on the old []string
+// carriers. The strict canonical schema is exercised separately (AC-10[B]).
 const firedShapedStatus = `{
   "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
   "slice_id": "S01-networth-hierarchy-remap",
@@ -85,11 +89,19 @@ func TestRead_TypedStructsPreserveUnknownKeys(t *testing.T) {
 	if d.Tracking != "#123" {
 		t.Errorf("AC-03: Tracking not parsed, got %q", d.Tracking)
 	}
-	// id/description/acknowledged_by are not named schema keys → preserved in Extra.
-	for _, k := range []string{"id", "description", "acknowledged_by"} {
+	// acknowledged_by is now a named canonical field (AC-10), not an unknown key.
+	if d.AcknowledgedBy != "Brad (Coach)" {
+		t.Errorf("AC-03/AC-10: acknowledged_by not parsed into the named field, got %q", d.AcknowledgedBy)
+	}
+	// id/description are not named schema keys → preserved in Extra (no loss).
+	for _, k := range []string{"id", "description"} {
 		if _, ok := d.Extra[k]; !ok {
 			t.Errorf("AC-03: unknown key %q dropped from Deferral.Extra", k)
 		}
+	}
+	// acknowledged_by must NOT also linger in Extra (named field owns it now).
+	if _, ok := d.Extra["acknowledged_by"]; ok {
+		t.Error("AC-10: acknowledged_by must move to the named field, not stay in Extra")
 	}
 	v := st.Verification.Violations[0]
 	if v.Gate != "reachability" || v.Description != "no e2e proof" || v.Evidence != "proof.md absent" {
@@ -134,33 +146,54 @@ func TestRoundTrip_PreservesFieldsAndIsByteStable(t *testing.T) {
 	}
 }
 
-// AC-10 [A] (write path): state.Write of a Status whose deferral carries the real
-// coach acknowledged_by but no schema-required acknowledgement must NOT be
-// rejected — the live fired run round-trips a real coach status without dying on
-// write-back.
-func TestWrite_AcknowledgedByOnlyDeferral_NoError(t *testing.T) {
-	src := writeTemp(t, "status.json", firedShapedStatus)
-	st, err := Read(src)
-	if err != nil {
-		t.Fatalf("Read: %v", err)
-	}
-	if _, ok := st.OpenDeferrals[0].Extra["acknowledged_by"]; !ok {
-		t.Fatal("fixture sanity: deferral should carry acknowledged_by")
-	}
-	if st.OpenDeferrals[0].Acknowledgement != "" {
-		t.Fatal("fixture sanity: deferral should NOT carry acknowledgement")
+// AC-10 [A] (canonical round-trip through Write): a Status whose deferral carries
+// the FULL canonical strict-additive shape (why + tracking + acknowledgement +
+// acknowledged_by, plus optional acknowledged_at) must Write without error,
+// validate against the schema, and read back with every canonical field populated
+// in its named struct field (not lost to Extra). This is the post-migration shape
+// the fired loop runs on once the AC-11 cutover has added acknowledgement.
+func TestWrite_CanonicalDeferral_RoundTrips(t *testing.T) {
+	st := &Status{
+		SliceID: "S01-x",
+		Release: "2026-06-28-x",
+		State:   InProgress,
+		OpenDeferrals: []Deferral{{
+			Item:            "year-snapshot backfill postponed",
+			Why:             "depends on the schema migration landing first",
+			Tracking:        "#123",
+			Acknowledgement: "Coach told in plain text: defer to a later release",
+			AcknowledgedBy:  "Brad (Coach)",
+			AcknowledgedAt:  "2026-07-01T02:00:00Z",
+		}},
+		Verification: Verification{Result: "pending"},
 	}
 	out := filepath.Join(t.TempDir(), "out.json")
 	if err := Write(out, st); err != nil {
-		t.Fatalf("AC-10[A]: write-back of acknowledged_by-only deferral must succeed, got: %v", err)
+		t.Fatalf("AC-10[A]: write-back of canonical deferral must succeed, got: %v", err)
+	}
+	// The written bytes must validate against the strict canonical schema.
+	b, _ := os.ReadFile(out)
+	if err := baton.ValidateSchema("slice-status-v1", b); err != nil {
+		t.Fatalf("AC-10[A]: canonical deferral must validate against slice-status-v1, got: %v", err)
+	}
+	// Read back: every canonical field populated in its named field.
+	got, err := Read(out)
+	if err != nil {
+		t.Fatalf("AC-10[A]: read-back: %v", err)
+	}
+	d := got.OpenDeferrals[0]
+	if d.Why == "" || d.Tracking == "" || d.Acknowledgement == "" || d.AcknowledgedBy == "" || d.AcknowledgedAt == "" {
+		t.Errorf("AC-10[A]: canonical field lost on round-trip: %+v", d)
 	}
 }
 
-// AC-10 [B] (schema fail-closed): the relaxed open_deferrals required-set is an
-// anyOf over {why,tracking,acknowledgement} | {why,tracking,acknowledged_by}. A
-// deferral with acknowledged_by passes; a deferral with neither ack key still
-// fails closed, preserving Rule 2's must-be-acknowledged intent.
-func TestSchema_OpenDeferralAcknowledgementAnyOf(t *testing.T) {
+// AC-10 [B] (schema fail-closed, strict additive): the open_deferrals required-set
+// is the strict additive form [why, tracking, acknowledgement, acknowledged_by]
+// (acknowledged_at optional) — NOT an anyOf either-or. The full canonical shape
+// passes; a deferral missing ANY required key (acknowledgement OR acknowledged_by
+// OR tracking OR why) fails closed. acknowledged_by alone no longer satisfies the
+// set: a name is not Rule 2's plain-text "told" evidence.
+func TestSchema_OpenDeferralStrictAdditive(t *testing.T) {
 	base := func(deferral string) []byte {
 		return []byte(`{
   "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
@@ -176,10 +209,13 @@ func TestSchema_OpenDeferralAcknowledgementAnyOf(t *testing.T) {
 		deferral string
 		wantErr  bool
 	}{
-		{"acknowledgement satisfies", `{"why":"w","tracking":"#1","acknowledgement":"Brad"}`, false},
-		{"acknowledged_by satisfies", `{"why":"w","tracking":"#1","acknowledged_by":"Brad"}`, false},
+		{"full canonical passes", `{"why":"w","tracking":"#1","acknowledgement":"told in plain text","acknowledged_by":"Brad"}`, false},
+		{"canonical with acknowledged_at passes", `{"why":"w","tracking":"#1","acknowledgement":"told","acknowledged_by":"Brad","acknowledged_at":"2026-07-01T02:00:00Z"}`, false},
+		{"acknowledged_by alone fails closed (no acknowledgement)", `{"why":"w","tracking":"#1","acknowledged_by":"Brad"}`, true},
+		{"acknowledgement alone fails closed (no acknowledged_by)", `{"why":"w","tracking":"#1","acknowledgement":"told"}`, true},
+		{"missing tracking fails closed", `{"why":"w","acknowledgement":"told","acknowledged_by":"Brad"}`, true},
+		{"missing why fails closed", `{"tracking":"#1","acknowledgement":"told","acknowledged_by":"Brad"}`, true},
 		{"neither ack key fails closed", `{"why":"w","tracking":"#1"}`, true},
-		{"missing tracking fails closed", `{"why":"w","acknowledged_by":"Brad"}`, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

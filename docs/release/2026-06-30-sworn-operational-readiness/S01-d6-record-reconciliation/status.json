@@ -3,13 +3,13 @@
   "slice_id": "S01-d6-record-reconciliation",
   "release": "2026-06-30-sworn-operational-readiness",
   "track": "T1-operational-unblock",
-  "state": "in_progress",
+  "state": "implemented",
   "covers_needs": ["N-01", "N-02", "N-03", "N-04"],
   "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/spec.json",
   "proof_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/proof.json",
   "journal_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/journal.md",
   "last_updated_by": "implement-slice",
-  "last_updated_at": "2026-07-01T02:00:00Z",
+  "last_updated_at": "2026-07-01T03:30:00Z",
   "start_commit": "000ee08aad1404340d7e4ed23d360f4414e0fc19",
   "actual_files": [
     "internal/state/state.go",
@@ -32,7 +32,8 @@
     "go test ./... -timeout 120s"
   ],
   "reachability_artifacts": [
-    "manual-smoke-step: sworn board --release 2026-06-16-critical-journey-resolutions on the live fired repo — slice S05-engine-owned-real-dollars (4 object-form open_deferrals) reads 'unknown' on the old binary, 'verified [verifier]' on the new binary; direct state.Read on the AC-08 target slice S01-networth-hierarchy-remap and on S05 succeeds, preserving acknowledged_by/id in Extra (reachability/ac08-reachability.txt, reachability/ac08-direct-read.txt)"
+    "manual-smoke-step: STRICT-binary sworn board --release 2026-06-16-critical-journey-resolutions on the live fired repo (~/projects/fired, clean before+after — Rule 11) renders the full board with 0 'cannot unmarshal object' errors; S05-engine-owned-real-dollars (4 object-form open_deferrals) reads 'verified [verifier]' (reachability/ac08-reachability.txt)",
+    "manual-smoke-step: direct state.Read on real fired S05 status.json — all 4 deferrals read OK; acknowledged_by + acknowledged_at populate the NEW named fields, acknowledgement='' (real pre-migration data, confirms AC-11), id/field preserved in Extra (reachability/ac08-direct-read.txt). The fired LOOP was NOT run on the strict binary (AC-11 sequencing: gated on #40)."
   ],
   "design_decisions": [
     {
@@ -45,6 +46,18 @@
       ],
       "human_decision": "Ratified by Coach (Brad), 2026-07-01: Deferral/Violation as structs with named schema fields plus an Extra map[string]json.RawMessage overflow and custom (Un)MarshalJSON. Chosen over map[string]any and []json.RawMessage because AC-03 requires typed structs that preserve unknown keys and the Rule-10 boundary consumer needs typed Item/Why access; map-based MarshalJSON yields deterministic byte-stable output (drift-gate safe).",
       "rationale": "Keystone prerequisite (baton.ValidateSchema) touching the on-disk status.json contract across ~15 files; the planner ratified the direction (structs + preserve-unknowns) in spec rationale + AC-03, and the Coach ratified the representation mechanism + determinism guarantee at design review.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "open_deferrals canonical shape defined STRICTLY and ADDITIVELY (required [why, tracking, acknowledgement, acknowledged_by], acknowledged_at optional; NO anyOf), with real coach data migrated to add acknowledgement rather than the schema loosened to accept acknowledged_by as a substitute.",
+      "stake_class": "Type-1",
+      "options": [
+        "strict additive + migrate data (chosen): canonical contract stays strict, vendored schema matches upstream baton with no drift, fails loud on unmigrated artefacts; cost = a one-time 127-deferral cutover migration (#40)",
+        "anyOf acknowledgement|acknowledged_by (first cut, REVERSED): no data migration needed, but bakes permanent drift into the vendored schema and conflates acknowledged_by (who) with acknowledgement (Rule-2 plain-text told-evidence)",
+        "read-only tolerance, no schema change: relocates the failure from read to first write-back; rejected in session 1"
+      ],
+      "human_decision": "Reversed by Coach (Brad), 2026-07-01 (replan 61df7ac, spec Pin-1-REVISED amendment): replace the first cut's anyOf with the strict additive required-set. A name (acknowledged_by) is not Rule 2's plain-text 'told' evidence (acknowledgement); since all artefacts are operator-owned (no wild data) the canonical shape is defined strictly and the data migrated (AC-11 / #40), and the shape pushed up to baton (#38). Strict is also more fail-closed.",
+      "rationale": "Defines the on-disk + upstream canonical deferral contract; hard to reverse once vendored and PR'd up to baton. Implemented as schema required-set + named Go fields; the carrier mechanism (decision[0]) is unchanged.",
       "architecturally_significant": true
     },
     {

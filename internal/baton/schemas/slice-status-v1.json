@@ -81,20 +81,18 @@
     },
     "open_deferrals": {
       "type": "array",
-      "description": "Rule 2 deferral objects. Each must have why, tracking, and acknowledgement per the No Silent Deferrals rule.",
+      "description": "Rule 2 deferral objects. Each must carry why, tracking, acknowledgement, and acknowledged_by (acknowledged_at optional) per the No Silent Deferrals rule. acknowledgement is the plain-text evidence the decision-maker was told; acknowledged_by is the structured attribution (who); acknowledged_at is when. This is the STRICT ADDITIVE canonical shape: acknowledged_by is in addition to acknowledgement, not an either-or substitute (a name is not the plain-text 'told' evidence Rule 2 requires).",
       "items": {
         "type": "object",
         "additionalProperties": true,
-        "anyOf": [
-          { "required": ["why", "tracking", "acknowledgement"] },
-          { "required": ["why", "tracking", "acknowledged_by"] }
-        ],
+        "required": ["why", "tracking", "acknowledgement", "acknowledged_by"],
         "properties": {
           "item": { "type": "string" },
           "why": { "type": "string", "minLength": 1 },
           "tracking": { "type": "string", "minLength": 1 },
           "acknowledgement": { "type": "string", "minLength": 1 },
-          "acknowledged_by": { "type": "string", "minLength": 1 }
+          "acknowledged_by": { "type": "string", "minLength": 1 },
+          "acknowledged_at": { "type": "string", "minLength": 1 }
         }
       }
     },

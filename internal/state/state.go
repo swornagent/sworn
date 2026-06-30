@@ -122,16 +122,23 @@ type Verification struct {
 }
 
 // Deferral models one slice-status-v1 open_deferrals object (Rule 2 — No Silent
-// Deferrals). The schema names item/why/tracking/acknowledgement and is
-// additionalProperties:true, so real coach-produced deferrals carry extra keys
-// (id, description, acknowledged_by). Those land in Extra and round-trip without
-// loss (AC-03). Custom (Un)MarshalJSON is what makes the carrier loss-free where
-// the prior []string carrier failed to unmarshal the object form at all (AC-01).
+// Deferrals). The canonical (strict additive) shape is why + tracking +
+// acknowledgement + acknowledged_by, with acknowledged_at optional:
+// acknowledgement is the plain-text evidence the decision-maker was told;
+// acknowledged_by is the structured attribution (who); acknowledged_at is when.
+// All four (and acknowledged_at) are named fields here, so a typed consumer
+// reads them directly (AC-10). The object is additionalProperties:true, so any
+// other coach-produced key (id, description, …) lands in Extra and round-trips
+// without loss (AC-03). Custom (Un)MarshalJSON is what makes the carrier
+// loss-free where the prior []string carrier failed to unmarshal the object form
+// at all (AC-01).
 type Deferral struct {
 	Item            string `json:"item,omitempty"`
 	Why             string `json:"why,omitempty"`
 	Tracking        string `json:"tracking,omitempty"`
 	Acknowledgement string `json:"acknowledgement,omitempty"`
+	AcknowledgedBy  string `json:"acknowledged_by,omitempty"`
+	AcknowledgedAt  string `json:"acknowledged_at,omitempty"`
 	// Extra preserves unknown keys (additionalProperties:true) so no real-data
 	// field is dropped on read or write-back. json:"-" keeps the default codec
 	// from touching it; the custom (Un)MarshalJSON below own the merge/split.
@@ -177,6 +184,14 @@ func (d *Deferral) UnmarshalJSON(data []byte) error {
 			if err := json.Unmarshal(v, &d.Acknowledgement); err != nil {
 				return err
 			}
+		case "acknowledged_by":
+			if err := json.Unmarshal(v, &d.AcknowledgedBy); err != nil {
+				return err
+			}
+		case "acknowledged_at":
+			if err := json.Unmarshal(v, &d.AcknowledgedAt); err != nil {
+				return err
+			}
 		default:
 			if d.Extra == nil {
 				d.Extra = make(map[string]json.RawMessage)
@@ -205,6 +220,12 @@ func (d Deferral) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	if err := putString(m, "acknowledgement", d.Acknowledgement); err != nil {
+		return nil, err
+	}
+	if err := putString(m, "acknowledged_by", d.AcknowledgedBy); err != nil {
+		return nil, err
+	}
+	if err := putString(m, "acknowledged_at", d.AcknowledgedAt); err != nil {
 		return nil, err
 	}
 	return json.Marshal(m)

@@ -132,3 +132,60 @@ DECISION: PROCEED, Coach Brad; D1 Type-1 recorded in `design_decisions[0].human_
 ### Reachability artefacts
 - scratchpad/ac08-reachability.txt (old-vs-new board on real object data)
 - scratchpad/ac08-direct-read.txt (direct state.Read on real fired files)
+
+## 2026-07-01 — Session 3 (Implementer): re-spec to strict additive, in_progress → implemented
+
+**State transition:** `in_progress` → `implemented`. `start_commit` unchanged (`000ee08`) so the
+verifier sees the full slice diff (sessions 2 + 3). Trigger: replan `61df7ac` (forward-merged into
+T1 as `2d2a4e2`) REVERSED the first cut's anyOf — AC-10 amended to the STRICT ADDITIVE shape and
+AC-11 added (migrate the data + push the shape to baton). The Coach ratified "improve the field,
+migrate the data" over "loosen the schema": a name (`acknowledged_by`) is not Rule 2's plain-text
+`acknowledgement`, and an anyOf in the vendored schema is permanent drift from canonical baton.
+
+### Design-gate posture (Rule 9)
+The carrier MECHANISM (decision[0]: structs + Extra overflow + custom marshalers) — the Type-1
+architecturally-significant choice — is UNCHANGED by this flip. The anyOf→strict-additive change is
+a required-set tightening the Coach explicitly directed (recorded in spec rationale Pin-1-REVISED +
+replan commit body), and the planner returned the slice to `in_progress`, signalling the gate is
+cleared. Adding one named field (`acknowledgement`, plus `acknowledged_by`/`acknowledged_at`) is what
+the Extra-map design already anticipated. Recorded the strict-additive decision as a new Type-1
+`design_decisions` entry with the Coach's `human_decision`. Proceeded as implementer.
+
+### Delivered this session
+- **AC-10 (strict additive):** schema `open_deferrals.required` = `[why, tracking, acknowledgement,
+  acknowledged_by]`, `acknowledged_at` optional, anyOf REMOVED (`slice-status-v1.json`). Go `Deferral`
+  gains named `AcknowledgedBy`/`AcknowledgedAt` (handled in Un/MarshalJSON; byte-stable map marshal
+  preserved). Tests: `TestWrite_CanonicalDeferral_RoundTrips` (canonical writes + validates +
+  round-trips with all named fields populated); `TestSchema_OpenDeferralStrictAdditive` (7 subtests —
+  full canonical + acknowledged_at pass; acknowledged_by-alone, acknowledgement-alone, missing
+  tracking/why, neither-key all FAIL closed via `baton.ValidateSchema`).
+- **AC-03 test update:** `acknowledged_by` now a named field, asserted populated AND asserted NOT in
+  Extra; id/description stay in Extra.
+- **AC-11 (tracked, NOT sworn code):** #40 created (cutover: migrate 127 coach deferrals to add the
+  plain-text `acknowledgement`); #38 re-purposed from the superseded anyOf framing to "push the
+  canonical strict-additive shape up to baton". Sequencing recorded on both: do not run the fired
+  LOOP on a strict binary pre-migration.
+- **AC-08 re-proven on the STRICT binary** (not session 2's anyOf binary), non-destructive on
+  `~/projects/fired` (clean before+after — Rule 11): board oracle renders the full
+  2026-06-16-critical-journey-resolutions board, 0 "cannot unmarshal object"; direct `state.Read` of
+  real S05 (4 deferrals) populates `acknowledged_by`/`acknowledged_at` into the new named fields,
+  `acknowledgement=""` (real pre-migration data), id/field preserved in Extra. Direct-read artefact
+  came from a throwaway test (absolute fired path) that was run then DELETED; its output is retained.
+- **AC-09:** `go build ./...` + full `go test ./...` green (39 pkgs, 0 FAIL, no hang; per-package
+  120s timeout). gofmt clean. Edit-corruption grep clean.
+
+### Decisions / divergences (also in proof.json)
+- **AC-10 fail-closed locus (carried from #39):** `state.Write` still uses structural `baton.Validate`
+  (ignores open_deferrals item required-sets), not `ValidateSchema`. So "missing acknowledgement OR
+  acknowledged_by fails closed" is enforced at the CANONICAL SCHEMA layer (schema-level negative test),
+  not yet at `state.Write` runtime. The wholesale rewire is #39 — out of this slice's AC set (AC-11
+  scopes the extra work as data-migration + baton-upstream). The AC-10 sentence structure (fail-closed
+  clause subject is "a deferral", not "state.Write") supports the schema-layer reading.
+- **Legacy string-form READ tolerance RETAINED** despite the replan's "no back-compat" theme: the
+  concrete S01 instruction was the anyOf→strict required-set change + acknowledgement migration; no AC
+  requires/forbids the string→object read upgrade. Removing it would regress sworn reading its OWN
+  prior string-form boards — a regression NOT covered by AC-11's migration (which adds acknowledgement
+  to object-form deferrals, not string→object conversion). One-way read upgrade; write is always
+  object; does not weaken the strict schema. Surfaced for verifier/Coach.
+- **defer_slice** writes a non-canonical deferral (Why+Acknowledgement, no tracking/acknowledged_by);
+  harmless today (state.Write doesn't schema-validate), folds under #39.
