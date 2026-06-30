@@ -42,6 +42,13 @@ type ParallelOptions struct {
 	// worktree naming conventions.
 	ProjectDir string
 
+	// DocsPrefix is the git-ref path prefix for release boards (default "docs").
+	// On monorepos where docs/ is a symlink (e.g. fired: docs → apps/docs/content/docs),
+	// the on-disk readers resolve through the symlink but git-ref readers (the
+	// router and the planned-files reader) cannot, so they need the real prefix
+	// (e.g. "apps/docs/content/docs"). The oracle auto-detects independently.
+	DocsPrefix string
+
 	// Notifier is the notification dispatcher for track-level failures.
 	// When nil, notifications are skipped.
 	Notifier *account.Notifier
@@ -75,6 +82,7 @@ type productionSliceRouter struct {
 	oracle     router.OracleReader
 	content    router.ContentReader
 	trackInfos []board.TrackInfo
+	docsPrefix string
 }
 
 func (p *productionSliceRouter) Route(ctx context.Context, release, sliceID, trackID string) (scheduler.SliceDecision, error) {
@@ -92,7 +100,7 @@ func (p *productionSliceRouter) Route(ctx context.Context, release, sliceID, tra
 		TrackID:     trackID,
 		TrackBranch: trackBranch,
 		ReleaseRef:  "release-wt/" + release,
-		DocsPrefix:  "docs",
+		DocsPrefix:  p.docsPrefix,
 	})
 	if err != nil {
 		return scheduler.SliceDecision{}, err
@@ -119,13 +127,21 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 		workspaceRoot = "."
 	}
 
+	// Resolve the docs prefix for git-ref readers (router, planned-files). The
+	// on-disk readers resolve through a symlinked docs/ dir, but git-ref readers
+	// need the real path on monorepos. Default "docs".
+	docsPrefix := opts.DocsPrefix
+	if docsPrefix == "" {
+		docsPrefix = "docs"
+	}
+
 	absRoot, err := filepath.Abs(workspaceRoot)
 	if err != nil {
 		return fmt.Errorf("RunParallel: resolve workspace root: %w", err)
 	}
 
 	// ── Read release board ──────────────────────────────────────────────
-	indexPath := filepath.Join(absRoot, "docs", "release", releaseName, "index.md")
+	indexPath := filepath.Join(absRoot, docsPrefix, "release", releaseName, "index.md")
 	indexData, err := os.ReadFile(indexPath)
 	if err != nil {
 		return fmt.Errorf("RunParallel: read index.md: %w", err)
@@ -207,6 +223,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 				oracle:     ora,
 				content:    repo,
 				trackInfos: tracks,
+				docsPrefix: docsPrefix,
 			}
 		}
 	}
@@ -220,7 +237,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 	// ── Resolve planned-files reader ────────────────────────────────────
 	plannedFilesFn := opts.PlannedFilesFn
 	if plannedFilesFn == nil {
-		plannedFilesFn = makePlannedFilesReader(absRoot, releaseName, tracks)
+		plannedFilesFn = makePlannedFilesReader(absRoot, releaseName, docsPrefix, tracks)
 	}
 
 	// ── Parse documented shared files ────────────────────────────────────
@@ -378,11 +395,11 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 						MergeTrackFn:        opts.MergeTrackFn,
 					}
 					// Run on the parent ctx, NOT phaseCtx (#33): a sibling track's
-				// failCancel() must not cancel this track mid-run. Tracks in a
-				// phase are independent — a failure is recorded in outcomeMap and
-				// only gates dependent tracks in *later* phases (the phaseCtx.Err()
-				// check at launch, after the wg.Wait barrier).
-				result := scheduler.RunTrack(ctx, workerOpts)
+					// failCancel() must not cancel this track mid-run. Tracks in a
+					// phase are independent — a failure is recorded in outcomeMap and
+					// only gates dependent tracks in *later* phases (the phaseCtx.Err()
+					// check at launch, after the wg.Wait barrier).
+					result := scheduler.RunTrack(ctx, workerOpts)
 					outcomeMap.Store(tt.ID, result)
 					if result == scheduler.TrackFail {
 						failCancel()
@@ -632,7 +649,7 @@ func checkDisjointness(a, b []string, docShared map[string]bool) []string {
 // each slice's status.json from the release-wt ref via git show, extracts
 // planned_files, and returns the union across all slices in the track.
 // The closure captures absRoot, releaseName, and the track→slices map.
-func makePlannedFilesReader(absRoot, releaseName string, tracks []board.TrackInfo) func(ctx context.Context, trackID string) ([]string, error) {
+func makePlannedFilesReader(absRoot, releaseName, docsPrefix string, tracks []board.TrackInfo) func(ctx context.Context, trackID string) ([]string, error) {
 	// Build track→slices lookup.
 	slicesByTrack := make(map[string][]string, len(tracks))
 	for _, ti := range tracks {
@@ -650,8 +667,8 @@ func makePlannedFilesReader(absRoot, releaseName string, tracks []board.TrackInf
 		var allFiles []string
 		for _, sliceID := range slices {
 			// Read status.json from release-wt ref.
-			// Path: docs/release/<release>/<slice>/status.json
-			path := fmt.Sprintf("docs/release/%s/%s/status.json", releaseName, sliceID)
+			// Path: <docsPrefix>/release/<release>/<slice>/status.json
+			path := fmt.Sprintf("%s/release/%s/%s/status.json", docsPrefix, releaseName, sliceID)
 			raw, err := repo.Show(ref, path)
 			if err != nil {
 				continue // fail open (AC-4)

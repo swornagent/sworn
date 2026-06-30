@@ -44,6 +44,7 @@ func cmdRun(args []string) int {
 	implTimeout := fs.Duration("implement-timeout", 0, "per-attempt implement deadline (0 = use default; negative = no timeout)")
 	dryRun := fs.Bool("dry-run", false, "verify planner dispatch would be called without actually running")
 	resume := fs.Bool("resume", false, "resume an in-flight parallel release — each track seeds from committed state (alias: every --parallel run already does this, the flag makes the contract explicit)")
+	docsPrefix := fs.String("docs-prefix", "docs", "git-ref path prefix for release boards; set to apps/docs/content/docs for monorepos where docs/ is a symlink (the oracle auto-detects, but the router + planned-files reader need this)")
 	_ = fs.Parse(args)
 
 	// ── Load .env files ────────────────────────────────────────────────
@@ -155,6 +156,7 @@ func cmdRun(args []string) int {
 			EventDB:       eventDB,
 			RunSliceFn:    runSliceFn,
 			ProjectDir:    projectDir,
+			DocsPrefix:    *docsPrefix,
 			Notifier:      notifier,
 			MergeTrackFn:  run.ProductionMergeTrack,
 		})
