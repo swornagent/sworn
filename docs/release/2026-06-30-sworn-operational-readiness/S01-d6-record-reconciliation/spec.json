@@ -1,0 +1,90 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "schema_version": 1,
+  "slice_id": "S01-d6-record-reconciliation",
+  "release": "2026-06-30-sworn-operational-readiness",
+  "user_outcome": "sworn reads a real coach-produced status.json (object-form open_deferrals and verification.violations) without an unmarshal error and round-trips it without dropping any field, so the autonomous loop can run a real release instead of dying instantly on status-read.",
+  "rationale": "D6 type drift is the single empirical blocker from the live fired dogfood run (docs/captures/2026-06-30-fired-dogfood-findings.md): sworn's Go carriers (state.Status.OpenDeferrals []string, state.Verification.Violations []string) lag the slice-status-v1 schema, which defines both as arrays of OBJECTS. fired's real open_deferrals are {id, description, why, tracking, acknowledged_by}. The fix migrates the Go types UP to the schema (D6 ratified direction) and round-trips the object form. No flatten-to-string read tolerance is permitted: sworn rewrites status.json every transition, so flattening would silently degrade real coach data on write-back. To bound churn and tech debt, display-only consumers read through string-projection helper methods rather than each being rewritten; only the type defs, the write path, the Rule-10 no-mock-boundary consumer, and the helpers change. Also reconciles need_ids->covers_needs (N-03) and adds the inconclusive leaf-enum (N-04 / #37). This is also the baton.Validate->ValidateSchema keystone prerequisite (step 1b).",
+  "covers_needs": ["N-01", "N-02", "N-03", "N-04"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "epic",
+    "rationale": "High complexity (Cynefin high): a careful type migration touching the Rule-10 no-mock-boundary consumer, with a round-trip-fidelity trap (schema requires `acknowledgement` but fired's real data uses `acknowledged_by`, so a naive typed struct silently drops fields). High effort: ~15 state-touching files across state, verify, run, implement, mcp, board, router, ledger, cmd. Atomic by nature (a type change cannot compile half-migrated), so it stays one slice despite sitting at the file-count ceiling.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    "internal/state/state.go",
+    "internal/verify/verify.go",
+    "internal/verify/validate_blocked.go",
+    "internal/run/slice.go",
+    "internal/implement/implement.go",
+    "internal/implement/proof_record.go",
+    "internal/implement/spec_record.go",
+    "internal/mcp/tools_ops.go",
+    "internal/mcp/tools_plan.go",
+    "internal/board/oracle.go",
+    "internal/router/router.go",
+    "internal/ledger/ledger.go",
+    "cmd/sworn/route.go",
+    "cmd/sworn/verify.go",
+    "cmd/sworn/task.go",
+    "internal/baton/schemas/slice-status-v1.json"
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When state.Read parses a status.json whose open_deferrals items are JSON objects ({id, description, why, tracking, acknowledged_by}) and whose verification.violations items are JSON objects ({gate, description, evidence}), it SHALL unmarshal without error (no 'cannot unmarshal object into Go struct field ... of type string'). Proven by a fixture test using fired's real object shape."
+    },
+    {
+      "id": "AC-02",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When such a status.json is read via state.Read then written via state.Write, every field present on each original open_deferrals object and each violations object SHALL be preserved (no field dropped on write-back), proven by a round-trip fixture test asserting the re-marshalled objects retain id/description/acknowledged_by (fields not in the schema's required set)."
+    },
+    {
+      "id": "AC-03",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "state.Status.OpenDeferrals SHALL be typed []Deferral and state.Verification.Violations SHALL be typed []Violation, where Deferral and Violation are structs modelling the slice-status-v1 object shapes AND preserving unknown keys (matching the schema's additionalProperties:true), so no real-data field is lost in the Go representation."
+    },
+    {
+      "id": "AC-04",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "Display-only consumers that previously read the []string deferral/violation values SHALL read through string-projection helper methods (e.g. Status.DeferralStrings(), Verification.ViolationStrings()) rather than each call site being rewritten, so the migration diff is bounded to the type definitions, the write path, the Rule-10 boundary consumer, the helpers, and the schema. Unrelated report types named Violations (ears, gate, designaudit, reqverify, specquality, lint, rtm) SHALL NOT be modified."
+    },
+    {
+      "id": "AC-05",
+      "type": "unwanted",
+      "ears_keyword": "If",
+      "text": "If CheckBoundaryMocks (internal/verify/verify.go) consumes deferrals to permit a declared mock at a validated boundary, it SHALL read the structured Deferral fields (item/why/tracking/acknowledgement) and its enforcement SHALL remain at least as strict as before; a regression test SHALL prove an undeclared mock at a validated boundary still fails closed (Rule 10)."
+    },
+    {
+      "id": "AC-06",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "The slice-status field carrying intake-need IDs SHALL serialise as covers_needs (state.Status field NeedIDs renamed CoversNeeds, json tag need_ids -> covers_needs), and its two writers (internal/implement/spec_record.go line ~58, cmd/sworn/task.go line ~145) SHALL be updated accordingly."
+    },
+    {
+      "id": "AC-07",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When the verifier returns an inconclusive verdict, the slice-status-v1 schema verification.result enum SHALL include 'inconclusive' so result: 'inconclusive' validates and persists; the merge gate's fail-closed treatment is unchanged (inconclusive still does NOT pass — it is merely representable rather than forced to 'fail'). (#37 / deferred D4)."
+    },
+    {
+      "id": "AC-08",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When `sworn run` is pointed at the live fired release 2026-06-28-yearSnapshot-schema-cleanup (~/projects/fired, --docs-prefix apps/docs/content/docs) — the run that previously failed at the open_deferrals unmarshal — the status-read of S01-networth-hierarchy-remap SHALL succeed and the loop SHALL proceed past the D6 failure point. This is the reachability artefact: capture the run output showing no status-read rejection."
+    },
+    {
+      "id": "AC-09",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "After the migration, `go build ./...` SHALL succeed and `go test ./...` SHALL pass (full suite, the regression boundary for ~15 touched files)."
+    }
+  ]
+}

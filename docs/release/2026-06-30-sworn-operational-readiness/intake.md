@@ -80,6 +80,10 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
 - sworn running a real getfired release **autonomously, overnight, tonight**.
 - Minimise churn and tech debt — nail it properly, no half-measures that need redoing.
 - Serial track execution is fine; parallelism is not required for this milestone.
+- N-01: sworn reads a real coach-produced status.json whose open_deferrals and verification.violations are arrays of OBJECTS (not strings) without an unmarshal error.
+- N-02: Read then Write of such a status.json PRESERVES every field of each deferral/violation object (no silent field drop on write-back) — the no-degrade non-negotiable.
+- N-03: the slice-status field carrying intake-need IDs is named covers_needs (schema name), not need_ids, so a real status.json round-trips and the RTM gate reads it.
+- N-04: an inconclusive verifier verdict is representable in the slice-status leaf result enum (#37 / deferred D4), so the agentic verifier's inconclusive maps cleanly rather than being forced into fail.
 
 ## Constraints and non-negotiables
 
@@ -117,7 +121,34 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
 
 ## Decisions made during planning
 
-`<Captured below as each AskUserQuestion is answered.>`
+### 2026-06-30 — Scope = D6 only tonight; resilience deferred (tracked)
+
+- **Context**: how wide to scope for an autonomous-overnight run tonight (each slice =
+  one implement + one verify session ≈ the night's time budget).
+- **Options considered**: (A) D6 only, watch the first slice land then walk away;
+  (B) D6 + autonomy hardening (retry-reset, escalation-default, turn-cap); (C) + keystone
+  family.
+- **Decision**: **A — D6 only (S01).** "let's goooo" — fastest path to a running
+  autonomous loop. Watch the first slice go implement→verify→merge to confirm the loop
+  works end-to-end, then let it run unattended for the rest.
+- **Why**: D6 is the only empirical blocker; cold-start + docs-prefix already fixed. The
+  resilience items are non-blocking tuning; if the overnight run pages on one, S02/S03 are
+  ready follow-ups. Minimises tonight's work to get sworn operational.
+- **Deferred (Rule 2)**: `S02-retry-reset-preserves-work` and `S03-escalation-honours-config`
+  — why: non-blocking tuning, not a hard stop; tracking: this intake's out-of-scope +
+  eval findings 5/6 in `2026-06-30-session-handoff.md`; acknowledged 2026-06-30 (Brad).
+
+### 2026-06-30 — Overnight target = the fired dogfood release
+
+- **Context**: what sworn actually drives overnight (A-01).
+- **Decision**: the **fired dogfood release** `2026-06-28-yearSnapshot-schema-cleanup`
+  (`~/projects/fired`, 3 slices / 1 track, deepseek-v4-pro, provider keys seeded in
+  `~/.sworn/.env`). It is the run that blocked at D6 and is the smallest real end-to-end
+  operational proof.
+- **Why**: already planned + seeded; ready the moment D6 lands. Planning/running the big
+  getfired v0.5.0 release is a separate downstream effort — prove the loop on the dogfood
+  first. (Landing the existing ~1M-line v0.5.0 branch is a different engine shape —
+  reviewer/merger not builder — and is NOT this release.)
 
 ## Schema-vs-spec audit notes
 
