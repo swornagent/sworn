@@ -1,10 +1,18 @@
 ---
-title: 'Direction — sworn serve: a machine-global web control plane for loops'
-description: 'Open successor to the retired coach release-board-ui.mjs: a single-binary HTTP control plane that monitors and manages every sworn loop on a machine (and remote machines), mobile-first. Captured as a future release, not yet planned.'
+title: 'Direction — omni-channel control plane for autonomous loop orchestration'
+description: 'Open successor to the retired coach release-board-ui.mjs: one event+command core behind a machine-global web control plane (mobile-first, remote-capable) AND push/chat channels (ntfy.sh / Slack / Telegram, all webhooks). Captured as a future release, not yet planned.'
 date: 2026-06-30
 ---
 
-# Direction — `sworn serve`: machine-global web control plane
+# Direction — omni-channel control plane for loop orchestration
+
+The web control plane (`sworn serve`) and the push/chat channels (ntfy.sh / Slack /
+Telegram) are NOT separate features — they are channel adapters over **one event+command
+core**. The core emits loop lifecycle events and accepts authenticated control commands; each
+channel is a thin projection of the same two streams. Build the core once; the channels are
+small. This is the "notify" surface of the proof-visibility theme made concrete.
+
+## Part A — `sworn serve`: machine-global web control plane
 
 > Captured for a FUTURE release (spec-first when planned). NOT part of
 > `2026-06-30-sworn-operational-readiness` (that release is D6 + the board renderer).
@@ -74,6 +82,37 @@ Same oracle data, new presentation + reach. It supersedes `release-board-ui.mjs`
 6. **Proof-bundle surfacing**: ties directly to the proof-visibility theme — the control
    plane is a natural home for surfacing proof bundles per slice.
 
+## Part B — push/chat channels (ntfy.sh / Slack / Telegram)
+
+Brad: the bot/notification approach is needed too, and they are "all just webhooks." The
+discipline: do NOT write three bespoke integrations. Write one event+command core and three
+thin adapters.
+
+- **The event+command core (shared with Part A).**
+  - *Outbound events*: the loop already pages (max-turns, circuit-breaker halt) and changes
+    slice state (design-gate halt, verified, failed_verification, run-complete). Formalise
+    these as a typed event stream. Each event carries the same next-step command Part A
+    surfaces (the router/oracle's next action), so a notification can *embed the command to
+    paste* — the autonomous↔interactive bridge over a phone.
+  - *Inbound commands*: the authenticated control actions (ack a gate, pause, resume, retry,
+    kill) are one API. The web UI calls it; so do the chat bots.
+- **Channel adapters (thin):**
+  - **ntfy.sh** — outbound push, near-zero setup (HTTP POST to a topic), great for "page me
+    when X." Supports action buttons / a copyable body for the next-step command. Mostly
+    one-way (monitor + nudge).
+  - **Slack / Telegram bots** — outbound push AND *inbound* control: a reply or slash command
+    (`/sworn pause T1`, an "Ack gate" button) drives the loop through the same control API.
+    This is the chat-native form of the interactive bridge.
+- **Config**: per-machine channel config (which channels, which webhook URLs/tokens/topics,
+  which event severities route where) under the existing `~/.sworn/` convention. Secrets
+  (bot tokens, webhook URLs) are local, never committed — same rule as `~/.sworn/.env`.
+- **Open architecture decisions (resolve at planning)**: (a) outbound-only vs bidirectional
+  per channel (ntfy mostly outbound; Slack/Telegram bidirectional); (b) where the inbound
+  webhook receiver lives — `sworn serve` already runs an HTTP server, so chat callbacks are
+  routes on it (one server, all channels); (c) event taxonomy + severity → channel routing;
+  (d) auth on inbound commands (a chat message must not be able to kill a run without a
+  verified sender / signed webhook).
+
 ## Relationships / prior captures
 - Sharpens the `sworn serve` direction already noted in memory `project_sworn_home_surface`
   (bare `sworn` = context-aware home; `top` = default live view) and the proof-visibility
@@ -84,16 +123,25 @@ Same oracle data, new presentation + reach. It supersedes `release-board-ui.mjs`
 ## Scope / sequencing
 Its own release, planned spec-first. **Not** tonight and **not** in the operational-readiness
 release. Sequence after sworn is proven operational (the fired overnight run), since a
-control plane is most valuable once there are real loops to watch. Natural slices: (S1) the
-loop registry + `sworn run` self-registration; (S2) `sworn serve` read-only board API +
-embedded mobile SPA; (S3) live updates (SSE); (S4) **next-step command surfacing** — each
-slice card exposes a click-to-copy of the exact command for its current state (the board
-already knows the state→action mapping; this is the router/oracle's next-step rendered for a
-human instead of dispatched to an agent — the human-takeover seam); (S5) control actions
-(authenticated mutations: pause/resume/ack/retry/kill); (S6) remote/fleet aggregation.
+control plane is most valuable once there are real loops to watch. Natural slices, ordered so
+the shared core lands before the channels that ride it:
 
-Note on S4: the state→next-command mapping is not new logic — it is what the router/oracle
-already computes to decide the next dispatch. Surfacing it as a copyable human command (vs
-dispatching it to an agent) is the same decision rendered for the other driver. That keeps
-the autonomous and interactive paths reading from one source of truth (no drift between what
-the loop would do and what the human is told to do).
+- **S1 — loop registry + `sworn run` self-registration** (machine-global discovery under `~/.sworn/`).
+- **S2 — event+command core**: typed loop event stream (formalise the existing pages + state
+  changes) + the authenticated control-action API (ack/pause/resume/retry/kill). The
+  foundation BOTH the web UI and the chat bots project. Each event carries the router/oracle
+  next-step command.
+- **S3 — `sworn serve` read-only board API + embedded mobile SPA** (web projection of the core).
+- **S4 — live updates (SSE)** to the web clients.
+- **S5 — next-step command surfacing** in the web UI: each slice card click-to-copies the
+  exact command for its state (the same next-step the core already computes — rendered for a
+  human instead of dispatched to an agent).
+- **S6 — ntfy.sh adapter** (outbound push; near-zero setup; embed the next-step command).
+- **S7 — Slack/Telegram bot adapter** (outbound push + inbound control via the S2 command API).
+- **S8 — web control actions** (authenticated mutations wired to the S2 API).
+- **S9 — remote/fleet aggregation** (the core's API consumed cross-machine).
+
+The through-line: S2 is the keystone. Every channel (web, ntfy, Slack, Telegram) is a thin
+adapter over the one event+command core, so the autonomous loop, the web UI, and the chat
+bots all read the same next-step from one source of truth — no drift between what the loop
+would do and what any channel tells (or lets) you do.
