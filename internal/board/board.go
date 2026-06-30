@@ -28,12 +28,13 @@ type BoardRecord struct {
 }
 
 // Release identifies a release on the board. Canonical baton board-v1 emits
-// `release` as an object {name, vertical_trace, target_version, ...}; older
-// boards (and sworn's own pre-reconcile output) emit a bare string. This type
-// reads BOTH so the oracle can load real coach-produced boards, and preserves
-// the full object verbatim so a write-back never drops a field (the same
-// round-trip-fidelity rule as the D6 deferral migration). A legacy string
-// round-trips as a string.
+// `release` as an object {name, vertical_trace, target_version, ...}. This type
+// reads ONLY that canonical object form (strict — S05) and preserves the full
+// object verbatim so a write-back never drops a field (the same
+// round-trip-fidelity rule as the D6 deferral migration). A legacy bare-string
+// release fails closed on read: there is no wild data (every string board is
+// operator-owned), so a stray string board is a non-migrated artefact that
+// should fail loud and get migrated (AC-06 cutover), not be silently tolerated.
 type Release struct {
 	Name string
 	// raw holds the canonical object form verbatim (nil for the string form),
@@ -45,19 +46,17 @@ type Release struct {
 // the index.md migration path, which only knows the release name.
 func StringRelease(name string) Release { return Release{Name: name} }
 
-// UnmarshalJSON accepts either a JSON string (legacy) or a JSON object with a
-// required, non-empty `name` (canonical baton). Anything else fails closed.
+// UnmarshalJSON accepts ONLY the canonical baton object form with a required,
+// non-empty `name` (S05 strict reader). A bare JSON string (the legacy form)
+// fails closed — operator string boards are migrated at cutover (AC-06), never
+// read-tolerated, so a string release surfaces as a load error rather than
+// lurking unmigrated.
 func (r *Release) UnmarshalJSON(b []byte) error {
-	var s string
-	if err := json.Unmarshal(b, &s); err == nil {
-		r.Name, r.raw = s, nil
-		return nil
-	}
 	var o struct {
 		Name string `json:"name"`
 	}
 	if err := json.Unmarshal(b, &o); err != nil {
-		return fmt.Errorf("board release: not a string or {name} object: %w", err)
+		return fmt.Errorf("board release: not a canonical {name} object (a bare string release is no longer read — migrate it to {\"name\":...}): %w", err)
 	}
 	if o.Name == "" {
 		return fmt.Errorf("board release object missing required \"name\"")
@@ -68,10 +67,10 @@ func (r *Release) UnmarshalJSON(b []byte) error {
 }
 
 // MarshalJSON re-emits the canonical object verbatim when present (preserving
-// vertical_trace etc.). For a name-only release it STILL emits the canonical
-// object form {"name": ...} — sworn never writes the legacy bare-string form
-// (S05: strict emit, lenient read). Any existing string board therefore
-// converts to canonical the next time sworn writes it.
+// vertical_trace etc.). For a name-only release (constructed in-process via
+// StringRelease — the index.md migration path) it emits the canonical object
+// form {"name": ...} — sworn never writes the legacy bare-string form (S05:
+// strict emit, strict read). Both producer and reader are canonical object-only.
 func (r Release) MarshalJSON() ([]byte, error) {
 	if r.raw != nil {
 		return r.raw, nil

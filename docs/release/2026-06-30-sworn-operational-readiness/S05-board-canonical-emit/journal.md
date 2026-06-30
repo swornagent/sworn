@@ -88,3 +88,48 @@ Landed on release-wt as `3fbb651` and forward-merged here. AC IDs kept stable
 NEXT: S05 is unblocked and stays `in_progress` — resume `/implement-slice S05` to
 land the remaining code delta (UnmarshalJSON object-only + invert the string-read
 tests to assert a bare string fails closed), then a fresh `/verify-slice`.
+
+## 2026-07-01 — Strict-reader delta landed → implemented
+
+Resumed `/implement-slice S05` after the `/replan-release` AC-02 removal. Continuation handshake:
+regenerated files-changed + test-results from live worktree state and reconciled against the prior
+(first-cut) proof — confirmed the first cut (`565f909`) had already landed schema + validator +
+writer object-only, leaving exactly the reader flip + test inversion the replan resolution named.
+
+Landed this session (start_commit 0d22f65):
+- `board.go` `Release.UnmarshalJSON` → object-only (strict). The bare-string branch is removed; a
+  string release now errors ("not a canonical {name} object ... migrate it"). The `Release` doc
+  comment + `MarshalJSON` comment updated from "lenient read" to the strict-read world.
+- `validator.go` + `board-v1.json` description: comment-only — both were already object-only from
+  the first cut; their prose still claimed "the reader tolerates a legacy bare string", now corrected.
+- `board_release_test.go`: `TestRelease_StringForm` → `TestRelease_StringForm_FailsClosed`;
+  `TestRelease_StringReadEmitsCanonicalObject` split into `TestRelease_BareStringRead_FailsClosed`
+  (read fails closed, AC-03) + `TestStringRelease_EmitsCanonicalObject` (in-process StringRelease
+  still emits the object form, AC-01 — the journal-suggested restatement). Stale `AC-07` label on the
+  round-trip test corrected to `AC-01`; the S04-era "reads both forms" header updated to strict.
+
+Rule-2 transparency — two fixtures edited BEYOND the four declared touchpoints:
+- `internal/board/board_test.go` (`TestOracleReadBoard_BoardJSONFirst`) and
+  `cmd/sworn/merge_test.go` (`setupMergeFixture`) both built board.json fixtures with the legacy
+  string-form `release`. Under the strict reader these fail closed — a real regression the full-suite
+  AC-05 gate surfaced (6 cmd/sworn merge tests + 1 board test). Each migrated to `{"name": ...}`.
+  Both are test fixtures in package surfaces owned by T4 (internal/board, cmd/sworn), not a cross-track
+  collision; one-line fixture migrations, not production logic. Surfaced here + in proof Divergence.
+
+Operational consequence noted (NOT acted on — AC-06 cutover): the three operator string boards on
+disk (op-readiness, conformance-foundation, release-hygiene) now fail closed under a strict-reader
+binary. By AC-06 they are migrated at cutover, gated on every active session being on a canonical
+binary — must NOT run mid-flight. The op-readiness board itself is among them, so the loop's own
+`sworn board` would fail once a strict binary is installed before that migration; that sequencing is
+AC-06's to own, not this slice's.
+
+Verification:
+- `go build ./...` exit 0; `go vet` (board+baton) exit 0.
+- `go test ./internal/board/... ./internal/baton/...` ok.
+- `go test ./... -timeout 300s` ALL GREEN (AC-05).
+- AC-04 reachability: S05 binary reads the real coach OBJECT board in ~/projects/fired (exit 0).
+- Deterministic first-pass (`release-verify.sh`): 18 pass / 1 residual FAIL = `spec.md missing`,
+  a script/format mismatch (slice uses spec-v1 spec.json; verified sibling S04 has no spec.md either),
+  not a slice gap. Model-backed `sworn verify` needs SWORN_ANTHROPIC_API_KEY (unset) — the verifier's to run.
+
+State → implemented. Stopping per Rule 7; NEXT = fresh-context `/verify-slice S05`.

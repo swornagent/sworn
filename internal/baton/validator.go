@@ -176,9 +176,10 @@ func validateBoard(data []byte) error {
 	}
 
 	// release must be the canonical object form {name, ...} with a non-empty
-	// name. sworn always EMITS this form (board.Release.MarshalJSON), so what
-	// WriteBoard validates is always an object; the legacy bare string is
-	// tolerated only by the READER (board.Release.UnmarshalJSON), never written.
+	// name. sworn EMITS this form (board.Release.MarshalJSON) and READS only this
+	// form (board.Release.UnmarshalJSON, S05 strict reader) — a bare string fails
+	// closed at both the validator and the reader; the legacy string form is
+	// never written and never read.
 	rel, ok := m["release"]
 	if !ok {
 		return fmt.Errorf("validator: missing required field \"release\"")

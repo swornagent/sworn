@@ -228,7 +228,7 @@ func TestOracleReadBoard_BoardJSONFirst(t *testing.T) {
 	// Set up board.json on the release ref — this is what the oracle should read.
 	boardContent := `{
 		"schema_version": 1,
-		"release": "test-release",
+		"release": {"name": "test-release"},
 		"release_worktree_path": "/tmp/test-release",
 		"release_worktree_branch": "release-wt/test-release",
 		"tracks": [

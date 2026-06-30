@@ -230,7 +230,7 @@ func setupMergeFixture(t *testing.T, name string) (repoDir, releaseName, trackID
 	// Write board.json — the oracle reads this first.
 	boardContent := fmt.Sprintf(`{
   "schema_version": 1,
-  "release": %q,
+  "release": {"name": %q},
   "release_worktree_path": %q,
   "release_worktree_branch": "release-wt/%s",
   "tracks": [
