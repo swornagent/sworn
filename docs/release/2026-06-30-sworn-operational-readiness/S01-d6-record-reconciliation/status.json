@@ -8,8 +8,8 @@
   "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/spec.json",
   "proof_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/proof.json",
   "journal_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/journal.md",
-  "last_updated_by": "replan-release",
-  "last_updated_at": "2026-07-01T08:00:00Z",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-01T09:30:00Z",
   "start_commit": "000ee08aad1404340d7e4ed23d360f4414e0fc19",
   "actual_files": [
     "internal/state/state.go",

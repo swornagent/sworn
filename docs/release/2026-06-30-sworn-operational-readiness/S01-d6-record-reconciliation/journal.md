@@ -237,3 +237,50 @@ Resolution (landed on release-wt as `3fbb651`, forward-merged here):
   preserved.
 
 NEXT: S01 is ready for a fresh `/verify-slice` against the corrected AC-08.
+
+## 2026-07-01 — Session 4 (Implementer): post-replan continuation handshake, state stays implemented
+
+**State transition:** none — re-entered an already-`implemented` slice after the
+`/replan-release` AC-08 rewrite (status.json `last_updated_by: replan-release`,
+`verification.result: pending`). Step 0b guard passed (result is `pending`, not
+`blocked` — the BLOCKED verdict was already cleared by the replan). No new code.
+
+### Continuation handshake (Rule 6) — regenerated from LIVE repo state, not recalled
+- **Files changed:** live `git diff --name-only 000ee08..HEAD` = 42 files. The
+  S01-authored set is the curated 21-file `files_changed` in proof.json; the extra
+  21 are forward-merged base content (S05 slice docs, the 2026-07-01-release-hygiene
+  release, a capture doc, board.json/intake.md) pulled in by the release-wt
+  forward-merges. Inflation is expected in track mode and was already recorded in
+  proof.json test_results; reconciled, no divergence.
+- **Test results:** live re-run at track HEAD `a762c24` — `go build ./...` exit 0;
+  `go test ./... -timeout 120s` exit 0, 39 packages ok / 0 FAIL / no hang; AC-cited
+  state tests all PASS incl. `TestSchema_OpenDeferralStrictAdditive` 7/7
+  (`acknowledged_by`-alone and `acknowledgement`-alone both fail closed — AC-10) and
+  `TestAC08DirectReadFiredTmp`. Confirms the recalled session-3 results still hold;
+  code is byte-identical since session 3 (the replan touched only AC-08 text + journal
+  + status).
+- **Deterministic first-pass:** `release-verify.sh` structural checks PASS
+  (integration-branch drift none, diff-vs-start_commit 42 files, dark-code none),
+  then aborts on the known markdown-era `PLAYWRIGHT_OPTIN: unbound variable` harness
+  drift (expects proof.md; this release is records-as-JSON). Same finding as sessions
+  2/3; not a slice defect.
+- **Reachability:** both artefacts present on disk
+  (`reachability/ac08-reachability.txt`, `ac08-direct-read.txt`) and prove the
+  REWRITTEN read-path AC-08 — strict binary renders the full fired
+  2026-06-16-critical-journey-resolutions board with 0 "cannot unmarshal object";
+  direct `state.Read` of real S05 (4 object-form deferrals) populates the named
+  `acknowledged_by`/`acknowledged_at` fields, `acknowledgement=""` (real pre-migration
+  data), preserves `id`/`field` in Extra.
+
+### Proof-bundle refresh (this session)
+- AC-08 `delivered` entry reconciled to the ratified read-path bar (replan 3fbb651),
+  noting it resolves the session-3 BLOCKED spec defect with no new code.
+- Added a session-4 live-re-run entry to `test_results` (Rule 6: proof generated from
+  live state, not recalled).
+
+### Reconciliation verdict
+All 11 ACs delivered (AC-11 is tracked cutover/upstream #40/#38, not sworn code).
+No new implementation, no divergence beyond the already-surfaced #39 (write-path
+ValidateSchema rewire) and the retained legacy string-form read tolerance. Slice
+remains `implemented`; handing off to a fresh `/verify-slice` against the corrected
+AC-08.
