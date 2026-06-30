@@ -3,10 +3,37 @@
   "slice_id": "S01-d6-record-reconciliation",
   "release": "2026-06-30-sworn-operational-readiness",
   "track": "T1-operational-unblock",
-  "state": "in_progress",
+  "state": "implemented",
   "covers_needs": ["N-01", "N-02", "N-03", "N-04"],
   "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/spec.json",
+  "proof_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/proof.json",
+  "journal_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/journal.md",
+  "last_updated_by": "implement-slice",
+  "last_updated_at": "2026-07-01T02:00:00Z",
   "start_commit": "000ee08aad1404340d7e4ed23d360f4414e0fc19",
+  "actual_files": [
+    "internal/state/state.go",
+    "internal/baton/schemas/slice-status-v1.json",
+    "internal/verify/verify.go",
+    "internal/run/slice.go",
+    "internal/board/oracle.go",
+    "internal/ledger/ledger.go",
+    "internal/implement/implement.go",
+    "internal/implement/proof_record.go",
+    "internal/implement/spec_record.go",
+    "internal/mcp/tools_ops.go",
+    "internal/mcp/tools_plan.go",
+    "internal/verdict/verdict.go",
+    "cmd/sworn/verify.go",
+    "cmd/sworn/task.go"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go test ./... -timeout 120s"
+  ],
+  "reachability_artifacts": [
+    "manual-smoke-step: sworn board --release 2026-06-16-critical-journey-resolutions on the live fired repo — slice S05-engine-owned-real-dollars (4 object-form open_deferrals) reads 'unknown' on the old binary, 'verified [verifier]' on the new binary; direct state.Read on the AC-08 target slice S01-networth-hierarchy-remap and on S05 succeeds, preserving acknowledged_by/id in Extra (scratchpad/ac08-reachability.txt, scratchpad/ac08-direct-read.txt)"
+  ],
   "design_decisions": [
     {
       "choice": "Carrier representation for open_deferrals/violations: structs with named schema fields plus an Extra overflow map and custom (Un)MarshalJSON, so unknown coach keys (id/description/acknowledged_by) round-trip without loss.",

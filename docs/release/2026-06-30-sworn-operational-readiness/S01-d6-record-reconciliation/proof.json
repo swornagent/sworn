@@ -1,0 +1,62 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S01-d6-record-reconciliation",
+  "release": "2026-06-30-sworn-operational-readiness",
+  "scope": "Migrate sworn's Go status.json carriers (open_deferrals, verification.violations) up to the slice-status-v1 object shape so the autonomous loop reads real coach-produced status without dying on the D6 unmarshal, round-trips it loss-free and byte-stably, reconciles need_ids->covers_needs, and adds the inconclusive result enum + acknowledged_by write-back tolerance.",
+  "files_changed": [
+    "internal/state/state.go",
+    "internal/state/state_test.go",
+    "internal/state/record_reconciliation_test.go",
+    "internal/baton/schemas/slice-status-v1.json",
+    "internal/verify/verify.go",
+    "internal/verify/verify_test.go",
+    "internal/run/slice.go",
+    "internal/board/oracle.go",
+    "internal/ledger/ledger.go",
+    "internal/ledger/ledger_test.go",
+    "internal/implement/implement.go",
+    "internal/implement/proof_record.go",
+    "internal/implement/spec_record.go",
+    "internal/implement/spec_record_test.go",
+    "internal/mcp/tools_ops.go",
+    "internal/mcp/tools_plan.go",
+    "internal/mcp/tools_test.go",
+    "internal/verdict/verdict.go",
+    "cmd/sworn/verify.go",
+    "cmd/sworn/task.go",
+    "cmd/sworn/ledger_test.go",
+    "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/status.json"
+  ],
+  "test_results": [
+    { "command": "go build ./...", "passed": true, "exit_code": 0 },
+    { "command": "go test ./... -timeout 120s", "passed": true, "exit_code": 0 },
+    { "command": "go test ./internal/state/ -run 'Read_ObjectForm|TypedStructs|RoundTrip|Write_AcknowledgedBy|Schema_OpenDeferral|Schema_Inconclusive'", "passed": true, "exit_code": 0 },
+    { "command": "go test ./internal/verify/ -run 'CheckBoundaryMocks_DeclaredViaObjectWhy|CheckBoundaryMocks_KeywordInTracking'", "passed": true, "exit_code": 0 },
+    { "command": "gofmt -l on touched files (empty = formatted)", "passed": true, "exit_code": 0 },
+    { "command": "grep -rnE '//.*\\t+(return|sendRequest|[a-z]+\\()' on touched files (edit-corruption guard)", "passed": true, "exit_code": 0 }
+  ],
+  "reachability": {
+    "type": "cli-run",
+    "evidence": "manual-smoke-step (AC-08), non-destructive against the live fired repo (~/projects/fired, git clean before and after — Rule 11 restore verified). The board oracle and `sworn run`'s RunSlice share the exact state.Read code path that crashed the original dogfood run ('RunSlice: read status: cannot unmarshal object into Go struct field Status.open_deferrals of type string'). (1) BEFORE/AFTER on REAL object-form data: `sworn board --release 2026-06-16-critical-journey-resolutions` on slice S05-engine-owned-real-dollars (4 object-form open_deferrals): OLD installed binary reports 'S05-engine-owned-real-dollars — unknown' (state.Read swallowed the D6 unmarshal failure); NEW binary reports 'S05-engine-owned-real-dollars — verified [verifier]' (object form parsed, true state recovered). (2) DIRECT state.Read (the exact failing line) on the AC-08 target slice S01-networth-hierarchy-remap AND on the real 4-deferral S05 status.json: both read without error; S05's why/tracking parse into named fields and the unknown coach keys (acknowledged_by, acknowledged_at, field, id) are preserved in Extra — confirming AC-01/AC-03/AC-10 on live data (real deferrals carry acknowledged_by and NO acknowledgement). (3) `sworn board` full output greps to 0 occurrences of 'cannot unmarshal object'. Artefacts: scratchpad/ac08-reachability.txt, scratchpad/ac08-direct-read.txt. NOTE: the AC-08 target release's board.json carries a SEPARATE, out-of-scope sibling bug (BoardRecord.release as an object, not open_deferrals) flagged in design.md Risk #4; it does not affect the slice status-read path under test.",
+    "smoke_step": "cd ~/projects/fired && <new-sworn> board --release 2026-06-16-critical-journey-resolutions  # S05 reads 'verified' where the old binary read 'unknown'"
+  },
+  "delivered": [
+    { "item": "AC-01: state.Read unmarshals fired's real object-form open_deferrals {id,description,why,tracking,acknowledged_by} and violations {gate,description,evidence} without error.", "evidence": "internal/state/state.go Deferral/Violation UnmarshalJSON; test TestRead_ObjectFormDeferralsAndViolations_NoUnmarshalError; live: ac08-direct-read.txt (S05 read OK)" },
+    { "item": "AC-02: read->write->read->write preserves every field (incl. unknown keys) and is byte-stable across writes.", "evidence": "map-based MarshalJSON (sorted keys) in state.go; test TestRoundTrip_PreservesFieldsAndIsByteStable" },
+    { "item": "AC-03: OpenDeferrals []Deferral and Verification.Violations []Violation are typed structs with an Extra overflow map preserving unknown keys.", "evidence": "internal/state/state.go Deferral/Violation; test TestRead_TypedStructsPreserveUnknownKeys; live Extra keys [acknowledged_at acknowledged_by field id] preserved on S05" },
+    { "item": "AC-04: display-only consumers read via Status.DeferralStrings()/Verification.ViolationStrings() projections; oracle SliceState.Violations stays []string; unrelated report types untouched.", "evidence": "state.go projection helpers; oracle.go:236/259, ledger.go:157, implement.go:187, proof_record.go:74 repointed; router.go/route.go/validate_blocked.go unchanged (consume []string)" },
+    { "item": "AC-05: CheckBoundaryMocks/isDeclared take []state.Deferral and match on Item+Why only; enforcement stays at least as strict; undeclared boundary mock still fails closed.", "evidence": "internal/verify/verify.go isDeclared; tests TestCheckBoundaryMocks_DeclaredViaObjectWhyPasses, TestCheckBoundaryMocks_KeywordInTrackingDoesNotOverDeclare, TestCheckBoundaryMocks_UndeclaredDbMockFails" },
+    { "item": "AC-06: state.Status NeedIDs->CoversNeeds (json tag need_ids->covers_needs); writers spec_record.go and task.go updated.", "evidence": "internal/state/state.go CoversNeeds; internal/implement/spec_record.go; cmd/sworn/task.go; test TestWriteSpecRecord_ParsesSpecAndWritesJSON (covers_needs read)" },
+    { "item": "AC-07: slice-status-v1 verification.result enum includes 'inconclusive'; merge gate keys on state not result so it can never pass.", "evidence": "internal/baton/schemas/slice-status-v1.json; test TestSchema_InconclusiveResultValidates; merge.go:105 gates on state.Verified" },
+    { "item": "AC-08: the exact RunSlice status-read path succeeds on the live fired repo; the previously-unreadable real object slice now reads its true state.", "evidence": "reachability section; ac08-reachability.txt (S05 unknown->verified), ac08-direct-read.txt" },
+    { "item": "AC-09: go build ./... and go test ./... pass (full suite, 39 packages ok, 0 FAIL).", "evidence": "test_results entries 1-2; full-suite log 0 FAIL/panic" },
+    { "item": "AC-10: open_deferrals required-set relaxed to anyOf[acknowledgement | acknowledged_by]; write-back of a real acknowledged_by-only deferral succeeds; a neither-key deferral fails closed.", "evidence": "internal/baton/schemas/slice-status-v1.json anyOf; tests TestWrite_AcknowledgedByOnlyDeferral_NoError, TestSchema_OpenDeferralAcknowledgementAnyOf (acknowledged_by/acknowledgement pass; neither + missing-tracking fail closed)" },
+    { "item": "Backward-compat: legacy string-form open_deferrals/violations still parse (one-way upgrade to object on write-back), so existing on-disk boards keep working.", "evidence": "state.go Deferral/Violation UnmarshalJSON string branch; internal/board oracle_test legacy fixtures pass" }
+  ],
+  "not_delivered": [],
+  "divergence": [
+    "AC-10 write-path enforcement reading. The live state.Write calls the legacy structural baton.Validate (which never evaluates open_deferrals), not the draft-2020-12 baton.ValidateSchema. The wholesale Validate->ValidateSchema rewire is explicitly deferred in internal/baton/validate_schema.go ('lands as a deliberate follow-up so a single commit does not flip every record's enforcement at once') and, measured here, would break writes outside S01's AC set (cmd/sworn/task.go writes covers_needs ['N/A-task-mode'] which violates the schema's ^N-\\d+$ pattern; internal/mcp defer_slice writes a deferral with no tracking). So AC-10 is satisfied as: schema anyOf (load-bearing) + a write-path positive test (real acknowledged_by shape writes clean under the legacy validator) + a schema-level negative test (baton.ValidateSchema rejects a neither-key deferral). The wholesale state.Write -> ValidateSchema rewire remains the named keystone step-1b follow-up, filed as #39. This is the most faithful in-scope reading and avoids an out-of-AC architecturally-significant change.",
+    "Touchpoints subset: of the 16 planned touchpoints, internal/verify/validate_blocked.go (len-only on Violations), internal/router/router.go and cmd/sworn/route.go (consume the oracle SliceState.Violations which stays []string by D2) needed no change. The design predicted validate_blocked.go would be 'len-only, likely no change'. Touching fewer files than planned, not more; no out-of-track file touched.",
+    "Legacy string-form read tolerance was added to the Deferral/Violation unmarshalers (not explicitly in the AC set) because the migration would otherwise make sworn unable to read its own previously-written string-form status.json files — a regression for every existing board, contrary to the operational-readiness goal. The design's 'no flatten-to-string read tolerance' constraint is about write-back (which still always emits object form); upgrading a legacy string to object on read does not conflict with it."
+  ]
+}

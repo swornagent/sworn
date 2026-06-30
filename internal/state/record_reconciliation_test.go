@@ -31,7 +31,7 @@ const firedShapedStatus = `{
   "open_deferrals": [
     {
       "id": "D-001",
-      "description": "year-snapshot backfill deferred",
+      "description": "year-snapshot backfill postponed to a later release",
       "why": "depends on the schema migration landing first",
       "tracking": "#123",
       "acknowledged_by": "Brad (Coach)"

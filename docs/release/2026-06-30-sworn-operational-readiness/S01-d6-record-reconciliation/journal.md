@@ -81,3 +81,54 @@ and grep-confirm the not-touched report types don't alias `state.Verification.Vi
 - `/replan-release 2026-06-30-sworn-operational-readiness` — add the `acknowledged_by` write-back AC
   + schema required-set relaxation to S01 (Pin 1, Option A). Then S01 returns to design-review-clear
   and proceeds to `in_progress`.
+
+## 2026-07-01 — Session 2 (Implementer): design_review → in_progress → implemented
+
+**State transition:** `design_review` → `in_progress` (gate satisfied: `approved-ack.md`
+DECISION: PROCEED, Coach Brad; D1 Type-1 recorded in `design_decisions[0].human_decision`)
+→ `implemented`. `start_commit` = `000ee08`.
+
+### Delivered (all 10 ACs) — see proof.json for AC→evidence map
+- AC-01/03: `state.Deferral`/`state.Violation` structs (named schema fields + `Extra
+  map[string]json.RawMessage` overflow + custom `(Un)MarshalJSON`); `OpenDeferrals []Deferral`,
+  `Verification.Violations []Violation`.
+- AC-02: map-based `MarshalJSON` (sorted keys) → byte-stable write; round-trip fixture asserts
+  identical bytes + all unknown keys survive.
+- AC-04: `DeferralStrings()`/`ViolationStrings()` projections; repointed oracle/ledger/implement
+  display consumers; router/route/validate_blocked untouched (they read the oracle's []string
+  SliceState).
+- AC-05: `CheckBoundaryMocks`/`isDeclared` → `[]state.Deferral`, match on `Item`+`Why` only;
+  new regression proves a keyword in Tracking/Acknowledgement does NOT over-declare and an
+  undeclared boundary mock still fails closed.
+- AC-06: `NeedIDs`→`CoversNeeds` (`need_ids`→`covers_needs`); writers spec_record.go + task.go.
+- AC-07: schema `verification.result` enum + `inconclusive`. Confirmed safe (merge.go:105 gates on
+  STATE; routeImplemented default-routes to verify; no switch passes inconclusive).
+- AC-08: reachability proven NON-DESTRUCTIVELY on the live fired repo (git clean before+after).
+  Board oracle (same `state.Read` path as `RunSlice: read status`): real object slice S05 reads
+  `unknown` on old binary → `verified` on new binary. Direct `state.Read` on S01-networth + S05:
+  both OK, Extra preserves acknowledged_by/id on real data.
+- AC-09: `go build ./...` + full `go test ./...` green (39 pkgs, 0 FAIL, no hang; per-package
+  120s timeout). gofmt clean. Edit-corruption grep clean (Pin 6).
+- AC-10: schema `open_deferrals` required → `anyOf[acknowledgement | acknowledged_by]`; write-path
+  positive + schema-level negative tests.
+
+### Decisions / divergences (also in proof.json `divergence`)
+- **Backward-compat read tolerance (added, not in AC set):** the unmarshalers accept the legacy
+  string form and upgrade it to object on write-back (one-way). Without it the migration would make
+  sworn unable to read its own previously-written status.json — a regression for every existing
+  board, contrary to the operational-readiness goal. Does not conflict with the design's
+  "no flatten-to-string on WRITE" rule.
+- **AC-10 write-path reading (the one judgement call):** live `state.Write` runs the legacy
+  structural `baton.Validate` (ignores open_deferrals), NOT `baton.ValidateSchema`. The wholesale
+  `Validate`→`ValidateSchema` rewire is explicitly the deferred keystone step-1b follow-up
+  (validate_schema.go comment) and, measured here, would break out-of-AC writes (task.go
+  `covers_needs:["N/A-task-mode"]` vs `^N-\d+$`; defer_slice has no tracking). So AC-10 is satisfied
+  via schema anyOf + write-path positive test + schema-level negative test, and the wholesale rewire
+  stays the named follow-up. Filed **#39**. Surfaced for the verifier/Coach.
+- **Touchpoints subset:** 3 planned touchpoints (validate_blocked.go len-only; router.go + route.go
+  consume the unchanged oracle []string) needed no change — fewer files than planned, none outside
+  the track.
+
+### Reachability artefacts
+- scratchpad/ac08-reachability.txt (old-vs-new board on real object data)
+- scratchpad/ac08-direct-read.txt (direct state.Read on real fired files)
