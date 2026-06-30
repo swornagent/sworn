@@ -9,12 +9,16 @@
       "org_objective": "sworn becomes the operational delivery loop (coach-loop is retired)."
     }
   },
+  "release_worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-30-sworn-operational-readiness",
+  "release_worktree_branch": "release-wt/2026-06-30-sworn-operational-readiness",
   "tracks": [
     {
       "id": "T1-operational-unblock",
       "slices": ["S01-d6-record-reconciliation"],
       "depends_on": [],
-      "state": "planned"
+      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-30-sworn-operational-readiness-T1-operational-unblock",
+      "worktree_branch": "track/2026-06-30-sworn-operational-readiness/T1-operational-unblock",
+      "state": "in_progress"
     },
     {
       "id": "T2-board-render",
