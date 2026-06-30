@@ -13,6 +13,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/baton"
 )
+
 // State is a Baton slice state. The canonical state machine is:
 //
 //	planned → in_progress → implemented → verified | failed_verification
@@ -87,7 +88,14 @@ type Dispatch struct {
 	InputTokens      int64   `json:"input_tokens,omitempty"`
 	OutputTokens     int64   `json:"output_tokens,omitempty"`
 	ModelIDConfirmed string  `json:"model_id_confirmed,omitempty"`
+	// Quadrant is the slice's effort_complexity quadrant (chore/grind/puzzle/epic)
+	// at dispatch time (#36 / T16). Capturing it per dispatch is what turns the
+	// ledger from a global model leaderboard into the routing function
+	// f(effort_complexity, cost/velocity) → model: "which model fits this kind of
+	// work, on this distribution." Empty when the slice carries no rating yet.
+	Quadrant string `json:"quadrant,omitempty"`
 }
+
 // Verification holds the per-slice verification record (verdict, session
 // metadata, violations). It mirrors the nested "verification" object in
 // status.json.
@@ -293,6 +301,7 @@ func Write(path string, s *Status) error {
 	}
 	return nil
 }
+
 // TransitionGate checks a state transition through a gate callback.
 // It first validates that the transition from s to next is legal
 // (via s.Transition(next)), then invokes gate. The gate function should

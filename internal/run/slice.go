@@ -117,6 +117,16 @@ func checkProofAbsent(proofPath string) bool {
 	return err != nil || strings.TrimSpace(string(proofBytes)) == ""
 }
 
+// appendDispatch stamps the slice's effort_complexity quadrant onto a dispatch
+// before recording it (#36 / T16). Centralising the stamp keeps every dispatch
+// record — captain, implementer, verifier — carrying the quadrant, so the
+// verdict ledger can project model fit per quadrant (the routing function)
+// without each call site having to remember the field.
+func appendDispatch(ds []state.Dispatch, quadrant string, d state.Dispatch) []state.Dispatch {
+	d.Quadrant = quadrant
+	return append(ds, d)
+}
+
 func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, opts RunSliceOptions) error {
 	// ── Validate mandatory options ────────────────────────────────────
 	if specPath == "" {
@@ -174,6 +184,14 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	// Capture release and slice ID for decision-log writes (S02).
 	releaseName := st.Release
 	sliceID := st.SliceID
+
+	// The slice's effort_complexity quadrant, stamped onto every dispatch (#36 /
+	// T16) so the verdict ledger can learn model fit per quadrant. Empty when the
+	// slice carries no rating yet.
+	dispatchQuadrant := ""
+	if st.EffortComplexity != nil {
+		dispatchQuadrant = st.EffortComplexity.Quadrant
+	}
 
 	// ── Build escalation list ─────────────────────────────────────────
 	escalationModels := opts.EscalationModels
@@ -276,7 +294,8 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 					captainStart := time.Now()
 					reviewResult, revErr := captain.Review(reviewCtx, absSliceDir, string(specBytes), string(designBytes), captainAgent, worktreeRoot)
 					captainDurationMS := time.Since(captainStart).Milliseconds()
-					if revErr != nil {						if errors.Is(revErr, context.DeadlineExceeded) {
+					if revErr != nil {
+						if errors.Is(revErr, context.DeadlineExceeded) {
 							fmt.Fprintf(os.Stderr, "sworn run: captain review timed out — proceeding without review\n")
 						} else {
 							fmt.Fprintf(os.Stderr, "sworn run: captain review error: %v — proceeding without review\n", revErr)
@@ -293,13 +312,14 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 						if fb := reviewResult.FormatPinsAsFeedback(); fb != "" {
 							priorFeedback = fb
 							// Record captain dispatch for per-role cost ledger (S55).
-							dispatches = append(dispatches, state.Dispatch{
+							dispatches = appendDispatch(dispatches, dispatchQuadrant, state.Dispatch{
 								Role:       "captain",
 								Model:      firstModelID,
 								CostUSD:    reviewResult.CostUSD,
 								Attempt:    1,
 								DurationMS: captainDurationMS,
-							})						}
+							})
+						}
 					}
 				}
 			}
@@ -428,13 +448,13 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		}
 
 		// Record implementer dispatch for per-role cost ledger (S55).
-		dispatches = append(dispatches, state.Dispatch{
+		dispatches = appendDispatch(dispatches, dispatchQuadrant, state.Dispatch{
 			Role:       "implementer",
 			Model:      implModelID,
 			CostUSD:    implCost,
 			Attempt:    totalAttempts,
 			DurationMS: implDurationMS,
-		})		// ── Commit agent changes ────────────────────────────────────
+		}) // ── Commit agent changes ────────────────────────────────────
 		if err := repo.Stage("."); err != nil {
 			return fmt.Errorf("RunSlice: stage agent changes: %w", err)
 		}
@@ -462,7 +482,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			}
 			fmt.Fprintf(os.Stderr, "sworn run: BLOCKED — proof bundle absent\n")
 			// Record the BLOCKED dispatch for cost ledger.
-			dispatches = append(dispatches, state.Dispatch{
+			dispatches = appendDispatch(dispatches, dispatchQuadrant, state.Dispatch{
 				Role:    "verifier",
 				Model:   opts.VerifierModel,
 				CostUSD: 0,
@@ -544,7 +564,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 					fpResult.Verdict, fpResult.Rationale)
 				// Record the BLOCKED/FAIL dispatch for cost ledger
 				// (zero cost — deterministic).
-				dispatches = append(dispatches, state.Dispatch{
+				dispatches = appendDispatch(dispatches, dispatchQuadrant, state.Dispatch{
 					Role:    "first_pass",
 					Model:   "deterministic",
 					CostUSD: 0,
@@ -614,7 +634,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		}
 
 		// Record verifier dispatch for per-role cost ledger (S55).
-		dispatches = append(dispatches, state.Dispatch{
+		dispatches = appendDispatch(dispatches, dispatchQuadrant, state.Dispatch{
 			Role:             "verifier",
 			Model:            opts.VerifierModel,
 			CostUSD:          lastVerdict.CostUSD,
