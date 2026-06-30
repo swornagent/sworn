@@ -26,6 +26,13 @@
       "depends_on": [],
       "worktree_branch": "track/2026-06-30-sworn-operational-readiness/T3-consumer-repo-hygiene",
       "state": "planned"
+    },
+    {
+      "id": "T4-board-record-reconciliation",
+      "slices": ["S04-board-record-reconciliation"],
+      "depends_on": [],
+      "worktree_branch": "track/2026-06-30-sworn-operational-readiness/T4-board-record-reconciliation",
+      "state": "planned"
     }
   ]
 }

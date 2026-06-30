@@ -86,6 +86,7 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
 - N-04: an inconclusive verifier verdict is representable in the slice-status leaf result enum (#37 / deferred D4), so the agentic verifier's inconclusive maps cleanly rather than being forced into fail.
 - N-05: the release board's human view (index.md) is deterministically RENDERED from board.json plus the slice records by `sworn render`, never hand-authored by a model or human, so the operator monitoring an unattended run reads a faithful view and the index.md frontmatter-corruption false-ready failure mode is removed.
 - N-06: sworn never dirties a consumer repo — when it creates `.sworn/` runtime state in a repo it operates on, that directory is self-ignored (`.sworn/.gitignore` = `*`), so it never appears in the host repo's git status or gets committed.
+- N-07: sworn reads a real coach-produced board.json whose `release` is the canonical baton OBJECT form ({name, vertical_trace, ...}) without an unmarshal error (and tolerates the legacy string form), so the oracle/run load a real release instead of failing at board-read.
 
 ## Constraints and non-negotiables
 
@@ -139,6 +140,30 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
 - **Deferred (Rule 2)**: `S02-retry-reset-preserves-work` and `S03-escalation-honours-config`
   — why: non-blocking tuning, not a hard stop; tracking: this intake's out-of-scope +
   eval findings 5/6 in `2026-06-30-session-handoff.md`; acknowledged 2026-06-30 (Brad).
+
+### 2026-07-01 — Add S04-board-record-reconciliation (T4): oracle reads the canonical board (DIRECTION REVERSAL)
+
+- **Context**: the live fired run also fails at BOARD-read: `sworn board --release
+  2026-06-28-yearSnapshot-schema-cleanup` → "cannot unmarshal object into BoardRecord.release
+  of type string". Brad asked the key question — is the binary wrong or the release? Checked
+  the canonical baton schema (`~/projects/baton/schemas/board-v1.json`): `release` is an
+  OBJECT with required `name` (+ vertical_trace, the Rule-8 golden thread). sworn's embedded
+  board-v1 + Go BoardRecord.Release are `string` — pinned to an older baton (binary reports
+  Baton v0.6.3) and lagging. Every coach-produced board uses the object form.
+- **Decision**: the **binary is behind, not the releases.** Add `S04-board-record-reconciliation`
+  (track `T4`) — make BoardRecord.Release read the canonical object form (tolerate the legacy
+  string), reconcile the embedded board-v1 schema, update the one consumer. The board-level
+  companion to D6 (same class: Go types lag baton schemas; migrate UP).
+- **Direction reversal (own it)**: an earlier session-step "fixed" THIS release's board.json by
+  downgrading its `release` object → string to satisfy the stale oracle. That was wrong-
+  direction (conforming the artefact to the buggy binary). **Once S04 lands + the oracle is
+  rebuilt, revert this release's board.json back to the canonical nested object** (restore
+  vertical_trace). Until then it stays string only to be readable by the current binary
+  (chicken-and-egg).
+- **Scope note**: tonight-critical (fired's board is unreadable without it — the run fails at
+  board-read BEFORE status-read/D6). Touchpoint-disjoint from T1 (oracle.go does not read
+  .Release), T2, T3. Full baton re-vendor (all schemas) is a larger follow-up; this is the
+  board-read unblock only.
 
 ### 2026-07-01 — Add S03-sworn-self-ignore (T3): sworn must not dirty consumer repos
 
