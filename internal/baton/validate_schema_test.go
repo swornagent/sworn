@@ -66,3 +66,47 @@ func TestValidateSchema_VerifierVerdict(t *testing.T) {
 		t.Error("out-of-enum verdict accepted — verdict enum not enforced")
 	}
 }
+
+// TestValidateSchema_EffortComplexity proves the #36 effort_complexity field is
+// enforced by real draft-2020-12 evaluation on BOTH spec-v1 (planner-canonical)
+// and slice-status-v1 (implementer mirror): a conformant rating validates, an
+// off-enum axis is rejected, and a rating missing a required axis is rejected.
+func TestValidateSchema_EffortComplexity(t *testing.T) {
+	specGood := `{
+		"$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+		"schema_version": 1, "slice_id": "S01", "release": "r1",
+		"effort_complexity": {"effort": "high", "complexity": "low", "quadrant": "grind"}
+	}`
+	if err := ValidateSchema("spec-v1", []byte(specGood)); err != nil {
+		t.Errorf("good spec rating rejected: %v", err)
+	}
+
+	specBadEnum := `{
+		"$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+		"schema_version": 1, "slice_id": "S01", "release": "r1",
+		"effort_complexity": {"effort": "medium", "complexity": "low", "quadrant": "grind"}
+	}`
+	if err := ValidateSchema("spec-v1", []byte(specBadEnum)); err == nil {
+		t.Error("off-enum effort accepted — schema enum not enforced")
+	}
+
+	statusGood := `{
+		"$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+		"slice_id": "S01", "release": "r1", "state": "planned",
+		"verification": {"result": "pending"},
+		"effort_complexity": {"effort": "low", "complexity": "high", "quadrant": "puzzle", "confirmed_by_implementer": true}
+	}`
+	if err := ValidateSchema("slice-status-v1", []byte(statusGood)); err != nil {
+		t.Errorf("good status rating rejected: %v", err)
+	}
+
+	statusBadMissing := `{
+		"$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+		"slice_id": "S01", "release": "r1", "state": "planned",
+		"verification": {"result": "pending"},
+		"effort_complexity": {"effort": "low"}
+	}`
+	if err := ValidateSchema("slice-status-v1", []byte(statusBadMissing)); err == nil {
+		t.Error("rating missing required complexity/quadrant accepted")
+	}
+}

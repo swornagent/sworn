@@ -136,6 +136,57 @@ type DesignDecision struct {
 	ArchitecturallySignificant bool       `json:"architecturally_significant,omitempty"`
 }
 
+// EffortComplexity is the two-axis per-slice rating (ADR-0011 §3.7 / #36). The
+// planner sets it during decomposition (canonical in spec-v1); the implementer
+// confirms or revises it against code reality (mirrored here in status.json).
+// Complexity (Cynefin low/high) drives model choice + verification rigor; effort
+// (relative T-shirt low/high) drives timeout/retry budget. The quadrant is
+// derivable from the two axes (see Quadrant) and stored as a consistency checksum.
+type EffortComplexity struct {
+	Effort                 string `json:"effort"`     // "low" | "high"
+	Complexity             string `json:"complexity"` // "low" | "high"
+	Quadrant               string `json:"quadrant"`   // "chore" | "grind" | "puzzle" | "epic"
+	Rationale              string `json:"rationale,omitempty"`
+	ConfirmedByImplementer bool   `json:"confirmed_by_implementer,omitempty"`
+}
+
+// Quadrant derives the routing quadrant from the two axes — the single source of
+// truth for the effort×complexity → quadrant mapping (ADR-0011 §3.7):
+//
+//	             low complexity   high complexity
+//	high effort    grind            epic
+//	low effort     chore            puzzle
+//
+// It returns "" if either axis is not "low" or "high".
+func Quadrant(effort, complexity string) string {
+	switch {
+	case effort == "low" && complexity == "low":
+		return "chore"
+	case effort == "high" && complexity == "low":
+		return "grind"
+	case effort == "low" && complexity == "high":
+		return "puzzle"
+	case effort == "high" && complexity == "high":
+		return "epic"
+	default:
+		return ""
+	}
+}
+
+// Validate checks the axes are valid enums and the stored Quadrant matches the
+// derived one. The quadrant checksum catches an inconsistent planner/model rating
+// (e.g. effort=low complexity=high mislabelled "grind" instead of "puzzle").
+func (ec EffortComplexity) Validate() error {
+	want := Quadrant(ec.Effort, ec.Complexity)
+	if want == "" {
+		return fmt.Errorf("effort_complexity: invalid axes effort=%q complexity=%q (each must be low|high)", ec.Effort, ec.Complexity)
+	}
+	if ec.Quadrant != want {
+		return fmt.Errorf("effort_complexity: quadrant %q inconsistent with effort=%q complexity=%q (want %q)", ec.Quadrant, ec.Effort, ec.Complexity, want)
+	}
+	return nil
+}
+
 // Status is the full status.json payload for a slice.
 type Status struct {
 	Schema                string       `json:"$schema"`
@@ -170,7 +221,14 @@ type Status struct {
 	OrgObjective    string           `json:"org_objective,omitempty"`
 	Validation      ValidationRecord `json:"validation,omitempty"`
 	DesignDecisions []DesignDecision `json:"design_decisions,omitempty"`
-} // Read parses a status.json file at path and returns the Status. It returns
+	// EffortComplexity is the two-axis routing rating (ADR-0011 §3.7 / #36),
+	// mirrored from spec-v1 and confirmed by the implementer. Drives model choice,
+	// verification rigor, and timeout/retry budget; the planned→confirmed delta is
+	// eval/calibration data. Nil until the planner sets it.
+	EffortComplexity *EffortComplexity `json:"effort_complexity,omitempty"`
+}
+
+// Read parses a status.json file at path and returns the Status. It returns
 // an error if the file cannot be read or is not valid JSON.
 func Read(path string) (*Status, error) {
 	data, err := os.ReadFile(path)
@@ -180,6 +238,14 @@ func Read(path string) (*Status, error) {
 	var s Status
 	if err := json.Unmarshal(data, &s); err != nil {
 		return nil, fmt.Errorf("state: parse %s: %w", path, err)
+	}
+	// Fail closed on an inconsistent effort_complexity rating (#36). JSON Schema
+	// enforces the per-axis enums; the quadrant↔axes consistency is a cross-field
+	// rule schema can't express, so it's enforced here on every status load.
+	if s.EffortComplexity != nil {
+		if err := s.EffortComplexity.Validate(); err != nil {
+			return nil, fmt.Errorf("state: %s: %w", path, err)
+		}
 	}
 	return &s, nil
 }
@@ -199,6 +265,17 @@ func Write(path string, s *Status) error {
 	// (2026-06-28 reconcile.)
 	if s.Verification.Result == "" {
 		s.Verification.Result = "pending"
+	}
+
+	// Fail closed on an inconsistent effort_complexity rating (#36) before it
+	// reaches disk. Write still runs through the legacy baton.Validate (top-level
+	// fields only — the ValidateSchema rewire is step 1b), so this Go-level check
+	// is what enforces the rating's axis enums and quadrant↔axes consistency on
+	// write until then.
+	if s.EffortComplexity != nil {
+		if err := s.EffortComplexity.Validate(); err != nil {
+			return fmt.Errorf("state: %w", err)
+		}
 	}
 
 	data, err := json.MarshalIndent(s, "", "  ")
