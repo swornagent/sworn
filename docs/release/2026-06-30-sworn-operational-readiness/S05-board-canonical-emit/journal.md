@@ -133,3 +133,47 @@ Verification:
   not a slice gap. Model-backed `sworn verify` needs SWORN_ANTHROPIC_API_KEY (unset) — the verifier's to run.
 
 State → implemented. Stopping per Rule 7; NEXT = fresh-context `/verify-slice S05`.
+
+## Verifier verdicts received
+
+### 2026-06-30T22:16:06Z — PASS (fresh-context, artefact-only)
+
+Fresh Rule-7 verification of `S05-board-canonical-emit` in track worktree
+`.../release-2026-06-30-sworn-operational-readiness-T4-board-record-reconciliation`.
+Drift gate: 0 commits behind `release-wt` (no forward-merge). All six gates passed
+against live repo state.
+
+- **Gate 1 (user-reachable outcome):** `Release.UnmarshalJSON`/`MarshalJSON` in
+  `internal/board/board.go` are wired through `ReadBoard`→`json.Unmarshal`, the
+  oracle's real read path. Reachable via `sworn board`.
+- **Gate 2 (touchpoints):** 4 declared touchpoints all changed; 2 extra test
+  fixtures (`internal/board/board_test.go`, `cmd/sworn/merge_test.go`) declared in
+  `proof.json` divergence — one-line string→object fixture migrations forced by the
+  strict reader. Docs churn in `start_commit..HEAD` is release-wt forward-merge noise
+  (multiple replans), not slice scope.
+- **Gate 3 (tests):** re-ran `go test ./internal/board/... ./internal/baton/...` (ok)
+  and full `go test ./... -timeout 300s` (exit 0, incl. cmd/sworn 36s). Six
+  `TestRelease_*` tests are genuine assertions exercising the reader/writer:
+  object reads, bare-string fails closed (×2), object-missing-name fails closed,
+  round-trip preserves object fields, StringRelease emits canonical object. AC-05 met.
+- **Gate 4 (reachability):** independently reproduced — built the S05 binary from
+  this track HEAD and ran `sworn board --release 2026-06-28-yearSnapshot-schema-cleanup
+  --json` in `~/projects/fired`; the strict object-only reader read the real coach
+  OBJECT board and returned T1-schema-cleanup + slices (exit 0). No-mock boundary
+  walked against real infra. AC-04 met.
+- **Gate 5 (no silent deferrals):** only pre-existing `deferred` domain vocabulary +
+  the ADR-0007 comment in `validator.go` (outside the slice's diff). No new markers.
+- **Gate 6 (design conformance):** non-UI project (`design-fidelity.json` absent) —
+  auto-pass.
+- **Gate 7 (claimed scope):** AC-01/03/04/05 each have real evidence. `not_delivered`
+  AC-06 (cutover board migration) and full board-v1 parity are legitimate Rule-2
+  deferrals with why/tracking/acknowledgement.
+
+Note (AC-06, NOT a slice defect): this release's own `board.json` still carries
+`release` as a bare string and would fail closed under a strict binary — by spec that
+migration is the operational-readiness cutover, gated on every session being on a
+canonical binary, explicitly not mid-flight. Verdict commit leaves the `release` field
+unmigrated, consistent with the S04 precedent.
+
+Slice S05 → verified. S05 is the last slice in T4 → track T4 complete; NEXT =
+`/merge-track T4-board-record-reconciliation`.
