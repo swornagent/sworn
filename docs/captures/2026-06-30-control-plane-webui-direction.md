@@ -123,7 +123,16 @@ thin adapters.
 ## Scope / sequencing
 Its own release, planned spec-first. **Not** tonight and **not** in the operational-readiness
 release. Sequence after sworn is proven operational (the fired overnight run), since a
-control plane is most valuable once there are real loops to watch. Natural slices, ordered so
+control plane is most valuable once there are real loops to watch.
+
+**Decision (Brad, 2026-06-30): ONE release for the whole thing** — web control plane +
+copy-command/interactive bridge + omni-channel notify/bot channels (ntfy/Slack/Telegram) —
+planned together after tonight's fired run, NOT split into a web-core release + a notify
+fast-follow. Rationale: they share the one event+command core (S2), so splitting would either
+duplicate the core seam across two releases or leave the first release's core under-exercised
+until the channels land; planning them together keeps the core designed against all its
+consumers at once. The internal slice/track ordering still lands the shared core before the
+channel adapters (see the slice sketch above). Natural slices, ordered so
 the shared core lands before the channels that ride it:
 
 - **S1 — loop registry + `sworn run` self-registration** (machine-global discovery under `~/.sworn/`).
