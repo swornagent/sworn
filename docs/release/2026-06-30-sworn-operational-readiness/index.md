@@ -22,7 +22,7 @@ release overnight. Parallelism out of scope (serial is acceptable).
 | `T1-operational-unblock` | `S01-d6-record-reconciliation` | — | in_progress |
 | `T2-board-render` | `S02-board-render` | — | planned |
 | `T3-consumer-repo-hygiene` | `S03-sworn-self-ignore` | — | planned |
-| `T4-board-record-reconciliation` | `S04-board-record-reconciliation` | — | planned |
+| `T4-board-record-reconciliation` | `S04-board-record-reconciliation` | — | in_progress |
 
 Four independent tracks (touchpoint-disjoint, see matrix). Serial execution is fine —
 parallelism is not a goal. **T1/D6 AND T4/board-record are tonight-critical** — the fired run
@@ -36,7 +36,7 @@ fails at board-read (T4) before status-read (T1/D6), so both are needed to run f
 | `S01-d6-record-reconciliation` | T1 | sworn reads + round-trips a real coach status.json (object-form open_deferrals/violations) without unmarshal error or field loss | planned | epic (high/high) |
 | `S02-board-render` | T2 | `sworn render` deterministically generates index.md from board.json + slice records; no model/human authors the board view | planned | chore (low/low) |
 | `S03-sworn-self-ignore` | T3 | sworn writes `.sworn/.gitignore` so its runtime state never dirties or gets committed to a consumer repo | planned | chore (low/low) |
-| `S04-board-record-reconciliation` | T4 | oracle reads the canonical coach board.json (`release` object form), tolerating the legacy string — the board-level companion to D6 | planned | chore (low/low) |
+| `S04-board-record-reconciliation` | T4 | oracle reads the canonical coach board.json (`release` object form), tolerating the legacy string — the board-level companion to D6 | verified | chore (low/low) |
 
 ## Touchpoint matrix (Phase 3b)
 
