@@ -70,3 +70,21 @@ No code touched. Routing forward to `/replan-release 2026-06-30-sworn-operationa
 amend AC-02 to the strict-reader world (fold into AC-06, or restate as the in-process
 StringRelease emit case). Implementation can resume only once AC-02 is consistent with
 AC-03/AC-06.
+
+## 2026-07-01 — /replan-release resolution: AC-02 REMOVED (strict-reader reconciliation)
+
+`/replan-release` ran and the human ratified **Remove AC-02**. AC-02's lenient
+"string release self-heals to canonical on write" required a lenient reader,
+directly contradicting the amended strict reader (AC-03) and the cutover
+migration (AC-06) — mutually unsatisfiable (Rule 8, AC consistency). AC-02 is
+deleted: its emit half is already AC-01 (MarshalJSON emits the object form for a
+name-only release), its migration half is AC-06 (operator string boards migrated
+at cutover). The stale lenient-world `user_outcome` and the "Reader unchanged"
+effort rationale were also corrected to the strict-reader world.
+
+Landed on release-wt as `3fbb651` and forward-merged here. AC IDs kept stable
+(AC-01, AC-03..AC-06) for traceability. No production code touched by the planner.
+
+NEXT: S05 is unblocked and stays `in_progress` — resume `/implement-slice S05` to
+land the remaining code delta (UnmarshalJSON object-only + invert the string-read
+tests to assert a bare string fails closed), then a fresh `/verify-slice`.
