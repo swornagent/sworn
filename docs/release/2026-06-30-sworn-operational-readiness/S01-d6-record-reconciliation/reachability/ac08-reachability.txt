@@ -1,0 +1,27 @@
+===== AC-08 REACHABILITY ARTEFACT — D6 object-form status-read on live fired repo =====
+fired repo: /home/brad/projects/fired   (git clean: 0 changes)
+new binary built from track worktree S01-d6-record-reconciliation
+
+########################################################################
+# 1. BEFORE/AFTER on REAL object-form data (release 2026-06-16-...,
+#    slice S05-engine-owned-real-dollars carries 4 object open_deferrals)
+#    Board oracle shares the exact state.Read path with 'RunSlice: read status'.
+########################################################################
+--- OLD installed binary (pre-D6): S05 unreadable -> 'unknown' ---
+Track T2-engine-real-dollars — merged
+    S05-engine-owned-real-dollars — unknown
+--- NEW binary (D6 fix): S05 parsed -> true state 'verified' ---
+Track T2-engine-real-dollars — merged
+    S05-engine-owned-real-dollars — verified [verifier]
+
+########################################################################
+# 2. AC-08 target release 2026-06-28-yearSnapshot-schema-cleanup:
+#    status-read of S01-networth-hierarchy-remap succeeds (NEW binary).
+########################################################################
+
+########################################################################
+# 3. Confirm the OLD unmarshal error is GONE on real object data:
+#    grep new-binary full-board output for the D6 error signature.
+########################################################################
+0
+0 D6 unmarshal errors (clean)

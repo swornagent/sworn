@@ -32,7 +32,7 @@
     "go test ./... -timeout 120s"
   ],
   "reachability_artifacts": [
-    "manual-smoke-step: sworn board --release 2026-06-16-critical-journey-resolutions on the live fired repo — slice S05-engine-owned-real-dollars (4 object-form open_deferrals) reads 'unknown' on the old binary, 'verified [verifier]' on the new binary; direct state.Read on the AC-08 target slice S01-networth-hierarchy-remap and on S05 succeeds, preserving acknowledged_by/id in Extra (scratchpad/ac08-reachability.txt, scratchpad/ac08-direct-read.txt)"
+    "manual-smoke-step: sworn board --release 2026-06-16-critical-journey-resolutions on the live fired repo — slice S05-engine-owned-real-dollars (4 object-form open_deferrals) reads 'unknown' on the old binary, 'verified [verifier]' on the new binary; direct state.Read on the AC-08 target slice S01-networth-hierarchy-remap and on S05 succeeds, preserving acknowledged_by/id in Extra (reachability/ac08-reachability.txt, reachability/ac08-direct-read.txt)"
   ],
   "design_decisions": [
     {
