@@ -189,3 +189,28 @@ the Extra-map design already anticipated. Recorded the strict-additive decision 
   object; does not weaken the strict schema. Surfaced for verifier/Coach.
 - **defer_slice** writes a non-canonical deferral (Why+Acknowledgement, no tracking/acknowledged_by);
   harmless today (state.Write doesn't schema-validate), folds under #39.
+
+## Verifier verdicts received
+
+### 2026-07-01 — BLOCKED (fresh-context verifier, artefact-only)
+
+**Verdict: BLOCKED** — spec defect in AC-08 (not an implementation fault).
+
+All code acceptance criteria are delivered and verified green in a fresh window: `go build ./...`
+clean, full `go test ./...` 39 packages ok / 0 FAIL, the AC-cited state tests pass (incl. the AC-10
+strict-additive negative cases — `acknowledged_by`-alone and `acknowledgement`-alone both fail closed),
+schema carries the strict required-set `[why, tracking, acknowledgement, acknowledged_by]` with NO
+anyOf and the `inconclusive` result enum, `covers_needs` rename done, projection helpers present, the
+real-data read-path artefacts exist on disk. The `verdict.go` change is comment+whitespace only.
+
+**The single blocker is AC-08, which is internally contradictory with AC-11** (both authored in the
+Coach-ratified strict-reversal replan 61df7ac): AC-08 requires the `sworn run` LOOP to run on fired and
+"proceed past the D6 failure point", but AC-11 forbids running the fired loop on the strict-schema
+binary (which this slice delivers) until the #40 deferral migration lands — so AC-08's loop-run is
+un-runnable in-slice. Compounding this, the AC-08-named slice `S01-networth-hierarchy-remap` now has
+`open_deferrals=[]` / `state=planned`, so it cannot exercise the object-form unmarshal even for a read.
+The implementer correctly followed the later AC-11 (proved the read-path on the substitute object-form
+slice 2026-06-16 S05 and deferred the loop to #40) — but ratifying a deviation from a binding AC is the
+planner's authority, not the verifier's. Routed to `/replan-release` with a concrete AC-08 amendment
+(see status.json verification.violations[0].proposed_amendment). The amendment is satisfied by the
+already-committed artefacts, so re-verification should PASS without new implementation.

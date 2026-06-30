@@ -8,8 +8,8 @@
   "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/spec.json",
   "proof_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/proof.json",
   "journal_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/journal.md",
-  "last_updated_by": "implement-slice",
-  "last_updated_at": "2026-07-01T03:30:00Z",
+  "last_updated_by": "verify-slice",
+  "last_updated_at": "2026-07-01T04:05:00Z",
   "start_commit": "000ee08aad1404340d7e4ed23d360f4414e0fc19",
   "actual_files": [
     "internal/state/state.go",
@@ -84,6 +84,16 @@
     "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "pending"
+    "result": "blocked",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-01T04:05:00Z",
+    "violations": [
+      {
+        "gate": "Gate 4 / Gate 7 — reachability (AC-08) is a spec defect: internally contradictory with AC-11",
+        "description": "AC-08 requires the `sworn run` LOOP to be pointed at fired release 2026-06-28-yearSnapshot-schema-cleanup and to 'proceed past the D6 failure point'. This is un-satisfiable in-slice for two independent reasons. (1) AC-11 — added in the same Coach-ratified replan (61df7ac) that flipped open_deferrals to the strict-additive shape — explicitly forbids running the fired loop on the strict-schema binary until the #40 deferral-migration lands ('do not run the fired loop on the strict-schema binary until the 127-deferral migration is applied'); this slice DELIVERS that strict binary (AC-10), so AC-08's loop-run is categorically un-runnable here. (2) The AC-08-named slice S01-networth-hierarchy-remap currently has open_deferrals=[] and state=planned, so it carries no object-form data to exercise the D6 unmarshal even for a read. The implementer correctly followed the later/more-authoritative AC-11 (proved the READ path on a real object-form fired slice and deferred the loop to #40), but that is a deviation from a binding acceptance criterion that only the planner may ratify. Every code AC (AC-01..07, AC-09, AC-10) is delivered and green and AC-11 is correctly scoped as tracked cutover (#40/#38); the sole defect is AC-08's stale text, which the strict-direction reversal never updated.",
+        "evidence": "spec.json AC-08 unchanged by the replan diff (git diff start_commit..HEAD -- spec.json shows no AC-08 edit) yet AC-11 carries 'NB sequencing: do not run the fired loop on the strict-schema binary until the 127-deferral migration is applied'; /home/brad/projects/fired/apps/docs/content/docs/release/2026-06-28-yearSnapshot-schema-cleanup/S01-networth-hierarchy-remap/status.json has open_deferrals=[] state=planned; reachability/ac08-reachability.txt + reachability/ac08-direct-read.txt prove the read-path (0 'cannot unmarshal object' + 4 object-form deferrals read with named fields + Extra preserved) against the SUBSTITUTE release 2026-06-16-critical-journey-resolutions / S05, not the AC-08-named locus; the fired loop was NOT run on the strict binary (proof.json reachability_artifacts[3], journal).",
+        "proposed_amendment": "Rewrite AC-08 to match the strict direction and AC-11 sequencing. Replace the `sworn run` loop-run requirement with a read-path reachability criterion, e.g.: 'When the strict-schema binary state.Read path (as exercised by `sworn board --release <R>` and a direct state.Read) is pointed at a live fired release whose status.json carries object-form open_deferrals ({id, why, tracking, acknowledged_by}) — the shape that previously crashed the D6 unmarshal — the read SHALL succeed with zero \"cannot unmarshal object\" errors, populating the named Deferral fields and preserving unknown keys in Extra. The full `sworn run` mutating loop on fired is explicitly deferred to the #40 cutover per AC-11 sequencing. Reachability artefact: the captured board render + direct-read output on a real fired object-form slice (e.g. 2026-06-16-critical-journey-resolutions / S05).' This harmonizes AC-08 with AC-10/AC-11 and is satisfied by the already-committed artefacts, so re-verification PASSes without new implementation."
+      }
+    ]
   }
 }
