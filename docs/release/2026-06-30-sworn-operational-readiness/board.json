@@ -19,6 +19,13 @@
       "depends_on": [],
       "worktree_branch": "track/2026-06-30-sworn-operational-readiness/T2-board-render",
       "state": "planned"
+    },
+    {
+      "id": "T3-consumer-repo-hygiene",
+      "slices": ["S03-sworn-self-ignore"],
+      "depends_on": [],
+      "worktree_branch": "track/2026-06-30-sworn-operational-readiness/T3-consumer-repo-hygiene",
+      "state": "planned"
     }
   ]
 }

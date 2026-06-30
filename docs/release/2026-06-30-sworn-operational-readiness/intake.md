@@ -85,6 +85,7 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
 - N-03: the slice-status field carrying intake-need IDs is named covers_needs (schema name), not need_ids, so a real status.json round-trips and the RTM gate reads it.
 - N-04: an inconclusive verifier verdict is representable in the slice-status leaf result enum (#37 / deferred D4), so the agentic verifier's inconclusive maps cleanly rather than being forced into fail.
 - N-05: the release board's human view (index.md) is deterministically RENDERED from board.json plus the slice records by `sworn render`, never hand-authored by a model or human, so the operator monitoring an unattended run reads a faithful view and the index.md frontmatter-corruption false-ready failure mode is removed.
+- N-06: sworn never dirties a consumer repo — when it creates `.sworn/` runtime state in a repo it operates on, that directory is self-ignored (`.sworn/.gitignore` = `*`), so it never appears in the host repo's git status or gets committed.
 
 ## Constraints and non-negotiables
 
@@ -138,6 +139,25 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
 - **Deferred (Rule 2)**: `S02-retry-reset-preserves-work` and `S03-escalation-honours-config`
   — why: non-blocking tuning, not a hard stop; tracking: this intake's out-of-scope +
   eval findings 5/6 in `2026-06-30-session-handoff.md`; acknowledged 2026-06-30 (Brad).
+
+### 2026-07-01 — Add S03-sworn-self-ignore (T3): sworn must not dirty consumer repos
+
+- **Context**: during operational prep for the fired overnight run, `~/projects/fired/.sworn/`
+  (the run DB + supervisor DB) showed as `?? .sworn/` — untracked, not ignored. sworn writes
+  `.sworn/` into every repo it runs on but never self-ignores it, though sworn's OWN repo
+  gitignores `.sworn/` (.gitignore:26). Patched fired by hand for tonight (`.sworn/.gitignore`
+  = `*`); the engine fix folds in here (replan of an in-flight release).
+- **Decision**: add `S03-sworn-self-ignore` as independent track `T3-consumer-repo-hygiene` —
+  sworn writes `.sworn/.gitignore` (`*`) at the `.sworn/` creation site (internal/db/db.go),
+  idempotent (never overwrite an existing one) and best-effort (a write failure never fails
+  the run).
+- **Why**: an untracked `.sworn/` reads the worktree dirty (a dominant loop-failure mode) and
+  risks a binary DB being swept into a consumer's release branch by any broad auto-stage.
+  sworn's value is running on OTHER repos, so it must leave no trace — directly the
+  operational-readiness golden thread ("run cleanly on real repos, unattended").
+- **Scope note**: independent of T1/D6 (state/verify/run) and T2 (board render) — touches only
+  internal/db; does not disrupt the in-flight T1 work. NOT a hard blocker for tonight (fired
+  is hand-patched), but the durable fix belongs in the engine.
 
 ### 2026-06-30 — Add S02-board-render: index.md is rendered, never authored
 
