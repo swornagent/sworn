@@ -3,14 +3,14 @@
   "schema_version": 1,
   "slice_id": "S05-board-canonical-emit",
   "release": "2026-06-30-sworn-operational-readiness",
-  "user_outcome": "sworn always EMITS and VALIDATES the canonical baton object form for a board's `release` (strict), while its reader still tolerates a legacy bare string — so the schema no longer carries a string-tolerance divergence from canonical baton, and any existing string board converts to canonical the next time sworn writes it.",
+  "user_outcome": "sworn always EMITS, VALIDATES, and now READS only the canonical baton object form for a board's `release` (strict) — a legacy bare-string release fails closed on read — so the schema no longer carries a string-tolerance divergence from canonical baton, and the operator's existing string boards are MIGRATED to canonical at cutover (AC-06) rather than self-healed on write.",
   "rationale": "S04 unblocked reading real coach boards by making BoardRecord.Release accept both string and object AND relaxing the embedded board-v1 schema + validator to a oneOf [string, object]. That schema/validator relaxation is permanent vendor drift from canonical baton (object-only), so every future `sworn baton vendor` re-pull of board-v1 would conflict on that field forever (the #38 class). S05 makes emit/validate canonical object-only (schema + validator + writer). AMENDED (Coach-ratified 2026-07-01): the first cut kept a lenient reader (Postel); the Coach reversed that — there is no wild data (all string boards are operator-owned), so the lenient reader has no beneficiary and a strict reader is more fail-closed (a stray string board fails loud and gets fixed instead of lurking). So the READER goes object-only too, and the operator's string boards (op-readiness/release-hygiene/conformance) are MIGRATED at cutover (AC-06) rather than self-healed-on-write. The writer still emits the object form, so nothing new is ever written as a string. Safe to tighten: `baton.Validate(\"board-v1\")` is called only in WriteBoard on freshly-marshaled (now always object) output, and ValidateSchema is not wired for boards, so nothing enforces the schema against on-disk string boards. Builds on S04 (verified, immutable) as a separate slice per Rule 7. Out of scope: full canonical board-v1 parity (nested release.worktree etc.) — that is the broader baton re-vendor.",
   "covers_needs": ["N-08"],
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
     "quadrant": "chore",
-    "rationale": "Three small edits on S04's verified base: MarshalJSON emits object, schema release object-only, validator object-only; plus a test update. Reader unchanged.",
+    "rationale": "Small edits on S04's verified base: MarshalJSON emits object, schema release object-only, validator object-only, and UnmarshalJSON object-only (strict reader); plus inverting the string-read tests to assert a bare string fails closed.",
     "confirmed_by_implementer": false
   },
   "touchpoints": [
@@ -25,12 +25,6 @@
       "type": "ubiquitous",
       "ears_keyword": "shall",
       "text": "Release.MarshalJSON SHALL emit the canonical object form {\"name\": ...} for a name-only release (raw absent), so sworn never writes the legacy bare-string release form. A release read from a canonical object SHALL still re-emit its full object verbatim (raw preserved)."
-    },
-    {
-      "id": "AC-02",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When a board.json carrying a legacy string `release` is read and then written, the written form SHALL be the canonical object {\"name\": <the string>} — i.e. the string board self-heals to canonical on write. Proven by TestRelease_StringReadEmitsCanonicalObject."
     },
     {
       "id": "AC-03",

@@ -78,7 +78,7 @@
       "id": "AC-08",
       "type": "event-driven",
       "ears_keyword": "When",
-      "text": "When `sworn run` is pointed at the live fired release 2026-06-28-yearSnapshot-schema-cleanup (~/projects/fired, --docs-prefix apps/docs/content/docs) — the run that previously failed at the open_deferrals unmarshal — the status-read of S01-networth-hierarchy-remap SHALL succeed and the loop SHALL proceed past the D6 failure point. This is the reachability artefact: capture the run output showing no status-read rejection."
+      "text": "AMENDED (Coach-ratified 2026-07-01, strict-direction / AC-11 sequencing): the original `sworn run` loop-run bar is un-runnable in-slice — AC-11 (ratified in the same 61df7ac replan) forbids running the fired loop on the strict-schema binary until the 127-deferral migration (#40) lands, and this slice DELIVERS that strict binary (AC-10), so the reachability bar is the READ path, not the mutating loop. When the strict-schema binary state.Read path (as exercised by `sworn board --release <R>` and a direct state.Read) is pointed at a live fired release whose status.json carries object-form open_deferrals ({id, why, tracking, acknowledged_by}) — the shape that previously crashed the D6 unmarshal — the read SHALL succeed with zero \"cannot unmarshal object\" errors, populating the named Deferral fields and preserving unknown keys in Extra. The full `sworn run` mutating loop on fired is explicitly deferred to the #40 cutover per AC-11 sequencing. Reachability artefact: the captured board render + direct-read output on a real fired object-form slice (e.g. 2026-06-16-critical-journey-resolutions / S05)."
     },
     {
       "id": "AC-09",
