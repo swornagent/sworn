@@ -29,6 +29,12 @@
     "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "pending"
+    "result": "blocked",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      "Step 0 / Gate 2 — S05-board-canonical-emit is not assigned to any track in the canonical board.json on release-wt/2026-06-30-sworn-operational-readiness. Both `sworn board --release 2026-06-30-sworn-operational-readiness --json` and `git show release-wt/2026-06-30-sworn-operational-readiness:.../board.json` list T4's slices as only [\"S04-board-record-reconciliation\"]. S05's membership exists ONLY on the track branch, where it was injected inside the implementer's feat commit 565f909 (board.json: S04 -> [S04, S05]), never planned in via /replan-release and never propagated to release-wt. The release-wt..track drift is 0, so the forward-merge drift gate cannot heal this. Proposed amendment: planner runs /replan-release to canonically register S05-board-canonical-emit under T4-board-record-reconciliation in release-wt's board.json, then forward-syncs the corrected board into the T4 track branch.",
+      "Lifecycle — S05 has no `docs(...): start implementation` commit. status.json start_commit is 3847df0, which is S04's feat commit (\"oracle reads canonical coach board.json — S04\"). Consequently start_commit..HEAD spans S04's verifier verdict (0d22f65), two merges (41efcf8, ae25c0f), an S01 replan (51e4dab) and the S05 feat commit (565f909) — it does NOT isolate S05's scope, so the verifier's mandated `git diff <start_commit>` cannot bound the slice. Proposed amendment: planner establishes a proper planned -> in_progress start commit for S05 and sets start_commit to it.",
+      "Process ordering — S05's spec.json, board membership, intake.md edit, production implementation (internal/board/board.go, internal/baton/schemas/board-v1.json, internal/baton/validator.go) and proof.md were all created in a single feat commit (565f909). No planner /replan-release commit and no planned->in_progress transition preceded implementation; the planner/implementer/verifier ordering was collapsed. An implementer cannot self-clear this — registration and lifecycle are planner authority."
+    ]
   }
 }
