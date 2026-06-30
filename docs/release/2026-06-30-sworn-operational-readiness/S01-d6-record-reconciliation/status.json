@@ -16,8 +16,8 @@
         "type Deferral map[string]any: loss-free but no typed fields; AC-03 requires structs",
         "[]json.RawMessage: byte-perfect round-trip but zero typed access"
       ],
-      "human_decision": "",
-      "rationale": "Keystone prerequisite (baton.ValidateSchema) touching the on-disk status.json contract across ~15 files; the planner ratified the direction (structs + preserve-unknowns) in spec rationale + AC-03, but the representation mechanism + determinism guarantee is architecturally significant and needs Captain ratification.",
+      "human_decision": "Ratified by Coach (Brad), 2026-07-01: Deferral/Violation as structs with named schema fields plus an Extra map[string]json.RawMessage overflow and custom (Un)MarshalJSON. Chosen over map[string]any and []json.RawMessage because AC-03 requires typed structs that preserve unknown keys and the Rule-10 boundary consumer needs typed Item/Why access; map-based MarshalJSON yields deterministic byte-stable output (drift-gate safe).",
+      "rationale": "Keystone prerequisite (baton.ValidateSchema) touching the on-disk status.json contract across ~15 files; the planner ratified the direction (structs + preserve-unknowns) in spec rationale + AC-03, and the Coach ratified the representation mechanism + determinism guarantee at design review.",
       "architecturally_significant": true
     },
     {
