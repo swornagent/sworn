@@ -84,6 +84,7 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
 - N-02: Read then Write of such a status.json PRESERVES every field of each deferral/violation object (no silent field drop on write-back) — the no-degrade non-negotiable.
 - N-03: the slice-status field carrying intake-need IDs is named covers_needs (schema name), not need_ids, so a real status.json round-trips and the RTM gate reads it.
 - N-04: an inconclusive verifier verdict is representable in the slice-status leaf result enum (#37 / deferred D4), so the agentic verifier's inconclusive maps cleanly rather than being forced into fail.
+- N-05: the release board's human view (index.md) is deterministically RENDERED from board.json plus the slice records by `sworn render`, never hand-authored by a model or human, so the operator monitoring an unattended run reads a faithful view and the index.md frontmatter-corruption false-ready failure mode is removed.
 
 ## Constraints and non-negotiables
 
@@ -137,6 +138,25 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
 - **Deferred (Rule 2)**: `S02-retry-reset-preserves-work` and `S03-escalation-honours-config`
   — why: non-blocking tuning, not a hard stop; tracking: this intake's out-of-scope +
   eval findings 5/6 in `2026-06-30-session-handoff.md`; acknowledged 2026-06-30 (Brad).
+
+### 2026-06-30 — Add S02-board-render: index.md is rendered, never authored
+
+- **Context**: during this very planning session the planner had to HAND-AUTHOR index.md
+  because no renderer exists, despite the planner contract saying "rendered from board.json,
+  never hand-authored." Brad: "there should be no need for a model to output md."
+- **Decision**: add `S02-board-render` as an independent track `T2-board-render` — a
+  deterministic `sworn render <release>` that generates index.md from board.json + the slice
+  records. The model emits the RECORD (board.json); code renders the VIEW (index.md).
+- **Why**: records-vs-prose principle — index.md is a view of a record, not prose, so it must
+  be rendered, not authored. It also removes a real operational failure: a hand-authored
+  index.md frontmatter fusion previously produced a false merge-ready
+  ([[project_index_frontmatter_corruption_false_ready]]). So it traces to operational
+  reliability, not just tidiness. intake.md and journal.md remain prose (correctly authored).
+- **Scope note**: NOT a blocker for tonight's overnight run — the oracle reads board.json
+  preferentially, so the fired run does not need the renderer. T1/D6 stays the only
+  tonight-critical path. T2 is touchpoint-disjoint from T1 (new render files vs D6's
+  state/verify/run files) and can be done any time. Updating the planner skill/prompt to
+  CALL `sworn render` is a separate private-harness change (out of scope for the Go slice).
 
 ### 2026-06-30 — Overnight target = the fired dogfood release
 

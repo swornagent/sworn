@@ -15,6 +15,12 @@
       "slices": ["S01-d6-record-reconciliation"],
       "depends_on": [],
       "state": "planned"
+    },
+    {
+      "id": "T2-board-render",
+      "slices": ["S02-board-render"],
+      "depends_on": [],
+      "state": "planned"
     }
   ]
 }
