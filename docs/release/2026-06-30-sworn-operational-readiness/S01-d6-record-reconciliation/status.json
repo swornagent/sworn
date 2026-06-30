@@ -3,10 +3,39 @@
   "slice_id": "S01-d6-record-reconciliation",
   "release": "2026-06-30-sworn-operational-readiness",
   "track": "T1-operational-unblock",
-  "state": "planned",
+  "state": "design_review",
   "covers_needs": ["N-01", "N-02", "N-03", "N-04"],
   "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/spec.json",
   "start_commit": null,
+  "design_decisions": [
+    {
+      "choice": "Carrier representation for open_deferrals/violations: structs with named schema fields plus an Extra overflow map and custom (Un)MarshalJSON, so unknown coach keys (id/description/acknowledged_by) round-trip without loss.",
+      "stake_class": "Type-1",
+      "options": [
+        "struct + Extra overflow map + custom marshalers (chosen): typed access for the Rule-10 consumer, preserves unknown keys, deterministic map-based marshal",
+        "type Deferral map[string]any: loss-free but no typed fields; AC-03 requires structs",
+        "[]json.RawMessage: byte-perfect round-trip but zero typed access"
+      ],
+      "human_decision": "",
+      "rationale": "Keystone prerequisite (baton.ValidateSchema) touching the on-disk status.json contract across ~15 files; the planner ratified the direction (structs + preserve-unknowns) in spec rationale + AC-03, but the representation mechanism + determinism guarantee is architecturally significant and needs Captain ratification.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Display-only consumers read through Status.DeferralStrings()/Verification.ViolationStrings() projection helpers rather than each call site being rewritten; oracle SliceState.Violations stays []string.",
+      "stake_class": "Type-2",
+      "rationale": "Bounds the migration diff to the contract surface (Rule 6 scope ceiling); reversible and local."
+    },
+    {
+      "choice": "Rule-10 CheckBoundaryMocks/isDeclared match declared mocks against the Deferral's description-bearing fields (Item + Why) only, not Tracking/Acknowledgement.",
+      "stake_class": "Type-2",
+      "rationale": "Tracking/Acknowledgement are IDs/URLs that could spuriously contain a boundary keyword and over-declare; matching Item+Why keeps enforcement at least as strict as the prior free-form string match (AC-05)."
+    },
+    {
+      "choice": "verdict->state bridge (run/slice.go) wraps verdict.Result.Violations ([]string) into []Violation via Violation{Description: s}; verdict layer stays []string.",
+      "stake_class": "Type-2",
+      "rationale": "sworn-generated data (not coach-read), so no field-loss concern; ViolationStrings() reproduces the same display string for the oracle."
+    }
+  ],
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
