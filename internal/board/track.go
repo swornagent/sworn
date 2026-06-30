@@ -151,7 +151,11 @@ func ParseTracks(body string) []TrackInfo {
 		}
 		// ---- worktree_path ----
 		if mm := reTrackWorktreePath.FindStringSubmatch(line); mm != nil {
-			cur.WorktreePath = strings.TrimSpace(mm[1])
+			// Strip any inline "# ..." comment so the unfilled placeholder
+			// (worktree_path: # set by first /implement-slice) parses as empty
+			// rather than yielding the comment text as a literal path that then
+			// reaches `git worktree add` (eval finding 2).
+			cur.WorktreePath = stripInlineComment(mm[1])
 			continue
 		}
 
@@ -207,4 +211,19 @@ func ParseTrackID(line string) (string, bool) {
 		return mm[1], true
 	}
 	return "", false
+}
+
+// stripInlineComment removes a trailing YAML "# ..." inline comment from a
+// scalar value and trims surrounding whitespace. A value that is entirely a
+// comment (an unfilled placeholder) collapses to "". A '#' is only treated as a
+// comment marker at the start or after whitespace, so a '#' inside a token is
+// left intact.
+func stripInlineComment(s string) string {
+	s = strings.TrimSpace(s)
+	for i := 0; i < len(s); i++ {
+		if s[i] == '#' && (i == 0 || s[i-1] == ' ' || s[i-1] == '\t') {
+			return strings.TrimSpace(s[:i])
+		}
+	}
+	return s
 }

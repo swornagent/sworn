@@ -147,7 +147,28 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	}
 	startCommit := st.StartCommit
 	if startCommit == "" {
-		return fmt.Errorf("RunSlice: start_commit not set in %s", statusPath)
+		// Self-bootstrap (eval finding 7): a freshly-planned slice has no
+		// start_commit — Driver-1 (/implement-slice) used to set it on the
+		// planned→in_progress transition. The autonomous engine performs that
+		// transition itself so it can cold-start a release: pin start_commit to
+		// the worktree HEAD (the verifier's exact diff base) and advance the
+		// state. Without this the loop cannot run a release a human hasn't
+		// already moved to in_progress.
+		head, headErr := repo.RevParse("HEAD")
+		if headErr != nil {
+			return fmt.Errorf("RunSlice: bootstrap start_commit: resolve HEAD: %w", headErr)
+		}
+		st.StartCommit = head
+		startCommit = head
+		if st.State == state.Planned {
+			if err := st.State.Transition(state.InProgress); err != nil {
+				return fmt.Errorf("RunSlice: bootstrap planned→in_progress: %w", err)
+			}
+			st.State = state.InProgress
+		}
+		if err := state.Write(statusPath, st); err != nil {
+			return fmt.Errorf("RunSlice: bootstrap start_commit: write status: %w", err)
+		}
 	}
 
 	// Capture release and slice ID for decision-log writes (S02).
