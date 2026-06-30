@@ -284,3 +284,53 @@ No new implementation, no divergence beyond the already-surfaced #39 (write-path
 ValidateSchema rewire) and the retained legacy string-form read tolerance. Slice
 remains `implemented`; handing off to a fresh `/verify-slice` against the corrected
 AC-08.
+
+### 2026-07-01 — PASS (fresh-context verifier, artefact-only)
+
+**Verdict: PASS** — verified against the corrected AC-08 (read-path bar, replan `3fbb651`).
+Fresh-context, artefact-only session; verified inside the track worktree at HEAD `aa2b8b2`
+(drift vs `release-wt` = 0, no forward-merge needed). This supersedes the 2026-07-01 BLOCKED
+verdict, whose sole blocker (AC-08 ↔ AC-11 contradiction) the `/replan-release` resolved.
+
+All six gates passed:
+- **Gate 1 (user-reachable outcome):** AC-08's strict-schema `state.Read` path (exercised by
+  `sworn board --release <R>` and a direct read) is wired into user-reachable code (board oracle,
+  RunSlice) and proven on the LIVE fired repo's object-form deferrals — not a fixture.
+- **Gate 2 (touchpoints):** 13/16 planned code touchpoints changed; the 3 unchanged
+  (`validate_blocked.go`, `router.go`, `route.go`) are explained in `proof.json` divergence
+  (consume the oracle `SliceState.Violations`, which stays `[]string`). One unplanned code file,
+  `internal/verdict/verdict.go`, is comment-only (the `[]string` field is unchanged) and consistent
+  with `status.json` `design_decisions[4]`; the behavioural bridge `violationsFromStrings` lives in
+  the planned `run/slice.go`. No suspicious churn.
+- **Gate 3 (tests exercise the integration point):** re-ran in a fresh window — `go build ./...`
+  exit 0; full `go test ./...` 39 packages ok / 0 FAIL / 0 panic / no hang. AC-cited state tests
+  PASS incl. `TestSchema_OpenDeferralStrictAdditive` 7/7 (acknowledged_by-alone AND
+  acknowledgement-alone both fail closed), `TestRoundTrip_PreservesFieldsAndIsByteStable`,
+  `TestWrite_CanonicalDeferral_RoundTrips`. Tests use real fired-shaped fixtures and named-field
+  assertions — not tautologies.
+- **Gate 4 (reachability):** `reachability/ac08-reachability.txt` (strict binary `sworn board` over
+  the real fired release, 0 "cannot unmarshal object" errors, S05 reads verified) and
+  `ac08-direct-read.txt` (direct `state.Read` on fired S05's 4 object-form deferrals — named fields
+  populated, `acknowledgement=""` confirming the AC-11 cutover need, `id`/`field` preserved in Extra)
+  both exist on disk and name the user gesture. This is the real no-mock boundary (Rule 10).
+- **Gate 5 (no silent deferrals):** no dark-code markers in this slice's added lines; `gofmt -l`
+  clean. (Pre-existing, OUT-OF-SCOPE note: `internal/board/oracle.go:230` carries a fused
+  comment+code line — `actionable = isActionable(s.State)` is commented out, so the oracle reports
+  `actionable:false` for every slice. The fused line predates `start_commit` (present in
+  `git show <start_commit>:oracle.go`; last touched by `5e1d3c2`, 2026-06-24) and is NOT in this
+  slice's diff — it is a separate live bug, surfaced to the human, not a gate-5 fault of S01.)
+- **Gate 6 (design conformance):** no `docs/baton/design-fidelity.json` → non-UI project → auto-pass.
+- **Gate 7 (claimed scope):** every `delivered` AC has a verifiable evidence reference; AC-11 is
+  correctly surfaced as tracked cutover/upstream (#40/#38), not claimed as sworn code.
+
+Single judgement call examined and accepted: AC-10's fail-closed locus. Live `state.Write` uses the
+structural `baton.Validate`, not `baton.ValidateSchema`; the required-set fail-closed is therefore
+proven at the canonical-schema layer (the contract `slice-status-v1`), and the wholesale
+`Validate→ValidateSchema` runtime rewire is a pre-existing, separately-tracked keystone step (#39)
+that this slice neither owns nor worsens. AC-10's fail-closed clause subject is "a deferral" (the
+contract), and the slice's owned layer — schema definition + Go carrier + round-trip — is fully
+delivered and proven. Transparently disclosed in `proof.json` divergence; a ratified-by-design
+divergence, not a hidden deferral or an unfalsifiable AC.
+
+Track `T1-operational-unblock` has only this slice, so it is now complete → `/merge-track
+T1-operational-unblock`.
