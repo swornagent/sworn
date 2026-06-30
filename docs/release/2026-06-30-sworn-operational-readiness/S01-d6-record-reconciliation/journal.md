@@ -214,3 +214,26 @@ slice 2026-06-16 S05 and deferred the loop to #40) — but ratifying a deviation
 planner's authority, not the verifier's. Routed to `/replan-release` with a concrete AC-08 amendment
 (see status.json verification.violations[0].proposed_amendment). The amendment is satisfied by the
 already-committed artefacts, so re-verification should PASS without new implementation.
+
+## 2026-07-01 — /replan-release resolution: AC-08 rewritten to read-path bar; verification cleared
+
+`/replan-release` ran and the human ratified the verifier's proposed amendment.
+The inbound BLOCKED verdict was correct: AC-08 demanded the `sworn run` LOOP be
+run on the fired repo and "proceed past the D6 failure point", but AC-11 (added
+in the same `61df7ac` replan) forbids running the fired loop on the strict-schema
+binary until the #40 / 127-deferral migration lands — and this slice DELIVERS
+that strict binary (AC-10). AC-08 was the stale orphan the strict-direction
+reversal never updated (Rule 8, AC consistency).
+
+Resolution (landed on release-wt as `3fbb651`, forward-merged here):
+- AC-08 rewritten from the loop-run bar to a READ-path reachability bar — the
+  strict-schema state.Read on real object-form fired deferrals succeeds with 0
+  "cannot unmarshal object" errors, named fields populated, unknown keys in Extra;
+  the mutating loop is deferred to the #40 cutover per AC-11. This is exactly what
+  the already-captured artefacts (reachability/ac08-reachability.txt,
+  ac08-direct-read.txt) prove, so re-verification needs NO new code.
+- verification.result cleared blocked -> pending; state stays `implemented`; all
+  track-only fields (14 actual_files, reachability_artifacts, design_decisions)
+  preserved.
+
+NEXT: S01 is ready for a fresh `/verify-slice` against the corrected AC-08.
