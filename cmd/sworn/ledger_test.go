@@ -255,7 +255,7 @@ func TestSync_GateCountFromSpec(t *testing.T) {
 			Result:     "fail",
 			Model:      "gpt-5",
 			Attempt:    2,
-			Violations: []string{"unreachable test"},
+			Violations: []state.Violation{{Description: "unreachable test"}},
 		},
 	}
 	data, _ := json.MarshalIndent(st, "", "  ")

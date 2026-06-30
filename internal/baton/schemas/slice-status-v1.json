@@ -85,12 +85,16 @@
       "items": {
         "type": "object",
         "additionalProperties": true,
-        "required": ["why", "tracking", "acknowledgement"],
+        "anyOf": [
+          { "required": ["why", "tracking", "acknowledgement"] },
+          { "required": ["why", "tracking", "acknowledged_by"] }
+        ],
         "properties": {
           "item": { "type": "string" },
           "why": { "type": "string", "minLength": 1 },
           "tracking": { "type": "string", "minLength": 1 },
-          "acknowledgement": { "type": "string", "minLength": 1 }
+          "acknowledgement": { "type": "string", "minLength": 1 },
+          "acknowledged_by": { "type": "string", "minLength": 1 }
         }
       }
     },
@@ -101,7 +105,7 @@
       "properties": {
         "result": {
           "type": ["string", "null"],
-          "enum": ["pending", "pass", "fail", "blocked", null]
+          "enum": ["pending", "pass", "fail", "blocked", "inconclusive", null]
         },
         "verifier_session_id": {
           "type": ["string", "null"]

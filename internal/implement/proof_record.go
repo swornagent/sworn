@@ -14,17 +14,17 @@ import (
 
 // proofRecord is the JSON shape written to proof.json.
 type proofRecord struct {
-	Schema               string           `json:"$schema"`
-	SchemaVersion        int              `json:"schema_version"`
-	SliceID              string           `json:"slice_id"`
-	Release              string           `json:"release"`
-	Scope                string           `json:"scope"`
-	FilesChanged         []string         `json:"files_changed"`
-	TestResults          []testResultRec  `json:"test_results"`
+	Schema                string          `json:"$schema"`
+	SchemaVersion         int             `json:"schema_version"`
+	SliceID               string          `json:"slice_id"`
+	Release               string          `json:"release"`
+	Scope                 string          `json:"scope"`
+	FilesChanged          []string        `json:"files_changed"`
+	TestResults           []testResultRec `json:"test_results"`
 	ReachabilityArtifacts []string        `json:"reachability_artifacts"`
-	Delivered            []string         `json:"delivered"`
-	NotDelivered         []string         `json:"not_delivered"`
-	Divergence           []string         `json:"divergence"`
+	Delivered             []string        `json:"delivered"`
+	NotDelivered          []string        `json:"not_delivered"`
+	Divergence            []string        `json:"divergence"`
 }
 
 type testResultRec struct {
@@ -71,7 +71,7 @@ func WriteProofRecord(workspaceRoot, specPath, statusPath, sliceDir string) erro
 	rec.Delivered = deliveredFromSpec(specText)
 
 	// not_delivered: from status.json open_deferrals.
-	rec.NotDelivered = notDeliveredFromDeferrals(st.OpenDeferrals)
+	rec.NotDelivered = notDeliveredFromDeferrals(st.DeferralStrings())
 
 	// divergence: compare planned_files to actual git diff.
 	rec.Divergence = divergenceFromPlan(st.PlannedFiles, rec.FilesChanged)

@@ -233,7 +233,7 @@ func parseStatusJSON(raw string, sliceID, trackID string, trackMap map[string]Tr
 	blocked := s.Verification.Result == "blocked"
 	var blockedReason string
 	if blocked && len(s.Verification.Violations) > 0 {
-		blockedReason = s.Verification.Violations[0]
+		blockedReason = s.Verification.ViolationStrings()[0]
 	}
 
 	// Blocked owner: routing field takes precedence, else infer.
@@ -256,7 +256,7 @@ func parseStatusJSON(raw string, sliceID, trackID string, trackMap map[string]Tr
 		BlockedReason:      blockedReason,
 		BlockedOwner:       blockedOwner,
 		VerificationResult: s.Verification.Result,
-		Violations:         s.Verification.Violations,
+		Violations:         s.Verification.ViolationStrings(),
 	}, nil
 }
 
@@ -412,7 +412,7 @@ func (o *Oracle) readTrackInfos(reader gitContentReader, releaseRef, release str
 // ReadSliceStatus.
 // The releaseRef is a git ref (e.g. "refs/heads/release-wt/<release>")
 // where the authoritative board.json / index.md lives.
-func (o *Oracle) ReadBoard(	ctx context.Context,
+func (o *Oracle) ReadBoard(ctx context.Context,
 	reader gitContentReader,
 	releaseRef string,
 	release string,
@@ -425,7 +425,8 @@ func (o *Oracle) ReadBoard(	ctx context.Context,
 	}
 
 	trackMap := make(map[string]TrackInfo, len(trackInfos))
-	for _, ti := range trackInfos {		trackMap[ti.ID] = ti
+	for _, ti := range trackInfos {
+		trackMap[ti.ID] = ti
 	}
 
 	// Step 2: for each track, build its SliceState list by resolving each	// slice through ReadSliceStatus using the track's own branch as the
@@ -557,6 +558,7 @@ func NewOracleReaderAdapter(
 		trackMap:   trackMap,
 	}, nil
 }
+
 // ReadSliceStatus reads a single slice's status, resolving via the owner track
 // branch → release-wt → HEAD priority chain. Implements router.OracleReader.
 func (a *OracleReaderAdapter) ReadSliceStatus(ctx context.Context, release, sliceID string) (SliceState, error) {

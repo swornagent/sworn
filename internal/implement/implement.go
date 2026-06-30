@@ -184,7 +184,7 @@ func generateProof(workspaceRoot, specPath, proofPath string, st *state.Status) 
 	delivered := deliveredItems(specText)
 
 	// Not delivered: derive from st.OpenDeferrals.
-	notDelivered := notDeliveredItems(st.OpenDeferrals)
+	notDelivered := notDeliveredItems(st.DeferralStrings())
 
 	// Divergence: compare planned_files to actual git diff files.
 	divergence := divergenceItems(st.PlannedFiles, filesChangedFromGit(workspaceRoot, st.StartCommit))

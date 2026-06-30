@@ -6,7 +6,7 @@
   "state": "in_progress",
   "covers_needs": ["N-01", "N-02", "N-03", "N-04"],
   "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/spec.json",
-  "start_commit": null,
+  "start_commit": "000ee08aad1404340d7e4ed23d360f4414e0fc19",
   "design_decisions": [
     {
       "choice": "Carrier representation for open_deferrals/violations: structs with named schema fields plus an Extra overflow map and custom (Un)MarshalJSON, so unknown coach keys (id/description/acknowledged_by) round-trip without loss.",

@@ -154,7 +154,7 @@ func Project(st *state.Status, gateCount int) (Record, bool) {
 		Verdict:        v.Result,
 		State:          string(st.State),
 		FreshContext:   v.VerifierWasFreshContext,
-		Violations:     v.Violations,
+		Violations:     v.ViolationStrings(),
 		GateCount:      gateCount,
 		ViolationCount: len(v.Violations),
 		Dispatches:     v.Dispatches,
