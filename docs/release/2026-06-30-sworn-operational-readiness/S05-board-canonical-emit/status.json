@@ -1,0 +1,34 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S05-board-canonical-emit",
+  "release": "2026-06-30-sworn-operational-readiness",
+  "track": "T4-board-record-reconciliation",
+  "state": "in_progress",
+  "covers_needs": ["N-08"],
+  "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S05-board-canonical-emit/spec.json",
+  "proof_path": "docs/release/2026-06-30-sworn-operational-readiness/S05-board-canonical-emit/proof.md",
+  "start_commit": "0d22f65",
+  "actual_files": [
+    "internal/board/board.go",
+    "internal/baton/schemas/board-v1.json",
+    "internal/baton/validator.go",
+    "internal/board/board_release_test.go"
+  ],
+  "test_commands": [
+    "go test ./internal/board/... ./internal/baton/...",
+    "go test ./..."
+  ],
+  "reachability_artifacts": [
+    "sworn board --release 2026-06-28-yearSnapshot-schema-cleanup (run in ~/projects/fired) still reads the real coach object-form board after the canonical-emit change"
+  ],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "chore",
+    "rationale": "Canonical marshal + object-only schema/validator + test update on S04's base; reader unchanged.",
+    "confirmed_by_implementer": true
+  },
+  "verification": {
+    "result": "pending"
+  }
+}

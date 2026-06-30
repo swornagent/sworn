@@ -3,7 +3,7 @@
   "slice_id": "S01-d6-record-reconciliation",
   "release": "2026-06-30-sworn-operational-readiness",
   "track": "T1-operational-unblock",
-  "state": "implemented",
+  "state": "in_progress",
   "covers_needs": ["N-01", "N-02", "N-03", "N-04"],
   "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/spec.json",
   "proof_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/proof.json",

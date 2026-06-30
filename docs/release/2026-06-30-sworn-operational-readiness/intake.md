@@ -87,6 +87,7 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
 - N-05: the release board's human view (index.md) is deterministically RENDERED from board.json plus the slice records by `sworn render`, never hand-authored by a model or human, so the operator monitoring an unattended run reads a faithful view and the index.md frontmatter-corruption false-ready failure mode is removed.
 - N-06: sworn never dirties a consumer repo — when it creates `.sworn/` runtime state in a repo it operates on, that directory is self-ignored (`.sworn/.gitignore` = `*`), so it never appears in the host repo's git status or gets committed.
 - N-07: sworn reads a real coach-produced board.json whose `release` is the canonical baton OBJECT form ({name, vertical_trace, ...}) without an unmarshal error (and tolerates the legacy string form), so the oracle/run load a real release instead of failing at board-read.
+- N-08: sworn EMITS and VALIDATES the canonical object form for `release` (strict, object-only — no string-tolerance divergence from canonical baton), while the reader stays tolerant of a legacy string; existing string boards self-heal to canonical on next write.
 
 ## Constraints and non-negotiables
 
@@ -140,6 +141,46 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
 - **Deferred (Rule 2)**: `S02-retry-reset-preserves-work` and `S03-escalation-honours-config`
   — why: non-blocking tuning, not a hard stop; tracking: this intake's out-of-scope +
   eval findings 5/6 in `2026-06-30-session-handoff.md`; acknowledged 2026-06-30 (Brad).
+
+### 2026-07-01 — No-wild-data: go strict + migrate, drop all back-compat (S01 deferral + S05 reader)
+
+- **Context**: Brad — the old boards/artefacts are all his own; no one in the wild has them *yet*.
+  So back-compat tolerance has no durable beneficiary; it is pure debt, and a strict reader is
+  more fail-closed (fails loud on a non-migrated artefact instead of silently tolerating it). The
+  compat-free window is open and expires the day there are external users — spend it now.
+- **Decision (deferral / S01)**: replace the `anyOf` (acknowledgement OR acknowledged_by) with the
+  STRICT ADDITIVE canonical shape — `why` + `tracking` + `acknowledgement` (Rule-2 plain-text
+  evidence) + `acknowledged_by` (who), optional `acknowledged_at`. Additive, not a swap: a name is
+  not the "told in plain text" evidence, and a bare structured field is easier to stamp vacuously
+  (weakening No-Silent-Deferrals). Migrate the 127 coach deferrals (add acknowledgement); PR the
+  shape UP to baton (supersedes #38's loosen-baton). S01 AC-10 amended, AC-11 added; S01 → in_progress.
+- **Decision (board reader / S05)**: drop the lenient reader too — `Release.UnmarshalJSON` goes
+  object-only (a string release fails closed). Migrate the operator's string boards at cutover.
+  S05 AC-03 amended, AC-04 reworded, AC-06 (migration) added; S05 → in_progress.
+- **Sequencing (both)**: the strict schema/reader and the data migrations must land together at
+  CUTOVER — a strict binary fails closed on unmigrated data and a pre-canonical binary fails on
+  migrated data, so the migrations must not run mid-flight. Do NOT run the fired loop on a strict
+  binary until the 127-deferral migration + board migration are applied. Code (AC-10 / strict
+  reader) is implementer work now; the migrations are the deliberate cutover step.
+
+### 2026-07-01 — Add S05-board-canonical-emit (T4): right-moving-forward, not permanent back-compat
+
+- **Context**: Brad questioned whether S04's back-compat (oneOf string|object schema + tolerant
+  validator) is right vs making it right forward. Test: back-compat earns its keep only against a
+  durable, uncontrolled population of old data — here there is none (coach boards are already
+  canonical object; the only string boards are our own temporary stopgaps). S04 was already
+  verified (immutable, Rule 7), so this is a new slice appended to T4.
+- **Decision**: `S05-board-canonical-emit` — Postel: strict EMIT + strict schema/validator
+  (canonical object-only — kills the oneOf vendor drift, the #38 class), lenient READ (tolerant
+  unmarshaler stays). Writer emits the object form even for a name-only release, so existing
+  string boards self-heal on next write (the tight answer to "fix the previous ones too").
+- **Registration note (this replan)**: S05 was first implemented directly in the T4 worktree
+  (feat 565f909), collapsing the planner→implementer→verifier lifecycle — its board membership +
+  start_commit were never planner-established, so the fresh verifier BLOCKED it (registration is
+  planner authority). This /replan-release registers S05 under T4 in release-wt's board, sets
+  start_commit to 0d22f65 (parent of the S05 feat, isolating its production diff), clears the
+  BLOCKED verdict to pending, and forward-syncs to the track. The implementation itself was not
+  re-touched.
 
 ### 2026-07-01 — Add S04-board-record-reconciliation (T4): oracle reads the canonical board (DIRECTION REVERSAL)
 
