@@ -48,3 +48,25 @@ object form" (which the writer + TestRelease_StringReadEmitsCanonicalObject-rena
 AC-04 was already amended to reference the strict reader; only AC-02 is stale. Also update the
 stale lenient-read comments in board.go (MarshalJSON, lines 70-74; UnmarshalJSON 48-49),
 validator.go (178-181), and board-v1.json release.description (line 19) as part of the reader flip.
+
+## 2026-07-01 — Re-entry: AC-02 defect still open, no self-heal path (block stands)
+
+A second `/implement-slice` session was opened against S05. The blocking AC-02 ↔ AC-03/AC-06
+contradiction recorded above is **still unresolved** — the routed `/replan-release` has not yet
+landed. New diagnostics gathered this session, to save the planner the re-check:
+
+- **Both branches carry the identical stale AC-02.** `release-wt`'s copy of `spec.json` AC-02 is
+  byte-identical to the track branch's. `git log origin/release-wt --not HEAD -- <slice dir>`
+  returns nothing, so there is **no release-wt→track forward-port gap** — this is NOT the
+  Step 6 ↔ Step 0b deadlock, and the Step 0b self-heal (cherry-pick) path does not apply. The
+  defect is genuinely unfixed upstream, not merely unpropagated.
+- **Code is still the first cut (lenient reader).** `Release.UnmarshalJSON` accepts a bare string
+  (board.go first branch; comment still reads "strict emit, lenient read"). The strict-reader
+  delta was never landed because the prior session correctly halted on the spec defect. So the
+  remaining code work (reader flip + test inversion) is unchanged and still pending the spec fix.
+- Worktree clean (Gate -1 pass). Slice left at `in_progress`, `verification.result: pending`.
+
+No code touched. Routing forward to `/replan-release 2026-06-30-sworn-operational-readiness` to
+amend AC-02 to the strict-reader world (fold into AC-06, or restate as the in-process
+StringRelease emit case). Implementation can resume only once AC-02 is consistent with
+AC-03/AC-06.
