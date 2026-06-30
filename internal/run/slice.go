@@ -117,6 +117,16 @@ func checkProofAbsent(proofPath string) bool {
 	return err != nil || strings.TrimSpace(string(proofBytes)) == ""
 }
 
+// appendDispatch stamps the slice's effort_complexity quadrant onto a dispatch
+// before recording it (#36 / T16). Centralising the stamp keeps every dispatch
+// record — captain, implementer, verifier — carrying the quadrant, so the
+// verdict ledger can project model fit per quadrant (the routing function)
+// without each call site having to remember the field.
+func appendDispatch(ds []state.Dispatch, quadrant string, d state.Dispatch) []state.Dispatch {
+	d.Quadrant = quadrant
+	return append(ds, d)
+}
+
 func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, opts RunSliceOptions) error {
 	// ── Validate mandatory options ────────────────────────────────────
 	if specPath == "" {
@@ -147,12 +157,41 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	}
 	startCommit := st.StartCommit
 	if startCommit == "" {
-		return fmt.Errorf("RunSlice: start_commit not set in %s", statusPath)
+		// Self-bootstrap (eval finding 7): a freshly-planned slice has no
+		// start_commit — Driver-1 (/implement-slice) used to set it on the
+		// planned→in_progress transition. The autonomous engine performs that
+		// transition itself so it can cold-start a release: pin start_commit to
+		// the worktree HEAD (the verifier's exact diff base) and advance the
+		// state. Without this the loop cannot run a release a human hasn't
+		// already moved to in_progress.
+		head, headErr := repo.RevParse("HEAD")
+		if headErr != nil {
+			return fmt.Errorf("RunSlice: bootstrap start_commit: resolve HEAD: %w", headErr)
+		}
+		st.StartCommit = head
+		startCommit = head
+		if st.State == state.Planned {
+			if err := st.State.Transition(state.InProgress); err != nil {
+				return fmt.Errorf("RunSlice: bootstrap planned→in_progress: %w", err)
+			}
+			st.State = state.InProgress
+		}
+		if err := state.Write(statusPath, st); err != nil {
+			return fmt.Errorf("RunSlice: bootstrap start_commit: write status: %w", err)
+		}
 	}
 
 	// Capture release and slice ID for decision-log writes (S02).
 	releaseName := st.Release
 	sliceID := st.SliceID
+
+	// The slice's effort_complexity quadrant, stamped onto every dispatch (#36 /
+	// T16) so the verdict ledger can learn model fit per quadrant. Empty when the
+	// slice carries no rating yet.
+	dispatchQuadrant := ""
+	if st.EffortComplexity != nil {
+		dispatchQuadrant = st.EffortComplexity.Quadrant
+	}
 
 	// ── Build escalation list ─────────────────────────────────────────
 	escalationModels := opts.EscalationModels
@@ -255,7 +294,8 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 					captainStart := time.Now()
 					reviewResult, revErr := captain.Review(reviewCtx, absSliceDir, string(specBytes), string(designBytes), captainAgent, worktreeRoot)
 					captainDurationMS := time.Since(captainStart).Milliseconds()
-					if revErr != nil {						if errors.Is(revErr, context.DeadlineExceeded) {
+					if revErr != nil {
+						if errors.Is(revErr, context.DeadlineExceeded) {
 							fmt.Fprintf(os.Stderr, "sworn run: captain review timed out — proceeding without review\n")
 						} else {
 							fmt.Fprintf(os.Stderr, "sworn run: captain review error: %v — proceeding without review\n", revErr)
@@ -272,13 +312,14 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 						if fb := reviewResult.FormatPinsAsFeedback(); fb != "" {
 							priorFeedback = fb
 							// Record captain dispatch for per-role cost ledger (S55).
-							dispatches = append(dispatches, state.Dispatch{
+							dispatches = appendDispatch(dispatches, dispatchQuadrant, state.Dispatch{
 								Role:       "captain",
 								Model:      firstModelID,
 								CostUSD:    reviewResult.CostUSD,
 								Attempt:    1,
 								DurationMS: captainDurationMS,
-							})						}
+							})
+						}
 					}
 				}
 			}
@@ -407,13 +448,13 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		}
 
 		// Record implementer dispatch for per-role cost ledger (S55).
-		dispatches = append(dispatches, state.Dispatch{
+		dispatches = appendDispatch(dispatches, dispatchQuadrant, state.Dispatch{
 			Role:       "implementer",
 			Model:      implModelID,
 			CostUSD:    implCost,
 			Attempt:    totalAttempts,
 			DurationMS: implDurationMS,
-		})		// ── Commit agent changes ────────────────────────────────────
+		}) // ── Commit agent changes ────────────────────────────────────
 		if err := repo.Stage("."); err != nil {
 			return fmt.Errorf("RunSlice: stage agent changes: %w", err)
 		}
@@ -441,7 +482,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			}
 			fmt.Fprintf(os.Stderr, "sworn run: BLOCKED — proof bundle absent\n")
 			// Record the BLOCKED dispatch for cost ledger.
-			dispatches = append(dispatches, state.Dispatch{
+			dispatches = appendDispatch(dispatches, dispatchQuadrant, state.Dispatch{
 				Role:    "verifier",
 				Model:   opts.VerifierModel,
 				CostUSD: 0,
@@ -523,7 +564,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 					fpResult.Verdict, fpResult.Rationale)
 				// Record the BLOCKED/FAIL dispatch for cost ledger
 				// (zero cost — deterministic).
-				dispatches = append(dispatches, state.Dispatch{
+				dispatches = appendDispatch(dispatches, dispatchQuadrant, state.Dispatch{
 					Role:    "first_pass",
 					Model:   "deterministic",
 					CostUSD: 0,
@@ -593,7 +634,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		}
 
 		// Record verifier dispatch for per-role cost ledger (S55).
-		dispatches = append(dispatches, state.Dispatch{
+		dispatches = appendDispatch(dispatches, dispatchQuadrant, state.Dispatch{
 			Role:             "verifier",
 			Model:            opts.VerifierModel,
 			CostUSD:          lastVerdict.CostUSD,
@@ -663,7 +704,22 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 				st, stErr := state.Read(statusPath)
 				if stErr == nil {
 					st.Verification.Result = "blocked"
-					st.Verification.Violations = extractViolations(lastVerdict.Rationale)
+					// ADR-0011: violations come off the typed verifier-verdict-v1
+					// record (the schema requires a BLOCKED verdict to carry ≥1
+					// violation), not a prose-split of the rationale. The fallback
+					// keeps the S38 ValidateBlockedViolations guard satisfied if a
+					// deterministic blocked result ever reaches here without them.
+					st.Verification.Violations = lastVerdict.Violations
+					if len(st.Verification.Violations) == 0 {
+						fallback := strings.TrimSpace(lastVerdict.Rationale)
+						if fallback == "" {
+							fallback = "(no rationale provided)"
+						}
+						st.Verification.Violations = []string{fallback}
+					}
+					if lastVerdict.Routing != "" {
+						st.Verification.Routing = lastVerdict.Routing
+					}
 					st.Verification.Model = opts.VerifierModel
 					st.Verification.Attempt = totalAttempts
 					st.Verification.Dispatches = dispatches
@@ -736,19 +792,11 @@ haltFailedVerification:
 	)
 }
 
-// captureVerifier wraps a model.Verifier and captures the raw text from the
-// last Verify call. Used by the interpreter (S01) to access the raw model
-// output when the parsed verdict is unparseable.
-type captureVerifier struct {
-	inner    model.Verifier
-	lastText string
-}
-
-func (c *captureVerifier) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
-	text, cost, inTok, outTok, err := c.inner.Verify(ctx, systemPrompt, userPayload)
-	c.lastText = text
-	return text, cost, inTok, outTok, err
-}
+// NOTE (ADR-0011 keystone, Step 3): captureVerifier — which buffered the raw
+// verifier text so the now-deleted stateless interpreter could re-classify an
+// unparseable prose verdict — was dead (never instantiated) and is removed. The
+// agentic verifier emits a typed verdict directly; there is no raw prose to
+// capture and re-scrape.
 
 // writeTempFile writes content to a temporary file in dir matching pattern.
 func writeTempFile(dir, pattern, content string) (string, error) {
@@ -769,39 +817,10 @@ func writeTempFile(dir, pattern, content string) (string, error) {
 	return path, nil
 }
 
-// extractViolations parses a verifier rationale string into a slice of
-// individual violation strings. It handles numbered (1. ...) and bulleted
-// (- ...) items. If no structured items are found, the entire rationale is
-// treated as a single violation.
-// This is used by the BLOCKED halt path (S47) to populate
-// status.json → verification.violations so the S38 guard
-// (ValidateBlockedViolations) passes.
-func extractViolations(rationale string) []string {
-	if rationale == "" {
-		return []string{"(no rationale provided)"}
-	}
-	lines := strings.Split(rationale, "\n")
-	var violations []string
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		// Match "1. ...", "2. ...", etc., or "- ...", or "* ..."
-		if len(trimmed) >= 3 && trimmed[0] >= '0' && trimmed[0] <= '9' && trimmed[1] == '.' && trimmed[2] == ' ' {
-			violations = append(violations, strings.TrimSpace(trimmed[2:]))
-		} else if strings.HasPrefix(trimmed, "- ") {
-			violations = append(violations, strings.TrimSpace(trimmed[2:]))
-		} else if strings.HasPrefix(trimmed, "* ") {
-			violations = append(violations, strings.TrimSpace(trimmed[2:]))
-		}
-	}
-	if len(violations) == 0 {
-		// No structured items found — use the entire rationale.
-		return []string{rationale}
-	}
-	return violations
-}
+// NOTE (ADR-0011 keystone, Step 3): extractViolations — the prose-splitter that
+// scraped numbered/bulleted items out of the verifier's rationale — was deleted.
+// Violations now come off the typed verifier-verdict-v1 record
+// (lastVerdict.Violations), schema-guaranteed non-empty for a BLOCKED verdict.
 
 // Sentinel error string prefixes used by RunSlice. Callers can use
 // strings.Contains on the returned error to distinguish exit causes.

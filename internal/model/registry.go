@@ -11,8 +11,8 @@ type driverWithCapabilities struct {
 // registered in NewClient / FromEnv. This is a thin discoverability layer;
 // the canonical capability check is the CapabilityProvider interface method.
 var capabilityRegistry = []driverWithCapabilities{
-	{Name: "openai", Capabilities: CapVerify | CapChat},
-	{Name: "openai-responses", Capabilities: CapVerify | CapChat},
+	{Name: "openai", Capabilities: CapVerify | CapChat | CapStructuredOutput},
+	{Name: "openai-responses", Capabilities: CapVerify | CapChat | CapStructuredOutput},
 	{Name: "anthropic", Capabilities: CapVerify | CapChat},
 	{Name: "claude-cli", Capabilities: CapVerify | CapChat}, {Name: "azure", Capabilities: CapVerify},
 	{Name: "bedrock", Capabilities: CapVerify},
@@ -20,7 +20,7 @@ var capabilityRegistry = []driverWithCapabilities{
 	{Name: "vertex", Capabilities: CapVerify},
 	{Name: "oci", Capabilities: CapVerify},
 	{Name: "ollama", Capabilities: CapVerify},
-	{Name: "deepseek", Capabilities: CapVerify | CapChat},
+	{Name: "deepseek", Capabilities: CapVerify | CapChat | CapStructuredOutput},
 	{Name: "groq", Capabilities: CapVerify | CapChat},
 	{Name: "mistral", Capabilities: CapVerify | CapChat},
 	{Name: "openrouter", Capabilities: CapVerify | CapChat},

@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/agent"
@@ -17,6 +18,42 @@ import (
 	"testing"
 	"time"
 )
+
+// structuredVerdictReply bridges the pre-agentic scripted verifiers (which
+// return a leading PASS/FAIL/BLOCKED/INCONCLUSIVE prose token) onto the
+// ADR-0011 structured authoring path: it translates that token into a
+// schema-valid verifier-verdict-v1 emission, supplying a violation for
+// FAIL/BLOCKED (which the schema requires). Shared by the verifier test fakes'
+// ChatStructured methods.
+func structuredVerdictReply(text string) string {
+	// Tolerate the markdown/fence wrapping the legacy scripted verifiers used
+	// (e.g. "**PASS**", "```\nPASS"); a real structured emitter never wraps, but
+	// these fakes predate the structured path.
+	stripped := strings.TrimSpace(text)
+	stripped = strings.TrimPrefix(stripped, "```")
+	stripped = strings.TrimLeft(strings.TrimSpace(stripped), "*_`")
+	upper := strings.ToUpper(strings.TrimSpace(stripped))
+	rationale := strings.TrimSpace(text)
+	obj := map[string]any{}
+	switch {
+	case strings.HasPrefix(upper, "PASS"):
+		obj["verdict"] = "PASS"
+	case strings.HasPrefix(upper, "FAIL"):
+		obj["verdict"] = "FAIL"
+		obj["violations"] = []map[string]string{{"gate": "adversarial", "description": rationale}}
+	case strings.HasPrefix(upper, "BLOCKED"):
+		obj["verdict"] = "BLOCKED"
+		obj["violations"] = []map[string]string{{"gate": "adversarial", "description": rationale}}
+	default:
+		obj["verdict"] = "INCONCLUSIVE"
+	}
+	if rationale == "" {
+		rationale = obj["verdict"].(string)
+	}
+	obj["rationale"] = rationale
+	b, _ := json.Marshal(obj)
+	return string(b)
+}
 
 // ---------------------------------------------------------------------------
 // Fake agent — scripted implementer
@@ -135,7 +172,22 @@ func (a *verifierAwareAgent) Chat(ctx context.Context, messages []model.ChatMess
 	return a.impl.Chat(ctx, messages, tools)
 }
 
-var _ agent.Agent = (*verifierAwareAgent)(nil)
+// ChatStructured satisfies model.StructuredOutput so RunAgentic's structured
+// authoring path (ADR-0011) accepts this fake as a verifier driver. It routes
+// to the scripted verifier and translates the prose verdict into a schema-valid
+// verifier-verdict-v1 emission.
+func (a *verifierAwareAgent) ChatStructured(ctx context.Context, messages []model.ChatMessage, schema []byte) (*model.ChatResponse, error) {
+	text, _, _, _, err := a.v.Verify(ctx, prompt.Verifier(), "")
+	if err != nil {
+		return nil, err
+	}
+	return newChatResponse(structuredVerdictReply(text)), nil
+}
+
+var (
+	_ agent.Agent            = (*verifierAwareAgent)(nil)
+	_ model.StructuredOutput = (*verifierAwareAgent)(nil)
+)
 
 // newChatResponse builds a single-choice ChatResponse carrying content (used by
 // the test fakes to return a stop-finish reply).
@@ -474,11 +526,13 @@ func TestRun_VerifyMarkdownPass(t *testing.T) {
 // than inverted. Agentic verifier wiring is covered by the verify package tests
 // and the passingVerifierAgent / verifierAwareAgent paths in this package.
 
-// TestRun_VerifyToolCallLeakBlocks proves that a tool-call-leak reply
-// from the verifier (e.g. <tool_call name="...">) leaves the run loop
-// NOT merged — the parser from S02 maps it to BLOCKED/unparseable_verdict
-// and the run loop stops without merging.  This is AC3 — fail-closed
-// end-to-end.
+// TestRun_VerifyToolCallLeakBlocks proves that a garbage verifier reply (e.g. a
+// leaked <tool_call ...>) leaves the run loop NOT merged — fail-closed end-to-end
+// (AC3). Under the ADR-0011 structured authoring path the verifier emits a
+// schema-constrained verdict, so a reply that is not a valid verifier-verdict-v1
+// object resolves to INCONCLUSIVE (fail-closed) rather than the old prose-parsed
+// BLOCKED. The load-bearing invariant is unchanged: a non-determinate verdict
+// never merges.
 func TestRun_VerifyToolCallLeakBlocks(t *testing.T) {
 	workspaceRoot, _ := setupTestRepo(t)
 
@@ -498,17 +552,14 @@ func TestRun_VerifyToolCallLeakBlocks(t *testing.T) {
 		NewVerifier:   func(_ string) (model.Verifier, error) { return verifier, nil },
 	})
 	if err == nil {
-		t.Fatal("expected error for tool-call leak, got nil")
-	}
-	if !strings.Contains(err.Error(), "verification blocked") {
-		t.Fatalf("expected 'verification blocked', got: %v", err)
+		t.Fatal("expected error for garbage verifier reply, got nil")
 	}
 
-	// Verify no merge on main.
+	// Verify no merge on main — the fail-closed invariant.
 	runCmd(t, workspaceRoot, "git", "checkout", "main")
 	log := runCmd(t, workspaceRoot, "git", "log", "--oneline", "-1")
 	if strings.Contains(log, "merge:") {
-		t.Fatal("unexpected merge commit on main after tool-call BLOCKED")
+		t.Fatal("unexpected merge commit on main after fail-closed verdict")
 	}
 }
 

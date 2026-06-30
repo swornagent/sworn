@@ -30,7 +30,7 @@ The RTM is the enforcement mechanism. It has two axes and threads through the ex
 ### Horizontal: intake need → slice → acceptance criterion → test → proof
 
 ```
-intake.md          status.json         spec.md               spec.md             proof.md
+intake.md          status.json         spec.json               spec.json             proof.json
 --------           ------------        --------               --------            --------
 N-01: need  --->   covers_needs:  -->   - [ ] AC cites N-01    Required tests  ->  test results
                    [N-01, N-03]         - [ ] AC cites N-01                        reachability
@@ -38,9 +38,9 @@ N-01: need  --->   covers_needs:  -->   - [ ] AC cites N-01    Required tests  -
 
 - **Needs** are enumerated with stable ids (`N-01`, `N-02`, …) in `intake.md`. The planner assigns ids at planning time; they are never reused.
 - **Slice coverage** — every slice declares which intake needs it delivers in `status.json` `covers_needs` (array of need IDs). This is the intake→slice link: a deterministic gate can verify every N-NN appears in at least one slice, and no slice claims a need it doesn't cite in its ACs.
-- **Acceptance criteria** in each `spec.md` cite the need id(s) they satisfy, inline in the AC text (e.g. "WHEN … THE SYSTEM SHALL … (N-01)").
-- **Required tests** in `spec.md` cite the acceptance check they exercise.
-- **Proof** in `proof.md` closes `AC → test → proof` (already required by Rule 6).
+- **Acceptance criteria** in each `spec.json` cite the need id(s) they satisfy, inline in the AC text (e.g. "WHEN … THE SYSTEM SHALL … (N-01)").
+- **Required tests** in `spec.json` cite the acceptance check they exercise.
+- **Proof** in `proof.json` closes `AC → test → proof` (already required by Rule 6).
 
 The RTM now closes the full chain: `intake need → slice → AC → test → proof`. An orphaned need (no slice covers it, or no AC cites it), an orphaned AC (cites no need, or cites a need but has no test), or a slice that claims a need it doesn't cite in its ACs (mismatch) is a broken trace.
 
@@ -48,18 +48,18 @@ The RTM now closes the full chain: `intake need → slice → AC → test → pr
 
 ```
 org objective  --->  release benefit  --->  slice
-(optional)           (index.md)             (status.json)
+(optional)           (board.json)           (status.json)
 ```
 
 - **Org objective** is opt-in. A solo founder or small team may have no declared objective — the vertical floor is `slice → release goal`.
-- **Release benefit** is the value the release delivers, recorded in `index.md`.
+- **Release benefit** is the value the release delivers, recorded in `board.json`.
 - **Slice link** is the slice's contribution to the release benefit, recorded in `status.json`.
 
 The vertical trace is the golden thread: line-of-sight from strategy (if declared) through release value to individual slices. For solo/small teams the floor is lightweight: `slice → release goal` satisfies the vertical trace without an org-objective link.
 
 ## Enforcement
 
-A deterministic, fail-closed traceability gate — `sworn trace <release-name>` — builds the matrix from `intake.md` / `spec.md` / `status.json` / `index.md` alone. It exits 0 on a fully-traced release, non-zero with enumerated violations on any break.
+A deterministic, fail-closed **trace gate** (reference implementation: `sworn trace <release-name>`) builds the matrix from `intake.md` / `spec.json` / `status.json` / `board.json` alone. It exits 0 on a fully-traced release, non-zero with enumerated violations on any break.
 
 The gate checks:
 
@@ -70,7 +70,7 @@ The gate checks:
 - **"See intake" reference** — any spec content that refers the implementer to intake.md. The spec must stand alone.
 - **Vague AC / scope** — an AC or in-scope item describing no concrete artefact (file, testid, status code, label string, value). The content-density gap.
 
-Run `sworn trace` at two points in the workflow: (a) planner Phase 6 before handoff, and (b) as the DoR gate at `planned → in_progress`. A release that fails the trace may not ship.
+Run the trace gate at two points in the workflow: (a) planner Phase 6 before handoff, and (b) as the DoR gate at `planned → in_progress`. A release that fails the trace may not ship.
 
 ## EARS notation — structured acceptance criteria
 
@@ -78,7 +78,7 @@ The RTM enforces *traceability* (need → AC → test). EARS (Easy Approach to R
 
 EARS was developed at Rolls-Royce PLC in 2009 (Mavin et al., IEEE RE'09) and is used worldwide by Airbus, Bosch, Dyson, Honeywell, Intel, NASA, Rolls-Royce, and Siemens.
 
-A deterministic gate classifies every acceptance check in every slice's `spec.md` by EARS pattern and fails closed on any free-form check that matches no pattern, naming the slice and the offending line.
+A deterministic gate classifies every acceptance check in every slice's `spec.json` by EARS pattern and fails closed on any free-form check that matches no pattern, naming the slice and the offending line.
 
 | Class | Pattern | Keywords | Example |
 |---|---|---|---|

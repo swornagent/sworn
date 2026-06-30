@@ -164,6 +164,19 @@
           "architecturally_significant": { "type": "boolean" }
         }
       }
+    },
+    "effort_complexity": {
+      "type": "object",
+      "description": "ADR-0011 §3.7. The implementer-confirmed mirror of spec-v1.effort_complexity. confirmed_by_implementer flips true once the implementer has reviewed the planner's rating against code reality; a divergence from the spec rating is itself a Rule-8 signal the spec was thin.",
+      "additionalProperties": true,
+      "required": ["effort", "complexity", "quadrant"],
+      "properties": {
+        "effort": { "type": "string", "enum": ["low", "high"] },
+        "complexity": { "type": "string", "enum": ["low", "high"] },
+        "quadrant": { "type": "string", "enum": ["chore", "grind", "puzzle", "epic"] },
+        "rationale": { "type": "string" },
+        "confirmed_by_implementer": { "type": "boolean" }
+      }
     }
   }
 }

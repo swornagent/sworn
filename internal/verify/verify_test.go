@@ -145,65 +145,10 @@ func TestVerifyRun_Blocked_MissingFile(t *testing.T) {
 	}
 }
 
-func TestParseVerdictPass(t *testing.T) {
-	cases := []string{
-		"PASS",
-		"PASS\n\nwith details",
-		"```\nPASS",
-		"**PASS**",
-		"  PASS  ",
-	}
-	for _, c := range cases {
-		r := parseVerdict(c, 0)
-		if r.Verdict != verdict.Pass {
-			t.Errorf("parseVerdict(%q): expected PASS, got %s", c, r.Verdict)
-		}
-	}
-}
-
-func TestParseVerdictFail(t *testing.T) {
-	cases := []string{
-		"FAIL: something wrong",
-		"FAIL",
-		"**FAIL**: missing tests",
-	}
-	for _, c := range cases {
-		r := parseVerdict(c, 0)
-		if r.Verdict != verdict.Fail {
-			t.Errorf("parseVerdict(%q): expected FAIL, got %s", c, r.Verdict)
-		}
-	}
-}
-
-func TestParseVerdictBlocked(t *testing.T) {
-	cases := []string{
-		"BLOCKED: spec ambiguous",
-		"BLOCKED",
-	}
-	for _, c := range cases {
-		r := parseVerdict(c, 0)
-		if r.Verdict != verdict.Blocked {
-			t.Errorf("parseVerdict(%q): expected BLOCKED, got %s", c, r.Verdict)
-		}
-	}
-}
-
-func TestParseVerdictInconclusive(t *testing.T) {
-	r := parseVerdict("INCONCLUSIVE: dev server unreachable", 0)
-	if r.Verdict != verdict.Inconclusive {
-		t.Errorf("expected INCONCLUSIVE, got %s", r.Verdict)
-	}
-}
-
-func TestParseVerdictUnparseableBlocks(t *testing.T) {
-	r := parseVerdict("Here is a detailed analysis", 0)
-	if r.Verdict != verdict.Blocked {
-		t.Errorf("expected BLOCKED for unparseable, got %s", r.Verdict)
-	}
-	if r.FailedGate != "unparseable_verdict" {
-		t.Errorf("expected unparseable_verdict, got %s", r.FailedGate)
-	}
-}
+// NOTE (ADR-0011 Step 3): TestParseVerdict* removed — the prose HasPrefix
+// verdict scrape they covered is deleted. The structured authoring path is
+// covered by the TestRunAgentic* cases in verify_agentic_test.go, which drive
+// ChatStructured and assert schema-validated, fail-closed acceptance.
 
 func TestBuildPayload(t *testing.T) {	p := buildPayload("spec", "diff", "")
 	if !strings.Contains(p, "## SPEC\nspec") {

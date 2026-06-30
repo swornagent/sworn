@@ -33,6 +33,17 @@ type Result struct {
 	OutputTokens     int64   `json:"output_tokens,omitempty"`
 	DurationMS       int64   `json:"duration_ms,omitempty"`
 	ModelIDConfirmed string  `json:"model_id_confirmed,omitempty"`
+	// Violations carries the per-gate violation summaries the verifier emits
+	// with a FAIL/BLOCKED verdict. Since ADR-0011 these come off the typed
+	// verifier-verdict-v1 record (one string per emitted violation:
+	// "gate: description"), replacing the prose-splitting extractViolations
+	// scrape. Kept as []string to match state.Verification.Violations until the
+	// D6/1b record reconciliation migrates both to the object shape (#37).
+	Violations []string `json:"violations,omitempty"`
+	// Routing is the blocked-routing owner the verifier may emit alongside a
+	// non-PASS verdict ("needs_planner" | "needs_human" | "needs_implementer").
+	// Consumed by the BLOCKED halt path to populate status.json verification.routing.
+	Routing string `json:"routing,omitempty"`
 }
 // ExitCode maps a verdict to a process exit code. 0 only for PASS; everything
 // else is non-zero so a CI required-check blocks the merge by default.

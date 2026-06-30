@@ -29,26 +29,14 @@ Release work runs under **track mode** — read `docs/baton/track-mode.md` first
 
 **Launch-directory discipline.** This session is launched from wherever the human's terminal sits — almost always the primary repo on the integration branch. **That is not where this slice's work belongs.** Do not build, test, edit, or `git`-write in the launch directory. You auto-discover (or materialise) the **track** worktree and operate silently against it via `git -C <worktree_path>` and absolute paths. If you ever run a mutating command without a `<worktree_path>` anchor, stop — you are in the wrong tree. **You do not ask the human to `cd`.**
 
-1. **Find the slice's track.** Read frontmatter of `docs/release/<release-name>/index.md`. In the `tracks:` list, find the entry whose `slices` array contains `<slice-id>`. If no track contains it, BLOCK: "Slice `<slice-id>` is not assigned to a track in `index.md`. Re-run `/plan-release <release-name>` to group it." Capture `<track-id>`, `worktree_branch`, `worktree_path`, `depends_on`, and the ordered `slices` list.
+1. **Find the slice's track.** Read `docs/release/<release-name>/board.json`. In the `tracks` array, find the entry whose `slices` array contains `<slice-id>`. If no track contains it, BLOCK: "Slice `<slice-id>` is not assigned to a track in `board.json`. Re-run `/plan-release <release-name>` to group it." Capture `<track-id>`, `worktree.branch`, `worktree.path`, `depends_on`, and the ordered `slices` list.
 2. **Enforce sequential order within the track.** For every slice listed *before* `<slice-id>` in this track's `slices`, read its `status.json` `state`. If any is not `verified`, BLOCK: "Slice `<earlier-slice>` precedes `<slice-id>` in track `<track-id>` and is in state `<state>`. Slices in a track are implemented in order — finish and verify `<earlier-slice>` first." (If an earlier slice is `failed_verification`, the human re-opens *that* slice, not this one.)
-3. **If the track's `worktree_path` is set:** confirm via `git worktree list` that it exists on disk on branch `worktree_branch`. If absent, BLOCK and tell the human to recreate it (`git worktree add <worktree_path> <worktree_branch>`). Otherwise capture `<worktree_path>`; for the rest of this session every Bash command runs as `cd <worktree_path> && <cmd>` (or `git -C <worktree_path>` for git ops), every Read/Write/Edit uses an absolute path anchored at `<worktree_path>`. Skip to "Required reading".
-4. **If the track's `worktree_path` is NOT set** (first `/implement-slice` for this track), materialise it:
-   a. **Ensure the release worktree exists.** If `release_worktree_path` is unset in frontmatter, this is also the first `/implement-slice` in the release: parse the integration branch from `index.md` "Release summary" → `Target version / integration branch`, then `git worktree add $HOME/projects/<REPO_BASENAME>-worktrees/release-<release-name> -b release-wt/<release-name> <integration-branch>`. Record `release_worktree_path` + `release_worktree_branch` in frontmatter.
+3. **If the track's `worktree` is set in `board.json`:** confirm via `git worktree list` that it exists on disk on branch `worktree.branch`. If absent, BLOCK and tell the human to recreate it (`git worktree add <worktree_path> <worktree_branch>`). Otherwise capture `<worktree_path>`; for the rest of this session every Bash command runs as `cd <worktree_path> && <cmd>` (or `git -C <worktree_path>` for git ops), every Read/Write/Edit uses an absolute path anchored at `<worktree_path>`. Skip to "Required reading".
+4. **If the track's `worktree` is NOT set in `board.json`** (first `/implement-slice` for this track), materialise it:
+   a. **Ensure the release worktree exists.** If `release.worktree` is unset in `board.json`, this is also the first `/implement-slice` in the release: read `release.integration_branch` from `board.json`, then `git worktree add $HOME/projects/<REPO_BASENAME>-worktrees/release-<release-name> -b release-wt/<release-name> <integration-branch>`. Record `release.worktree` (`{ path, branch }`) in `board.json`.
    b. **Dependency gate.** If the track's `depends_on` names another track, read that track's `state`. If it is not `merged`, BLOCK: "Track `<track-id>` depends on `<other-track>` (state `<state>`). A dependent track may only start once its predecessor has merged to `release-wt`."
    c. **Materialise the track worktree** from the release branch: `git worktree add $HOME/projects/<REPO_BASENAME>-worktrees/release-<release-name>-<track-id> -b track/<release-name>/<track-id> release-wt/<release-name>`.
-   d. Set this track's `worktree_path` and `state: in_progress` in `index.md` frontmatter. **Use a line-oriented edit, NOT a freehand multi-line replacement** — a dropped newline fuses the next `- id:` track entry onto this entry's last line and the board reader silently absorbs that track (it vanishes from `coach top`; see a known issue with freehand multi-line replacement). Use this `awk` (one line at a time — it cannot fuse entries) with the abort-on-corruption guard:
-      ```bash
-      F=index.md   # the release index for <release-name>
-      before=$(grep -cE '^[[:space:]]*-[[:space:]]+id:' "$F")
-      awk -v t='<track-id>' -v wt='<worktree_path>' '
-        /^[[:space:]]*-[[:space:]]+id:[[:space:]]/ { l=$0; sub(/^[^:]*:[[:space:]]*/,"",l); intrack=(l==t) }
-        intrack && /^[[:space:]]+worktree_path:/ { sub(/worktree_path:.*/, "worktree_path: " wt); print; next }
-        intrack && /^[[:space:]]+state:/         { sub(/state:.*/, "state: in_progress"); print; next }
-        { print }' "$F" > "$F.tmp" && mv "$F.tmp" "$F"
-      after=$(grep -cE '^[[:space:]]*-[[:space:]]+id:' "$F")
-      [ "$before" = "$after" ] || { echo "ABORT: track count $before->$after — index.md corrupted"; exit 1; }
-      ```
-      Commit `chore(release/<release-name>): materialise worktree for track <track-id>` and push.
+   d. In `board.json`, set this track's `worktree` (`{ path, branch }`) and `state: "in_progress"`, then re-render `index.md`. Parse → modify → write the JSON (or use `jq`), and validate the result against `board-v1` before committing. A JSON record cannot fuse a sibling track the way `index.md` frontmatter could, so the line-oriented `awk` edit and the abort-on-corruption track-count guard the markdown board required are no longer needed — the record is uncorruptable by construction. Commit `chore(release/<release-name>): materialise worktree for track <track-id>` and push.
    e. Treat the new worktree as `<worktree_path>` per step 3.
 
 Briefly tell the human in one sentence what you did ("Using track worktree at `<worktree_path>`" or "Materialised track worktree at `<worktree_path>` for track `<track-id>`"). Then continue.
@@ -57,13 +45,13 @@ Briefly tell the human in one sentence what you did ("Using track worktree at `<
 
 Before any code edit, read in this order:
 
-1. `docs/release/<release-name>/<slice-id>/spec.md` — the contract you are implementing against.
-2. `docs/release/<release-name>/<slice-id>/journal.md` — any prior session notes on this slice.
+1. `docs/release/<release-name>/<slice-id>/spec.json` — the contract you are implementing against (valid against `spec-v1`).
+2. `docs/release/<release-name>/<slice-id>/journal.md` — any prior session notes on this slice (prose).
 3. `docs/release/<release-name>/<slice-id>/status.json` — current state and prior-session metadata.
-4. `docs/release/<release-name>/<slice-id>/proof.md` — if present from a prior pass.
+4. `docs/release/<release-name>/<slice-id>/proof.json` — if present from a prior pass.
 5. `git status` and `git diff <base>` — live repo state, where `<base>` is the slice's `start_commit` from `status.json` if set, else `release-wt/<release-name>` (the point the track branch was cut from). Never diff against `main` or the version branch — that inflates the diff with every prior track and slice.
 
-If `spec.md` is missing or ambiguous, stop and ask the human. Do not infer scope.
+If `spec.json` is missing or ambiguous, stop and ask the human. Do not infer scope.
 
 ## Project extensions
 
@@ -81,9 +69,9 @@ A dirty worktree at session start means the last session didn't land its work, o
 
 ## Definition of Ready (Rule 8)
 
-Before touching code, confirm the slice's acceptance criteria satisfy Rule 8 (Requirements Fidelity): each AC is singular, unambiguous, complete, consistent, feasible, and verifiable. The spec must carry traced acceptance criteria with a fail-closed DoR verdict. If the spec's `spec.md` has no acceptance checks or they read as free-form prose rather than verifiable conditions, stop and surface the gap — the planner must correct it.
+Before touching code, confirm the slice's acceptance criteria satisfy Rule 8 (Requirements Fidelity): each AC is singular, unambiguous, complete, consistent, feasible, and verifiable. The spec must carry traced acceptance criteria with a fail-closed DoR verdict. If the spec's `spec.json` has no `acceptance_criteria` or they read as free-form prose rather than verifiable EARS conditions, stop and surface the gap — the planner must correct it.
 
-**Spec-completeness sniff test.** Before you start implementing, run a quick concrete-detail check on the spec. Read every acceptance check and in-scope item. Each must name at least one concrete artefact: a file path, a label string, a `data-testid`, a numeric value, an HTTP status code, or a specific user gesture. An AC like "fix the bug" or "wire up the component" or "add the missing code" that could describe *any* slice of its kind fails this check. If the spec has no concretes — or if significant implementation detail lives only in `intake.md` and not in `spec.md` — STOP. Do not fill the gaps from `intake.md` yourself. That is the planner's job. Surface the thin spec to the human: "spec `<slice-id>` lacks concrete detail — needs /replan-release to add specifics before implementation."
+**Spec-completeness sniff test.** Before you start implementing, run a quick concrete-detail check on the spec. Read every acceptance check and in-scope item. Each must name at least one concrete artefact: a file path, a label string, a `data-testid`, a numeric value, an HTTP status code, or a specific user gesture. An AC like "fix the bug" or "wire up the component" or "add the missing code" that could describe *any* slice of its kind fails this check. If the spec has no concretes — or if significant implementation detail lives only in `intake.md` and not in `spec.json` — STOP. Do not fill the gaps from `intake.md` yourself. That is the planner's job. Surface the thin spec to the human: "spec `<slice-id>` lacks concrete detail — needs /replan-release to add specifics before implementation."
 
 ## Workflow
 
@@ -95,16 +83,16 @@ Before touching code, confirm the slice's acceptance criteria satisfy Rule 8 (Re
     ```
 
     Re-push after every commit. `origin/track/<release-name>/<track-id>` is the durable home of the track's work and the branch `/merge-track` lands. If you discover on session start that the working tree is missing commits you remember making, recover with `git fetch && git reset --hard origin/track/<release-name>/<track-id>`. See `docs/baton/track-mode.md` "Recovery". Because each track has its own worktree and index, you are not racing other implementers — but the push still protects against an accidental local reset.
-2. Implement against the spec's acceptance checks. Stay within the slice's `In scope` boundary; surface out-of-scope discoveries to `journal.md` as Rule 2 deferrals.
+2. Implement against the spec's acceptance checks. Stay within the slice's `In scope` boundary; surface out-of-scope discoveries to `journal.md` as Rule 2 deferrals. **Every deferral you record — in `journal.md`, in `proof.json` `not_delivered`, or in `status.json` `open_deferrals` — MUST carry concrete tracking: a real owning slice id (e.g. `S14-board-json`) OR a tracker ref in the project's issue tool (GitHub `#123` / Jira `ABC-123` / Linear `ENG-123` / issue URL). Vague tracking ("a follow-up slice", "later", "future concern", a theme or ADR name, or a pointer back to the deferral's own list) is a Rule 2 violation. If no slice or issue owns the work yet, CREATE the tracker first (see "Non-gating findings" below), then cite it.**
 3. Write tests at the integration point that owns the user-facing affordance (Rule 1).
 4. Maintain `journal.md` as you go — decisions, trade-offs, anything a verifier might need context on.
 5. When you believe the slice is done:
-   - Run `bin/release-coverage.sh --slice <slice-id> --release <release-name> --worktree <worktree_path>` — every AC must have a matching test. Fix uncovered ACs before proceeding.
-   - Run `bin/release-llm-check.sh --check ac-satisfaction --slice <slice-id> --release <release-name> --worktree <worktree_path>` — confirm every AC is genuinely satisfied by the implementation. Fix gaps before proceeding.
-   - If the project has security rules in `docs/baton/architecture.json`, run `bin/release-llm-check.sh --check security-review --slice <slice-id> --release <release-name> --worktree <worktree_path>` — address any findings.
+   - Run the **coverage gate** (reference implementation: `sworn coverage`) — every AC must have a matching test. Fix uncovered ACs before proceeding.
+   - Run the **ac-satisfaction LLM check** (reference implementation: `sworn llm-check --check ac-satisfaction`) — confirm every AC is genuinely satisfied by the implementation. Fix gaps before proceeding.
+   - If the project has security rules in `docs/baton/architecture.json`, run the **security-review LLM check** (`sworn llm-check --check security-review`) — address any findings.
    - Run all relevant test commands and capture output.
-   - Run `$HOME/.claude/bin/release-verify.sh <slice-id>` and address any failures.
-   - Generate `proof.md` from live repo state (see Rule 6 template).
+   - Run the **proof-bundle verification gate** (reference implementation: `sworn verify`) and address any failures.
+   - Emit `proof.json` from live repo state, valid against `proof-v1` (files changed, test results, reachability artefact, delivered, not_delivered, divergence). The human-readable `proof.md` is rendered from it.
    - Update `status.json` → `implemented`.
    - **Stop.** Do not run a verifier prompt in this session. Do not declare PASS.
 
@@ -117,7 +105,7 @@ Applies only when this slice's reachability artefact (Rule 1 / proof bundle) is 
 - **Helper module**: `tests/e2e/release/_helpers.ts` exports `screenshotsDir(release: string): string` and `screenshotPath(release: string, basename: string): string` so individual spec files don't hand-roll `path.resolve(__dirname, ...)` chains. Create the helper on the first track that needs it (declare it in that slice's `In scope`); subsequent tracks import.
 - **Capture pattern**: route the test to a **seeded fixture** (not the dev DB), then scope `page.screenshot({ path })` to the **section locator** that owns the affordance rather than the full page. Both choices are about bit-stability — re-runs should produce byte-identical PNGs so a no-op verifier re-run doesn't show diff churn.
 
-The convention is documentation-only — it lives in the consumer project's test tree, not in baton itself. If your project has no existing e2e harness, the slice that first invokes this convention lands the harness scaffolding (helpers + first spec) as part of its diff and declares it in `spec.md` `In scope`.
+The convention is documentation-only — it lives in the consumer project's test tree, not in baton itself. If your project has no existing e2e harness, the slice that first invokes this convention lands the harness scaffolding (helpers + first spec) as part of its diff and declares it in `spec.json` (`touchpoints` / scope).
 
 The pattern is described in Playwright/TypeScript terms because that's the common case; Pytest/Cypress/Selenium/etc. translate one-for-one — the path convention, the slice-id prefix, and the per-track spec file are language-agnostic.
 
@@ -125,12 +113,14 @@ The pattern is described in Playwright/TypeScript terms because that's the commo
 
 `/plan-release` stores screenshots the human pastes during requirements discovery at `docs/release/<release-name>/screenshots/<YYYY-MM-DD>-<slug>.png` — **date-prefixed**. Reachability screenshots use **slice-id-prefix** (`<slice-id>-<descriptor>.png`). Same directory, different prefix family — they sort cleanly and never collide on a filename. Do not invent a `screenshots/reachability/` or `screenshots/planning/` subfolder split; the prefix is the discriminator and keeping the directory flat preserves "every screenshot related to the release lives in one place."
 
-## Non-gating findings must land as GitHub issues (Rule 3)
+## Non-gating findings must land in a tracker (Rule 3)
 
-Any observation that names follow-up work outside this slice's scope — a related defect, a bug your change masks, missing coverage — becomes a silent deferral the moment it exists only as prose. The agent that finds the issue files the issue:
+Any observation that names follow-up work outside this slice's scope — a related defect, a bug your change masks, missing coverage — becomes a silent deferral the moment it exists only as prose. The agent that finds the work files the tracker, in whatever issue tool the project uses (**tool-agnostic**: GitHub, Jira, Linear, …):
 
-1. `gh issue create --title "<concise defect>" --body "<what you observed, file:line, why out of scope>"`
-2. Cite the returned number inline ("tracked in #NNN").
+1. File the tracker. Reference implementation (GitHub): `gh issue create --title "<concise defect>" --body "<what you observed, file:line, why out of scope>"`. Other tools: the project's documented CLI/API.
+2. Cite the returned ref inline at every place the deferral appears (`journal.md`, `proof.json` `not_delivered`, `status.json` `open_deferrals`): "tracked in #NNN" / "ABC-123" / issue URL.
+
+The **only** alternative to filing a tracker is naming a real **owning slice** that delivers the work. One of the two — owning slice id or tracker ref — is mandatory for every deferral. "I'll do it in a follow-up slice" without creating that slice is not tracking; it is the exact pattern Rule 2 forbids.
 
 ## What you must never do
 
@@ -140,7 +130,7 @@ Any observation that names follow-up work outside this slice's scope — a relat
 - Skip the proof bundle because the tests passed.
 - Skip the proof bundle because the diff "speaks for itself."
 - Continue to another slice in the same session. One slice per session is the discipline; cross-slice context contamination is the failure mode. The *next* slice of this track is a fresh `/implement-slice` that reuses the same track worktree.
-- Touch a file outside this track's rows in the `index.md` touchpoint matrix. A file you need but another track owns is a **track collision** — surface it in `journal.md` and stop; do not absorb it silently. It means the planner's matrix was wrong.
+- Touch a file outside this track's `touchpoints` (declared in the slices' `spec.json`, rendered as the `index.md` matrix). A file you need but another track owns is a **track collision** — surface it in `journal.md` and stop; do not absorb it silently. It means the planner's matrix was wrong.
 - Skip the track-branch push. Your in-session commits are not durable until they exist at `origin/track/<release-name>/<track-id>`.
 - Pick up a slice with an open BLOCKED verdict. `/implement-slice` Step 0b refuses a slice whose `verification.result` is `"blocked"` — a BLOCKED verdict flags a spec defect or external gap that is the planner's to resolve via `/replan-release`, never the implementer's to work around.
 - Mark a slice `implemented` around a blocker. If you *discover* a spec defect or an unresolvable external gap mid-session, stop at a non-`implemented` state, record it in `journal.md`, and route to `/replan-release`. A handoff resolves forward to the planner or up to the human — never as a silent workaround (`$HOME/.claude/baton/session-discipline.md`, "Handoff directionality").
@@ -150,8 +140,8 @@ Any observation that names follow-up work outside this slice's scope — a relat
 When the slice reaches `implemented`, respond with:
 
 - Slice id and current state.
-- Path to `proof.md`.
-- Output of `$HOME/.claude/bin/release-verify.sh <slice-id>`.
+- Path to `proof.json` (and the rendered `proof.md`).
+- Output of the **proof-bundle verification gate** (`sworn verify`).
 - One sentence: "Ready for fresh-context verification."
 
 That message is the entire wrap-up. Do not summarise the implementation, do not enumerate "what was delivered" in prose. The proof bundle is the wrap-up. Anything you write in prose has no evidentiary weight.

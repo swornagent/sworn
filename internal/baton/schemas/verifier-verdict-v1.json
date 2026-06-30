@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://baton.sawy3r.net/schemas/verifier-verdict-v1.json",
+  "title": "Baton Verifier Verdict",
+  "description": "The Rule-7 verifier's verdict, emitted as a schema-constrained structured-output call (ADR-0011) rather than scraped from prose. The model authors the JUDGEMENT core (verdict, rationale, optional violations/failed_gate/routing); the binary stamps schema_version and, at the status.json layer, the identity triple (slice_id, release) and harness telemetry (cost, tokens, duration, session id, fresh-context, verdict_at) post-emission (ADR-0011 §3.3 g). Required is therefore the model-authored core plus the binary-stamped schema_version; identity and telemetry are validated-if-present, never required of the model payload.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema_version", "verdict", "rationale"],
+  "properties": {
+    "$schema": { "type": "string", "const": "https://baton.sawy3r.net/schemas/verifier-verdict-v1.json" },
+    "schema_version": { "type": "integer", "const": 1 },
+    "slice_id": { "type": "string", "minLength": 1 },
+    "release": { "type": "string", "minLength": 1 },
+    "verdict": { "type": "string", "enum": ["PASS", "FAIL", "BLOCKED", "INCONCLUSIVE"] },
+    "rationale": { "type": "string", "minLength": 1 },
+    "failed_gate": { "type": "string" },
+    "violations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["gate", "description"],
+        "properties": {
+          "gate": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1 },
+          "evidence": { "type": "string" },
+          "proposed_amendment": { "type": "string" }
+        }
+      }
+    },
+    "routing": { "type": "string", "enum": ["needs_planner", "needs_human", "needs_implementer"] },
+    "model_id_confirmed": { "type": "string" },
+    "verifier_was_fresh_context": { "type": "boolean" },
+    "verifier_session_id": { "type": "string" },
+    "verdict_at": { "type": "string", "format": "date-time" },
+    "structured_output_mode": { "type": "string", "enum": ["json_schema", "tool_call", "text_fallback"] },
+    "cost_usd": { "type": "number" },
+    "input_tokens": { "type": "integer" },
+    "output_tokens": { "type": "integer" },
+    "duration_ms": { "type": "integer" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "verdict": { "enum": ["FAIL", "BLOCKED"] } }, "required": ["verdict"] },
+      "then": { "required": ["violations"], "properties": { "violations": { "minItems": 1 } } }
+    }
+  ]
+}

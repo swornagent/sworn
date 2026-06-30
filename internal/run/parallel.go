@@ -149,11 +149,22 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 	}
 
 	// ── Pre-flight: ensure release worktree exists ──────────────────────
+	// Self-bootstrap (eval finding 1): a freshly-planned release has no
+	// release-wt/<name> branch yet — Driver-1 (/implement-slice) used to create
+	// it. When the branch is absent, create it with `-b` from HEAD so the engine
+	// can cold-start without manual scaffolding; otherwise check out the existing
+	// branch into the worktree.
 	if !dirExists(releaseWorktreePath) {
 		fmt.Fprintf(os.Stderr, "RunParallel: materialising release worktree at %s\n", releaseWorktreePath)
 		releaseBranch := "release-wt/" + releaseName
-		cmd := exec.CommandContext(ctx, "git", "worktree", "add",
-			releaseWorktreePath, releaseBranch)
+		args := []string{"worktree", "add"}
+		if branchExists(ctx, absRoot, releaseBranch) {
+			args = append(args, releaseWorktreePath, releaseBranch)
+		} else {
+			fmt.Fprintf(os.Stderr, "RunParallel: branch %s absent — creating it from HEAD (cold-start bootstrap)\n", releaseBranch)
+			args = append(args, "-b", releaseBranch, releaseWorktreePath)
+		}
+		cmd := exec.CommandContext(ctx, "git", args...)
 		cmd.Dir = absRoot
 		output, err := cmd.CombinedOutput()
 		if err != nil {
@@ -290,7 +301,12 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 					PauseCh:             pauseEngine.PauseCh(releaseName),
 					MergeTrackFn:        opts.MergeTrackFn,
 				}
-				result := scheduler.RunTrack(phaseCtx, workerOpts)
+				// Run on the parent ctx, NOT phaseCtx (#33): a sibling track's
+				// failCancel() must not cancel this track mid-run. Tracks in a
+				// phase are independent — a failure is recorded in outcomeMap and
+				// only gates dependent tracks in *later* phases (the phaseCtx.Err()
+				// check at launch, after the wg.Wait barrier).
+				result := scheduler.RunTrack(ctx, workerOpts)
 				outcomeMap.Store(t.ID, result)
 				if result == scheduler.TrackFail {
 					failCancel()
@@ -353,7 +369,12 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 						PauseCh:             pauseEngine.PauseCh(releaseName),
 						MergeTrackFn:        opts.MergeTrackFn,
 					}
-					result := scheduler.RunTrack(phaseCtx, workerOpts)
+					// Run on the parent ctx, NOT phaseCtx (#33): a sibling track's
+				// failCancel() must not cancel this track mid-run. Tracks in a
+				// phase are independent — a failure is recorded in outcomeMap and
+				// only gates dependent tracks in *later* phases (the phaseCtx.Err()
+				// check at launch, after the wg.Wait barrier).
+				result := scheduler.RunTrack(ctx, workerOpts)
 					outcomeMap.Store(tt.ID, result)
 					if result == scheduler.TrackFail {
 						failCancel()
@@ -446,11 +467,29 @@ func extractReleaseWorktreePath(body string) string {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "release_worktree_path:") {
 			val := strings.TrimSpace(strings.TrimPrefix(line, "release_worktree_path:"))
+			val = stripInlineComment(val)
 			val = strings.Trim(val, `"'`)
 			return val
 		}
 	}
 	return ""
+}
+
+// stripInlineComment removes a trailing YAML "# ..." inline comment from a
+// scalar value. The unfilled board placeholder
+// (release_worktree_path: # set by first /implement-slice in this release)
+// collapses to "" instead of yielding the comment text as a literal path — the
+// cold-start trap that fed the comment to `git worktree add` (eval finding 2).
+// A '#' is only treated as a comment marker at the start or after whitespace,
+// so a '#' embedded in a token is left intact.
+func stripInlineComment(s string) string {
+	s = strings.TrimSpace(s)
+	for i := 0; i < len(s); i++ {
+		if s[i] == '#' && (i == 0 || s[i-1] == ' ' || s[i-1] == '\t') {
+			return strings.TrimSpace(s[:i])
+		}
+	}
+	return s
 }
 
 // ProductionMergeTrack merges a track branch into the release worktree.
@@ -498,6 +537,15 @@ func ProductionMergeTrack(releasePath, trackID, branch string) error {
 func dirExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
+}
+
+// branchExists reports whether a local git branch exists in the repo rooted at
+// dir. Used by the cold-start bootstrap to decide between checking out an
+// existing release-wt/<name> branch and creating it with `-b`.
+func branchExists(ctx context.Context, dir, branch string) bool {
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+	cmd.Dir = dir
+	return cmd.Run() == nil
 }
 
 // ── Invariant-2 enforcement (S06) ─────────────────────────────────────────

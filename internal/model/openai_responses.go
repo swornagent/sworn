@@ -39,9 +39,12 @@ type OpenAIResponses struct {
 	UseWebSearch    bool         // include built-in web_search tool
 }
 
-// Capabilities returns CapVerify | CapChat — the OpenAIResponses driver
-// supports both single-shot verification and multi-turn chat via /v1/responses.
-func (o *OpenAIResponses) Capabilities() Capability { return CapVerify | CapChat }
+// Capabilities returns CapVerify | CapChat | CapStructuredOutput — the
+// OpenAIResponses driver supports single-shot verification, multi-turn chat,
+// and strict json_schema structured output (via text.format) over /v1/responses.
+func (o *OpenAIResponses) Capabilities() Capability {
+	return CapVerify | CapChat | CapStructuredOutput
+}
 
 // NewOpenAIResponses constructs an OpenAIResponses driver.
 // apiKey must be non-empty. ReasoningEffort defaults to "medium" if empty.
@@ -76,6 +79,23 @@ type responsesRequest struct {
 	Instructions string              `json:"instructions,omitempty"`
 	Reasoning    *reasoningConfig    `json:"reasoning,omitempty"`
 	Tools        []responsesToolItem `json:"tools,omitempty"`
+	Text         *responsesText      `json:"text,omitempty"`
+}
+
+// responsesText carries the structured-output format for /v1/responses. The
+// Responses API expresses strict json_schema under text.format (rather than
+// chat/completions' response_format).
+type responsesText struct {
+	Format *responsesTextFormat `json:"format,omitempty"`
+}
+
+// responsesTextFormat is the strict json_schema descriptor for text.format:
+// {"type":"json_schema","name":...,"schema":...,"strict":true}.
+type responsesTextFormat struct {
+	Type   string          `json:"type"`
+	Name   string          `json:"name"`
+	Schema json.RawMessage `json:"schema"`
+	Strict bool            `json:"strict"`
 }
 
 type responsesInput struct {
@@ -205,7 +225,49 @@ func (c *OpenAIResponses) Verify(ctx context.Context, systemPrompt, userPayload 
 func (c *OpenAIResponses) Chat(ctx context.Context, messages []ChatMessage, tools []ToolDef) (*ChatResponse, error) {
 	instructions, input := convertMessages(messages)
 	reqBody := c.buildRequest(instructions, input, tools)
+	ar, err := c.postResponses(ctx, reqBody)
+	if err != nil {
+		return nil, err
+	}
+	return convertToChatResponse(ar.Output, ar.Usage), nil
+}
 
+// ChatStructured implements StructuredOutput over /v1/responses. The lenient
+// schema is projected to the strict profile at call time (D1) and attached via
+// text.format. The emitted text output is normalised into
+// Choices[0].Message.Content with the wire-level fail-closed guard; semantic
+// validation by schema name is the caller's (ADR-0011).
+func (c *OpenAIResponses) ChatStructured(ctx context.Context, messages []ChatMessage, schema []byte) (*ChatResponse, error) {
+	strict, err := strictProjection(schema)
+	if err != nil {
+		return nil, err
+	}
+	instructions, input := convertMessages(messages)
+	reqBody := c.buildRequest(instructions, input, nil)
+	reqBody.Text = &responsesText{Format: &responsesTextFormat{
+		Type:   "json_schema",
+		Name:   schemaName(schema),
+		Schema: json.RawMessage(strict),
+		Strict: true,
+	}}
+
+	ar, err := c.postResponses(ctx, reqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	content, err := normaliseStructuredContent(extractOutputText(ar.Output))
+	if err != nil {
+		return nil, err
+	}
+	cr := convertToChatResponse(ar.Output, ar.Usage)
+	cr.Choices[0].Message.Content = content
+	return cr, nil
+}
+
+// postResponses marshals reqBody, POSTs it to /v1/responses, and returns the
+// parsed response (with status mapping). Shared by Chat and ChatStructured.
+func (c *OpenAIResponses) postResponses(ctx context.Context, reqBody responsesRequest) (*responsesAPIResponse, error) {
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(reqBody); err != nil {
 		return nil, fmt.Errorf("model: marshal responses request: %w", err)
@@ -242,13 +304,11 @@ func (c *OpenAIResponses) Chat(ctx context.Context, messages []ChatMessage, tool
 		return nil, me
 	}
 
-	// Parse into responses shape, then convert to ChatResponse for the agent loop.
 	var ar responsesAPIResponse
 	if err := json.Unmarshal(body, &ar); err != nil {
 		return nil, fmt.Errorf("model: unmarshal responses response: %w", err)
 	}
-
-	return convertToChatResponse(ar.Output, ar.Usage), nil
+	return &ar, nil
 }
 
 // ---------------------------------------------------------------------------
