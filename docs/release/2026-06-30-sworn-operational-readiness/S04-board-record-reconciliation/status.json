@@ -1,0 +1,20 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S04-board-record-reconciliation",
+  "release": "2026-06-30-sworn-operational-readiness",
+  "track": "T4-board-record-reconciliation",
+  "state": "planned",
+  "covers_needs": ["N-07"],
+  "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S04-board-record-reconciliation/spec.json",
+  "start_commit": null,
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "chore",
+    "rationale": "Tolerant release unmarshal (string OR object) + one consumer + schema reconcile + tests; oracle.go disjoint. Tonight-critical (fired board unreadable without it).",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending"
+  }
+}
