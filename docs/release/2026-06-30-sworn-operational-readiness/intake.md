@@ -145,23 +145,21 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
 ### 2026-07-01 — Add S05-board-canonical-emit (T4): right-moving-forward, not permanent back-compat
 
 - **Context**: Brad questioned whether S04's back-compat (oneOf string|object schema + tolerant
-  validator) is the right approach vs making it right forward. The test: back-compat earns its
-  keep only against a durable, uncontrolled population of old-format data. Here there is none —
-  coach boards are already canonical object; the only string boards are our own temporary
-  stopgaps. S04 was already VERIFIED (immutable, Rule 7), so the refinement is a new slice, not
-  an edit.
-- **Decision**: add `S05-board-canonical-emit` (appended to T4, after S04). Postel's law:
-  strict EMIT + strict schema/validator (canonical object-only — kills the oneOf vendor drift
-  that would conflict every baton re-vendor, the #38 class), lenient READ (tolerant unmarshaler
-  stays). The writer emits the object form even for a name-only release, so existing string
-  boards self-heal to canonical on next write — no migration slice needed (this is the tight
-  answer to "fix the previous ones too").
-- **Why safe to tighten**: `baton.Validate("board-v1")` runs only in WriteBoard on freshly-
-  marshaled (now always object) output; ValidateSchema is not wired for boards — so nothing
-  enforces the schema against on-disk string boards.
-- **Scope note**: full canonical board-v1 parity (nested release.worktree, enumerated props,
-  additionalProperties:false) is the broader baton re-vendor, out of scope. Reopens T4 (was
-  forward-merged) — re-enters verify→merge.
+  validator) is right vs making it right forward. Test: back-compat earns its keep only against a
+  durable, uncontrolled population of old data — here there is none (coach boards are already
+  canonical object; the only string boards are our own temporary stopgaps). S04 was already
+  verified (immutable, Rule 7), so this is a new slice appended to T4.
+- **Decision**: `S05-board-canonical-emit` — Postel: strict EMIT + strict schema/validator
+  (canonical object-only — kills the oneOf vendor drift, the #38 class), lenient READ (tolerant
+  unmarshaler stays). Writer emits the object form even for a name-only release, so existing
+  string boards self-heal on next write (the tight answer to "fix the previous ones too").
+- **Registration note (this replan)**: S05 was first implemented directly in the T4 worktree
+  (feat 565f909), collapsing the planner→implementer→verifier lifecycle — its board membership +
+  start_commit were never planner-established, so the fresh verifier BLOCKED it (registration is
+  planner authority). This /replan-release registers S05 under T4 in release-wt's board, sets
+  start_commit to 0d22f65 (parent of the S05 feat, isolating its production diff), clears the
+  BLOCKED verdict to pending, and forward-syncs to the track. The implementation itself was not
+  re-touched.
 
 ### 2026-07-01 — Add S04-board-record-reconciliation (T4): oracle reads the canonical board (DIRECTION REVERSAL)
 
