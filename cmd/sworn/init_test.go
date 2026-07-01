@@ -10,18 +10,6 @@ import (
 	"github.com/swornagent/sworn/internal/adopt"
 )
 
-// setupTemplates creates minimal template files in the temp directory's
-// docs/templates/ so that materialiseCatalog and createAgentsMD can read them.
-func setupTemplates(dir string) {
-	os.MkdirAll(filepath.Join(dir, "docs/templates"), 0755)
-	os.WriteFile(filepath.Join(dir, "docs/templates/considerations.md"),
-		[]byte("# template considerations content\n"), 0644)
-	os.WriteFile(filepath.Join(dir, "docs/templates/decisions.md"),
-		[]byte("# template decisions content\n"), 0644)
-	os.WriteFile(filepath.Join(dir, "docs/templates/agents.md"),
-		[]byte("# AGENTS.md\n\nThis repository uses [sworn](https://swornagent.com) for autonomous release management.\n\nConnect via `sworn://baton/rules`.\n"), 0644)
-}
-
 // setupMinimalConfig writes a minimal config.json to the given directory so
 // that cmdInit sees an existing config and skips the design-system and
 // implementer-model interactive prompts (S08/S09 code paths).
@@ -61,8 +49,6 @@ func TestInitCreatesBothTemplates(t *testing.T) {
 	configPath := filepath.Join(dir, "config.json")
 	t.Setenv("SWORN_CONFIG_PATH", configPath)
 
-	setupTemplates(dir)
-
 	oldCwd, _ := os.Getwd()
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
@@ -100,8 +86,6 @@ func TestInitSkipsBoth(t *testing.T) {
 	t.Setenv("SWORN_CONFIG_PATH", configPath)
 
 	setupMinimalConfig(dir)
-	setupTemplates(dir)
-
 	oldCwd, _ := os.Getwd()
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
@@ -145,12 +129,6 @@ func TestInitOverwriteGuard(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "docs/considerations.md"), []byte(originalConsiderations), 0644)
 	os.WriteFile(filepath.Join(dir, "docs/decisions.md"), []byte(originalDecisions), 0644)
 
-	// Pre-create template source files (including agents.md for AGENTS.md creation).
-	os.MkdirAll(filepath.Join(dir, "docs/templates"), 0755)
-	os.WriteFile(filepath.Join(dir, "docs/templates/considerations.md"), []byte("# template considerations"), 0644)
-	os.WriteFile(filepath.Join(dir, "docs/templates/decisions.md"), []byte("# template decisions"), 0644)
-	os.WriteFile(filepath.Join(dir, "docs/templates/agents.md"), []byte("# AGENTS.md\n"), 0644)
-
 	// Pre-create AGENTS.md (non-legacy) so it doesn't show up in planned changes.
 	os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("# My AGENTS.md\n"), 0644)
 
@@ -187,8 +165,6 @@ func TestInitCreatesAgentsMD(t *testing.T) {
 	configPath := filepath.Join(dir, "config.json")
 	t.Setenv("SWORN_CONFIG_PATH", configPath)
 
-	setupTemplates(dir)
-
 	oldCwd, _ := os.Getwd()
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
@@ -223,8 +199,6 @@ func TestInitSkipsExistingAgentsMD(t *testing.T) {
 	t.Setenv("SWORN_CONFIG_PATH", configPath)
 
 	setupMinimalConfig(dir)
-	setupTemplates(dir)
-
 	oldCwd, _ := os.Getwd()
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
@@ -259,8 +233,6 @@ func TestInitWarnsLegacyBaton(t *testing.T) {
 	t.Setenv("SWORN_CONFIG_PATH", configPath)
 
 	setupMinimalConfig(dir)
-	setupTemplates(dir)
-
 	oldCwd, _ := os.Getwd()
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
@@ -294,8 +266,6 @@ func TestInitDoesNotSpliceClaude(t *testing.T) {
 	t.Setenv("SWORN_CONFIG_PATH", configPath)
 
 	setupMinimalConfig(dir)
-	setupTemplates(dir)
-
 	oldCwd, _ := os.Getwd()
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
@@ -319,5 +289,38 @@ func TestInitDoesNotSpliceClaude(t *testing.T) {
 	}
 	if string(got) != original {
 		t.Errorf("CLAUDE.md was modified by init:\ngot:  %q\nwant: %q", string(got), original)
+	}
+}
+
+// TestInitColdStartCreatesAgentsMD verifies sworn init --yes in a completely
+// empty directory — no docs/templates/ pre-seeded — creates AGENTS.md and the
+// catalog files from the embedded templates (sworn#28: the templates must ship
+// in the binary; an adopting repo never has docs/templates/ on cold start).
+func TestInitColdStartCreatesAgentsMD(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	t.Setenv("SWORN_CONFIG_PATH", configPath)
+
+	oldCwd, _ := os.Getwd()
+	defer os.Chdir(oldCwd)
+	os.Chdir(dir)
+
+	exit := cmdInit([]string{"--yes"})
+	if exit != 0 {
+		t.Fatalf("cmdInit --yes exited %d, want 0 (cold start must not depend on repo-local templates)", exit)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	if err != nil {
+		t.Fatalf("AGENTS.md was not created on cold start: %v", err)
+	}
+	if !strings.Contains(string(data), "sworn://baton/rules") {
+		t.Errorf("AGENTS.md does not contain 'sworn://baton/rules':\n%s", string(data))
+	}
+
+	for _, f := range []string{"docs/considerations.md", "docs/decisions.md"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+			t.Errorf("expected %s to exist on cold start: %v", f, err)
+		}
 	}
 }
