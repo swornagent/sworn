@@ -8,9 +8,9 @@
   "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S03-tui-chrome-rework/spec.json",
   "start_commit": null,
   "effort_complexity": {
-    "effort": "medium",
-    "complexity": "medium",
-    "quadrant": "feature",
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "epic",
     "rationale": "Wire WindowSizeMsg into Model, make pane widths responsive, add header, restyle help bar.",
     "confirmed_by_implementer": false
   },
