@@ -1,0 +1,50 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "schema_version": 1,
+  "slice_id": "S01-render-drift-guard",
+  "release": "2026-07-01-render-drift-reconciliation",
+  "scope": "`sworn doctor` fails closed (non-zero exit, ERROR not WARN) when any board.json-backed release's committed index.md doesn't match render(board.json + slice records) — replacing the advisory, already-broken driftGuard.",
+  "files_changed": [
+    "internal/board/board.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go",
+    "docs/release/2026-07-01-render-drift-reconciliation/index.md",
+    "docs/release/2026-07-01-render-drift-reconciliation/S01-render-drift-guard/status.json",
+    "docs/release/2026-07-01-render-drift-reconciliation/S01-render-drift-guard/journal.md",
+    "docs/release/2026-07-01-render-drift-reconciliation/S01-render-drift-guard/proof.json"
+  ],
+  "test_results": [
+    {
+      "command": "go build ./...",
+      "exit_code": 0
+    },
+    {
+      "command": "go test ./internal/board/... ./cmd/sworn/...",
+      "exit_code": 0,
+      "output": "ok  \tgithub.com/swornagent/sworn/internal/board\t0.121s\nok  \tgithub.com/swornagent/sworn/cmd/sworn\t37.550s"
+    },
+    {
+      "command": "go test ./...",
+      "exit_code": 0,
+      "output": "all 38 packages ok (full-repo regression sweep beyond AC-06's scoped command, per design-review pin 4 — this slice touches WriteBoard, a shared multi-consumer function)"
+    }
+  ],
+  "reachability_artifacts": [
+    "docs/release/2026-07-01-render-drift-reconciliation/S01-render-drift-guard/reachability-doctor-output.txt — real `sworn doctor` run against the live repo (not a synthetic fixture): render-drift check reports ERROR only for the two AC-05-tracked exceptions (swornagent/sworn#44, swornagent/sworn#45), zero errors for this release's own tracks (T1-T5) or any other in-scope release. Overall `sworn doctor` exit code is 1 for an unrelated, pre-existing reason (Group 2b status-timestamp violations in other releases) — not a regression from this slice."
+  ],
+  "delivered": [
+    "AC-01: checkRenderDrift (cmd/sworn/doctor.go) re-renders each board.json-backed release's index.md in-memory via the existing board.Render (no new render implementation) and compares against the committed file — see cmd/sworn/doctor.go checkRenderDrift + TestDoctorRenderDrift_Clean.",
+    "AC-02: a mismatch reports ERROR (feeding hasError -> non-zero exit) naming the release — see TestDoctorRenderDrift_Drifted, which asserts both the [ERROR] line and a non-zero exit code.",
+    "AC-03: releases with no board.json are skipped entirely — see TestDoctorRenderDrift_NoBoardSkipped.",
+    "AC-04: internal/board.driftGuard and its WriteBoard call site are deleted entirely (not left running alongside the new check) — confirmed via `grep -rn driftGuard` finding only the explanatory comment in WriteBoard's docstring, and go build/test passing with the unused `log` import removed.",
+    "AC-05: `sworn doctor` run for real against the live repo (not a synthetic fixture) reports render-drift errors only for the two tracked exceptions swornagent/sworn#44 and swornagent/sworn#45; zero errors for T1-T5 scope. Captured in reachability-doctor-output.txt. This release's own index.md was re-rendered (one-line state-column refresh reflecting S01's design_review -> in_progress transition) as part of achieving this.",
+    "AC-06: `go build ./...` succeeds and `go test ./internal/board/... ./cmd/sworn/...` passes; full `go test ./...` (38 packages) also passes, confirming no cross-package regression from the shared WriteBoard change (design-review pin 4)."
+  ],
+  "not_delivered": [],
+  "divergence": [
+    "Design review pin 1 (populate status.json planned_files/design_decisions) applied before implementation, not during — status.json now carries both fields and `sworn designfit` confirms it evaluates this slice for real (not vacuously on an empty planned_files).",
+    "No approved-ack.md marker convention exists in this repo yet; the design-review acknowledgement (Coach: 'Acknowledge, proceed') is recorded in journal.md instead, per Rule 9's human-owned gate.",
+    "release-verify.sh's deterministic first-pass will report a residual 'spec.md missing' FAIL — this is a known false negative for spec-v1 (spec.json) slices, not a real gap. Documented per design-review pin 3 and the feedback_releaseverify_specmd_false_fail memory; no spec.md was manufactured to silence it.",
+    "Filed swornagent/sworn#49 for a pre-existing, unrelated bug found while testing this slice: TestDoctorAllOK's repo-root resolution (cmd/sworn/doctor_test.go:56) is off by one path segment (filepath.Dir strips only cmd/sworn -> cmd, not to the actual repo root), so it has never actually exercised Group 2/2b filesystem checks against this repo's real docs/release/ content. Out of scope for this slice per Rule 2/3 — tracked, not fixed here. This slice's own render-drift tests use correctly-anchored t.TempDir() fixtures via runDoctorInDir, unaffected by that bug."
+  ]
+}
