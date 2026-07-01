@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/swornagent/sworn/internal/spec"
 	"github.com/swornagent/sworn/internal/style"
 )
 
@@ -78,7 +79,8 @@ type Report struct {
 // HasViolations returns true when at least one characteristic breach exists.
 func (r Report) HasViolations() bool { return len(r.Violations) > 0 }
 
-// AC is an individual acceptance criterion extracted from a spec.md.
+// AC is an individual acceptance criterion extracted from a slice spec
+// (spec.json acceptance_criteria, or legacy spec.md checkboxes).
 type AC struct {
 	SliceID string
 	Index   int    // 1-based within the slice
@@ -90,11 +92,13 @@ type AC struct {
 type Verifier interface {
 	Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error)
 }
+
 // Run executes requirements verification over a release directory.
 //
-// It discovers every slice's spec.md, extracts all acceptance criteria, builds
-// a payload, dispatches it to the model with the requirements-verifier prompt,
-// parses the per-AC grades, and returns the aggregated Report.
+// It discovers every slice's spec (spec.json preferred, spec.md fallback),
+// extracts all acceptance criteria, builds a payload, dispatches it to the
+// model with the requirements-verifier prompt, parses the per-AC grades, and
+// returns the aggregated Report. A release yielding zero ACs is an error.
 //
 // The releaseDir is the path to docs/release/<name>.
 func Run(ctx context.Context, releaseDir string, verifier Verifier, systemPrompt string) (Report, error) {
@@ -107,8 +111,10 @@ func Run(ctx context.Context, releaseDir string, verifier Verifier, systemPrompt
 	}
 	report.TotalACs = len(acs)
 	if len(acs) == 0 {
-		// No ACs to verify — trivially passes.
-		return report, nil
+		// Fail closed: a release with no evaluable ACs must never read as a
+		// vacuous PASS — spec-v1 (spec.json) releases carried real ACs that an
+		// earlier spec.md-only reader silently missed.
+		return report, fmt.Errorf("reqverify: no evaluable acceptance criteria in %s (no spec.json acceptance_criteria or spec.md acceptance checks)", releaseDir)
 	}
 
 	// 2. Build the model payload.
@@ -117,7 +123,8 @@ func Run(ctx context.Context, releaseDir string, verifier Verifier, systemPrompt
 	// 3. Dispatch to model.
 	reply, _, _, _, err := verifier.Verify(ctx, systemPrompt, payload)
 	if err != nil {
-		return report, fmt.Errorf("reqverify: model dispatch: %w", err)	}
+		return report, fmt.Errorf("reqverify: model dispatch: %w", err)
+	}
 
 	// 4. Parse per-AC grades from the model response.
 	grades, err := parseGrades(reply, acs)
@@ -141,8 +148,10 @@ func Run(ctx context.Context, releaseDir string, verifier Verifier, systemPrompt
 	return report, nil
 }
 
-// extractACs reads all spec.md files under the release directory and extracts
-// acceptance criteria (checkbox lines under "## Acceptance checks").
+// extractACs extracts acceptance criteria from every slice under the release
+// directory. It prefers the spec-v1 record (spec.json acceptance_criteria —
+// the canonical current format) and falls back to scraping spec.md checkbox
+// lines under "## Acceptance checks" for legacy releases.
 func extractACs(releaseDir string) ([]AC, error) {
 	entries, err := os.ReadDir(releaseDir)
 	if err != nil {
@@ -165,11 +174,30 @@ func extractACs(releaseDir string) ([]AC, error) {
 
 	var allACs []AC
 	for _, sliceID := range sliceDirs {
-		specPath := filepath.Join(releaseDir, sliceID, "spec.md")
+		sliceDir := filepath.Join(releaseDir, sliceID)
+
+		// Prefer the spec-v1 record.
+		rec, err := spec.ReadRecord(sliceDir)
+		if err != nil {
+			return nil, err
+		}
+		if rec != nil && len(rec.AcceptanceCriteria) > 0 {
+			for i, r := range rec.AcceptanceCriteria {
+				allACs = append(allACs, AC{
+					SliceID: sliceID,
+					Index:   i + 1,
+					Content: r.Text,
+				})
+			}
+			continue
+		}
+
+		// Legacy fallback: spec.md checkbox scrape.
+		specPath := filepath.Join(sliceDir, "spec.md")
 		data, err := os.ReadFile(specPath)
 		if err != nil {
 			if os.IsNotExist(err) {
-				continue // slice dir with no spec.md yet
+				continue // slice dir with no spec artefact yet
 			}
 			return nil, fmt.Errorf("reading %s: %w", specPath, err)
 		}
