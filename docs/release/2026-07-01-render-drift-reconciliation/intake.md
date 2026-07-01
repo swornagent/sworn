@@ -77,29 +77,50 @@ Confirmed via direct code reads and two parallel investigation agents, not guess
 
 ## Decisions made during planning
 
-(populated via AskUserQuestion below, appended live)
+### 2026-07-01 — drift guard folds into `sworn doctor`
+
+- **Context**: where should the ADR-0009-mandated `committed.md == render(json)` check hook in?
+- **Options considered**: a new `sworn lint render-drift` subcommand (matches the `sworn lint ac`/`sworn lint trace` release-scoped pattern); fold into `sworn doctor` (repo-wide health-check pattern).
+- **Decision**: fold into `sworn doctor`.
+- **Why**: `doctor` already runs exactly this class of check (legacy `docs/baton/` detection, embedded-prompt integrity, timestamp sanity) and is already wired into whatever CI/pre-commit hook runs it — no new command surface to remember or wire up separately.
+
+### 2026-07-01 — TUI header sources "active release" from its own selection state
+
+- **Context**: S03's header announces the current active release — from the TUI's own navigation state, or from the separate `2026-07-01-loop-cli-ux` release's (not-yet-built) persisted active-release store?
+- **Options considered**: TUI's own selection state (self-contained); read from `loop-cli-ux`'s `.sworn/sworn.db` store once it exists.
+- **Decision**: TUI's own selection state — whichever release is currently navigated to inside the TUI, or "none selected" on the initial releases-list screen.
+- **Why**: keeps this release fully independent of `loop-cli-ux`'s landing order; the TUI's own navigation state is a real, always-available answer to "what's active" that needs no cross-release coupling. (If `loop-cli-ux` lands later, the TUI could additionally default its initial cursor to that stored release — a small, separate follow-up, not blocking this slice.)
+
+### 2026-07-01 — 5 independent tracks, 7 slices, confirmed as drafted
+
+- **Context**: confirm the drafted track/slice decomposition (drift-guard, TUI×2, MCP, CLI, core-loop+RTM) before writing specs.
+- **Options considered**: 5 tracks as drafted (max parallelism, each touchpoint-disjoint); fewer/bigger tracks (less worktree overhead, less parallelism).
+- **Decision**: 5 tracks as drafted — `T1-drift-guard`, `T2-tui` (S02, S03), `T3-mcp`, `T4-cli-merge-regress`, `T5-core-loop-rtm-rescrape` (S06, S07 folded together — see touchpoint matrix below).
+- **Why**: confirmed touchpoint-disjoint across all 5; each subsystem's fix is independently mergeable and independently valuable (e.g. the MCP fix doesn't need to wait on the TUI fix), so there's no reason to force serialization.
 
 ## Schema-vs-spec audit notes
 
 `proof-v1.json`'s `not_delivered` field is already a clean string array (confirmed by direct schema read) — the three independent `proof.md`-scraping call sites are pure redundancy, not filling a schema gap. `spec-v1.json`'s `acceptance_criteria[].ears_keyword` is already computed and stored at write time (`internal/implement/spec_record.go`) — `internal/ears/ears.go`'s re-classification from `spec.md` text is redundant, not a schema gap. By contrast, `touchpoints` genuinely has no JSON home yet (see Adjacent/out of scope) — confirmed by reading the current Go `specRecord` struct and `spec-v1.json`, not assumed.
 
-## Proposed slice decomposition (draft)
+## Proposed slice decomposition (final)
 
-- `S01-render-drift-guard` — implement the ADR-0009-mandated CI/lint check: fail closed on any committed `index.md` that doesn't match `render(board.json + slice records)` for a board.json-backed release.
-- `S02-tui-oracle-migration` — migrate `internal/tui/board.go` and `internal/tui/blocked.go` (tracks/worktree-path parsing AND `blocked.go`'s violations-from-`proof.md` scraping, same file) to read `board.json`/`proof.json` via the oracle; regenerate stale test fixtures from real `sworn render` output.
-- `S03-tui-chrome-rework` — header (version + active release), release-list pane sizing/wrapping, full-width help bar, viewport-fit fix.
-- `S04-mcp-oracle-migration` — migrate `internal/mcp/tools_ops.go`, `tools_plan.go`, `catalog.go`, `context.go` (tracks-parsing AND violations-parsing, same file) to the oracle/`proof.json`.
-- `S05-cli-merge-regress-oracle-migration` — migrate `cmd/sworn/merge.go`, `cmd/sworn/regress.go`.
-- `S06-core-loop-and-rtm-oracle-migration` — migrate `internal/run/parallel.go`, `internal/rtm/rtm.go`; add the `internal/router` multi-track regression test noted above.
-- `S07-remaining-rescrape-cleanup` — `internal/account/notify.go` (violations from `proof.json`), `internal/ears/ears.go` (EARS from `spec.json`), `cmd/sworn/ledger.go` (AC count from `spec.json`).
+- `T1-drift-guard` / `S01-render-drift-guard` — implement the ADR-0009-mandated CI/lint check, folded into `sworn doctor`: fail closed on any committed `index.md` that doesn't match `render(board.json + slice records)` for a board.json-backed release.
+- `T2-tui` / `S02-tui-oracle-migration` — migrate `internal/tui/board.go` and `internal/tui/blocked.go` (tracks/worktree-path parsing AND `blocked.go`'s violations-from-`proof.md` scraping, same file) to read `board.json`/`proof.json` via the oracle; regenerate stale test fixtures from real `sworn render` output.
+- `T2-tui` / `S03-tui-chrome-rework` (depends on S02 within the track — same package, sequential) — header (version + TUI's own active-release selection state), release-list pane sizing/wrapping, full-width help bar, viewport-fit fix.
+- `T3-mcp` / `S04-mcp-oracle-migration` — migrate `internal/mcp/tools_ops.go`, `tools_plan.go`, `catalog.go`, `context.go` (tracks-parsing AND violations-parsing, same file) to the oracle/`proof.json`.
+- `T4-cli-merge-regress` / `S05-cli-merge-regress-oracle-migration` — migrate `cmd/sworn/merge.go`, `cmd/sworn/regress.go`.
+- `T5-core-loop-rtm-rescrape` / `S06-core-loop-and-rtm-oracle-migration` — migrate `internal/run/parallel.go`, `internal/rtm/rtm.go`; add the `internal/router` multi-track regression test noted above.
+- `T5-core-loop-rtm-rescrape` / `S07-remaining-rescrape-cleanup` (sequential after S06 — same track) — `internal/account/notify.go` (violations from `proof.json`), `internal/ears/ears.go` (EARS from `spec.json`), `cmd/sworn/ledger.go` (AC count from `spec.json`).
+
+All 5 tracks are independent (`depends_on: []`) and touchpoint-disjoint — verified no file appears under two different tracks (see touchpoint matrix, rendered in `index.md`).
 
 ## Ambiguity register
 
 | # | Ambiguity | Affects | Resolution |
 |---|-----------|---------|------------|
-| A-01 | Where does the drift guard hook in — a new `sworn lint render-drift` subcommand, folded into `sworn doctor`, or a standalone script? | S01 scope | resolved below |
-| A-02 | S03's header shows "current active release" — sourced from the (not-yet-implemented) `2026-07-01-loop-cli-ux` active-release store, or from the TUI's own release-list selection state (self-contained)? | S03 AC | resolved below |
-| A-03 | Track grouping and count — 5 tracks as drafted above, or consolidate/split differently? | all slices | resolved below |
+| A-01 | Where does the drift guard hook in? | S01 scope | **Resolved 2026-07-01**: fold into `sworn doctor` as a new check. |
+| A-02 | S03's header "current active release" source? | S03 AC | **Resolved 2026-07-01**: TUI's own selection/navigation state, not the loop-cli-ux store. |
+| A-03 | Track grouping and count? | all slices | **Resolved 2026-07-01**: 5 tracks as drafted, confirmed touchpoint-disjoint. |
 
 ## Screenshots / references
 
