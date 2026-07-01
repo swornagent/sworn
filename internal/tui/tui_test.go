@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/db"
 	"github.com/swornagent/sworn/internal/state"
 )
@@ -38,24 +40,29 @@ func TestReleasesListPopulates(t *testing.T) {
 
 // TestBoardViewShowsSlices verifies that given a fixture release with 3 slices
 // at known states, the board view model contains those states after board.Load().
+// This is the exact reproduction test for the originally reported bug
+// (AC-01): fixture is built via writeBoardFixture (the real board.WriteBoard
+// path), not a hand-authored `tracks:` YAML string literal (AC-04).
 func TestBoardViewShowsSlices(t *testing.T) {
 	dir := t.TempDir()
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
 	os.MkdirAll(releaseDir, 0o755)
 
-	// Create index.md with 2 tracks.
-	indexContent := `---
-tracks:
-  - id: T1-core
-    slices: [S01-first, S02-second]
-    depends_on:
-    state: in_progress
-  - id: T2-extras
-    slices: [S03-third]
-    depends_on: T1-core
-    state: planned
----`
-	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{
+			ID:             "T1-core",
+			Slices:         []string{"S01-first", "S02-second"},
+			State:          "in_progress",
+			WorktreeBranch: "track/test-release/T1-core",
+		},
+		{
+			ID:             "T2-extras",
+			Slices:         []string{"S03-third"},
+			DependsOn:      board.StringList{"T1-core"},
+			State:          "planned",
+			WorktreeBranch: "track/test-release/T2-extras",
+		},
+	})
 
 	// Create slice directories with status.json files.
 	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-core")
@@ -78,6 +85,48 @@ tracks:
 	checkSlice(t, bv, "S01-first", "verified")
 	checkSlice(t, bv, "S02-second", "in_progress")
 	checkSlice(t, bv, "S03-third", "planned")
+}
+
+// TestBoardViewLegacyIndexFallback verifies AC-06: a release with NO
+// board.json (genuinely pre-migration) still renders via board.ReadBoard's
+// lazy migrateFromIndex fallback, which parses the legacy `tracks:` YAML
+// frontmatter in index.md. This is the ONE dedicated test intentionally kept
+// on the legacy frontmatter-only shape (per design.md) — every other test
+// in this file now builds its fixture via writeBoardFixture (AC-04).
+func TestBoardViewLegacyIndexFallback(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "legacy-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	indexContent := `---
+tracks:
+  - id: T1-legacy
+    slices: [S01-only]
+    depends_on:
+    worktree_branch: track/legacy-release/T1-legacy
+    state: in_progress
+---`
+	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+	createSliceStatus(t, releaseDir, "S01-only", "in_progress", "T1-legacy")
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(dir, "legacy-release"); err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+
+	if !bv.Loaded {
+		t.Fatal("expected Loaded=true")
+	}
+	if len(bv.Tracks) != 1 || bv.Tracks[0].ID != "T1-legacy" {
+		t.Fatalf("expected 1 track T1-legacy via legacy fallback, got %+v", bv.Tracks)
+	}
+	checkSlice(t, bv, "S01-only", "in_progress")
+
+	// The lazy migration should have materialised board.json on disk (the
+	// oracle's existing designed behaviour — DC-2 in design.md).
+	if _, err := os.Stat(filepath.Join(releaseDir, "board.json")); err != nil {
+		t.Errorf("expected board.json to be lazily written by migrateFromIndex: %v", err)
+	}
 }
 
 // TestKeyNavigation simulates j, k, Enter, Esc keypresses on the model
@@ -300,14 +349,10 @@ func TestAutoTransitionNoTracks(t *testing.T) {
 	// Create release structure with a sliced status but no SQLite DB.
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
 	os.MkdirAll(releaseDir, 0o755)
-	indexContent := `---
-tracks:
-  - id: T1-core
-    slices: [S01-first]
-    depends_on:
-    state: in_progress
----`
-	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+	createIndex(t, dir, "test-release", "Test Release")
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-first"}, State: "in_progress", WorktreeBranch: "track/test-release/T1-core"},
+	})
 	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-core")
 
 	m := &Model{
@@ -632,6 +677,21 @@ func createIndex(t *testing.T, root string, releaseID, title string) {
 	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(content), 0644)
 }
 
+// writeBoardFixture writes a board.json fixture via the real board.WriteBoard
+// write path (validated against the board-v1 schema) — AC-04: test fixtures
+// are built through the real render/internal/board machinery, not a
+// hand-authored legacy `tracks:` YAML string literal.
+func writeBoardFixture(t *testing.T, root, release string, tracks []board.BoardTrack) {
+	t.Helper()
+	br := &board.BoardRecord{
+		Release: board.StringRelease(release),
+		Tracks:  tracks,
+	}
+	if err := board.WriteBoard(root, release, br); err != nil {
+		t.Fatalf("writeBoardFixture: board.WriteBoard: %v", err)
+	}
+}
+
 func createSliceStatus(t *testing.T, releaseDir, sliceID, sliceState, track string) {
 	t.Helper()
 	sliceDir := filepath.Join(releaseDir, sliceID)
@@ -668,30 +728,80 @@ func mustParseTime(t *testing.T, s string) time.Time {
 	return parsed
 }
 
+// TestBlockedPanelExtractsViolations verifies AC-03: violations come from
+// proof.json's not_delivered array, not a proof.md regex scrape. A proof.md
+// with "## Violations"/"## Not delivered" sections in the SAME fixture is
+// deliberately ignored — proving the scraper is gone, not just unused.
 func TestBlockedPanelExtractsViolations(t *testing.T) {
-	proofContent := `---
-title: Proof Bundle
----
+	proofJSON, err := json.Marshal(map[string]any{
+		"$schema":        "https://baton.sawy3r.net/schemas/proof-v1.json",
+		"schema_version": 1,
+		"slice_id":       "S01-first",
+		"release":        "test-release",
+		"not_delivered": []string{
+			"Deferral 1: out of scope",
+			"Deferral 2: needs follow-up",
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal proof.json fixture: %v", err)
+	}
+
+	violations := ExtractViolations(proofJSON)
+	if len(violations) != 2 {
+		t.Fatalf("expected 2 violations, got %d: %v", len(violations), violations)
+	}
+	if violations[0] != "Deferral 1: out of scope" {
+		t.Errorf("expected 'Deferral 1: out of scope', got %q", violations[0])
+	}
+	if violations[1] != "Deferral 2: needs follow-up" {
+		t.Errorf("expected 'Deferral 2: needs follow-up', got %q", violations[1])
+	}
+}
+
+// TestBlockedPanelViolationsFromProofJSONNotProofMD verifies LoadBlockedView
+// (the integration point) reads violations from proof.json.not_delivered
+// even when a stray proof.md with "## Violations" bullets sits in the same
+// slice directory — proving the proof.md scrape path is fully retired
+// (AC-03), not just deprioritised.
+func TestBlockedPanelViolationsFromProofJSONNotProofMD(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-first"}, State: "in_progress", WorktreeBranch: "track/test-release/T1-core"},
+	})
+	createSliceStatus(t, releaseDir, "S01-first", "failed_verification", "T1-core")
+
+	// Decoy proof.md — must NOT be scraped for violations.
+	decoyProofMD := `# Proof Bundle
 
 ## Violations
-- Violation 1: spec mismatch
-- Violation 2: test failed
-
-## Not delivered
-- Deferral 1: out of scope
+- LEGACY-SCRAPE-MARKER: this must never surface as a violation
 `
-	violations := ExtractViolations(proofContent)
-	if len(violations) != 3 {
-		t.Fatalf("expected 3 violations, got %d: %v", len(violations), violations)
+	os.WriteFile(filepath.Join(releaseDir, "S01-first", "proof.md"), []byte(decoyProofMD), 0644)
+
+	proofJSON, err := json.Marshal(map[string]any{
+		"not_delivered": []string{"Real violation from proof.json"},
+	})
+	if err != nil {
+		t.Fatalf("marshal proof.json fixture: %v", err)
 	}
-	if violations[0] != "Violation 1: spec mismatch" {
-		t.Errorf("expected 'Violation 1: spec mismatch', got %q", violations[0])
+	os.WriteFile(filepath.Join(releaseDir, "S01-first", "proof.json"), proofJSON, 0644)
+
+	bv, err := LoadBlockedView(dir, "test-release", "S01-first")
+	if err != nil {
+		t.Fatalf("LoadBlockedView: %v", err)
 	}
-	if violations[1] != "Violation 2: test failed" {
-		t.Errorf("expected 'Violation 2: test failed', got %q", violations[1])
+
+	if len(bv.violations) != 1 || bv.violations[0] != "Real violation from proof.json" {
+		t.Fatalf("expected violations from proof.json.not_delivered only, got: %v", bv.violations)
 	}
-	if violations[2] != "Deferral 1: out of scope" {
-		t.Errorf("expected 'Deferral 1: out of scope', got %q", violations[2])
+	for _, v := range bv.violations {
+		if strings.Contains(v, "LEGACY-SCRAPE-MARKER") {
+			t.Errorf("proof.md was scraped for violations — the legacy path must be fully retired, got: %v", bv.violations)
+		}
 	}
 }
 
@@ -750,19 +860,19 @@ func TestDeferWritesRuleTwo(t *testing.T) {
 	releaseDir := filepath.Join(tmpDir, "docs", "release", "test-release")
 	os.MkdirAll(releaseDir, 0o755)
 
-	indexContent := `---
-tracks:
-  - id: T1-core
-    slices: [S01-first]
-    worktree_path: ` + tmpDir + `
----`
-	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+	writeBoardFixture(t, tmpDir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-first"}, State: "in_progress", WorktreePath: tmpDir, WorktreeBranch: "track/test-release/T1-core"},
+	})
 
 	createSliceStatus(t, releaseDir, "S01-first", "failed_verification", "T1-core")
 
 	bv, err := LoadBlockedView(tmpDir, "test-release", "S01-first")
 	if err != nil {
 		t.Fatalf("LoadBlockedView: %v", err)
+	}
+	// AC-02: worktree_path resolved from board.json, not index.md frontmatter.
+	if bv.worktreePath != tmpDir {
+		t.Fatalf("expected worktreePath %q from board.json, got %q", tmpDir, bv.worktreePath)
 	}
 
 	bv2, _ := bv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("5")})
@@ -817,14 +927,9 @@ func TestBoardEnterTransitionsToBlocked(t *testing.T) {
 
 	createIndex(t, dir, "test-release", "Test Release")
 
-	indexContent := `---
-title: Test Release
-tracks:
-  - id: T1-core
-    slices: [S01-first]
-    state: in_progress
----`
-	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-first"}, State: "in_progress", WorktreeBranch: "track/test-release/T1-core"},
+	})
 
 	createSliceStatus(t, releaseDir, "S01-first", "failed_verification", "T1-core")
 
@@ -866,14 +971,10 @@ func TestBoardEnterTransitionsToBlockedOnImplementedBlockedVerdict(t *testing.T)
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
 	os.MkdirAll(releaseDir, 0o755)
 
-	indexContent := `---
-title: Test Release
-tracks:
-  - id: T1-core
-    slices: [S01-blocked]
-    state: in_progress
----`
-	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+	createIndex(t, dir, "test-release", "Test Release")
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-blocked"}, State: "in_progress", WorktreeBranch: "track/test-release/T1-core"},
+	})
 
 	// Create a slice at "implemented" with verification.result == "blocked"
 	sliceDir := filepath.Join(releaseDir, "S01-blocked")
@@ -930,14 +1031,9 @@ func TestBlockedPanelViewProof(t *testing.T) {
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
 	os.MkdirAll(releaseDir, 0o755)
 
-	indexContent := `---
-title: Test Release
-tracks:
-  - id: T1-core
-    slices: [S01-first]
-    state: in_progress
----`
-	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-first"}, State: "in_progress", WorktreeBranch: "track/test-release/T1-core"},
+	})
 
 	createSliceStatus(t, releaseDir, "S01-first", "failed_verification", "T1-core")
 
@@ -1128,14 +1224,9 @@ func TestBoardViewShowsMergeBadge(t *testing.T) {
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
 	os.MkdirAll(releaseDir, 0o755)
 
-	indexContent := `---
-tracks:
-  - id: T1-core
-    slices: [S01-first]
-    depends_on:
-    state: in_progress
----`
-	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-first"}, State: "in_progress", WorktreeBranch: "track/test-release/T1-core"},
+	})
 	createSliceStatus(t, releaseDir, "S01-first", "in_progress", "T1-core")
 
 	// Create a sworn DB with a merge:T1-core acquired event.
@@ -1178,14 +1269,9 @@ func TestBoardViewNoMergeBadge(t *testing.T) {
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
 	os.MkdirAll(releaseDir, 0o755)
 
-	indexContent := `---
-tracks:
-  - id: T1-core
-    slices: [S01-first]
-    depends_on:
-    state: in_progress
----`
-	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-first"}, State: "in_progress", WorktreeBranch: "track/test-release/T1-core"},
+	})
 	createSliceStatus(t, releaseDir, "S01-first", "in_progress", "T1-core")
 
 	// No DB created — no merge events.
@@ -1202,5 +1288,67 @@ tracks:
 	view := bv.View()
 	if strings.Contains(view, "merge") {
 		t.Errorf("expected view to NOT contain 'merge', got:\n%s", view)
+	}
+}
+
+// TestBoardViewLoadsRealOperationalReadinessRelease is the AC-05 reachability
+// test: it drives the integration point that owns the affordance
+// (BoardView.LoadBoard, called from Model.handleReleasesKey at the "enter"
+// case) rooted at THIS repo's real, live checkout — not a synthetic
+// t.TempDir() fixture — and loads the real, committed
+// 2026-06-30-sworn-operational-readiness release (a genuine board.json-backed,
+// 5-track release). This is the originally reported bug's exact repro:
+// before this slice, BoardView.Tracks would silently come back empty for
+// this release because sworn render no longer emits the `tracks:` frontmatter
+// LoadBoard used to hand-parse.
+func TestBoardViewLoadsRealOperationalReadinessRelease(t *testing.T) {
+	repoRoot, err := findRepoRoot()
+	if err != nil {
+		t.Skipf("skipping live-repo reachability test: findRepoRoot: %v", err)
+	}
+	const release = "2026-06-30-sworn-operational-readiness"
+	boardPath := filepath.Join(repoRoot, "docs", "release", release, "board.json")
+	if _, err := os.Stat(boardPath); err != nil {
+		t.Skipf("skipping live-repo reachability test: %s not found in this checkout: %v", boardPath, err)
+	}
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(repoRoot, release); err != nil {
+		t.Fatalf("LoadBoard against real repo release %q: %v", release, err)
+	}
+
+	if !bv.Loaded {
+		t.Fatal("expected Loaded=true")
+	}
+
+	wantTracks := []string{
+		"T1-operational-unblock",
+		"T2-board-render",
+		"T3-consumer-repo-hygiene",
+		"T4-board-record-reconciliation",
+		"T5-model-pricing-registry",
+	}
+	if len(bv.Tracks) != len(wantTracks) {
+		t.Fatalf("expected %d tracks for %s, got %d: %+v", len(wantTracks), release, len(bv.Tracks), bv.Tracks)
+	}
+	got := map[string]bool{}
+	for _, tr := range bv.Tracks {
+		got[tr.ID] = true
+	}
+	for _, id := range wantTracks {
+		if !got[id] {
+			t.Errorf("expected track %q to be present, got tracks: %+v", id, bv.Tracks)
+		}
+	}
+
+	// Every track must have at least one slice with a non-"unknown" state —
+	// proving live status.json data was actually read, not just track shells.
+	for _, tr := range bv.Tracks {
+		for _, sliceID := range tr.Slices {
+			si, ok := bv.Slices[sliceID]
+			if !ok || si.State == "" || si.State == "unknown" {
+				t.Errorf("track %s slice %s: expected a real state, got %+v (ok=%v)", tr.ID, sliceID, si, ok)
+			}
+		}
 	}
 }
