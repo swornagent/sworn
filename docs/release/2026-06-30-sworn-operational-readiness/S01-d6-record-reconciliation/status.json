@@ -3,18 +3,89 @@
   "slice_id": "S01-d6-record-reconciliation",
   "release": "2026-06-30-sworn-operational-readiness",
   "track": "T1-operational-unblock",
-  "state": "planned",
+  "state": "verified",
   "covers_needs": ["N-01", "N-02", "N-03", "N-04"],
   "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/spec.json",
-  "start_commit": null,
+  "proof_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/proof.json",
+  "journal_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/journal.md",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-01T09:35:00Z",
+  "start_commit": "000ee08aad1404340d7e4ed23d360f4414e0fc19",
+  "actual_files": [
+    "internal/state/state.go",
+    "internal/baton/schemas/slice-status-v1.json",
+    "internal/verify/verify.go",
+    "internal/run/slice.go",
+    "internal/board/oracle.go",
+    "internal/ledger/ledger.go",
+    "internal/implement/implement.go",
+    "internal/implement/proof_record.go",
+    "internal/implement/spec_record.go",
+    "internal/mcp/tools_ops.go",
+    "internal/mcp/tools_plan.go",
+    "internal/verdict/verdict.go",
+    "cmd/sworn/verify.go",
+    "cmd/sworn/task.go"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go test ./... -timeout 120s"
+  ],
+  "reachability_artifacts": [
+    "manual-smoke-step: STRICT-binary sworn board --release 2026-06-16-critical-journey-resolutions on the live fired repo (~/projects/fired, clean before+after — Rule 11) renders the full board with 0 'cannot unmarshal object' errors; S05-engine-owned-real-dollars (4 object-form open_deferrals) reads 'verified [verifier]' (reachability/ac08-reachability.txt)",
+    "manual-smoke-step: direct state.Read on real fired S05 status.json — all 4 deferrals read OK; acknowledged_by + acknowledged_at populate the NEW named fields, acknowledgement='' (real pre-migration data, confirms AC-11), id/field preserved in Extra (reachability/ac08-direct-read.txt). The fired LOOP was NOT run on the strict binary (AC-11 sequencing: gated on #40)."
+  ],
+  "design_decisions": [
+    {
+      "choice": "Carrier representation for open_deferrals/violations: structs with named schema fields plus an Extra overflow map and custom (Un)MarshalJSON, so unknown coach keys (id/description/acknowledged_by) round-trip without loss.",
+      "stake_class": "Type-1",
+      "options": [
+        "struct + Extra overflow map + custom marshalers (chosen): typed access for the Rule-10 consumer, preserves unknown keys, deterministic map-based marshal",
+        "type Deferral map[string]any: loss-free but no typed fields; AC-03 requires structs",
+        "[]json.RawMessage: byte-perfect round-trip but zero typed access"
+      ],
+      "human_decision": "Ratified by Coach (Brad), 2026-07-01: Deferral/Violation as structs with named schema fields plus an Extra map[string]json.RawMessage overflow and custom (Un)MarshalJSON. Chosen over map[string]any and []json.RawMessage because AC-03 requires typed structs that preserve unknown keys and the Rule-10 boundary consumer needs typed Item/Why access; map-based MarshalJSON yields deterministic byte-stable output (drift-gate safe).",
+      "rationale": "Keystone prerequisite (baton.ValidateSchema) touching the on-disk status.json contract across ~15 files; the planner ratified the direction (structs + preserve-unknowns) in spec rationale + AC-03, and the Coach ratified the representation mechanism + determinism guarantee at design review.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "open_deferrals canonical shape defined STRICTLY and ADDITIVELY (required [why, tracking, acknowledgement, acknowledged_by], acknowledged_at optional; NO anyOf), with real coach data migrated to add acknowledgement rather than the schema loosened to accept acknowledged_by as a substitute.",
+      "stake_class": "Type-1",
+      "options": [
+        "strict additive + migrate data (chosen): canonical contract stays strict, vendored schema matches upstream baton with no drift, fails loud on unmigrated artefacts; cost = a one-time 127-deferral cutover migration (#40)",
+        "anyOf acknowledgement|acknowledged_by (first cut, REVERSED): no data migration needed, but bakes permanent drift into the vendored schema and conflates acknowledged_by (who) with acknowledgement (Rule-2 plain-text told-evidence)",
+        "read-only tolerance, no schema change: relocates the failure from read to first write-back; rejected in session 1"
+      ],
+      "human_decision": "Reversed by Coach (Brad), 2026-07-01 (replan 61df7ac, spec Pin-1-REVISED amendment): replace the first cut's anyOf with the strict additive required-set. A name (acknowledged_by) is not Rule 2's plain-text 'told' evidence (acknowledgement); since all artefacts are operator-owned (no wild data) the canonical shape is defined strictly and the data migrated (AC-11 / #40), and the shape pushed up to baton (#38). Strict is also more fail-closed.",
+      "rationale": "Defines the on-disk + upstream canonical deferral contract; hard to reverse once vendored and PR'd up to baton. Implemented as schema required-set + named Go fields; the carrier mechanism (decision[0]) is unchanged.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Display-only consumers read through Status.DeferralStrings()/Verification.ViolationStrings() projection helpers rather than each call site being rewritten; oracle SliceState.Violations stays []string.",
+      "stake_class": "Type-2",
+      "rationale": "Bounds the migration diff to the contract surface (Rule 6 scope ceiling); reversible and local."
+    },
+    {
+      "choice": "Rule-10 CheckBoundaryMocks/isDeclared match declared mocks against the Deferral's description-bearing fields (Item + Why) only, not Tracking/Acknowledgement.",
+      "stake_class": "Type-2",
+      "rationale": "Tracking/Acknowledgement are IDs/URLs that could spuriously contain a boundary keyword and over-declare; matching Item+Why keeps enforcement at least as strict as the prior free-form string match (AC-05)."
+    },
+    {
+      "choice": "verdict->state bridge (run/slice.go) wraps verdict.Result.Violations ([]string) into []Violation via Violation{Description: s}; verdict layer stays []string.",
+      "stake_class": "Type-2",
+      "rationale": "sworn-generated data (not coach-read), so no field-loss concern; ViolationStrings() reproduces the same display string for the oracle."
+    }
+  ],
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
     "quadrant": "epic",
     "rationale": "Careful atomic type migration touching the Rule-10 no-mock-boundary, with a round-trip-fidelity trap (fired data uses acknowledged_by, schema requires acknowledgement); ~15 files.",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "pending"
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-01T09:35:00Z"
   }
 }

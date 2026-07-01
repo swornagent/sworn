@@ -359,7 +359,7 @@ func TestDeferSliceWritesRuleTwo(t *testing.T) {
 	// Verify open_deferrals contains the reason
 	found := false
 	for _, d := range s.OpenDeferrals {
-		if strings.Contains(d, "blocked on backend") {
+		if strings.Contains(d.String(), "blocked on backend") {
 			found = true
 			break
 		}

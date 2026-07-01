@@ -122,7 +122,12 @@ var bedrockPricing = map[string]struct {
 	inputPricePer1M  float64
 	outputPricePer1M float64
 }{
-	"anthropic.claude-opus-4-8":   {15.00, 75.00},
+	"anthropic.claude-opus-4-8": {5.00, 25.00},
+	// anthropic.claude-sonnet-5: introductory $2/$10 per MTok through 2026-08-31
+	// (ratified, Anthropic models-overview footnote 4). Standard rate $3/$15
+	// applies AFTER 2026-08-31 — FLIP this entry to {3.00, 15.00} then.
+	// Tracked: sworn#41.
+	"anthropic.claude-sonnet-5":   {2.00, 10.00},
 	"anthropic.claude-sonnet-4-6": {3.00, 15.00},
 	"anthropic.claude-haiku-4-5":  {1.00, 5.00},
 	"anthropic.claude-sonnet-4":   {3.00, 15.00},

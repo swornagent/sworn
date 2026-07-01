@@ -16,8 +16,13 @@
       "const": 1
     },
     "release": {
-      "type": "string",
-      "minLength": 1
+      "description": "Release identifier — the canonical baton object form {name, ...}. sworn both emits and reads this form (S05 strict reader); a legacy bare string fails closed at the schema, the validator, and the reader, and is migrated to the object form at cutover (AC-06) rather than read-tolerated. additionalProperties:true accepts the canonical extras (target_version, vertical_trace, ...) without enumerating them here (full canonical parity is the board-v1 re-vendor follow-up).",
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 }
+      }
     },
     "release_worktree_path": {
       "type": "string"

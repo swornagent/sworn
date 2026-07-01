@@ -85,6 +85,10 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
 - N-03: the slice-status field carrying intake-need IDs is named covers_needs (schema name), not need_ids, so a real status.json round-trips and the RTM gate reads it.
 - N-04: an inconclusive verifier verdict is representable in the slice-status leaf result enum (#37 / deferred D4), so the agentic verifier's inconclusive maps cleanly rather than being forced into fail.
 - N-05: the release board's human view (index.md) is deterministically RENDERED from board.json plus the slice records by `sworn render`, never hand-authored by a model or human, so the operator monitoring an unattended run reads a faithful view and the index.md frontmatter-corruption false-ready failure mode is removed.
+- N-06: sworn never dirties a consumer repo — when it creates `.sworn/` runtime state in a repo it operates on, that directory is self-ignored (`.sworn/.gitignore` = `*`), so it never appears in the host repo's git status or gets committed.
+- N-07: sworn reads a real coach-produced board.json whose `release` is the canonical baton OBJECT form ({name, vertical_trace, ...}) without an unmarshal error (and tolerates the legacy string form), so the oracle/run load a real release instead of failing at board-read.
+- N-08: sworn EMITS and VALIDATES the canonical object form for `release` (strict, object-only — no string-tolerance divergence from canonical baton), while the reader stays tolerant of a legacy string; existing string boards self-heal to canonical on next write.
+- N-09: sworn computes a CORRECT per-dispatch cost for current Anthropic models — Claude Sonnet 5 (released 2026-06-30) is present in the pricing registry (not silently $0), and Claude Opus 4.8 is priced at its real $5/$25 rate (not the stale $15/$75 Opus-4.1 copy) — so the release's cost/eval telemetry, the operational-readiness signal, is not systematically wrong. Scope is the STATIC per-model rate table only; distinct from the deferred T16/#26 real-cost enrichment (durable cross-run store, token split).
 
 ## Constraints and non-negotiables
 
@@ -122,6 +126,30 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
 
 ## Decisions made during planning
 
+### 2026-07-01 — Add S06-model-pricing-registry (T5): fix pricing-registry currency (Sonnet 5 + Opus 4.8)
+
+- **Context**: while checking whether sworn supports Claude Sonnet 5 (released 2026-06-30),
+  found two static-pricing-map defects in `internal/model`: (1) `claude-sonnet-5` absent from
+  all three pricing maps → dispatches record $0; (2) `claude-opus-4-8` encoded {15,75} — a stale
+  Opus-4.1 copy — vs the real $5/$25, a 3x overstatement. Both corrupt the cost/eval telemetry
+  this release exists to make operationally trustworthy.
+- **Decision (Brad, 2026-07-01)**: slice it in as a new track T5 / slice S06. Two sub-decisions
+  ratified via AskUserQuestion: (a) **bundle** the Opus 4.8 correction with the Sonnet 5 add (one
+  pricing-correctness concern, same three files); (b) **encode Sonnet 5 introductory $2/$10 as the
+  active rate** (accurate for the current billing period) with a code comment documenting BOTH the
+  intro AND standard $3/$15 rates and the ratified 2026-08-31 intro expiry.
+- **Ratified fact**: Sonnet 5 pricing (intro $2/$10 through 2026-08-31, standard $3/$15) and Opus
+  4.8 $5/$25 verified against Anthropic's live models-overview page on 2026-07-01 (footnote 4).
+- **Scope boundary (Rule 2)**: S06 corrects the STATIC per-model rate table only. It does NOT (i)
+  consolidate the three duplicate pricing maps — that is the deferred model-layer service refactor
+  (Type-1); nor (ii) touch the deferred T16/#26 real-cost enrichment (durable cross-run store, token
+  split, real vs nominal cost). The intro→standard price flip after 2026-08-31 is itself a tracked
+  Rule 2 deferral (punch-list item + prominent code comment) so it is not a silent time-bomb.
+- **Touchpoint-disjoint**: T5 touches only `internal/model/*` — disjoint from every in-flight track
+  (T2 board-render → internal/board; T3 db → internal/db) and from T16's telemetry/db surface. Runs
+  as an independent parallel track; no `depends_on`.
+- **Covers**: N-09.
+
 ### 2026-06-30 — Scope = D6 only tonight; resilience deferred (tracked)
 
 - **Context**: how wide to scope for an autonomous-overnight run tonight (each slice =
@@ -138,6 +166,89 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
 - **Deferred (Rule 2)**: `S02-retry-reset-preserves-work` and `S03-escalation-honours-config`
   — why: non-blocking tuning, not a hard stop; tracking: this intake's out-of-scope +
   eval findings 5/6 in `2026-06-30-session-handoff.md`; acknowledged 2026-06-30 (Brad).
+
+### 2026-07-01 — No-wild-data: go strict + migrate, drop all back-compat (S01 deferral + S05 reader)
+
+- **Context**: Brad — the old boards/artefacts are all his own; no one in the wild has them *yet*.
+  So back-compat tolerance has no durable beneficiary; it is pure debt, and a strict reader is
+  more fail-closed (fails loud on a non-migrated artefact instead of silently tolerating it). The
+  compat-free window is open and expires the day there are external users — spend it now.
+- **Decision (deferral / S01)**: replace the `anyOf` (acknowledgement OR acknowledged_by) with the
+  STRICT ADDITIVE canonical shape — `why` + `tracking` + `acknowledgement` (Rule-2 plain-text
+  evidence) + `acknowledged_by` (who), optional `acknowledged_at`. Additive, not a swap: a name is
+  not the "told in plain text" evidence, and a bare structured field is easier to stamp vacuously
+  (weakening No-Silent-Deferrals). Migrate the 127 coach deferrals (add acknowledgement); PR the
+  shape UP to baton (supersedes #38's loosen-baton). S01 AC-10 amended, AC-11 added; S01 → in_progress.
+- **Decision (board reader / S05)**: drop the lenient reader too — `Release.UnmarshalJSON` goes
+  object-only (a string release fails closed). Migrate the operator's string boards at cutover.
+  S05 AC-03 amended, AC-04 reworded, AC-06 (migration) added; S05 → in_progress.
+- **Sequencing (both)**: the strict schema/reader and the data migrations must land together at
+  CUTOVER — a strict binary fails closed on unmigrated data and a pre-canonical binary fails on
+  migrated data, so the migrations must not run mid-flight. Do NOT run the fired loop on a strict
+  binary until the 127-deferral migration + board migration are applied. Code (AC-10 / strict
+  reader) is implementer work now; the migrations are the deliberate cutover step.
+
+### 2026-07-01 — Add S05-board-canonical-emit (T4): right-moving-forward, not permanent back-compat
+
+- **Context**: Brad questioned whether S04's back-compat (oneOf string|object schema + tolerant
+  validator) is right vs making it right forward. Test: back-compat earns its keep only against a
+  durable, uncontrolled population of old data — here there is none (coach boards are already
+  canonical object; the only string boards are our own temporary stopgaps). S04 was already
+  verified (immutable, Rule 7), so this is a new slice appended to T4.
+- **Decision**: `S05-board-canonical-emit` — Postel: strict EMIT + strict schema/validator
+  (canonical object-only — kills the oneOf vendor drift, the #38 class), lenient READ (tolerant
+  unmarshaler stays). Writer emits the object form even for a name-only release, so existing
+  string boards self-heal on next write (the tight answer to "fix the previous ones too").
+- **Registration note (this replan)**: S05 was first implemented directly in the T4 worktree
+  (feat 565f909), collapsing the planner→implementer→verifier lifecycle — its board membership +
+  start_commit were never planner-established, so the fresh verifier BLOCKED it (registration is
+  planner authority). This /replan-release registers S05 under T4 in release-wt's board, sets
+  start_commit to 0d22f65 (parent of the S05 feat, isolating its production diff), clears the
+  BLOCKED verdict to pending, and forward-syncs to the track. The implementation itself was not
+  re-touched.
+
+### 2026-07-01 — Add S04-board-record-reconciliation (T4): oracle reads the canonical board (DIRECTION REVERSAL)
+
+- **Context**: the live fired run also fails at BOARD-read: `sworn board --release
+  2026-06-28-yearSnapshot-schema-cleanup` → "cannot unmarshal object into BoardRecord.release
+  of type string". Brad asked the key question — is the binary wrong or the release? Checked
+  the canonical baton schema (`~/projects/baton/schemas/board-v1.json`): `release` is an
+  OBJECT with required `name` (+ vertical_trace, the Rule-8 golden thread). sworn's embedded
+  board-v1 + Go BoardRecord.Release are `string` — pinned to an older baton (binary reports
+  Baton v0.6.3) and lagging. Every coach-produced board uses the object form.
+- **Decision**: the **binary is behind, not the releases.** Add `S04-board-record-reconciliation`
+  (track `T4`) — make BoardRecord.Release read the canonical object form (tolerate the legacy
+  string), reconcile the embedded board-v1 schema, update the one consumer. The board-level
+  companion to D6 (same class: Go types lag baton schemas; migrate UP).
+- **Direction reversal (own it)**: an earlier session-step "fixed" THIS release's board.json by
+  downgrading its `release` object → string to satisfy the stale oracle. That was wrong-
+  direction (conforming the artefact to the buggy binary). **Once S04 lands + the oracle is
+  rebuilt, revert this release's board.json back to the canonical nested object** (restore
+  vertical_trace). Until then it stays string only to be readable by the current binary
+  (chicken-and-egg).
+- **Scope note**: tonight-critical (fired's board is unreadable without it — the run fails at
+  board-read BEFORE status-read/D6). Touchpoint-disjoint from T1 (oracle.go does not read
+  .Release), T2, T3. Full baton re-vendor (all schemas) is a larger follow-up; this is the
+  board-read unblock only.
+
+### 2026-07-01 — Add S03-sworn-self-ignore (T3): sworn must not dirty consumer repos
+
+- **Context**: during operational prep for the fired overnight run, `~/projects/fired/.sworn/`
+  (the run DB + supervisor DB) showed as `?? .sworn/` — untracked, not ignored. sworn writes
+  `.sworn/` into every repo it runs on but never self-ignores it, though sworn's OWN repo
+  gitignores `.sworn/` (.gitignore:26). Patched fired by hand for tonight (`.sworn/.gitignore`
+  = `*`); the engine fix folds in here (replan of an in-flight release).
+- **Decision**: add `S03-sworn-self-ignore` as independent track `T3-consumer-repo-hygiene` —
+  sworn writes `.sworn/.gitignore` (`*`) at the `.sworn/` creation site (internal/db/db.go),
+  idempotent (never overwrite an existing one) and best-effort (a write failure never fails
+  the run).
+- **Why**: an untracked `.sworn/` reads the worktree dirty (a dominant loop-failure mode) and
+  risks a binary DB being swept into a consumer's release branch by any broad auto-stage.
+  sworn's value is running on OTHER repos, so it must leave no trace — directly the
+  operational-readiness golden thread ("run cleanly on real repos, unattended").
+- **Scope note**: independent of T1/D6 (state/verify/run) and T2 (board render) — touches only
+  internal/db; does not disrupt the in-flight T1 work. NOT a hard blocker for tonight (fired
+  is hand-patched), but the durable fix belongs in the engine.
 
 ### 2026-06-30 — Add S02-board-render: index.md is rendered, never authored
 
