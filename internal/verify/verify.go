@@ -180,6 +180,14 @@ func RunAgentic(ctx context.Context, spec, diff, proof string, verifierAgent age
 
 	resp, err := so.ChatStructured(ctx, messages, verifierEmitSchema)
 	if err != nil {
+		// Terminal provider errors (KindAuth/KindCredits — revoked key,
+		// exhausted credits) can never succeed on retry or model escalation:
+		// surface BLOCKED so triage Halts (Blocked → Halt) instead of walking
+		// the retry/escalation ladder at real implementer spend — mirroring
+		// the implementer path's terminal-error halt (S09 AC1).
+		if model.IsTerminal(err) {
+			return blockedTerminal(err), nil
+		}
 		return inconclusive("verifier_structured_dispatch", err.Error()), nil
 	}
 	if len(resp.Choices) == 0 {
@@ -270,6 +278,23 @@ func buildPayload(spec, diff, proof string) string {
 
 func blocked(gate, why string) verdict.Result {
 	return verdict.Result{Verdict: verdict.Blocked, FailedGate: gate, Rationale: why}
+}
+
+// blockedTerminal maps a terminal verifier-dispatch error (model.IsTerminal:
+// KindAuth / KindCredits) to a BLOCKED verdict. BLOCKED — not INCONCLUSIVE —
+// because the triage policy retries/escalates Inconclusive but Halts on
+// Blocked, and dead verifier credentials fail identically on every attempt.
+// Mirrors the kind-label + UserMessage format of the implementer path's
+// terminal halt (internal/run/slice.go, S09 AC1).
+func blockedTerminal(err error) verdict.Result {
+	reason := err.Error()
+	var me *model.Error
+	if model.AsError(err, &me) {
+		k := me.Kind.String()
+		reason = fmt.Sprintf("Kind%s%s: %s", strings.ToUpper(k[:1]), k[1:], me.UserMessage())
+	}
+	return blocked("verifier_terminal_error",
+		reason+" — halting; check verifier provider credentials")
 }
 
 // inconclusive builds a fail-closed INCONCLUSIVE result for the structured
