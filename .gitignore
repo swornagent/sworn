@@ -3,6 +3,7 @@
 /dist/
 # root-level built binary (anchored so a bare `sworn` doesn't also ignore cmd/sworn/)
 /sworn
+scratchpad/
 
 # go
 *.test
