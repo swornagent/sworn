@@ -9,7 +9,6 @@ package board
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -141,9 +140,12 @@ func ReadBoard(repoRoot, release string) (*BoardRecord, error) {
 	return migrateFromIndex(repoRoot, release)
 }
 
-// WriteBoard writes board.json to disk, validates it against the board-v1
-// schema, then performs an advisory drift check against index.md. The drift
-// guard is advisory only (warning); it does not block the write.
+// WriteBoard writes board.json to disk and validates it against the board-v1
+// schema. Drift between the written board.json and the committed index.md is
+// checked separately by `sworn doctor` (internal/board's render-and-diff
+// guard is not run here — see cmd/sworn/doctor.go checkRenderDrift), which is
+// fail-closed (ERROR + non-zero exit) rather than this function's former
+// advisory-only, already-broken driftGuard.
 func WriteBoard(repoRoot, release string, br *BoardRecord) error {
 	// Set schema metadata.
 	br.SchemaVersion = 1
@@ -168,9 +170,6 @@ func WriteBoard(repoRoot, release string, br *BoardRecord) error {
 	if err := baton.Validate("board-v1", data); err != nil {
 		return fmt.Errorf("validate board.json: %w", err)
 	}
-
-	// Advisory drift guard: compare with index.md frontmatter.
-	driftGuard(repoRoot, release, br)
 
 	return nil
 }
@@ -219,45 +218,6 @@ func migrateFromIndex(repoRoot, release string) (*BoardRecord, error) {
 	}
 
 	return br, nil
-}
-
-// driftGuard reads the current index.md frontmatter and compares its tracks
-// section against the BoardRecord. If they differ, it logs a warning.
-// This is advisory only — it does not return an error.
-func driftGuard(repoRoot, release string, br *BoardRecord) {
-	indexPath := filepath.Join(repoRoot, "docs", "release", release, "index.md")
-	rawIndex, err := os.ReadFile(indexPath)
-	if err != nil {
-		log.Printf("board drift guard: cannot read index.md: %v", err)
-		return
-	}
-
-	fmBody := extractFrontmatterBody(string(rawIndex))
-	indexTracks := ParseTracks(fmBody)
-
-	brTracks := boardTracksToTrackInfos(br.Tracks)
-
-	if len(indexTracks) != len(brTracks) {
-		log.Printf("board drift guard: index.md has %d tracks, board.json has %d — index.md frontmatter is stale; re-render it from board.json",
-			len(indexTracks), len(brTracks))
-		return
-	}
-
-	for i, it := range indexTracks {
-		bt := brTracks[i]
-		if it.ID != bt.ID {
-			log.Printf("board drift guard: track %d id mismatch: index.md=%q, board.json=%q", i, it.ID, bt.ID)
-			return
-		}
-		if it.State != bt.State {
-			log.Printf("board drift guard: track %q state mismatch: index.md=%q, board.json=%q", it.ID, it.State, bt.State)
-			return
-		}
-		if len(it.Slices) != len(bt.Slices) {
-			log.Printf("board drift guard: track %q slice count mismatch: index.md=%d, board.json=%d", it.ID, len(it.Slices), len(bt.Slices))
-			return
-		}
-	}
 }
 
 // trackInfosToBoardTracks converts internal TrackInfo structs to BoardTrack.
