@@ -61,6 +61,23 @@ func TestCaptain_NonEmpty(t *testing.T) {
 	}
 }
 
+// TestDesignReviewer_Identity guards the S19-captain-split deliverable: the
+// embedded design-reviewer prompt carries the design-review identity only,
+// never the release-orchestrator conflation (that function is realised by the
+// deterministic Sworn engine — see orchestrator-notes.md).
+func TestDesignReviewer_Identity(t *testing.T) {
+	got := DesignReviewer()
+	if strings.TrimSpace(got) == "" {
+		t.Fatal("DesignReviewer() returned empty string — embed may have failed")
+	}
+	if !strings.Contains(got, "You are the **Design Reviewer**") {
+		t.Error("DesignReviewer() missing the design-reviewer identity line")
+	}
+	if strings.Contains(got, "release-level orchestrator") {
+		t.Error("DesignReviewer() carries the conflated release-orchestrator identity")
+	}
+}
+
 func TestVerifyStateless_NonEmpty(t *testing.T) {
 	if got := VerifyStateless(); strings.TrimSpace(got) == "" {
 		t.Fatal("VerifyStateless() returned empty string — embed may have failed")
@@ -236,10 +253,11 @@ func TestBatonMissingFile(t *testing.T) {
 
 func TestEmbeddedPromptsPublicSafe(t *testing.T) {
 	prompts := map[string]string{
-		"Captain":     Captain(),
-		"Implementer": Implementer(),
-		"Verifier":    Verifier(),
-		"Planner":     Planner(),
+		"Captain":        Captain(),
+		"DesignReviewer": DesignReviewer(),
+		"Implementer":    Implementer(),
+		"Verifier":       Verifier(),
+		"Planner":        Planner(),
 	}
 	banned := []string{
 		"coach" + "-loop",

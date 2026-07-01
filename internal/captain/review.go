@@ -56,7 +56,10 @@ type ReviewResult struct {
 // On success, review.md is written to sliceDir. On model error, the function
 // returns an error; the caller may proceed without review or halt.
 func Review(ctx context.Context, sliceDir, spec, design string, a agent.Agent, worktreeRoot string) (*ReviewResult, error) {
-	systemPrompt := prompt.Captain()
+	// S19-captain-split: dispatch under the design-reviewer identity, not the
+	// conflated captain.md (vendored verbatim from upstream, still carries the
+	// release-orchestrator function the deterministic engine owns).
+	systemPrompt := prompt.DesignReviewer()
 
 	// Build the user payload: spec + design + worktree context.
 	var userPayload strings.Builder
