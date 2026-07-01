@@ -233,6 +233,7 @@ func (r *Repo) CurrentBranch() (string, error) {
 	}
 	return out, nil
 }
+
 // run executes a git command in r.Dir and returns stdout (trimmed). On
 // non-zero exit it returns stderr as the error.//
 // It refuses to run when Dir is empty — executing git in the ambient cwd

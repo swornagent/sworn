@@ -1,0 +1,60 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "schema_version": 1,
+  "slice_id": "S03-tui-chrome-rework",
+  "release": "2026-07-01-render-drift-reconciliation",
+  "user_outcome": "The sworn TUI announces itself with a header (sworn version + the currently-selected release), sizes its panes to the real terminal width so release names don't wrap illegibly, renders its help bar as a full-width styled bar instead of floating text with black gaps at either edge, and no longer renders its first row(s) above the visible viewport top in terminals like VS Code's integrated terminal.",
+  "rationale": "Root cause for all four symptoms is the same: Model.Update's `case tea.WindowSizeMsg: return m, nil` (internal/tui/model.go) discards the terminal's real width/height entirely — there is no Width/Height field on Model at all. Every pane style in internal/tui/styles.go hardcodes its width instead (`ReleaseListStyle` Width(30), others Width(80)/Width(110)), completely disconnected from the actual terminal. This explains the narrow-pane text wrapping (screenshot: docs/release/2026-07-01-render-drift-reconciliation/screenshots/2026-07-01-tui-current-state.png), the help bar not spanning full width, and is the most likely cause of the reported VS Code viewport-fit issue (a TUI that renders at a size mismatched from the real terminal is a well-known cause of alt-screen cursor-position miscalculation on startup/resize).",
+  "covers_needs": ["N-04"],
+  "effort_complexity": {
+    "effort": "medium",
+    "complexity": "medium",
+    "quadrant": "feature",
+    "rationale": "Store real terminal dimensions from WindowSizeMsg, make pane widths responsive to it, add a new header render function, restyle the help bar to a full-width bar. Bubbletea/lipgloss layout work — needs careful manual verification across at least two terminals (a plain terminal and VS Code's integrated terminal) since layout bugs are visual, not unit-testable by content alone.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    "internal/tui/model.go",
+    "internal/tui/styles.go",
+    "internal/tui/tui.go",
+    "internal/tui/tui_test.go"
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When the TUI receives a `tea.WindowSizeMsg` (on startup and on every terminal resize), it SHALL store the reported width and height on the Model and use them to size the releases-list pane, board pane, and help bar — replacing the hardcoded `Width(30)`/`Width(80)`/`Width(110)` values in `internal/tui/styles.go`."
+    },
+    {
+      "id": "AC-02",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When the releases-list pane renders with the real terminal width available, a release entry SHALL NOT wrap across more than one line for typical release-name lengths at typical terminal widths (80+ columns) — proven by a rendered-output test asserting no line-wrap for a release name under 40 characters at 100 columns."
+    },
+    {
+      "id": "AC-03",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "The TUI SHALL render a header above the two-pane layout showing: the sworn binary version (the same value `sworn --version` reports) and the currently-selected release (from the TUI's own navigation state — the release the user has navigated into, or an explicit \"no release selected\" state on the initial releases-list screen)."
+    },
+    {
+      "id": "AC-04",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "The bottom help bar (`?`/arrows/enter/etc.) SHALL render as a single bar with a background style spanning the full terminal width, not left-aligned plain text on the bare terminal background."
+    },
+    {
+      "id": "AC-05",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When the TUI starts in a terminal that reports its size via `tea.WindowSizeMsg` before the first render (bubbletea's normal startup sequence), the TUI's rendered content SHALL fit within the reported height — no row of the initial frame SHALL render above what the terminal reports as its visible top row. Reachability artefact: a recorded/screenshotted session in VS Code's integrated terminal (the specifically reported environment) showing the TUI on startup with no content cut off or scrolled above view, compared against a before screenshot."
+    },
+    {
+      "id": "AC-06",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "After the change, `go build ./...` SHALL succeed and `go test ./internal/tui/...` SHALL pass."
+    }
+  ]
+}

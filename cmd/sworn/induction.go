@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/swornagent/sworn/internal/command"
+	"github.com/swornagent/sworn/internal/templates"
 )
 
 func init() {
@@ -54,7 +55,7 @@ func cmdInduction(args []string) int {
 		}
 	}
 
-	// Ensure docs/templates/considerations.md is available as the base template.
+	// Ensure the catalog exists, seeding it from the base template.
 	catalogPath := considerationsPath()
 	if _, err := os.Stat(catalogPath); os.IsNotExist(err) {
 		if err := initializeCatalog(catalogPath); err != nil {
@@ -270,11 +271,12 @@ func appendProjectPinned(catalogPath string, newDeps []depEntry) {
 // ---------------------------------------------------------------------------
 
 func initializeCatalog(path string) error {
-	// Copy from the template.
-	tmplPath := filepath.Join("docs", "templates", "considerations.md")
-	b, err := os.ReadFile(tmplPath)
+	// Copy from the repo-local template if the project provides one;
+	// otherwise fall back to the template embedded in the binary so that
+	// induction works on cold start in a repo with no docs/templates/.
+	b, err := os.ReadFile(filepath.Join("docs", "templates", "considerations.md"))
 	if err != nil {
-		return fmt.Errorf("template %s not found: %w", tmplPath, err)
+		b = []byte(templates.ConsiderationsMD())
 	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {

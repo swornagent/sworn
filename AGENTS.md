@@ -71,9 +71,12 @@ no token spend.
 ## Engineering Process — Baton (we dogfood the protocol)
 
 This project follows the **Baton** rule-set — the same protocol SwornAgent
-productises. Full rule docs with provenance live in [`docs/baton/`](docs/baton/);
-the seven rules below are the canonical fragment, adapted for this Go CLI. They
-are **listed in priority order** (higher rule wins on conflict).
+productises. Full rule docs with provenance are vendored into the binary
+(`internal/adopt/baton/`, pinned to a tagged upstream release — see
+`internal/adopt/baton/VERSION`; inspect with `sworn doctor`) rather than
+duplicated as a second per-repo copy under `docs/`. The seven rules below are
+the canonical fragment, adapted for this Go CLI. They are **listed in
+priority order** (higher rule wins on conflict).
 
 ### 1. Reachability Gate (CRITICAL)
 

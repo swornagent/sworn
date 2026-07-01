@@ -15,6 +15,7 @@ import (
 	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/router"
 	"github.com/swornagent/sworn/internal/state"
+	"github.com/swornagent/sworn/internal/supervisor"
 )
 
 // fakeRunSlice is a test helper that records the slices it was called with.
@@ -1519,7 +1520,14 @@ func TestDependentTrack_WorktreeBranchesFromMergedTip(t *testing.T) {
 
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	// Inject a committer identity so `git commit` works on a fresh CI runner
+	// with no global git config (otherwise: "Author identity unknown"). The
+	// -c flags are harmless for non-commit subcommands.
+	full := append([]string{
+		"-c", "user.email=test@swornagent.dev",
+		"-c", "user.name=sworn test",
+	}, args...)
+	cmd := exec.Command("git", full...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -1647,4 +1655,69 @@ func TestFindFirstNonTerminalOracleErrorSeedsAtUnreadable(t *testing.T) {
 func TestFindFirstNonTerminalIsTerminalImport(t *testing.T) {
 	// Compile-time check: router.IsTerminal compiles in scheduler package.
 	_ = router.IsTerminal("verified")
+}
+
+// TestReviewDecisionPausesTrack proves the router's "review" decision — a
+// slice sitting at design_review awaiting the Captain (Rule 9) — pauses the
+// track for the human gate instead of falling to the default case and
+// failing the whole track. Regression for sworn#46.
+func TestReviewDecisionPausesTrack(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	sid := "S01-design"
+	d := filepath.Join(tmpDir, "docs", "release", "test-release", sid)
+	os.MkdirAll(d, 0o755)
+	os.WriteFile(filepath.Join(d, "spec.md"), []byte("# test"), 0o644)
+	os.WriteFile(filepath.Join(d, "status.json"), []byte(`{"state":"design_review"}`), 0o644)
+
+	router := &fakeRouter{
+		decisions: []SliceDecision{
+			{Type: "review", Reason: "design.md awaits Captain review", Target: ""},
+		},
+	}
+
+	var called []string
+	opts := WorkerOptions{
+		ReleaseName:         "test-release",
+		PrimaryWorktreeRoot: tmpDir,
+		ProjectDir:          "sworn",
+		TrackInfo: board.TrackInfo{
+			ID:             "T1",
+			Slices:         []string{sid},
+			WorktreePath:   tmpDir,
+			WorktreeBranch: "track/test/T1",
+		},
+		RunSliceFn: fakeRunSlice("", &called),
+		Router:     router,
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite not available: %v", err)
+	}
+	defer db.Close()
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+	opts.DB = db
+
+	result := RunTrack(context.Background(), opts)
+	if result != TrackPaused {
+		t.Fatalf("expected TrackPaused for review decision, got %s", result)
+	}
+
+	if len(called) != 0 {
+		t.Errorf("expected 0 RunSlice calls for review pause, got %d", len(called))
+	}
+
+	// The supervisor row must NOT read failed — the design-review gate is a
+	// human pause, never a track failure. (supervisor.Release coerces
+	// non-terminal labels, so the exact pause label is not asserted here;
+	// the defect was releaseTrack(StateFailed).)
+	var state string
+	if err := db.QueryRow(`SELECT state FROM tracks WHERE id = 'T1' AND release = 'test-release'`).Scan(&state); err != nil {
+		t.Fatalf("read track state: %v", err)
+	}
+	if state == supervisor.StateFailed {
+		t.Errorf("supervisor track state is %q — review pause must not fail the track", state)
+	}
 }

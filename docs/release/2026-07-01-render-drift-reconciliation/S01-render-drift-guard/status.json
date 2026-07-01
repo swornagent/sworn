@@ -1,0 +1,20 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S01-render-drift-guard",
+  "release": "2026-07-01-render-drift-reconciliation",
+  "track": "T1-drift-guard",
+  "state": "planned",
+  "covers_needs": ["N-02"],
+  "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S01-render-drift-guard/spec.json",
+  "start_commit": null,
+  "effort_complexity": {
+    "effort": "medium",
+    "complexity": "low",
+    "quadrant": "chore",
+    "rationale": "Replace driftGuard's broken comparison with a real re-render-and-diff; surface as a sworn doctor check.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending"
+  }
+}

@@ -37,7 +37,8 @@ func (v agentVerifier) Verify(ctx context.Context, systemPrompt, userPayload str
 	if len(resp.Choices) == 0 {
 		return "", 0, 0, 0, fmt.Errorf("agent verifier: empty response")
 	}
-	return resp.Choices[0].Message.Content, 0.0, 0, 0, nil}
+	return resp.Choices[0].Message.Content, 0.0, 0, 0, nil
+}
 
 // DoRResult captures the Definition of Ready evaluation for one slice.
 // Passed is true only when every gate passes.

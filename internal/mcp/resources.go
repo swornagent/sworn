@@ -34,6 +34,13 @@ func RegisterResources(s *Server, repoRoot string) {
 		}
 		return p, nil
 	})
+	s.RegisterResource("sworn://baton/rules", func(ctx context.Context, uri string) (string, error) {
+		p, err := prompt.Baton("rules.md")
+		if err != nil || p == "" {
+			return "", fmt.Errorf("sworn://baton/rules: embedded Baton rules not found — this is a binary build error; please reinstall sworn.")
+		}
+		return p, nil
+	})
 	s.RegisterResource("sworn://baton/track-mode", func(ctx context.Context, uri string) (string, error) {
 		p := prompt.TrackMode()
 		if p == "" {

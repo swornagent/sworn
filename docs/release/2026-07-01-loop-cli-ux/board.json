@@ -1,0 +1,24 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/board-v1.json",
+  "schema_version": 1,
+  "release": {
+    "name": "2026-07-01-loop-cli-ux",
+    "target_version": "v0.1.0",
+    "integration_branch": "release/v0.1.0",
+    "vertical_trace": {
+      "benefit": "An operator selects a release once (`sworn use <release>`) and drives it with a bare `sworn loop` — restoring the coach-loop two-command ergonomics on sworn's own CLI, and dropping the misleadingly-named mandatory `--parallel` flag."
+    }
+  },
+  "tracks": [
+    {
+      "id": "T1-loop-cli-ux",
+      "slices": [
+        "S01-active-release-store",
+        "S02-loop-explicit-standalone",
+        "S03-loop-default-from-store"
+      ],
+      "depends_on": [],
+      "state": "planned"
+    }
+  ]
+}

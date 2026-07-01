@@ -1,4 +1,0 @@
-baton-protocol: cf158423f65c20860a3d4ec0310acb6cc7fb5aa0
-upstream: github.com/sawy3r/baton
-vendored: 2026-06-15
-rules-added: 08-requirements-fidelity (2026-06-16-fidelity-layer S01), 09-design-fidelity (2026-06-16-fidelity-layer S07), 10-customer-journey-validation (2026-06-16-fidelity-layer S11)

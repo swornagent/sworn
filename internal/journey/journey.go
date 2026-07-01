@@ -17,6 +17,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/baton"
 )
+
 // JourneyArtefactPath returns the path to the journeys artefact relative to a
 // project root.
 const artefactRelPath = ".sworn/journeys.json"
@@ -65,6 +66,7 @@ type Journey struct {
 	// this boundary during journey validation fails the gate.
 	NoMockBoundary string `json:"no_mock_boundary,omitempty"`
 }
+
 // JourneyStep is one step within a critical customer journey.
 type JourneyStep struct {
 	// Order is the step's position in the journey (1-indexed).
@@ -109,6 +111,7 @@ type JourneyArtefact struct {
 	// Journeys is the list of critical customer journeys.
 	Journeys []Journey `json:"journeys"`
 }
+
 // NewArtefact creates a new JourneyArtefact with the given journeys and no
 // ratification. The caller should add journeys and then call Ratify.
 func NewArtefact() *JourneyArtefact {
@@ -126,6 +129,7 @@ func NewArtefact() *JourneyArtefact {
 		},
 	}
 }
+
 // Ratify marks the artefact as human-ratified. It records who ratified and
 // when. It returns an error if the artefact has no journeys (an artefact
 // must contain at least one journey to be meaningful).
@@ -143,6 +147,7 @@ func (a *JourneyArtefact) Ratify(ratifiedBy string) error {
 	a.UpdatedAt = now
 	return nil
 }
+
 // AddJourney appends a journey to the artefact. It removes ratification
 // status — any edit invalidates prior ratification.
 func (a *JourneyArtefact) AddJourney(j Journey) {
@@ -152,6 +157,7 @@ func (a *JourneyArtefact) AddJourney(j Journey) {
 	a.Ratification.By = ""
 	a.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 }
+
 // LoadArtefact reads and parses the journeys artefact from the given project
 // root. It returns a sentinel error (IsNotExist) when the artefact file does
 // not exist, and a different error for parse failures.
@@ -204,6 +210,7 @@ func SaveArtefact(projectRoot string, a *JourneyArtefact) error {
 	}
 	return nil
 }
+
 // ErrArtefactNotExist is returned by LoadArtefact when the artefact file does
 // not exist. Callers can use errors.Is to detect this case.
 var ErrArtefactNotExist = fmt.Errorf("journeys artefact does not exist")

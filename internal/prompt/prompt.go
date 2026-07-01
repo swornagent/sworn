@@ -8,6 +8,7 @@
 // Baton protocol version is read from the canonical source (internal/adopt/baton/VERSION)
 // via internal/baton.Version() — no separate VERSION.txt.
 package prompt
+
 import (
 	"embed"
 	"fmt"
@@ -15,12 +16,14 @@ import (
 	"github.com/swornagent/sworn/internal/baton"
 )
 
-//go:embed verifier.md implementer.md planner.md captain.md verify-stateless.md requirements-verifier.md design-tldr.md baton/*
+//go:embed verifier.md implementer.md planner.md captain.md design-reviewer.md verify-stateless.md requirements-verifier.md design-tldr.md baton/*
 var fs embed.FS
-var (	verifier             string
+var (
+	verifier             string
 	implementer          string
 	planner              string
 	captain              string
+	designReviewer       string
 	verifyStateless      string
 	requirementsVerifier string
 	designTLDR           string
@@ -32,6 +35,7 @@ func init() {
 	implementer = mustRead("implementer.md")
 	planner = mustRead("planner.md")
 	captain = mustRead("captain.md")
+	designReviewer = mustRead("design-reviewer.md")
 	verifyStateless = mustRead("verify-stateless.md")
 	requirementsVerifier = mustRead("requirements-verifier.md")
 	designTLDR = mustRead("design-tldr.md")
@@ -69,6 +73,13 @@ func Planner() string { return planner }
 // Captain returns the embedded Baton captain role prompt.
 func Captain() string { return captain }
 
+// DesignReviewer returns the embedded design-reviewer role prompt — the
+// Captain in its design-review capacity only (S19-captain-split). The engine's
+// design-review dispatch uses this, NOT Captain(): captain.md is vendored
+// verbatim from upstream Baton and still conflates the release-orchestrator
+// function, which the deterministic Sworn engine owns.
+func DesignReviewer() string { return designReviewer }
+
 // DesignTLDR returns the embedded design-TL;DR prompt (§1–§6) used by the
 // design-generation step in sworn run (S45).
 func DesignTLDR() string { return designTLDR }
@@ -93,7 +104,8 @@ func Baton(name string) (string, error) {
 // The map includes every file in the baton/ subdirectory: "rules.md",
 // "track-mode.md", "session-discipline.md", "brainstorm-patterns.md",
 // "README.md".
-func BatonAll() map[string]string {	entries, err := fs.ReadDir("baton")
+func BatonAll() map[string]string {
+	entries, err := fs.ReadDir("baton")
 	if err != nil {
 		// The baton/ directory must exist in the embed — this is a
 		// build-time invariant enforced by the go:embed directive.

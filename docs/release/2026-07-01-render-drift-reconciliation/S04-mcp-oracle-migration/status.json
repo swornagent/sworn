@@ -1,0 +1,20 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S04-mcp-oracle-migration",
+  "release": "2026-07-01-render-drift-reconciliation",
+  "track": "T3-mcp",
+  "state": "planned",
+  "covers_needs": ["N-01"],
+  "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S04-mcp-oracle-migration/spec.json",
+  "start_commit": null,
+  "effort_complexity": {
+    "effort": "medium",
+    "complexity": "medium",
+    "quadrant": "chore",
+    "rationale": "Six call sites across four MCP files, same fix pattern; tools_plan.go's write-back path needs the most care.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending"
+  }
+}

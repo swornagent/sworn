@@ -1,0 +1,20 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S06-core-loop-and-rtm-oracle-migration",
+  "release": "2026-07-01-render-drift-reconciliation",
+  "track": "T5-core-loop-rtm-rescrape",
+  "state": "planned",
+  "covers_needs": ["N-01"],
+  "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S06-core-loop-and-rtm-oracle-migration/spec.json",
+  "start_commit": null,
+  "effort_complexity": {
+    "effort": "medium",
+    "complexity": "medium",
+    "quadrant": "chore",
+    "rationale": "Highest-severity slice: the autonomous loop's own dispatch and shared-file safety invariant, plus RTM's golden-thread trace.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending"
+  }
+}

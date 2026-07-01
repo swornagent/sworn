@@ -1,0 +1,20 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S05-cli-merge-regress-oracle-migration",
+  "release": "2026-07-01-render-drift-reconciliation",
+  "track": "T4-cli-merge-regress",
+  "state": "planned",
+  "covers_needs": ["N-01"],
+  "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S05-cli-merge-regress-oracle-migration/spec.json",
+  "start_commit": null,
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "chore",
+    "rationale": "Two files, one function each, same fix pattern.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending"
+  }
+}
