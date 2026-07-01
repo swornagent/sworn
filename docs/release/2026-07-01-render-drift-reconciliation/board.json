@@ -1,0 +1,20 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/board-v1.json",
+  "release": {
+    "name": "YYYY-MM-DD-theme",
+    "target_version": "v0.1.0",
+    "integration_branch": "release/v0.1.0",
+    "vertical_trace": {
+      "benefit": "The user/business benefit this release delivers; every slice traces up to this.",
+      "org_objective": "Optional higher objective the benefit serves; omit on the solo/small-team floor."
+    }
+  },
+  "tracks": [
+    {
+      "id": "T1-example-track",
+      "slices": ["S01-example-slice"],
+      "depends_on": [],
+      "state": "planned"
+    }
+  ]
+}
