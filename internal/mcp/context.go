@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,20 +31,28 @@ type SliceContext struct {
 //
 // Pin 1: git diff errors are caught gracefully — on any non-zero exec exit or
 // exec error, diff is set to "" and diff_note carries the reason.
+//
+// S04-mcp-oracle-migration: track metadata is read via the board.Oracle
+// (board.ReadBoard → board.json with lazy index.md migration) instead of
+// parsing index.md frontmatter directly. This keeps the path resolution
+// consistent with the rest of the MCP tools (board reads, get_blocked,
+// approve_merge) and avoids the silently-empty-tracks bug a stale
+// frontmatter parse would produce.
 func AssembleSliceContext(release, sliceID, repoRoot string) (*SliceContext, error) {
 	sliceDir := filepath.Join(repoRoot, "docs", "release", release, sliceID)
 
-	// 1. Read spec.md
-	specData, err := os.ReadFile(filepath.Join(sliceDir, "spec.md"))
-	if err != nil {
-		return nil, fmt.Errorf("read spec.md: %w", err)
+	// 1. Read spec (spec.json preferred; fall back to spec.md for legacy slices).
+	var specData []byte
+	if data, err := os.ReadFile(filepath.Join(sliceDir, "spec.json")); err == nil {
+		specData = data
+	} else if data, err := os.ReadFile(filepath.Join(sliceDir, "spec.md")); err == nil {
+		specData = data
+	} else {
+		return nil, fmt.Errorf("read spec: %w", err)
 	}
 
-	// 2. Read proof.md for violations
-	var violations string
-	if proofData, err := os.ReadFile(filepath.Join(sliceDir, "proof.md")); err == nil {
-		violations = extractViolations(string(proofData))
-	}
+	// 2. Read violations from proof.json.not_delivered (AC-02).
+	violations := readProofViolations(sliceDir)
 
 	// 3. Read journal.md
 	var journalContent string
@@ -51,31 +60,36 @@ func AssembleSliceContext(release, sliceID, repoRoot string) (*SliceContext, err
 		journalContent = string(journalData)
 	}
 
-	// 4. Find the track containing this slice to get worktree_path
-	indexPath := filepath.Join(repoRoot, "docs", "release", release, "index.md")
-	indexData, err := os.ReadFile(indexPath)
-	if err != nil {
-		return nil, fmt.Errorf("read index.md: %w", err)
+	// 4. Resolve the slice's track + worktree_path via the board oracle.
+	//    board.ReadBoard reads board.json (or lazy-migrates index.md →
+	//    board.json) so the worktree_path matches what the renderer emits
+	//    and what every other MCP tool consumes. TrackID from status.json
+	//    is a hint, not a filter — the only authoritative key is the
+	//    slice's membership in a track's Slices list, so we accept the
+	//    first matching track even when the status's track field is
+	//    missing or stale.
+	var worktreePath, trackID string
+	statusPath := filepath.Join(sliceDir, "status.json")
+	if statusData, err := os.ReadFile(statusPath); err == nil {
+		trackID = extractField(string(statusData), "track")
 	}
-
-	frontmatterBody := extractFrontmatterBody(string(indexData))
-	tracks := board.ParseTracks(frontmatterBody)
-
-	var worktreePath string
-	for _, t := range tracks {
-		for _, s := range t.Slices {
-			if s == sliceID {
-				worktreePath = t.WorktreePath
+	if br, err := board.ReadBoard(repoRoot, release); err == nil {
+		for _, t := range br.Tracks {
+			for _, sid := range t.Slices {
+				if sid == sliceID {
+					worktreePath = t.WorktreePath
+					break
+				}
+			}
+			if worktreePath != "" {
 				break
 			}
 		}
-		if worktreePath != "" {
-			break
-		}
+		_ = trackID // hint only — see comment above.
 	}
+
 	// 5. Read status.json for start_commit and current state
 	var startCommit, sliceState string
-	statusPath := filepath.Join(sliceDir, "status.json")
 	if statusData, err := os.ReadFile(statusPath); err == nil {
 		startCommit = extractField(string(statusData), "start_commit")
 		sliceState = extractField(string(statusData), "state")
@@ -96,15 +110,24 @@ func AssembleSliceContext(release, sliceID, repoRoot string) (*SliceContext, err
 	}, nil
 }
 
-// extractViolations parses violations from proof.md content. It looks for
-// "FAIL:" lines at the start and "**Violation <N>:**" section markers.
-func extractViolations(content string) string {
+// readProofViolations reads not_delivered from proof.json (AC-02 — the
+// proof-v1 record is the sole source of truth for violations; there is no
+// proof.md fallback). A slice with no proof.json, an unparseable one, or an
+// empty not_delivered list has no violations to report.
+func readProofViolations(sliceDir string) string {
+	data, err := os.ReadFile(filepath.Join(sliceDir, "proof.json"))
+	if err != nil {
+		return ""
+	}
+	var pr struct {
+		NotDelivered []string `json:"not_delivered"`
+	}
+	if err := json.Unmarshal(data, &pr); err != nil {
+		return ""
+	}
 	var lines []string
-	for _, line := range strings.Split(content, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "FAIL:") || strings.HasPrefix(trimmed, "**Violation") {
-			lines = append(lines, trimmed)
-		}
+	for _, nd := range pr.NotDelivered {
+		lines = append(lines, "FAIL: "+nd)
 	}
 	return strings.Join(lines, "\n")
 }
