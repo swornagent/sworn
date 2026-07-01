@@ -127,6 +127,41 @@ func appendDispatch(ds []state.Dispatch, quadrant string, d state.Dispatch) []st
 	return append(ds, d)
 }
 
+// recordDesignGateDeferral records a machine-readable Rule 2 deferral on the
+// slice status.json when the Rule 9 design-review gate could not be applied
+// (design TL;DR or captain-review dispatch/construction failed, e.g. a
+// transient provider 429 or timeout). Without this the gate skip was silent —
+// no status trace, no deferral — so a transient infra error bypassed the
+// human-owned Rule 9 checkpoint invisibly. Recording the deferral turns a
+// silent bypass into a durable, machine-readable record (why + tracking);
+// human acknowledgement (Rule 2's third leg) is left to the Coach reviewing
+// open_deferrals. Best-effort: a status read/write failure here must not
+// itself wedge the run. Idempotent per reason: it will not append a duplicate
+// deferral carrying the same tracking marker.
+func recordDesignGateDeferral(statusPath, reason string) {
+	st, err := state.Read(statusPath)
+	if st == nil || err != nil {
+		fmt.Fprintf(os.Stderr, "sworn run: could not record design-gate deferral (status read: %v)\n", err)
+		return
+	}
+	const tracking = "swornagent/sworn#51 — Rule 9 design gate skipped on dispatch failure"
+	for _, d := range st.OpenDeferrals {
+		if d.Tracking == tracking && d.Item == "design_review_gate" {
+			return // already recorded this run
+		}
+	}
+	st.OpenDeferrals = append(st.OpenDeferrals, state.Deferral{
+		Item:     "design_review_gate",
+		Why:      reason,
+		Tracking: tracking,
+	})
+	st.LastUpdatedBy = "run-slice"
+	st.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	if err := state.Write(statusPath, st); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn run: could not record design-gate deferral (status write: %v)\n", err)
+	}
+}
+
 // violationsFromStrings wraps the verdict layer's []string violations into the
 // typed []state.Violation the status carrier now holds (D4). The verdict layer
 // stays []string by design (sworn-generated, not coach-read — see
@@ -255,7 +290,13 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		if specErr == nil {
 			firstModelID := escalationModels[0]
 			designAgent, daErr := opts.NewAgent(firstModelID)
-			if daErr == nil {
+			if daErr != nil {
+				// Agent-construction failure is a fail-open on the Rule 9
+				// gate (previously swallowed silently). Record a Rule 2
+				// deferral so the skip is durable, then proceed.
+				fmt.Fprintf(os.Stderr, "sworn run: design TL;DR agent construction failed: %v — recording Rule 2 deferral\n", daErr)
+				recordDesignGateDeferral(statusPath, fmt.Sprintf("design TL;DR agent construction failed (%s): %v — Rule 9 design gate not applied", firstModelID, daErr))
+			} else {
 				designCtx := ctx
 				var designCancel context.CancelFunc
 				if implementTimeout > 0 {
@@ -267,15 +308,22 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 					design.GenerateOptions{Regenerate: opts.RegenerateDesign})
 				if genErr != nil {
 					if errors.Is(genErr, context.DeadlineExceeded) {
-						fmt.Fprintf(os.Stderr, "sworn run: design TL;DR timed out after %s — proceeding without design.md\n", implementTimeout)
+						fmt.Fprintf(os.Stderr, "sworn run: design TL;DR timed out after %s — recording Rule 2 deferral\n", implementTimeout)
+						recordDesignGateDeferral(statusPath, fmt.Sprintf("design TL;DR timed out after %s — Rule 9 design gate not applied", implementTimeout))
 					} else {
-						fmt.Fprintf(os.Stderr, "sworn run: design TL;DR: %v — proceeding without design.md\n", genErr)
+						fmt.Fprintf(os.Stderr, "sworn run: design TL;DR: %v — recording Rule 2 deferral\n", genErr)
+						recordDesignGateDeferral(statusPath, fmt.Sprintf("design TL;DR generation failed: %v — Rule 9 design gate not applied", genErr))
 					}
 				} else {
 					fmt.Fprintf(os.Stderr, "sworn run: design TL;DR written to %s\n",
 						filepath.Join(absSliceDir, "design.md"))
 				}
 			}
+		} else {
+			// The spec could not be read to feed the gate — the design
+			// review cannot run. Record the deferral rather than skipping
+			// silently.
+			recordDesignGateDeferral(statusPath, fmt.Sprintf("design TL;DR spec read failed: %v — Rule 9 design gate not applied", specErr))
 		}
 	}
 
@@ -290,7 +338,13 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			if specErr == nil {
 				firstModelID := escalationModels[0]
 				captainAgent, caErr := opts.NewAgent(firstModelID)
-				if caErr == nil {
+				if caErr != nil {
+					// Agent-construction failure — the captain gate cannot
+					// run. Previously swallowed silently; record a Rule 2
+					// deferral so the skip is durable.
+					fmt.Fprintf(os.Stderr, "sworn run: captain review agent construction failed: %v — recording Rule 2 deferral\n", caErr)
+					recordDesignGateDeferral(statusPath, fmt.Sprintf("captain review agent construction failed (%s): %v — Rule 9 design gate not applied", firstModelID, caErr))
+				} else {
 					// Transition to DesignReview before the review.
 					stReview, _ := state.Read(statusPath)
 					if stReview != nil && stReview.State != state.DesignReview {
@@ -312,10 +366,17 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 					reviewResult, revErr := captain.Review(reviewCtx, absSliceDir, string(specBytes), string(designBytes), captainAgent, worktreeRoot)
 					captainDurationMS := time.Since(captainStart).Milliseconds()
 					if revErr != nil {
+						// Captain review dispatch failed (e.g. a transient
+						// provider 429 or timeout). Previously the run proceeded
+						// "without review", silently bypassing the human-owned
+						// Rule 9 gate. Record a machine-readable Rule 2 deferral
+						// so the skip is durable and surfaces to the Coach.
 						if errors.Is(revErr, context.DeadlineExceeded) {
-							fmt.Fprintf(os.Stderr, "sworn run: captain review timed out — proceeding without review\n")
+							fmt.Fprintf(os.Stderr, "sworn run: captain review timed out — recording Rule 2 deferral\n")
+							recordDesignGateDeferral(statusPath, fmt.Sprintf("captain design-review timed out after %s — Rule 9 design gate not applied", implementTimeout))
 						} else {
-							fmt.Fprintf(os.Stderr, "sworn run: captain review error: %v — proceeding without review\n", revErr)
+							fmt.Fprintf(os.Stderr, "sworn run: captain review error: %v — recording Rule 2 deferral\n", revErr)
+							recordDesignGateDeferral(statusPath, fmt.Sprintf("captain design-review dispatch failed: %v — Rule 9 design gate not applied", revErr))
 						}
 					} else if reviewResult.HasEscalatePins {
 						fmt.Fprintf(os.Stderr, "sworn run: captain review halted — %d escalate pins in %s\n",
@@ -339,7 +400,17 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 						}
 					}
 				}
+			} else {
+				// The spec could not be read to feed the captain gate.
+				recordDesignGateDeferral(statusPath, fmt.Sprintf("captain review spec read failed: %v — Rule 9 design gate not applied", specErr))
 			}
+		} else {
+			// design.md is absent — the captain gate has no artefact to
+			// review. This coincides with a design-stage failure (already
+			// deferred there); recordDesignGateDeferral is idempotent per
+			// run, so this defensively covers a design stage skipped without
+			// a deferral.
+			recordDesignGateDeferral(statusPath, fmt.Sprintf("design.md absent at captain review (%v) — Rule 9 design gate not applied", err))
 		}
 	}
 

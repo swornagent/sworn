@@ -62,7 +62,7 @@ func Run(ctx context.Context, models []ModelEntry, tasks []Task, apiKey string) 
 			APIKey:  apiKey,
 		}
 		for _, t := range tasks {
-			res := verify.RunFirstPass(ctx, verify.Input{				SpecPath:  t.SpecPath,
+			res := verify.RunFirstPass(ctx, verify.Input{SpecPath: t.SpecPath,
 				DiffPath:  t.DiffPath,
 				ProofPath: "",
 				Model:     m.ModelID,

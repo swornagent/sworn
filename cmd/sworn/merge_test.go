@@ -105,6 +105,7 @@ func TestMergeTrack_Invariant4Conflict(t *testing.T) {
 	}
 	_ = err
 }
+
 // TestMergeRelease_NoJourneys verifies the journey gate blocks merge-release
 // when journeys.json does not exist.
 func TestMergeRelease_NoJourneys(t *testing.T) {

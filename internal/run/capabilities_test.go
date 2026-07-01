@@ -20,6 +20,7 @@ func (f *fakeCapDriver) Verify(context.Context, string, string) (string, float64
 	return "PASS", 0, 0, 0, nil
 }
 func (f *fakeCapDriver) Capabilities() model.Capability { return f.caps }
+
 var _ model.Verifier = (*fakeCapDriver)(nil)
 var _ model.CapabilityProvider = (*fakeCapDriver)(nil)
 

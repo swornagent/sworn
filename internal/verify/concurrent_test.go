@@ -12,7 +12,8 @@ import (
 // the same Input concurrently. Every goroutine must return the same verdict (PASS) —
 // the race detector is the primary assertion mechanism, proving no package-level state
 // is corrupted by concurrent RunFirstPass calls.
-func TestConcurrentVerifySameInput(t *testing.T) {	const goroutines = 4
+func TestConcurrentVerifySameInput(t *testing.T) {
+	const goroutines = 4
 
 	in := Input{
 		SpecPath: writeTmp(t, "spec.md", "must do X"),

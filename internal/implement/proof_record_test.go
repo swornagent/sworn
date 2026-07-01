@@ -125,7 +125,8 @@ Proof record generated with correct files_changed.
 		t.Errorf("not_delivered length = %d, want 1", len(rec.NotDelivered))
 	}
 	if len(rec.NotDelivered) > 0 && !strings.Contains(rec.NotDelivered[0], "postponed-feature") {
-		t.Errorf("not_delivered[0] = %q, want text about postponed-feature", rec.NotDelivered[0])	}
+		t.Errorf("not_delivered[0] = %q, want text about postponed-feature", rec.NotDelivered[0])
+	}
 }
 
 func TestFilesChangedFromGit_FallbackToStatus(t *testing.T) {
