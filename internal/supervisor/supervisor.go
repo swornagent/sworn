@@ -16,6 +16,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/db"
 )
+
 // State constants for the tracks table.
 const (
 	StatePlanned = "planned"
@@ -43,6 +44,7 @@ type Supervisor struct {
 	release string
 	pid     int
 }
+
 // New creates a Supervisor bound to the given database and release name.
 func New(db *sql.DB, release string) *Supervisor {
 	return &Supervisor{
@@ -241,7 +243,7 @@ func (s *Supervisor) logEvent(trackID, event, detail string) error {
 	if s.eventDB != nil {
 		target = s.eventDB
 	}
-	_, err := target.Exec(		`INSERT INTO events (track_id, release, event, detail, ts)
+	_, err := target.Exec(`INSERT INTO events (track_id, release, event, detail, ts)
 		 VALUES (?, ?, ?, ?, ?)`,
 		trackID, s.release, event, detail, time.Now().UTC().Format(time.RFC3339),
 	)
@@ -266,7 +268,8 @@ func RecordPage(db *sql.DB, release, sliceID, detail string) error {
 // pidAlive returns true if pid corresponds to a live process.
 // Uses syscall.Kill(pid, 0) which is the POSIX-specified way to check
 // process existence without sending a signal.
-func pidAlive(pid int) bool {	if pid <= 0 {
+func pidAlive(pid int) bool {
+	if pid <= 0 {
 		return false
 	}
 	return syscall.Kill(pid, syscall.Signal(0)) == nil

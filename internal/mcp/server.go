@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -320,17 +321,51 @@ func (s *Server) handleToolsCall(ctx context.Context, req *jsonRPCRequest, enc *
 	_ = enc.Encode(resp)
 }
 
+type resourceDescriptor struct {
+	URI      string `json:"uri"`
+	Name     string `json:"name"`
+	MimeType string `json:"mimeType,omitempty"`
+}
+
 type resourcesListResult struct {
-	Resources []json.RawMessage `json:"resources"`
+	Resources []resourceDescriptor `json:"resources"`
 }
 
 func (s *Server) handleResourcesList(ctx context.Context, req *jsonRPCRequest, enc *json.Encoder, logger *log.Logger) {
+	s.mu.Lock()
+	resources := make([]resourceDescriptor, 0, len(s.resources))
+	for uri := range s.resources {
+		// Trailing-slash keys are dynamic prefix patterns (e.g.
+		// sworn://release/), not readable resources themselves — a
+		// resources/read of the bare prefix errors, so listing it
+		// would advertise a dead URI.
+		if strings.HasSuffix(uri, "/") {
+			continue
+		}
+		resources = append(resources, resourceDescriptor{
+			URI:      uri,
+			Name:     strings.TrimPrefix(uri, "sworn://"),
+			MimeType: resourceMimeType(uri),
+		})
+	}
+	s.mu.Unlock()
+	sort.Slice(resources, func(i, j int) bool { return resources[i].URI < resources[j].URI })
+
 	resp := jsonRPCResponse{
 		JSONRPC: "2.0",
 		ID:      req.ID,
-		Result:  mustMarshal(resourcesListResult{Resources: []json.RawMessage{}}),
+		Result:  mustMarshal(resourcesListResult{Resources: resources}),
 	}
 	_ = enc.Encode(resp)
+}
+
+// resourceMimeType mirrors the resources/read content typing: version strings
+// and .txt payloads are plain text, everything else served here is markdown.
+func resourceMimeType(uri string) string {
+	if strings.HasSuffix(uri, "version") || strings.HasSuffix(uri, ".txt") {
+		return "text/plain"
+	}
+	return "text/markdown"
 }
 
 type resourceContent struct {
@@ -381,10 +416,7 @@ func (s *Server) handleResourcesRead(ctx context.Context, req *jsonRPCRequest, e
 		return
 	}
 
-	mimeType := "text/markdown"
-	if strings.HasSuffix(params.URI, "version") || strings.HasSuffix(params.URI, ".txt") {
-		mimeType = "text/plain"
-	}
+	mimeType := resourceMimeType(params.URI)
 
 	resp := jsonRPCResponse{
 		JSONRPC: "2.0",

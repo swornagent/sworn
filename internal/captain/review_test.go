@@ -256,3 +256,39 @@ func TestSummaryLineNotCountedAsEscalate(t *testing.T) {
 		t.Fatalf("expected exactly 1 mechanical pin, got %d pins: %+v", len(result.Pins), result.Pins)
 	}
 }
+
+// captureAgent records the messages it was dispatched with, then behaves
+// like fakeAgent.
+type captureAgent struct {
+	fakeAgent
+	messages *[]model.ChatMessage
+}
+
+func (c captureAgent) Chat(ctx context.Context, msgs []model.ChatMessage, tools []model.ToolDef) (*model.ChatResponse, error) {
+	*c.messages = msgs
+	return c.fakeAgent.Chat(ctx, msgs, tools)
+}
+
+// TestReviewDispatchesDesignReviewerPrompt verifies the S19-captain-split
+// contract at the engine dispatch: the design-review stage must run under the
+// design-reviewer identity, not the conflated captain release-orchestrator
+// prompt (which asserts authority the deterministic engine owns).
+func TestReviewDispatchesDesignReviewerPrompt(t *testing.T) {
+	dir := t.TempDir()
+	var got []model.ChatMessage
+	ca := captureAgent{fakeAgent: fakeAgent{text: cannedCleanOutput}, messages: &got}
+
+	if _, err := Review(context.Background(), dir, "# spec", "## design", ca, "/tmp/wt"); err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	if len(got) == 0 || got[0].Role != "system" {
+		t.Fatalf("expected a system message first, got %+v", got)
+	}
+	sys := got[0].Content
+	if !strings.Contains(sys, "You are the **Design Reviewer**") {
+		t.Errorf("system prompt missing design-reviewer identity; starts with: %.200s", sys)
+	}
+	if strings.Contains(sys, "release-level orchestrator") {
+		t.Errorf("system prompt still carries the conflated release-orchestrator identity (S19 regression); starts with: %.200s", sys)
+	}
+}

@@ -88,6 +88,7 @@ func PriceForModel(modelID string) (ModelPricing, bool) {
 	}
 	return ModelPricing{}, false
 }
+
 // ComputeCostFromTokens returns the USD cost for a model given token counts.
 // Returns 0 for unknown models.
 func ComputeCostFromTokens(modelID string, inputTokens, outputTokens int64) float64 {

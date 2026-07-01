@@ -1,5 +1,13 @@
 # Baton Conformance Audit — SwornAgent
 
+> **⚠ SUPERSEDED (2026-07-02).** This audit is stale relative to `release/v0.1.0`.
+> Its verdicts predate the keystone (verifier-verdict-v1), the `board.json`
+> object/strict cutover, `proof.json` emission+gating, the journey-gate wiring,
+> and the Orchestrator formalization — all of which have since landed and closed
+> most of the CRITICAL gaps below. **Use the current map:**
+> `docs/captures/2026-07-02-baton-conformance-audit.md`. Kept for historical
+> reference only; do not cite these verdicts as current.
+
 **Date:** 2026-06-27
 **Scope:** Does SwornAgent implement the Baton rule-set (Rules 1–11), records-as-JSON, orchestration engine, role ontology, model/provider layer, and contract/vendor conformance in their entirety?
 **Method:** Per-dimension auditor findings, each re-checked by a fresh-context adversarial verifier against live repo state. This report uses the **corrected** verdicts/severities, not the originals.

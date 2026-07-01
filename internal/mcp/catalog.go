@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/swornagent/sworn/internal/board"
 )
 
 // RegisterCatalogTools registers the catalog management, decision registry, and
@@ -38,13 +40,11 @@ func RegisterCatalogTools(s *Server, repoRoot string) {
 
 		releaseDir := filepath.Join(repoRoot, "docs", "release", p.Name)
 		if _, err := os.Stat(releaseDir); err == nil {
-			// Existing release: read index.md and return state summary.
-			indexPath := filepath.Join(releaseDir, "index.md")
-			indexData, err := os.ReadFile(indexPath)
-			if err != nil {
-				return nil, fmt.Errorf("release exists but cannot read index.md: %w", err)
-			}
-			summary := releaseStateSummary(string(indexData))
+		// Existing release: summarise slice state via the board oracle
+		// (board.json + status.json) instead of grepping the rendered
+		// index.md table, whose header literal has drifted from
+		// internal/board/render.go's output.
+		summary := releaseStateSummary(repoRoot, p.Name)
 			result := map[string]any{
 				"exists":        true,
 				"slice_count":   summary["slice_count"],
@@ -350,50 +350,76 @@ func RegisterCatalogTools(s *Server, repoRoot string) {
 
 // ---- helper functions ----
 
-// releaseStateSummary parses an index.md body to count slices by state.
-// It does a simple grep for state: <value> lines.
-func releaseStateSummary(indexContent string) map[string]int {
+// releaseStateSummary computes the per-state slice counts for a release by
+// reading board.json (the oracle) and each slice's status.json. This replaces
+// the previous grep of the rendered index.md table — which fell out of sync
+// with internal/board/render.go's actual header literal and silently returned
+// zero counts for current-format releases.
+func releaseStateSummary(repoRoot, release string) map[string]int {
 	summary := map[string]int{
 		"planned":     0,
 		"in_progress": 0,
 		"implemented": 0,
 		"verified":    0,
 	}
-	lines := strings.Split(indexContent, "\n")
-	states := []string{"planned", "in_progress", "implemented", "verified"}
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		for _, s := range states {
-			if strings.HasPrefix(trimmed, "state:") && strings.Contains(trimmed, s) {
-				summary[s]++
+
+	br, err := board.ReadBoard(repoRoot, release)
+	if err != nil {
+		// No board data — return zeroed summary; the caller decides whether
+		// the absence is fatal.
+		summary["slice_count"] = 0
+		return summary
+	}
+
+	total := 0
+	for _, t := range br.Tracks {
+		for _, sliceID := range t.Slices {
+			total++
+			statusPath := filepath.Join(repoRoot, "docs", "release", release, sliceID, "status.json")
+			data, err := os.ReadFile(statusPath)
+			if err != nil {
+				continue
+			}
+			// Cheap state extraction — the status.json shape is fixed
+			// (state.Status) and these calls are bounded by the number of
+			// slices in a release. A regex avoids dragging in the full
+			// state.Read import for a single counter.
+			var s struct {
+				State string `json:"state"`
+			}
+			if err := json.Unmarshal(data, &s); err != nil {
+				continue
+			}
+			switch s.State {
+			case "planned":
+				summary["planned"]++
+			case "in_progress":
+				summary["in_progress"]++
+			case "implemented":
+				summary["implemented"]++
+			case "verified":
+				summary["verified"]++
 			}
 		}
 	}
-	// Count slice entries from the slices table.
-	summary["slice_count"] = countSliceTableRows(indexContent)
+	summary["slice_count"] = total
 	return summary
 }
 
-// countSliceTableRows counts the number of data rows in the Slices table.
-func countSliceTableRows(content string) int {
-	lines := strings.Split(content, "\n")
-	inTable := false
-	count := 0
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.Contains(trimmed, "| ID | Track | User outcome |") {
-			inTable = true
-			continue
-		}
-		if inTable {
-			if strings.HasPrefix(trimmed, "|") && strings.Contains(trimmed, "| S") {
-				count++
-			} else if trimmed == "" || strings.HasPrefix(trimmed, "###") || strings.HasPrefix(trimmed, "##") {
-				inTable = false
-			}
-		}
+// countSliceTableRows returns the total number of slices registered for a
+// release, derived from board.json (the oracle). The previous implementation
+// grepped for a Markdown table header literal that no longer matches the
+// renderer; the new path is a simple sum over board.Tracks.
+func countSliceTableRows(repoRoot, release string) int {
+	br, err := board.ReadBoard(repoRoot, release)
+	if err != nil {
+		return 0
 	}
-	return count
+	total := 0
+	for _, t := range br.Tracks {
+		total += len(t.Slices)
+	}
+	return total
 }
 
 // hasSectionWithContent checks whether a named section has a non-empty value for

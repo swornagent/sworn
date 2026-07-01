@@ -47,10 +47,12 @@ See the formal role documentation at:
 ## What remains of captain.md
 
 `captain.md` still exists as the embedded prompt served by `prompt.Captain()`.
-As of S19, it carries a header noting the split and continues to contain the
-design-review function content (for backward compatibility — callers of
-`prompt.Captain()` must not break). The canonical home for the design-review
-function is now `design-reviewer.md`.
+It is vendored **verbatim** from upstream Baton, which has not adopted the
+split — so it still conflates the design-review and release-orchestrator
+functions, and any split-notice header added locally is clobbered by parity
+re-vendors. The engine therefore does not dispatch it for design review: the
+design-review stage (`internal/captain`) uses `prompt.DesignReviewer()`. The
+canonical home for the design-review function is `design-reviewer.md`.
 
 ## For implementers
 

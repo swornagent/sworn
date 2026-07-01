@@ -28,7 +28,7 @@ var ErrMaxTurns = errors.New("agent: max turns exhausted")
 // MaxTurnsSentinel is the substring the worker/router checks for in error
 // messages returned by RunSlice to detect max-turns exhaustion without
 // importing the run package (which would create an import cycle).
-const MaxTurnsSentinel = "RunSlice: max turns exhausted:"// Agent is a model that can carry a multi-turn conversation with tool calls.
+const MaxTurnsSentinel = "RunSlice: max turns exhausted:" // Agent is a model that can carry a multi-turn conversation with tool calls.
 // The model.Verifier interface (single-shot) is separate; the implementer
 // engine (S06) consumes Agent.
 type Agent interface {
@@ -173,7 +173,8 @@ func Run(ctx context.Context, a Agent, systemPrompt, userPrompt string, workspac
 		}
 	}
 
-	return "", totalCost, agentMessages, fmt.Errorf("%w: turn cap (%d) reached with no text response", ErrMaxTurns, cfg.MaxTurns)}
+	return "", totalCost, agentMessages, fmt.Errorf("%w: turn cap (%d) reached with no text response", ErrMaxTurns, cfg.MaxTurns)
+}
 
 // computeCost is a local passthrough for testability. FakeAgent usage is nil
 // (cost 0). Real Chat responses include usage. For accurate model-specific

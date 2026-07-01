@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/swornagent/sworn/internal/baton"
-)// newTestArtefact creates a minimal ratified artefact in a temp directory
+) // newTestArtefact creates a minimal ratified artefact in a temp directory
 // for use as a fixture. Returns the project root.
 func newTestArtefact(t *testing.T, ratified bool) string {
 	t.Helper()

@@ -16,7 +16,8 @@ type mockVerifier struct {
 }
 
 func (m *mockVerifier) Verify(_ context.Context, _, _ string) (string, float64, int64, int64, error) {
-	return m.text, m.costUSD, 0, 0, m.err}
+	return m.text, m.costUSD, 0, 0, m.err
+}
 
 // --- prompt building tests ---
 

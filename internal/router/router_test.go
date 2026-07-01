@@ -11,6 +11,7 @@ import (
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/state"
 )
+
 // ---------- fakes ----------
 
 type fakeOracle struct {
@@ -715,7 +716,7 @@ func TestInvariant4CheckEmptyDir(t *testing.T) {
 	}
 }
 
-func TestParseDocumentedSharedFromFile(t *testing.T) {	// Test using the actual release index.md from the worktree.
+func TestParseDocumentedSharedFromFile(t *testing.T) { // Test using the actual release index.md from the worktree.
 	// This guards against parser breakage when the index.md format changes (flag b).
 	indexPath := filepath.Join("..", "..", "docs", "release", "2026-06-27-conformance-foundation", "index.md")
 	// Run from the repo root.
@@ -745,7 +746,8 @@ func TestParseDocumentedSharedFromFile(t *testing.T) {	// Test using the actual 
 	t.Logf("Parsed %d documented shared files from live index.md", len(shared))
 }
 
-func TestIsDocumentedShared(t *testing.T) {	shared := map[string]bool{
+func TestIsDocumentedShared(t *testing.T) {
+	shared := map[string]bool{
 		"internal/model/oai.go": true,
 	}
 
@@ -754,7 +756,7 @@ func TestIsDocumentedShared(t *testing.T) {	shared := map[string]bool{
 		want bool
 	}{
 		{"internal/model/oai.go", true},
-		{"internal/model/oai.go/something", true},    // prefix match
+		{"internal/model/oai.go/something", true}, // prefix match
 		{"internal/other/file.go", false},
 		{"", false},
 	}

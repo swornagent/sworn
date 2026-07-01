@@ -373,6 +373,7 @@ func TestPersistence(t *testing.T) {
 		t.Fatalf("expected an 'acquired' event for T1-persist after reopen, got %d events", len(events))
 	}
 }
+
 // asErr checks if err can be assigned to target via type assertion.
 func asErr(err error, target interface{}) bool {
 	if err == nil {

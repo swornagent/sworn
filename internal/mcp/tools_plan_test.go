@@ -223,17 +223,17 @@ tracks: []
 		t.Fatalf("set_track should succeed: %s", result.Content[0].Text)
 	}
 
-	// Verify index.md was updated
-	updatedData, err := os.ReadFile(filepath.Join(releaseDir, "index.md"))
+	// Verify board.json was updated (S04-mcp-oracle-migration: oracle source of truth)
+	updatedData, err := os.ReadFile(filepath.Join(releaseDir, "board.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	updated := string(updatedData)
 	if !strings.Contains(updated, "T1-core") {
-		t.Errorf("index.md should contain track T1-core")
+		t.Errorf("board.json should contain track T1-core")
 	}
 	if !strings.Contains(updated, "S01-foo") {
-		t.Errorf("index.md should contain slice S01-foo")
+		t.Errorf("board.json should contain slice S01-foo")
 	}
 }
 
@@ -274,19 +274,18 @@ tracks: []
 		t.Fatalf("set_track with colon-space slice should succeed: %s", result.Content[0].Text)
 	}
 
-	// Verify the frontmatter is valid — the track entry should be present
-	updatedData, err := os.ReadFile(filepath.Join(releaseDir, "index.md"))
+	// Verify the board.json is valid — the track entry should be present
+	updatedData, err := os.ReadFile(filepath.Join(releaseDir, "board.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	updated := string(updatedData)
 	if !strings.Contains(updated, "T1") {
-		t.Errorf("index.md should contain track T1")
+		t.Errorf("board.json should contain track T1")
 	}
-	// The colon-space slice should appear in the frontmatter
-	// (it may be in the slices list — check it's somewhere in the file)
+	// The colon-space slice should appear in the board.json slices list
 	if !strings.Contains(updated, "S01-colon") {
-		t.Errorf("index.md should contain the slice id with colon")
+		t.Errorf("board.json should contain the slice id with colon")
 	}
 }
 
