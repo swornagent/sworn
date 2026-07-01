@@ -1,7 +1,10 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/board-v1.json",
   "schema_version": 1,
-  "release": "2026-06-30-sworn-operational-readiness",
+  "release": {
+    "name": "2026-06-30-sworn-operational-readiness",
+    "integration_branch": "release/v0.1.0"
+  },
   "release_worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-30-sworn-operational-readiness",
   "release_worktree_branch": "release-wt/2026-06-30-sworn-operational-readiness",
   "tracks": [
