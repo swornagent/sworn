@@ -3,16 +3,18 @@
   "slice_id": "S05-cli-merge-regress-oracle-migration",
   "release": "2026-07-01-render-drift-reconciliation",
   "track": "T4-cli-merge-regress",
-  "state": "in_progress",
+  "state": "implemented",
   "covers_needs": ["N-01"],
   "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S05-cli-merge-regress-oracle-migration/spec.json",
+  "proof_path": "docs/release/2026-07-01-render-drift-reconciliation/S05-cli-merge-regress-oracle-migration/proof.md",
+  "journal_path": "docs/release/2026-07-01-render-drift-reconciliation/S05-cli-merge-regress-oracle-migration/journal.md",
   "start_commit": "c5634da7d8006072946fbc6f6f1e9fe1819864dd",
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
     "quadrant": "chore",
     "rationale": "Two files, one function each, same fix pattern.",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
   "planned_files": [
     "cmd/sworn/merge.go",
@@ -20,6 +22,24 @@
     "cmd/sworn/merge_test.go",
     "cmd/sworn/regress_test.go",
     "internal/board/oracle.go"
+  ],
+  "actual_files": [
+    "cmd/sworn/merge.go",
+    "cmd/sworn/merge_test.go",
+    "cmd/sworn/regress.go",
+    "cmd/sworn/regress_test.go",
+    "internal/board/oracle.go",
+    "internal/board/oracle_test.go"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go test ./internal/board/... ./cmd/sworn/... -timeout 120s",
+    "go test ./... -timeout 280s",
+    "go vet ./internal/board/... ./cmd/sworn/...",
+    "gofmt -l cmd/sworn/merge.go cmd/sworn/regress.go cmd/sworn/merge_test.go cmd/sworn/regress_test.go internal/board/oracle.go internal/board/oracle_test.go"
+  ],
+  "reachability_artifacts": [
+    "docs/release/2026-07-01-render-drift-reconciliation/S05-cli-merge-regress-oracle-migration/reachability-regress-output.txt"
   ],
   "design_decisions": [
     {
@@ -41,9 +61,10 @@
       "architecturally_significant": false
     }
   ],
+  "open_deferrals": [],
   "verification": {
     "result": "pending"
   },
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-02T08:59:00Z"
+  "last_updated_at": "2026-07-01T23:20:00Z"
 }
