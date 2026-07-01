@@ -1,56 +1,128 @@
-# Captain review — S02-board-render
-Date: 2026-07-01
-Design commit: 2ab361ad48624dd1b0a6ecd145f7b17b2579ec30
+# Design review — S02-board-render (RE-REVIEW, post-cutover)
+
+**Reviewer:** Captain · **Date:** 2026-07-01 · **State on entry:** `design_review`
+**Supersedes:** the prior review (`DECISION: NEEDS_COACH`, escalate Pin 1 = AC-04↔AC-05 contradiction). Prior version preserved in git history.
+
+## Context — what changed since the prior review
+
+The prior review escalated Pin 1: AC-04 (fail closed when `board.json` is invalid
+against board-v1) vs AC-05 (render must succeed against *this* release's board)
+were mutually unsatisfiable **because the live board carried `release` as a bare
+string** while the S05 reader is object-only. The Coach resolved it (2026-07-01)
+by executing the **S05 AC-06 cutover** rather than adding tolerance:
+
+- Canonical strict `sworn` installed globally (verified fail-closed on string boards).
+- `board.json` `release` migrated string → `{"name": …, "integration_branch": …}` on
+  `release-wt` and forward-merged to `track/T2`.
+- Verified live: `board.ReadBoard` now **succeeds** on this release's object board.
+
+So the escalated contradiction is **gone**: with the board object-form, AC-04 and
+AC-05 are consistent *as written*. The design decision is settled (canonical strict
+reader, no tolerance). **The design.md, however, still describes the pre-cutover
+approach** and must be brought into line before code. That is the load-bearing
+finding of this re-review.
 
 ## Pins
 
-1. [escalate] §Choices.1 / Pin 1 — AC-04 ↔ AC-05 are in tension, and the fix is a Type-1 architectural choice (a second, tolerant board.json reader).
-   What I observed: The design (Choice 1, Pin 1) picks a *local tolerant* `renderBoard` decode over the canonical `board.ReadBoard`, because `ReadBoard` rejects this release's `board.json` (`release` is a bare string). I verified all of this live: `board.ReadBoard` exists (`internal/board/board.go:126`) and rejects a string release with "board release: not a canonical {name} object" (`board.go:59`); the live `board.json` `release` field is the string `"2026-06-30-sworn-operational-readiness"`; `BoardTrack`/`StringList` exist and are tolerant (`board.go:84-119`). So the tension is a real, determinable fact — not an inference. But it is an *internal spec contradiction*: AC-04 says fail closed when `board.json` is "invalid against board-v1" (and board-v1's canonical reader requires `release` = object), while AC-05 requires `sworn render` to *succeed* against this exact string-shaped board. Both cannot hold under the strict reading. Introducing a second board.json reader with different strictness than the canonical one is also an architecturally-significant (Type-1) choice — it creates a lasting reader-divergence surface.
-   What to ask the implementer: This is a Coach call, not an implementer pick. Option (a): render tolerates the dual `release` form (string-or-object) and does NOT enforce `release=object` — AC-05 passes now; AC-04's fail-closed teeth narrow to genuine corruption; a tolerant reader coexists with the strict `ReadBoard`. Option (b): render enforces strict board-v1 (`release=object`) — requires migrating `board.json` (a T4 touchpoint) first, re-scoping S02 or adding a T4 dependency; AC-05 cannot pass until then. The Coach picks (a) or (b), or resolves the AC-04/AC-05 contradiction via `/replan-release`.
+### 1. [escalate → resolved-direction] Design Choice 1 / Pin 1 / Choice 4 — replace the local tolerant `renderBoard` decoder with canonical `board.ReadBoard`.
 
-2. [mechanical] §Choices / status.json — Rule 9 design-fit gate: `design_decisions` is absent and Choice 1 is unclassified.
-   What I observed: `status.json` has no `design_decisions` field (verified). The design-fit gate has nothing to check, yet Choice 1 is architecturally-significant (a divergent reader path) and is presented as a single option — Rule 9 requires it be classified Type-1 with a recorded human decision.
-   What to ask the implementer: Once the Coach resolves Pin 1, record that resolution in `status.json.design_decisions` as a Type-1 decision (chosen option + rationale + the two options above) before writing code.
+**Observed:** design.md Key Choice 1 says *"Tolerant `board.json` decode inside the
+renderer — NOT `board.ReadBoard` … defines a local `renderBoard` struct … reads
+`release` as `json.RawMessage`, accepting string or `{name}`."* Choice 4 and the
+AC-05 traceability row inherit this ("tolerates the dual `release` form … governed
+by Pin 1"). This premise is **inverted by the cutover**: `board.json` is now
+object-form and `board.ReadBoard` (`internal/board/board.go:126`, reads the on-disk
+`docs/release/<release>/board.json` via the strict S05 `Release.UnmarshalJSON`)
+**succeeds** against it — verified live (`sworn board --release <this> --json` →
+exit 0, 4 tracks).
 
-3. [memory-cited] §Choices.1 / AC-06 — the tolerant-reader direction is memory-consistent, but AC-06's test scope misses the package the memory says a reader change regressed.
-   What I observed: Choice 1 aligns with [[feedback_releaseverify_specmd_false_fail]], whose tail records that "a tightened reader/contract can regress test fixtures in other packages (S05 strict reader broke board.json string-form fixtures in internal/board + cmd/sworn)." The design's tolerant reader is the right response to that pain. But AC-06 scopes verification to `go test ./internal/board/...`, while this slice *adds* `cmd/sworn/render.go` and a new reader path — `cmd/sworn` is exactly the package the memory flags.
-   What to ask the implementer: Confirm the memory applies, and run `go test ./cmd/sworn/...` (not just `./internal/board/...`) before claiming done — or rely on the `/merge-track` affected-package regression gate and note that explicitly in the proof. Also run full `go test ./...` with a timeout per [[project_newline_eating_edit_corruption]].
-   Citation: [[feedback_releaseverify_specmd_false_fail]]
+**Direction (Coach already decided — not a fresh escalation):** the renderer SHALL
+decode `board.json` via canonical `board.ReadBoard`. It SHALL NOT define a local
+tolerant `renderBoard` struct or accept the string form. S05 AC-03 is explicit —
+"legacy operator string boards are migrated, **not read-tolerated**"; a second
+tolerant reader is exactly the reader-divergence surface
+`feedback_releaseverify_specmd_false_fail` warns against. AC-04's fail-closed teeth
+now land on genuine invalidity (a still-string or corrupt board fails closed via
+ReadBoard), and AC-05 passes because the board is object-form.
 
-4. [memory-cited] §Choices.3 / AC-03 — confirmation: the slice structurally kills the frontmatter-fusion failure class.
-   What I observed: Choice 3 (render through `board.ValidateIndex` — verified at `internal/board/index.go:48`) plus AC-03's single-quoted YAML scalars directly targets [[project_index_frontmatter_corruption_false_ready]]. The structural fix (render deterministically instead of hand-authoring/hand-editing) removes the newline-eating edit path that caused the false merge-ready. The spec rationale scopes OUT the lint drift-guard (sworn#20) as an acknowledged follow-up — Rule 2 satisfied.
-   What to ask the implementer: Acknowledge the citation. No change needed; confirm the render output is what replaces the hand-authored index.md (AC-05 reachability artefact) and that the drift-guard deferral remains tracked (sworn#20).
-   Citation: [[project_index_frontmatter_corruption_false_ready]]
+**Why this drives IMPLEMENTER_FIX, not PROCEED:** the reader choice is **invisible
+to the Verifier** — a tolerant decoder and `ReadBoard` both satisfy every AC test
+(AC-05 renders, AC-04 fails on corruption). Only design review sees the divergence
+(Rule 9). Left as an apply-inline directive against a design.md that still says
+"define a local renderBoard decoder," an implementer could faithfully build the
+forbidden reader and the Verifier would pass it. The design.md must be corrected
+and re-checked.
+
+### 2. [mechanical] `ReadBoard` lazy-migration vs AC-04 "missing board.json → fail closed".
+
+**Observed:** `ReadBoard` (board.go:126-145) lazy-migrates when `board.json` is
+**absent** — it reconstructs a `BoardRecord` from `index.md` frontmatter and writes
+a new `board.json`. For a slice whose contract is *"index.md is derived from
+board.json, never hand-authored"* (the user outcome), relying on that fallback
+would **invert the data flow** and mask AC-04's "if board.json is missing … fail
+closed, no index.md written."
+
+**Direction:** the revised design must fail closed on a missing `board.json`
+explicitly (e.g. `os.Stat` the path first, or reject the migration branch) rather
+than let `ReadBoard` reconstruct from `index.md`. This interaction is introduced
+*by* the Pin 1 correction, so it belongs in the revised design.md.
+
+### 3. [mechanical] Rule 9 — record the Type-1 design decision in `status.json`.
+
+**Observed:** `status.json.design_decisions` is `null`. The cutover resolution
+(canonical strict `ReadBoard` + board migrated to object, over the rejected
+tolerant-reader option) is an architecturally-significant Type-1 choice.
+
+**Direction:** at `in_progress`, record it in `status.json.design_decisions` —
+chosen option (strict `ReadBoard`, board object-form via AC-06 cutover), rationale,
+and the rejected option (local tolerant decoder). Carries forward the prior
+review's mechanical pin.
+
+### 4. [mechanical] Drift — T2 is behind `release-wt` by 10 commits (S03 merged).
+
+**Observed:** `git rev-list --count track/…/T2..release-wt/…` = 10; the delta is
+sibling-track T3 (S03-sworn-self-ignore: implemented + verified + merged to
+release-wt) plus release-wt bookkeeping. **None of it touches S02's `spec.json`
+(byte-identical on both branches) or `design.md` (present only on T2).** So the
+review is **not** stale — the authoritative artefacts are T2's. But before
+`/merge-track`, T2 must forward-merge `release-wt/` to pull S03's merged content
+(the implementer's/verifier's drift gate — not a Captain action). Note: local
+`release-wt` (`5fefbe1`) is ahead of `origin` (`bd72c3f`); the T3 merges are
+unpushed.
+
+### 5. [memory-cited] Widen test scope beyond `./internal/board/...`.
+
+**Observed:** AC-06 names only `go test ./internal/board/...`, but the slice adds
+`cmd/sworn/render.go`. Per `feedback_releaseverify_specmd_false_fail`, a
+reader/contract change regressed fixtures in `cmd/sworn` before (the S05 strict
+reader). **Direction:** also run `go test ./cmd/sworn/...`, plus a full
+`go test ./...` **with a timeout** per `project_newline_eating_edit_corruption`
+(the newline-eating hang). Apply inline; the /merge-track affected-package gate
+also backstops. Citation: `feedback_releaseverify_specmd_false_fail`,
+`project_newline_eating_edit_corruption`.
+
+### 6. [memory-cited] Frontmatter-fusion kill — confirmed sound.
+
+**Observed:** Choice 3 (`board.ValidateIndex`, index.go:48, + single-quoted YAML
+scalars, AC-03) directly targets `project_index_frontmatter_corruption_false_ready`
+— deterministic render removes the newline-eating hand-edit path that caused the
+false merge-ready. **Direction:** confirm the rendered output *replaces* the
+hand-authored index.md (AC-05 reachability), and keep the sworn#20 lint drift-guard
+deferral tracked (Rule 2 — the design scopes it out correctly). Citation:
+`project_index_frontmatter_corruption_false_ready`.
 
 ## Summary
-Pins: 4 total — 1 [mechanical], 2 [memory-cited], 1 [escalate]
-Critical pins (if any): Pin 1 — the AC-04↔AC-05 contradiction determines whether AC-05 can pass at all; building either strictness without Coach authority ships a spec-deviating slice.
 
-## Smaller flags (not pins, worth one-line acknowledgement)
-- (a) Pin 2 in the design (test fixtures under `internal/board/testdata/render/` sit outside the 3-file touchpoint list) is conventional and fine — inert fixtures owned by `render_test.go`, no decision needed.
-- (b) No touchpoint collisions: S02's three files appear in no sibling's touchpoints; S04/S05 (both merged) authored the `board.go` symbols S02 only *reads*. The design's touchpoint-disjoint claim (which AC-05 asserts) independently holds.
-- (c) Drift gate reported the track 2 commits behind release-wt — a false positive: both are worktree-materialisation bookkeeping commits and `spec.json` is byte-identical across refs. Reviewed against the track worktree's design.md (the freshest, and the only ref that has it).
-
-## Suggested acknowledgement reply
-<!-- Human-extractable section: a driver that applies the acknowledgement automatically reads everything
-     between this heading and the next ## heading (or EOF). Keep this content
-     verbatim-pasteable into the Implementer session — no surrounding prose. -->
-
-TL;DR Solid, well-anchored design — every cited symbol and the board.json string-shape all verified true; one load-bearing spec contradiction needs a Coach call. 4 pins + 3 flags:
-
-1. **AC-04↔AC-05 contradiction (Coach decision).** AC-04 fails-closed on "invalid against board-v1" (canonical reader wants `release`=object); AC-05 requires render to succeed against this release's string-shaped board. Do NOT pick unilaterally. Await the Coach's choice: (a) render tolerates dual string-or-object form and does not enforce `release`=object, or (b) render enforces strict board-v1 and this slice depends on migrating board.json (T4). If unresolved, this routes to `/replan-release`.
-2. **Record the Type-1 decision.** Once Pin 1 is resolved, write it into `status.json.design_decisions` as a Type-1 choice (chosen option + rationale + both options) before coding — Rule 9 design-fit gate; the field is currently absent.
-3. **Widen the test scope.** AC-06 only names `go test ./internal/board/...`, but you add `cmd/sworn/render.go` + a new reader path — the package a strict-reader change regressed before (feedback_releaseverify_specmd_false_fail). Run `go test ./cmd/sworn/...` too, plus full `go test ./...` with a timeout, before claiming done.
-4. **Frontmatter fix — acknowledged.** Choice 3 (`ValidateIndex` + single-quoted scalars, AC-03) correctly kills the index-frontmatter-fusion failure class; keep the sworn#20 drift-guard deferral tracked.
-
-Flags (not pins): (a) test fixtures outside the 3-file touchpoint list is fine; (b) no sibling touchpoint collisions, disjointness holds; (c) the drift-gate "2 commits behind" is a bookkeeping false positive, spec byte-identical.
-
-§2 decisions 2 ([[feedback_releaseverify_specmd_false_fail]]), 3 ([[project_index_frontmatter_corruption_false_ready]]) memory-cited; 4, 5 clean and acknowledged. §6 Pin 2 (fixtures) acknowledged; §6 Pin 1 is the escalate above.
-
-Address pins 2–4 inline during implementation once Pin 1 is resolved, then proceed to in_progress.
+**6 pins — 3 [mechanical], 2 [memory-cited], 1 [escalate].**
+Critical: **Pin 1** — the design.md still specifies the forbidden pre-cutover
+tolerant decoder; shipping from it would recreate the reader-divergence the cutover
+eliminated, and the Verifier cannot catch it. Pins 2–3 fold into the same design
+revision; Pins 4–6 are apply-inline / confirmations. The design is otherwise sound
+and fully AC-traced (pure `Render`/`RenderToFile`, stable orderings, `ValidateIndex`
+reuse, build-then-write fail-closed, `top`/`ship`-mirrored verb).
 
 <!-- CAPTAIN-VERDICT
-DECISION: NEEDS_COACH
+DECISION: IMPLEMENTER_FIX
 CONSTITUTIONAL: no
-REASON: AC-04 (fail closed on invalid board-v1 = release-object) and AC-05 (must render this release's string-shaped board) are an internal spec contradiction; resolving it also commits a Type-1 tolerant-reader architecture — a spec-coherence + design-fidelity judgement only the Coach can make.
+REASON: Design Choice 1 still specifies the pre-cutover tolerant renderBoard decoder; the cutover settled the direction (canonical strict ReadBoard, board object-form) but the reader choice is Verifier-invisible (Rule 9), so design.md must be revised (use ReadBoard, guard the lazy-migration/AC-04 interaction, record the Type-1 decision) and re-checked before code.
 -->
