@@ -9,7 +9,7 @@
     "N-03"
   ],
   "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/spec.json",
-  "start_commit": null,
+  "start_commit": "622f118ef3fda5581d332fdd76a80f39432de763",
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
