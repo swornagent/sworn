@@ -18,6 +18,20 @@ results or a wrong-track error.
 
 - N-01
 
+## Required tests
+
+- `go test ./internal/mcp/...` — exercises `TestGetBoard`,
+  `TestGetBlockedExtractsViolations`, `TestGetSliceContext`,
+  `TestDeferSliceWritesRuleTwo`, `TestRerunSliceWritesPID`,
+  `TestPatchSliceWritesInstructions`,
+  `TestApproveMergeRejectsUnverified`, `TestListReleases`,
+  `TestSetTrackUpdates`, `TestSetTrackColon`. These are the same code
+  paths an MCP client reaches over the wire — passing them is the
+  reachability artefact for this slice.
+- `go test ./...` — full suite must stay green.
+- `go vet ./...` — must stay clean.
+- `go build ./...` — must succeed.
+
 ## Acceptance criteria
 
 - **AC-01** — When any MCP tool in `tools_ops.go` (board read, get_blocked,
