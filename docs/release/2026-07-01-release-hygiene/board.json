@@ -5,6 +5,7 @@
     "name": "2026-07-01-release-hygiene",
     "integration_branch": "release/v0.1.0"
   },
+  "release_worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-07-01-release-hygiene",
   "release_worktree_branch": "release-wt/2026-07-01-release-hygiene",
   "tracks": [
     {
@@ -14,8 +15,9 @@
         "S02-version-bump-ci-gate"
       ],
       "depends_on": [],
+      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-07-01-release-hygiene-T1-version-hygiene",
       "worktree_branch": "track/2026-07-01-release-hygiene/T1-version-hygiene",
-      "state": "planned"
+      "state": "in_progress"
     }
   ]
 }
