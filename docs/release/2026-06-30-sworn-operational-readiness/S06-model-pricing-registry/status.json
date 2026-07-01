@@ -3,7 +3,7 @@
   "slice_id": "S06-model-pricing-registry",
   "release": "2026-06-30-sworn-operational-readiness",
   "track": "T5-model-pricing-registry",
-  "state": "planned",
+  "state": "design_review",
   "covers_needs": [
     "N-09"
   ],
