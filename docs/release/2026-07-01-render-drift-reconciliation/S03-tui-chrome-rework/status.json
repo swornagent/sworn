@@ -1,0 +1,20 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S03-tui-chrome-rework",
+  "release": "2026-07-01-render-drift-reconciliation",
+  "track": "T2-tui",
+  "state": "planned",
+  "covers_needs": ["N-04"],
+  "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S03-tui-chrome-rework/spec.json",
+  "start_commit": null,
+  "effort_complexity": {
+    "effort": "medium",
+    "complexity": "medium",
+    "quadrant": "feature",
+    "rationale": "Wire WindowSizeMsg into Model, make pane widths responsive, add header, restyle help bar.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending"
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "schema_version": 1,
+  "slice_id": "S07-remaining-rescrape-cleanup",
+  "release": "2026-07-01-render-drift-reconciliation",
+  "user_outcome": "Paging notifications report violations from the same source of truth as everywhere else (proof.json), and the lint ledger's acceptance-check counts and EARS classification come from spec.json instead of being independently re-derived from spec.md text with their own, possibly-disagreeing heuristics.",
+  "rationale": "internal/account/notify.go's ViolationsSummary regex-scrapes proof.md for numbered list items — a third independent violations-parsing heuristic (after blocked.go's and context.go's, fixed in S02/S04), each of which can disagree with the others and with proof.json.not_delivered, the actual source of truth. internal/ears/ears.go re-classifies EARS keywords from spec.md text on every lint run, even though spec_record.go already computed and stored ears_keyword in spec.json.acceptance_criteria[] at write time. cmd/sworn/ledger.go counts `- [ ]` lines in spec.md instead of len(spec.json.acceptance_criteria). None of these three files overlap with S01-S06's touchpoints.",
+  "covers_needs": ["N-01"],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "chore",
+    "rationale": "Three independent, small, mechanical swaps — read the JSON field that already has the answer instead of re-deriving it from prose. No shared logic between the three files beyond the general pattern.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    "internal/account/notify.go",
+    "internal/account/notify_test.go",
+    "internal/ears/ears.go",
+    "internal/ears/ears_test.go",
+    "cmd/sworn/ledger.go",
+    "cmd/sworn/ledger_test.go"
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When `ViolationsSummary` (notify.go) builds a paging notification's violations list, it SHALL read `proof.json.not_delivered` directly instead of regex-scraping `proof.md` for numbered list items."
+    },
+    {
+      "id": "AC-02",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When `internal/ears` classifies an acceptance criterion's EARS keyword during a lint run, it SHALL read the already-computed `ears_keyword` field from `spec.json.acceptance_criteria[]` instead of re-classifying it from `spec.md` prose text."
+    },
+    {
+      "id": "AC-03",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When `cmd/sworn/ledger.go` counts a slice's acceptance checks, it SHALL use `len(spec.json.acceptance_criteria)` instead of counting `- [ ]` lines in `spec.md`."
+    },
+    {
+      "id": "AC-04",
+      "type": "unwanted",
+      "ears_keyword": "If",
+      "text": "For any slice whose `spec.md` and `spec.json`/`proof.json` currently disagree (a real possibility given three independently-drifted scrapers existed), the JSON value SHALL be treated as authoritative post-change — this slice does not attempt to reconcile pre-existing spec.md/JSON disagreements in historical slices, only changes which source future reads use."
+    },
+    {
+      "id": "AC-05",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "After the change, `go build ./...` SHALL succeed and `go test ./internal/account/... ./internal/ears/... ./cmd/sworn/...` SHALL pass."
+    }
+  ]
+}

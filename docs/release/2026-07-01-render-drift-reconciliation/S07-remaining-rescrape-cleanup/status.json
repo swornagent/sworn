@@ -1,0 +1,20 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S07-remaining-rescrape-cleanup",
+  "release": "2026-07-01-render-drift-reconciliation",
+  "track": "T5-core-loop-rtm-rescrape",
+  "state": "planned",
+  "covers_needs": ["N-01"],
+  "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S07-remaining-rescrape-cleanup/spec.json",
+  "start_commit": null,
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "chore",
+    "rationale": "Three independent, small, mechanical swaps of a re-derived value for the JSON field that already has it.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending"
+  }
+}
