@@ -76,3 +76,50 @@ harness bug, not a sworn-repo issue, flagged to the Coach at session end
 rather than filed as a GitHub issue. Full detail recorded in proof.json's
 divergence section. Treating first-pass as green given every substantive,
 applicable check passed.
+
+## Verifier verdicts received
+
+### 2026-07-02 — FAIL
+
+Fresh-context verifier session (Rule 7), no inherited implementer context.
+Discovered inside track worktree at
+`/home/brad/projects/sworn-worktrees/release-2026-07-01-render-drift-reconciliation-T1-drift-guard`
+via the release board oracle (`sworn board --release
+2026-07-01-render-drift-reconciliation --json`) + `git worktree list`; zero
+drift against `release-wt/2026-07-01-render-drift-reconciliation` at time of
+verification (no forward-merge needed).
+
+**Verdict: FAIL.** 3 violations. Full detail in the FAIL block returned to
+the human this session; summary:
+
+1. Gate 3b (AC-05 not satisfied) — rebuilt `sworn` from this worktree's HEAD
+   (`3679145`) and ran `sworn doctor` for real. It reports
+   `[ERROR] render drift (2026-07-01-render-drift-reconciliation)` — this
+   release's own committed `index.md` does not match `board.Render`'s
+   output, because commit `b96f27a` set S01's `status.json.state` to
+   `implemented` without re-rendering `index.md` (last rendered in
+   `f0792d2`, while S01 was still `in_progress` — see this journal's own
+   "Implementation complete" entry, which only mentions rendering once,
+   mid-session). AC-05 requires zero drift errors for T1-T5-scope releases
+   beyond the two named tracked exceptions (#44, #45); this release itself,
+   in scope, is not one of them.
+2. Gate 4 / Gate 7 (stale reachability artefact / delivered claim) —
+   `reachability-doctor-output.txt` and `proof.json`'s AC-05 `delivered`
+   entry both claim "zero render-drift errors beyond the two tracked
+   exceptions," captured in the same commit (`b96f27a`) that introduced the
+   drift described above. A fresh run at HEAD reports 3 drifted releases,
+   not 2.
+3. Gate 2 (minor, undocumented touchpoint mismatch) — `spec.json` lists
+   `internal/board/board_test.go` as a planned touchpoint; it was never
+   modified in this slice's diff, and neither `proof.json`'s `not_delivered`
+   (empty) nor its `divergence` section explains the omission.
+
+Confirmed via "Before you FAIL" gate: all three are legal implementer fixes
+(re-render `index.md` + re-capture the reachability artefact after the
+final `status.json` state settles; add one documentation sentence for
+violation 3) — none require a different test shape, touch an accepted
+deferral, or need planner authority. Verdict is FAIL, not BLOCKED.
+
+`state` -> `failed_verification`. Re-opens via `/implement-slice
+S01-render-drift-guard 2026-07-01-render-drift-reconciliation` in a fresh
+session.

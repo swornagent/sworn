@@ -3,7 +3,7 @@
   "slice_id": "S01-render-drift-guard",
   "release": "2026-07-01-render-drift-reconciliation",
   "track": "T1-drift-guard",
-  "state": "implemented",
+  "state": "failed_verification",
   "covers_needs": [
     "N-02"
   ],
@@ -49,6 +49,13 @@
     "docs/release/2026-07-01-render-drift-reconciliation/S01-render-drift-guard/reachability-doctor-output.txt"
   ],
   "verification": {
-    "result": "pending"
+    "result": "fail",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-02T00:00:00Z",
+    "violations": [
+      "Gate 3b (AC-05 not satisfied): a fresh `sworn doctor` run at this worktree's HEAD (3679145) reports [ERROR] render drift (2026-07-01-render-drift-reconciliation) — this release's own committed index.md does not match board.Render's output. Root cause: commit b96f27a set S01's status.json state to 'implemented' without re-rendering index.md (last rendered in f0792d2 while S01 was still in_progress). AC-05 requires zero drift errors for T1-T5-scope releases beyond tracked exceptions #44/#45; this release is in scope and is not a tracked exception.",
+      "Gate 4/Gate 7 (stale reachability artefact / delivered claim): reachability-doctor-output.txt and proof.json's AC-05 delivered entry claim zero render-drift errors beyond the two tracked exceptions, captured in the same commit (b96f27a) that introduced the drift above. A fresh run at HEAD reports 3 drifted releases, not 2.",
+      "Gate 2 (undocumented touchpoint mismatch): spec.json lists internal/board/board_test.go as a planned touchpoint; it was never modified in this slice's diff, and neither proof.json's not_delivered (empty) nor its divergence section explains the omission."
+    ]
   }
 }
