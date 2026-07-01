@@ -89,3 +89,37 @@ Remaining fleet-cutover items (operator-coordinated, NOT S02, surfaced Rule 2):
 - 2026-06-30 primary-tree board reconciles to object automatically at /merge-release.
 - Local ./bin/sworn (76c657b) is now inconsistent with the global strict binary;
   rebuild or remove once the integration branch carries S05.
+
+## 2026-07-01 — design.md REVISED per DECISION: IMPLEMENTER_FIX (re-review post-cutover)
+
+**State on entry:** `design_review`, `verification.result: pending`. The re-review
+(`review.md`, 2026-07-01, Captain) returned **`DECISION: IMPLEMENTER_FIX`**, not
+PROCEED — because `design.md` still described the **pre-cutover** approach (Choice 1
+= local tolerant `renderBoard` decoder reading `release` as `json.RawMessage`). Per
+`captain.md` an IMPLEMENTER_FIX verdict returns the design to the implementer for
+revision; Rule 9 forbids writing code from a design that specifies the forbidden
+reader (the reader choice is Verifier-invisible — both readers pass every AC test).
+
+**No production code written this session.** Revised `design.md` only, addressing the
+three review pins that fold into the design:
+- **Pin 1** (was ESCALATE → resolved-direction): replaced Choice 1. The renderer now
+  decodes via canonical strict `board.ReadBoard` (object-only `release`); no local
+  tolerant struct, no string-form acceptance. Justified live: board is object-form
+  post-cutover, `ReadBoard` succeeds (`sworn board --release … --json` exit 0).
+- **Pin 2** (mechanical): added Choice 2 — `Render` `os.Stat`s `board.json` first and
+  fails closed on absence, so `ReadBoard`'s lazy-migration-from-`index.md`
+  (board.go:126-142 → `migrateFromIndex`) never fires and cannot invert the data flow
+  AC-04 exists to protect. Verified the lazy-migration path in live code before writing.
+- **Pin 3** (mechanical): documented the Type-1 design decision (strict `ReadBoard` +
+  object-form board, over the rejected local tolerant decoder) as a new design.md
+  section, to be transcribed into `status.json.design_decisions` at `in_progress`.
+  Type-1 human decision already exists (Coach authorised the cutover); the implementer
+  transcribes, does not originate it.
+
+Also carried Pin 3-test-scope (run `./cmd/sworn/...` + full suite with timeout) and
+Pin 2-fixture (object-form testdata board) into the revised design's Pins section.
+
+**Slice stays `design_review`.** A design revised after a non-PROCEED verdict must be
+re-reviewed (Rule 9 — no jump to code). **Next step:** fresh `/design-review
+S02-board-render 2026-06-30-sworn-operational-readiness` — expect PROCEED now that the
+design specifies the strict reader and the missing-board guard.
