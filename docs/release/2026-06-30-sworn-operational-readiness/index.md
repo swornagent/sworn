@@ -21,7 +21,7 @@ release overnight. Parallelism out of scope (serial is acceptable).
 |-------|--------|------------|-------|
 | `T1-operational-unblock` | `S01-d6-record-reconciliation` | — | merged |
 | `T2-board-render` | `S02-board-render` | — | in_progress |
-| `T3-consumer-repo-hygiene` | `S03-sworn-self-ignore` | — | in_progress |
+| `T3-consumer-repo-hygiene` | `S03-sworn-self-ignore` | — | merged |
 | `T4-board-record-reconciliation` | `S04-board-record-reconciliation` | — | merged |
 
 Four independent tracks (touchpoint-disjoint, see matrix). Serial execution is fine —
