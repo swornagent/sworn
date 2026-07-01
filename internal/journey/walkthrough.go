@@ -90,7 +90,7 @@ func LoadAttestations(projectRoot string) (*AttestationArtefact, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &AttestationArtefact{
-				Schema: baton.AttestationsSchemaURI,
+				Schema:       baton.AttestationsSchemaURI,
 				Version:      1,
 				Attestations: []Attestation{},
 				Ratification: Ratification{

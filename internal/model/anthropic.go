@@ -158,7 +158,7 @@ func (a *Anthropic) Chat(ctx context.Context, messages []ChatMessage, tools []To
 		}
 	}
 	return nil, fmt.Errorf("model: no text content in Anthropic chat response")
-}// anthropicStatusCode extracts the HTTP status code from an anthropic-sdk-go
+} // anthropicStatusCode extracts the HTTP status code from an anthropic-sdk-go
 // error. The SDK's internal *apierror.Error formats as:
 //
 //	'<METHOD> "<URL>": <CODE> <TEXT> [(Request-ID: <ID>)] <JSON>'

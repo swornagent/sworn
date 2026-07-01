@@ -23,7 +23,8 @@ type fakeVerifier struct {
 }
 
 func (f fakeVerifier) Verify(_ context.Context, _, _ string) (string, float64, int64, int64, error) {
-	return f.reply, 0.0, 0, 0, nil}
+	return f.reply, 0.0, 0, 0, nil
+}
 
 // passingReply returns a reply that grades every AC as PASS.
 // Format must match reqverify's parseGrades expectations:
@@ -197,10 +198,10 @@ func writeValidationRecord(t *testing.T, releaseDir, sliceID string, humanRatifi
 
 	dir := filepath.Join(releaseDir, sliceID)
 	s := state.Status{
-		Schema:     "https://example.com/schemas/baton/slice-status-v1.json",
-		SliceID:    sliceID,
-		Release:    "test-release",
-		Track:      "T1-test",
+		Schema:       "https://example.com/schemas/baton/slice-status-v1.json",
+		SliceID:      sliceID,
+		Release:      "test-release",
+		Track:        "T1-test",
 		State:        state.Planned,
 		Validation:   v,
 		Verification: state.Verification{Result: "pending"},

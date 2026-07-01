@@ -70,7 +70,8 @@ func resolveBedrockRegion() string {
 // verification. Chat is available via the Anthropic SDK path.
 func (b *Bedrock) Capabilities() Capability { return CapVerify }
 
-func (b *Bedrock) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {	output, err := b.Client.Converse(ctx, &bedrockruntime.ConverseInput{
+func (b *Bedrock) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
+	output, err := b.Client.Converse(ctx, &bedrockruntime.ConverseInput{
 		ModelId: aws.String(b.ModelID),
 		System: []types.SystemContentBlock{
 			&types.SystemContentBlockMemberText{Value: systemPrompt},

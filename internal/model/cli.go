@@ -153,7 +153,7 @@ func (d *cliDriver) Chat(ctx context.Context, messages []ChatMessage, tools []To
 		Usage:   &UsageBlock{},
 		CostUSD: 0,
 	}, nil
-}// classifyError maps subprocess errors to typed model.Error values.
+} // classifyError maps subprocess errors to typed model.Error values.
 func (d *cliDriver) classifyError(ctx context.Context, err error) *Error {
 	// Deadline exceeded → the call timed out.
 	if ctx.Err() == context.DeadlineExceeded {

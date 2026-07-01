@@ -69,7 +69,8 @@ func NewGoogleVertex(modelID, project, location string) (*Google, error) {
 // verification. Chat is available via the genai SDK.
 func (g *Google) Capabilities() Capability { return CapVerify }
 
-func (g *Google) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {	resp, err := g.Client.Models.GenerateContent(ctx, g.Model,
+func (g *Google) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
+	resp, err := g.Client.Models.GenerateContent(ctx, g.Model,
 		genai.Text(userPayload),
 		&genai.GenerateContentConfig{
 			SystemInstruction: genai.NewContentFromText(systemPrompt, ""),
@@ -105,6 +106,7 @@ func (g *Google) Verify(ctx context.Context, systemPrompt, userPayload string) (
 	cost := computeGoogleCost(g.Model, resp.UsageMetadata)
 	return text, cost, 0, 0, nil
 }
+
 // googlePricing maps model IDs to USD per 1M tokens.
 // Prices sourced from Google's public pricing page:
 //

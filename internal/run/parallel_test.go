@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	_ "modernc.org/sqlite"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +13,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-	_ "modernc.org/sqlite"
 
 	"github.com/swornagent/sworn/internal/scheduler"
 ) // fakeRunSlicePass always returns nil (success).
@@ -698,6 +698,7 @@ func TestInvariant2_OverlapBlocksSecondTrack(t *testing.T) {
 		t.Errorf("stderr should mention the overlapping file, got: %s", stderr)
 	}
 }
+
 // TestInvariant2_NoOverlapBothRun exercises: disjoint planned_files → both
 // tracks launch and pass.
 func TestInvariant2_NoOverlapBothRun(t *testing.T) {
