@@ -321,11 +321,8 @@ func (ot *OpsTools) findBlockedInRelease(release string) []string {
 				continue
 			}
 			if s.State == state.FailedVerification || (s.Verification.Result == "blocked") {
-				violations := ""
-				proofPath := filepath.Join(ot.repoRoot, "docs", "release", release, sliceID, "proof.md")
-				if proofData, err := os.ReadFile(proofPath); err == nil {
-					violations = extractViolations(string(proofData))
-				}
+				sliceDir := filepath.Join(ot.repoRoot, "docs", "release", release, sliceID)
+				violations := readProofViolations(sliceDir)
 				entry := fmt.Sprintf("Release: %s\n  Track: %s\n  Slice: %s\n  State: %s\n  Worktree: %s\n",
 					release, t.ID, sliceID, s.State, t.WorktreePath)
 				if violations != "" {

@@ -3,13 +3,13 @@
   "slice_id": "S04-mcp-oracle-migration",
   "release": "2026-07-01-render-drift-reconciliation",
   "track": "T3-mcp",
-  "state": "in_progress",
+  "state": "implemented",
   "covers_needs": [
     "N-01"
   ],
-  "last_updated_at": "2026-07-01T20:00:25Z",
+  "last_updated_at": "2026-07-01T20:06:56Z",
   "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S04-mcp-oracle-migration/spec.json",
-  "start_commit": "76951a10b374c4ebc999ae803bf3da2f923bdd06",
+  "start_commit": "dbd3d996ba5181b65a1e0e9230f7529acd152bb7",
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
@@ -27,11 +27,10 @@
     "verifier_verdict_at": "2026-07-02T12:45:00Z"
   },
   "actual_files": [
-    "internal/mcp/tools_ops.go",
     "internal/mcp/context.go",
-    "internal/mcp/tools_plan.go",
-    "internal/mcp/catalog.go",
-    "internal/mcp/tools_plan_test.go"
+    "internal/mcp/lint_test.go",
+    "internal/mcp/tools_ops.go",
+    "internal/mcp/tools_test.go"
   ],
   "test_commands": [
     "go test ./internal/mcp/...",

@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -50,11 +51,8 @@ func AssembleSliceContext(release, sliceID, repoRoot string) (*SliceContext, err
 		return nil, fmt.Errorf("read spec: %w", err)
 	}
 
-	// 2. Read proof.md for violations
-	var violations string
-	if proofData, err := os.ReadFile(filepath.Join(sliceDir, "proof.md")); err == nil {
-		violations = extractViolations(string(proofData))
-	}
+	// 2. Read violations — proof.json.not_delivered preferred; fall back to proof.md regex.
+	violations := readProofViolations(sliceDir)
 
 	// 3. Read journal.md
 	var journalContent string
@@ -110,6 +108,33 @@ func AssembleSliceContext(release, sliceID, repoRoot string) (*SliceContext, err
 		StartCommit:    startCommit,
 		SliceState:     sliceState,
 	}, nil
+}
+
+// readProofViolations reads not_delivered from proof.json (AC-02 — the oracle
+// source of truth for violations). Falls back to proof.md regex scrape when
+// proof.json is absent (legacy slices that were never touched by the
+// proof-v1 record writer).
+func readProofViolations(sliceDir string) string {
+	// Prefer proof.json.not_delivered (proof-v1 schema).
+	proofJSONPath := filepath.Join(sliceDir, "proof.json")
+	if data, err := os.ReadFile(proofJSONPath); err == nil {
+		var pr struct {
+			NotDelivered []string `json:"not_delivered"`
+		}
+		if err := json.Unmarshal(data, &pr); err == nil && len(pr.NotDelivered) > 0 {
+			var lines []string
+			for _, nd := range pr.NotDelivered {
+				lines = append(lines, "FAIL: "+nd)
+			}
+			return strings.Join(lines, "\n")
+		}
+	}
+
+	// Fallback: proof.md regex scrape (legacy).
+	if proofData, err := os.ReadFile(filepath.Join(sliceDir, "proof.md")); err == nil {
+		return extractViolations(string(proofData))
+	}
+	return ""
 }
 
 // extractViolations parses violations from proof.md content. It looks for

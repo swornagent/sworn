@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/state"
 ) // ---- Fixture helpers ----
 
@@ -86,29 +87,52 @@ func (fr *fixtureRelease) writeProof(t *testing.T, sliceID, proof string) {
 	fr.writeSliceFile(t, sliceID, "proof.md", proof)
 }
 
-// writeOpsIndex writes a standard fixture index.md for the safe-parallelism release.
+// writeOpsIndex writes a standard fixture index.md and board.json for the release.
 func writeOpsIndex(t *testing.T, dir, name string, trackSlices map[string][]string) {
 	t.Helper()
 	var b strings.Builder
 	b.WriteString("---\n")
 	fmt.Fprintf(&b, "title: 'Release board — %s'\n", name)
-	b.WriteString("tracks:\n")
-	i := 0
-	for trackID, slices := range trackSlices {
-		i++
-		fmt.Fprintf(&b, "  - id: %s\n", trackID)
-		fmt.Fprintf(&b, "    slices: [%s]\n", strings.Join(slices, ", "))
-		fmt.Fprintf(&b, "    depends_on: null\n")
-		fmt.Fprintf(&b, "    worktree_path: /tmp/wt/%s\n", trackID)
-		fmt.Fprintf(&b, "    worktree_branch: track/x/%s\n", trackID)
-		fmt.Fprintf(&b, "    state: in_progress\n")
-	}
 	b.WriteString("release_worktree_path: /tmp/release-wt\n")
 	b.WriteString("release_worktree_branch: release-wt/x\n")
 	b.WriteString("---\n\nRelease board.\n")
 
 	if err := os.WriteFile(filepath.Join(dir, "index.md"), []byte(b.String()), 0o644); err != nil {
 		t.Fatalf("write index.md: %v", err)
+	}
+
+	// Write board.json — the current-format (ADR-0009) source of truth.
+	writeBoardJSON(t, dir, name, trackSlices)
+}
+
+// writeBoardJSON writes a board.json fixture for the release using the current
+// board.BoardRecord shape. Each entry in trackSlices is a track ID → []sliceID.
+func writeBoardJSON(t *testing.T, releaseDir, releaseName string, trackSlices map[string][]string) {
+	t.Helper()
+	var tracks []board.BoardTrack
+	for trackID, slices := range trackSlices {
+		tracks = append(tracks, board.BoardTrack{
+			ID:             trackID,
+			Slices:         slices,
+			State:          "in_progress",
+			WorktreePath:   "/tmp/wt/" + trackID,
+			WorktreeBranch: "track/x/" + trackID,
+		})
+	}
+	br := &board.BoardRecord{
+		SchemaVersion:         1,
+		Release:               board.StringRelease(releaseName),
+		ReleaseWorktreePath:   "/tmp/release-wt",
+		ReleaseWorktreeBranch: "release-wt/x",
+		Tracks:                tracks,
+	}
+	data, err := json.MarshalIndent(br, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal board.json: %v", err)
+	}
+	boardPath := filepath.Join(releaseDir, "board.json")
+	if err := os.WriteFile(boardPath, append(data, '\n'), 0o644); err != nil {
+		t.Fatalf("write board.json: %v", err)
 	}
 }
 
@@ -278,18 +302,20 @@ func TestGetSliceContext(t *testing.T) {
 	fr := setupFixtureRelease(t, "test-release-c")
 	gitFixture := setupGitRepo(t)
 
-	// Build index.md with worktree_path pointing to the real git repo
-	var b strings.Builder
-	b.WriteString("tracks:\n")
-	b.WriteString("  - id: T1-engine\n")
-	b.WriteString("    slices: [S01-test-slice]\n")
-	b.WriteString("    depends_on: null\n")
-	fmt.Fprintf(&b, "    worktree_path: %s\n", gitFixture.Dir)
-	b.WriteString("    worktree_branch: track/x/T1-engine\n")
-	b.WriteString("    state: in_progress\n")
-	b.WriteString("release_worktree_path: /tmp/release-wt\n")
-	b.WriteString("release_worktree_branch: release-wt/x\n")
-	fr.writeIndexContent(t, b.String())
+	// Build board.json with worktree_path pointing to the real git repo
+	writeBoardJSON(t, fr.Dir, "test-release-c", map[string][]string{
+		"T1-engine": {"S01-test-slice"},
+	})
+	// Update the worktree_path in board.json to the real git repo.
+	boardJSONPath := filepath.Join(fr.Dir, "board.json")
+	boardData, err := os.ReadFile(boardJSONPath)
+	if err != nil {
+		t.Fatalf("read board.json: %v", err)
+	}
+	boardData = []byte(strings.Replace(string(boardData), "/tmp/wt/T1-engine", gitFixture.Dir, 1))
+	if err := os.WriteFile(boardJSONPath, boardData, 0o644); err != nil {
+		t.Fatalf("write board.json: %v", err)
+	}
 
 	fr.writeSlice(t, "S01-test-slice", "# S01-test-slice\n\nSome spec content.")
 	// Write status.json directly with exact JSON to avoid writeStatus quoting issues
