@@ -28,9 +28,9 @@ func cmdVerify(args []string) int {
 	fs := flag.NewFlagSet("verify", flag.ExitOnError)
 	spec := fs.String("spec", "", "path to the spec / acceptance criteria (required)")
 	diff := fs.String("diff", "", "path to the unified diff, or - for stdin (required)")
-	proof := fs.String("proof", "", "path to the proof bundle (optional in this build)")
+	proof := fs.String("proof", "", "path to the proof bundle (required — fail closed per Rule 6)")
 	mdl := fs.String("verifier-model", "", "verifier model id (provider/model)")
-	agentic := fs.Bool("agentic", false, "use agentic verifier (full verifier.md role via Chat) instead of stateless judge")
+	agentic := fs.Bool("agentic", false, "use agentic verifier (full verifier.md role, schema-constrained verdict) instead of the deterministic first-pass")
 	var openDeferrals openDeferralsFlag
 	fs.Var(&openDeferrals, "deferral", "declared Rule-2 deferral (repeatable: 'why - tracking - ack')")
 	_ = fs.Parse(args) // Resolve verifier model with precedence: flag > env > config.
@@ -62,14 +62,22 @@ func cmdVerify(args []string) int {
 			return 2
 		}
 	}
-	// v remains nil when no model is configured -> Unconfigured (fail-closed).
+	// v remains nil when no model is configured; the default path below is
+	// the deterministic first-pass and never dispatches it.
 
 	// ── Agentic path (--agentic flag) ──────────────────────────────
 	if *agentic {
-		// Read spec, diff, proof content for the agentic payload.
+		// Read spec, diff, proof content for the agentic payload. All three
+		// are required and must be non-empty BEFORE the verifier is created
+		// or dispatched — an empty payload must never reach the model, and a
+		// missing/empty/unparseable proof must never upgrade to PASS (Rule 6).
 		specContent, sErr := readFileContent(*spec)
 		if sErr != nil {
 			fmt.Fprintf(os.Stderr, "sworn verify: read spec: %v\n", sErr)
+			return 2
+		}
+		if strings.TrimSpace(specContent) == "" {
+			fmt.Fprintf(os.Stderr, "sworn verify: spec is required and must be non-empty (--spec) — fail closed\n")
 			return 2
 		}
 		diffContent, dErr := readFileContent(*diff)
@@ -77,7 +85,27 @@ func cmdVerify(args []string) int {
 			fmt.Fprintf(os.Stderr, "sworn verify: read diff: %v\n", dErr)
 			return 2
 		}
-		proofContent, _ := readFileContent(*proof) // proof is optional
+		if strings.TrimSpace(diffContent) == "" {
+			fmt.Fprintf(os.Stderr, "sworn verify: diff is required and must be non-empty (--diff) — fail closed\n")
+			return 2
+		}
+		if *proof == "" {
+			fmt.Fprintf(os.Stderr, "sworn verify: proof bundle is required (--proof) — fail closed (Rule 6)\n")
+			return 2
+		}
+		proofContent, pErr := readFileContent(*proof)
+		if pErr != nil {
+			fmt.Fprintf(os.Stderr, "sworn verify: read proof: %v\n", pErr)
+			return 2
+		}
+		if strings.TrimSpace(proofContent) == "" {
+			fmt.Fprintf(os.Stderr, "sworn verify: proof bundle %s is empty — fail closed (Rule 6)\n", *proof)
+			return 2
+		}
+		if strings.HasSuffix(*proof, ".json") && !json.Valid([]byte(proofContent)) {
+			fmt.Fprintf(os.Stderr, "sworn verify: proof bundle %s is not valid JSON — fail closed (Rule 6)\n", *proof)
+			return 2
+		}
 
 		// Create an agentic verifier (agent.Agent, not model.Verifier).
 		va, vaErr := model.FromEnv(resolvedModel)
@@ -111,9 +139,12 @@ func cmdVerify(args []string) int {
 		deferrals = append(deferrals, state.Deferral{Item: d})
 	}
 	res := verify.RunFirstPass(context.Background(), verify.Input{
-		SpecPath:      *spec,
-		DiffPath:      *diff,
-		ProofPath:     *proof,
+		SpecPath:  *spec,
+		DiffPath:  *diff,
+		ProofPath: *proof,
+		// The standalone CLI is the proof-bundle gate: an absent --proof is
+		// BLOCKED, never PASS (Rule 6 fail-closed).
+		ProofRequired: true,
 		Model:         resolvedModel,
 		Verifier:      v,
 		OpenDeferrals: deferrals,

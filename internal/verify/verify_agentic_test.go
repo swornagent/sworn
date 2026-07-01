@@ -238,6 +238,77 @@ func TestRunAgenticStructuredDispatchErrorInconclusive(t *testing.T) {
 	}
 }
 
+// TestRunAgenticTerminalDispatchErrorBlocked proves a terminal provider error
+// (revoked key, exhausted credits — model.IsTerminal) on the verifier dispatch
+// surfaces as BLOCKED, not INCONCLUSIVE: triage maps BLOCKED to Halt, so the
+// run loop cannot burn the implementer escalation ladder on an error that can
+// never succeed on retry — mirroring the implementer path's terminal-error
+// halt (S09 AC1).
+func TestRunAgenticTerminalDispatchErrorBlocked(t *testing.T) {
+	cases := []struct {
+		name string
+		kind model.ErrorKind
+	}{
+		{"auth_revoked_key", model.KindAuth},
+		{"credits_exhausted", model.KindCredits},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sa := &structuredAgent{
+				structuredFn: func(ctx context.Context, messages []model.ChatMessage, schema []byte) (*model.ChatResponse, error) {
+					return nil, &model.Error{
+						Kind:     tc.kind,
+						Status:   401,
+						Provider: "openai",
+						Model:    "gpt-4o-mini",
+						Message:  "credentials rejected",
+					}
+				},
+			}
+			result, err := RunAgentic(context.Background(), "spec", "diff", "proof", sa)
+			if err != nil {
+				t.Fatalf("RunAgentic: %v", err)
+			}
+			if result.Verdict != verdict.Blocked {
+				t.Fatalf("expected BLOCKED for terminal %s error, got %s (%s)",
+					tc.kind, result.Verdict, result.Rationale)
+			}
+			if result.FailedGate != "verifier_terminal_error" {
+				t.Errorf("expected gate verifier_terminal_error, got %s", result.FailedGate)
+			}
+			if result.ExitCode() != 2 {
+				t.Errorf("expected exit code 2 (BLOCKED), got %d", result.ExitCode())
+			}
+			if !strings.Contains(strings.ToLower(result.Rationale), tc.kind.String()) {
+				t.Errorf("rationale should name the terminal kind %q, got %q", tc.kind, result.Rationale)
+			}
+		})
+	}
+}
+
+// TestRunAgenticTransientTypedErrorInconclusive pins the boundary: typed but
+// NON-terminal provider errors (rate limit, upstream 5xx) stay INCONCLUSIVE so
+// triage retries/escalates — only terminal kinds halt as BLOCKED.
+func TestRunAgenticTransientTypedErrorInconclusive(t *testing.T) {
+	for _, kind := range []model.ErrorKind{model.KindRateLimit, model.KindUpstream, model.KindTransient, model.KindOther} {
+		sa := &structuredAgent{
+			structuredFn: func(ctx context.Context, messages []model.ChatMessage, schema []byte) (*model.ChatResponse, error) {
+				return nil, &model.Error{Kind: kind, Provider: "openai", Message: "transient"}
+			},
+		}
+		result, err := RunAgentic(context.Background(), "spec", "diff", "proof", sa)
+		if err != nil {
+			t.Fatalf("RunAgentic (%s): %v", kind, err)
+		}
+		if result.Verdict != verdict.Inconclusive {
+			t.Fatalf("expected INCONCLUSIVE for transient %s error, got %s", kind, result.Verdict)
+		}
+		if result.FailedGate != "verifier_structured_dispatch" {
+			t.Errorf("expected gate verifier_structured_dispatch for %s, got %s", kind, result.FailedGate)
+		}
+	}
+}
+
 func TestRunAgenticEmptyChoicesInconclusive(t *testing.T) {
 	sa := &structuredAgent{
 		structuredFn: func(ctx context.Context, messages []model.ChatMessage, schema []byte) (*model.ChatResponse, error) {
