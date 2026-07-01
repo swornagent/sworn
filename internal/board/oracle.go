@@ -365,11 +365,25 @@ func (o *Oracle) ReadSliceStatus(
 // readTrackInfos reads track metadata from board.json (preferred) or
 // index.md frontmatter (legacy fallback) using git refs. It returns the
 // parsed TrackInfo list used by ReadBoard and NewOracleReaderAdapter.
+//
+// Falling back to the legacy index.md parser is only safe for a release that
+// has never had a board.json anywhere (pre-ADR-0009). If board.json is
+// committed on HEAD but missing from releaseRef, the release HAS migrated —
+// releaseRef is just out of sync (e.g. release-wt hasn't absorbed the
+// migration commit) — and silently reading the unvalidated legacy format
+// would bypass the S05 strict Release reader entirely. That case fails
+// closed instead of falling through.
 func (o *Oracle) readTrackInfos(reader gitContentReader, releaseRef, release string) ([]TrackInfo, error) {
-	// Try board.json first (post-migration releases).
-	boardPath := "docs/release/" + release + "/board.json"
-	rawBoard, err := reader.Show(releaseRef, boardPath)
-	if err == nil {
+	boardPaths := []string{
+		"docs/release/" + release + "/board.json",
+		"apps/docs/content/docs/release/" + release + "/board.json",
+	}
+
+	for _, boardPath := range boardPaths {
+		rawBoard, err := reader.Show(releaseRef, boardPath)
+		if err != nil {
+			continue
+		}
 		var br BoardRecord
 		if err := json.Unmarshal([]byte(rawBoard), &br); err != nil {
 			return nil, fmt.Errorf("parse board.json from %s: %w", releaseRef, err)
@@ -377,18 +391,18 @@ func (o *Oracle) readTrackInfos(reader gitContentReader, releaseRef, release str
 		return boardTracksToTrackInfos(br.Tracks), nil
 	}
 
-	// Try Fumadocs prefix for board.json.
-	fumaBoardPath := "apps/docs/content/docs/release/" + release + "/board.json"
-	rawBoard, err = reader.Show(releaseRef, fumaBoardPath)
-	if err == nil {
-		var br BoardRecord
-		if err := json.Unmarshal([]byte(rawBoard), &br); err != nil {
-			return nil, fmt.Errorf("parse board.json from %s: %w", releaseRef, err)
+	for _, boardPath := range boardPaths {
+		exists, err := reader.CatFileExists("HEAD", boardPath)
+		if err != nil {
+			return nil, fmt.Errorf("check board.json on HEAD at %s: %w", boardPath, err)
 		}
-		return boardTracksToTrackInfos(br.Tracks), nil
+		if exists {
+			return nil, fmt.Errorf("board.json exists on HEAD (%s) but not on %s — this release has migrated to board.json; sync releaseRef before reading it rather than falling back to legacy index.md", boardPath, releaseRef)
+		}
 	}
 
-	// Fallback: read index.md frontmatter (legacy — board.json not yet migrated).
+	// Fallback: read index.md frontmatter (legacy — board.json has never
+	// existed for this release, on HEAD or releaseRef).
 	indexPath := "docs/release/" + release + "/index.md"
 	rawIndex, err := reader.Show(releaseRef, indexPath)
 	if err != nil {
