@@ -25,7 +25,7 @@
       ],
       "depends_on": [],
       "worktree_branch": "track/2026-06-30-sworn-operational-readiness/T2-board-render",
-      "state": "in_progress",
+      "state": "merged",
       "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-30-sworn-operational-readiness-T2-board-render"
     },
     {
