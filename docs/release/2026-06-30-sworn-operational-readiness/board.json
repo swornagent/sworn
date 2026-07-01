@@ -56,7 +56,8 @@
       ],
       "depends_on": [],
       "worktree_branch": "track/2026-06-30-sworn-operational-readiness/T5-model-pricing-registry",
-      "state": "planned"
+      "state": "in_progress",
+      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-30-sworn-operational-readiness-T5-model-pricing-registry"
     }
   ]
 }
