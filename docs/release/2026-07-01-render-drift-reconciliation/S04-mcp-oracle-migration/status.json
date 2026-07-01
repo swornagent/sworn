@@ -3,11 +3,11 @@
   "slice_id": "S04-mcp-oracle-migration",
   "release": "2026-07-01-render-drift-reconciliation",
   "track": "T3-mcp",
-  "state": "implemented",
+  "state": "failed_verification",
   "covers_needs": [
     "N-01"
   ],
-  "last_updated_at": "2026-07-01T20:06:56Z",
+  "last_updated_at": "2026-07-02T12:45:00Z",
   "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S04-mcp-oracle-migration/spec.json",
   "start_commit": "dbd3d9900faf00cb96d7ef1acf6d6f89fc59b901",
   "effort_complexity": {
@@ -20,8 +20,8 @@
   "verification": {
     "result": "fail",
     "violations": [
-      "Gate 6 / AC-02: internal/mcp/context.go AssembleSliceContext still extracts violations by regex-scraping proof.md via extractViolations; it does not read proof.json.not_delivered as required by spec.json AC-02.",
-      "Gate 2 & Gate 6 / AC-05: internal/mcp/tools_test.go, internal/mcp/lint_test.go, and internal/mcp/catalog_test.go still hand-write legacy 'tracks:' YAML fixtures in index.md and were not changed to build fixtures via the real sworn render path / board.json as required by spec.json AC-05."
+      "Gate 6 / AC-02: internal/mcp/context.go readProofViolations still falls back to a proof.md regex scrape after attempting proof.json.not_delivered, violating AC-02's requirement to read violations from proof.json.not_delivered and not from a proof.md regex scrape.",
+      "Gate 3 / AC-02: TestGetBlockedExtractsViolations in internal/mcp/tools_test.go exercises only the legacy proof.md fallback path and does not test the required proof.json.not_delivered integration point; no MCP test in internal/mcp exercises proof.json.not_delivered."
     ],
     "verifier_was_fresh_context": true,
     "verifier_verdict_at": "2026-07-02T12:45:00Z"

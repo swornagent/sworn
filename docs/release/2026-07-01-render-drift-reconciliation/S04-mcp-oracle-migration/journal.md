@@ -27,6 +27,21 @@
 - **Test results**: `go test ./...` — all 38 packages PASS. `go vet ./...` — clean. `go build ./...` — exit 0.
 - **Out-of-scope discoveries**: none.
 
+## 2026-07-02 — verifier verdict (fresh context, second pass)
+
+- **State transition**: `implemented` → `failed_verification`.
+- **Verdict**: `FAIL`
+- **Violations**:
+  1. Gate 6 / AC-02 — `internal/mcp/context.go` `readProofViolations` still falls back to a `proof.md` regex scrape after checking `proof.json.not_delivered`, violating AC-02's "SHALL read ... `proof.json.not_delivered` ... not from ... a `proof.md` regex scrape".
+     Evidence: `internal/mcp/context.go` lines 117-138; `internal/mcp/tools_ops.go` line 325 calls `readProofViolations`.
+  2. Gate 3 / AC-02 — `TestGetBlockedExtractsViolations` does not exercise the required `proof.json.not_delivered` integration point; it writes a legacy `proof.md` fixture and relies on the prohibited fallback.
+     Evidence: `internal/mcp/tools_test.go` lines 270-299. No MCP test in `internal/mcp` exercises `proof.json.not_delivered`.
+- **Required to address**:
+  1. Remove the `proof.md` regex fallback from `readProofViolations`; read violations exclusively from `proof.json.not_delivered`.
+  2. Update `TestGetBlockedExtractsViolations` to write a `proof.json` fixture containing `not_delivered` and assert those violations are returned.
+  3. Add or update a test that proves `AssembleSliceContext` / `get_slice_context` returns violations from `proof.json.not_delivered` for a current-format release.
+- **Next step**: `/implement-slice S04-mcp-oracle-migration 2026-07-01-render-drift-reconciliation` in a fresh session.
+
 - **State transition**: `design_review` → `in_progress` → `implemented`.
 - **Touched files**:
   - `internal/mcp/tools_ops.go` — `readReleaseBoard`,
