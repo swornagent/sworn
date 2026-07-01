@@ -3,7 +3,7 @@
   "slice_id": "S04-mcp-oracle-migration",
   "release": "2026-07-01-render-drift-reconciliation",
   "track": "T3-mcp",
-  "state": "in_progress",
+  "state": "implemented",
   "covers_needs": ["N-01"],
   "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S04-mcp-oracle-migration/spec.json",
   "start_commit": "d7b3beaa280eea969a5829552958a19a267aa761",
