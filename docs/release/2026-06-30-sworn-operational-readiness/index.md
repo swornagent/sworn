@@ -20,7 +20,7 @@ release overnight. Parallelism out of scope (serial is acceptable).
 | Track | Slices | depends_on | State |
 |-------|--------|------------|-------|
 | `T1-operational-unblock` | `S01-d6-record-reconciliation` | — | merged |
-| `T2-board-render` | `S02-board-render` | — | planned |
+| `T2-board-render` | `S02-board-render` | — | in_progress |
 | `T3-consumer-repo-hygiene` | `S03-sworn-self-ignore` | — | planned |
 | `T4-board-record-reconciliation` | `S04-board-record-reconciliation` | — | merged |
 
