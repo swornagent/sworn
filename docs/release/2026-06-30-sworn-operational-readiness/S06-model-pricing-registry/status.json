@@ -8,7 +8,7 @@
     "N-09"
   ],
   "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S06-model-pricing-registry/spec.json",
-  "start_commit": null,
+  "start_commit": "102ae04aa21725a4ee2f976c23ee84a9333332ab",
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
