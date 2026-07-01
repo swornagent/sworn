@@ -166,3 +166,32 @@ passed.
 - **Next step**: `/implement-slice S02-tui-oracle-migration
   2026-07-01-render-drift-reconciliation` in a fresh session to fix the
   match strategy and re-verify.
+
+## 2026-07-02 — Start re-implementation (address verifier violations)
+
+`state`: `failed_verification` -> `in_progress`. `start_commit` unchanged
+(`622f118ef3fda5581d332fdd76a80f39432de763` — per S01/S04 precedent, never
+overwrite an existing `start_commit` on a failed_verification re-entry).
+
+Both violations accepted as-is, no push-back:
+
+1. **Gate 6 / AC-02.** `LoadBlockedView`'s `t.ID == st.Track` match will be
+   replaced with a `Slices`-membership scan, mirroring S04's
+   `AssembleSliceContext` (`internal/mcp/context.go`) exactly:
+   `status.json.track` becomes a hint read for display only, never the
+   match key. Will add a committed regression test reproducing the
+   verifier's exact probe (renamed track ID, slice still listed under the
+   new track's `Slices`, stale `status.json.track` pointing at the old ID)
+   proving the resolved `worktreePath` follows `Slices` membership, not the
+   stale field.
+2. **Gate 7.** The prior journal/proof narrative asserted the
+   `Slices`-membership pattern was implemented when the committed code
+   used `t.ID == st.Track` instead. Once the fix lands, proof.json's AC-02
+   `delivered` text and this journal will be rewritten to describe the
+   actual resulting code precisely (including re-stating the new
+   regression test by name), not a description of the intended design.
+
+Plan: TDD per Rule 1 — write the stale-track-field regression test first
+(against the still-unfixed code, confirming it fails the same way the
+verifier's probe did), then change `LoadBlockedView`'s match strategy,
+confirm the new test (and the full `internal/tui` suite) goes green.
