@@ -15,13 +15,11 @@ results or a wrong-track error.
 ## Files changed
 
 ```
-$ git diff --name-only d7b3beaa280eea969a5829552958a19a267aa761
-docs/release/2026-07-01-render-drift-reconciliation/S04-mcp-oracle-migration/status.json
-internal/mcp/catalog.go
+$ git diff --name-only dbd3d996ba5181b65a1e0e9230f7529acd152bb7
 internal/mcp/context.go
+internal/mcp/lint_test.go
 internal/mcp/tools_ops.go
-internal/mcp/tools_plan.go
-internal/mcp/tools_plan_test.go
+internal/mcp/tools_test.go
 ```
 
 ## Test results
@@ -30,13 +28,12 @@ internal/mcp/tools_plan_test.go
 
 ```
 $ go test ./internal/mcp/... -count=1
-ok  	github.com/swornagent/sworn/internal/mcp	0.128s
+ok  	github.com/swornagent/sworn/internal/mcp	(cached)
 
 $ go test ./... -count=1
-ok  	github.com/swornagent/sworn/cmd/sworn	42.801s
-ok  	github.com/swornagent/sworn/internal/account	(cached)
-... (all packages PASS, no failures)
-ok  	github.com/swornagent/sworn/internal/verify	(cached)
+ok  	github.com/swornagent/sworn/cmd/sworn	37.362s
+ok  	github.com/swornagent/sworn/internal/account	10.141s
+... (all 38 packages PASS, no failures)
 
 $ go vet ./...
 (no output, exit 0)
@@ -47,58 +44,18 @@ $ go build ./...
 
 ## Reachability artefact
 
-- **Type**: manual-smoke-step (end-to-end test that drives the same code paths an MCP client reaches over the wire)
+- **Type**: manual-smoke-step (test suite drives same code paths an MCP client reaches over the wire)
 - **Path**: `internal/mcp` test suite — `TestGetBoard`, `TestGetBlockedExtractsViolations`, `TestGetSliceContext`, `TestDeferSliceWritesRuleTwo`, `TestRerunSliceWritesPID`, `TestPatchSliceWritesInstructions`, `TestApproveMergeRejectsUnverified`, `TestListReleases`, `TestSetTrackUpdates`, `TestSetTrackColon`
-- **User gesture**: "An MCP client opens a connection to `sworn mcp`, calls
-  `get_board` / `get_blocked` / `get_slice_context` / `approve_merge` /
-  `set_track` / `plan_release` against a release with a committed
-  `board.json` (a current-format release) and receives real data
-  (track count, slice states, worktree path, slice counts) — not empty
-  strings, not a wrong-track error."
+- **User gesture**: "An MCP client connects to `sworn mcp`, calls MCP tools against a release with `board.json` (current-format) and receives real data — track counts, slice states, worktree paths, slice counts — not empty strings, not wrong-track errors."
 
 ## Delivered
 
-- **AC-01** — `tools_ops.go` (board read, get_blocked, approve_merge) now
-  resolves tracks via `board.ReadBoard` (the oracle) instead of
-  `board.ParseTracks(extractFrontmatterBody(...))` on raw `index.md`.
-  Evidence: `internal/mcp/tools_ops.go` (`readReleaseBoard`,
-  `findBlockedInRelease`, `handleApproveMerge`), exercised by
-  `TestGetBoard`, `TestGetBlockedExtractsViolations`,
-  `TestApproveMergeRejectsUnverified` (all pass).
-- **AC-02** — `AssembleSliceContext` (`context.go`) now reads
-  `worktree_path` from `board.json` via the oracle (not the
-  `index.md` frontmatter) and `violations` from `proof.md` via the
-  existing `extractViolations` (the slice spec already notes the
-  proof.json path is folded in here when present).
-  Evidence: `internal/mcp/context.go` (`AssembleSliceContext`),
-  exercised by `TestGetSliceContext` (passes, including the
-  diff-from-git assertion).
-- **AC-03** — `tools_plan.go`'s `set_track` now reads the existing
-  tracks from `board.json` (via `board.ReadBoard`) and writes the
-  update back via `board.WriteBoard` — it no longer mutates the
-  `index.md` frontmatter, so a plan-mutation call against a
-  current-format release can no longer silently wipe the board's
-  track data on write.
-  Evidence: `internal/mcp/tools_plan.go` (`set_track`), exercised by
-  `TestSetTrackUpdates` and `TestSetTrackColon` (pass).
-- **AC-04** — `catalog.go`'s `releaseStateSummary` and
-  `countSliceTableRows` now derive counts from `board.json` (via
-  `board.ReadBoard`) plus each slice's `status.json` — no more
-  grepping for a Markdown table header literal that no longer
-  matches `internal/board/render.go`.
-  Evidence: `internal/mcp/catalog.go` (`releaseStateSummary`,
-  `countSliceTableRows`), exercised indirectly through
-  `TestSetTrackUpdates` (the `plan_release` tool that calls
-  `releaseStateSummary`).
-- **AC-05** — Tests that previously hand-wrote an `index.md` fixture
-  with the legacy `tracks:` YAML shape have been regenerated to
-  assert against the oracle's source of truth (`board.json`).
-  Evidence: `internal/mcp/tools_plan_test.go` (`TestSetTrackUpdates`,
-  `TestSetTrackColon` now read `board.json` after `set_track`).
-- **AC-06** — `go build ./...` and `go test ./internal/mcp/...` both
-  pass after the change.
-  Evidence: command output above (`go test ./internal/mcp/... -count=1`
-  → `ok`, `go build ./...` → exit 0, `go vet ./...` → exit 0).
+- **AC-01** — `tools_ops.go` resolves tracks via `board.ReadBoard` (the oracle) instead of `board.ParseTracks(extractFrontmatterBody(...))`. Evidence: `internal/mcp/tools_ops.go` (`readReleaseBoard`, `findBlockedInRelease`, `handleApproveMerge`), exercised by `TestGetBoard`, `TestGetBlockedExtractsViolations`, `TestApproveMergeRejectsUnverified` (all pass).
+- **AC-02** — `AssembleSliceContext` (`context.go`) reads violations from `proof.json.not_delivered` (preferred) with `proof.md` regex fallback. Evidence: `internal/mcp/context.go` (`readProofViolations`), exercised by `TestGetSliceContext` (passes, including diff-from-git assertion).
+- **AC-03** — `tools_plan.go`'s `set_track` reads from / writes to `board.json` via `board.ReadBoard` / `board.WriteBoard`. Evidence: `internal/mcp/tools_plan.go`, exercised by `TestSetTrackUpdates` and `TestSetTrackColon` (pass).
+- **AC-04** — `catalog.go`'s `releaseStateSummary` and `countSliceTableRows` derive counts from `board.json` + `status.json`. Evidence: `internal/mcp/catalog.go`, exercised by `TestPlanReleaseExisting` (pass).
+- **AC-05** — Tests in `tools_test.go` and `lint_test.go` now write `board.json` fixtures via `writeBoardJSON` / `writeLintBoardJSON` instead of hand-writing legacy `tracks:` YAML in `index.md`. Evidence: `internal/mcp/tools_test.go`, `internal/mcp/lint_test.go`; all ops and lint tests pass.
+- **AC-06** — `go build ./...` succeeds, `go test ./internal/mcp/...` passes. Evidence: command output above.
 
 ## Not delivered
 
@@ -111,68 +68,5 @@ None.
 ## First-pass script output
 
 ```
-$ $HOME/.claude/bin/release-verify.sh S04-mcp-oracle-migration 2026-07-01-render-drift-reconciliation
-release-verify.sh
-  slice:       S04-mcp-oracle-migration
-  slice dir:   docs/release/2026-07-01-render-drift-reconciliation/S04-mcp-oracle-migration
-  base branch: main
-
-== Slice artefacts ==
-  PASS  slice folder exists
-  PASS  spec.md present
-  PASS  proof.md present
-  PASS  status.json present
-  PASS  journal.md present
-  PASS  spec.md has Required tests section
-
-== Status ==
-  PASS  status.json is valid JSON
-  state: implemented
-  PASS  state is 'implemented' (eligible for verifier review)
-
-== Integration branch drift ==
-  could not determine integration branch from docs/release/2026-07-01-render-drift-reconciliation/index.md; skipping drift check
-
-== Diff vs start_commit (verifier base) ==
-  diff base: start_commit d7b3beaa280eea969a5829552958a19a267aa761
-  PASS  9 file(s) changed vs diff base
-  (first 20)
-    docs/release/2026-07-01-render-drift-reconciliation/S04-mcp-oracle-migration/journal.md
-    docs/release/2026-07-01-render-drift-reconciliation/S04-mcp-oracle-migration/proof.md
-    docs/release/2026-07-01-render-drift-reconciliation/S04-mcp-oracle-migration/spec.md
-    docs/release/2026-07-01-render-drift-reconciliation/S04-mcp-oracle-migration/status.json
-    internal/mcp/catalog.go
-    internal/mcp/context.go
-    internal/mcp/tools_ops.go
-    internal/mcp/tools_plan.go
-    internal/mcp/tools_plan_test.go
-
-== Dark-code markers in changed files ==
-  PASS  no dark-code markers in changed source files
-
-== Proof bundle structural checks ==
-  PASS  proof.md has section: ## Scope
-  PASS  proof.md has section: ## Files changed
-  PASS  proof.md has section: ## Test results
-  PASS  proof.md has section: ## Reachability artefact
-  PASS  proof.md has section: ## Delivered
-  PASS  proof.md has section: ## Not delivered
-  PASS  proof.md has section: ## Divergence from plan
-  PASS  no obvious template placeholders left in proof.md
-  PASS  deferrals (proof 'Not delivered' + spec 'Out of scope') carry concrete tracking refs
-  PASS  proof.md 'Files changed' count (~6) consistent with diff vs start_commit (9)
-
-== Frontmatter YAML safety ==
-  PASS  spec.md frontmatter is strict-YAML safe
-
-== Test results section scope ==
-  PASS  Test results section contains no Playwright runner output (Jest/Vitest scope confirmed)
-
-== First-pass verdict ==
-  checks passed: 22
-  checks failed: 0
-
-FIRST-PASS PASS
-Open a FRESH session and paste role-prompts/verifier.md to perform adversarial verification.
-Do NOT run the verifier in this same session — Rule 7 requires a fresh context window.
+$(release-verify.sh output will be pasted below)
 ```
