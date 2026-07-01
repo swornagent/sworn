@@ -82,5 +82,34 @@ and asserting all 5 track IDs are present with non-empty slice states.
 `go build ./...` and `go test ./internal/tui/...` both green. `go vet
 ./internal/tui/...` clean. `gofmt -l` empty on all three touched files.
 
+Captured the AC-05 reachability artefact as a real, recorded terminal
+session (not just the unit test): built `./bin/sworn`, ran it live inside a
+tmux pane (220x50, `window-size manual` to defeat this shared tmux server's
+`window-size latest` client-size interference), navigated to the real
+`2026-06-30-sworn-operational-readiness` release, pressed Enter, and
+captured the board pane via `tmux capture-pane` — saved as
+`reachability-tui-capture.txt`. That manual session's navigation past two
+other, unrelated releases incidentally triggered `board.ReadBoard`'s
+designed lazy-migration write side effect (DC-2), materialising stray
+`board.json` files for `2026-06-15-e2e-turnkey-loop` and
+`2026-06-16-fidelity-layer`. Deleted both before committing — outside this
+slice's declared scope, confirmed via a clean `git status --short`.
+
+Full `go test ./...` (39 packages) passes — no regression.
+
 State -> `implemented`. Stopping here per role boundaries — no verifier
 prompt in this session.
+
+## 2026-07-02 — First-pass gate (release-verify.sh)
+
+Ran `~/.claude/bin/release-verify.sh S02-tui-oracle-migration
+2026-07-01-render-drift-reconciliation` (private harness tooling, not part
+of this repo). Result: 19 checks passed, 1 failed (`spec.md missing`) — a
+known false negative for `spec-v1`/`spec.json` slices (this release's
+canonical spec format), consistent with S01/S04's precedent
+(`feedback_releaseverify_specmd_false_fail` memory). No `spec.md` was
+manufactured to silence it. Every other applicable check passed, including
+all 7 required `proof.md` structural sections and the file-count
+cross-check against the diff (4 files, matching `proof.json.files_changed`).
+Treating first-pass as green given every substantive, applicable check
+passed.
