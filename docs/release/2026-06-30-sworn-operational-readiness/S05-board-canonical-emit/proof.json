@@ -1,0 +1,37 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S05-board-canonical-emit",
+  "release": "2026-06-30-sworn-operational-readiness",
+  "scope": "sworn EMITS, VALIDATES, and now READS only the canonical baton object form for a board's `release` (strict) — a legacy bare-string release fails closed on read — removing S04's string-tolerance vendor drift from canonical baton; operator string boards are migrated at cutover (AC-06), not read-tolerated.",
+  "files_changed": [
+    "internal/board/board.go",
+    "internal/baton/schemas/board-v1.json",
+    "internal/baton/validator.go",
+    "internal/board/board_release_test.go",
+    "internal/board/board_test.go",
+    "cmd/sworn/merge_test.go"
+  ],
+  "test_results": [
+    { "command": "go build ./...", "passed": true, "exit_code": 0 },
+    { "command": "go vet ./internal/board/... ./internal/baton/...", "passed": true, "exit_code": 0 },
+    { "command": "go test ./internal/board/... ./internal/baton/...", "passed": true, "exit_code": 0 },
+    { "command": "go test ./... -timeout 300s", "passed": true, "exit_code": 0 }
+  ],
+  "reachability": {
+    "type": "cli-run",
+    "evidence": "S05 strict-reader binary (built from track/2026-06-30-sworn-operational-readiness/T4-board-record-reconciliation HEAD) run in ~/projects/fired: `sworn board --release 2026-06-28-yearSnapshot-schema-cleanup --json` reads the real coach board whose `release` is the canonical OBJECT form {name, target_version, integration_branch, vertical_trace} and returns its tracks/slices (exit 0). Proves the strict reader still accepts a real coach object board (additionalProperties:true admits the canonical extras). Artefact: docs/release/2026-06-30-sworn-operational-readiness/S05-board-canonical-emit/proof.md (Reachability section) — full output captured at scratchpad/S05-AC04-reachability.txt during the session."
+  },
+  "delivered": [
+    { "item": "AC-01 — Release.MarshalJSON emits the canonical object form {\"name\":...} for a name-only release (StringRelease path); an object read re-emits its full object verbatim (raw preserved).", "evidence": "internal/board/board.go MarshalJSON; tests TestStringRelease_EmitsCanonicalObject + TestRelease_RoundTripPreservesObjectFields in internal/board/board_release_test.go" },
+    { "item": "AC-03 — schema `release` object-only (type object, required name), validator object-only, AND reader (Release.UnmarshalJSON) object-only/strict: a bare string release fails closed.", "evidence": "internal/baton/schemas/board-v1.json release block; internal/baton/validator.go release check; internal/board/board.go UnmarshalJSON; tests TestRelease_StringForm_FailsClosed, TestRelease_BareStringRead_FailsClosed, TestRelease_ObjectMissingName_FailsClosed" },
+    { "item": "AC-04 — `sworn board` with the S05 binary reads the real coach OBJECT-form board in ~/projects/fired (2026-06-28-yearSnapshot-schema-cleanup).", "evidence": "reachability.evidence above; proof.md Reachability section" },
+    { "item": "AC-05 — `go build ./...` succeeds and full `go test ./...` passes; the string-read tests are inverted to assert a bare string release now fails closed.", "evidence": "test_results above; inverted tests TestRelease_StringForm_FailsClosed + TestRelease_BareStringRead_FailsClosed (replacing the old lenient TestRelease_StringForm / TestRelease_StringReadEmitsCanonicalObject)" }
+  ],
+  "not_delivered": [
+    { "item": "AC-06 — migrating the operator-owned on-disk string boards (op-readiness, conformance-foundation, release-hygiene) to the canonical object form.", "why": "By spec, AC-06 is an unwanted-behaviour acceptance criterion describing a one-time CUTOVER step, explicitly NOT sworn production code in this slice; it must run only once every active session is on a canonical (S04/S05) binary, so it cannot run mid-flight (a strict-reader binary fails on a string board and a pre-S04 binary fails on an object board). The op-readiness board itself is among the boards to migrate.", "tracking": "AC-06 in spec.json; operational-readiness cutover step (release docs/release/2026-06-30-sworn-operational-readiness)", "acknowledgement": "Coach-ratified in spec.json AC-06 (2026-07-01); restated here for the verifier." },
+    { "item": "Full canonical board-v1 parity (nested release.worktree, enumerated props, additionalProperties:false).", "why": "Out of scope per spec.json rationale — that is the broader baton board-v1 re-vendor; this slice only removes the string-tolerance divergence and tightens the reader.", "tracking": "baton vendor-pin work (FT-6)", "acknowledgement": "Stated in spec.json rationale; acknowledged 2026-07-01." }
+  ],
+  "divergence": [
+    { "item": "Two test files beyond the four declared touchpoints were edited: internal/board/board_test.go (TestOracleReadBoard_BoardJSONFirst fixture) and cmd/sworn/merge_test.go (setupMergeFixture board.json builder).", "reason": "Both encoded the legacy string-form `release` in their board.json fixtures. Under the strict reader these fixtures fail closed (a real regression the full-suite AC-05 surfaced), so each was migrated to the canonical object form ({\"name\": ...}). Both files are in tracks owned by T4's package surface (internal/board, cmd/sworn) — not a cross-track collision; the change is a one-line fixture migration, not production logic. Recorded as a Rule-2 transparency note in journal.md." }
+  ]
+}

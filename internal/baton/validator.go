@@ -175,14 +175,22 @@ func validateBoard(data []byte) error {
 		return fmt.Errorf("validator: schema_version must be 1, got %d", svInt)
 	}
 
-	// release must be present and non-empty.
+	// release must be the canonical object form {name, ...} with a non-empty
+	// name. sworn EMITS this form (board.Release.MarshalJSON) and READS only this
+	// form (board.Release.UnmarshalJSON, S05 strict reader) — a bare string fails
+	// closed at both the validator and the reader; the legacy string form is
+	// never written and never read.
 	rel, ok := m["release"]
 	if !ok {
 		return fmt.Errorf("validator: missing required field \"release\"")
 	}
-	relStr, ok := rel.(string)
-	if !ok || strings.TrimSpace(relStr) == "" {
-		return fmt.Errorf("validator: release must be a non-empty string")
+	relObj, ok := rel.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("validator: release must be an object with a \"name\" (canonical board-v1)")
+	}
+	name, _ := relObj["name"].(string)
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("validator: release object must have a non-empty \"name\"")
 	}
 
 	// tracks must be present.

@@ -3,18 +3,35 @@
   "slice_id": "S04-board-record-reconciliation",
   "release": "2026-06-30-sworn-operational-readiness",
   "track": "T4-board-record-reconciliation",
-  "state": "planned",
+  "state": "verified",
   "covers_needs": ["N-07"],
   "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S04-board-record-reconciliation/spec.json",
-  "start_commit": null,
+  "proof_path": "docs/release/2026-06-30-sworn-operational-readiness/S04-board-record-reconciliation/proof.md",
+  "start_commit": "c291d98",
+  "actual_files": [
+    "internal/board/board.go",
+    "internal/board/board_test.go",
+    "internal/board/board_release_test.go",
+    "internal/baton/validator.go",
+    "internal/baton/schemas/board-v1.json"
+  ],
+  "test_commands": [
+    "go test ./internal/board/... ./internal/baton/...",
+    "go test ./..."
+  ],
+  "reachability_artifacts": [
+    "sworn board --release 2026-06-28-yearSnapshot-schema-cleanup (run in ~/projects/fired) reads the real coach object-form board; previously failed with 'cannot unmarshal object into BoardRecord.release of type string'"
+  ],
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
     "quadrant": "chore",
-    "rationale": "Tolerant release unmarshal (string OR object) + one consumer + schema reconcile + tests; oracle.go disjoint. Tonight-critical (fired board unreadable without it).",
-    "confirmed_by_implementer": false
+    "rationale": "Confirmed by implementer: tolerant release unmarshal + fidelity marshal + legacy validator relax + schema reconcile + tests. ~5 files, no surprises; oracle.go disjoint as predicted.",
+    "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "pending"
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-06-30T15:31:28Z"
   }
 }
