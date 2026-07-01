@@ -3,7 +3,9 @@
   "slice_id": "S07-remaining-rescrape-cleanup",
   "release": "2026-07-01-render-drift-reconciliation",
   "track": "T5-core-loop-rtm-rescrape",
-  "state": "in_progress",
+  "state": "implemented",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-02T00:30:00Z",
   "covers_needs": [
     "N-01"
   ],
@@ -41,6 +43,24 @@
   "verification": {
     "result": "pending"
   },
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-02T00:00:00Z"
+  "actual_files": [
+    "cmd/sworn/ledger.go",
+    "cmd/sworn/ledger_test.go",
+    "internal/account/notify.go",
+    "internal/account/notify_test.go",
+    "internal/ears/ears.go",
+    "internal/ears/ears_test.go",
+    "internal/run/slice.go"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go test ./internal/account/... ./internal/ears/... ./cmd/sworn/... -count=1 -timeout 300s",
+    "go test ./internal/run/... -count=1 -timeout 300s",
+    "go test ./... -count=1 -timeout 600s",
+    "go vet ./internal/account/... ./internal/ears/... ./cmd/sworn/... ./internal/run/...",
+    "gofmt -l internal/account/notify.go internal/account/notify_test.go internal/ears/ears.go internal/ears/ears_test.go cmd/sworn/ledger.go cmd/sworn/ledger_test.go internal/run/slice.go"
+  ],
+  "reachability_artifacts": [
+    "docs/release/2026-07-01-render-drift-reconciliation/S07-remaining-rescrape-cleanup/reachability-lint-ac-output.txt"
+  ]
 }
