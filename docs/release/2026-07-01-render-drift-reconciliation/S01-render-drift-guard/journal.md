@@ -172,3 +172,52 @@ applicable check passed. First-pass green.
 
 `state` -> `implemented`. Stopping here per role boundaries — no verifier
 prompt in this session.
+
+### 2026-07-01 — PASS
+
+Fresh-context verifier session (Rule 7), no inherited implementer context.
+Discovered inside track worktree at
+`/home/brad/projects/sworn-worktrees/release-2026-07-01-render-drift-reconciliation-T1-drift-guard`
+via the release board oracle (`sworn board --release
+2026-07-01-render-drift-reconciliation --json`) + `git worktree list`; worktree
+clean, zero drift against `release-wt/2026-07-01-render-drift-reconciliation`
+(no forward-merge needed). Prior recorded verdict was FAIL
+(2026-07-02T00:00:00Z) but `status.json.state` carried a later
+`implemented` timestamp (2026-07-02T00:30:00Z) — a re-entry round had already
+landed, so all six gates were re-run fresh rather than short-circuiting (the
+idempotent-BLOCKED shortcut only applies to `result: "blocked"`).
+
+**Verdict: PASS.** All six gates satisfied:
+
+1. **Reachable outcome** — `checkRenderDrift` (`cmd/sworn/doctor.go`) is wired
+   directly into `cmdDoctor`, the real `sworn doctor` CLI entry point (not a
+   leaf-only path). Confirmed by building the binary from this worktree's
+   HEAD and running `sworn doctor` for real.
+2. **Touchpoints** — `internal/board/board_test.go` was planned but not
+   touched; `proof.json`'s divergence section explains why (no prior
+   board-package test covered `driftGuard`, nothing to remove) — the
+   omission the prior FAIL flagged as undocumented is now documented.
+3. **Tests** — re-ran `go build ./...`, `go test ./internal/board/...
+   ./cmd/sworn/...` (both green), and full `go test ./...` (all 38 packages
+   green). `TestDoctorRenderDrift_{Clean,Drifted,NoBoardSkipped,RenderError}`
+   in `doctor_test.go` exercise `cmdDoctor` end-to-end via `runDoctorInDir`,
+   not the leaf function in isolation.
+4. **Reachability artefact** — rebuilt `sworn` from this worktree's HEAD and
+   ran `sworn doctor` for real (not a fixture): render-drift reports exactly
+   2 errors, both AC-05-tracked exceptions (`swornagent/sworn#44`,
+   `swornagent/sworn#45`), zero for this release or any T1-T5-scope release.
+   Matches `reachability-doctor-output.txt` byte for byte. The drift the
+   prior FAIL caught (stale `index.md` at the `implemented` transition) is
+   gone — this round re-rendered it in the same commit as the state change.
+5. **No silent deferrals** — grepped `doctor.go`, `doctor_test.go`,
+   `board.go` for TODO/FIXME/deferred/placeholder/stub: no hits.
+6. **Scope** — each `delivered` entry in `proof.json` cites a specific test
+   or artefact; spot-checked AC-01/02/03/04/05/06 against the live diff and
+   live `sworn doctor` run, all consistent.
+
+`state` -> `verified`. Track `T1-drift-guard` has only this one slice —
+track is now complete.
+
+**Next step:** `/merge-track T1-drift-guard 2026-07-01-render-drift-reconciliation`,
+then `/merge-release 2026-07-01-render-drift-reconciliation` once every other
+track (T2-T5) has also merged.
