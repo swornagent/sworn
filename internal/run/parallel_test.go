@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -906,5 +907,48 @@ func TestInvariant2_OracleReadFailureFailsOpen(t *testing.T) {
 	err = RunParallel(context.Background(), opts)
 	if err != nil {
 		t.Fatalf("RunParallel: expected nil (fail open), got: %v", err)
+	}
+}
+
+// TestProductionMergeTrack_LinkedWorktree proves the Rule 11 target assertion
+// accepts a real `git worktree add` release worktree — whose .git is a FILE
+// (gitdir pointer), not a directory — and that the merge actually engages.
+// Regression for the dirExists(.git) guard inversion that silently no-op'd
+// every production track auto-merge while finishTrack logged "auto-merged".
+func TestProductionMergeTrack_LinkedWorktree(t *testing.T) {
+	repo, _ := setupTestRepo(t)
+
+	// Release worktree, bootstrapped the same way RunParallel does it.
+	releasePath := filepath.Join(t.TempDir(), "release-wt")
+	runCmd(t, repo, "git", "worktree", "add", "-b", "release-wt/r1", releasePath)
+
+	// Track branch with one commit ahead of the release base.
+	runCmd(t, repo, "git", "switch", "-c", "track/r1/T1")
+	if err := os.WriteFile(filepath.Join(repo, "track.txt"), []byte("track work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runCmd(t, repo, "git", "add", "track.txt")
+	runCmd(t, repo, "git", "commit", "-m", "track commit")
+	trackHead := strings.TrimSpace(runCmd(t, repo, "git", "rev-parse", "HEAD"))
+	runCmd(t, repo, "git", "switch", "main")
+
+	if err := ProductionMergeTrack(releasePath, "T1", "track/r1/T1"); err != nil {
+		t.Fatalf("ProductionMergeTrack on linked worktree: %v", err)
+	}
+
+	// The track commit must now be an ancestor of the release worktree HEAD.
+	cmd := exec.Command("git", "merge-base", "--is-ancestor", trackHead, "HEAD")
+	cmd.Dir = releasePath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("track commit %s not an ancestor of release HEAD: merge silently skipped", trackHead)
+	}
+}
+
+// TestProductionMergeTrack_NonGitTargetErrors proves the target assertion
+// fails closed: a merge target that is not a git worktree must return an
+// error, never nil — a nil return is reported upstream as a successful merge.
+func TestProductionMergeTrack_NonGitTargetErrors(t *testing.T) {
+	if err := ProductionMergeTrack(t.TempDir(), "T1", "track/r1/T1"); err == nil {
+		t.Fatal("expected error for non-git merge target, got nil")
 	}
 }

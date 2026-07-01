@@ -682,3 +682,101 @@ var _ = func() error {
 	_, _ = implement.Run(context.Background(), "", "", "", nil)
 	return nil
 }()
+
+// erroringAgent always returns an error from Chat, simulating a transient
+// provider failure (e.g. an HTTP 429) at dispatch time.
+type erroringAgent struct{}
+
+func (e *erroringAgent) Chat(_ context.Context, _ []model.ChatMessage, _ []model.ToolDef) (*model.ChatResponse, error) {
+	return nil, fmt.Errorf("simulated provider 429")
+}
+
+var _ agent.Agent = (*erroringAgent)(nil)
+
+// findDesignGateDeferral returns the first open_deferrals entry recording a
+// skipped Rule 9 design gate, or nil.
+func findDesignGateDeferral(t *testing.T, statusPath string) *state.Deferral {
+	t.Helper()
+	st, err := state.Read(statusPath)
+	if err != nil {
+		t.Fatalf("read status: %v", err)
+	}
+	for i := range st.OpenDeferrals {
+		if st.OpenDeferrals[i].Item == "design_review_gate" {
+			return &st.OpenDeferrals[i]
+		}
+	}
+	return nil
+}
+
+// TestDesignGate_GenerationFailureRecordsDeferral proves that a design-TL;DR
+// dispatch failure (transient 429) no longer silently bypasses the Rule 9
+// gate: it records a machine-readable Rule 2 deferral on status.json.
+func TestDesignGate_GenerationFailureRecordsDeferral(t *testing.T) {
+	workspaceRoot, specPath, statusPath, _ := setupSliceTestRepo(t)
+
+	opts := RunSliceOptions{
+		EscalationModels: []string{"m1"},
+		VerifierModel:    "fake/verifier",
+		ImplementTimeout: -1,
+		NewAgent: func(modelID string) (agent.Agent, error) {
+			if modelID == "fake/verifier" {
+				return &passingVerifierAgent{}, nil
+			}
+			return &erroringAgent{}, nil
+		},
+		NewVerifier: func(_ string) (model.Verifier, error) { return &alwaysPassVerifier{}, nil },
+	}
+
+	// The implement loop will also fail with the erroring agent; we only
+	// assert the deferral, which is recorded before the loop.
+	_ = RunSlice(context.Background(), workspaceRoot, specPath, statusPath, opts)
+
+	d := findDesignGateDeferral(t, statusPath)
+	if d == nil {
+		t.Fatal("expected a design_review_gate deferral on status.json after design dispatch failure, got none")
+	}
+	if d.Why == "" || d.Tracking == "" {
+		t.Errorf("deferral missing why/tracking (Rule 2): %+v", d)
+	}
+	if !strings.Contains(d.Why, "design TL;DR") {
+		t.Errorf("expected design TL;DR reason, got %q", d.Why)
+	}
+}
+
+// TestDesignGate_CaptainDispatchFailureRecordsDeferral proves that a captain
+// design-review dispatch failure (transient 429) — when design.md already
+// exists — records a Rule 2 deferral instead of silently proceeding.
+func TestDesignGate_CaptainDispatchFailureRecordsDeferral(t *testing.T) {
+	workspaceRoot, specPath, statusPath, _ := setupSliceTestRepo(t)
+
+	// Pre-create a valid six-section design.md so design.Generate skips and
+	// the captain review is the stage that fails.
+	designMD := "§1 Approach\n§2 Data\n§3 Surface\n§4 Risks\n§5 Tests\n§6 Rollback\n"
+	if err := os.WriteFile(filepath.Join(filepath.Dir(specPath), "design.md"), []byte(designMD), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := RunSliceOptions{
+		EscalationModels: []string{"m1"},
+		VerifierModel:    "fake/verifier",
+		ImplementTimeout: -1,
+		NewAgent: func(modelID string) (agent.Agent, error) {
+			if modelID == "fake/verifier" {
+				return &passingVerifierAgent{}, nil
+			}
+			return &erroringAgent{}, nil
+		},
+		NewVerifier: func(_ string) (model.Verifier, error) { return &alwaysPassVerifier{}, nil },
+	}
+
+	_ = RunSlice(context.Background(), workspaceRoot, specPath, statusPath, opts)
+
+	d := findDesignGateDeferral(t, statusPath)
+	if d == nil {
+		t.Fatal("expected a design_review_gate deferral on status.json after captain dispatch failure, got none")
+	}
+	if !strings.Contains(d.Why, "captain design-review dispatch failed") {
+		t.Errorf("expected captain dispatch-failure reason, got %q", d.Why)
+	}
+}
