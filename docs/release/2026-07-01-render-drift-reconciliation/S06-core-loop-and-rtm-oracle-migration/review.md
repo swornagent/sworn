@@ -57,11 +57,11 @@ TL;DR sound design, stays inside its declared touchpoints, but blocked on one re
 4. **[[project_board_v1_release_shape_skew]] confirmed** — rtm.go's OBJECT-shape assumption for board.json's release field matches the decided/live shape. No action.
 5. **extractReleaseWorktreePath duplicates in tools_ops.go/regress.go confirmed already owned** by S04/S05 respectively. No action.
 6. **Touchpoint-matrix collision avoidance confirmed correct** — no internal/board changes needed, six declared touchpoints are sufficient. No action.
-7. **AC-06 reachability substitute.** [Coach to pick before implementing this portion:] option (a) Go-level `run.RunParallel` invocation against the real release's board.json with a no-op `RunSliceFn`; option (b) the literal `sworn loop --release <name> --parallel` CLI invocation, accepting its side effects on T1/T2/T3's live worktrees.
+7. **AC-06 reachability substitute — RESOLVED (Coach decision, see below).** Capture AC-06's reachability artefact via a Go-level `run.RunParallel` invocation against the real release's board.json with a no-op `RunSliceFn`, using a throwaway DB/EventDB (same pattern the existing unit-test harness already uses) rather than the real `.sworn/sworn.db` — this also avoids swornagent/sworn#46's default-case DB-state mutation, not just the T2-tui side effects. Do not use the literal CLI invocation for this AC.
 
 Flags (not pins): (a) router_test.go already imports internal/board today — the "new import" framing in design.md is a minor inaccuracy, not a risk; (b) RunParallel's cited line range is approximate but close enough to navigate by.
 
-§2 decisions (a)-(e) above acknowledged as Type-2/non-architecturally-significant. §6/Pins-for-Captain question 1 (touchpoint collision) acknowledged — confirmed correct, no internal/board changes needed.
+§2 decisions (a)-(e) above acknowledged as Type-2/non-architecturally-significant. §6/Pins-for-Captain question 1 (touchpoint collision) acknowledged — confirmed correct, no internal/board changes needed. §6/Pins-for-Captain question 2 (AC-06 substitute) resolved — see Coach decision below.
 
 Address pins 1–7 inline during implementation, then proceed to in_progress.
 
@@ -70,3 +70,17 @@ DECISION: NEEDS_COACH
 CONSTITUTIONAL: no
 REASON: Pin 7 (AC-06 reachability-artefact substitute vs literal CLI invocation with real side effects on T1-T3's live worktrees) is a genuine scope/safety trade-off with no single right answer, explicitly self-flagged by the design as needing sign-off before implementation. All other pins are apply-inline and do not require re-checking the design.
 -->
+
+## Coach decision (post-review)
+
+Date: 2026-07-01
+Decision-maker: Brad (Coach), in conversation following this review
+
+**Pin 7 (AC-06 reachability-artefact substitute): Option (a) selected.**
+
+- Option (a) — Go-level `run.RunParallel` invocation against the real release's board.json, no-op `RunSliceFn`, throwaway DB. Prioritises isolation from sibling in-flight tracks and sidesteps swornagent/sworn#46 (whose existence was discovered while tracing this decision).
+- Option (b) — literal `sworn loop --release <name> --parallel` CLI invocation. Rejected: confirmed to trigger a real `/implement-slice` dispatch against T2-tui's S03 (planned) and to trip #46 on T2-tui's S02 (marks the track FAILED for a slice that isn't actually broken) — side effects unrelated to what AC-06 is trying to prove.
+
+Rationale: option (a) exercises the exact logic AC-01/02/03 fix (`board.ReadBoard`/`trackInfosFromBoardTracks`/`parseDocumentedSharedFiles` via `RunParallel`) against real board.json data, without depending on unrelated, out-of-scope dispatch-loop code (`internal/scheduler/worker.go`, not a declared touchpoint) that is currently broken. If literal CLI-entrypoint wiring needs separate confidence later, that is a distinct smoke test, tracked separately (not a gate on this slice) — and naturally follows once swornagent/sworn#46 is fixed.
+
+This closes pin 7. Slice is now unblocked pending pins 1–6 (all apply-inline).
