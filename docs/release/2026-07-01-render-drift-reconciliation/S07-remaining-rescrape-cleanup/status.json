@@ -3,22 +3,44 @@
   "slice_id": "S07-remaining-rescrape-cleanup",
   "release": "2026-07-01-render-drift-reconciliation",
   "track": "T5-core-loop-rtm-rescrape",
-  "state": "design_review",
+  "state": "in_progress",
   "covers_needs": [
     "N-01"
   ],
   "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S07-remaining-rescrape-cleanup/spec.json",
-  "start_commit": null,
+  "start_commit": "5b31ba86c166dc55a29fef49d4ce02ff976c4e11",
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
     "quadrant": "chore",
     "rationale": "Three independent, small, mechanical swaps of a re-derived value for the JSON field that already has it.",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
+  "design_decisions": [
+    {
+      "choice": "internal/ears prefers spec.json's ears_keyword over spec.md text (spec.json-first), diverging from internal/gate/trace.go's spec.md-first ordering.",
+      "stake_class": "Type-2",
+      "rationale": "trace.go also runs text-level prose checks that need a markdown body spec.json cannot supply; ears.go's only job is per-AC EARS classification, which ears_keyword already answers directly. Narrow — one function's source-of-truth order, reversible by flipping the branch order, does not touch trace.go."
+    },
+    {
+      "choice": "Accept the PatternComplex precision loss when classifying from spec.json's stored ears_keyword instead of re-deriving from prose (spec_record.go's writer cannot emit a keyword representing 2+ preconditions).",
+      "stake_class": "Type-2",
+      "rationale": "spec_record.go is not a touchpoint of this slice; AC-04 scopes this slice to which source future reads use, not to improving what the writer computes. Follow-up slice on spec_record.go's classifyEARSKeyword is the correct owner if unacceptable."
+    },
+    {
+      "choice": "Result.Line becomes a 1-based ordinal array-index (not a markdown line number) for spec.json-sourced ACs.",
+      "stake_class": "Type-2",
+      "rationale": "There is no physical markdown line for a JSON record; an ordinal position keeps the field non-zero, deterministic, and useful for a human pointer (\"AC #3\"). Doc comment updated to say so explicitly."
+    },
+    {
+      "choice": "ViolationsSummary returns only the first proof.json.not_delivered entry (trimmed, 200-char truncated), not the full list joined.",
+      "stake_class": "Type-2",
+      "rationale": "Preserves the existing one-line paging-summary contract and truncation budget. A future consumer wanting the full list already has direct access to proof.json.not_delivered — no new API invented for a need nobody has surfaced."
+    }
+  ],
   "verification": {
     "result": "pending"
   },
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-01T23:13:33Z"
+  "last_updated_at": "2026-07-02T00:00:00Z"
 }
