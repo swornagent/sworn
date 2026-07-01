@@ -53,7 +53,7 @@
         "S05-cli-merge-regress-oracle-migration"
       ],
       "depends_on": [],
-      "state": "planned"
+      "state": "merged"
     },
     {
       "id": "T5-core-loop-rtm-rescrape",
@@ -62,7 +62,7 @@
         "S07-remaining-rescrape-cleanup"
       ],
       "depends_on": [],
-      "state": "in_progress",
+      "state": "merged",
       "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-07-01-render-drift-reconciliation-T5-core-loop-rtm-rescrape",
       "worktree_branch": "track/2026-07-01-render-drift-reconciliation/T5-core-loop-rtm-rescrape"
     }
