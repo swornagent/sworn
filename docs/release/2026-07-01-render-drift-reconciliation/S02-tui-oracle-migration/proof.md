@@ -5,7 +5,9 @@ description: Rule 6 proof bundle, scoped to one slice. Generated from live repo 
 
 # Proof Bundle: `S02-tui-oracle-migration`
 
-Rendered from `proof.json` (proof-v1). First implementation pass.
+Rendered from `proof.json` (proof-v1). Second implementation pass — addresses
+the first-pass verifier FAIL (Gate 6/AC-02 track-match strategy; Gate 7
+proof/journal accuracy).
 
 ## Scope
 
@@ -18,15 +20,18 @@ a stale, silently-wrong fallback.
 
 ```
 $ git diff --name-only 622f118ef3fda5581d332fdd76a80f39432de763
+docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/journal.md
+docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/proof.json
+docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/proof.md
+docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/reachability-tui-capture.txt
 docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/status.json
 internal/tui/blocked.go
 internal/tui/board.go
 internal/tui/tui_test.go
 ```
 
-(`proof.json`, this `proof.md`, and the final `status.json` implemented-state
-commit land in the bundle commit, after this diff was captured against
-`start_commit`.)
+(Diff is cumulative against `start_commit` across both passes — `proof.json`
+and this regenerated `proof.md` land with the bundle commit.)
 
 ## Test results
 
@@ -47,7 +52,7 @@ $ go test ./internal/tui/... -count=1 -v
 === RUN   TestBoardViewShowsSlices
 --- PASS: TestBoardViewShowsSlices (0.02s)
 === RUN   TestBoardViewLegacyIndexFallback
---- PASS: TestBoardViewLegacyIndexFallback (0.00s)
+--- PASS: TestBoardViewLegacyIndexFallback (0.01s)
 === RUN   TestAutoTransitionNoTracks
 --- PASS: TestAutoTransitionNoTracks (0.01s)
 === RUN   TestBlockedPanelExtractsViolations
@@ -56,6 +61,8 @@ $ go test ./internal/tui/... -count=1 -v
 --- PASS: TestBlockedPanelViolationsFromProofJSONNotProofMD (0.00s)
 === RUN   TestDeferWritesRuleTwo
 --- PASS: TestDeferWritesRuleTwo (0.00s)
+=== RUN   TestBlockedPanelWorktreeSurvivesStaleTrackField
+--- PASS: TestBlockedPanelWorktreeSurvivesStaleTrackField (0.00s)
 === RUN   TestBoardEnterTransitionsToBlocked
 --- PASS: TestBoardEnterTransitionsToBlocked (0.01s)
 === RUN   TestBoardEnterTransitionsToBlockedOnImplementedBlockedVerdict
@@ -69,70 +76,70 @@ $ go test ./internal/tui/... -count=1 -v
 === RUN   TestBoardViewLoadsRealOperationalReadinessRelease
 --- PASS: TestBoardViewLoadsRealOperationalReadinessRelease (0.34s)
 PASS
-ok  	github.com/swornagent/sworn/internal/tui	0.987s
+ok  	github.com/swornagent/sworn/internal/tui	0.983s
 
 $ go test ./... -count=1 -timeout 250s
-ok  	github.com/swornagent/sworn/cmd/sworn	39.493s
-ok  	github.com/swornagent/sworn/internal/account	10.128s
-ok  	github.com/swornagent/sworn/internal/adopt	0.032s
-ok  	github.com/swornagent/sworn/internal/agent	0.031s
-ok  	github.com/swornagent/sworn/internal/baton	1.063s
+ok  	github.com/swornagent/sworn/cmd/sworn	39.326s
+ok  	github.com/swornagent/sworn/internal/account	10.129s
+ok  	github.com/swornagent/sworn/internal/adopt	0.031s
+ok  	github.com/swornagent/sworn/internal/agent	0.029s
+ok  	github.com/swornagent/sworn/internal/baton	1.022s
 ?   	github.com/swornagent/sworn/internal/baton/schemas	[no test files]
-ok  	github.com/swornagent/sworn/internal/bench	1.375s
-ok  	github.com/swornagent/sworn/internal/board	0.139s
-ok  	github.com/swornagent/sworn/internal/captain	0.033s
-ok  	github.com/swornagent/sworn/internal/command	0.007s
-ok  	github.com/swornagent/sworn/internal/config	0.031s
-ok  	github.com/swornagent/sworn/internal/db	1.226s
+ok  	github.com/swornagent/sworn/internal/bench	1.265s
+ok  	github.com/swornagent/sworn/internal/board	0.132s
+ok  	github.com/swornagent/sworn/internal/captain	0.020s
+ok  	github.com/swornagent/sworn/internal/command	0.003s
+ok  	github.com/swornagent/sworn/internal/config	0.030s
+ok  	github.com/swornagent/sworn/internal/db	1.284s
 ok  	github.com/swornagent/sworn/internal/design	0.028s
-ok  	github.com/swornagent/sworn/internal/designaudit	0.025s
-ok  	github.com/swornagent/sworn/internal/designfit	0.024s
-ok  	github.com/swornagent/sworn/internal/ears	0.009s
-ok  	github.com/swornagent/sworn/internal/gate	0.102s
-ok  	github.com/swornagent/sworn/internal/git	0.329s
-ok  	github.com/swornagent/sworn/internal/implement	0.500s
-ok  	github.com/swornagent/sworn/internal/journey	0.066s
-ok  	github.com/swornagent/sworn/internal/ledger	0.027s
-ok  	github.com/swornagent/sworn/internal/lint	0.148s
-ok  	github.com/swornagent/sworn/internal/mcp	0.139s
-ok  	github.com/swornagent/sworn/internal/memory	1.259s
-ok  	github.com/swornagent/sworn/internal/model	2.035s
-ok  	github.com/swornagent/sworn/internal/orchestrator	0.005s
+ok  	github.com/swornagent/sworn/internal/designaudit	0.022s
+ok  	github.com/swornagent/sworn/internal/designfit	0.025s
+ok  	github.com/swornagent/sworn/internal/ears	0.030s
+ok  	github.com/swornagent/sworn/internal/gate	0.095s
+ok  	github.com/swornagent/sworn/internal/git	0.294s
+ok  	github.com/swornagent/sworn/internal/implement	0.463s
+ok  	github.com/swornagent/sworn/internal/journey	0.058s
+ok  	github.com/swornagent/sworn/internal/ledger	0.024s
+ok  	github.com/swornagent/sworn/internal/lint	0.123s
+ok  	github.com/swornagent/sworn/internal/mcp	0.134s
+ok  	github.com/swornagent/sworn/internal/memory	1.268s
+ok  	github.com/swornagent/sworn/internal/model	2.049s
+ok  	github.com/swornagent/sworn/internal/orchestrator	0.004s
 ok  	github.com/swornagent/sworn/internal/prompt	0.014s
-ok  	github.com/swornagent/sworn/internal/reqvalidate	0.018s
-ok  	github.com/swornagent/sworn/internal/reqverify	0.011s
-ok  	github.com/swornagent/sworn/internal/router	0.072s
-ok  	github.com/swornagent/sworn/internal/rtm	0.010s
-ok  	github.com/swornagent/sworn/internal/run	4.916s
-ok  	github.com/swornagent/sworn/internal/scheduler	0.176s
-ok  	github.com/swornagent/sworn/internal/spec	0.008s
-ok  	github.com/swornagent/sworn/internal/specquality	0.024s
-ok  	github.com/swornagent/sworn/internal/state	0.027s
-ok  	github.com/swornagent/sworn/internal/style	0.007s
-ok  	github.com/swornagent/sworn/internal/supervisor	0.972s
-ok  	github.com/swornagent/sworn/internal/telemetry	0.319s
-ok  	github.com/swornagent/sworn/internal/templates	0.006s
-ok  	github.com/swornagent/sworn/internal/tui	1.277s
+ok  	github.com/swornagent/sworn/internal/reqvalidate	0.021s
+ok  	github.com/swornagent/sworn/internal/reqverify	0.017s
+ok  	github.com/swornagent/sworn/internal/router	0.061s
+ok  	github.com/swornagent/sworn/internal/rtm	0.014s
+ok  	github.com/swornagent/sworn/internal/run	4.968s
+ok  	github.com/swornagent/sworn/internal/scheduler	0.190s
+ok  	github.com/swornagent/sworn/internal/spec	0.004s
+ok  	github.com/swornagent/sworn/internal/specquality	0.015s
+ok  	github.com/swornagent/sworn/internal/state	0.023s
+ok  	github.com/swornagent/sworn/internal/style	0.003s
+ok  	github.com/swornagent/sworn/internal/supervisor	1.016s
+ok  	github.com/swornagent/sworn/internal/telemetry	0.315s
+ok  	github.com/swornagent/sworn/internal/templates	0.003s
+ok  	github.com/swornagent/sworn/internal/tui	1.398s
 ?   	github.com/swornagent/sworn/internal/verdict	[no test files]
-ok  	github.com/swornagent/sworn/internal/verify	0.022s
+ok  	github.com/swornagent/sworn/internal/verify	0.027s
 ```
 
 ## Reachability artefact
 
-- **Type**: recorded terminal session (`tmux capture-pane` against a real, live-run `sworn` binary — not a synthetic fixture, not just a unit test)
-- **Path**: `docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/reachability-tui-capture.txt`
-- **User gesture**: built `./bin/sworn` from this worktree's HEAD, ran it live inside a 220x50 tmux pane rooted at this worktree's repo root, navigated the release list down to the real, committed `2026-06-30-sworn-operational-readiness` release (5 tracks, `board.json`-backed), pressed Enter, and captured the resulting screen. The board pane shows all 5 real tracks (`T1-operational-unblock` .. `T5-model-pricing-registry`) and all 6 real slices with their live `status.json` states (`verified`) and last-updated timestamps. Before this slice, the identical gesture would have silently rendered zero tracks with no error — `sworn render` no longer emits the `tracks:` frontmatter `LoadBoard` used to hand-parse.
-- **Also covered by an integration test**: `TestBoardViewLoadsRealOperationalReadinessRelease` (`internal/tui/tui_test.go`) drives the same integration point (`Model.handleReleasesKey`'s `enter` case → `BoardView.LoadBoard`) programmatically against this same real repo root and release, asserting all 5 track IDs and non-`unknown` slice states — kept alongside the manual capture per Rule 1 ("leaf-level unit tests are fine in addition; they cannot be the sole proof of life").
+- **Type**: recorded terminal session (`tmux capture-pane` against a real, live-run `sworn` binary — not a synthetic fixture, not just a unit test), **plus** a committed integration-level regression test for the specific fix this pass makes.
+- **Path**: `docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/reachability-tui-capture.txt` (AC-01/AC-05, unaffected by this pass — `board.go` was not touched this pass, so the artefact remains valid and is not retaken).
+- **AC-02 (this pass's fix)**: `TestBlockedPanelWorktreeSurvivesStaleTrackField` (`internal/tui/tui_test.go`) drives `LoadBlockedView` — the exact function the real `BlockedView` panel calls (`TestBoardEnterTransitionsToBlocked` proves that call site) — with a board fixture whose track was renamed (`T1-core-renamed`, as `/replan-release` would do) but still lists the target slice in `Slices`, paired with a deliberately stale `status.json.track` pointing at the pre-rename ID (`T1-core`, absent from `board.json`). Asserts `worktreePath` resolves to the real worktree, not `repoRoot`. This reproduces the verifier's exact uncommitted probe test as a permanent, committed regression test.
+- **User gesture this proves**: an operator on the TUI's board view presses Enter on a slice whose track was renamed via `/replan-release` after the slice's `status.json` was last written (a stale-hint scenario a live tmux capture cannot deterministically stage, since it depends on file state drift over time, not UI navigation) — the blocked-resolution panel must still show the real worktree path, not silently fall back to the repo root.
 
 ## Delivered
 
 - **AC-01** — `BoardView.LoadBoard` (`internal/tui/board.go`) reads `board.json` via `internal/board.ReadBoard` instead of hand-parsing `index.md`'s `tracks:` YAML frontmatter. Evidence: `TestBoardViewShowsSlices` (the exact bug-reproduction fixture, now green) and `TestBoardViewLoadsRealOperationalReadinessRelease` (live-repo reachability test).
-- **AC-02** — `LoadBlockedView` (`internal/tui/blocked.go`) resolves `worktree_path` via `board.ReadBoard`, matching the track whose ID equals the slice's `status.json.track`, instead of a frontmatter parse that silently fell back to `repoRoot`. Evidence: `TestDeferWritesRuleTwo`, which now asserts `bv.worktreePath` equals the `board.json`-sourced path explicitly.
+- **AC-02 (second pass, corrected)** — `LoadBlockedView` (`internal/tui/blocked.go`) resolves `worktree_path` via `board.ReadBoard`, matching the first track whose `Slices` array contains the target `sliceID` — the same pattern S04's `AssembleSliceContext` (`internal/mcp/context.go`) uses. `status.json.track` is read for display only (`BlockedView.track`), never as the match key, so a stale track field cannot cause a silent fallback to `repoRoot`. The first pass's `t.ID == st.Track` match strategy is gone from the committed code. Evidence: `TestBlockedPanelWorktreeSurvivesStaleTrackField` (new — proves resolution survives a stale `status.json.track`) and `TestDeferWritesRuleTwo` (still passes, matching-ID fixture).
 - **AC-03** — `ExtractViolations` reads a slice's `proof.json.not_delivered` array directly; the `proof.md` regex scraper is deleted (no fallback). Evidence: `TestBlockedPanelExtractsViolations` (new signature) and `TestBlockedPanelViolationsFromProofJSONNotProofMD` (a decoy `proof.md` with `## Violations` bullets and a `LEGACY-SCRAPE-MARKER` is present in the same slice dir and never surfaces — proving the scrape path is fully retired).
-- **AC-04** — every test in `tui_test.go` that previously hand-authored `tracks:` YAML frontmatter and drove `LoadBoard`/`LoadBlockedView` through it now builds its fixture via the new `writeBoardFixture` helper (calls the real `board.WriteBoard` path, validated against `board-v1`): `TestBoardViewShowsSlices`, `TestAutoTransitionNoTracks`, `TestDeferWritesRuleTwo`, `TestBoardEnterTransitionsToBlocked`, `TestBoardEnterTransitionsToBlockedOnImplementedBlockedVerdict`, `TestBlockedPanelViewProof`, `TestBoardViewShowsMergeBadge`, `TestBoardViewNoMergeBadge`. Exactly one dedicated test, `TestBoardViewLegacyIndexFallback`, is kept on the legacy frontmatter-only shape (AC-06).
+- **AC-04** — every test in `tui_test.go` that previously hand-authored `tracks:` YAML frontmatter and drove `LoadBoard`/`LoadBlockedView` through it now builds its fixture via the `writeBoardFixture` helper (calls the real `board.WriteBoard` path, validated against `board-v1`): `TestBoardViewShowsSlices`, `TestAutoTransitionNoTracks`, `TestDeferWritesRuleTwo`, `TestBoardEnterTransitionsToBlocked`, `TestBoardEnterTransitionsToBlockedOnImplementedBlockedVerdict`, `TestBlockedPanelViewProof`, `TestBoardViewShowsMergeBadge`, `TestBoardViewNoMergeBadge`. The new `TestBlockedPanelWorktreeSurvivesStaleTrackField` also uses `writeBoardFixture`. Exactly one dedicated test, `TestBoardViewLegacyIndexFallback`, is kept on the legacy frontmatter-only shape (AC-06).
 - **AC-05** — `TestBoardViewLoadsRealOperationalReadinessRelease` plus the live `tmux`-recorded manual smoke described above. See "Reachability artefact".
 - **AC-06** — `TestBoardViewLegacyIndexFallback` writes ONLY a legacy `tracks:` frontmatter `index.md` (no `board.json`) and asserts `LoadBoard` still populates tracks via `board.ReadBoard`'s `migrateFromIndex` lazy-migration fallback — unmodified, pre-existing behaviour.
-- **AC-07** — `go build ./...` exits 0; `go test ./internal/tui/...` passes (0 failures); `go vet ./internal/tui/...` clean; `gofmt -l` empty on all three touched files; full `go test ./...` (39 packages) passes with no cross-package regression.
+- **AC-07** — `go build ./...` exits 0; `go test ./internal/tui/...` passes (41 tests, 0 failures); `go vet ./internal/tui/...` clean; `gofmt -l` empty on all three touched files; full `go test ./...` (39 packages) passes with no cross-package regression.
 
 ## Not delivered
 
@@ -140,11 +147,14 @@ None. Every acceptance check is delivered.
 
 ## Divergence from plan
 
+- **Second pass (this pass)**: the fresh-context verifier's two violations are both accepted as-is, no push-back.
+  1. Gate 6/AC-02: `LoadBlockedView`'s track match strategy changed from `t.ID == st.Track` to a `Slices`-membership scan (see AC-02 above), closing the exact staleness gap the verifier's probe reproduced.
+  2. Gate 7: this proof bundle and `journal.md` are rewritten to describe the actual committed code (`Slices`-membership match) rather than the first pass's narrative, which inaccurately claimed that pattern was already implemented when the code still matched on `t.ID == st.Track`.
 - Design review pin 1 (proof-visibility theme scope check): `DC-1`'s local `struct{ NotDelivered []string }` read of `proof.json` in `blocked.go` is confirmed as a narrow, spec-scoped fix for AC-03 only, not a stand-in for the future proof-panel theme (`project_proof_visibility_theme` memory) — recorded explicitly here so that later release isn't surprised by this ad hoc reader pattern needing to be unified or replaced.
 - Design review pin 2 (board-v1 shape cross-check): already independently verified by the Captain against live code before implementation (`StringRelease` emits the canonical object form per `board_release_test.go:TestStringRelease_EmitsCanonicalObject`) — no implementation action was needed; citing the confirmation here per the review's suggested acknowledgement.
 - Design review pin 3 (`tui_test.go` touchpoint overlap with sibling S03-tui-chrome-rework): no design change made. S03 is still `planned`; single serial implementer per track worktree means S02 lands first and S03's implementer inherits the regenerated `writeBoardFixture` helper and converted fixtures without surprise.
-- AC-04 was applied per its literal text ("any sibling test using a hand-written index.md fixture with the legacy tracks: YAML shape SHALL be regenerated") rather than design.md's narrower named list of 5 tests: all 8 tests that hand-authored `tracks:` frontmatter and drove `LoadBoard`/`LoadBlockedView` were converted, and one NEW dedicated test (`TestBoardViewLegacyIndexFallback`) was added rather than repurposing an existing test — matching design.md's "keep one dedicated test" intent for AC-06.
-- Manually driving the live TUI via `tmux` to capture the AC-05 reachability artefact triggered `board.ReadBoard`'s designed lazy-migration side effect (DC-2) for two other, unrelated releases (`2026-06-15-e2e-turnkey-loop`, `2026-06-16-fidelity-layer`) as I navigated past them during manual testing. Both stray `board.json` files were deleted before committing — confirmed via a clean `git status --short` except the intended reachability artefact — since they are outside this slice's declared scope.
+- AC-04 was applied per its literal text ("any sibling test using a hand-written index.md fixture with the legacy tracks: YAML shape SHALL be regenerated") rather than design.md's narrower named list of 5 tests: all 8 pre-existing tests that hand-authored `tracks:` frontmatter and drove `LoadBoard`/`LoadBlockedView` were converted, plus one NEW dedicated test (`TestBoardViewLegacyIndexFallback`) added rather than repurposing an existing test — matching design.md's "keep one dedicated test" intent for AC-06.
+- First pass only: manually driving the live TUI via `tmux` to capture the AC-05 reachability artefact triggered `board.ReadBoard`'s designed lazy-migration side effect (DC-2) for two other, unrelated releases (`2026-06-15-e2e-turnkey-loop`, `2026-06-16-fidelity-layer`) as navigation passed them during manual testing. Both stray `board.json` files were deleted before committing — confirmed via a clean `git status --short` except the intended reachability artefact — since they are outside this slice's declared scope. Not repeated this pass: `board.go` is untouched, so no new manual capture was taken; `TestBlockedPanelWorktreeSurvivesStaleTrackField` is the committed reachability proof for this pass's fix.
 
 ## First-pass script output
 
@@ -172,8 +182,12 @@ release-verify.sh
 
 == Diff vs start_commit (verifier base) ==
   diff base: start_commit 622f118ef3fda5581d332fdd76a80f39432de763
-  PASS  4 file(s) changed vs diff base
+  PASS  8 file(s) changed vs diff base
   (first 20)
+    docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/journal.md
+    docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/proof.json
+    docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/proof.md
+    docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/reachability-tui-capture.txt
     docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/status.json
     internal/tui/blocked.go
     internal/tui/board.go
@@ -192,7 +206,7 @@ release-verify.sh
   PASS  proof.md has section: ## Divergence from plan
   PASS  no obvious template placeholders left in proof.md
   PASS  deferrals (proof 'Not delivered' + spec 'Out of scope') carry concrete tracking refs
-  PASS  proof.md 'Files changed' count (~4) consistent with diff vs start_commit (4)
+  PASS  proof.md 'Files changed' count (~8) consistent with diff vs start_commit (8)
 
 == Frontmatter YAML safety ==
 
@@ -218,4 +232,4 @@ check. Every other applicable check PASSED, including all 7 required
 diff. Treating first-pass as green given the single FAIL is the documented,
 pre-existing spec.md/spec.json false negative and every substantive,
 applicable check passed — the same posture S01 and S04 took for this exact
-gap.
+gap, now repeated for S02's second pass.

@@ -920,6 +920,48 @@ func TestDeferWritesRuleTwo(t *testing.T) {
 	}
 }
 
+// TestBlockedPanelWorktreeSurvivesStaleTrackField verifies AC-02's real
+// robustness requirement: worktree_path resolution must survive a stale
+// status.json.track field (e.g. left behind by a /replan-release track
+// rename), not just resolve correctly when the two happen to agree.
+// status.json.track is a hint, never the authoritative match key — the
+// authoritative key is the slice's membership in a board track's Slices
+// list, matching S04's AssembleSliceContext (internal/mcp/context.go)
+// pattern exactly. Board fixture: the track's ID has been renamed to
+// "T1-core-renamed" (as /replan-release would do) but still lists the
+// target slice in Slices; status.json.track still says the OLD id
+// "T1-core". A match on t.ID == st.Track would silently fall back to
+// repoRoot here — the exact silently-wrong-fallback behaviour AC-02 exists
+// to eliminate, just reached via a different trigger (stale track field)
+// than the slice's original bug (frontmatter parse failure).
+func TestBlockedPanelWorktreeSurvivesStaleTrackField(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	realWorktree := filepath.Join(dir, "real-worktree")
+	os.MkdirAll(realWorktree, 0o755)
+
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core-renamed", Slices: []string{"S01-first"}, State: "in_progress", WorktreePath: realWorktree, WorktreeBranch: "track/test-release/T1-core-renamed"},
+	})
+	// status.json.track deliberately stale: still points at the track's
+	// pre-rename ID, which no longer exists in board.json.
+	createSliceStatus(t, releaseDir, "S01-first", "failed_verification", "T1-core")
+
+	bv, err := LoadBlockedView(dir, "test-release", "S01-first")
+	if err != nil {
+		t.Fatalf("LoadBlockedView: %v", err)
+	}
+
+	if bv.worktreePath != realWorktree {
+		t.Fatalf("expected worktreePath %q resolved via Slices membership despite stale status.json.track, got %q (silently-wrong fallback)", realWorktree, bv.worktreePath)
+	}
+	if bv.worktreePath == dir {
+		t.Fatalf("worktreePath fell back to repoRoot %q — the exact silently-wrong-fallback AC-02 requires eliminating", dir)
+	}
+}
+
 func TestBoardEnterTransitionsToBlocked(t *testing.T) {
 	dir := t.TempDir()
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")

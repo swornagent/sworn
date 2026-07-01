@@ -100,6 +100,14 @@ func AppendDeferralToIntake(intakePath, sliceID, reason string) error {
 // which is why the blocked panel used to point developers at the wrong
 // directory. Violations are read from proof.json.not_delivered (AC-03)
 // rather than regex-scraped from proof.md.
+//
+// Track resolution matches S04's AssembleSliceContext (internal/mcp/context.go)
+// pattern: status.json's track field is a hint only, never the match key.
+// status.json.track can go stale after a track rename (e.g. via
+// /replan-release), so the only authoritative key is the slice's
+// membership in a board track's Slices list — we accept the first track
+// whose Slices contains sliceID, matching on content rather than a field
+// that can silently drift out of sync with board.json.
 func LoadBlockedView(repoRoot, releaseName, sliceID string) (*BlockedView, error) {
 	statusPath := filepath.Join(repoRoot, "docs", "release", releaseName, sliceID, "status.json")
 	st, err := state.Read(statusPath)
@@ -110,8 +118,13 @@ func LoadBlockedView(repoRoot, releaseName, sliceID string) (*BlockedView, error
 	worktreePath := ""
 	if br, errB := board.ReadBoard(repoRoot, releaseName); errB == nil {
 		for _, t := range br.Tracks {
-			if t.ID == st.Track {
-				worktreePath = t.WorktreePath
+			for _, sid := range t.Slices {
+				if sid == sliceID {
+					worktreePath = t.WorktreePath
+					break
+				}
+			}
+			if worktreePath != "" {
 				break
 			}
 		}

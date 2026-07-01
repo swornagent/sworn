@@ -195,3 +195,33 @@ Plan: TDD per Rule 1 — write the stale-track-field regression test first
 (against the still-unfixed code, confirming it fails the same way the
 verifier's probe did), then change `LoadBlockedView`'s match strategy,
 confirm the new test (and the full `internal/tui` suite) goes green.
+
+## 2026-07-02 — Second pass complete
+
+TDD executed per the plan above:
+
+1. Added `TestBlockedPanelWorktreeSurvivesStaleTrackField` to
+   `internal/tui/tui_test.go` — a board fixture with track ID
+   `T1-core-renamed` (as `/replan-release` would produce) whose `Slices`
+   still lists `S01-first`, paired with a deliberately stale
+   `status.json.track = "T1-core"` (the pre-rename ID, absent from
+   `board.json`). Ran it against the still-unfixed `blocked.go`: it failed
+   exactly as the verifier's probe predicted (`worktreePath` resolved to
+   `repoRoot` instead of the real worktree).
+2. Fixed `LoadBlockedView` (`internal/tui/blocked.go`): replaced the
+   `t.ID == st.Track` match with a scan of each track's `Slices` for the
+   target `sliceID`, matching S04's `AssembleSliceContext`
+   (`internal/mcp/context.go`) pattern exactly. `status.json.track` is now
+   read only for the `BlockedView.track` display field, never used to
+   select the worktree path.
+3. Re-ran the new test: green. Re-ran the full `internal/tui` suite (41
+   tests, up from 40) and the full `go test ./...` (39 packages): all
+   green, no regressions. `go vet ./internal/tui/...` clean, `gofmt -l`
+   empty on all three touched files.
+
+Rewrote `proof.json`/`proof.md`'s AC-02 `delivered` text and this journal to
+describe the actual committed `Slices`-membership match (Gate 7 fix) — no
+longer describing a pattern that wasn't actually implemented.
+
+State -> `implemented`. Stopping here per role boundaries — no verifier
+prompt in this session; `/verify-slice` in a fresh session is next.
