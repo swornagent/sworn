@@ -23,7 +23,7 @@ release overnight. Parallelism out of scope (serial is acceptable).
 | `T2-board-render` | `S02-board-render` | — | in_progress |
 | `T3-consumer-repo-hygiene` | `S03-sworn-self-ignore` | — | merged |
 | `T4-board-record-reconciliation` | `S04-board-record-reconciliation` | — | merged |
-| `T5-model-pricing-registry` | `S06-model-pricing-registry` | — | in_progress |
+| `T5-model-pricing-registry` | `S06-model-pricing-registry` | — | merged |
 
 Five independent tracks (touchpoint-disjoint, see matrix). Serial execution is fine —
 parallelism is not a goal. **T1/D6 AND T4/board-record are tonight-critical** — the fired run
