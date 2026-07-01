@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/swornagent/sworn/internal/board"
 )
 
 // TestMergeTrack_AllVerified builds sworn and runs merge-track against a fixture
@@ -180,9 +182,12 @@ func TestMergeTrack_OracleRouting(t *testing.T) {
 	trackBranch := fmt.Sprintf("track/%s/%s", release, trackID)
 	runGit(t, repoDir, "checkout", trackBranch)
 
-	// On track: S01 is verified.
+	// On track: S01 is verified. writeMergeStatus re-renders index.md too
+	// (AC-04) — commit the whole tree (not just status.json) so the render's
+	// working-tree write doesn't linger as a dirty file that would trip gate
+	// 3's cleanliness check once we're back on release-wt below.
 	writeMergeStatus(t, repoDir, release, "S01-verified", "verified")
-	runGit(t, repoDir, "add", "docs/release/"+release+"/S01-verified/status.json")
+	runGit(t, repoDir, "add", ".")
 	runGit(t, repoDir, "commit", "-m", "track: S01 verified")
 
 	// Back on release-wt. Working tree has planned (from release-wt commit).
@@ -201,7 +206,118 @@ func TestMergeTrack_OracleRouting(t *testing.T) {
 	_ = err
 }
 
+// TestMergeTrack_LegacyIndexMDFallback is the AC-03 regression guard: a
+// release that has never had a board.json (genuinely pre-ADR-0009) must
+// still resolve release_worktree_path via the legacy index.md frontmatter
+// fallback in Oracle.ReadReleaseWorktreePath, not just the board.json path
+// every other test in this file exercises.
+func TestMergeTrack_LegacyIndexMDFallback(t *testing.T) {
+	swornBin := buildSworn(t)
+	repoDir, release, trackID := setupLegacyMergeFixture(t, "legacy-fallback")
+
+	writeLegacyMergeStatus(t, repoDir, release, "S01-legacy", "verified")
+	commitMergeFixture(t, repoDir, "fixture: legacy release-wt, no board.json")
+	createTrackBranch(t, repoDir, release, trackID)
+
+	cmd := exec.Command(swornBin, "merge-track", trackID, "--release", release)
+	cmd.Dir = repoDir
+	out, err := cmd.CombinedOutput()
+	exitCode := cmd.ProcessState.ExitCode()
+
+	if exitCode != 0 {
+		t.Errorf("merge-track legacy index.md fallback: exit %d, want 0\noutput: %s", exitCode, string(out))
+	}
+	if strings.Contains(string(out), "release_worktree_path not found") {
+		t.Errorf("merge-track legacy index.md fallback: unexpectedly hit the frontmatter-not-found error\noutput: %s", string(out))
+	}
+	_ = err
+}
+
 // --- helpers ---
+
+// setupLegacyMergeFixture creates a temp git repo with the release-wt branch
+// and ONLY a legacy index.md (YAML frontmatter tracks: list +
+// release_worktree_path key) — no board.json anywhere, the genuinely
+// pre-ADR-0009 shape AC-03 must keep working. Distinct from
+// setupMergeFixture, which is board.json-first (AC-01/AC-04).
+func setupLegacyMergeFixture(t *testing.T, name string) (repoDir, releaseName, trackID string) {
+	t.Helper()
+
+	repoDir = t.TempDir()
+	releaseName = "merge-test-" + name
+	trackID = "T1-core"
+
+	runGit(t, repoDir, "init")
+	runGit(t, repoDir, "config", "user.email", "test@swornagent.dev")
+	runGit(t, repoDir, "config", "user.name", "sworn test")
+
+	releaseWtBranch := "release-wt/" + releaseName
+	runGit(t, repoDir, "checkout", "-b", releaseWtBranch)
+
+	releaseDir := filepath.Join(repoDir, "docs", "release", releaseName)
+	if err := os.MkdirAll(releaseDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	trackBranch := fmt.Sprintf("track/%s/%s", releaseName, trackID)
+	indexContent := fmt.Sprintf(`---
+release_worktree_path: %s
+tracks:
+  - id: %s
+    worktree_branch: %s
+    state: in_progress
+    slices:
+      - S01-legacy
+---
+# legacy merge test — no board.json
+
+## Touchpoint matrix
+
+| File / surface | %s |
+|----------------|---------|
+| some-other-file.go | ✓ |
+`, repoDir, trackID, trackBranch, trackID)
+	if err := os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	sliceDir := filepath.Join(releaseDir, "S01-legacy")
+	if err := os.MkdirAll(sliceDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	return repoDir, releaseName, trackID
+}
+
+// writeLegacyMergeStatus writes a status.json for the legacy fixture WITHOUT
+// re-rendering index.md — there is no board.json to render from (AC-04's
+// RenderToFile fails closed on a missing board.json by design), so the
+// legacy fixture's index.md stays hand-authored, matching what a genuinely
+// pre-migration release's frontmatter actually looks like on disk.
+func writeLegacyMergeStatus(t *testing.T, repoDir, release, sliceID, state string) {
+	t.Helper()
+	statusPath := filepath.Join(repoDir, "docs", "release", release, sliceID, "status.json")
+	status := map[string]interface{}{
+		"$schema":         "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+		"slice_id":        sliceID,
+		"release":         release,
+		"track":           "T1-core",
+		"state":           state,
+		"owner":           "agent",
+		"last_updated_at": "2026-01-01T00:00:00Z",
+		"verification": map[string]interface{}{
+			"result":     "pass",
+			"violations": []string{},
+		},
+	}
+	data, err := json.MarshalIndent(status, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(statusPath, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // setupMergeFixture creates a temp git repo with the release-wt branch and
 // basic board.json/index.md. Returns the repo dir, release name, and track id.
@@ -247,33 +363,38 @@ func setupMergeFixture(t *testing.T, name string) (repoDir, releaseName, trackID
 		t.Fatal(err)
 	}
 
-	// Write index.md — needed for resolveReleaseWorktree and ParseDocumentedShared.
-	// Include a minimal touchpoint matrix so ParseDocumentedShared doesn't fail
-	// (with no documented-shared entries — the empty set).
-	indexContent := fmt.Sprintf(`---
-release_worktree_path: %s
----
-# merge test
-
-## Touchpoint matrix
-
-| File / surface | T1-core | T2-extra |
-|----------------|---------|----------|
-| some-other-file.go | ✓ | |
-`, repoDir)
-	if err := os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644); err != nil {
-		t.Fatal(err)
-	}
-	// Create slice directory.
+	// Create slice directory + spec.json. spec.json is written up front (it's
+	// static per-fixture); status.json is written per-test via writeMergeStatus,
+	// which also (re-)generates index.md through the REAL board.RenderToFile
+	// path (AC-04) — a hand-authored frontmatter fixture would never catch a
+	// renderer that stops emitting the release_worktree_path key merge.go
+	// depends on, which is exactly how this slice's bug shipped undetected.
 	sliceDir := filepath.Join(releaseDir, "S01-verified")
 	if err := os.MkdirAll(sliceDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	specContent := fmt.Sprintf(`{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "schema_version": 1,
+  "slice_id": "S01-verified",
+  "release": %q,
+  "user_outcome": "fixture slice for merge_test.go",
+  "covers_needs": ["N-01"],
+  "effort_complexity": {"effort": "low", "complexity": "low", "quadrant": "chore"},
+  "touchpoints": ["some-other-file.go"],
+  "acceptance_criteria": []
+}`, releaseName)
+	if err := os.WriteFile(filepath.Join(sliceDir, "spec.json"), []byte(specContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 
 	return repoDir, releaseName, trackID
 }
 
-// writeMergeStatus writes a status.json for the given slice in the fixture.
+// writeMergeStatus writes a status.json for the given slice in the fixture,
+// then re-renders index.md via the real board.RenderToFile path (AC-04) so
+// every fixture commit carries an index.md provably produced by `sworn
+// render`, not a hand-authored frontmatter string.
 func writeMergeStatus(t *testing.T, repoDir, release, sliceID, state string) {
 	t.Helper()
 	statusPath := filepath.Join(repoDir, "docs", "release", release, sliceID, "status.json")
@@ -296,6 +417,9 @@ func writeMergeStatus(t *testing.T, repoDir, release, sliceID, state string) {
 	}
 	if err := os.WriteFile(statusPath, data, 0644); err != nil {
 		t.Fatal(err)
+	}
+	if err := board.RenderToFile(repoDir, release); err != nil {
+		t.Fatalf("render index.md via board.RenderToFile: %v", err)
 	}
 }
 
