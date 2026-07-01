@@ -3,9 +3,9 @@
   "slice_id": "S06-core-loop-and-rtm-oracle-migration",
   "release": "2026-07-01-render-drift-reconciliation",
   "track": "T5-core-loop-rtm-rescrape",
-  "state": "in_progress",
+  "state": "implemented",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-02T00:00:00Z",
+  "last_updated_at": "2026-07-01T23:03:00Z",
   "covers_needs": ["N-01"],
   "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S06-core-loop-and-rtm-oracle-migration/spec.json",
   "start_commit": "d427d181bc725199aadbd9f3fc17b22247b1b8d2",
@@ -42,6 +42,23 @@
       "stake_class": "Type-2",
       "rationale": "Coach decision (review.md, option (a)): the literal CLI would dispatch live work against sibling in-flight tracks (T2/T3) and trip swornagent/sworn#46. The Go-level substitute exercises the exact fixed logic (board.ReadBoard/trackInfosFromBoardTracks/documented-shared detection) against real data without side effects. Narrow, reversible."
     }
+  ],
+  "actual_files": [
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go",
+    "internal/run/cold_start_test.go",
+    "internal/rtm/rtm.go",
+    "internal/rtm/rtm_test.go",
+    "internal/router/router_test.go"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go test ./internal/run/... ./internal/rtm/... ./internal/router/... -count=1 -timeout 300s",
+    "go vet ./internal/run/... ./internal/rtm/... ./internal/router/...",
+    "gofmt -l internal/run/parallel.go internal/run/parallel_test.go internal/run/cold_start_test.go internal/rtm/rtm.go internal/rtm/rtm_test.go internal/router/router_test.go"
+  ],
+  "reachability_artifacts": [
+    "docs/release/2026-07-01-render-drift-reconciliation/S06-core-loop-and-rtm-oracle-migration/reachability-runparallel-output.txt"
   ],
   "verification": {
     "result": "pending"
