@@ -10,6 +10,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/command"
 	"github.com/swornagent/sworn/internal/ledger"
+	"github.com/swornagent/sworn/internal/spec"
 	"github.com/swornagent/sworn/internal/state"
 )
 
@@ -82,8 +83,17 @@ func cmdLedgerSync(args []string) int {
 			continue
 		}
 
-		// Count acceptance checks from the companion spec.md.
-		gateCount := countGates(repoRoot, st.SliceID, st.Release)
+		// Count acceptance checks from the companion spec.json/spec.md.
+		gateCount, gcErr := countGates(repoRoot, st.SliceID, st.Release)
+		if gcErr != nil {
+			// A malformed spec.json fails closed (internal/spec.ReadRecord's
+			// documented contract) — do not silently zero the gate count or
+			// fold it into "no spec.json" (AC-02/AC-03 pin: the two cases
+			// are distinct and must not be conflated).
+			fmt.Fprintf(os.Stderr, "ledger sync: gate count %s: %v\n", st.SliceID, gcErr)
+			errors++
+			continue
+		}
 
 		record, ok := ledger.Project(st, gateCount)
 		if !ok {
@@ -108,16 +118,33 @@ func cmdLedgerSync(args []string) int {
 	return 0
 }
 
-// countGates reads the spec.md for a slice and counts the number of `- [ ]`
-// acceptance-check lines. Returns 0 if the spec cannot be read.
-func countGates(repoRoot, sliceID, release string) int {
+// countGates counts a slice's acceptance checks (AC-03). It prefers
+// spec.json — len(spec.json.acceptance_criteria) via internal/spec.ReadRecord,
+// the single reader for spec-v1 records — and falls back to counting `- [ ]`
+// lines in spec.md only when spec.json is absent (spec.ReadRecord's (nil,
+// nil): a legacy, pre-ADR-0009 slice). A malformed spec.json (spec.ReadRecord's
+// (nil, err) — distinct from absent) is NOT folded into the legacy fallback:
+// it is returned as an error so the caller fails closed instead of silently
+// under-reporting the gate count. Returns (0, nil) if release is empty or
+// neither spec.json nor spec.md can be read.
+func countGates(repoRoot, sliceID, release string) (int, error) {
 	if release == "" {
-		return 0
+		return 0, nil
 	}
-	specPath := filepath.Join(repoRoot, "docs", "release", release, sliceID, "spec.md")
-	f, err := os.Open(specPath)
+	sliceDir := filepath.Join(repoRoot, "docs", "release", release, sliceID)
+
+	rec, err := spec.ReadRecord(sliceDir)
 	if err != nil {
-		return 0
+		return 0, fmt.Errorf("countGates: %w", err)
+	}
+	if rec != nil && len(rec.AcceptanceCriteria) > 0 {
+		return len(rec.AcceptanceCriteria), nil
+	}
+
+	specPath := filepath.Join(sliceDir, "spec.md")
+	f, ferr := os.Open(specPath)
+	if ferr != nil {
+		return 0, nil
 	}
 	defer f.Close()
 
@@ -129,7 +156,7 @@ func countGates(repoRoot, sliceID, release string) int {
 		}
 	}
 	// scanner.Err is deliberately ignored — a partial read gives a best-effort count.
-	return count
+	return count, nil
 }
 
 // cmdLedgerReport reads the verdict corpus and prints the aggregate tables

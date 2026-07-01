@@ -1,0 +1,60 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "schema_version": 1,
+  "slice_id": "S06-core-loop-and-rtm-oracle-migration",
+  "release": "2026-07-01-render-drift-reconciliation",
+  "scope": "The autonomous loop (run.RunParallel) finds its tracks and correctly detects shared touchpoint files across tracks for any current-format (board.json-backed) release instead of hard-erroring 'no tracks found' or silently disabling the shared-file invariant; and Rule 8's RTM carries the real release benefit/org objective from board.json instead of empty strings.",
+  "files_changed": [
+    "docs/release/2026-07-01-render-drift-reconciliation/S06-core-loop-and-rtm-oracle-migration/journal.md",
+    "docs/release/2026-07-01-render-drift-reconciliation/S06-core-loop-and-rtm-oracle-migration/proof.json",
+    "docs/release/2026-07-01-render-drift-reconciliation/S06-core-loop-and-rtm-oracle-migration/proof.md",
+    "docs/release/2026-07-01-render-drift-reconciliation/S06-core-loop-and-rtm-oracle-migration/reachability-runparallel-output.txt",
+    "docs/release/2026-07-01-render-drift-reconciliation/S06-core-loop-and-rtm-oracle-migration/status.json",
+    "docs/release/2026-07-01-render-drift-reconciliation/index.md",
+    "internal/router/router_test.go",
+    "internal/rtm/rtm.go",
+    "internal/rtm/rtm_test.go",
+    "internal/run/cold_start_test.go",
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go"
+  ],
+  "test_results": [
+    {
+      "command": "go build ./...",
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": "go test ./internal/run/... ./internal/rtm/... ./internal/router/... -count=1 -timeout 300s",
+      "exit_code": 0,
+      "output": "ok  github.com/swornagent/sworn/internal/run  5.100s\nok  github.com/swornagent/sworn/internal/rtm  0.023s\nok  github.com/swornagent/sworn/internal/router  0.053s"
+    },
+    {
+      "command": "go vet ./internal/run/... ./internal/rtm/... ./internal/router/...",
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": "gofmt -l internal/run/parallel.go internal/run/parallel_test.go internal/run/cold_start_test.go internal/rtm/rtm.go internal/rtm/rtm_test.go internal/router/router_test.go",
+      "exit_code": 0,
+      "output": ""
+    }
+  ],
+  "reachability_artifacts": [
+    "docs/release/2026-07-01-render-drift-reconciliation/S06-core-loop-and-rtm-oracle-migration/reachability-runparallel-output.txt — captured output of TestRunParallel_AC06_RealReleaseBoardResolvesTracks: RunParallel against THIS repo's live 5-track board.json (isolated temp workspace, pausing router) logs 'sworn run --parallel: loaded 5 tracks in 1 phases' and never 'no tracks found', with zero side effects on real worktrees (AC-06, Coach-ratified option (a))."
+  ],
+  "delivered": [
+    "AC-01: RunParallel resolves tracks via board.ReadBoard (the oracle) instead of board.ParseTracks(extractFrontmatter(index.md)); no 'no tracks found' error for a board.json-backed release. Evidence: internal/run/parallel.go (board.ReadBoard + trackInfosFromBoardTracks), TestRunParallel_AC06_RealReleaseBoardResolvesTracks ('loaded 5 tracks'), and all existing TestRunParallel_* still green through the lazy-migration path.",
+    "AC-02: extractReleaseWorktreePath is deleted; RunParallel reads br.ReleaseWorktreePath from board.json and the cold-start default fires only when board.json records no path (not unconditionally). Evidence: internal/run/parallel.go, TestRunParallel_Basic/_ReleaseWorktreePathMissing.",
+    "AC-03: parseDocumentedSharedFiles deleted and delegated to router.ParseDocumentedShared (>=2-checkmark inference), proven against a genuinely board.Render-produced index.md. Evidence: internal/run/parallel.go + TestInvariant2_DocumentedSharedFromRenderedBoard (asserts no INVARIANT-2 block and both tracks run; red-proof confirmed by forcing docShared=nil).",
+    "AC-04: rtm.Build reads release.vertical_trace.benefit/.org_objective from board.json via readBoardVerticalTrace (sibling of releaseDir), with the markdown parse retained as the no-board.json fallback. Evidence: internal/rtm/rtm.go + TestBuild_VerticalTraceFromBoardJSON (board.json value wins over a different index.md value; OrgObjective empty) and TestBuild_VerticalTraceLegacyFallback.",
+    "AC-05: router_test.go gains TestParseDocumentedSharedFromRenderedBoard exercising ParseDocumentedShared/parseTouchpointMatrix against a real sworn render-generated index.md (not the pre-migration 2026-06-27-conformance-foundation fixture, which TestParseDocumentedSharedFromFile still covers unchanged). Evidence: internal/router/router_test.go.",
+    "AC-06: reachability artefact captured via a Go-level run.RunParallel invocation against the live release board.json (Coach-ratified option (a)); see reachability_artifacts. Evidence: docs/release/2026-07-01-render-drift-reconciliation/S06-core-loop-and-rtm-oracle-migration/reachability-runparallel-output.txt.",
+    "AC-07: go build ./... succeeds and go test ./internal/run/... ./internal/rtm/... ./internal/router/... passes. Evidence: test_results above."
+  ],
+  "not_delivered": [],
+  "divergence": [
+    "AC-06 reachability is the Coach-ratified Go-level run.RunParallel substitute (review.md 'Coach decision', option (a)), NOT the literal `sworn loop --parallel` CLI — the literal CLI would dispatch live work against sibling in-flight tracks (T2/T3) and trip swornagent/sworn#46. The substitute exercises the exact fixed logic (board.ReadBoard / trackInfosFromBoardTracks / documented-shared detection) against real board.json data.",
+    "sworn llm-check --type ac-satisfaction was not run in the implementer session (no SWORN_ANTHROPIC_API_KEY available); the fresh-context /verify-slice pass is the model-backed check for this slice, consistent with the sibling S04 slice. Rule 2 deferral recorded in journal.md."
+  ]
+}

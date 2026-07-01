@@ -862,7 +862,7 @@ haltFailedVerification:
 
 		// Notify on FAIL verdict after state is written.
 		if opts.Notifier != nil {
-			summary := account.ViolationsSummary(proofPath, len(st.Verification.Violations))
+			summary := account.ViolationsSummary(absSliceDir, len(st.Verification.Violations))
 			opts.Notifier.Notify(ctx, account.NotifyEvent{
 				Release:           st.Release,
 				Track:             st.Track,

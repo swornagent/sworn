@@ -1,0 +1,46 @@
+EARS Acceptance-Criteria Validation
+============================================================
+
+Pattern distribution
+------------------------------------------------------------
+  ubiquitous           13
+  event-driven         23
+  state-driven         0
+  optional-feature     0
+  unwanted-behaviour   7
+  complex              0
+  total                43
+
+Per-slice breakdown
+------------------------------------------------------------
+  S01-render-drift-guard: 6 ACs
+    ubiquitous         2
+    event-driven       2
+    unwanted-behaviour 2
+  S02-tui-oracle-migration: 7 ACs
+    ubiquitous         2
+    event-driven       4
+    unwanted-behaviour 1
+  S03-tui-chrome-rework: 6 ACs
+    ubiquitous         3
+    event-driven       3
+  S04-mcp-oracle-migration: 6 ACs
+    ubiquitous         1
+    event-driven       3
+    unwanted-behaviour 2
+  S05-cli-merge-regress-oracle-migration: 6 ACs
+    ubiquitous         2
+    event-driven       3
+    unwanted-behaviour 1
+  S06-core-loop-and-rtm-oracle-migration: 7 ACs
+    ubiquitous         2
+    event-driven       5
+  S07-remaining-rescrape-cleanup: 5 ACs
+    ubiquitous         1
+    event-driven       3
+    unwanted-behaviour 1
+
+Violations: none
+
+All 43 acceptance checks are well-formed EARS. 0 note(s) excluded.
+exit=0
