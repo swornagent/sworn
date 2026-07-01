@@ -7,9 +7,9 @@
   "rationale": "Root cause for all four symptoms is the same: Model.Update's `case tea.WindowSizeMsg: return m, nil` (internal/tui/model.go) discards the terminal's real width/height entirely — there is no Width/Height field on Model at all. Every pane style in internal/tui/styles.go hardcodes its width instead (`ReleaseListStyle` Width(30), others Width(80)/Width(110)), completely disconnected from the actual terminal. This explains the narrow-pane text wrapping (screenshot: docs/release/2026-07-01-render-drift-reconciliation/screenshots/2026-07-01-tui-current-state.png), the help bar not spanning full width, and is the most likely cause of the reported VS Code viewport-fit issue (a TUI that renders at a size mismatched from the real terminal is a well-known cause of alt-screen cursor-position miscalculation on startup/resize).",
   "covers_needs": ["N-04"],
   "effort_complexity": {
-    "effort": "medium",
-    "complexity": "medium",
-    "quadrant": "feature",
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "epic",
     "rationale": "Store real terminal dimensions from WindowSizeMsg, make pane widths responsive to it, add a new header render function, restyle the help bar to a full-width bar. Bubbletea/lipgloss layout work — needs careful manual verification across at least two terminals (a plain terminal and VS Code's integrated terminal) since layout bugs are visual, not unit-testable by content alone.",
     "confirmed_by_implementer": false
   },
