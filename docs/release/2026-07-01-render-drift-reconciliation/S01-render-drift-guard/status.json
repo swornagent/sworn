@@ -8,7 +8,7 @@
     "N-02"
   ],
   "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S01-render-drift-guard/spec.json",
-  "start_commit": null,
+  "start_commit": "ae390d1ff59368dac21e09333237d80499625683",
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
