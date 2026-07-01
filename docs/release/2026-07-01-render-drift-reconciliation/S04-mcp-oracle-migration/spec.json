@@ -7,8 +7,8 @@
   "rationale": "internal/mcp/tools_ops.go (readReleaseBoard, findBlockedInRelease, handleApproveMerge x2), internal/mcp/context.go (AssembleSliceContext), internal/mcp/tools_plan.go, and internal/mcp/catalog.go (releaseStateSummary/countSliceTableRows) all call board.ParseTracks(extractFrontmatterBody(...)) directly on raw index.md, bypassing the already-correct internal/board oracle. tools_plan.go is the most severe: it MUTATES tracks parsed from the stale (empty) frontmatter and writes the result back, meaning a plan-mutation call against a current-format release could silently wipe track data on write. context.go additionally has its own extractViolations regex-scraper of proof.md, redundant with proof.json.not_delivered (folded into this slice since it's the same file as the tracks-parsing fix). catalog.go's countSliceTableRows greps for a table header literal that doesn't match render.go's actual header text, always returning zero counts.",
   "covers_needs": ["N-01"],
   "effort_complexity": {
-    "effort": "medium",
-    "complexity": "medium",
+    "effort": "low",
+    "complexity": "low",
     "quadrant": "chore",
     "rationale": "Six call sites across four files, all the same mechanical fix (swap ParseTracks(frontmatter) for the oracle's board.json read; swap the proof.md violations scrape for proof.json.not_delivered). tools_plan.go's write-back path needs the most care since it's the one site that mutates state, not just reads it.",
     "confirmed_by_implementer": false

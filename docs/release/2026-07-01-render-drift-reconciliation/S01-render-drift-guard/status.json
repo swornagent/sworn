@@ -8,7 +8,7 @@
   "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S01-render-drift-guard/spec.json",
   "start_commit": null,
   "effort_complexity": {
-    "effort": "medium",
+    "effort": "low",
     "complexity": "low",
     "quadrant": "chore",
     "rationale": "Replace driftGuard's broken comparison with a real re-render-and-diff; surface as a sworn doctor check.",

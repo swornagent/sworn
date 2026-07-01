@@ -8,8 +8,8 @@
   "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/spec.json",
   "start_commit": null,
   "effort_complexity": {
-    "effort": "medium",
-    "complexity": "medium",
+    "effort": "low",
+    "complexity": "low",
     "quadrant": "chore",
     "rationale": "Migrate board.go + blocked.go to the oracle; regenerate stale test fixtures.",
     "confirmed_by_implementer": false
