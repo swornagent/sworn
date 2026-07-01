@@ -12,33 +12,49 @@
   "tracks": [
     {
       "id": "T1-drift-guard",
-      "slices": ["S01-render-drift-guard"],
+      "slices": [
+        "S01-render-drift-guard"
+      ],
       "depends_on": [],
       "state": "planned"
     },
     {
       "id": "T2-tui",
-      "slices": ["S02-tui-oracle-migration", "S03-tui-chrome-rework"],
+      "slices": [
+        "S02-tui-oracle-migration",
+        "S03-tui-chrome-rework"
+      ],
       "depends_on": [],
       "state": "planned"
     },
     {
       "id": "T3-mcp",
-      "slices": ["S04-mcp-oracle-migration"],
+      "slices": [
+        "S04-mcp-oracle-migration"
+      ],
       "depends_on": [],
       "state": "planned"
     },
     {
       "id": "T4-cli-merge-regress",
-      "slices": ["S05-cli-merge-regress-oracle-migration"],
+      "slices": [
+        "S05-cli-merge-regress-oracle-migration"
+      ],
       "depends_on": [],
       "state": "planned"
     },
     {
       "id": "T5-core-loop-rtm-rescrape",
-      "slices": ["S06-core-loop-and-rtm-oracle-migration", "S07-remaining-rescrape-cleanup"],
+      "slices": [
+        "S06-core-loop-and-rtm-oracle-migration",
+        "S07-remaining-rescrape-cleanup"
+      ],
       "depends_on": [],
-      "state": "planned"
+      "state": "in_progress",
+      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-07-01-render-drift-reconciliation-T5-core-loop-rtm-rescrape",
+      "worktree_branch": "track/2026-07-01-render-drift-reconciliation/T5-core-loop-rtm-rescrape"
     }
-  ]
+  ],
+  "release_worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-07-01-render-drift-reconciliation",
+  "release_worktree_branch": "release-wt/2026-07-01-render-drift-reconciliation"
 }
