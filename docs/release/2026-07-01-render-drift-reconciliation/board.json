@@ -7,6 +7,10 @@
     "integration_branch": "release/v0.1.0",
     "vertical_trace": {
       "benefit": "Every consumer of release-board state (TUI, MCP tools, merge/regress CLI, the autonomous loop's own dispatch and shared-file safety invariant, Rule 8's traceability matrix) reads the real, current data instead of silently-broken or hard-erroring parses of a rendered-markdown format that changed underneath them - plus the ADR-0009-mandated drift guard so this class of break fails closed next time instead of shipping silently across ~15 sites again."
+    },
+    "worktree": {
+      "path": "/home/brad/projects/sworn-worktrees/release-2026-07-01-render-drift-reconciliation",
+      "branch": "release-wt/2026-07-01-render-drift-reconciliation"
     }
   },
   "tracks": [
@@ -27,7 +31,11 @@
         "S03-tui-chrome-rework"
       ],
       "depends_on": [],
-      "state": "planned"
+      "state": "in_progress",
+      "worktree": {
+        "path": "/home/brad/projects/sworn-worktrees/release-2026-07-01-render-drift-reconciliation-T2-tui",
+        "branch": "track/2026-07-01-render-drift-reconciliation/T2-tui"
+      }
     },
     {
       "id": "T3-mcp",
