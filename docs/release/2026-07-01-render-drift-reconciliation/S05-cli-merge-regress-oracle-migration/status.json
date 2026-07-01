@@ -3,7 +3,7 @@
   "slice_id": "S05-cli-merge-regress-oracle-migration",
   "release": "2026-07-01-render-drift-reconciliation",
   "track": "T4-cli-merge-regress",
-  "state": "planned",
+  "state": "design_review",
   "covers_needs": ["N-01"],
   "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S05-cli-merge-regress-oracle-migration/spec.json",
   "start_commit": null,
@@ -16,5 +16,7 @@
   },
   "verification": {
     "result": "pending"
-  }
+  },
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-01T22:52:07Z"
 }
