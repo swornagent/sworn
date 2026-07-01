@@ -77,3 +77,58 @@ could not run. Ran the deterministic `~/.claude/bin/release-verify.sh` instead
 check, cleared by this transition). Canonical model verification is the
 fresh-context `/verify-slice` (Rule 7). Full detail in proof.json/proof.md
 "Divergence".
+
+## Verifier verdicts received
+
+### 2026-07-01T03:46:52Z — PASS (fresh-context Verifier, Rule 7)
+
+Verified inside track worktree
+`sworn-worktrees/release-2026-06-30-sworn-operational-readiness-T3-consumer-repo-hygiene`
+against HEAD `488a2bd` (drift vs release-wt = 0, no forward-merge needed).
+Fresh session, artefact-only inputs (spec.json / proof.json / status.json +
+live repo state); no implementer transcript loaded.
+
+All six mechanical gates PASS:
+
+1. **User-reachable outcome** — `db.Open` is the real integration point and is
+   wired from production surfaces (`internal/run/run.go:145`,
+   `internal/supervisor/supervisor.go:280`, `cmd/sworn/run.go:222`,
+   `internal/tui/concurrent.go`), not a test fixture. When sworn runs against a
+   repo, `db.Open` materialises `.sworn/` and stamps `.sworn/.gitignore` = `*`.
+2. **Touchpoints match** — code diff is exactly `internal/db/db.go` +
+   `internal/db/db_test.go` (the two declared touchpoints); remaining changed
+   files are this slice's own proof-bundle docs. No unrelated churn.
+3. **Tests exercise the integration point** — the four AC tests drive `db.Open`,
+   not a leaf. Re-ran `go test ./internal/db/...`: 5/5 PASS
+   (`TestSelfIgnoreWritten` / `…NotOverwritten` / `…HidesSwornDir` /
+   `…BestEffort` + `TestOpenCreatesDir`). `go build ./...`, `go vet`, `gofmt -l`
+   all clean (exit 0).
+4. **Reachability artefact** — `TestSelfIgnoreHidesSwornDir` git-inits a temp
+   repo, opens the DB via `db.Open`, asserts `.sworn/` absent from
+   `git status --porcelain`. Names the user gesture, matches the spec outcome,
+   PASSES in my re-run.
+5. **No dark code** — grep for TODO/FIXME/deferred/placeholder/XXX/HACK/later
+   over the changed code files: none. No stubs or hardcoded happy-path returns.
+6. **Claimed scope = implemented scope** — every `delivered` item (AC-01…AC-05)
+   maps to a real, working evidence reference; no delivered item outside the
+   spec's acceptance criteria.
+
+Independent AC-01 check (spec-demanded): confirmed in production code that BOTH
+the run DB (`cmd/sworn/run.go:222` → `.sworn/sworn.db`) and the supervisor DB
+(`internal/supervisor/supervisor.go:279-280` → `.sworn/supervisor-<release>.db`)
+route through `db.Open`, so the single `filepath.Base(dir) == DefaultDir`-gated
+`writeSelfIgnore` covers both. The `*` ignore covers the whole `.sworn/` dir, so
+any other writer under it (e.g. the config-driven memory index, which is not
+`.sworn/`-scoped and out of AC-01's named scope) is moot for the user outcome.
+
+LLM gates 3b (ac-satisfaction) / 4b (semantic-coverage) skipped —
+`SWORN_ANTHROPIC_API_KEY` unset (non-blocking per verifier contract);
+substituted with the manual per-AC walk above. Design gate (Rule 9) auto-passes:
+non-UI Go slice.
+
+Board: no change — `board-v1` track-state enum is `planned|in_progress|merged`
+(no `verified` track state); T3 stays `in_progress` until `/merge-track`. The
+verified transition is recorded in `status.json`.
+
+Verdict: **PASS**. Next: `/merge-track T3-consumer-repo-hygiene` (S03 is the sole
+slice in T3 → track complete).

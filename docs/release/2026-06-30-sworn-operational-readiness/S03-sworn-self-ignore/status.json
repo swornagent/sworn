@@ -3,7 +3,7 @@
   "slice_id": "S03-sworn-self-ignore",
   "release": "2026-06-30-sworn-operational-readiness",
   "track": "T3-consumer-repo-hygiene",
-  "state": "implemented",
+  "state": "verified",
   "covers_needs": ["N-06"],
   "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S03-sworn-self-ignore/spec.json",
   "proof_path": "docs/release/2026-06-30-sworn-operational-readiness/S03-sworn-self-ignore/proof.md",
@@ -29,6 +29,8 @@
     "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "pending"
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-01T03:46:52Z"
   }
 }
