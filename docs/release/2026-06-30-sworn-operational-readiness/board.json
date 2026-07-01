@@ -7,7 +7,9 @@
   "tracks": [
     {
       "id": "T1-operational-unblock",
-      "slices": ["S01-d6-record-reconciliation"],
+      "slices": [
+        "S01-d6-record-reconciliation"
+      ],
       "depends_on": [],
       "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-30-sworn-operational-readiness-T1-operational-unblock",
       "worktree_branch": "track/2026-06-30-sworn-operational-readiness/T1-operational-unblock",
@@ -15,21 +17,30 @@
     },
     {
       "id": "T2-board-render",
-      "slices": ["S02-board-render"],
+      "slices": [
+        "S02-board-render"
+      ],
       "depends_on": [],
       "worktree_branch": "track/2026-06-30-sworn-operational-readiness/T2-board-render",
-      "state": "planned"
+      "state": "in_progress",
+      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-30-sworn-operational-readiness-T2-board-render"
     },
     {
       "id": "T3-consumer-repo-hygiene",
-      "slices": ["S03-sworn-self-ignore"],
+      "slices": [
+        "S03-sworn-self-ignore"
+      ],
       "depends_on": [],
       "worktree_branch": "track/2026-06-30-sworn-operational-readiness/T3-consumer-repo-hygiene",
-      "state": "planned"
+      "state": "in_progress",
+      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-30-sworn-operational-readiness-T3-consumer-repo-hygiene"
     },
     {
       "id": "T4-board-record-reconciliation",
-      "slices": ["S04-board-record-reconciliation", "S05-board-canonical-emit"],
+      "slices": [
+        "S04-board-record-reconciliation",
+        "S05-board-canonical-emit"
+      ],
       "depends_on": [],
       "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-30-sworn-operational-readiness-T4-board-record-reconciliation",
       "worktree_branch": "track/2026-06-30-sworn-operational-readiness/T4-board-record-reconciliation",
