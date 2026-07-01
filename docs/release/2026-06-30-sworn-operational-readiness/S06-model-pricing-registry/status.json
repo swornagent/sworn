@@ -3,7 +3,7 @@
   "slice_id": "S06-model-pricing-registry",
   "release": "2026-06-30-sworn-operational-readiness",
   "track": "T5-model-pricing-registry",
-  "state": "in_progress",
+  "state": "implemented",
   "covers_needs": [
     "N-09"
   ],
@@ -25,5 +25,19 @@
       "stake_class": "Type-2",
       "rationale": "Locally reversible, no schema/dependency/dispatch-logic change; map consolidation is the separately-tracked Type-1 model-layer service refactor (see project_model_layer_service_refactor memory), out of scope for this correctness slice."
     }
+  ],
+  "actual_files": [
+    "internal/model/pricing.go",
+    "internal/model/anthropic.go",
+    "internal/model/bedrock.go",
+    "internal/model/pricing_test.go"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go test ./internal/model/...",
+    "go test ./..."
+  ],
+  "reachability_artifacts": [
+    "go test ./internal/model/ -run 'TestPricing_Sonnet5|TestPricing_Opus4_8CorrectedRate' -v — sonnet-5 (1M/1M) = $12.00 (was $0 fall-through); opus-4-8 (1M/1M) = $30.00 (was $90.00 stale rate). Both PASS."
   ]
 }

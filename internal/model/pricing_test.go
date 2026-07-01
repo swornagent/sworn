@@ -68,6 +68,48 @@ func TestPricing_ComputeCost(t *testing.T) {
 	}
 }
 
+// TestPricing_Sonnet5 asserts Claude Sonnet 5 is priced (not the pre-S06
+// fall-through to 0) at the introductory $2/$10 rate. Maps AC-01, AC-02, AC-05.
+func TestPricing_Sonnet5(t *testing.T) {
+	p, ok := Pricing["claude-sonnet-5"]
+	if !ok {
+		t.Fatal("claude-sonnet-5 not in Pricing map")
+	}
+	if p.InputPricePer1M != 2.00 {
+		t.Errorf("InputPricePer1M = %f, want 2.00", p.InputPricePer1M)
+	}
+	if p.OutputPricePer1M != 10.00 {
+		t.Errorf("OutputPricePer1M = %f, want 10.00", p.OutputPricePer1M)
+	}
+
+	// 1M input = $2.00, 1M output = $10.00, total = $12.00.
+	cost := ComputeCost("claude-sonnet-5", 1000000, 1000000)
+	if cost != 12.00 {
+		t.Errorf("ComputeCost(sonnet-5, 1M, 1M) = %f, want 12.00", cost)
+	}
+}
+
+// TestPricing_Opus4_8CorrectedRate asserts Claude Opus 4.8 is priced at the
+// current $5/$25 rate, not the stale $15/$75 Opus 4.1 copy. Maps AC-04, AC-05.
+func TestPricing_Opus4_8CorrectedRate(t *testing.T) {
+	p, ok := Pricing["claude-opus-4-8"]
+	if !ok {
+		t.Fatal("claude-opus-4-8 not in Pricing map")
+	}
+	if p.InputPricePer1M != 5.00 {
+		t.Errorf("InputPricePer1M = %f, want 5.00", p.InputPricePer1M)
+	}
+	if p.OutputPricePer1M != 25.00 {
+		t.Errorf("OutputPricePer1M = %f, want 25.00", p.OutputPricePer1M)
+	}
+
+	// 1M input = $5.00, 1M output = $25.00, total = $30.00 (not the old $90.00).
+	cost := ComputeCost("claude-opus-4-8", 1000000, 1000000)
+	if cost != 30.00 {
+		t.Errorf("ComputeCost(opus-4-8, 1M, 1M) = %f, want 30.00 (not the old 90.00)", cost)
+	}
+}
+
 // TestPricing_AllKnownModelsHavePositivePrices asserts every entry in the
 // Pricing map has positive input and output prices.
 func TestPricing_AllKnownModelsHavePositivePrices(t *testing.T) {
