@@ -3,7 +3,7 @@
   "slice_id": "S06-core-loop-and-rtm-oracle-migration",
   "release": "2026-07-01-render-drift-reconciliation",
   "track": "T5-core-loop-rtm-rescrape",
-  "state": "planned",
+  "state": "design_review",
   "covers_needs": ["N-01"],
   "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S06-core-loop-and-rtm-oracle-migration/spec.json",
   "start_commit": null,
