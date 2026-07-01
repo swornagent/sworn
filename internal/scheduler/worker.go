@@ -58,6 +58,7 @@ type SliceRouter interface {
 // failing it. These surface to the human (via stderr prefix) and let other
 // tracks continue.
 var pauseSet = map[string]bool{
+	"review":         true,
 	"coach_decision": true,
 	"replan-release": true,
 	"merge-track":    true,
@@ -398,8 +399,10 @@ func runTrackRouter(
 			releaseTrack("paused")
 			return TrackPaused
 
-		case "coach_decision", "replan-release", "merge-release":
+		case "review", "coach_decision", "replan-release", "merge-release":
 			// Human-gated pause states — surface and pause this track.
+			// "review" is the Rule 9 design gate: design.md awaits the
+			// Captain's /design-review, a pause-for-human, never a failure.
 			fmt.Fprintf(os.Stderr, "[%s] paused: %s — %s\n", trackID, decision.Type, decision.Reason)
 			releaseTrack("paused")
 			return TrackPaused
