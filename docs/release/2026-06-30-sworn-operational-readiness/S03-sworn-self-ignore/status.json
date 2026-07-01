@@ -8,7 +8,7 @@
     "N-06"
   ],
   "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S03-sworn-self-ignore/spec.json",
-  "start_commit": null,
+  "start_commit": "47d4802cf9276abae72473c78f3c920479a14100",
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
