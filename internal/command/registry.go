@@ -16,7 +16,7 @@ import (
 // Command is a single CLI subcommand registered in the process-wide registry.
 type Command struct {
 	Name    string
-	Summary string           // one-line description for usage listing (must be non-empty)
+	Summary string // one-line description for usage listing (must be non-empty)
 	Run     func(args []string) int
 }
 

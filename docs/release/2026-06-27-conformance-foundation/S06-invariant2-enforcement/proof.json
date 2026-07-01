@@ -1,0 +1,45 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S06-invariant2-enforcement",
+  "release": "2026-06-27-conformance-foundation",
+  "scope": "When sworn run dispatches two tracks concurrently, check planned_files disjointness; block overlapping tracks with named INVARIANT-2 report; retry after conflicting track merges.",
+  "files_changed": [
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go",
+    "internal/scheduler/worker.go"
+  ],
+  "test_commands": [
+    {
+      "command": "go test ./internal/run/... -v -run TestInvariant2",
+      "output": "=== RUN   TestInvariant2_OverlapBlocksSecondTrack\n--- PASS: TestInvariant2_OverlapBlocksSecondTrack (0.01s)\n=== RUN   TestInvariant2_NoOverlapBothRun\nsworn run --parallel: loaded 2 tracks in 1 phases\n[T2] starting\n[T1] starting\n[T2] running slice S02-t2 (legacy)\n[T1] running slice S01-t1 (legacy)\n[T2] done\n[T1] done\n[T1] result: PASS\n[T2] result: PASS\nRunParallel: all 2 tracks PASS (skipped: 0, blocked: 0)\n--- PASS: TestInvariant2_NoOverlapBothRun (0.01s)\n=== RUN   TestInvariant2_DocumentedSharedExempt\nsworn run --parallel: loaded 2 tracks in 1 phases\n[T2] starting\n[T1] starting\n[T2] running slice S02-t2 (legacy)\n[T1] running slice S01-t1 (legacy)\n[T2] done\n[T1] done\n[T1] result: PASS\n[T2] result: PASS\nRunParallel: all 2 tracks PASS (skipped: 0, blocked: 0)\n--- PASS: TestInvariant2_DocumentedSharedExempt (0.01s)\n=== RUN   TestInvariant2_OracleReadFailureFailsOpen\nsworn run --parallel: loaded 1 tracks in 1 phases\n[T1] starting\n[T1] running slice S01-t1 (legacy)\n[T1] done\n[T1] result: PASS\nRunParallel: all 1 tracks PASS (skipped: 0, blocked: 0)\n--- PASS: TestInvariant2_OracleReadFailureFailsOpen (0.01s)\nPASS\nok  \tgithub.com/swornagent/sworn/internal/run\t0.050s",
+      "exit_code": 0
+    }
+  ],
+  "reachability_artifacts": [
+    "go test ./internal/run/... -v -run TestInvariant2 exits 0"
+  ],
+  "delivered": [
+    {
+      "ac": "AC-1: Overlap blocks second track with INVARIANT-2 message",
+      "evidence": "checkDisjointness in phase loop; INVARIANT-2 message logged to stderr with both track IDs and file; TestInvariant2_OverlapBlocksSecondTrack verifies stderr"
+    },
+    {
+      "ac": "AC-2: Retry after T_a merges",
+      "evidence": "Follow-up phase after wg.Wait() re-launches blocked tracks; TestInvariant2_OverlapBlocksSecondTrack verifies T2 retried and passed"
+    },
+    {
+      "ac": "AC-3: Documented-shared files exempt",
+      "evidence": "parseDocumentedSharedFiles extracts from index.md body; checkDisjointness excludes docShared; TestInvariant2_DocumentedSharedExempt verifies"
+    },
+    {
+      "ac": "AC-4: Oracle failure → fail open",
+      "evidence": "Error path returns nil (empty set); TestInvariant2_OracleReadFailureFailsOpen verifies track launches"
+    },
+    {
+      "ac": "AC-5: Unit test with mock oracle",
+      "evidence": "PlannedFilesFn injection seam on ParallelOptions; 4 TestInvariant2_* tests inject fake PlannedFilesFn"
+    }
+  ],
+  "not_delivered": [],
+  "divergence": "None. All design-review pins (4 mechanical) applied inline. Design TL;DR approach followed exactly."
+}

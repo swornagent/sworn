@@ -106,7 +106,8 @@ func FromEnv(modelID string) (Verifier, error) {
 		// OCI uses SDK config file (~/.oci/config) and OCI_CLI_REGION —
 		// no API key required. The compartment ID is checked later.
 		key = "compartment"
-	case "google":		key = envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY")
+	case "google":
+		key = envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY")
 	case "openai-responses":
 		key = envOrAlias("OPENAI_API_KEY", "SWORN_OPENAI_API_KEY")
 	case "azure":
@@ -126,7 +127,7 @@ func FromEnv(modelID string) (Verifier, error) {
 	verifier, err := NewClient(modelID, pcfg)
 	if err != nil {
 		// If NewClient returned a not-registered error, surface it directly.
-		if errorsIs(err, ErrDriverNotRegistered) {
+		if errorsIs(err, ErrDriverNotImplemented) {
 			return nil, err
 		}
 		return nil, fmt.Errorf("model: %w", err)
@@ -150,7 +151,7 @@ func FromEnv(modelID string) (Verifier, error) {
 // model package).
 func errorsIs(err, target error) bool {
 	// Simple equality check; sufficient for sentinel errors like
-	// ErrDriverNotRegistered which is a constErr.
+	// ErrDriverNotImplemented which is a constErr.
 	return err.Error() == target.Error()
 }
 
@@ -177,7 +178,7 @@ func swornProviderConfig() ProviderConfig {
 		AzureAPIKey:         os.Getenv("SWORN_AZURE_OPENAI_API_KEY"),
 		AzureEndpoint:       os.Getenv("SWORN_AZURE_OPENAI_ENDPOINT"),
 		AzureAPIVersion:     os.Getenv("SWORN_AZURE_OPENAI_API_VERSION"),
-		OCICompartmentID:    os.Getenv("OCI_COMPARTMENT_ID"),	}
+		OCICompartmentID:    os.Getenv("OCI_COMPARTMENT_ID")}
 }
 
 // parseModelID splits "provider/model" into its parts. The first "/" is the

@@ -12,6 +12,7 @@ import (
 	"github.com/swornagent/sworn/internal/gate"
 	"github.com/swornagent/sworn/internal/model"
 )
+
 // cmdLLMCheck dispatches `sworn llm-check --type <check> --slice <id> --release <name>`.
 //
 // Six check types are available:

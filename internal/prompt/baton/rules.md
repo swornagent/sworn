@@ -90,10 +90,37 @@ description: Inline "deferred" comments are rationalisations, not decisions, unl
 An inline code comment marking something as "deferred" / "later" / "future" / "TODO" is **not a decision**. It becomes one only when all three of the following are present:
 
 1. **Why** — a concrete reason the deferral is necessary (framework limitation, blocking dependency, explicit scope cut). Not "we ran out of time on this PR."
-2. **Tracking** — a linked GitHub issue, plan task, or punch-list item that the decision lives in. Not just the inline comment.
+2. **Tracking** — a **concrete, resolvable reference** the work lives in (see "What counts as tracking" below). Not just the inline comment.
 3. **Acknowledgement** — the user, product owner, or decision-maker has been told, in plain text, that this item is being deferred.
 
 Without all three, the inline comment is dark code's data-model cousin: it looks tracked, isn't.
+
+### What counts as tracking (hardened)
+
+A deferral's **Tracking** is satisfied **only** by one of:
+
+- **An owning slice id** — a concrete slice that will deliver the deferred work, e.g. `S14-board-json`. The slice must actually exist (planned or beyond) in a release; a slice id you invent on the spot but never create does not count.
+- **A tracker ref** — an item in whatever issue tool the project uses, **tool-agnostic**: GitHub `#123` (or a `gh` issue URL), Jira `ABC-123`, Linear `ENG-123`, or an explicit issue URL.
+
+The following are **NOT** tracking — a deferral whose only "tracking" is one of these is a **violation**, not a decision:
+
+- Vague futures: "a follow-up slice", "a future slice", "later", "future concern", "future cleanup", "future enhancement", "when X is built".
+- A **release-theme** or epic name (e.g. "the proof-visibility theme") — a theme is not a tracked unit of work.
+- A **decision record** (ADR-NNNN) — it records *why*, not a tracked *work item*.
+- A **process or ceremony** name (`/mark-shipped`, "ship cutover").
+- A **circular self-reference** — the deferral pointing at its own `not_delivered` / `open_deferrals` entry.
+
+If you cannot fill Tracking with a real owning-slice id or tracker ref, you do not have a deferral — you have a punt. **Create the tracking item first** (file the issue, or add the owning slice), then record the deferral citing it.
+
+### Where deferrals hide
+
+The same triple applies wherever work is punted, not just inline comments. Audit **all** of these surfaces:
+
+- inline code comments (`// deferred` / `// TODO` / `// later` / `// future`);
+- a slice's `proof.json` / `proof.md` **`## Not delivered`** section;
+- a slice's `status.json` **`open_deferrals`** array;
+- a slice's `spec.json` / `spec.md` **`## Out of scope`** block (an out-of-scope item is fine *only* if it names the owning slice that does deliver it; an out-of-scope item that simply punts the work with no owner is an untracked deferral);
+- user-visible "coming soon" / "deferred" labels (see "The UI-label cousin").
 
 ## Why
 
@@ -633,7 +660,7 @@ This is the cheap-and-strong pattern. You do not need a second model subscriptio
 
 1. A fresh terminal window or new agent session.
 2. A `verifier.md` role prompt that forbids reading prior conversation.
-3. The slice artefacts (`spec.md`, `proof.md`, `status.json`, the repo diff).
+3. The slice artefacts (`spec.json`, `proof.json`, `status.json`, the repo diff).
 4. A PASS / FAIL / BLOCKED return contract.
 
 That is the entire requirement. Anything beyond it is optimisation.
@@ -642,7 +669,7 @@ That is the entire requirement. Anything beyond it is optimisation.
 
 The verifier session must:
 
-- **Load only**: `spec.md`, `proof.md`, `status.json` for the target slice, and live repo state via `git diff` / test commands. It must not load the implementer's session transcript, conversational memory, or any "wrap-up" prose.
+- **Load only**: `spec.json`, `proof.json`, `status.json` for the target slice, and live repo state via `git diff` / test commands. It must not load the implementer's session transcript, conversational memory, or any "wrap-up" prose.
 - **Return exactly one of**:
   - `PASS` — every required gate is satisfied; the slice can transition to `verified`.
   - `FAIL: <numbered list of concrete violations>` — each violation tied to a specific spec acceptance check or proof-bundle gate.
@@ -655,7 +682,7 @@ The verifier role prompt is provided in `role-prompts/verifier.md`. Paste it ver
 
 ## When this rule applies
 
-- Any slice with a `spec.md` that has been moved to `implemented` state.
+- Any slice with a `spec.json` that has been moved to `implemented` state.
 - Any release-mode work where Rule 6 already requires a proof bundle.
 - Any continuation session that needs to confirm prior-session claims before building on top of them.
 
@@ -688,8 +715,8 @@ State transitions:
 
 The minimum-cost loop that satisfies Rule 7:
 
-1. Implementer session works one vertical slice. Writes `spec.md`, `journal.md`, `proof.md`, updates `status.json` to `implemented`.
-2. Run `sworn verify <slice-id>` from a terminal. The script does deterministic first-pass: confirms `proof.md` exists, confirms `git diff` is non-empty, greps for dark-code markers, runs the test commands listed in `proof.md`. If the script fails, the slice never reaches the verifier — fix and re-run.
+1. Implementer session works one vertical slice. Emits `proof.json` (and maintains `journal.md`), updates `status.json` to `implemented`.
+2. Run the **proof-bundle verification gate** (reference implementation: `sworn verify <slice-id>`). It does a deterministic first-pass: confirms `proof.json` exists and validates against `proof-v1`, confirms `git diff` is non-empty, greps for dark-code markers, runs the test commands listed in `proof.json`. If the gate fails, the slice never reaches the verifier — fix and re-run.
 3. Open a fresh agent session (new terminal, new window, no prior context). Paste `role-prompts/verifier.md`. Provide the slice id.
 4. The verifier reads only the artefacts and returns PASS / FAIL / BLOCKED.
 5. Implementer (in a separate session, or the same session after reading the verdict from disk) addresses any FAIL items, regenerates the proof bundle, and re-submits.
@@ -762,7 +789,7 @@ The RTM is the enforcement mechanism. It has two axes and threads through the ex
 ### Horizontal: intake need → slice → acceptance criterion → test → proof
 
 ```
-intake.md          status.json         spec.md               spec.md             proof.md
+intake.md          status.json         spec.json               spec.json             proof.json
 --------           ------------        --------               --------            --------
 N-01: need  --->   covers_needs:  -->   - [ ] AC cites N-01    Required tests  ->  test results
                    [N-01, N-03]         - [ ] AC cites N-01                        reachability
@@ -770,9 +797,9 @@ N-01: need  --->   covers_needs:  -->   - [ ] AC cites N-01    Required tests  -
 
 - **Needs** are enumerated with stable ids (`N-01`, `N-02`, …) in `intake.md`. The planner assigns ids at planning time; they are never reused.
 - **Slice coverage** — every slice declares which intake needs it delivers in `status.json` `covers_needs` (array of need IDs). This is the intake→slice link: a deterministic gate can verify every N-NN appears in at least one slice, and no slice claims a need it doesn't cite in its ACs.
-- **Acceptance criteria** in each `spec.md` cite the need id(s) they satisfy, inline in the AC text (e.g. "WHEN … THE SYSTEM SHALL … (N-01)").
-- **Required tests** in `spec.md` cite the acceptance check they exercise.
-- **Proof** in `proof.md` closes `AC → test → proof` (already required by Rule 6).
+- **Acceptance criteria** in each `spec.json` cite the need id(s) they satisfy, inline in the AC text (e.g. "WHEN … THE SYSTEM SHALL … (N-01)").
+- **Required tests** in `spec.json` cite the acceptance check they exercise.
+- **Proof** in `proof.json` closes `AC → test → proof` (already required by Rule 6).
 
 The RTM now closes the full chain: `intake need → slice → AC → test → proof`. An orphaned need (no slice covers it, or no AC cites it), an orphaned AC (cites no need, or cites a need but has no test), or a slice that claims a need it doesn't cite in its ACs (mismatch) is a broken trace.
 
@@ -780,18 +807,18 @@ The RTM now closes the full chain: `intake need → slice → AC → test → pr
 
 ```
 org objective  --->  release benefit  --->  slice
-(optional)           (index.md)             (status.json)
+(optional)           (board.json)           (status.json)
 ```
 
 - **Org objective** is opt-in. A solo founder or small team may have no declared objective — the vertical floor is `slice → release goal`.
-- **Release benefit** is the value the release delivers, recorded in `index.md`.
+- **Release benefit** is the value the release delivers, recorded in `board.json`.
 - **Slice link** is the slice's contribution to the release benefit, recorded in `status.json`.
 
 The vertical trace is the golden thread: line-of-sight from strategy (if declared) through release value to individual slices. For solo/small teams the floor is lightweight: `slice → release goal` satisfies the vertical trace without an org-objective link.
 
 ## Enforcement
 
-A deterministic, fail-closed traceability gate — `sworn trace <release-name>` — builds the matrix from `intake.md` / `spec.md` / `status.json` / `index.md` alone. It exits 0 on a fully-traced release, non-zero with enumerated violations on any break.
+A deterministic, fail-closed **trace gate** (reference implementation: `sworn trace <release-name>`) builds the matrix from `intake.md` / `spec.json` / `status.json` / `board.json` alone. It exits 0 on a fully-traced release, non-zero with enumerated violations on any break.
 
 The gate checks:
 
@@ -802,7 +829,7 @@ The gate checks:
 - **"See intake" reference** — any spec content that refers the implementer to intake.md. The spec must stand alone.
 - **Vague AC / scope** — an AC or in-scope item describing no concrete artefact (file, testid, status code, label string, value). The content-density gap.
 
-Run `sworn trace` at two points in the workflow: (a) planner Phase 6 before handoff, and (b) as the DoR gate at `planned → in_progress`. A release that fails the trace may not ship.
+Run the trace gate at two points in the workflow: (a) planner Phase 6 before handoff, and (b) as the DoR gate at `planned → in_progress`. A release that fails the trace may not ship.
 
 ## EARS notation — structured acceptance criteria
 
@@ -810,7 +837,7 @@ The RTM enforces *traceability* (need → AC → test). EARS (Easy Approach to R
 
 EARS was developed at Rolls-Royce PLC in 2009 (Mavin et al., IEEE RE'09) and is used worldwide by Airbus, Bosch, Dyson, Honeywell, Intel, NASA, Rolls-Royce, and Siemens.
 
-A deterministic gate classifies every acceptance check in every slice's `spec.md` by EARS pattern and fails closed on any free-form check that matches no pattern, naming the slice and the offending line.
+A deterministic gate classifies every acceptance check in every slice's `spec.json` by EARS pattern and fails closed on any free-form check that matches no pattern, naming the slice and the offending line.
 
 | Class | Pattern | Keywords | Example |
 |---|---|---|---|
@@ -1026,7 +1053,7 @@ A two-layer conformance audit guards UI-bearing projects against design drift.
 
 ### Layer 1 — Deterministic first-pass (machine-check)
 
-The mechanical gate is `sworn designaudit` — run by the verifier as Gate 6 of the verification workflow. It scans UI files in the slice's diff for:
+The mechanical gate is the design-conformance gate (reference implementation: `sworn designaudit`) — run by the verifier as Gate 6 of the verification workflow. It scans UI files in the slice's diff for:
 
 | Category | Pattern | Detection |
 |---|---|---|

@@ -51,27 +51,87 @@ func TestRecommendModel_RanksByPassRate(t *testing.T) {
 	// Model B: 3 pass, 7 fail → 30% pass-rate
 	// Both >= MinSampleSize (10)
 	records := makeEntries( // Model A — harness
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "fail", 2},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "fail", 2},
 		// Model B — harness
-		struct{ model, kind, verdict string; attempt int }{"anthropic/claude-sonnet-4-20250514", "harness", "pass", 3},
-		struct{ model, kind, verdict string; attempt int }{"anthropic/claude-sonnet-4-20250514", "harness", "pass", 3},
-		struct{ model, kind, verdict string; attempt int }{"anthropic/claude-sonnet-4-20250514", "harness", "pass", 3},
-		struct{ model, kind, verdict string; attempt int }{"anthropic/claude-sonnet-4-20250514", "harness", "fail", 1},
-		struct{ model, kind, verdict string; attempt int }{"anthropic/claude-sonnet-4-20250514", "harness", "fail", 2},
-		struct{ model, kind, verdict string; attempt int }{"anthropic/claude-sonnet-4-20250514", "harness", "fail", 1},
-		struct{ model, kind, verdict string; attempt int }{"anthropic/claude-sonnet-4-20250514", "harness", "fail", 1},
-		struct{ model, kind, verdict string; attempt int }{"anthropic/claude-sonnet-4-20250514", "harness", "fail", 1},
-		struct{ model, kind, verdict string; attempt int }{"anthropic/claude-sonnet-4-20250514", "harness", "fail", 1},
-		struct{ model, kind, verdict string; attempt int }{"anthropic/claude-sonnet-4-20250514", "harness", "fail", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"anthropic/claude-sonnet-4-20250514", "harness", "pass", 3},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"anthropic/claude-sonnet-4-20250514", "harness", "pass", 3},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"anthropic/claude-sonnet-4-20250514", "harness", "pass", 3},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"anthropic/claude-sonnet-4-20250514", "harness", "fail", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"anthropic/claude-sonnet-4-20250514", "harness", "fail", 2},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"anthropic/claude-sonnet-4-20250514", "harness", "fail", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"anthropic/claude-sonnet-4-20250514", "harness", "fail", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"anthropic/claude-sonnet-4-20250514", "harness", "fail", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"anthropic/claude-sonnet-4-20250514", "harness", "fail", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"anthropic/claude-sonnet-4-20250514", "harness", "fail", 1},
 	)
 
 	rec, ok := RecommendModel(records, "implementer", "harness", OptimizeQuality, 0)
@@ -94,27 +154,87 @@ func TestRecommendModel_TieBreakByAttempts(t *testing.T) {
 	// Model A has best attempt = 1, Model B has best attempt = 3.
 	// Model A should win (fewer attempts).
 	records := makeEntries( // Model A
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o-mini", "provider", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o-mini", "provider", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o-mini", "provider", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o-mini", "provider", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o-mini", "provider", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o-mini", "provider", "fail", 2},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o-mini", "provider", "fail", 2},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o-mini", "provider", "fail", 2},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o-mini", "provider", "fail", 2},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o-mini", "provider", "fail", 2},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o-mini", "provider", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o-mini", "provider", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o-mini", "provider", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o-mini", "provider", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o-mini", "provider", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o-mini", "provider", "fail", 2},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o-mini", "provider", "fail", 2},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o-mini", "provider", "fail", 2},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o-mini", "provider", "fail", 2},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o-mini", "provider", "fail", 2},
 		// Model B
-		struct{ model, kind, verdict string; attempt int }{"anthropic/claude-sonnet-4-20250514", "provider", "pass", 3},
-		struct{ model, kind, verdict string; attempt int }{"anthropic/claude-sonnet-4-20250514", "provider", "pass", 3},
-		struct{ model, kind, verdict string; attempt int }{"anthropic/claude-sonnet-4-20250514", "provider", "pass", 3},
-		struct{ model, kind, verdict string; attempt int }{"anthropic/claude-sonnet-4-20250514", "provider", "pass", 3},
-		struct{ model, kind, verdict string; attempt int }{"anthropic/claude-sonnet-4-20250514", "provider", "pass", 3},
-		struct{ model, kind, verdict string; attempt int }{"anthropic/claude-sonnet-4-20250514", "provider", "fail", 1},
-		struct{ model, kind, verdict string; attempt int }{"anthropic/claude-sonnet-4-20250514", "provider", "fail", 1},
-		struct{ model, kind, verdict string; attempt int }{"anthropic/claude-sonnet-4-20250514", "provider", "fail", 1},
-		struct{ model, kind, verdict string; attempt int }{"anthropic/claude-sonnet-4-20250514", "provider", "fail", 1},
-		struct{ model, kind, verdict string; attempt int }{"anthropic/claude-sonnet-4-20250514", "provider", "fail", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"anthropic/claude-sonnet-4-20250514", "provider", "pass", 3},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"anthropic/claude-sonnet-4-20250514", "provider", "pass", 3},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"anthropic/claude-sonnet-4-20250514", "provider", "pass", 3},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"anthropic/claude-sonnet-4-20250514", "provider", "pass", 3},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"anthropic/claude-sonnet-4-20250514", "provider", "pass", 3},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"anthropic/claude-sonnet-4-20250514", "provider", "fail", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"anthropic/claude-sonnet-4-20250514", "provider", "fail", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"anthropic/claude-sonnet-4-20250514", "provider", "fail", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"anthropic/claude-sonnet-4-20250514", "provider", "fail", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"anthropic/claude-sonnet-4-20250514", "provider", "fail", 1},
 	)
 
 	rec, ok := RecommendModel(records, "implementer", "provider", OptimizeQuality, 0)
@@ -129,10 +249,22 @@ func TestRecommendModel_TieBreakByAttempts(t *testing.T) {
 func TestRecommendModel_BelowMinSample(t *testing.T) {
 	// Only 4 records for the kind — below MinSampleSize (5).
 	records := makeEntries(
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "memory", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "memory", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "memory", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "memory", "fail", 2},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "memory", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "memory", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "memory", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "memory", "fail", 2},
 	)
 
 	_, ok := RecommendModel(records, "implementer", "memory", OptimizeQuality, 0)
@@ -143,11 +275,26 @@ func TestRecommendModel_BelowMinSample(t *testing.T) {
 
 func TestRecommendModel_NoRecordsForKind(t *testing.T) {
 	records := makeEntries(
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
 	)
 
 	// Ask for a kind with zero records.
@@ -197,27 +344,107 @@ func TestRecommendModel_OptimizeCost_PicksCheapest(t *testing.T) {
 	// OptimizeCost must return B.
 	records := makeEntriesWithCost(
 		// Model A — $0.50/slice average (10 records × $0.50 = $5.00 total)
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "fail", 2, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "fail", 2, 0.50},
 		// Model B — $0.05/slice average (10 records × $0.05 = $0.50 total)
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"anthropic/claude-haiku-4-20250514", "harness", "fail", 2, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"anthropic/claude-haiku-4-20250514", "harness", "fail", 2, 0.05},
 	)
 
 	rec, ok := RecommendModel(records, "implementer", "harness", OptimizeCost, 0)
@@ -241,27 +468,107 @@ func TestRecommendModel_OptimizeCost_QualityFloorExcludesCheapest(t *testing.T) 
 	// Even though B is cheaper, quality floor must exclude it — return A.
 	records := makeEntriesWithCost(
 		// Model A — $0.50/slice, 90% pass
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "fail", 2, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "fail", 2, 0.50},
 		// Model B — $0.05/slice, 30% pass (below floor)
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-3.5-turbo", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-3.5-turbo", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-3.5-turbo", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-3.5-turbo", "harness", "fail", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-3.5-turbo", "harness", "fail", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-3.5-turbo", "harness", "fail", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-3.5-turbo", "harness", "fail", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-3.5-turbo", "harness", "fail", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-3.5-turbo", "harness", "fail", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-3.5-turbo", "harness", "fail", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-3.5-turbo", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-3.5-turbo", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-3.5-turbo", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-3.5-turbo", "harness", "fail", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-3.5-turbo", "harness", "fail", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-3.5-turbo", "harness", "fail", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-3.5-turbo", "harness", "fail", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-3.5-turbo", "harness", "fail", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-3.5-turbo", "harness", "fail", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-3.5-turbo", "harness", "fail", 1, 0.05},
 	)
 
 	rec, ok := RecommendModel(records, "implementer", "harness", OptimizeCost, 0)
@@ -279,27 +586,107 @@ func TestRecommendModel_OptimizeCost_UnpricedExcluded(t *testing.T) {
 	// Even though B has $0 cost, it must NOT be selected as "free".
 	records := makeEntriesWithCost(
 		// Model A — priced, 90% pass
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "fail", 2, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "fail", 2, 0.50},
 		// Model B — unpriced (all cost 0), 90% pass
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/o4-mini", "harness", "pass", 1, 0},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/o4-mini", "harness", "pass", 1, 0},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/o4-mini", "harness", "pass", 1, 0},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/o4-mini", "harness", "pass", 1, 0},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/o4-mini", "harness", "pass", 1, 0},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/o4-mini", "harness", "pass", 1, 0},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/o4-mini", "harness", "pass", 1, 0},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/o4-mini", "harness", "pass", 1, 0},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/o4-mini", "harness", "pass", 1, 0},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/o4-mini", "harness", "fail", 2, 0},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/o4-mini", "harness", "pass", 1, 0},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/o4-mini", "harness", "pass", 1, 0},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/o4-mini", "harness", "pass", 1, 0},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/o4-mini", "harness", "pass", 1, 0},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/o4-mini", "harness", "pass", 1, 0},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/o4-mini", "harness", "pass", 1, 0},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/o4-mini", "harness", "pass", 1, 0},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/o4-mini", "harness", "pass", 1, 0},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/o4-mini", "harness", "pass", 1, 0},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/o4-mini", "harness", "fail", 2, 0},
 	)
 
 	rec, ok := RecommendModel(records, "implementer", "harness", OptimizeCost, 0)
@@ -318,16 +705,46 @@ func TestRecommendModel_OptimizeQuality_NoRegression(t *testing.T) {
 	// S54 regression: OptimizeQuality must return same result as pre-S56
 	// when given the same corpus. Uses the ranks-by-pass-rate test data.
 	records := makeEntries(
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "pass", 1},
-		struct{ model, kind, verdict string; attempt int }{"openai/gpt-4o", "harness", "fail", 2},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "pass", 1},
+		struct {
+			model, kind, verdict string
+			attempt              int
+		}{"openai/gpt-4o", "harness", "fail", 2},
 	)
 
 	rec, ok := RecommendModel(records, "implementer", "harness", OptimizeQuality, 0)
@@ -347,16 +764,56 @@ func TestRecommendModel_OptimizeCost_AllBelowFloorFallsBack(t *testing.T) {
 	// must fall back to quality mode (best available), not return nothing.
 	records := makeEntriesWithCost(
 		// Model A — 50% pass (below floor)
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "fail", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "fail", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "fail", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "fail", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "fail", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "fail", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "fail", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "fail", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "fail", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "fail", 1, 0.50},
 	)
 
 	rec, ok := RecommendModel(records, "implementer", "harness", OptimizeCost, 0)
@@ -375,27 +832,107 @@ func TestRecommendModel_OptimizeCost_HigherFloorChangesPick(t *testing.T) {
 	// With floor=0.75: both clear floor, B cheaper → B wins.
 	records := makeEntriesWithCost(
 		// Model A — $0.50/slice, 90% pass
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "fail", 2, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "fail", 2, 0.50},
 		// Model B — $0.05/slice, 80% pass
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o-mini", "harness", "fail", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o-mini", "harness", "fail", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o-mini", "harness", "fail", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o-mini", "harness", "fail", 1, 0.05},
 	)
 
 	// Floor 0.85: B (0.80) excluded by floor → A wins
@@ -424,38 +961,158 @@ func TestRecommendModel_OptimizeBalanced(t *testing.T) {
 	// Balanced mode should pick C (highest pass-rate per dollar).
 	records := makeEntriesWithCost(
 		// Model A
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "pass", 1, 0.50},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o", "harness", "fail", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "pass", 1, 0.50},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o", "harness", "fail", 1, 0.50},
 		// Model B
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o-mini", "harness", "fail", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o-mini", "harness", "fail", 1, 0.05},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"openai/gpt-4o-mini", "harness", "fail", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o-mini", "harness", "pass", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o-mini", "harness", "fail", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o-mini", "harness", "fail", 1, 0.05},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"openai/gpt-4o-mini", "harness", "fail", 1, 0.05},
 		// Model C
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.02},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.02},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.02},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.02},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.02},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.02},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"anthropic/claude-haiku-4-20250514", "harness", "fail", 1, 0.02},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"anthropic/claude-haiku-4-20250514", "harness", "fail", 1, 0.02},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"anthropic/claude-haiku-4-20250514", "harness", "fail", 1, 0.02},
-		struct{ model, kind, verdict string; attempt int; cost float64 }{"anthropic/claude-haiku-4-20250514", "harness", "fail", 1, 0.02},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.02},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.02},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.02},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.02},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.02},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"anthropic/claude-haiku-4-20250514", "harness", "pass", 1, 0.02},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"anthropic/claude-haiku-4-20250514", "harness", "fail", 1, 0.02},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"anthropic/claude-haiku-4-20250514", "harness", "fail", 1, 0.02},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"anthropic/claude-haiku-4-20250514", "harness", "fail", 1, 0.02},
+		struct {
+			model, kind, verdict string
+			attempt              int
+			cost                 float64
+		}{"anthropic/claude-haiku-4-20250514", "harness", "fail", 1, 0.02},
 	)
 
 	rec, ok := RecommendModel(records, "implementer", "harness", OptimizeBalanced, 0)

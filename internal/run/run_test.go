@@ -2,10 +2,12 @@ package run
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/model"
+	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/state"
 	"github.com/swornagent/sworn/internal/verdict"
 	"os"
@@ -16,6 +18,42 @@ import (
 	"testing"
 	"time"
 )
+
+// structuredVerdictReply bridges the pre-agentic scripted verifiers (which
+// return a leading PASS/FAIL/BLOCKED/INCONCLUSIVE prose token) onto the
+// ADR-0011 structured authoring path: it translates that token into a
+// schema-valid verifier-verdict-v1 emission, supplying a violation for
+// FAIL/BLOCKED (which the schema requires). Shared by the verifier test fakes'
+// ChatStructured methods.
+func structuredVerdictReply(text string) string {
+	// Tolerate the markdown/fence wrapping the legacy scripted verifiers used
+	// (e.g. "**PASS**", "```\nPASS"); a real structured emitter never wraps, but
+	// these fakes predate the structured path.
+	stripped := strings.TrimSpace(text)
+	stripped = strings.TrimPrefix(stripped, "```")
+	stripped = strings.TrimLeft(strings.TrimSpace(stripped), "*_`")
+	upper := strings.ToUpper(strings.TrimSpace(stripped))
+	rationale := strings.TrimSpace(text)
+	obj := map[string]any{}
+	switch {
+	case strings.HasPrefix(upper, "PASS"):
+		obj["verdict"] = "PASS"
+	case strings.HasPrefix(upper, "FAIL"):
+		obj["verdict"] = "FAIL"
+		obj["violations"] = []map[string]string{{"gate": "adversarial", "description": rationale}}
+	case strings.HasPrefix(upper, "BLOCKED"):
+		obj["verdict"] = "BLOCKED"
+		obj["violations"] = []map[string]string{{"gate": "adversarial", "description": rationale}}
+	default:
+		obj["verdict"] = "INCONCLUSIVE"
+	}
+	if rationale == "" {
+		rationale = obj["verdict"].(string)
+	}
+	obj["rationale"] = rationale
+	b, _ := json.Marshal(obj)
+	return string(b)
+}
 
 // ---------------------------------------------------------------------------
 // Fake agent — scripted implementer
@@ -96,34 +134,94 @@ type fakeVerifier struct {
 	next     int
 }
 
-func (f *fakeVerifier) Verify(_ context.Context, _, _ string) (string, float64, error) {
+func (f *fakeVerifier) Verify(_ context.Context, _, _ string) (string, float64, int64, int64, error) {
 	if f.next >= len(f.verdicts) {
-		return "PASS", 0, nil
+		return "PASS", 0, 0, 0, nil
 	}
 	v := f.verdicts[f.next]
 	f.next++
-	return string(v.Verdict) + ": " + v.Rationale, v.CostUSD, nil
+	return string(v.Verdict) + ": " + v.Rationale, v.CostUSD, 0, 0, nil
 }
 
 var _ model.Verifier = (*fakeVerifier)(nil)
+
+// ---------------------------------------------------------------------------
+// verifierAwareAgent — bridges scripted verdicts to the agentic verify path
+// ---------------------------------------------------------------------------
+
+// verifierAwareAgent routes the agentic verifier dispatch (system prompt ==
+// prompt.Verifier(), no tools) to a scripted model.Verifier `v`, returning its
+// verdict as agent chat content; every other dispatch (implementer, design,
+// captain) delegates to `impl`. This bridges the pre-agentic-migration tests —
+// which scripted verdicts via NewVerifier / verify.Run — onto the agentic verify
+// path (RunSlice dispatches the verifier through NewAgent → verify.RunAgentic).
+// 2026-06-28.
+type verifierAwareAgent struct {
+	impl agent.Agent
+	v    model.Verifier
+}
+
+func (a *verifierAwareAgent) Chat(ctx context.Context, messages []model.ChatMessage, tools []model.ToolDef) (*model.ChatResponse, error) {
+	if len(messages) > 0 && messages[0].Role == "system" && messages[0].Content == prompt.Verifier() {
+		text, _, _, _, err := a.v.Verify(ctx, messages[0].Content, "")
+		if err != nil {
+			return nil, err
+		}
+		return newChatResponse(text), nil
+	}
+	return a.impl.Chat(ctx, messages, tools)
+}
+
+// ChatStructured satisfies model.StructuredOutput so RunAgentic's structured
+// authoring path (ADR-0011) accepts this fake as a verifier driver. It routes
+// to the scripted verifier and translates the prose verdict into a schema-valid
+// verifier-verdict-v1 emission.
+func (a *verifierAwareAgent) ChatStructured(ctx context.Context, messages []model.ChatMessage, schema []byte) (*model.ChatResponse, error) {
+	text, _, _, _, err := a.v.Verify(ctx, prompt.Verifier(), "")
+	if err != nil {
+		return nil, err
+	}
+	return newChatResponse(structuredVerdictReply(text)), nil
+}
+
+var (
+	_ agent.Agent            = (*verifierAwareAgent)(nil)
+	_ model.StructuredOutput = (*verifierAwareAgent)(nil)
+)
+
+// newChatResponse builds a single-choice ChatResponse carrying content (used by
+// the test fakes to return a stop-finish reply).
+func newChatResponse(content string) *model.ChatResponse {
+	cr := &model.ChatResponse{
+		Choices: []struct {
+			Message struct {
+				Content   string           `json:"content"`
+				ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
+		}{{}},
+	}
+	cr.Choices[0].Message.Content = content
+	cr.Choices[0].FinishReason = "stop"
+	return cr
+}
 
 // ---------------------------------------------------------------------------
 // textVerifier — returns a fixed raw reply, optionally capturing the system prompt
 // ---------------------------------------------------------------------------
 
 // textVerifier returns a fixed reply text. When capture is non-nil, it records
-// the system prompt it receives from verify.Run. Used for S03 reachability tests
-// that must inspect what prompt the run loop wired.
+// the system prompt it receives from verify.RunFirstPass. Used for S03 reachability tests// that must inspect what prompt the run loop wired.
 type textVerifier struct {
 	reply   string
 	capture *string
 }
 
-func (v *textVerifier) Verify(_ context.Context, systemPrompt, _ string) (string, float64, error) {
+func (v *textVerifier) Verify(_ context.Context, systemPrompt, _ string) (string, float64, int64, int64, error) {
 	if v.capture != nil {
 		*v.capture = systemPrompt
 	}
-	return v.reply, 0, nil
+	return v.reply, 0, 0, 0, nil
 }
 
 var _ model.Verifier = (*textVerifier)(nil)
@@ -197,8 +295,10 @@ func TestRun_PassPath_Merges(t *testing.T) {
 		Base:          "main",
 		RetryCap:      0,
 		WorkspaceRoot: workspaceRoot,
-		NewAgent:      func(_ string) (agent.Agent, error) { return stdoutAgent("hello from sworn run"), nil },
-		NewVerifier:   func(_ string) (model.Verifier, error) { return verifier, nil },
+		NewAgent: func(_ string) (agent.Agent, error) {
+			return &verifierAwareAgent{impl: stdoutAgent("hello from sworn run"), v: verifier}, nil
+		},
+		NewVerifier: func(_ string) (model.Verifier, error) { return verifier, nil },
 	})
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -256,7 +356,7 @@ func TestRun_FailPath_NoMerge(t *testing.T) {
 		RetryCap:         1,
 		WorkspaceRoot:    workspaceRoot,
 		EscalationModels: []string{"fake/impl1"},
-		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
+		NewAgent:         func(_ string) (agent.Agent, error) { return &verifierAwareAgent{impl: impl, v: verifier}, nil },
 		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
 	})
 	if err == nil {
@@ -296,7 +396,7 @@ func TestRun_FailThenPass_RetrySucceeds(t *testing.T) {
 		RetryCap:         1,
 		WorkspaceRoot:    workspaceRoot,
 		EscalationModels: []string{"fake/impl1", "fake/impl2"},
-		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
+		NewAgent:         func(_ string) (agent.Agent, error) { return &verifierAwareAgent{impl: impl, v: verifier}, nil },
 		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
 	})
 	if err != nil {
@@ -329,7 +429,7 @@ func TestRun_Blocked_StopsImmediately(t *testing.T) {
 		RetryCap:         3,
 		WorkspaceRoot:    workspaceRoot,
 		EscalationModels: []string{"fake/impl1", "fake/impl2", "fake/impl3", "fake/impl4"},
-		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
+		NewAgent:         func(_ string) (agent.Agent, error) { return &verifierAwareAgent{impl: impl, v: verifier}, nil },
 		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
 	})
 	if err == nil {
@@ -388,7 +488,7 @@ func TestRun_VerifyMarkdownPass(t *testing.T) {
 		Base:          "main",
 		RetryCap:      0,
 		WorkspaceRoot: workspaceRoot,
-		NewAgent:      func(_ string) (agent.Agent, error) { return impl, nil },
+		NewAgent:      func(_ string) (agent.Agent, error) { return &verifierAwareAgent{impl: impl, v: verifier}, nil },
 		NewVerifier:   func(_ string) (model.Verifier, error) { return verifier, nil },
 	})
 	if err != nil {
@@ -416,50 +516,23 @@ func TestRun_VerifyMarkdownPass(t *testing.T) {
 	}
 }
 
-// TestRun_VerifyStatelessPromptWired proves the stateless judge prompt
-// (S01's VerifyStateless) is wired on the run path — the verifier
-// receives "no tools / SPEC+DIFF only / verdict-leading", not the
-// agentic verifier.md role prompt.  This is AC2.
-func TestRun_VerifyStatelessPromptWired(t *testing.T) {
-	workspaceRoot, _ := setupTestRepo(t)
+// TestRun_VerifyStatelessPromptWired was REMOVED 2026-06-28. It asserted the
+// verify path wired the *stateless* judge prompt ("no tools / SPEC+DIFF only")
+// and explicitly forbade agentic markers ("worktree", "Baton verifier"). The
+// agentic-verifier migration (S11 dispatch + S12 demote) deliberately reversed
+// this: verification now dispatches verifier.md through an agent, and the
+// stateless judge is demoted to the deterministic RunFirstPass gate. The test
+// asserted behaviour the release intentionally removed, so it was deleted rather
+// than inverted. Agentic verifier wiring is covered by the verify package tests
+// and the passingVerifierAgent / verifierAwareAgent paths in this package.
 
-	impl := stdoutAgent("stateless prompt test")
-
-	var capturedPrompt string
-	verifier := &textVerifier{reply: "PASS — looks good", capture: &capturedPrompt}
-
-	err := Run(context.Background(), Options{
-		Task:          "Stateless prompt check",
-		VerifierModel: "fake/verifier",
-		Base:          "main",
-		RetryCap:      0,
-		WorkspaceRoot: workspaceRoot,
-		NewAgent:      func(_ string) (agent.Agent, error) { return impl, nil },
-		NewVerifier:   func(_ string) (model.Verifier, error) { return verifier, nil },
-	})
-	if err != nil {
-		t.Fatalf("Run() error: %v", err)
-	}
-
-	// Must contain stateless markers.
-	for _, want := range []string{"no tools", "SPEC+DIFF only", "verdict-leading"} {
-		if !strings.Contains(capturedPrompt, want) {
-			t.Errorf("system prompt missing stateless marker %q", want)
-		}
-	}
-	// Must NOT contain agentic verifier instructions from verifier.md.
-	for _, forbidden := range []string{"worktree", "git -C", "fresh terminal", "Baton verifier"} {
-		if strings.Contains(capturedPrompt, forbidden) {
-			t.Errorf("system prompt contains agentic token %q — should use stateless prompt, not verifier.md", forbidden)
-		}
-	}
-}
-
-// TestRun_VerifyToolCallLeakBlocks proves that a tool-call-leak reply
-// from the verifier (e.g. <tool_call name="...">) leaves the run loop
-// NOT merged — the parser from S02 maps it to BLOCKED/unparseable_verdict
-// and the run loop stops without merging.  This is AC3 — fail-closed
-// end-to-end.
+// TestRun_VerifyToolCallLeakBlocks proves that a garbage verifier reply (e.g. a
+// leaked <tool_call ...>) leaves the run loop NOT merged — fail-closed end-to-end
+// (AC3). Under the ADR-0011 structured authoring path the verifier emits a
+// schema-constrained verdict, so a reply that is not a valid verifier-verdict-v1
+// object resolves to INCONCLUSIVE (fail-closed) rather than the old prose-parsed
+// BLOCKED. The load-bearing invariant is unchanged: a non-determinate verdict
+// never merges.
 func TestRun_VerifyToolCallLeakBlocks(t *testing.T) {
 	workspaceRoot, _ := setupTestRepo(t)
 
@@ -475,21 +548,18 @@ func TestRun_VerifyToolCallLeakBlocks(t *testing.T) {
 		Base:          "main",
 		RetryCap:      0,
 		WorkspaceRoot: workspaceRoot,
-		NewAgent:      func(_ string) (agent.Agent, error) { return impl, nil },
+		NewAgent:      func(_ string) (agent.Agent, error) { return &verifierAwareAgent{impl: impl, v: verifier}, nil },
 		NewVerifier:   func(_ string) (model.Verifier, error) { return verifier, nil },
 	})
 	if err == nil {
-		t.Fatal("expected error for tool-call leak, got nil")
-	}
-	if !strings.Contains(err.Error(), "verification blocked") {
-		t.Fatalf("expected 'verification blocked', got: %v", err)
+		t.Fatal("expected error for garbage verifier reply, got nil")
 	}
 
-	// Verify no merge on main.
+	// Verify no merge on main — the fail-closed invariant.
 	runCmd(t, workspaceRoot, "git", "checkout", "main")
 	log := runCmd(t, workspaceRoot, "git", "log", "--oneline", "-1")
 	if strings.Contains(log, "merge:") {
-		t.Fatal("unexpected merge commit on main after tool-call BLOCKED")
+		t.Fatal("unexpected merge commit on main after fail-closed verdict")
 	}
 }
 
@@ -582,8 +652,10 @@ func TestRunSlice(t *testing.T) {
 		VerifierModel:    "fake/verifier",
 		RetryCap:         0,
 		EscalationModels: []string{"fake/impl"},
-		NewAgent:         func(_ string) (agent.Agent, error) { return stdoutAgent("hello from RunSlice"), nil },
-		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
+		NewAgent: func(_ string) (agent.Agent, error) {
+			return &verifierAwareAgent{impl: stdoutAgent("hello from RunSlice"), v: verifier}, nil
+		},
+		NewVerifier: func(_ string) (model.Verifier, error) { return verifier, nil },
 	})
 	if err != nil {
 		t.Fatalf("RunSlice() error: %v", err)
@@ -624,7 +696,7 @@ func TestRunSliceFail(t *testing.T) {
 		VerifierModel:    "fake/verifier",
 		RetryCap:         1,
 		EscalationModels: []string{"fake/impl1"},
-		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
+		NewAgent:         func(_ string) (agent.Agent, error) { return &verifierAwareAgent{impl: impl, v: verifier}, nil },
 		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
 	})
 	if err == nil {
@@ -717,7 +789,7 @@ func TestRunSlice_FailNotifiesOnce(t *testing.T) {
 		VerifierModel:    "fake/verifier",
 		RetryCap:         1,
 		EscalationModels: []string{"fake/impl1"},
-		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
+		NewAgent:         func(_ string) (agent.Agent, error) { return &verifierAwareAgent{impl: impl, v: verifier}, nil },
 		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
 		Notifier:         notifier,
 	})
@@ -786,7 +858,7 @@ func TestRunSlice_BlockedNotifies(t *testing.T) {
 		VerifierModel:    "fake/verifier",
 		RetryCap:         0,
 		EscalationModels: []string{"fake/impl"},
-		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
+		NewAgent:         func(_ string) (agent.Agent, error) { return &verifierAwareAgent{impl: impl, v: verifier}, nil },
 		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
 		Notifier:         notifier,
 	})
@@ -831,7 +903,7 @@ func TestRunSlice_NilNotifierNoOp(t *testing.T) {
 		VerifierModel:    "fake/verifier",
 		RetryCap:         0,
 		EscalationModels: []string{"fake/impl"},
-		NewAgent:         func(_ string) (agent.Agent, error) { return impl, nil },
+		NewAgent:         func(_ string) (agent.Agent, error) { return &verifierAwareAgent{impl: impl, v: verifier}, nil },
 		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
 		Notifier:         nil, // no notifier — must not panic
 	})

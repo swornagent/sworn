@@ -1,4 +1,4 @@
-VERSION ?= 0.0.0-dev
+VERSION ?= 0.1.0
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
 .PHONY: build test vet fmt clean

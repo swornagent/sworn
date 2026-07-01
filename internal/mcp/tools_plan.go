@@ -67,7 +67,7 @@ func RegisterPlanTools(s *Server, repoRoot string) {
 			ActualFiles:           []string{},
 			TestCommands:          []string{},
 			ReachabilityArtifacts: []string{},
-			OpenDeferrals:         []string{},
+			OpenDeferrals:         []state.Deferral{},
 			Verification: state.Verification{
 				Result: "pending",
 			},

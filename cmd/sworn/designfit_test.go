@@ -19,6 +19,8 @@ func writeDesignfitFixture(t *testing.T, dir, sliceID string, decisions []state.
 	}
 	st := &state.Status{
 		SliceID:         sliceID,
+		Release:         filepath.Base(releaseDir),
+		State:           state.InProgress,
 		DesignDecisions: decisions,
 	}
 	if err := state.Write(filepath.Join(sliceDir, "status.json"), st); err != nil {
@@ -53,13 +55,13 @@ func TestDesignfitCmd_NonexistentRelease(t *testing.T) {
 // exits 1 and names the slice + choice.
 func TestDesignfitCmd_Type1NoDecision(t *testing.T) {
 	dir := t.TempDir()
-	writeDesignfitFixture(t, dir, "S01-test", []state.DesignDecision{		{
-			Choice:     "database-engine",
-			StakeClass: state.Type1,
-			Options:    []string{"PostgreSQL", "SQLite"},
-			Rationale:  "migrations matter",
-			// No HumanDecision — should fail
-		},
+	writeDesignfitFixture(t, dir, "S01-test", []state.DesignDecision{{
+		Choice:     "database-engine",
+		StakeClass: state.Type1,
+		Options:    []string{"PostgreSQL", "SQLite"},
+		Rationale:  "migrations matter",
+		// No HumanDecision — should fail
+	},
 	})
 
 	oldCwd, _ := os.Getwd()
@@ -76,13 +78,13 @@ func TestDesignfitCmd_Type1NoDecision(t *testing.T) {
 // exits 0.
 func TestDesignfitCmd_AllPass(t *testing.T) {
 	dir := t.TempDir()
-	writeDesignfitFixture(t, dir, "S01-test", []state.DesignDecision{		{
-			Choice:        "database-engine",
-			StakeClass:    state.Type1,
-			Options:       []string{"PostgreSQL", "SQLite"},
-			HumanDecision: "PostgreSQL",
-			Rationale:     "migrations matter",
-		},
+	writeDesignfitFixture(t, dir, "S01-test", []state.DesignDecision{{
+		Choice:        "database-engine",
+		StakeClass:    state.Type1,
+		Options:       []string{"PostgreSQL", "SQLite"},
+		HumanDecision: "PostgreSQL",
+		Rationale:     "migrations matter",
+	},
 	})
 
 	oldCwd, _ := os.Getwd()
@@ -153,6 +155,8 @@ func writeReleaseSliceTest(t *testing.T, releaseDir, sliceID string, decisions [
 	}
 	st := &state.Status{
 		SliceID:         sliceID,
+		Release:         filepath.Base(releaseDir),
+		State:           state.InProgress,
 		DesignDecisions: decisions,
 	}
 	if err := state.Write(filepath.Join(sliceDir, "status.json"), st); err != nil {

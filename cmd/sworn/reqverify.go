@@ -50,7 +50,8 @@ func cmdReqverify(args []string) int {
 		return 2
 	}
 
-	if resolvedModel != "" {		var verr error
+	if resolvedModel != "" {
+		var verr error
 		v, verr = model.FromEnv(resolvedModel)
 		if verr != nil {
 			fmt.Fprintf(os.Stderr, "sworn reqverify: %v\n", verr)

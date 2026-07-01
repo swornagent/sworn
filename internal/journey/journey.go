@@ -14,8 +14,9 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
-)
 
+	"github.com/swornagent/sworn/internal/baton"
+)
 // JourneyArtefactPath returns the path to the journeys artefact relative to a
 // project root.
 const artefactRelPath = ".sworn/journeys.json"
@@ -57,6 +58,12 @@ type Journey struct {
 	// generated regression test file (e.g. "internal/journey/journey_J01_test.go").
 	// Empty when no regression scaffold has been generated.
 	RegressionTestPath string `json:"regression_test_path,omitempty"`
+
+	// NoMockBoundary declares the boundary that must cross real infrastructure
+	// (not a mock) when this journey is walked. e.g. "entitlement/credits",
+	// "loop-verifier", "real-board/real-gates". Rule 10 enforcement: a mock at
+	// this boundary during journey validation fails the gate.
+	NoMockBoundary string `json:"no_mock_boundary,omitempty"`
 }
 // JourneyStep is one step within a critical customer journey.
 type JourneyStep struct {
@@ -70,9 +77,23 @@ type JourneyStep struct {
 	Surface string `json:"surface,omitempty"`
 }
 
+// Ratification records the human-ratification metadata for a durable artefact.
+// It is nested under the "ratification" key in the JSON output.
+type Ratification struct {
+	// By records who ratified the artefact (email or identifier).
+	By string `json:"by"`
+	// At is when the artefact was last ratified (ISO 8601).
+	At string `json:"at"`
+	// IsRatified is true when the artefact has been human-ratified.
+	IsRatified bool `json:"is_ratified"`
+}
+
 // JourneyArtefact is the durable, version-controlled journeys artefact.
 // It is persisted to .sworn/journeys.json and carries ratification metadata.
 type JourneyArtefact struct {
+	// Schema identifies the canonical JSON Schema for this artefact.
+	Schema string `json:"$schema"`
+
 	// Schema version for forward compatibility.
 	Version int `json:"version"`
 
@@ -82,33 +103,29 @@ type JourneyArtefact struct {
 	// UpdatedAt is when the artefact was last modified (ISO 8601).
 	UpdatedAt string `json:"updated_at"`
 
+	// Ratification carries human-ratification metadata as a nested object.
+	Ratification Ratification `json:"ratification"`
+
 	// Journeys is the list of critical customer journeys.
 	Journeys []Journey `json:"journeys"`
-
-	// RatifiedAt is when the artefact was last ratified by a human (ISO 8601).
-	// Empty if not yet ratified.
-	RatifiedAt string `json:"ratified_at,omitempty"`
-
-	// RatifiedBy records who ratified the artefact.
-	RatifiedBy string `json:"ratified_by,omitempty"`
-
-	// IsRatified is true when the artefact has been human-ratified.
-	IsRatified bool `json:"is_ratified"`
 }
-
 // NewArtefact creates a new JourneyArtefact with the given journeys and no
 // ratification. The caller should add journeys and then call Ratify.
 func NewArtefact() *JourneyArtefact {
 	now := time.Now().UTC().Format(time.RFC3339)
 	return &JourneyArtefact{
+		Schema:    baton.JourneysSchemaURI,
 		Version:   1,
 		CreatedAt: now,
 		UpdatedAt: now,
 		Journeys:  []Journey{},
-		IsRatified: false,
+		Ratification: Ratification{
+			By:         "",
+			At:         "",
+			IsRatified: false,
+		},
 	}
 }
-
 // Ratify marks the artefact as human-ratified. It records who ratified and
 // when. It returns an error if the artefact has no journeys (an artefact
 // must contain at least one journey to be meaningful).
@@ -120,23 +137,21 @@ func (a *JourneyArtefact) Ratify(ratifiedBy string) error {
 		return fmt.Errorf("ratified_by is required")
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	a.RatifiedAt = now
-	a.RatifiedBy = ratifiedBy
-	a.IsRatified = true
+	a.Ratification.By = ratifiedBy
+	a.Ratification.At = now
+	a.Ratification.IsRatified = true
 	a.UpdatedAt = now
 	return nil
 }
-
 // AddJourney appends a journey to the artefact. It removes ratification
 // status — any edit invalidates prior ratification.
 func (a *JourneyArtefact) AddJourney(j Journey) {
 	a.Journeys = append(a.Journeys, j)
-	a.IsRatified = false
-	a.RatifiedAt = ""
-	a.RatifiedBy = ""
+	a.Ratification.IsRatified = false
+	a.Ratification.At = ""
+	a.Ratification.By = ""
 	a.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 }
-
 // LoadArtefact reads and parses the journeys artefact from the given project
 // root. It returns a sentinel error (IsNotExist) when the artefact file does
 // not exist, and a different error for parse failures.
@@ -158,7 +173,8 @@ func LoadArtefact(projectRoot string) (*JourneyArtefact, error) {
 }
 
 // SaveArtefact serialises the artefact to .sworn/journeys.json under the given
-// project root. It creates the .sworn directory if needed.
+// project root. It creates the .sworn directory if needed. Before writing, it
+// validates the serialised JSON against the embedded journeys-v1 schema.
 func SaveArtefact(projectRoot string, a *JourneyArtefact) error {
 	path := JourneyArtefactPath(projectRoot)
 	dir := filepath.Dir(path)
@@ -168,16 +184,26 @@ func SaveArtefact(projectRoot string, a *JourneyArtefact) error {
 
 	a.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
+	// Ensure $schema is set.
+	if a.Schema == "" {
+		a.Schema = baton.JourneysSchemaURI
+	}
+
 	data, err := json.MarshalIndent(a, "", "  ")
 	if err != nil {
 		return fmt.Errorf("journey: marshal: %w", err)
 	}
+
+	// Validate against the embedded journeys-v1 schema before writing.
+	if err := baton.Validate("journeys-v1", data); err != nil {
+		return fmt.Errorf("journey: validation failed — not written: %w", err)
+	}
+
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("journey: write %s: %w", path, err)
 	}
 	return nil
 }
-
 // ErrArtefactNotExist is returned by LoadArtefact when the artefact file does
 // not exist. Callers can use errors.Is to detect this case.
 var ErrArtefactNotExist = fmt.Errorf("journeys artefact does not exist")
@@ -222,10 +248,9 @@ func Check(projectRoot string) (CheckResult, *JourneyArtefact, error) {
 		return CheckMissing, nil, err
 	}
 
-	if !a.IsRatified {
+	if !a.Ratification.IsRatified {
 		return CheckUnratified, a, nil
 	}
-
 	return CheckPass, a, nil
 }
 
@@ -280,7 +305,8 @@ func ListJourneys(a *JourneyArtefact) []string {
 // In a future iteration this will be model-driven (
 // "the model drafts candidate journeys from the app"). For now it produces
 // a well-structured template with guidance.
-func DraftTemplate(projectRoot string) (*JourneyArtefact, error) {	a := NewArtefact()
+func DraftTemplate(projectRoot string) (*JourneyArtefact, error) {
+	a := NewArtefact()
 
 	// Scan the project to discover high-level structure.
 	entries := scanProjectStructure(projectRoot)

@@ -15,9 +15,8 @@ type mockVerifier struct {
 	err     error
 }
 
-func (m *mockVerifier) Verify(_ context.Context, _, _ string) (string, float64, error) {
-	return m.text, m.costUSD, m.err
-}
+func (m *mockVerifier) Verify(_ context.Context, _, _ string) (string, float64, int64, int64, error) {
+	return m.text, m.costUSD, 0, 0, m.err}
 
 // --- prompt building tests ---
 
@@ -247,7 +246,7 @@ title: S01-test
 
 func TestRunLLMCheck_InvalidType(t *testing.T) {
 	dir := fixture(t, map[string]string{
-		"S01-test/spec.md": "# spec",
+		"S01-test/spec.md":     "# spec",
 		"S01-test/status.json": `{}`,
 	})
 

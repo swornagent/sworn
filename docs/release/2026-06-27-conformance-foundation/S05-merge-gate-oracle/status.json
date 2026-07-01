@@ -1,0 +1,69 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S05-merge-gate-oracle",
+  "release": "2026-06-27-conformance-foundation",
+  "track": "T1-orchestration",
+  "covers_needs": [
+    "N-05",
+    "N-14"
+  ],
+  "state": "verified",
+  "owner": "human",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-28T21:00:00Z",  "start_commit": "cd4d4869a84ba4dc2aa94e58a051260eee6a897a",
+  "spec_path": "docs/release/2026-06-27-conformance-foundation/S05-merge-gate-oracle/spec.md",
+  "proof_path": "docs/release/2026-06-27-conformance-foundation/S05-merge-gate-oracle/proof.md",
+  "journal_path": "docs/release/2026-06-27-conformance-foundation/S05-merge-gate-oracle/journal.md",
+  "planned_files": [
+    "cmd/sworn/merge.go",
+    "internal/git/git.go",
+    "internal/mcp/tools_ops.go",
+    "internal/router/router.go"
+  ],
+  "actual_files": [
+    "cmd/sworn/merge.go",
+    "cmd/sworn/merge_test.go",
+    "cmd/sworn/mcp.go",
+    "docs/release/2026-06-27-conformance-foundation/S05-merge-gate-oracle/design.md",
+    "docs/release/2026-06-27-conformance-foundation/S05-merge-gate-oracle/status.json",
+    "internal/board/board.go",
+    "internal/git/git.go",
+    "internal/mcp/tools_ops.go",
+    "internal/mcp/tools_test.go",
+    "internal/router/router.go",
+    "internal/router/router_test.go"
+  ],
+  "test_commands": [
+    "go test ./cmd/sworn/... -run TestMerge -v -count=1",
+    "go test ./internal/router/... -v -run TestInvariant4",
+    "go test ./internal/router/... -v -run TestParseDocumented",
+    "go test ./internal/router/... -v -run TestNormalizeFilePath",
+    "go test ./internal/router/... -v -run TestIsDocumentedShared",
+    "go test ./internal/git/... -count=1"
+  ],
+  "reachability_artifacts": [
+    "cli-smoke: sworn merge-track T1-orchestration --release 2026-06-27-conformance-foundation (exit 1, correctly blocks on unverified S05/S06/S07/S27)"
+  ],
+  "design_decisions": [
+    {
+      "id": "DD-1",
+      "classification": "Type-1",
+      "description": "Invariant-4 shared-file source of truth: parse index.md touchpoint matrix for documented-shared files, with status.json planned_files as a fallback. Type-1 because it gates whole-release merges — a misclassification blocks the release pipeline.",
+      "rationale": "The index.md touchpoint matrix is the canonical declaration of which files are touched by multiple tracks. The alternative (computing intersections from per-slice status.json planned_files) is more robust against format changes but requires reading every slice's status.json. The matrix parser is the design choice, with a planned_files fallback.",
+      "acknowledged": "Captain review 2026-06-28 (Pin 5)"
+    },
+    {
+      "id": "DD-2",
+      "classification": "Type-2",
+      "description": "RegisterOpsTools signature change: add *git.Repo parameter to enable oracle-backed state reads in MCP tools. Two callers: cmd/sworn/mcp.go (production, passes git.New('.')) and tools_test.go (test, passes nil for filesystem fallback).",
+      "rationale": "Injecting *git.Repo keeps the change minimal — board.NewGitOracle(repo) is one line. The filesystem fallback (repo==nil) preserves backward compatibility for tests.",
+      "acknowledged": "Captain review 2026-06-28 (Pin 5)"
+    }
+  ],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pass",
+    "violations": [],
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-28T21:00:00Z"
+  }}

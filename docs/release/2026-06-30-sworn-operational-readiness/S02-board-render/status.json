@@ -1,0 +1,60 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S02-board-render",
+  "release": "2026-06-30-sworn-operational-readiness",
+  "track": "T2-board-render",
+  "state": "verified",
+  "covers_needs": [
+    "N-05"
+  ],
+  "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S02-board-render/spec.json",
+  "start_commit": "db14b95",
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "chore",
+    "rationale": "Deterministic render of board.json + slice records into a fixed Markdown layout; new files only, no model dispatch.",
+    "confirmed_by_implementer": true
+  },
+  "verification": {
+    "result": "pass"
+  },
+  "verifier_was_fresh_context": true,
+  "verifier_verdict_at": "2026-07-01T07:59:13Z",
+  "design_decisions": [
+    {
+      "choice": "Renderer decodes board.json via canonical strict board.ReadBoard (object-only release), with an os.Stat pre-guard that fails closed on a missing board.json instead of triggering ReadBoard's lazy migration from index.md",
+      "stake_class": "Type-1",
+      "options": [
+        "canonical strict board.ReadBoard against the object-form board (CHOSEN)",
+        "local tolerant renderBoard decoder accepting string-or-object release (REJECTED)"
+      ],
+      "human_decision": "Coach authorised and executed the S05 AC-06 cutover (2026-07-01): this release's board.json migrated string->object and canonical strict sworn installed globally. Renderer therefore uses the single strict reader; a second tolerant decode path is rejected (S05 AC-03: legacy string boards are migrated, not read-tolerated).",
+      "rationale": "One board-decode path in the codebase; AC-04/AC-05 are consistent as written once the board is object-form; avoids the reader-divergence surface (feedback_releaseverify_specmd_false_fail). The reader choice is invisible to the delivery Verifier, so Rule 9 fixes it in design.",
+      "architecturally_significant": true
+    }
+  ],
+  "proof_path": "docs/release/2026-06-30-sworn-operational-readiness/S02-board-render/proof.md",
+  "actual_files": [
+    "internal/board/render.go",
+    "internal/board/render_test.go",
+    "cmd/sworn/render.go",
+    "internal/board/testdata/render/docs/release/rel-fixture/board.json",
+    "internal/board/testdata/render/docs/release/rel-fixture/SA-alpha/spec.json",
+    "internal/board/testdata/render/docs/release/rel-fixture/SA-alpha/status.json",
+    "internal/board/testdata/render/docs/release/rel-fixture/SB-beta/spec.json",
+    "internal/board/testdata/render/docs/release/rel-fixture/SB-beta/status.json",
+    "internal/board/testdata/render/rel-fixture.golden.md",
+    "docs/release/2026-06-30-sworn-operational-readiness/index.md"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go test ./internal/board/...",
+    "go test ./cmd/sworn/...",
+    "go test ./... -timeout 300s",
+    "sworn designfit 2026-06-30-sworn-operational-readiness"
+  ],
+  "reachability_artifacts": [
+    "sworn render 2026-06-30-sworn-operational-readiness <worktree> (exit 0) regenerated docs/release/2026-06-30-sworn-operational-readiness/index.md replacing the hand-authored file: tracks table contains T1-operational-unblock + T2-board-render (all 5 tracks), touchpoint matrix 31 file rows 0 collisions (disjoint), single-quoted frontmatter; re-render byte-identical (idempotent). Captured in proof.md Reachability."
+  ]
+}

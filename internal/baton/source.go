@@ -9,7 +9,7 @@ import (
 // FileMapping pairs a Baton source path (relative to the source directory root)
 // with the SwornAgent embed destination path (relative to the repository root).
 type FileMapping struct {
-	Source string // relative to Baton source dir (e.g. "claude/baton/reachability-gate.md")
+	Source string // relative to Baton source dir (e.g. "baton/reachability-gate.md")
 	Dest   string // relative to repo root (e.g. "internal/adopt/baton/rules/01-reachability-gate.md")
 }
 
@@ -19,40 +19,40 @@ type FileMapping struct {
 // mapping decision (Design Decision §2.2).
 var batonFileMappings = []FileMapping{
 	// Rules (numbered in SwornAgent; flat in Baton)
-	{Source: "claude/baton/reachability-gate.md", Dest: "internal/adopt/baton/rules/01-reachability-gate.md"},
-	{Source: "claude/baton/no-silent-deferrals.md", Dest: "internal/adopt/baton/rules/02-no-silent-deferrals.md"},
-	{Source: "claude/baton/capture-discipline.md", Dest: "internal/adopt/baton/rules/03-capture-discipline.md"},
-	{Source: "claude/baton/commit-messages-as-capture.md", Dest: "internal/adopt/baton/rules/04-commit-messages-as-capture.md"},
-	{Source: "claude/baton/session-discipline.md", Dest: "internal/adopt/baton/rules/05-session-discipline.md"},
-	{Source: "claude/baton/proof-bundle.md", Dest: "internal/adopt/baton/rules/06-proof-bundle.md"},
-	{Source: "claude/baton/adversarial-verification.md", Dest: "internal/adopt/baton/rules/07-adversarial-verification.md"},
-	{Source: "claude/baton/requirements-fidelity.md", Dest: "internal/adopt/baton/rules/08-requirements-fidelity.md"},
-	{Source: "claude/baton/design-fidelity.md", Dest: "internal/adopt/baton/rules/09-design-fidelity.md"},
-	{Source: "claude/baton/customer-journey-validation.md", Dest: "internal/adopt/baton/rules/10-customer-journey-validation.md"},
-	{Source: "claude/baton/process-global-mutation.md", Dest: "internal/adopt/baton/rules/11-process-global-mutation.md"},
+	{Source: "baton/reachability-gate.md", Dest: "internal/adopt/baton/rules/01-reachability-gate.md"},
+	{Source: "baton/no-silent-deferrals.md", Dest: "internal/adopt/baton/rules/02-no-silent-deferrals.md"},
+	{Source: "baton/capture-discipline.md", Dest: "internal/adopt/baton/rules/03-capture-discipline.md"},
+	{Source: "baton/commit-messages-as-capture.md", Dest: "internal/adopt/baton/rules/04-commit-messages-as-capture.md"},
+	{Source: "baton/session-discipline.md", Dest: "internal/adopt/baton/rules/05-session-discipline.md"},
+	{Source: "baton/proof-bundle.md", Dest: "internal/adopt/baton/rules/06-proof-bundle.md"},
+	{Source: "baton/adversarial-verification.md", Dest: "internal/adopt/baton/rules/07-adversarial-verification.md"},
+	{Source: "baton/requirements-fidelity.md", Dest: "internal/adopt/baton/rules/08-requirements-fidelity.md"},
+	{Source: "baton/design-fidelity.md", Dest: "internal/adopt/baton/rules/09-design-fidelity.md"},
+	{Source: "baton/customer-journey-validation.md", Dest: "internal/adopt/baton/rules/10-customer-journey-validation.md"},
+	{Source: "baton/process-global-mutation.md", Dest: "internal/adopt/baton/rules/11-process-global-mutation.md"},
 
 	// Adopt README
-	{Source: "claude/baton/README.md", Dest: "internal/adopt/baton/README.md"},
+	{Source: "baton/README.md", Dest: "internal/adopt/baton/README.md"},
 
 	// Role prompts
-	{Source: "claude/baton/role-prompts/implementer.md", Dest: "internal/prompt/implementer.md"},
-	{Source: "claude/baton/role-prompts/planner.md", Dest: "internal/prompt/planner.md"},
-	{Source: "claude/baton/role-prompts/verifier.md", Dest: "internal/prompt/verifier.md"},
-	{Source: "claude/baton/role-prompts/captain.md", Dest: "internal/prompt/captain.md"},
+	{Source: "baton/role-prompts/implementer.md", Dest: "internal/prompt/implementer.md"},
+	{Source: "baton/role-prompts/planner.md", Dest: "internal/prompt/planner.md"},
+	{Source: "baton/role-prompts/verifier.md", Dest: "internal/prompt/verifier.md"},
+	{Source: "baton/role-prompts/captain.md", Dest: "internal/prompt/captain.md"},
 
 	// Architecture rules (v0.5.0)
-	{Source: "claude/baton/architecture.json", Dest: "internal/adopt/baton/architecture.json"},
+	{Source: "baton/architecture.json", Dest: "internal/adopt/baton/architecture.json"},
 
 	// Baton protocol documents (embedded under internal/prompt/baton/)
-	{Source: "claude/baton/track-mode.md", Dest: "internal/prompt/baton/track-mode.md"},
-	{Source: "claude/baton/session-discipline.md", Dest: "internal/prompt/baton/session-discipline.md"},
-	{Source: "claude/baton/brainstorm-patterns.md", Dest: "internal/prompt/baton/brainstorm-patterns.md"},
-	{Source: "claude/baton/README.md", Dest: "internal/prompt/baton/README.md"},
+	{Source: "baton/track-mode.md", Dest: "internal/prompt/baton/track-mode.md"},
+	{Source: "baton/session-discipline.md", Dest: "internal/prompt/baton/session-discipline.md"},
+	{Source: "baton/brainstorm-patterns.md", Dest: "internal/prompt/baton/brainstorm-patterns.md"},
+	{Source: "baton/README.md", Dest: "internal/prompt/baton/README.md"},
 
 	// Combined rules (concatenated by Vendor, not a single source file).
 	// This entry is a sentinel: the Vendor reads each individual rule source,
 	// transforms it, concatenates them, and writes the result.
-	{Source: "claude/baton/rules.md", Dest: "internal/prompt/baton/rules.md"},
+	{Source: "baton/rules.md", Dest: "internal/prompt/baton/rules.md"},
 }
 
 // ValidateSource checks that every source file in the mapping exists under
@@ -62,7 +62,7 @@ func ValidateSource(sourceDir string) error {
 	for _, m := range batonFileMappings {
 		p := filepath.Join(sourceDir, m.Source)
 		// rules.md is a concatenation target, not a source file — skip it.
-		if m.Source == "claude/baton/rules.md" {
+		if m.Source == "baton/rules.md" {
 			continue
 		}
 		if _, err := os.Stat(p); err != nil {
@@ -70,7 +70,8 @@ func ValidateSource(sourceDir string) error {
 				return fmt.Errorf("baton: source file missing: %s (expected at %s)", m.Source, p)
 			}
 			return fmt.Errorf("baton: cannot stat source file %s: %w", m.Source, err)
-		}	}
+		}
+	}
 	return nil
 }
 
@@ -85,16 +86,16 @@ func AllMappings() []FileMapping {
 // in order, so they can be concatenated into rules.md.
 func RuleSources() []string {
 	return []string{
-		"claude/baton/reachability-gate.md",
-		"claude/baton/no-silent-deferrals.md",
-		"claude/baton/capture-discipline.md",
-		"claude/baton/commit-messages-as-capture.md",
-		"claude/baton/session-discipline.md",
-		"claude/baton/proof-bundle.md",
-		"claude/baton/adversarial-verification.md",
-		"claude/baton/requirements-fidelity.md",
-		"claude/baton/design-fidelity.md",
-		"claude/baton/customer-journey-validation.md",
-		"claude/baton/process-global-mutation.md",
+		"baton/reachability-gate.md",
+		"baton/no-silent-deferrals.md",
+		"baton/capture-discipline.md",
+		"baton/commit-messages-as-capture.md",
+		"baton/session-discipline.md",
+		"baton/proof-bundle.md",
+		"baton/adversarial-verification.md",
+		"baton/requirements-fidelity.md",
+		"baton/design-fidelity.md",
+		"baton/customer-journey-validation.md",
+		"baton/process-global-mutation.md",
 	}
 }

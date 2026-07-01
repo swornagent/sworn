@@ -19,8 +19,15 @@ func init() {
 		Run:     cmdVerify,
 	})
 	command.Register(command.Command{
+		Name:    "loop",
+		Summary: "run the delivery loop: implement → verify → retry/escalate → gated merge",
+		Run:     cmdRun,
+	})
+	// `run` is retained as a deprecated alias for `loop` (loop-engineering
+	// terminology, 2026-06-28). Same handler; kept for backwards compatibility.
+	command.Register(command.Command{
 		Name:    "run",
-		Summary: "execute the full turnkey loop: implement → verify → retry/escalate",
+		Summary: "deprecated alias for 'loop'",
 		Run:     cmdRun,
 	})
 	command.Register(command.Command{
@@ -106,8 +113,8 @@ func init() {
 
 	// version and help are registered as aliases (multiple names → same handler).
 	command.Register(command.Command{
-		Name:    "version",		Summary: "print sworn binary and baton-protocol versions",
-		Run:     cmdVersion,
+		Name: "version", Summary: "print sworn binary and baton-protocol versions",
+		Run: cmdVersion,
 	})
 	command.Register(command.Command{
 		Name:    "--version",

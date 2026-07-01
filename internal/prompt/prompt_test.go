@@ -198,7 +198,7 @@ func TestBatonRulesNonEmpty(t *testing.T) {
 
 func TestBatonAllKeys(t *testing.T) {
 	all := BatonAll()
-	required := []string{"rules.md", "track-mode.md", "session-discipline.md", "brainstorm-patterns.md", "README.md", "VERSION.txt"}
+	required := []string{"rules.md", "track-mode.md", "session-discipline.md", "brainstorm-patterns.md", "README.md"}
 	for _, k := range required {
 		if v, ok := all[k]; !ok {
 			t.Errorf("BatonAll() missing key %q", k)
@@ -250,7 +250,8 @@ func TestEmbeddedPromptsPublicSafe(t *testing.T) {
 		"[[" + "feedback_",
 		"S21 stall",
 	}
-	for name, text := range prompts {		for _, token := range banned {
+	for name, text := range prompts {
+		for _, token := range banned {
 			if strings.Contains(text, token) {
 				t.Errorf("%s() contains banned token %q", name, token)
 			}

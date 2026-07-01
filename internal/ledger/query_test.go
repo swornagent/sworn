@@ -8,6 +8,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/state"
 )
+
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 // makeRecords returns a fixed in-memory corpus for deterministic aggregation tests.
@@ -287,6 +288,7 @@ func TestCaptainMissRate_BlockedCountsAsMiss(t *testing.T) {
 		t.Errorf("blocked should count as miss: want 1.0, got %.3f", rate)
 	}
 }
+
 // ── VerifierOverturnRate ─────────────────────────────────────────────────
 
 func TestVerifierOverturnRate_NoMultiRecordSlices(t *testing.T) {

@@ -51,10 +51,10 @@ func TestRegressionCoverageGaps_WalkedJourneyNoTest(t *testing.T) {
 func TestRegressionCoverageGaps_WalkedJourneyWithTest(t *testing.T) {
 	a := NewArtefact()
 	a.AddJourney(Journey{
-		ID:                "J01-verify-flow",
-		UserType:          "developer",
-		Outcome:           "Verify a slice",
-		HasRegression:     true,
+		ID:                 "J01-verify-flow",
+		UserType:           "developer",
+		Outcome:            "Verify a slice",
+		HasRegression:      true,
 		RegressionTestPath: "tests/e2e/journeys/journey_j01_verify_flow_test.go",
 	})
 

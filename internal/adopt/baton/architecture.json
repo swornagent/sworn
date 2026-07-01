@@ -1,6 +1,6 @@
 {
-  "$schema": "https://",
-  "_description": "Project-level architectural rules. Each rule is a named check run by sworn designaudit against the slice's diff. Rules can be suppressed per-release via architecture-overrides.json. Check types: grep (regex), touchpoints (planned-file audit), diff-size (growth limits), external (SAST/lint tool invocation).",
+  "$schema": "https://baton.sawy3r.net/schemas/architecture-rules-v1.json",
+  "_description": "Project-level architectural rules. Each rule is a named check run by the design-conformance gate (reference implementation: sworn designaudit) against the slice's diff. Rules can be suppressed per-release via architecture-overrides.json. Check types: grep (regex), touchpoints (planned-file audit), diff-size (growth limits), external (SAST/lint tool invocation).",
   "canonical_docs": {
     "_description": "Canonical architectural source-of-truth documents. The planner consults these during discovery. The architecture audit checks conformance. Declare paths relative to the repo root. Empty arrays = not yet defined — the planner will flag this as a gap.",
     "data_model": "",
@@ -12,10 +12,10 @@
   "rules": [
     {
       "id": "no-touchpoints-outside-plan",
-      "description": "Files changed shall be declared in spec.md planned touchpoints",
+      "description": "Files changed shall be declared in spec.json planned touchpoints",
       "check": "touchpoints",
       "severity": "error",
-      "note": "If intentional, add to spec.md planned touchpoints or declare in proof.md divergence"
+      "note": "If intentional, add to spec.json planned touchpoints or declare in proof.json divergence"
     },
     {
       "id": "file-size-growth-limit",
@@ -73,7 +73,7 @@
       "id": "maintainability-review",
       "description": "Code shall be understandable to a new team member 12 months from now",
       "check": "external",
-      "command": "echo 'Run: sworn llmcheck --check maintainability-review'",
+      "command": "echo 'Run: sworn llm-check --check maintainability-review'",
       "severity": "warning",
       "note": "LLM check for naming clarity, separation of concerns, extension surface, duplication, god objects."
     }

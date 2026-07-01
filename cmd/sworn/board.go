@@ -13,6 +13,7 @@ import (
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/style"
 )
+
 func init() {
 	command.Register(command.Command{
 		Name:    "board",
@@ -83,16 +84,16 @@ func (r oracleReader) CatFileExists(ref, path string) (bool, error) {
 // boardSliceJSON is the per-slice JSON shape for --json output, matching the
 // bash oracle (release-board-status.sh --json).
 type boardSliceJSON struct {
-	ID              string              `json:"id"`
-	State           string              `json:"state"`
-	Owner           string              `json:"owner,omitempty"`
-	LastUpdated     string              `json:"lastUpdated,omitempty"`
-	Track           string              `json:"track"`
-	Actionable      bool                `json:"actionable"`
-	DependsOnTracks []string            `json:"dependsOnTracks"`
-	Blocked         bool                `json:"blocked"`
-	BlockedReason   string              `json:"blocked_reason,omitempty"`
-	BlockedOwner    string              `json:"blocked_owner,omitempty"`
+	ID              string   `json:"id"`
+	State           string   `json:"state"`
+	Owner           string   `json:"owner,omitempty"`
+	LastUpdated     string   `json:"lastUpdated,omitempty"`
+	Track           string   `json:"track"`
+	Actionable      bool     `json:"actionable"`
+	DependsOnTracks []string `json:"dependsOnTracks"`
+	Blocked         bool     `json:"blocked"`
+	BlockedReason   string   `json:"blocked_reason,omitempty"`
+	BlockedOwner    string   `json:"blocked_owner,omitempty"`
 }
 
 func printBoardJSON(bs *board.BoardState) int {
@@ -184,4 +185,3 @@ func printBoardText(bs *board.BoardState) int {
 	}
 	return 0
 }
-

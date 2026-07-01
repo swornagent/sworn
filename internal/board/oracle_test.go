@@ -410,6 +410,76 @@ tracks:
 	}
 }
 
+// S05-board-canonical-emit claimed the strict Release reader makes a
+// bare-string board fail closed "on read" — but every existing S05 test
+// (board_release_test.go) calls json.Unmarshal directly on Release/BoardRecord
+// in isolation, never through readTrackInfos/ReadBoard, the function
+// cmd/sworn board actually calls. This is the Rule-1 reachability test that
+// was missing: it must render through the real integration point.
+func TestReadTrackInfos_BareStringRelease_FailsClosed(t *testing.T) {
+	fr := newFakeReader()
+	release := "test-release"
+	rwtRef := "refs/heads/release-wt/test-release"
+
+	fr.setContent(rwtRef, "docs/release/test-release/board.json",
+		`{"schema_version":1,"release":"test-release","tracks":[]}`)
+
+	o := NewOracle(fr)
+	if _, err := o.readTrackInfos(fr, rwtRef, release); err == nil {
+		t.Fatal("want error reading a bare-string release through readTrackInfos, got nil")
+	}
+}
+
+// A release that has migrated to board.json (a copy is committed on HEAD)
+// must not silently fall back to the unvalidated legacy index.md parser just
+// because releaseRef's copy is missing (e.g. release-wt hasn't absorbed the
+// migration commit yet) — that would bypass the S05 strict reader entirely.
+// Falling back to index.md is only safe for a release that never had a
+// board.json anywhere.
+func TestReadTrackInfos_MigratedOnHeadButMissingOnReleaseRef_FailsClosed(t *testing.T) {
+	fr := newFakeReader()
+	release := "test-release"
+	rwtRef := "refs/heads/release-wt/test-release"
+
+	fr.setContent("HEAD", "docs/release/test-release/board.json",
+		`{"schema_version":1,"release":{"name":"test-release"},"tracks":[]}`)
+	// A stale legacy index.md still committed on releaseRef — the bait that
+	// would previously have been silently accepted.
+	fr.setContent(rwtRef, "docs/release/test-release/index.md", "---\ntracks: []\n---\n")
+
+	o := NewOracle(fr)
+	if _, err := o.readTrackInfos(fr, rwtRef, release); err == nil {
+		t.Fatal("want error when board.json exists on HEAD but not releaseRef, got nil (silently used legacy index.md)")
+	}
+}
+
+// A release that never had board.json anywhere (pre-ADR-0009) must still
+// resolve via the legacy index.md parser — the hardening above must not
+// regress genuinely-legacy releases.
+func TestReadTrackInfos_NeverMigrated_UsesLegacyIndexMD(t *testing.T) {
+	fr := newFakeReader()
+	release := "test-release"
+	rwtRef := "refs/heads/release-wt/test-release"
+
+	fmBody := `release_benefit: test release
+tracks:
+  - id: T1-core
+    worktree_branch: track/r/T1-core
+    state: in_progress
+    slices:
+      - S01-alpha`
+	fr.setContent(rwtRef, "docs/release/test-release/index.md", "---"+fmBody+"\n---\n")
+
+	o := NewOracle(fr)
+	tracks, err := o.readTrackInfos(fr, rwtRef, release)
+	if err != nil {
+		t.Fatalf("legacy index.md fallback: %v", err)
+	}
+	if len(tracks) != 1 || tracks[0].ID != "T1-core" {
+		t.Fatalf("legacy index.md fallback: want 1 track T1-core, got %+v", tracks)
+	}
+}
+
 func TestExtractFrontmatterBody(t *testing.T) {
 	tests := []struct {
 		name string

@@ -65,8 +65,8 @@ func setupFixtureRelease(t *testing.T, dir string) {
 		Track:   "T5-providers",
 		State:   state.Verified,
 		Verification: state.Verification{
-			Result: "pass",
-			Model:  "claude-sonnet",
+			Result:  "pass",
+			Model:   "claude-sonnet",
 			Attempt: 1,
 		},
 	}
@@ -252,10 +252,10 @@ func TestSync_GateCountFromSpec(t *testing.T) {
 		Track:   "T12-harness-hardening",
 		State:   state.FailedVerification,
 		Verification: state.Verification{
-			Result: "fail",
-			Model:  "gpt-5",
-			Attempt: 2,
-			Violations: []string{"unreachable test"},
+			Result:     "fail",
+			Model:      "gpt-5",
+			Attempt:    2,
+			Violations: []state.Violation{{Description: "unreachable test"}},
 		},
 	}
 	data, _ := json.MarshalIndent(st, "", "  ")

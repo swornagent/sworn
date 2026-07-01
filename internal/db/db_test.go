@@ -3,7 +3,9 @@ package db
 import (
 	"database/sql"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -139,6 +141,142 @@ func TestOpenCreatesDir(t *testing.T) {
 	// Verify the file was created.
 	if _, err := os.Stat(dbPath); err != nil {
 		t.Fatalf("db file not created: %v", err)
+	}
+}
+
+// TestSelfIgnoreWritten covers AC-01: opening a DB under .sworn/ writes
+// .sworn/.gitignore containing "*", and both the run DB and the supervisor DB
+// (which route through the same db.Open) yield the same ignore.
+func TestSelfIgnoreWritten(t *testing.T) {
+	dir := t.TempDir()
+	swornDir := filepath.Join(dir, DefaultDir)
+	gitignore := filepath.Join(swornDir, ".gitignore")
+
+	// Run DB.
+	conn, err := Open(filepath.Join(swornDir, DefaultName))
+	if err != nil {
+		t.Fatalf("Open run DB: %v", err)
+	}
+	conn.Close()
+
+	got, err := os.ReadFile(gitignore)
+	if err != nil {
+		t.Fatalf("read .sworn/.gitignore after run-DB open: %v", err)
+	}
+	if string(got) != "*\n" {
+		t.Fatalf("run DB: expected .gitignore %q, got %q", "*\n", string(got))
+	}
+
+	// Supervisor DB routes through the same db.Open (see
+	// internal/supervisor/supervisor.go) — its open must leave the same ignore.
+	sup, err := Open(filepath.Join(swornDir, "supervisor-r.db"))
+	if err != nil {
+		t.Fatalf("Open supervisor DB: %v", err)
+	}
+	sup.Close()
+
+	got2, err := os.ReadFile(gitignore)
+	if err != nil {
+		t.Fatalf("read .sworn/.gitignore after supervisor-DB open: %v", err)
+	}
+	if string(got2) != "*\n" {
+		t.Fatalf("supervisor DB: expected .gitignore %q, got %q", "*\n", string(got2))
+	}
+}
+
+// TestSelfIgnoreNotOverwritten covers AC-02: a pre-existing .sworn/.gitignore is
+// left byte-for-byte untouched (operator customisation respected via O_EXCL).
+func TestSelfIgnoreNotOverwritten(t *testing.T) {
+	dir := t.TempDir()
+	swornDir := filepath.Join(dir, DefaultDir)
+	if err := os.MkdirAll(swornDir, 0o755); err != nil {
+		t.Fatalf("mkdir .sworn: %v", err)
+	}
+	gitignore := filepath.Join(swornDir, ".gitignore")
+	custom := "# operator-customised\nsworn.db\n!keep-me\n"
+	if err := os.WriteFile(gitignore, []byte(custom), 0o644); err != nil {
+		t.Fatalf("pre-write custom .gitignore: %v", err)
+	}
+
+	conn, err := Open(filepath.Join(swornDir, DefaultName))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer conn.Close()
+
+	got, err := os.ReadFile(gitignore)
+	if err != nil {
+		t.Fatalf("read .gitignore: %v", err)
+	}
+	if string(got) != custom {
+		t.Fatalf("existing .gitignore was modified: expected %q, got %q", custom, string(got))
+	}
+}
+
+// TestSelfIgnoreHidesSwornDir covers AC-03 (reachability): inside a freshly
+// git-inited repo, opening the sworn DB leaves .sworn/ absent from
+// `git status --porcelain`.
+func TestSelfIgnoreHidesSwornDir(t *testing.T) {
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git not on PATH; skipping porcelain reachability check")
+	}
+	repo := t.TempDir()
+	for _, args := range [][]string{
+		{"init"},
+		{"config", "user.email", "test@example.com"},
+		{"config", "user.name", "test"},
+	} {
+		cmd := exec.Command(git, args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	conn, err := Open(filepath.Join(repo, DefaultDir, DefaultName))
+	if err != nil {
+		t.Fatalf("Open under git repo: %v", err)
+	}
+	defer conn.Close()
+
+	cmd := exec.Command(git, "status", "--porcelain")
+	cmd.Dir = repo
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git status: %v\n%s", err, out)
+	}
+	if strings.Contains(string(out), DefaultDir) {
+		t.Fatalf("expected .sworn/ absent from porcelain status, got:\n%s", out)
+	}
+}
+
+// TestSelfIgnoreBestEffort covers AC-04: when the .gitignore write cannot
+// succeed (here: a directory pre-exists at the .gitignore path, so O_EXCL
+// create fails), Open must still return a working DB — the DB-open path never
+// depends on the courtesy write. This is distinct from AC-02's existing-file
+// case: here the target is unwritable, not a file to preserve.
+func TestSelfIgnoreBestEffort(t *testing.T) {
+	dir := t.TempDir()
+	swornDir := filepath.Join(dir, DefaultDir)
+	// Create .sworn/.gitignore as a *directory* — the write cannot succeed.
+	if err := os.MkdirAll(filepath.Join(swornDir, ".gitignore"), 0o755); err != nil {
+		t.Fatalf("pre-create .gitignore as directory: %v", err)
+	}
+
+	conn, err := Open(filepath.Join(swornDir, DefaultName))
+	if err != nil {
+		t.Fatalf("Open must succeed despite failed .gitignore write: %v", err)
+	}
+	defer conn.Close()
+
+	// Prove the DB is genuinely usable, not just non-nil.
+	var version int
+	if err := conn.QueryRow("SELECT version FROM schema_version LIMIT 1").Scan(&version); err != nil {
+		t.Fatalf("DB unusable after best-effort ignore failure: %v", err)
+	}
+	if version != SchemaVersion {
+		t.Fatalf("expected schema version %d, got %d", SchemaVersion, version)
 	}
 }
 

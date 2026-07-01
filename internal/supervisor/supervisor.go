@@ -10,16 +10,18 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"path/filepath"
 	"syscall"
 	"time"
-)
 
+	"github.com/swornagent/sworn/internal/db"
+)
 // State constants for the tracks table.
 const (
-	StatePlanned  = "planned"
-	StateRunning  = "running"
-	StateDone     = "done"
-	StateFailed   = "failed"
+	StatePlanned = "planned"
+	StateRunning = "running"
+	StateDone    = "done"
+	StateFailed  = "failed"
 )
 
 // ErrTrackOwned is returned by Acquire when another process already owns the
@@ -37,10 +39,10 @@ func (e *ErrTrackOwned) Error() string {
 // Supervisor manages worker process ownership for a release.
 type Supervisor struct {
 	db      *sql.DB
+	eventDB *sql.DB
 	release string
 	pid     int
 }
-
 // New creates a Supervisor bound to the given database and release name.
 func New(db *sql.DB, release string) *Supervisor {
 	return &Supervisor{
@@ -103,6 +105,7 @@ func (s *Supervisor) Reap() (int, error) {
 
 	return reaped, nil
 }
+
 // Acquire attempts to claim ownership of a track. It inserts a row into the
 // tracks table with the current PID and state=running. If a row already exists
 // for this track+release and the owner PID is alive, it returns ErrTrackOwned.
@@ -192,6 +195,7 @@ func (s *Supervisor) Acquire(trackID string) error {
 	_ = s.logEvent(trackID, "acquired", fmt.Sprintf("PID %d (replaced stale)", s.pid))
 	return nil
 }
+
 // Release marks a track as done or failed and clears the PID, releasing
 // ownership. It is safe to call multiple times; a row that doesn't exist
 // is silently ignored.
@@ -216,18 +220,45 @@ func (s *Supervisor) Release(trackID string, state string) error {
 
 // MustRelease is a defer-safe convenience wrapper for Release calls. It logs
 // the error rather than panicking.
-func (s *Supervisor) MustRelease(trackID string, state string) {	if err := s.Release(trackID, state); err != nil {
+func (s *Supervisor) MustRelease(trackID string, state string) {
+	if err := s.Release(trackID, state); err != nil {
 		fmt.Fprintf(os.Stderr, "supervisor: release %s/%s: %v\n", s.release, trackID, err)
 	}
+}
+
+// SetEventDB sets an alternative database for event writes. When non-nil,
+// logEvent writes events to this database instead of the main DB. This
+// allows process-ownership to use sworn.db while events are routed to a
+// release-specific supervisor-<release>.db.
+func (s *Supervisor) SetEventDB(db *sql.DB) {
+	s.eventDB = db
 }
 
 // logEvent writes an audit event to the events table. Errors are silently
 // dropped — auditing should never block the critical path.
 func (s *Supervisor) logEvent(trackID, event, detail string) error {
-	_, err := s.db.Exec(
-		`INSERT INTO events (track_id, release, event, detail, ts)
+	target := s.db
+	if s.eventDB != nil {
+		target = s.eventDB
+	}
+	_, err := target.Exec(		`INSERT INTO events (track_id, release, event, detail, ts)
 		 VALUES (?, ?, ?, ?, ?)`,
 		trackID, s.release, event, detail, time.Now().UTC().Format(time.RFC3339),
+	)
+	return err
+}
+
+// RecordPage writes a PAGE event to the events table so the Coach can see
+// escalations. detail should be "max_turns" or "circuit_breaker". This is
+// a best-effort write — failure does not abort the run (AC4 pattern).
+func RecordPage(db *sql.DB, release, sliceID, detail string) error {
+	if db == nil {
+		return nil
+	}
+	_, err := db.Exec(
+		`INSERT INTO events (track_id, release, event, detail, ts)
+		 VALUES (?, ?, 'page', ?, ?)`,
+		sliceID, release, detail, time.Now().UTC().Format(time.RFC3339),
 	)
 	return err
 }
@@ -235,9 +266,51 @@ func (s *Supervisor) logEvent(trackID, event, detail string) error {
 // pidAlive returns true if pid corresponds to a live process.
 // Uses syscall.Kill(pid, 0) which is the POSIX-specified way to check
 // process existence without sending a signal.
-func pidAlive(pid int) bool {
-	if pid <= 0 {
+func pidAlive(pid int) bool {	if pid <= 0 {
 		return false
 	}
 	return syscall.Kill(pid, syscall.Signal(0)) == nil
+}
+
+// Open opens (or creates) the SQLite database for the supervisor event store
+// at .sworn/supervisor-<release>.db under workspaceRoot. It applies schema
+// migrations (events table) and enables WAL mode. Returns the database handle.
+func Open(release, workspaceRoot string) (*sql.DB, error) {
+	dbPath := filepath.Join(workspaceRoot, ".sworn", "supervisor-"+release+".db")
+	return db.Open(dbPath)
+}
+
+// Event is a single row from the events table.
+type Event struct {
+	ID      int64  `json:"id"`
+	TrackID string `json:"track_id"`
+	Release string `json:"release"`
+	Event   string `json:"event"`
+	Detail  string `json:"detail"`
+	TS      string `json:"ts"`
+}
+
+// QueryEvents returns all events for the given release from the database.
+func QueryEvents(database *sql.DB, release string) ([]Event, error) {
+	rows, err := database.Query(
+		`SELECT id, track_id, release, event, detail, ts FROM events WHERE release = ? ORDER BY id`,
+		release,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("supervisor: query events: %w", err)
+	}
+	defer rows.Close()
+
+	var events []Event
+	for rows.Next() {
+		var e Event
+		if err := rows.Scan(&e.ID, &e.TrackID, &e.Release, &e.Event, &e.Detail, &e.TS); err != nil {
+			return events, fmt.Errorf("supervisor: scan event: %w", err)
+		}
+		events = append(events, e)
+	}
+	if err := rows.Err(); err != nil {
+		return events, fmt.Errorf("supervisor: iterate events: %w", err)
+	}
+	return events, nil
 }

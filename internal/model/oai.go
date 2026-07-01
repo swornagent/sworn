@@ -26,6 +26,11 @@ type OAI struct {
 	Model   string // e.g. gpt-4.1
 	APIKey  string
 	Client  *http.Client // nil means http.DefaultClient
+	// Structured selects the ChatStructured emission mechanism (ADR-0011). The
+	// zero value means this driver does not advertise CapStructuredOutput. Set
+	// by the factory per provider: openai → StructuredResponseFormat,
+	// deepseek → StructuredToolCall.
+	Structured StructuredMode
 }
 
 // ToolDef describes a tool the model may call. Name, Description, and the
@@ -69,16 +74,18 @@ func (td ToolDef) MarshalJSON() ([]byte, error) {
 }
 
 type chatRequest struct {
-	Model    string        `json:"model"`
-	Messages []ChatMessage `json:"messages"`
-	Tools    []ToolDef     `json:"tools,omitempty"`
+	Model          string          `json:"model"`
+	Messages       []ChatMessage   `json:"messages"`
+	Tools          []ToolDef       `json:"tools,omitempty"`
+	ToolChoice     json.RawMessage `json:"tool_choice,omitempty"`
+	ResponseFormat *responseFormat `json:"response_format,omitempty"`
 }
 
 // ChatMessage is a single message in a /chat/completions conversation.
 // Exported so callers (agent package) can build message history.
 type ChatMessage struct {
 	Role       string     `json:"role"`
-	Content    string     `json:"content,omitempty"`
+	Content    string     `json:"content"` // EVAL FIX 2026-06-28: omitempty dropped 'content' on tool-only assistant turns → OpenAI "content: got null" / DeepSeek "missing field content". Always emit (incl "").
 	Name       string     `json:"name,omitempty"`
 	ToolCallID *string    `json:"tool_call_id,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
@@ -87,6 +94,7 @@ type ChatMessage struct {
 // ChatResponse contains only the fields SwornAgent needs. Other fields from
 // the provider's response are silently ignored (normalisation per Risk #1).
 type ChatResponse struct {
+	Model   string `json:"model"`
 	Choices []struct {
 		Message struct {
 			Content   string     `json:"content"`
@@ -94,9 +102,9 @@ type ChatResponse struct {
 		} `json:"message"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
-	Usage *UsageBlock `json:"usage"`
+	Usage   *UsageBlock `json:"usage"`
+	CostUSD float64     `json:"-"` // computed by driver from Usage × pricing
 }
-
 // ToolCall is a single tool invocation the model requests in a response.
 // Exported so the agent package can reconstruct message history.
 type ToolCall struct {
@@ -116,6 +124,12 @@ type UsageBlock struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+	// InputTokens / OutputTokens are provider-agnostic aliases for drivers
+	// whose native response shape uses different field names (e.g. Anthropic's
+	// input_tokens / output_tokens). OAI-derived drivers populate both sets;
+	// native drivers populate only InputTokens/OutputTokens.
+	InputTokens  int `json:"input_tokens,omitempty"`
+	OutputTokens int `json:"output_tokens,omitempty"`
 }
 
 // modelPricing maps a model ID to USD per 1M tokens. A model not in the table
@@ -144,9 +158,22 @@ var modelPricing = map[string]struct {
 
 // Verify sends the system prompt + user payload to /chat/completions.
 // On any HTTP error, timeout, or unparseable response it returns an error
-// (not a panic) — the caller (verify.Run) maps errors to BLOCKED, fulfilling
-// spec AC4.
-func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
+// (not a panic) — the caller (verify.RunFirstPass) maps errors to BLOCKED,
+// fulfilling spec AC4.
+// Capabilities returns CapVerify | CapChat, plus CapStructuredOutput when the
+// driver has been configured with a structured-output mode (set by the factory
+// for providers that support it, e.g. openai/deepseek). A zero-value OAI (no
+// Structured mode) advertises only Verify+Chat, so existing constructions are
+// unchanged.
+func (c *OAI) Capabilities() Capability {
+	caps := CapVerify | CapChat
+	if c.Structured != structuredUnsupported {
+		caps |= CapStructuredOutput
+	}
+	return caps
+}
+
+func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
 	reqBody := chatRequest{
 		Model: c.Model,
 		Messages: []ChatMessage{
@@ -157,13 +184,13 @@ func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (str
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(reqBody); err != nil {
-		return "", 0, fmt.Errorf("model: marshal request: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: marshal request: %w", err)
 	}
 
 	url := strings.TrimRight(c.BaseURL, "/") + "/chat/completions"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &buf)
 	if err != nil {
-		return "", 0, fmt.Errorf("model: build request: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: build request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -174,37 +201,41 @@ func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (str
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", 0, fmt.Errorf("model: dispatch: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: dispatch: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", 0, fmt.Errorf("model: read response: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: read response: %w", err)
 	}
 
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			me := NewProviderError(resp.StatusCode, "openai", c.Model, body)
-			// 402 Payment Required — insufficient credits (Coach ack pin C).
-			// Never silently downgrade to a direct provider call.
-			if resp.StatusCode == http.StatusPaymentRequired {
-				me.Err = account.ErrInsufficientCredits
-			}
-			return "", 0, me
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		me := NewProviderError(resp.StatusCode, "openai", c.Model, body)
+		// 402 Payment Required — insufficient credits (Coach ack pin C).
+		// Never silently downgrade to a direct provider call.
+		if resp.StatusCode == http.StatusPaymentRequired {
+			me.Err = account.ErrInsufficientCredits
 		}
+		return "", 0, 0, 0, me
+	}
 
 	var cr ChatResponse
 	if err := json.Unmarshal(body, &cr); err != nil {
-		return "", 0, fmt.Errorf("model: unmarshal response: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: unmarshal response: %w", err)
 	}
 	if len(cr.Choices) == 0 {
-		return "", 0, fmt.Errorf("model: empty choices in response")
+		return "", 0, 0, 0, fmt.Errorf("model: empty choices in response")
 	}
 
 	cost := computeCost(c.Model, cr.Usage)
-	return cr.Choices[0].Message.Content, cost, nil
+	var inputTokens, outputTokens int64
+	if cr.Usage != nil {
+		inputTokens = int64(cr.Usage.PromptTokens)
+		outputTokens = int64(cr.Usage.CompletionTokens)
+	}
+	return reasoningFallback(body, cr.Choices[0].Message.Content), cost, inputTokens, outputTokens, nil
 }
-
 // Chat sends a multi-message conversation (possibly with tool definitions// and tool-call history) to /chat/completions. It returns the full
 // ChatResponse so the caller can inspect tool_calls and finish_reason.
 // Cost is the sum of all Chat calls in the loop — tracked by the caller.
@@ -212,12 +243,18 @@ func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (str
 // No logging of message content — per AGENTS.md Security. The message
 // history may contain file contents and command output.
 func (c *OAI) Chat(ctx context.Context, messages []ChatMessage, tools []ToolDef) (*ChatResponse, error) {
-	reqBody := chatRequest{
+	return c.postChat(ctx, chatRequest{
 		Model:    c.Model,
 		Messages: messages,
 		Tools:    tools,
-	}
+	})
+}
 
+// postChat marshals reqBody, POSTs it to /chat/completions, and normalises the
+// response into a ChatResponse (status mapping, empty-choices guard, and the
+// reasoning_content fallback). Shared by Chat and ChatStructured so both paths
+// get identical wire handling.
+func (c *OAI) postChat(ctx context.Context, reqBody chatRequest) (*ChatResponse, error) {
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(reqBody); err != nil {
 		return nil, fmt.Errorf("model: marshal request: %w", err)
@@ -246,14 +283,14 @@ func (c *OAI) Chat(ctx context.Context, messages []ChatMessage, tools []ToolDef)
 		return nil, fmt.Errorf("model: read response: %w", err)
 	}
 
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			me := NewProviderError(resp.StatusCode, "openai", c.Model, body)
-			// 402 Payment Required — insufficient credits (Coach ack pin C).
-			if resp.StatusCode == http.StatusPaymentRequired {
-				me.Err = account.ErrInsufficientCredits
-			}
-			return nil, me
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		me := NewProviderError(resp.StatusCode, "openai", c.Model, body)
+		// 402 Payment Required — insufficient credits (Coach ack pin C).
+		if resp.StatusCode == http.StatusPaymentRequired {
+			me.Err = account.ErrInsufficientCredits
 		}
+		return nil, me
+	}
 
 	var cr ChatResponse
 	if err := json.Unmarshal(body, &cr); err != nil {
@@ -262,9 +299,93 @@ func (c *OAI) Chat(ctx context.Context, messages []ChatMessage, tools []ToolDef)
 	if len(cr.Choices) == 0 {
 		return nil, fmt.Errorf("model: empty choices in response")
 	}
+	// Reasoning-model fallback: thinking models may leave Content empty and put
+	// the answer in reasoning_content (DeepSeek V4-pro). Don't drop it.
+	cr.Choices[0].Message.Content = reasoningFallback(body, cr.Choices[0].Message.Content)
 
 	return &cr, nil
 }
+
+// ChatStructured implements StructuredOutput. Per the OAI driver's configured
+// Structured mode it either sets a strict json_schema response_format (the
+// lenient schema is projected to the strict profile at call time, D1) or forces
+// a single function tool whose parameters ARE the schema. The emitted JSON
+// object is normalised into Choices[0].Message.Content regardless of path, and
+// the wire-level fail-closed guard (non-empty, parses as a JSON object) is
+// applied. Semantic validation by schema name is the caller's (ADR-0011).
+func (c *OAI) ChatStructured(ctx context.Context, messages []ChatMessage, schema []byte) (*ChatResponse, error) {
+	reqBody := chatRequest{Model: c.Model, Messages: messages}
+
+	switch c.Structured {
+	case StructuredResponseFormat:
+		strict, err := strictProjection(schema)
+		if err != nil {
+			return nil, err
+		}
+		reqBody.ResponseFormat = &responseFormat{
+			Type: "json_schema",
+			JSONSchema: &jsonSchemaSpec{
+				Name:   schemaName(schema),
+				Schema: json.RawMessage(strict),
+				Strict: true,
+			},
+		}
+	case StructuredToolCall:
+		// One function tool whose parameters ARE the lenient schema; force it.
+		reqBody.Tools = []ToolDef{{
+			Name:        structuredToolName,
+			Description: "Return the result as a single JSON object matching the parameters schema.",
+			Parameters:  json.RawMessage(schema),
+		}}
+		reqBody.ToolChoice = json.RawMessage(
+			`{"type":"function","function":{"name":"` + structuredToolName + `"}}`)
+	default:
+		return nil, fmt.Errorf("model: driver for %q does not support structured output", c.Model)
+	}
+
+	cr, err := c.postChat(ctx, reqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	// Tool-call path: the object is the forced call's arguments — lift it into
+	// Content so callers read one place across both paths.
+	if c.Structured == StructuredToolCall {
+		tcs := cr.Choices[0].Message.ToolCalls
+		if len(tcs) == 0 {
+			return nil, fmt.Errorf("model: structured output: model returned no tool call")
+		}
+		cr.Choices[0].Message.Content = tcs[0].Function.Arguments
+	}
+
+	content, err := normaliseStructuredContent(cr.Choices[0].Message.Content)
+	if err != nil {
+		return nil, err
+	}
+	cr.Choices[0].Message.Content = content
+	return cr, nil
+}
+// reasoningFallback returns content unchanged unless it is empty — in which case
+// it extracts reasoning_content from the raw response body. Thinking models
+// (DeepSeek V4-pro / reasoner) put their answer in reasoning_content and may
+// leave content blank. Mirrors the coach-loop oai-compat reasoning fallback.
+func reasoningFallback(body []byte, content string) string {
+	if content != "" {
+		return content
+	}
+	var rp struct {
+		Choices []struct {
+			Message struct {
+				ReasoningContent string `json:"reasoning_content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(body, &rp); err == nil && len(rp.Choices) > 0 {
+		return rp.Choices[0].Message.ReasoningContent
+	}
+	return content
+}
+
 func computeCost(model string, usage *UsageBlock) float64 {
 	p, ok := modelPricing[model]
 	if !ok || usage == nil {

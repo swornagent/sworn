@@ -35,10 +35,10 @@ func TestRunRegress_AllPass(t *testing.T) {
 	os.WriteFile(filepath.Join(worktree, "package.json"), []byte("{}"), 0644)
 
 	runner := mockRunner{results: mockResults(worktree, map[string]mockResult{
-		"go test ./...":                              {stdout: "ok\t./...\t0.123s\n", exitCode: 0},
-		"pnpm --version":                             {stdout: "8.15.0\n", exitCode: 0},
-		"pnpm test":                                  {stdout: "> test passed\n", exitCode: 0},
-		"git diff --exit-code -- **/testdata/**":     {stdout: "", exitCode: 0},
+		"go test ./...":                          {stdout: "ok\t./...\t0.123s\n", exitCode: 0},
+		"pnpm --version":                         {stdout: "8.15.0\n", exitCode: 0},
+		"pnpm test":                              {stdout: "> test passed\n", exitCode: 0},
+		"git diff --exit-code -- **/testdata/**": {stdout: "", exitCode: 0},
 	})}
 
 	report, err := runRegress(worktree, "test-release", runner)
@@ -73,10 +73,10 @@ func TestRunRegress_AllFail(t *testing.T) {
 	os.WriteFile(filepath.Join(worktree, "package.json"), []byte("{}"), 0644)
 
 	runner := mockRunner{results: mockResults(worktree, map[string]mockResult{
-		"go test ./...":                              {stdout: "FAIL\t./...\n", exitCode: 1},
-		"pnpm --version":                             {stdout: "8.15.0\n", exitCode: 0},
-		"pnpm test":                                  {stdout: "FAIL\n", exitCode: 1},
-		"git diff --exit-code -- **/testdata/**":     {stdout: "diff --git ...\n", exitCode: 1},
+		"go test ./...":                          {stdout: "FAIL\t./...\n", exitCode: 1},
+		"pnpm --version":                         {stdout: "8.15.0\n", exitCode: 0},
+		"pnpm test":                              {stdout: "FAIL\n", exitCode: 1},
+		"git diff --exit-code -- **/testdata/**": {stdout: "diff --git ...\n", exitCode: 1},
 	})}
 
 	report, err := runRegress(worktree, "test-release", runner)
@@ -109,9 +109,9 @@ func TestRunRegress_Mixed(t *testing.T) {
 	worktree := t.TempDir()
 
 	runner := mockRunner{results: mockResults(worktree, map[string]mockResult{
-		"go test ./...":                              {stdout: "ok\t./...\n", exitCode: 0},
-		"pnpm --version":                             {stdout: "", exitCode: -1, err: errMockNotFound},
-		"git diff --exit-code -- **/testdata/**":     {stdout: "diff --git a/foo b/foo\n", exitCode: 1},
+		"go test ./...":                          {stdout: "ok\t./...\n", exitCode: 0},
+		"pnpm --version":                         {stdout: "", exitCode: -1, err: errMockNotFound},
+		"git diff --exit-code -- **/testdata/**": {stdout: "diff --git a/foo b/foo\n", exitCode: 1},
 	})}
 
 	report, err := runRegress(worktree, "test-release", runner)

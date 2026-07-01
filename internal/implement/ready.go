@@ -26,19 +26,19 @@ type agentVerifier struct {
 	a agent.Agent
 }
 
-func (v agentVerifier) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
+func (v agentVerifier) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
 	resp, err := v.a.Chat(ctx, []model.ChatMessage{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userPayload},
 	}, nil)
 	if err != nil {
-		return "", 0, err
+		return "", 0, 0, 0, err
 	}
 	if len(resp.Choices) == 0 {
-		return "", 0, fmt.Errorf("agent verifier: empty response")
+		return "", 0, 0, 0, fmt.Errorf("agent verifier: empty response")
 	}
-	return resp.Choices[0].Message.Content, 0.0, nil
-}
+	return resp.Choices[0].Message.Content, 0.0, 0, 0, nil}
+
 // DoRResult captures the Definition of Ready evaluation for one slice.
 // Passed is true only when every gate passes.
 type DoRResult struct {

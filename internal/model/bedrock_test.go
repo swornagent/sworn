@@ -56,8 +56,9 @@ func TestBedrockVerify_ReturnsText(t *testing.T) {
 	defer srv.Close()
 
 	b := newTestBedrock(srv.URL, "anthropic.claude-sonnet-4-6", "us-east-1")
-	text, cost, err := b.Verify(context.Background(), "be strict", "verify this diff")
-	if err != nil {		t.Fatalf("unexpected error: %v", err)
+text, cost, _, _, err := b.Verify(context.Background(), "be strict", "verify this diff")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 	if text != "PASS - all checks pass" {
 		t.Fatalf("want %q, got %q", "PASS - all checks pass", text)
@@ -76,7 +77,7 @@ func TestBedrockVerify_APIError(t *testing.T) {
 	defer srv.Close()
 
 	b := newTestBedrock(srv.URL, "anthropic.claude-sonnet-4-5", "us-east-1")
-	_, _, err := b.Verify(context.Background(), "be strict", "verify this diff")
+_, _, _, _, err := b.Verify(context.Background(), "be strict", "verify this diff")
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
@@ -96,7 +97,7 @@ func TestBedrockVerify_AuthError(t *testing.T) {
 	defer srv.Close()
 
 	b := newTestBedrock(srv.URL, "anthropic.claude-sonnet-4-5", "us-east-1")
-	_, _, err := b.Verify(context.Background(), "be strict", "verify this diff")
+_, _, _, _, err := b.Verify(context.Background(), "be strict", "verify this diff")
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
@@ -165,16 +166,16 @@ func TestNewClient_BedrockRouted(t *testing.T) {
 	// This may fail in CI environments without AWS credentials. The routing
 	// test validates the provider.go switch case works; if config load fails,
 	// we log and skip the type assertion but still confirm the error path is
-	// reached (not ErrDriverNotRegistered, which would mean routing failed).
+	// reached (not ErrDriverNotImplemented, which would mean routing failed).
 	cfg := ProviderConfig{}
 	v, err := NewClient("bedrock/amazon.nova-pro-v1:0", cfg)
 	if err != nil {
 		// Accept config-load failure as valid (no AWS creds in CI).
 		if strings.Contains(err.Error(), "load AWS config") {
 			t.Logf("config load failed as expected without AWS creds: %v", err)
-			// Verify it's NOT ErrDriverNotRegistered (routing worked).
-			if errors.Is(err, ErrDriverNotRegistered) {
-				t.Fatal("routing failed: got ErrDriverNotRegistered")
+			// Verify it's NOT ErrDriverNotImplemented (routing worked).
+			if errors.Is(err, ErrDriverNotImplemented) {
+				t.Fatal("routing failed: got ErrDriverNotImplemented")
 			}
 			return
 		}
@@ -194,7 +195,7 @@ func TestBedrockVerify_UnknownModelCostIsZero(t *testing.T) {
 	defer srv.Close()
 
 	b := newTestBedrock(srv.URL, "anthropic.unknown-model", "us-east-1")
-	_, cost, err := b.Verify(context.Background(), "be strict", "verify")
+_, cost, _, _, err := b.Verify(context.Background(), "be strict", "verify")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -215,7 +216,7 @@ func TestBedrockVerify_NonHTTPErrorIsTransient(t *testing.T) {
 	defer srv.Close()
 
 	b := newTestBedrock(srv.URL, "anthropic.claude-sonnet-4-5", "us-east-1")
-	_, _, err := b.Verify(context.Background(), "be strict", "verify this diff")
+_, _, _, _, err := b.Verify(context.Background(), "be strict", "verify this diff")
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
@@ -256,7 +257,7 @@ func TestBedrockVerify_Live(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewBedrock error: %v", err)
 	}
-	text, _, err := b.Verify(context.Background(), "Reply with PASS.", "verify")
+text, _, _, _, err := b.Verify(context.Background(), "Reply with PASS.", "verify")
 	if err != nil {
 		t.Fatalf("Verify error: %v", err)
 	}

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S06-invariant2-enforcement",
+  "release": "2026-06-27-conformance-foundation",
+  "track": "T1-orchestration",
+  "covers_needs": [
+    "N-15"
+  ],
+  "state": "verified",
+  "owner": "verifier",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-28T22:30:00Z",
+  "start_commit": "d45fb8ef41954754cf22e29db573677b44b21629",
+  "spec_path": "docs/release/2026-06-27-conformance-foundation/S06-invariant2-enforcement/spec.md",
+  "proof_path": "docs/release/2026-06-27-conformance-foundation/S06-invariant2-enforcement/proof.md",
+  "journal_path": "docs/release/2026-06-27-conformance-foundation/S06-invariant2-enforcement/journal.md",
+  "planned_files": [
+    "internal/run/parallel.go"
+  ],
+  "actual_files": [
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go",
+    "internal/scheduler/worker.go"
+  ],
+  "test_commands": [
+    "go test ./internal/run/... -v -run TestInvariant2"
+  ],
+  "reachability_artifacts": [
+    "go test ./internal/run/... -v -run TestInvariant2 exits 0"
+  ],
+  "open_deferrals": [],
+  "design_decisions": [
+    {
+      "choice": "Read planned_files from committed status.json on release-wt ref via git show, cache per-track",
+      "stake_class": "Type-2",
+      "rationale": "Reading once at startup avoids repeated git operations; release-wt ref has planner-authored immutable specs. The git reader pattern already exists in parallel.go.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "Parse documented shared files from index.md markdown body (after frontmatter close), matching (DOCUMENTED SHARED) rows",
+      "stake_class": "Type-2",
+      "rationale": "The touchpoint matrix lives in the markdown body, not frontmatter. A regex-based row parser is simple, stdlib-only, and matches existing line-oriented parsing style.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "Block tracks at dispatch time (before goroutine launch) with follow-up phase after wg.Wait() for retry",
+      "stake_class": "Type-2",
+      "rationale": "The invariant-2 check is at dispatch time per spec. Blocked tracks retry after conflicting track finishes + auto-merges. Re-uses the phase-barrier pattern from S04 without new polling or goroutine patterns.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "Re-use existing S04 phase barrier for retry: follow-up phase launches blocked tracks only after all launched tracks finish",
+      "stake_class": "Type-2",
+      "rationale": "The spec says 'same retry mechanic as depends_on wait from S04', which is the phase barrier. finishTrack auto-merges on completion, so the follow-up phase's disjointness re-check passes naturally.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "Fail open when planned_files cannot be read (missing status.json, parse error, empty)",
+      "stake_class": "Type-2",
+      "rationale": "Spec AC-4 mandates fail-open: treat as zero planned files. A tight invariant-2 that blocks on missing data would prevent valid parallel runs.",
+      "architecturally_significant": false
+    }
+  ],
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": "2026-07-28T22:30:00Z-fresh",
+    "verifier_verdict_at": "2026-07-28T22:30:00Z",
+    "verifier_was_fresh_context": true,
+    "violations": []
+  }
+}

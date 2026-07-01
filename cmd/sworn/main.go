@@ -84,10 +84,11 @@ func cmdVersion(_ []string) int {
 	return 0
 }
 
-// cmdHelp prints usage. If the first argument is "run", it delegates to
-// cmdRun with --help (preserving the pre-registry behaviour for sworn help run).
+// cmdHelp prints usage. If the first argument is "loop" (or its deprecated
+// alias "run"), it delegates to cmdRun with --help (preserving the pre-registry
+// behaviour for sworn help loop).
 func cmdHelp(args []string) int {
-	if len(args) > 0 && args[0] == "run" {
+	if len(args) > 0 && (args[0] == "loop" || args[0] == "run") {
 		cmdRun([]string{"--help"})
 		return 0
 	}
@@ -119,7 +120,7 @@ func usage() {
 		{"designfit", " <release>"},
 		{"designaudit", " <project-dir> [--cohesion on-brand|off-brand]"},
 		{"specquality", " <release> [--threshold <0.0-1.0>]"},
-		{"run", " --task <description> [--implementer-model <m>] [--verifier-model <m>] [--base <branch>] [--retry-cap <n>]"},
+		{"loop", " --release <name> --parallel | --task <description> [--implementer-model <m>] [--verifier-model <m>] [--base <branch>] [--retry-cap <n>]"},
 		{"ship", " <release> [project-root]"},
 		{"telemetry on|off|status", ""},
 		{"top", " <release> [project-path]"},
@@ -175,10 +176,10 @@ func usage() {
 	b.WriteString("acceptance examples, with no source code and no model call. Fails closed when\n")
 	b.WriteString("any slice falls below the completeness threshold (default 50%).\n")
 	b.WriteString("  See 'sworn specquality <release> [--threshold <0.0-1.0>]' for details.\n")
-	b.WriteString(style.Accent("run"))
-	b.WriteString(" executes the full turnkey loop: implement -> verify -> (on FAIL: retry/escalate\n")
-	b.WriteString("up to N) -> gated merge on PASS only. See 'sworn run --help' for model resolution\n")
-	b.WriteString("and escalation model defaults.\n")
+	b.WriteString(style.Accent("loop"))
+	b.WriteString(" runs the delivery loop: implement -> verify -> (on FAIL: retry/escalate\n")
+	b.WriteString("up to N) -> gated merge on PASS only. See 'sworn loop --help' for model resolution\n")
+	b.WriteString("and escalation model defaults. ('run' is a deprecated alias for 'loop'.)\n")
 	b.WriteString(style.Accent("ship"))
 	b.WriteString(" validates the human-walkthrough attestation gate (Rule 10/S13): fails\n")
 	b.WriteString("closed unless every touched journey has a passing human attestation asserting\n")

@@ -65,13 +65,13 @@ func AnalyzeImpact(projectRoot, releaseDir string) (*ImpactResult, error) {
 	switch result {
 	case CheckMissing:
 		return nil, &ImpactError{
-			Result:  CheckMissing,
+			Result: CheckMissing,
 			Message: "no journeys artefact found at " + JourneyArtefactPath(projectRoot) +
 				" — run 'sworn journeys <project>' to elicit journeys first (S11)",
 		}
 	case CheckUnratified:
 		return nil, &ImpactError{
-			Result:  CheckUnratified,
+			Result: CheckUnratified,
 			Message: "journeys artefact exists but is NOT human-ratified at " +
 				JourneyArtefactPath(projectRoot) +
 				" — ratify before running impact analysis",
@@ -101,7 +101,7 @@ func AnalyzeImpact(projectRoot, releaseDir string) (*ImpactResult, error) {
 
 	return &ImpactResult{
 		ArtefactFound:   true,
-		IsRatified:      artefact.IsRatified,
+		IsRatified:      artefact.Ratification.IsRatified,
 		JourneysTouched: touched,
 		AllJourneyIDs:   allIDs,
 		ReleaseName:     releaseName,

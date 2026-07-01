@@ -62,6 +62,7 @@ func discoverHarness(h HarnessID, cwd string) ([]DiscoveredEntry, error) {
 		return nil, fmt.Errorf("unsupported harness for discovery: %s", h)
 	}
 }
+
 var claudeLinkRegex = regexp.MustCompile(`^-\s+\[([^\]]+)\]\(([^)]+)\)`)
 
 func discoverClaudeCode(memoryDir string) ([]DiscoveredEntry, error) {

@@ -351,6 +351,6 @@ func TestServerContextCancellation(t *testing.T) {
 	err := <-errCh
 	if err != context.Canceled && err != io.ErrClosedPipe {
 		t.Errorf("Run returned %v, want context.Canceled or io.ErrClosedPipe", err)
-		}
+	}
 	_ = stdoutR // suppress unused
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 )
+
 func TestTransition_LegalMoves(t *testing.T) {
 	tests := []struct {
 		from, to State
@@ -58,8 +59,7 @@ func TestReadWrite_RoundTrip(t *testing.T) {
 	path := filepath.Join(dir, "status.json")
 
 	orig := Status{
-		Schema:                "https://example.com/schemas/baton/slice-status-v1.json",
-		SliceID:               "S05-state-and-git",
+		Schema: "https://baton.sawy3r.net/schemas/slice-status-v1.json", SliceID: "S05-state-and-git",
 		Release:               "2026-06-15-e2e-turnkey-loop",
 		Track:                 "T2-orchestration",
 		State:                 InProgress,
@@ -133,7 +133,12 @@ func TestWrite_RoundTripPreservesJSONShape(t *testing.T) {
 	s := Status{
 		Schema:  "v1",
 		SliceID: "S01",
+		Release: "2026-06-27-conformance-foundation",
+		Track:   "T4-records-as-json",
 		State:   Planned,
+		Verification: Verification{
+			Result: "pending",
+		},
 	}
 	if err := Write(path, &s); err != nil {
 		t.Fatal(err)
@@ -218,10 +223,15 @@ func TestTraceFieldsRoundTrip(t *testing.T) {
 
 	orig := Status{
 		SliceID:        "S01-rtm-spine",
+		Release:        "2026-06-27-conformance-foundation",
+		Track:          "T4-records-as-json",
 		State:          Planned,
-		NeedIDs:        []string{"N-01", "N-02"},
+		CoversNeeds:    []string{"N-01", "N-02"},
 		ReleaseBenefit: "The release delivers value.",
 		OrgObjective:   "Become the standard.",
+		Verification: Verification{
+			Result: "pending",
+		},
 	}
 	if err := Write(path, &orig); err != nil {
 		t.Fatalf("write: %v", err)
@@ -232,8 +242,8 @@ func TestTraceFieldsRoundTrip(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 
-	if len(got.NeedIDs) != 2 || got.NeedIDs[0] != "N-01" || got.NeedIDs[1] != "N-02" {
-		t.Errorf("NeedIDs: want [N-01 N-02], got %v", got.NeedIDs)
+	if len(got.CoversNeeds) != 2 || got.CoversNeeds[0] != "N-01" || got.CoversNeeds[1] != "N-02" {
+		t.Errorf("NeedIDs: want [N-01 N-02], got %v", got.CoversNeeds)
 	}
 	if got.ReleaseBenefit != "The release delivers value." {
 		t.Errorf("ReleaseBenefit: want %q, got %q", "The release delivers value.", got.ReleaseBenefit)
@@ -249,6 +259,8 @@ func TestVerification_ModelAttemptRoundTrip(t *testing.T) {
 
 	orig := Status{
 		SliceID: "S52-ledger-projection",
+		Release: "2026-06-27-conformance-foundation",
+		Track:   "T4-records-as-json",
 		State:   Verified,
 		Verification: Verification{
 			Result:  "pass",
@@ -280,6 +292,8 @@ func TestVerification_ModelAttemptOmitEmpty(t *testing.T) {
 	// Zero-valued fields should be omitted (omitempty).
 	orig := Status{
 		SliceID: "S52-ledger-projection",
+		Release: "2026-06-27-conformance-foundation",
+		Track:   "T4-records-as-json",
 		State:   Verified,
 		Verification: Verification{
 			Result: "pass",
@@ -319,14 +333,16 @@ func TestDispatches_RoundTrip(t *testing.T) {
 
 	orig := Status{
 		SliceID: "S55-ledger-multirole-cost",
+		Release: "2026-06-27-conformance-foundation",
+		Track:   "T4-records-as-json",
 		State:   Verified,
 		Verification: Verification{
 			Result: "pass",
 			Model:  "claude-sonnet-4-20250514",
 			Dispatches: []Dispatch{
-				{Role: "implementer", Model: "claude-sonnet-4-20250514", CostUSD: 0.0420, Attempt: 1},
-				{Role: "verifier", Model: "claude-sonnet-4-20250514", CostUSD: 0.0085, Attempt: 1},
-				{Role: "captain", Model: "claude-sonnet-4-20250514", CostUSD: 0.0120, Attempt: 1},
+				{Role: "implementer", Model: "claude-sonnet-4-20250514", CostUSD: 0.0420, Attempt: 1, DurationMS: 4200, InputTokens: 1000, OutputTokens: 500},
+				{Role: "verifier", Model: "claude-sonnet-4-20250514", CostUSD: 0.0085, Attempt: 1, DurationMS: 850, InputTokens: 200, OutputTokens: 100, ModelIDConfirmed: "claude-sonnet-4-20250514"},
+				{Role: "captain", Model: "claude-sonnet-4-20250514", CostUSD: 0.0120, Attempt: 1, DurationMS: 1200},
 			},
 		},
 	}
@@ -354,14 +370,32 @@ func TestDispatches_RoundTrip(t *testing.T) {
 	if got.Verification.Dispatches[2].Role != "captain" {
 		t.Errorf("dispatch[2].Role: want captain, got %s", got.Verification.Dispatches[2].Role)
 	}
+	// S24 fields — round-trip preserves new Dispatch fields.
+	if got.Verification.Dispatches[0].DurationMS != 4200 {
+		t.Errorf("dispatch[0].DurationMS: want 4200, got %d", got.Verification.Dispatches[0].DurationMS)
+	}
+	if got.Verification.Dispatches[0].InputTokens != 1000 {
+		t.Errorf("dispatch[0].InputTokens: want 1000, got %d", got.Verification.Dispatches[0].InputTokens)
+	}
+	if got.Verification.Dispatches[0].OutputTokens != 500 {
+		t.Errorf("dispatch[0].OutputTokens: want 500, got %d", got.Verification.Dispatches[0].OutputTokens)
+	}
+	if got.Verification.Dispatches[1].ModelIDConfirmed != "claude-sonnet-4-20250514" {
+		t.Errorf("dispatch[1].ModelIDConfirmed: want claude-sonnet-4-20250514, got %s", got.Verification.Dispatches[1].ModelIDConfirmed)
+	}
+	// Zero-value S24 fields on captain dispatch round-trip correctly.
+	if got.Verification.Dispatches[2].InputTokens != 0 {
+		t.Errorf("dispatch[2].InputTokens: want 0 (zero value), got %d", got.Verification.Dispatches[2].InputTokens)
+	}
 }
-
 func TestDispatches_OmitEmpty(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "status.json")
 
 	orig := Status{
 		SliceID: "S55-ledger-multirole-cost",
+		Release: "2026-06-27-conformance-foundation",
+		Track:   "T4-records-as-json",
 		State:   Verified,
 		Verification: Verification{
 			Result: "pass",
@@ -386,5 +420,70 @@ func TestDispatches_OmitEmpty(t *testing.T) {
 	}
 	if got.Verification.Dispatches != nil {
 		t.Errorf("Dispatches: want nil, got %v", got.Verification.Dispatches)
+	}
+}
+
+// TestWrite_MalformedStatus verifies that Write() fails closed on a// Status that would produce invalid JSON per the embedded schema.
+func TestWrite_MalformedStatus(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "status.json")
+
+	// Missing required slice_id.
+	s := Status{
+		SliceID: "", // deliberately empty — fails validation
+		State:   Planned,
+	}
+	err := Write(path, &s)
+	if err == nil {
+		t.Fatal("Write() with empty slice_id: want validation error, got nil")
+	}
+	if !strings.Contains(err.Error(), "validation failed") {
+		t.Errorf("want 'validation failed' in error, got: %v", err)
+	}
+
+	// Confirm the file was NOT written.
+	if _, statErr := os.Stat(path); statErr == nil {
+		t.Error("status.json should not exist after a failed validated write")
+	}
+}
+
+// TestWrite_SetsCanonicalSchema verifies that Write() always sets the
+// canonical $schema URI regardless of what the caller provides.
+func TestWrite_SetsCanonicalSchema(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "status.json")
+
+	s := Status{
+		Schema:  "https://example.com/old-placeholder.json",
+		SliceID: "S13-schema-embed-validate",
+		Release: "2026-06-27-conformance-foundation",
+		Track:   "T4-records-as-json",
+		State:   InProgress,
+		Verification: Verification{
+			Result: "pending",
+		},
+	}
+	if err := Write(path, &s); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got.Schema != "https://baton.sawy3r.net/schemas/slice-status-v1.json" {
+		t.Errorf("Schema: want canonical URI, got %q", got.Schema)
+	}
+
+	// Also check raw JSON.
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `https://baton.sawy3r.net/schemas/slice-status-v1.json`) {
+		t.Error("raw JSON should contain the canonical $schema URI")
+	}
+	if strings.Contains(string(raw), "example.com") {
+		t.Error("raw JSON should not contain example.com")
 	}
 }

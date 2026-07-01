@@ -11,6 +11,7 @@ import (
 	"github.com/swornagent/sworn/internal/reqverify"
 	"github.com/swornagent/sworn/internal/state"
 )
+
 // ---------------------------------------------------------------------------
 // Fake verifier for reqverify tests
 // ---------------------------------------------------------------------------
@@ -21,9 +22,8 @@ type fakeVerifier struct {
 	reply string
 }
 
-func (f fakeVerifier) Verify(_ context.Context, _, _ string) (string, float64, error) {
-	return f.reply, 0.0, nil
-}
+func (f fakeVerifier) Verify(_ context.Context, _, _ string) (string, float64, int64, int64, error) {
+	return f.reply, 0.0, 0, 0, nil}
 
 // passingReply returns a reply that grades every AC as PASS.
 // Format must match reqverify's parseGrades expectations:
@@ -50,6 +50,7 @@ func failingReply(acs []reqverify.AC, sliceID string) string {
 	}
 	return b.String()
 }
+
 // ---------------------------------------------------------------------------// Release directory fixture builder
 // ---------------------------------------------------------------------------
 
@@ -137,11 +138,13 @@ Test outcome.
 
 	status := `{
   "slice_id": "S06-target-slice",
+  "release": "test-release",
+  "track": "T1-test",
   "state": "planned",
-  "release_benefit": "The release delivers value to users."
+  "release_benefit": "The release delivers value to users.",
+  "verification": {"result": "pending"}
 }`
 	os.WriteFile(filepath.Join(sliceDir, "status.json"), []byte(status), 0644)
-
 	for _, mod := range mods {
 		mod(dir)
 	}
@@ -198,8 +201,9 @@ func writeValidationRecord(t *testing.T, releaseDir, sliceID string, humanRatifi
 		SliceID:    sliceID,
 		Release:    "test-release",
 		Track:      "T1-test",
-		State:      state.Planned,
-		Validation: v,
+		State:        state.Planned,
+		Validation:   v,
+		Verification: state.Verification{Result: "pending"},
 	}
 	if err := state.Write(filepath.Join(dir, "status.json"), &s); err != nil {
 		t.Fatal(err)

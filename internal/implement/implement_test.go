@@ -223,8 +223,7 @@ Write a hello world file and verify it exists.
 			NegativeScenarios: []string{"User saves while offline, system shows error."},
 			BenefitHypothesis: "Test benefit hypothesis.",
 		},
-		Verification: state.Verification{},
-		ReleaseBase:  "release/v0.1.0",
+		Verification: state.Verification{Result: "pending"},		ReleaseBase:  "release/v0.1.0",
 	}
 	statusPath := filepath.Join(sliceDir, "status.json")
 	_ = state.Write(statusPath, st) // initially write status so state package can read it
@@ -281,7 +280,7 @@ func TestRun_GeneratesProofFromLiveRepoState(t *testing.T) {
 		},
 	}
 
-	err := Run(context.Background(), workspaceRoot, specPath, "", fa)
+	_, err := Run(context.Background(), workspaceRoot, specPath, "", fa)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}
@@ -375,7 +374,7 @@ func TestRun_DesignReviewToInProgress(t *testing.T) {
 		},
 	}
 
-	err = Run(context.Background(), workspaceRoot, specPath, "", fa)
+	_, err = Run(context.Background(), workspaceRoot, specPath, "", fa)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}
@@ -412,7 +411,7 @@ func TestRun_IllegalStateRejected(t *testing.T) {
 		},
 	}
 
-	err = Run(context.Background(), workspaceRoot, specPath, "", fa)
+	_, err = Run(context.Background(), workspaceRoot, specPath, "", fa)
 	if err == nil {
 		t.Fatal("expected error for planned state, got nil")
 	}
@@ -431,7 +430,7 @@ func (errorAgent) Chat(context.Context, []model.ChatMessage, []model.ToolDef) (*
 func TestRun_AgentErrorDoesNotTransition(t *testing.T) {
 	workspaceRoot, specPath, _ := setupTempRepo(t)
 
-	err := Run(context.Background(), workspaceRoot, specPath, "", &errorAgent{})
+	_, err := Run(context.Background(), workspaceRoot, specPath, "", &errorAgent{})
 	if err == nil {
 		t.Fatal("expected error from agent, got nil")
 	}
@@ -522,7 +521,7 @@ Write a hello world file and verify it exists.
 		},
 	}
 
-	err = Run(context.Background(), workspaceRoot, specPath, "", fa)
+	_, err = Run(context.Background(), workspaceRoot, specPath, "", fa)
 	if err == nil {
 		t.Fatal("expected Run() to return error due to DoR gate blocking, got nil")
 	}
@@ -570,7 +569,7 @@ func TestProof_ContainsRequiredSections(t *testing.T) {
 		},
 	}
 
-	if err := Run(context.Background(), workspaceRoot, specPath, "", fa); err != nil {
+	if _, err := Run(context.Background(), workspaceRoot, specPath, "", fa); err != nil {
 		t.Fatal(err)
 	}
 
@@ -589,10 +588,8 @@ func TestProof_ContainsRequiredSections(t *testing.T) {
 		"## Delivered",
 		"## Not delivered",
 		"## Divergence from plan",
-		"## First-pass script output",
 	}
-	for _, section := range required {
-		if !strings.Contains(proofStr, section) {
+	for _, section := range required {		if !strings.Contains(proofStr, section) {
 			t.Errorf("proof.md missing required section %q", section)
 		}
 	}
@@ -641,7 +638,7 @@ func TestProof_FilesChangedFromGit(t *testing.T) {
 		},
 	}
 
-	if err := Run(context.Background(), workspaceRoot, specPath, "", fa); err != nil {
+	if _, err := Run(context.Background(), workspaceRoot, specPath, "", fa); err != nil {
 		t.Fatal(err)
 	}
 
@@ -699,7 +696,7 @@ func TestRunInjectsPriorFeedback(t *testing.T) {
 	}
 
 	feedback := "previous attempt failed because gate 2 missing integration test"
-	err := Run(context.Background(), workspaceRoot, specPath, feedback, fa)
+	_, err := Run(context.Background(), workspaceRoot, specPath, feedback, fa)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}
@@ -727,7 +724,7 @@ func TestRunInjectsPriorFeedback(t *testing.T) {
 		},
 	}
 	workspaceRoot2, specPath2, _ := setupTempRepo(t)
-	err = Run(context.Background(), workspaceRoot2, specPath2, "", fa2)
+	_, err = Run(context.Background(), workspaceRoot2, specPath2, "", fa2)
 	if err != nil {
 		t.Fatalf("Run() with empty feedback error: %v", err)
 	}

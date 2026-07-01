@@ -229,7 +229,8 @@ func RegisterLintTools(s *Server, repoRoot string) {
 		}
 
 		report, err := gate.RunCoverage(releaseDir, p.SliceID, ref)
-		if err != nil {			return nil, fmt.Errorf("lint_coverage: %w", err)
+		if err != nil {
+			return nil, fmt.Errorf("lint_coverage: %w", err)
 		}
 
 		b, _ := json.Marshal(report)
@@ -275,7 +276,8 @@ func RegisterLintTools(s *Server, repoRoot string) {
 		}
 
 		report, err := gate.RunDesign(releaseDir, p.SliceID, ref)
-		if err != nil {			return nil, fmt.Errorf("lint_design: %w", err)
+		if err != nil {
+			return nil, fmt.Errorf("lint_design: %w", err)
 		}
 
 		b, _ := json.Marshal(report)
@@ -321,7 +323,8 @@ func RegisterLintTools(s *Server, repoRoot string) {
 		}
 
 		report, err := gate.RunMock(releaseDir, p.SliceID, ref)
-		if err != nil {			return nil, fmt.Errorf("lint_mock: %w", err)
+		if err != nil {
+			return nil, fmt.Errorf("lint_mock: %w", err)
 		}
 
 		b, _ := json.Marshal(report)

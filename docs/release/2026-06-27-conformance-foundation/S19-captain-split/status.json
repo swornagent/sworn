@@ -1,0 +1,42 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S19-captain-split",
+  "release": "2026-06-27-conformance-foundation",
+  "track": "T5-role-ontology",
+  "covers_needs": [
+    "N-21"
+  ],
+  "state": "verified",  "owner": "human",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-25T00:00:00Z",
+  "start_commit": "103501026b5493824625d4346053a3b1c71fc6e0",
+  "spec_path": "docs/release/2026-06-27-conformance-foundation/S19-captain-split/spec.md",
+  "proof_path": "docs/release/2026-06-27-conformance-foundation/S19-captain-split/proof.md",
+  "journal_path": "docs/release/2026-06-27-conformance-foundation/S19-captain-split/journal.md",
+  "planned_files": [
+    "internal/prompt/design-reviewer.md",
+    "internal/prompt/orchestrator-notes.md",
+    "internal/prompt/captain.md"
+  ],
+  "actual_files": [
+    "internal/prompt/design-reviewer.md",
+    "internal/prompt/orchestrator-notes.md",
+    "internal/prompt/captain.md"
+  ],
+  "test_commands": [
+    "go test ./internal/prompt/ -v -count=1"
+  ],
+  "reachability_artifacts": [
+    "cat internal/prompt/design-reviewer.md",
+    "cat internal/prompt/orchestrator-notes.md",
+    "grep -n \"release orchestrator\" internal/prompt/captain.md",
+    "go test ./internal/prompt/ -v -run TestCaptain -count=1"
+  ],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pass",
+    "verifier_session_id": "2026-06-28T00:02:13Z",
+    "verifier_verdict_at": "2026-06-28T00:02:13Z",
+    "verifier_was_fresh_context": true,
+    "violations": []
+  }}

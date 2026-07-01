@@ -9,6 +9,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/baton"
 )
+
 // runDoctorInDir runs cmdDoctor with the given args in the given directory,
 // capturing stdout+stderr. Returns exit code and combined output.
 func runDoctorInDir(t *testing.T, dir string, args ...string) (int, string) {
@@ -71,7 +72,8 @@ func TestDoctorAllOK(t *testing.T) {
 
 	// Group 1: baton/rules/ should be OK (11/11).
 	if !strings.Contains(output, "11/11 rule files present") {
-		t.Errorf("expected 11/11 rule files present\nOutput:\n%s", output)	}
+		t.Errorf("expected 11/11 rule files present\nOutput:\n%s", output)
+	}
 
 	// Group 1: planner.md should have all Phase 1-6 headings.
 	if !strings.Contains(output, "headings=all present") {
@@ -296,7 +298,7 @@ func TestDoctorGroup4StalePins(t *testing.T) {
 
 [dependencies]
 project_pinned = {
-  github.com/foo/bar = "v1.0.0",
+  github.com/foo/bar = "v2.0.0",
 }
 `
 	os.MkdirAll(filepath.Join(dir, "docs"), 0755)
@@ -366,7 +368,7 @@ func TestDoctorGroup4RegistryUnreachable(t *testing.T) {
 
 [dependencies]
 project_pinned = {
-  github.com/foo/bar = "v1.0.0",
+  github.com/foo/bar = "v2.0.0",
 }
 `
 	os.MkdirAll(filepath.Join(dir, "docs"), 0755)
@@ -500,6 +502,7 @@ func TestDoctorFailsOnShaPin(t *testing.T) {
 		t.Errorf("expected 'baton/VERSION (baton-protocol)' check in output\nOutput:\n%s", output)
 	}
 }
+
 // TestDoctorStatusTimestamps verifies that `sworn doctor` reports [ERROR]
 // when docs/release/ contains status.json files with future timestamps.
 func TestDoctorStatusTimestamps(t *testing.T) {
@@ -573,4 +576,92 @@ func TestDoctorStatusTimestamps_Clean(t *testing.T) {
 		t.Errorf("expected no [ERROR] for status timestamps with valid data\nOutput:\n%s", output)
 	}
 	_ = exitCode // other groups may fail, that's fine
+}
+
+// TestDoctorPin tests the baton/pin-currency and baton/prompt-currency
+// doctor checks.
+func TestDoctorPin(t *testing.T) {
+	// Save and restore injectables.
+	origReadBatonDoc := readBatonDoc
+	origPromptReaders := promptReadersForCheck
+	defer func() {		readBatonDoc = origReadBatonDoc
+		promptReadersForCheck = origPromptReaders
+	}()
+
+	t.Run("pin-currency pre-layout FAIL", func(t *testing.T) {
+		// Simulate pre-baton/ layout: ReadFile returns error.
+		readBatonDoc = func(path string) ([]byte, error) {
+			return nil, fmt.Errorf("file not found")
+		}
+		// Also set a test upstream pin so the detail message includes the SHA.
+		pin := &baton.UpstreamPin{SHA: "9ae08fb"}
+		baton.SetUpstreamPinForTest(pin)
+		defer baton.ClearUpstreamPinForTest()
+
+		result := checkPinCurrency()
+		if result.level != levelError {
+			t.Errorf("expected ERROR, got %v", result.level)
+		}
+		if !strings.Contains(result.detail, "PIN-STALE") {
+			t.Errorf("expected PIN-STALE in detail, got: %s", result.detail)
+		}
+		if !strings.Contains(result.detail, "9ae08fb") {
+			t.Errorf("expected SHA 9ae08fb in detail, got: %s", result.detail)
+		}
+	})
+
+	t.Run("pin-currency post-layout PASS", func(t *testing.T) {
+		// Simulate post-baton/ layout: ReadFile succeeds.
+		readBatonDoc = func(path string) ([]byte, error) {
+			return []byte("# Reachability Gate"), nil
+		}
+
+		result := checkPinCurrency()
+		if result.level != levelOK {
+			t.Errorf("expected OK, got %v: %s", result.level, result.detail)
+		}
+		if !strings.Contains(result.detail, "post-baton") {
+			t.Errorf("expected 'post-baton' in detail, got: %s", result.detail)
+		}
+	})
+
+	t.Run("prompt-currency stale FAIL", func(t *testing.T) {
+		// Inject a prompt that contains a pre-JSON marker.
+		promptReadersForCheck = map[string]func() string{
+			"verifier.md": func() string {
+				return "This prompt uses v0.4" + ".2 for version checks and references scripts/release-verify.sh"
+			},
+			"implementer.md": func() string {
+				return "Clean prompt"
+			},
+		}
+		result := checkPromptCurrency()
+		if result.level != levelError {
+			t.Errorf("expected ERROR, got %v", result.level)
+		}
+		if !strings.Contains(result.detail, "PROMPT-STALE") {
+			t.Errorf("expected PROMPT-STALE in detail, got: %s", result.detail)
+		}
+		if !strings.Contains(result.detail, "verifier.md") {
+			t.Errorf("expected verifier.md in detail, got: %s", result.detail)
+		}
+	})
+
+	t.Run("prompt-currency clean PASS", func(t *testing.T) {
+		promptReadersForCheck = map[string]func() string{
+			"verifier.md": func() string {
+				return "Clean prompt with no stale markers"
+			},
+			"implementer.md": func() string {
+				return "Another clean prompt"
+			},
+		}
+		result := checkPromptCurrency()
+		if result.level != levelOK {
+			t.Errorf("expected OK, got %v: %s", result.level, result.detail)
+		}
+		if !strings.Contains(result.detail, "no pre-JSON") {
+			t.Errorf("expected 'no pre-JSON' in detail, got: %s", result.detail)
+		}
+	})
 }

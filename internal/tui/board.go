@@ -27,6 +27,7 @@ type SliceBoardInfo struct {
 	VerificationResult string     // from status.json verification.result (e.g. "blocked")
 	Gate               GateResult // per-slice gate check results (S72)
 }
+
 // BoardView is a Bubble Tea component embedded in the root model.
 // It displays the board view for a selected release.
 type BoardView struct {
@@ -34,11 +35,12 @@ type BoardView struct {
 	Tracks        []TrackInfo
 	Slices        map[string]SliceBoardInfo // slice ID -> live data
 	Loaded        bool
-	Cursor        int                       // index of the selected slice in orderedSlices
-	orderedSlices []string                  // slice IDs in display order
-	MergeActive   map[string]bool           // track IDs with an active merge in flight
-	GateResults   map[string]GateResult     // per-slice gate check results (S72)
+	Cursor        int                   // index of the selected slice in orderedSlices
+	orderedSlices []string              // slice IDs in display order
+	MergeActive   map[string]bool       // track IDs with an active merge in flight
+	GateResults   map[string]GateResult // per-slice gate check results (S72)
 }
+
 // LoadBoard reads the selected release's index.md and all slice status.json files.
 // repoRoot is the repo root path.
 func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
@@ -126,8 +128,8 @@ func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
 		b.Slices[sid] = si
 	}
 
-		// Populate MergeActive from the events table.
-		b.MergeActive = map[string]bool{}
+	// Populate MergeActive from the events table.
+	b.MergeActive = map[string]bool{}
 	for _, mergeTrackID := range ActiveMerges(repoRoot, releaseName) {
 		// mergeTrackID is "merge:<track-id>"; extract the track-id part.
 		trackID := strings.TrimPrefix(mergeTrackID, "merge:")

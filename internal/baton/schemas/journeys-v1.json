@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://baton.sawy3r.net/schemas/journeys-v1.json",
+  "title": "Baton Journeys Artefact",
+  "description": "Canonical schema for the durable journeys artefact (.sworn/journeys.json). A journey is an ordered, end-to-end path a user type takes across the app to achieve an outcome, crossing many slices.",
+  "type": "object",
+  "required": [
+    "$schema",
+    "version",
+    "created_at",
+    "updated_at",
+    "ratification",
+    "journeys"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://baton.sawy3r.net/schemas/journeys-v1.json"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ratification": {
+      "type": "object",
+      "required": [
+        "by",
+        "at",
+        "is_ratified"
+      ],
+      "properties": {
+        "by": {
+          "type": "string",
+          "description": "Who ratified the artefact (email or identifier)."
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the artefact was last ratified (ISO 8601)."
+        },
+        "is_ratified": {
+          "type": "boolean",
+          "description": "True when the artefact has been human-ratified."
+        }
+      }
+    },
+    "journeys": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "user_type",
+          "outcome"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "user_type": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "order",
+                "description"
+              ],
+              "properties": {
+                "order": {
+                  "type": "integer"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "surface": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "entry_surface": {
+            "type": "string"
+          },
+          "has_regression": {
+            "type": "boolean"
+          },
+          "regression_test_path": {
+            "type": "string"
+          },
+          "no_mock_boundary": {
+            "type": "string",
+            "description": "Boundary that must cross real infrastructure (not mock) when this journey is walked. Rule 10 enforcement."
+          }
+        }
+      }
+    }
+  }
+}

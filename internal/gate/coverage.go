@@ -60,7 +60,7 @@ var (
 	// Go: func BenchmarkXxx(b *testing.B)
 	reGoBench = regexp.MustCompile(`^\s*func\s+(?:\(\w+\s+\*?\w+\)\s+)?(Benchmark\w+)\s*\(`)
 	// TypeScript/Vitest/Jest: it('...', / test('...',
-	reTSTest = regexp.MustCompile(`\b(it|test)\s*\(\s*['"\x60]([^'"\x60]+)['"\x60]`)	// Python: def test_xxx(  — plus pytest-style def test_xxx():
+	reTSTest = regexp.MustCompile(`\b(it|test)\s*\(\s*['"\x60]([^'"\x60]+)['"\x60]`) // Python: def test_xxx(  — plus pytest-style def test_xxx():
 	rePyTest = regexp.MustCompile(`^\s*def\s+(test_\w+)\s*\(`)
 )
 
@@ -148,6 +148,7 @@ func tokenise(text string) map[string]bool {
 	}
 	return tokens
 }
+
 // splitCamel splits a CamelCase identifier into lowercase subwords.
 // e.g. "TestValidateInputFields" → ["test", "validate", "input", "fields"].
 func splitCamel(s string) []string {
@@ -165,6 +166,7 @@ func splitCamel(s string) []string {
 	parts = append(parts, strings.ToLower(s[start:]))
 	return parts
 }
+
 // isStopWord returns true for common English words that carry no signal.
 func isStopWord(w string) bool {
 	switch w {

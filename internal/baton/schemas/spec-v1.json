@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "title": "Baton Spec Record",
+  "description": "Machine-readable spec record derived from spec.md — the canonical contract for one Baton release-mode slice.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema_version", "slice_id", "release"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://baton.sawy3r.net/schemas/spec-v1.json"
+    },
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "slice_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "release": {
+      "type": "string",
+      "minLength": 1
+    },
+    "user_outcome": {
+      "type": "string"
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "text"],
+        "properties": {
+          "id": { "type": "string" },
+          "text": { "type": "string" },
+          "type": { "type": "string" },
+          "ears_keyword": { "type": "string" }
+        }
+      }
+    },
+    "covers_needs": {
+      "type": "array",
+      "description": "Intake need IDs (N-01, N-02, ...) this slice delivers. Populated from status.json covers_needs.",
+      "items": { "type": "string", "pattern": "^N-\\d+$" }
+    },
+    "effort_complexity": {
+      "type": "object",
+      "description": "ADR-0011 §3.7. Two-axis per-slice rating set by the planner during decomposition (canonical here) and confirmed/revised by the implementer (mirrored in status.json). Complexity (Cynefin low/high) drives model choice + verification rigor; effort (relative T-shirt low/high) drives timeout/retry budget. The quadrant is derivable from the two axes and serves as a consistency checksum.",
+      "additionalProperties": true,
+      "required": ["effort", "complexity", "quadrant"],
+      "properties": {
+        "effort": { "type": "string", "enum": ["low", "high"] },
+        "complexity": { "type": "string", "enum": ["low", "high"] },
+        "quadrant": { "type": "string", "enum": ["chore", "grind", "puzzle", "epic"] },
+        "rationale": { "type": "string" },
+        "confirmed_by_implementer": { "type": "boolean" }
+      }
+    }
+  }
+}

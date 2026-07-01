@@ -1,0 +1,59 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "schema_version": 1,
+  "slice_id": "S02-board-render",
+  "release": "2026-06-30-sworn-operational-readiness",
+  "user_outcome": "An operator runs `sworn render <release>` and gets an index.md deterministically generated from board.json plus the slice records, so the board's human view is never hand-authored (by a model or a human) and cannot drift from the record.",
+  "rationale": "index.md is a VIEW of the board.json record, not prose — so it must be rendered, not authored (records-vs-prose principle, ADR-0009). Today no renderer exists: the planner contract says 'rendered from board.json, never hand-authored' but the planner is forced to hand-write it, which is exactly the failure mode that produced a false merge-ready when an index.md frontmatter fusion silently emptied the track list (memory project_index_frontmatter_corruption_false_ready). A deterministic renderer removes that operational failure surface and closes the 'a model outputs board markdown' gap. intake.md and journal.md remain authored prose by correct design — they are narrative, not views of a record. Out of scope: updating the planner skill/prompt to call `sworn render` (private-harness change) and a lint drift-guard that fails when committed index.md differs from the render (follow-up).",
+  "covers_needs": ["N-05"],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "chore",
+    "rationale": "Deterministic, well-bounded render: read board.json + each slice's spec.json/status.json, emit a fixed Markdown layout (tracks table, slice table, touchpoint matrix, dependency graph). No model dispatch, no external IO beyond the release dir. New files only; no change to existing engine paths.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    "internal/board/render.go",
+    "internal/board/render_test.go",
+    "cmd/sworn/render.go"
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When the operator runs `sworn render <release>`, the command SHALL read docs/release/<release>/board.json plus each referenced slice's spec.json and status.json and write docs/release/<release>/index.md containing: a tracks table (id, ordered slices, depends_on, state), a slice table (id, track, one-line outcome from spec user_outcome, state, effort_complexity quadrant), a touchpoint matrix (every spec.json touchpoint x track, marked), and a dependency graph derived from tracks depends_on."
+    },
+    {
+      "id": "AC-02",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "The renderer SHALL be deterministic and idempotent: rendering the same inputs twice SHALL produce byte-identical index.md (stable ordering of tracks, slices, and touchpoint rows), proven by a golden-file test over a fixture release."
+    },
+    {
+      "id": "AC-03",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "The rendered index.md frontmatter SHALL be emitted with single-quoted YAML scalars (title, description) so the output cannot reproduce the frontmatter-fusion failure class; a test SHALL assert the generated frontmatter parses cleanly."
+    },
+    {
+      "id": "AC-04",
+      "type": "unwanted",
+      "ears_keyword": "If",
+      "text": "If board.json is missing, malformed, or invalid against board-v1, then `sworn render` SHALL exit non-zero with a descriptive error and SHALL NOT write a partial or empty index.md (fail closed — never emit a misleading view)."
+    },
+    {
+      "id": "AC-05",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When `sworn render 2026-06-30-sworn-operational-readiness` is run against this release, it SHALL reproduce a tracks table containing T1-operational-unblock and T2-board-render and a touchpoint matrix in which no file is marked under two tracks (the disjointness the matrix exists to prove). This is the reachability artefact: the rendered output replaces the hand-authored index.md."
+    },
+    {
+      "id": "AC-06",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "After the change, `go build ./...` SHALL succeed and `go test ./internal/board/...` SHALL pass (including the new render golden test)."
+    }
+  ]
+}

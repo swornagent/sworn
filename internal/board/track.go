@@ -25,21 +25,21 @@ type TrackInfo struct {
 
 var (
 	// depends_on:   with brackets (inline list) immediately following
-	reDependsOnListInline  = regexp.MustCompile(`^\s+depends_on\s*:\s*\[`)
+	reDependsOnListInline = regexp.MustCompile(`^\s+depends_on\s*:\s*\[`)
 	// depends_on:   with a non-bracket non-empty value (single string)
-	reDependsOnSingle      = regexp.MustCompile(`^\s+depends_on\s*:\s*(.+)$`)
+	reDependsOnSingle = regexp.MustCompile(`^\s+depends_on\s*:\s*(.+)$`)
 	// depends_on:   on its own line (block-style list follows)
-	reDependsOnBlock       = regexp.MustCompile(`^\s+depends_on\s*:\s*$`)
+	reDependsOnBlock = regexp.MustCompile(`^\s+depends_on\s*:\s*$`)
 	// A list item under a track:  - id: ... is handled by reTrackID; this
 	// captures non-id list items like  - T1 under depends_on:
-	reAnyListItem          = regexp.MustCompile(`^\s+-\s+(\S+)`)
+	reAnyListItem = regexp.MustCompile(`^\s+-\s+(\S+)`)
 	// worktree_path: <path>
-	reTrackWorktreePath    = regexp.MustCompile(`^\s+worktree_path\s*:\s*(.*)$`)
+	reTrackWorktreePath = regexp.MustCompile(`^\s+worktree_path\s*:\s*(.*)$`)
 	// worktree_branch: <branch>
-	reTrackWorktreeBranch  = regexp.MustCompile(`^\s+worktree_branch\s*:\s*(\S+)`)
+	reTrackWorktreeBranch = regexp.MustCompile(`^\s+worktree_branch\s*:\s*(\S+)`)
 	// state: <state>
-	reTrackState           = regexp.MustCompile(`^\s+state\s*:\s*(\S+)`)
-)// ParseTracks parses the tracks section of a release-board index.md frontmatter
+	reTrackState = regexp.MustCompile(`^\s+state\s*:\s*(\S+)`)
+) // ParseTracks parses the tracks section of a release-board index.md frontmatter
 // body (the content between the opening and closing --- delimiters). It returns
 // one TrackInfo per `- id:` line, in the order they appear in the frontmatter.
 //
@@ -151,7 +151,11 @@ func ParseTracks(body string) []TrackInfo {
 		}
 		// ---- worktree_path ----
 		if mm := reTrackWorktreePath.FindStringSubmatch(line); mm != nil {
-			cur.WorktreePath = strings.TrimSpace(mm[1])
+			// Strip any inline "# ..." comment so the unfilled placeholder
+			// (worktree_path: # set by first /implement-slice) parses as empty
+			// rather than yielding the comment text as a literal path that then
+			// reaches `git worktree add` (eval finding 2).
+			cur.WorktreePath = stripInlineComment(mm[1])
 			continue
 		}
 
@@ -207,4 +211,19 @@ func ParseTrackID(line string) (string, bool) {
 		return mm[1], true
 	}
 	return "", false
+}
+
+// stripInlineComment removes a trailing YAML "# ..." inline comment from a
+// scalar value and trims surrounding whitespace. A value that is entirely a
+// comment (an unfilled placeholder) collapses to "". A '#' is only treated as a
+// comment marker at the start or after whitespace, so a '#' inside a token is
+// left intact.
+func stripInlineComment(s string) string {
+	s = strings.TrimSpace(s)
+	for i := 0; i < len(s); i++ {
+		if s[i] == '#' && (i == 0 || s[i-1] == ' ' || s[i-1] == '\t') {
+			return strings.TrimSpace(s[:i])
+		}
+	}
+	return s
 }

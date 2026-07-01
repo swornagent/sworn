@@ -8,14 +8,15 @@ import (
 	"strings"
 	"testing"
 )
+
 // fakeVerifier returns a canned reply for model dispatch.
 type fakeVerifier struct {
 	reply string
 	cost  float64
 }
 
-func (f fakeVerifier) Verify(context.Context, string, string) (string, float64, error) {
-	return f.reply, f.cost, nil
+func (f fakeVerifier) Verify(context.Context, string, string) (string, float64, int64, int64, error) {
+	return f.reply, f.cost, 0, 0, nil
 }
 
 // writeFixture creates a slice spec.md under a temp release directory.
@@ -315,11 +316,13 @@ AC 2 (S01-test): FAIL — incomplete [lacks trigger condition]`
 	if grades[1].Violation == nil {
 		t.Fatal("AC 2: want Violation, got nil")
 	}
-	if grades[1].Violation.Characteristic != "incomplete" {		t.Errorf("AC 2: want characteristic 'complete', got %q", grades[1].Violation.Characteristic)
+	if grades[1].Violation.Characteristic != "incomplete" {
+		t.Errorf("AC 2: want characteristic 'complete', got %q", grades[1].Violation.Characteristic)
 	}
 }
 
-func TestParseGrades_MissingResultsBlocks(t *testing.T) {	acs := []AC{
+func TestParseGrades_MissingResultsBlocks(t *testing.T) {
+	acs := []AC{
 		{SliceID: "S01-test", Index: 1, Content: "THE SYSTEM SHALL do X."},
 	}
 	reply := `Some analysis without a RESULTS section.`
@@ -484,7 +487,8 @@ AC 2 (S01-test): FAIL — incomplete [lacks trigger condition]`
 	if len(report.Violations) != 1 {
 		t.Fatalf("want 1 violation, got %d", len(report.Violations))
 	}
-	if report.Violations[0].Characteristic != "incomplete" {		t.Errorf("want characteristic complete, got %q", report.Violations[0].Characteristic)
+	if report.Violations[0].Characteristic != "incomplete" {
+		t.Errorf("want characteristic complete, got %q", report.Violations[0].Characteristic)
 	}
 	if report.FailedACs != 1 {
 		t.Errorf("want 1 failed, got %d", report.FailedACs)
@@ -533,8 +537,8 @@ func TestRun_ModelErrorBlocks(t *testing.T) {
 // errorVerifier returns an error on dispatch, simulating a model failure.
 type errorVerifier struct{}
 
-func (errorVerifier) Verify(context.Context, string, string) (string, float64, error) {
-	return "", 0, fmt.Errorf("model unavailable")
+func (errorVerifier) Verify(context.Context, string, string) (string, float64, int64, int64, error) {
+	return "", 0, 0, 0, fmt.Errorf("model unavailable")
 }
 
 // --- Print / PrintCompact tests ---

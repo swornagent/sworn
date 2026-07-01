@@ -13,12 +13,12 @@ import (
 	"testing"
 
 	"github.com/swornagent/sworn/internal/state"
-)// ---- Fixture helpers ----
+) // ---- Fixture helpers ----
 
 type fixtureRelease struct {
-	Root   string // temp dir root
-	Dir    string // docs/release/<name>/
-	Name   string
+	Root string // temp dir root
+	Dir  string // docs/release/<name>/
+	Name string
 }
 
 func setupFixtureRelease(t *testing.T, name string) *fixtureRelease {
@@ -174,13 +174,14 @@ func runCmdOutput(t *testing.T, dir, name string, args ...string) string {
 func opsToolRoundTrip(t *testing.T, repoRoot string) (stdinWriter io.Writer, stdoutReader *bufio.Reader, cleanup func()) {
 	t.Helper()
 	w, r, s := testRoundTrip(t)
-	RegisterOpsTools(s, repoRoot)
+	RegisterOpsTools(s, repoRoot, nil)
 	// Perform initialize handshake
 	sendRequest(t, w, "initialize", jsonID(1), json.RawMessage(`{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0"}}`))
 	readResponse(t, r)
 	return w, r, func() {}
 }
-func callTool(t *testing.T, w io.Writer, r *bufio.Reader, name string, args json.RawMessage) *ToolResult {	t.Helper()
+func callTool(t *testing.T, w io.Writer, r *bufio.Reader, name string, args json.RawMessage) *ToolResult {
+	t.Helper()
 	params := struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments,omitempty"`
@@ -202,7 +203,8 @@ func callTool(t *testing.T, w io.Writer, r *bufio.Reader, name string, args json
 	return &result
 }
 
-func toolText(t *testing.T, w io.Writer, r *bufio.Reader, name string, args json.RawMessage) string {	t.Helper()
+func toolText(t *testing.T, w io.Writer, r *bufio.Reader, name string, args json.RawMessage) string {
+	t.Helper()
 	result := callTool(t, w, r, name, args)
 	if len(result.Content) == 0 {
 		return ""
@@ -357,7 +359,7 @@ func TestDeferSliceWritesRuleTwo(t *testing.T) {
 	// Verify open_deferrals contains the reason
 	found := false
 	for _, d := range s.OpenDeferrals {
-		if strings.Contains(d, "blocked on backend") {
+		if strings.Contains(d.String(), "blocked on backend") {
 			found = true
 			break
 		}

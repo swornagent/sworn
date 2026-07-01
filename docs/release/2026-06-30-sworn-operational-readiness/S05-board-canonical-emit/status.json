@@ -1,0 +1,38 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S05-board-canonical-emit",
+  "release": "2026-06-30-sworn-operational-readiness",
+  "track": "T4-board-record-reconciliation",
+  "state": "verified",
+  "covers_needs": ["N-08"],
+  "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S05-board-canonical-emit/spec.json",
+  "proof_path": "docs/release/2026-06-30-sworn-operational-readiness/S05-board-canonical-emit/proof.md",
+  "start_commit": "0d22f65",
+  "actual_files": [
+    "internal/board/board.go",
+    "internal/baton/schemas/board-v1.json",
+    "internal/baton/validator.go",
+    "internal/board/board_release_test.go",
+    "internal/board/board_test.go",
+    "cmd/sworn/merge_test.go"
+  ],
+  "test_commands": [
+    "go test ./internal/board/... ./internal/baton/...",
+    "go test ./..."
+  ],
+  "reachability_artifacts": [
+    "sworn board --release 2026-06-28-yearSnapshot-schema-cleanup (S05 strict-reader binary, run in ~/projects/fired) reads the real coach OBJECT-form board (release={name,target_version,integration_branch,vertical_trace}) and returns its tracks/slices (exit 0) — the tightened object-only reader still accepts a real coach object board; captured in proof.md Reachability section"
+  ],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "chore",
+    "rationale": "Canonical marshal + object-only schema/validator (first cut) + object-only strict reader (this session) + inverted string-read tests + two test board.json fixtures migrated to object form, on S04's base.",
+    "confirmed_by_implementer": true
+  },
+  "verification": {
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-06-30T22:16:06Z"
+  }
+}

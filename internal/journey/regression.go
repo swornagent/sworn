@@ -140,7 +140,8 @@ func buildScaffold(j *Journey, relPath string) string {
 	}
 	b.WriteString(fmt.Sprintf("func %s(t *testing.T) {\n", funcName))
 
-	if len(j.Steps) > 0 {		b.WriteString(fmt.Sprintf("\t//\n"))
+	if len(j.Steps) > 0 {
+		b.WriteString(fmt.Sprintf("\t//\n"))
 		b.WriteString(fmt.Sprintf("\t// Journey steps to assert:\n"))
 		for _, step := range j.Steps {
 			b.WriteString(fmt.Sprintf("\t//   %d. %s", step.Order, step.Description))

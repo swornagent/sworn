@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 )
+
 // ProviderConfig holds per-provider API keys and optional overrides.
 // Fields use the canonical env var names (OPENAI_API_KEY, etc.).
 type ProviderConfig struct {
@@ -29,7 +30,7 @@ type ProviderConfig struct {
 	// directly by the OCI driver (S15). OCICompartmentID is a SwornAgent-specific
 	// routing param — not an SDK auth var — and is stored here.
 	OCICompartmentID string
-}// ProviderConfigFromEnv reads per-provider configuration from environment variables. The SWORN_OPENAI_API_KEY alias is checked as a fallback when
+} // ProviderConfigFromEnv reads per-provider configuration from environment variables. The SWORN_OPENAI_API_KEY alias is checked as a fallback when
 // OPENAI_API_KEY is empty (backward compatibility per spec Risk #1).
 func ProviderConfigFromEnv() ProviderConfig {
 	return ProviderConfig{
@@ -54,6 +55,7 @@ func ProviderConfigFromEnv() ProviderConfig {
 		OCICompartmentID:    os.Getenv("OCI_COMPARTMENT_ID"),
 	}
 }
+
 // envOrAlias returns the value of the canonical env var, or the alias if the
 // canonical is empty. This implements the spec's backward-compat requirement:
 // canonical key wins; SWORN_OPENAI_API_KEY is a fallback only.
@@ -72,10 +74,10 @@ func ollamaHost() string {
 	return "http://localhost:11434"
 }
 
-// ErrDriverNotRegistered is returned when a model ID prefix maps to a driver
+// ErrDriverNotImplemented is returned when a model ID prefix maps to a driver
 // that has not yet been implemented. Some drivers (e.g. codex) are not yet
 // available; see S63-deferral-1.
-var ErrDriverNotRegistered = constErr("driver not registered (not yet implemented; see slices S11-S16)")
+var ErrDriverNotImplemented = constErr("driver not implemented (not yet available; see slices S11-S16)")
 
 // NewClient dispatches a model ID like "openai/gpt-4o" or "groq/llama-3.3-70b"
 // to the correct driver. OAI-compat providers get an &OAI{} with the correct
@@ -91,16 +93,18 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 	switch provider {
 	case "openai":
 		return &OAI{
-			BaseURL: "https://api.openai.com/v1",
-			Model:   model,
-			APIKey:  pcfg.OpenAIKey,
+			BaseURL:    "https://api.openai.com/v1",
+			Model:      model,
+			APIKey:     pcfg.OpenAIKey,
+			Structured: StructuredResponseFormat, // native strict json_schema (ADR-0011)
 		}, nil
 
 	case "deepseek":
 		return &OAI{
-			BaseURL: "https://api.deepseek.com/v1",
-			Model:   model,
-			APIKey:  pcfg.DeepSeekKey,
+			BaseURL:    "https://api.deepseek.com/v1",
+			Model:      model,
+			APIKey:     pcfg.DeepSeekKey,
+			Structured: StructuredToolCall, // no strict response_format; forced-tool fallback
 		}, nil
 
 	case "groq":
@@ -147,8 +151,8 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 			APIKey:  pcfg.GitHubToken,
 		}, nil
 
-		case "openai-responses":
-			return NewOpenAIResponses(model, pcfg.OpenAIKey)
+	case "openai-responses":
+		return NewOpenAIResponses(model, pcfg.OpenAIKey)
 
 	// Native drivers.
 	case "anthropic":
@@ -173,8 +177,8 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 		// TODO: codex exec support — different invocation shapes and
 		// output normalisation from claude-cli. Claude-CLI ships first.
 		// Tracking: https://github.com/swornagent/sworn/issues/19.
-		return nil, fmt.Errorf("%w: codex support deferred (S63-deferral-1)", ErrDriverNotRegistered)
-		default:
-		return nil, fmt.Errorf("%w: unknown provider %q", ErrDriverNotRegistered, provider)
+		return nil, fmt.Errorf("%w: codex support deferred (S63-deferral-1)", ErrDriverNotImplemented)
+	default:
+		return nil, fmt.Errorf("%w: unknown provider %q", ErrDriverNotImplemented, provider)
 	}
 }

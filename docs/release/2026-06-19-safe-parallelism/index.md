@@ -82,7 +82,8 @@ tracks:
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T13-sworn-role-parity
     worktree_branch: track/2026-06-19-safe-parallelism/T13-sworn-role-parity
     state: merged
-  - id: T14-baton-integration    slices: [S48-baton-vendor, S49-baton-version, S50-baton-governance, S62-baton-upstream-source, S73-baton-v0.5.0-pin]
+  - id: T14-baton-integration
+    slices: [S48-baton-vendor, S49-baton-version, S50-baton-governance, S62-baton-upstream-source, S73-baton-v0.5.0-pin]
     depends_on: [T3-commercial, T15-cli-registry]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T14-baton-integration
     worktree_branch: track/2026-06-19-safe-parallelism/T14-baton-integration
@@ -99,7 +100,9 @@ tracks:
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T16-verdict-ledger
     worktree_branch: track/2026-06-19-safe-parallelism/T16-verdict-ledger
     state: merged
-  - id: T17-orchestration-core    slices: [S57-oracle-reader, S58-slice-router, S59-scheduler-relayer]    depends_on: [T1-concurrency-core, T12-harness-hardening, T18-cli-polish]
+  - id: T17-orchestration-core
+    slices: [S57-oracle-reader, S58-slice-router, S59-scheduler-relayer]
+    depends_on: [T1-concurrency-core, T12-harness-hardening, T18-cli-polish]
     worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T17-orchestration-core
     worktree_branch: track/2026-06-19-safe-parallelism/T17-orchestration-core
     state: merged

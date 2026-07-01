@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -13,13 +14,17 @@ import (
 	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/captain"
 	"github.com/swornagent/sworn/internal/design"
+	"github.com/swornagent/sworn/internal/gate"
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/implement"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/orchestrator"
 	"github.com/swornagent/sworn/internal/state"
+	"github.com/swornagent/sworn/internal/supervisor"
 	"github.com/swornagent/sworn/internal/verdict"
-	"github.com/swornagent/sworn/internal/verify")
+	"github.com/swornagent/sworn/internal/verify"
+)
+
 // DefaultImplementTimeout is the per-attempt deadline applied to the implement
 // step inside RunSlice when no explicit timeout is configured. 15 minutes is
 // generous enough for most implement steps but prevents a hung agent from
@@ -70,6 +75,16 @@ type RunSliceOptions struct {
 	// even if it already exists. When false, an existing design.md is left
 	// untouched (S45-design-tldr AC2).
 	RegenerateDesign bool
+
+	// InterpretVerifier is an optional model.Verifier for the LLM interpreter
+	// (S01-llm-interpreter). When the verifier's raw output does not parse to a
+	// clean verdict, the interpreter classifies it with a bounded cheap-model
+	// call. If nil, the existing VerifierModel's client is used as a fallback.
+	InterpretVerifier model.Verifier
+
+	// DB is the supervisor database handle. When non-nil, RunSlice records
+	// triage decisions via supervisor.RecordTriage (S02-orchestrator-decision-log).
+	DB *sql.DB
 }
 
 // Notifier is the one-method seam for dispatching FAIL/BLOCKED notifications.
@@ -95,6 +110,40 @@ type Notifier interface {
 // On verifier BLOCKED: returns error immediately (no state change).
 // On verifier FAIL after all retries: transitions to failed_verification and
 // returns a non-nil error.
+// checkProofAbsent returns true when proof.md is absent or empty.
+// This is the proof-mandatory gate (S11).
+func checkProofAbsent(proofPath string) bool {
+	proofBytes, err := os.ReadFile(proofPath)
+	return err != nil || strings.TrimSpace(string(proofBytes)) == ""
+}
+
+// appendDispatch stamps the slice's effort_complexity quadrant onto a dispatch
+// before recording it (#36 / T16). Centralising the stamp keeps every dispatch
+// record — captain, implementer, verifier — carrying the quadrant, so the
+// verdict ledger can project model fit per quadrant (the routing function)
+// without each call site having to remember the field.
+func appendDispatch(ds []state.Dispatch, quadrant string, d state.Dispatch) []state.Dispatch {
+	d.Quadrant = quadrant
+	return append(ds, d)
+}
+
+// violationsFromStrings wraps the verdict layer's []string violations into the
+// typed []state.Violation the status carrier now holds (D4). The verdict layer
+// stays []string by design (sworn-generated, not coach-read — see
+// internal/verdict/verdict.go); each string becomes a Violation{Description},
+// which state.Verification.ViolationStrings() projects back to the identical
+// display string for the oracle/router/ledger. No field-loss concern here.
+func violationsFromStrings(ss []string) []state.Violation {
+	if len(ss) == 0 {
+		return nil
+	}
+	out := make([]state.Violation, 0, len(ss))
+	for _, s := range ss {
+		out = append(out, state.Violation{Description: s})
+	}
+	return out
+}
+
 func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, opts RunSliceOptions) error {
 	// ── Validate mandatory options ────────────────────────────────────
 	if specPath == "" {
@@ -106,6 +155,15 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	if opts.VerifierModel == "" {
 		return fmt.Errorf("RunSlice: VerifierModel is required")
 	}
+	// EVAL SUPERVISOR FIX (2026-06-28): parallel mode's runSliceFn does not wire
+	// NewAgent, so it was nil here → SIGSEGV at the design-TL;DR dispatch. Mirror
+	// run.Run's default (run.go:107-108) so the parallel loop can dispatch agents.
+	if opts.NewAgent == nil {
+		opts.NewAgent = newAgentFromModel
+	}
+	if opts.NewVerifier == nil {
+		opts.NewVerifier = newVerifierFromModel
+	}
 
 	repo := git.New(worktreeRoot)
 
@@ -116,7 +174,40 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	}
 	startCommit := st.StartCommit
 	if startCommit == "" {
-		return fmt.Errorf("RunSlice: start_commit not set in %s", statusPath)
+		// Self-bootstrap (eval finding 7): a freshly-planned slice has no
+		// start_commit — Driver-1 (/implement-slice) used to set it on the
+		// planned→in_progress transition. The autonomous engine performs that
+		// transition itself so it can cold-start a release: pin start_commit to
+		// the worktree HEAD (the verifier's exact diff base) and advance the
+		// state. Without this the loop cannot run a release a human hasn't
+		// already moved to in_progress.
+		head, headErr := repo.RevParse("HEAD")
+		if headErr != nil {
+			return fmt.Errorf("RunSlice: bootstrap start_commit: resolve HEAD: %w", headErr)
+		}
+		st.StartCommit = head
+		startCommit = head
+		if st.State == state.Planned {
+			if err := st.State.Transition(state.InProgress); err != nil {
+				return fmt.Errorf("RunSlice: bootstrap planned→in_progress: %w", err)
+			}
+			st.State = state.InProgress
+		}
+		if err := state.Write(statusPath, st); err != nil {
+			return fmt.Errorf("RunSlice: bootstrap start_commit: write status: %w", err)
+		}
+	}
+
+	// Capture release and slice ID for decision-log writes (S02).
+	releaseName := st.Release
+	sliceID := st.SliceID
+
+	// The slice's effort_complexity quadrant, stamped onto every dispatch (#36 /
+	// T16) so the verdict ledger can learn model fit per quadrant. Empty when the
+	// slice carries no rating yet.
+	dispatchQuadrant := ""
+	if st.EffortComplexity != nil {
+		dispatchQuadrant = st.EffortComplexity.Quadrant
 	}
 
 	// ── Build escalation list ─────────────────────────────────────────
@@ -136,7 +227,10 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	maxResolves := 1
 	_ = opts.RetryCap // RetryCap is superseded by the triage policy; kept for API compat.
 
-	absSliceDir := filepath.Join(worktreeRoot, filepath.Dir(specPath))
+	absSliceDir := filepath.Dir(specPath)
+	if !filepath.IsAbs(specPath) {
+		absSliceDir = filepath.Join(worktreeRoot, absSliceDir)
+	}
 	proofPath := filepath.Join(absSliceDir, "proof.md")
 	// ── Resolve implement timeout ──────────────────────────────────────
 	// 0 means use default; negative means no timeout; positive is used as-is.
@@ -144,7 +238,6 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	if implementTimeout == 0 {
 		implementTimeout = DefaultImplementTimeout
 	}
-
 
 	// dispatches accumulates per-role dispatch costs (S55) for the verdict
 	// ledger. Populated by the captain review, implement, and verify stages;
@@ -215,7 +308,9 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 						defer reviewCancel()
 					}
 					fmt.Fprintf(os.Stderr, "sworn run: running captain design-review with %s\n", firstModelID)
+					captainStart := time.Now()
 					reviewResult, revErr := captain.Review(reviewCtx, absSliceDir, string(specBytes), string(designBytes), captainAgent, worktreeRoot)
+					captainDurationMS := time.Since(captainStart).Milliseconds()
 					if revErr != nil {
 						if errors.Is(revErr, context.DeadlineExceeded) {
 							fmt.Fprintf(os.Stderr, "sworn run: captain review timed out — proceeding without review\n")
@@ -233,13 +328,14 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 						// into the first implement attempt.
 						if fb := reviewResult.FormatPinsAsFeedback(); fb != "" {
 							priorFeedback = fb
-						// Record captain dispatch for per-role cost ledger (S55).
-						dispatches = append(dispatches, state.Dispatch{
-							Role:    "captain",
-							Model:   firstModelID,
-							CostUSD: reviewResult.CostUSD,
-							Attempt: 1,
-						})
+							// Record captain dispatch for per-role cost ledger (S55).
+							dispatches = appendDispatch(dispatches, dispatchQuadrant, state.Dispatch{
+								Role:       "captain",
+								Model:      firstModelID,
+								CostUSD:    reviewResult.CostUSD,
+								Attempt:    1,
+								DurationMS: captainDurationMS,
+							})
 						}
 					}
 				}
@@ -254,12 +350,11 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	// retries before the triage advances to the next model; BLOCKED halts
 	// immediately.
 	var (
-		lastVerdict    verdict.Result
-		lastImplModel string
-		modelIdx       = 0
-		resolveCount   = 0
-		totalAttempts  = 0
-		firstAttempt   = true
+		lastVerdict   verdict.Result
+		modelIdx      = 0
+		resolveCount  = 0
+		totalAttempts = 0
+		firstAttempt  = true
 	)
 	for {
 		// ── Guard: model index out of range ─────────────────────────
@@ -289,7 +384,6 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		totalAttempts++
 
 		implModelID := escalationModels[modelIdx]
-		lastImplModel = implModelID
 		implAgent, err := opts.NewAgent(implModelID)
 		if err != nil {
 			return fmt.Errorf("RunSlice: create implementer agent for %q: %w", implModelID, err)
@@ -299,7 +393,9 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		fmt.Fprintf(os.Stderr, "sworn run: attempt %d (model %d/%d, resolve %d/%d) — implementing with %s\n",
 			totalAttempts, modelIdx+1, len(escalationModels), resolveCount, maxResolves, implModelID)
 
-		var implCost float64; var implErr error
+		var implCost float64
+		var implErr error
+		implStart := time.Now()
 		if implementTimeout > 0 {
 			implCtx, cancel := context.WithTimeout(ctx, implementTimeout)
 			defer cancel() // safe: each iteration has its own defer
@@ -307,8 +403,31 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		} else {
 			implCost, implErr = implement.Run(ctx, worktreeRoot, specPath, priorFeedback, implAgent)
 		}
-
+		implDurationMS := time.Since(implStart).Milliseconds()
 		if implErr != nil {
+			// Max-turns exhaustion: PAGE the Coach (pause, not fail).
+			// The worker detects this via the sentinel and halts the track.
+			if errors.Is(implErr, agent.ErrMaxTurns) {
+				fmt.Fprintf(os.Stderr, "sworn run: max turns exhausted for %s — paging Coach\n", sliceID)
+				return fmt.Errorf("%s: max turns exhausted for %s",
+					errVerdictMaxTurnsPrefix, sliceID)
+			}
+
+			// Terminal errors halt immediately (S09 AC1): KindAuth and KindCredits
+			// cannot succeed on retry. Return a BLOCKED verdict before the triage
+			// path so the orchestrator routes to /replan-release, not retry/escalate.
+			if model.IsTerminal(implErr) {
+				var me *model.Error
+				if model.AsError(implErr, &me) {
+					kindLabel := "Kind" + strings.ToUpper(me.Kind.String()[:1]) + me.Kind.String()[1:]
+					reason := fmt.Sprintf("%s: %s — halting; check provider credentials",
+						kindLabel, me.UserMessage())
+					fmt.Fprintf(os.Stderr, "sworn run: terminal error — %s\n", reason)
+					return fmt.Errorf("%s%s", errVerdictBlockedPrefix, reason)
+				}
+				fmt.Fprintf(os.Stderr, "sworn run: terminal error — %v\n", implErr)
+				return fmt.Errorf("%s%s", errVerdictBlockedPrefix, implErr.Error())
+			}
 			if errors.Is(implErr, context.DeadlineExceeded) {
 				fmt.Fprintf(os.Stderr, "sworn run: implement attempt %d timed out after %s\n",
 					totalAttempts, implementTimeout)
@@ -324,6 +443,11 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 				MaxResolves:    maxResolves,
 			})
 			fmt.Fprintf(os.Stderr, "sworn run: triage (implementer error): %s — %s\n", triageOut.Action, triageOut.Reason)
+			// Record triage decision (S02 — decision log). Best-effort (AC4).
+			if opts.DB != nil {
+				_ = supervisor.RecordTriage(opts.DB, releaseName, sliceID,
+					string(triageOut.Action), triageOut.Reason)
+			}
 			switch triageOut.Action {
 			case orchestrator.ResolveInPlace:
 				resolveCount++
@@ -340,15 +464,14 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			}
 		}
 
-
 		// Record implementer dispatch for per-role cost ledger (S55).
-		dispatches = append(dispatches, state.Dispatch{
-			Role:    "implementer",
-			Model:   implModelID,
-			CostUSD: implCost,
-			Attempt: totalAttempts,
-		})
-		// ── Commit agent changes ────────────────────────────────────
+		dispatches = appendDispatch(dispatches, dispatchQuadrant, state.Dispatch{
+			Role:       "implementer",
+			Model:      implModelID,
+			CostUSD:    implCost,
+			Attempt:    totalAttempts,
+			DurationMS: implDurationMS,
+		}) // ── Commit agent changes ────────────────────────────────────
 		if err := repo.Stage("."); err != nil {
 			return fmt.Errorf("RunSlice: stage agent changes: %w", err)
 		}
@@ -362,36 +485,164 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			return fmt.Errorf("RunSlice: compute diff: %w", err)
 		}
 
-		// ── Verify ──────────────────────────────────────────────────
+		// ── Verify (agentic) ─────────────────────────────────────────
 		verifierModelID := opts.VerifierModel
-		verifier, err := opts.NewVerifier(verifierModelID)
-		if err != nil {
-			return fmt.Errorf("RunSlice: create verifier for %q: %w", verifierModelID, err)
+
+		// ── Proof mandatory gate ───────────────────────────────────
+		// Before dispatching the verifier, check that proof.md exists
+		// and is non-empty. Absent proof -> BLOCKED immediately.
+		if checkProofAbsent(proofPath) {
+			lastVerdict = verdict.Result{
+				Verdict:    verdict.Blocked,
+				FailedGate: "proof_absent",
+				Rationale:  "proof bundle absent — fail closed",
+			}
+			fmt.Fprintf(os.Stderr, "sworn run: BLOCKED — proof bundle absent\n")
+			// Record the BLOCKED dispatch for cost ledger.
+			dispatches = appendDispatch(dispatches, dispatchQuadrant, state.Dispatch{
+				Role:    "verifier",
+				Model:   opts.VerifierModel,
+				CostUSD: 0,
+				Attempt: totalAttempts,
+			})
+			// Commit blocked state.
+			stBlk, _ := state.Read(statusPath)
+			if stBlk != nil {
+				stBlk.Verification.Result = "blocked"
+				stBlk.Verification.Model = opts.VerifierModel
+				stBlk.Verification.Attempt = totalAttempts
+				stBlk.Verification.Dispatches = dispatches
+				stBlk.LastUpdatedBy = "run-slice"
+				stBlk.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
+				_ = state.Write(statusPath, stBlk)
+				_ = repo.Stage(statusPath)
+				_ = repo.Commit("chore(run): verification blocked — proof bundle absent")
+			}
+			// Notify on BLOCKED.
+			if opts.Notifier != nil {
+				stNotify, _ := state.Read(statusPath)
+				if stNotify != nil {
+					summary := "proof bundle absent — fail closed"
+					opts.Notifier.Notify(ctx, account.NotifyEvent{
+						Release:           stNotify.Release,
+						Track:             stNotify.Track,
+						SliceID:           stNotify.SliceID,
+						State:             "blocked",
+						ViolationsSummary: summary,
+						WorktreePath:      worktreeRoot,
+					})
+				}
+			}
+			return fmt.Errorf("RunSlice: verification blocked: proof bundle absent — fail closed")
+		}
+		// ── No-mock wiring (S10) ────────────────────────────────────
+		// Run the mock lint gate before the agentic verifier dispatch.
+		// Violations that are not in open_deferrals are appended as
+		// warnings; undeclared mocks do not BLOCK by themselves (the
+		// deferral path is the user's explicit choice).
+		{
+			absSliceDir := filepath.Dir(specPath)
+			mockReport, mockErr := gate.RunMock(filepath.Dir(absSliceDir), filepath.Base(absSliceDir), startCommit)
+			if mockErr == nil && mockReport.HasViolations() {
+				fmt.Fprintf(os.Stderr, "sworn run: mock lint: %d undeclared boundary violation(s)\n",
+					mockReport.TotalViolations)
+				// Append violations as informational warnings to the run log.
+				for _, v := range mockReport.Violations {
+					fmt.Fprintf(os.Stderr, "sworn run:   - %s:%d %s\n", v.File, v.Line, v.Msg)
+				}
+			}
+		}
+		// ── First-pass deterministic gate (S12) ────────────────────
+		// RunFirstPass catches structural blockers (empty spec,
+		// empty diff, undeclared boundary mocks) before the expensive
+		// agentic verifier is dispatched. A FAIL or BLOCKED here
+		// short-circuits and prevents the agentic call entirely.
+		{
+			stFP, _ := state.Read(statusPath)
+			var openDeferrals []state.Deferral
+			if stFP != nil {
+				openDeferrals = stFP.OpenDeferrals
+			}
+			// Write diff to temp file for RunFirstPass (it reads paths).
+			diffPath, tmpErr := writeTempFile("", "firstpass-diff-*.patch", diff)
+			if tmpErr != nil {
+				return fmt.Errorf("RunSlice: write diff for first-pass: %w", tmpErr)
+			}
+			defer os.Remove(diffPath)
+			fpResult := verify.RunFirstPass(ctx, verify.Input{
+				SpecPath:      specPath,
+				DiffPath:      diffPath,
+				ProofPath:     proofPath,
+				OpenDeferrals: openDeferrals,
+			})
+			if fpResult.Verdict != verdict.Pass {
+				lastVerdict = fpResult
+				fmt.Fprintf(os.Stderr, "sworn run: first-pass %s — %s\n",
+					fpResult.Verdict, fpResult.Rationale)
+				// Record the BLOCKED/FAIL dispatch for cost ledger
+				// (zero cost — deterministic).
+				dispatches = appendDispatch(dispatches, dispatchQuadrant, state.Dispatch{
+					Role:    "first_pass",
+					Model:   "deterministic",
+					CostUSD: 0,
+					Attempt: totalAttempts,
+				})
+				// Commit blocked/failed state and return.
+				stBlk, _ := state.Read(statusPath)
+				if stBlk != nil {
+					stBlk.Verification.Result = "blocked"
+					stBlk.Verification.Model = "first_pass"
+					stBlk.Verification.Attempt = totalAttempts
+					stBlk.Verification.Dispatches = dispatches
+					stBlk.LastUpdatedBy = "run-slice"
+					stBlk.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
+					_ = state.Write(statusPath, stBlk)
+					_ = repo.Stage(statusPath)
+					_ = repo.Commit("chore(run): verification blocked — first-pass: " + fpResult.FailedGate)
+				}
+				if opts.Notifier != nil {
+					stNotify, _ := state.Read(statusPath)
+					if stNotify != nil {
+						summary := fpResult.Rationale
+						if len(summary) > 200 {
+							summary = summary[:197] + "..."
+						}
+						opts.Notifier.Notify(ctx, account.NotifyEvent{
+							Release:           stNotify.Release,
+							Track:             stNotify.Track,
+							SliceID:           stNotify.SliceID,
+							State:             "blocked",
+							ViolationsSummary: summary,
+							WorktreePath:      worktreeRoot,
+						})
+					}
+				}
+				return fmt.Errorf("RunSlice: first-pass %s: %s", fpResult.Verdict, fpResult.Rationale)
+			}
+		}
+		// ── Dispatch agentic verifier ───────────────────────────────		// Create an agent (not just a Verifier) for the verifier model
+		// so we can dispatch the full verifier.md role prompt via Chat().
+		verifierAgent, vaErr := opts.NewAgent(verifierModelID)
+		if vaErr != nil {
+			return fmt.Errorf("RunSlice: create agentic verifier for %q: %w", verifierModelID, vaErr)
 		}
 
-		fmt.Fprintf(os.Stderr, "sworn run: verifying with %s\n", verifierModelID)
+		fmt.Fprintf(os.Stderr, "sworn run: verifying (agentic) with %s\n", verifierModelID)
 
-		diffPath, err := writeTempFile(worktreeRoot, "sworn-diff-*.patch", diff)
-		if err != nil {
-			return fmt.Errorf("RunSlice: write diff temp: %w", err)
+		// Read spec and diff content for the agentic payload.
+		specContent, specErr := os.ReadFile(specPath)
+		if specErr != nil {
+			return fmt.Errorf("RunSlice: read spec for agentic verify: %w", specErr)
 		}
+		proofBytes2, _ := os.ReadFile(proofPath)
+		proofStr := string(proofBytes2)
+		specStr := string(specContent)
 
-		// Read open_deferrals from status.json for boundary-mock check (S10).
-		status, stErr := state.Read(statusPath)
-		var openDeferrals []string
-		if stErr == nil {
-			openDeferrals = status.OpenDeferrals
+		result, runErr := verify.RunAgentic(ctx, specStr, diff, proofStr, verifierAgent)
+		if runErr != nil {
+			return fmt.Errorf("RunSlice: agentic verify dispatch: %w", runErr)
 		}
-
-		lastVerdict = verify.Run(ctx, verify.Input{
-			SpecPath:      specPath,
-			DiffPath:      diffPath,
-			ProofPath:     proofPath,
-			Model:         verifierModelID,
-			Verifier:      verifier,
-			OpenDeferrals: openDeferrals,
-		})
-		os.Remove(diffPath)
+		lastVerdict = result
 
 		fmt.Fprintf(os.Stderr, "sworn run: verdict %s (cost $%.4f)\n",
 			lastVerdict.Verdict, lastVerdict.CostUSD)
@@ -400,13 +651,16 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		}
 
 		// Record verifier dispatch for per-role cost ledger (S55).
-		dispatches = append(dispatches, state.Dispatch{
-			Role:    "verifier",
-			Model:   opts.VerifierModel,
-			CostUSD: lastVerdict.CostUSD,
-			Attempt: totalAttempts,
+		dispatches = appendDispatch(dispatches, dispatchQuadrant, state.Dispatch{
+			Role:             "verifier",
+			Model:            opts.VerifierModel,
+			CostUSD:          lastVerdict.CostUSD,
+			Attempt:          totalAttempts,
+			DurationMS:       lastVerdict.DurationMS,
+			InputTokens:      lastVerdict.InputTokens,
+			OutputTokens:     lastVerdict.OutputTokens,
+			ModelIDConfirmed: lastVerdict.ModelIDConfirmed,
 		})
-
 		// ── PASS: transition to verified ────────────────────────────
 		if lastVerdict.Verdict == verdict.Pass {
 			st, err := state.Read(statusPath)
@@ -417,9 +671,10 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 				return fmt.Errorf("RunSlice: transition to verified: %w", err)
 			}
 			st.State = state.Verified
-				st.Verification.Model = implModelID
+			st.Verification.Model = opts.VerifierModel
+			st.Verification.VerifierWasFreshContext = boolPtr(true)
 			st.Verification.Dispatches = dispatches
-				st.Verification.Attempt = totalAttempts
+			st.Verification.Attempt = totalAttempts
 			st.LastUpdatedBy = "run-slice"
 			st.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
 			if err := state.Write(statusPath, st); err != nil {
@@ -428,6 +683,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			return nil
 		}
 
+		// triageVerdict label no longer needed
 		// ── Non-PASS: run triage (S47) ──────────────────────────────
 		triageOut := orchestrator.Decide(orchestrator.Input{
 			Verdict:        lastVerdict.Verdict,
@@ -437,6 +693,12 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			MaxResolves:    maxResolves,
 		})
 		fmt.Fprintf(os.Stderr, "sworn run: triage: %s — %s\n", triageOut.Action, triageOut.Reason)
+
+		// Record triage decision (S02 — decision log). Best-effort (AC4).
+		if opts.DB != nil {
+			_ = supervisor.RecordTriage(opts.DB, releaseName, sliceID,
+				string(triageOut.Action), triageOut.Reason)
+		}
 
 		switch triageOut.Action {
 		case orchestrator.ResolveInPlace:
@@ -459,8 +721,23 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 				st, stErr := state.Read(statusPath)
 				if stErr == nil {
 					st.Verification.Result = "blocked"
-					st.Verification.Violations = extractViolations(lastVerdict.Rationale)
-					st.Verification.Model = implModelID
+					// ADR-0011: violations come off the typed verifier-verdict-v1
+					// record (the schema requires a BLOCKED verdict to carry ≥1
+					// violation), not a prose-split of the rationale. The fallback
+					// keeps the S38 ValidateBlockedViolations guard satisfied if a
+					// deterministic blocked result ever reaches here without them.
+					st.Verification.Violations = violationsFromStrings(lastVerdict.Violations)
+					if len(st.Verification.Violations) == 0 {
+						fallback := strings.TrimSpace(lastVerdict.Rationale)
+						if fallback == "" {
+							fallback = "(no rationale provided)"
+						}
+						st.Verification.Violations = violationsFromStrings([]string{fallback})
+					}
+					if lastVerdict.Routing != "" {
+						st.Verification.Routing = lastVerdict.Routing
+					}
+					st.Verification.Model = opts.VerifierModel
 					st.Verification.Attempt = totalAttempts
 					st.Verification.Dispatches = dispatches
 					st.LastUpdatedBy = "run-slice"
@@ -501,7 +778,7 @@ haltFailedVerification:
 	if stErr == nil {
 		_ = st.State.Transition(state.FailedVerification) // ignore — state may already be terminal
 		st.State = state.FailedVerification
-		st.Verification.Model = lastImplModel
+		st.Verification.Model = opts.VerifierModel
 		st.Verification.Attempt = totalAttempts
 		st.Verification.Dispatches = dispatches
 		st.LastUpdatedBy = "run-slice"
@@ -529,7 +806,14 @@ haltFailedVerification:
 		"RunSlice: verification failed after %d attempts (last verdict: %s). "+
 			"Escalate to human. Slice reached failed_verification on worktree %s.",
 		totalAttempts, lastVerdict.Verdict, worktreeRoot,
-	)}
+	)
+}
+
+// NOTE (ADR-0011 keystone, Step 3): captureVerifier — which buffered the raw
+// verifier text so the now-deleted stateless interpreter could re-classify an
+// unparseable prose verdict — was dead (never instantiated) and is removed. The
+// agentic verifier emits a typed verdict directly; there is no raw prose to
+// capture and re-scrape.
 
 // writeTempFile writes content to a temporary file in dir matching pattern.
 func writeTempFile(dir, pattern, content string) (string, error) {
@@ -550,45 +834,26 @@ func writeTempFile(dir, pattern, content string) (string, error) {
 	return path, nil
 }
 
-// extractViolations parses a verifier rationale string into a slice of
-// individual violation strings. It handles numbered (1. ...) and bulleted
-// (- ...) items. If no structured items are found, the entire rationale is
-// treated as a single violation.
-// This is used by the BLOCKED halt path (S47) to populate
-// status.json → verification.violations so the S38 guard
-// (ValidateBlockedViolations) passes.
-func extractViolations(rationale string) []string {
-	if rationale == "" {
-		return []string{"(no rationale provided)"}
-	}
-	lines := strings.Split(rationale, "\n")
-	var violations []string
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		// Match "1. ...", "2. ...", etc., or "- ...", or "* ..."
-		if len(trimmed) >= 3 && trimmed[0] >= '0' && trimmed[0] <= '9' && trimmed[1] == '.' && trimmed[2] == ' ' {
-			violations = append(violations, strings.TrimSpace(trimmed[2:]))
-		} else if strings.HasPrefix(trimmed, "- ") {
-			violations = append(violations, strings.TrimSpace(trimmed[2:]))
-		} else if strings.HasPrefix(trimmed, "* ") {
-			violations = append(violations, strings.TrimSpace(trimmed[2:]))
-		}
-	}
-	if len(violations) == 0 {
-		// No structured items found — use the entire rationale.
-		return []string{rationale}
-	}
-	return violations
-}
+// NOTE (ADR-0011 keystone, Step 3): extractViolations — the prose-splitter that
+// scraped numbered/bulleted items out of the verifier's rationale — was deleted.
+// Violations now come off the typed verifier-verdict-v1 record
+// (lastVerdict.Violations), schema-guaranteed non-empty for a BLOCKED verdict.
 
-// Sentinel error string prefixes used by RunSlice. Callers can// strings.Contains on the returned error to distinguish exit causes.
+// Sentinel error string prefixes used by RunSlice. Callers can use
+// strings.Contains on the returned error to distinguish exit causes.
 const (
-	errVerdictBlockedPrefix = "RunSlice: verification blocked:"
-	errVerdictFailPrefix    = "RunSlice: verification failed after"
+	errVerdictBlockedPrefix  = "RunSlice: verification blocked:"
+	errVerdictFailPrefix     = "RunSlice: verification failed after"
+	errVerdictMaxTurnsPrefix = "RunSlice: max turns exhausted:"
 )
+
+// ErrMaxTurnsSentinel is the substring check for max-turns exhaustion errors
+// returned by RunSlice. The worker/router detect it to PAGE the Coach.
+const ErrMaxTurnsSentinel = "RunSlice: max turns exhausted:"
+
+// boolPtr returns a pointer to a bool value. Used for nullable bool fields
+// in status.json (e.g. verifier_was_fresh_context).
+func boolPtr(b bool) *bool { return &b }
 
 // IsBlocked reports whether err is a BLOCKED-verdict error from RunSlice.
 func IsBlocked(err error) bool {
@@ -598,4 +863,9 @@ func IsBlocked(err error) bool {
 // IsFailed reports whether err is a FAIL-exhausted error from RunSlice.
 func IsFailed(err error) bool {
 	return err != nil && strings.Contains(err.Error(), errVerdictFailPrefix)
+}
+
+// IsMaxTurnsExhausted reports whether err is a max-turns exhaustion error from RunSlice.
+func IsMaxTurnsExhausted(err error) bool {
+	return err != nil && strings.Contains(err.Error(), errVerdictMaxTurnsPrefix)
 }

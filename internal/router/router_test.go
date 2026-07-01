@@ -3,12 +3,14 @@ package router
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/swornagent/sworn/internal/board"
+	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/state"
 )
-
 // ---------- fakes ----------
 
 type fakeOracle struct {
@@ -32,9 +34,9 @@ func (f *fakeOracle) ReadBoard(_ context.Context, _ string) (*board.BoardState, 
 }
 
 type fakeContent struct {
-	commitTimes  map[string]int64
-	existing     map[string]bool
-	ancestors    map[string]bool // "ancestor|branch" → true
+	commitTimes map[string]int64
+	existing    map[string]bool
+	ancestors   map[string]bool // "ancestor|branch" → true
 }
 
 func (f *fakeContent) LastCommitTime(_, path string) (int64, error) {
@@ -78,12 +80,12 @@ func TestBlockedPrecedesState(t *testing.T) {
 	oracle := &fakeOracle{
 		slices: map[string]board.SliceState{
 			"S01-test": {
-				ID:     "S01-test",
-				State:  state.Verified,
-				Track:  "T1-core",
-				Blocked: true,
+				ID:            "S01-test",
+				State:         state.Verified,
+				Track:         "T1-core",
+				Blocked:       true,
 				BlockedReason: "spec defect",
-				Violations: []string{"spec defect: ambiguous AC"},
+				Violations:    []string{"spec defect: ambiguous AC"},
 			},
 		},
 	}
@@ -131,7 +133,7 @@ func TestInProgressRoutesImplement(t *testing.T) {
 
 func TestImplementedRoutesVerify(t *testing.T) {
 	tests := []struct {
-		name             string
+		name               string
 		verificationResult string
 	}{
 		{"no verdict", ""},
@@ -265,9 +267,9 @@ func TestFailedVerificationGateClassification(t *testing.T) {
 			oracle := &fakeOracle{
 				slices: map[string]board.SliceState{
 					"S01-test": {
-						ID:     "S01-test",
-						State:  state.FailedVerification,
-						Track:  "T1-core",
+						ID:         "S01-test",
+						State:      state.FailedVerification,
+						Track:      "T1-core",
 						Violations: []string{gate + ": missing reachability"},
 					},
 				},
@@ -287,9 +289,9 @@ func TestFailedVerificationGateClassification(t *testing.T) {
 		oracle := &fakeOracle{
 			slices: map[string]board.SliceState{
 				"S01-test": {
-					ID:     "S01-test",
-					State:  state.FailedVerification,
-					Track:  "T1-core",
+					ID:         "S01-test",
+					State:      state.FailedVerification,
+					Track:      "T1-core",
 					Violations: []string{"Gate 3: test failure", "Gate 4: missing artefact", "Gate 5: undeclared deferral"},
 				},
 			},
@@ -390,48 +392,48 @@ func TestVerifiedWalksTrackThenMerges(t *testing.T) {
 		}
 	})
 
-		t.Run("next planned sibling with design.md → review", func(t *testing.T) {
-			input := defaultInput()
-			input.SliceID = "S01-done"
-			docsPrefix := input.DocsPrefix
-			release := input.Release
+	t.Run("next planned sibling with design.md → review", func(t *testing.T) {
+		input := defaultInput()
+		input.SliceID = "S01-done"
+		docsPrefix := input.DocsPrefix
+		release := input.Release
 
-			oracle := &fakeOracle{
-				slices: map[string]board.SliceState{
-					"S01-done":   {ID: "S01-done", State: state.Verified, Track: "T1-core"},
-					"S02-review": {ID: "S02-review", State: state.Planned, Track: "T1-core"},
-				},
-				board: &board.BoardState{
-					Release: release,
-					Tracks: []board.TrackState{
-						{
-							ID:    "T1-core",
-							State: "in_progress",
-							Slices: []board.SliceState{
-								{ID: "S01-done", State: state.Verified, Track: "T1-core"},
-								{ID: "S02-review", State: state.Planned, Track: "T1-core"},
-							},
+		oracle := &fakeOracle{
+			slices: map[string]board.SliceState{
+				"S01-done":   {ID: "S01-done", State: state.Verified, Track: "T1-core"},
+				"S02-review": {ID: "S02-review", State: state.Planned, Track: "T1-core"},
+			},
+			board: &board.BoardState{
+				Release: release,
+				Tracks: []board.TrackState{
+					{
+						ID:    "T1-core",
+						State: "in_progress",
+						Slices: []board.SliceState{
+							{ID: "S01-done", State: state.Verified, Track: "T1-core"},
+							{ID: "S02-review", State: state.Planned, Track: "T1-core"},
 						},
 					},
 				},
-			}
-			content := &fakeContent{
-				existing: map[string]bool{
-					docsPrefix + "/release/" + release + "/S02-review/design.md": true,
-				},
-			}
+			},
+		}
+		content := &fakeContent{
+			existing: map[string]bool{
+				docsPrefix + "/release/" + release + "/S02-review/design.md": true,
+			},
+		}
 
-			d, err := Route(context.Background(), oracle, content, input)
-			if err != nil {
-				t.Fatalf("Route: %v", err)
-			}
-			if d.NextType != NextReview {
-				t.Errorf("planned sibling with design.md should route review, got %s", d.NextType)
-			}
-			if d.TargetSlice != "S02-review" {
-				t.Errorf("TargetSlice should be S02-review, got %s", d.TargetSlice)
-			}
-		})
+		d, err := Route(context.Background(), oracle, content, input)
+		if err != nil {
+			t.Fatalf("Route: %v", err)
+		}
+		if d.NextType != NextReview {
+			t.Errorf("planned sibling with design.md should route review, got %s", d.NextType)
+		}
+		if d.TargetSlice != "S02-review" {
+			t.Errorf("TargetSlice should be S02-review, got %s", d.TargetSlice)
+		}
+	})
 
 	t.Run("track done, others ongoing → merge-track", func(t *testing.T) {
 		oracle := &fakeOracle{
@@ -581,5 +583,227 @@ func TestDeferredSkippedInTrackWalk(t *testing.T) {
 	}
 	if d.TargetSlice != "S03-next" {
 		t.Errorf("TargetSlice should be S03-next (deferred skipped), got %s", d.TargetSlice)
+	}
+}
+
+// ---------- Invariant4Check tests ----------
+
+func TestParseDocumentedShared(t *testing.T) {
+	// Create a test index.md with a touchpoint matrix.
+	content := `---
+title: test
+tracks:
+  - id: T1
+    slices: [S01]
+  - id: T2
+    slices: [S02]
+---
+
+# Board
+
+### Touchpoint matrix
+
+| File / surface | T1 | T2 |
+|---|---|---|
+| ` + "`internal/run/slice.go` (DOCUMENTED SHARED)" + ` | ✓ S01 | ✓ S02 |
+| ` + "`internal/state/state.go`" + ` | ✓ | ✓ |
+| ` + "`cmd/sworn/merge.go` (new)" + ` | ✓ | |
+| ` + "`internal/mcp/tools_ops.go`" + ` | ✓ | |
+`
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "index.md")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write index.md: %v", err)
+	}
+
+	shared, err := ParseDocumentedShared(path)
+	if err != nil {
+		t.Fatalf("ParseDocumentedShared: %v", err)
+	}
+
+	// Three shared files expected:
+	// 1. internal/run/slice.go — explicitly DOCUMENTED SHARED
+	// 2. internal/state/state.go — marked by both T1 and T2
+	if !shared["internal/run/slice.go"] {
+		t.Error("expected internal/run/slice.go to be documented shared (explicit)")
+	}
+	if !shared["internal/state/state.go"] {
+		t.Error("expected internal/state/state.go to be documented shared (≥2 tracks)")
+	}
+
+	// cmd/sworn/merge.go and tools_ops.go should NOT be shared (only 1 track).
+	if shared["cmd/sworn/merge.go"] {
+		t.Error("cmd/sworn/merge.go should not be shared (only T1)")
+	}
+	if shared["internal/mcp/tools_ops.go"] {
+		t.Error("internal/mcp/tools_ops.go should not be shared (only T1)")
+	}
+}
+
+func TestInvariant4CheckCleanMerge(t *testing.T) {
+	dir := t.TempDir()
+	repo := git.New(dir)
+
+	if err := repo.Init(); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	_ = repo.Config("user.email", "test@test")
+	_ = repo.Config("user.name", "test")
+
+	// Create an initial commit FIRST (HEAD is ambiguous until first commit).
+	if err := os.WriteFile(filepath.Join(dir, "shared.txt"), []byte("hello"), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := repo.Stage("shared.txt"); err != nil {
+		t.Fatalf("stage: %v", err)
+	}
+	if err := repo.Commit("initial"); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	mainBranch, err := repo.CurrentBranch()
+	if err != nil {
+		t.Fatalf("current branch: %v", err)
+	}
+
+	// Create topic branch (repo.Branch creates + checks out).
+	if err := repo.Branch("topic"); err != nil {
+		t.Fatalf("branch topic: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "topic.txt"), []byte("topic"), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := repo.Stage("topic.txt"); err != nil {
+		t.Fatalf("stage: %v", err)
+	}
+	if err := repo.Commit("topic change"); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	// Go back to main.
+	if err := repo.Checkout(mainBranch); err != nil {
+		t.Fatalf("checkout %s: %v", mainBranch, err)
+	}
+
+	shared := map[string]bool{"topic.txt": true}
+	err = Invariant4Check(repo, "topic", shared)
+	if err != nil {
+		t.Fatalf("Invariant4Check on clean merge: %v", err)
+	}
+
+	porcelain, err := repo.StatusPorcelain()
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if porcelain != "" {
+		t.Errorf("working tree not clean after Invariant4Check: %q", porcelain)
+	}
+}
+
+func TestInvariant4CheckNilRepo(t *testing.T) {
+	err := Invariant4Check(nil, "branch", nil)
+	if err == nil {
+		t.Fatal("expected error for nil repo")
+	}
+}
+
+func TestInvariant4CheckEmptyDir(t *testing.T) {
+	err := Invariant4Check(&git.Repo{Dir: ""}, "branch", nil)
+	if err == nil {
+		t.Fatal("expected error for empty Dir")
+	}
+}
+
+func TestParseDocumentedSharedFromFile(t *testing.T) {	// Test using the actual release index.md from the worktree.
+	// This guards against parser breakage when the index.md format changes (flag b).
+	indexPath := filepath.Join("..", "..", "docs", "release", "2026-06-27-conformance-foundation", "index.md")
+	// Run from the repo root.
+	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
+		t.Skip("index.md not found — not running from worktree")
+	}
+
+	shared, err := ParseDocumentedShared(indexPath)
+	if err != nil {
+		t.Fatalf("ParseDocumentedShared from live index.md: %v", err)
+	}
+
+	// These 6 files are the design's expected documented-shared set.
+	expected := []string{
+		"internal/model/oai.go",
+		"internal/run/slice.go",
+		"internal/verify/verify.go",
+		"internal/model/openai_responses.go",
+		"internal/verify/verify_test.go",
+		"internal/state/state.go",
+	}
+	for _, f := range expected {
+		if !shared[f] {
+			t.Errorf("expected documented shared file %q not found in parsed set", f)
+		}
+	}
+	t.Logf("Parsed %d documented shared files from live index.md", len(shared))
+}
+
+func TestIsDocumentedShared(t *testing.T) {	shared := map[string]bool{
+		"internal/model/oai.go": true,
+	}
+
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"internal/model/oai.go", true},
+		{"internal/model/oai.go/something", true},    // prefix match
+		{"internal/other/file.go", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		got := isDocumentedShared(tt.path, shared)
+		if got != tt.want {
+			t.Errorf("isDocumentedShared(%q) = %v, want %v", tt.path, got, tt.want)
+		}
+	}
+}
+
+func TestIsTerminal(t *testing.T) {
+	tests := []struct {
+		state string
+		want  bool
+	}{
+		{"verified", true},
+		{"shipped", true},
+		{"deferred", true},
+		{"planned", false},
+		{"in_progress", false},
+		{"implemented", false},
+		{"failed_verification", false},
+		{"bogus", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		got := IsTerminal(tt.state)
+		if got != tt.want {
+			t.Errorf("IsTerminal(%q) = %v, want %v", tt.state, got, tt.want)
+		}
+	}
+}
+
+func TestNormalizeFilePath(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want string
+	}{
+		{"`internal/run/slice.go` (DOCUMENTED SHARED)", "internal/run/slice.go"},
+		{"`internal/model/oai.go` + drivers (DOCUMENTED SHARED)", "internal/model/oai.go"},
+		{"`cmd/sworn/merge.go` (new)", "cmd/sworn/merge.go"},
+		{"`internal/router/router.go`", "internal/router/router.go"},
+	}
+	for _, tt := range tests {
+		got := normalizeFilePath(tt.raw)
+		if got != tt.want {
+			t.Errorf("normalizeFilePath(%q) = %q, want %q", tt.raw, got, tt.want)
+		}
 	}
 }

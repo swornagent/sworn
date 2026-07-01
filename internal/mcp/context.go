@@ -14,14 +14,14 @@ import (
 // SliceContext holds the assembled context for a single slice, as returned by
 // get_slice_context: spec, violations, diff, and journal content.
 type SliceContext struct {
-	SpecContent     string `json:"spec_content"`
-	Violations      string `json:"violations"`
-	Diff            string `json:"diff"`
-	DiffNote        string `json:"diff_note,omitempty"`
-	JournalContent  string `json:"journal_content"`
-	WorktreePath    string `json:"worktree_path"`
-	StartCommit     string `json:"start_commit"`
-	SliceState      string `json:"slice_state"`
+	SpecContent    string `json:"spec_content"`
+	Violations     string `json:"violations"`
+	Diff           string `json:"diff"`
+	DiffNote       string `json:"diff_note,omitempty"`
+	JournalContent string `json:"journal_content"`
+	WorktreePath   string `json:"worktree_path"`
+	StartCommit    string `json:"start_commit"`
+	SliceState     string `json:"slice_state"`
 }
 
 // AssembleSliceContext reads slice artefacts from the release directory and
@@ -156,6 +156,7 @@ func extractField(jsonData, key string) string {
 	}
 	return strings.TrimSpace(rest)
 }
+
 // runDiff runs git diff in the given worktree. On any error (non-zero exit,
 // missing worktree, etc.) it returns diff="" and a descriptive diff_note.
 // This is the Pin 1 safe-wrapping implementation.
@@ -182,7 +183,7 @@ func runDiff(worktreePath, startCommit string) (diff, note string) {
 	}
 
 	diff = strings.TrimSpace(string(out))
-		if diff == "" {
+	if diff == "" {
 		return "", "no changes since start_commit"
 	}
 	return diff, ""

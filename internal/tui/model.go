@@ -11,13 +11,14 @@ import (
 type viewState int
 
 const (
-	viewReleases  viewState = iota
+	viewReleases viewState = iota
 	viewBoard
 	viewLive
 	viewBlocked
 	viewSettings
 	viewQuit
 )
+
 // Model is the root Bubble Tea model for the sworn TUI.
 // It composes ReleasesList (left pane) and BoardView (right pane).
 //
@@ -51,6 +52,7 @@ type Model struct {
 	// S17: Settings is the provider/model configuration panel.
 	Settings *SettingsView
 }
+
 // Init implements tea.Model. Loads the credit balance at startup.
 func (m *Model) Init() tea.Cmd {
 	bal, _ := CreditFileBalance()
@@ -98,10 +100,10 @@ func (m *Model) View() string {
 		return m.Blocked.View()
 	}
 
-		// Settings view replaces the two-pane layout entirely.
-		if m.state == viewSettings && m.Settings != nil {
-			return m.Settings.View()
-		}
+	// Settings view replaces the two-pane layout entirely.
+	if m.state == viewSettings && m.Settings != nil {
+		return m.Settings.View()
+	}
 	left := m.Releases.View()
 	right := m.Board.View()
 
@@ -171,7 +173,7 @@ func (m *Model) handleReleasesKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 			sel := m.Releases.Releases[m.Releases.Cursor]
 			if err := m.Board.LoadBoard(m.repoRoot, sel.ID); err != nil {
 				m.errMsg = err.Error()
-		}
+			}
 			m.state = viewBoard
 
 			// Auto-transition to live view if tracks are in-progress.
@@ -182,7 +184,7 @@ func (m *Model) handleReleasesKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 					m.state = viewLive
 					return m, lv.Init()
 				}
-		}
+			}
 		}
 	case "esc":
 	}
@@ -220,7 +222,7 @@ func (m *Model) handleBoardKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 				m.Blocked = bv
 				m.state = viewBlocked
 				return m, nil
-		}
+			}
 		}
 	case "l":
 		// Switch to live view if available.
@@ -234,21 +236,21 @@ func (m *Model) handleBoardKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 			if err != nil {
 				m.errMsg = err.Error()
 				return m, nil
-		}
+			}
 			m.Live = lv
 			m.state = viewLive
 			return m, lv.Init()
 		}
-		case "s":
-			// Open settings panel (S17).
-			sv, err := NewSettingsView()
-			if err != nil {
-				m.errMsg = err.Error()
-				return m, nil
-		}
-			m.Settings = sv
-			m.state = viewSettings
+	case "s":
+		// Open settings panel (S17).
+		sv, err := NewSettingsView()
+		if err != nil {
+			m.errMsg = err.Error()
 			return m, nil
+		}
+		m.Settings = sv
+		m.state = viewSettings
+		return m, nil
 	}
 	return m, nil
 }
@@ -274,7 +276,7 @@ func (m *Model) handleBlockedKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 			// Reload board to reflect any state changes (e.g. deferred)
 			if err := m.Board.LoadBoard(m.repoRoot, m.Board.ReleaseName); err != nil {
 				m.errMsg = err.Error()
-		}
+			}
 			return m, nil
 		}
 		bm, cmd := m.Blocked.Update(msg)
@@ -283,7 +285,6 @@ func (m *Model) handleBlockedKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	}
 	return m, nil
 }
-
 
 // handleSettingsKey handles keyboard input in the settings view.
 func (m *Model) handleSettingsKey(msg tea.KeyMsg) (*Model, tea.Cmd) {

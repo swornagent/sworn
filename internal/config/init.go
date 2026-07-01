@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 )
+
 // ErrConfigExists is returned by Scaffold when the config file already exists
 // and force is false.
 var ErrConfigExists = errors.New("config file already exists")
@@ -106,6 +107,7 @@ func PromptDesignSystem(current *DesignSystem, nonInteractive bool) (*DesignSyst
 
 	return ds, nil
 }
+
 // PromptImplementer collects implementer model settings interactively. When
 // nonInteractive is true, it returns the defaults without prompting.
 //

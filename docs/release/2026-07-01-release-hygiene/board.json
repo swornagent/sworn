@@ -1,0 +1,21 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/board-v1.json",
+  "schema_version": 1,
+  "release": {
+    "name": "2026-07-01-release-hygiene",
+    "integration_branch": "release/v0.1.0"
+  },
+  "release_worktree_branch": "release-wt/2026-07-01-release-hygiene",
+  "tracks": [
+    {
+      "id": "T1-version-hygiene",
+      "slices": [
+        "S01-embedded-version",
+        "S02-version-bump-ci-gate"
+      ],
+      "depends_on": [],
+      "worktree_branch": "track/2026-07-01-release-hygiene/T1-version-hygiene",
+      "state": "planned"
+    }
+  ]
+}

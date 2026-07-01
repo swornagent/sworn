@@ -25,14 +25,13 @@ import (
 
 // ArchRulesReport holds the full structured result of RunArchRules.
 type ArchRulesReport struct {
-	Release    string           `json:"release"`
-	Slice      string           `json:"slice"`
-	Rules      int              `json:"rules_checked"`
-	Violations []ArchViolation  `json:"violations"`
-	Failed     int              `json:"failed"`
-	Verdict    string           `json:"verdict"`
+	Release    string          `json:"release"`
+	Slice      string          `json:"slice"`
+	Rules      int             `json:"rules_checked"`
+	Violations []ArchViolation `json:"violations"`
+	Failed     int             `json:"failed"`
+	Verdict    string          `json:"verdict"`
 }
-
 
 // ArchViolation is a single architecture rule violation.
 type ArchViolation struct {
@@ -44,7 +43,6 @@ type ArchViolation struct {
 	Msg         string `json:"msg"`
 }
 
-
 // String returns a human-readable violation line.
 func (v ArchViolation) String() string {
 	s := fmt.Sprintf("[%s] %s: %s", v.Severity, v.RuleID, v.Msg)
@@ -53,7 +51,6 @@ func (v ArchViolation) String() string {
 	}
 	return s
 }
-
 
 // HasViolations returns true when the report contains violations.
 func (r *ArchRulesReport) HasViolations() bool { return r.Failed > 0 }
@@ -68,7 +65,6 @@ type ArchConfig struct {
 	Rules         []ArchRule    `json:"rules"`
 }
 
-
 // CanonicalDocs holds canonical architecture source-of-truth paths.
 type CanonicalDocs struct {
 	Description            string   `json:"_description"`
@@ -78,7 +74,6 @@ type CanonicalDocs struct {
 	ArchitecturalDecisions string   `json:"architectural_decisions"`
 	DesignTokens           string   `json:"design_tokens"`
 }
-
 
 // ArchRule is a single architecture rule from architecture.json.
 type ArchRule struct {
@@ -94,16 +89,14 @@ type ArchRule struct {
 	Note          string `json:"note"`
 }
 
-
 // --- allowlist ---
 
 // DesignAllowlist holds per-slice exception rules from design-allowlist.json.
 type DesignAllowlist struct {
-	Schema      string              `json:"$schema"`
-	Description string              `json:"_description"`
-	Rules       []AllowlistEntry    `json:"rules"`
+	Schema      string           `json:"$schema"`
+	Description string           `json:"_description"`
+	Rules       []AllowlistEntry `json:"rules"`
 }
-
 
 // AllowlistEntry is a single allowlist entry.
 type AllowlistEntry struct {
@@ -111,7 +104,6 @@ type AllowlistEntry struct {
 	File   string `json:"file,omitempty"`
 	Reason string `json:"reason"`
 }
-
 
 // --- main entry point ---
 
@@ -188,7 +180,6 @@ func RunArchRules(releaseDir, sliceID, baseRef string) (*ArchRulesReport, error)
 	return report, nil
 }
 
-
 // --- config loading ---
 
 func loadArchConfig(path string) (*ArchConfig, error) {
@@ -203,7 +194,6 @@ func loadArchConfig(path string) (*ArchConfig, error) {
 	return &cfg, nil
 }
 
-
 func loadAllowlist(path string) (*DesignAllowlist, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -216,7 +206,6 @@ func loadAllowlist(path string) (*DesignAllowlist, error) {
 	return &al, nil
 }
 
-
 // isExempt checks whether a violation at file:line is suppressed by the allowlist.
 func isExempt(allowlist *DesignAllowlist, ruleID, file string) bool {
 	for _, e := range allowlist.Rules {
@@ -228,7 +217,6 @@ func isExempt(allowlist *DesignAllowlist, ruleID, file string) bool {
 	}
 	return false
 }
-
 
 // --- git helpers ---
 
@@ -249,7 +237,6 @@ func diffChangedFiles(baseRef string) ([]string, error) {
 	return files, nil
 }
 
-
 // diffFileContent returns the full diff (added lines) for a specific file.
 func diffFileContent(baseRef, file string) ([]string, error) {
 	cmd := exec.Command("git", "diff", baseRef, "HEAD", "--", file)
@@ -259,7 +246,6 @@ func diffFileContent(baseRef, file string) ([]string, error) {
 	}
 	return strings.Split(string(out), "\n"), nil
 }
-
 
 // diffAddedLines returns only the added lines (prefixed with + but not +++ ) from the diff.
 func diffAddedLines(baseRef, file string) ([]lineInfo, error) {
@@ -293,7 +279,6 @@ func diffAddedLines(baseRef, file string) ([]lineInfo, error) {
 	return lines, nil
 }
 
-
 // diffFileSize returns the number of lines in a file at HEAD.
 func diffFileSize(root, file string) (int, error) {
 	abs := filepath.Join(root, file)
@@ -304,12 +289,10 @@ func diffFileSize(root, file string) (int, error) {
 	return len(strings.Split(string(data), "\n")), nil
 }
 
-
 type lineInfo struct {
 	Line int
 	Text string
 }
-
 
 // parseHunkNewStart parses the new-file start line from a unified diff hunk header.
 // Format: @@ -oldStart,oldCount +newStart,newCount @@
@@ -323,7 +306,6 @@ func parseHunkNewStart(line string) int {
 	}
 	return 1
 }
-
 
 // --- rule execution ---
 
@@ -347,7 +329,6 @@ func runRule(rule ArchRule, root string, changedFiles []string, baseRef, sliceDi
 		}}
 	}
 }
-
 
 // --- grep check ---
 
@@ -405,12 +386,10 @@ func matchGlob(file, pattern string) (bool, error) {
 	return re.MatchString(file), nil
 }
 
-
 // skipTestFile returns true when the file path looks like a test file.
 func skipTestFile(path string) bool {
 	return isTestFilePath(path)
 }
-
 
 // isTestFilePath returns true for test/spec files (broader than isTestFile which
 // is already in coverage.go; re-exported here to avoid import cycles — the func
@@ -433,7 +412,6 @@ func isTestFilePath(path string) bool {
 	}
 	return false
 }
-
 
 func runGrepRule(rule ArchRule, root string, changedFiles []string, baseRef string, allowlist *DesignAllowlist) []ArchViolation {
 	var violations []ArchViolation
@@ -486,7 +464,6 @@ func runGrepRule(rule ArchRule, root string, changedFiles []string, baseRef stri
 	return violations
 }
 
-
 // --- touchpoints check ---
 
 func runTouchpointsRule(rule ArchRule, changedFiles []string, sliceDir string, allowlist *DesignAllowlist) []ArchViolation {
@@ -512,7 +489,6 @@ func runTouchpointsRule(rule ArchRule, changedFiles []string, sliceDir string, a
 	}
 	return violations
 }
-
 
 // readPlannedFiles reads a slice's status.json and returns a set of planned file paths.
 func readPlannedFiles(sliceDir string) map[string]bool {
@@ -545,7 +521,6 @@ func readPlannedFiles(sliceDir string) map[string]bool {
 	}
 	return files
 }
-
 
 // --- diff-size check ---
 
@@ -597,7 +572,6 @@ func runDiffSizeRule(rule ArchRule, root string, changedFiles []string, baseRef 
 	return violations
 }
 
-
 // --- external check ---
 
 func runExternalRule(rule ArchRule, allowlist *DesignAllowlist) []ArchViolation {
@@ -629,7 +603,6 @@ func runExternalRule(rule ArchRule, allowlist *DesignAllowlist) []ArchViolation 
 	_ = out // command succeeded, no violation
 	return nil
 }
-
 
 // --- human-readable output ---
 
@@ -665,7 +638,6 @@ func PrintArchRules(r *ArchRulesReport) string {
 	return b.String()
 }
 
-
 // JSONArchRules returns the report as pretty-printed JSON.
 func JSONArchRules(r *ArchRulesReport) string {
 	data, err := json.MarshalIndent(r, "", "  ")
@@ -674,7 +646,6 @@ func JSONArchRules(r *ArchRulesReport) string {
 	}
 	return string(data)
 }
-
 
 // readFileLines reads a file and returns its lines.
 func readFileLines(path string) ([]string, error) {

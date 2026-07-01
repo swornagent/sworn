@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -47,6 +48,7 @@ type ReviewResult struct {
 	RawOutput       string  // full model output for review.md
 	CostUSD         float64 // dispatch cost from token usage; 0 if unpriced
 }
+
 // Review runs the captain design-review for one slice. It takes the TL;DR
 // (design.md content), the spec, and a model agent, prompts the captain to
 // review the design, parses the pin list, and writes review.md to sliceDir.
@@ -112,28 +114,36 @@ func Review(ctx context.Context, sliceDir, spec, design string, a agent.Agent, w
 // output format: <n>. [<tag>] §<section>.<bullet> — <summary>
 //
 // It also counts escalate pins and sets HasEscalatePins.
+// pinLineRe matches a real captain pin line: "<n>. [<tag>] …" (per captain.md).
+// Anchoring on the numbered-pin format is essential — it excludes (a) the
+// summary line "Pins: N total — a [mechanical], … c [escalate]" which itself
+// contains the "[escalate]" substring, and (b) the "## Suggested acknowledgement
+// reply" restatements and any prose mentions of a tag. Counting bare substrings
+// (the old behaviour) miscounted the summary line(s) as escalate pins and
+// halted runs that had zero real escalate pins (#34).
+var pinLineRe = regexp.MustCompile(`^\d+\.\s+\[(escalate|mechanical|memory-cited)\]`)
+
 func parsePins(text string) *ReviewResult {
 	result := &ReviewResult{RawOutput: text}
 	lines := strings.Split(text, "\n")
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if !strings.Contains(trimmed, "[escalate]") &&
-			!strings.Contains(trimmed, "[mechanical]") &&
-			!strings.Contains(trimmed, "[memory-cited]") {
+		m := pinLineRe.FindStringSubmatch(trimmed)
+		if m == nil {
 			continue
 		}
 
 		pin := Pin{}
 
-		// Determine tag.
-		switch {
-		case strings.Contains(trimmed, "[escalate]"):
+		// Determine tag from the captured group (not a substring scan).
+		switch m[1] {
+		case "escalate":
 			pin.Tag = Escalate
 			result.EscalateCount++
-		case strings.Contains(trimmed, "[memory-cited]"):
+		case "memory-cited":
 			pin.Tag = MemoryCited
-		case strings.Contains(trimmed, "[mechanical]"):
+		case "mechanical":
 			pin.Tag = Mechanical
 		}
 

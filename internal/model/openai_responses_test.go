@@ -87,7 +87,7 @@ func TestOpenAIResponses_Verify(t *testing.T) {
 		ReasoningEffort: "medium",
 	}
 
-	text, cost, err := c.Verify(context.Background(), "You are a tester.", "Verify this.")
+text, cost, _, _, err := c.Verify(context.Background(), "You are a tester.", "Verify this.")
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestOpenAIResponses_RequestShape(t *testing.T) {
 		ReasoningEffort: "high",
 	}
 
-	_, _, err := c.Verify(context.Background(), "sys", "hello")
+_, _, _, _, err := c.Verify(context.Background(), "sys", "hello")
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestOpenAIResponses_WebSearchTool(t *testing.T) {
 		UseWebSearch:    true,
 	}
 
-	_, _, err := c.Verify(context.Background(), "", "search test")
+_, _, _, _, err := c.Verify(context.Background(), "", "search test")
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestOpenAIResponses_WebSearchTool_Off(t *testing.T) {
 		UseWebSearch:    false,
 	}
 
-	_, _, err := c.Verify(context.Background(), "", "search test")
+_, _, _, _, err := c.Verify(context.Background(), "", "search test")
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -396,7 +396,7 @@ func TestOpenAIResponses_ErrorResponse(t *testing.T) {
 		APIKey:  "test-key",
 	}
 
-	_, _, err := c.Verify(context.Background(), "", "test")
+_, _, _, _, err := c.Verify(context.Background(), "", "test")
 	if err == nil {
 		t.Fatal("expected error for 429 response")
 	}
@@ -406,7 +406,8 @@ func TestOpenAIResponses_ErrorResponse(t *testing.T) {
 	}
 	if me.Status != 429 {
 		t.Errorf("status = %d, want 429", me.Status)
-	}}
+	}
+}
 
 func TestConvertMessages_SystemPreservation(t *testing.T) {
 	instructions, input := convertMessages([]ChatMessage{

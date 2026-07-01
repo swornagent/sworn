@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 )
+
 // --- grep check tests ---
 
 func TestRunGrepRule_Matches(t *testing.T) {

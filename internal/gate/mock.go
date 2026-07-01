@@ -12,13 +12,14 @@ package gate
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/swornagent/sworn/internal/style"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
-	"github.com/swornagent/sworn/internal/style"
 )
+
 // --- data model ---
 
 // MockReport holds the full structured result of RunMock.
@@ -79,7 +80,7 @@ var (
 		{regexp.MustCompile(`\bMock\w+\s*\{`), "Mock"},
 		{regexp.MustCompile(`\bMock\w+\(`), "Mock"},
 		{regexp.MustCompile(`\bmock\.New`), "mock.New"},
-		{regexp.MustCompile(`\bstub\.New`), "stub.New"},		{regexp.MustCompile(`\bStub\w+\s*\{`), "Stub"},
+		{regexp.MustCompile(`\bstub\.New`), "stub.New"}, {regexp.MustCompile(`\bStub\w+\s*\{`), "Stub"},
 		{regexp.MustCompile(`\bFake\w+\(`), "Fake"},
 		{regexp.MustCompile(`\bhttptest\.`), "httptest"},
 		{regexp.MustCompile(`\bgomock\.`), "gomock"},
@@ -138,6 +139,14 @@ var (
 		{regexp.MustCompile(`\bAPI_KEY\b`), "API_KEY"},
 		{regexp.MustCompile(`\bSECRET_KEY\b`), "SECRET_KEY"},
 
+		// Entitlement / billing — credits, subscription, keyless, claude -p.
+		{regexp.MustCompile(`\bcredits\b`), "credits"},
+		{regexp.MustCompile(`\bCredits\b`), "Credits"},
+		{regexp.MustCompile(`\bsubscription\b`), "subscription"},
+		{regexp.MustCompile(`\bSubscription\b`), "Subscription"},
+		{regexp.MustCompile(`\bkeyless\b`), "keyless"},
+		{regexp.MustCompile(`\bKeyless\b`), "Keyless"},
+		{regexp.MustCompile(`\bclaude -p\b`), "claude -p"},
 		// Connection strings (checked after named env vars, before localhost).
 		{regexp.MustCompile(`postgres://`), "postgres-uri"},
 		{regexp.MustCompile(`mysql://`), "mysql-uri"},
@@ -325,6 +334,7 @@ func scanFileForMocks(file, baseRef string, overrides *MockOverrides, deferrals 
 
 	return mockUsages, violations
 }
+
 // findMocksInFile scans a file for mock/stub/fixture/seed patterns.
 func findMocksInFile(file string, lines []string, addedSet map[int]bool) ([]MockUsage, map[int]MockUsage) {
 	var usages []MockUsage
@@ -414,10 +424,10 @@ type MockDeferrals struct {
 
 // MockDeferralEntry is a single deferral entry.
 type MockDeferralEntry struct {
-	What    string `json:"what"`
-	Why     string `json:"why"`
-	Issue   string `json:"issue"`
-	Ack     string `json:"ack"`
+	What  string `json:"what"`
+	Why   string `json:"why"`
+	Issue string `json:"issue"`
+	Ack   string `json:"ack"`
 }
 
 // HasMockBoundary returns true when any deferral entry relates to mocks.

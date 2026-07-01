@@ -23,11 +23,11 @@ import (
 // and attempt number at the verdict-record site so downstream consumers (S54
 // history-backed routing) can answer model-vs-outcome questions.
 type Record struct {
-	V    int    `json:"v"`
-	Ts   string `json:"ts"`
-	Release  string `json:"release"`
-	Track    string `json:"track"`
-	SliceID  string `json:"slice_id"`
+	V       int    `json:"v"`
+	Ts      string `json:"ts"`
+	Release string `json:"release"`
+	Track   string `json:"track"`
+	SliceID string `json:"slice_id"`
 	// SliceKind is a rubric dimension derived from the track id
 	// (e.g. T5-providers→provider, T16-verdict-ledger→ledger).
 	SliceKind string `json:"slice_kind"`
@@ -107,6 +107,7 @@ func SliceKind(track string) string {
 	}
 	return rest
 }
+
 // CountLines returns the number of non-empty lines in the ledger file.
 // Returns 0 if the file does not exist.
 func CountLines(path string) int {
@@ -141,23 +142,23 @@ func Project(st *state.Status, gateCount int) (Record, bool) {
 	}
 
 	r := Record{
-		V:                 2,
-		Ts:                time.Now().UTC().Format(time.RFC3339),
-		Release:           st.Release,
-		Track:             st.Track,
-		SliceID:           st.SliceID,
-		SliceKind:         SliceKind(st.Track),
-		Role:              "implementer",
-		Model:             v.Model,
-		Attempt:           v.Attempt,
-		Verdict:           v.Result,
-		State:             string(st.State),
-		FreshContext:      v.VerifierWasFreshContext,
-		Violations:        v.Violations,
-		GateCount:         gateCount,
-		ViolationCount:    len(v.Violations),
-		Dispatches:         v.Dispatches,
-		SwornVersion:       baton.Version(),
+		V:              2,
+		Ts:             time.Now().UTC().Format(time.RFC3339),
+		Release:        st.Release,
+		Track:          st.Track,
+		SliceID:        st.SliceID,
+		SliceKind:      SliceKind(st.Track),
+		Role:           "implementer",
+		Model:          v.Model,
+		Attempt:        v.Attempt,
+		Verdict:        v.Result,
+		State:          string(st.State),
+		FreshContext:   v.VerifierWasFreshContext,
+		Violations:     v.ViolationStrings(),
+		GateCount:      gateCount,
+		ViolationCount: len(v.Violations),
+		Dispatches:     v.Dispatches,
+		SwornVersion:   baton.Version(),
 	}
 	var totalCost float64
 	for _, d := range v.Dispatches {

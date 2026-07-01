@@ -34,7 +34,7 @@ This is the cheap-and-strong pattern. You do not need a second model subscriptio
 
 1. A fresh terminal window or new agent session.
 2. A `verifier.md` role prompt that forbids reading prior conversation.
-3. The slice artefacts (`spec.md`, `proof.md`, `status.json`, the repo diff).
+3. The slice artefacts (`spec.json`, `proof.json`, `status.json`, the repo diff).
 4. A PASS / FAIL / BLOCKED return contract.
 
 That is the entire requirement. Anything beyond it is optimisation.
@@ -43,7 +43,7 @@ That is the entire requirement. Anything beyond it is optimisation.
 
 The verifier session must:
 
-- **Load only**: `spec.md`, `proof.md`, `status.json` for the target slice, and live repo state via `git diff` / test commands. It must not load the implementer's session transcript, conversational memory, or any "wrap-up" prose.
+- **Load only**: `spec.json`, `proof.json`, `status.json` for the target slice, and live repo state via `git diff` / test commands. It must not load the implementer's session transcript, conversational memory, or any "wrap-up" prose.
 - **Return exactly one of**:
   - `PASS` — every required gate is satisfied; the slice can transition to `verified`.
   - `FAIL: <numbered list of concrete violations>` — each violation tied to a specific spec acceptance check or proof-bundle gate.
@@ -56,7 +56,7 @@ The verifier role prompt is provided in `role-prompts/verifier.md`. Paste it ver
 
 ## When this rule applies
 
-- Any slice with a `spec.md` that has been moved to `implemented` state.
+- Any slice with a `spec.json` that has been moved to `implemented` state.
 - Any release-mode work where Rule 6 already requires a proof bundle.
 - Any continuation session that needs to confirm prior-session claims before building on top of them.
 
@@ -89,8 +89,8 @@ State transitions:
 
 The minimum-cost loop that satisfies Rule 7:
 
-1. Implementer session works one vertical slice. Writes `spec.md`, `journal.md`, `proof.md`, updates `status.json` to `implemented`.
-2. Run `sworn verify <slice-id>` from a terminal. The script does deterministic first-pass: confirms `proof.md` exists, confirms `git diff` is non-empty, greps for dark-code markers, runs the test commands listed in `proof.md`. If the script fails, the slice never reaches the verifier — fix and re-run.
+1. Implementer session works one vertical slice. Emits `proof.json` (and maintains `journal.md`), updates `status.json` to `implemented`.
+2. Run the **proof-bundle verification gate** (reference implementation: `sworn verify <slice-id>`). It does a deterministic first-pass: confirms `proof.json` exists and validates against `proof-v1`, confirms `git diff` is non-empty, greps for dark-code markers, runs the test commands listed in `proof.json`. If the gate fails, the slice never reaches the verifier — fix and re-run.
 3. Open a fresh agent session (new terminal, new window, no prior context). Paste `role-prompts/verifier.md`. Provide the slice id.
 4. The verifier reads only the artefacts and returns PASS / FAIL / BLOCKED.
 5. Implementer (in a separate session, or the same session after reading the verdict from disk) addresses any FAIL items, regenerates the proof bundle, and re-submits.

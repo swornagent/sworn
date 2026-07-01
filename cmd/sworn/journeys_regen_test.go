@@ -16,7 +16,8 @@ import (
 // committed test, sworn journeys --regen generates the scaffold but exits 1
 // because gaps existed at run start (Option A: fail-closed on pre-codification
 // state). The message reports the gap was filled but exit is still 1.
-func TestJourneysRegenCmd_CoverageGapFilled(t *testing.T) {	dir := t.TempDir()
+func TestJourneysRegenCmd_CoverageGapFilled(t *testing.T) {
+	dir := t.TempDir()
 
 	// Create a ratified journeys artefact with one walked-pass journey
 	// that has no regression test.
@@ -92,10 +93,10 @@ func TestJourneysRegenCmd_FullCoverage(t *testing.T) {
 	// that already has HasRegression=true.
 	a := journey.NewArtefact()
 	a.AddJourney(journey.Journey{
-		ID:                "J01-verify-flow",
-		UserType:          "developer",
-		Outcome:           "Verify a slice",
-		HasRegression:     true,
+		ID:                 "J01-verify-flow",
+		UserType:           "developer",
+		Outcome:            "Verify a slice",
+		HasRegression:      true,
 		RegressionTestPath: "tests/e2e/journeys/journey_j01_verify_flow_test.go",
 		Steps: []journey.JourneyStep{
 			{Order: 1, Description: "Run sworn verify", Surface: "CLI"},

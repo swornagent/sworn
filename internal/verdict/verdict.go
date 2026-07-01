@@ -25,10 +25,27 @@ const (
 
 // Result is the machine-readable verdict emitted by `swornagent verify`.
 type Result struct {
-	Verdict    Verdict `json:"verdict"`
-	FailedGate string  `json:"failed_gate,omitempty"`
-	Rationale  string  `json:"rationale"`
-	CostUSD    float64 `json:"cost_usd"`
+	Verdict          Verdict `json:"verdict"`
+	FailedGate       string  `json:"failed_gate,omitempty"`
+	Rationale        string  `json:"rationale"`
+	CostUSD          float64 `json:"cost_usd"`
+	InputTokens      int64   `json:"input_tokens,omitempty"`
+	OutputTokens     int64   `json:"output_tokens,omitempty"`
+	DurationMS       int64   `json:"duration_ms,omitempty"`
+	ModelIDConfirmed string  `json:"model_id_confirmed,omitempty"`
+	// Violations carries the per-gate violation summaries the verifier emits
+	// with a FAIL/BLOCKED verdict. Since ADR-0011 these come off the typed
+	// verifier-verdict-v1 record (one string per emitted violation:
+	// "gate: description"), replacing the prose-splitting extractViolations
+	// scrape. This stays []string by design (D4 / S01-d6-record-reconciliation):
+	// it is sworn-generated, not coach-read, so there is no object-field-loss
+	// concern; run.violationsFromStrings wraps it into []state.Violation for the
+	// status carrier, and state.Verification.ViolationStrings() projects back.
+	Violations []string `json:"violations,omitempty"`
+	// Routing is the blocked-routing owner the verifier may emit alongside a
+	// non-PASS verdict ("needs_planner" | "needs_human" | "needs_implementer").
+	// Consumed by the BLOCKED halt path to populate status.json verification.routing.
+	Routing string `json:"routing,omitempty"`
 }
 
 // ExitCode maps a verdict to a process exit code. 0 only for PASS; everything

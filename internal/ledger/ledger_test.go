@@ -35,7 +35,7 @@ func makeStatus(result, model string, attempt int) *state.Status {
 
 func TestProject_Pass(t *testing.T) {
 	st := makeStatus("pass", "claude-sonnet-4-20250514", 1)
-	st.Verification.Violations = []string{}
+	st.Verification.Violations = []state.Violation{}
 
 	r, ok := Project(st, 7)
 	if !ok {
@@ -72,7 +72,7 @@ func TestProject_Pass(t *testing.T) {
 
 func TestProject_Fail(t *testing.T) {
 	st := makeStatus("fail", "claude-sonnet-4-20250514", 3)
-	st.Verification.Violations = []string{"missing proof bundle", "unreachable test"}
+	st.Verification.Violations = []state.Violation{{Description: "missing proof bundle"}, {Description: "unreachable test"}}
 
 	r, ok := Project(st, 4)
 	if !ok {
@@ -95,7 +95,7 @@ func TestProject_Fail(t *testing.T) {
 func TestProject_Blocked(t *testing.T) {
 	st := makeStatus("blocked", "claude-sonnet-4-20250514", 1)
 	st.State = state.FailedVerification
-	st.Verification.Violations = []string{"missing spec artefact"}
+	st.Verification.Violations = []state.Violation{{Description: "missing spec artefact"}}
 
 	r, ok := Project(st, 5)
 	if !ok {

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "schema_version": 1,
+  "slice_id": "S02-version-bump-ci-gate",
+  "release": "2026-07-01-release-hygiene",
+  "user_outcome": "A pull request that targets `main` without bumping the version is blocked by a fail-closed CI gate, so a release can never ship without the reported version advancing.",
+  "rationale": "Depends on S01: the gate compares internal/version/version.txt (the single source S01 establishes) between the PR head and the base (main). The check is fail-closed — an unchanged or non-incremented version is a failure, not a pass. Implemented as an isolated GitHub Actions workflow (A-02) rather than a job appended to ci.yml, for clarity. Comparison is strictly-greater semver (A-01), so a no-op edit does not satisfy it.",
+  "covers_needs": ["N-02"],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "chore",
+    "rationale": "One workflow file + a small compare step/script. No production code. The only subtlety is the semver compare and reading the base-ref file.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    ".github/workflows/version-bump.yml",
+    "scripts/check-version-bump.sh"
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When a pull request targets `main`, the version-bump workflow SHALL read internal/version/version.txt on the PR head and on the base (main) and SHALL fail the check unless the head version is a strictly-greater semver than the base version."
+    },
+    {
+      "id": "AC-02",
+      "type": "unwanted",
+      "ears_keyword": "If",
+      "text": "If internal/version/version.txt is unchanged, malformed, or not strictly greater than the base, then the gate SHALL exit non-zero (fail closed) with a message naming the base and head versions."
+    },
+    {
+      "id": "AC-03",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "The gate SHALL run only for PRs whose base is `main` (the protected branch), so feature/release-branch PRs are not blocked; this SHALL be expressed in the workflow trigger (on: pull_request: branches: [main])."
+    },
+    {
+      "id": "AC-04",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When scripts/check-version-bump.sh is run locally with BASE and HEAD version arguments, it SHALL exit 0 only if HEAD > BASE (semver) and non-zero otherwise — so the logic is testable without GitHub. Reachability artefact: a documented local invocation showing a pass (0.1.0 -> 0.1.1) and a fail (0.1.0 -> 0.1.0)."
+    }
+  ]
+}

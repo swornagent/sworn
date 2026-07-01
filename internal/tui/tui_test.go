@@ -639,6 +639,7 @@ func createSliceStatus(t *testing.T, releaseDir, sliceID, sliceState, track stri
 
 	st := &state.Status{
 		SliceID: sliceID,
+		Release: filepath.Base(releaseDir), // required by validate-on-write
 		State:   state.State(sliceState),
 		Track:   track,
 	}
@@ -879,6 +880,7 @@ tracks:
 	os.MkdirAll(sliceDir, 0o755)
 	st := &state.Status{
 		SliceID: "S01-blocked",
+		Release: filepath.Base(releaseDir), // required by validate-on-write
 		State:   state.Implemented,
 		Track:   "T1-core",
 		Verification: state.Verification{

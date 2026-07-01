@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 )
+
 // TestImpactAnalysis_MissingArtefact verifies AC2: WHEN no ratified journeys
 // artefact exists, impact analysis fails closed and directs the user to run
 // elicitation (S11) first.
@@ -29,7 +30,8 @@ func TestImpactAnalysis_MissingArtefact(t *testing.T) {
 		t.Errorf("expected CheckMissing, got %v", impErr.Result)
 	}
 	if !strings.Contains(impErr.Message, "elicit") {
-		t.Errorf("expected message to mention elicit, got: %s", impErr.Message)	}
+		t.Errorf("expected message to mention elicit, got: %s", impErr.Message)
+	}
 }
 
 // TestImpactAnalysis_UnratifiedArtefact verifies that an unratified artefact
@@ -324,7 +326,7 @@ func TestTokenize(t *testing.T) {
 		{"cmd/sworn/verify.go", []string{"cmd", "sworn", "verify", "go"}},
 		{"CLI", []string{"CLI"}},
 		{"sworn init", []string{"sworn", "init"}},
-		{"CLI / sworn", []string{"CLI", "sworn"}},		{"verify-ui", []string{"verify", "ui"}},
+		{"CLI / sworn", []string{"CLI", "sworn"}}, {"verify-ui", []string{"verify", "ui"}},
 		{"web-dashboard", []string{"web", "dashboard"}},
 		{"", nil},
 	}
@@ -416,6 +418,7 @@ func asImpactError(err error, target **ImpactError) bool {
 	}
 	return false
 }
+
 // Ensure json import is used (it's used by writeJSON but the compiler may not
 // count indirect usage). This import is required by the test file.
 var _ = sort.Strings // ensure sort import is used

@@ -7,6 +7,7 @@
 //   - EnvPath returns the path to ~/.sworn/.env.
 //   - LoadEnv / WriteEnv read and write provider API keys in .env format.
 package config
+
 import (
 	"encoding/json"
 	"fmt"
@@ -47,7 +48,7 @@ type Config struct {
 	// struct), the design tokens source of truth (TokenSource), and the coded
 	// component library (ComponentLibrary). Required when UIBearing is true.
 	DesignSystem *DesignSystem `json:"design_system,omitempty"`
-}// DesignSystem represents a project's design system declaration.
+} // DesignSystem represents a project's design system declaration.
 // The three concepts are distinguished:
 //   - DesignSystem (the umbrella struct)
 //   - TokenSource (design tokens — the named-value source of truth)
@@ -68,6 +69,7 @@ var ErrNoDesignSystem = fmt.Errorf(
 		"a design system (token source + component library) is required " +
 		"for design conformance; run 'sworn init' to configure",
 )
+
 // ModelSetting holds a single role's model selection, escalation path, and
 // retry cap. EscalationModels and MaxAttempts are only meaningful for the
 // implementer role; the verifier ignores them (single-model, no retry).
@@ -76,6 +78,7 @@ type ModelSetting struct {
 	EscalationModels []string `json:"escalation_models,omitempty"`
 	MaxAttempts      int      `json:"max_attempts,omitempty"`
 }
+
 // Validate checks config invariants. It returns ErrNoDesignSystem when a
 // UI-bearing project has no DesignSystem declaration. Unit-bearing projects
 // (ui_bearing: false) are exempt.
@@ -107,7 +110,7 @@ func DefaultConfig() Config {
 		UIBearing:    false,
 		DesignSystem: nil,
 	}
-}// ConfigDir returns the directory containing the config file.
+} // ConfigDir returns the directory containing the config file.
 // It is a thin wrapper around filepath.Dir(Path()) — one line.
 // Added by S06a-sworn-login-auth (T3-commercial).
 func ConfigDir() string {
@@ -115,6 +118,7 @@ func ConfigDir() string {
 }
 
 // Path returns the config file path, respecting env-var overrides://
+//
 //	$SWORN_CONFIG_PATH — exact path to config.json
 //	$SWORN_HOME        — config directory (joined with "config.json")
 //	default             — XDG-compatible: $HOME/.config/sworn/config.json on Linux,
@@ -184,6 +188,7 @@ func ResolveVerifierModel(flagModel string, cfg Config) (string, error) {
 		Path(),
 	)
 }
+
 // DefaultEscalationModels is the programmatic fallback when no escalation
 // models are configured via flag, env, or config. Each entry is a
 // "provider/model" ID suitable for model.FromEnv.
@@ -268,7 +273,7 @@ func ResolveImplementerModel(flagModel string, cfg Config, sliceKind string, led
 		"implementer model not configured — run 'sworn init' to scaffold a config file (%s) or set $SWORN_IMPLEMENTER_MODEL",
 		Path(),
 	)
-}// ResolveEscalationModels returns the ordered escalation model list from the
+} // ResolveEscalationModels returns the ordered escalation model list from the
 // first available source, in precedence order:
 //
 //  1. --escalation-models flag (passed as a pre-parsed []string)
@@ -361,7 +366,8 @@ func LoadEnv() (map[string]string, error) {
 		return nil, fmt.Errorf("config: reading %s: %w", p, err)
 	}
 	result := map[string]string{}
-	for _, line := range strings.Split(string(data), "\n") {		line = strings.TrimSpace(line)
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}

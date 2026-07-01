@@ -39,6 +39,13 @@ type OpenAIResponses struct {
 	UseWebSearch    bool         // include built-in web_search tool
 }
 
+// Capabilities returns CapVerify | CapChat | CapStructuredOutput — the
+// OpenAIResponses driver supports single-shot verification, multi-turn chat,
+// and strict json_schema structured output (via text.format) over /v1/responses.
+func (o *OpenAIResponses) Capabilities() Capability {
+	return CapVerify | CapChat | CapStructuredOutput
+}
+
 // NewOpenAIResponses constructs an OpenAIResponses driver.
 // apiKey must be non-empty. ReasoningEffort defaults to "medium" if empty.
 // UseWebSearch defaults to false unless SWORN_OPENAI_RESPONSES_USE_WEB_SEARCH
@@ -72,6 +79,23 @@ type responsesRequest struct {
 	Instructions string              `json:"instructions,omitempty"`
 	Reasoning    *reasoningConfig    `json:"reasoning,omitempty"`
 	Tools        []responsesToolItem `json:"tools,omitempty"`
+	Text         *responsesText      `json:"text,omitempty"`
+}
+
+// responsesText carries the structured-output format for /v1/responses. The
+// Responses API expresses strict json_schema under text.format (rather than
+// chat/completions' response_format).
+type responsesText struct {
+	Format *responsesTextFormat `json:"format,omitempty"`
+}
+
+// responsesTextFormat is the strict json_schema descriptor for text.format:
+// {"type":"json_schema","name":...,"schema":...,"strict":true}.
+type responsesTextFormat struct {
+	Type   string          `json:"type"`
+	Name   string          `json:"name"`
+	Schema json.RawMessage `json:"schema"`
+	Strict bool            `json:"strict"`
 }
 
 type responsesInput struct {
@@ -92,28 +116,28 @@ type reasoningConfig struct {
 
 // responsesToolItem can represent either a function tool or a built-in tool.
 type responsesToolItem struct {
-	Type     string              `json:"type"`
-	Function *ToolFunction       `json:"function,omitempty"`
-	Name     string              `json:"name,omitempty"`
-	WebSearch *webSearchPreview   `json:"web_search_preview,omitempty"`
+	Type      string            `json:"type"`
+	Function  *ToolFunction     `json:"function,omitempty"`
+	Name      string            `json:"name,omitempty"`
+	WebSearch *webSearchPreview `json:"web_search_preview,omitempty"`
 }
 
 type webSearchPreview struct{}
 
 // responsesOutput is a single output item from the /v1/responses response.
 type responsesOutput struct {
-	Type    string `json:"type"`
-	CallID  string `json:"call_id,omitempty"`
-	Name    string `json:"name,omitempty"`
-	Arguments string `json:"arguments,omitempty"`
-	Status  string `json:"status,omitempty"`
-	Role    string `json:"role,omitempty"`
-	Content []responsesContentItem `json:"content,omitempty"`
+	Type      string                 `json:"type"`
+	CallID    string                 `json:"call_id,omitempty"`
+	Name      string                 `json:"name,omitempty"`
+	Arguments string                 `json:"arguments,omitempty"`
+	Status    string                 `json:"status,omitempty"`
+	Role      string                 `json:"role,omitempty"`
+	Content   []responsesContentItem `json:"content,omitempty"`
 }
 
 type responsesContentItem struct {
-	Type      string `json:"type"`
-	Text      string `json:"text,omitempty"`
+	Type       string `json:"type"`
+	Text       string `json:"text,omitempty"`
 	Transcript string `json:"transcript,omitempty"`
 }
 
@@ -137,7 +161,7 @@ type responsesUsage struct {
 // Verify sends the system prompt + user payload to /v1/responses.
 // On any HTTP error, timeout, or unparseable response it returns an error
 // (not a panic) — the caller (verify.Run) maps errors to BLOCKED.
-func (c *OpenAIResponses) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, error) {
+func (c *OpenAIResponses) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
 	input := []responsesInput{}
 	if userPayload != "" {
 		input = append(input, responsesInput{Role: "user", Content: userPayload})
@@ -147,13 +171,13 @@ func (c *OpenAIResponses) Verify(ctx context.Context, systemPrompt, userPayload 
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(reqBody); err != nil {
-		return "", 0, fmt.Errorf("model: marshal responses request: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: marshal responses request: %w", err)
 	}
 
 	url := strings.TrimRight(c.BaseURL, "/") + "/responses"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &buf)
 	if err != nil {
-		return "", 0, fmt.Errorf("model: build responses request: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: build responses request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -164,13 +188,13 @@ func (c *OpenAIResponses) Verify(ctx context.Context, systemPrompt, userPayload 
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", 0, fmt.Errorf("model: responses dispatch: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: responses dispatch: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", 0, fmt.Errorf("model: read responses response: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: read responses response: %w", err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -178,18 +202,18 @@ func (c *OpenAIResponses) Verify(ctx context.Context, systemPrompt, userPayload 
 		if resp.StatusCode == http.StatusPaymentRequired {
 			me.Err = account.ErrInsufficientCredits
 		}
-		return "", 0, me
+		return "", 0, 0, 0, me
 	}
 
 	var ar responsesAPIResponse
 	if err := json.Unmarshal(body, &ar); err != nil {
-		return "", 0, fmt.Errorf("model: unmarshal responses response: %w", err)
+		return "", 0, 0, 0, fmt.Errorf("model: unmarshal responses response: %w", err)
 	}
 
 	text := extractOutputText(ar.Output)
 	usage := convertUsage(ar.Usage)
 	cost := computeCost(c.Model, usage)
-	return text, cost, nil
+	return text, cost, 0, 0, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -201,7 +225,49 @@ func (c *OpenAIResponses) Verify(ctx context.Context, systemPrompt, userPayload 
 func (c *OpenAIResponses) Chat(ctx context.Context, messages []ChatMessage, tools []ToolDef) (*ChatResponse, error) {
 	instructions, input := convertMessages(messages)
 	reqBody := c.buildRequest(instructions, input, tools)
+	ar, err := c.postResponses(ctx, reqBody)
+	if err != nil {
+		return nil, err
+	}
+	return convertToChatResponse(ar.Output, ar.Usage), nil
+}
 
+// ChatStructured implements StructuredOutput over /v1/responses. The lenient
+// schema is projected to the strict profile at call time (D1) and attached via
+// text.format. The emitted text output is normalised into
+// Choices[0].Message.Content with the wire-level fail-closed guard; semantic
+// validation by schema name is the caller's (ADR-0011).
+func (c *OpenAIResponses) ChatStructured(ctx context.Context, messages []ChatMessage, schema []byte) (*ChatResponse, error) {
+	strict, err := strictProjection(schema)
+	if err != nil {
+		return nil, err
+	}
+	instructions, input := convertMessages(messages)
+	reqBody := c.buildRequest(instructions, input, nil)
+	reqBody.Text = &responsesText{Format: &responsesTextFormat{
+		Type:   "json_schema",
+		Name:   schemaName(schema),
+		Schema: json.RawMessage(strict),
+		Strict: true,
+	}}
+
+	ar, err := c.postResponses(ctx, reqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	content, err := normaliseStructuredContent(extractOutputText(ar.Output))
+	if err != nil {
+		return nil, err
+	}
+	cr := convertToChatResponse(ar.Output, ar.Usage)
+	cr.Choices[0].Message.Content = content
+	return cr, nil
+}
+
+// postResponses marshals reqBody, POSTs it to /v1/responses, and returns the
+// parsed response (with status mapping). Shared by Chat and ChatStructured.
+func (c *OpenAIResponses) postResponses(ctx context.Context, reqBody responsesRequest) (*responsesAPIResponse, error) {
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(reqBody); err != nil {
 		return nil, fmt.Errorf("model: marshal responses request: %w", err)
@@ -238,13 +304,11 @@ func (c *OpenAIResponses) Chat(ctx context.Context, messages []ChatMessage, tool
 		return nil, me
 	}
 
-	// Parse into responses shape, then convert to ChatResponse for the agent loop.
 	var ar responsesAPIResponse
 	if err := json.Unmarshal(body, &ar); err != nil {
 		return nil, fmt.Errorf("model: unmarshal responses response: %w", err)
 	}
-
-	return convertToChatResponse(ar.Output, ar.Usage), nil
+	return &ar, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -382,8 +446,8 @@ func convertToChatResponse(output []responsesOutput, usage *responsesUsage) *Cha
 				},
 			})
 
-		// reasoning, web_search_call, etc. are ignored —
-		// they don't map to ChatResponse fields.
+			// reasoning, web_search_call, etc. are ignored —
+			// they don't map to ChatResponse fields.
 		}
 	}
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/git"
+	"github.com/swornagent/sworn/internal/router"
 	"github.com/swornagent/sworn/internal/state"
 )
 
@@ -31,6 +32,7 @@ var execSwornRun = func(ctx context.Context, swornPath, sliceID, repoRoot string
 	}
 	return cmd.Process.Pid, nil
 }
+
 // ---- Input Schemas (JSON Schema) ----
 
 var getBoardSchema = json.RawMessage(`{
@@ -106,16 +108,18 @@ var listReleasesSchema = json.RawMessage(`{
 
 type OpsTools struct {
 	repoRoot string
+	repo     *git.Repo // may be nil for filesystem-only operations
 }
 
-// NewOpsTools creates an OpsTools struct bound to a repo root path.
-func NewOpsTools(repoRoot string) *OpsTools {
-	return &OpsTools{repoRoot: repoRoot}
+// NewOpsTools creates an OpsTools struct bound to a repo root path and
+// optionally a git.Repo for oracle-backed reads.
+func NewOpsTools(repoRoot string, repo *git.Repo) *OpsTools {
+	return &OpsTools{repoRoot: repoRoot, repo: repo}
 }
 
 // RegisterOpsTools registers all 9 operations tool handlers on the MCP server.
-func RegisterOpsTools(s *Server, repoRoot string) {
-	ot := NewOpsTools(repoRoot)
+func RegisterOpsTools(s *Server, repoRoot string, repo *git.Repo) {
+	ot := NewOpsTools(repoRoot, repo)
 
 	s.RegisterTool("get_board", getBoardSchema, ot.handleGetBoard)
 	s.RegisterTool("get_blocked", getBlockedSchema, ot.handleGetBlocked)
@@ -201,9 +205,14 @@ func (ot *OpsTools) handleGetBoard(ctx context.Context, params json.RawMessage) 
 	return textResult(strings.Join(results, "\n---\n")), nil
 }
 
-// readReleaseBoard reads a release's index.md and per-slice status.json files,
-// returning a formatted board summary.
+// readReleaseBoard reads a release's board state. When the OpsTools has a
+// *git.Repo, it uses the board.Oracle (git-ref reads) for authoritative
+// per-slice state. Falls back to filesystem reads when repo is nil.
 func (ot *OpsTools) readReleaseBoard(release string) (string, error) {
+	if ot.repo != nil {
+		return ot.readReleaseBoardOracle(release)
+	}
+
 	indexPath := filepath.Join(ot.repoRoot, "docs", "release", release, "index.md")
 	indexData, err := os.ReadFile(indexPath)
 	if err != nil {
@@ -235,8 +244,49 @@ func (ot *OpsTools) readReleaseBoard(release string) (string, error) {
 	return b.String(), nil
 }
 
-// ---- 2. get_blocked ----
+// readReleaseBoardOracle uses the board.Oracle to read committed state from
+// git refs (track branch → release-wt → HEAD) instead of the working tree.
+func (ot *OpsTools) readReleaseBoardOracle(release string) (string, error) {
+	oracle := board.NewGitOracle(ot.repo)
+	releaseRef := "refs/heads/release-wt/" + release
 
+	adapter, err := board.NewOracleReaderAdapter(oracle, oracleReader{repo: ot.repo}, release, releaseRef)
+	if err != nil {
+		return "", fmt.Errorf("oracle adapter: %w", err)
+	}
+
+	boardState, err := adapter.ReadBoard(context.Background(), release)
+	if err != nil {
+		return "", fmt.Errorf("read board via oracle: %w", err)
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Release: %s\n", release)
+	fmt.Fprintf(&b, "Tracks: %d\n", len(boardState.Tracks))
+
+	for _, t := range boardState.Tracks {
+		fmt.Fprintf(&b, "\n  Track: %s\n", t.ID)
+		fmt.Fprintf(&b, "    Slices: %d\n", len(t.Slices))
+
+		for _, ss := range t.Slices {
+			fmt.Fprintf(&b, "      - %s: %s (updated: %s)\n", ss.ID, ss.State, ss.LastUpdated)
+		}
+	}
+
+	return b.String(), nil
+}
+
+// oracleReader adapts *git.Repo to board.gitContentReader for the oracle.
+type oracleReader struct {
+	repo *git.Repo
+}
+
+func (r oracleReader) Show(ref, path string) (string, error) { return r.repo.Show(ref, path) }
+func (r oracleReader) CatFileExists(ref, path string) (bool, error) {
+	return r.repo.CatFileExists(ref, path)
+}
+
+// ---- 2. get_blocked ----
 func (ot *OpsTools) handleGetBlocked(ctx context.Context, params json.RawMessage) (*ToolResult, error) {
 	releasesDir := filepath.Join(ot.repoRoot, "docs", "release")
 	entries, err := os.ReadDir(releasesDir)
@@ -355,7 +405,8 @@ func (ot *OpsTools) handleRerunSlice(ctx context.Context, params json.RawMessage
 		return textResult(fmt.Sprintf("State reset to in_progress, but failed to start subprocess: %v", err)), nil
 	}
 
-	return textResult(fmt.Sprintf("Slice %q reset to in_progress. Subprocess started (PID: %d). Check get_board for state updates.", p.SliceID, pid)), nil}
+	return textResult(fmt.Sprintf("Slice %q reset to in_progress. Subprocess started (PID: %d). Check get_board for state updates.", p.SliceID, pid)), nil
+}
 
 // ---- 5. patch_slice ----
 
@@ -405,18 +456,20 @@ func (ot *OpsTools) handleApproveMerge(ctx context.Context, params json.RawMessa
 		return textResult(fmt.Sprintf("Track %q not found in release %q.", p.TrackID, p.Release)), nil
 	}
 
-	// Validate all track slices are in verified state
+	trackBranch := matchTrack.WorktreeBranch
+	if trackBranch == "" {
+		return textResult(fmt.Sprintf("Track %q has no worktree_branch set.", p.TrackID)), nil
+	}
+
+	// Validate all track slices are in verified state via oracle (git-ref reads).
 	var unverified []string
-	for _, sliceID := range matchTrack.Slices {
-		statusPath := filepath.Join(ot.repoRoot, "docs", "release", p.Release, sliceID, "status.json")
-		s, err := state.Read(statusPath)
-		if err != nil {
-			unverified = append(unverified, fmt.Sprintf("%s: error reading status (%v)", sliceID, err))
-			continue
-		}
-		if s.State != state.Verified {
-			unverified = append(unverified, fmt.Sprintf("%s: state is %s", sliceID, s.State))
-		}
+	if ot.repo != nil {
+		unverified, err = ot.checkTrackVerifiedOracle(p.Release, matchTrack)
+	} else {
+		unverified, err = ot.checkTrackVerifiedFS(p.Release, matchTrack)
+	}
+	if err != nil {
+		return textResult(fmt.Sprintf("Error checking slice states: %v", err)), nil
 	}
 
 	if len(unverified) > 0 {
@@ -424,23 +477,91 @@ func (ot *OpsTools) handleApproveMerge(ctx context.Context, params json.RawMessa
 			p.TrackID, strings.Join(unverified, "\n  - "))), nil
 	}
 
-	// Pin 4: Use internal/git.Repo.Merge() for the actual merge
+	// Run invariant-4 classifier on the release worktree if repo is available.
 	releaseWorktreePath := extractReleaseWorktreePath(string(indexData))
 	if releaseWorktreePath == "" {
 		return textResult(fmt.Sprintf("release_worktree_path not found in index.md frontmatter")), nil
 	}
 
-	repo := git.New(releaseWorktreePath)
-	trackBranch := matchTrack.WorktreeBranch
-	if trackBranch == "" {
-		return textResult(fmt.Sprintf("Track %q has no worktree_branch set.", p.TrackID)), nil
+	releaseRepo := git.New(releaseWorktreePath)
+
+	// Rule 11: assert target worktree and branch before mutating.
+	currentBranch, err := releaseRepo.CurrentBranch()
+	if err != nil {
+		return textResult(fmt.Sprintf("Error checking release worktree branch: %v", err)), nil
+	}
+	expectedRef := "release-wt/" + p.Release
+	if currentBranch != expectedRef {
+		return textResult(fmt.Sprintf(
+			"BLOCK: release worktree is on branch %q, expected %q — refusing to merge from the wrong branch",
+			currentBranch, expectedRef)), nil
 	}
 
-	if err := repo.Merge(trackBranch); err != nil {
+	// Gate: invariant-4 check on the release worktree.
+	indexAbs := filepath.Join(ot.repoRoot, "docs", "release", p.Release, "index.md")
+	docShared, err := router.ParseDocumentedShared(indexAbs)
+	if err != nil {
+		return textResult(fmt.Sprintf("Warning: could not parse touchpoint matrix: %v — proceeding without invariant-4 check", err)), nil
+	}
+	if err := router.Invariant4Check(releaseRepo, trackBranch, docShared); err != nil {
+		return textResult(fmt.Sprintf("BLOCK: %v", err)), nil
+	}
+
+	// Pin 4: Use internal/git.Repo.Merge() for the actual merge.
+	if err := releaseRepo.Merge(trackBranch); err != nil {
 		return textResult(fmt.Sprintf("Merge failed: %v", err)), nil
 	}
 
 	return textResult(fmt.Sprintf("Track %q merged successfully to release-wt.", p.TrackID)), nil
+}
+
+// checkTrackVerifiedOracle uses board.Oracle to read committed slice states
+// from git refs (track branch → release-wt → HEAD priority chain).
+func (ot *OpsTools) checkTrackVerifiedOracle(release string, t *board.TrackInfo) ([]string, error) {
+	oracle := board.NewGitOracle(ot.repo)
+	releaseRef := "refs/heads/release-wt/" + release
+
+	// Build track map for the oracle.
+	trackMap := make(map[string]board.TrackInfo)
+	trackMap[t.ID] = *t
+
+	var unverified []string
+	for _, sliceID := range t.Slices {
+		ss, _, err := oracle.ReadSliceStatus(
+			context.Background(),
+			oracleReader{repo: ot.repo},
+			"refs/heads/"+t.WorktreeBranch,
+			releaseRef,
+			release,
+			sliceID,
+			trackMap,
+		)
+		if err != nil {
+			unverified = append(unverified, fmt.Sprintf("%s: error reading status (%v)", sliceID, err))
+			continue
+		}
+		if ss.State != state.Verified && ss.State != state.Deferred {
+			unverified = append(unverified, fmt.Sprintf("%s: state is %s", sliceID, ss.State))
+		}
+	}
+	return unverified, nil
+}
+
+// checkTrackVerifiedFS is the filesystem fallback for when repo is nil.
+func (ot *OpsTools) checkTrackVerifiedFS(release string, t *board.TrackInfo) ([]string, error) {
+	var unverified []string
+	for _, sliceID := range t.Slices {
+		statusPath := filepath.Join(ot.repoRoot, "docs", "release", release, sliceID, "status.json")
+		s, err := state.Read(statusPath)
+		if err != nil {
+			unverified = append(unverified, fmt.Sprintf("%s: error reading status (%v)", sliceID, err))
+			continue
+		}
+		if s.State != state.Verified && s.State != state.Deferred {
+			unverified = append(unverified, fmt.Sprintf("%s: state is %s", sliceID, s.State))
+		}
+	}
+	return unverified, nil
 }
 
 // extractReleaseWorktreePath extracts release_worktree_path from raw index.md frontmatter.
@@ -477,9 +598,14 @@ func (ot *OpsTools) handleDeferSlice(ctx context.Context, params json.RawMessage
 	s.LastUpdatedBy = "defer_slice"
 	s.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
-	// Add to open_deferrals
+	// Add to open_deferrals as a typed Deferral (D6 object carrier). Why holds
+	// the reason; Acknowledgement records the defer_slice actor + timestamp so
+	// the Rule-2 must-be-acknowledged shape is satisfied.
 	now := time.Now().UTC().Format("2006-01-02 15:04 MST")
-	deferral := fmt.Sprintf("Deferred: %s (Acknowledged: defer_slice, %s)", p.Reason, now)
+	deferral := state.Deferral{
+		Why:             p.Reason,
+		Acknowledgement: fmt.Sprintf("defer_slice, %s", now),
+	}
 	s.OpenDeferrals = append(s.OpenDeferrals, deferral)
 
 	if err := state.Write(statusPath, s); err != nil {

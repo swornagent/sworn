@@ -253,10 +253,10 @@ func TestCheckStatusTimestamps_NilClock(t *testing.T) {
 // TestExtractJSONField tests the lightweight JSON field extraction.
 func TestExtractJSONField(t *testing.T) {
 	tests := []struct {
-		name    string
-		data    string
-		field   string
-		want    string
+		name  string
+		data  string
+		field string
+		want  string
 	}{
 		{
 			name:  "simple top-level field",

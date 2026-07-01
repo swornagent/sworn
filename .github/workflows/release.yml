@@ -20,6 +20,28 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # Fail closed: a red tree must not be tag-released. ci.yml and this
+      # workflow trigger on different events (branch push/PR vs tag push), so a
+      # cross-workflow `needs:` is not possible — re-run the same gates here
+      # before GoReleaser builds or publishes anything.
+      - name: Gate — gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt: the following files are not formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Gate — build
+        run: go build ./...
+
+      - name: Gate — vet
+        run: go vet ./...
+
+      - name: Gate — test
+        run: go test ./...
+
       - name: Log into GHCR
         uses: docker/login-action@v3
         with:

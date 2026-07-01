@@ -13,7 +13,7 @@ import (
 	"github.com/swornagent/sworn/internal/lint"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/style"
-)// checkLevel classifies a doctor check result.
+) // checkLevel classifies a doctor check result.
 type checkLevel int
 
 const (
@@ -90,7 +90,7 @@ var batonRuleFiles = []string{
 }
 
 // batonRulesIndexHeading is the heading the README.md must carry.
-const batonRulesIndexHeading = "## The seven rules"
+const batonRulesIndexHeading = "## The eleven rules"
 
 // minPromptLength is the minimum byte length for an embedded prompt.
 const minPromptLength = 500
@@ -213,7 +213,8 @@ func cmdDoctor(args []string) int {
 
 	// --- Group 3: Local Baton sync (optional) ---
 	batonHome := os.Getenv("SWORN_BATON_HOME")
-	if batonHome == "" {		home, _ := os.UserHomeDir()
+	if batonHome == "" {
+		home, _ := os.UserHomeDir()
 		batonHome = filepath.Join(home, ".claude", "baton")
 	}
 	if _, err := os.Stat(batonHome); err == nil {
@@ -434,7 +435,88 @@ func checkEmbeddedPrompts() []checkResult {
 		})
 	}
 
-	return results}
+
+	// --- Pin-currency check: SHA-vs-HEAD drift detection.
+	results = append(results, checkPinCurrency())
+
+	// --- Prompt-currency check: pre-records-as-JSON marker detection.
+	results = append(results, checkPromptCurrency())
+
+	return results
+}
+
+
+// checkPinCurrency verifies the vendored pin is from a post-baton/ layout
+// commit. Pre-layout commits (before the baton/ directory restructure) lack
+// the baton/rules/ directory in the embed. The check tries to read
+// baton/rules/01-reachability-gate.md from the adopt embed; if absent, the
+// pin predates the baton/ layout and is stale.
+
+// readBatonDoc is the injectable function for reading Baton doc files.
+// Tests override this to simulate pre-layout pins.
+var readBatonDoc = func(path string) ([]byte, error) {
+	return adopt.BatonDocsFS().ReadFile(path)
+}
+
+func checkPinCurrency() checkResult {
+	// Try to read a known post-layout file from the embed.
+	_, err := readBatonDoc("baton/rules/01-reachability-gate.md")
+	if err != nil {
+		// Pre-baton/ layout — pin is stale.
+		pin, _ := baton.ReadUpstreamPin()
+		return checkResult{
+			level:  levelError,
+			name:   "baton/pin-currency",
+			detail: fmt.Sprintf("PIN-STALE: upstream-sha %s predates baton/ layout — re-vendor required", pin.SHA),
+		}
+	}
+	return checkResult{
+		level:  levelOK,
+		name:   "baton/pin-currency",
+		detail: "vendored pin is from a post-baton/ layout commit",
+	}
+}
+// checkPromptCurrency scans embedded prompts for pre-records-as-JSON
+// markers that indicate stale vendored prompts. The markers are:
+//   - the pre-consolidation version string (pre-consolidation version string)
+//   - "proof.md-primary" (old proof bundle naming)
+//   - "PROOF-optional" (old proof bundle marker)
+//   - "scripts/release-verify.sh" (old first-pass script path)
+
+// promptReadersForCheck is the injectable map of prompt file readers.
+// Tests override this to inject mock prompts containing stale markers.
+var promptReadersForCheck = map[string]func() string{
+	"verifier.md":          prompt.Verifier,
+	"implementer.md":      prompt.Implementer,
+	"planner.md":          prompt.Planner,
+	"captain.md":          prompt.Captain,
+	"verify-stateless.md": prompt.VerifyStateless,
+}
+
+func checkPromptCurrency() checkResult {
+	markers := []string{"v0.4" + ".2", "proof.md-primary", "PROOF-optional", "scripts/release-verify.sh"}
+	var findings []string
+	for name, reader := range promptReadersForCheck {
+		content := reader()
+		for _, marker := range markers {
+			if strings.Contains(content, marker) {
+				findings = append(findings, fmt.Sprintf("%s contains %q", name, marker))
+			}
+		}
+	}
+	if len(findings) > 0 {
+		return checkResult{
+			level:  levelError,
+			name:   "baton/prompt-currency",
+			detail: "PROMPT-STALE: " + strings.Join(findings, "; ") + " — re-vendor prompts",
+		}
+	}
+	return checkResult{
+		level:  levelOK,
+		name:   "baton/prompt-currency",
+		detail: "no pre-JSON markers found in embedded prompts",
+	}
+}
 
 // checkRepoArtifacts checks for legacy Baton artifacts in the repo.
 func checkRepoArtifacts(repoRoot string) []checkResult {
@@ -538,7 +620,8 @@ func checkStatusTimestamps(repoRoot string) []checkResult {
 }
 
 // checkBatonSync compares the embedded Baton docs against the local ~/.claude/baton/.
-func checkBatonSync(batonHome string) []checkResult {	var results []checkResult
+func checkBatonSync(batonHome string) []checkResult {
+	var results []checkResult
 
 	// Compare rules files.
 	mismatches := 0

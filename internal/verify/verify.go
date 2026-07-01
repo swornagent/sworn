@@ -1,30 +1,34 @@
 // Package verify runs the SwornAgent verification protocol: a deterministic
-// $0 first-pass, then an adversarial fresh-context model verification. It is
-// provider-neutral and host-neutral — it operates only on the spec -> diff
-// (-> proof) triple and a Verifier, never on a git host or a specific model.
+// $0 first-pass (RunFirstPass), then an adversarial agentic verification
+// (RunAgentic). It is provider-neutral and host-neutral.
 //
 // Goroutine-safety: stateless by construction — no package-level mutable vars
-// that are written during Run(); each Run call is independent and uses only
-// local state. systemPrompt, knownBoundaryPatterns, and mockMarkerPatterns are
-// initialised at program start and are read-only thereafter (concurrent reads
-// are safe in Go). Verified by S03 concurrent_test.go under -race.
+// that are written during RunFirstPass() or RunAgentic(); each call is
+// independent. knownBoundaryPatterns and mockMarkerPatterns are initialised at
+// program start and are read-only thereafter (concurrent reads are safe in Go).
+// Verified by S03 concurrent_test.go under -race.
 package verify
+
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
+	"github.com/swornagent/sworn/internal/agent"
+	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/prompt"
+	"github.com/swornagent/sworn/internal/state"
 	"github.com/swornagent/sworn/internal/verdict"
 )
 
-// systemPrompt is the sworn-authored stateless judge prompt, vendored at
-// build time via go:embed (internal/prompt). It instructs the model to judge
-// from SPEC+DIFF+PROOF only with a verdict-leading reply — no tools, no repo.
-var systemPrompt = prompt.VerifyStateless()
+// verifierRolePrompt is the full Baton verifier.md role prompt (the agentic
+// verifier). It instructs the model to re-run tests, read live repo state,
+// and return PASS/FAIL/BLOCKED. Used by RunAgentic.
+var verifierRolePrompt = prompt.Verifier()
 
 // Input is everything a verification needs.
 type Input struct {
@@ -32,13 +36,28 @@ type Input struct {
 	DiffPath      string // "-" reads stdin
 	ProofPath     string // optional in S1
 	Model         string
-	Verifier      model.Verifier // nil -> Unconfigured (fails closed)
-	OpenDeferrals []string       // Rule-2 deferrals from status.json (S10 no-mock-boundary)
+	Verifier      model.Verifier   // nil -> Unconfigured (fails closed)
+	OpenDeferrals []state.Deferral // Rule-2 deferrals from status.json (S10 no-mock-boundary)
 }
-// Run executes the protocol and returns a fail-closed Result.
-func Run(ctx context.Context, in Input) verdict.Result {
+
+// RunFirstPass is a structural pre-flight gate ($0 cost) that catches
+// blocker-level issues before the expensive agentic verifier is dispatched.
+// It is purely deterministic — no model call, no token spend. It checks:
+//
+//	(a) spec is present and non-empty
+//	(b) diff is present and non-empty
+//	(c) no undeclared boundary mocks (S10 Rule 7/Rule 2 enforcement)
+//
+// RunFirstPass MUST NOT be used to drive state transitions to verified.
+// A PASS from RunFirstPass only means "no structural blockers found";
+// only the agentic verifier (RunAgentic) can drive state transitions.
+//
+// The function signature accepts Input for caller compatibility; Verifier,
+// Model, and OpenDeferrals fields are consumed deterministically; no model
+// dispatch occurs.
+func RunFirstPass(ctx context.Context, in Input) verdict.Result {
 	// --- Deterministic first-pass ($0 gate) ---
-	spec, err := readNonEmpty(in.SpecPath)
+	_, err := readNonEmpty(in.SpecPath)
 	if err != nil {
 		return blocked("first_pass:spec", err.Error())
 	}
@@ -46,10 +65,7 @@ func Run(ctx context.Context, in Input) verdict.Result {
 	if err != nil {
 		return blocked("first_pass:diff", err.Error())
 	}
-	proof := ""
-	if in.ProofPath != "" {
-		proof, _ = readFile(in.ProofPath)
-	}
+	_ = in.ProofPath // proof is optional in first-pass; enforced by RunSlice proof-mandatory gate
 
 	// --- Boundary-mock check (S10 first-pass gate) ---
 	report := CheckBoundaryMocks(diff, in.OpenDeferrals)
@@ -65,40 +81,174 @@ func Run(ctx context.Context, in Input) verdict.Result {
 			Rationale:  b.String(),
 		}
 	}
+	var rationale string
 	if len(report.DeclaredMocks) > 0 {
 		var b strings.Builder
-		b.WriteString("Declared boundary mock(s) — allowed with known deferral:\n")
+		b.WriteString("First-pass PASS with declared boundary mock(s) — allowed with known deferral:\n")
 		for _, m := range report.DeclaredMocks {
 			b.WriteString(fmt.Sprintf("  - %s (boundary: %s) at %s:%d\n", m.MockType, m.Boundary, m.File, m.Line))
 		}
-		// Append to diff so the model sees the deferral context.
-		diff = diff + "\n\n" + b.String()
+		rationale = b.String()
 	}
 
-	// --- Adversarial model verification ---
-	v := in.Verifier
-	if v == nil {
-		v = model.Unconfigured{}
+	return verdict.Result{
+		Verdict:   verdict.Pass,
+		Rationale: rationale,
 	}
-	text, cost, err := v.Verify(ctx, systemPrompt, buildPayload(spec, diff, proof))
+} // verifierEmitSchema is the model-authored JUDGEMENT subset of
+// verifier-verdict-v1 handed to ChatStructured (ADR-0011 authoring path). It
+// deliberately stays inside OpenAI's strict-mode keyword subset — no minLength /
+// pattern / format (those would break a strict response_format target; see the
+// internal/model/structured.go strict-projection constraint). The canonical
+// verifier-verdict-v1.json schema (which DOES carry minLength/format) is what
+// baton.ValidateSchema validates the stamped emission against; the two agree on
+// the judgement core and any drift fails closed (validation → INCONCLUSIVE).
+// The "title" sets the OpenAI json_schema name (^[a-zA-Z0-9_-]+$).
+var verifierEmitSchema = []byte(`{
+  "title": "verifier-verdict-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "rationale"],
+  "properties": {
+    "verdict": { "type": "string", "enum": ["PASS", "FAIL", "BLOCKED", "INCONCLUSIVE"] },
+    "rationale": { "type": "string" },
+    "failed_gate": { "type": "string" },
+    "routing": { "type": "string", "enum": ["needs_planner", "needs_human", "needs_implementer"] },
+    "violations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gate", "description"],
+        "properties": {
+          "gate": { "type": "string" },
+          "description": { "type": "string" },
+          "evidence": { "type": "string" },
+          "proposed_amendment": { "type": "string" }
+        }
+      }
+    }
+  }
+}`)
+
+// structuredVerdict is the typed view of the model's emitted judgement. It is
+// parsed from the validated emission, never scraped from prose.
+type structuredVerdict struct {
+	Verdict    string `json:"verdict"`
+	Rationale  string `json:"rationale"`
+	FailedGate string `json:"failed_gate"`
+	Routing    string `json:"routing"`
+	Violations []struct {
+		Gate        string `json:"gate"`
+		Description string `json:"description"`
+		Evidence    string `json:"evidence"`
+	} `json:"violations"`
+}
+
+// RunAgentic executes the agentic verification protocol: it dispatches the full
+// verifier.md role prompt and the SPEC+DIFF+PROOF payload, and the verifier
+// EMITS its verdict as a schema-constrained structured-output object
+// (verifier-verdict-v1), which is validated before acceptance (ADR-0011
+// authoring path). This replaces the prior prose reply scraped by HasPrefix —
+// the one live ADR-0009 invariant breach in the hot path.
+//
+// Fail-closed at every boundary: a verifier driver that cannot emit structured
+// output, a dispatch error, a malformed emission, or an emission that fails
+// schema validation (e.g. a FAIL verdict that cites no violations) all resolve
+// to INCONCLUSIVE — never an optimistic or scraped verdict.
+//
+// The caller (RunSlice) is responsible for the proof-mandatory check and
+// no-mock wiring before calling RunAgentic, and stamps the identity triple
+// (slice_id, release) into status.json post-emission — the model payload is
+// judgement-only (ADR-0011 §3.3 g).
+func RunAgentic(ctx context.Context, spec, diff, proof string, verifierAgent agent.Agent) (verdict.Result, error) {
+	userPayload := buildPayload(spec, diff, proof)
+
+	messages := []model.ChatMessage{
+		{Role: "system", Content: verifierRolePrompt},
+		{Role: "user", Content: userPayload},
+	}
+
+	// The verifier must emit a schema-constrained object. A driver that does not
+	// advertise CapStructuredOutput cannot be trusted to a prose verdict any
+	// more (ADR-0009) — fail closed to INCONCLUSIVE.
+	so, ok := verifierAgent.(model.StructuredOutput)
+	if !ok {
+		return inconclusive("verifier_structured_unsupported",
+			"verifier driver does not support structured output (ADR-0011) — cannot emit verifier-verdict-v1"), nil
+	}
+
+	resp, err := so.ChatStructured(ctx, messages, verifierEmitSchema)
 	if err != nil {
-		return blocked("verifier_dispatch", err.Error())
+		return inconclusive("verifier_structured_dispatch", err.Error()), nil
 	}
-	result := parseVerdict(text, cost)
+	if len(resp.Choices) == 0 {
+		return inconclusive("verifier_structured_dispatch", "empty response choices"), nil
+	}
 
-	// Surface declared boundary mocks in the result rationale so the caller
-	// sees them as known deferrals (AC2 — no-mock-boundary).
-	if len(report.DeclaredMocks) > 0 {
-		var b strings.Builder
-		b.WriteString("Declared boundary mock(s) — allowed with known deferral:\n")
-		for _, m := range report.DeclaredMocks {
-			b.WriteString(fmt.Sprintf("  - %s (boundary: %s) at %s:%d\n", m.MockType, m.Boundary, m.File, m.Line))
+	return acceptStructuredVerdict(resp.Choices[0].Message.Content, resp.Usage), nil
+}
+
+// acceptStructuredVerdict validates the emitted judgement against the canonical
+// verifier-verdict-v1 schema and maps it to a verdict.Result. Any failure along
+// the way is INCONCLUSIVE (fail-closed) — the verdict is taken from the typed,
+// validated object, never inferred from prose.
+func acceptStructuredVerdict(emitted string, usage *model.UsageBlock) verdict.Result {
+	cost := computeAgenticCost(usage)
+
+	// Stamp the binary-owned fields the model does not author, then validate the
+	// completed record against the canonical schema (this is where the
+	// FAIL/BLOCKED ⇒ violations≥1 invariant is enforced).
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(emitted), &obj); err != nil {
+		return inconclusiveCost("verifier_structured_malformed",
+			fmt.Sprintf("emitted verdict is not a JSON object: %v", err), cost)
+	}
+	obj["schema_version"] = 1
+	obj["$schema"] = "https://baton.sawy3r.net/schemas/verifier-verdict-v1.json"
+	stamped, err := json.Marshal(obj)
+	if err != nil {
+		return inconclusiveCost("verifier_structured_malformed", err.Error(), cost)
+	}
+	if err := baton.ValidateSchema("verifier-verdict-v1", stamped); err != nil {
+		return inconclusiveCost("verifier_verdict_invalid",
+			fmt.Sprintf("emitted verdict failed verifier-verdict-v1 validation: %v", err), cost)
+	}
+
+	var sv structuredVerdict
+	if err := json.Unmarshal([]byte(emitted), &sv); err != nil {
+		return inconclusiveCost("verifier_structured_malformed", err.Error(), cost)
+	}
+
+	res := verdict.Result{
+		Verdict:    verdict.Verdict(sv.Verdict), // schema-validated to the 4-value enum
+		Rationale:  sv.Rationale,
+		FailedGate: sv.FailedGate,
+		Routing:    sv.Routing,
+		CostUSD:    cost,
+	}
+	if usage != nil {
+		res.InputTokens = int64(usage.PromptTokens)
+		res.OutputTokens = int64(usage.CompletionTokens)
+	}
+	for _, v := range sv.Violations {
+		if v.Gate != "" {
+			res.Violations = append(res.Violations, v.Gate+": "+v.Description)
+		} else {
+			res.Violations = append(res.Violations, v.Description)
 		}
-		b.WriteString("\n")
-		result.Rationale = b.String() + result.Rationale
 	}
+	return res
+}
 
-	return result}
+// computeAgenticCost computes a nominal cost from a UsageBlock.
+// Uses the same ~$2/1M tokens estimate as agent.computeCost for consistency.
+func computeAgenticCost(usage *model.UsageBlock) float64 {
+	if usage == nil {
+		return 0
+	}
+	return float64(usage.TotalTokens) * 0.000002 // ~$2/1M tokens
+}
 
 func buildPayload(spec, diff, proof string) string {
 	var b strings.Builder
@@ -113,63 +263,27 @@ func buildPayload(spec, diff, proof string) string {
 	return b.String()
 }
 
-// parseVerdict extracts the verdict from the model's reply. It tolerates common
-// model output variations — leading blank lines, markdown emphasis, a leading
-// code fence — while remaining fail-closed: only a leading PASS/FAIL/BLOCKED/
-// INCONCLUSIVE token on the first substantive line passes; anything else blocks.
-func parseVerdict(text string, cost float64) verdict.Result {
-	line := firstVerdictLine(text)
-	t := stripMarkdown(line)
-	upper := strings.ToUpper(t)
-	switch {
-	case strings.HasPrefix(upper, "PASS"):
-		return verdict.Result{Verdict: verdict.Pass, Rationale: text, CostUSD: cost}
-	case strings.HasPrefix(upper, "FAIL"):
-		return verdict.Result{Verdict: verdict.Fail, FailedGate: "adversarial", Rationale: text, CostUSD: cost}
-	case strings.HasPrefix(upper, "BLOCKED"):
-		return verdict.Result{Verdict: verdict.Blocked, FailedGate: "adversarial", Rationale: text, CostUSD: cost}
-	case strings.HasPrefix(upper, "INCONCLUSIVE"):
-		return verdict.Result{Verdict: verdict.Inconclusive, FailedGate: "adversarial", Rationale: text, CostUSD: cost}
-	default:
-		return verdict.Result{Verdict: verdict.Blocked, FailedGate: "unparseable_verdict",
-			Rationale: "verifier reply did not start with PASS/FAIL/BLOCKED/INCONCLUSIVE", CostUSD: cost}
-	}
+// NOTE (ADR-0011): parseVerdict / firstVerdictLine / stripMarkdown — the prose
+// HasPrefix verdict scrape — were deleted with the keystone Step-3 pilot. The
+// verifier now EMITS a schema-constrained verifier-verdict-v1 object
+// (acceptStructuredVerdict above); there is no prose verdict to parse.
+
+func blocked(gate, why string) verdict.Result {
+	return verdict.Result{Verdict: verdict.Blocked, FailedGate: gate, Rationale: why}
 }
 
-// firstVerdictLine returns the first non-empty line that is not a bare code
-// fence.  Leading blank lines are skipped; a line containing only ``` is treated
-// as a fence and skipped so that ```\nPASS resolves to PASS.
-func firstVerdictLine(text string) string {
-	lines := strings.Split(text, "\n")
-	for _, line := range lines {
-		t := strings.TrimSpace(line)
-		if t == "" {
-			continue
-		}
-		// A bare code fence line — skip it, the verdict follows.
-		if t == "```" {
-			continue
-		}
-		return t
-	}
-	return ""
+// inconclusive builds a fail-closed INCONCLUSIVE result for the structured
+// authoring path: a verifier that could not emit, or emitted an unparseable or
+// schema-invalid object, is treated as not-yet-determinate (re-verify), never
+// as a scraped or optimistic verdict (ADR-0011).
+func inconclusive(gate, why string) verdict.Result {
+	return verdict.Result{Verdict: verdict.Inconclusive, FailedGate: gate, Rationale: why}
 }
 
-// stripMarkdown removes surrounding markdown emphasis characters (*, _, `) and
-// a leading code-fence marker (```) from a single line.  It trims space before
-// and after so the result is ready for prefix matching.
-func stripMarkdown(line string) string {
-	t := strings.TrimSpace(line)
-	if strings.HasPrefix(t, "```") {
-		t = strings.TrimPrefix(t, "```")
-	}
-	t = strings.TrimSpace(t)
-	// Strip surrounding emphasis — any run of *, _, ` on both sides.
-	t = strings.TrimLeft(t, "*_`")
-	t = strings.TrimRight(t, "*_`")
-	return strings.TrimSpace(t)
-}
-func blocked(gate, why string) verdict.Result {	return verdict.Result{Verdict: verdict.Blocked, FailedGate: gate, Rationale: why}
+// inconclusiveCost is inconclusive with the dispatch cost attached (the call was
+// made and billed even though the emission was not acceptable).
+func inconclusiveCost(gate, why string, cost float64) verdict.Result {
+	return verdict.Result{Verdict: verdict.Inconclusive, FailedGate: gate, Rationale: why, CostUSD: cost}
 }
 
 func readNonEmpty(path string) (string, error) {
@@ -251,6 +365,11 @@ var knownBoundaryPatterns = []boundaryPattern{
 	{Keyword: "Premium", Boundary: "entitlement"},
 	{Keyword: "subscription", Boundary: "entitlement"},
 	{Keyword: "Subscription", Boundary: "entitlement"},
+	{Keyword: "credits", Boundary: "entitlement"},
+	{Keyword: "Credits", Boundary: "entitlement"},
+	{Keyword: "keyless", Boundary: "entitlement"},
+	{Keyword: "Keyless", Boundary: "entitlement"},
+	{Keyword: "claude -p", Boundary: "entitlement"},
 }
 
 // mockMarkerPatterns are tokens on a line that suggest a mock/stub/fake/test
@@ -272,7 +391,7 @@ var mockMarkerPatterns = []string{
 // Detection is heuristic: a line must contain at least one boundary pattern AND
 // at least one mock-marker pattern to be flagged.  If the mock description
 // (boundary + mock type) matches any open deferral, it is treated as declared.
-func CheckBoundaryMocks(diffContent string, openDeferrals []string) BoundaryMockReport {
+func CheckBoundaryMocks(diffContent string, openDeferrals []state.Deferral) BoundaryMockReport {
 	var report BoundaryMockReport
 	lines := strings.Split(diffContent, "\n")
 	for i, raw := range lines {
@@ -370,12 +489,15 @@ func extractMockType(line string) string {
 }
 
 // isDeclared checks whether a mock at a given boundary matches any open deferral.
-// Matching is case-insensitive substring: each deferral is checked for the
-// boundary name AND a mock/fake/stub keyword.  A deferral like "db mock for
-// integration tests" would match a db-boundary mock.
-func isDeclared(mockType, boundary string, openDeferrals []string) bool {
+// Matching is case-insensitive substring over the deferral's description-bearing
+// fields (Item + Why) only — not Tracking/Acknowledgement, which are IDs/URLs
+// that could spuriously contain a boundary keyword and over-declare (AC-05 / D3).
+// Each deferral is checked for the boundary name AND a mock/fake/stub keyword. A
+// deferral whose item/why reads "db mock for integration tests" matches a
+// db-boundary mock; enforcement stays at least as strict as the old []string match.
+func isDeclared(mockType, boundary string, openDeferrals []state.Deferral) bool {
 	for _, d := range openDeferrals {
-		dl := strings.ToLower(d)
+		dl := strings.ToLower(d.Item + " " + d.Why)
 		if strings.Contains(dl, strings.ToLower(boundary)) &&
 			(strings.Contains(dl, "mock") || strings.Contains(dl, "fake") ||
 				strings.Contains(dl, "stub") || strings.Contains(dl, "testdouble")) {

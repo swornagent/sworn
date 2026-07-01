@@ -96,13 +96,13 @@ tracks:
 
 	// Write per-slice status.json files.
 	slices := map[string]string{
-		"S01-planned":    `{"$schema":"https://example.com/schemas/baton/slice-status-v1.json","slice_id":"S01-planned","release":"route-test","track":"T1-core","state":"planned","owner":"agent","last_updated_at":"2026-01-01T00:00:00Z","verification":{"violations":[]}}`,
-		"S02-inprogress": `{"$schema":"https://example.com/schemas/baton/slice-status-v1.json","slice_id":"S02-inprogress","release":"route-test","track":"T1-core","state":"in_progress","owner":"agent","last_updated_at":"2026-01-01T00:00:00Z","verification":{"violations":[]}}`,
-		"S03-implemented": `{"$schema":"https://example.com/schemas/baton/slice-status-v1.json","slice_id":"S03-implemented","release":"route-test","track":"T1-core","state":"implemented","owner":"agent","last_updated_at":"2026-01-01T00:00:00Z","verification":{"violations":[]}}`,
+		"S01-planned":      `{"$schema":"https://example.com/schemas/baton/slice-status-v1.json","slice_id":"S01-planned","release":"route-test","track":"T1-core","state":"planned","owner":"agent","last_updated_at":"2026-01-01T00:00:00Z","verification":{"violations":[]}}`,
+		"S02-inprogress":   `{"$schema":"https://example.com/schemas/baton/slice-status-v1.json","slice_id":"S02-inprogress","release":"route-test","track":"T1-core","state":"in_progress","owner":"agent","last_updated_at":"2026-01-01T00:00:00Z","verification":{"violations":[]}}`,
+		"S03-implemented":  `{"$schema":"https://example.com/schemas/baton/slice-status-v1.json","slice_id":"S03-implemented","release":"route-test","track":"T1-core","state":"implemented","owner":"agent","last_updated_at":"2026-01-01T00:00:00Z","verification":{"violations":[]}}`,
 		"S04-failed-verif": `{"$schema":"https://example.com/schemas/baton/slice-status-v1.json","slice_id":"S04-failed-verif","release":"route-test","track":"T1-core","state":"failed_verification","owner":"agent","last_updated_at":"2026-01-01T00:00:00Z","verification":{"result":"fail","violations":["Gate 1: reachability artefact missing"]}}`,
-		"S05-shipped":   `{"$schema":"https://example.com/schemas/baton/slice-status-v1.json","slice_id":"S05-shipped","release":"route-test","track":"T1-core","state":"shipped","owner":"agent","last_updated_at":"2026-01-01T00:00:00Z","verification":{"violations":[]}}`,
-		"S06-deferred":  `{"$schema":"https://example.com/schemas/baton/slice-status-v1.json","slice_id":"S06-deferred","release":"route-test","track":"T1-core","state":"deferred","owner":"agent","last_updated_at":"2026-01-01T00:00:00Z","verification":{"violations":[]}}`,
-		"S07-blocked":   `{"$schema":"https://example.com/schemas/baton/slice-status-v1.json","slice_id":"S07-blocked","release":"route-test","track":"T1-core","state":"verified","owner":"agent","last_updated_at":"2026-01-01T00:00:00Z","verification":{"result":"blocked","violations":["spec defect: ambiguous AC"]}}`,
+		"S05-shipped":      `{"$schema":"https://example.com/schemas/baton/slice-status-v1.json","slice_id":"S05-shipped","release":"route-test","track":"T1-core","state":"shipped","owner":"agent","last_updated_at":"2026-01-01T00:00:00Z","verification":{"violations":[]}}`,
+		"S06-deferred":     `{"$schema":"https://example.com/schemas/baton/slice-status-v1.json","slice_id":"S06-deferred","release":"route-test","track":"T1-core","state":"deferred","owner":"agent","last_updated_at":"2026-01-01T00:00:00Z","verification":{"violations":[]}}`,
+		"S07-blocked":      `{"$schema":"https://example.com/schemas/baton/slice-status-v1.json","slice_id":"S07-blocked","release":"route-test","track":"T1-core","state":"verified","owner":"agent","last_updated_at":"2026-01-01T00:00:00Z","verification":{"result":"blocked","violations":["spec defect: ambiguous AC"]}}`,
 	}
 
 	for sid, content := range slices {

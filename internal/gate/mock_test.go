@@ -21,7 +21,7 @@ func TestMockPatternRe(t *testing.T) {
 		{`import "github.com/stretchr/testify/mock"`, true, "testify/mock", "testify/mock"},
 		{`m := NewMockClient(ctrl)`, true, "NewMock", "NewMockClient"},
 		{`mockDB := MockDB{}`, true, "Mock", "MockDB{"},
-		{`svc.MockCall("ping")`, true, ".Mock", ".MockCall("},		{`fake := fake.NewClient()`, true, "fake.", "fake."},
+		{`svc.MockCall("ping")`, true, ".Mock", ".MockCall("}, {`fake := fake.NewClient()`, true, "fake.", "fake."},
 		{`stub := stub.NewUserRepo()`, true, "stub.New", "stub.New"},
 		{`mockSvc := mock.New(ctrl)`, true, "mock.New", "mock.New"},
 
@@ -334,7 +334,7 @@ func TestIsMockExempt(t *testing.T) {
 	}{
 		{"testdata/integration_test.go", true},
 		{"e2e/login.spec.ts", true},
-		{"e2e/other.spec.ts", true}, // blanket exempt (File: "")
+		{"e2e/other.spec.ts", true},     // blanket exempt (File: "")
 		{"internal/gate/mock.go", true}, // blanket exempt
 	}
 
@@ -365,7 +365,7 @@ func TestClosestMock(t *testing.T) {
 		want   int
 	}{
 		{5, 5},
-		{7, 5},  // closer to 5 than 10
+		{7, 5},   // closer to 5 than 10
 		{12, 10}, // closer to 10
 		{19, 20}, // closer to 20
 		{30, 20}, // only 20 is closest

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 )
+
 func TestClassifyHTTP(t *testing.T) {
 	tests := []struct {
 		status int

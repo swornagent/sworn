@@ -122,6 +122,7 @@ var (
 	Divider      = lipgloss.NewStyle().Foreground(colMuted).Render("─")
 	EmptyMessage = lipgloss.NewStyle().Foreground(colMuted).Italic(true).Padding(0, 2)
 )
+
 // StateColor renders a slice state string with the correct colour.
 func StateColor(state string) string {
 	switch state {

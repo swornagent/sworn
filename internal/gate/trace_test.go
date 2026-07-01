@@ -395,7 +395,7 @@ title: S01-test-slice
 ## Acceptance checks
 
 - [ ] Fix the reported bug in production.
-`,	})
+`})
 
 	r, err := RunTrace(dir)
 	if err != nil {
@@ -464,7 +464,7 @@ title: S01-all-ears
 - [ ] WHERE a feature is enabled, THE SYSTEM SHALL provide access. (N-04)
 - [ ] IF a condition holds, THEN THE SYSTEM SHALL take action. (N-05)
 - [ ] WHEN a trigger fires and WHILE in a state, THE SYSTEM SHALL respond with a complex pattern. (N-06)
-`,	})
+`})
 
 	r, err := RunTrace(dir)
 	if err != nil {
@@ -594,7 +594,7 @@ title: S01-test-slice
 ## Acceptance checks
 
 - [ ] fix the reported error in the component
-`,	})
+`})
 
 	r, err := RunTrace(dir)
 	if err != nil {
@@ -899,9 +899,10 @@ func TestParseCoversNeeds(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tmp := filepath.Join(t.TempDir(), "status.json")
+			dir := t.TempDir()
+			tmp := filepath.Join(dir, "status.json")
 			os.WriteFile(tmp, []byte(tt.json), 0644)
-			got := parseCoversNeeds(tmp)
+			got := parseCoversNeeds(dir)
 			if len(got) != len(tt.want) {
 				t.Errorf("got %v, want %v", got, tt.want)
 				return
@@ -912,8 +913,7 @@ func TestParseCoversNeeds(t *testing.T) {
 				}
 			}
 		})
-	}
-}
+	}}
 
 func TestClassifyEARS(t *testing.T) {
 	tests := []struct {

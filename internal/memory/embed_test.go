@@ -22,7 +22,7 @@ func TestVoyageEmbedder(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatal(err)
 		}
-		
+
 		resp := voyageResponse{}
 		for i := range req.Input {
 			resp.Data = append(resp.Data, struct {
@@ -85,7 +85,7 @@ func TestOAICompatEmbedder(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatal(err)
 		}
-		
+
 		resp := oaiResponse{}
 		for i := range req.Input {
 			resp.Data = append(resp.Data, struct {
@@ -136,7 +136,7 @@ func TestOllamaEmbedder(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatal(err)
 		}
-		
+
 		resp := ollamaResponse{}
 		for i := range req.Input {
 			resp.Embeddings = append(resp.Embeddings, []float32{float32(i), 1.0, 2.0})
@@ -171,7 +171,8 @@ func TestOllamaEmbedder(t *testing.T) {
 	}
 }
 
-func TestEmbedderAPIKeyEnvNotLeaked(t *testing.T) {	sentinel := "SECRET_SENTINEL_KEY_123"
+func TestEmbedderAPIKeyEnvNotLeaked(t *testing.T) {
+	sentinel := "SECRET_SENTINEL_KEY_123"
 	os.Setenv("TEST_LEAK_KEY", sentinel)
 	defer os.Unsetenv("TEST_LEAK_KEY")
 
