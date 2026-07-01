@@ -7,6 +7,14 @@
   },
   "release_worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-30-sworn-operational-readiness",
   "release_worktree_branch": "release-wt/2026-06-30-sworn-operational-readiness",
+  "activity": [
+    {
+      "date": "2026-07-01",
+      "actor": "release integrator (/merge-release)",
+      "note": "6 verified slices merged. Slices remain in 'verified' state until release/v0.1.0 ships to production; at that point each slice's status.json flips to 'shipped'. Branch release-wt/2026-06-30-sworn-operational-readiness retained; remove with 'git branch -D release-wt/2026-06-30-sworn-operational-readiness' once you're sure no more work belongs to this release.",
+      "merge_commit": "e600266708123f25f8f265a44135f2800ba63d0c"
+    }
+  ],
   "tracks": [
     {
       "id": "T1-operational-unblock",
