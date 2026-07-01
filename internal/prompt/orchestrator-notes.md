@@ -38,9 +38,9 @@ scheduling, managing the release loop — is not a prompt at all. It is a
 
 See the formal role documentation at:
 
-- [`docs/baton/roles/orchestrator.md`](../../../docs/baton/roles/orchestrator.md) — the
+- [`docs/roles/orchestrator.md`](../../../docs/roles/orchestrator.md) — the
   Orchestrator role specification (S18-orchestrator-formalized)
-- [`docs/baton/decisions/orchestrator-model.md`](../../../docs/baton/decisions/orchestrator-model.md) —
+- [`docs/decisions/orchestrator-model.md`](../../../docs/decisions/orchestrator-model.md) —
   the Type-1 design decision record for the deterministic Go engine over an
   agentic LLM orchestrator
 

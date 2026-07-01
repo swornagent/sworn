@@ -17,8 +17,10 @@ Everything else — layout, build/test, the slice workflow, conventions — is i
 
 ## Engineering Process — Baton
 
-This project follows the **Baton** rule-set (see `docs/baton/` for
-full rule docs and provenance). Seven rules, listed in priority order:
+This project follows the **Baton** rule-set (vendored into the binary at
+`internal/adopt/baton/`, pinned to a tagged upstream release — see
+`internal/adopt/baton/VERSION` — rather than duplicated under `docs/`; run
+`sworn doctor` to inspect the pin). Seven rules, listed in priority order:
 
 ### 1. Reachability Gate (CRITICAL)
 
@@ -94,4 +96,4 @@ State machine: planned → in_progress → implemented → [fresh verifier] →
 verified | failed_verification. The implemented checkpoint exists so no agent
 can shortcut straight to verified.
 
-Full rule docs: `docs/baton/`.
+Full rule docs: vendored in `internal/adopt/baton/` (see `sworn doctor`).
