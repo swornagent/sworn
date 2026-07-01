@@ -293,17 +293,21 @@ func TestFindRepoRoot(t *testing.T) {
 }
 
 func TestFindRepoRoot_FindsWorktree(t *testing.T) {
+	// Seed a .git marker in the fixture so findRepoRoot resolves
+	// deterministically. The old fixture relied on t.TempDir() happening to
+	// sit inside a git worktree, which is false on a CI runner whose TMPDIR
+	// is outside the checkout — there findRepoRoot walked to / and failed.
 	dir := fixture(t, map[string]string{
 		"docs/release/r1/spec.md": "test",
+		".git/HEAD":               "ref: refs/heads/main",
 	})
 
 	// findRepoRoot walks up from the given dir until it finds .git.
-	// In the test environment, the actual worktree's .git will be found eventually.
 	root, err := findRepoRoot(dir + "/docs/release/r1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if root == "" {
-		t.Error("expected non-empty root")
+	if root != dir {
+		t.Errorf("expected root %q, got %q", dir, root)
 	}
 }

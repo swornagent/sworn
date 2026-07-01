@@ -116,7 +116,7 @@ func cmdMergeTrack(args []string) int {
 	}
 
 	// Gate 2 — invariant-4 classifier on the release worktree.
-	releaseWorktreePath, err := resolveReleaseWorktree(repo, rel)
+	releaseWorktreePath, err := oracleAdapter.ReadReleaseWorktreePath(rel)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sworn merge-track: resolve release worktree: %v\n", err)
 		return 2
@@ -233,7 +233,7 @@ func cmdMergeRelease(args []string) int {
 	}
 
 	// Gate 2 — all track branches must be ancestors of release-wt.
-	releaseWorktreePath, err := resolveReleaseWorktree(repo, rel)
+	releaseWorktreePath, err := oracleAdapter.ReadReleaseWorktreePath(rel)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sworn merge-release: resolve release worktree: %v\n", err)
 		return 2
@@ -294,40 +294,4 @@ func deriveReleaseFromBranch(repo *git.Repo) (string, error) {
 		return strings.TrimPrefix(branch, "release-wt/"), nil
 	}
 	return "", fmt.Errorf("cannot derive release from branch %q", branch)
-}
-
-// resolveReleaseWorktree returns the absolute path to the release worktree
-// for the given release. Reads the release board's frontmatter.
-func resolveReleaseWorktree(repo *git.Repo, release string) (string, error) {
-	releaseRef := "refs/heads/release-wt/" + release
-	indexPath := "docs/release/" + release + "/index.md"
-
-	raw, err := repo.Show(releaseRef, indexPath)
-	if err != nil {
-		return "", fmt.Errorf("read index.md from %s: %w", releaseRef, err)
-	}
-
-	fmBody := extractFrontmatterBody(raw)
-	for _, line := range strings.Split(fmBody, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "release_worktree_path:") {
-			val := strings.TrimSpace(strings.TrimPrefix(line, "release_worktree_path:"))
-			return strings.Trim(val, `"' `), nil
-		}
-	}
-	return "", fmt.Errorf("release_worktree_path not found in index.md frontmatter")
-}
-
-// extractFrontmatterBody returns the content between the opening and closing ---
-// delimiters from an index.md text.
-func extractFrontmatterBody(text string) string {
-	if !strings.HasPrefix(text, "---") {
-		return text
-	}
-	rest := text[3:]
-	idx := strings.Index(rest, "\n---")
-	if idx < 0 {
-		return text
-	}
-	return rest[:idx]
 }

@@ -1,0 +1,36 @@
+Reachability artefact for S05-cli-merge-regress-oracle-migration (AC-05).
+
+Command: `sworn regress --release 2026-06-30-sworn-operational-readiness`,
+run for real from this slice's own track worktree against a live,
+board.json-backed release checked into this repo — not a synthetic
+fixture. `sworn merge-release` was not usable as the AC-05 vehicle this
+release: gate 1 ("all slices terminal") fails first on this repo's own
+in-flight release before ever reaching resolveReleaseWorktree (per the
+design-review pin retargeting AC-05).
+
+Retarget rationale (design-review pin 1): the spec's originally-named
+example release `2026-07-01-loop-cli-ux` carries NO `release_worktree_path`
+in either its board.json or index.md (verified live — 0 grep hits on both),
+so it cannot demonstrate the fix; `2026-06-30-sworn-operational-readiness`
+does carry the field in board.json and was used instead.
+
+Confirming the OLD code path is genuinely gone: this release's own
+docs/release/2026-06-30-sworn-operational-readiness/index.md (rendered by
+`sworn render`, committed in this repo) has zero occurrences of
+`release_worktree_path` — the pre-fix `extractReleaseWorktreePath` frontmatter
+scraper would have returned "" here and `cmdRegress` would have hard-errored
+with "release_worktree_path not set in index.md frontmatter" (exit 2).
+
+$ ./bin/sworn regress --release 2026-06-30-sworn-operational-readiness
+Regression — 2026-06-30-sworn-operational-readiness
+
+Worktree: /home/brad/projects/sworn-worktrees/release-2026-06-30-sworn-operational-readiness
+
+  PASS  Go tests
+  SKIP  TypeScript tests (no package.json in worktree)
+  PASS  Golden fixtures
+
+All 3 suites passed (1 skipped).
+
+$ echo $?
+0
