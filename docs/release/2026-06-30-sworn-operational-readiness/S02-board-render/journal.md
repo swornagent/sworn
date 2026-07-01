@@ -61,3 +61,31 @@ AC-04/AC-05 are consistent as written — re-run `/design-review` (expect PROCEE
 canonical ReadBoard) then implement. No AC revision needed; a `/replan-release` is only to
 record the cutover dependency if desired. Cutover execution is a Coach/operator action
 (blast radius: breaks pre-S05 string-binary sessions if mis-sequenced).
+
+## 2026-07-01 — S05 AC-06 cutover EXECUTED (Coach-authorised) — S02 board-level unblock
+
+Coach authorised running the cutover. Done + verified (all live):
+- Built canonical `sworn` from release-wt HEAD (bd72c3f, has S05 strict reader);
+  confirmed it FAILS closed on the string board (exit 2, "not a canonical {name}
+  object"). Installed globally to /home/brad/go/bin/sworn — byte-identical to the
+  verified-strict build; definitively strict (rejects the still-string
+  2026-07-01-release-hygiene board, exit 2).
+- Migrated board.json `release` string -> {"name": ..., "integration_branch":
+  "release/v0.1.0"} on release-wt/2026-06-30 (commit bd72c3f) AND forward-merged
+  release-wt -> track/T2 so this track's board.json is object too. Global `sworn
+  board --release 2026-06-30-...` now reads it (exit 0, 4 tracks).
+
+Effect: S02's AC-04<->AC-05 tension is resolved at the board level — render can use
+canonical ReadBoard against a valid object board. S02 is still `design_review`; next
+step is re-run `/design-review S02-board-render` (escalate should clear to PROCEED,
+no second reader), then `/implement-slice`.
+
+Remaining fleet-cutover items (operator-coordinated, NOT S02, surfaced Rule 2):
+- release/v0.1.0 integration-branch copies (2026-06-30 primary tree, plus
+  2026-07-01-release-hygiene and 2026-06-27-conformance-foundation boards) are still
+  string; they now fail on the GLOBAL strict binary but still work on the local
+  pre-S05 ./bin/sworn (76c657b). Full cutover of those releases = migrate their boards
+  + rebuild their binaries, intersecting their own in-flight work.
+- 2026-06-30 primary-tree board reconciles to object automatically at /merge-release.
+- Local ./bin/sworn (76c657b) is now inconsistent with the global strict binary;
+  rebuild or remove once the integration branch carries S05.
