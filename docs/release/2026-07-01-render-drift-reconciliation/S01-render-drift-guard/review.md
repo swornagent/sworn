@@ -80,13 +80,17 @@ Design commit: ed0f30cde50ea25bf98154f0a893d62c08924d5e
    What to ask the implementer: this needs a Coach call, not an inline pick —
    there is no single right answer. Options: (a) narrow AC-05 to scope the
    "zero drift errors" claim to only the releases this release's tracks
-   touch (excluding pre-existing/deferred releases, tracked separately), (b)
-   expand scope to migrate `2026-06-27-conformance-foundation`'s board.json
-   shape and re-render `2026-07-01-release-hygiene`'s `index.md` as part of
-   this release, or (c) accept that `sworn doctor` goes red repo-wide on
-   landing and treat the two flagged releases as a tracked, acknowledged
-   follow-up. The Coach picks; each has different scope and CI-blast-radius
-   implications.
+   touch (excluding pre-existing/deferred releases, tracked separately in
+   #44/#45), (b) expand scope to migrate `2026-06-27-conformance-foundation`'s
+   board.json shape (#44) and re-render `2026-07-01-release-hygiene`'s
+   `index.md` (#45) as part of this release, or (c) accept that `sworn
+   doctor` goes red repo-wide on landing and treat #44/#45 as tracked,
+   acknowledged follow-up. The Coach picks; each has different scope and
+   CI-blast-radius implications.
+
+   Tracked: swornagent/sworn#44 (conformance-foundation legacy board.json
+   shape), swornagent/sworn#45 (release-hygiene stale index.md) — filed at
+   review time per Rule 2 capture discipline.
 
 4. [memory-cited] approach aligns with [[project_index_frontmatter_corruption_false_ready]]
    What I observed: this slice's design deletes `driftGuard`'s
@@ -162,12 +166,13 @@ against live repo state. 5 pins + 0 additional flags beyond what's noted below:
    is a planner-territory fix, not something to patch inline.
 3. **AC-05 scope decision (Coach call).** Live-repo simulation shows the
    render-drift check will report ERROR for `2026-06-27-conformance-foundation`
-   (legacy string-shaped board.json — Render() hard-errors) and
-   `2026-07-01-release-hygiene` (index.md genuinely stale vs. its board.json)
-   the moment it ships — neither is in scope for T1–T5. Coach picks: (a)
-   narrow AC-05 to this release's own touched releases, (b) add scope to fix
-   both, or (c) accept and track the repo-wide `sworn doctor` regression as a
-   deliberate, separately-tracked consequence. `[[insert Coach's pick here]]`
+   (legacy string-shaped board.json — Render() hard-errors, tracked in #44)
+   and `2026-07-01-release-hygiene` (index.md genuinely stale vs. its
+   board.json, tracked in #45) the moment it ships — neither is in scope for
+   T1–T5. Coach picks: (a) narrow AC-05 to this release's own touched
+   releases, (b) add scope to fix both (#44/#45), or (c) accept and track the
+   repo-wide `sworn doctor` regression as a deliberate, separately-tracked
+   consequence. `[[insert Coach's pick here]]`
 
 Flags (not pins): (a) design.md's headings are prose-labeled rather than
 §1–§6 numbered — no content gap, just a naming difference; (b) all code
