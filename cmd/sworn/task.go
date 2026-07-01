@@ -138,12 +138,12 @@ func cmdRunTask(
 	statusPath := filepath.Join(sliceDir, "status.json")
 	releaseName := "task-" + ts
 	st := &state.Status{
-		Schema:  "https://baton.sawy3r.net/schemas/slice-status-v1.json",
-		SliceID: "S01-task",
-		Release: releaseName,
-		Track:   "",
-		NeedIDs: []string{"N/A-task-mode"},
-		State:   state.InProgress, Owner: "sworn-run",
+		Schema:      "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+		SliceID:     "S01-task",
+		Release:     releaseName,
+		Track:       "",
+		CoversNeeds: []string{"N/A-task-mode"},
+		State:       state.InProgress, Owner: "sworn-run",
 		LastUpdatedBy: "planner-dispatch",
 		LastUpdatedAt: time.Now().UTC().Format(time.RFC3339),
 		SpecPath:      "S01-task/spec.md",

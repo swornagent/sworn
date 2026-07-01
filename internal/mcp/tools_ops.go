@@ -16,6 +16,7 @@ import (
 	"github.com/swornagent/sworn/internal/router"
 	"github.com/swornagent/sworn/internal/state"
 )
+
 // stateDeferred is the value the defer_slice tool writes to status.json state.
 // Coach-approved design decision: bypass state.Transition() per Flag b.
 // Built from two concatenated parts to avoid release-verify.sh dark-code scan.
@@ -130,6 +131,7 @@ func RegisterOpsTools(s *Server, repoRoot string, repo *git.Repo) {
 	s.RegisterTool("get_credits", getCreditsSchema, ot.handleGetCredits)
 	s.RegisterTool("list_releases", listReleasesSchema, ot.handleListReleases)
 }
+
 // ---- Tool input helpers ----
 
 // toolParams is a helper to unmarshal tool call arguments.
@@ -561,6 +563,7 @@ func (ot *OpsTools) checkTrackVerifiedFS(release string, t *board.TrackInfo) ([]
 	}
 	return unverified, nil
 }
+
 // extractReleaseWorktreePath extracts release_worktree_path from raw index.md frontmatter.
 func extractReleaseWorktreePath(text string) string {
 	frontmatterBody := extractFrontmatterBody(text)
@@ -595,9 +598,14 @@ func (ot *OpsTools) handleDeferSlice(ctx context.Context, params json.RawMessage
 	s.LastUpdatedBy = "defer_slice"
 	s.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
-	// Add to open_deferrals
+	// Add to open_deferrals as a typed Deferral (D6 object carrier). Why holds
+	// the reason; Acknowledgement records the defer_slice actor + timestamp so
+	// the Rule-2 must-be-acknowledged shape is satisfied.
 	now := time.Now().UTC().Format("2006-01-02 15:04 MST")
-	deferral := fmt.Sprintf("Deferred: %s (Acknowledged: defer_slice, %s)", p.Reason, now)
+	deferral := state.Deferral{
+		Why:             p.Reason,
+		Acknowledgement: fmt.Sprintf("defer_slice, %s", now),
+	}
 	s.OpenDeferrals = append(s.OpenDeferrals, deferral)
 
 	if err := state.Write(statusPath, s); err != nil {

@@ -59,7 +59,7 @@ func TestReadWrite_RoundTrip(t *testing.T) {
 	path := filepath.Join(dir, "status.json")
 
 	orig := Status{
-		Schema:                "https://baton.sawy3r.net/schemas/slice-status-v1.json",		SliceID:               "S05-state-and-git",
+		Schema: "https://baton.sawy3r.net/schemas/slice-status-v1.json", SliceID: "S05-state-and-git",
 		Release:               "2026-06-15-e2e-turnkey-loop",
 		Track:                 "T2-orchestration",
 		State:                 InProgress,
@@ -146,7 +146,8 @@ func TestWrite_RoundTripPreservesJSONShape(t *testing.T) {
 
 	// Read back raw bytes and check key fields are present.
 	raw, err := os.ReadFile(path)
-	if err != nil {		t.Fatal(err)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	var m map[string]interface{}
@@ -225,7 +226,7 @@ func TestTraceFieldsRoundTrip(t *testing.T) {
 		Release:        "2026-06-27-conformance-foundation",
 		Track:          "T4-records-as-json",
 		State:          Planned,
-		NeedIDs:        []string{"N-01", "N-02"},
+		CoversNeeds:    []string{"N-01", "N-02"},
 		ReleaseBenefit: "The release delivers value.",
 		OrgObjective:   "Become the standard.",
 		Verification: Verification{
@@ -241,8 +242,8 @@ func TestTraceFieldsRoundTrip(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 
-	if len(got.NeedIDs) != 2 || got.NeedIDs[0] != "N-01" || got.NeedIDs[1] != "N-02" {
-		t.Errorf("NeedIDs: want [N-01 N-02], got %v", got.NeedIDs)
+	if len(got.CoversNeeds) != 2 || got.CoversNeeds[0] != "N-01" || got.CoversNeeds[1] != "N-02" {
+		t.Errorf("NeedIDs: want [N-01 N-02], got %v", got.CoversNeeds)
 	}
 	if got.ReleaseBenefit != "The release delivers value." {
 		t.Errorf("ReleaseBenefit: want %q, got %q", "The release delivers value.", got.ReleaseBenefit)
@@ -345,7 +346,8 @@ func TestDispatches_RoundTrip(t *testing.T) {
 			},
 		},
 	}
-	if err := Write(path, &orig); err != nil {		t.Fatalf("write: %v", err)
+	if err := Write(path, &orig); err != nil {
+		t.Fatalf("write: %v", err)
 	}
 
 	got, err := Read(path)
@@ -353,7 +355,8 @@ func TestDispatches_RoundTrip(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 
-	if len(got.Verification.Dispatches) != 3 {		t.Fatalf("Dispatches: want 3, got %d", len(got.Verification.Dispatches))
+	if len(got.Verification.Dispatches) != 3 {
+		t.Fatalf("Dispatches: want 3, got %d", len(got.Verification.Dispatches))
 	}
 	if got.Verification.Dispatches[0].Role != "implementer" {
 		t.Errorf("dispatch[0].Role: want implementer, got %s", got.Verification.Dispatches[0].Role)

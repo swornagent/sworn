@@ -14,13 +14,13 @@ import (
 
 // specRecord is the JSON shape written to spec.json.
 type specRecord struct {
-	Schema             string        `json:"$schema"`
-	SchemaVersion      int           `json:"schema_version"`
-	SliceID            string        `json:"slice_id"`
-	Release            string        `json:"release"`
-	UserOutcome        string        `json:"user_outcome"`
-	AcceptanceCriteria []acRecord    `json:"acceptance_criteria"`
-	CoversNeeds        []string      `json:"covers_needs"`
+	Schema             string     `json:"$schema"`
+	SchemaVersion      int        `json:"schema_version"`
+	SliceID            string     `json:"slice_id"`
+	Release            string     `json:"release"`
+	UserOutcome        string     `json:"user_outcome"`
+	AcceptanceCriteria []acRecord `json:"acceptance_criteria"`
+	CoversNeeds        []string   `json:"covers_needs"`
 }
 
 // acRecord is one acceptance criterion in spec.json.
@@ -55,7 +55,7 @@ func WriteSpecRecord(specPath, statusPath, sliceDir string) error {
 		SliceID:       st.SliceID,
 		Release:       st.Release,
 		UserOutcome:   extractUserOutcome(specText),
-		CoversNeeds:   st.NeedIDs,
+		CoversNeeds:   st.CoversNeeds,
 	}
 
 	// Parse acceptance criteria.

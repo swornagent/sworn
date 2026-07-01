@@ -1,0 +1,67 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "schema_version": 1,
+  "slice_id": "S01-d6-record-reconciliation",
+  "release": "2026-06-30-sworn-operational-readiness",
+  "scope": "Migrate sworn's Go status.json carriers (open_deferrals, verification.violations) up to the slice-status-v1 object shape so the autonomous loop reads real coach-produced status without dying on the D6 unmarshal, round-trips it loss-free and byte-stably, reconciles need_ids->covers_needs, adds the inconclusive result enum, and (re-spec) defines the open_deferrals canonical shape STRICTLY and ADDITIVELY (why+tracking+acknowledgement+acknowledged_by, acknowledged_at optional; no anyOf) with the data migrated rather than the schema loosened.",
+  "files_changed": [
+    "internal/state/state.go",
+    "internal/state/state_test.go",
+    "internal/state/record_reconciliation_test.go",
+    "internal/baton/schemas/slice-status-v1.json",
+    "internal/verify/verify.go",
+    "internal/verify/verify_test.go",
+    "internal/run/slice.go",
+    "internal/board/oracle.go",
+    "internal/ledger/ledger.go",
+    "internal/ledger/ledger_test.go",
+    "internal/implement/implement.go",
+    "internal/implement/proof_record.go",
+    "internal/implement/spec_record.go",
+    "internal/implement/spec_record_test.go",
+    "internal/mcp/tools_ops.go",
+    "internal/mcp/tools_plan.go",
+    "internal/mcp/tools_test.go",
+    "internal/verdict/verdict.go",
+    "cmd/sworn/verify.go",
+    "cmd/sworn/task.go",
+    "cmd/sworn/ledger_test.go",
+    "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/status.json"
+  ],
+  "test_results": [
+    { "command": "go build ./...", "exit_code": 0, "output": "clean build (BUILD_EXIT=0)" },
+    { "command": "go test ./... -timeout 120s", "exit_code": 0, "output": "39 packages ok, 0 FAIL, 0 panic, no hang (cmd/sworn 38.6s, run 4.9s; per-package 120s timeout)" },
+    { "command": "go test ./internal/state/ -run 'Read_ObjectForm|TypedStructs|RoundTrip|Write_Canonical|Schema_OpenDeferralStrict|Schema_Inconclusive' -v", "exit_code": 0, "output": "all PASS incl. TestWrite_CanonicalDeferral_RoundTrips (AC-10[A]) and TestSchema_OpenDeferralStrictAdditive 7/7 subtests (AC-10[B]): full canonical passes, +acknowledged_at passes, acknowledged_by-alone FAILS, acknowledgement-alone FAILS, missing tracking/why/neither FAIL closed" },
+    { "command": "go test ./internal/verify/ -run 'CheckBoundaryMocks'", "exit_code": 0, "output": "ok — AC-05 Rule-10 boundary matcher unaffected by the new named fields (matches Item+Why only)" },
+    { "command": "gofmt -l internal/state/state.go internal/state/record_reconciliation_test.go", "exit_code": 0, "output": "empty (all formatted)" },
+    { "command": "grep -rnE '//.*\\t+(return|sendRequest|[a-z]+\\()' (touched files)", "exit_code": 1, "output": "clean: no fused statement-on-comment lines (edit-corruption guard)" },
+    { "command": "release-verify.sh S01-d6-record-reconciliation 2026-06-30-sworn-operational-readiness (deterministic first-pass)", "exit_code": 1, "output": "Applicable structural checks PASS: integration-branch drift (no drift vs release/v0.1.0), diff-vs-start_commit (42 files incl. forward-merged base), dark-code markers (none). The script then aborts at line 541 'PLAYWRIGHT_OPTIN: unbound variable' and skips the proof.md/frontmatter checks — the generic ~/.claude release-verify.sh is markdown-era (expects spec.md/proof.md + an unset opt-in var); this records-as-JSON release uses spec.json/proof.json (both present and valid JSON). Harness drift, not a slice defect (same finding as sessions 2 and 3, re-confirmed live session 4)." },
+    { "command": "session-4 continuation handshake (Rule 6) — live re-run of AC-09 boundary at track HEAD a762c24 after the /replan-release AC-08 rewrite", "exit_code": 0, "output": "go build ./... exit 0; go test ./... -timeout 120s exit 0, 39 packages ok / 0 FAIL / no hang; AC-cited state tests all PASS incl. TestSchema_OpenDeferralStrictAdditive 7/7 (acknowledged_by-alone + acknowledgement-alone both fail closed) and TestAC08DirectReadFiredTmp. Code unchanged since session 3 (replan touched only AC-08 text + journal + status); live re-run confirms the recalled session-3 results still hold." }
+  ],
+  "reachability_artifacts": [
+    "manual-smoke-step (AC-08), non-destructive against the live fired repo (~/projects/fired, branch release/v0.5.0; git clean BEFORE and AFTER — Rule 11 restore verified). The board oracle and RunSlice share the exact state.Read path that crashed the original dogfood run ('cannot unmarshal object into Go struct field Status.open_deferrals of type string'). Re-run on the NEW STRICT binary (built fresh from this worktree's HEAD+working-tree), not session 2's anyOf binary.",
+    "STRICT-binary `sworn board --release 2026-06-16-critical-journey-resolutions` on fired renders the full board with 0 occurrences of 'cannot unmarshal object'; slice S05-engine-owned-real-dollars (4 object-form deferrals) reads 'verified [verifier]'. Artefact: reachability/ac08-reachability.txt.",
+    "DIRECT state.Read on the real fired S05 status.json (4 deferrals): all read without error; why/tracking parse into named fields; acknowledged_by AND acknowledged_at now populate their NEW named fields (e.g. acknowledged_by='implementer'/'Brad (decision-maker)', acknowledged_at='2026-06-16'); acknowledgement='' (real pre-migration data has none — confirms the AC-11 cutover need); unknown keys id/field preserved in Extra (no loss). Artefact: reachability/ac08-direct-read.txt (captured from a throwaway test, since it used an absolute fired path; test removed, output retained).",
+    "Sequencing (AC-11): only the READ path was exercised on fired. The fired LOOP was NOT run on the strict binary — state.Read does not schema-validate, so strict-schema read is safe on unmigrated data; running the mutating loop is gated on the 127-deferral cutover migration (#40)."
+  ],
+  "delivered": [
+    "AC-01: state.Read unmarshals fired's real object-form open_deferrals + violations without error — state.go Deferral/Violation UnmarshalJSON; TestRead_ObjectFormDeferralsAndViolations_NoUnmarshalError; live ac08-direct-read.txt (S05, 4 deferrals).",
+    "AC-02: read->write->read->write preserves every field (incl. unknown keys) and is byte-stable (map-based MarshalJSON, sorted keys) — TestRoundTrip_PreservesFieldsAndIsByteStable.",
+    "AC-03: OpenDeferrals []Deferral and Verification.Violations []Violation are typed structs with an Extra overflow map preserving unknown keys — TestRead_TypedStructsPreserveUnknownKeys; live Extra=[id field] on S05 after acknowledged_by/at moved to named fields.",
+    "AC-04: display consumers read via DeferralStrings()/ViolationStrings(); oracle SliceState.Violations stays []string; unrelated report types untouched (unchanged from session 2; router/route/validate_blocked unchanged).",
+    "AC-05: CheckBoundaryMocks/isDeclared take []state.Deferral, match Item+Why only, stay at least as strict — verify tests green; the new acknowledged_by/at named fields do not widen the matcher.",
+    "AC-06: state.Status NeedIDs->CoversNeeds (need_ids->covers_needs); writers spec_record.go + task.go (unchanged from session 2).",
+    "AC-07: slice-status-v1 verification.result enum gains 'inconclusive'; merge gate keys on state not result so it can never pass — TestSchema_InconclusiveResultValidates. Closes the AC-07 half of #37.",
+    "AC-08 (ratified read-path bar, replan 3fbb651 — was loop-run, now read-path; NO new code): the strict-schema state.Read path exercised by `sworn board --release <R>` and a direct state.Read succeeds on the live fired repo's object-form open_deferrals with 0 'cannot unmarshal object' errors, named Deferral fields populated, unknown keys preserved in Extra — exactly what reachability/ac08-reachability.txt + ac08-direct-read.txt already prove. The mutating `sworn run` loop on fired stays deferred to the #40 cutover per AC-11 sequencing. (This rewrite resolves the session-3 BLOCKED verdict, which flagged AC-08's prior loop-run bar as internally contradictory with AC-11 — a spec defect, not an implementation fault.)",
+    "AC-09: go build ./... and go test ./... pass (39 packages ok, 0 FAIL, no hang) — test_results 1-2.",
+    "AC-10: open_deferrals required-set is the STRICT ADDITIVE shape [why, tracking, acknowledgement, acknowledged_by] with acknowledged_at optional; the anyOf is REMOVED — slice-status-v1.json. Go Deferral carries named acknowledgement + acknowledged_by + acknowledged_at and round-trips unknown keys via Extra — state.go. Canonical deferral round-trips through Write and validates: TestWrite_CanonicalDeferral_RoundTrips. A deferral missing acknowledgement OR acknowledged_by (OR tracking OR why) fails closed against the schema: TestSchema_OpenDeferralStrictAdditive (acknowledged_by-alone and acknowledgement-alone both FAIL).",
+    "AC-11 (tracked cutover/upstream, NOT sworn code this slice): the 127 operator-owned coach deferrals carrying acknowledged_by but no acknowledgement must be migrated to add the Rule-2 plain-text acknowledgement before a strict-schema binary schema-validates them — tracked as #40 (cutover migration). The canonical strict-additive shape is pushed UP to baton (Rule 2 + slice-status-v1) — tracked as #38 (re-purposed from the superseded anyOf framing). Sequencing recorded on both issues: do not run the fired LOOP on a strict binary until the migration is applied."
+  ],
+  "not_delivered": [],
+  "divergence": [
+    "AC-10 fail-closed locus (carried forward from session 2, #39): live state.Write calls the structural baton.Validate (which does NOT evaluate open_deferrals item required-sets), not the draft-2020-12 baton.ValidateSchema. So 'a deferral missing acknowledgement OR acknowledged_by SHALL fail closed' is enforced at the CANONICAL SCHEMA/contract layer (proven by the schema-level negative test TestSchema_OpenDeferralStrictAdditive via baton.ValidateSchema), not yet at state.Write runtime. The wholesale Validate->ValidateSchema rewire is the named keystone step-1b follow-up, #39 — out of this slice's AC set (AC-11 scopes the additional work as data-migration + baton-upstream, not the validation rewire). This is the single judgement call; the AC-10 sentence structure (the fail-closed clause has subject 'a deferral', not 'state.Write') supports the schema-layer reading.",
+    "Legacy string-form READ tolerance RETAINED (not removed despite the replan's 'no back-compat' theme). Rationale: the replan's concrete S01 instruction was the anyOf->strict-additive required-set change and the AC-11 acknowledgement migration; it did not enumerate removing the string->object read upgrade, and no AC requires or forbids it. Removing it would regress sworn's ability to read its OWN previously-written string-form status.json (every existing board) — a regression NOT covered by the AC-11 migration (which adds acknowledgement to object-form deferrals, it does not convert string->object). The tolerance is a one-way READ upgrade; write-back is always object form; it does not weaken the strict canonical schema. Surfaced for verifier/Coach.",
+    "defer_slice (mcp/tools_ops.go) writes a deferral with Why + Acknowledgement but no tracking/acknowledged_by — non-canonical under the strict schema, but state.Write (baton.Validate) does not reject it, so it keeps working. Making it canonical needs a tracking value defer_slice does not have; out of this slice's AC set. Folds under #39 (once state.Write validates strictly, defer_slice's output must be made canonical).",
+    "Touchpoints subset: validate_blocked.go (len-only on Violations), router.go and route.go (consume the oracle SliceState.Violations which stays []string) needed no change — fewer files than the planned 16, none outside the track (unchanged from session 2)."
+  ]
+}
