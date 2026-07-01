@@ -51,7 +51,7 @@ func AssembleSliceContext(release, sliceID, repoRoot string) (*SliceContext, err
 		return nil, fmt.Errorf("read spec: %w", err)
 	}
 
-	// 2. Read violations — proof.json.not_delivered preferred; fall back to proof.md regex.
+	// 2. Read violations from proof.json.not_delivered (AC-02).
 	violations := readProofViolations(sliceDir)
 
 	// 3. Read journal.md
@@ -110,42 +110,24 @@ func AssembleSliceContext(release, sliceID, repoRoot string) (*SliceContext, err
 	}, nil
 }
 
-// readProofViolations reads not_delivered from proof.json (AC-02 — the oracle
-// source of truth for violations). Falls back to proof.md regex scrape when
-// proof.json is absent (legacy slices that were never touched by the
-// proof-v1 record writer).
+// readProofViolations reads not_delivered from proof.json (AC-02 — the
+// proof-v1 record is the sole source of truth for violations; there is no
+// proof.md fallback). A slice with no proof.json, an unparseable one, or an
+// empty not_delivered list has no violations to report.
 func readProofViolations(sliceDir string) string {
-	// Prefer proof.json.not_delivered (proof-v1 schema).
-	proofJSONPath := filepath.Join(sliceDir, "proof.json")
-	if data, err := os.ReadFile(proofJSONPath); err == nil {
-		var pr struct {
-			NotDelivered []string `json:"not_delivered"`
-		}
-		if err := json.Unmarshal(data, &pr); err == nil && len(pr.NotDelivered) > 0 {
-			var lines []string
-			for _, nd := range pr.NotDelivered {
-				lines = append(lines, "FAIL: "+nd)
-			}
-			return strings.Join(lines, "\n")
-		}
+	data, err := os.ReadFile(filepath.Join(sliceDir, "proof.json"))
+	if err != nil {
+		return ""
 	}
-
-	// Fallback: proof.md regex scrape (legacy).
-	if proofData, err := os.ReadFile(filepath.Join(sliceDir, "proof.md")); err == nil {
-		return extractViolations(string(proofData))
+	var pr struct {
+		NotDelivered []string `json:"not_delivered"`
 	}
-	return ""
-}
-
-// extractViolations parses violations from proof.md content. It looks for
-// "FAIL:" lines at the start and "**Violation <N>:**" section markers.
-func extractViolations(content string) string {
+	if err := json.Unmarshal(data, &pr); err != nil {
+		return ""
+	}
 	var lines []string
-	for _, line := range strings.Split(content, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "FAIL:") || strings.HasPrefix(trimmed, "**Violation") {
-			lines = append(lines, trimmed)
-		}
+	for _, nd := range pr.NotDelivered {
+		lines = append(lines, "FAIL: "+nd)
 	}
 	return strings.Join(lines, "\n")
 }
