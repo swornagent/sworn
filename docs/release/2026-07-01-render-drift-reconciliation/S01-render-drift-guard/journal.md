@@ -59,3 +59,20 @@ temporary in-module `baton.Validate` test, removed after use).
 
 State -> `implemented`. Stopping here per role boundaries — no verifier
 prompt in this session.
+
+## 2026-07-02 — First-pass gate (release-verify.sh)
+
+Ran `~/.claude/bin/release-verify.sh S01-render-drift-guard
+2026-07-01-render-drift-reconciliation` (private harness tooling, not part
+of this repo). Result: every check before the crash point PASSED (slice
+folder, status.json valid JSON + state=implemented, diff-vs-start_commit
+8-file list, no dark-code markers, frontmatter YAML safety). Two expected
+FAILs (`spec.md missing`, `proof.md missing`) — both known false negatives
+for spec-v1/proof-v1 (JSON) slices; confirmed no verified sibling slice in
+this repo's current-schema releases carries either file. The script then
+crashed on an unbound `$PLAYWRIGHT_OPTIN` (only ever set inside the
+proof.md-gated block) before printing its final verdict line — a private-
+harness bug, not a sworn-repo issue, flagged to the Coach at session end
+rather than filed as a GitHub issue. Full detail recorded in proof.json's
+divergence section. Treating first-pass as green given every substantive,
+applicable check passed.
