@@ -68,3 +68,15 @@
   `go vet ./...` — clean. `go build ./...` — exit 0.
 - **Out-of-scope discoveries**: none. The slice's spec is
   delivered in full.
+
+## 2026-07-01 (UTC) — re-implementation, third pass (second-pass verifier fixes)
+
+- **State transition**: `failed_verification` → `in_progress` → `implemented`. `start_commit` left untouched (never overwritten on re-entry).
+- **Fixed violations**:
+  1. **Gate 6 / AC-02** — `readProofViolations` (`internal/mcp/context.go`) now reads violations **exclusively** from `proof.json.not_delivered`. The `proof.md` regex fallback is removed and `extractViolations` is deleted entirely (it had no other callers — dead code once the fallback went). A slice with no/unparseable `proof.json` or an empty `not_delivered` reports no violations.
+  2. **Gate 3 / AC-02** — `TestGetBlockedExtractsViolations` now writes a proof-v1 `proof.json` fixture (new `writeProofJSON` helper, replacing the `writeProof` proof.md helper) and asserts each `not_delivered` entry surfaces through `get_blocked`. `TestGetSliceContext` gained the same fixture and asserts violations surface through `get_slice_context` / `AssembleSliceContext`. Both tests also plant a decoy `proof.md` containing `LEGACY-SCRAPE-MARKER` and fail if it ever surfaces — a regression re-adding the scrape is caught at the integration point.
+- **Design note**: kept the `FAIL: ` line prefix on rendered violations — it is presentation formatting of proof.json data, not a scrape.
+- **Test results**: `go test ./internal/mcp/... -count=1` PASS; `go test ./... -count=1 -timeout 600s` — all 39 packages PASS; `go vet ./...` clean; `go build ./...` exit 0.
+- **Rule 2 deferral (llm-check)**: `sworn llm-check --type ac-satisfaction` cannot run in this session — no `SWORN_ANTHROPIC_API_KEY`/`$SWORN_MODEL` credential available (why). Tracking: the fresh-context `/verify-slice` dispatch is the model-backed check for this slice, consistent with both prior passes. Acknowledgement: surfaced in the implementer's session-end output to the human.
+- **Rule 2 deferral (launch-dir dirty files)**: the primary repo at `/home/brad/projects/sworn` (branch `release/v0.1.0`) carries uncommitted modifications to `internal/mcp/catalog.go`, `context.go`, `tools_ops.go`, `tools_plan.go` (~151+/209-) — S04-shaped work apparently done in the wrong tree by an earlier session (why it exists). This session did not touch it; work happened only in the T3-mcp track worktree. Tracking: surfaced in the implementer's session-end output for a human decision (keep/discard). Acknowledgement: same output.
+- **Also emitted**: `proof.json` (proof-v1) alongside the regenerated `proof.md` — the bundle's canonical record; this also makes S04's own artefacts consumable by the very MCP path this slice fixed.
