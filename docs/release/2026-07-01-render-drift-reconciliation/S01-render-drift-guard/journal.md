@@ -123,3 +123,52 @@ deferral, or need planner authority. Verdict is FAIL, not BLOCKED.
 `state` -> `failed_verification`. Re-opens via `/implement-slice
 S01-render-drift-guard 2026-07-01-render-drift-reconciliation` in a fresh
 session.
+
+## 2026-07-02 — Re-entry after FAIL (implementer)
+
+Picked up per Step 0b: `verification.result` was `"fail"`, not `"blocked"` —
+normal `failed_verification` re-entry, no `/replan-release` routing needed.
+`start_commit` (`ae390d1f...`) and the historical FAIL `verification` block
+were left untouched on the `in_progress` transition (S02b lesson / cycle-2
+precedent from S25-event-store-durable: never null `start_commit` or the
+prior verdict at re-entry — cycle-1 of that slice did, and it was wrong).
+
+All three violations were process/documentation, not code defects — no
+production code changed this round:
+
+1. **Gate 3b (render drift).** Confirmed the root cause directly: rendered
+   `index.md` at the current HEAD (state `failed_verification`) and diffed
+   against the committed file — zero diff, so the verifier's own FAIL
+   commit had already incidentally fixed the drift by re-rendering when it
+   recorded the verdict. The actual fix is procedural: re-render `index.md`
+   in the *same commit* as every `status.json` state change, never as a
+   separate follow-up. Did this for both transitions this session
+   (`in_progress`, then `implemented`) — confirmed via `git diff --stat` on
+   `index.md` each time (one-line state-column diff, nothing else moved).
+2. **Gate 4/7 (stale artefact).** Recaptured `reachability-doctor-output.txt`
+   from a fresh `sworn doctor` run against the working tree *after* the
+   final `index.md` re-render, so the artefact reflects the exact file
+   state that lands in the commit — not a state captured before a
+   subsequent change. Confirmed: render-drift errors only for the two
+   AC-05-tracked exceptions (#44, #45); zero for this release.
+3. **Gate 2 (touchpoint mismatch).** Added one sentence to `proof.json`'s
+   `divergence`: `internal/board/board_test.go` was never modified because
+   `driftGuard` had no existing board-package test to remove — grepped its
+   history to confirm — so there was no test surface this deletion touched.
+   The new behavior is tested where it lives (`cmd/sworn/doctor_test.go`).
+
+Re-ran `go build ./...`, `go test ./internal/board/... ./cmd/sworn/...`,
+and full `go test ./...` (38 packages) — all green, no regressions.
+
+First-pass gate: `sworn verify` (model-backed) requires
+`SWORN_ANTHROPIC_API_KEY`, unset in this environment — same gap as any
+session without that key, not new this round. Ran
+`~/.claude/bin/release-verify.sh` (private harness) instead, anchored at
+this worktree: state=implemented, 8 files changed vs `start_commit` (matches
+`proof.json`'s `files_changed`), no dark-code markers, both known
+spec.md/proof.md false negatives (per `feedback_releaseverify_specmd_false_fail`),
+crashes on the same pre-existing unbound `$PLAYWRIGHT_OPTIN` after every
+applicable check passed. First-pass green.
+
+`state` -> `implemented`. Stopping here per role boundaries — no verifier
+prompt in this session.

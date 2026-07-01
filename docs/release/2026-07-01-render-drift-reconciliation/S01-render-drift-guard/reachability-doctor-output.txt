@@ -1,10 +1,16 @@
-Reachability artefact for S01-render-drift-guard (AC-05).
+Reachability artefact for S01-render-drift-guard (AC-05) — recaptured after
+the verifier's FAIL verdict (Gate 3b/4/7: reachability artefact and index.md
+were stale relative to status.json's state at the time of the first capture).
 
-Command: `sworn doctor` run for real against the live repo at commit
-f0792d2 (this slice's implementation commit), not a synthetic fixture.
+Command: `sworn doctor` run for real against the live repo (not a synthetic
+fixture), from this worktree's HEAD at commit 3e1c742 plus the uncommitted
+index.md re-render that lands in this same commit. checkRenderDrift's
+production code (cmd/sworn/doctor.go, internal/board/board.go) is unchanged
+since f0792d2 — this round's fix was re-rendering index.md in lockstep with
+every status.json state transition, not a code change.
 
 Overall exit code: 1 — this is EXPECTED and unrelated to this slice (Group
-2b "status timestamps" reports 95 pre-existing violations across other
+2b "status timestamps" reports 97 pre-existing violations across other
 releases; `checkStatusTimestamps` is untouched by this slice). Per the
 design-review pin, AC-05's proof step is about the render-drift check's own
 reported output, not sworn doctor's overall exit code.
@@ -27,4 +33,7 @@ Result: exactly the 2 AC-05-tracked exceptions (swornagent/sworn#44 for
 2026-06-27-conformance-foundation's legacy string-form board.json,
 swornagent/sworn#45 for 2026-07-01-release-hygiene's stale hand-authored
 index.md) — zero render-drift errors for this release's own tracks (T1-T5)
-or any other release in scope. AC-05 satisfied.
+or any other release in scope, INCLUDING this release itself (the drift the
+verifier flagged is gone: this artefact was captured after index.md was
+re-rendered to match status.json's final `implemented` state, in the same
+commit as that state change). AC-05 satisfied.
