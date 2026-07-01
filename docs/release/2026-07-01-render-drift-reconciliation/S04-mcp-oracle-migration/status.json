@@ -16,5 +16,21 @@
   },
   "verification": {
     "result": "pending"
-  }
+  },
+  "actual_files": [
+    "internal/mcp/tools_ops.go",
+    "internal/mcp/context.go",
+    "internal/mcp/tools_plan.go",
+    "internal/mcp/catalog.go",
+    "internal/mcp/tools_plan_test.go"
+  ],
+  "test_commands": [
+    "go test ./internal/mcp/...",
+    "go test ./...",
+    "go vet ./...",
+    "go build ./..."
+  ],
+  "reachability_artifacts": [
+    "internal/mcp tests: TestGetBoard, TestGetBlockedExtractsViolations, TestGetSliceContext, TestDeferSliceWritesRuleTwo, TestRerunSliceWritesPID, TestPatchSliceWritesInstructions, TestApproveMergeRejectsUnverified, TestListReleases, TestSetTrackUpdates, TestSetTrackColon (drives the same code paths an MCP client reaches over the wire)"
+  ]
 }
