@@ -32,9 +32,15 @@ var verifierRolePrompt = prompt.Verifier()
 
 // Input is everything a verification needs.
 type Input struct {
-	SpecPath      string
-	DiffPath      string // "-" reads stdin
-	ProofPath     string // optional in S1
+	SpecPath  string
+	DiffPath  string // "-" reads stdin
+	ProofPath string // when set, gated by RunFirstPass (exists, non-empty, valid JSON for .json)
+	// ProofRequired makes an EMPTY ProofPath a BLOCKED first-pass verdict
+	// (Rule 6 — absence must not upgrade to PASS). The standalone CLI sets
+	// this: `sworn verify` is the proof-bundle gate. Left false by callers
+	// that own their own absence gate (RunSlice's proof-mandatory check) or
+	// that deliberately measure spec/diff structure only (bench).
+	ProofRequired bool
 	Model         string
 	Verifier      model.Verifier   // nil -> Unconfigured (fails closed)
 	OpenDeferrals []state.Deferral // Rule-2 deferrals from status.json (S10 no-mock-boundary)
@@ -46,7 +52,9 @@ type Input struct {
 //
 //	(a) spec is present and non-empty
 //	(b) diff is present and non-empty
-//	(c) no undeclared boundary mocks (S10 Rule 7/Rule 2 enforcement)
+//	(c) the proof bundle, when supplied (or required — Input.ProofRequired),
+//	    exists, is non-empty, and parses as JSON for .json bundles (Rule 6)
+//	(d) no undeclared boundary mocks (S10 Rule 7/Rule 2 enforcement)
 //
 // RunFirstPass MUST NOT be used to drive state transitions to verified.
 // A PASS from RunFirstPass only means "no structural blockers found";
@@ -65,7 +73,24 @@ func RunFirstPass(ctx context.Context, in Input) verdict.Result {
 	if err != nil {
 		return blocked("first_pass:diff", err.Error())
 	}
-	_ = in.ProofPath // proof is optional in first-pass; enforced by RunSlice proof-mandatory gate
+	// --- Proof-bundle gate (Rule 6) ---
+	// A supplied proof must exist, be non-empty, and (for .json bundles)
+	// parse as JSON — a missing/empty/unparseable proof must never upgrade
+	// to PASS. An empty ProofPath blocks only when the caller marked proof
+	// required (see Input.ProofRequired).
+	if in.ProofPath == "" {
+		if in.ProofRequired {
+			return blocked("first_pass:proof", "no proof bundle provided — fail closed (Rule 6)")
+		}
+	} else {
+		proofContent, err := readNonEmpty(in.ProofPath)
+		if err != nil {
+			return blocked("first_pass:proof", err.Error())
+		}
+		if strings.HasSuffix(in.ProofPath, ".json") && !json.Valid([]byte(proofContent)) {
+			return blocked("first_pass:proof", display(in.ProofPath)+" is not valid JSON")
+		}
+	}
 
 	// --- Boundary-mock check (S10 first-pass gate) ---
 	report := CheckBoundaryMocks(diff, in.OpenDeferrals)
