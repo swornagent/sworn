@@ -225,3 +225,22 @@ longer describing a pattern that wasn't actually implemented.
 
 State -> `implemented`. Stopping here per role boundaries — no verifier
 prompt in this session; `/verify-slice` in a fresh session is next.
+
+## 2026-07-01 (UTC) — verifier verdict (fresh context, second pass)
+
+- **State transition**: `implemented` → `verified`.
+- **Verdict**: `PASS`
+- **Verified against**: HEAD of `track/2026-07-01-render-drift-reconciliation/T2-tui` at rework commit `9b667f3` (second pass, following the `1aa60f4` FAIL).
+- **Gate walk**:
+  1. AC-01 PASS — `BoardView.LoadBoard` (`internal/tui/board.go`) reads `board.json` via `board.ReadBoard`, no `index.md` frontmatter parse. `TestBoardViewShowsSlices` and the live-repo `TestBoardViewLoadsRealOperationalReadinessRelease` both re-run green.
+  2. AC-02 PASS (violation from first pass closed) — `LoadBlockedView` (`internal/tui/blocked.go`) now scans each `board.BoardTrack.Slices` for the target `sliceID`, matching S04's `AssembleSliceContext` pattern exactly; `status.json.track` is read for display only. Re-ran `TestBlockedPanelWorktreeSurvivesStaleTrackField` (the committed regression test reproducing the first pass's exact probe: renamed track ID `T1-core-renamed`, `Slices` still lists the target slice, stale `status.json.track="T1-core"`): PASS, `worktreePath` resolves to the real worktree, not `repoRoot`.
+  3. AC-03 PASS — `ExtractViolations` reads `proof.json.not_delivered` only; no `proof.md` scrape. `TestBlockedPanelExtractsViolations` and `TestBlockedPanelViolationsFromProofJSONNotProofMD` (decoy `proof.md` with `LEGACY-SCRAPE-MARKER`, never surfaced) both green.
+  4. AC-04 PASS — every test that previously hand-authored `tracks:` frontmatter now builds its fixture via `writeBoardFixture` (real `board.WriteBoard` path); confirmed by reading `internal/tui/tui_test.go` directly, not just trusting the proof narrative.
+  5. AC-05 PASS — `TestBoardViewLoadsRealOperationalReadinessRelease` drives `Model.handleReleasesKey`'s integration point against this checkout's real, committed `2026-06-30-sworn-operational-readiness` release; `reachability-tui-capture.txt` is a genuine `tmux capture-pane` recording (not regenerated this pass — `board.go` untouched in the rework, and the artefact remains valid per the divergence note).
+  6. AC-06 PASS — `TestBoardViewLegacyIndexFallback` is the one dedicated test kept on the legacy `tracks:`-frontmatter-only shape; `board.ReadBoard`'s `migrateFromIndex` fallback is unmodified.
+  7. AC-07 PASS — re-ran live: `go build ./...` (0), `go vet ./internal/tui/...` (0), `gofmt -l` on the three touched files (empty), `go test ./internal/tui/... -count=1 -v` (41/41 PASS, 0.98s), full `go test ./... -count=1` (all packages ok, 0 failures).
+  8. Gate 7 (proof/journal accuracy, first pass's second violation) PASS — `proof.json`/`proof.md`'s AC-02 "Delivered" text now accurately describes the committed `Slices`-membership match; verified by reading `internal/tui/blocked.go` directly against the proof claim (they now agree).
+  9. Dark-code check PASS — `LoadBoard` and `LoadBlockedView` are both called from `internal/tui/model.go` (`handleReleasesKey`, blocked-panel transition), the real integration surface, not only from their own test file.
+  10. Diff-scope check PASS — `git diff --stat 622f118..HEAD` touches only the three declared touchpoints (`board.go`, `blocked.go`, `tui_test.go`) plus this slice's own `docs/release/.../S02-tui-oracle-migration/` artefacts and the regenerated release `index.md` (re-rendered this pass with no delta, confirming it was already current).
+- **Not delivered**: none (proof.json's `not_delivered` is empty; confirmed consistent with a full read of all seven ACs above).
+- **Next step**: track `T2-tui` is complete — `/merge-track T2-tui`.

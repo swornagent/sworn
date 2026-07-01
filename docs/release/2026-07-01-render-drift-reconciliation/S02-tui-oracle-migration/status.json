@@ -3,7 +3,7 @@
   "slice_id": "S02-tui-oracle-migration",
   "release": "2026-07-01-render-drift-reconciliation",
   "track": "T2-tui",
-  "state": "implemented",
+  "state": "verified",
   "covers_needs": [
     "N-01",
     "N-03"
@@ -37,14 +37,11 @@
     "docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/reachability-tui-capture.txt"
   ],
   "verification": {
-    "result": "fail",
-    "violations": [
-      "Gate 6 / AC-02: internal/tui/blocked.go LoadBlockedView resolves worktree_path by matching board.BoardTrack.ID == status.json's track field (t.ID == st.Track), not by the slice's membership in a track's Slices list. status.json.track is a hint, not an authoritative key (it can be stale after a track rename via /replan-release, as the same release's sibling slice S04's internal/mcp/context.go explicitly documents and defends against by scanning Slices membership instead). Reproduced live: a track renamed in board.json (ID changed) that still lists the slice in its Slices array causes LoadBlockedView to silently fall back to worktreePath=repoRoot — the exact silently-wrong-fallback behaviour AC-02 and this slice's stated user_outcome require eliminating, now reachable via a different trigger (stale track field) instead of the original one (frontmatter parse failure). Probe test (not committed, run standalone against this HEAD): board fixture with track ID 'T1-core-renamed' (WorktreePath=B) whose Slices contains 'S01-first', status.json.track='T1-core' (stale) -> LoadBlockedView returns worktreePath=repoRoot, not B.",
-      "Gate 7 (proof/journal accuracy): journal.md's 'Implementation complete' entry and proof.json/proof.md's AC-02 'Delivered' claims both assert LoadBlockedView matches 'the track whose Slices contains the target slice ID (matching S04's AssembleSliceContext pattern ... since that field is a hint not an authoritative key)'. This is false: the committed code (internal/tui/blocked.go) matches on t.ID == st.Track, the opposite of S04's pattern and of what the proof bundle claims was implemented. Rule 6 requires proof generated from live repo state, not misremembered narrative."
-    ],
+    "result": "pass",
+    "violations": [],
     "verifier_was_fresh_context": true,
-    "verifier_verdict_at": "2026-07-01T23:11:58Z"
+    "verifier_verdict_at": "2026-07-01T23:24:42Z"
   },
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-02T00:20:00Z"
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-01T23:24:42Z"
 }
