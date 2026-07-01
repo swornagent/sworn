@@ -123,3 +123,45 @@ Pin 2-fixture (object-form testdata board) into the revised design's Pins sectio
 re-reviewed (Rule 9 — no jump to code). **Next step:** fresh `/design-review
 S02-board-render 2026-06-30-sworn-operational-readiness` — expect PROCEED now that the
 design specifies the strict reader and the missing-board guard.
+
+## 2026-07-01 — design review PROCEED + implementation → `implemented`
+
+Re-review returned `DECISION: PROCEED` (review.md, commit 986c26f) and the Coach
+pasted the acknowledgement reply ("Address pins 1–6 inline … then proceed to
+in_progress"). Rule 9 gate satisfied. Transitioned design_review → in_progress
+(start_commit db14b95), recorded the Type-1 decision, implemented, → implemented.
+
+**Built (within the 3 declared touchpoints + inert testdata):**
+- `internal/board/render.go` — pure `Render(projectRoot, release) (string,error)`
+  + `RenderToFile` (build-then-write). Decodes via canonical strict
+  `board.ReadBoard` (Pin 1); `os.Stat` missing-board guard so a missing board.json
+  fails closed instead of `ReadBoard` lazy-migrating from index.md (Pin 2). Emits
+  single-quoted frontmatter + tracks table + slice table + touchpoint matrix +
+  dependency graph, all from stable orderings (tracks sorted by id; slices in
+  declared order; matrix rows by (owning-track, path)).
+- `cmd/sworn/render.go` — self-registering `render` verb (init() → command.Register),
+  mirroring `top`/`ship` (positional release + optional project-root). Chose
+  self-registration NOT an edit to commands.go, which is outside the touchpoints —
+  a track collision avoided (board.go/route.go/merge.go use the same pattern).
+- `internal/board/render_test.go` + `testdata/render/` — golden (renders twice,
+  byte-identical), frontmatter-ValidateIndex, disjoint-matrix, and three
+  fail-closed tests (missing board / bare-string board / missing slice record).
+
+**Pins applied inline:** Pin 3 test-scope (ran `./internal/board/...`,
+`./cmd/sworn/...`, and full `./... -timeout 300s` — all green, no newline-hang);
+Pin 5 (ValidateIndex + single-quoted frontmatter kept); Pin 6 (rendered index.md
+replaces the hand-authored one — reachability). Pin 4 forward-merge is a
+pre-/merge-track step, not an implementer action.
+
+**Gates:** `designfit` PASS (Rule 9 Type-1 recorded). `specquality`/`lint ac` fail
+release-wide because every slice uses spec.json/EARS not spec.md/acceptance-examples
+(known false-negative, `feedback_releaseverify_specmd_false_fail`; verified siblings
+S03/S04/S05 share it) — not introduced by S02. `sworn verify` model gate could not
+run (no SWORN_ANTHROPIC_API_KEY) → deferred to the fresh /verify-slice (Rule 7),
+surfaced in proof.json not_delivered.
+
+**Reachability (AC-05):** ran `sworn render <this release>` → regenerated index.md,
+T1+T2 present, 31-file matrix with 0 collisions, byte-identical on re-render.
+
+Terminal state `implemented`. Next: fresh `/verify-slice S02-board-render
+2026-06-30-sworn-operational-readiness`.
