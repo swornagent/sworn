@@ -15,7 +15,11 @@ type PricingEntry struct {
 // OpenAI models: https://openai.com/api/pricing/
 var Pricing = map[string]PricingEntry{
 	// Anthropic models.
-	"claude-opus-4-8":   {15.00, 75.00},
+	"claude-opus-4-8": {5.00, 25.00},
+	// claude-sonnet-5: introductory $2/$10 per MTok through 2026-08-31 (ratified,
+	// Anthropic models-overview footnote 4). Standard rate $3/$15 applies AFTER
+	// 2026-08-31 — FLIP this entry to {3.00, 15.00} then. Tracked: sworn#41.
+	"claude-sonnet-5":   {2.00, 10.00},
 	"claude-sonnet-4-6": {3.00, 15.00},
 	"claude-haiku-4-5":  {1.00, 5.00},
 
