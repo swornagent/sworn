@@ -112,12 +112,6 @@ None.
 
 ```
 $ $HOME/.claude/bin/release-verify.sh S04-mcp-oracle-migration 2026-07-01-render-drift-reconciliation
-... (output captured at run time — see "First-pass script output" below for the exact log)
-```
-
-### Captured run
-
-```
 release-verify.sh
   slice:       S04-mcp-oracle-migration
   slice dir:   docs/release/2026-07-01-render-drift-reconciliation/S04-mcp-oracle-migration
@@ -129,19 +123,23 @@ release-verify.sh
   PASS  proof.md present
   PASS  status.json present
   PASS  journal.md present
+  PASS  spec.md has Required tests section
 
 == Status ==
   PASS  status.json is valid JSON
   state: implemented
-  PASS  state is 'implemented'
+  PASS  state is 'implemented' (eligible for verifier review)
 
 == Integration branch drift ==
   could not determine integration branch from docs/release/2026-07-01-render-drift-reconciliation/index.md; skipping drift check
 
 == Diff vs start_commit (verifier base) ==
   diff base: start_commit d7b3beaa280eea969a5829552958a19a267aa761
-  PASS  6 file(s) changed vs diff base
+  PASS  9 file(s) changed vs diff base
   (first 20)
+    docs/release/2026-07-01-render-drift-reconciliation/S04-mcp-oracle-migration/journal.md
+    docs/release/2026-07-01-render-drift-reconciliation/S04-mcp-oracle-migration/proof.md
+    docs/release/2026-07-01-render-drift-reconciliation/S04-mcp-oracle-migration/spec.md
     docs/release/2026-07-01-render-drift-reconciliation/S04-mcp-oracle-migration/status.json
     internal/mcp/catalog.go
     internal/mcp/context.go
@@ -153,11 +151,28 @@ release-verify.sh
   PASS  no dark-code markers in changed source files
 
 == Proof bundle structural checks ==
-  PASS  all required sections present in proof.md
+  PASS  proof.md has section: ## Scope
+  PASS  proof.md has section: ## Files changed
+  PASS  proof.md has section: ## Test results
+  PASS  proof.md has section: ## Reachability artefact
+  PASS  proof.md has section: ## Delivered
+  PASS  proof.md has section: ## Not delivered
+  PASS  proof.md has section: ## Divergence from plan
+  PASS  no obvious template placeholders left in proof.md
+  PASS  deferrals (proof 'Not delivered' + spec 'Out of scope') carry concrete tracking refs
+  PASS  proof.md 'Files changed' count (~6) consistent with diff vs start_commit (9)
 
 == Frontmatter YAML safety ==
-  PASS  frontmatter parses as YAML
+  PASS  spec.md frontmatter is strict-YAML safe
 
 == Test results section scope ==
-  PASS  Test results section populated
+  PASS  Test results section contains no Playwright runner output (Jest/Vitest scope confirmed)
+
+== First-pass verdict ==
+  checks passed: 22
+  checks failed: 0
+
+FIRST-PASS PASS
+Open a FRESH session and paste role-prompts/verifier.md to perform adversarial verification.
+Do NOT run the verifier in this same session — Rule 7 requires a fresh context window.
 ```
