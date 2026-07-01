@@ -43,7 +43,9 @@
         "S04-mcp-oracle-migration"
       ],
       "depends_on": [],
-      "state": "planned"
+      "state": "in_progress",
+      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-07-01-render-drift-reconciliation-T3-mcp",
+      "worktree_branch": "track/2026-07-01-render-drift-reconciliation/T3-mcp"
     },
     {
       "id": "T4-cli-merge-regress",
