@@ -495,7 +495,7 @@ AC 2 (S01-test): FAIL — incomplete [lacks trigger condition]`
 	}
 }
 
-func TestRun_NoACsPasses(t *testing.T) {
+func TestRun_NoACsFailsClosed(t *testing.T) {
 	dir := t.TempDir()
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
 	os.MkdirAll(releaseDir, 0o755)
@@ -507,14 +507,99 @@ func TestRun_NoACsPasses(t *testing.T) {
 None.`)
 
 	report, err := Run(context.Background(), releaseDir, fakeVerifier{reply: ""}, sampleSystemPrompt)
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatal("want error for release with no evaluable ACs (fail closed), got nil")
 	}
-	if report.HasViolations() {
-		t.Fatal("want no violations for empty ACs")
+	if !strings.Contains(err.Error(), "no evaluable acceptance criteria") {
+		t.Errorf("want 'no evaluable acceptance criteria' error, got %v", err)
 	}
 	if report.TotalACs != 0 {
 		t.Errorf("want 0 total ACs, got %d", report.TotalACs)
+	}
+}
+
+// writeSpecJSONFixture creates a slice spec.json (spec-v1 record) under a
+// temp release directory.
+func writeSpecJSONFixture(t *testing.T, releaseDir, sliceID, specJSON string) {
+	t.Helper()
+	dir := filepath.Join(releaseDir, sliceID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "spec.json"), []byte(specJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExtractACs_PrefersSpecJSON(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	writeSpecJSONFixture(t, releaseDir, "S01-test", `{
+  "schema_version": 1,
+  "slice_id": "S01-test",
+  "release": "test-release",
+  "acceptance_criteria": [
+    {"id": "AC-1", "type": "ubiquitous", "text": "THE SYSTEM SHALL do X."},
+    {"id": "AC-2", "type": "event-driven", "ears_keyword": "When", "text": "WHEN Y THE SYSTEM SHALL do Z."}
+  ]
+}`)
+	// A stale spec.md alongside spec.json must NOT win.
+	writeFixture(t, releaseDir, "S01-test", `## Acceptance checks
+
+- [ ] stale markdown AC that must be ignored
+`)
+
+	acs, err := extractACs(releaseDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(acs) != 2 {
+		t.Fatalf("want 2 ACs from spec.json, got %d", len(acs))
+	}
+	if acs[0].Content != "THE SYSTEM SHALL do X." || acs[0].Index != 1 {
+		t.Errorf("unexpected first AC: %+v", acs[0])
+	}
+	if acs[1].SliceID != "S01-test" || acs[1].Index != 2 {
+		t.Errorf("unexpected second AC: %+v", acs[1])
+	}
+}
+
+func TestExtractACs_MalformedSpecJSONFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	writeSpecJSONFixture(t, releaseDir, "S01-test", `{not json`)
+
+	if _, err := extractACs(releaseDir); err == nil {
+		t.Fatal("want error for malformed spec.json, got nil")
+	}
+}
+
+func TestRun_SpecJSONDispatchesModel(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	writeSpecJSONFixture(t, releaseDir, "S01-test", `{
+  "schema_version": 1,
+  "slice_id": "S01-test",
+  "release": "test-release",
+  "acceptance_criteria": [
+    {"id": "AC-1", "type": "ubiquitous", "text": "THE SYSTEM SHALL do X."}
+  ]
+}`)
+
+	report, err := Run(context.Background(), releaseDir, fakeVerifier{reply: `## RESULTS
+
+AC 1 (S01-test): PASS`}, sampleSystemPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.TotalACs != 1 || report.PassedACs != 1 {
+		t.Errorf("want 1 AC graded PASS, got total=%d passed=%d", report.TotalACs, report.PassedACs)
 	}
 }
 
