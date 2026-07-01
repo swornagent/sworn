@@ -113,3 +113,56 @@ all 7 required `proof.md` structural sections and the file-count
 cross-check against the diff (4 files, matching `proof.json.files_changed`).
 Treating first-pass as green given every substantive, applicable check
 passed.
+
+## 2026-07-01 (UTC) — verifier verdict (fresh context, first pass)
+
+- **State transition**: `implemented` → `failed_verification`.
+- **Verdict**: `FAIL`
+- **Violations**:
+  1. Gate 6 / AC-02 — `internal/tui/blocked.go` `LoadBlockedView` resolves
+     `worktree_path` by matching `board.BoardTrack.ID == status.json`'s
+     `track` field, not by the slice's membership in the track's `Slices`
+     list. `status.json.track` is a hint, not an authoritative key — it can
+     go stale after a track rename (e.g. via `/replan-release`). This
+     release's own sibling slice, S04 (`internal/mcp/context.go`
+     `AssembleSliceContext`), explicitly documents and defends against this
+     exact staleness risk by scanning `Slices` membership instead of trusting
+     the status field. S02 does not. Reproduced live with a standalone probe
+     test (not committed): a board fixture with a renamed track ID whose
+     `Slices` still lists the target slice, paired with a stale
+     `status.json.track` pointing at the track's old ID, causes
+     `LoadBlockedView` to silently fall back to `worktreePath=repoRoot` —
+     the exact "silently-wrong fallback" behaviour this slice's `spec.json`
+     `user_outcome` and AC-02 require eliminating, now reachable via a
+     different trigger (stale track field) instead of the original one
+     (frontmatter parse failure).
+  2. Gate 7 (proof/journal accuracy) — this journal's "Implementation
+     complete" entry and `proof.json`/`proof.md`'s AC-02 "Delivered" text
+     both assert `LoadBlockedView` matches "the track whose `Slices`
+     contains the target slice ID (matching S04's `AssembleSliceContext`
+     pattern — membership in `Slices`, not a `status.json.track` field
+     match...)". This is factually false against the committed code, which
+     matches on `t.ID == st.Track` — the opposite of both S04's pattern and
+     what the proof bundle claims was implemented. Rule 6 requires proof
+     generated from live repo state, not misremembered narrative.
+- **Required to address**:
+  1. Change `LoadBlockedView`'s track resolution to scan each
+     `board.BoardTrack.Slices` for the target `sliceID` (matching S04's
+     `AssembleSliceContext` pattern), treating `status.json.track` as a hint
+     only, not the match key.
+  2. Add/update a test that proves resolution survives a stale
+     `status.json.track` (renamed board track, slice still listed under the
+     new track's `Slices`) — the current `TestDeferWritesRuleTwo` and
+     `TestBlockedPanelViolationsFromProofJSONNotProofMD` fixtures always set
+     matching IDs, so this path is untested.
+  3. Correct the journal/proof narrative to match whatever resolution
+     strategy is actually implemented.
+- **Verified**: `go build ./...`, `go vet ./internal/tui/...`, `gofmt -l` on
+  the three touched files, `go test ./internal/tui/... -count=1 -v` (all 40
+  tests including the reachability test), and full `go test ./... -count=1`
+  (39 packages) all re-run live and PASS as claimed — AC-01, AC-03 through
+  AC-07 hold up under fresh execution. Only AC-02 (worktree_path resolution
+  robustness) fails.
+- **Next step**: `/implement-slice S02-tui-oracle-migration
+  2026-07-01-render-drift-reconciliation` in a fresh session to fix the
+  match strategy and re-verify.
