@@ -3,7 +3,7 @@
   "slice_id": "S02-board-render",
   "release": "2026-06-30-sworn-operational-readiness",
   "track": "T2-board-render",
-  "state": "design_review",
+  "state": "in_progress",
   "covers_needs": [
     "N-05"
   ],
@@ -14,9 +14,22 @@
     "complexity": "low",
     "quadrant": "chore",
     "rationale": "Deterministic render of board.json + slice records into a fixed Markdown layout; new files only, no model dispatch.",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
   "verification": {
     "result": "pending"
-  }
+  },
+  "design_decisions": [
+    {
+      "choice": "Renderer decodes board.json via canonical strict board.ReadBoard (object-only release), with an os.Stat pre-guard that fails closed on a missing board.json instead of triggering ReadBoard's lazy migration from index.md",
+      "stake_class": "Type-1",
+      "options": [
+        "canonical strict board.ReadBoard against the object-form board (CHOSEN)",
+        "local tolerant renderBoard decoder accepting string-or-object release (REJECTED)"
+      ],
+      "human_decision": "Coach authorised and executed the S05 AC-06 cutover (2026-07-01): this release's board.json migrated string->object and canonical strict sworn installed globally. Renderer therefore uses the single strict reader; a second tolerant decode path is rejected (S05 AC-03: legacy string boards are migrated, not read-tolerated).",
+      "rationale": "One board-decode path in the codebase; AC-04/AC-05 are consistent as written once the board is object-form; avoids the reader-divergence surface (feedback_releaseverify_specmd_false_fail). The reader choice is invisible to the delivery Verifier, so Rule 9 fixes it in design.",
+      "architecturally_significant": true
+    }
+  ]
 }
