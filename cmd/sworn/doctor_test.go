@@ -162,12 +162,23 @@ func TestDoctorFixRemovesBatonDir(t *testing.T) {
 	}
 }
 
-// TestDoctorFixMigratesAgentsMD tests that --fix backs up and rewrites AGENTS.md.
+// legacyAgentsContent is a realistic legacy AGENTS.md: user content before
+// AND after the spliced Baton section. The migration must preserve both.
+const legacyAgentsContent = "# My Project\n\n" +
+	"Custom onboarding: run kubectl apply -f infra/.\n\n" +
+	"## Engineering Process — Baton\n\n" +
+	"Some rules here.\n\n" +
+	"### 1. Reachability Gate (CRITICAL)\n\nrule body\n\n" +
+	"## Deployment\n\nShip with make deploy.\n"
+
+// TestDoctorFixMigratesAgentsMD tests that --fix splices out only the legacy
+// Baton section, preserving all other user content, backing up the original,
+// and writing replacement content that neither re-contains the legacy trigger
+// heading nor points at the docs/baton/ directory the same run deletes.
 func TestDoctorFixMigratesAgentsMD(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, ".git"), 0755)
-	oldContent := "# My Project\n\n## Engineering Process — Baton\n\nSome rules here.\n"
-	os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(oldContent), 0644)
+	os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(legacyAgentsContent), 0644)
 
 	exitCode, output := runDoctorInDir(t, dir, "--fix")
 
@@ -179,16 +190,122 @@ func TestDoctorFixMigratesAgentsMD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected AGENTS.md.bak to be created: %v", err)
 	}
-	if string(bakContent) != oldContent {
-		t.Errorf("backup content mismatch:\ngot:  %q\nwant: %q", string(bakContent), oldContent)
+	if string(bakContent) != legacyAgentsContent {
+		t.Errorf("backup content mismatch:\ngot:  %q\nwant: %q", string(bakContent), legacyAgentsContent)
 	}
-	// Verify new AGENTS.md no longer has the old content but has the fragment.
 	newContent, _ := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
-	if strings.Contains(string(newContent), "# My Project") {
-		t.Errorf("new AGENTS.md should not contain old content")
+	// User content around the Baton section must survive.
+	for _, keep := range []string{"# My Project", "kubectl apply", "## Deployment", "make deploy"} {
+		if !strings.Contains(string(newContent), keep) {
+			t.Errorf("new AGENTS.md lost user content %q:\n%s", keep, newContent)
+		}
 	}
-	if !strings.Contains(string(newContent), "## Engineering Process — Baton") {
-		t.Errorf("new AGENTS.md should contain the Baton fragment")
+	// The legacy Baton section body must be gone.
+	for _, gone := range []string{"Some rules here", "### 1. Reachability Gate"} {
+		if strings.Contains(string(newContent), gone) {
+			t.Errorf("new AGENTS.md still contains legacy section content %q:\n%s", gone, newContent)
+		}
+	}
+	// Convergence: the rewritten file must not re-contain the legacy trigger.
+	if strings.Contains(string(newContent), "## Engineering Process — Baton") {
+		t.Errorf("new AGENTS.md re-contains the legacy trigger heading (migration would never converge):\n%s", newContent)
+	}
+	// Must not point at docs/baton/ — the same --fix run removes it.
+	if strings.Contains(string(newContent), "docs/baton/") {
+		t.Errorf("new AGENTS.md points at docs/baton/, which --fix deletes:\n%s", newContent)
+	}
+	// Must point at the MCP server as the canonical source.
+	if !strings.Contains(string(newContent), "sworn mcp") {
+		t.Errorf("new AGENTS.md missing MCP pointer:\n%s", newContent)
+	}
+}
+
+// TestDoctorFixMigrationConverges tests that a second --fix run is a clean
+// no-op: no re-migration, AGENTS.md unchanged, and the backup of the ORIGINAL
+// content is not clobbered.
+func TestDoctorFixMigrationConverges(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".git"), 0755)
+	os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(legacyAgentsContent), 0644)
+
+	exitCode1, output1 := runDoctorInDir(t, dir, "--fix")
+	if exitCode1 != 2 {
+		t.Fatalf("run 1: expected exit 2 (fix applied), got %d\nOutput:\n%s", exitCode1, output1)
+	}
+	if !strings.Contains(output1, "migrating legacy AGENTS.md") {
+		t.Fatalf("run 1: expected migration to run\nOutput:\n%s", output1)
+	}
+	afterRun1, _ := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+
+	exitCode2, output2 := runDoctorInDir(t, dir, "--fix")
+	if exitCode2 != 0 {
+		t.Errorf("run 2: expected exit 0 (nothing to fix), got %d\nOutput:\n%s", exitCode2, output2)
+	}
+	if strings.Contains(output2, "migrating legacy AGENTS.md") {
+		t.Errorf("run 2: re-migrated an already-migrated AGENTS.md (non-convergent)\nOutput:\n%s", output2)
+	}
+	afterRun2, _ := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	if string(afterRun1) != string(afterRun2) {
+		t.Errorf("run 2 changed AGENTS.md:\nrun1: %q\nrun2: %q", afterRun1, afterRun2)
+	}
+	// The backup must still hold the ORIGINAL content, not be clobbered.
+	bakContent, err := os.ReadFile(filepath.Join(dir, "AGENTS.md.bak"))
+	if err != nil {
+		t.Fatalf("AGENTS.md.bak missing after run 2: %v", err)
+	}
+	if string(bakContent) != legacyAgentsContent {
+		t.Errorf("run 2 clobbered AGENTS.md.bak:\ngot:  %q\nwant: %q", bakContent, legacyAgentsContent)
+	}
+}
+
+// TestDoctorFixNeverClobbersExistingBackup tests that when AGENTS.md.bak
+// already exists (e.g. from an earlier migration of different content), a new
+// migration writes its backup elsewhere instead of overwriting it.
+func TestDoctorFixNeverClobbersExistingBackup(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".git"), 0755)
+	preexistingBak := "precious earlier backup\n"
+	os.WriteFile(filepath.Join(dir, "AGENTS.md.bak"), []byte(preexistingBak), 0644)
+	os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(legacyAgentsContent), 0644)
+
+	exitCode, output := runDoctorInDir(t, dir, "--fix")
+	if exitCode != 2 {
+		t.Fatalf("expected exit 2 (fix applied), got %d\nOutput:\n%s", exitCode, output)
+	}
+	bakContent, _ := os.ReadFile(filepath.Join(dir, "AGENTS.md.bak"))
+	if string(bakContent) != preexistingBak {
+		t.Errorf("existing AGENTS.md.bak was clobbered:\ngot:  %q\nwant: %q", bakContent, preexistingBak)
+	}
+	// A backup of the migrated content must still exist somewhere.
+	entries, _ := os.ReadDir(dir)
+	found := false
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "AGENTS.md.bak.") {
+			data, _ := os.ReadFile(filepath.Join(dir, e.Name()))
+			if string(data) == legacyAgentsContent {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Errorf("no timestamped backup of the original AGENTS.md found; entries: %v", entries)
+	}
+}
+
+// TestDoctorAdviceNotCircular tests that doctor's non-fix advice for a legacy
+// AGENTS.md points at 'sworn doctor --fix' (which migrates), not at
+// 'sworn init' (which refuses legacy files and points back at doctor).
+func TestDoctorAdviceNotCircular(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".git"), 0755)
+	os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(legacyAgentsContent), 0644)
+
+	_, output := runDoctorInDir(t, dir)
+	if !strings.Contains(output, "sworn doctor --fix") {
+		t.Errorf("legacy AGENTS.md advice should point at 'sworn doctor --fix'\nOutput:\n%s", output)
+	}
+	if strings.Contains(output, "Run 'sworn init' to replace") {
+		t.Errorf("legacy AGENTS.md advice is circular (init refuses legacy files and points back at doctor)\nOutput:\n%s", output)
 	}
 }
 
@@ -585,7 +702,8 @@ func TestDoctorPin(t *testing.T) {
 	// Save and restore injectables.
 	origReadBatonDoc := readBatonDoc
 	origPromptReaders := promptReadersForCheck
-	defer func() {		readBatonDoc = origReadBatonDoc
+	defer func() {
+		readBatonDoc = origReadBatonDoc
 		promptReadersForCheck = origPromptReaders
 	}()
 

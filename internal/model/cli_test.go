@@ -78,7 +78,7 @@ func TestClaudeCLI_NormalDispatch(t *testing.T) {
 	t.Setenv("CLI_RECORD_PATH", recordPath)
 
 	d := newClaudeCLI("sonnet")
-text, cost, _, _, err := d.Verify(context.Background(), "you are a verifier", "check this")
+	text, cost, _, _, err := d.Verify(context.Background(), "you are a verifier", "check this")
 	if err != nil {
 		t.Fatalf("Verify() error: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestClaudeCLI_MissingBinary(t *testing.T) {
 	t.Setenv("CLAUDE_BIN", "/nonexistent/claude-binary-xyz")
 	d := newClaudeCLI("sonnet")
 
-_, _, _, _, err := d.Verify(context.Background(), "s", "u")
+	_, _, _, _, err := d.Verify(context.Background(), "s", "u")
 	if err == nil {
 		t.Fatal("expected error for missing binary, got nil")
 	}
@@ -141,7 +141,7 @@ func TestClaudeCLI_AuthFailure(t *testing.T) {
 	t.Setenv("GO_TEST_FAKE_CLI", "claude-fail")
 
 	d := newClaudeCLI("sonnet")
-_, _, _, _, err := d.Verify(context.Background(), "s", "u")
+	_, _, _, _, err := d.Verify(context.Background(), "s", "u")
 	if err == nil {
 		t.Fatal("expected error for auth failure, got nil")
 	}
@@ -167,7 +167,7 @@ func TestClaudeCLI_Timeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-_, _, _, _, err := d.Verify(ctx, "s", "u")
+	_, _, _, _, err := d.Verify(ctx, "s", "u")
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
 	}
@@ -193,7 +193,7 @@ func TestClaudeCLI_FromEnvIntegration(t *testing.T) {
 		t.Fatalf("FromEnv(claude-cli/sonnet) error: %v", err)
 	}
 
-text, cost, _, _, err := verifier.Verify(context.Background(), "sys", "payload")
+	text, cost, _, _, err := verifier.Verify(context.Background(), "sys", "payload")
 	if err != nil {
 		t.Fatalf("Verify() error: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestClaudeCLI_ModelPassthrough(t *testing.T) {
 	t.Setenv("CLI_RECORD_PATH", recordPath)
 
 	d := newClaudeCLI("haiku")
-_, _, _, _, err := d.Verify(context.Background(), "sys", "usr")
+	_, _, _, _, err := d.Verify(context.Background(), "sys", "usr")
 	if err != nil {
 		t.Fatalf("Verify() error: %v", err)
 	}

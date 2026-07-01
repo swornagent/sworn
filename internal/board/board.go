@@ -118,6 +118,7 @@ func (sl *StringList) UnmarshalJSON(data []byte) error {
 	*sl = StringList(arr)
 	return nil
 }
+
 // ReadBoard reads board.json from docs/release/<release>/board.json. If the
 // file does not exist, it performs a lazy migration: reads the index.md
 // frontmatter, builds a BoardRecord from it, and writes board.json so
@@ -191,7 +192,7 @@ func migrateFromIndex(repoRoot, release string) (*BoardRecord, error) {
 	releaseWTPath := ""
 	releaseWTBranch := ""
 	vt := ParseVerticalTrace(string(rawIndex)) // re-parse full text for vertical trace
-	_ = vt                                      // vertical trace not stored in board.json
+	_ = vt                                     // vertical trace not stored in board.json
 
 	// Extract release_worktree_path and release_worktree_branch from frontmatter.
 	for _, line := range strings.Split(fmBody, "\n") {

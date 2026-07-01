@@ -223,7 +223,7 @@ Write a hello world file and verify it exists.
 			NegativeScenarios: []string{"User saves while offline, system shows error."},
 			BenefitHypothesis: "Test benefit hypothesis.",
 		},
-		Verification: state.Verification{Result: "pending"},		ReleaseBase:  "release/v0.1.0",
+		Verification: state.Verification{Result: "pending"}, ReleaseBase: "release/v0.1.0",
 	}
 	statusPath := filepath.Join(sliceDir, "status.json")
 	_ = state.Write(statusPath, st) // initially write status so state package can read it
@@ -589,7 +589,8 @@ func TestProof_ContainsRequiredSections(t *testing.T) {
 		"## Not delivered",
 		"## Divergence from plan",
 	}
-	for _, section := range required {		if !strings.Contains(proofStr, section) {
+	for _, section := range required {
+		if !strings.Contains(proofStr, section) {
 			t.Errorf("proof.md missing required section %q", section)
 		}
 	}

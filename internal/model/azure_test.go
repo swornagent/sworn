@@ -50,7 +50,7 @@ func TestAzureVerify_CorrectURL(t *testing.T) {
 	}
 	a.Client = srv.Client()
 
-_, _, _, _, err = a.Verify(context.Background(), "be strict", "verify this diff")
+	_, _, _, _, err = a.Verify(context.Background(), "be strict", "verify this diff")
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestAzureVerify_APIKeyHeader(t *testing.T) {
 	}
 	a.Client = srv.Client()
 
-_, _, _, _, err = a.Verify(context.Background(), "be strict", "verify this diff")
+	_, _, _, _, err = a.Verify(context.Background(), "be strict", "verify this diff")
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestAzureVerify_AuthorizationHeaderAbsent(t *testing.T) {
 	}
 	a.Client = srv.Client()
 
-_, _, _, _, err = a.Verify(context.Background(), "be strict", "verify this diff")
+	_, _, _, _, err = a.Verify(context.Background(), "be strict", "verify this diff")
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestAzureVerify_DefaultAPIVersion(t *testing.T) {
 	}
 	a.Client = srv.Client()
 
-_, _, _, _, err = a.Verify(context.Background(), "be strict", "verify this diff")
+	_, _, _, _, err = a.Verify(context.Background(), "be strict", "verify this diff")
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestAzureVerify_ReturnsText(t *testing.T) {
 	}
 	a.Client = srv.Client()
 
-text, cost, _, _, err := a.Verify(context.Background(), "be strict", "verify this diff")
+	text, cost, _, _, err := a.Verify(context.Background(), "be strict", "verify this diff")
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestAzureVerify_ErrorResponse(t *testing.T) {
 	}
 	a.Client = srv.Client()
 
-_, _, _, _, err = a.Verify(context.Background(), "be strict", "verify this diff")
+	_, _, _, _, err = a.Verify(context.Background(), "be strict", "verify this diff")
 	if err == nil {
 		t.Fatal("expected error for 429, got nil")
 	}

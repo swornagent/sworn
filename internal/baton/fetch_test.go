@@ -20,7 +20,6 @@ import (
 // It is not the real Baton protocol version.
 var testVersionTag = "v9.8.7"
 
-
 // makeTarball creates a gzipped tar archive in memory with the GitHub-style
 // top-level prefix <repo>-<tag>/. Each entry in files is a relative path
 // within the archive (e.g. "README.md" maps to <repo>-<tag>/README.md).
@@ -145,7 +144,7 @@ func TestFetchUpstream_Success(t *testing.T) {
 	owner, name, tag := "sawy3r", "baton", testVersionTag
 	commitSHA := "abc123def456"
 	files := map[string]string{
-		"README.md":                         "# Baton",
+		"README.md":                  "# Baton",
 		"baton/reachability-gate.md": "# Rule 1",
 	}
 	tarball := makeTarball(name, tag, files)

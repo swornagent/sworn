@@ -84,6 +84,22 @@ func TestCmdRun_Parallel(t *testing.T) {
 		t.Fatalf("chdir: %v", err)
 	}
 
+	// ── Git fixture ───────────────────────────────────────────────────────
+	// ProductionMergeTrack asserts fail-closed that the release worktree
+	// path is a git worktree (Rule 11 target assertion), so the fixture must
+	// be a real repo with the track branches present. Both branches sit at
+	// HEAD, so the auto-merge is an "Already up to date" no-op.
+	runGit(t, tmpDir, "init", "-b", "main")
+	runGit(t, tmpDir, "config", "user.email", "test@swornagent.dev")
+	runGit(t, tmpDir, "config", "user.name", "sworn test")
+	if err := os.WriteFile(filepath.Join(tmpDir, "README.md"), []byte("# test\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGit(t, tmpDir, "add", "README.md")
+	runGit(t, tmpDir, "commit", "-m", "initial commit")
+	runGit(t, tmpDir, "branch", "track/test/T1")
+	runGit(t, tmpDir, "branch", "track/test/T2")
+
 	// ── Pre-create the DB schema ──────────────────────────────────────────
 	// openDefaultDB() opens .sworn/sworn.db in the current directory.  The
 	// supervisor needs the tracks and events tables to exist before workers

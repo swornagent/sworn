@@ -30,6 +30,7 @@ const JourneysSchemaURI = "https://baton.sawy3r.net/schemas/journeys-v1.json"
 
 // AttestationsSchemaURI is the canonical $schema URI for attestations-v1.json.
 const AttestationsSchemaURI = "https://baton.sawy3r.net/schemas/attestations-v1.json"
+
 // requiredFields lists the top-level string fields that must be present
 // and non-empty in every status.json payload. `track` is intentionally NOT
 // required: single-slice `sworn run` (non-track mode) writes an empty track
@@ -88,7 +89,8 @@ func Validate(schemaName string, data []byte) error {
 		return validateJourneys(data)
 	case "attestations-v1":
 		return validateAttestations(data)
-	default:		return fmt.Errorf("validator: no validation rules for schema %q", schemaName)
+	default:
+		return fmt.Errorf("validator: no validation rules for schema %q", schemaName)
 	}
 }
 
@@ -358,6 +360,7 @@ func checkNonEmptyString(m map[string]interface{}, f string) error {
 	}
 	return nil
 }
+
 // validateJourneys validates data against the journeys-v1 schema.
 func validateJourneys(data []byte) error {
 	var m map[string]interface{}

@@ -21,8 +21,6 @@ func TestCmdInit_NonInteractive(t *testing.T) {
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
 
-	setupTemplates(dir)
-
 	exit := cmdInit([]string{"--yes"})
 	if exit != 0 {
 		t.Fatalf("cmdInit --yes exited %d, want 0", exit)
@@ -61,8 +59,6 @@ func TestCmdInit_UIBearingFlag(t *testing.T) {
 	oldCwd, _ := os.Getwd()
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
-
-	setupTemplates(dir)
 
 	exit := cmdInit([]string{"--yes", "--ui-bearing"})
 	if exit != 0 {
@@ -111,8 +107,6 @@ func TestCmdInit_UIBearingOutput(t *testing.T) {
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
 
-	setupTemplates(dir)
-
 	exit := cmdInit([]string{"--yes", "--ui-bearing"})
 	if exit != 0 {
 		t.Fatalf("cmdInit --yes --ui-bearing exited %d, want 0", exit)
@@ -141,8 +135,6 @@ func TestCmdInit_UIBearing_ValidateFailClosed(t *testing.T) {
 	oldCwd, _ := os.Getwd()
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
-
-	setupTemplates(dir)
 
 	exit := cmdInit([]string{"--yes", "--ui-bearing"})
 	if exit != 0 {
@@ -179,8 +171,6 @@ func TestCmdInit_Interactive_NoUIPrompt(t *testing.T) {
 	oldCwd, _ := os.Getwd()
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
-
-	setupTemplates(dir)
 
 	// Feed stdin: "y" for confirm, "y" for catalog prompt.
 	cleanupStdin := feedStdinFromString(t, "y\ny\n")

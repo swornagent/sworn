@@ -105,6 +105,7 @@ type ChatResponse struct {
 	Usage   *UsageBlock `json:"usage"`
 	CostUSD float64     `json:"-"` // computed by driver from Usage × pricing
 }
+
 // ToolCall is a single tool invocation the model requests in a response.
 // Exported so the agent package can reconstruct message history.
 type ToolCall struct {
@@ -236,6 +237,7 @@ func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (str
 	}
 	return reasoningFallback(body, cr.Choices[0].Message.Content), cost, inputTokens, outputTokens, nil
 }
+
 // Chat sends a multi-message conversation (possibly with tool definitions// and tool-call history) to /chat/completions. It returns the full
 // ChatResponse so the caller can inspect tool_calls and finish_reason.
 // Cost is the sum of all Chat calls in the loop — tracked by the caller.
@@ -365,6 +367,7 @@ func (c *OAI) ChatStructured(ctx context.Context, messages []ChatMessage, schema
 	cr.Choices[0].Message.Content = content
 	return cr, nil
 }
+
 // reasoningFallback returns content unchanged unless it is empty — in which case
 // it extracts reasoning_content from the raw response body. Thinking models
 // (DeepSeek V4-pro / reasoner) put their answer in reasoning_content and may

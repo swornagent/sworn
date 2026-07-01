@@ -20,7 +20,6 @@ import (
 // testBatonTag is a test-only Baton version tag.
 var testBatonTag = "v9.8.7"
 
-
 func TestBatonDiffExitsNonZeroOnDivergence(t *testing.T) {
 	fixture, err := filepath.Abs(filepath.Join("..", "..", "internal", "baton", "testdata", "fixture"))
 	if err != nil {

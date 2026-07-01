@@ -59,7 +59,7 @@ func TestAnthropicVerify_ReturnsTextBlock(t *testing.T) {
 	defer srv.Close()
 
 	a := newTestAnthropic(srv.URL, "claude-sonnet-4-6")
-text, cost, _, _, err := a.Verify(context.Background(), "be strict", "verify this diff")
+	text, cost, _, _, err := a.Verify(context.Background(), "be strict", "verify this diff")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestAnthropicVerify_MultiBlock(t *testing.T) {
 	defer srv.Close()
 
 	a := newTestAnthropic(srv.URL, "claude-sonnet-4-6")
-text, _, _, _, err := a.Verify(context.Background(), "be strict", "verify this diff")
+	text, _, _, _, err := a.Verify(context.Background(), "be strict", "verify this diff")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestAnthropicVerify_APIError(t *testing.T) {
 	defer srv.Close()
 
 	a := newTestAnthropic(srv.URL, "claude-sonnet-4-6")
-_, _, _, _, err := a.Verify(context.Background(), "be strict", "verify this diff")
+	_, _, _, _, err := a.Verify(context.Background(), "be strict", "verify this diff")
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
@@ -156,7 +156,7 @@ func TestAnthropicVerify_NonHTTPErrorIsTransient(t *testing.T) {
 	defer srv.Close()
 
 	a := newTestAnthropic(srv.URL, "claude-sonnet-4-6")
-_, _, _, _, err := a.Verify(context.Background(), "be strict", "verify this diff")
+	_, _, _, _, err := a.Verify(context.Background(), "be strict", "verify this diff")
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
@@ -276,7 +276,7 @@ func TestAnthropicVerify_Live(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAnthropic error: %v", err)
 	}
-text, _, _, _, err := a.Verify(context.Background(), "Reply with PASS.", "verify")
+	text, _, _, _, err := a.Verify(context.Background(), "Reply with PASS.", "verify")
 	if err != nil {
 		t.Fatalf("Verify error: %v", err)
 	}
