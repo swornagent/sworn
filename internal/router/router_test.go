@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/swornagent/sworn/internal/board"
@@ -744,6 +745,77 @@ func TestParseDocumentedSharedFromFile(t *testing.T) { // Test using the actual 
 		}
 	}
 	t.Logf("Parsed %d documented shared files from live index.md", len(shared))
+}
+
+// TestParseDocumentedSharedFromRenderedBoard exercises S06 AC-05:
+// ParseDocumentedShared / parseTouchpointMatrix against a real, multi-track
+// `sworn render`-generated index.md (board.Render from board.json + slice
+// spec.json/status.json) — NOT the pre-migration 2026-06-27-conformance-foundation
+// fixture that TestParseDocumentedSharedFromFile uses (which predates the
+// board.json migration). A file two tracks both declare as a touchpoint is marked
+// with a ✓ under each track column and carries NO explicit "(DOCUMENTED SHARED)"
+// annotation, so this proves the ≥2-checkmark inference path works end-to-end
+// against the exact output the renderer produces today.
+func TestParseDocumentedSharedFromRenderedBoard(t *testing.T) {
+	tmpDir := t.TempDir()
+	release := "test-render-docshared"
+	relDir := filepath.Join(tmpDir, "docs", "release", release)
+	if err := os.MkdirAll(relDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	sharedFile := "internal/shared/thing.go"
+	t1Only := "internal/alpha/only.go"
+
+	boardJSON := `{
+  "$schema": "https://baton.sawy3r.net/schemas/board-v1.json",
+  "schema_version": 1,
+  "release": {"name": "` + release + `"},
+  "tracks": [
+    {"id": "T1-alpha", "slices": ["S01-alpha"], "worktree_branch": "track/test/T1-alpha", "state": "planned"},
+    {"id": "T2-beta", "slices": ["S02-beta"], "worktree_branch": "track/test/T2-beta", "state": "planned"}
+  ]
+}`
+	if err := os.WriteFile(filepath.Join(relDir, "board.json"), []byte(boardJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	specs := map[string]struct{ track, touchpoints string }{
+		"S01-alpha": {"T1-alpha", `["` + sharedFile + `", "` + t1Only + `"]`},
+		"S02-beta":  {"T2-beta", `["` + sharedFile + `"]`},
+	}
+	for id, s := range specs {
+		sliceDir := filepath.Join(relDir, id)
+		if err := os.MkdirAll(sliceDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		spec := `{"user_outcome": "outcome ` + id + `", "touchpoints": ` + s.touchpoints + `, "effort_complexity": {"quadrant": "chore"}}`
+		os.WriteFile(filepath.Join(sliceDir, "spec.json"), []byte(spec), 0o644)
+		os.WriteFile(filepath.Join(sliceDir, "status.json"), []byte(`{"state": "planned"}`), 0o644)
+	}
+
+	if err := board.RenderToFile(tmpDir, release); err != nil {
+		t.Fatalf("board.RenderToFile: %v", err)
+	}
+	indexPath := filepath.Join(relDir, "index.md")
+
+	// Guard: the rendered matrix must NOT carry an explicit annotation, so a pass
+	// exercises the ≥2-checkmark inference (not the explicit-marker path).
+	rendered, _ := os.ReadFile(indexPath)
+	if strings.Contains(string(rendered), "DOCUMENTED SHARED") {
+		t.Fatalf("rendered index.md unexpectedly carries an explicit DOCUMENTED SHARED annotation")
+	}
+
+	shared, err := ParseDocumentedShared(indexPath)
+	if err != nil {
+		t.Fatalf("ParseDocumentedShared on rendered index.md: %v", err)
+	}
+	if !shared[sharedFile] {
+		t.Errorf("expected %q to be documented-shared (≥2 tracks) in the rendered matrix; got set %v", sharedFile, shared)
+	}
+	if shared[t1Only] {
+		t.Errorf("%q is owned by only T1-alpha and must NOT be documented-shared; got set %v", t1Only, shared)
+	}
 }
 
 func TestIsDocumentedShared(t *testing.T) {

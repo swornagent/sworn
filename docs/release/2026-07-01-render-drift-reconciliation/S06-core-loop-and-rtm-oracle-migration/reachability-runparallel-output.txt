@@ -1,0 +1,26 @@
+=== RUN   TestRunParallel_AC06_RealReleaseBoardResolvesTracks
+    parallel_test.go:1062: AC-06 reachability: live board.json resolved tracks — stderr:
+        sworn run --parallel: loaded 5 tracks in 1 phases
+        [T5-core-loop-rtm-rescrape] starting
+        [T2-tui] starting
+        [T1-drift-guard] starting
+        [T3-mcp] starting
+        [T4-cli-merge-regress] starting
+        [T2-tui] router: S02-tui-oracle-migration → coach_decision (needs Coach approval)
+        [T5-core-loop-rtm-rescrape] router: S06-core-loop-and-rtm-oracle-migration → coach_decision (needs Coach approval)
+        [T1-drift-guard] router: S01-render-drift-guard → coach_decision (needs Coach approval)
+        [T4-cli-merge-regress] router: S05-cli-merge-regress-oracle-migration → coach_decision (needs Coach approval)
+        [T2-tui] paused: coach_decision — needs Coach approval
+        [T1-drift-guard] paused: coach_decision — needs Coach approval
+        [T5-core-loop-rtm-rescrape] paused: coach_decision — needs Coach approval
+        [T4-cli-merge-regress] paused: coach_decision — needs Coach approval
+        [T3-mcp] router: S04-mcp-oracle-migration → coach_decision (needs Coach approval)
+        [T3-mcp] paused: coach_decision — needs Coach approval
+        [T1-drift-guard] result: PAUSED
+        [T2-tui] result: PAUSED
+        [T3-mcp] result: PAUSED
+        [T4-cli-merge-regress] result: PAUSED
+        [T5-core-loop-rtm-rescrape] result: PAUSED
+--- PASS: TestRunParallel_AC06_RealReleaseBoardResolvesTracks (0.00s)
+PASS
+ok  	github.com/swornagent/sworn/internal/run	(cached)
