@@ -104,6 +104,188 @@ Test outcome.
 	}
 }
 
+// --- spec-v1 (spec.json-only) releases: AC leg must still be evaluated ---
+
+const specJSONIntake = `---
+title: Test
+---
+
+# Release Intake
+
+## Release goal
+
+Test release goal.
+
+## What the human wants
+
+- N-01: First need for testing
+- N-02: Second need for testing
+`
+
+func TestRunTrace_SpecJSONACsEvaluated(t *testing.T) {
+	dir := fixture(t, map[string]string{
+		"intake.md": specJSONIntake,
+		"S01-test-slice/status.json": `{
+  "slice_id": "S01-test-slice",
+  "covers_needs": ["N-01", "N-02"],
+  "state": "verified"
+}`,
+		"S01-test-slice/spec.json": `{
+  "schema_version": 1,
+  "slice_id": "S01-test-slice",
+  "release": "test-release",
+  "covers_needs": ["N-01", "N-02"],
+  "acceptance_criteria": [
+    {"id": "AC-1", "type": "event-driven", "ears_keyword": "When", "text": "WHEN a release has a need, THE SYSTEM SHALL link it to N-01."},
+    {"id": "AC-2", "type": "event-driven", "ears_keyword": "When", "text": "WHEN a test runs, THE SYSTEM SHALL verify N-02."}
+  ]
+}`,
+	})
+
+	r, err := RunTrace(dir)
+	if err != nil {
+		t.Fatalf("RunTrace: %v", err)
+	}
+	if r.TotalACs != 2 {
+		t.Errorf("expected 2 ACs checked from spec.json, got %d", r.TotalACs)
+	}
+	if r.Verdict != "PASS" {
+		t.Errorf("expected PASS, got %s", r.Verdict)
+		for _, v := range r.Violations {
+			t.Logf("  violation: %s", v.Msg)
+		}
+	}
+	if r.EARSStats["When"] != 2 {
+		t.Errorf("expected 2 When ACs, got %v", r.EARSStats)
+	}
+}
+
+func TestRunTrace_SpecJSONFreeFormAC(t *testing.T) {
+	dir := fixture(t, map[string]string{
+		"intake.md": specJSONIntake,
+		"S01-test-slice/status.json": `{
+  "slice_id": "S01-test-slice",
+  "covers_needs": ["N-01", "N-02"],
+  "state": "verified"
+}`,
+		"S01-test-slice/spec.json": `{
+  "schema_version": 1,
+  "slice_id": "S01-test-slice",
+  "release": "test-release",
+  "covers_needs": ["N-01", "N-02"],
+  "acceptance_criteria": [
+    {"id": "AC-1", "type": "event-driven", "ears_keyword": "When", "text": "WHEN a release has a need, THE SYSTEM SHALL link it to N-01."},
+    {"id": "AC-2", "type": "free-form", "text": "the system verifies N-02 somehow"}
+  ]
+}`,
+	})
+
+	r, err := RunTrace(dir)
+	if err != nil {
+		t.Fatalf("RunTrace: %v", err)
+	}
+	if r.Verdict != "FAIL" {
+		t.Errorf("expected FAIL for free-form spec.json AC, got %s", r.Verdict)
+	}
+	found := false
+	for _, v := range r.Violations {
+		if v.Check == "ears-conformance" && v.Slice == "S01-test-slice" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected ears-conformance violation, got %+v", r.Violations)
+	}
+	if r.FreeFormACs != 1 {
+		t.Errorf("expected 1 free-form AC, got %d", r.FreeFormACs)
+	}
+}
+
+func TestRunTrace_SpecJSONUnclaimedCoverage(t *testing.T) {
+	dir := fixture(t, map[string]string{
+		"intake.md": specJSONIntake,
+		"S01-test-slice/status.json": `{
+  "slice_id": "S01-test-slice",
+  "covers_needs": ["N-01", "N-02"],
+  "state": "verified"
+}`,
+		// covers_needs claims N-02 but no AC text cites it.
+		"S01-test-slice/spec.json": `{
+  "schema_version": 1,
+  "slice_id": "S01-test-slice",
+  "release": "test-release",
+  "covers_needs": ["N-01", "N-02"],
+  "acceptance_criteria": [
+    {"id": "AC-1", "type": "event-driven", "ears_keyword": "When", "text": "WHEN a release has a need, THE SYSTEM SHALL link it to N-01."}
+  ]
+}`,
+	})
+
+	r, err := RunTrace(dir)
+	if err != nil {
+		t.Fatalf("RunTrace: %v", err)
+	}
+	found := false
+	for _, v := range r.Violations {
+		if v.Check == "unclaimed-coverage" && v.Need == "N-02" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected unclaimed-coverage violation for N-02, got %+v", r.Violations)
+	}
+}
+
+func TestRunTrace_SpecJSONSeeIntakeAC(t *testing.T) {
+	dir := fixture(t, map[string]string{
+		"intake.md": specJSONIntake,
+		"S01-test-slice/status.json": `{
+  "slice_id": "S01-test-slice",
+  "covers_needs": ["N-01", "N-02"],
+  "state": "verified"
+}`,
+		"S01-test-slice/spec.json": `{
+  "schema_version": 1,
+  "slice_id": "S01-test-slice",
+  "release": "test-release",
+  "covers_needs": ["N-01", "N-02"],
+  "acceptance_criteria": [
+    {"id": "AC-1", "type": "event-driven", "ears_keyword": "When", "text": "WHEN needed, THE SYSTEM SHALL behave as described in the intake for N-01 and N-02."}
+  ]
+}`,
+	})
+
+	r, err := RunTrace(dir)
+	if err != nil {
+		t.Fatalf("RunTrace: %v", err)
+	}
+	found := false
+	for _, v := range r.Violations {
+		if v.Check == "see-intake" && v.Slice == "S01-test-slice" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected see-intake violation, got %+v", r.Violations)
+	}
+}
+
+func TestRunTrace_MalformedSpecJSONFailsClosed(t *testing.T) {
+	dir := fixture(t, map[string]string{
+		"intake.md": specJSONIntake,
+		"S01-test-slice/status.json": `{
+  "slice_id": "S01-test-slice",
+  "covers_needs": ["N-01", "N-02"],
+  "state": "verified"
+}`,
+		"S01-test-slice/spec.json": `{not json`,
+	})
+
+	if _, err := RunTrace(dir); err == nil {
+		t.Fatal("expected error for malformed spec.json, got nil")
+	}
+}
+
 // --- bold-label intake format (N-01 derived from position) ---
 
 func TestRunTrace_BoldLabelIntake(t *testing.T) {
@@ -913,7 +1095,8 @@ func TestParseCoversNeeds(t *testing.T) {
 				}
 			}
 		})
-	}}
+	}
+}
 
 func TestClassifyEARS(t *testing.T) {
 	tests := []struct {

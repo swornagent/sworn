@@ -111,6 +111,61 @@ Test outcome.
 	}
 }
 
+// TestLintTraceCmd_SpecJSONACsEvaluated verifies that on a spec.json-only
+// (spec-v1) release the AC-level checks actually run — a free-form AC in
+// spec.json acceptance_criteria must fail EARS conformance (exit 1), not
+// silently skip because spec.md is absent.
+func TestLintTraceCmd_SpecJSONACsEvaluated(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0755)
+
+	intake := `---
+title: Test intake
+---
+
+# Release Intake: test-release
+
+## Release goal
+
+The release goal text for testing.
+
+## Needs
+
+- N-01: First need for testing
+`
+	os.WriteFile(filepath.Join(releaseDir, "intake.md"), []byte(intake), 0644)
+
+	sliceDir := filepath.Join(releaseDir, "S01-test-slice")
+	os.MkdirAll(sliceDir, 0755)
+	specJSON := `{
+  "schema_version": 1,
+  "slice_id": "S01-test-slice",
+  "release": "test-release",
+  "covers_needs": ["N-01"],
+  "acceptance_criteria": [
+    {"id": "AC-1", "type": "event-driven", "ears_keyword": "When", "text": "WHEN a release has a need, THE SYSTEM SHALL link it to N-01."},
+    {"id": "AC-2", "type": "free-form", "text": "the system links needs somehow"}
+  ]
+}`
+	os.WriteFile(filepath.Join(sliceDir, "spec.json"), []byte(specJSON), 0644)
+	status := `{
+  "slice_id": "S01-test-slice",
+  "state": "planned",
+  "covers_needs": ["N-01"]
+}`
+	os.WriteFile(filepath.Join(sliceDir, "status.json"), []byte(status), 0644)
+
+	oldCwd, _ := os.Getwd()
+	defer os.Chdir(oldCwd)
+	os.Chdir(dir)
+
+	exit := cmdLintTrace([]string{"test-release"})
+	if exit != 1 {
+		t.Errorf("expected exit 1 for free-form spec.json AC, got %d", exit)
+	}
+}
+
 // TestLintTraceCmd_OrphanedNeed verifies that an orphaned need causes
 // non-zero exit.
 func TestLintTraceCmd_OrphanedNeed(t *testing.T) {
