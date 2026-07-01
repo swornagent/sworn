@@ -525,11 +525,14 @@ func stripInlineComment(s string) string {
 // the release worktree shares object storage). If that fails, fetch the branch
 // from origin (just pushed by finishTrack) and retry with origin/<branch>.
 func ProductionMergeTrack(releasePath, trackID, branch string) error {
-	// Guard: if the release path is not a git worktree, skip the merge.
-	// This happens in tests (temp dirs) and is harmless — the merge is a
-	// production-only operation.
-	if !dirExists(filepath.Join(releasePath, ".git")) {
-		return nil
+	// Rule 11 target assertion, fail closed: the release path must be a git
+	// worktree. A linked worktree from `git worktree add` (how RunParallel
+	// bootstraps release-wt) has a .git FILE (gitdir pointer), a primary
+	// checkout has a .git directory — accept either. When neither exists the
+	// target is not a worktree: return an error rather than nil, because a
+	// nil return is reported upstream by finishTrack as "auto-merged".
+	if _, err := os.Stat(filepath.Join(releasePath, ".git")); err != nil {
+		return fmt.Errorf("ProductionMergeTrack: release path %s is not a git worktree (.git not found): %v", releasePath, err)
 	}
 
 	// Attempt 1: merge the local branch name directly.
