@@ -11,7 +11,7 @@
       "depends_on": [],
       "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-30-sworn-operational-readiness-T1-operational-unblock",
       "worktree_branch": "track/2026-06-30-sworn-operational-readiness/T1-operational-unblock",
-      "state": "in_progress"
+      "state": "merged"
     },
     {
       "id": "T2-board-render",

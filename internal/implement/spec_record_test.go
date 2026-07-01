@@ -53,7 +53,7 @@ The system writes spec.json with ACs and covers_needs.
   "release": "2026-06-27-test",
   "track": "T4-records-as-json",
   "state": "in_progress",
-  "need_ids": ["N-04", "N-08"],
+  "covers_needs": ["N-04", "N-08"],
   "verification": {"result": "pending"}
 }`
 	statusPath := filepath.Join(dir, "status.json")

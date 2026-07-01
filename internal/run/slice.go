@@ -127,6 +127,23 @@ func appendDispatch(ds []state.Dispatch, quadrant string, d state.Dispatch) []st
 	return append(ds, d)
 }
 
+// violationsFromStrings wraps the verdict layer's []string violations into the
+// typed []state.Violation the status carrier now holds (D4). The verdict layer
+// stays []string by design (sworn-generated, not coach-read — see
+// internal/verdict/verdict.go); each string becomes a Violation{Description},
+// which state.Verification.ViolationStrings() projects back to the identical
+// display string for the oracle/router/ledger. No field-loss concern here.
+func violationsFromStrings(ss []string) []state.Violation {
+	if len(ss) == 0 {
+		return nil
+	}
+	out := make([]state.Violation, 0, len(ss))
+	for _, s := range ss {
+		out = append(out, state.Violation{Description: s})
+	}
+	return out
+}
+
 func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, opts RunSliceOptions) error {
 	// ── Validate mandatory options ────────────────────────────────────
 	if specPath == "" {
@@ -542,7 +559,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		// short-circuits and prevents the agentic call entirely.
 		{
 			stFP, _ := state.Read(statusPath)
-			var openDeferrals []string
+			var openDeferrals []state.Deferral
 			if stFP != nil {
 				openDeferrals = stFP.OpenDeferrals
 			}
@@ -709,13 +726,13 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 					// violation), not a prose-split of the rationale. The fallback
 					// keeps the S38 ValidateBlockedViolations guard satisfied if a
 					// deterministic blocked result ever reaches here without them.
-					st.Verification.Violations = lastVerdict.Violations
+					st.Verification.Violations = violationsFromStrings(lastVerdict.Violations)
 					if len(st.Verification.Violations) == 0 {
 						fallback := strings.TrimSpace(lastVerdict.Rationale)
 						if fallback == "" {
 							fallback = "(no rationale provided)"
 						}
-						st.Verification.Violations = []string{fallback}
+						st.Verification.Violations = violationsFromStrings([]string{fallback})
 					}
 					if lastVerdict.Routing != "" {
 						st.Verification.Routing = lastVerdict.Routing

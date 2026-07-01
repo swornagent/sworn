@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/swornagent/sworn/internal/state"
 	"github.com/swornagent/sworn/internal/verdict"
 )
 
@@ -21,7 +22,8 @@ func (f fakeVerifier) Verify(context.Context, string, string) (string, float64, 
 
 // capturingVerifier records the system prompt it is handed by verify.RunFirstPass.
 // Now unused by RunFirstPass (deterministic-only) but kept for RunAgentic tests.
-type capturingVerifier struct {	reply          string
+type capturingVerifier struct {
+	reply          string
 	cost           float64
 	capturedPrompt string
 }
@@ -105,7 +107,8 @@ func TestFirstPass_Fail_ModelReplyIgnored(t *testing.T) {
 		t.Errorf("RunFirstPass should ignore model and return deterministic PASS, got %s", res.Verdict)
 	}
 }
-func TestFirstPass_Blocked_EmptySpec(t *testing.T) {	dir := t.TempDir()
+func TestFirstPass_Blocked_EmptySpec(t *testing.T) {
+	dir := t.TempDir()
 	spec := filepath.Join(dir, "spec.md")
 	diff := filepath.Join(dir, "diff.patch")
 	os.WriteFile(spec, []byte(""), 0644) // empty spec
@@ -120,7 +123,8 @@ func TestFirstPass_Blocked_EmptySpec(t *testing.T) {	dir := t.TempDir()
 	}
 }
 
-func TestFirstPass_Blocked_EmptyDiff(t *testing.T) {	dir := t.TempDir()
+func TestFirstPass_Blocked_EmptyDiff(t *testing.T) {
+	dir := t.TempDir()
 	spec := filepath.Join(dir, "spec.md")
 	diff := filepath.Join(dir, "diff.patch")
 	os.WriteFile(spec, []byte("# spec"), 0644)
@@ -150,7 +154,8 @@ func TestVerifyRun_Blocked_MissingFile(t *testing.T) {
 // covered by the TestRunAgentic* cases in verify_agentic_test.go, which drive
 // ChatStructured and assert schema-validated, fail-closed acceptance.
 
-func TestBuildPayload(t *testing.T) {	p := buildPayload("spec", "diff", "")
+func TestBuildPayload(t *testing.T) {
+	p := buildPayload("spec", "diff", "")
 	if !strings.Contains(p, "## SPEC\nspec") {
 		t.Error("payload should include SPEC section")
 	}
@@ -177,9 +182,9 @@ func TestFirstPass_OpenDeferrals(t *testing.T) {
 	res := RunFirstPass(context.Background(), Input{
 		SpecPath: spec,
 		DiffPath: diff,
-		OpenDeferrals: []string{
-			"db mock for integration tests",
-			"auth stub for test isolation",
+		OpenDeferrals: []state.Deferral{
+			{Item: "db mock for integration tests"},
+			{Item: "auth stub for test isolation"},
 		},
 	})
 	if res.Verdict != verdict.Pass {
@@ -209,6 +214,7 @@ func TestFirstPass_UndeclaredMockFails(t *testing.T) {
 		t.Errorf("expected boundary_mock gate, got %s", res.FailedGate)
 	}
 }
+
 // --- S11: Agentic verifier tests ---
 // (these live in verify_agentic_test.go)
 
@@ -224,12 +230,50 @@ func TestCheckBoundaryMocks_UndeclaredDbMockFails(t *testing.T) {
 
 func TestCheckBoundaryMocks_DeclaredDbMockPasses(t *testing.T) {
 	diff := "+func TestDB(t *testing.T) {\n+	db := mockDB\n+}"
-	report := CheckBoundaryMocks(diff, []string{"db mock for integration tests"})
+	report := CheckBoundaryMocks(diff, []state.Deferral{{Item: "db mock for integration tests"}})
 	if len(report.UndeclaredMocks) != 0 {
 		t.Fatalf("want 0 undeclared, got %d", len(report.UndeclaredMocks))
 	}
 	if len(report.DeclaredMocks) != 1 {
 		t.Fatalf("want 1 declared, got %d", len(report.DeclaredMocks))
+	}
+}
+
+// AC-05: a mock declared via a real object-form deferral (the boundary+mock
+// keyword living in the Why field, fired's actual shape) is recognised as
+// declared — the matcher reads the structured Item/Why fields, not a flat string.
+func TestCheckBoundaryMocks_DeclaredViaObjectWhyPasses(t *testing.T) {
+	diff := "+func TestDB(t *testing.T) {\n+	db := mockDB\n+}"
+	report := CheckBoundaryMocks(diff, []state.Deferral{{
+		Why:             "db mock used for integration tests until the real harness lands",
+		Tracking:        "#123",
+		Acknowledgement: "Brad (Coach)",
+	}})
+	if len(report.UndeclaredMocks) != 0 {
+		t.Fatalf("AC-05: declared-via-Why mock must not be flagged, got %d undeclared", len(report.UndeclaredMocks))
+	}
+	if len(report.DeclaredMocks) != 1 {
+		t.Fatalf("AC-05: want 1 declared, got %d", len(report.DeclaredMocks))
+	}
+}
+
+// AC-05 (strictness): a boundary+mock keyword that appears ONLY in Tracking or
+// Acknowledgement (IDs/URLs) must NOT declare the mock — those fields are not
+// matched, so an undeclared boundary mock still fails closed. This keeps
+// enforcement at least as strict as the prior free-form []string match (Rule 10).
+func TestCheckBoundaryMocks_KeywordInTrackingDoesNotOverDeclare(t *testing.T) {
+	diff := "+func TestDB(t *testing.T) {\n+	db := mockDB\n+}"
+	report := CheckBoundaryMocks(diff, []state.Deferral{{
+		Item:            "unrelated deferral",
+		Why:             "an unrelated reason with no boundary or test-double keyword",
+		Tracking:        "https://issues/db-mock-tracking",
+		Acknowledgement: "db mock acknowledged by someone",
+	}})
+	if len(report.DeclaredMocks) != 0 {
+		t.Fatalf("AC-05: keyword in Tracking/Acknowledgement must not over-declare, got %d declared", len(report.DeclaredMocks))
+	}
+	if len(report.UndeclaredMocks) != 1 {
+		t.Fatalf("AC-05: undeclared boundary mock must still fail closed, got %d undeclared", len(report.UndeclaredMocks))
 	}
 }
 

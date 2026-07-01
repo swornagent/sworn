@@ -8,6 +8,7 @@
 // program start and are read-only thereafter (concurrent reads are safe in Go).
 // Verified by S03 concurrent_test.go under -race.
 package verify
+
 import (
 	"context"
 	"encoding/json"
@@ -20,27 +21,32 @@ import (
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/prompt"
+	"github.com/swornagent/sworn/internal/state"
 	"github.com/swornagent/sworn/internal/verdict"
 )
+
 // verifierRolePrompt is the full Baton verifier.md role prompt (the agentic
 // verifier). It instructs the model to re-run tests, read live repo state,
 // and return PASS/FAIL/BLOCKED. Used by RunAgentic.
 var verifierRolePrompt = prompt.Verifier()
+
 // Input is everything a verification needs.
-type Input struct {	SpecPath      string
+type Input struct {
+	SpecPath      string
 	DiffPath      string // "-" reads stdin
 	ProofPath     string // optional in S1
 	Model         string
-	Verifier      model.Verifier // nil -> Unconfigured (fails closed)
-	OpenDeferrals []string       // Rule-2 deferrals from status.json (S10 no-mock-boundary)
+	Verifier      model.Verifier   // nil -> Unconfigured (fails closed)
+	OpenDeferrals []state.Deferral // Rule-2 deferrals from status.json (S10 no-mock-boundary)
 }
 
 // RunFirstPass is a structural pre-flight gate ($0 cost) that catches
 // blocker-level issues before the expensive agentic verifier is dispatched.
 // It is purely deterministic — no model call, no token spend. It checks:
-//   (a) spec is present and non-empty
-//   (b) diff is present and non-empty
-//   (c) no undeclared boundary mocks (S10 Rule 7/Rule 2 enforcement)
+//
+//	(a) spec is present and non-empty
+//	(b) diff is present and non-empty
+//	(c) no undeclared boundary mocks (S10 Rule 7/Rule 2 enforcement)
 //
 // RunFirstPass MUST NOT be used to drive state transitions to verified.
 // A PASS from RunFirstPass only means "no structural blockers found";
@@ -89,7 +95,7 @@ func RunFirstPass(ctx context.Context, in Input) verdict.Result {
 		Verdict:   verdict.Pass,
 		Rationale: rationale,
 	}
-}// verifierEmitSchema is the model-authored JUDGEMENT subset of
+} // verifierEmitSchema is the model-authored JUDGEMENT subset of
 // verifier-verdict-v1 handed to ChatStructured (ADR-0011 authoring path). It
 // deliberately stays inside OpenAI's strict-mode keyword subset — no minLength /
 // pattern / format (those would break a strict response_format target; see the
@@ -244,7 +250,8 @@ func computeAgenticCost(usage *model.UsageBlock) float64 {
 	return float64(usage.TotalTokens) * 0.000002 // ~$2/1M tokens
 }
 
-func buildPayload(spec, diff, proof string) string {	var b strings.Builder
+func buildPayload(spec, diff, proof string) string {
+	var b strings.Builder
 	b.WriteString("## SPEC\n")
 	b.WriteString(spec)
 	b.WriteString("\n\n## DIFF\n")
@@ -364,6 +371,7 @@ var knownBoundaryPatterns = []boundaryPattern{
 	{Keyword: "Keyless", Boundary: "entitlement"},
 	{Keyword: "claude -p", Boundary: "entitlement"},
 }
+
 // mockMarkerPatterns are tokens on a line that suggest a mock/stub/fake/test
 // double is being created or assigned.  At least one boundary pattern must also
 // match for the line to be flagged.
@@ -383,7 +391,7 @@ var mockMarkerPatterns = []string{
 // Detection is heuristic: a line must contain at least one boundary pattern AND
 // at least one mock-marker pattern to be flagged.  If the mock description
 // (boundary + mock type) matches any open deferral, it is treated as declared.
-func CheckBoundaryMocks(diffContent string, openDeferrals []string) BoundaryMockReport {
+func CheckBoundaryMocks(diffContent string, openDeferrals []state.Deferral) BoundaryMockReport {
 	var report BoundaryMockReport
 	lines := strings.Split(diffContent, "\n")
 	for i, raw := range lines {
@@ -481,12 +489,15 @@ func extractMockType(line string) string {
 }
 
 // isDeclared checks whether a mock at a given boundary matches any open deferral.
-// Matching is case-insensitive substring: each deferral is checked for the
-// boundary name AND a mock/fake/stub keyword.  A deferral like "db mock for
-// integration tests" would match a db-boundary mock.
-func isDeclared(mockType, boundary string, openDeferrals []string) bool {
+// Matching is case-insensitive substring over the deferral's description-bearing
+// fields (Item + Why) only — not Tracking/Acknowledgement, which are IDs/URLs
+// that could spuriously contain a boundary keyword and over-declare (AC-05 / D3).
+// Each deferral is checked for the boundary name AND a mock/fake/stub keyword. A
+// deferral whose item/why reads "db mock for integration tests" matches a
+// db-boundary mock; enforcement stays at least as strict as the old []string match.
+func isDeclared(mockType, boundary string, openDeferrals []state.Deferral) bool {
 	for _, d := range openDeferrals {
-		dl := strings.ToLower(d)
+		dl := strings.ToLower(d.Item + " " + d.Why)
 		if strings.Contains(dl, strings.ToLower(boundary)) &&
 			(strings.Contains(dl, "mock") || strings.Contains(dl, "fake") ||
 				strings.Contains(dl, "stub") || strings.Contains(dl, "testdouble")) {

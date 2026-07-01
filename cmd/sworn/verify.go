@@ -11,8 +11,10 @@ import (
 	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/config"
 	"github.com/swornagent/sworn/internal/model"
+	"github.com/swornagent/sworn/internal/state"
 	"github.com/swornagent/sworn/internal/verify"
 )
+
 // openDeferralsFlag implements flag.Value to accept repeated --deferral flags.
 type openDeferralsFlag []string
 
@@ -101,12 +103,20 @@ func cmdVerify(args []string) int {
 	}
 
 	// ── Stateless path (default) ───────────────────────────────────
-	res := verify.RunFirstPass(context.Background(), verify.Input{		SpecPath:      *spec,
+	// The --deferral flags are free-form "why - tracking - ack" strings; wrap
+	// each into the typed carrier with the full text in Item so the boundary
+	// matcher (Item+Why) sees the same text the old []string match did.
+	deferrals := make([]state.Deferral, 0, len(openDeferrals))
+	for _, d := range openDeferrals {
+		deferrals = append(deferrals, state.Deferral{Item: d})
+	}
+	res := verify.RunFirstPass(context.Background(), verify.Input{
+		SpecPath:      *spec,
 		DiffPath:      *diff,
 		ProofPath:     *proof,
 		Model:         resolvedModel,
 		Verifier:      v,
-		OpenDeferrals: openDeferrals,
+		OpenDeferrals: deferrals,
 	})
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
