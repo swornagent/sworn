@@ -3,7 +3,7 @@
   "slice_id": "S02-board-render",
   "release": "2026-06-30-sworn-operational-readiness",
   "track": "T2-board-render",
-  "state": "implemented",
+  "state": "verified",
   "covers_needs": [
     "N-05"
   ],
@@ -17,8 +17,10 @@
     "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "pending"
+    "result": "pass"
   },
+  "verifier_was_fresh_context": true,
+  "verifier_verdict_at": "2026-07-01T07:59:13Z",
   "design_decisions": [
     {
       "choice": "Renderer decodes board.json via canonical strict board.ReadBoard (object-only release), with an os.Stat pre-guard that fails closed on a missing board.json instead of triggering ReadBoard's lazy migration from index.md",
