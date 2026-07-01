@@ -86,7 +86,12 @@ func RegisterPlanTools(s *Server, repoRoot string) {
 		}, nil
 	})
 
-	// 2. set_track
+	// 2. set_track — S04-mcp-oracle-migration: write through board.Oracle
+	// (board.json, with lazy index.md migration) instead of mutating
+	// index.md frontmatter directly. The board.json shape is what every
+	// other consumer (TUI, MCP ops, merge gate) reads; the previous
+	// implementation rewrote the frontmatter in a stale format and
+	// silently wiped track data on a plan-mutation call.
 	s.RegisterTool("set_track", json.RawMessage(`{
 		"type": "object",
 		"properties": {
@@ -110,7 +115,7 @@ func RegisterPlanTools(s *Server, repoRoot string) {
 			return nil, fmt.Errorf("invalid params: %w", err)
 		}
 
-		// Validate slices exist
+		// Validate slices exist before mutating board.json.
 		for _, sliceID := range p.Slices {
 			sliceDir := filepath.Join(repoRoot, "docs", "release", p.Release, sliceID)
 			if _, err := os.Stat(sliceDir); err != nil {
@@ -118,144 +123,46 @@ func RegisterPlanTools(s *Server, repoRoot string) {
 			}
 		}
 
-		indexPath := filepath.Join(repoRoot, "docs", "release", p.Release, "index.md")
-		indexData, err := os.ReadFile(indexPath)
+		br, err := board.ReadBoard(repoRoot, p.Release)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read index.md: %w", err)
+			return nil, fmt.Errorf("read board: %w", err)
 		}
 
-		content := string(indexData)
-		parts := strings.SplitN(content, "---", 3)
-		if len(parts) < 3 {
-			return nil, fmt.Errorf("malformed index.md: missing frontmatter delimiters")
-		}
-
-		frontmatter := parts[1]
-		body := parts[2]
-
-		// Parse existing tracks
-		existingTracks := board.ParseTracks(frontmatter)
 		found := false
-		for i, t := range existingTracks {
+		for i, t := range br.Tracks {
 			if t.ID == p.TrackID {
-				existingTracks[i].Slices = p.Slices
+				br.Tracks[i].Slices = p.Slices
 				if p.DependsOn != "" {
-					existingTracks[i].DependsOn = []string{p.DependsOn}
+					br.Tracks[i].DependsOn = board.StringList{p.DependsOn}
 				} else {
-					existingTracks[i].DependsOn = nil
+					br.Tracks[i].DependsOn = nil
 				}
 				found = true
 				break
 			}
 		}
-
 		if !found {
-			newTrack := board.TrackInfo{
+			newTrack := board.BoardTrack{
 				ID:             p.TrackID,
 				Slices:         p.Slices,
 				WorktreeBranch: fmt.Sprintf("track/%s/%s", p.Release, p.TrackID),
 				State:          "planned",
 			}
 			if p.DependsOn != "" {
-				newTrack.DependsOn = []string{p.DependsOn}
+				newTrack.DependsOn = board.StringList{p.DependsOn}
 			}
-			existingTracks = append(existingTracks, newTrack)
+			br.Tracks = append(br.Tracks, newTrack)
 		}
 
-		// Regenerate tracks frontmatter block
-		var tb strings.Builder
-		tb.WriteString("tracks:\n")
-		if len(existingTracks) == 0 {
-			tb.WriteString("  []\n")
-		} else {
-			for _, t := range existingTracks {
-				tb.WriteString(fmt.Sprintf("  - id: %s\n", t.ID))
-				tb.WriteString(fmt.Sprintf("    slices: [%s]\n", strings.Join(t.Slices, ", ")))
-				if len(t.DependsOn) == 0 {
-					tb.WriteString("    depends_on: null\n")
-				} else if len(t.DependsOn) == 1 {
-					tb.WriteString(fmt.Sprintf("    depends_on: %s\n", t.DependsOn[0]))
-				} else {
-					tb.WriteString(fmt.Sprintf("    depends_on: [%s]\n", strings.Join(t.DependsOn, ", ")))
-				}
-				if t.WorktreePath == "" || t.WorktreePath == "null" {
-					tb.WriteString("    worktree_path: null\n")
-				} else {
-					tb.WriteString(fmt.Sprintf("    worktree_path: %s\n", t.WorktreePath))
-				}
-				tb.WriteString(fmt.Sprintf("    worktree_branch: %s\n", t.WorktreeBranch))
-				tb.WriteString(fmt.Sprintf("    state: %s\n", t.State))
-			}
-		}
-
-		// Filter out old tracks block from frontmatter
-		var newFM []string
-		inTracks := false
-		for _, line := range strings.Split(frontmatter, "\n") {
-			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "tracks:") {
-				inTracks = true
-				continue
-			}
-			if inTracks {
-				if trimmed != "" && !strings.HasPrefix(trimmed, "-") && !strings.HasPrefix(trimmed, "#") && strings.Contains(line, ":") && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
-					inTracks = false
-				} else {
-					continue
-				}
-			}
-			newFM = append(newFM, line)
-		}
-
-		// Append new tracks block
-		newFMStr := strings.Join(newFM, "\n")
-		if !strings.HasSuffix(newFMStr, "\n") {
-			newFMStr += "\n"
-		}
-		newFMStr += tb.String()
-
-		// Rewrite Tracks table in body
-		bodyLines := strings.Split(body, "\n")
-		var newBody []string
-		inTable := false
-
-		for i := 0; i < len(bodyLines); i++ {
-			line := bodyLines[i]
-			if strings.Contains(line, "| Track | Slices (in order) |") {
-				inTable = true
-				newBody = append(newBody, "| Track | Slices (in order) | Depends on | Branch | State |")
-				newBody = append(newBody, "|---|---|---|---|---|")
-				for _, t := range existingTracks {
-					slicesStr := strings.Join(t.Slices, " → ")
-					depStr := "—"
-					if len(t.DependsOn) > 0 {
-						depStr = strings.Join(t.DependsOn, ", ")
-					}
-					newBody = append(newBody, fmt.Sprintf("| `%s` | %s | %s | `%s` | %s |", t.ID, slicesStr, depStr, t.WorktreeBranch, t.State))
-				}
-				i++ // skip separator line
-				continue
-			}
-			if inTable {
-				if strings.HasPrefix(strings.TrimSpace(line), "|") {
-					continue
-				} else {
-					inTable = false
-				}
-			}
-			newBody = append(newBody, line)
-		}
-
-		newContent := fmt.Sprintf("---%s---%s", newFMStr, strings.Join(newBody, "\n"))
-		if err := os.WriteFile(indexPath, []byte(newContent), 0644); err != nil {
-			return nil, fmt.Errorf("failed to write index.md: %w", err)
+		if err := board.WriteBoard(repoRoot, p.Release, br); err != nil {
+			return nil, fmt.Errorf("write board: %w", err)
 		}
 
 		return &ToolResult{
 			Content: []ContentItem{
 				{
 					Type: "text",
-					Text: newFMStr,
+					Text: fmt.Sprintf("Track %q updated in release %s (board.json).", p.TrackID, p.Release),
 				},
 			},
 		}, nil

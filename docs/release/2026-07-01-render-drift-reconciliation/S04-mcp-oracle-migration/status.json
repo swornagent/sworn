@@ -6,7 +6,7 @@
   "state": "in_progress",
   "covers_needs": ["N-01"],
   "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S04-mcp-oracle-migration/spec.json",
-  "start_commit": null,
+  "start_commit": "d7b3beaa280eea969a5829552958a19a267aa761",
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
