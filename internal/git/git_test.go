@@ -14,6 +14,15 @@ func setupRepo(t *testing.T) *Repo {
 	if err := r.Init(); err != nil {
 		t.Fatalf("init: %v", err)
 	}
+	// Pin the initial branch to "main" regardless of the host's
+	// init.defaultBranch. A fresh CI runner has no global git config, so
+	// `git init` yields "master"; tests that assert branch == "main" (e.g.
+	// TestEmptyDirDoesNotTouchCwd) would otherwise fail on the fixture, not
+	// on real behaviour. symbolic-ref repoints the unborn HEAD across all
+	// git versions.
+	if _, err := r.run("symbolic-ref", "HEAD", "refs/heads/main"); err != nil {
+		t.Fatalf("symbolic-ref HEAD main: %v", err)
+	}
 	// Configure git user for commits (needed in CI / containers).
 	if _, err := r.run("config", "user.email", "test@swornagent.dev"); err != nil {
 		t.Fatalf("config user.email: %v", err)
