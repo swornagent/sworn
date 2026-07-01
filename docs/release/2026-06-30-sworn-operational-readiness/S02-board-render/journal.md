@@ -35,3 +35,29 @@ contract.
 The Planner records the settled shape + this decision into `status.json.design_decisions`
 as the Type-1 record and revises AC-04/AC-05 so they are consistent. S02 remains
 `design_review` until then.
+
+## 2026-07-01 — CORRECTION: shape already decided; blocker is the S05 AC-06 cutover
+
+The earlier entry framed this as "decide the canonical shape (string vs object)". That is
+WRONG and is corrected here: the canonical `release` shape is **already decided and
+documented — OBJECT / strict** — in T4:
+- S05-board-canonical-emit AC-03 (Coach-ratified 2026-07-01, "no-wild-data"): reader is
+  object-only, a bare string release fails closed; "legacy operator string boards are
+  migrated, not read-tolerated — see AC-06".
+- S05 AC-06: string boards are migrated `release:"X"` -> `{"name":"X"}` as a one-time
+  CUTOVER, applied only once every active session is on a canonical (S04/S05) binary;
+  "hold this for the operational-readiness cutover — the op-readiness board itself is among
+  the boards to migrate."
+
+So `board.go` rejecting the string is INTENDED, and the string board.json is a
+known-deferred un-migrated artefact — not undecided contract. Verified live: the installed
+binary is pre-S05 string-tolerant (`8fadf68`, 2026-06-30T14:25:32Z — reads the string board
+exit=0); board.json is still string on release-wt too.
+
+**S02 is blocked on the S05 AC-06 operational-readiness cutover, NOT a design decision:**
+(1) build+install canonical (S05) `sworn`; (2) get all in-flight sessions (T3, loop) on it
+per AC-06 sequencing; (3) migrate this release's board.json to object form; (4) then S02's
+AC-04/AC-05 are consistent as written — re-run `/design-review` (expect PROCEED, render via
+canonical ReadBoard) then implement. No AC revision needed; a `/replan-release` is only to
+record the cutover dependency if desired. Cutover execution is a Coach/operator action
+(blast radius: breaks pre-S05 string-binary sessions if mis-sequenced).
