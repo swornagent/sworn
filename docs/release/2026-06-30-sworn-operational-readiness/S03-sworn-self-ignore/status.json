@@ -3,7 +3,7 @@
   "slice_id": "S03-sworn-self-ignore",
   "release": "2026-06-30-sworn-operational-readiness",
   "track": "T3-consumer-repo-hygiene",
-  "state": "design_review",
+  "state": "in_progress",
   "covers_needs": [
     "N-06"
   ],
@@ -14,7 +14,7 @@
     "complexity": "low",
     "quadrant": "chore",
     "rationale": "Write .sworn/.gitignore at the dir-creation site; idempotent + best-effort; new test. Single touchpoint.",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
   "verification": {
     "result": "pending"
