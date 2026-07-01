@@ -35,7 +35,7 @@ fails at board-read (T4) before status-read (T1/D6), so both are needed to run f
 |-------|-------|---------|-------|-----|
 | `S01-d6-record-reconciliation` | T1 | sworn reads + round-trips a real coach status.json (object-form open_deferrals/violations) without unmarshal error or field loss | planned | epic (high/high) |
 | `S02-board-render` | T2 | `sworn render` deterministically generates index.md from board.json + slice records; no model/human authors the board view | planned | chore (low/low) |
-| `S03-sworn-self-ignore` | T3 | sworn writes `.sworn/.gitignore` so its runtime state never dirties or gets committed to a consumer repo | planned | chore (low/low) |
+| `S03-sworn-self-ignore` | T3 | sworn writes `.sworn/.gitignore` so its runtime state never dirties or gets committed to a consumer repo | verified | chore (low/low) |
 | `S04-board-record-reconciliation` | T4 | oracle reads the canonical coach board.json (`release` object form), tolerating the legacy string — the board-level companion to D6 | verified | chore (low/low) |
 | `S05-board-canonical-emit` | T4 | sworn EMITS, VALIDATES, and READS only the canonical object `release` (strict — a bare string fails closed); operator string boards migrated at cutover (AC-06), removing S04's string-tolerance vendor drift | verified | chore (low/low) |
 

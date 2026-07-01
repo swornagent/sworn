@@ -63,11 +63,23 @@ var schema = []string{
 		recorded_at TEXT NOT NULL
 	)`,
 }
+
 // Open opens (or creates) the SQLite database at the given path and applies
 // schema migrations. Returns the database handle.
 func Open(dbPath string) (*sql.DB, error) {
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
-		return nil, fmt.Errorf("db: create directory %s: %w", filepath.Dir(dbPath), err)
+	dir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("db: create directory %s: %w", dir, err)
+	}
+
+	// Self-ignore sworn's own runtime dir so its churning binary DBs never
+	// appear in the host repo's git status (and can't be accidentally
+	// committed). Best-effort and idempotent — a failure here must never fail
+	// the run, and an operator-customised .gitignore is left untouched. Gated
+	// on the dir being sworn's .sworn/ so this generic opener never stamps a
+	// stray ignore into an unrelated directory.
+	if filepath.Base(dir) == DefaultDir {
+		writeSelfIgnore(dir)
 	}
 
 	conn, err := sql.Open("sqlite", dbPath)
@@ -96,6 +108,23 @@ func Open(dbPath string) (*sql.DB, error) {
 	}
 
 	return conn, nil
+}
+
+// writeSelfIgnore writes a .gitignore containing "*" into dir so git treats the
+// whole directory — its DBs and the .gitignore itself — as ignored. It is
+// best-effort and idempotent: O_EXCL makes the create fail (without touching
+// the file) if a .gitignore already exists, preserving any operator
+// customisation; any other write failure (e.g. an unwritable target) is
+// likewise swallowed. The returned error is intentionally unused by Open — a
+// repo-hygiene courtesy must never fail the DB-open path.
+func writeSelfIgnore(dir string) error {
+	f, err := os.OpenFile(filepath.Join(dir, ".gitignore"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString("*\n")
+	return err
 }
 
 // DefaultPath returns the default database path under a workspace root.
