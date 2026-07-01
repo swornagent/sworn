@@ -64,3 +64,63 @@ spec gaps found.
 
 State: `implemented`. Terminal state for this session — handing off to
 `/verify-slice` for adversarial (fresh-context) verification.
+
+## 2026-07-01 — Verifier verdicts received
+
+```
+PASS
+
+Slice: `S06-model-pricing-registry`
+Verified against: `ae1af3e`
+Verifier session: `fresh, artefact-only`
+```
+
+Independently confirmed, from live repo state (no implementer transcript read):
+- Gate 1 (reachability): `ComputeCost` and `computeAnthropicCost` are called from
+  real dispatch call sites (`anthropic.go:81`, `anthropic.go:156`), not test-only
+  code; `PriceForModel` reads the same corrected `anthropicPricing`/`bedrockPricing`
+  maps (`client.go:78`, `client.go:86`) — the "transitive, no client.go edit
+  needed" claim in proof.json checks out by inspection.
+- Gate 2 (touchpoints): `git diff --name-only 102ae04a..HEAD` matches spec.json's
+  4 planned touchpoints exactly (plus the 3 expected slice-artefact docs files).
+- Gate 3 (tests): re-ran `go build ./...`, `go test ./internal/model/... -count=1`,
+  and `go test ./... -timeout 120s -count=1` fresh (uncached) from this session —
+  all green, including `TestPricing_Sonnet5` and `TestPricing_Opus4_8CorrectedRate`.
+- Gate 4 (reachability artefact): matches proof.json's cited evidence; test drives
+  the real exported `ComputeCost`, not a private map copy.
+- Gate 5 (no silent deferrals): grepped changed files for TODO/FIXME/deferred —
+  2 pre-existing "deferred" hits in `anthropic.go` (tool-use, S10 scope) sit
+  entirely outside this slice's single diff hunk (confirmed via `git diff` hunk
+  header `@@ -190,7 +190,11 @@`), so not attributable to S06. The one genuine
+  deferral (AC-07, intro→standard price flip) is properly surfaced: GitHub issue
+  #41 verified to exist via `gh api repos/swornagent/sworn/issues/41` (open,
+  correct body, cites AC-07).
+- Gate 6 (design conformance): no `docs/baton/design-fidelity.json` in this repo
+  — non-UI project, gate auto-passes.
+- Gate 7 (claimed scope): all 7 `delivered` items in proof.json independently
+  verified against live repo state (diffs, test output, GH issue) — evidence
+  references check out.
+- Gates 3b/4b (LLM checks): `sworn llm-check` does not exist in this build's CLI
+  (confirmed via `sworn --help`) and `SWORN_ANTHROPIC_API_KEY` is unset
+  (confirmed via `sworn verify` exit 2) — matches the environmental-gap
+  precedent from S04's journal. Non-blocking per verifier.md gate contract.
+
+**Out-of-band observation (not a verdict input, not a slice defect):**
+`gofmt -l internal/model/anthropic.go internal/model/bedrock.go` flags both
+files as unformatted. Confirmed via `git show 102ae04a:<path> | gofmt -l` that
+both were **already gofmt-dirty before this slice's `start_commit`** — the
+violations sit outside S06's diff hunks (an unrelated `}//` spacing issue near
+`anthropicStatusCode`, a missing trailing newline, and a fused `Verify(...) {`
+signature+statement in `bedrock.go` resembling the newline-eating corruption
+pattern in project memory). CI's `gofmt` gate (`.github/workflows/ci.yml`,
+`release.yml`) will fail on this branch regardless of S06. Not in scope for
+this slice to fix (S06's own edits are gofmt-clean by omission — the map diff
+itself doesn't introduce new violations) and not raised as a Gate 5 deferral
+since it predates S06 entirely. Flagging for a human decision on tracking.
+
+```
+STATE: verified_awaiting_approval
+SLICE: `S06-model-pricing-registry`
+NEXT: /merge-track T5-model-pricing-registry 2026-06-30-sworn-operational-readiness
+REASON: All six gates passed. Track `T5-model-pricing-registry` is complete — S06 is its only slice.
+```
