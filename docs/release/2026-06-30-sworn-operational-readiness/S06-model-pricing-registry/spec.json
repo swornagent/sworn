@@ -1,0 +1,66 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "schema_version": 1,
+  "slice_id": "S06-model-pricing-registry",
+  "release": "2026-06-30-sworn-operational-readiness",
+  "user_outcome": "When sworn dispatches to a current Anthropic model, the recorded per-dispatch cost is correct: Claude Sonnet 5 (released 2026-06-30) is priced instead of silently recording $0, and Claude Opus 4.8 is billed at its real $5/$25 rate instead of the stale $15/$75 (Opus 4.1) copy currently in the maps — so the release's cost telemetry, the operational-readiness signal this release exists to harden, is not systematically wrong.",
+  "rationale": "Two static-pricing-map defects surfaced while checking Sonnet 5 support (2026-07-01). (1) `claude-sonnet-5` is absent from every pricing map (Pricing in pricing.go, anthropicPricing in anthropic.go, bedrockPricing in bedrock.go), so a dispatch to it falls through to `return 0` and records ZERO cost — Sonnet 5 traffic looks free. (2) `claude-opus-4-8` is encoded {15.00, 75.00} in all three maps, but the current Anthropic rate is $5/$25 — {15,75} is a stale copy of Opus 4.1's price, so Opus 4.8 cost is overstated 3x. Both corrupt the eval/cost data this release is meant to make operationally trustworthy. VERIFIED against Anthropic's live models-overview page (2026-07-01): Sonnet 5 = introductory $2/$10 per MTok through 2026-08-31 (ratified, footnote 4), standard $3/$15 thereafter; Opus 4.8 = $5/$25. IN SCOPE: make all three pricing maps current and internally consistent, plus test coverage. OUT OF SCOPE (Rule 2, tracked): (a) consolidating the three duplicate pricing maps into one canonical table — that is the deferred model-layer service refactor (Type-1, architecturally significant), NOT this correctness slice; S06 only brings the three into agreement. (b) The deferred T16/#26 'real cost / token enrichment / durable cross-run store' work — S06 corrects the STATIC per-model rate table only; it does not touch telemetry persistence or token-split enrichment. (c) The intro->standard price flip after 2026-08-31 is a Rule 2 deferral: encoding the intro rate now is accurate for the current billing period, but becomes a 1.5x under-count after expiry unless flipped; tracked as a punch-list item + prominent code comment so it is not silent.",
+  "covers_needs": ["N-09"],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "chore",
+    "rationale": "Static map edits across three files plus test assertions; no dispatch-path logic change, no new dependency, no schema change. The only subtlety is the intro-vs-standard price decision (ratified above) and updating sibling test files that assert prices.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    "internal/model/pricing.go",
+    "internal/model/anthropic.go",
+    "internal/model/bedrock.go",
+    "internal/model/pricing_test.go"
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "The pricing registry SHALL contain a `claude-sonnet-5` entry in every Anthropic-facing map: `Pricing` (pricing.go) and `anthropicPricing` (anthropic.go) keyed `claude-sonnet-5`, and `bedrockPricing` (bedrock.go) keyed `anthropic.claude-sonnet-5`. After the change, `ComputeCost`, `computeAnthropicCost`, and `PriceForModel` SHALL all return a non-zero cost for Sonnet 5 given non-zero token counts (no fall-through to the unknown-model 0)."
+    },
+    {
+      "id": "AC-02",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "The active encoded rate for `claude-sonnet-5` SHALL be the introductory $2.00 input / $10.00 output per 1M tokens — the rate Anthropic bills as of the current period (through 2026-08-31). The same active value SHALL be used consistently across all three maps."
+    },
+    {
+      "id": "AC-03",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "A code comment on the `claude-sonnet-5` entry SHALL document BOTH rates — introductory $2/$10 AND standard $3/$15 — and SHALL state the ratified introductory-pricing expiry 2026-08-31 (source: Anthropic models-overview / pricing page) with an explicit instruction that the entry must flip to $3/$15 after that date. This satisfies the operator decision to show both rates with the expiry noted."
+    },
+    {
+      "id": "AC-04",
+      "type": "unwanted",
+      "ears_keyword": "If",
+      "text": "If a `claude-opus-4-8` entry encodes {15.00, 75.00} (the stale Opus-4.1 copy), it SHALL be corrected to the current {5.00, 25.00} in every map it appears — `Pricing`, `anthropicPricing`, and `bedrockPricing` (keyed `anthropic.claude-opus-4-8`). No `claude-opus-4-8` entry SHALL remain at the old value in any map."
+    },
+    {
+      "id": "AC-05",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When `internal/model/pricing_test.go` runs, it SHALL assert the corrected values: `ComputeCost('claude-sonnet-5', ...)` reflects $2/$10, and `ComputeCost('claude-opus-4-8', ...)` reflects $5/$25 (not the old $15/$75). Reachability: the test drives the real exported cost functions, not a private copy of the map."
+    },
+    {
+      "id": "AC-06",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "The implementer SHALL audit `internal/model/anthropic_test.go` and `internal/model/bedrock_test.go` for hardcoded price assertions on the two changed models and update any that assert the old values, so that `go build ./...` succeeds and `go test ./internal/model/...` passes."
+    },
+    {
+      "id": "AC-07",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "The intro->standard flip after 2026-08-31 SHALL be captured as a durable tracking item (a GitHub issue or a release punch-list entry, cited in the code comment from AC-03), so the future price correction is a tracked deferral (Rule 2), not a silent time-bomb. S06 SHALL NOT consolidate the three duplicate maps (deferred model-layer refactor) — only bring them into agreement."
+    }
+  ]
+}

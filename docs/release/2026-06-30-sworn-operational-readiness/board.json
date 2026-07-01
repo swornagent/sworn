@@ -35,7 +35,7 @@
       ],
       "depends_on": [],
       "worktree_branch": "track/2026-06-30-sworn-operational-readiness/T3-consumer-repo-hygiene",
-      "state": "in_progress",
+      "state": "merged",
       "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-30-sworn-operational-readiness-T3-consumer-repo-hygiene"
     },
     {
@@ -48,6 +48,15 @@
       "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-30-sworn-operational-readiness-T4-board-record-reconciliation",
       "worktree_branch": "track/2026-06-30-sworn-operational-readiness/T4-board-record-reconciliation",
       "state": "merged"
+    },
+    {
+      "id": "T5-model-pricing-registry",
+      "slices": [
+        "S06-model-pricing-registry"
+      ],
+      "depends_on": [],
+      "worktree_branch": "track/2026-06-30-sworn-operational-readiness/T5-model-pricing-registry",
+      "state": "planned"
     }
   ]
 }

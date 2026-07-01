@@ -3,18 +3,34 @@
   "slice_id": "S03-sworn-self-ignore",
   "release": "2026-06-30-sworn-operational-readiness",
   "track": "T3-consumer-repo-hygiene",
-  "state": "planned",
+  "state": "verified",
   "covers_needs": ["N-06"],
   "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S03-sworn-self-ignore/spec.json",
-  "start_commit": null,
+  "proof_path": "docs/release/2026-06-30-sworn-operational-readiness/S03-sworn-self-ignore/proof.md",
+  "start_commit": "47d4802cf9276abae72473c78f3c920479a14100",
+  "actual_files": [
+    "internal/db/db.go",
+    "internal/db/db_test.go"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go test ./internal/db/...",
+    "go vet ./internal/db/...",
+    "gofmt -l internal/db/db.go internal/db/db_test.go"
+  ],
+  "reachability_artifacts": [
+    "TestSelfIgnoreHidesSwornDir (internal/db/db_test.go): git-inits a temp repo, opens the sworn DB via db.Open under <repo>/.sworn/, asserts `git status --porcelain` does not list .sworn/. PASS in `go test ./internal/db/...`."
+  ],
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
     "quadrant": "chore",
     "rationale": "Write .sworn/.gitignore at the dir-creation site; idempotent + best-effort; new test. Single touchpoint.",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "pending"
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-01T03:46:52Z"
   }
 }

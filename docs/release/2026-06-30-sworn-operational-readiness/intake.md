@@ -88,6 +88,7 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
 - N-06: sworn never dirties a consumer repo — when it creates `.sworn/` runtime state in a repo it operates on, that directory is self-ignored (`.sworn/.gitignore` = `*`), so it never appears in the host repo's git status or gets committed.
 - N-07: sworn reads a real coach-produced board.json whose `release` is the canonical baton OBJECT form ({name, vertical_trace, ...}) without an unmarshal error (and tolerates the legacy string form), so the oracle/run load a real release instead of failing at board-read.
 - N-08: sworn EMITS and VALIDATES the canonical object form for `release` (strict, object-only — no string-tolerance divergence from canonical baton), while the reader stays tolerant of a legacy string; existing string boards self-heal to canonical on next write.
+- N-09: sworn computes a CORRECT per-dispatch cost for current Anthropic models — Claude Sonnet 5 (released 2026-06-30) is present in the pricing registry (not silently $0), and Claude Opus 4.8 is priced at its real $5/$25 rate (not the stale $15/$75 Opus-4.1 copy) — so the release's cost/eval telemetry, the operational-readiness signal, is not systematically wrong. Scope is the STATIC per-model rate table only; distinct from the deferred T16/#26 real-cost enrichment (durable cross-run store, token split).
 
 ## Constraints and non-negotiables
 
@@ -124,6 +125,30 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
   driver-contract S07 (≡ T16). **Acknowledged**: 2026-06-30.
 
 ## Decisions made during planning
+
+### 2026-07-01 — Add S06-model-pricing-registry (T5): fix pricing-registry currency (Sonnet 5 + Opus 4.8)
+
+- **Context**: while checking whether sworn supports Claude Sonnet 5 (released 2026-06-30),
+  found two static-pricing-map defects in `internal/model`: (1) `claude-sonnet-5` absent from
+  all three pricing maps → dispatches record $0; (2) `claude-opus-4-8` encoded {15,75} — a stale
+  Opus-4.1 copy — vs the real $5/$25, a 3x overstatement. Both corrupt the cost/eval telemetry
+  this release exists to make operationally trustworthy.
+- **Decision (Brad, 2026-07-01)**: slice it in as a new track T5 / slice S06. Two sub-decisions
+  ratified via AskUserQuestion: (a) **bundle** the Opus 4.8 correction with the Sonnet 5 add (one
+  pricing-correctness concern, same three files); (b) **encode Sonnet 5 introductory $2/$10 as the
+  active rate** (accurate for the current billing period) with a code comment documenting BOTH the
+  intro AND standard $3/$15 rates and the ratified 2026-08-31 intro expiry.
+- **Ratified fact**: Sonnet 5 pricing (intro $2/$10 through 2026-08-31, standard $3/$15) and Opus
+  4.8 $5/$25 verified against Anthropic's live models-overview page on 2026-07-01 (footnote 4).
+- **Scope boundary (Rule 2)**: S06 corrects the STATIC per-model rate table only. It does NOT (i)
+  consolidate the three duplicate pricing maps — that is the deferred model-layer service refactor
+  (Type-1); nor (ii) touch the deferred T16/#26 real-cost enrichment (durable cross-run store, token
+  split, real vs nominal cost). The intro→standard price flip after 2026-08-31 is itself a tracked
+  Rule 2 deferral (punch-list item + prominent code comment) so it is not a silent time-bomb.
+- **Touchpoint-disjoint**: T5 touches only `internal/model/*` — disjoint from every in-flight track
+  (T2 board-render → internal/board; T3 db → internal/db) and from T16's telemetry/db surface. Runs
+  as an independent parallel track; no `depends_on`.
+- **Covers**: N-09.
 
 ### 2026-06-30 — Scope = D6 only tonight; resilience deferred (tracked)
 
