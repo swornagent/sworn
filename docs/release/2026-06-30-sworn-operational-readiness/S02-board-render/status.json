@@ -3,8 +3,10 @@
   "slice_id": "S02-board-render",
   "release": "2026-06-30-sworn-operational-readiness",
   "track": "T2-board-render",
-  "state": "planned",
-  "covers_needs": ["N-05"],
+  "state": "design_review",
+  "covers_needs": [
+    "N-05"
+  ],
   "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S02-board-render/spec.json",
   "start_commit": null,
   "effort_complexity": {
