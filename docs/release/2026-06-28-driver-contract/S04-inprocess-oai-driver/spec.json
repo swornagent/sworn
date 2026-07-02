@@ -6,7 +6,20 @@
   "track": "T3-inprocess",
   "user_outcome": "An operator with OpenAI-compatible API keys keeps everything working through ONE hardened in-process driver behind the same contract — the agent loop and provider wire format become an implementation detail invisible to the orchestrator, and the in-process verifier role runs the tool loop before emitting its structured verdict (closing the sworn#55 gap for in-process dispatch too).",
   "rationale": "Wraps the existing internal/agent.Run tool loop and the OAI/OpenAIResponses clients as a Driver — an option, not the default. Grounding: agent.Run (internal/agent/agent.go:81) already owns exit-on-no-tools with the 25-turn cap as circuit breaker and returns the full message history; the tool executor (internal/agent/tools.go) already confines paths and sets cmd.Dir=root. The agentic-verify mechanism is NEW: run the tool loop for investigation, then obtain the verdict via one ChatStructured call over the accumulated transcript against DispatchInput.VerdictSchema — replacing today's zero-tool single-shot (verify.RunAgentic, internal/verify/verify.go:189, the sworn#55 gap) for in-process dispatch. Wrapping only: this slice does not edit internal/agent or internal/model (their cost/computeCost edits belong to S08 in T4; the depends_on edge serialises the shared package). The S27 content-always-present fix and structured plumbing (internal/model/structured.go) are consumed as-is.",
-  "covers_needs": ["N-03", "N-08"],
+  "covers_needs": [
+    "N-03",
+    "N-08"
+  ],
+  "in_scope": [
+    "internal/driver/inprocess*.go wrapping internal/agent.Run + the OAI/Responses clients as one Driver",
+    "Agentic verifier mechanism: tool loop for investigation, then ONE ChatStructured verdict call against DispatchInput.VerdictSchema",
+    "Normalized Result mapping incl. max-turns -> error(transient) and structured-emission failure -> error(protocol)"
+  ],
+  "out_of_scope": [
+    "Edits to internal/agent or internal/model (S08 owns the cost edits; wrap-only here)",
+    "Registry registration (S05)",
+    "Removing direct agent construction from RunSlice (S06)"
+  ],
   "effort_complexity": {
     "effort": "low",
     "complexity": "high",

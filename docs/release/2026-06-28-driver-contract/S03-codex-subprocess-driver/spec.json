@@ -6,7 +6,20 @@
   "track": "T2-subprocess",
   "user_outcome": "An operator with the Codex CLI can dispatch loop roles through a codex exec subprocess driver exactly as they can with claude-cli — the N=2 proof that the Driver contract is not claude-shaped — closing the open sworn#19 deferral.",
   "rationale": "sworn#19 (S63-deferral-1) has TODO stubs at internal/model/cli.go:59-65 (newCodexCLI returns ErrDriverNotImplemented) and internal/model/provider.go:175-180; the deferral reason was 'different invocation shapes and output normalisation'. This slice implements the codex variant over S02's shared subprocess plumbing. Codex specifics: `codex exec` runs non-interactively, takes the working directory via -C/--cd (in addition to cmd.Dir), and supports JSON output for machine parsing; token usage and final-message extraction differ from claude's envelope — that normalisation delta IS the slice. The provider.go codex stub is NOT removed here (provider.go belongs to T4's touchpoints; S05 retires it when the registry mapping lands). LATE-DEFERRAL CLAUSE (agreed at planning, 2026-07-02): if the release runs long, this slice may be re-deferred with a Rule 2 card without re-grouping any track — T2 simply shortens to S02.",
-  "covers_needs": ["N-10"],
+  "covers_needs": [
+    "N-10"
+  ],
+  "in_scope": [
+    "internal/driver/codex.go over the S02 shared plumbing",
+    "codex exec non-interactive invocation with working directory = WorktreeRoot",
+    "Codex envelope normalisation into Result (the S63 deferral's substance)",
+    "Same error-kind mapping and env hygiene as the claude driver"
+  ],
+  "out_of_scope": [
+    "Removing the provider.go codex stub — S05 owns that file (T4)",
+    "Claude-driver behaviour changes beyond shared plumbing",
+    "Registry mapping for codex/ prefix (S05)"
+  ],
   "effort_complexity": {
     "effort": "low",
     "complexity": "high",

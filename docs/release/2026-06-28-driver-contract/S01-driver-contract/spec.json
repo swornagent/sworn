@@ -6,7 +6,22 @@
   "track": "T1-contract",
   "user_outcome": "The engine has a single role-dispatch Driver contract at the process boundary: a loop-role dispatch is Driver.Dispatch(ctx, DispatchInput) -> Result with each driver declaring the RoleSet it can serve, so an incapable driver is rejected at resolution with a named error — never discovered mid-run by a type-assert or a toolless dispatch.",
   "rationale": "Type-1 decision made by Brad 2026-07-02 (intake 'Decisions made during planning', role-dispatch entry): capability IS the declared role set; wire types (ChatMessage/ToolDef) become internal to in-process drivers; the engine keeps verdict authority by validating Result.StructuredJSON against verifier-verdict-v1 fail-closed. This slice delivers ONLY the contract package (types + Rule-11 assertion helper + behavioural doc + ADR) — no driver implementations, no orchestrator rewiring. The one-shot model.Verifier interface is explicitly NOT touched: it survives as the utility judgement path for non-loop gates (sworn verify, reqverify, llm-check, bench). Grounding: today's seam is RunSliceOptions.NewAgent/NewVerifier factory fields with nil-defaults (internal/run/slice.go:57-63,193-201) and a runtime model.StructuredOutput type-assert in verify.RunAgentic (internal/verify/verify.go:200); this contract is what replaces that seam in T4.",
-  "covers_needs": ["N-01", "N-08"],
+  "covers_needs": [
+    "N-01",
+    "N-08"
+  ],
+  "in_scope": [
+    "Driver / RoleSet / DispatchInput / Result types in a new internal/driver package",
+    "AssertWorktree Rule-11 fail-closed target-assertion helper",
+    "Import-boundary test (internal/driver imports neither internal/model nor internal/agent)",
+    "docs/adr/0012-driver-contract.md recording the Type-1 decision with options + rationale"
+  ],
+  "out_of_scope": [
+    "Any driver implementation (S02/S03/S04 own those)",
+    "Registry and resolution (S05)",
+    "Orchestrator rewiring (S06/S07)",
+    "The one-shot model.Verifier utility path — kept, untouched (utility-only decision, 2026-07-02)"
+  ],
   "effort_complexity": {
     "effort": "low",
     "complexity": "high",

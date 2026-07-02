@@ -70,6 +70,16 @@
       "depends_on": ["T4-resolution-loop"],
       "worktree_branch": "track/2026-06-28-driver-contract/T6-proof",
       "state": "planned"
+    },
+    {
+      "id": "T7-baton-revendor",
+      "slices": [
+        "S11-baton-revendor",
+        "S12-record-migration"
+      ],
+      "depends_on": ["T4-resolution-loop", "T5-catalog", "T6-proof"],
+      "worktree_branch": "track/2026-06-28-driver-contract/T7-baton-revendor",
+      "state": "planned"
     }
   ]
 }
