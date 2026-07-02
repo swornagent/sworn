@@ -1,0 +1,43 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S01-driver-contract",
+  "release": "2026-06-28-driver-contract",
+  "scope": "The engine gains a single role-dispatch Driver contract (internal/driver: Driver/RoleSet/DispatchInput/Result + AssertWorktree) that an incapable driver is rejected against at resolution time, never mid-run — contract package and ADR only, no driver implementation, no orchestrator rewiring.",
+  "files_changed": [
+    "internal/driver/driver.go",
+    "internal/driver/worktree.go",
+    "internal/driver/driver_test.go",
+    "internal/driver/imports_test.go",
+    "docs/adr/0012-driver-contract.md",
+    "docs/release/2026-06-28-driver-contract/S01-driver-contract/design.md",
+    "docs/release/2026-06-28-driver-contract/S01-driver-contract/status.json"
+  ],
+  "test_results": [
+    { "command": "go build ./...", "passed": true, "exit_code": 0 },
+    { "command": "go vet ./internal/driver/...", "passed": true, "exit_code": 0 },
+    { "command": "go test ./internal/driver/... -v", "passed": true, "exit_code": 0 },
+    { "command": "go test ./...", "passed": true, "exit_code": 0 }
+  ],
+  "reachability": {
+    "type": "cli-run",
+    "evidence": "go test ./internal/driver/... -v: TestRoleSet (membership, empty set, String() fixed-order naming, single-role String()) PASS; TestAssertWorktree (plain checkout success, linked-worktree success where .git is a file not a directory, missing-path failure, non-directory failure, non-git-directory failure) PASS; TestNoWireImports (AST-parses every .go file in the package, fails naming any internal/model or internal/agent import) PASS. Full-repo go test ./... green (44 packages, no regressions) confirming the new package doesn't disturb anything importing internal/driver's future consumers."
+  },
+  "delivered": [
+    { "item": "AC-01: Driver/RoleSet/DispatchInput/Result types with the exact field shape decided 2026-07-02", "evidence": "internal/driver/driver.go" },
+    { "item": "AC-02: RoleSet over {implementer, verifier, captain} with Has(Role) and deterministic String()", "evidence": "internal/driver/driver.go; internal/driver/driver_test.go TestRoleSet" },
+    { "item": "AC-03: godoc + ADR state VerdictSchema carries the schema, driver returns StructuredJSON, engine validates fail-closed, driver never self-certifies", "evidence": "internal/driver/driver.go (Driver.Dispatch godoc, DispatchInput.VerdictSchema godoc); docs/adr/0012-driver-contract.md 'Engine-owned verdict validation'" },
+    { "item": "AC-04: AssertWorktree fail-closed on missing path / non-directory / not-a-git-worktree, naming the path and failed check; success on both a plain checkout and a linked worktree (.git as a file)", "evidence": "internal/driver/worktree.go; internal/driver/driver_test.go TestAssertWorktree (5 subtests)" },
+    { "item": "AC-05: internal/driver imports neither internal/model nor internal/agent", "evidence": "internal/driver/imports_test.go TestNoWireImports (AST-parses all .go files in the package)" },
+    { "item": "AC-06: ADR-0012 records the Type-1 decision (options, decider, four clauses); go build ./... and go test ./internal/driver/... pass", "evidence": "docs/adr/0012-driver-contract.md; test_results above" },
+    { "item": "Design-review pin 1 (sworn#35 citation was wrong)", "evidence": "design.md line ~77 rephrased without a specific issue number; docs/adr/0012-driver-contract.md never cites sworn#35" },
+    { "item": "Design-review pin 2 (AssertWorktree must handle linked worktrees, .git as a file)", "evidence": "internal/driver/worktree.go uses git rev-parse --is-inside-work-tree, not a directory-presence stat check; driver_test.go 'success: linked worktree' subtest exercises it against a real git worktree add checkout" },
+    { "item": "Design-review pin 3 (confirm DispatchInput.Role is the named Role type)", "evidence": "internal/driver/driver.go: DispatchInput.Role is type Role (not string), consistent with RoleSet map[Role]bool" }
+  ],
+  "not_delivered": [],
+  "divergence": [
+    {
+      "item": "internal/driver/result.go (a spec touchpoint) was not created as a separate file.",
+      "reason": "design.md (reviewed and PASSED without objection) proposed keeping Result-related helpers minimal and adding result.go only if a test needed one; no test needed a helper beyond the Result struct itself, which lives in driver.go alongside Driver/RoleSet/DispatchInput. Not a Rule-2 deferral (no scope was dropped — Result the type is fully delivered, AC-01) — a file-layout choice made during implementation and disclosed here per Rule 6."
+    }
+  ]
+}

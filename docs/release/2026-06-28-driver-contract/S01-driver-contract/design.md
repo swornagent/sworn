@@ -74,8 +74,13 @@ path — each failure names the path and which check failed, per AC-04.
    the recorded decision. Restated here for the reviewer's convenience: a
    driver declares its `RoleSet` up front, so `Roles().Has(Role)` at
    resolution time is what rejects an incapable driver — never a type-assert
-   discovered mid-run. That closes the exact class of bug in sworn#35
-   (Claude subprocess driver advertised structured output it didn't have).
+   discovered mid-run. That closes the class of bug where a driver
+   advertises a capability (e.g. structured output) it doesn't actually have
+   and the mismatch is only discovered mid-run via a type-assert — pinned
+   during design review: no GitHub issue number matches this incident class
+   precisely, so the citation is left general rather than attached to the
+   wrong issue (swornagent/sworn#35 is an unrelated tool-use feature
+   request).
 
 2. **Wire types stay internal to in-process drivers.** `DispatchInput` /
    `Result` carry only primitives, `json.RawMessage`, and stdlib types
