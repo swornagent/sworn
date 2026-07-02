@@ -1,0 +1,20 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S09-model-catalog",
+  "release": "2026-06-28-driver-contract",
+  "track": "T5-catalog",
+  "state": "planned",
+  "covers_needs": ["N-11"],
+  "spec_path": "docs/release/2026-06-28-driver-contract/S09-model-catalog/spec.json",
+  "start_commit": null,
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "Known-shape listing per provider + normalisation + CLI command; breadth across ~6 endpoints with canned fixtures.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending"
+  }
+}
