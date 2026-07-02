@@ -60,7 +60,7 @@ func main() {
 func dispatch(args []string) int {
 	if len(args) < 2 {
 		// No subcommand — launch the TUI (S04, T2-monitoring).
-		if err := tui.Run(); err != nil {
+		if err := tui.Run(version); err != nil {
 			fmt.Fprintf(os.Stderr, "sworn: %v\n", err)
 			return 1
 		}

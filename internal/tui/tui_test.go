@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/db"
 	"github.com/swornagent/sworn/internal/state"
@@ -1392,5 +1393,201 @@ func TestBoardViewLoadsRealOperationalReadinessRelease(t *testing.T) {
 				t.Errorf("track %s slice %s: expected a real state, got %+v (ok=%v)", tr.ID, sliceID, si, ok)
 			}
 		}
+	}
+}
+
+// --- S03-tui-chrome-rework: responsive chrome (header, pane widths, help bar) ---
+
+// newChromeModel builds a two-pane Model with the given release names in the
+// left list and an empty board, for the S03 chrome tests.
+func newChromeModel(names ...string) *Model {
+	rl := &ReleasesList{}
+	for _, n := range names {
+		rl.Releases = append(rl.Releases, ReleaseInfo{
+			Name:        n,
+			TrackCount:  2,
+			SliceStates: map[string]int{"planned": 1},
+		})
+	}
+	return &Model{
+		state:    viewReleases,
+		Releases: rl,
+		Board:    &BoardView{},
+	}
+}
+
+// TestWindowSizeMsgStoresDimensions — AC-01: a tea.WindowSizeMsg is no longer
+// discarded; the reported width AND height are stored on the Model.
+func TestWindowSizeMsgStoresDimensions(t *testing.T) {
+	m := newChromeModel("rel-a")
+	upd, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m2 := upd.(*Model)
+	if m2.Width != 120 || m2.Height != 40 {
+		t.Fatalf("expected Width=120 Height=40 stored from WindowSizeMsg, got Width=%d Height=%d", m2.Width, m2.Height)
+	}
+}
+
+// TestPaneWidthsReserveBorderColumns — AC-01 + review pin 2: paneWidths must
+// reserve the 4 rounded-border columns (2 per pane; JoinHorizontal adds no
+// gap, verified live against lipgloss v1.1.0) so left+right+4 <= total. Also
+// asserts the legacy (30,80) fallback for the pre-WindowSizeMsg case.
+func TestPaneWidthsReserveBorderColumns(t *testing.T) {
+	if l, r := paneWidths(0); l != 30 || r != 80 {
+		t.Fatalf("paneWidths(0) legacy fallback: expected (30,80), got (%d,%d)", l, r)
+	}
+	for _, total := range []int{80, 100, 120, 220} {
+		l, r := paneWidths(total)
+		if l <= 0 || r <= 0 {
+			t.Fatalf("paneWidths(%d): expected positive pane widths, got (%d,%d)", total, l, r)
+		}
+		if l+r+4 > total {
+			t.Fatalf("paneWidths(%d): left+right+4=%d exceeds total %d — 4 border columns not reserved", total, l+r+4, total)
+		}
+	}
+}
+
+// TestPaneWidthsLeftFloor — AC-02 (Coach decision, option b): the left pane
+// gets a minimum-width floor so it stays legible at an 80-col terminal
+// instead of being squeezed to near-nothing by a pure proportional split.
+func TestPaneWidthsLeftFloor(t *testing.T) {
+	left, _ := paneWidths(80)
+	if left < minLeftPane {
+		t.Fatalf("paneWidths(80): left pane %d is below the minimum-width floor %d", left, minLeftPane)
+	}
+}
+
+// TestTwoPaneRenderFitsTerminalWidth — AC-01/AC-05 + review pin 2: the full
+// rendered frame (header + two panes + help bar) never renders a line wider
+// than the reported terminal width. A frame wider than the terminal forces
+// the emulator to line-wrap, which is the spec-identified root cause of the
+// VS Code integrated-terminal viewport bug (AC-05).
+func TestTwoPaneRenderFitsTerminalWidth(t *testing.T) {
+	m := newChromeModel("render-drift-reconciliation")
+	m.Version = "1.0.0"
+	for _, w := range []int{80, 100, 120, 220} {
+		upd, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: 40})
+		m = upd.(*Model)
+		view := m.View()
+		if got := lipgloss.Width(view); got > w {
+			t.Fatalf("at terminal width %d, rendered frame max line width is %d (> %d) — would force emulator wrap (AC-05 root cause)", w, got, w)
+		}
+	}
+}
+
+// TestReleasesListNoWrapAtTypicalWidth — AC-02: a release name under 40 chars
+// with a comfortably wide pane renders on exactly one line, untruncated.
+func TestReleasesListNoWrapAtTypicalWidth(t *testing.T) {
+	rl := &ReleasesList{
+		Width: 100,
+		Releases: []ReleaseInfo{
+			{Name: "loop-cli-ux", TrackCount: 3, SliceStates: map[string]int{"verified": 3}},
+		},
+	}
+	out := rl.View()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines (title + 1 release, no wrap) at pane width 100, got %d:\n%q", len(lines), out)
+	}
+	if strings.Contains(out, "…") {
+		t.Fatalf("a <40-char release name at pane width 100 must not be truncated, got:\n%q", out)
+	}
+	if !strings.Contains(out, "loop-cli-ux") {
+		t.Fatalf("expected the full release name present, got:\n%q", out)
+	}
+}
+
+// TestReleasesListTruncatesLongNameAtNarrowPane — AC-02 (Coach decision): at
+// an 80-col terminal (left pane ~28 cols) a long release name is truncated
+// with an ellipsis on a single line, NOT wrapped illegibly across lines.
+func TestReleasesListTruncatesLongNameAtNarrowPane(t *testing.T) {
+	longName := "an-extremely-long-release-name-that-would-wrap-illegibly-at-eighty-cols"
+	rl := &ReleasesList{
+		Width: 28,
+		Releases: []ReleaseInfo{
+			{Name: longName, TrackCount: 2, SliceStates: map[string]int{"planned": 1}},
+		},
+	}
+	out := rl.View()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines (title + 1 truncated release, no wrap) at pane width 28, got %d:\n%q", len(lines), out)
+	}
+	if !strings.Contains(out, "…") {
+		t.Fatalf("a long release name at pane width 28 must be ellipsis-truncated, got:\n%q", out)
+	}
+	if strings.Contains(out, longName) {
+		t.Fatalf("the full untruncated long name must not appear at pane width 28, got:\n%q", out)
+	}
+	for _, ln := range lines {
+		if w := lipgloss.Width(ln); w > 28 {
+			t.Fatalf("rendered line %q has width %d, exceeding pane width 28 (would wrap)", ln, w)
+		}
+	}
+}
+
+// TestHeaderShowsVersionAndNoReleaseSelected — AC-03: on the initial releases
+// screen (never navigated into a release) the header shows the version and an
+// explicit "no release selected" label.
+func TestHeaderShowsVersionAndNoReleaseSelected(t *testing.T) {
+	m := newChromeModel("rel-a")
+	m.Version = "1.2.3"
+	m.Width = 100
+	m.state = viewReleases
+	m.Board.ReleaseName = ""
+	header := m.renderHeader()
+	if !strings.Contains(header, "1.2.3") {
+		t.Fatalf("header should show version 1.2.3, got:\n%q", header)
+	}
+	if !strings.Contains(header, "no release selected") {
+		t.Fatalf("header on the initial releases screen should show 'no release selected', got:\n%q", header)
+	}
+}
+
+// TestHeaderShowsSelectedRelease — AC-03: once the user has navigated into a
+// release, the header shows the version and the selected release name.
+func TestHeaderShowsSelectedRelease(t *testing.T) {
+	m := newChromeModel("rel-a")
+	m.Version = "9.9.9"
+	m.Width = 100
+	m.state = viewBoard
+	m.Board.ReleaseName = "2026-07-01-render-drift-reconciliation"
+	header := m.renderHeader()
+	if !strings.Contains(header, "9.9.9") {
+		t.Fatalf("header should show the version, got:\n%q", header)
+	}
+	if !strings.Contains(header, "2026-07-01-render-drift-reconciliation") {
+		t.Fatalf("header should show the selected release name, got:\n%q", header)
+	}
+}
+
+// TestViewRendersHeader — AC-03 through the integration point (Rule 1): the
+// header is actually rendered by Model.View, not only by renderHeader in
+// isolation.
+func TestViewRendersHeader(t *testing.T) {
+	m := newChromeModel("rel-a")
+	m.Version = "2.0.0"
+	upd, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = upd.(*Model)
+	view := m.View()
+	if !strings.Contains(view, "2.0.0") {
+		t.Fatalf("Model.View should render the header with version 2.0.0, got:\n%q", view[:min(300, len(view))])
+	}
+	if !strings.Contains(view, "no release selected") {
+		t.Fatalf("Model.View on the initial screen should render 'no release selected' in the header, got:\n%q", view[:min(300, len(view))])
+	}
+}
+
+// TestHelpBarSpansFullWidth — AC-04: the help bar spans the full terminal
+// width (background-styled bar), and falls back to the legacy 110 when no
+// WindowSizeMsg has been received yet.
+func TestHelpBarSpansFullWidth(t *testing.T) {
+	m := newChromeModel("rel-a")
+	m.Width = 137
+	if got := lipgloss.Width(m.renderHelp()); got != 137 {
+		t.Fatalf("help bar should span the full terminal width 137, got %d", got)
+	}
+	m.Width = 0
+	if got := lipgloss.Width(m.renderHelp()); got != 110 {
+		t.Fatalf("help bar fallback width should be the legacy 110 when Width is unset, got %d", got)
 	}
 }

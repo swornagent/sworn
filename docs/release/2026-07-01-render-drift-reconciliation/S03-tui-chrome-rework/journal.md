@@ -64,3 +64,56 @@ integration point that owns the affordance, not leaf styles):
 - `tui.go`: `Run(version string)`; `cmd/sworn/main.go` + `cmd/sworn/top.go`
   call `tui.Run(version)` (DC-2 flagged, mechanical glue for Rule 1
   reachability).
+
+## 2026-07-02 — Implementation complete
+
+TDD executed per the plan. First wrote 10 new tests in `tui_test.go` driving
+the affordance through `Model.Update`/`Model.View` (Rule 1); confirmed the
+correct TDD red (compile failure — `Model` had no `Width`/`Height`/`Version`,
+no `paneWidths`/`minLeftPane`). Then implemented:
+
+- `styles.go`: dropped hardcoded `.Width(30)`/`.Width(80)`/`.Width(110)` from
+  `ReleaseListStyle`/`BoardStyle`/`HelpBar`; added `HeaderStyle`; added the
+  `legacyLeftWidth`/`legacyRightWidth`/`legacyHelpWidth`/`minLeftPane`/
+  `borderCols` constants and `paneWidths(total)` — reserves the 4 border
+  columns (pin 2) and floors the left pane at `minLeftPane=26` (Coach pin 1),
+  legacy `(30,80)` when `total <= 0`.
+- `model.go`: added `Width`/`Height`/`Version` fields; `WindowSizeMsg` stores
+  width+height; `renderHeader()` (`sworn <version>  •  <label>`, label = "no
+  release selected" when `Board.ReleaseName==""`); `View()` computes pane
+  widths, sets `Releases.Width`, prepends the header; `renderHelp()` widths
+  the bar to `m.Width` (fallback 110).
+- `releases.go`: `ReleasesList.Width` field; `View()` ellipsis-truncates each
+  label to `Width-6` via `x/ansi.Truncate` (ANSI-aware — the label carries a
+  styled Divider) when `Width>0`, else untruncated (legacy path).
+- `tui.go`/`cmd/sworn`: `Run(version string)`, both call sites updated.
+
+`go mod tidy` promoted `x/ansi` from indirect to direct (already compiled in
+via lipgloss; `go.sum` unchanged — not a new dependency, no ADR needed).
+
+Verification (all live): `go build ./...` 0; `go vet ./internal/tui/...` 0;
+`gofmt -l` empty on all 7 touched Go files; `go test ./internal/tui/...`
+green (10 new tests pass); full `go test ./...` (`-timeout 550s`) green, no
+regression (`cmd/sworn` exercises `tui.Run(version)`).
+
+Pin 6 (newline-eating corruption): grepped the diff for fused comment+code
+lines — none; the comment-dense `styles.go`/`model.go` edits are clean; full
+suite green (not just `internal/tui`).
+
+Reachability (AC-05, pin 4): the STALE pre-feature `bin/sworn` (built during
+the in_progress transition step) initially produced a legacy-width, no-header
+capture — a false negative caught by inspecting the artefact rather than
+trusting it. Rebuilt `bin/sworn` from HEAD and re-captured the REAL binary on
+a Python `pty` (window size set via `TIOCSWINSZ`), replayed through a `pyte`
+emulator, at 80 AND 200 cols. Both frames show the header, responsive panes,
+`…`-truncated single-line release names, and a full-width help bar, with no
+line exceeding the terminal width — saved as `reachability-tui-capture.txt`.
+Only the initial releases screen was used (no `enter`), so `board.ReadBoard`'s
+lazy-migration side effect never fired; `git status` shows no stray
+`board.json`. Plus the explicit human VS-Code smoke step in `proof.md`.
+
+Wrote `proof.json` + `proof.md` (matching S02's shape) from live repo state.
+
+State -> `implemented`. Stopping here per role boundaries — no verifier prompt
+in this session; `/verify-slice S03-tui-chrome-rework` in a fresh session is
+next. NEVER self-certify to `verified`.
