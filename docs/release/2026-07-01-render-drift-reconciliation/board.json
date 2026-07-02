@@ -68,5 +68,13 @@
     }
   ],
   "release_worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-07-01-render-drift-reconciliation",
-  "release_worktree_branch": "release-wt/2026-07-01-render-drift-reconciliation"
+  "release_worktree_branch": "release-wt/2026-07-01-render-drift-reconciliation",
+  "activity": [
+    {
+      "date": "2026-07-02",
+      "actor": "release integrator (/merge-release)",
+      "note": "7 verified slices merged. Slices remain in 'verified' state until release/v0.1.0 ships to production; at that point each slice's status.json flips to 'shipped'. Branch release-wt/2026-07-01-render-drift-reconciliation retained; remove with 'git branch -D release-wt/2026-07-01-render-drift-reconciliation' once you're sure no more work belongs to this release.",
+      "merge_commit": "8332da06ef487f60bdc81a3d85ddc743337807b5"
+    }
+  ]
 }
