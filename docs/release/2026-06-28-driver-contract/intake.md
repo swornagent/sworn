@@ -120,9 +120,20 @@ are cut. Trace gate binds every N-NN to at least one slice's `covers_needs`.)
   zero/unknown for subscription CLIs), and confirmed model-id (sworn#70).
 - **N-07**: A behavioural conformance suite every registered driver must pass,
   so a new driver is provably contract-correct before it can dispatch.
-- **N-08 (open)**: The verifier role dispatches through a driver with a real
-  tool loop (subprocess CLI re-runs tests in the worktree) — closes sworn#55.
-  Pending human decision (see ambiguity register A-01).
+- **N-08**: **Role-universality (decided 2026-07-02)**: any registered driver
+  can serve any loop role it declares capability for — the verifier role
+  dispatches through the Driver contract like every other role, and where the
+  driver provides a real tool loop (subprocess CLI re-running tests in the
+  worktree) that closes sworn#55. Capability is declared per-role by the
+  driver, checked fail-fast at resolution; the engine keeps verdict authority
+  by validating the returned verdict against verifier-verdict-v1 fail-closed.
+- **N-09**: OpenAI prefix rename lands with the new resolution (sworn#31):
+  `openai/` → the Responses driver (modern default), `openai-completions/` →
+  legacy chat/completions, `openai-responses/` kept as deprecated alias for one
+  release.
+- **N-10**: A codex exec subprocess driver ships alongside claude-cli
+  (sworn#19) — the N=2 proof that the contract isn't claude-shaped; its own
+  slice so it can late-defer cleanly if the release runs long.
 
 ## Constraints and non-negotiables
 
@@ -147,18 +158,72 @@ are cut. Trace gate binds every N-NN to at least one slice's `covers_needs`.)
 
 ## Adjacent / out of scope
 
-(To be confirmed during discovery — candidates below; each needs why +
-tracking + acknowledgement before the board closes.)
-
-- **Baton v0.7.0 re-vendor** — tracked sworn#48; a live behaviour + data
-  migration across multiple releases, deliberately not bundled here.
+- **Item**: S08-differential-validation (cross-engine parity vs the coach-loop
+  reference). **Why deferred**: the reference is retired and
+  schema-incompatible with baton v0.7.0; parity with a dead contract proves
+  nothing forward. Dropped, not postponed — the validation intent is subsumed
+  by the beefed-up S09 (conformance suite + engine-level SIT smoke).
+  **Tracking**: S09's spec carries the SIT-smoke acceptance criteria; no
+  forward issue needed for the archive-differential idea (archive stays at
+  `~/projects/fired/baton-backup` if ever wanted). **Acknowledged**: Brad,
+  2026-07-02, this session.
+- **Item**: Baton v0.7.0 re-vendor. **Why deferred**: a live behaviour + data
+  migration across multiple in-flight releases, deliberately not bundled with
+  an architecture re-seam. **Tracking**: sworn#48. **Acknowledged**: Brad,
+  2026-07-02 (pre-acknowledged in the starter capture).
 - **FT-1 orchestration items** (serialized cold-start bootstrap, auto-WIP-commit,
   track-local failure isolation) — the 2026-06-28 plan already scoped these to a
   separate release; several landed via the operational-readiness releases.
 
 ## Decisions made during planning
 
-(Appended chronologically as AskUserQuestion decision points resolve.)
+### 2026-07-02 — Role-universality: every driver can serve every loop role it declares (A-01)
+
+- **Context**: Should the subprocess driver serve the verifier role too, or
+  does the verifier stay on ChatStructured-only drivers?
+- **Options considered**: (a) yes, both roles this release; (b) split —
+  implementer track first, verifier track depends_on it; (c) no, defer #55.
+- **Decision**: Brad went past option (a): "Yes, arguably all the drivers
+  should be able to be used for all the roles." Role-universality is a design
+  principle of the contract, not a per-driver scope call. Any driver can serve
+  any loop role it declares capability for; capability is per-role, checked
+  fail-fast at resolution.
+- **Why**: The queued dogfood (implementer sonnet / verifier opus via
+  claude-cli) structurally requires it — cliDriver has no ChatStructured and
+  `verify.RunAgentic` type-asserts it today. Serving verify through the driver
+  also closes sworn#55 (verifier gets a real tool loop where the driver
+  provides one). The engine keeps verdict authority: the driver returns the
+  verdict, the engine validates it against verifier-verdict-v1 fail-closed.
+
+### 2026-07-02 — Drop S08-differential-validation; S09 grows teeth (A-02)
+
+- **Context**: S08's reference implementation (coach-loop) is retired and
+  schema-incompatible with baton v0.7.0; an archive exists at
+  `~/projects/fired/baton-backup`.
+- **Options considered**: (a) drop S08, beef up S09; (b) keep S08 against the
+  archive, pinning old schemas; (c) repurpose as pre/post-refactor golden-trace
+  parity.
+- **Decision**: (a) — drop S08. S09 becomes the per-driver conformance suite
+  PLUS an engine-level SIT smoke: boot the ASSEMBLED `sworn loop` over a
+  fixture release with a stub Driver and assert dispatch fires end-to-end.
+- **Why**: The reference is dead code on a dead schema; parity with it proves
+  nothing forward (the engine IS the loop now — no backport, per the
+  2026-06-30 pivot). The SIT smoke wires in the §3.5 lesson — the test class
+  that would have caught the nil-factory SIGSEGV and cold-start DOA.
+
+### 2026-07-02 — Backlog consumption: #31, #19, #70 in; #15 folded into the registry design (A-03)
+
+- **Context**: Which open backlog items land in this release vs stay tracked.
+- **Decision**: All four selected. sworn#31 (openai/ prefix rename) lands with
+  the new resolution — migrate the mapping once, not twice. sworn#19 (codex
+  exec driver) ships as its own slice — the N=2 proof of driver generality,
+  late-deferrable if the release runs long. sworn#70 (real-cost telemetry)
+  lands in the telemetry slice — kill the $2/1M flat rate, wire the dark-code
+  pricing registry, record subscription-CLI cost honestly (cost-source
+  distinction, not fake $0 API spend). sworn#15 (self-registering factory) is
+  not built as written — the driver registry replaces `NewClient`'s switch, so
+  #15's problem dissolves; init()-vs-explicit-registration becomes a clause of
+  the Type-1 interface decision (A-04).
 
 ## Schema-vs-spec audit notes
 
@@ -224,10 +289,10 @@ facts the re-cut specs must be grounded in, where they diverge from the
 
 | # | Ambiguity | Affects | Resolution |
 |---|-----------|---------|------------|
-| A-01 | Should the subprocess driver serve the **verifier** role too (CLI re-runs tests itself in the worktree), closing sworn#55 in this release — or does the verifier stay on ChatStructured-only drivers for now? | N-08, track shape, verifier seam | human will decide during discovery (this session) |
-| A-02 | S08-differential-validation's reference (coach-loop) is retired + schema-incompatible with baton v0.7.0. Differential-validate against the archive (`~/projects/fired/baton-backup`, pinning old schemas) vs drop S08 in favour of a beefed-up S09 conformance suite? | validation track | human will decide during discovery (this session) |
-| A-03 | Which backlog items land IN this release vs stay tracked: #31 (prefix rename), #19 (codex driver), #15 (self-registering factory — full form vs driver-registry subsumes it)? | scope, touchpoints | human will decide during discovery (this session) |
-| A-04 | Driver interface shape (Type-1): exact `Dispatch` signature, capability declaration, structured-output seam for the verifier. | every slice | options + rationale to human after code-seam map; recorded per Rule 9 |
+| A-01 | Should the subprocess driver serve the **verifier** role too? | N-08, track shape, verifier seam | RESOLVED 2026-07-02 — role-universality (see Decisions) |
+| A-02 | S08 fate: archive-differential vs drop for beefed-up S09? | validation track | RESOLVED 2026-07-02 — dropped; S09 = conformance + SIT smoke (see Decisions) |
+| A-03 | Which backlog items land in-release: #31/#19/#70/#15? | scope, touchpoints | RESOLVED 2026-07-02 — all in; #15 by subsumption (see Decisions) |
+| A-04 | Driver interface shape (Type-1): exact `Dispatch` signature, per-role capability declaration, verdict seam, registration mechanism, fate of the single-shot `model.Verifier` used by non-loop gates. | every slice | options + rationale to human this session; recorded per Rule 9 |
 
 ## Screenshots / references
 
