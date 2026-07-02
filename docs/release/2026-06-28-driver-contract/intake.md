@@ -162,12 +162,59 @@ tracking + acknowledgement before the board closes.)
 
 ## Schema-vs-spec audit notes
 
-- The 2026-06-28 cut's `Result` shape (`Status ok|blocked|error`, `Verdict`,
-  `CostUSD`, tokens, `ModelID`, `DurationMS`) predates verifier-verdict-v1.
-  The verify path now returns a schema-validated verdict object via
-  `ChatStructured` — the re-cut spec for the Result/verdict seam must be
-  grounded against the live `internal/verify` + `internal/schema` code, not the
-  old spec.md text. (Code-seam map in progress; findings land here.)
+Live code-seam map (fresh Explore pass, 2026-07-02, `release/v0.1.0`) — the
+facts the re-cut specs must be grounded in, where they diverge from the
+2026-06-28 spec.md text:
+
+- **Dispatch seam is factory-fields, not direct construction.** `RunSlice`
+  dispatches via `RunSliceOptions.NewAgent/NewVerifier` factory fields with
+  nil-defaults added by the 2026-06-28 eval supervisor fix
+  (`internal/run/slice.go:57-63,193-201`); `internal/scheduler/worker.go` knows
+  only an opaque `RunSliceFn` (`worker.go:96`); `cmd/sworn/run.go:134` builds
+  the closure and relies on the nil-defaults. The old S05/S06 text ("replace
+  NewAgent/NewVerifier direct use") predates this.
+- **Verifier seam post-keystone.** `RunSlice` constructs the verifier as a full
+  agent via `opts.NewAgent` (so it carries `ChatStructured`), then
+  `verify.RunAgentic` type-asserts `model.StructuredOutput` and makes ONE
+  `ChatStructured` call against `verifierEmitSchema`, semantic-gated by
+  `baton.ValidateSchema("verifier-verdict-v1", ...)` (`internal/verify/verify.go:189-229`).
+  Prose-scrape verdict parsing is deleted. Fail-closed: no StructuredOutput →
+  INCONCLUSIVE.
+- **Tool-loop ownership.** The agentic loop is `internal/agent.Run`
+  (`agent.go:81`, max 25 turns, terminal on no-tool-calls); worktree
+  confinement lives in the tool executor (`tools.go:29,321-323` —
+  `cmd.Dir = root` for Bash/Grep, `HOME=root`, path prefix-confinement). Only
+  `internal/implement` consumes it; the verifier never does (sworn#55).
+- **cliDriver reality (sworn#35).** `claude -p --no-session-persistence --model
+  <m> <prompt>`, `cmd.Stdin=nil`, **no `cmd.Dir`**, tools arg ignored, message
+  history collapsed to one stacked prompt, output = trimmed stdout, cost/tokens
+  always 0, `*exec.ExitError`→`KindAuth` (coarse), `CapVerify|CapChat`
+  advertised (`internal/model/cli.go:19-157`). Codex: `ErrDriverNotImplemented`
+  stubs at `cli.go:59-65` + `provider.go:175-180` (both cite sworn#19).
+- **Two divergent resolution paths + a drifting third table.**
+  `model.NewClient` (provider-prefix switch, `provider.go:87`) vs
+  `model.FromEnv` (keyless-CLI first, then sworn-proxy routing, then direct,
+  `config.go:40-53`); plus a hand-maintained `capabilityRegistry`
+  (`registry.go:13`) used for `sworn capabilities`/`HasChat` that can drift
+  from actual `Capabilities()` methods. S04's replacement must subsume all
+  three or state which survive.
+- **Capability matrix (live).** `ChatStructured` on exactly two types: `OAI`
+  (`oai.go:318`) and `OpenAIResponses` (`openai_responses.go:240`). Anthropic
+  Chat accepts-but-ignores tools (`anthropic.go:90-97`). Google/Bedrock/Azure/
+  OCI/Ollama are Verify-only.
+- **Two pricing systems, not cross-wired.** `pricing.go` `Pricing`/`ComputeCost`
+  vs `client.go` `PriceForModel`/`ComputeCostFromTokens` (zero call sites —
+  dark code, sworn#70); `agent.go:182` computeCost is nominal $2/1M flat;
+  Anthropic's correctly computed `CostUSD` is discarded by the agent loop.
+- **Telemetry record (live).** `state.Dispatch` already carries
+  `DurationMS/InputTokens/OutputTokens/ModelIDConfirmed/Quadrant`
+  (`state.go:83`) — the old S07 text ("add these fields") is stale; the gap is
+  populating them honestly, not defining them.
+- **Structured-outputs keystone location.** Wire layer
+  `internal/model/structured.go` (strictProjection etc.); semantic layer
+  `internal/baton/validate_schema.go` (draft-2020-12 via
+  santhosh-tekuri/jsonschema/v6, embedded schemas in
+  `internal/baton/schemas/`). There is no `internal/schema` package.
 
 ## Proposed slice decomposition (draft)
 
