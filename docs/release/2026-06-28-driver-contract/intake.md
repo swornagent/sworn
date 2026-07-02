@@ -134,6 +134,13 @@ are cut. Trace gate binds every N-NN to at least one slice's `covers_needs`.)
 - **N-10**: A codex exec subprocess driver ships alongside claude-cli
   (sworn#19) — the N=2 proof that the contract isn't claude-shaped; its own
   slice so it can late-defer cleanly if the release runs long.
+- **N-11 (draft, surfaced 2026-07-02)**: Per-provider model catalogs — for
+  each provider the user has linked (OpenRouter, Google, Mistral, Groq, ...),
+  the system can list the models actually available on that account, with
+  per-model capability info where the provider reports it over the wire and an
+  honest "unknown" where it doesn't. Unknown is never treated as capable
+  (fail-closed). Scope decision pending (A-05): in-release slice vs tracked
+  follow-on.
 
 ## Constraints and non-negotiables
 
@@ -225,6 +232,45 @@ are cut. Trace gate binds every N-NN to at least one slice's `covers_needs`.)
   #15's problem dissolves; init()-vs-explicit-registration becomes a clause of
   the Type-1 interface decision (A-04).
 
+### 2026-07-02 — Driver contract shape: role-dispatch (A-04, Type-1, part 1 of 4)
+
+- **Context**: The exact contract every driver implements — the
+  architecturally-significant (Type-1) choice of the release.
+- **Options considered**: (a) role-dispatch — one
+  `Dispatch(ctx, DispatchInput{Role,...}) (Result, error)` with drivers
+  declaring a `RoleSet`; (b) minimal core + optional interfaces discovered by
+  type-assert (today's RunAgentic pattern generalised); (c) maximal — fold
+  non-loop utility judgements in too.
+- **Decision** (Brad): **(a) role-dispatch.** Sketch as presented and chosen:
+  `Driver{ Name(); Roles() RoleSet; Dispatch(ctx, DispatchInput) (Result, error) }`;
+  `DispatchInput{ Role, ModelID, SystemPrompt, Payload, WorktreeRoot,
+  VerdictSchema, Timeout }`; `Result{ Status(ok|blocked|error+Kind),
+  ResultText, StructuredJSON, CostUSD, CostSource, InputTokens, OutputTokens,
+  ModelID, DurationMS }`. Capability IS the declared role set, checked
+  fail-fast at resolution. The engine keeps verdict authority by validating
+  `Result.StructuredJSON` against verifier-verdict-v1 fail-closed. Wire types
+  (ChatMessage/ToolDef) become internal to in-process drivers.
+- **Why**: Matches the role-universality decision exactly; kills the sworn#35
+  "advertises Chat but ignores tools" class at resolution time instead of
+  runtime; accepted cost = the largest rewire of the verify.go/slice.go seams.
+- **Rule 9**: Type-1, human-decided this session; to be recorded as the design
+  decision in the owning slice's `status.json` when that slice is cut.
+
+### 2026-07-02 — Model→driver resolution: explicit prefix, no smart fallback (A-04, part 4 of 4)
+
+- **Context**: How a model ID resolves to a driver.
+- **Options considered**: explicit prefix→driver always, vs smart fallback
+  (e.g. `anthropic/opus` → claude-cli when keyless).
+- **Decision** (Brad): explicit prefix. "System must make it easy for the user
+  to know what's available" — discoverability is solved by listing, not by
+  silent rerouting. A missing CLI/key fails fast at resolution naming the fix.
+  The sworn#31 rename is part of this mapping.
+- **Why**: Auditable routing (the same model ID must dispatch through the same
+  code path on every machine, or eval telemetry is mud); the sworn#69 lesson —
+  silent rerouting is a defect class, not a convenience.
+- **Follow-on requirement surfaced**: automatic per-provider model catalogs
+  (see N-11 draft + ambiguity A-05).
+
 ## Schema-vs-spec audit notes
 
 Live code-seam map (fresh Explore pass, 2026-07-02, `release/v0.1.0`) — the
@@ -292,7 +338,8 @@ facts the re-cut specs must be grounded in, where they diverge from the
 | A-01 | Should the subprocess driver serve the **verifier** role too? | N-08, track shape, verifier seam | RESOLVED 2026-07-02 — role-universality (see Decisions) |
 | A-02 | S08 fate: archive-differential vs drop for beefed-up S09? | validation track | RESOLVED 2026-07-02 — dropped; S09 = conformance + SIT smoke (see Decisions) |
 | A-03 | Which backlog items land in-release: #31/#19/#70/#15? | scope, touchpoints | RESOLVED 2026-07-02 — all in; #15 by subsumption (see Decisions) |
-| A-04 | Driver interface shape (Type-1): exact `Dispatch` signature, per-role capability declaration, verdict seam, registration mechanism, fate of the single-shot `model.Verifier` used by non-loop gates. | every slice | options + rationale to human this session; recorded per Rule 9 |
+| A-04 | Driver interface shape (Type-1): exact `Dispatch` signature, per-role capability declaration, verdict seam, registration mechanism, fate of the single-shot `model.Verifier` used by non-loop gates. | every slice | PARTIALLY RESOLVED 2026-07-02 — contract shape (role-dispatch) + resolution (explicit prefix) decided; registration mechanism + one-shot-path fate pending this session |
+| A-05 | Model catalog (N-11): in-release slice vs tracked follow-on; and how much capability filtering is honest given heterogeneous provider metadata (OpenRouter/Mistral/Ollama report capabilities; OpenAI/Groq/Anthropic return bare lists). | N-11, scope | human will decide this session |
 
 ## Screenshots / references
 
