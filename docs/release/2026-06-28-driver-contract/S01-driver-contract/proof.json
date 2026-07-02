@@ -34,6 +34,13 @@
     { "item": "Design-review pin 3 (confirm DispatchInput.Role is the named Role type)", "evidence": "internal/driver/driver.go: DispatchInput.Role is type Role (not string), consistent with RoleSet map[Role]bool" }
   ],
   "not_delivered": [],
+  "first_pass_gate": {
+    "command": "PLAYWRIGHT_OPTIN=false ~/.claude/bin/release-verify.sh S01-driver-contract 2026-06-28-driver-contract",
+    "checks_passed": 7,
+    "checks_failed": 2,
+    "verdict": "NOT CLEAN — 2 known false-negatives, not a real defect",
+    "failure_detail": "spec.md missing / proof.md missing: this release uses spec.json/proof.json (ADR-0009/ADR-0010 JSON-record migration); the shared script still checks for the pre-migration Markdown filenames. Documented recurring false-negative on every spec-v1 slice in this repo (see feedback_releaseverify_specmd_false_fail memory). Not manufactured a placeholder spec.md/proof.md to force green. sworn verify (the model-backed canonical gate) could not run: SWORN_ANTHROPIC_API_KEY not configured in this session (no-paid-dispatch constraint). The subjective PASS/FAIL/BLOCKED verdict is deferred to the fresh-context /verify-slice session per Rule 7 — this proof bundle documents delivery, not verification."
+  },
   "divergence": [
     {
       "item": "internal/driver/result.go (a spec touchpoint) was not created as a separate file.",

@@ -66,4 +66,20 @@ placeholder `.md` files to satisfy a legacy-format checker. See `journal.md`
 completion entry below for the actual first-pass output once re-run against
 committed state.
 
+**First-pass gate result (re-run after committing, `PLAYWRIGHT_OPTIN=false`
+to work around an unrelated pre-existing unbound-variable bug in the shared
+script at line 541 — not part of this repo, not this slice's to fix):**
+7 checks passed, 2 failed. The 2 failures are exactly the known
+`spec.md`/`proof.md missing` false-negatives — this release uses
+`spec.json`/`proof.json` (ADR-0009/ADR-0010), the script still looks for the
+pre-migration Markdown filenames. Every substantive check passed: slice
+folder exists, `status.json` valid and `state: implemented`, diff vs
+`start_commit` scoped to exactly this slice's 9 files, zero dark-code
+markers. Not treating this as a clean PASS — surfacing it honestly rather
+than manufacturing placeholder `.md` files to force green
+([[feedback_releaseverify_specmd_false_fail]]). The subjective/canonical
+PASS/FAIL/BLOCKED verdict is the fresh-context verifier's job
+(`/verify-slice`), which also needs a configured model key this session
+doesn't have.
+
 **state → implemented.**
