@@ -31,7 +31,7 @@
         "S03-tui-chrome-rework"
       ],
       "depends_on": [],
-      "state": "in_progress",
+      "state": "merged",
       "worktree": {
         "path": "/home/brad/projects/sworn-worktrees/release-2026-07-01-render-drift-reconciliation-T2-tui",
         "branch": "track/2026-07-01-render-drift-reconciliation/T2-tui"
