@@ -40,11 +40,11 @@ func RegisterCatalogTools(s *Server, repoRoot string) {
 
 		releaseDir := filepath.Join(repoRoot, "docs", "release", p.Name)
 		if _, err := os.Stat(releaseDir); err == nil {
-		// Existing release: summarise slice state via the board oracle
-		// (board.json + status.json) instead of grepping the rendered
-		// index.md table, whose header literal has drifted from
-		// internal/board/render.go's output.
-		summary := releaseStateSummary(repoRoot, p.Name)
+			// Existing release: summarise slice state via the board oracle
+			// (board.json + status.json) instead of grepping the rendered
+			// index.md table, whose header literal has drifted from
+			// internal/board/render.go's output.
+			summary := releaseStateSummary(repoRoot, p.Name)
 			result := map[string]any{
 				"exists":        true,
 				"slice_count":   summary["slice_count"],
