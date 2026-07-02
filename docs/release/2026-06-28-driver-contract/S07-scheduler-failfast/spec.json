@@ -1,0 +1,57 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "schema_version": 1,
+  "slice_id": "S07-scheduler-failfast",
+  "release": "2026-06-28-driver-contract",
+  "track": "T4-resolution-loop",
+  "user_outcome": "The parallel loop resolves every role-and-model combination to a driver at startup and exits with a named, actionable error before any worker spawns — a missing driver or capability can never crash or strand a run mid-flight; workers dispatch only through the driver-backed RunSlice.",
+  "rationale": "Finishes the nil-factory story at the parallel entry point. Grounding: cmd/sworn/run.go:134 builds runSliceFn WITHOUT setting NewAgent/NewVerifier, historically relying on RunSlice's nil-defaults (the documented SIGSEGV class); worker.go dispatches only through the opaque RunSliceFn (worker.go:96,302,359,444); the production factory helpers newAgentFromModel/newVerifierFromModel (run.go:343,367) gate CapChat at construction time — mid-run. After S06 the factories are gone; this slice adds the startup resolution sweep: before RunParallel spawns workers, resolve implementer/verifier/captain models plus every escalation-list entry through the registry and fail fast on any miss. Also aligns internal/run/parallel.go's dispatch wiring with the registry (its board-oracle reading was fixed in the render-drift release and is NOT touched here).",
+  "covers_needs": ["N-05"],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "chore",
+    "rationale": "Startup sweep + deleting the retired factory helpers; the heavy rewiring already happened in S06.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    "cmd/sworn/run.go",
+    "cmd/sworn/run_test.go",
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go",
+    "internal/scheduler/worker_test.go"
+  ],
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "Startup resolution is too strict — it rejects a run whose escalation list names a model the user never reaches.",
+      "mitigation": "Deliberate and accepted: an unreachable escalation entry is a config defect surfaced at t=0 (fail-closed beats a 20-minute-in crash); the error names exactly which entry failed and what is registered."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When `sworn loop --release <r> --parallel` starts, the engine SHALL resolve the implementer, verifier, and captain models AND every escalation-list entry through Registry.Resolve for their roles BEFORE spawning any worker; on any failure it SHALL exit non-zero with an error naming the model, the role, and the registered prefixes/roles that ARE available (TestParallelStartupFailFast)."
+    },
+    {
+      "id": "AC-02",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "The retired factory helpers newAgentFromModel and newVerifierFromModel in cmd/sworn/run.go SHALL be deleted, and no code path in cmd/sworn or internal/scheduler SHALL construct an agent or verifier outside the registry (asserted by the S06 import-boundary test extended to cmd/sworn's loop wiring)."
+    },
+    {
+      "id": "AC-03",
+      "type": "unwanted",
+      "ears_keyword": "If",
+      "text": "If a driver becomes unavailable mid-run (CLI binary removed, auth expired), the dispatch SHALL surface Status=error with its ErrKind through the existing retry/escalation policy for that slice only — sibling tracks continue (no phase-wide cascade cancel), proven by a scheduler test with a fake driver that fails after N dispatches."
+    },
+    {
+      "id": "AC-04",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "`go test ./cmd/sworn/... ./internal/scheduler/... ./internal/run/...` SHALL pass."
+    }
+  ]
+}

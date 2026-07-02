@@ -1,0 +1,34 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S05-driver-registry",
+  "release": "2026-06-28-driver-contract",
+  "track": "T4-resolution-loop",
+  "state": "planned",
+  "covers_needs": ["N-04", "N-09"],
+  "spec_path": "docs/release/2026-06-28-driver-contract/S05-driver-registry/spec.json",
+  "start_commit": null,
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "Decided mechanics, breadth of mapping + availability probing + #31 rename spillover + capabilityRegistry retirement.",
+    "confirmed_by_implementer": false
+  },
+  "design_decisions": [
+    {
+      "choice": "Registration mechanism: explicit DefaultRegistry(cfg) table (not init() self-registration); resolution: explicit prefix->driver with no smart fallback",
+      "stake_class": "Type-2",
+      "options": [
+        "explicit table + enumeration API (chosen)",
+        "init() self-registration per driver file (sworn#15 as written)",
+        "smart fallback resolution (anthropic/ -> claude-cli when keyless) — rejected"
+      ],
+      "human_decision": "Brad, 2026-07-02, planning session (intake.md 'Registration: explicit table' + 'explicit prefix' decisions).",
+      "rationale": "Deterministic and auditable; config flows in explicitly; the #15 collision concern shrank from 14 provider files to ~4 drivers; silent rerouting rejected per the sworn#69 lesson. Classified Type-2 (reversible, local) — the Type-1 contract decision lives on S01.",
+      "architecturally_significant": false
+    }
+  ],
+  "verification": {
+    "result": "pending"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S07-scheduler-failfast",
+  "release": "2026-06-28-driver-contract",
+  "track": "T4-resolution-loop",
+  "state": "planned",
+  "covers_needs": ["N-05"],
+  "spec_path": "docs/release/2026-06-28-driver-contract/S07-scheduler-failfast/spec.json",
+  "start_commit": null,
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "chore",
+    "rationale": "Startup resolution sweep + factory-helper deletion; heavy rewiring already done in S06.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending"
+  }
+}

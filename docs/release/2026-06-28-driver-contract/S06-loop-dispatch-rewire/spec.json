@@ -1,0 +1,70 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "schema_version": 1,
+  "slice_id": "S06-loop-dispatch-rewire",
+  "release": "2026-06-28-driver-contract",
+  "track": "T4-resolution-loop",
+  "user_outcome": "RunSlice performs its captain, implement, and verify legs exclusively through registry-resolved Driver.Dispatch — no factory fields, no provider wire types in the orchestration path, verdicts engine-validated from Result.StructuredJSON — so the nil-factory SIGSEGV class is unrepresentable and a toolless dispatch cannot reach a loop role.",
+  "rationale": "The central rewire. Grounding against live code: today RunSlice dispatches via RunSliceOptions.NewAgent/NewVerifier factory fields with nil-defaults added by the 2026-06-28 eval supervisor fix (internal/run/slice.go:57-63,193-201); the verifier is constructed as a full agent then verify.RunAgentic type-asserts model.StructuredOutput and makes ONE zero-tool ChatStructured call (internal/verify/verify.go:189-229 — the sworn#55 gap); implement.Run (internal/implement/implement.go:39) is the sole agent.Run consumer. After this slice: prompt assembly stays orchestrator-side (SystemPrompt/Payload in DispatchInput); the loop execution lives behind the driver; RunAgentic's transport is replaced by the driver dispatch while its verdict-acceptance semantics (baton.ValidateSchema('verifier-verdict-v1'), fail-closed INCONCLUSIVE, terminal-error BLOCKED) are preserved verbatim. RunFirstPass (deterministic $0 pre-flight) is untouched. Telemetry legs (appendDispatch at slice.go:125 call sites) switch their source to Result fields; full cost honesty lands in S08.",
+  "covers_needs": ["N-05", "N-08"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "epic",
+    "rationale": "The largest seam rewire in the release: three role legs, verify.go transport replacement with semantics preservation, factory deletion, and an import-boundary contract — regression risk concentrated here.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    "internal/run/slice.go",
+    "internal/run/slice_test.go",
+    "internal/run/imports_test.go",
+    "internal/verify/verify.go",
+    "internal/verify/verify_test.go",
+    "internal/implement/implement.go",
+    "internal/implement/implement_test.go"
+  ],
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "Verdict-acceptance semantics drift during the transport swap (fail-closed INCONCLUSIVE / terminal BLOCKED mappings are load-bearing for the slice state machine).",
+      "mitigation": "The existing verify_test.go acceptance/validation tests are kept and adapted, not rewritten; acceptStructuredVerdict and baton.ValidateSchema remain the single acceptance path; any behaviour change must fail an existing test first."
+    },
+    {
+      "id": "R-02",
+      "description": "A tightened dispatch seam regresses test fixtures in OTHER packages (the S05-strict-reader lesson: internal/board fixtures broke across packages).",
+      "mitigation": "The slice's test commands include the affected packages, and the track merge gate runs the full `go test ./...` — the memory-documented failure mode is named in the journal template for this slice."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "RunSliceOptions SHALL NOT expose NewAgent/NewVerifier factory fields (deleted, not deprecated); every role leg (captain, implement, verify) SHALL obtain its driver via Registry.Resolve(modelID, role) and dispatch via Driver.Dispatch; tests inject fake drivers through a test registry, not through factories."
+    },
+    {
+      "id": "AC-02",
+      "type": "unwanted",
+      "ears_keyword": "If",
+      "text": "If Resolve fails for any role leg, RunSlice SHALL return a descriptive error naming the model, role, and registered alternatives BEFORE any model dispatch — no nil dereference is possible because no code path holds an unresolved driver (TestRunSliceResolutionFailure)."
+    },
+    {
+      "id": "AC-03",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When the verify leg's Dispatch returns, the engine SHALL validate Result.StructuredJSON against verifier-verdict-v1 via the existing acceptStructuredVerdict + baton.ValidateSchema path with semantics preserved verbatim: invalid or missing StructuredJSON -> INCONCLUSIVE (fail-closed), terminal error kinds -> BLOCKED, valid verdict -> mapped Result; the existing verify acceptance tests SHALL pass against the new transport."
+    },
+    {
+      "id": "AC-04",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "internal/run, internal/verify, and internal/scheduler SHALL NOT import internal/model wire types (ChatMessage, ToolDef, ChatResponse, ToolCall) — enforced by TestNoWireImports in internal/run/imports_test.go covering all three packages and failing with the offending package + import named."
+    },
+    {
+      "id": "AC-05",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "Every appendDispatch telemetry call SHALL source duration/tokens/cost/confirmed-model-id from the Dispatch leg's Result fields (honest population semantics land in S08; this AC pins the plumbing source); RunFirstPass SHALL remain byte-identical in behaviour (its tests unchanged); `go test ./internal/run/... ./internal/verify/... ./internal/implement/...` SHALL pass."
+    }
+  ]
+}

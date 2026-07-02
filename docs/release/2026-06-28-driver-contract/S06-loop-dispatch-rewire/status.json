@@ -1,0 +1,20 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S06-loop-dispatch-rewire",
+  "release": "2026-06-28-driver-contract",
+  "track": "T4-resolution-loop",
+  "state": "planned",
+  "covers_needs": ["N-05", "N-08"],
+  "spec_path": "docs/release/2026-06-28-driver-contract/S06-loop-dispatch-rewire/spec.json",
+  "start_commit": null,
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "epic",
+    "rationale": "Largest seam rewire: three role legs, verify transport swap with semantics preservation, factory deletion, import-boundary contract.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending"
+  }
+}
