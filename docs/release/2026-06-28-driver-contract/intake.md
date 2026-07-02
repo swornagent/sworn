@@ -134,13 +134,12 @@ are cut. Trace gate binds every N-NN to at least one slice's `covers_needs`.)
 - **N-10**: A codex exec subprocess driver ships alongside claude-cli
   (sworn#19) — the N=2 proof that the contract isn't claude-shaped; its own
   slice so it can late-defer cleanly if the release runs long.
-- **N-11 (draft, surfaced 2026-07-02)**: Per-provider model catalogs — for
-  each provider the user has linked (OpenRouter, Google, Mistral, Groq, ...),
-  the system can list the models actually available on that account, with
-  per-model capability info where the provider reports it over the wire and an
-  honest "unknown" where it doesn't. Unknown is never treated as capable
-  (fail-closed). Scope decision pending (A-05): in-release slice vs tracked
-  follow-on.
+- **N-11**: Per-provider model catalogs (decided in, 2026-07-02) — for each
+  provider the user has linked (OpenRouter, Google, Mistral, Groq, ...), the
+  system lists the models actually available on that account, with per-model
+  capability info where the provider reports it over the wire and an honest
+  "unknown" where it doesn't. Unknown is never treated as capable
+  (fail-closed). Own slice; late-deferrable; active probing out of scope.
 
 ## Constraints and non-negotiables
 
@@ -271,6 +270,59 @@ are cut. Trace gate binds every N-NN to at least one slice's `covers_needs`.)
 - **Follow-on requirement surfaced**: automatic per-provider model catalogs
   (see N-11 draft + ambiguity A-05).
 
+### 2026-07-02 — One-shot path is utility-only (A-04, part 2 of 4)
+
+- **Context**: Fate of the single-shot `model.Verifier` interface. The
+  stateless LOOP verifier was already removed by the keystone; what remains on
+  the interface is non-loop usage.
+- **Decision** (Brad, confirming the proposed reading): loop roles
+  (implement / verify / captain) go through `Driver.Dispatch`, always. The
+  one-shot interface survives strictly as the utility judgement path —
+  `sworn verify`, `reqverify`, `llm-check`, `bench`, and orchestrator quick
+  checks (text→text, no worktree). Keyless/Verify-only providers keep serving
+  gates untouched.
+- **Why**: Role dispatch and utility judgement are different jobs; folding the
+  gates onto a worktree-shaped contract adds touchpoints for no user-visible
+  gain. Two vocabularies persist, accepted.
+
+### 2026-07-02 — Registration: explicit table + enumeration API (A-04, part 3 of 4; closes the #15 question)
+
+- **Context**: How drivers register. Brad asked whether the binary can
+  "iterate through the installed list" instead of a shared file.
+- **Finding surfaced**: Go has no usable runtime discovery for compiled-in
+  code (the `plugin` package is platform/version-locked; the single-static-
+  binary rule excludes it) — `init()` self-registration is still compile-time,
+  it just hides the list in import side-effects. A true "installed list" is
+  only possible for subprocess drivers via a git-style `sworn-driver-*`
+  executable convention — a future wire-protocol release, and the contract
+  must not preclude it.
+- **Decision** (Brad): explicit table — one `DefaultRegistry(cfg)` constructor
+  wiring the ~4 compiled-in drivers; the registry exposes enumeration +
+  per-driver availability probing (CLI on PATH? key present?), which is the
+  machinery the catalog UX needs. sworn#15 closes by subsumption: the
+  NewClient switch it targeted is replaced by the registry; the collision
+  concern shrank from 14 provider files to ~4 drivers.
+- **Why**: Deterministic, auditable, config flows in explicitly (no init()
+  package-level state); one shared line per new driver is an accepted cost.
+
+### 2026-07-02 — Model catalog lands in-release as its own slice (A-05, resolves N-11)
+
+- **Context**: Explicit-prefix resolution trades away magic; discoverability
+  must be first-class. Brad: "the system must make it easy for the user to
+  know what's available" — per linked provider, list the models reported over
+  the wire.
+- **Decision** (Brad): in-release, own slice (late-deferrable). A
+  `sworn models` affordance: per linked provider, the model list from the
+  provider's models endpoint, annotated with wire-reported capabilities
+  (OpenRouter `supported_parameters` incl. tools; Mistral `capabilities`;
+  Ollama `/api/show` capabilities; Google `supportedGenerationMethods`
+  partial) and an honest `unknown` for bare-list providers
+  (OpenAI/Groq/Anthropic). Fail-closed: unknown ≠ capable.
+- **Why**: Completes the explicit-prefix bargain; rides the same registry
+  seam. Active capability PROBING (paid test calls per model) stays out of
+  scope regardless — probing is only ever an explicit command, never
+  automatic.
+
 ## Schema-vs-spec audit notes
 
 Live code-seam map (fresh Explore pass, 2026-07-02, `release/v0.1.0`) — the
@@ -338,8 +390,8 @@ facts the re-cut specs must be grounded in, where they diverge from the
 | A-01 | Should the subprocess driver serve the **verifier** role too? | N-08, track shape, verifier seam | RESOLVED 2026-07-02 — role-universality (see Decisions) |
 | A-02 | S08 fate: archive-differential vs drop for beefed-up S09? | validation track | RESOLVED 2026-07-02 — dropped; S09 = conformance + SIT smoke (see Decisions) |
 | A-03 | Which backlog items land in-release: #31/#19/#70/#15? | scope, touchpoints | RESOLVED 2026-07-02 — all in; #15 by subsumption (see Decisions) |
-| A-04 | Driver interface shape (Type-1): exact `Dispatch` signature, per-role capability declaration, verdict seam, registration mechanism, fate of the single-shot `model.Verifier` used by non-loop gates. | every slice | PARTIALLY RESOLVED 2026-07-02 — contract shape (role-dispatch) + resolution (explicit prefix) decided; registration mechanism + one-shot-path fate pending this session |
-| A-05 | Model catalog (N-11): in-release slice vs tracked follow-on; and how much capability filtering is honest given heterogeneous provider metadata (OpenRouter/Mistral/Ollama report capabilities; OpenAI/Groq/Anthropic return bare lists). | N-11, scope | human will decide this session |
+| A-04 | Driver interface shape (Type-1): `Dispatch` signature, per-role capability, verdict seam, registration, one-shot-path fate. | every slice | RESOLVED 2026-07-02 in four parts (see Decisions): role-dispatch contract; one-shot utility-only; explicit table + enumeration; explicit prefix |
+| A-05 | Model catalog: in-release vs follow-on; honesty of capability filtering on heterogeneous provider metadata. | N-11, scope | RESOLVED 2026-07-02 — in-release, own slice, fail-closed unknowns, probing excluded (see Decisions) |
 
 ## Screenshots / references
 
