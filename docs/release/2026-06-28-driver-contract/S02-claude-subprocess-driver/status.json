@@ -1,0 +1,20 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S02-claude-subprocess-driver",
+  "release": "2026-06-28-driver-contract",
+  "track": "T2-subprocess",
+  "state": "planned",
+  "covers_needs": ["N-02", "N-08"],
+  "spec_path": "docs/release/2026-06-28-driver-contract/S02-claude-subprocess-driver/spec.json",
+  "start_commit": null,
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "Known shape (bash precedent + cli.go), breadth across two roles + env hygiene + error taxonomy + fake-binary harness.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending"
+  }
+}

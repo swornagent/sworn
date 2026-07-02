@@ -1,0 +1,20 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S03-codex-subprocess-driver",
+  "release": "2026-06-28-driver-contract",
+  "track": "T2-subprocess",
+  "state": "planned",
+  "covers_needs": ["N-10"],
+  "spec_path": "docs/release/2026-06-28-driver-contract/S03-codex-subprocess-driver/spec.json",
+  "start_commit": null,
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "high",
+    "quadrant": "puzzle",
+    "rationale": "Small diff over shared plumbing; the codex envelope unknowns are the substance (the original S63 deferral reason).",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending"
+  }
+}
