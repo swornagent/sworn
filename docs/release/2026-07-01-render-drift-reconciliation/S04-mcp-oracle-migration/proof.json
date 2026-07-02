@@ -1,0 +1,53 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "schema_version": 1,
+  "slice_id": "S04-mcp-oracle-migration",
+  "release": "2026-07-01-render-drift-reconciliation",
+  "scope": "Every MCP tool an agent uses to read or act on release state (board reads, get_blocked, get_slice_context, approve_merge, plan mutation, catalog counts) returns real data for a current-format release instead of silently-empty results or a wrong-track error.",
+  "files_changed": [
+    "docs/release/2026-07-01-render-drift-reconciliation/S04-mcp-oracle-migration/journal.md",
+    "docs/release/2026-07-01-render-drift-reconciliation/S04-mcp-oracle-migration/proof.md",
+    "docs/release/2026-07-01-render-drift-reconciliation/S04-mcp-oracle-migration/status.json",
+    "internal/mcp/context.go",
+    "internal/mcp/lint_test.go",
+    "internal/mcp/tools_ops.go",
+    "internal/mcp/tools_test.go"
+  ],
+  "test_results": [
+    {
+      "command": "go test ./internal/mcp/... -count=1",
+      "exit_code": 0,
+      "output": "ok  \tgithub.com/swornagent/sworn/internal/mcp\t0.102s"
+    },
+    {
+      "command": "go test ./... -count=1 -timeout 600s",
+      "exit_code": 0,
+      "output": "all 39 test packages ok, 0 failures (internal/mcp 0.151s; full list in proof.md)"
+    },
+    {
+      "command": "go vet ./...",
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": "go build ./...",
+      "exit_code": 0,
+      "output": ""
+    }
+  ],
+  "reachability_artifacts": [
+    "internal/mcp test suite drives the same code paths an MCP client reaches over the wire: TestGetBoard, TestGetBlockedExtractsViolations (proof.json.not_delivered -> get_blocked, with a proof.md decoy asserting the legacy scrape stays dead), TestGetSliceContext (proof.json.not_delivered -> get_slice_context violations field, same decoy), TestDeferSliceWritesRuleTwo, TestRerunSliceWritesPID, TestPatchSliceWritesInstructions, TestApproveMergeRejectsUnverified, TestListReleases, TestSetTrackUpdates, TestSetTrackColon"
+  ],
+  "delivered": [
+    "AC-01: tools_ops.go resolves tracks via board.ReadBoard (readReleaseBoard, findBlockedInRelease, handleApproveMerge, handleListReleases); evidence: TestGetBoard, TestGetBlockedExtractsViolations, TestApproveMergeRejectsUnverified, TestListReleases",
+    "AC-02: AssembleSliceContext reads worktree path via board.ReadBoard and violations exclusively from proof.json.not_delivered — the proof.md regex fallback and the extractViolations scraper are deleted (internal/mcp/context.go readProofViolations); evidence: TestGetSliceContext, TestGetBlockedExtractsViolations",
+    "AC-03: tools_plan.go set_track reads via board.ReadBoard and writes via board.WriteBoard; evidence: TestSetTrackUpdates, TestSetTrackColon",
+    "AC-04: catalog.go releaseStateSummary/countSliceTableRows derive counts from board.json + status.json; evidence: TestPlanReleaseExisting",
+    "AC-05: tools_test.go and lint_test.go build fixtures via writeBoardJSON/writeLintBoardJSON (current board.BoardRecord shape) instead of legacy tracks: YAML in index.md; proof fixtures are proof-v1 proof.json via writeProofJSON",
+    "AC-06: go build ./... exit 0; go test ./internal/mcp/... pass"
+  ],
+  "not_delivered": [],
+  "divergence": [
+    "sworn llm-check --type ac-satisfaction could not run in the implementer session: no SWORN_ANTHROPIC_API_KEY / $SWORN_MODEL key available. Rule 2 deferral recorded in journal.md; the fresh-context /verify-slice pass is the model-backed check for this slice."
+  ]
+}

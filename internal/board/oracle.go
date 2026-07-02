@@ -419,6 +419,82 @@ func (o *Oracle) readTrackInfos(reader gitContentReader, releaseRef, release str
 	return ParseTracks(fmBody), nil
 }
 
+// ReadReleaseWorktreePath reads the release_worktree_path field from
+// board.json (preferred) or index.md frontmatter (legacy fallback) at the
+// given git ref — the S05 replacement for cmd/sworn's hand-rolled frontmatter
+// scrapers (resolveReleaseWorktree / extractReleaseWorktreePath). It mirrors
+// readTrackInfos's board.json-path-list-first, index.md-fallback shape,
+// including the "board.json exists on HEAD but not on releaseRef → fail
+// closed instead of silently falling through" guard, so callers get one
+// consistent answer to "has this release migrated" regardless of which field
+// they're after.
+//
+// Fails closed (returns an error, never "") whenever the field is absent —
+// from a found board.json, from a found-but-key-less index.md frontmatter
+// block, or from a release with no board.json/index.md at all. An empty path
+// must never reach a caller that feeds it into git.New(""), which would
+// silently operate on the ambient cwd instead of the intended release
+// worktree (Rule 11).
+func (o *Oracle) ReadReleaseWorktreePath(reader gitContentReader, releaseRef, release string) (string, error) {
+	boardPaths := []string{
+		"docs/release/" + release + "/board.json",
+		"apps/docs/content/docs/release/" + release + "/board.json",
+	}
+
+	for _, boardPath := range boardPaths {
+		rawBoard, err := reader.Show(releaseRef, boardPath)
+		if err != nil {
+			continue
+		}
+		var br BoardRecord
+		if err := json.Unmarshal([]byte(rawBoard), &br); err != nil {
+			return "", fmt.Errorf("parse board.json from %s: %w", releaseRef, err)
+		}
+		if br.ReleaseWorktreePath == "" {
+			return "", fmt.Errorf("release_worktree_path not set in board.json at %s:%s", releaseRef, boardPath)
+		}
+		return br.ReleaseWorktreePath, nil
+	}
+
+	for _, boardPath := range boardPaths {
+		exists, err := reader.CatFileExists("HEAD", boardPath)
+		if err != nil {
+			return "", fmt.Errorf("check board.json on HEAD at %s: %w", boardPath, err)
+		}
+		if exists {
+			return "", fmt.Errorf("board.json exists on HEAD (%s) but not on %s — this release has migrated to board.json; sync releaseRef before reading it rather than falling back to legacy index.md", boardPath, releaseRef)
+		}
+	}
+
+	// Fallback: read index.md frontmatter (legacy — board.json has never
+	// existed for this release, on HEAD or releaseRef).
+	indexPath := "docs/release/" + release + "/index.md"
+	rawIndex, err := reader.Show(releaseRef, indexPath)
+	if err != nil {
+		fumaPath := "apps/docs/content/docs/release/" + release + "/index.md"
+		rawIndex2, err2 := reader.Show(releaseRef, fumaPath)
+		if err2 != nil {
+			return "", fmt.Errorf("read board.json: %v; read index.md: %v (also tried %s: %v)",
+				err, err, fumaPath, err2)
+		}
+		rawIndex = rawIndex2
+	}
+
+	fmBody := extractFrontmatterBody(rawIndex)
+	for _, line := range strings.Split(fmBody, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "release_worktree_path:") {
+			val := strings.TrimSpace(strings.TrimPrefix(line, "release_worktree_path:"))
+			val = strings.Trim(val, `"' `)
+			if val == "" {
+				return "", fmt.Errorf("release_worktree_path empty in index.md frontmatter at %s", releaseRef)
+			}
+			return val, nil
+		}
+	}
+	return "", fmt.Errorf("release_worktree_path not found in index.md frontmatter")
+}
+
 // ReadBoard reads the full release board: every track and every slice's
 // authoritative state. It first reads board.json from a git ref to build the
 // track→slice map (falling back to index.md YAML frontmatter for legacy
@@ -597,6 +673,19 @@ func (a *OracleReaderAdapter) ReadBoard(ctx context.Context, release string) (*B
 		return nil, fmt.Errorf("adapter: release mismatch (got %q, configured for %q)", release, a.release)
 	}
 	return a.oracle.ReadBoard(ctx, a.reader, a.releaseRef, release)
+}
+
+// ReadReleaseWorktreePath reads the release_worktree_path field at the
+// adapter's configured release ref (board.json preferred, index.md
+// frontmatter legacy fallback — see Oracle.ReadReleaseWorktreePath). This is
+// the entry point cmd/sworn's merge-track and merge-release call — both
+// already construct an OracleReaderAdapter for gate 1, so this reuses that
+// adapter's git ref instead of building a second oracle read.
+func (a *OracleReaderAdapter) ReadReleaseWorktreePath(release string) (string, error) {
+	if release != a.release {
+		return "", fmt.Errorf("adapter: release mismatch (got %q, configured for %q)", release, a.release)
+	}
+	return a.oracle.ReadReleaseWorktreePath(a.reader, a.releaseRef, release)
 }
 
 // NewOracleReaderAdapterFromRepo is the production convenience constructor.

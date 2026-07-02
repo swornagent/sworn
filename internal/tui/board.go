@@ -7,16 +7,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/state"
-	"gopkg.in/yaml.v3"
 )
 
-// TrackInfo holds data about one track from the index.md frontmatter.
+// TrackInfo holds data about one track, as displayed by the board pane.
 type TrackInfo struct {
-	ID      string   `yaml:"id"`
-	Slices  []string `yaml:"slices"`
-	Depends string   `yaml:"depends_on"`
-	State   string   `yaml:"state"`
+	ID      string
+	Slices  []string
+	Depends string
+	State   string
 }
 
 // SliceBoardInfo holds live state data for one slice on the board.
@@ -41,35 +41,34 @@ type BoardView struct {
 	GateResults   map[string]GateResult // per-slice gate check results (S72)
 }
 
-// LoadBoard reads the selected release's index.md and all slice status.json files.
-// repoRoot is the repo root path.
+// LoadBoard reads the selected release's board (via internal/board's oracle,
+// board.ReadBoard) and all slice status.json files. repoRoot is the repo
+// root path.
+//
+// S02-tui-oracle-migration: previously hand-parsed index.md's `tracks:` YAML
+// frontmatter, which `sworn render` stopped emitting once tracks moved to a
+// Markdown table — silently producing zero tracks with no error. board.ReadBoard
+// reads board.json (the current-format oracle) and lazily migrates from
+// index.md frontmatter when board.json is absent, which is the AC-06 legacy
+// fallback for genuinely pre-migration releases.
 func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
 	b.ReleaseName = releaseName
 	b.Tracks = nil
 	b.Slices = nil
 	b.Loaded = false
 
-	indexPath := filepath.Join(repoRoot, "docs", "release", releaseName, "index.md")
-	data, err := os.ReadFile(indexPath)
+	br, err := board.ReadBoard(repoRoot, releaseName)
 	if err != nil {
-		return fmt.Errorf("reading %s: %w", indexPath, err)
+		return fmt.Errorf("reading board for %s: %w", releaseName, err)
 	}
-
-	// Parse frontmatter for tracks.
-	type indexFM struct {
-		Tracks []TrackInfo `yaml:"tracks"`
+	for _, t := range br.Tracks {
+		b.Tracks = append(b.Tracks, TrackInfo{
+			ID:      t.ID,
+			Slices:  t.Slices,
+			Depends: strings.Join(t.DependsOn, ", "),
+			State:   t.State,
+		})
 	}
-	var fm indexFM
-
-	// Extract YAML frontmatter.
-	rest := strings.TrimPrefix(string(data), "---")
-	parts := strings.SplitN(rest, "---", 2)
-	if len(parts) >= 1 {
-		if err := yaml.Unmarshal([]byte(parts[0]), &fm); err != nil {
-			// Try with just the raw bytes (frontmatter may be short).
-		}
-	}
-	b.Tracks = fm.Tracks
 
 	// Load live state from each slice's status.json.
 	b.Slices = map[string]SliceBoardInfo{}

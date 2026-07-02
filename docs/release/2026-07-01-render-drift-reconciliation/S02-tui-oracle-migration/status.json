@@ -3,18 +3,45 @@
   "slice_id": "S02-tui-oracle-migration",
   "release": "2026-07-01-render-drift-reconciliation",
   "track": "T2-tui",
-  "state": "planned",
-  "covers_needs": ["N-01", "N-03"],
+  "state": "verified",
+  "covers_needs": [
+    "N-01",
+    "N-03"
+  ],
   "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/spec.json",
-  "start_commit": null,
+  "start_commit": "622f118ef3fda5581d332fdd76a80f39432de763",
   "effort_complexity": {
-    "effort": "medium",
-    "complexity": "medium",
+    "effort": "low",
+    "complexity": "low",
     "quadrant": "chore",
     "rationale": "Migrate board.go + blocked.go to the oracle; regenerate stale test fixtures.",
     "confirmed_by_implementer": false
   },
+  "planned_files": [
+    "internal/tui/board.go",
+    "internal/tui/blocked.go",
+    "internal/tui/tui_test.go"
+  ],
+  "actual_files": [
+    "internal/tui/board.go",
+    "internal/tui/blocked.go",
+    "internal/tui/tui_test.go"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go vet ./internal/tui/...",
+    "go test ./internal/tui/... -count=1",
+    "go test ./... -count=1"
+  ],
+  "reachability_artifacts": [
+    "docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/reachability-tui-capture.txt"
+  ],
   "verification": {
-    "result": "pending"
-  }
+    "result": "pass",
+    "violations": [],
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-01T23:24:42Z"
+  },
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-01T23:24:42Z"
 }

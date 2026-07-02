@@ -28,7 +28,7 @@ func cmdTop(args []string) int {
 
 	if fs.NArg() < 1 {
 		// No release arg — launch TUI instead of rendering evidence surface.
-		if err := tui.Run(); err != nil {
+		if err := tui.Run(version); err != nil {
 			fmt.Fprintf(os.Stderr, "sworn top: %v\n", err)
 			return 1
 		}

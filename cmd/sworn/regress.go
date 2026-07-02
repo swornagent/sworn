@@ -4,17 +4,17 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 
+	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/gate"
 )
 
 // cmdRegress implements `sworn regress --release <release-name>`.
 //
 // Runs the full test suite (Go + TS + golden fixtures) against the merged
-// release-wt worktree. Resolves the worktree path from the release board's
-// index.md frontmatter.  Exits 0 when all suites pass, 1 on any failure.
+// release-wt worktree. Resolves the worktree path from the release board
+// (board.json when present, falling back to legacy index.md frontmatter via
+// board.ReadBoard). Exits 0 when all suites pass, 1 on any failure.
 //
 // Usage:
 //
@@ -40,27 +40,33 @@ func cmdRegress(args []string) int {
 
 	var worktreePath string
 	if *worktreeOverride != "" {
-		// Explicit worktree: skip index.md resolution entirely.
+		// Explicit worktree: skip board resolution entirely.
 		worktreePath = *worktreeOverride
 	} else {
-		// Resolve the release directory (docs/release/<name> relative to CWD).
-		releaseDir, err := resolveReleaseDir(*releaseName)
-		if err != nil {
+		// Resolve the release directory (docs/release/<name> relative to CWD) —
+		// kept ahead of the board read for a clearer "release directory not
+		// found" error than a raw ReadBoard failure would give.
+		if _, err := resolveReleaseDir(*releaseName); err != nil {
 			fmt.Fprintf(os.Stderr, "sworn regress: %v\n", err)
 			return 2
 		}
 
-		// Read index.md to extract the release worktree path from frontmatter.
-		indexPath := filepath.Join(releaseDir, "index.md")
-		indexData, err := os.ReadFile(indexPath)
+		// Read release_worktree_path from board.json (preferred), falling back
+		// to a lazy migration from index.md frontmatter for pre-ADR-0009
+		// releases (AC-03) — same oracle S04 adopted for its repo==nil paths.
+		br, err := board.ReadBoard(".", *releaseName)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "sworn regress: read index.md: %v\n", err)
+			fmt.Fprintf(os.Stderr, "sworn regress: read board: %v\n", err)
 			return 2
 		}
 
-		worktreePath = extractReleaseWorktreePath(string(indexData))
+		// Fail-closed target assertion (Rule 11): an empty path must never
+		// flow into the worktree-stat guard below, which would otherwise
+		// report a confusing "not found" against the empty string instead of
+		// naming the real problem.
+		worktreePath = br.ReleaseWorktreePath
 		if worktreePath == "" {
-			fmt.Fprintln(os.Stderr, "sworn regress: release_worktree_path not set in index.md frontmatter")
+			fmt.Fprintln(os.Stderr, "sworn regress: release_worktree_path not set in board.json (or index.md frontmatter)")
 			return 2
 		}
 	}
@@ -88,25 +94,4 @@ func cmdRegress(args []string) int {
 		return 1
 	}
 	return 0
-}
-
-// extractReleaseWorktreePath extracts release_worktree_path from index.md
-// YAML frontmatter. Returns "" when not found or frontmatter is absent.
-func extractReleaseWorktreePath(text string) string {
-	lines := strings.Split(text, "\n")
-	if len(lines) < 2 || strings.TrimSpace(lines[0]) != "---" {
-		return ""
-	}
-	for _, line := range lines[1:] {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "---" {
-			break
-		}
-		if strings.HasPrefix(trimmed, "release_worktree_path:") {
-			val := strings.TrimSpace(strings.TrimPrefix(trimmed, "release_worktree_path:"))
-			val = strings.Trim(val, `"'`)
-			return val
-		}
-	}
-	return ""
 }

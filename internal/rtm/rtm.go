@@ -18,6 +18,7 @@
 package rtm
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -107,8 +108,18 @@ func Build(releaseDir string) (*Matrix, []Violation, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("rtm: read index.md: %w", err)
 	}
-	m.ReleaseBenefit = parseReleaseBenefit(string(indexText))
-	m.OrgObjective = parseOrgObjective(string(indexText))
+	// Prefer the canonical source of truth: board.json's release.vertical_trace
+	// (ADR-0009). The old parseReleaseBenefit/parseOrgObjective scraped markdown
+	// headings that a rendered index.md no longer emits, so they silently returned
+	// empty strings for every current-format release (AC-04). Fall back to the
+	// markdown parse only when no board.json exists (legacy pre-ADR-0009 releases).
+	if benefit, orgObj, ok := readBoardVerticalTrace(releaseDir); ok {
+		m.ReleaseBenefit = benefit
+		m.OrgObjective = orgObj
+	} else {
+		m.ReleaseBenefit = parseReleaseBenefit(string(indexText))
+		m.OrgObjective = parseOrgObjective(string(indexText))
+	}
 
 	// 3. Parse each slice's spec.md and status.json.
 	entries, err := os.ReadDir(releaseDir)
@@ -361,6 +372,40 @@ func parseNeeds(text string) []Need {
 // is the first non-empty paragraph after the "## Release goal" heading.
 func parseReleaseGoal(text string) string {
 	return parseFirstParagraphAfterHeading(text, "## Release goal")
+}
+
+// readBoardVerticalTrace reads the release-level golden-thread fields
+// (release.vertical_trace.benefit / .org_objective) from board.json, the
+// canonical source of truth (ADR-0009). It reads board.json as a plain sibling
+// of releaseDir — exactly where it lives in every real release layout — so
+// rtm.Build's (releaseDir)-only signature stays unchanged (its sole external
+// caller, internal/implement/ready.go, passes no repo-root/release split).
+//
+// The anonymous struct below mirrors the JSON tags of board.Release's canonical
+// object form — `release: {name, vertical_trace: {benefit, org_objective}}` —
+// (see internal/board/board.go). If those tags ever change, keep this reader in
+// sync; TestBuild_VerticalTraceFromBoardJSON round-trips a real board-shaped
+// document through it to catch drift.
+//
+// Returns ok=false when board.json is absent or unparseable, signalling Build to
+// fall back to the legacy markdown-heading parse for pre-ADR-0009 releases.
+func readBoardVerticalTrace(releaseDir string) (benefit, orgObjective string, ok bool) {
+	data, err := os.ReadFile(filepath.Join(releaseDir, "board.json"))
+	if err != nil {
+		return "", "", false
+	}
+	var doc struct {
+		Release struct {
+			VerticalTrace struct {
+				Benefit      string `json:"benefit"`
+				OrgObjective string `json:"org_objective"`
+			} `json:"vertical_trace"`
+		} `json:"release"`
+	}
+	if json.Unmarshal(data, &doc) != nil {
+		return "", "", false
+	}
+	return doc.Release.VerticalTrace.Benefit, doc.Release.VerticalTrace.OrgObjective, true
 }
 
 // parseReleaseBenefit extracts the release benefit from index.md. The release

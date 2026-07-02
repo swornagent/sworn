@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/swornagent/sworn/internal/board"
 )
 
 // TestRegisterLintTools_ToolList verifies all 6 lint tools are discoverable via
@@ -84,14 +86,11 @@ title: Test slice
 	fr.writeIndexContent(t, `title: test
 release_worktree_path: `+fr.Root+`
 release_worktree_branch: release-wt/2026-06-19-test-release
-tracks:
-  - id: T1-test
-    slices: [S99-dummy]
-    depends_on: null
-    worktree_path: `+fr.Root+`
-    worktree_branch: track/2026-06-19-test-release/T1-test
-    state: planned
 `)
+
+	writeLintBoardJSON(t, fr.Dir, "2026-06-19-test-release", map[string][]string{
+		"T1-test": {"S99-dummy"},
+	}, fr.Root)
 
 	s := New()
 	RegisterLintTools(s, fr.Root)
@@ -124,14 +123,11 @@ title: Test slice
 	fr.writeIndexContent(t, `title: test
 release_worktree_path: `+fr.Root+`
 release_worktree_branch: release-wt/2026-06-19-test-release
-tracks:
-  - id: T1-test
-    slices: [S99-dummy]
-    depends_on: null
-    worktree_path: `+fr.Root+`
-    worktree_branch: track/2026-06-19-test-release/T1-test
-    state: planned
 `)
+
+	writeLintBoardJSON(t, fr.Dir, "2026-06-19-test-release", map[string][]string{
+		"T1-test": {"S99-dummy"},
+	}, fr.Root)
 
 	s := New()
 	RegisterLintTools(s, fr.Root)
@@ -174,13 +170,6 @@ title: Test slice
 	indexContent := fmt.Sprintf(`---title: test
 release_worktree_path: %s
 release_worktree_branch: release-wt/2026-06-19-test-trace
-tracks:
-  - id: T1-test
-    slices: [S99-dummy]
-    depends_on: null
-    worktree_path: %s
-    worktree_branch: track/2026-06-19-test-trace/T1-test
-    state: planned
 ---
 
 # Release Board
@@ -188,10 +177,14 @@ tracks:
 ## Slices
 
 | ID | Track | User outcome | State | Owner | Spec | Proof |
-|---|---|---|---|---|---|---|
+|---|---|---|---|---|---|---|---|
 | S99-dummy | T1-test | Test | planned | test | spec.md | — |
-`, fr.Root, fr.Root)
+`, fr.Root)
 	fr.writeIndex(t, indexContent)
+
+	writeLintBoardJSON(t, fr.Dir, "2026-06-19-test-trace", map[string][]string{
+		"T1-test": {"S99-dummy"},
+	}, fr.Root)
 
 	s := New()
 	RegisterLintTools(s, fr.Root)
@@ -242,13 +235,6 @@ title: Test slice
 title: test
 release_worktree_path: %s
 release_worktree_branch: release-wt/2026-06-19-test-comp
-tracks:
-  - id: T1-test
-    slices: [S99-dummy]
-    depends_on: null
-    worktree_path: %s
-    worktree_branch: track/2026-06-19-test-comp/T1-test
-    state: planned
 ---
 
 # Release Board
@@ -256,10 +242,14 @@ tracks:
 ## Slices
 
 | ID | Track | User outcome | State | Owner | Spec | Proof |
-|---|---|---|---|---|---|---|
+|---|---|---|---|---|---|---|---|
 | S99-dummy | T1-test | Test | planned | test | spec.md | — |
-`, fr.Root, fr.Root)
+`, fr.Root)
 	fr.writeIndex(t, indexContent)
+
+	writeLintBoardJSON(t, fr.Dir, "2026-06-19-test-comp", map[string][]string{
+		"T1-test": {"S99-dummy"},
+	}, fr.Root)
 
 	s := New()
 	RegisterLintTools(s, fr.Root)
@@ -318,13 +308,6 @@ title: Test slice
 title: test
 release_worktree_path: %s
 release_worktree_branch: release-wt/2026-06-19-test-relonly
-tracks:
-  - id: T1-test
-    slices: [S99-dummy]
-    depends_on: null
-    worktree_path: %s
-    worktree_branch: track/2026-06-19-test-relonly/T1-test
-    state: planned
 ---
 
 # Release Board
@@ -332,10 +315,14 @@ tracks:
 ## Slices
 
 | ID | Track | User outcome | State | Owner | Spec | Proof |
-|---|---|---|---|---|---|---|
+|---|---|---|---|---|---|---|---|
 | S99-dummy | T1-test | Test | planned | test | spec.md | — |
-`, fr.Root, fr.Root)
+`, fr.Root)
 	fr.writeIndex(t, indexContent)
+
+	writeLintBoardJSON(t, fr.Dir, "2026-06-19-test-relonly", map[string][]string{
+		"T1-test": {"S99-dummy"},
+	}, fr.Root)
 
 	s := New()
 	RegisterLintTools(s, fr.Root)
@@ -388,4 +375,36 @@ func callRegisteredTool(s *Server, name string, params json.RawMessage) (*ToolRe
 		return nil, fmt.Errorf("tool not found: %s", name)
 	}
 	return handler(context.Background(), params)
+}
+
+// writeLintBoardJSON writes a board.json fixture for lint tests. This replaces
+// the legacy tracks: YAML hand-write in index.md with the current (ADR-0009)
+// board.json format — the same source of truth the renderer consumes.
+func writeLintBoardJSON(t *testing.T, releaseDir, releaseName string, trackSlices map[string][]string, worktreeRoot string) {
+	t.Helper()
+	var tracks []board.BoardTrack
+	for trackID, slices := range trackSlices {
+		tracks = append(tracks, board.BoardTrack{
+			ID:             trackID,
+			Slices:         slices,
+			State:          "planned",
+			WorktreePath:   worktreeRoot,
+			WorktreeBranch: "track/" + releaseName + "/" + trackID,
+		})
+	}
+	br := &board.BoardRecord{
+		SchemaVersion:         1,
+		Release:               board.StringRelease(releaseName),
+		ReleaseWorktreePath:   worktreeRoot,
+		ReleaseWorktreeBranch: "release-wt/" + releaseName,
+		Tracks:                tracks,
+	}
+	data, err := json.MarshalIndent(br, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal board.json: %v", err)
+	}
+	boardPath := filepath.Join(releaseDir, "board.json")
+	if err := os.WriteFile(boardPath, append(data, '\n'), 0o644); err != nil {
+		t.Fatalf("write board.json: %v", err)
+	}
 }

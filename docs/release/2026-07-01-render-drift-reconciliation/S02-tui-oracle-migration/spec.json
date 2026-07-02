@@ -7,8 +7,8 @@
   "rationale": "internal/tui/board.go's LoadBoard hand-parses index.md frontmatter for a tracks: YAML key that sworn render's current output never emits (tracks moved to a Markdown table) — silently renders zero tracks, no error. internal/tui/blocked.go's LoadBlockedView has the same frontmatter parse for worktree_path (silently falls back to repoRoot instead of the real path) and its own ExtractViolations regex-scrapes proof.md sections instead of reading proof.json.not_delivered (already a clean string array). Both files migrate to internal/board's already-correct oracle/BoardRecord machinery. The existing test (tui_test.go TestBoardViewShowsSlices) hand-writes its own pre-migration-shape index.md fixture directly in the test source rather than generating one via sworn render — this is why the bug shipped undetected; fixtures must be regenerated from real render output.",
   "covers_needs": ["N-01", "N-03"],
   "effort_complexity": {
-    "effort": "medium",
-    "complexity": "medium",
+    "effort": "low",
+    "complexity": "low",
     "quadrant": "chore",
     "rationale": "Two files' data-loading functions rewired to an already-correct reader, plus regenerating hand-authored test fixtures in tui_test.go to match real sworn render output. No new logic invented, but touches live BoardView/BlockedView struct shapes consumed elsewhere in the tui package.",
     "confirmed_by_implementer": false

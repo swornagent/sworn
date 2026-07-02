@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/board"
 )
 
 // runDoctorInDir runs cmdDoctor with the given args in the given directory,
@@ -782,4 +783,149 @@ func TestDoctorPin(t *testing.T) {
 			t.Errorf("expected 'no pre-JSON' in detail, got: %s", result.detail)
 		}
 	})
+}
+
+// writeRenderDriftFixture writes a minimal, valid board.json-backed release
+// (one track, one slice) under dir/docs/release/<release>. It does not write
+// index.md — callers write that themselves (clean via board.Render, drifted
+// via arbitrary content, or omitted entirely).
+func writeRenderDriftFixture(t *testing.T, dir, release string) {
+	t.Helper()
+	releaseDir := filepath.Join(dir, "docs", "release", release)
+	sliceDir := filepath.Join(releaseDir, "S01-test-slice")
+	if err := os.MkdirAll(sliceDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	boardJSON := fmt.Sprintf(`{
+  "$schema": "https://baton.sawy3r.net/schemas/board-v1.json",
+  "schema_version": 1,
+  "release": { "name": %q },
+  "tracks": [
+    { "id": "T1-test", "slices": ["S01-test-slice"], "depends_on": [], "worktree_branch": "track/%s/T1-test", "state": "planned" }
+  ]
+}`, release, release)
+	if err := os.WriteFile(filepath.Join(releaseDir, "board.json"), []byte(boardJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	spec := `{
+  "slice_id": "S01-test-slice",
+  "user_outcome": "A test outcome.",
+  "touchpoints": ["cmd/sworn/doctor.go"],
+  "effort_complexity": { "quadrant": "chore" }
+}`
+	if err := os.WriteFile(filepath.Join(sliceDir, "spec.json"), []byte(spec), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	status := `{ "slice_id": "S01-test-slice", "state": "planned" }`
+	if err := os.WriteFile(filepath.Join(sliceDir, "status.json"), []byte(status), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestDoctorRenderDrift_Clean verifies a release whose committed index.md
+// exactly matches board.Render's output produces no render-drift ERROR
+// (AC-01, AC-02 negative case).
+func TestDoctorRenderDrift_Clean(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".git"), 0755)
+	writeRenderDriftFixture(t, dir, "clean-release")
+
+	rendered, err := board.Render(dir, "clean-release")
+	if err != nil {
+		t.Fatalf("board.Render: %v", err)
+	}
+	indexPath := filepath.Join(dir, "docs", "release", "clean-release", "index.md")
+	if err := os.WriteFile(indexPath, []byte(rendered), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, output := runDoctorInDir(t, dir)
+	if strings.Contains(output, "render drift") && strings.Contains(output, "[ERROR]") {
+		t.Errorf("expected no render-drift ERROR for a clean release\nOutput:\n%s", output)
+	}
+	if !strings.Contains(output, "[OK]    render drift") {
+		t.Errorf("expected [OK] render drift line\nOutput:\n%s", output)
+	}
+}
+
+// TestDoctorRenderDrift_Drifted verifies a committed index.md that does not
+// match board.Render's output is reported as ERROR and fails doctor closed
+// (non-zero exit) — AC-02.
+func TestDoctorRenderDrift_Drifted(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".git"), 0755)
+	writeRenderDriftFixture(t, dir, "drifted-release")
+
+	indexPath := filepath.Join(dir, "docs", "release", "drifted-release", "index.md")
+	if err := os.WriteFile(indexPath, []byte("---\ntitle: 'stale hand-edited content'\n---\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	exitCode, output := runDoctorInDir(t, dir)
+	if exitCode == 0 {
+		t.Errorf("expected non-zero exit for drifted index.md, got 0\nOutput:\n%s", output)
+	}
+	if !strings.Contains(output, "[ERROR] render drift (drifted-release)") {
+		t.Errorf("expected [ERROR] render drift (drifted-release) in output\nOutput:\n%s", output)
+	}
+	if !strings.Contains(output, "does not match render(board.json)") {
+		t.Errorf("expected drift detail in output\nOutput:\n%s", output)
+	}
+}
+
+// TestDoctorRenderDrift_NoBoardSkipped verifies a release with no board.json
+// is skipped entirely by the render-drift check (AC-03) — it must not
+// report ERROR just because it has no JSON source to render from.
+func TestDoctorRenderDrift_NoBoardSkipped(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".git"), 0755)
+
+	releaseDir := filepath.Join(dir, "docs", "release", "pre-migration-release")
+	os.MkdirAll(releaseDir, 0755)
+	if err := os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte("---\ntitle: 'hand-authored, pre-board.json'\n---\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, output := runDoctorInDir(t, dir)
+	if strings.Contains(output, "render drift") && strings.Contains(output, "[ERROR]") {
+		t.Errorf("expected no render-drift ERROR for a release with no board.json\nOutput:\n%s", output)
+	}
+}
+
+// TestDoctorRenderDrift_RenderError verifies a release whose board.json
+// cannot be rendered at all (here: legacy bare-string release form) is
+// reported as ERROR rather than silently skipped — a release that can't
+// render can't be proven non-drifted (fail-closed, matches board.Render's
+// own contract).
+func TestDoctorRenderDrift_RenderError(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".git"), 0755)
+
+	releaseDir := filepath.Join(dir, "docs", "release", "unrenderable-release")
+	os.MkdirAll(releaseDir, 0755)
+	boardJSON := `{
+  "$schema": "https://baton.sawy3r.net/schemas/board-v1.json",
+  "schema_version": 1,
+  "release": "unrenderable-release",
+  "tracks": [
+    { "id": "T1-test", "slices": ["S01-test-slice"], "depends_on": [], "worktree_branch": "track/unrenderable-release/T1-test", "state": "planned" }
+  ]
+}`
+	if err := os.WriteFile(filepath.Join(releaseDir, "board.json"), []byte(boardJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	exitCode, output := runDoctorInDir(t, dir)
+	if exitCode == 0 {
+		t.Errorf("expected non-zero exit for an unrenderable release, got 0\nOutput:\n%s", output)
+	}
+	if !strings.Contains(output, "[ERROR] render drift (unrenderable-release)") {
+		t.Errorf("expected [ERROR] render drift (unrenderable-release) in output\nOutput:\n%s", output)
+	}
+	if !strings.Contains(output, "cannot render:") {
+		t.Errorf("expected 'cannot render:' detail in output\nOutput:\n%s", output)
+	}
 }

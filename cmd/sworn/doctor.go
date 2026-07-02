@@ -11,6 +11,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/adopt"
 	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/lint"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/style"
@@ -198,6 +199,13 @@ func cmdDoctor(args []string) int {
 	fmt.Println(style.Heading("Group 2: Repo artifact audit"))
 	g2 := checkRepoArtifacts(repoRoot)
 	for _, r := range g2 {
+		printResult(r)
+	}
+	g2drift := checkRenderDrift(repoRoot)
+	for _, r := range g2drift {
+		if r.level == levelError {
+			hasError = true
+		}
 		printResult(r)
 	}
 
@@ -568,6 +576,88 @@ func checkRepoArtifacts(repoRoot string) []checkResult {
 	}
 
 	return results
+}
+
+// checkRenderDrift scans docs/release/ for board.json-backed releases and
+// verifies each one's committed index.md matches board.Render's in-memory
+// output byte for byte (ADR-0009: index.md is a rendered VIEW of board.json,
+// never a hand-edited source of truth — a mismatch means the committed file
+// has drifted from the record it's supposed to represent). Releases with no
+// board.json are skipped (AC-03) — there is no JSON source to render from.
+// A release whose board.json exists but cannot be rendered (malformed,
+// legacy string-form release, a referenced slice missing its spec/status)
+// also reports ERROR: a release that can't render can't be proven
+// non-drifted, so this fails closed rather than being silently skipped
+// (mirrors board.Render's own fail-closed contract). This replaces the
+// former internal/board.driftGuard, which was advisory-only and re-parsed
+// raw index.md frontmatter instead of comparing against a real render.
+func checkRenderDrift(repoRoot string) []checkResult {
+	releaseRoot := filepath.Join(repoRoot, "docs", "release")
+	entries, err := os.ReadDir(releaseRoot)
+	if err != nil {
+		return []checkResult{{
+			level:  levelOK,
+			name:   "render drift",
+			detail: "no docs/release/ directory — nothing to check",
+		}}
+	}
+
+	var drifted []checkResult
+	checked := 0
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		release := entry.Name()
+		releaseDir := filepath.Join(releaseRoot, release)
+		if _, err := os.Stat(filepath.Join(releaseDir, "board.json")); err != nil {
+			continue // AC-03: no board.json, nothing to render from
+		}
+		checked++
+
+		rendered, err := board.Render(repoRoot, release)
+		if err != nil {
+			drifted = append(drifted, checkResult{
+				level:  levelError,
+				name:   fmt.Sprintf("render drift (%s)", release),
+				detail: fmt.Sprintf("cannot render: %v", err),
+			})
+			continue
+		}
+
+		committed, err := os.ReadFile(filepath.Join(releaseDir, "index.md"))
+		if err != nil {
+			drifted = append(drifted, checkResult{
+				level:  levelError,
+				name:   fmt.Sprintf("render drift (%s)", release),
+				detail: fmt.Sprintf("cannot read committed index.md: %v", err),
+			})
+			continue
+		}
+
+		if rendered != string(committed) {
+			drifted = append(drifted, checkResult{
+				level:  levelError,
+				name:   fmt.Sprintf("render drift (%s)", release),
+				detail: fmt.Sprintf("committed index.md does not match render(board.json) — re-render via 'sworn render %s'", release),
+			})
+		}
+	}
+
+	if len(drifted) == 0 {
+		return []checkResult{{
+			level:  levelOK,
+			name:   "render drift",
+			detail: fmt.Sprintf("%d board.json-backed release(s) match their rendered index.md", checked),
+		}}
+	}
+
+	summary := checkResult{
+		level:  levelError,
+		name:   "render drift",
+		detail: fmt.Sprintf("%d of %d board.json-backed release(s) drifted or failed to render", len(drifted), checked),
+	}
+	return append([]checkResult{summary}, drifted...)
 }
 
 // checkStatusTimestamps scans docs/release/ for status.json files and validates

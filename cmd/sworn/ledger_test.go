@@ -286,6 +286,136 @@ func TestSync_GateCountFromSpec(t *testing.T) {
 	}
 }
 
+// TestSync_GateCountFromSpecJSON is AC-03's integration test: a spec.json-only
+// slice (no spec.md at all — the shape of every slice but one in the release
+// this fix targets) gets its gate count from len(spec.json.acceptance_criteria)
+// via the same cmdLedgerSync integration point TestSync_GateCountFromSpec
+// exercises for the legacy spec.md path.
+func TestSync_GateCountFromSpecJSON(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	releaseDir := filepath.Join(dir, "docs", "release", "fixture-release")
+	sliceDir := filepath.Join(releaseDir, "S04-gate-slice-json")
+	if err := os.MkdirAll(sliceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// 4 acceptance criteria, spec.json only — no spec.md.
+	specJSON := `{
+  "schema_version": 1,
+  "slice_id": "S04-gate-slice-json",
+  "release": "fixture-release",
+  "user_outcome": "The user gets the thing.",
+  "covers_needs": ["N-01"],
+  "acceptance_criteria": [
+    {"id": "AC-1", "type": "ubiquitous", "text": "THE SYSTEM SHALL do A."},
+    {"id": "AC-2", "type": "event-driven", "ears_keyword": "When", "text": "WHEN X THE SYSTEM SHALL do B."},
+    {"id": "AC-3", "type": "ubiquitous", "text": "THE SYSTEM SHALL do C."},
+    {"id": "AC-4", "type": "ubiquitous", "text": "THE SYSTEM SHALL do D."}
+  ]
+}`
+	if err := os.WriteFile(filepath.Join(sliceDir, "spec.json"), []byte(specJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	st := state.Status{
+		SliceID: "S04-gate-slice-json",
+		Release: "fixture-release",
+		Track:   "T12-harness-hardening",
+		State:   state.FailedVerification,
+		Verification: state.Verification{
+			Result:     "fail",
+			Model:      "gpt-5",
+			Attempt:    1,
+			Violations: []state.Violation{{Description: "unreachable test"}},
+		},
+	}
+	data, _ := json.MarshalIndent(st, "", "  ")
+	if err := os.WriteFile(filepath.Join(sliceDir, "status.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(dir, "docs", "ledger"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	chdirTemp(t, dir)
+
+	exit := cmdLedgerSync(nil)
+	if exit != 0 {
+		t.Fatalf("sync: exit %d", exit)
+	}
+
+	ledgerPath := filepath.Join(dir, "docs", "ledger", "verdicts.jsonl")
+	records, err := ledger.Load(ledgerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("want 1 record, got %d", len(records))
+	}
+	if records[0].GateCount != 4 {
+		t.Errorf("GateCount: want 4, got %d", records[0].GateCount)
+	}
+}
+
+// TestSync_MalformedSpecJSONFailsClosed proves a malformed spec.json is NOT
+// treated the same as an absent one — countGates propagates the error and
+// cmdLedgerSync counts it as a sync error (does not append a record with a
+// silently-wrong gate count).
+func TestSync_MalformedSpecJSONFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	releaseDir := filepath.Join(dir, "docs", "release", "fixture-release")
+	sliceDir := filepath.Join(releaseDir, "S05-malformed-spec")
+	if err := os.MkdirAll(sliceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sliceDir, "spec.json"), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	st := state.Status{
+		SliceID: "S05-malformed-spec",
+		Release: "fixture-release",
+		Track:   "T12-harness-hardening",
+		State:   state.Verified,
+		Verification: state.Verification{
+			Result:  "pass",
+			Model:   "gpt-5",
+			Attempt: 1,
+		},
+	}
+	data, _ := json.MarshalIndent(st, "", "  ")
+	if err := os.WriteFile(filepath.Join(sliceDir, "status.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(dir, "docs", "ledger"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	chdirTemp(t, dir)
+
+	exit := cmdLedgerSync(nil)
+	if exit == 0 {
+		t.Fatal("want non-zero exit on malformed spec.json, got 0")
+	}
+
+	ledgerPath := filepath.Join(dir, "docs", "ledger", "verdicts.jsonl")
+	records, err := ledger.Load(ledgerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("want 0 records appended for a slice whose gate count failed closed, got %d", len(records))
+	}
+}
+
 // ── Report integration test ──────────────────────────────────────────────
 
 func TestReport_Integration(t *testing.T) {

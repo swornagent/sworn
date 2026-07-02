@@ -38,6 +38,22 @@ type Model struct {
 	// Credit balance (loaded at startup from ~/.config/sworn/credits.json).
 	creditBalance string
 
+	// Width and Height are the real terminal dimensions, stored from every
+	// tea.WindowSizeMsg (S03). Width drives all responsive sizing in this
+	// slice: pane widths (via paneWidths) and the full-width header/help
+	// bars. Height is stored per AC-01 but is NOT yet used for sizing — it is
+	// retained for tracked future vertical pagination (design.md design-level
+	// risk: no releases-list/board pagination exists before or after this
+	// slice). Both are 0 until the first WindowSizeMsg arrives, in which case
+	// the render paths fall back to their legacy fixed widths.
+	Width  int
+	Height int
+
+	// Version is the sworn binary version (the value `sworn --version`
+	// reports), passed in from cmd/sworn via tui.Run and shown in the header
+	// (S03, AC-03).
+	Version string
+
 	// Composed components (exported for S04b/S04c).
 	Releases *ReleasesList
 	Board    *BoardView
@@ -66,6 +82,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	case tea.WindowSizeMsg:
+		// Store the real terminal dimensions (S03). Previously discarded,
+		// which forced every pane to its hardcoded width regardless of the
+		// actual terminal — the root cause of the wrapping/viewport bugs.
+		m.Width = msg.Width
+		m.Height = msg.Height
 		return m, nil
 	case tickMsg:
 		// Forward tickMsg to LiveView when in live view. This keeps the poll
@@ -104,13 +125,22 @@ func (m *Model) View() string {
 	if m.state == viewSettings && m.Settings != nil {
 		return m.Settings.View()
 	}
+	// Size the two panes from the real terminal width (S03). paneWidths
+	// reserves the border columns and floors the left pane; ReleasesList.View
+	// then ellipsis-truncates any over-long label to fit its pane.
+	leftW, rightW := paneWidths(m.Width)
+	if m.Width > 0 {
+		m.Releases.Width = leftW
+	} else {
+		m.Releases.Width = 0
+	}
 	left := m.Releases.View()
 	right := m.Board.View()
 
 	body := lipgloss.JoinHorizontal(
 		lipgloss.Top,
-		ReleaseListStyle.Render(left),
-		BoardStyle.Render(right),
+		ReleaseListStyle.Copy().Width(leftW).Render(left),
+		BoardStyle.Copy().Width(rightW).Render(right),
 	)
 
 	if m.errMsg != "" {
@@ -121,8 +151,27 @@ func (m *Model) View() string {
 		body += "\n" + errStyle.Render("Error: "+m.errMsg)
 	}
 
+	header := m.renderHeader()
 	help := m.renderHelp()
-	return body + "\n" + help
+	return header + "\n" + body + "\n" + help
+}
+
+// renderHeader renders the top header bar (S03, AC-03): the sworn version and
+// the currently-selected release. The release label is "no release selected"
+// on the initial releases screen (never navigated into a release) and the
+// selected release name otherwise — sourced from the TUI's own navigation
+// state (Board.ReleaseName), which persists across `esc` back to the list.
+func (m *Model) renderHeader() string {
+	label := m.Board.ReleaseName
+	if label == "" {
+		label = "no release selected"
+	}
+	w := m.Width
+	if w <= 0 {
+		w = legacyHelpWidth
+	}
+	content := fmt.Sprintf("sworn %s  •  %s", m.Version, label)
+	return HeaderStyle.Copy().Width(w).Render(content)
 }
 
 // handleKey dispatches keyboard input based on current state.
@@ -322,13 +371,20 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	return m, cmd
 }
 
-// renderHelp renders the bottom help bar.
+// renderHelp renders the bottom help bar as a single background-styled bar
+// spanning the full terminal width (S03, AC-04). Falls back to the legacy
+// fixed width when no tea.WindowSizeMsg has been received yet.
 func (m *Model) renderHelp() string {
+	w := m.Width
+	if w <= 0 {
+		w = legacyHelpWidth
+	}
+	bar := HelpBar.Copy().Width(w)
 	if m.showHelp {
-		return HelpBar.Render(`
+		return bar.Render(`
 	? help     ↑/k up     ↓/j down     enter select     l live     b board     s settings     esc back     q quit`)
 	}
-	return HelpBar.Render(fmt.Sprintf(
+	return bar.Render(fmt.Sprintf(
 		"%s help  %s up  %s down  %s select  %s live  %s board  %s settings  %s back  %s quit",
 		HelpKey.Render("?"),
 		HelpKey.Render("↑/k"),

@@ -7,38 +7,66 @@
     "integration_branch": "release/v0.1.0",
     "vertical_trace": {
       "benefit": "Every consumer of release-board state (TUI, MCP tools, merge/regress CLI, the autonomous loop's own dispatch and shared-file safety invariant, Rule 8's traceability matrix) reads the real, current data instead of silently-broken or hard-erroring parses of a rendered-markdown format that changed underneath them - plus the ADR-0009-mandated drift guard so this class of break fails closed next time instead of shipping silently across ~15 sites again."
+    },
+    "worktree": {
+      "path": "/home/brad/projects/sworn-worktrees/release-2026-07-01-render-drift-reconciliation",
+      "branch": "release-wt/2026-07-01-render-drift-reconciliation"
     }
   },
   "tracks": [
     {
       "id": "T1-drift-guard",
-      "slices": ["S01-render-drift-guard"],
+      "slices": [
+        "S01-render-drift-guard"
+      ],
       "depends_on": [],
-      "state": "planned"
+      "state": "merged",
+      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-07-01-render-drift-reconciliation-T1-drift-guard",
+      "worktree_branch": "track/2026-07-01-render-drift-reconciliation/T1-drift-guard"
     },
     {
       "id": "T2-tui",
-      "slices": ["S02-tui-oracle-migration", "S03-tui-chrome-rework"],
+      "slices": [
+        "S02-tui-oracle-migration",
+        "S03-tui-chrome-rework"
+      ],
       "depends_on": [],
-      "state": "planned"
+      "state": "merged",
+      "worktree": {
+        "path": "/home/brad/projects/sworn-worktrees/release-2026-07-01-render-drift-reconciliation-T2-tui",
+        "branch": "track/2026-07-01-render-drift-reconciliation/T2-tui"
+      }
     },
     {
       "id": "T3-mcp",
-      "slices": ["S04-mcp-oracle-migration"],
+      "slices": [
+        "S04-mcp-oracle-migration"
+      ],
       "depends_on": [],
-      "state": "planned"
+      "state": "merged",
+      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-07-01-render-drift-reconciliation-T3-mcp",
+      "worktree_branch": "track/2026-07-01-render-drift-reconciliation/T3-mcp"
     },
     {
       "id": "T4-cli-merge-regress",
-      "slices": ["S05-cli-merge-regress-oracle-migration"],
+      "slices": [
+        "S05-cli-merge-regress-oracle-migration"
+      ],
       "depends_on": [],
-      "state": "planned"
+      "state": "merged"
     },
     {
       "id": "T5-core-loop-rtm-rescrape",
-      "slices": ["S06-core-loop-and-rtm-oracle-migration", "S07-remaining-rescrape-cleanup"],
+      "slices": [
+        "S06-core-loop-and-rtm-oracle-migration",
+        "S07-remaining-rescrape-cleanup"
+      ],
       "depends_on": [],
-      "state": "planned"
+      "state": "merged",
+      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-07-01-render-drift-reconciliation-T5-core-loop-rtm-rescrape",
+      "worktree_branch": "track/2026-07-01-render-drift-reconciliation/T5-core-loop-rtm-rescrape"
     }
-  ]
+  ],
+  "release_worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-07-01-render-drift-reconciliation",
+  "release_worktree_branch": "release-wt/2026-07-01-render-drift-reconciliation"
 }

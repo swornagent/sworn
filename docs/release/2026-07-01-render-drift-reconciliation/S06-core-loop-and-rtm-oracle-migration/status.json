@@ -3,18 +3,67 @@
   "slice_id": "S06-core-loop-and-rtm-oracle-migration",
   "release": "2026-07-01-render-drift-reconciliation",
   "track": "T5-core-loop-rtm-rescrape",
-  "state": "planned",
+  "state": "verified",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-01T23:10:00Z",
   "covers_needs": ["N-01"],
   "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S06-core-loop-and-rtm-oracle-migration/spec.json",
-  "start_commit": null,
+  "start_commit": "d427d181bc725199aadbd9f3fc17b22247b1b8d2",
   "effort_complexity": {
-    "effort": "medium",
-    "complexity": "medium",
+    "effort": "low",
+    "complexity": "low",
     "quadrant": "chore",
-    "rationale": "Highest-severity slice: the autonomous loop's own dispatch and shared-file safety invariant, plus RTM's golden-thread trace.",
-    "confirmed_by_implementer": false
+    "rationale": "Highest-severity slice: the autonomous loop's own dispatch and shared-file safety invariant, plus RTM's golden-thread trace. Three functions in parallel.go plus rtm.go's two field parsers, all the same fix pattern (read board.json via the oracle).",
+    "confirmed_by_implementer": true
   },
+  "design_decisions": [
+    {
+      "choice": "Read tracks/worktree path via the exported board.ReadBoard/BoardRecord and add an unexported local trackInfosFromBoardTracks converter in internal/run, rather than editing internal/board or exporting a new converter.",
+      "stake_class": "Type-2",
+      "rationale": "internal/board/board.go is T1-drift-guard's exclusive touchpoint this release; editing it from T5 would be an undeclared track collision. board.ReadBoard/BoardRecord/BoardTrack are already exported and read-only-sufficient. Narrow, reversible (a local converter, not a shared-library surface)."
+    },
+    {
+      "choice": "Delete parallel.go's parseDocumentedSharedFiles and delegate to router.ParseDocumentedShared, failing open (docShared=nil, non-fatal) when the touchpoint matrix is absent or unparseable.",
+      "stake_class": "Type-2",
+      "rationale": "parseDocumentedSharedFiles was a weaker second reimplementation matching only the explicit (DOCUMENTED SHARED) marker — the actual AC-03 defect. router.ParseDocumentedShared already does both marker AND >=2-checkmark inference correctly. Fail-open matches the existing oracle-read precedent in the same function. Narrow, reversible."
+    },
+    {
+      "choice": "Read board.json directly in rtm.go via a small local anonymous struct (filepath.Join(releaseDir, board.json)) rather than reconstructing a repo root to call board.ReadBoard or changing Build's signature.",
+      "stake_class": "Type-2",
+      "rationale": "rtm.Build(releaseDir) has no repoRoot/release split and internal/implement/ready.go is the sole external caller; changing the signature would ripple into an undeclared touchpoint. board.json is a plain sibling of index.md in every real layout. A cross-reference comment to board.Release's JSON tags is added as drift insurance (pin 3). Narrow, reversible."
+    },
+    {
+      "choice": "Retain parseReleaseBenefit/parseOrgObjective as a legacy fallback when board.json is absent (pre-ADR-0009 releases), rather than deleting them like parallel.go's frontmatter helpers.",
+      "stake_class": "Type-2",
+      "rationale": "Unlike parallel.go's deleted helpers, these still have a live call path for legacy releases with no board.json. Keeping them preserves traceability for un-migrated releases. Narrow, reversible."
+    },
+    {
+      "choice": "Capture AC-06's reachability artefact via a Go-level run.RunParallel invocation against the real release board.json with a no-op RunSliceFn and a throwaway in-memory DB, not the literal `sworn loop --parallel` CLI.",
+      "stake_class": "Type-2",
+      "rationale": "Coach decision (review.md, option (a)): the literal CLI would dispatch live work against sibling in-flight tracks (T2/T3) and trip swornagent/sworn#46. The Go-level substitute exercises the exact fixed logic (board.ReadBoard/trackInfosFromBoardTracks/documented-shared detection) against real data without side effects. Narrow, reversible."
+    }
+  ],
+  "actual_files": [
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go",
+    "internal/run/cold_start_test.go",
+    "internal/rtm/rtm.go",
+    "internal/rtm/rtm_test.go",
+    "internal/router/router_test.go"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go test ./internal/run/... ./internal/rtm/... ./internal/router/... -count=1 -timeout 300s",
+    "go vet ./internal/run/... ./internal/rtm/... ./internal/router/...",
+    "gofmt -l internal/run/parallel.go internal/run/parallel_test.go internal/run/cold_start_test.go internal/rtm/rtm.go internal/rtm/rtm_test.go internal/router/router_test.go"
+  ],
+  "reachability_artifacts": [
+    "docs/release/2026-07-01-render-drift-reconciliation/S06-core-loop-and-rtm-oracle-migration/reachability-runparallel-output.txt"
+  ],
   "verification": {
-    "result": "pending"
+    "result": "pass",
+    "violations": [],
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-01T23:10:00Z"
   }
 }

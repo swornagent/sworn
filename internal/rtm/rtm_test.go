@@ -128,6 +128,60 @@ func TestBuild_FullyTraced(t *testing.T) {
 	}
 }
 
+// TestBuild_VerticalTraceFromBoardJSON exercises S06 AC-04: when a release has
+// a committed board.json, Build reads release.vertical_trace.benefit /
+// .org_objective from it (the ADR-0009 source of truth) rather than scraping
+// index.md markdown headings. The board.json benefit is deliberately DIFFERENT
+// from the index.md benefit so a pass proves board.json won, not a coincidence.
+// It also round-trips a real board-shaped document through readBoardVerticalTrace
+// (Captain pin 3 drift insurance).
+func TestBuild_VerticalTraceFromBoardJSON(t *testing.T) {
+	const boardBenefit = "board.json benefit is the canonical source of truth"
+	dir := writeFixture(t, func(dir string) {
+		board := `{
+  "$schema": "https://baton.sawy3r.net/schemas/board-v1.json",
+  "schema_version": 1,
+  "release": {
+    "name": "test-release",
+    "vertical_trace": {
+      "benefit": "` + boardBenefit + `"
+    }
+  },
+  "tracks": [
+    {"id": "T1-test", "slices": ["S01-test-slice"], "worktree_branch": "track/test/T1-test", "state": "planned"}
+  ]
+}`
+		os.WriteFile(filepath.Join(dir, "board.json"), []byte(board), 0644)
+	})
+
+	m, _, err := Build(dir)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if m.ReleaseBenefit != boardBenefit {
+		t.Errorf("ReleaseBenefit: got %q, want board.json value %q (index.md must not win when board.json exists)", m.ReleaseBenefit, boardBenefit)
+	}
+	// board.json carries no org_objective key — the field is genuinely unauthored,
+	// so OrgObjective must be empty (AC-04), NOT the empty-because-wrong-file case.
+	if m.OrgObjective != "" {
+		t.Errorf("OrgObjective: got %q, want empty (no org_objective in board.json)", m.OrgObjective)
+	}
+}
+
+// TestBuild_VerticalTraceLegacyFallback proves the fallback branch: a release
+// with NO board.json (pre-ADR-0009) still traces via the markdown-heading parse
+// of index.md, so legacy releases keep working unchanged.
+func TestBuild_VerticalTraceLegacyFallback(t *testing.T) {
+	dir := writeFixture(t) // no board.json written
+	m, _, err := Build(dir)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if m.ReleaseBenefit != "The release delivers value to users." {
+		t.Errorf("ReleaseBenefit (legacy fallback): got %q, want the index.md heading value", m.ReleaseBenefit)
+	}
+}
+
 func TestBuild_OrphanedNeed(t *testing.T) {
 	// Add a need with no linked AC.
 	dir := writeFixture(t, func(dir string) {
