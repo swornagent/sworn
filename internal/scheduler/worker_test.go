@@ -1520,7 +1520,14 @@ func TestDependentTrack_WorktreeBranchesFromMergedTip(t *testing.T) {
 
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	// Inject a committer identity so `git commit` works on a fresh CI runner
+	// with no global git config (otherwise: "Author identity unknown"). The
+	// -c flags are harmless for non-commit subcommands.
+	full := append([]string{
+		"-c", "user.email=test@swornagent.dev",
+		"-c", "user.name=sworn test",
+	}, args...)
+	cmd := exec.Command("git", full...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {

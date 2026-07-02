@@ -140,37 +140,39 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 		return fmt.Errorf("RunParallel: resolve workspace root: %w", err)
 	}
 
-	// ── Read release board ──────────────────────────────────────────────
-	indexPath := filepath.Join(absRoot, docsPrefix, "release", releaseName, "index.md")
-	indexData, err := os.ReadFile(indexPath)
+	// ── Read release board (board.json via the oracle) ──────────────────
+	// board.ReadBoard reads docs/release/<release>/board.json, lazily migrating
+	// from index.md frontmatter when board.json is absent (legacy releases). This
+	// replaces the former hand-rolled index.md frontmatter parse (extractFrontmatter
+	// + board.ParseTracks), which returned zero tracks for any current-format
+	// release and hard-errored "no tracks found", silently disabling dispatch
+	// (AC-01).
+	br, err := board.ReadBoard(absRoot, releaseName)
 	if err != nil {
-		return fmt.Errorf("RunParallel: read index.md: %w", err)
+		return fmt.Errorf("RunParallel: read release board: %w", err)
 	}
 
-	// Parse frontmatter to extract release_worktree_path.
-	fm := extractFrontmatter(string(indexData))
-	if fm == "" {
-		return fmt.Errorf("RunParallel: no frontmatter found in %s", indexPath)
-	}
-
-	releaseWorktreePath := extractReleaseWorktreePath(fm)
+	releaseWorktreePath := br.ReleaseWorktreePath
 	if releaseWorktreePath == "" {
-		// Cold-start (eval finding 1, completion): a freshly-planned board carries
-		// the placeholder "release_worktree_path: # set by first /implement-slice"
-		// which strips to empty. Rather than require the private Driver-1 scaffold
-		// to have filled it, default to a REPO-LOCAL path (a <repo>-worktrees
-		// sibling) so the engine self-bootstraps the release worktree below. The
-		// track worktrees then default to siblings of this path (worker.go).
+		// Cold-start (eval finding 1): this default now fires ONLY when board.json
+		// genuinely records no worktree path — not unconditionally, as the old
+		// index.md parser did for every current-format release (AC-02). Default to
+		// a REPO-LOCAL path (a <repo>-worktrees sibling) so the engine
+		// self-bootstraps the release worktree below. The track worktrees then
+		// default to siblings of this path (worker.go).
 		releaseWorktreePath = filepath.Join(filepath.Dir(absRoot),
 			filepath.Base(absRoot)+"-worktrees", "release-"+releaseName)
 		fmt.Fprintf(os.Stderr, "RunParallel: release_worktree_path unset — defaulting to %s (cold-start)\n", releaseWorktreePath)
 	}
 
-	// Parse tracks from frontmatter.
-	tracks := board.ParseTracks(fm)
+	tracks := trackInfosFromBoardTracks(br.Tracks)
 	if len(tracks) == 0 {
 		return fmt.Errorf("RunParallel: no tracks found in release board")
 	}
+
+	// indexPath is still needed for the documented-shared touchpoint-matrix parse
+	// below (router.ParseDocumentedShared reads the rendered index.md body).
+	indexPath := filepath.Join(absRoot, docsPrefix, "release", releaseName, "index.md")
 
 	// ── Pre-flight: ensure release worktree exists ──────────────────────
 	// Self-bootstrap (eval finding 1): a freshly-planned release has no
@@ -241,10 +243,20 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 	}
 
 	// ── Parse documented shared files ────────────────────────────────────
-	// Extract from the markdown body (after frontmatter close), NOT the
-	// frontmatter — the DOCUMENTED SHARED touchpoint matrix is a table in
-	// the body. (Captain pin 2)
-	docShared := parseDocumentedSharedFiles(string(indexData))
+	// Delegate to router.ParseDocumentedShared — the canonical touchpoint-matrix
+	// parser (explicit "(DOCUMENTED SHARED)" marker AND ≥2-checkmark inference).
+	// The former local parseDocumentedSharedFiles matched ONLY the explicit
+	// marker, so a genuinely-shared file that a rendered index.md marks with ≥2
+	// checkmarks (but no annotation) was silently dropped and then wrongly treated
+	// as an invariant-2 collision (AC-03). Fail open: a release with no touchpoint
+	// matrix (single-track, or an unrendered index.md) has no documented-shared
+	// exemptions, which is not fatal — matching the oracle-read fail-open
+	// precedent (planned-files reader) in this same function.
+	docShared, err := router.ParseDocumentedShared(indexPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "RunParallel: parse documented shared files: %v (treating as no exemptions)\n", err)
+		docShared = nil
+	}
 
 	// ── Fan out per phase ───────────────────────────────────────────────
 	var outcomeMap sync.Map
@@ -466,55 +478,25 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 	return nil
 }
 
-// extractFrontmatter returns the content between the first --- and second ---
-// in a markdown file with YAML frontmatter.
-func extractFrontmatter(text string) string {
-	const delim = "---"
-	lines := strings.Split(text, "\n")
-	if len(lines) < 2 || strings.TrimSpace(lines[0]) != delim {
-		return ""
-	}
-
-	var body []string
-	for i := 1; i < len(lines); i++ {
-		if strings.TrimSpace(lines[i]) == delim {
-			return strings.Join(body, "\n")
-		}
-		body = append(body, lines[i])
-	}
-	return ""
-}
-
-// extractReleaseWorktreePath extracts the release_worktree_path from
-// frontmatter body.
-func extractReleaseWorktreePath(body string) string {
-	for _, line := range strings.Split(body, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "release_worktree_path:") {
-			val := strings.TrimSpace(strings.TrimPrefix(line, "release_worktree_path:"))
-			val = stripInlineComment(val)
-			val = strings.Trim(val, `"'`)
-			return val
+// trackInfosFromBoardTracks converts board.json BoardTrack records into the
+// board.TrackInfo shape the scheduler and router consume. Kept local to
+// internal/run rather than added to internal/board because internal/board is
+// T1-drift-guard's exclusive touchpoint this release — this is a field-for-field
+// copy, not new shared-library surface. DependsOn narrows board.StringList to a
+// plain []string.
+func trackInfosFromBoardTracks(bts []board.BoardTrack) []board.TrackInfo {
+	tis := make([]board.TrackInfo, len(bts))
+	for i, bt := range bts {
+		tis[i] = board.TrackInfo{
+			ID:             bt.ID,
+			Slices:         bt.Slices,
+			DependsOn:      []string(bt.DependsOn),
+			WorktreePath:   bt.WorktreePath,
+			WorktreeBranch: bt.WorktreeBranch,
+			State:          bt.State,
 		}
 	}
-	return ""
-}
-
-// stripInlineComment removes a trailing YAML "# ..." inline comment from a
-// scalar value. The unfilled board placeholder
-// (release_worktree_path: # set by first /implement-slice in this release)
-// collapses to "" instead of yielding the comment text as a literal path — the
-// cold-start trap that fed the comment to `git worktree add` (eval finding 2).
-// A '#' is only treated as a comment marker at the start or after whitespace,
-// so a '#' embedded in a token is left intact.
-func stripInlineComment(s string) string {
-	s = strings.TrimSpace(s)
-	for i := 0; i < len(s); i++ {
-		if s[i] == '#' && (i == 0 || s[i-1] == ' ' || s[i-1] == '\t') {
-			return strings.TrimSpace(s[:i])
-		}
-	}
-	return s
+	return tis
 }
 
 // ProductionMergeTrack merges a track branch into the release worktree.
@@ -584,51 +566,6 @@ type plannedFilesKey struct {
 	absRoot       string
 	releaseName   string
 	slicesByTrack map[string][]string
-}
-
-// parseDocumentedSharedFiles extracts file paths from the DOCUMENTED SHARED
-// rows in the index.md markdown body (after the closing --- delimiter).
-// The touchpoint matrix is a markdown table in the body, NOT the frontmatter.
-//
-// Format: | `path/to/file.go` (DOCUMENTED SHARED) | ...
-// The function extracts the first backtick-quoted path from any row containing
-// "(DOCUMENTED SHARED)".
-func parseDocumentedSharedFiles(indexData string) map[string]bool {
-	// Find the closing frontmatter delimiter — the body starts after the second ---.
-	// The first --- is at position 0; find the second --- on its own line.
-	const delim = "\n---"
-	bodyStart := strings.Index(indexData, delim)
-	if bodyStart < 0 {
-		return nil
-	}
-	// Skip past the closing --- (len(delim) bytes) plus the newline.
-	body := indexData[bodyStart+len(delim):]
-	if len(body) > 0 && body[0] == '\n' {
-		body = body[1:]
-	} else if len(body) > 1 && body[0] == '\r' && body[1] == '\n' {
-		body = body[2:]
-	}
-
-	result := make(map[string]bool)
-	for _, line := range strings.Split(body, "\n") {
-		if !strings.Contains(line, "(DOCUMENTED SHARED)") {
-			continue
-		}
-		// Extract the first backtick-quoted path.
-		start := strings.Index(line, "`")
-		if start < 0 {
-			continue
-		}
-		end := strings.Index(line[start+1:], "`")
-		if end < 0 {
-			continue
-		}
-		path := line[start+1 : start+1+end]
-		if path != "" {
-			result[path] = true
-		}
-	}
-	return result
 }
 
 // checkDisjointness returns the set of files that appear in both a and b,

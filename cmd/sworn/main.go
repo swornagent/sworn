@@ -29,7 +29,16 @@ var version = "0.0.0-dev"
 func main() {
 	// ShowDisclosure prints the one-time telemetry disclosure if the user
 	// is in a neutral state. It only prints on the first invocation.
-	telemetry.ShowDisclosure(os.Stderr)
+	//
+	// Suppress it entirely for machine-readable invocations (e.g. --json):
+	// the disclosure goes to stderr, but consumers that merge streams
+	// (`sworn board --json 2>&1 | jq`, exec.CombinedOutput) would otherwise
+	// see it prepended to the JSON on stdout and fail to parse. Skipping it
+	// here leaves the neutral-state sentinel unwritten, so the disclosure
+	// still shows on the next human-facing invocation — no consent lost.
+	if !isMachineReadable(os.Args) {
+		telemetry.ShowDisclosure(os.Stderr)
+	}
 
 	start := time.Now()
 	exitCode := dispatch(os.Args)
@@ -51,6 +60,19 @@ func main() {
 	telemetry.Fire(cmd, sub, version, time.Since(start).Milliseconds(), exitCode)
 
 	os.Exit(exitCode)
+}
+
+// isMachineReadable reports whether the invocation requests machine-readable
+// output (a --json / -json flag anywhere in the args). Used to suppress
+// human-facing notices that would corrupt a machine-readable stdout stream
+// when stderr is merged into stdout.
+func isMachineReadable(args []string) bool {
+	for _, a := range args {
+		if a == "--json" || a == "-json" {
+			return true
+		}
+	}
+	return false
 }
 
 // dispatch resolves the subcommand from the registry and runs it.

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -155,40 +156,43 @@ func (n *Notifier) sendAPI(ctx context.Context, event NotifyEvent) {
 		resp.StatusCode, strings.TrimSpace(string(body)))
 }
 
-// ViolationsSummary extracts a one-line violation summary from proof.md
-// or falls back to a generic message. Max 200 chars.
-func ViolationsSummary(proofPath string, violationCount int) string {
-	if proofPath == "" {
-		return fmt.Sprintf("%d violation(s) found", violationCount)
-	}
-
-	data, err := os.ReadFile(proofPath)
-	if err != nil {
+// ViolationsSummary extracts a one-line violation summary from the slice's
+// proof.json (AC-01 — the proof-v1 record's not_delivered list is the sole
+// source of truth for violations, matching the pattern already established
+// by internal/mcp/context.go's readProofViolations; there is no proof.md
+// fallback). Falls back to a generic message when sliceDir is empty,
+// proof.json is missing/unreadable/unparseable, or not_delivered is empty.
+// Max 200 chars.
+func ViolationsSummary(sliceDir string, violationCount int) string {
+	fallback := func() string {
 		if violationCount > 0 {
 			return fmt.Sprintf("%d violation(s) found", violationCount)
 		}
 		return "verification failed"
 	}
 
-	// Look for the first numbered violation line in proof.md.
-	// Lines like "1. Missing reachability artefact" or "1) ...".
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		// Match lines starting with a digit followed by . or )
-		if len(trimmed) > 2 && trimmed[0] >= '1' && trimmed[0] <= '9' {
-			if trimmed[1] == '.' || trimmed[1] == ')' {
-				summary := strings.TrimSpace(trimmed)
-				if len(summary) > 200 {
-					summary = summary[:197] + "..."
-				}
-				return summary
-			}
-		}
+	if sliceDir == "" {
+		return fallback()
 	}
 
-	if violationCount > 0 {
-		return fmt.Sprintf("%d violation(s) found", violationCount)
+	data, err := os.ReadFile(filepath.Join(sliceDir, "proof.json"))
+	if err != nil {
+		return fallback()
 	}
-	return "verification failed"
+
+	var pr struct {
+		NotDelivered []string `json:"not_delivered"`
+	}
+	if err := json.Unmarshal(data, &pr); err != nil {
+		return fallback()
+	}
+	if len(pr.NotDelivered) == 0 {
+		return fallback()
+	}
+
+	summary := strings.TrimSpace(pr.NotDelivered[0])
+	if len(summary) > 200 {
+		summary = summary[:197] + "..."
+	}
+	return summary
 }

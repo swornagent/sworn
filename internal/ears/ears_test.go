@@ -1,6 +1,8 @@
 package ears
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -366,6 +368,163 @@ Test outcome.
 		t.Errorf("expected 1 ubiquitous, got %d", report.Dist[PatternUbiquitous])
 	}
 }
+
+// writeSpecJSON writes a minimal spec-v1 spec.json fixture with the given
+// (text, ears_keyword) acceptance criteria into sliceDir/spec.json.
+func writeSpecJSON(t *testing.T, sliceDir, sliceID string, acs []struct{ Text, Keyword string }) {
+	t.Helper()
+	type acJSON struct {
+		ID          string `json:"id"`
+		Text        string `json:"text"`
+		Type        string `json:"type,omitempty"`
+		EARSKeyword string `json:"ears_keyword,omitempty"`
+	}
+	rec := struct {
+		SchemaVersion      int      `json:"schema_version"`
+		SliceID            string   `json:"slice_id"`
+		Release            string   `json:"release"`
+		UserOutcome        string   `json:"user_outcome"`
+		CoversNeeds        []string `json:"covers_needs"`
+		AcceptanceCriteria []acJSON `json:"acceptance_criteria"`
+	}{
+		SchemaVersion: 1,
+		SliceID:       sliceID,
+		Release:       "test-release",
+		UserOutcome:   "Test outcome.",
+		CoversNeeds:   []string{"N-01"},
+	}
+	for i, ac := range acs {
+		rec.AcceptanceCriteria = append(rec.AcceptanceCriteria, acJSON{
+			ID:          fmt.Sprintf("AC-%02d", i+1),
+			Text:        ac.Text,
+			EARSKeyword: ac.Keyword,
+		})
+	}
+	data, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sliceDir, "spec.json"), data, 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestValidate_ReadsEARSKeywordFromSpecJSON is AC-02's integration test: a
+// spec.json-only slice (no spec.md at all, the shape of every slice but S04
+// in this release) classifies from the already-computed ears_keyword field.
+func TestValidate_ReadsEARSKeywordFromSpecJSON(t *testing.T) {
+	dir := t.TempDir()
+	sliceDir := filepath.Join(dir, "S01-json-only")
+	if err := os.MkdirAll(sliceDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeSpecJSON(t, sliceDir, "S01-json-only", []struct{ Text, Keyword string }{
+		{"THE SYSTEM SHALL display the dashboard.", "shall"},
+		{"WHEN a user clicks save THE SYSTEM SHALL persist the form.", "When"},
+		{"WHILE the system is in maintenance mode THE SYSTEM SHALL show a banner.", "While"},
+		{"WHERE a premium feature is enabled THE SYSTEM SHALL show the export button.", "Where"},
+		{"IF the database is unreachable THEN THE SYSTEM SHALL return a 503 error.", "If"},
+		{"NOTE: this is a deliberate non-requirement note.", ""},
+	})
+
+	report, err := Validate(dir)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if report.HasViolations() {
+		t.Fatalf("expected 0 violations, got %d:\n%s", len(report.Violations), violationsString(report.Violations))
+	}
+	if report.TotalACs != 5 {
+		t.Errorf("expected 5 ACs (excluding NOTE), got %d", report.TotalACs)
+	}
+	if report.TotalNotes != 1 {
+		t.Errorf("expected 1 NOTE, got %d", report.TotalNotes)
+	}
+	if report.Dist[PatternUbiquitous] != 1 {
+		t.Errorf("expected 1 ubiquitous, got %d", report.Dist[PatternUbiquitous])
+	}
+	if report.Dist[PatternEventDriven] != 1 {
+		t.Errorf("expected 1 event-driven, got %d", report.Dist[PatternEventDriven])
+	}
+	if report.Dist[PatternStateDriven] != 1 {
+		t.Errorf("expected 1 state-driven, got %d", report.Dist[PatternStateDriven])
+	}
+	if report.Dist[PatternOptionalFeature] != 1 {
+		t.Errorf("expected 1 optional-feature, got %d", report.Dist[PatternOptionalFeature])
+	}
+	if report.Dist[PatternUnwanted] != 1 {
+		t.Errorf("expected 1 unwanted, got %d", report.Dist[PatternUnwanted])
+	}
+}
+
+// TestValidate_SpecJSONWinsOverDisagreeingSpecMd is AC-04's test: when both
+// spec.md and spec.json exist and would classify an AC differently, the
+// spec.json value is authoritative (DC-1 — ears.go prefers spec.json over
+// spec.md, unlike gate/trace.go).
+func TestValidate_SpecJSONWinsOverDisagreeingSpecMd(t *testing.T) {
+	dir := t.TempDir()
+	sliceDir := filepath.Join(dir, "S01-both")
+	if err := os.MkdirAll(sliceDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// spec.md text has no SHALL clause at all — would classify PatternNone
+	// (a violation) under the legacy text-based path.
+	mdSpec := `---
+title: S01-both
+---
+
+# Slice: S01-both
+
+## Acceptance checks
+
+- [ ] Make sure the form is saved.
+
+## Required tests
+
+- **Unit**: some test
+`
+	if err := os.WriteFile(filepath.Join(sliceDir, "spec.md"), []byte(mdSpec), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// spec.json disagrees: same AC index, explicitly event-driven.
+	writeSpecJSON(t, sliceDir, "S01-both", []struct{ Text, Keyword string }{
+		{"Make sure the form is saved.", "When"},
+	})
+
+	report, err := Validate(dir)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if report.HasViolations() {
+		t.Fatalf("expected spec.json to win (no violations), got %d:\n%s",
+			len(report.Violations), violationsString(report.Violations))
+	}
+	if report.Dist[PatternEventDriven] != 1 {
+		t.Errorf("expected 1 event-driven from spec.json, got dist=%v", report.Dist)
+	}
+}
+
+// TestValidate_MalformedSpecJSONFailsClosed proves a malformed spec.json is
+// NOT treated the same as an absent one — it must propagate as an error
+// (spec.ReadRecord's fail-closed contract), not silently fall back to
+// spec.md.
+func TestValidate_MalformedSpecJSONFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	sliceDir := filepath.Join(dir, "S01-malformed")
+	if err := os.MkdirAll(sliceDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sliceDir, "spec.json"), []byte("{not json"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Validate(dir)
+	if err == nil {
+		t.Fatal("expected error for malformed spec.json, got nil")
+	}
+}
+
 func TestValidate_SkipsNonSliceDirs(t *testing.T) {
 	dir := writeFixture(t, func(dir string) {
 		// Add a screenshots directory (not a slice).
