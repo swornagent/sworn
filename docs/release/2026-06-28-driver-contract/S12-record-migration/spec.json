@@ -1,0 +1,81 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "schema_version": 1,
+  "slice_id": "S12-record-migration",
+  "release": "2026-06-28-driver-contract",
+  "track": "T7-baton-revendor",
+  "user_outcome": "Every live release record on the integration branch conforms to the v0.7.1 contract: quadrant 'chore' is migrated to 'quick' across all releases, in_scope/out_of_scope is present on every spec.json, the one invalid 'feature' quadrant is fixed, index.md renders are refreshed, and the reader then enforces quick-only — the data half of sworn#48.",
+  "rationale": "sworn#48 items 2-3 data half. The issue counted ~28 live records using quadrant 'chore' across 2026-06-30-sworn-operational-readiness, 2026-07-01-release-hygiene, and 2026-07-01-render-drift-reconciliation; this release adds its own (S07 is 'chore' at planning; others are grind/puzzle/epic and unchanged). Backfill policy per the issue: historical specs get empty in_scope/out_of_scope arrays (schema-valid, lazy); this release's 12 specs already carry real content (backfilled at planning, 2026-07-02). The #48 aside is also in scope: one record carries invalid 'quadrant': 'feature' (reported near render-drift's S03-tui-chrome-rework — locate by grep, fix to the correct enum value, note the choice in the journal). FILE-CEILING NOTE: the sweep touches ~40+ record files, over the nominal 15-25 ceiling — accepted as a documented exception because every edit is a one-line mechanical data change from one sweep script; splitting by release would be artificial. DRIFT RISK: in-flight releases (operational-readiness tracks, release-hygiene T1) hold diverged copies of their records on track branches; this migration lands on release/v0.1.0 and reaches those tracks via /implement-slice Step-0 forward-merge self-heal — named here so the drift-gate behaviour is expected, not mysterious (the 2026-06-28 replan-propagation lesson).",
+  "covers_needs": ["N-13"],
+  "in_scope": [
+    "Quadrant data migration: every '\"quadrant\": \"chore\"' under docs/release/ becomes 'quick' (spec.json + status.json, all releases including this one)",
+    "in_scope/out_of_scope presence backfill: empty arrays for historical specs (driver-contract's 12 already carry real content)",
+    "Fixing the single invalid 'quadrant': 'feature' record (the sworn#48 aside)",
+    "Tightening state.EffortComplexity.Validate to quick-only (removing S11's transitional chore acceptance)",
+    "Re-rendering index.md for every board.json-backed release so the E-by-C column shows the migrated values"
+  ],
+  "out_of_scope": [
+    "Any schema or Go behaviour change beyond removing the transitional tolerance (S11 owns the code half)",
+    "Migrating records on in-flight TRACK branches directly — they receive the migration via forward-merge self-heal, never by cross-worktree edits (Rule 11)",
+    "board-v1/proof-v1 canonical-shape migration (baton#54, excluded by sworn#48)"
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "Mechanical sweep + renders + one tolerance removal; breadth not depth. Runs last in the release so no sibling track holds diverged copies of THIS release's records.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    "docs/release/2026-06-30-sworn-operational-readiness/",
+    "docs/release/2026-07-01-release-hygiene/",
+    "docs/release/2026-07-01-render-drift-reconciliation/",
+    "docs/release/2026-06-28-driver-contract/",
+    "internal/state/state.go",
+    "internal/state/effort_complexity_test.go"
+  ],
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "In-flight releases' track branches hold diverged record copies; migrating on the integration branch makes those tracks read 'behind'.",
+      "mitigation": "Expected and self-healing: /implement-slice Step 0 forward-merges release-wt/base into the track. The journal names every in-flight track touched so the next session isn't surprised (replan-propagation lesson, 2026-06-28)."
+    },
+    {
+      "id": "R-02",
+      "description": "A missed record leaves the strict quick-only reader failing on live data after the tolerance is removed.",
+      "mitigation": "AC-01/AC-03 are grep-proven zero-match assertions run in the same slice that removes the tolerance; the repo-wide doctor/drift check is the backstop."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "After the migration, `grep -rn '\"quadrant\": \"chore\"' docs/release/` SHALL return zero matches, with every migrated record now reading 'quick' and grind/puzzle/epic values untouched (the grep output is the slice's reachability artefact, captured in proof.json)."
+    },
+    {
+      "id": "AC-02",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "The single record carrying the invalid 'quadrant': 'feature' (located by grep; reported near render-drift S03-tui-chrome-rework) SHALL be corrected to a valid enum value consistent with its effort/complexity axes, with the choice and location recorded in journal.md."
+    },
+    {
+      "id": "AC-03",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "Every spec.json under docs/release/ SHALL contain in_scope and out_of_scope fields (empty arrays permitted for historical records) and SHALL validate against the vendored v0.7.1 spec-v1 schema — proven by a validation sweep whose output is captured in proof.json."
+    },
+    {
+      "id": "AC-04",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "state.EffortComplexity.Validate SHALL accept only quick/grind/puzzle/epic (the S11 transitional 'chore' acceptance removed), and `go test ./internal/state/...` SHALL pass."
+    },
+    {
+      "id": "AC-05",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When `sworn render` is re-run for each board.json-backed release after the migration, the committed index.md files SHALL match the render output (the fail-closed drift guard passes repo-wide), with the refreshed renders committed in this slice."
+    }
+  ]
+}

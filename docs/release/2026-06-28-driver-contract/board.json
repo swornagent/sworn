@@ -9,6 +9,7 @@
       "benefit": "sworn loop completes releases on any capable model or agent CLI the user has — subscription or API key — because every loop-role dispatch goes through one stable Driver contract: provider quirks are contained inside drivers, capability is honest at resolution, and delivery economics are measured per dispatch."
     }
   },
+  "release_worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-28-driver-contract",
   "release_worktree_branch": "release-wt/2026-06-28-driver-contract",
   "tracks": [
     {
@@ -17,8 +18,9 @@
         "S01-driver-contract"
       ],
       "depends_on": [],
+      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-28-driver-contract-T1-contract",
       "worktree_branch": "track/2026-06-28-driver-contract/T1-contract",
-      "state": "planned"
+      "state": "in_progress"
     },
     {
       "id": "T2-subprocess",
@@ -67,6 +69,16 @@
       ],
       "depends_on": ["T4-resolution-loop"],
       "worktree_branch": "track/2026-06-28-driver-contract/T6-proof",
+      "state": "planned"
+    },
+    {
+      "id": "T7-baton-revendor",
+      "slices": [
+        "S11-baton-revendor",
+        "S12-record-migration"
+      ],
+      "depends_on": ["T4-resolution-loop", "T5-catalog", "T6-proof"],
+      "worktree_branch": "track/2026-06-28-driver-contract/T7-baton-revendor",
       "state": "planned"
     }
   ]

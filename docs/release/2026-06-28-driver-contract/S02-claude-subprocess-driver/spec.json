@@ -6,7 +6,23 @@
   "track": "T2-subprocess",
   "user_outcome": "An operator on a Claude subscription can dispatch the implementer and verifier roles through a claude-cli subprocess driver that delegates the entire agentic loop to the CLI, runs the child process inside the slice worktree, and returns a normalized Result with honest cost/token/duration data — the sworn#35 class (tools silently ignored, child running in the wrong directory) is gone by construction.",
   "rationale": "The fix for sworn#35, the confirmed blocker for running `sworn loop` on a Claude subscription (2026-07-02 attempt stopped pre-spend on exactly this). Grounding against live code: today's cliDriver (internal/model/cli.go:19-157) runs `claude -p --no-session-persistence --model <m> <prompt>` with NO cmd.Dir, ignores the tools argument entirely, collapses history into one stacked prompt, and always reports cost/tokens 0; it advertises CapVerify|CapChat. This slice builds the real subprocess Driver in internal/driver and retires cli.go's dishonest Chat advertisement; cli.go's one-shot Verify stays — it serves the utility path (decided 2026-07-02: one-shot is utility-only). Test strategy: a fake `claude` binary on PATH emitting canned JSON envelopes — no paid dispatch in unit tests; real-CLI proof is S10's SIT + the release cutover journey walk. HOME must NOT be redirected (CLI credentials live under the real home) — this deliberately differs from the in-process tool executor's HOME=root hygiene (internal/agent/tools.go:323).",
-  "covers_needs": ["N-02", "N-08"],
+  "covers_needs": [
+    "N-02",
+    "N-08"
+  ],
+  "in_scope": [
+    "Shared subprocess plumbing (spawn, timeout, env hygiene, error mapping) reused by codex",
+    "claude -p --output-format json invocation with cmd.Dir=WorktreeRoot behind AssertWorktree",
+    "Verifier-role dispatch: --no-session-persistence + verdict-JSON emission into Result.StructuredJSON",
+    "JSON envelope parsing into Result (cost/tokens/duration/model)",
+    "Retiring cli.go's CapChat advertisement and toolless Chat path"
+  ],
+  "out_of_scope": [
+    "The codex variant (S03)",
+    "Registry registration and prefix mapping (S05)",
+    "cli.go's one-shot Verify — kept for the utility path",
+    "Real-CLI integration proof (S10 SIT smoke + the Rule-10 cutover journey walk)"
+  ],
   "effort_complexity": {
     "effort": "high",
     "complexity": "low",

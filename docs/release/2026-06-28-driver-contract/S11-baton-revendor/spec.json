@@ -1,0 +1,97 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "schema_version": 1,
+  "slice_id": "S11-baton-revendor",
+  "release": "2026-06-28-driver-contract",
+  "track": "T7-baton-revendor",
+  "user_outcome": "sworn's vendored Baton protocol is pinned to the v0.7.1 upstream tag: both embed roots carry the reconciled schemas (in_scope/out_of_scope as required spec-v1 fields, the published verifier-verdict-v1), the spec writer emits and the strict reader accepts the new fields, the quadrant enum gains 'quick' in place of 'chore', and acknowledged_by round-trips cleanly — the code half of sworn#48.",
+  "rationale": "sworn#48, rolled into this release by decision 2026-07-02. Grounding: the pin is currently v0.6.3 @ a5aca64 (internal/adopt/baton/VERSION); preconditions sworn#23 (tool-neutral source map) and sworn#24 (VERSION centralisation) are CLOSED. PRECONDITION: the upstream tag v0.7.1 does not exist yet — baton main sits at cd42ca1 (dc3b7cc added in_scope/out_of_scope AFTER the v0.7.0 tag; cd42ca1 fixed the role-prompt scope->user_outcome prose) and cd42ca1 is not yet pushed. Cut and push the v0.7.1 tag before this slice starts; the pin must reference a public tag per the repo's vendoring policy. Adoption points verified live: writer internal/spec/spec.go, strict reader internal/implement/spec_record.go; quadrant code internal/state/state.go:410,426 with fixtures in internal/state, internal/run/parallel_test.go, internal/router/router_test.go, cmd/sworn/doctor_test.go, cmd/sworn/regress_test.go. Transitional tolerance: Validate accepts BOTH quick and chore until S12 migrates the live records, then S12 tightens to quick-only — the track merges as one unit so the integration branch never carries the intermediate state. Explicitly out of scope per the issue: board-v1/proof-v1 full canonical conformance (bigger migration, tracked in baton#54).",
+  "covers_needs": ["N-12"],
+  "in_scope": [
+    "internal/adopt/baton/VERSION pin bump to the v0.7.1 tag (SHA + digest) and re-sync of that embed root from the tag",
+    "internal/baton/schemas re-sync (spec-v1 with required in_scope/out_of_scope; reconciled status/journeys/attestations; verifier-verdict-v1)",
+    "Quadrant enum code change: 'quick' replaces 'chore' as the low/low value, with transitional dual acceptance until S12",
+    "Spec writer (internal/spec) emits in_scope/out_of_scope; strict reader (internal/implement/spec_record.go) accepts and exposes them",
+    "acknowledged_by round-trip smoke test through writer + reader + schema validation",
+    "Test-fixture updates across internal/state, internal/run, internal/router, cmd/sworn"
+  ],
+  "out_of_scope": [
+    "board-v1/proof-v1 full canonical conformance (nested worktree objects, structured test_results) — tracked upstream in baton#54, explicitly excluded by sworn#48",
+    "Migrating the live docs/release records (S12 owns the data half)",
+    "Any driver/registry/loop code (T1-T6 own those)"
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "Known-shape vendor bump + enum rename + two adoption points; breadth is the fixture sweep across five packages. The traps (required-fields vs historical records) are enumerated and sequenced away via S12 in the same track.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    "internal/adopt/baton/VERSION",
+    "internal/adopt/baton/rules/",
+    "internal/baton/schemas/spec-v1.json",
+    "internal/baton/schemas/slice-status-v1.json",
+    "internal/baton/schemas/journeys-v1.json",
+    "internal/baton/schemas/attestations-v1.json",
+    "internal/state/state.go",
+    "internal/state/effort_complexity_test.go",
+    "internal/spec/spec.go",
+    "internal/spec/spec_test.go",
+    "internal/implement/spec_record.go",
+    "internal/implement/spec_record_test.go",
+    "internal/run/parallel_test.go",
+    "internal/router/router_test.go",
+    "cmd/sworn/doctor_test.go",
+    "cmd/sworn/regress_test.go"
+  ],
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "The upstream v0.7.1 tag does not exist at slice start (cd42ca1 unpushed).",
+      "mitigation": "Named precondition: Brad cuts and pushes the tag first; the slice BLOCKs (dependent-on-human) rather than pinning an untagged SHA."
+    },
+    {
+      "id": "R-02",
+      "description": "The vendored spec-v1 flip to required in_scope/out_of_scope fails validation of historical records between S11 and S12.",
+      "mitigation": "S11 and S12 are sequential in one track and merge as a unit; no gate on the integration branch sees the intermediate state. Any in-track gate run between the slices is a known-transitional condition named in the journal."
+    },
+    {
+      "id": "R-03",
+      "description": "A tightened reader/schema regresses test fixtures in OTHER packages (the S05-strict-reader lesson).",
+      "mitigation": "The fixture sweep is in-scope and enumerated in touchpoints; the merge gate's full `go test ./...` is the backstop."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "internal/adopt/baton/VERSION SHALL pin baton-protocol v0.7.1 with the tag's upstream SHA and content digest, and both embed roots (internal/adopt/baton rules/docs, internal/baton/schemas) SHALL be re-synced byte-identical from that tag; `sworn doctor` SHALL report the new pin."
+    },
+    {
+      "id": "AC-02",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "state.EffortComplexity SHALL treat 'quick' as the canonical low-effort/low-complexity quadrant (Quadrant() returns 'quick'; comments/docs updated) while Validate transitionally accepts 'chore' with a deprecation warning until S12 completes the data migration; grind/puzzle/epic are unchanged (TestQuadrantQuick covers canonical, transitional, and rejected values)."
+    },
+    {
+      "id": "AC-03",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When the spec writer (internal/spec) emits a spec record, in_scope and out_of_scope SHALL be present (planner-supplied content or empty arrays), and the strict reader (internal/implement/spec_record.go) SHALL parse and expose both fields; a writer-to-reader round-trip test SHALL validate the record against the vendored v0.7.1 spec-v1 schema."
+    },
+    {
+      "id": "AC-04",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When a status record carrying acknowledged_by is written and re-read, the field SHALL round-trip unchanged and the record SHALL validate against the vendored slice-status schema (the sworn#48 item-4 smoke test)."
+    },
+    {
+      "id": "AC-05",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "`go build ./...` SHALL succeed and `go test ./internal/state/... ./internal/spec/... ./internal/implement/... ./internal/run/... ./internal/router/... ./cmd/sworn/...` SHALL pass with all quadrant fixtures updated."
+    }
+  ]
+}
