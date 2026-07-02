@@ -6,7 +6,22 @@
   "track": "T4-resolution-loop",
   "user_outcome": "RunSlice performs its captain, implement, and verify legs exclusively through registry-resolved Driver.Dispatch — no factory fields, no provider wire types in the orchestration path, verdicts engine-validated from Result.StructuredJSON — so the nil-factory SIGSEGV class is unrepresentable and a toolless dispatch cannot reach a loop role.",
   "rationale": "The central rewire. Grounding against live code: today RunSlice dispatches via RunSliceOptions.NewAgent/NewVerifier factory fields with nil-defaults added by the 2026-06-28 eval supervisor fix (internal/run/slice.go:57-63,193-201); the verifier is constructed as a full agent then verify.RunAgentic type-asserts model.StructuredOutput and makes ONE zero-tool ChatStructured call (internal/verify/verify.go:189-229 — the sworn#55 gap); implement.Run (internal/implement/implement.go:39) is the sole agent.Run consumer. After this slice: prompt assembly stays orchestrator-side (SystemPrompt/Payload in DispatchInput); the loop execution lives behind the driver; RunAgentic's transport is replaced by the driver dispatch while its verdict-acceptance semantics (baton.ValidateSchema('verifier-verdict-v1'), fail-closed INCONCLUSIVE, terminal-error BLOCKED) are preserved verbatim. RunFirstPass (deterministic $0 pre-flight) is untouched. Telemetry legs (appendDispatch at slice.go:125 call sites) switch their source to Result fields; full cost honesty lands in S08.",
-  "covers_needs": ["N-05", "N-08"],
+  "covers_needs": [
+    "N-05",
+    "N-08"
+  ],
+  "in_scope": [
+    "RunSlice captain/implement/verify legs via Registry.Resolve + Driver.Dispatch",
+    "Deleting the NewAgent/NewVerifier factory fields from RunSliceOptions",
+    "Verdict acceptance relocated to Result.StructuredJSON with acceptStructuredVerdict semantics preserved verbatim",
+    "Import-boundary test over internal/run, internal/verify, internal/scheduler",
+    "implement.go prompt-assembly seam (prompts orchestrator-side, loop driver-side)"
+  ],
+  "out_of_scope": [
+    "The parallel/scheduler startup sweep (S07)",
+    "Telemetry honesty (S08 — this slice only pins Result as the plumbing source)",
+    "RunFirstPass — byte-identical behaviour, untouched"
+  ],
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",

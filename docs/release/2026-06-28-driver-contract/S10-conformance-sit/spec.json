@@ -6,7 +6,20 @@
   "track": "T6-proof",
   "user_outcome": "Every registered driver passes one exported behavioural conformance suite, and the assembled `sworn loop` boots end-to-end over a fixture release with a stub driver — so a contract-violating driver or a dead loop wiring fails a test in CI instead of shipping a DOA release.",
   "rationale": "The S08-drop decision (2026-07-02) folded the validation intent into this slice: the cross-engine differential died with the coach-loop reference; what replaces it is (a) a conformance suite exported as a package (drivertest.Run(t, driver)) so every current and future driver is held to the same behavioural clauses, and (b) the architecture capture §3.5 lesson wired in as a SIT smoke — the three-model dogfood shipped DOA on unit-green because nothing ever booted the assembled `sworn loop --parallel` from a cold board; the nil-factory SIGSEGV and cold-start crash were invisible to per-slice verification over mocked leaves. The SIT test boots the real RunParallel path over a fixture release in testdata with a stub driver registered via the S05 registry, from a cold board (no worktrees pre-made), and asserts the loop reaches verified without a panic. This is the release's own Rule-1 reachability artefact for the whole seam. Runs with fake binaries/stub drivers only — no paid dispatch in CI.",
-  "covers_needs": ["N-07"],
+  "covers_needs": [
+    "N-07"
+  ],
+  "in_scope": [
+    "internal/driver/drivertest: exported conformance suite (Run(t, NewDriver)) over the behavioural contract clauses",
+    "conformance_all_test.go enrolling every DefaultRegistry driver automatically",
+    "Cold-board SIT smoke: hermetic fixture release + stub driver through the real RunParallel path",
+    "Bounded-deadline board-state dump on stall"
+  ],
+  "out_of_scope": [
+    "Real-provider / real-CLI dispatch tests (the Rule-10 cutover journey walk owns that)",
+    "Performance benchmarking",
+    "Fixing driver bugs the suite finds — those route back to the owning slice"
+  ],
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",

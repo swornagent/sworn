@@ -6,7 +6,19 @@
   "track": "T4-resolution-loop",
   "user_outcome": "The parallel loop resolves every role-and-model combination to a driver at startup and exits with a named, actionable error before any worker spawns — a missing driver or capability can never crash or strand a run mid-flight; workers dispatch only through the driver-backed RunSlice.",
   "rationale": "Finishes the nil-factory story at the parallel entry point. Grounding: cmd/sworn/run.go:134 builds runSliceFn WITHOUT setting NewAgent/NewVerifier, historically relying on RunSlice's nil-defaults (the documented SIGSEGV class); worker.go dispatches only through the opaque RunSliceFn (worker.go:96,302,359,444); the production factory helpers newAgentFromModel/newVerifierFromModel (run.go:343,367) gate CapChat at construction time — mid-run. After S06 the factories are gone; this slice adds the startup resolution sweep: before RunParallel spawns workers, resolve implementer/verifier/captain models plus every escalation-list entry through the registry and fail fast on any miss. Also aligns internal/run/parallel.go's dispatch wiring with the registry (its board-oracle reading was fixed in the render-drift release and is NOT touched here).",
-  "covers_needs": ["N-05"],
+  "covers_needs": [
+    "N-05"
+  ],
+  "in_scope": [
+    "Startup resolution sweep: implementer/verifier/captain + every escalation-list entry resolved before worker spawn",
+    "Deleting newAgentFromModel/newVerifierFromModel from cmd/sworn/run.go",
+    "Mid-run driver-unavailability surfacing through the existing retry/escalation policy (track-local, no cascade)"
+  ],
+  "out_of_scope": [
+    "RunSlice internals (S06)",
+    "Any new retry/escalation policy design — the existing policy is consumed as-is",
+    "Board-oracle reading in parallel.go — fixed in the render-drift release, untouched here"
+  ],
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",

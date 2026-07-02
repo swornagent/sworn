@@ -140,6 +140,17 @@ are cut. Trace gate binds every N-NN to at least one slice's `covers_needs`.)
   capability info where the provider reports it over the wire and an honest
   "unknown" where it doesn't. Unknown is never treated as capable
   (fail-closed). Own slice; late-deferrable; active probing out of scope.
+- **N-12 (added 2026-07-02, second pass)**: sworn re-vendors Baton at the
+  v0.7.1 tag — both embed roots re-synced; the spec writer emits and the
+  strict reader accepts `in_scope`/`out_of_scope`; the quadrant enum adopts
+  `quick` in place of `chore` in code; `acknowledged_by` round-trips — the
+  code half of sworn#48.
+- **N-13 (added 2026-07-02, second pass)**: every live release record on the
+  integration branch conforms to the v0.7.1 contract — quadrant data migrated
+  `chore`→`quick` across all releases, `in_scope`/`out_of_scope` present on
+  every spec.json (empty arrays for historical records), the one invalid
+  `feature` quadrant fixed, renders refreshed, reader tightened to quick-only —
+  the data half of sworn#48.
 
 ## Constraints and non-negotiables
 
@@ -177,6 +188,11 @@ are cut. Trace gate binds every N-NN to at least one slice's `covers_needs`.)
   migration across multiple in-flight releases, deliberately not bundled with
   an architecture re-seam. **Tracking**: sworn#48. **Acknowledged**: Brad,
   2026-07-02 (pre-acknowledged in the starter capture).
+  **REVERSED 2026-07-02 (same day, second planning pass)**: Brad asked to roll
+  sworn#48 into this release. Now in scope as track T7-baton-revendor
+  (S11 code half, S12 data half), sequenced last (depends_on T4+T5+T6) so the
+  repo-wide record migration runs when no sibling track of this release holds
+  diverged copies. See the decision entry below.
 - **FT-1 orchestration items** (serialized cold-start bootstrap, auto-WIP-commit,
   track-local failure isolation) — the 2026-06-28 plan already scoped these to a
   separate release; several landed via the operational-readiness releases.
@@ -342,6 +358,34 @@ are cut. Trace gate binds every N-NN to at least one slice's `covers_needs`.)
   scope regardless — probing is only ever an explicit command, never
   automatic.
 
+### 2026-07-02 — sworn#48 rolled in as T7; in_scope/out_of_scope backfilled (second planning pass)
+
+- **Context**: The baton skill/docs update session surfaced that public spec-v1
+  now requires `in_scope`/`out_of_scope` (dc3b7cc, post-v0.7.0-tag) and that
+  sworn's pin is still v0.6.3. Brad: backfill the new fields into this
+  release's specs AND roll sworn#48 into the same release.
+- **Decision** (Brad): (1) all 12 spec.json records now carry real
+  `in_scope`/`out_of_scope` content (backfilled from the intake decisions and
+  each spec's rationale — not empty arrays). (2) sworn#48 lands as
+  **T7-baton-revendor**: `S11-baton-revendor` (pin bump to v0.7.1, schema
+  re-sync of both embed roots, writer/reader adoption, quadrant `quick` in
+  code with transitional `chore` tolerance, acknowledged_by round-trip) then
+  `S12-record-migration` (repo-wide record sweep `chore`→`quick`, presence
+  backfill for historical specs, the invalid `feature` quadrant fix, render
+  refresh, tolerance removed).
+- **Why sequenced last** (depends_on T4+T5+T6): the data sweep touches every
+  release's records including this one's; running it after all sibling tracks
+  merge means no diverged in-track copies of THIS release's records exist
+  (the 2026-06-28 replan-propagation lesson). The two slices share one track
+  so the required-fields schema flip and the record backfill merge as a unit —
+  the integration branch never sees the intermediate state.
+- **Preconditions surfaced**: upstream tag v0.7.1 must be cut and pushed from
+  baton main (cd42ca1 — includes dc3b7cc in_scope/out_of_scope and today's
+  scope→user_outcome prose fix; cd42ca1 is currently local-only). S11 BLOCKs
+  on this rather than pinning an untagged SHA.
+- **Out of scope confirmed**: board-v1/proof-v1 canonical conformance stays
+  excluded (baton#54), exactly as sworn#48 states.
+
 ## Schema-vs-spec audit notes
 
 Live code-seam map (fresh Explore pass, 2026-07-02, `release/v0.1.0`) — the
@@ -424,6 +468,12 @@ material preserved in git history at commit 7c49f51 and earlier).
   capability annotations; unknown ≠ capable. (T5)
 - `S10-conformance-sit` — exported driver conformance suite + SIT smoke
   booting the assembled loop over a fixture release with a stub driver. (T6)
+- `S11-baton-revendor` — pin bump to baton v0.7.1, schema re-sync, writer/
+  reader adoption of in_scope/out_of_scope, quadrant `quick` in code,
+  acknowledged_by round-trip (sworn#48 code half; added second pass). (T7)
+- `S12-record-migration` — repo-wide record sweep chore→quick + presence
+  backfill + `feature` quadrant fix + render refresh + quick-only tightening
+  (sworn#48 data half; added second pass). (T7)
 
 ### 2026-07-02 — Decomposition + track grouping approved
 

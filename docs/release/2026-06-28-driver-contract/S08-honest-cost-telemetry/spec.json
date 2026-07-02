@@ -6,7 +6,20 @@
   "track": "T4-resolution-loop",
   "user_outcome": "Every dispatch record carries honest economics — real cost computed from the CONFIRMED model's pricing or carried from the CLI's own report, an explicit cost_source, true token split, duration, and confirmed model-id — so verified-slices-per-dollar-per-model is finally a real number (sworn#70), and a subscription dispatch is recorded as subscription-covered, never as fake $0 API spend.",
   "rationale": "Closes sworn#70. Grounding against live code: implementer cost is nominal flat $2/1M (internal/agent/agent.go:182 computeCost) and agentic-verifier cost the same (internal/verify/verify.go:246 computeAgenticCost); the S06-operational-readiness pricing surface PriceForModel/ComputeCostFromTokens (internal/model/client.go:72-100) has ZERO call sites (dark code); a SECOND pricing table lives in internal/model/pricing.go (Pricing/ComputeCost) and the two are not cross-wired; Anthropic's correctly computed resp.CostUSD is discarded by the agent loop. After the T4 rewire, cost computation belongs INSIDE drivers (Result.CostUSD/CostSource per the S01 contract): the in-process driver computes from the confirmed response model-id and true token split via the unified pricing registry; subprocess drivers carry the CLI-reported figure. state.Dispatch (internal/state/state.go:83) already has DurationMS/InputTokens/OutputTokens/ModelIDConfirmed — the schema gap is only cost_source; slice-status-v1 is additionalProperties:true so the field is schema-safe (verified against internal/baton/schemas/slice-status-v1.json).",
-  "covers_needs": ["N-06"],
+  "covers_needs": [
+    "N-06"
+  ],
+  "in_scope": [
+    "Unifying the two pricing surfaces into one registry with one lookup path",
+    "Deleting the flat-rate computeCost (agent.go) and computeAgenticCost (verify.go)",
+    "In-process driver cost from CONFIRMED model-id + true token split; provider-reported cost carried when present",
+    "CostSource (provider|pricing-table|cli|subscription|unknown) threaded Result -> state.Dispatch -> status.json"
+  ],
+  "out_of_scope": [
+    "Adding pricing DATA for models absent from both legacy tables (fail-closed unknown instead)",
+    "Cross-run durable telemetry storage (FT-7 internal/db work)",
+    "board-v1/proof-v1 schema changes"
+  ],
   "effort_complexity": {
     "effort": "high",
     "complexity": "low",
