@@ -1,0 +1,73 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/board-v1.json",
+  "schema_version": 1,
+  "release": {
+    "name": "2026-06-28-driver-contract",
+    "integration_branch": "release/v0.1.0",
+    "target_version": "v0.1.0",
+    "vertical_trace": {
+      "benefit": "sworn loop completes releases on any capable model or agent CLI the user has — subscription or API key — because every loop-role dispatch goes through one stable Driver contract: provider quirks are contained inside drivers, capability is honest at resolution, and delivery economics are measured per dispatch."
+    }
+  },
+  "release_worktree_branch": "release-wt/2026-06-28-driver-contract",
+  "tracks": [
+    {
+      "id": "T1-contract",
+      "slices": [
+        "S01-driver-contract"
+      ],
+      "depends_on": [],
+      "worktree_branch": "track/2026-06-28-driver-contract/T1-contract",
+      "state": "planned"
+    },
+    {
+      "id": "T2-subprocess",
+      "slices": [
+        "S02-claude-subprocess-driver",
+        "S03-codex-subprocess-driver"
+      ],
+      "depends_on": ["T1-contract"],
+      "worktree_branch": "track/2026-06-28-driver-contract/T2-subprocess",
+      "state": "planned"
+    },
+    {
+      "id": "T3-inprocess",
+      "slices": [
+        "S04-inprocess-oai-driver"
+      ],
+      "depends_on": ["T1-contract"],
+      "worktree_branch": "track/2026-06-28-driver-contract/T3-inprocess",
+      "state": "planned"
+    },
+    {
+      "id": "T4-resolution-loop",
+      "slices": [
+        "S05-driver-registry",
+        "S06-loop-dispatch-rewire",
+        "S07-scheduler-failfast",
+        "S08-honest-cost-telemetry"
+      ],
+      "depends_on": ["T2-subprocess", "T3-inprocess"],
+      "worktree_branch": "track/2026-06-28-driver-contract/T4-resolution-loop",
+      "state": "planned"
+    },
+    {
+      "id": "T5-catalog",
+      "slices": [
+        "S09-model-catalog"
+      ],
+      "depends_on": ["T4-resolution-loop"],
+      "worktree_branch": "track/2026-06-28-driver-contract/T5-catalog",
+      "state": "planned"
+    },
+    {
+      "id": "T6-proof",
+      "slices": [
+        "S10-conformance-sit"
+      ],
+      "depends_on": ["T4-resolution-loop"],
+      "worktree_branch": "track/2026-06-28-driver-contract/T6-proof",
+      "state": "planned"
+    }
+  ]
+}

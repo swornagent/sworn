@@ -1,0 +1,34 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S01-driver-contract",
+  "release": "2026-06-28-driver-contract",
+  "track": "T1-contract",
+  "state": "planned",
+  "covers_needs": ["N-01", "N-08"],
+  "spec_path": "docs/release/2026-06-28-driver-contract/S01-driver-contract/spec.json",
+  "start_commit": null,
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "high",
+    "quadrant": "puzzle",
+    "rationale": "Small diff, keystone contract — shape errors here are the release's most expensive defect class.",
+    "confirmed_by_implementer": false
+  },
+  "design_decisions": [
+    {
+      "choice": "Driver contract shape: role-dispatch with declared RoleSet (Dispatch(ctx, DispatchInput) -> Result; capability IS the role set, checked fail-fast at resolution; engine validates Result.StructuredJSON against verifier-verdict-v1 fail-closed; wire types internal to in-process drivers)",
+      "stake_class": "Type-1",
+      "options": [
+        "role-dispatch contract with declared RoleSet (chosen)",
+        "minimal Dispatch core + optional interfaces discovered by type-assert (today's RunAgentic pattern generalised)",
+        "maximal: fold non-loop utility judgements (gates/bench) into Dispatch too"
+      ],
+      "human_decision": "Brad, 2026-07-02, planning session (AskUserQuestion decision card; recorded in intake.md 'Driver contract shape: role-dispatch'). Companion clauses decided in the same session: role-universality (any driver may serve any loop role it declares), one-shot model.Verifier survives utility-only, explicit-table registration with enumeration API, explicit prefix->driver resolution with no smart fallback.",
+      "rationale": "Matches role-universality exactly; kills the sworn#35 advertises-but-ignores class at resolution time instead of runtime; accepted cost is the largest rewire of the verify.go/slice.go seams (T4). Silent-reroute fallbacks rejected per the sworn#69 lesson.",
+      "architecturally_significant": true
+    }
+  ],
+  "verification": {
+    "result": "pending"
+  }
+}
