@@ -379,9 +379,46 @@ facts the re-cut specs must be grounded in, where they diverge from the
   santhosh-tekuri/jsonschema/v6, embedded schemas in
   `internal/baton/schemas/`). There is no `internal/schema` package.
 
-## Proposed slice decomposition (draft)
+## Proposed slice decomposition (approved 2026-07-02)
 
-(Phase 3 — pending discovery decisions.)
+10 slices, 6 tracks; approved by Brad via decision cards (see Decisions). The
+2026-06-28 spec.md-era slices are superseded and removed by the re-cut (raw
+material preserved in git history at commit 7c49f51 and earlier).
+
+- `S01-driver-contract` — the role-dispatch Driver contract types + ADR-0012;
+  owns the Type-1 design-decision record. (T1)
+- `S02-claude-subprocess-driver` — claude-cli subprocess driver, both roles,
+  cmd.Dir + Rule-11 assert + JSON envelope parsing; the sworn#35 fix. (T2)
+- `S03-codex-subprocess-driver` — codex exec variant; closes sworn#19;
+  late-deferrable. (T2)
+- `S04-inprocess-oai-driver` — agent loop + OAI/Responses clients behind the
+  contract; agentic verify = tool loop then structured verdict. (T3)
+- `S05-driver-registry` — DefaultRegistry(cfg) explicit table + Resolve
+  fail-fast + enumeration/availability + sworn#31 prefix rename. (T4)
+- `S06-loop-dispatch-rewire` — RunSlice all role legs via Dispatch; factories
+  deleted; engine-side verdict validation; import-boundary test. (T4)
+- `S07-scheduler-failfast` — parallel loop resolves all role×model at startup,
+  fails fast named; factory helpers deleted. (T4)
+- `S08-honest-cost-telemetry` — sworn#70: unify pricing, kill $2/1M flat,
+  CostSource honesty (cli/subscription/table/unknown). (T4)
+- `S09-model-catalog` — `sworn models` per-provider listing with wire-reported
+  capability annotations; unknown ≠ capable. (T5)
+- `S10-conformance-sit` — exported driver conformance suite + SIT smoke
+  booting the assembled loop over a fixture release with a stub driver. (T6)
+
+### 2026-07-02 — Decomposition + track grouping approved
+
+- **Context**: Phase 3/3b — slice list and parallelism structure.
+- **Decision** (Brad): 10 slices as listed above; 6 tracks
+  T1-contract(S01) → T2-subprocess(S02→S03) ∥ T3-inprocess(S04) →
+  T4-resolution-loop(S05→S06→S07→S08, depends_on [T2,T3]) →
+  T5-catalog(S09) ∥ T6-proof(S10) (both depends_on [T4]).
+- **Why**: The middle is honestly serial (T4 is the spine of the re-seam);
+  parallelism is real at the driver-implementation pair and the closing pair.
+  depends_on edges legalize the file overlaps between dependent tracks (e.g.
+  T4's `internal/agent/agent.go` cost removal lands after T3 merges its
+  wrapping of the same package). If S03-codex defers late, T2 shortens and
+  nothing re-groups.
 
 ## Ambiguity register
 
