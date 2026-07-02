@@ -1,0 +1,20 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S04-inprocess-oai-driver",
+  "release": "2026-06-28-driver-contract",
+  "track": "T3-inprocess",
+  "state": "planned",
+  "covers_needs": ["N-03", "N-08"],
+  "spec_path": "docs/release/2026-06-28-driver-contract/S04-inprocess-oai-driver/spec.json",
+  "start_commit": null,
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "high",
+    "quadrant": "puzzle",
+    "rationale": "Wrap-don't-rewrite, but the loop-then-structured-verdict mechanism is new; provider quirks must stay contained.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending"
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "schema_version": 1,
+  "slice_id": "S04-inprocess-oai-driver",
+  "release": "2026-06-28-driver-contract",
+  "track": "T3-inprocess",
+  "user_outcome": "An operator with OpenAI-compatible API keys keeps everything working through ONE hardened in-process driver behind the same contract — the agent loop and provider wire format become an implementation detail invisible to the orchestrator, and the in-process verifier role runs the tool loop before emitting its structured verdict (closing the sworn#55 gap for in-process dispatch too).",
+  "rationale": "Wraps the existing internal/agent.Run tool loop and the OAI/OpenAIResponses clients as a Driver — an option, not the default. Grounding: agent.Run (internal/agent/agent.go:81) already owns exit-on-no-tools with the 25-turn cap as circuit breaker and returns the full message history; the tool executor (internal/agent/tools.go) already confines paths and sets cmd.Dir=root. The agentic-verify mechanism is NEW: run the tool loop for investigation, then obtain the verdict via one ChatStructured call over the accumulated transcript against DispatchInput.VerdictSchema — replacing today's zero-tool single-shot (verify.RunAgentic, internal/verify/verify.go:189, the sworn#55 gap) for in-process dispatch. Wrapping only: this slice does not edit internal/agent or internal/model (their cost/computeCost edits belong to S08 in T4; the depends_on edge serialises the shared package). The S27 content-always-present fix and structured plumbing (internal/model/structured.go) are consumed as-is.",
+  "covers_needs": ["N-03", "N-08"],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "high",
+    "quadrant": "puzzle",
+    "rationale": "Moderate file count (wrap, don't rewrite), but the loop-then-structured-verdict mechanism is new and provider quirks must stay contained behind the driver.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    "internal/driver/inprocess.go",
+    "internal/driver/inprocess_verify.go",
+    "internal/driver/inprocess_test.go"
+  ],
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "Reusing the agent transcript for the final ChatStructured verdict call trips provider-specific structured-output quirks (strict projection, forced-tool fallback).",
+      "mitigation": "The existing structured plumbing (strictProjection, normaliseStructuredContent) is reused unchanged; a structured-emission failure maps to Status=error ErrKind=protocol (fail-closed to INCONCLUSIVE at the engine), never a fabricated verdict. Covered by httptest-server tests and S10 conformance."
+    },
+    {
+      "id": "R-02",
+      "description": "Touching internal/agent or internal/model from this slice collides with T4's planned edits to the same packages.",
+      "mitigation": "Touchpoints are internal/driver files only; any needed capability must be achievable through the packages' existing exported surface, or the slice BLOCKs and routes back to the planner rather than silently widening its touchpoints."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When Dispatch is called with Role=implementer and an OAI-compatible model, the driver SHALL execute the multi-turn tool loop (internal/agent.Run) rooted at WorktreeRoot (after the S01 AssertWorktree guard) and return Status=ok with ResultText set to the loop's final text and InputTokens/OutputTokens/DurationMS populated. TestInprocessImplementer proves it against an httptest server scripting a tool-call turn followed by a terminal turn."
+    },
+    {
+      "id": "AC-02",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When Dispatch is called with Role=verifier, the driver SHALL first run the tool loop for investigation and then obtain the verdict via exactly one ChatStructured call over the accumulated transcript against DispatchInput.VerdictSchema, returning it in Result.StructuredJSON — the in-process verifier can now re-run tests and read live repo state (sworn#55) while the ENGINE still performs verifier-verdict-v1 validation."
+    },
+    {
+      "id": "AC-03",
+      "type": "unwanted",
+      "ears_keyword": "If",
+      "text": "If the model emits a tool-only turn (empty content), the wire request SHALL still serialize a present content field (the S27 content-omitempty regression guard), asserted by a test that inspects the raw request body the driver sends."
+    },
+    {
+      "id": "AC-04",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "The loop SHALL exit on no-tool-calls with the turn cap acting only as a circuit breaker; a max-turns exit SHALL map to Status=error with ErrKind=transient (retryable), and a structured-emission failure on the verifier path SHALL map to Status=error with ErrKind=protocol — never a panic, never a fabricated verdict."
+    },
+    {
+      "id": "AC-05",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "This slice SHALL NOT edit internal/agent or internal/model (wrapping only — verified by the diff touching only internal/driver files); `go test ./internal/driver/...` SHALL pass."
+    }
+  ]
+}
