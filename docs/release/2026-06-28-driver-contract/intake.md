@@ -180,6 +180,25 @@ are cut. Trace gate binds every N-NN to at least one slice's `covers_needs`.)
 - **FT-1 orchestration items** (serialized cold-start bootstrap, auto-WIP-commit,
   track-local failure isolation) — the 2026-06-28 plan already scoped these to a
   separate release; several landed via the operational-readiness releases.
+- **Item**: model-backed spec checks (`sworn reqverify`, spec-ambiguity
+  LLM check) not run at planning close. **Why deferred**: the planning session
+  ran under the no-paid-dispatch constraint (starter capture; sworn#69 —
+  `~/.sworn/.env` keys load silently). **Tracking**: run them as the first
+  Definition-of-Ready step before any slice moves `planned → in_progress`,
+  together with `sworn reqvalidate` (the human-ratified validation records are
+  also still to be written — a Rule 8 DoR step, not a planning-close step).
+  **Acknowledged**: Brad, 2026-07-02 (this session's handoff message).
+- **Item**: `sworn lint ac` (exit 2) and `sworn specquality` (exit 1) fail on
+  this release. **Why not fixed here**: pre-existing tooling gap, not a record
+  defect — both readers still parse `spec.md`, which canonical (spec-v1-only)
+  releases do not have; verified by identical failures on the sibling
+  `2026-07-01-release-hygiene`. Known family: the render-drift release's
+  deferred "spec.md-only parsers" item; do NOT manufacture spec.md files
+  (memory: `feedback_releaseverify_specmd_false_fail`). The load-bearing gates
+  pass: `sworn lint trace` (11 needs, PASS), `sworn designfit` (PASS),
+  `sworn board`, `sworn render`. **Tracking**: fold into the existing
+  spec.md-parser migration backlog (render-drift intake deferral).
+  **Acknowledged**: Brad, 2026-07-02 (this session's handoff message).
 
 ## Decisions made during planning
 
