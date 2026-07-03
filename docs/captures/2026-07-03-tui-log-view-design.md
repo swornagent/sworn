@@ -188,3 +188,118 @@ An actual `sworn run` (or a scripted fake-agent run) that (a) emits narration to
 - No refactor of worker control flow — additive `io.Writer` seam only (§A.3).
 - No scrollback into rotated `.log.1` from the TUI (tracked follow-up).
 - No hosted/portal log shipping — local files only; the on-disk contract (C1) is the seam a future shipper would read.
+
+---
+
+## F. Captain design review (Rule 9) — 2026-07-03
+
+Reviewed against live code (`internal/scheduler/worker.go`, `internal/run/parallel.go`,
+`internal/tui/model.go`, `internal/tui/concurrent.go`, `internal/db/db.go`) and against
+`docs/release/2026-06-28-driver-contract/` board state. **Verdict: proceed to
+implementation AFTER the two escalate pins get a recorded human/Coach decision in
+`status.json`.** The design is sound, the surgical-seam instinct is correct, and its own
+Type-1 self-classification (C1/C2) is validated below. 9 pins.
+
+Claims spot-checked and **confirmed** against live code: `db.DefaultDir=".sworn"` +
+`writeSelfIgnore` stamping `*` gated on `filepath.Base(dir)==DefaultDir` (db.go:19,81,120);
+`RunParallel` holds `absRoot=filepath.Abs(workspaceRoot)` and workers all write relative to
+that one root (parallel.go:138) — so logs land under the same `.sworn/` the TUI reads via
+`m.repoRoot`, matching the DB's `db.DefaultPath` locational assumption (no *new* co-location
+risk); `os.Stderr` sites = **37** in worker.go / **14** in parallel.go; `tickMsg struct{}` is
+the shared poll type (concurrent.go:28); model.go tickMsg forward at 91-100 and `m.Height` at
+89 as cited; S06-loop-dispatch-rewire and S07-scheduler-failfast both **`state:"planned"`**
+and S06's own spec scopes an *import-boundary rewire over internal/run + internal/verify +
+internal/scheduler* (the exact packages half A edits) — the overlap is real.
+
+### Escalate (genuine Type-1 — human/Coach must record a decision before `planned → in_progress`)
+
+- **E1 — C1 log path + line format.** The design's Type-1 call is **correct and I affirm it**
+  — but the recorded human decision must sharpen two things the doc bundles into one row:
+  (a) the **path** `.sworn/logs/<release>/<track>.log` is the harder contract (a future
+  `sworn logs` subcommand or portal-ingest hardcodes it; moving it later breaks those readers),
+  whereas (b) the **line format** `HH:MM:SS.mmm [track] msg` is today only an *internal*
+  writer↔TUI-reader coupling (A.4 ↔ B.3), changeable in lockstep within this codebase. The
+  honest open question for the human: **freeze the unversioned format under human ratification,
+  OR add a cheap format-version marker now** (a header line / `FORMAT` sentinel) — the latter
+  legitimately downgrades the line-format half to a versioned Type-2 and de-risks every future
+  reader. Model proposes; must not self-ratify. There are **zero external readers today**, which
+  is exactly why classifying *up* (Type-1) is the fail-closed-correct call.
+
+- **E2 — C2 merge ordering vs S06/S07 is an unresolved sequencing decision, not just a seam
+  shape.** The seam itself (add `WorkerOptions.LogDir`, thread an `io.Writer`) is additive and
+  reversible; the Type-1 weight is entirely the **cross-release merge ordering**, and the design
+  leaves it open ("flagged to the Coach"). S06 is the release's *epic-sized* seam rewire actively
+  re-touching internal/run + internal/scheduler dispatch. Landing 37 mechanical `os.Stderr→w`
+  edits + a `WorkerOptions` struct-field addition into worker.go while S06/S07 are planned-but-
+  unstarted against the same files is a live rebase-collision risk against another in-flight
+  release. The Coach must **decide the order explicitly now** (log-tee rebases onto the rewritten
+  worker, or S06/S07 inherit `w`) — not discover it at merge. Memory hazard
+  (`feedback_replan_propagate_by_merge_not_copy`): if these are synced, propagate by
+  forward-**merge**, never cp-files, or the drift gate counts divergent ancestry and loops.
+
+### Memory-cited
+
+- **Mem1 — newline-eating edits on a comment-dense file (the exact worker.go hazard).**
+  `worker.go` is dense with multi-line doc comments, and memory
+  (`project_newline_eating_edit_corruption`) records `worker.go:232 finishTrack` as a *prior
+  victim* where a model fused a `return`/statement onto the preceding `//` line, silently
+  commenting out code. The design's **37-site mechanical `os.Stderr→w` token replacement** is
+  precisely this hazard class at scale. Mitigation is mandatory, not optional: after the edits
+  run **full `go test ./...` with a timeout** (a hung TestGetBoard once masked this for 10 min)
+  and grep the fusion pattern (e.g. `//.*\t+(return|fmt\.|w\.|[a-z]+\()`) over worker.go before
+  trusting green.
+
+- **Mem2 — S06/S07 touchpoint overlap is confirmed on the board, not hypothetical.** Both slices
+  are `planned` on `2026-06-28-driver-contract` and S06 declares an import-boundary contract over
+  the very packages half A edits. Feeds E2; also means the log slice's proof bundle must state
+  its rebase base explicitly so the verifier can reconcile.
+
+### Mechanical
+
+- **M1 — tick-chain multiplication (real bubbletea foot-gun).** `LiveView` and the proposed
+  `LogView` both emit the **same** `tickMsg{}` type. When the design's new `state==viewLog`
+  forward is added, an *in-flight* `LiveView` tickCmd (scheduled before the view switch) lands
+  while `state==viewLog`, gets adopted by `LogView.Update`, which returns *another* tickCmd — on
+  top of the one `LogView.Init()` already started → the tick rate **doubles** (and compounds on
+  each re-entry, since `handleBoardKey "l"` and `handleReleasesKey enter` already call `Init()`
+  again). Guard it: only start a tick in `Init` if not already ticking, or gate on a per-view
+  ownership token / TickCount parity. Prove the guard fires with a test that switches views and
+  asserts a single tick cadence.
+
+- **M2 — consolidated k-way merge mis-orders across a date boundary.** The A.4 prefix is
+  **time-only** (`15:04:05.000`, no date); B.3 merges by that string. A run crossing midnight (or
+  any multi-hour run) sorts post-midnight `00:0x` lines *before* pre-midnight `23:5x` lines. "Loop
+  runs are bounded in wall-time" is not a guarantee — real releases have run for hours. Fix cheaply
+  (include a date, or a monotonic per-line sequence for the merge key) or document the boundedness
+  as a tracked Rule-2 limitation with the ceiling stated.
+
+- **M3 — the "defensive ensure-self-ignore" claim (A.1) is currently unbackable.**
+  `db.writeSelfIgnore` is **unexported**; the log-dir creator in `internal/run`/`internal/scheduler`
+  cannot call "the same ensure-self-ignore path." In practice `db.Open` runs before any worker (the
+  DB handle is threaded into `WorkerOptions.DB`), so the `*` ignore already exists — but the doc's
+  defensive fallback needs either an exported `db.EnsureSelfIgnore(dir)` or a reworded reliance on
+  the open-ordering invariant. Pick one; don't ship the promise unbacked.
+
+- **M4 — the live-view cursor idiom does not exist yet (attribution error).** B.1 says it "reuses
+  the exact j/k/enter idiom already in `handleLiveKey`" — but live-code `handleLiveKey`
+  (model.go:363-373) has **only** `esc`→`viewReleases` and `b`→`viewBoard`; no cursor, no `enter`.
+  The idiom lives in `handleBoardKey`. So half B must *add* a row cursor + `enter`/`L` to
+  `handleLiveKey` (net-new, additive to concurrent.go/model.go — fine), and note that live-view
+  `esc` currently returns to **releases**, not board — reconcile LogView's "esc returns to
+  originating view" against that so the back-stack is consistent.
+
+- **M5 — filename sanitisation must be a single shared function used by BOTH writer and reader,
+  and doc naming needs a tidy.** The writer sanitises `merge:T3→merge__T3`; the TUI "enter on a
+  row" reader must apply the **identical** `strings.Map` (a `TrackRow.ID` of `merge:T3` opens
+  `merge__T3.log`), so factor one helper, not two. Minor doc-accuracy: "~40 call sites" is 37, and
+  the doc calls the legacy helper `RunTrackLegacy` where live code has unexported `runTrackLegacy`
+  (worker.go:424).
+
+### Not a finding (affirmed as correct)
+
+- The refusal to redirect process-global `os.Stderr` and the explicit per-track `io.Writer` seam
+  (A.3) is the right Rule 11 call and sidesteps the `#63` ambient-mutation gate class entirely.
+- `O_APPEND` line-oriented writes with no `fsync` is the correct, simplest-correct durability
+  posture for an operator log.
+- Read-time consolidated interleave (C4) with no second on-disk file is the right reversible
+  default — no engine-side dedupe/crash-consistency burden.
