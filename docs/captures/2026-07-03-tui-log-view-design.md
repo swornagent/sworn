@@ -303,3 +303,25 @@ internal/scheduler* (the exact packages half A edits) — the overlap is real.
   posture for an operator log.
 - Read-time consolidated interleave (C4) with no second on-disk file is the right reversible
   default — no engine-side dedupe/crash-consistency burden.
+
+## Coach decisions (post-review)
+
+Date: 2026-07-03
+Decision-maker: Brad (Coach), in conversation following the Captain review.
+
+**E1 (C1, log contract): version marker now.** The path
+`.sworn/logs/<release>/<track>.log` is ratified as the hard contract. Each log
+file opens with a format-version header (`# sworn-log v1`); the line format is
+thereby a versioned Type-2 that future readers (`sworn logs`, portal) can evolve
+behind the version marker. Freezing an unversioned format was considered and
+rejected — zero external readers today is the cheapest moment to version.
+
+**E2 (C2, sequencing): the log tee lands first.** The additive io.Writer seam
+merges ahead of driver-contract's S06/S07 rewire; those slices (still planned)
+inherit the seam via their release's normal base forward-merge — propagation by
+merge, never cp-files (feedback_replan_propagate_by_merge_not_copy). Holding the
+feature behind the rewire was considered and rejected as an avoidable delay on
+an additive seam.
+
+All mechanical (M1–M5) and memory-cited (Mem1–Mem2) pins remain binding on the
+implementation.
