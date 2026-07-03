@@ -6,7 +6,7 @@
   "state": "in_progress",
   "covers_needs": ["N-02", "N-08"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S02-claude-subprocess-driver/spec.json",
-  "start_commit": null,
+  "start_commit": "ab61c6db0204c46900b09b51b60d4e4f4a31f260",
   "effort_complexity": {
     "effort": "high",
     "complexity": "low",
