@@ -98,6 +98,36 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		return m, nil
+	case boardLoadedMsg:
+		// Delivered by loadBoardCmd (sworn#82). Discard a stale load — the
+		// user may have navigated to a different release before this one
+		// finished — rather than clobbering what's now on screen.
+		if msg.releaseName != m.Board.ReleaseName {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.errMsg = msg.err.Error()
+			m.Board.Loading = false
+			return m, nil
+		}
+		msg.board.Loading = false
+		m.Board = msg.board
+		return m, nil
+	case gatesLoadedMsg:
+		// Delivered by loadGatesCmd (sworn#82's on-demand 'g' keybinding).
+		// Same staleness guard as boardLoadedMsg.
+		if msg.releaseName != m.Board.ReleaseName {
+			return m, nil
+		}
+		m.Board.GatesLoading = false
+		m.Board.GatesLoaded = true
+		m.Board.GateResults = msg.results
+		for sid, gr := range msg.results {
+			si := m.Board.Slices[sid]
+			si.Gate = gr
+			m.Board.Slices[sid] = si
+		}
+		return m, nil
 	}
 	return m, nil
 }
@@ -220,20 +250,36 @@ func (m *Model) handleReleasesKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	case "enter":
 		if len(m.Releases.Releases) > 0 {
 			sel := m.Releases.Releases[m.Releases.Cursor]
-			if err := m.Board.LoadBoard(m.repoRoot, sel.ID); err != nil {
-				m.errMsg = err.Error()
-			}
-			m.state = viewBoard
 
-			// Auto-transition to live view if tracks are in-progress.
+			// sworn#82: board loading is dispatched as a tea.Cmd, never run
+			// inline here — LoadBoard used to execute synchronously inside
+			// this handler (plus eagerly recompute gates), which blocked
+			// bubbletea's repaint for up to 21.5s on a 73-slice release
+			// (measured; gates alone were 21.3s of it). Reset the board to
+			// a "loading" placeholder now; loadBoardCmd's boardLoadedMsg
+			// populates the real data once it lands.
+			m.Board.ReleaseName = sel.ID
+			m.Board.Loaded = false
+			m.Board.Loading = true
+			m.Board.GateResults = nil
+			m.Board.GatesLoaded = false
+			m.Board.GatesLoading = false
+			m.state = viewBoard
+			cmds := []tea.Cmd{loadBoardCmd(m.repoRoot, sel.ID)}
+
+			// Auto-transition to live view if tracks are in-progress. This
+			// check stays synchronous — HasInProgressTracks is a single
+			// indexed SQLite COUNT(*), not a git shell-out, and must not
+			// wait on the (possibly slower) board load Cmd above.
 			if HasInProgressTracks(m.repoRoot, sel.ID) {
 				lv, err := StartLiveView(m.repoRoot, sel.ID)
 				if err == nil {
 					m.Live = lv
 					m.state = viewLive
-					return m, lv.Init()
+					cmds = append(cmds, lv.Init())
 				}
 			}
+			return m, tea.Batch(cmds...)
 		}
 	case "esc":
 	}
@@ -300,6 +346,15 @@ func (m *Model) handleBoardKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		m.Settings = sv
 		m.state = viewSettings
 		return m, nil
+	case "g":
+		// Compute gate results for the current release on demand (sworn#82)
+		// — LoadGateResults shells `git diff` per slice and is no longer run
+		// automatically on every board load. Dispatched as a tea.Cmd, same
+		// as the board load itself, so it can't block Update either.
+		if m.Board.ReleaseName != "" && !m.Board.GatesLoading {
+			m.Board.GatesLoading = true
+			return m, loadGatesCmd(m.repoRoot, m.Board.ReleaseName)
+		}
 	}
 	return m, nil
 }
@@ -382,16 +437,17 @@ func (m *Model) renderHelp() string {
 	bar := HelpBar.Copy().Width(w)
 	if m.showHelp {
 		return bar.Render(`
-	? help     ↑/k up     ↓/j down     enter select     l live     b board     s settings     esc back     q quit`)
+	? help     ↑/k up     ↓/j down     enter select     l live     b board     g gates     s settings     esc back     q quit`)
 	}
 	return bar.Render(fmt.Sprintf(
-		"%s help  %s up  %s down  %s select  %s live  %s board  %s settings  %s back  %s quit",
+		"%s help  %s up  %s down  %s select  %s live  %s board  %s gates  %s settings  %s back  %s quit",
 		HelpKey.Render("?"),
 		HelpKey.Render("↑/k"),
 		HelpKey.Render("↓/j"),
 		HelpKey.Render("enter"),
 		HelpKey.Render("l"),
 		HelpKey.Render("b"),
+		HelpKey.Render("g"),
 		HelpKey.Render("s"),
 		HelpKey.Render("esc"),
 		HelpKey.Render("q"),

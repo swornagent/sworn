@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/state"
@@ -37,10 +38,24 @@ type BoardView struct {
 	Tracks        []TrackInfo
 	Slices        map[string]SliceBoardInfo // slice ID -> live data
 	Loaded        bool
+	Loading       bool                  // true while an async LoadBoard is in flight (sworn#82)
 	Cursor        int                   // index of the selected slice in orderedSlices
 	orderedSlices []string              // slice IDs in display order
 	MergeActive   map[string]bool       // track IDs with an active merge in flight
 	GateResults   map[string]GateResult // per-slice gate check results (S72)
+
+	// GatesLoaded/GatesLoading (sworn#82): gate results are no longer
+	// computed as part of LoadBoard — LoadGateResults shells `git diff` per
+	// slice (trace once + coverage/design/mock per implemented slice) and
+	// was measured as ~100% of the board-load cost (21.3s of 21.5s on a
+	// 73-slice release). Gates are now on-demand only, via the 'g'
+	// keybinding: GatesLoading is true while that async compute is in
+	// flight, GatesLoaded is true once GateResults holds a real (possibly
+	// stale, session-cached) result set. Both are false after a fresh
+	// LoadBoard, which is what makes the board badges render as "unloaded"
+	// until the user asks for gates.
+	GatesLoaded  bool
+	GatesLoading bool
 }
 
 // LoadBoard reads the selected release's board (via internal/board's oracle,
@@ -153,13 +168,13 @@ func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
 
 	b.Loaded = true
 
-	// Load gate results for display (S72).
-	b.GateResults = LoadGateResults(repoRoot, releaseName)
-	for sid, gr := range b.GateResults {
-		si := b.Slices[sid]
-		si.Gate = gr
-		b.Slices[sid] = si
-	}
+	// Gate results are intentionally NOT computed here (sworn#82) — see the
+	// GatesLoaded/GatesLoading doc comment on BoardView. A fresh LoadBoard
+	// always resets to "not computed"; the 'g' keybinding (loadGatesCmd)
+	// populates GateResults on demand.
+	b.GateResults = nil
+	b.GatesLoaded = false
+	b.GatesLoading = false
 
 	// Populate MergeActive from the events table.
 	b.MergeActive = map[string]bool{}
@@ -172,6 +187,34 @@ func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
 	}
 
 	return nil
+}
+
+// boardLoadedMsg delivers the result of an async LoadBoard call dispatched
+// by loadBoardCmd (sworn#82). releaseName is carried so the receiving
+// Update() can detect and discard a stale load — one dispatched for a
+// release the user has since navigated away from — instead of clobbering
+// whatever board is now on screen.
+type boardLoadedMsg struct {
+	releaseName string
+	board       *BoardView
+	err         error
+}
+
+// loadBoardCmd returns a tea.Cmd that loads a release's board off the
+// bubbletea Update goroutine. Before sworn#82, handleReleasesKey called
+// BoardView.LoadBoard directly inline on Enter, which — combined with
+// LoadBoard eagerly recomputing gates — blocked the UI for up to 21.5s on a
+// 73-slice release (measured). Gates are now lazy (see GatesLoaded on
+// BoardView), which took LoadBoard itself down to ~1ms even on that
+// release, but the load is still dispatched as a Cmd on principle: board
+// loading shells out to git via the slice oracle and must never run
+// synchronously inside a key handler, regardless of today's measured cost.
+func loadBoardCmd(repoRoot, releaseName string) tea.Cmd {
+	return func() tea.Msg {
+		bv := &BoardView{}
+		err := bv.LoadBoard(repoRoot, releaseName)
+		return boardLoadedMsg{releaseName: releaseName, board: bv, err: err}
+	}
 }
 
 // tuiOracleReader adapts *git.Repo to internal/board's (unexported)
@@ -344,6 +387,15 @@ func formatLastUpdated(ts string) string {
 
 // View renders the board view pane for the currently selected release.
 func (b *BoardView) View() string {
+	if b.Loading {
+		// sworn#82: rendered while loadBoardCmd is in flight, so the user
+		// sees feedback instead of a frozen screen during the load.
+		title := "Board"
+		if b.ReleaseName != "" {
+			title = "Board: " + b.ReleaseName
+		}
+		return BoardTitle.Render(title) + "\n" + EmptyMessage.Render("Loading…")
+	}
 	if !b.Loaded {
 		return BoardTitle.Render("Board") + "\n" +
 			EmptyMessage.Render("Select a release from the left pane")
@@ -372,7 +424,7 @@ func (b *BoardView) View() string {
 				si = SliceBoardInfo{ID: sliceID, State: "unknown", LastUpdatedAt: "—"}
 			}
 			sliceState := SliceStateColor(si.State, si.VerificationResult)
-			gateLine := si.Gate.RenderInline()
+			gateLine := b.renderGateLine(si)
 			line := fmt.Sprintf("  %s  %s  (%s)  %s", sliceID, sliceState, si.LastUpdatedAt, gateLine)
 			if len(b.orderedSlices) > 0 && b.Cursor >= 0 && b.Cursor < len(b.orderedSlices) && b.orderedSlices[b.Cursor] == sliceID {
 				sb.WriteString(BoardItemSelected.Render("▸" + line[1:]))
@@ -385,4 +437,20 @@ func (b *BoardView) View() string {
 	}
 
 	return sb.String()
+}
+
+// renderGateLine renders the gate badge for one slice row (sworn#82): the
+// computed GateResult once GatesLoaded, a "computing" placeholder while
+// loadGatesCmd is in flight, or an "unloaded" hint (press 'g') otherwise.
+// Gates are no longer computed as part of LoadBoard, so a freshly-loaded
+// board always starts in the "unloaded" state here.
+func (b *BoardView) renderGateLine(si SliceBoardInfo) string {
+	switch {
+	case b.GatesLoading:
+		return GateNeutralStyle.Render("[computing…]")
+	case b.GatesLoaded:
+		return si.Gate.RenderInline()
+	default:
+		return GateNeutralStyle.Render("[· press g]")
+	}
 }
