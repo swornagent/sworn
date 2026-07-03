@@ -29,8 +29,9 @@
         "S03-codex-subprocess-driver"
       ],
       "depends_on": ["T1-contract"],
+      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-28-driver-contract-T2-subprocess",
       "worktree_branch": "track/2026-06-28-driver-contract/T2-subprocess",
-      "state": "planned"
+      "state": "in_progress"
     },
     {
       "id": "T3-inprocess",
@@ -38,8 +39,9 @@
         "S04-inprocess-oai-driver"
       ],
       "depends_on": ["T1-contract"],
+      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-28-driver-contract-T3-inprocess",
       "worktree_branch": "track/2026-06-28-driver-contract/T3-inprocess",
-      "state": "planned"
+      "state": "in_progress"
     },
     {
       "id": "T4-resolution-loop",
