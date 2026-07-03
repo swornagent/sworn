@@ -3,7 +3,7 @@
   "slice_id": "S02-claude-subprocess-driver",
   "release": "2026-06-28-driver-contract",
   "track": "T2-subprocess",
-  "state": "planned",
+  "state": "design_review",
   "covers_needs": ["N-02", "N-08"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S02-claude-subprocess-driver/spec.json",
   "start_commit": null,
