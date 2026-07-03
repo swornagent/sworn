@@ -14,6 +14,7 @@ const (
 	viewReleases viewState = iota
 	viewBoard
 	viewLive
+	viewLog
 	viewBlocked
 	viewSettings
 	viewQuit
@@ -62,6 +63,10 @@ type Model struct {
 	// has navigated to a release with live tracks (or pressed l from board).
 	Live *LiveView
 
+	// Log is the live log view (per-track or consolidated). Non-nil only while
+	// state == viewLog, opened by enter on a live row or L from live/board.
+	Log *LogView
+
 	// S04c: Blocked is the blocked/failed slice resolution view.
 	Blocked *BlockedView
 
@@ -95,6 +100,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state == viewLive && m.Live != nil {
 			lm, cmd := m.Live.Update(msg)
 			m.Live = lm
+			return m, cmd
+		}
+		return m, nil
+	case logTickMsg:
+		// Forward to LogView ONLY when in the log view (Captain pin M1). A
+		// logTickMsg arriving in any other state is a stray from a since-left
+		// log view: dropped here, and because it is not re-armed the old chain
+		// dies — no tick doubling. Symmetrically, a tickMsg arriving in viewLog
+		// is dropped by the tickMsg case above.
+		if m.state == viewLog && m.Log != nil {
+			lm, cmd := m.Log.Update(msg)
+			m.Log = lm
 			return m, cmd
 		}
 		return m, nil
@@ -144,6 +161,11 @@ func (m *Model) View() string {
 		body += "\n" + m.renderCreditBar()
 		help := m.renderHelp()
 		return body + "\n" + help
+	}
+
+	// Log view replaces the two-pane layout entirely.
+	if m.state == viewLog && m.Log != nil {
+		return m.Log.View() + "\n" + m.renderHelp()
 	}
 
 	// Blocked view replaces the two-pane layout entirely.
@@ -228,6 +250,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		return m.handleBoardKey(msg)
 	case viewLive:
 		return m.handleLiveKey(msg)
+	case viewLog:
+		return m.handleLogKey(msg)
 	case viewBlocked:
 		return m.handleBlockedKey(msg)
 	case viewSettings:
@@ -336,6 +360,15 @@ func (m *Model) handleBoardKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 			m.state = viewLive
 			return m, lv.Init()
 		}
+	case "L":
+		// Open the consolidated log for the current release without first
+		// entering the live table (second entry point; Rule 1 affordance owned
+		// by the root Model key dispatch). esc returns here to the board.
+		if m.Board.ReleaseName != "" {
+			m.Log = StartLogView(m.repoRoot, m.Board.ReleaseName, "", viewBoard, m.Height)
+			m.state = viewLog
+			return m, m.Log.Init()
+		}
 	case "s":
 		// Open settings panel (S17).
 		sv, err := NewSettingsView()
@@ -360,6 +393,11 @@ func (m *Model) handleBoardKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 }
 
 // handleLiveKey handles keyboard input in the live view.
+//
+// The row cursor (j/k) + enter + L are net-new here (Captain pin M4: the
+// "j/k/enter idiom" the design cited actually lived in handleBoardKey, not
+// handleLiveKey). enter opens the selected track's log; L opens the
+// consolidated interleave. esc/b keep their existing destinations.
 func (m *Model) handleLiveKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -368,6 +406,57 @@ func (m *Model) handleLiveKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	case "b":
 		m.state = viewBoard
 		return m, nil
+	case "j", "down":
+		if m.Live != nil && m.Live.Cursor < len(m.Live.Rows)-1 {
+			m.Live.Cursor++
+		}
+		return m, nil
+	case "k", "up":
+		if m.Live != nil && m.Live.Cursor > 0 {
+			m.Live.Cursor--
+		}
+		return m, nil
+	case "enter":
+		if m.Live != nil && len(m.Live.Rows) > 0 {
+			track := m.Live.Rows[m.Live.Cursor].ID
+			m.Log = StartLogView(m.repoRoot, m.Live.ReleaseName, track, viewLive, m.Height)
+			m.state = viewLog
+			return m, m.Log.Init()
+		}
+		return m, nil
+	case "L":
+		if m.Live != nil {
+			m.Log = StartLogView(m.repoRoot, m.Live.ReleaseName, "", viewLive, m.Height)
+			m.state = viewLog
+			return m, m.Log.Init()
+		}
+		return m, nil
+	}
+	return m, nil
+}
+
+// handleLogKey handles keyboard input in the log view: scrollback + follow, and
+// esc back to the originating view (Captain pin M4 — the back-stack is
+// consistent because LogView.origin records where it was opened from).
+func (m *Model) handleLogKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
+	if m.Log == nil {
+		return m, nil
+	}
+	switch msg.String() {
+	case "esc":
+		m.state = m.Log.origin
+		return m, nil
+	case "b":
+		m.state = viewBoard
+		return m, nil
+	case "k", "up":
+		m.Log.scrollUp()
+	case "j", "down":
+		m.Log.scrollDown()
+	case "g":
+		m.Log.top()
+	case "G":
+		m.Log.bottom()
 	}
 	return m, nil
 }
@@ -437,15 +526,16 @@ func (m *Model) renderHelp() string {
 	bar := HelpBar.Copy().Width(w)
 	if m.showHelp {
 		return bar.Render(`
-	? help     ↑/k up     ↓/j down     enter select     l live     b board     g gates     s settings     esc back     q quit`)
+	? help     ↑/k up     ↓/j down     enter select     l live     L logs     b board     g gates     s settings     esc back     q quit`)
 	}
 	return bar.Render(fmt.Sprintf(
-		"%s help  %s up  %s down  %s select  %s live  %s board  %s gates  %s settings  %s back  %s quit",
+		"%s help  %s up  %s down  %s select  %s live  %s logs  %s board  %s gates  %s settings  %s back  %s quit",
 		HelpKey.Render("?"),
 		HelpKey.Render("↑/k"),
 		HelpKey.Render("↓/j"),
 		HelpKey.Render("enter"),
 		HelpKey.Render("l"),
+		HelpKey.Render("L"),
 		HelpKey.Render("b"),
 		HelpKey.Render("g"),
 		HelpKey.Render("s"),
