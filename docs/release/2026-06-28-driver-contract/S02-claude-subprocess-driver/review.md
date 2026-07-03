@@ -29,23 +29,53 @@ Critical pins: #2 — real, evidenced (git history + two sibling specs' own text
 - (c) Design decision 7 (touching `internal/model/capabilities_test.go` though not a listed touchpoint) — verified live: `cliDriver` appears in both the `TestCapabilities_AllDrivers` table (line 21) and the Chat-capable/no-Chat split lists (lines 50, 84) of `capabilities_test.go`. The same-package, AC-06-required addition is correctly scoped.
 - (d) Spec-completeness gate: spec.json's ACs are concrete (literal argv, field names, error-kind values) — not a thin spec. No gate finding here.
 
+## Resolution (post-review, 2026-07-03)
+
+Brad decided pin 2: **Option 1** — extend S02's `ErrKind` vocabulary now
+rather than deferring to S06/S07 or accepting the regression. Follow-up
+technical fork (how to detect an auth failure on a non-zero CLI exit):
+**blunt heuristic** — non-zero exit maps to `ErrKindAuth`, matching
+`internal/model/cli.go`'s existing coarse-but-production-proven heuristic
+exactly, rejected in favour of stderr pattern-matching because a missed
+pattern on CLI wording drift would silently reintroduce the same fail-fast
+gap.
+
+Applied to the artefacts:
+- `spec.json` AC-04 amended (non-zero exit -> `auth`, not `provider`) + new
+  risk R-03 recording the producing-side contract.
+- `design.md` decisions 1 and 2 updated; "Risks / open items" section marks
+  items 1/2/9 resolved.
+- `status.json` now carries the Type-1 `design_decisions` record (pin 1
+  addressed in the same pass).
+- `S06-loop-dispatch-rewire/spec.json` gets new risk R-03 (the consuming
+  side: AC-03's "terminal error kinds -> BLOCKED" must explicitly treat
+  `ErrKind==auth` as terminal at both the implement-leg and verify-leg
+  consumption points).
+- `S07-scheduler-failfast/spec.json` gets new risk R-02 (a pointer noting
+  AC-03's "existing retry/escalation policy" depends on S06's R-03 landing
+  first — sequencing, not new scope for S07).
+
+Pin 1 and pin 2 are now resolved. Pin 3 (permission-flag question) was
+already resolved by precedent at review time. Flag (a) already confirmed.
+Routing verdict updated below.
+
 ## Suggested acknowledgement reply
 
-TL;DR: solid, well-grounded design — every factual claim checked out live against the repo (imports_test.go, run.go:353, registry.go, capabilities_test.go all match design.md's citations exactly). 3 pins + 4 flags, one of which (pin 2) is a real cross-slice reliability gap worth resolving before S03 copies the same vocabulary shape:
+TL;DR: solid, well-grounded design — every factual claim checked out live against the repo (imports_test.go, run.go:353, registry.go, capabilities_test.go all match design.md's citations exactly). All pins resolved during design review; nothing left for you to decide, just build against the amended artefacts:
 
-1. **Record the Type-1 decision.** `status.json` has no `design_decisions` entry at all — add one for the new `ErrKind` vocabulary (decision 1), and fold the Coach's call on pin 2 into the same record.
-2. **Terminal-halt-on-auth gap (CRITICAL, needs a Coach call, not an inline fix).** The new `driver.ErrKind` vocabulary collapses auth failures into generic `provider`, but `internal/run/slice.go:487`'s live `model.IsTerminal`/KindAuth fail-fast — which S07-scheduler-failfast's own AC-03 explicitly assumes still works ("auth expired... through the existing retry/escalation policy") — reads a different vocabulary entirely. Pick one: amend S02's AC-04 to carry an auth-specific `ErrKind` now, scope a translation layer into S06/S07, or knowingly accept the regression. See review.md pin 2 for the full trade-off — this needs deciding before S02/S03 ship the pattern, not discovered at S06/S07 time.
-3. **Close out item 9, don't defer it.** The permission-flag question already has a precedent answer (baton's bash `claude-cli.sh` / captain-handbook loop dispatches run `claude -p` with no skip-permissions flag and it works in production, per memory). Confirm by reading the bash driver, then mark it resolved rather than carrying it as an open unknown into S10.
+1. **Type-1 decision now recorded.** `status.json.design_decisions` carries the ratified call: `ErrKind` vocabulary is `config`/`transient`/`auth`/`provider`(reserved)/`protocol`; non-zero CLI exit maps to `auth`, matching `internal/model/cli.go`'s existing heuristic exactly (Brad, 2026-07-03).
+2. **Build AC-04 as amended, not as originally drafted.** `spec.json` AC-04 now reads non-zero exit -> `ErrKindAuth` (not a generic `provider` label) — see design.md decision 2 for the full rationale (preserves `internal/run/slice.go:487`'s terminal-halt-on-auth fail-fast once S06 wires this in). `design.md`'s "Files touched" / AC traceability table is otherwise unchanged.
+3. **Item 9 closed, no flag needed.** Confirmed by precedent (baton's bash `claude-cli.sh` / captain-handbook loop dispatches run `claude -p` unattended with no skip-permissions flag, in production). Nothing to do here.
 
-Flags (not pins): (a) `Roles()` scope decision confirmed against [[project_driver_contract_recut]] — no objection; (b) registry.go stale-entry bridge to S05 confirmed bounded and accurate; (c) capabilities_test.go touch confirmed correctly scoped; (d) spec is concrete, not thin.
+Flags (informational, no action needed): (a) `Roles()` scope confirmed against [[project_driver_contract_recut]]; (b) registry.go stale-entry bridge to S05 confirmed bounded; (c) capabilities_test.go touch confirmed correctly scoped; (d) spec is concrete, not thin; (e) S06 and S07 specs now each carry a matching risk entry (S06 R-03, S07 R-02) so the consuming side of the `auth` contract isn't lost at those slices' own design review.
 
-§2 decisions 2, 3, 5, 6 (error-mapping literalism, env hygiene, argv-per-AC discipline, defensive envelope parsing) acknowledged clean. §6 has no explicit questions section beyond the two flagged in design.md's own "Risks / open items" — both addressed above (item 8 → flag (b), item 9 → pin 3).
+§2 decisions 2 (as amended), 3, 5, 6 acknowledged clean. §6/Risks-for-Captain items 1, 2, 8, 9 all resolved — see design.md's updated "Risks / open items" section.
 
-Address pins 1–3 inline during implementation, then proceed to in_progress.
+Proceed to in_progress.
 
 <!-- CAPTAIN-VERDICT
-DECISION: NEEDS_COACH
+DECISION: PROCEED
 CONSTITUTIONAL: no
-REASON: pin 2 is a genuine reliability trade-off (preserve auth/credits fail-fast through the driver rewire vs. accept the regression vs. amend AC-04 now) that spans S02/S03/S06/S07 and requires a Coach pick, not an inline implementer fix.
+REASON: pin 2's Coach decision is made and applied to spec.json/design.md/status.json (this slice) and S06/S07 (forward risk notes); pin 1 (design_decisions) and pin 3 (permission flag) resolved in the same pass. Nothing left requiring Coach authority.
 -->
 

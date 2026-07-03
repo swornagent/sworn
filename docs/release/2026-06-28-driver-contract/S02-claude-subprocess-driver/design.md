@@ -41,20 +41,30 @@ its dishonest `CapChat`/`Chat` surface is retired (AC-06).
    `internal/model` (`TestNoWireImports`, S01's AC-05 enforcement) so it
    needs its own error-class constants. I'm introducing:
    `ErrKindConfig = "config"`, `ErrKindTransient = "transient"`,
-   `ErrKindProvider = "provider"`, `ErrKindProtocol = "protocol"` in
-   `subprocess.go`. These are a **new contract surface** beyond what S01
-   shipped (S01 declared `Result.ErrKind string` but no constants) — flagging
-   for design review since S03/S04 will presumably reuse this vocabulary.
+   `ErrKindAuth = "auth"`, `ErrKindProvider = "provider"` (reserved for a
+   future driver's genuinely-distinct provider-side failure — unused by
+   `claude.go` itself after Decision 2 below), `ErrKindProtocol =
+   "protocol"` in `subprocess.go`. These are a **new contract surface**
+   beyond what S01 shipped (S01 declared `Result.ErrKind string` but no
+   constants) — S03/S04 will presumably reuse this vocabulary.
 
-2. **Error-kind mapping deliberately diverges from `cli.go`'s existing
-   heuristic**, per AC-04's literal text: binary-not-found → `config`
-   (cli.go used the coarser `KindOther`); non-zero exit → `provider` with a
-   stderr excerpt (cli.go guessed `KindAuth` — assumed "not logged in").
-   The new mapping is more honest: a non-zero exit is classified by what
-   actually happened (a provider/CLI-side failure), not by guessing the
-   cause; the stderr excerpt in the message carries the diagnostic detail
-   instead of a wrong-if-not-auth `ErrKind`. Timeout → `transient` matches
-   cli.go's existing choice.
+2. **RATIFIED 2026-07-03 (Captain design review, Brad) — non-zero exit maps
+   to `ErrKindAuth`, matching `cli.go`'s existing heuristic exactly, not a
+   generic `provider` label.** Original proposal diverged from `cli.go`
+   toward "classify by what actually happened, don't guess" (binary-not-found
+   → `config`, cli.go's coarser `KindOther`; non-zero exit → `provider`,
+   cli.go guessed `KindAuth`). Captain design review (pin 2) surfaced that
+   `internal/run/slice.go:487`'s live `model.IsTerminal`/`KindAuth` fail-fast
+   — which S07-scheduler-failfast's own AC-03 already assumes survives the
+   driver rewire — depends on exactly the distinction the generic `provider`
+   label would have erased. Decision: match `cli.go`'s coarse-but-
+   production-proven non-zero-exit-is-auth heuristic exactly, rejecting a
+   stderr-pattern-matching alternative (auth-looking text only) because a
+   missed pattern on CLI wording drift would silently reintroduce the same
+   fail-fast gap. Accepted cost: a genuine non-auth CLI crash is also
+   labelled `auth` — the same imprecision `cli.go` already ships today, not
+   a new regression. Timeout → `transient` matches cli.go's existing choice,
+   unchanged.
 
 3. **Env hygiene: `GOCACHE`/`GOMODCACHE` redirected outside the worktree;
    `HOME` is never touched.** Fixed cache dir:
@@ -149,11 +159,16 @@ its dishonest `CapChat`/`Chat` surface is retired (AC-06).
 
 ## Risks / open items for the Captain
 
-- Item 9 above (permission-flag question) — informational, not blocking;
-  owned by S10's SIT smoke per spec's own out-of-scope list.
-- Item 8 above (registry.go temporary inconsistency) — accept or push back;
-  either way it's bounded and resolves at S05.
+- Item 9 above (permission-flag question) — RESOLVED by Captain design
+  review: baton's shipped bash `claude-cli.sh` driver and captain-handbook's
+  loop dispatches run unattended `claude -p` with no permission-bypass flag
+  and do perform real file edits in production. No flag needed; not carried
+  into S10 as an open unknown.
+- Item 8 above (registry.go temporary inconsistency) — accepted by Captain
+  design review; bounded and resolves at S05.
 - Item 1/2 above (new `ErrKind` vocabulary + divergent mapping from cli.go)
-  is the one piece of this slice with the most "shape" for S03/S04 to
-  inherit — worth a second pair of eyes since it's new contract surface,
-  not just an internal implementation detail.
+  — RATIFIED by Brad via Captain design review 2026-07-03 (see Decision 2):
+  non-zero exit maps to `ErrKindAuth`, matching cli.go's existing heuristic
+  exactly, to preserve `internal/run/slice.go:487`'s terminal-halt-on-auth
+  fail-fast once S06 wires Dispatch into the loop. See spec.json R-03 and
+  status.json design_decisions for the full record.
