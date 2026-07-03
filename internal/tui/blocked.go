@@ -108,6 +108,19 @@ func AppendDeferralToIntake(intakePath, sliceID, reason string) error {
 // membership in a board track's Slices list — we accept the first track
 // whose Slices contains sliceID, matching on content rather than a field
 // that can silently drift out of sync with board.json.
+//
+// sworn#81 checked: this reader still reads status.json/proof.json/proof.md
+// off the primary working tree, but that is NOT the same defect as #81.
+// #81 is about the board.State BoardView displays (and routes the "enter"
+// key on) coming from the stale working-tree copy — that's now oracle-backed
+// (see board.go LoadBoard). LoadBlockedView is only ever entered once
+// BoardView has already classified the slice as blocked via the oracle; it
+// reads st.Track here purely for display text, and worktreePath resolution
+// already avoids status.json entirely (board-track-membership match, above).
+// A genuinely stale proof.json/proof.md (violations text, raw proof view)
+// would require extending internal/board's oracle to fetch arbitrary
+// artefact paths per ref, not just status.json — out of this fix's scope;
+// flagging here rather than silently leaving it unexamined (Rule 2).
 func LoadBlockedView(repoRoot, releaseName, sliceID string) (*BlockedView, error) {
 	statusPath := filepath.Join(repoRoot, "docs", "release", releaseName, sliceID, "status.json")
 	st, err := state.Read(statusPath)

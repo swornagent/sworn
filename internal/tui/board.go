@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/swornagent/sworn/internal/board"
+	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/state"
 )
 
@@ -70,7 +72,13 @@ func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
 		})
 	}
 
-	// Load live state from each slice's status.json.
+	// Load live state from each slice's status.json, resolved via the
+	// git-ref oracle (the same ownership-keyed path `sworn board` and the
+	// MCP ops tools use — sworn#81) so track-branch work is reflected even
+	// before it lands in the primary checkout. The working-tree filesystem
+	// read remains the fallback for repos with no usable git history (e.g.
+	// a release with no branches at all) or when a slice can't be resolved
+	// via any ref.
 	b.Slices = map[string]SliceBoardInfo{}
 	releaseDir := filepath.Join(repoRoot, "docs", "release", releaseName)
 	entries, err := os.ReadDir(releaseDir)
@@ -78,15 +86,39 @@ func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
 		return fmt.Errorf("reading release dir %s: %w", releaseDir, err)
 	}
 
+	sliceOracle := newSliceOracle(repoRoot, releaseName)
+	trackMap := trackInfoMap(br.Tracks)
+	ctx := context.Background()
+
 	for _, entry := range entries {
 		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "S") {
 			continue
 		}
-		statusPath := filepath.Join(releaseDir, entry.Name(), "status.json")
+		sliceID := entry.Name()
+
+		if sliceOracle != nil {
+			ss, _, errO := sliceOracle.oracle.ReadSliceStatus(ctx, sliceOracle.reader, "", sliceOracle.releaseRef, releaseName, sliceID, trackMap)
+			if errO == nil {
+				lastUp := ss.LastUpdated
+				if lastUp == "" {
+					lastUp = "—"
+				}
+				b.Slices[sliceID] = SliceBoardInfo{
+					ID:                 sliceID,
+					State:              string(ss.State),
+					LastUpdatedAt:      formatLastUpdated(lastUp),
+					VerificationResult: ss.VerificationResult,
+				}
+				continue
+			}
+		}
+
+		// Fallback: working-tree filesystem read.
+		statusPath := filepath.Join(releaseDir, sliceID, "status.json")
 		st, errR := state.Read(statusPath)
 		if errR != nil {
-			b.Slices[entry.Name()] = SliceBoardInfo{
-				ID:    entry.Name(),
+			b.Slices[sliceID] = SliceBoardInfo{
+				ID:    sliceID,
 				State: "unknown",
 			}
 			continue
@@ -95,8 +127,8 @@ func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
 		if lastUp == "" {
 			lastUp = "—"
 		}
-		b.Slices[entry.Name()] = SliceBoardInfo{
-			ID:                 entry.Name(),
+		b.Slices[sliceID] = SliceBoardInfo{
+			ID:                 sliceID,
 			State:              string(st.State),
 			LastUpdatedAt:      formatLastUpdated(lastUp),
 			VerificationResult: st.Verification.Result,
@@ -138,6 +170,78 @@ func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
 	}
 
 	return nil
+}
+
+// tuiOracleReader adapts *git.Repo to internal/board's (unexported)
+// gitContentReader interface, satisfied structurally — the same pattern
+// cmd/sworn/board.go's oracleReader and internal/mcp's oracleReader use.
+type tuiOracleReader struct {
+	repo *git.Repo
+}
+
+func (r tuiOracleReader) Show(ref, path string) (string, error) {
+	return r.repo.Show(ref, path)
+}
+
+func (r tuiOracleReader) CatFileExists(ref, path string) (bool, error) {
+	return r.repo.CatFileExists(ref, path)
+}
+
+// sliceOracleContext bundles a board.Oracle with the reader and release ref
+// LoadBoard resolves once per call, so the per-slice loop can call
+// ReadSliceStatus without re-deriving them each iteration.
+type sliceOracleContext struct {
+	oracle     *board.Oracle
+	reader     tuiOracleReader
+	releaseRef string
+}
+
+// newSliceOracle returns a sliceOracleContext backed by repoRoot's git repo,
+// or nil when repoRoot has no usable git history (e.g. a plain filesystem
+// fixture, or a release with no commits yet) — LoadBoard falls back to the
+// working-tree filesystem read in that case.
+func newSliceOracle(repoRoot, releaseName string) *sliceOracleContext {
+	repo := git.New(repoRoot)
+	if _, err := repo.RevParse("HEAD"); err != nil {
+		return nil
+	}
+	reader := tuiOracleReader{repo: repo}
+	return &sliceOracleContext{
+		oracle:     board.NewGitOracle(repo),
+		reader:     reader,
+		releaseRef: resolveOracleReleaseRef(reader, releaseName),
+	}
+}
+
+// resolveOracleReleaseRef mirrors cmd/sworn/board.go's release-wt resolution:
+// prefer the release-wt branch (docs or Fumadocs prefix), falling back to
+// HEAD when no release-wt branch has been materialised for this release.
+func resolveOracleReleaseRef(reader tuiOracleReader, releaseName string) string {
+	releaseRef := "refs/heads/release-wt/" + releaseName
+	for _, prefix := range []string{"docs/release", "apps/docs/content/docs/release"} {
+		exists, err := reader.CatFileExists(releaseRef, prefix+"/"+releaseName+"/index.md")
+		if err == nil && exists {
+			return releaseRef
+		}
+	}
+	return "HEAD"
+}
+
+// trackInfoMap converts board.json's on-disk track records into the
+// board.TrackInfo map ReadSliceStatus needs to resolve slice ownership.
+func trackInfoMap(tracks []board.BoardTrack) map[string]board.TrackInfo {
+	trackMap := make(map[string]board.TrackInfo, len(tracks))
+	for _, t := range tracks {
+		trackMap[t.ID] = board.TrackInfo{
+			ID:             t.ID,
+			Slices:         t.Slices,
+			DependsOn:      []string(t.DependsOn),
+			WorktreePath:   t.WorktreePath,
+			WorktreeBranch: t.WorktreeBranch,
+			State:          t.State,
+		}
+	}
+	return trackMap
 }
 
 // formatLastUpdated reformats a timestamp for display.

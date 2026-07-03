@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/db"
+	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/state"
 )
 
@@ -128,6 +130,81 @@ tracks:
 	if _, err := os.Stat(filepath.Join(releaseDir, "board.json")); err != nil {
 		t.Errorf("expected board.json to be lazily written by migrateFromIndex: %v", err)
 	}
+}
+
+// TestBoardViewResolvesStateFromTrackBranch reproduces sworn#81: the primary
+// checkout's working-tree status.json is stale (design_review) while the
+// slice's owning track branch already carries the authoritative, more
+// advanced state (verified) — the exact "S01 verified on the oracle, planned
+// on the TUI" shape from the live driver-contract bug report. LoadBoard must
+// resolve the slice's state via the git-ref oracle (same ownership-keyed
+// path `sworn board`/the MCP ops tools use), not the primary working tree.
+func TestBoardViewResolvesStateFromTrackBranch(t *testing.T) {
+	dir := t.TempDir()
+	release := "oracle-release"
+	releaseDir := filepath.Join(dir, "docs", "release", release)
+	os.MkdirAll(releaseDir, 0o755)
+
+	repo := git.New(dir)
+	if err := repo.Init(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := repo.Config("user.email", "test@example.com"); err != nil {
+		t.Fatalf("git config user.email: %v", err)
+	}
+	if err := repo.Config("user.name", "Test"); err != nil {
+		t.Fatalf("git config user.name: %v", err)
+	}
+	primaryBranch := currentBranch(t, dir)
+
+	writeBoardFixture(t, dir, release, []board.BoardTrack{
+		{
+			ID:             "T1-core",
+			Slices:         []string{"S01-first"},
+			State:          "in_progress",
+			WorktreeBranch: "track/" + release + "/T1-core",
+		},
+	})
+	// Stale copy: what the primary working tree still has on disk.
+	createSliceStatus(t, releaseDir, "S01-first", "design_review", "T1-core")
+
+	if err := repo.Stage("."); err != nil {
+		t.Fatalf("git add: %v", err)
+	}
+	if err := repo.Commit("initial: stale design_review state"); err != nil {
+		t.Fatalf("git commit: %v", err)
+	}
+
+	// The owning track branch has moved on: verified, committed there, but
+	// never synced back into the primary checkout's filesystem.
+	if err := repo.Branch("track/" + release + "/T1-core"); err != nil {
+		t.Fatalf("git branch: %v", err)
+	}
+	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-core")
+	if err := repo.Stage("."); err != nil {
+		t.Fatalf("git add (track branch): %v", err)
+	}
+	if err := repo.Commit("track: S01 verified"); err != nil {
+		t.Fatalf("git commit (track branch): %v", err)
+	}
+
+	// Return to the primary branch — the working tree now reflects the
+	// stale design_review status.json again, exactly like the live bug.
+	if err := repo.Checkout(primaryBranch); err != nil {
+		t.Fatalf("git checkout %s: %v", primaryBranch, err)
+	}
+	if got := mustReadSliceState(t, releaseDir, "S01-first"); got != "design_review" {
+		t.Fatalf("test setup: expected working tree to show stale design_review, got %q", got)
+	}
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(dir, release); err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+
+	// The authoritative state lives on the track branch (verified), not the
+	// stale primary-checkout filesystem copy (design_review).
+	checkSlice(t, bv, "S01-first", "verified")
 }
 
 // TestKeyNavigation simulates j, k, Enter, Esc keypresses on the model
@@ -707,6 +784,31 @@ func createSliceStatus(t *testing.T, releaseDir, sliceID, sliceState, track stri
 	if err := state.Write(filepath.Join(sliceDir, "status.json"), st); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// currentBranch returns the short name of the branch currently checked out
+// in dir (equivalent to `git symbolic-ref --short HEAD`).
+func currentBranch(t *testing.T, dir string) string {
+	t.Helper()
+	cmd := exec.Command("git", "symbolic-ref", "--short", "HEAD")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git symbolic-ref: %v", err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// mustReadSliceState reads a slice's status.json directly off disk (bypassing
+// the oracle) so the test can assert the fixture setup produced the intended
+// stale-on-disk / ahead-on-branch shape before exercising LoadBoard.
+func mustReadSliceState(t *testing.T, releaseDir, sliceID string) string {
+	t.Helper()
+	st, err := state.Read(filepath.Join(releaseDir, sliceID, "status.json"))
+	if err != nil {
+		t.Fatalf("mustReadSliceState: %v", err)
+	}
+	return string(st.State)
 }
 
 func checkSlice(t *testing.T, bv *BoardView, sliceID, expectedState string) {
