@@ -4,27 +4,33 @@
   "slice_id": "S11-baton-revendor",
   "release": "2026-06-28-driver-contract",
   "track": "T7-baton-revendor",
-  "user_outcome": "sworn's vendored Baton protocol is pinned to the v0.7.1 upstream tag: both embed roots carry the reconciled schemas (in_scope/out_of_scope as required spec-v1 fields, the published verifier-verdict-v1), the spec writer emits and the strict reader accepts the new fields, the quadrant enum gains 'quick' in place of 'chore', and acknowledged_by round-trips cleanly — the code half of sworn#48.",
-  "rationale": "sworn#48, rolled into this release by decision 2026-07-02. Grounding: the pin is currently v0.6.3 @ a5aca64 (internal/adopt/baton/VERSION); preconditions sworn#23 (tool-neutral source map) and sworn#24 (VERSION centralisation) are CLOSED. PRECONDITION: the upstream tag v0.7.1 does not exist yet — baton main sits at cd42ca1 (dc3b7cc added in_scope/out_of_scope AFTER the v0.7.0 tag; cd42ca1 fixed the role-prompt scope->user_outcome prose) and cd42ca1 is not yet pushed. Cut and push the v0.7.1 tag before this slice starts; the pin must reference a public tag per the repo's vendoring policy. Adoption points verified live: writer internal/spec/spec.go, strict reader internal/implement/spec_record.go; quadrant code internal/state/state.go:410,426 with fixtures in internal/state, internal/run/parallel_test.go, internal/router/router_test.go, cmd/sworn/doctor_test.go, cmd/sworn/regress_test.go. Transitional tolerance: Validate accepts BOTH quick and chore until S12 migrates the live records, then S12 tightens to quick-only — the track merges as one unit so the integration branch never carries the intermediate state. Explicitly out of scope per the issue: board-v1/proof-v1 full canonical conformance (bigger migration, tracked in baton#54).",
+  "user_outcome": "sworn's vendored Baton protocol is pinned to the v0.7.1 upstream tag: both embed roots carry the reconciled schemas (in_scope/out_of_scope as required spec-v1 fields, the published verifier-verdict-v1), the spec writer emits and the strict reader accepts the new fields, the quadrant enum gains 'quick' in place of 'chore', and acknowledged_by round-trips cleanly — the code half of sworn#48. The same pin also closes sworn#80: a track's worktree branch/path/state are no longer persisted, racy board.json fields — they're computed from (release, track-id) and git ancestry, so /implement-slice never writes to release-wt and /merge-track stays the sole write point.",
+  "rationale": "sworn#48, rolled into this release by decision 2026-07-02. Grounding: the pin is currently v0.6.3 @ a5aca64 (internal/adopt/baton/VERSION); preconditions sworn#23 (tool-neutral source map) and sworn#24 (VERSION centralisation) are CLOSED. PRECONDITION: the upstream tag v0.7.1 does not exist yet — baton main sits at cd42ca1 (dc3b7cc added in_scope/out_of_scope AFTER the v0.7.0 tag; cd42ca1 fixed the role-prompt scope->user_outcome prose) and cd42ca1 is not yet pushed. Cut and push the v0.7.1 tag before this slice starts; the pin must reference a public tag per the repo's vendoring policy. Adoption points verified live: writer internal/spec/spec.go, strict reader internal/implement/spec_record.go; quadrant code internal/state/state.go:410,426 with fixtures in internal/state, internal/run/parallel_test.go, internal/router/router_test.go, cmd/sworn/doctor_test.go, cmd/sworn/regress_test.go. Transitional tolerance: Validate accepts BOTH quick and chore until S12 migrates the live records, then S12 tightens to quick-only — the track merges as one unit so the integration branch never carries the intermediate state. sworn#80 rolled in by decision 2026-07-03: two concurrent /implement-slice sessions (S02, S04) raced on the release-wt board.json write implement-slice makes when materialising a track's worktree, because tracks[].worktree_path/worktree_branch/state are modeled as persisted data even though track-mode.md's 'Naming, locked' table already makes branch/path a pure function of (release, track-id), and state is derivable via the same merge-base --is-ancestor check /merge-track's own idempotency gate already performs. This directly resolves the ONE board-v1 divergence baton#54 flagged that concerns track worktree binding (flattened worktree_path/worktree_branch vs upstream's nested worktree{path,branch}) — not by reshaping to match upstream, but by removing the fields as persisted data entirely, which moots the shape question for them. Explicitly out of scope: board-v1's remaining canonical-conformance gaps (additionalProperties strictness + id_token pattern, vertical_trace/target_version/integration_branch schema declarations) and proof-v1/journeys-v1/attestations-v1 conformance — baton#54 closed without actioning these; tracked fresh in baton#55.",
   "covers_needs": ["N-12"],
   "in_scope": [
     "internal/adopt/baton/VERSION pin bump to the v0.7.1 tag (SHA + digest) and re-sync of that embed root from the tag",
-    "internal/baton/schemas re-sync (spec-v1 with required in_scope/out_of_scope; reconciled status/journeys/attestations; verifier-verdict-v1)",
+    "internal/baton/schemas re-sync (spec-v1 with required in_scope/out_of_scope; reconciled status/journeys/attestations; verifier-verdict-v1; board-v1 with worktree_path/worktree_branch/state removed from tracks[])",
     "Quadrant enum code change: 'quick' replaces 'chore' as the low/low value, with transitional dual acceptance until S12",
     "Spec writer (internal/spec) emits in_scope/out_of_scope; strict reader (internal/implement/spec_record.go) accepts and exposes them",
     "acknowledged_by round-trip smoke test through writer + reader + schema validation",
-    "Test-fixture updates across internal/state, internal/run, internal/router, cmd/sworn"
+    "Test-fixture updates across internal/state, internal/run, internal/router, cmd/sworn",
+    "sworn#80: pure helper functions deriving track worktree branch (track/<release>/<track-id>) and path (the naming-convention path) from (release, track-id); track state (planned/in_progress/merged) derived from git ref existence + merge-base --is-ancestor against release-wt/<release>",
+    "internal/board (Oracle.readTrackInfos, ReadSliceStatus, render.go) computes branch/path/state via the new helpers instead of parsing them from board.json",
+    "internal/adopt/baton/rules/ command specs: implement-slice.md Step 0 no longer writes track worktree identity/state to release-wt's board.json on first dispatch; merge-track.md Step 5 no longer sets track state (derived) — /merge-track's own merge commit remains the sole release-wt write for a track"
   ],
   "out_of_scope": [
-    "board-v1/proof-v1 full canonical conformance (nested worktree objects, structured test_results) — tracked upstream in baton#54, explicitly excluded by sworn#48",
+    "board-v1's remaining canonical-conformance gaps beyond track worktree/state fields (additionalProperties strictness + id_token pattern, vertical_trace/target_version/integration_branch schema declarations) — tracked in baton#55 (successor to baton#54, which closed without actioning these)",
+    "proof-v1/journeys-v1/attestations-v1 canonical conformance — same baton#55",
+    "verifier-verdict-v1 upstreaming decision, and vendoring the 4 un-vendored design/architecture schemas — same baton#55",
     "Migrating the live docs/release records (S12 owns the data half)",
-    "Any driver/registry/loop code (T1-T6 own those)"
+    "Any driver/registry/loop code (T1-T6 own those)",
+    "Retry-on-conflict hardening for /merge-track's residual board.json write race (smaller surface once state is derived; separate follow-up)"
   ],
   "effort_complexity": {
     "effort": "high",
-    "complexity": "low",
-    "quadrant": "grind",
-    "rationale": "Known-shape vendor bump + enum rename + two adoption points; breadth is the fixture sweep across five packages. The traps (required-fields vs historical records) are enumerated and sequenced away via S12 in the same track.",
+    "complexity": "high",
+    "quadrant": "epic",
+    "rationale": "Was grind (known-shape vendor bump + enum rename, fixture sweep across five packages). Folding in sworn#80 raises complexity to high: the correct worktree-path derivation isn't track-mode.md's plainly-documented formula but the repo-local sibling-of-release-worktree logic worker.go already carries for a real prior incident (eval finding 3) — the implementer must find and preserve that nuance, not re-derive the naive convention. It also requires a cross-package consumer sweep (~12 files verified to read through internal/board's TrackInfo, not board.json directly) and coordinated baton-repo schema/command-spec edits landing before the v0.7.1 tag. Re-assess at design_review.",
     "confirmed_by_implementer": false
   },
   "touchpoints": [
@@ -34,6 +40,7 @@
     "internal/baton/schemas/slice-status-v1.json",
     "internal/baton/schemas/journeys-v1.json",
     "internal/baton/schemas/attestations-v1.json",
+    "internal/baton/schemas/board-v1.json",
     "internal/state/state.go",
     "internal/state/effort_complexity_test.go",
     "internal/spec/spec.go",
@@ -43,7 +50,22 @@
     "internal/run/parallel_test.go",
     "internal/router/router_test.go",
     "cmd/sworn/doctor_test.go",
-    "cmd/sworn/regress_test.go"
+    "cmd/sworn/regress_test.go",
+    "internal/board/board.go",
+    "internal/board/board_test.go",
+    "internal/board/board_release_test.go",
+    "internal/board/oracle.go",
+    "internal/board/oracle_test.go",
+    "internal/board/track.go",
+    "internal/board/track_test.go",
+    "internal/board/track_comment_test.go",
+    "internal/board/index.go",
+    "internal/board/index_test.go",
+    "internal/board/render.go",
+    "internal/board/render_test.go",
+    "internal/scheduler/worker.go",
+    "internal/scheduler/worker_test.go",
+    "internal/mcp/tools_plan.go"
   ],
   "risks": [
     {
@@ -60,6 +82,16 @@
       "id": "R-03",
       "description": "A tightened reader/schema regresses test fixtures in OTHER packages (the S05-strict-reader lesson).",
       "mitigation": "The fixture sweep is in-scope and enumerated in touchpoints; the merge gate's full `go test ./...` is the backstop."
+    },
+    {
+      "id": "R-04",
+      "description": "Deriving track state/worktree identity instead of persisting it could silently expand into baton#54/#55's full board-v1 canonical-conformance scope (nested worktree object, additionalProperties strictness, vertical_trace/target_version/integration_branch), which this slice explicitly excludes.",
+      "mitigation": "out_of_scope names the excluded items and their tracking issue (baton#55) explicitly; AC-06/AC-07/AC-08 bound the change to exactly worktree_path/worktree_branch/state derivation, nothing else in board-v1's shape."
+    },
+    {
+      "id": "R-05",
+      "description": "~12 other packages (internal/run, internal/scheduler, internal/router, internal/tui, internal/mcp, internal/account, internal/bench, cmd/sworn/merge.go, cmd/sworn/route.go) read TrackInfo.WorktreeBranch/WorktreePath. A naive fix that only changes what's parsed, without confirming every consumer reads through the struct internal/board populates (rather than re-parsing board.json independently), would silently break them.",
+      "mitigation": "Verified by grep + read: every consumer reads via the TrackInfo/Oracle struct internal/board assembles (a field re-exposure, e.g. internal/mcp/context.go:80,107), not by independently parsing board.json. Switching internal/board's population from JSON-parse to computed-value requires zero consumer changes, EXCEPT internal/scheduler/worker.go's defaultTrackWorktreePath (worker.go:600-621) — an existing fallback for when the board doesn't pin a path, itself added to fix a real incident (comment: 'the old default ... was identical for every repo, so a fired-repo run silently materialised on sworn's worktree tree — eval finding 3'). That repo-local (sibling-of-release-worktree) logic is the CORRECT derivation and must be the one internal/board's new helper uses — NOT track-mode.md's plainly-documented `$HOME/projects/<REPO_BASENAME>-worktrees/...` formula, which is the naive convention eval finding 3 already moved away from. Once internal/board always returns a populated, correct WorktreePath, worker.go's now-redundant fallback is deleted, not left as dead code. internal/mcp/tools_plan.go already independently derives WorktreeBranch as track/<release>/<track-id> (line 148) — confirms the branch-derivation half of this design is already a proven pattern; point it at the new shared helper instead of its own inline fmt.Sprintf for a single source of truth."
     }
   ],
   "acceptance_criteria": [
@@ -91,7 +123,25 @@
       "id": "AC-05",
       "type": "ubiquitous",
       "ears_keyword": "shall",
-      "text": "`go build ./...` SHALL succeed and `go test ./internal/state/... ./internal/spec/... ./internal/implement/... ./internal/run/... ./internal/router/... ./cmd/sworn/...` SHALL pass with all quadrant fixtures updated."
+      "text": "`go build ./...` SHALL succeed and `go test ./internal/state/... ./internal/spec/... ./internal/implement/... ./internal/run/... ./internal/router/... ./internal/board/... ./internal/scheduler/... ./internal/mcp/... ./cmd/sworn/...` SHALL pass with all quadrant fixtures updated."
+    },
+    {
+      "id": "AC-06",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "The vendored board-v1.json schema SHALL NOT declare `worktree_path`, `worktree_branch`, or `state` as properties of `tracks[]` entries (only `id`, `slices`, `depends_on` remain); internal/board SHALL NOT read or require these fields from board.json for any track."
+    },
+    {
+      "id": "AC-07",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When internal/board resolves a track's worktree branch, path, or state (Oracle.readTrackInfos, ReadSliceStatus, render.go), it SHALL compute the branch as track/<release>/<track-id>, the path as the sibling-of-release-worktree location internal/scheduler/worker.go's defaultTrackWorktreePath already derives (never the plain $HOME/projects/<repo>-worktrees formula that caused eval finding 3's cross-repo collision), and the state as: no such branch ref exists -> planned; branch exists and is not an ancestor of release-wt/<release> -> in_progress; branch is an ancestor of release-wt/<release> -> merged (the same merge-base --is-ancestor check cmd/sworn/merge.go already performs for its own gate). internal/scheduler/worker.go's now-redundant defaultTrackWorktreePath fallback SHALL be removed once internal/board always returns a populated path."
+    },
+    {
+      "id": "AC-08",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "The vendored implement-slice.md and merge-track.md command specs (internal/adopt/baton/rules/) SHALL NOT instruct writing a track's worktree identity or state to release-wt's board.json. /merge-track's own merge commit (already required) remains the only release-wt write attributable to a track; /implement-slice makes none."
     }
   ]
 }
