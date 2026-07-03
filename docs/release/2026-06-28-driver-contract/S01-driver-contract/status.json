@@ -3,9 +3,9 @@
   "slice_id": "S01-driver-contract",
   "release": "2026-06-28-driver-contract",
   "track": "T1-contract",
-  "state": "implemented",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-02T17:11:18Z",
+  "state": "verified",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-03T06:36:22Z",
   "covers_needs": ["N-01", "N-08"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S01-driver-contract/spec.json",
   "proof_path": "docs/release/2026-06-28-driver-contract/S01-driver-contract/proof.json",
@@ -49,6 +49,8 @@
     }
   ],
   "verification": {
-    "result": "pending"
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-03T06:36:22Z"
   }
 }

@@ -83,3 +83,46 @@ PASS/FAIL/BLOCKED verdict is the fresh-context verifier's job
 doesn't have.
 
 **state → implemented.**
+
+## Verifier verdicts received
+
+### 2026-07-03 — PASS (fresh-context /verify-slice)
+
+PASS
+
+Slice: `S01-driver-contract`
+Verified against: `567665c` (track/2026-06-28-driver-contract/T1-contract HEAD)
+Verifier session: fresh, artefact-only
+
+All gates walked and passed:
+
+1. Gate 1 (user-reachable outcome): the spec's outcome is the contract package
+   itself — deliberately leaf-only per spec rationale and out_of_scope, with
+   consumption owned by named slices S02–S07. Package, godoc, and ADR deliver
+   exactly the specced outcome.
+2. Gate 2 (touchpoints): diff vs start_commit `530c553` is exactly the contract
+   package + ADR + slice artefacts. The one plan-but-absent file (`result.go`)
+   is explained in proof.json divergence — Result lives in driver.go, no scope
+   dropped.
+3. Gate 3 (tests): re-ran `go build ./...`, `go vet ./internal/driver/...`,
+   `go test ./internal/driver/... -v` (TestRoleSet 4 subtests, TestAssertWorktree
+   5 subtests incl. linked worktree, TestNoWireImports), and full
+   `go test ./... -timeout 300s` — all green in this fresh session.
+   Verified go.mod module path matches imports_test.go's forbidden prefixes
+   (the AC-05 test is not vacuous).
+4. Gate 3b (ac-satisfaction LLM check): no model configured this session
+   ($SWORN_MODEL unset) — skipped, non-blocking per verifier contract.
+   Manual AC walk: AC-01 shape exact (incl. Role as named type per pin 3);
+   AC-02/AC-04/AC-05 test-verified; AC-03 godoc + ADR clause 2 state
+   engine-owned fail-closed verdict validation; AC-06 ADR records options,
+   decider (Brad, 2026-07-02), and all four clauses.
+5. Gate 4 (reachability): cli-run artefact re-executed and matches proof.json.
+6. Gate 4b (semantic coverage): auto-pass, no LLM provider configured.
+7. Gate 5 (deferrals): grep hits are "later slice" references naming owning
+   slices that exist on the board (S02–S05); not_delivered empty; out_of_scope
+   items all name owners. No silent deferrals.
+8. Gate 6 (design conformance): DESIGNAUDIT EXEMPT — not ui_bearing.
+9. Gate 7 (claimed scope): every delivered item's evidence verified, including
+   pin 1 (ADR carries no sworn#35 citation; design.md's remaining mention is
+   the pin record explaining why the citation was removed) and pin 3
+   (DispatchInput.Role is type Role, driver.go:75).
