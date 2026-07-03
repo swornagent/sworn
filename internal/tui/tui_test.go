@@ -207,6 +207,68 @@ func TestBoardViewResolvesStateFromTrackBranch(t *testing.T) {
 	checkSlice(t, bv, "S01-first", "verified")
 }
 
+// TestBoardViewLiveWorktreeStateNotMaskedByLastCommit is the regression test
+// for the fresh-verifier FAIL on sworn#81's first attempt: when the slice's
+// owning track branch IS the branch currently checked out in repoRoot (the
+// common serial/solo `sworn run` shape — one worktree doing everything, no
+// separate track worktree), the oracle's git-ref read must not shadow an
+// uncommitted state.Write() to the live status.json. internal/run/slice.go
+// writes state repeatedly and only commits at specific milestones, so the
+// working tree is routinely ahead of the last commit on the slice's own
+// branch during a live run.
+func TestBoardViewLiveWorktreeStateNotMaskedByLastCommit(t *testing.T) {
+	dir := t.TempDir()
+	release := "live-release"
+	releaseDir := filepath.Join(dir, "docs", "release", release)
+	os.MkdirAll(releaseDir, 0o755)
+
+	repo := git.New(dir)
+	if err := repo.Init(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := repo.Config("user.email", "test@example.com"); err != nil {
+		t.Fatalf("git config user.email: %v", err)
+	}
+	if err := repo.Config("user.name", "Test"); err != nil {
+		t.Fatalf("git config user.name: %v", err)
+	}
+	primaryBranch := currentBranch(t, dir)
+
+	// The track's WorktreeBranch equals the branch actually checked out
+	// here — no separate track worktree exists for this run.
+	writeBoardFixture(t, dir, release, []board.BoardTrack{
+		{
+			ID:             "T1-core",
+			Slices:         []string{"S01-first"},
+			State:          "in_progress",
+			WorktreeBranch: primaryBranch,
+		},
+	})
+	createSliceStatus(t, releaseDir, "S01-first", "planned", "T1-core")
+
+	if err := repo.Stage("."); err != nil {
+		t.Fatalf("git add: %v", err)
+	}
+	if err := repo.Commit("initial: planned"); err != nil {
+		t.Fatalf("git commit: %v", err)
+	}
+
+	// Rewrite status.json on disk WITHOUT committing — exactly what
+	// internal/run/slice.go's state.Write() calls do between commit
+	// milestones during a live run.
+	createSliceStatus(t, releaseDir, "S01-first", "in_progress", "T1-core")
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(dir, release); err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+
+	// The live, uncommitted working-tree state must win: the primary
+	// checkout IS the track's own branch here, so the last commit is stale
+	// relative to the filesystem, not authoritative over it.
+	checkSlice(t, bv, "S01-first", "in_progress")
+}
+
 // TestKeyNavigation simulates j, k, Enter, Esc keypresses on the model
 // and asserts correct view transitions.
 func TestKeyNavigation(t *testing.T) {

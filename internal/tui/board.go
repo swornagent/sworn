@@ -95,26 +95,37 @@ func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
 			continue
 		}
 		sliceID := entry.Name()
+		statusPath := filepath.Join(releaseDir, sliceID, "status.json")
 
 		if sliceOracle != nil {
-			ss, _, errO := sliceOracle.oracle.ReadSliceStatus(ctx, sliceOracle.reader, "", sliceOracle.releaseRef, releaseName, sliceID, trackMap)
+			ss, resolvedFrom, errO := sliceOracle.oracle.ReadSliceStatus(ctx, sliceOracle.reader, "", sliceOracle.releaseRef, releaseName, sliceID, trackMap)
 			if errO == nil {
-				lastUp := ss.LastUpdated
-				if lastUp == "" {
-					lastUp = "—"
+				// The resolved ref may BE the branch we're sitting on right
+				// now (the common serial/solo `sworn run` shape: one
+				// worktree, no separate track worktree). In that case a git
+				// commit is not the authoritative source — the filesystem
+				// is, since internal/run/slice.go writes status.json
+				// repeatedly between commit milestones. Only trust the
+				// committed ref as-is when it resolved from a DIFFERENT
+				// checkout we have no live filesystem access to (a genuine
+				// other worktree's track branch or a release-wt branch that
+				// isn't the one checked out here).
+				if sliceOracle.resolvedRefIsLiveCheckout(resolvedFrom, ss.Track, trackMap) {
+					if st, errR := state.Read(statusPath); errR == nil {
+						b.Slices[sliceID] = sliceBoardInfoFromStatus(sliceID, st)
+						continue
+					}
+					// Live checkout but the working-tree file is
+					// unreadable (e.g. mid-write) — fall through to the
+					// oracle's last-known-good committed value below.
 				}
-				b.Slices[sliceID] = SliceBoardInfo{
-					ID:                 sliceID,
-					State:              string(ss.State),
-					LastUpdatedAt:      formatLastUpdated(lastUp),
-					VerificationResult: ss.VerificationResult,
-				}
+				b.Slices[sliceID] = sliceBoardInfoFromOracle(sliceID, ss)
 				continue
 			}
 		}
 
-		// Fallback: working-tree filesystem read.
-		statusPath := filepath.Join(releaseDir, sliceID, "status.json")
+		// Fallback: working-tree filesystem read (repos with no usable git
+		// history, e.g. a release with no branches/commits at all yet).
 		st, errR := state.Read(statusPath)
 		if errR != nil {
 			b.Slices[sliceID] = SliceBoardInfo{
@@ -123,16 +134,7 @@ func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
 			}
 			continue
 		}
-		lastUp := st.LastUpdatedAt
-		if lastUp == "" {
-			lastUp = "—"
-		}
-		b.Slices[sliceID] = SliceBoardInfo{
-			ID:                 sliceID,
-			State:              string(st.State),
-			LastUpdatedAt:      formatLastUpdated(lastUp),
-			VerificationResult: st.Verification.Result,
-		}
+		b.Slices[sliceID] = sliceBoardInfoFromStatus(sliceID, st)
 	}
 
 	// Populate orderedSlices in display order.
@@ -194,6 +196,11 @@ type sliceOracleContext struct {
 	oracle     *board.Oracle
 	reader     tuiOracleReader
 	releaseRef string
+	// currentBranch is the branch checked out in repoRoot at LoadBoard time
+	// (empty when detached or unresolvable). Used to detect when an
+	// oracle-resolved ref is actually THIS checkout, in which case the
+	// working-tree filesystem — not the last commit — is authoritative.
+	currentBranch string
 }
 
 // newSliceOracle returns a sliceOracleContext backed by repoRoot's git repo,
@@ -206,10 +213,78 @@ func newSliceOracle(repoRoot, releaseName string) *sliceOracleContext {
 		return nil
 	}
 	reader := tuiOracleReader{repo: repo}
+	branch, _ := repo.CurrentBranch() // best-effort; "" (e.g. detached) just disables the live-checkout match for track/release-wt refs
 	return &sliceOracleContext{
-		oracle:     board.NewGitOracle(repo),
-		reader:     reader,
-		releaseRef: resolveOracleReleaseRef(reader, releaseName),
+		oracle:        board.NewGitOracle(repo),
+		reader:        reader,
+		releaseRef:    resolveOracleReleaseRef(reader, releaseName),
+		currentBranch: branch,
+	}
+}
+
+// resolvedRefIsLiveCheckout reports whether the git ref that
+// board.Oracle.ReadSliceStatus resolved a slice's status.json from is the
+// SAME checkout LoadBoard is running against — i.e. the filesystem read
+// would see everything the ref saw, plus anything written since the last
+// commit. This holds when:
+//   - the resolution fell through to plain "HEAD" (board.ResolvedByWorkingTree):
+//     HEAD is always repoRoot's own commit, by construction;
+//   - the resolution came from the owner track's branch and that branch is
+//     the one checked out here (a serial/solo `sworn run` with no separate
+//     track worktree);
+//   - the resolution came from the release-wt ref and that branch is the
+//     one checked out here.
+//
+// It's false for a genuine other worktree's track branch or a release-wt
+// branch that differs from repoRoot's — cases where the committed ref is
+// the only view LoadBoard has, exactly what sworn#81's fix intended.
+func (s *sliceOracleContext) resolvedRefIsLiveCheckout(resolvedFrom board.ResolvedFrom, ownerTrack string, trackMap map[string]board.TrackInfo) bool {
+	switch resolvedFrom {
+	case board.ResolvedByWorkingTree:
+		return true
+	case board.ResolvedByTrack:
+		if s.currentBranch == "" {
+			return false
+		}
+		ti, ok := trackMap[ownerTrack]
+		return ok && ti.WorktreeBranch != "" && ti.WorktreeBranch == s.currentBranch
+	case board.ResolvedByReleaseWT:
+		if s.currentBranch == "" {
+			return false
+		}
+		return s.releaseRef == "refs/heads/"+s.currentBranch
+	default:
+		return false
+	}
+}
+
+// sliceBoardInfoFromStatus builds a SliceBoardInfo from a live working-tree
+// state.Status read.
+func sliceBoardInfoFromStatus(sliceID string, st *state.Status) SliceBoardInfo {
+	lastUp := st.LastUpdatedAt
+	if lastUp == "" {
+		lastUp = "—"
+	}
+	return SliceBoardInfo{
+		ID:                 sliceID,
+		State:              string(st.State),
+		LastUpdatedAt:      formatLastUpdated(lastUp),
+		VerificationResult: st.Verification.Result,
+	}
+}
+
+// sliceBoardInfoFromOracle builds a SliceBoardInfo from an oracle-resolved
+// board.SliceState (a committed ref — track branch, release-wt, or HEAD).
+func sliceBoardInfoFromOracle(sliceID string, ss board.SliceState) SliceBoardInfo {
+	lastUp := ss.LastUpdated
+	if lastUp == "" {
+		lastUp = "—"
+	}
+	return SliceBoardInfo{
+		ID:                 sliceID,
+		State:              string(ss.State),
+		LastUpdatedAt:      formatLastUpdated(lastUp),
+		VerificationResult: ss.VerificationResult,
 	}
 }
 
