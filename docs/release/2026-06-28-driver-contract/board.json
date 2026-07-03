@@ -20,7 +20,7 @@
       "depends_on": [],
       "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-28-driver-contract-T1-contract",
       "worktree_branch": "track/2026-06-28-driver-contract/T1-contract",
-      "state": "in_progress"
+      "state": "merged"
     },
     {
       "id": "T2-subprocess",
