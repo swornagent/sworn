@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"github.com/swornagent/sworn/internal/orchestrator"
 	"github.com/swornagent/sworn/internal/router"
 	"github.com/swornagent/sworn/internal/supervisor"
+	"github.com/swornagent/sworn/internal/tracklog"
 )
 
 // TrackResult is the outcome of a single worker goroutine.
@@ -71,6 +73,12 @@ var pauseSet = map[string]bool{
 type WorkerOptions struct {
 	// ReleaseName is the release name (e.g. "2026-06-19-safe-parallelism").
 	ReleaseName string
+
+	// LogDir, when non-empty, is the directory into which the worker tees its
+	// stderr narration (append-only, one <track>.log per track, versioned by
+	// tracklog.FormatHeader). Empty = today's behaviour exactly (stderr only).
+	// Set by RunParallel to .sworn/logs/<release>. See internal/tracklog.
+	LogDir string
 
 	// TrackInfo is the parsed board track entry.
 	TrackInfo board.TrackInfo
@@ -152,13 +160,22 @@ type WorkerOptions struct {
 func RunTrack(ctx context.Context, opts WorkerOptions) TrackResult {
 	trackID := opts.TrackInfo.ID
 
+	// ── Durable-log tee seam (additive, surgical) ───────────────────────
+	// w is the narration sink for this track: os.Stderr verbatim PLUS an
+	// append-only .sworn/logs/<release>/<track>.log copy when opts.LogDir is
+	// set. When LogDir == "" (tests / legacy callers) w IS os.Stderr, so the
+	// 37 narration sites below are byte-for-byte unchanged. Constructed once
+	// here and threaded as a plain io.Writer — no worker control-flow change.
+	w, closeLog := tracklog.NewWriter(opts.LogDir, trackID)
+	defer closeLog()
+
 	// ── Check if context is already cancelled (dependency failed) ───────
 	if ctx.Err() != nil {
-		fmt.Fprintf(os.Stderr, "[%s] skipped: depends_on failed\n", trackID)
+		fmt.Fprintf(w, "[%s] skipped: depends_on failed\n", trackID)
 		return TrackSkipped
 	}
 
-	fmt.Fprintf(os.Stderr, "[%s] starting\n", trackID)
+	fmt.Fprintf(w, "[%s] starting\n", trackID)
 
 	// ── Supervisor acquire ──────────────────────────────────────────────
 	sup := supervisor.New(opts.DB, opts.ReleaseName)
@@ -166,7 +183,7 @@ func RunTrack(ctx context.Context, opts WorkerOptions) TrackResult {
 		sup.SetEventDB(opts.EventDB)
 	}
 	if err := sup.Acquire(trackID); err != nil {
-		fmt.Fprintf(os.Stderr, "[%s] supervisor acquire error: %v\n", trackID, err)
+		fmt.Fprintf(w, "[%s] supervisor acquire error: %v\n", trackID, err)
 		return TrackFail
 	}
 
@@ -182,7 +199,7 @@ func RunTrack(ctx context.Context, opts WorkerOptions) TrackResult {
 	if trackWorktreePath == "" {
 		p, err := defaultTrackWorktreePath(opts.ReleaseWorktreePath, opts.ProjectDir, opts.ReleaseName, trackID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[%s] cannot determine home dir: %v\n", trackID, err)
+			fmt.Fprintf(w, "[%s] cannot determine home dir: %v\n", trackID, err)
 			releaseTrack(supervisor.StateFailed)
 			return TrackFail
 		}
@@ -190,7 +207,7 @@ func RunTrack(ctx context.Context, opts WorkerOptions) TrackResult {
 	}
 
 	if !dirExists(trackWorktreePath) {
-		fmt.Fprintf(os.Stderr, "[%s] materialising worktree at %s\n", trackID, trackWorktreePath)
+		fmt.Fprintf(w, "[%s] materialising worktree at %s\n", trackID, trackWorktreePath)
 
 		releaseBranch := "release-wt/" + opts.ReleaseName
 		cmd := exec.CommandContext(ctx, "git", "worktree", "add",
@@ -200,27 +217,27 @@ func RunTrack(ctx context.Context, opts WorkerOptions) TrackResult {
 		cmd.Dir = opts.PrimaryWorktreeRoot
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[%s] worktree materialisation failed: %v\n  %s\n",
+			fmt.Fprintf(w, "[%s] worktree materialisation failed: %v\n  %s\n",
 				trackID, err, string(output))
 			releaseTrack(supervisor.StateFailed)
 			return TrackFail
 		}
-		fmt.Fprintf(os.Stderr, "[%s] worktree materialised at %s\n", trackID, trackWorktreePath)
+		fmt.Fprintf(w, "[%s] worktree materialised at %s\n", trackID, trackWorktreePath)
 
 		mergeCmd := exec.Command("git", "merge", releaseBranch, "--no-edit")
 		mergeCmd.Dir = trackWorktreePath
 		if mergeOut, mergeErr := mergeCmd.CombinedOutput(); mergeErr != nil {
-			fmt.Fprintf(os.Stderr, "[%s] forward-merge note: %s\n", trackID, string(mergeOut))
+			fmt.Fprintf(w, "[%s] forward-merge note: %s\n", trackID, string(mergeOut))
 		}
 	}
 
 	// ── Fallback: no router → static iteration ─────────────────────────
 	if opts.Router == nil {
-		return runTrackLegacy(ctx, opts, trackWorktreePath, trackID, trackBranch, releaseTrack)
+		return runTrackLegacy(ctx, opts, w, trackWorktreePath, trackID, trackBranch, releaseTrack)
 	}
 
 	// ── Router-driven poll loop ─────────────────────────────────────────
-	return runTrackRouter(ctx, opts, trackWorktreePath, trackID, trackBranch, releaseTrack)
+	return runTrackRouter(ctx, opts, w, trackWorktreePath, trackID, trackBranch, releaseTrack)
 }
 
 // runTrackRouter is the router-driven execution loop (S59 core).
@@ -230,6 +247,7 @@ func RunTrack(ctx context.Context, opts WorkerOptions) TrackResult {
 func runTrackRouter(
 	ctx context.Context,
 	opts WorkerOptions,
+	w io.Writer,
 	workRoot, trackID, trackBranch string,
 	releaseTrack func(string),
 ) TrackResult {
@@ -239,13 +257,13 @@ func runTrackRouter(
 	currentSlice := findFirstNonTerminal(ctx, opts.Oracle, opts.ReleaseName, opts.TrackInfo.ID, opts.TrackInfo.Slices)
 	if currentSlice == "" {
 		// All slices already in a terminal state.
-		return finishTrack(ctx, opts, workRoot, trackID, trackBranch, releaseTrack)
+		return finishTrack(ctx, opts, w, workRoot, trackID, trackBranch, releaseTrack)
 	}
 
 	for {
 		// Check context before every iteration.
 		if ctx.Err() != nil {
-			fmt.Fprintf(os.Stderr, "[%s] cancelled at slice %s\n", trackID, currentSlice)
+			fmt.Fprintf(w, "[%s] cancelled at slice %s\n", trackID, currentSlice)
 			releaseTrack(supervisor.StateFailed)
 			return TrackSkipped
 		}
@@ -257,7 +275,7 @@ func runTrackRouter(
 		if opts.PauseCh != nil {
 			select {
 			case <-opts.PauseCh:
-				fmt.Fprintf(os.Stderr, "[%s] engine pause signal at slice %s — stopping\n", trackID, currentSlice)
+				fmt.Fprintf(w, "[%s] engine pause signal at slice %s — stopping\n", trackID, currentSlice)
 				releaseTrack("paused")
 				return TrackPaused
 			default:
@@ -267,12 +285,12 @@ func runTrackRouter(
 		// Poll the router for the current frontier slice.
 		decision, err := opts.Router.Route(ctx, opts.ReleaseName, currentSlice, trackID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[%s] router error for %s: %v\n", trackID, currentSlice, err)
+			fmt.Fprintf(w, "[%s] router error for %s: %v\n", trackID, currentSlice, err)
 			releaseTrack(supervisor.StateFailed)
 			return TrackFail
 		}
 
-		fmt.Fprintf(os.Stderr, "[%s] router: %s → %s (%s)\n",
+		fmt.Fprintf(w, "[%s] router: %s → %s (%s)\n",
 			trackID, currentSlice, decision.Type, decision.Reason)
 
 		// Record the routing decision (S02 — decision log). Best-effort:
@@ -283,7 +301,7 @@ func runTrackRouter(
 		// Advance to the target slice BEFORE dispatching — the router's
 		// Target field tells us which slice the decision applies to.
 		if decision.Target != "" && decision.Target != currentSlice {
-			fmt.Fprintf(os.Stderr, "[%s] advanced to next slice: %s\n", trackID, decision.Target)
+			fmt.Fprintf(w, "[%s] advanced to next slice: %s\n", trackID, decision.Target)
 			currentSlice = decision.Target
 		}
 
@@ -297,19 +315,19 @@ func runTrackRouter(
 			specPath := filepath.Join(workRoot, specBase, currentSlice, "spec.md")
 			statusPath := filepath.Join(workRoot, specBase, currentSlice, "status.json")
 
-			fmt.Fprintf(os.Stderr, "[%s] running slice %s\n", trackID, currentSlice)
+			fmt.Fprintf(w, "[%s] running slice %s\n", trackID, currentSlice)
 
 			if err := opts.RunSliceFn(ctx, workRoot, specPath, statusPath); err != nil {
 				// S01: interpreter INCONCLUSIVE → PAGE the Coach (pause, not fail).
 				if strings.Contains(err.Error(), orchestrator.InterpreterInconclusiveSentinel) {
-					fmt.Fprintf(os.Stderr, "[%s] paused: interpreter inconclusive for %s — %v\n",
+					fmt.Fprintf(w, "[%s] paused: interpreter inconclusive for %s — %v\n",
 						trackID, currentSlice, err)
 					releaseTrack("paused")
 					return TrackPaused
 				}
 				// S03: max-turns exhaustion -> PAGE the Coach (pause, not fail).
 				if strings.Contains(err.Error(), agent.MaxTurnsSentinel) {
-					fmt.Fprintf(os.Stderr, "[%s] paused: max turns exhausted for %s - %v\n",
+					fmt.Fprintf(w, "[%s] paused: max turns exhausted for %s - %v\n",
 						trackID, currentSlice, err)
 					_ = supervisor.RecordPage(opts.DB, opts.ReleaseName, currentSlice, "max_turns")
 					releaseTrack("paused")
@@ -319,13 +337,13 @@ func runTrackRouter(
 				fingerprint := supervisor.Fingerprint(currentSlice, err.Error())
 				_ = supervisor.RecordFailure(opts.DB, opts.ReleaseName, currentSlice, fingerprint)
 				if supervisor.ShouldBreak(opts.DB, opts.ReleaseName, currentSlice, fingerprint) {
-					fmt.Fprintf(os.Stderr, "[%s] paused: circuit breaker for %s - %v\n",
+					fmt.Fprintf(w, "[%s] paused: circuit breaker for %s - %v\n",
 						trackID, currentSlice, err)
 					_ = supervisor.RecordPage(opts.DB, opts.ReleaseName, currentSlice, "circuit_breaker")
 					releaseTrack("paused")
 					return TrackPaused
 				}
-				fmt.Fprintf(os.Stderr, "[%s] slice %s failed: %v\n", trackID, currentSlice, err)
+				fmt.Fprintf(w, "[%s] slice %s failed: %v\n", trackID, currentSlice, err)
 
 				if opts.Notifier != nil {
 					summary := err.Error()
@@ -349,24 +367,24 @@ func runTrackRouter(
 		case "redesign":
 			// Strip captain-proceed.md so the Design TL;DR gate fires again on
 			// the next implement attempt. Then dispatch implement.
-			stripCaptainProceed(workRoot, specBase, currentSlice)
+			stripCaptainProceed(w, workRoot, specBase, currentSlice)
 
 			specPath := filepath.Join(workRoot, specBase, currentSlice, "spec.md")
 			statusPath := filepath.Join(workRoot, specBase, currentSlice, "status.json")
 
-			fmt.Fprintf(os.Stderr, "[%s] redesign: stripped captain-proceed.md for %s, re-running\n",
+			fmt.Fprintf(w, "[%s] redesign: stripped captain-proceed.md for %s, re-running\n",
 				trackID, currentSlice)
 			if err := opts.RunSliceFn(ctx, workRoot, specPath, statusPath); err != nil {
 				// S01: interpreter INCONCLUSIVE → PAGE the Coach (pause, not fail).
 				if strings.Contains(err.Error(), orchestrator.InterpreterInconclusiveSentinel) {
-					fmt.Fprintf(os.Stderr, "[%s] paused: interpreter inconclusive for %s — %v\n",
+					fmt.Fprintf(w, "[%s] paused: interpreter inconclusive for %s — %v\n",
 						trackID, currentSlice, err)
 					releaseTrack("paused")
 					return TrackPaused
 				}
 				// S03: max-turns exhaustion -> PAGE the Coach (pause, not fail).
 				if strings.Contains(err.Error(), agent.MaxTurnsSentinel) {
-					fmt.Fprintf(os.Stderr, "[%s] paused: max turns exhausted for %s - %v\n",
+					fmt.Fprintf(w, "[%s] paused: max turns exhausted for %s - %v\n",
 						trackID, currentSlice, err)
 					_ = supervisor.RecordPage(opts.DB, opts.ReleaseName, currentSlice, "max_turns")
 					releaseTrack("paused")
@@ -376,13 +394,13 @@ func runTrackRouter(
 				fingerprint := supervisor.Fingerprint(currentSlice, err.Error())
 				_ = supervisor.RecordFailure(opts.DB, opts.ReleaseName, currentSlice, fingerprint)
 				if supervisor.ShouldBreak(opts.DB, opts.ReleaseName, currentSlice, fingerprint) {
-					fmt.Fprintf(os.Stderr, "[%s] paused: circuit breaker for %s - %v\n",
+					fmt.Fprintf(w, "[%s] paused: circuit breaker for %s - %v\n",
 						trackID, currentSlice, err)
 					_ = supervisor.RecordPage(opts.DB, opts.ReleaseName, currentSlice, "circuit_breaker")
 					releaseTrack("paused")
 					return TrackPaused
 				}
-				fmt.Fprintf(os.Stderr, "[%s] slice %s failed after redesign: %v\n", trackID, currentSlice, err)
+				fmt.Fprintf(w, "[%s] slice %s failed after redesign: %v\n", trackID, currentSlice, err)
 				releaseTrack(supervisor.StateFailed)
 				return TrackFail
 			}
@@ -392,10 +410,10 @@ func runTrackRouter(
 			// "none" path). When nil, preserve the human-gated pause for
 			// backward compatibility with callers that haven't wired it yet.
 			if opts.MergeTrackFn != nil {
-				return finishTrack(ctx, opts, workRoot, trackID, trackBranch, releaseTrack)
+				return finishTrack(ctx, opts, w, workRoot, trackID, trackBranch, releaseTrack)
 			}
 			// Human-gated pause — surface and pause this track.
-			fmt.Fprintf(os.Stderr, "[%s] paused: %s — %s\n", trackID, decision.Type, decision.Reason)
+			fmt.Fprintf(w, "[%s] paused: %s — %s\n", trackID, decision.Type, decision.Reason)
 			releaseTrack("paused")
 			return TrackPaused
 
@@ -403,15 +421,15 @@ func runTrackRouter(
 			// Human-gated pause states — surface and pause this track.
 			// "review" is the Rule 9 design gate: design.md awaits the
 			// Captain's /design-review, a pause-for-human, never a failure.
-			fmt.Fprintf(os.Stderr, "[%s] paused: %s — %s\n", trackID, decision.Type, decision.Reason)
+			fmt.Fprintf(w, "[%s] paused: %s — %s\n", trackID, decision.Type, decision.Reason)
 			releaseTrack("paused")
 			return TrackPaused
 
 		case "none": // Terminal — no more slices.
-			return finishTrack(ctx, opts, workRoot, trackID, trackBranch, releaseTrack)
+			return finishTrack(ctx, opts, w, workRoot, trackID, trackBranch, releaseTrack)
 
 		default:
-			fmt.Fprintf(os.Stderr, "[%s] unrecognised router decision %q for %s: %s\n",
+			fmt.Fprintf(w, "[%s] unrecognised router decision %q for %s: %s\n",
 				trackID, decision.Type, currentSlice, decision.Reason)
 			releaseTrack(supervisor.StateFailed)
 			return TrackFail
@@ -424,6 +442,7 @@ func runTrackRouter(
 func runTrackLegacy(
 	ctx context.Context,
 	opts WorkerOptions,
+	w io.Writer,
 	workRoot, trackID, trackBranch string,
 	releaseTrack func(string),
 ) TrackResult {
@@ -431,12 +450,12 @@ func runTrackLegacy(
 
 	for _, sliceID := range opts.TrackInfo.Slices {
 		if ctx.Err() != nil {
-			fmt.Fprintf(os.Stderr, "[%s] cancelled at slice %s\n", trackID, sliceID)
+			fmt.Fprintf(w, "[%s] cancelled at slice %s\n", trackID, sliceID)
 			releaseTrack(supervisor.StateFailed)
 			return TrackSkipped
 		}
 
-		fmt.Fprintf(os.Stderr, "[%s] running slice %s (legacy)\n", trackID, sliceID)
+		fmt.Fprintf(w, "[%s] running slice %s (legacy)\n", trackID, sliceID)
 
 		specPath := filepath.Join(workRoot, specBase, sliceID, "spec.md")
 		statusPath := filepath.Join(workRoot, specBase, sliceID, "status.json")
@@ -444,14 +463,14 @@ func runTrackLegacy(
 		if err := opts.RunSliceFn(ctx, workRoot, specPath, statusPath); err != nil {
 			// S01: interpreter INCONCLUSIVE → PAGE the Coach (pause, not fail).
 			if strings.Contains(err.Error(), orchestrator.InterpreterInconclusiveSentinel) {
-				fmt.Fprintf(os.Stderr, "[%s] paused: interpreter inconclusive for %s — %v\n",
+				fmt.Fprintf(w, "[%s] paused: interpreter inconclusive for %s — %v\n",
 					trackID, sliceID, err)
 				releaseTrack("paused")
 				return TrackPaused
 			}
 			// S03: max-turns exhaustion -> PAGE the Coach (pause, not fail).
 			if strings.Contains(err.Error(), agent.MaxTurnsSentinel) {
-				fmt.Fprintf(os.Stderr, "[%s] paused: max turns exhausted for %s - %v\n",
+				fmt.Fprintf(w, "[%s] paused: max turns exhausted for %s - %v\n",
 					trackID, sliceID, err)
 				_ = supervisor.RecordPage(opts.DB, opts.ReleaseName, sliceID, "max_turns")
 				releaseTrack("paused")
@@ -461,13 +480,13 @@ func runTrackLegacy(
 			fingerprint := supervisor.Fingerprint(sliceID, err.Error())
 			_ = supervisor.RecordFailure(opts.DB, opts.ReleaseName, sliceID, fingerprint)
 			if supervisor.ShouldBreak(opts.DB, opts.ReleaseName, sliceID, fingerprint) {
-				fmt.Fprintf(os.Stderr, "[%s] paused: circuit breaker for %s - %v\n",
+				fmt.Fprintf(w, "[%s] paused: circuit breaker for %s - %v\n",
 					trackID, sliceID, err)
 				_ = supervisor.RecordPage(opts.DB, opts.ReleaseName, sliceID, "circuit_breaker")
 				releaseTrack("paused")
 				return TrackPaused
 			}
-			fmt.Fprintf(os.Stderr, "[%s] slice %s failed: %v\n", trackID, sliceID, err)
+			fmt.Fprintf(w, "[%s] slice %s failed: %v\n", trackID, sliceID, err)
 
 			if opts.Notifier != nil {
 				summary := err.Error()
@@ -489,7 +508,7 @@ func runTrackLegacy(
 		}
 	}
 
-	return finishTrack(ctx, opts, workRoot, trackID, trackBranch, releaseTrack)
+	return finishTrack(ctx, opts, w, workRoot, trackID, trackBranch, releaseTrack)
 }
 
 // finishTrack pushes the track branch, auto-merges into release-wt (when
@@ -520,6 +539,7 @@ func runTrackLegacy(
 func finishTrack(
 	ctx context.Context,
 	opts WorkerOptions,
+	w io.Writer,
 	workRoot, trackID, trackBranch string,
 	releaseTrack func(string),
 ) TrackResult {
@@ -534,15 +554,15 @@ func finishTrack(
 	// dependent tracks don't start until this merge completes — no polling
 	// loop needed. See Pin 1 in S04 design review.
 	if opts.MergeTrackFn != nil {
-		fmt.Fprintf(os.Stderr, "[%s] auto-merging into release-wt\n", trackID)
+		fmt.Fprintf(w, "[%s] auto-merging into release-wt\n", trackID)
 		if err := opts.MergeTrackFn(opts.ReleaseWorktreePath, trackID, trackBranch); err != nil {
-			fmt.Fprintf(os.Stderr, "[%s] auto-merge failed: %v\n", trackID, err)
+			fmt.Fprintf(w, "[%s] auto-merge failed: %v\n", trackID, err)
 			return TrackFail
 		}
-		fmt.Fprintf(os.Stderr, "[%s] auto-merged into release-wt\n", trackID)
+		fmt.Fprintf(w, "[%s] auto-merged into release-wt\n", trackID)
 	}
 
-	fmt.Fprintf(os.Stderr, "[%s] done\n", trackID)
+	fmt.Fprintf(w, "[%s] done\n", trackID)
 	return TrackPass
 }
 
@@ -584,10 +604,10 @@ func findFirstNonTerminal(ctx context.Context, oracle router.OracleReader, relea
 
 // stripCaptainProceed removes captain-proceed.md for the given slice so the
 // Design TL;DR gate fires again on the next implement dispatch.
-func stripCaptainProceed(workRoot, specBase, sliceID string) {
+func stripCaptainProceed(w io.Writer, workRoot, specBase, sliceID string) {
 	ackPath := filepath.Join(workRoot, specBase, sliceID, "captain-proceed.md")
 	if err := os.Remove(ackPath); err != nil && !os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "stripCaptainProceed: remove %s: %v\n", ackPath, err)
+		fmt.Fprintf(w, "stripCaptainProceed: remove %s: %v\n", ackPath, err)
 	}
 }
 
