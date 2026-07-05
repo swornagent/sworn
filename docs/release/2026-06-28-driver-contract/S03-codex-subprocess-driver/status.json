@@ -24,8 +24,8 @@
         "ErrKindProvider — matches spec.json AC-03's literal parenthetical value; treats codex's non-zero exit as a distinct provider-side failure class, but silently loses terminal-halt-on-auth fail-fast for a codex-CLI auth/login failure",
         "New codex-specific ErrKind (not yet defined) distinguishing an auth-looking non-zero exit from a genuinely different provider failure, via stderr pattern-matching — rejected by S02 precedent for the same reason S02's pin 2 rejected it (missed pattern on CLI wording drift silently reintroduces the gap)"
       ],
-      "human_decision": null,
-      "rationale": "See design.md decision 6 for the full analysis. Not resolved by the implementer per Rule 9 — flagged for Captain design review before this Kind value is locked into TestCodexErrorMapping.",
+      "human_decision": "Pre-ratified by Brad, 2026-07-03, S02 design review — binding cross-driver contract (project memory: project_driver_contract_recut) explicitly scoped to cover S03/S04 by name: any future driver mapping its own subprocess/API auth failures MUST reuse ErrKindAuth. Confirmed applicable to S03 (not a fresh decision) at S03's own Captain design review, 2026-07-06.",
+      "rationale": "See design.md decision 6 for the full analysis, including why the implementer flagged spec.json AC-03's internally-inconsistent parenthetical rather than guessing past it. ErrKindAuth locked into spawnClassified/TestCodexErrorMapping.",
       "architecturally_significant": true
     }
   ],

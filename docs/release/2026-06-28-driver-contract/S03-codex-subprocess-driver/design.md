@@ -24,29 +24,62 @@ exercised — only a fake-binary fixture, same convention as `claude_test.go`.
 ## Key design choices + rationale
 
 1. **Invocation: `codex exec --json -C <WorktreeRoot> <prompt>`, with
-   `cmd.Dir` also set to `WorktreeRoot`.** AC-01 literally calls out both
-   `cmd.Dir` *and* the `-C` flag — belt-and-braces so a codex CLI version
-   that doesn't honour `-C` (or a future one that changes its meaning still
-   gets a correctly-rooted child via `cmd.Dir`). `--json` is the assumed
-   flag for machine-readable output (the AC's "machine-readable output
-   enabled"). No `--no-session-persistence`-equivalent flag is added for the
-   verifier role — neither AC-01 nor AC-02 names one for codex, unlike
-   claude's AC-03, so I'm not inventing one.
+   `cmd.Dir` also set to `WorktreeRoot`; verifier dispatches add
+   `--ephemeral`.** AC-01 literally calls out both `cmd.Dir` *and* the `-C`
+   flag — belt-and-braces so a codex CLI version that doesn't honour `-C`
+   (or a future one that changes its meaning) still gets a correctly-rooted
+   child via `cmd.Dir`. `--json` is the assumed flag for machine-readable
+   output (the AC's "machine-readable output enabled").
+   **RESOLVED at design review (pin 1, 2026-07-06):** originally this
+   decision left out a fresh-context flag for the verifier role, reasoning
+   that neither AC-01 nor AC-02 named one for codex the way claude's AC-03
+   names `--no-session-persistence`. Captain review correctly flagged that
+   as an inferred-from-spec-silence gap on a live Rule 7 (Adversarial
+   Verification) question, not a deliberate scope decision — whether codex
+   has any default session/rollout persistence that could leak state across
+   invocations in the same worktree wasn't determinable from this repo
+   alone. Brad supplied codex CLI's documented non-interactive-mode
+   behaviour during review: `--ephemeral` avoids persisting session rollout
+   files to disk, and continuing a prior session requires the explicit
+   `codex exec resume` subcommand — a bare `codex exec` always starts fresh
+   regardless, so there is no automatic context bleed either way, but
+   `--ephemeral` is still the direct codex-side equivalent of claude's
+   `--no-session-persistence` and is applied the same way. Mirrors
+   `claude.go:50-51` exactly: `--ephemeral` is added only when
+   `in.Role == RoleVerifier`. No longer inferred from spec silence — this is
+   now a confirmed technical fact, not a Coach judgement call.
 
 2. **Codex envelope: JSONL event stream, not a single JSON object — this is
    the R-01 assumption, documented as a version-pinned comment in
-   `codex.go`.** I'm assuming `codex exec --json` emits one JSON object per
-   stdout line: `{"type":"item.completed","item":{"type":"agent_message","text":"..."}}`
-   for the agent's final message (last one wins if the CLI streams
-   intermediate messages), and a terminal `{"type":"turn.completed","usage":
-   {"input_tokens":N,"output_tokens":N},"model":"...","duration_ms":N}`
-   carrying usage/model/duration. This is a genuine unknown (the R-01 risk
-   this slice exists to absorb) — the fake-binary fixtures encode exactly
-   this shape, `codex.go`'s doc comment states the assumption explicitly
-   (not implied), and S10's conformance suite runs the same behavioural
-   clauses against this fake, not a real binary. A real-binary drift is a
-   Rule-2 deferral for S10/SIT to surface, not something this slice can
-   close on its own.
+   `codex.go`.** `codex exec --json` emits one JSON object per stdout line:
+   a `thread.started` event opens the stream, `item.completed` events carry
+   agent turns (`{"type":"item.completed","item":{"type":"agent_message","text":"..."}}`,
+   last one wins as the final result text if the CLI streams intermediate
+   messages), and a terminal `turn.completed` event carries usage.
+   **CORRECTED at design review (2026-07-06, from docs Brad supplied
+   during the same review that resolved pin 1):** the original draft of
+   this decision assumed `turn.completed` carries `"model":"..."` and
+   `"duration_ms":N` directly, treating the ModelID/DurationMS fallback as
+   a rare edge case. The documented sample stream shows `turn.completed`
+   carries **only** a `usage` object — `input_tokens`, `cached_input_tokens`,
+   `output_tokens`, `reasoning_output_tokens` — with no `model` or
+   `duration_ms` field at any level. This doesn't change AC-04's required
+   behaviour (defensive parsing + graceful fallback already covers a
+   missing field), but it means the ModelID-falls-back-to-requested and
+   DurationMS-falls-back-to-measured-wall-clock paths are the **normal**
+   path for codex, not the exception — the fake-binary fixture and
+   `codex.go`'s doc comment are built to that corrected shape, not the
+   originally-guessed one. `Result` has no fields for `cached_input_tokens`/
+   `reasoning_output_tokens`, so they're decoded (for fidelity to the
+   documented shape) but not mapped to `Result` — only `input_tokens` →
+   `InputTokens` and `output_tokens` → `OutputTokens` (a bounded, low-stakes
+   mapping choice, not escalated: AC-04 only requires those two fields).
+   This is a genuine unknown in the deeper sense that it isn't verified
+   against a live binary (the R-01 risk this slice exists to absorb) — the
+   fake-binary fixtures encode exactly this documented shape, and S10's
+   conformance suite runs the same behavioural clauses against this fake,
+   not a real binary. A real-binary drift is a Rule-2 deferral for S10/SIT
+   to surface, not something this slice can close on its own.
 
 3. **Parsing is defensive per-line, same posture as claude's envelope
    parsing**: an unparseable line is a hard `ErrKind=protocol` failure (the
@@ -83,9 +116,21 @@ exercised — only a fake-binary fixture, same convention as `claude_test.go`.
    regardless of which CLI is being spawned, so only the non-zero-exit arm
    takes the parameter.
 
-6. **OPEN QUESTION FOR THE CAPTAIN — codex's non-zero-exit `ErrKind` is
-   internally inconsistent in spec.json AC-03 and needs a reviewer call
-   before I lock it in.** AC-03's literal text: *"the same ErrKind mapping
+6. **RESOLVED at design review (pin 2, 2026-07-06) — codex's non-zero-exit
+   `ErrKind` is `ErrKindAuth`; this was already a binding, pre-ratified
+   cross-driver contract, not a fresh judgement call.** [[project_driver_contract_recut]]
+   and S02's own `status.json.design_decisions[0].human_decision` both
+   record Brad's 2026-07-03 ratification as explicitly scoped to cover any
+   future driver — S03 and S04 by name — that maps its own subprocess/API
+   auth failures: it MUST reuse `ErrKindAuth`, not invent its own label.
+   Captain review confirmed this citation lands on the correct, live
+   ratification and instructed locking `ErrKindAuth` into
+   `spawnClassified`/`TestCodexErrorMapping` without waiting on a fresh
+   Coach decision. `status.json.design_decisions[0].human_decision` is now
+   filled in citing the S02 precedent (see below) rather than left `null`.
+   The original open question (kept below for the record, since it's the
+   reasoning that led to catching a real spec defect) was: AC-03's literal
+   text: *"the same ErrKind mapping
    as the claude driver (timeout -> transient; binary-not-found -> config;
    non-zero exit -> provider with stderr excerpt)"*. But the claude driver's
    actual, ratified, verified mapping (S02 decision 2 / pin 2 resolution,
@@ -106,17 +151,16 @@ exercised — only a fake-binary fixture, same convention as `claude_test.go`.
    `subprocess.go` ("reserved for a future driver's genuinely-distinct
    provider-side failure") is ambiguous about whether "future driver" means
    codex specifically or some other driver entirely.
-   **My proposed default, pending Captain confirmation: codex's non-zero
-   exit also maps to `ErrKindAuth`**, matching claude's ratified mapping and
-   preserving fail-fast parity across both subprocess drivers, treating the
-   AC's "same ErrKind mapping as the claude driver" clause as controlling
-   over the parenthetical's stale value. The `spawnClassified` split in
-   decision 5 makes either resolution a one-constant change — I'm not
-   betting the architecture on my guess, just the specific Kind value. This
-   is flagged as `design_decisions[0]` in `status.json` (Type-1, stake:
-   whether a codex-CLI auth failure silently loses the engine's terminal
-   fail-fast) with `human_decision` left for Captain design review — I have
-   not resolved it myself.
+   My proposed default was `ErrKindAuth`, matching claude's ratified mapping
+   and preserving fail-fast parity across both subprocess drivers, treating
+   the AC's "same ErrKind mapping as the claude driver" clause as
+   controlling over the parenthetical's stale value — **confirmed correct**
+   by Captain review's citation of the pre-existing binding contract. Built
+   into `spawnClassified`/`TestCodexErrorMapping` as `ErrKindAuth`.
+   `status.json.design_decisions[0].human_decision`: "Pre-ratified by Brad,
+   2026-07-03, S02 design review — binding cross-driver contract
+   ([[project_driver_contract_recut]]), applies to S03 without a fresh
+   decision; confirmed at S03's own design review, 2026-07-06."
 
 7. **Fake codex CLI harness extends the existing shared `TestMain` in
    `subprocess_test.go` rather than adding a second one.** Go permits exactly
@@ -151,22 +195,36 @@ to keep them that way.
 | AC-04 | `subprocess.go` shared `hygieneEnv` (unchanged) + `TestCodexEnvHygiene`; defensive parsing defaults + `TestCodexEnvelopeDefaults` |
 | AC-05 | `go test ./internal/driver/...` — full package run, including S02's untouched `claude_test.go` |
 
-## Risks / open items for the Captain
+## Risks / open items for the Captain — RESOLVED (design review 2026-07-06)
 
-- **Decision 6 (escalate-class): codex non-zero-exit `ErrKind` value.** The
-  spec's own AC-03 text is internally inconsistent (see decision 6 above in
-  full). Recorded as `design_decisions[0]` in `status.json`, Type-1,
-  `human_decision` pending. I need a reviewer call before I lock in
-  `ErrKindAuth` vs `ErrKindProvider` for codex's non-zero exit — implementing
-  either is a one-line change given the `spawnClassified` split, so this
-  does not block starting the rest of the slice's build, but it does block
-  writing `TestCodexErrorMapping`'s non-zero-exit case and I will not guess
-  past design review on a fail-fast-affecting choice this consequential.
-- **R-01 (spec's own risk, restated here for the reviewer):** the JSONL
-  envelope shape in decision 2 is a documented assumption, not verified
-  against a live codex binary. If it's wrong, S10's conformance suite (which
-  exercises the same fake, not live) will not catch the drift — only a real
-  SIT/cutover run against an actual `codex exec` binary would. That's
-  explicitly out of this slice's scope (and out of S10's, per its own spec)
-  — flagging so it isn't lost before whichever slice first runs against a
-  real codex binary.
+- **Decision 6 (was escalate-class): codex non-zero-exit `ErrKind` value —
+  RESOLVED.** Captain review confirmed this was already a binding,
+  pre-ratified cross-driver contract ([[project_driver_contract_recut]],
+  S02's own `status.json`), not a fresh judgement call — `ErrKindAuth`
+  locked in, `human_decision` filled in (see decision 6).
+- **Decision 1 (fresh-context flag for codex verifier dispatch) — RESOLVED.**
+  Captain review escalated this as a live Rule 7 question the review
+  couldn't settle from repo state alone; Brad supplied codex CLI's
+  documented non-interactive-mode behaviour, confirming `--ephemeral` as
+  the direct equivalent of claude's `--no-session-persistence`. Applied to
+  `codex.go` (verifier-only, mirroring `claude.go:50-51`).
+- **Decision 2 (JSONL envelope shape) — CORRECTED, not just resolved.** The
+  same docs Brad supplied showed `turn.completed` carries only `usage`
+  (no `model`/`duration_ms`) — the fake fixture and doc comment are built to
+  this corrected shape (see decision 2).
+- **`spec.json` AC-03's "provider" parenthetical (pin 3, mechanical) — NOT
+  fixed in this slice.** Captain review confirmed it's stale text (a
+  pre-ratification carry-over from S02's own draft wording), not a design
+  blocker — this slice builds against the correct value (`ErrKindAuth`,
+  decision 6) and the parenthetical's correction is deferred to a small
+  `/replan-release` housekeeping pass. Recorded in `journal.md` as a Rule 2
+  deferral (owning mechanism: `/replan-release 2026-06-28-driver-contract`,
+  citing this review + [[project_driver_contract_recut]]).
+- **R-01 (spec's own risk, restated here) — still open, by design.** The
+  JSONL envelope shape in decision 2, even corrected, is a documented
+  assumption from CLI docs, not verified against a live codex binary. If
+  it's wrong, S10's conformance suite (which exercises the same fake, not
+  live) will not catch the drift — only a real SIT/cutover run against an
+  actual `codex exec` binary would. Out of this slice's scope (and out of
+  S10's, per its own spec) — flagging so it isn't lost before whichever
+  slice first runs against a real codex binary.
