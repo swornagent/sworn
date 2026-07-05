@@ -30,22 +30,34 @@ Critical pins: #1 — codex verifier-dispatch fresh-context gap is a live Rule 7
 - (e) Touchpoint sequencing: S02 (verified) already landed `subprocess.go`/`subprocess_test.go` in this same track worktree, sequential before S03 — no concurrent-track collision risk; S04 (T3-inprocess, concurrent track) touches only `internal/driver/inprocess*.go`, no overlap.
 - (f) Spec-completeness gate: spec.json's ACs are concrete (literal argv, field names, specific error-kind values, specific test names) — not a thin spec. No gate finding.
 
+## Resolution (post-review, 2026-07-06)
+
+Brad supplied the live codex CLI non-interactive-mode docs during review, resolving pin 1 and surfacing one additional finding from the same source:
+
+**Pin 1 resolved.** The docs confirm `--ephemeral` ("Use `--ephemeral` when you don't want to persist session rollout files to disk") is the direct codex-side equivalent of claude's `--no-session-persistence`. Separately, `codex exec resume` is required to continue a prior session — a bare `codex exec` always starts a new session (the sample stream opens with a fresh `thread.started`/`thread_id` event) — so there is no automatic context bleed between dispatches regardless. Verified live at `internal/driver/claude.go:50-51`: `--no-session-persistence` is applied only when `in.Role == RoleVerifier`. The mechanical fix: `codex.go` adds `--ephemeral` under the same `in.Role == RoleVerifier` condition, mirroring `claude.go:50-51` exactly. No longer a Coach judgement call — this is now a determinable technical fact.
+
+**New finding (not a pin at review time, surfaced by the same docs): design decision 2's envelope assumption needs a small correction.** The docs' sample JSONL stream shows `turn.completed` carrying only a `usage` object (`input_tokens`, `cached_input_tokens`, `output_tokens`, `reasoning_output_tokens`) — no `model` or `duration_ms` fields at either the event's top level or inside `usage`. Decision 2 assumed `turn.completed` carries `"model":"..."` and `"duration_ms":N` directly, treating the ModelID/DurationMS fallback (to requested model / measured wall-clock) as a rare edge case. Per the documented sample, that fallback is the **normal** path, not the exception. This doesn't change AC-04's required behaviour (defensive parsing + graceful fallback already covers it), but the fake-binary fixture and `codex.go`'s doc-comment should be corrected to encode the real documented shape now, rather than carry a guessed shape into `TestCodexEnvelopeDefaults` that happens to pass for the wrong reason. Ask the implementer to update the fixture/doc-comment to match the documented sample verbatim (cite this review + the codex non-interactive-mode docs) before writing `TestCodexEnvelopeDefaults`.
+
+Routing verdict updated below: PROCEED. Both pin 1 and the new envelope-shape finding are apply-inline corrections — nothing left requiring fresh Coach authority.
+
 ## Suggested acknowledgement reply
 
-TL;DR: strong design — the implementer correctly caught and flagged spec.json AC-03's internal inconsistency rather than guessing past it, and every other factual claim (subprocess.go's current hardcoded mapping, isJSONObject reuse, shared TestMain) checked out live against the repo. One thing the implementer didn't surface that this review did: 1 pin needs your call, 1 is already answered by an existing ratified decision, 1 is a small text fix.
+TL;DR: strong design — the implementer correctly caught and flagged spec.json AC-03's internal inconsistency rather than guessing past it, and every other factual claim (subprocess.go's current hardcoded mapping, isJSONObject reuse, shared TestMain) checked out live against the repo. All 3 pins are now resolved to apply-inline directives — Brad supplied live codex CLI docs during review that answered the one item that needed a live-behaviour call.
 
-1. **Codex verifier dispatch needs a fresh-context answer before `TestCodexDispatchVerifier`/`TestCodexErrorMapping` lock in behaviour.** S02's own AC-03 requires `--no-session-persistence` specifically for Rule 7 (fresh-context verification); S03's AC-02 is silent on the codex equivalent, and decision 1 resolved that silence as "nothing to add" rather than as an open Rule-7 question. Confirm from codex CLI docs/help whether a bare `codex exec` call is stateless by default, or treat this as a spec gap needing a `/replan-release` amendment to AC-02. This is the one item that needs your judgement — it turns on live codex CLI behaviour, not repo state.
+1. **Add `--ephemeral` for the verifier role — this is now a confirmed fact, not an open question.** codex CLI docs confirm `--ephemeral` avoids persisting session rollout files to disk, and `codex exec resume` (an explicit subcommand) is required to continue a prior session — a bare `codex exec` always starts fresh, so there's no automatic context bleed either way. Mirror `claude.go:50-51` exactly: add `--ephemeral` only when `in.Role == RoleVerifier`.
 2. **`ErrKindAuth` is already decided — build it, don't wait.** [[project_driver_contract_recut]] and S02's `status.json` both record that codex's non-zero-exit case reuses `ErrKindAuth`, ratified at S02's design review and explicitly scoped to cover S03 by name. Lock this into `spawnClassified`/`TestCodexErrorMapping`, and fill in `status.json.design_decisions[0].human_decision` citing the S02 precedent instead of leaving it `null`.
 3. **`spec.json` AC-03's "provider" parenthetical is stale text, not a design blocker.** Note it in journal.md for a small `/replan-release` housekeeping fix (provider -> auth) — build against decision 6's correct value now.
 
+Additional directive from the docs Brad supplied (not an original pin, folded in during review): **correct decision 2's envelope assumption before writing `TestCodexEnvelopeDefaults`.** The documented sample JSONL stream shows `turn.completed` carrying only a `usage` object (`input_tokens`/`cached_input_tokens`/`output_tokens`/`reasoning_output_tokens`) — no `model` or `duration_ms` fields. Update the fake-binary fixture and `codex.go`'s doc-comment to encode this real shape; the ModelID/DurationMS fallback (to requested model / measured wall-clock) is the normal path, not a rare edge case. AC-04's required behaviour is unchanged — this only tightens the fixture to match documented reality instead of a guess.
+
 Flags (informational, no action needed): (a) llm-check unavailable in this environment, unrelated to this slice; (b)-(d) decisions 4/5/7's factual claims all verified live; (e) no touchpoint collision, S02 already sequential-landed, S04 has no file overlap; (f) spec is concrete, not thin.
 
-§2 decisions 2, 3, 4, 5, 7 acknowledged clean. Decision 6 addressed by pin 2 (already ratified, not a fresh decision). §6/Risks-for-Captain item (R-01 restated) stands as documented — no change needed, it's an accepted, spec-mitigated risk.
+§2 decisions 2, 3, 4, 5, 7 acknowledged clean. Decisions 1 and 6 addressed by pins 1 and 2 above (both now resolved, not fresh decisions). §6/Risks-for-Captain item (R-01 restated) stands as documented, tightened by the envelope-shape correction above.
 
-Address pins 1–3 inline during implementation, then proceed to in_progress.
+Address pins 1–3 and the envelope-shape directive inline during implementation, then proceed to in_progress.
 
 <!-- CAPTAIN-VERDICT
-DECISION: NEEDS_COACH
+DECISION: PROCEED
 CONSTITUTIONAL: no
-REASON: pin 1 (codex verifier-dispatch fresh-context / Rule 7 compliance) turns on live codex CLI behaviour this review cannot verify from repo state and touches a CRITICAL project rule — needs Coach judgement before TestCodexDispatchVerifier/TestCodexErrorMapping lock in behaviour. Pins 2-3 are apply-inline and would not by themselves block PROCEED.
+REASON: pin 1 resolved live during review — Brad supplied codex CLI docs confirming --ephemeral as the direct equivalent of claude's --no-session-persistence, applied the same way (Role==RoleVerifier). All pins (1-3) plus the envelope-shape finding are now apply-inline corrections the implementer makes while writing code; nothing left requires fresh Coach authority.
 -->
