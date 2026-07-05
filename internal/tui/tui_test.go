@@ -1864,13 +1864,68 @@ func TestTwoPaneRenderFitsTerminalWidth(t *testing.T) {
 	}
 }
 
+// TestReleasesListShowsBareIDNotFrontmatterTitle verifies the releases pane
+// displays the bare release directory name (e.g. "2026-06-28-driver-contract"),
+// not render.go's generated frontmatter title ("Release board — <release>").
+// Every index.md's title carries that constant prefix, so displaying it
+// verbatim meant every entry in the pane redundantly repeated "Release board —".
+func TestReleasesListShowsBareIDNotFrontmatterTitle(t *testing.T) {
+	dir := t.TempDir()
+	fixtureReleaseDir(filepath.Join(dir, "docs", "release"))
+	createIndex(t, dir, "2026-06-28-driver-contract", "Release board — 2026-06-28-driver-contract")
+
+	rl := &ReleasesList{}
+	if err := rl.LoadReleases(dir); err != nil {
+		t.Fatalf("LoadReleases: %v", err)
+	}
+
+	out := rl.View()
+	if !strings.Contains(out, "2026-06-28-driver-contract") {
+		t.Fatalf("expected the bare release ID in the pane, got:\n%s", out)
+	}
+	if strings.Contains(out, "Release board") {
+		t.Fatalf("expected no 'Release board —' prefix in the pane, got:\n%s", out)
+	}
+}
+
+// TestReleasesListRealRepoReleasesShowBareID is the reachability test for the
+// bare-ID fix: it loads THIS repo's real, live docs/release/ directory (every
+// release actually committed here, each with a render.go-generated
+// "Release board — <release>" frontmatter title) and verifies the pane shows
+// none of that prefix for any of them.
+func TestReleasesListRealRepoReleasesShowBareID(t *testing.T) {
+	repoRoot, err := findRepoRoot()
+	if err != nil {
+		t.Skipf("skipping live-repo reachability test: findRepoRoot: %v", err)
+	}
+
+	rl := &ReleasesList{}
+	if err := rl.LoadReleases(repoRoot); err != nil {
+		t.Fatalf("LoadReleases against real repo: %v", err)
+	}
+	if len(rl.Releases) == 0 {
+		t.Fatal("expected at least one real release under docs/release/")
+	}
+
+	out := rl.View()
+	t.Logf("releases pane:\n%s", out)
+	if strings.Contains(out, "Release board") {
+		t.Errorf("expected no 'Release board —' prefix in the real releases pane, got:\n%s", out)
+	}
+	for _, rel := range rl.Releases {
+		if !strings.Contains(out, rel.ID) {
+			t.Errorf("expected bare release ID %q to appear in the pane, got:\n%s", rel.ID, out)
+		}
+	}
+}
+
 // TestReleasesListNoWrapAtTypicalWidth — AC-02: a release name under 40 chars
 // with a comfortably wide pane renders on exactly one line, untruncated.
 func TestReleasesListNoWrapAtTypicalWidth(t *testing.T) {
 	rl := &ReleasesList{
 		Width: 100,
 		Releases: []ReleaseInfo{
-			{Name: "loop-cli-ux", TrackCount: 3, SliceStates: map[string]int{"verified": 3}},
+			{ID: "loop-cli-ux", Name: "Release board — loop-cli-ux", TrackCount: 3, SliceStates: map[string]int{"verified": 3}},
 		},
 	}
 	out := rl.View()
@@ -1894,7 +1949,7 @@ func TestReleasesListTruncatesLongNameAtNarrowPane(t *testing.T) {
 	rl := &ReleasesList{
 		Width: 28,
 		Releases: []ReleaseInfo{
-			{Name: longName, TrackCount: 2, SliceStates: map[string]int{"planned": 1}},
+			{ID: longName, Name: "Release board — " + longName, TrackCount: 2, SliceStates: map[string]int{"planned": 1}},
 		},
 	}
 	out := rl.View()
