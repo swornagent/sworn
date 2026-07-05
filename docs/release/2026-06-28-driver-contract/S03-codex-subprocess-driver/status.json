@@ -3,9 +3,10 @@
   "slice_id": "S03-codex-subprocess-driver",
   "release": "2026-06-28-driver-contract",
   "track": "T2-subprocess",
-  "state": "planned",
+  "state": "design_review",
   "covers_needs": ["N-10"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S03-codex-subprocess-driver/spec.json",
+  "design_path": "docs/release/2026-06-28-driver-contract/S03-codex-subprocess-driver/design.md",
   "start_commit": null,
   "effort_complexity": {
     "effort": "low",
@@ -14,6 +15,20 @@
     "rationale": "Small diff over shared plumbing; the codex envelope unknowns are the substance (the original S63 deferral reason).",
     "confirmed_by_implementer": false
   },
+  "design_decisions": [
+    {
+      "choice": "codex CLI non-zero-exit ErrKind mapping: spec.json AC-03 is internally inconsistent (\"same ErrKind mapping as the claude driver\" vs. a stated value of `provider`, while claude's own ratified mapping is `auth`). Proposed default: map codex's non-zero exit to ErrKindAuth, matching claude's ratified mapping, to preserve internal/run/slice.go:487's terminal-halt-on-auth fail-fast for both subprocess drivers.",
+      "stake_class": "Type-1",
+      "options": [
+        "ErrKindAuth — matches claude driver's ratified mapping (S02 pin 2); preserves terminal-halt-on-auth fail-fast parity across both subprocess drivers (implementer's proposed default)",
+        "ErrKindProvider — matches spec.json AC-03's literal parenthetical value; treats codex's non-zero exit as a distinct provider-side failure class, but silently loses terminal-halt-on-auth fail-fast for a codex-CLI auth/login failure",
+        "New codex-specific ErrKind (not yet defined) distinguishing an auth-looking non-zero exit from a genuinely different provider failure, via stderr pattern-matching — rejected by S02 precedent for the same reason S02's pin 2 rejected it (missed pattern on CLI wording drift silently reintroduces the gap)"
+      ],
+      "human_decision": null,
+      "rationale": "See design.md decision 6 for the full analysis. Not resolved by the implementer per Rule 9 — flagged for Captain design review before this Kind value is locked into TestCodexErrorMapping.",
+      "architecturally_significant": true
+    }
+  ],
   "verification": {
     "result": "pending"
   }
