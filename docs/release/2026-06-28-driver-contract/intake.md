@@ -140,17 +140,24 @@ are cut. Trace gate binds every N-NN to at least one slice's `covers_needs`.)
   capability info where the provider reports it over the wire and an honest
   "unknown" where it doesn't. Unknown is never treated as capable
   (fail-closed). Own slice; late-deferrable; active probing out of scope.
-- **N-12 (added 2026-07-02, second pass)**: sworn re-vendors Baton at the
-  v0.7.1 tag — both embed roots re-synced; the spec writer emits and the
+- **N-12 (added 2026-07-02; re-aimed to v0.9.0 2026-07-06)**: sworn re-vendors Baton at the
+  v0.9.0 tag — both embed roots re-synced; the spec writer emits and the
   strict reader accepts `in_scope`/`out_of_scope`; the quadrant enum adopts
-  `quick` in place of `chore` in code; `acknowledged_by` round-trips — the
-  code half of sworn#48.
-- **N-13 (added 2026-07-02, second pass)**: every live release record on the
-  integration branch conforms to the v0.7.1 contract — quadrant data migrated
-  `chore`→`quick` across all releases, `in_scope`/`out_of_scope` present on
-  every spec.json (empty arrays for historical records), the one invalid
-  `feature` quadrant fixed, renders refreshed, reader tightened to quick-only —
+  `quick` for `chore` and `beast` for `epic` in code; `acknowledged_by` round-trips;
+  and (sworn#80) a track's worktree path + state are derived from git refs, not
+  persisted to board.json (board-v1 pure plan) — the code half of sworn#48.
+- **N-13 (added 2026-07-02; re-aimed to v0.9.0 2026-07-06)**: every live release record on the
+  integration branch conforms to the v0.9.0 contract — quadrant data migrated
+  `chore`→`quick` and `epic`→`beast` across all releases, `in_scope`/`out_of_scope` present on
+  every spec.json (empty arrays for historical records), every board.json migrated to the
+  pure-plan shape (tracks[].state + worktree dropped), the one invalid
+  `feature` quadrant fixed, renders refreshed, reader tightened to the v0.9.0 enum —
   the data half of sworn#48.
+- **N-14 (added 2026-07-06, driver-contract replan)**: `sworn regress` runs the Go
+  test suite from the module directory (the dir containing `go.mod`), not the
+  worktree root — so a repo whose Go module lives in a subdirectory (e.g. `<repo>/go`)
+  no longer reports a spurious `go test` setup failure. Surfaced downstream during
+  fired's `/merge-track` (capture brief Defect 1).
 
 ## Constraints and non-negotiables
 

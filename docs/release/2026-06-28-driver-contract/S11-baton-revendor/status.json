@@ -4,14 +4,16 @@
   "release": "2026-06-28-driver-contract",
   "track": "T7-baton-revendor",
   "state": "planned",
-  "covers_needs": ["N-12"],
+  "covers_needs": [
+    "N-12"
+  ],
   "spec_path": "docs/release/2026-06-28-driver-contract/S11-baton-revendor/spec.json",
   "start_commit": null,
   "effort_complexity": {
     "effort": "high",
-    "complexity": "low",
-    "quadrant": "grind",
-    "rationale": "Vendor bump + enum rename + two adoption points; breadth is the five-package fixture sweep; traps sequenced away via S12 in-track.",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "Vendor bump to v0.9.0 + chore->quick & epic->beast enum + acknowledged_by round-trip + sworn#80 (derive worktree/state from refs, board-v1 pure plan) + Defect-2 regression lock; complexity high per the worker.go worktree-derivation nuance (spec R-05).",
     "confirmed_by_implementer": false
   },
   "verification": {

@@ -4,13 +4,15 @@
   "slice_id": "S11-baton-revendor",
   "release": "2026-06-28-driver-contract",
   "track": "T7-baton-revendor",
-  "user_outcome": "sworn's vendored Baton protocol is pinned to the v0.7.1 upstream tag: both embed roots carry the reconciled schemas (in_scope/out_of_scope as required spec-v1 fields, the published verifier-verdict-v1), the spec writer emits and the strict reader accepts the new fields, the quadrant enum gains 'quick' in place of 'chore', and acknowledged_by round-trips cleanly — the code half of sworn#48. The same pin also closes sworn#80: a track's worktree branch/path/state are no longer persisted, racy board.json fields — they're computed from (release, track-id) and git ancestry, so /implement-slice never writes to release-wt and /merge-track stays the sole write point.",
-  "rationale": "sworn#48, rolled into this release by decision 2026-07-02. Grounding: the pin is currently v0.6.3 @ a5aca64 (internal/adopt/baton/VERSION); preconditions sworn#23 (tool-neutral source map) and sworn#24 (VERSION centralisation) are CLOSED. PRECONDITION: the upstream tag v0.7.1 does not exist yet — baton main sits at cd42ca1 (dc3b7cc added in_scope/out_of_scope AFTER the v0.7.0 tag; cd42ca1 fixed the role-prompt scope->user_outcome prose) and cd42ca1 is not yet pushed. Cut and push the v0.7.1 tag before this slice starts; the pin must reference a public tag per the repo's vendoring policy. Adoption points verified live: writer internal/spec/spec.go, strict reader internal/implement/spec_record.go; quadrant code internal/state/state.go:410,426 with fixtures in internal/state, internal/run/parallel_test.go, internal/router/router_test.go, cmd/sworn/doctor_test.go, cmd/sworn/regress_test.go. Transitional tolerance: Validate accepts BOTH quick and chore until S12 migrates the live records, then S12 tightens to quick-only — the track merges as one unit so the integration branch never carries the intermediate state. sworn#80 rolled in by decision 2026-07-03: two concurrent /implement-slice sessions (S02, S04) raced on the release-wt board.json write implement-slice makes when materialising a track's worktree, because tracks[].worktree_path/worktree_branch/state are modeled as persisted data even though track-mode.md's 'Naming, locked' table already makes branch/path a pure function of (release, track-id), and state is derivable via the same merge-base --is-ancestor check /merge-track's own idempotency gate already performs. This directly resolves the ONE board-v1 divergence baton#54 flagged that concerns track worktree binding (flattened worktree_path/worktree_branch vs upstream's nested worktree{path,branch}) — not by reshaping to match upstream, but by removing the fields as persisted data entirely, which moots the shape question for them. Explicitly out of scope: board-v1's remaining canonical-conformance gaps (additionalProperties strictness + id_token pattern, vertical_trace/target_version/integration_branch schema declarations) and proof-v1/journeys-v1/attestations-v1 conformance — baton#54 closed without actioning these; tracked fresh in baton#55.",
-  "covers_needs": ["N-12"],
+  "user_outcome": "sworn's vendored Baton protocol is pinned to the v0.9.0 upstream tag: both embed roots carry the reconciled schemas (in_scope/out_of_scope as required spec-v1 fields, the published verifier-verdict-v1), the spec writer emits and the strict reader accepts the new fields, the quadrant enum gains 'quick' in place of 'chore' and 'beast' in place of 'epic', and acknowledged_by round-trips cleanly — the code half of sworn#48. The same pin also closes sworn#80: a track's worktree branch/path/state are no longer persisted, racy board.json fields — they're computed from (release, track-id) and git ancestry, so /implement-slice never writes to release-wt and /merge-track stays the sole write point.",
+  "rationale": "sworn#48, rolled into this release by decision 2026-07-02. Grounding: the pin is currently v0.6.3 @ a5aca64 (internal/adopt/baton/VERSION); preconditions sworn#23 (tool-neutral source map) and sworn#24 (VERSION centralisation) are CLOSED. UPDATE 2026-07-06: re-aimed from the originally-projected v0.7.1 to the RELEASED v0.9.0 tag (@ fc497b4), which supersedes it. v0.9.0 carries all of v0.7.1's schema reconciliation (in_scope/out_of_scope required, verifier-verdict-v1, acknowledged_by) PLUS the epic->beast quadrant rename (v0.7.1), invariant 5 / release-wt write-isolation (v0.8.0), and the board-v1 pure-plan change removing worktree+state from tracks[] (v0.9.0) — the last of which satisfies this slice's AC-06/AC-07 sworn#80 design as-written, upstream-first. The v0.7.1-tag precondition is closed. Adoption points verified live: writer internal/spec/spec.go, strict reader internal/implement/spec_record.go; quadrant code internal/state/state.go:410,426 with fixtures in internal/state, internal/run/parallel_test.go, internal/router/router_test.go, cmd/sworn/doctor_test.go, cmd/sworn/regress_test.go. Transitional tolerance: Validate accepts BOTH quick and chore until S12 migrates the live records, then S12 tightens to quick-only — the track merges as one unit so the integration branch never carries the intermediate state. sworn#80 rolled in by decision 2026-07-03: two concurrent /implement-slice sessions (S02, S04) raced on the release-wt board.json write implement-slice makes when materialising a track's worktree, because tracks[].worktree_path/worktree_branch/state are modeled as persisted data even though track-mode.md's 'Naming, locked' table already makes branch/path a pure function of (release, track-id), and state is derivable via the same merge-base --is-ancestor check /merge-track's own idempotency gate already performs. This directly resolves the ONE board-v1 divergence baton#54 flagged that concerns track worktree binding (flattened worktree_path/worktree_branch vs upstream's nested worktree{path,branch}) — not by reshaping to match upstream, but by removing the fields as persisted data entirely, which moots the shape question for them. Explicitly out of scope: board-v1's remaining canonical-conformance gaps (additionalProperties strictness + id_token pattern, vertical_trace/target_version/integration_branch schema declarations) and proof-v1/journeys-v1/attestations-v1 conformance — baton#54 closed without actioning these; tracked fresh in baton#55.",
+  "covers_needs": [
+    "N-12"
+  ],
   "in_scope": [
-    "internal/adopt/baton/VERSION pin bump to the v0.7.1 tag (SHA + digest) and re-sync of that embed root from the tag",
+    "internal/adopt/baton/VERSION pin bump to the v0.9.0 tag (SHA + digest) and re-sync of that embed root from the tag",
     "internal/baton/schemas re-sync (spec-v1 with required in_scope/out_of_scope; reconciled status/journeys/attestations; verifier-verdict-v1; board-v1 with worktree_path/worktree_branch/state removed from tracks[])",
-    "Quadrant enum code change: 'quick' replaces 'chore' as the low/low value, with transitional dual acceptance until S12",
+    "Quadrant enum code change: 'quick' replaces 'chore' (low/low) AND 'beast' replaces 'epic' (high/high) to match baton v0.9.0's enum {quick,grind,puzzle,beast}, with transitional acceptance of the retired 'chore'/'epic' until S12 migrates the data",
     "Spec writer (internal/spec) emits in_scope/out_of_scope; strict reader (internal/implement/spec_record.go) accepts and exposes them",
     "acknowledged_by round-trip smoke test through writer + reader + schema validation",
     "Test-fixture updates across internal/state, internal/run, internal/router, cmd/sworn",
@@ -29,7 +31,7 @@
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
-    "quadrant": "epic",
+    "quadrant": "beast",
     "rationale": "Was grind (known-shape vendor bump + enum rename, fixture sweep across five packages). Folding in sworn#80 raises complexity to high: the correct worktree-path derivation isn't track-mode.md's plainly-documented formula but the repo-local sibling-of-release-worktree logic worker.go already carries for a real prior incident (eval finding 3) — the implementer must find and preserve that nuance, not re-derive the naive convention. It also requires a cross-package consumer sweep (~12 files verified to read through internal/board's TrackInfo, not board.json directly) and coordinated baton-repo schema/command-spec edits landing before the v0.7.1 tag. Re-assess at design_review.",
     "confirmed_by_implementer": false
   },
@@ -70,8 +72,8 @@
   "risks": [
     {
       "id": "R-01",
-      "description": "The upstream v0.7.1 tag does not exist at slice start (cd42ca1 unpushed).",
-      "mitigation": "Named precondition: Brad cuts and pushes the tag first; the slice BLOCKs (dependent-on-human) rather than pinning an untagged SHA."
+      "description": "The upstream tag must exist and be pinned by SHA. SATISFIED: v0.9.0 @ fc497b4 is public (released 2026-07-06); it supersedes the original v0.7.1 precondition, now closed.",
+      "mitigation": "Precondition satisfied: v0.9.0 is public (tag fc497b4). Pin that SHA + content digest; no BLOCK needed."
     },
     {
       "id": "R-02",
@@ -99,19 +101,19 @@
       "id": "AC-01",
       "type": "ubiquitous",
       "ears_keyword": "shall",
-      "text": "internal/adopt/baton/VERSION SHALL pin baton-protocol v0.7.1 with the tag's upstream SHA and content digest, and both embed roots (internal/adopt/baton rules/docs, internal/baton/schemas) SHALL be re-synced byte-identical from that tag; `sworn doctor` SHALL report the new pin."
+      "text": "internal/adopt/baton/VERSION SHALL pin baton-protocol v0.9.0 with the tag's upstream SHA and content digest, and both embed roots (internal/adopt/baton rules/docs, internal/baton/schemas) SHALL be re-synced byte-identical from that tag; `sworn doctor` SHALL report the new pin."
     },
     {
       "id": "AC-02",
       "type": "ubiquitous",
       "ears_keyword": "shall",
-      "text": "state.EffortComplexity SHALL treat 'quick' as the canonical low-effort/low-complexity quadrant (Quadrant() returns 'quick'; comments/docs updated) while Validate transitionally accepts 'chore' with a deprecation warning until S12 completes the data migration; grind/puzzle/epic are unchanged (TestQuadrantQuick covers canonical, transitional, and rejected values)."
+      "text": "state.EffortComplexity SHALL treat 'quick' as the canonical low-effort/low-complexity quadrant (Quadrant() returns 'quick'; comments/docs updated) and 'beast' as the canonical high/high quadrant (Quadrant() returns them canonically) while Validate transitionally accepts the retired 'chore' and 'epic' with a deprecation warning until S12 completes the data migration; grind/puzzle are unchanged (TestQuadrant covers canonical, transitional, and rejected values)."
     },
     {
       "id": "AC-03",
       "type": "event-driven",
       "ears_keyword": "When",
-      "text": "When the spec writer (internal/spec) emits a spec record, in_scope and out_of_scope SHALL be present (planner-supplied content or empty arrays), and the strict reader (internal/implement/spec_record.go) SHALL parse and expose both fields; a writer-to-reader round-trip test SHALL validate the record against the vendored v0.7.1 spec-v1 schema."
+      "text": "When the spec writer (internal/spec) emits a spec record, in_scope and out_of_scope SHALL be present (planner-supplied content or empty arrays), and the strict reader (internal/implement/spec_record.go) SHALL parse and expose both fields; a writer-to-reader round-trip test SHALL validate the record against the vendored v0.9.0 spec-v1 schema."
     },
     {
       "id": "AC-04",
@@ -142,6 +144,12 @@
       "type": "ubiquitous",
       "ears_keyword": "shall",
       "text": "The vendored implement-slice.md and merge-track.md command specs (internal/adopt/baton/rules/) SHALL NOT instruct writing a track's worktree identity or state to release-wt's board.json. /merge-track's own merge commit (already required) remains the only release-wt write attributable to a track; /implement-slice makes none."
+    },
+    {
+      "id": "AC-09",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When `sworn board` resolves the state of a slice whose owning track is verified-but-unmerged, it SHALL read that slice's status.json from the owning track branch (not release-wt's stale copy), returning the track-branch state; a regression test SHALL assert an unmerged verified slice reports 'verified', never 'planned'. This locks the board slice-state skew (fired-brief Defect 2) — already implemented by oracle.go's track-branch-first ReadSliceStatus (owner track branch -> release-wt -> HEAD); this AC prevents regression."
     }
   ]
 }

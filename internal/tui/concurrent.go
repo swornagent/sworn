@@ -34,6 +34,7 @@ type LiveView struct {
 	ReleaseName string
 	Rows        []TrackRow
 	TickCount   int // monotonic counter — increments each tick
+	Cursor      int // selected row index — j/k move it; enter opens its log
 
 	conn *sql.DB // DB connection via db.Open() — Coach option (a): read-write, WAL-safe
 }
@@ -172,13 +173,17 @@ func (lv *LiveView) View() string {
 	sb.WriteString("\n")
 
 	// Table rows.
-	for _, row := range lv.Rows {
+	for i, row := range lv.Rows {
 		stateDisplay := stateDisplay(row.State)
 		sliceDisplay := row.CurrentSlice
 		if sliceDisplay == "" {
 			sliceDisplay = "—"
 		}
-		line := fmt.Sprintf("%-14s %-20s %-12s %s",
+		marker := "  "
+		if i == lv.Cursor {
+			marker = "> "
+		}
+		line := marker + fmt.Sprintf("%-14s %-20s %-12s %s",
 			row.ID, sliceDisplay, stateDisplay, row.Elapsed)
 		if row.IsMerge {
 			sb.WriteString(MergeRowStyle.Render(line))
@@ -187,6 +192,8 @@ func (lv *LiveView) View() string {
 		}
 		sb.WriteString("\n")
 	}
+	sb.WriteString("\n")
+	sb.WriteString(EmptyMessage.Render("enter: open log   L: consolidated log   b: board"))
 	return sb.String()
 }
 
@@ -257,6 +264,13 @@ func (lv *LiveView) poll() error {
 	}
 
 	lv.Rows = results
+	// Keep the row cursor in range as rows come and go across polls.
+	if lv.Cursor >= len(lv.Rows) {
+		lv.Cursor = len(lv.Rows) - 1
+	}
+	if lv.Cursor < 0 {
+		lv.Cursor = 0
+	}
 	return rows.Err()
 }
 

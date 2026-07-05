@@ -82,6 +82,15 @@
       "depends_on": ["T4-resolution-loop", "T5-catalog", "T6-proof"],
       "worktree_branch": "track/2026-06-28-driver-contract/T7-baton-revendor",
       "state": "planned"
+    },
+    {
+      "id": "T8-regress-cwd",
+      "slices": [
+        "S13-regress-go-module-cwd"
+      ],
+      "depends_on": [],
+      "worktree_branch": "track/2026-06-28-driver-contract/T8-regress-cwd",
+      "state": "planned"
     }
   ]
 }

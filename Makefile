@@ -1,10 +1,13 @@
 VERSION ?= 0.1.0
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
-.PHONY: build test vet fmt clean
+.PHONY: build install test vet fmt clean
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o bin/sworn ./cmd/sworn
+
+install:
+	go install -ldflags "$(LDFLAGS)" ./cmd/sworn
 
 test:
 	go test ./...

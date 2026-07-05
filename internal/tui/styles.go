@@ -117,6 +117,11 @@ var (
 	MergeBadge = lipgloss.NewStyle().
 			Foreground(colWarn).
 			Bold(true)
+
+	// DependsBadge is the board-view "needs: T2, T3" indicator appended to a
+	// track header when the track has a non-empty depends_on.
+	DependsBadge = lipgloss.NewStyle().
+			Foreground(colDim)
 	DividerLine = lipgloss.NewStyle().
 			Foreground(colMuted).
 			Render(strings.Repeat("─", 70))

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/swornagent/sworn/internal/gate"
 )
 
@@ -199,6 +200,31 @@ func LoadGateResults(repoRoot, releaseName string) map[string]GateResult {
 	}
 
 	return results
+}
+
+// gatesLoadedMsg delivers the result of an async LoadGateResults call
+// dispatched by loadGatesCmd, triggered by the 'g' keybinding in board view
+// (sworn#82). releaseName guards against a stale result landing after the
+// user has navigated to a different release.
+type gatesLoadedMsg struct {
+	releaseName string
+	results     map[string]GateResult
+}
+
+// loadGatesCmd returns a tea.Cmd that computes gate results for releaseName
+// off the bubbletea Update goroutine. LoadGateResults shells `git diff` per
+// slice (trace once + coverage/design/mock per implemented slice) — this
+// was the entire measured cost of the sworn#82 freeze (21.3s of a 21.5s
+// board load on a 73-slice release) when it ran automatically and
+// synchronously on every board load. It now runs only on demand, and always
+// as a Cmd so it can't block Update either.
+func loadGatesCmd(repoRoot, releaseName string) tea.Cmd {
+	return func() tea.Msg {
+		return gatesLoadedMsg{
+			releaseName: releaseName,
+			results:     LoadGateResults(repoRoot, releaseName),
+		}
+	}
 }
 
 // discoverSliceDirs returns the slice IDs for all S<NN>-* directories in releaseDir.
