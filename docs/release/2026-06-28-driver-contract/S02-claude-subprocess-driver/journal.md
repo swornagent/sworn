@@ -68,3 +68,52 @@ real-CLI integration proof (S10) are untouched, per spec.json's
 `out_of_scope`.
 
 State: `in_progress` → `implemented`.
+
+## Verifier verdicts received
+
+### 2026-07-06 — PASS (fresh-context verifier session)
+
+Drift gate: track worktree already at `release-wt/2026-06-28-driver-contract`
+tip (0 commits drift) — no forward-merge needed. All 7 gates walked:
+
+- Gate 1 (reachability): `TestClaudeDispatchImplementer`/`TestClaudeDispatchVerifier`
+  exercise the real `Dispatch` subprocess boundary end-to-end (re-exec'd fake
+  binary, real `cmd.Dir`, real stdout parse) — not a leaf mock. Registry wiring
+  (S05) is explicitly out of scope in spec.json and tracked as a planned
+  slice in T4-resolution-loop; this is a legal Pass-1/Pass-2 split.
+- Gate 2 (touchpoints): investigated the `cli_test.go`(planned)/`capabilities_test.go`(actual)
+  substitution — `cli_test.go` has no Chat-related assertions to remove;
+  `capabilities_test.go` correctly moves `cliDriver` from the Chat-capable to
+  no-Chat driver list (diff verified). Sound substitution, not scope creep.
+- Gate 3: re-ran `go build ./...`, `go vet ./...`, `go test ./internal/driver/... ./internal/model/...`,
+  and full `go test ./...` myself from inside the worktree — all green, matching
+  `proof.json`'s captured results exactly.
+- Gate 3b/4b (LLM checks): `sworn llm-check` has no model configured in this
+  environment — skipped per protocol (non-blocking); manually cross-checked
+  each AC against its cited test body instead (see below).
+- Gate 4: reachability artefact tests exist at the cited names and pass.
+- Gate 5: grepped only the diff's added lines (not whole-file content) for
+  deferral markers — zero hits. A whole-file grep on `cli.go` surfaced a
+  pre-existing `S63-deferral-1` TODO (codex support), but it is untouched by
+  this slice's diff (removed/context lines only) and is already tracked by
+  `sworn#19` + scoped into `S03-codex-subprocess-driver`'s spec — not this
+  slice's deferral.
+- Gate 6 (design conformance): no `design-fidelity.json` in the repo — non-UI
+  project, gate passes automatically.
+- Gate 7: read `TestClaudeWorktreeGate` (Rule 11 marker-file assertion — proves
+  no child process spawned on a failed worktree gate), `TestClaudeErrorMapping`
+  (table-driven, confirms non-zero-exit → `ErrKindAuth` matching the ratified
+  pin-2 ErrKind vocabulary decision), and `TestClaudeEnvHygiene` (real HOME
+  preserved, GOCACHE/GOMODCACHE outside worktree) directly — all are genuine,
+  non-tautological assertions against the claimed evidence in `proof.json`.
+
+```
+PASS
+
+Slice: `S02-claude-subprocess-driver`
+Verified against: `d2b247a4c180b29f71e0ce018f3f759f68eca0a1`
+Verifier session: fresh, artefact-only
+```
+
+Track `T2-subprocess` has one further slice (`S03-codex-subprocess-driver`,
+state `planned`) after S02 — not yet complete. Next: `/implement-slice S03-codex-subprocess-driver 2026-06-28-driver-contract`.
