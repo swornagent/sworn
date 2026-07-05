@@ -14,6 +14,7 @@ const (
 	viewReleases viewState = iota
 	viewBoard
 	viewLive
+	viewLog
 	viewBlocked
 	viewSettings
 	viewQuit
@@ -62,6 +63,10 @@ type Model struct {
 	// has navigated to a release with live tracks (or pressed l from board).
 	Live *LiveView
 
+	// Log is the live log view (per-track or consolidated). Non-nil only while
+	// state == viewLog, opened by enter on a live row or L from live/board.
+	Log *LogView
+
 	// S04c: Blocked is the blocked/failed slice resolution view.
 	Blocked *BlockedView
 
@@ -98,6 +103,48 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		return m, nil
+	case logTickMsg:
+		// Forward to LogView ONLY when in the log view (Captain pin M1). A
+		// logTickMsg arriving in any other state is a stray from a since-left
+		// log view: dropped here, and because it is not re-armed the old chain
+		// dies — no tick doubling. Symmetrically, a tickMsg arriving in viewLog
+		// is dropped by the tickMsg case above.
+		if m.state == viewLog && m.Log != nil {
+			lm, cmd := m.Log.Update(msg)
+			m.Log = lm
+			return m, cmd
+		}
+		return m, nil
+	case boardLoadedMsg:
+		// Delivered by loadBoardCmd (sworn#82). Discard a stale load — the
+		// user may have navigated to a different release before this one
+		// finished — rather than clobbering what's now on screen.
+		if msg.releaseName != m.Board.ReleaseName {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.errMsg = msg.err.Error()
+			m.Board.Loading = false
+			return m, nil
+		}
+		msg.board.Loading = false
+		m.Board = msg.board
+		return m, nil
+	case gatesLoadedMsg:
+		// Delivered by loadGatesCmd (sworn#82's on-demand 'g' keybinding).
+		// Same staleness guard as boardLoadedMsg.
+		if msg.releaseName != m.Board.ReleaseName {
+			return m, nil
+		}
+		m.Board.GatesLoading = false
+		m.Board.GatesLoaded = true
+		m.Board.GateResults = msg.results
+		for sid, gr := range msg.results {
+			si := m.Board.Slices[sid]
+			si.Gate = gr
+			m.Board.Slices[sid] = si
+		}
+		return m, nil
 	}
 	return m, nil
 }
@@ -114,6 +161,11 @@ func (m *Model) View() string {
 		body += "\n" + m.renderCreditBar()
 		help := m.renderHelp()
 		return body + "\n" + help
+	}
+
+	// Log view replaces the two-pane layout entirely.
+	if m.state == viewLog && m.Log != nil {
+		return m.Log.View() + "\n" + m.renderHelp()
 	}
 
 	// Blocked view replaces the two-pane layout entirely.
@@ -198,6 +250,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		return m.handleBoardKey(msg)
 	case viewLive:
 		return m.handleLiveKey(msg)
+	case viewLog:
+		return m.handleLogKey(msg)
 	case viewBlocked:
 		return m.handleBlockedKey(msg)
 	case viewSettings:
@@ -220,20 +274,36 @@ func (m *Model) handleReleasesKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	case "enter":
 		if len(m.Releases.Releases) > 0 {
 			sel := m.Releases.Releases[m.Releases.Cursor]
-			if err := m.Board.LoadBoard(m.repoRoot, sel.ID); err != nil {
-				m.errMsg = err.Error()
-			}
-			m.state = viewBoard
 
-			// Auto-transition to live view if tracks are in-progress.
+			// sworn#82: board loading is dispatched as a tea.Cmd, never run
+			// inline here — LoadBoard used to execute synchronously inside
+			// this handler (plus eagerly recompute gates), which blocked
+			// bubbletea's repaint for up to 21.5s on a 73-slice release
+			// (measured; gates alone were 21.3s of it). Reset the board to
+			// a "loading" placeholder now; loadBoardCmd's boardLoadedMsg
+			// populates the real data once it lands.
+			m.Board.ReleaseName = sel.ID
+			m.Board.Loaded = false
+			m.Board.Loading = true
+			m.Board.GateResults = nil
+			m.Board.GatesLoaded = false
+			m.Board.GatesLoading = false
+			m.state = viewBoard
+			cmds := []tea.Cmd{loadBoardCmd(m.repoRoot, sel.ID)}
+
+			// Auto-transition to live view if tracks are in-progress. This
+			// check stays synchronous — HasInProgressTracks is a single
+			// indexed SQLite COUNT(*), not a git shell-out, and must not
+			// wait on the (possibly slower) board load Cmd above.
 			if HasInProgressTracks(m.repoRoot, sel.ID) {
 				lv, err := StartLiveView(m.repoRoot, sel.ID)
 				if err == nil {
 					m.Live = lv
 					m.state = viewLive
-					return m, lv.Init()
+					cmds = append(cmds, lv.Init())
 				}
 			}
+			return m, tea.Batch(cmds...)
 		}
 	case "esc":
 	}
@@ -290,6 +360,15 @@ func (m *Model) handleBoardKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 			m.state = viewLive
 			return m, lv.Init()
 		}
+	case "L":
+		// Open the consolidated log for the current release without first
+		// entering the live table (second entry point; Rule 1 affordance owned
+		// by the root Model key dispatch). esc returns here to the board.
+		if m.Board.ReleaseName != "" {
+			m.Log = StartLogView(m.repoRoot, m.Board.ReleaseName, "", viewBoard, m.Height)
+			m.state = viewLog
+			return m, m.Log.Init()
+		}
 	case "s":
 		// Open settings panel (S17).
 		sv, err := NewSettingsView()
@@ -300,11 +379,30 @@ func (m *Model) handleBoardKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 		m.Settings = sv
 		m.state = viewSettings
 		return m, nil
+	case "g":
+		// Compute gate results for the current release on demand (sworn#82)
+		// — LoadGateResults shells `git diff` per slice and is no longer run
+		// automatically on every board load. Dispatched as a tea.Cmd, same
+		// as the board load itself, so it can't block Update either.
+		if m.Board.ReleaseName != "" && !m.Board.GatesLoading {
+			m.Board.GatesLoading = true
+			return m, loadGatesCmd(m.repoRoot, m.Board.ReleaseName)
+		}
+	case "o":
+		// Toggle track display order between declaration order and
+		// dependency (topological) order.
+		m.Board.ToggleSort()
+		return m, nil
 	}
 	return m, nil
 }
 
 // handleLiveKey handles keyboard input in the live view.
+//
+// The row cursor (j/k) + enter + L are net-new here (Captain pin M4: the
+// "j/k/enter idiom" the design cited actually lived in handleBoardKey, not
+// handleLiveKey). enter opens the selected track's log; L opens the
+// consolidated interleave. esc/b keep their existing destinations.
 func (m *Model) handleLiveKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -313,6 +411,57 @@ func (m *Model) handleLiveKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	case "b":
 		m.state = viewBoard
 		return m, nil
+	case "j", "down":
+		if m.Live != nil && m.Live.Cursor < len(m.Live.Rows)-1 {
+			m.Live.Cursor++
+		}
+		return m, nil
+	case "k", "up":
+		if m.Live != nil && m.Live.Cursor > 0 {
+			m.Live.Cursor--
+		}
+		return m, nil
+	case "enter":
+		if m.Live != nil && len(m.Live.Rows) > 0 {
+			track := m.Live.Rows[m.Live.Cursor].ID
+			m.Log = StartLogView(m.repoRoot, m.Live.ReleaseName, track, viewLive, m.Height)
+			m.state = viewLog
+			return m, m.Log.Init()
+		}
+		return m, nil
+	case "L":
+		if m.Live != nil {
+			m.Log = StartLogView(m.repoRoot, m.Live.ReleaseName, "", viewLive, m.Height)
+			m.state = viewLog
+			return m, m.Log.Init()
+		}
+		return m, nil
+	}
+	return m, nil
+}
+
+// handleLogKey handles keyboard input in the log view: scrollback + follow, and
+// esc back to the originating view (Captain pin M4 — the back-stack is
+// consistent because LogView.origin records where it was opened from).
+func (m *Model) handleLogKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
+	if m.Log == nil {
+		return m, nil
+	}
+	switch msg.String() {
+	case "esc":
+		m.state = m.Log.origin
+		return m, nil
+	case "b":
+		m.state = viewBoard
+		return m, nil
+	case "k", "up":
+		m.Log.scrollUp()
+	case "j", "down":
+		m.Log.scrollDown()
+	case "g":
+		m.Log.top()
+	case "G":
+		m.Log.bottom()
 	}
 	return m, nil
 }
@@ -382,16 +531,19 @@ func (m *Model) renderHelp() string {
 	bar := HelpBar.Copy().Width(w)
 	if m.showHelp {
 		return bar.Render(`
-	? help     ↑/k up     ↓/j down     enter select     l live     b board     s settings     esc back     q quit`)
+	? help     ↑/k up     ↓/j down     enter select     l live     L logs     b board     g gates     o order     s settings     esc back     q quit`)
 	}
 	return bar.Render(fmt.Sprintf(
-		"%s help  %s up  %s down  %s select  %s live  %s board  %s settings  %s back  %s quit",
+		"%s help  %s up  %s down  %s select  %s live  %s logs  %s board  %s gates  %s order  %s settings  %s back  %s quit",
 		HelpKey.Render("?"),
 		HelpKey.Render("↑/k"),
 		HelpKey.Render("↓/j"),
 		HelpKey.Render("enter"),
 		HelpKey.Render("l"),
+		HelpKey.Render("L"),
 		HelpKey.Render("b"),
+		HelpKey.Render("g"),
+		HelpKey.Render("o"),
 		HelpKey.Render("s"),
 		HelpKey.Render("esc"),
 		HelpKey.Render("q"),

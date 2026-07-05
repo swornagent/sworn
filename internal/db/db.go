@@ -110,6 +110,20 @@ func Open(dbPath string) (*sql.DB, error) {
 	return conn, nil
 }
 
+// EnsureSelfIgnore best-effort stamps a self-ignoring .gitignore ("*") into dir
+// when dir is sworn's runtime dir (basename == DefaultDir). It is the exported,
+// gated entry point engine packages call before creating additional files under
+// .sworn/ (e.g. logs/): the "*" ignore covers every child, so a caller that
+// creates .sworn/logs/<release> can guarantee the ignore exists even on the
+// (never-in-production) path where a log write races ahead of db.Open. Passing a
+// non-.sworn dir is a no-op — the same gate db.Open applies — so this can never
+// stamp a stray ignore into an unrelated directory. Idempotent and never errors.
+func EnsureSelfIgnore(dir string) {
+	if filepath.Base(dir) == DefaultDir {
+		_ = writeSelfIgnore(dir)
+	}
+}
+
 // writeSelfIgnore writes a .gitignore containing "*" into dir so git treats the
 // whole directory — its DBs and the .gitignore itself — as ignored. It is
 // best-effort and idempotent: O_EXCL makes the create fail (without touching

@@ -13,9 +13,11 @@ import (
 
 	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/board"
+	"github.com/swornagent/sworn/internal/db"
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/router"
 	"github.com/swornagent/sworn/internal/scheduler"
+	"github.com/swornagent/sworn/internal/tracklog"
 )
 
 // ParallelOptions configures the RunParallel concurrent execution.
@@ -140,6 +142,20 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 		return fmt.Errorf("RunParallel: resolve workspace root: %w", err)
 	}
 
+	// ── Durable log dir + coordinator tee (feat: live logs) ─────────────
+	// logDir is .sworn/logs/<release>: per-track <track>.log files are written
+	// by each worker (WorkerOptions.LogDir), and loop.log captures this
+	// coordinator goroutine's own narration. EnsureSelfIgnore stamps
+	// .sworn/.gitignore ("*") so logs are never git-tracked even on the
+	// (never-in-production) path where a log write races ahead of db.Open — in
+	// every real run db.Open has already stamped it. MkdirAll failure is
+	// non-fatal: NewWriter fails open to stderr-only.
+	logDir := filepath.Join(absRoot, db.DefaultDir, "logs", releaseName)
+	_ = os.MkdirAll(logDir, 0o755)
+	db.EnsureSelfIgnore(filepath.Join(absRoot, db.DefaultDir))
+	lw, closeLoop := tracklog.NewWriter(logDir, "loop")
+	defer closeLoop()
+
 	// ── Read release board (board.json via the oracle) ──────────────────
 	// board.ReadBoard reads docs/release/<release>/board.json, lazily migrating
 	// from index.md frontmatter when board.json is absent (legacy releases). This
@@ -162,7 +178,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 		// default to siblings of this path (worker.go).
 		releaseWorktreePath = filepath.Join(filepath.Dir(absRoot),
 			filepath.Base(absRoot)+"-worktrees", "release-"+releaseName)
-		fmt.Fprintf(os.Stderr, "RunParallel: release_worktree_path unset — defaulting to %s (cold-start)\n", releaseWorktreePath)
+		fmt.Fprintf(lw, "RunParallel: release_worktree_path unset — defaulting to %s (cold-start)\n", releaseWorktreePath)
 	}
 
 	tracks := trackInfosFromBoardTracks(br.Tracks)
@@ -181,13 +197,13 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 	// can cold-start without manual scaffolding; otherwise check out the existing
 	// branch into the worktree.
 	if !dirExists(releaseWorktreePath) {
-		fmt.Fprintf(os.Stderr, "RunParallel: materialising release worktree at %s\n", releaseWorktreePath)
+		fmt.Fprintf(lw, "RunParallel: materialising release worktree at %s\n", releaseWorktreePath)
 		releaseBranch := "release-wt/" + releaseName
 		args := []string{"worktree", "add"}
 		if branchExists(ctx, absRoot, releaseBranch) {
 			args = append(args, releaseWorktreePath, releaseBranch)
 		} else {
-			fmt.Fprintf(os.Stderr, "RunParallel: branch %s absent — creating it from HEAD (cold-start bootstrap)\n", releaseBranch)
+			fmt.Fprintf(lw, "RunParallel: branch %s absent — creating it from HEAD (cold-start bootstrap)\n", releaseBranch)
 			args = append(args, "-b", releaseBranch, releaseWorktreePath)
 		}
 		cmd := exec.CommandContext(ctx, "git", args...)
@@ -204,7 +220,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 		return fmt.Errorf("RunParallel: build plan: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "sworn run --parallel: loaded %d tracks in %d phases\n",
+	fmt.Fprintf(lw, "sworn run --parallel: loaded %d tracks in %d phases\n",
 		len(tracks), len(plan.Phases))
 
 	// ── Auto-construct production router when none injected ─────────────
@@ -254,7 +270,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 	// precedent (planned-files reader) in this same function.
 	docShared, err := router.ParseDocumentedShared(indexPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "RunParallel: parse documented shared files: %v (treating as no exemptions)\n", err)
+		fmt.Fprintf(lw, "RunParallel: parse documented shared files: %v (treating as no exemptions)\n", err)
 		docShared = nil
 	}
 
@@ -284,7 +300,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 		for _, trackInfo := range phase.Tracks {
 			if phaseCtx.Err() != nil {
 				outcomeMap.Store(trackInfo.ID, scheduler.TrackSkipped)
-				fmt.Fprintf(os.Stderr, "[%s] skipped: depends_on failed (phase barrier)\n", trackInfo.ID)
+				fmt.Fprintf(lw, "[%s] skipped: depends_on failed (phase barrier)\n", trackInfo.ID)
 				continue
 			}
 
@@ -304,7 +320,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 				// Find the already-launched track that owns the first
 				// overlapping file for the INVARIANT-2 message.
 				tA := fileOwner[overlaps[0]]
-				fmt.Fprintf(os.Stderr, "INVARIANT-2: tracks %s and %s both write %s — blocked %s until %s merges\n",
+				fmt.Fprintf(lw, "INVARIANT-2: tracks %s and %s both write %s — blocked %s until %s merges\n",
 					tA, trackInfo.ID, overlaps[0], trackInfo.ID, tA)
 				blockedTracks = append(blockedTracks, trackInfo)
 				outcomeMap.Store(trackInfo.ID, scheduler.TrackBlocked)
@@ -325,6 +341,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 
 				workerOpts := scheduler.WorkerOptions{
 					ReleaseName:         releaseName,
+					LogDir:              logDir,
 					TrackInfo:           t,
 					ReleaseWorktreePath: releaseWorktreePath,
 					PrimaryWorktreeRoot: absRoot,
@@ -376,7 +393,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 				overlaps := checkDisjointness(planned, running, docShared)
 				if len(overlaps) > 0 {
 					tA := retryFileOwner[overlaps[0]]
-					fmt.Fprintf(os.Stderr, "INVARIANT-2: tracks %s and %s both write %s — blocked %s after retry (merge did not resolve)\n",
+					fmt.Fprintf(lw, "INVARIANT-2: tracks %s and %s both write %s — blocked %s after retry (merge did not resolve)\n",
 						tA, t.ID, overlaps[0], t.ID)
 					outcomeMap.Store(t.ID, scheduler.TrackBlocked)
 					continue
@@ -393,6 +410,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 					defer retryWg.Done()
 					workerOpts := scheduler.WorkerOptions{
 						ReleaseName:         releaseName,
+						LogDir:              logDir,
 						TrackInfo:           tt,
 						ReleaseWorktreePath: releaseWorktreePath,
 						PrimaryWorktreeRoot: absRoot,
@@ -437,19 +455,19 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 		result := val.(scheduler.TrackResult)
 		switch result {
 		case scheduler.TrackPass:
-			fmt.Fprintf(os.Stderr, "[%s] result: PASS\n", trackInfo.ID)
+			fmt.Fprintf(lw, "[%s] result: PASS\n", trackInfo.ID)
 		case scheduler.TrackFail:
 			failedTracks = append(failedTracks, trackInfo.ID)
-			fmt.Fprintf(os.Stderr, "[%s] result: FAIL\n", trackInfo.ID)
+			fmt.Fprintf(lw, "[%s] result: FAIL\n", trackInfo.ID)
 		case scheduler.TrackSkipped:
 			skippedTracks = append(skippedTracks, trackInfo.ID)
-			fmt.Fprintf(os.Stderr, "[%s] result: SKIPPED\n", trackInfo.ID)
+			fmt.Fprintf(lw, "[%s] result: SKIPPED\n", trackInfo.ID)
 		case scheduler.TrackPaused:
 			pausedTracks = append(pausedTracks, trackInfo.ID)
-			fmt.Fprintf(os.Stderr, "[%s] result: PAUSED\n", trackInfo.ID)
+			fmt.Fprintf(lw, "[%s] result: PAUSED\n", trackInfo.ID)
 		case scheduler.TrackBlocked:
 			blockedTracksList = append(blockedTracksList, trackInfo.ID)
-			fmt.Fprintf(os.Stderr, "[%s] result: BLOCKED (invariant-2)\n", trackInfo.ID)
+			fmt.Fprintf(lw, "[%s] result: BLOCKED (invariant-2)\n", trackInfo.ID)
 		}
 	}
 
@@ -473,7 +491,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 			len(blockedTracksList), strings.Join(blockedTracksList, ", "))
 	}
 
-	fmt.Fprintf(os.Stderr, "RunParallel: all %d tracks PASS (skipped: %d, blocked: %d)\n",
+	fmt.Fprintf(lw, "RunParallel: all %d tracks PASS (skipped: %d, blocked: %d)\n",
 		len(tracks), len(skippedTracks), len(blockedTracksList))
 	return nil
 }

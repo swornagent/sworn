@@ -63,7 +63,7 @@ func (r *ReleasesList) LoadReleases(repoRoot string) error {
 	}
 
 	sort.Slice(releases, func(i, j int) bool {
-		return releases[i].Name < releases[j].Name
+		return releases[i].ID < releases[j].ID
 	})
 
 	r.Releases = releases
@@ -160,7 +160,7 @@ func (r *ReleasesList) View() string {
 	for i, rel := range r.Releases {
 		stateStr := rel.AggregatedState()
 		label := fmt.Sprintf("%s  %s (%d tracks, %s)",
-			rel.Name,
+			rel.ID,
 			Divider,
 			rel.TrackCount,
 			stateStr,
