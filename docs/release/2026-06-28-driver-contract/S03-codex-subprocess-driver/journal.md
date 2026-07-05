@@ -52,9 +52,52 @@ Design-review resolution applied to `design.md` + `status.json` in commit
 (this session, prior to "start implementation"). Proceeding to
 `in_progress`.
 
+## 2026-07-06 — Implementation
+
+Built per the amended design.md (commit `3c25d36`, start_commit `71b4e5c`):
+`subprocess.go`'s `spawn`/`classifySpawnError` split into `spawnClassified`
+with a parameterized non-zero-exit `ErrKind`; `codex.go` (`CodexDriver`,
+`codex exec --json -C <dir>` + `--ephemeral` for verifier, JSONL envelope
+parsing per the corrected shape); `subprocess_test.go`'s shared `TestMain`
+extended with a `GO_TEST_FAKE_CODEX` arm + `fakeCodex*` fixtures;
+`codex_test.go` covering AC-01..AC-05 (mirrors `claude_test.go`'s shape).
+`claude.go`/`claude_test.go` untouched, as designed.
+
+`go build ./...`, `go vet ./...`, `go test ./internal/driver/... -v` (30
+tests, all PASS — S02's `TestClaude*`/`TestSpawn_*` unmodified and still
+green), and `go test ./...` (full suite, no regressions) all green.
+
+**Proof-bundle verification gate — environment limitation, documented
+rather than worked around.** `sworn verify --spec ... --diff ... --proof
+...` (the model-backed reference gate) errors `model:
+SWORN_ANTHROPIC_API_KEY not set` — this environment has no model key
+configured, consistent with the project's existing no-paid-dispatch posture
+(already flagged as a non-blocking finding in this same slice's
+`review.md`, flag (a): `sworn llm-check` is unavailable for the same
+reason). Ran `~/.claude/bin/release-verify.sh S03-codex-subprocess-driver
+2026-06-28-driver-contract` instead (the deterministic, model-free
+first-pass half of Rule 7). Result: `spec.md missing` / `proof.md missing`
+FAIL — both are the documented false-negative pattern for this project's
+JSON-spec convention ([[feedback_releaseverify_specmd_false_fail]]: this
+project uses `spec.json`/`proof.json`, not the generic template's
+`spec.md`/`proof.md`; S02's own verified sibling slice has no `spec.md`
+either). `state is in_progress` FAIL is expected at the point the script
+ran (before this session's own `implemented` transition). Every
+substantive, non-false-negative check passed: `status.json` valid JSON,
+5 files changed vs. `start_commit` matching `actual_files`, no dark-code
+markers in changed source files. The script's own tail crashes on an
+unrelated pre-existing bug (`PLAYWRIGHT_OPTIN: unbound variable`) after all
+relevant checks for this slice had already run and reported.
+
+Net: no model-backed gate could run in this environment; the deterministic
+half is green modulo known false negatives. Not claiming a fabricated
+"first-pass PASS" from a gate that didn't run — surfacing this plainly to
+the human and to the fresh-context verifier.
+
+State: `implemented`. Stopping here — per role boundaries, this session
+does not run a verifier prompt or claim `verified`.
+
 ## Next
 
-Implement per the amended design.md: `subprocess.go` split
-(`spawnClassified`), `codex.go` (`CodexDriver`), `subprocess_test.go`
-(`GO_TEST_FAKE_CODEX` fixtures in the shared `TestMain`), `codex_test.go`
-(AC-01..AC-05 coverage). `claude.go`/`claude_test.go` stay untouched.
+`/verify-slice S03-codex-subprocess-driver 2026-06-28-driver-contract` in a
+fresh terminal session (Rule 7 — no inherited context from this session).

@@ -3,11 +3,30 @@
   "slice_id": "S03-codex-subprocess-driver",
   "release": "2026-06-28-driver-contract",
   "track": "T2-subprocess",
-  "state": "in_progress",
+  "state": "implemented",
   "covers_needs": ["N-10"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S03-codex-subprocess-driver/spec.json",
   "design_path": "docs/release/2026-06-28-driver-contract/S03-codex-subprocess-driver/design.md",
+  "proof_path": "docs/release/2026-06-28-driver-contract/S03-codex-subprocess-driver/proof.json",
+  "journal_path": "docs/release/2026-06-28-driver-contract/S03-codex-subprocess-driver/journal.md",
   "start_commit": "71b4e5cfecf144ab22da4536a95fd351b32ffcd5",
+  "actual_files": [
+    "internal/driver/codex.go",
+    "internal/driver/codex_test.go",
+    "internal/driver/subprocess.go",
+    "internal/driver/subprocess_test.go"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go vet ./...",
+    "go test ./internal/driver/... -v",
+    "go test ./..."
+  ],
+  "reachability_artifacts": [
+    "internal/driver/codex_test.go:TestCodexDispatchImplementer",
+    "internal/driver/codex_test.go:TestCodexDispatchVerifier",
+    "internal/driver/codex_test.go:TestCodexErrorMapping"
+  ],
   "effort_complexity": {
     "effort": "low",
     "complexity": "high",
