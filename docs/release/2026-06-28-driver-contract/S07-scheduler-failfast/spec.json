@@ -38,6 +38,11 @@
       "id": "R-01",
       "description": "Startup resolution is too strict — it rejects a run whose escalation list names a model the user never reaches.",
       "mitigation": "Deliberate and accepted: an unreachable escalation entry is a config defect surfaced at t=0 (fail-closed beats a 20-minute-in crash); the error names exactly which entry failed and what is registered."
+    },
+    {
+      "id": "R-02",
+      "description": "AC-03's 'auth expired... through the existing retry/escalation policy' assumes that policy still distinguishes terminal (auth) failures from transient ones after the driver rewire. This slice explicitly treats retry/escalation policy design as out-of-scope ('the existing policy is consumed as-is'), so the terminal/non-terminal distinction must already be correct by the time this slice lands.",
+      "mitigation": "Owned by S06-loop-dispatch-rewire R-03: S06 must make Result.ErrKind==\"auth\" halt fail-fast (mirroring today's model.IsTerminal/KindAuth at internal/run/slice.go:487) before this slice's AC-03 test can pass meaningfully. Sequencing dependency, not new work for this slice — noted here so 'consumed as-is' isn't read as 'nothing to verify.'"
     }
   ],
   "acceptance_criteria": [
