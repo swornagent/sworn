@@ -48,6 +48,11 @@
       "id": "R-02",
       "description": "Removing cliDriver's CapChat breaks any existing caller that resolved claude-cli for Chat.",
       "mitigation": "The only production Chat consumers are the loop legs, which T4 moves onto the registry; until T4 merges, claude-cli Chat resolution fails fast at the existing CapChat gate in cmd/sworn/run.go:353 with a clear error instead of a silent toolless dispatch — strictly more honest than today."
+    },
+    {
+      "id": "R-03",
+      "description": "The new internal/driver ErrKind vocabulary is a new contract surface (AC-04); a non-zero CLI exit is mislabeled 'auth' even when the true cause is unrelated (a genuine imprecision, matching cli.go's existing coarse heuristic exactly). S06-loop-dispatch-rewire and S07-scheduler-failfast both consume Result.ErrKind and S07's own AC-03 assumes auth failures halt fast rather than retry — that consuming logic must explicitly treat ErrKind=auth as terminal (mirroring model.IsTerminal/KindAuth) or the fail-fast property this mapping exists to preserve is dropped silently at the rewire, not here.",
+      "mitigation": "Ratified 2026-07-03 (Captain design review, Brad): non-zero exit -> auth chosen over stderr pattern-matching, since a missed pattern match would silently reintroduce the exact fail-fast gap this mapping exists to close. S06 and S07 specs carry a matching risk entry (R-03/R-02 respectively) so the consuming side of this contract is not lost."
     }
   ],
   "acceptance_criteria": [
@@ -73,7 +78,7 @@
       "id": "AC-04",
       "type": "unwanted",
       "ears_keyword": "If",
-      "text": "If the CLI exits non-zero, exceeds DispatchInput.Timeout, or the binary is missing, Dispatch SHALL return Status=error with a mapped ErrKind (timeout -> transient; binary-not-found -> config; non-zero exit -> provider, with a stderr excerpt in the error message) — never a panic and never a half-populated Status=ok Result. Table-driven TestClaudeErrorMapping covers all three."
+      "text": "If the CLI exits non-zero, exceeds DispatchInput.Timeout, or the binary is missing, Dispatch SHALL return Status=error with a mapped ErrKind (timeout -> transient; binary-not-found -> config; non-zero exit -> auth, with a stderr excerpt in the error message) — never a panic and never a half-populated Status=ok Result. The non-zero-exit -> auth mapping deliberately matches internal/model/cli.go's existing coarse-but-production-proven heuristic (any non-zero exit is treated as an auth failure) rather than a generic provider label, so the engine's existing terminal-halt-on-auth fail-fast (internal/run/slice.go, model.IsTerminal/KindAuth) can be preserved once S06 wires Dispatch into the loop. Table-driven TestClaudeErrorMapping covers all three."
     },
     {
       "id": "AC-05",

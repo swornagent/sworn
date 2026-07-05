@@ -22,9 +22,10 @@ type cliDriver struct {
 	timeout time.Duration // subprocess deadline
 }
 
-// Capabilities returns CapVerify — the CLI driver supports verification.
-// Chat is deferred (claude-code may add agentic Chat in future).
-func (d *cliDriver) Capabilities() Capability { return CapVerify | CapChat }
+// Capabilities returns CapVerify only. Chat moved to internal/driver's
+// ClaudeDriver (S02), which runs the real agentic loop inside the claude CLI
+// subprocess instead of this driver's toolless stacked-prompt Chat.
+func (d *cliDriver) Capabilities() Capability { return CapVerify }
 
 // claudeBin returns the path to the claude binary from CLAUDE_BIN env,
 // defaulting to "claude" (resolved from PATH at exec time).
@@ -98,62 +99,7 @@ func (d *cliDriver) Verify(ctx context.Context, systemPrompt, userPayload string
 	return strings.TrimSpace(string(stdout)), 0, 0, 0, nil
 }
 
-// Chat stacks the message history as a single concatenated prompt and invokes
-// the claude subprocess. Multi-turn tool calls are not natively supported by
-// claude -p; the stacked-prompt approach is sufficient for linear-conversation
-// patterns (implementer role, no tool use). Full multi-turn Chat is a formal
-// deferral (S10 status.json open_deferrals).
-//
-// Messages are collapsed as: [system]\n\n[turn1]\n\n[turn2]... where each
-// non-system turn is prefixed with its role. Tools are ignored (deferred).
-// costUSD is always 0 — subprocess stdout capture gives no usage metadata.
-func (d *cliDriver) Chat(ctx context.Context, messages []ChatMessage, tools []ToolDef) (*ChatResponse, error) {
-	var parts []string
-	for _, m := range messages {
-		switch m.Role {
-		case "system":
-			parts = append(parts, m.Content)
-		case "user":
-			parts = append(parts, "User: "+m.Content)
-		case "assistant":
-			parts = append(parts, "Assistant: "+m.Content)
-		}
-	}
-	prompt := strings.Join(parts, "\n\n")
-
-	ctx, cancel := context.WithTimeout(ctx, d.timeout)
-	defer cancel()
-
-	args := []string{"-p", "--no-session-persistence", "--model", d.model, prompt}
-	cmd := exec.CommandContext(ctx, d.binary, args...)
-	cmd.Stdin = nil
-
-	stdout, err := cmd.Output()
-	if err != nil {
-		return nil, d.classifyError(ctx, err)
-	}
-
-	content := strings.TrimSpace(string(stdout))
-	return &ChatResponse{
-		Choices: []struct {
-			Message struct {
-				Content   string     `json:"content"`
-				ToolCalls []ToolCall `json:"tool_calls,omitempty"`
-			} `json:"message"`
-			FinishReason string `json:"finish_reason"`
-		}{
-			{
-				Message: struct {
-					Content   string     `json:"content"`
-					ToolCalls []ToolCall `json:"tool_calls,omitempty"`
-				}{Content: content},
-				FinishReason: "stop",
-			},
-		},
-		Usage:   &UsageBlock{},
-		CostUSD: 0,
-	}, nil
-} // classifyError maps subprocess errors to typed model.Error values.
+// classifyError maps subprocess errors to typed model.Error values.
 func (d *cliDriver) classifyError(ctx context.Context, err error) *Error {
 	// Deadline exceeded → the call timed out.
 	if ctx.Err() == context.DeadlineExceeded {

@@ -48,6 +48,11 @@
       "id": "R-02",
       "description": "A tightened dispatch seam regresses test fixtures in OTHER packages (the S05-strict-reader lesson: internal/board fixtures broke across packages).",
       "mitigation": "The slice's test commands include the affected packages, and the track merge gate runs the full `go test ./...` — the memory-documented failure mode is named in the journal template for this slice."
+    },
+    {
+      "id": "R-03",
+      "description": "AC-03's 'terminal error kinds -> BLOCKED' preserves acceptStructuredVerdict's existing semantics verbatim, but today's terminal check (internal/run/slice.go:487, model.IsTerminal on the implement leg's returned *model.Error, KindAuth/KindCredits) reads model.ErrorKind, not the new internal/driver.Result.ErrKind string vocabulary S02 introduces. Swapping the transport without an explicit mapping silently drops the fail-fast-on-auth property (flagged during S02's Captain design review, 2026-07-03; S02 spec.json R-03 is the producing side of this contract).",
+      "mitigation": "This slice's implementation must explicitly treat Result.ErrKind==\"auth\" (from any driver, not just claude-cli) as terminal at both consumption points: the implement leg (replacing the slice.go:487 model.IsTerminal check) and the verify leg's acceptStructuredVerdict 'terminal error kinds -> BLOCKED' mapping in AC-03. Add a test asserting an ErrKind=auth Dispatch result halts immediately rather than entering the retry/escalation path."
     }
   ],
   "acceptance_criteria": [
