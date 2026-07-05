@@ -41,6 +41,32 @@ func TestMain(m *testing.M) {
 		fakeClaudeNotJSON()
 		return
 	}
+	switch os.Getenv("GO_TEST_FAKE_CODEX") {
+	case "envelope":
+		fakeCodexEnvelope()
+		return
+	case "verdict":
+		fakeCodexVerdict()
+		return
+	case "verdict-bad":
+		fakeCodexVerdictBad()
+		return
+	case "minimal":
+		fakeCodexMinimal()
+		return
+	case "fail":
+		fakeCodexFail()
+		return
+	case "hang":
+		fakeCodexHang()
+		return
+	case "record-env":
+		fakeCodexRecordEnv()
+		return
+	case "not-json":
+		fakeCodexNotJSON()
+		return
+	}
 	os.Exit(m.Run())
 }
 
@@ -127,6 +153,86 @@ func fakeClaudeRecordEnv() {
 // formatting machinery for these trivial fakes.
 func writeStdoutLine(s string) {
 	os.Stdout.WriteString(s + "\n")
+}
+
+// fakeCodexEnvelope emits a full JSONL event stream for the implementer
+// path: a thread.started event, one agent_message, and a terminal
+// turn.completed usage object (per the documented shape confirmed at
+// design review — no model/duration_ms fields anywhere in the stream).
+func fakeCodexEnvelope() {
+	recordInvocation()
+	writeStdoutLine(`{"type":"thread.started","thread_id":"th_test"}`)
+	writeStdoutLine(`{"type":"item.completed","item":{"type":"agent_message","text":"done"}}`)
+	writeStdoutLine(`{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":20,"output_tokens":50,"reasoning_output_tokens":10}}`)
+}
+
+// fakeCodexVerdict emits a stream whose final agent_message text is itself
+// a JSON object string — the verifier-role happy path (AC-02).
+func fakeCodexVerdict() {
+	recordInvocation()
+	writeStdoutLine(`{"type":"thread.started","thread_id":"th_test"}`)
+	writeStdoutLine(`{"type":"item.completed","item":{"type":"agent_message","text":"{\"verdict\":\"PASS\",\"reasons\":[]}"}}`)
+	writeStdoutLine(`{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0}}`)
+}
+
+// fakeCodexVerdictBad emits a stream whose final agent_message is plain
+// prose, not a JSON object — the verifier-role protocol-error path (AC-02).
+func fakeCodexVerdictBad() {
+	recordInvocation()
+	writeStdoutLine(`{"type":"item.completed","item":{"type":"agent_message","text":"looks fine to me"}}`)
+	writeStdoutLine(`{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":5}}`)
+}
+
+// fakeCodexMinimal emits a stream with only an agent_message — no
+// turn.completed at all — to exercise defensive-parsing fallbacks (missing
+// usage -> zeros/CostSource=unknown; ModelID/DurationMS fall back).
+func fakeCodexMinimal() {
+	recordInvocation()
+	writeStdoutLine(`{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}`)
+}
+
+// fakeCodexFail exits non-zero — simulates the codex CLI not being logged
+// in (or any other non-zero exit).
+func fakeCodexFail() {
+	recordInvocation()
+	os.Stderr.WriteString("codex: not logged in\n")
+	os.Exit(1)
+}
+
+// fakeCodexHang sleeps far longer than any test timeout — see
+// fakeClaudeHang's doc comment for why a scheduled sleep is used instead of
+// select{}.
+func fakeCodexHang() {
+	time.Sleep(24 * time.Hour)
+}
+
+// fakeCodexNotJSON emits output that is not valid JSON at all — the
+// outer-stream protocol-error path (a line that fails to parse).
+func fakeCodexNotJSON() {
+	recordInvocation()
+	writeStdoutLine("not json at all")
+}
+
+// fakeCodexRecordEnv records the child's cwd and the env vars AC-04 cares
+// about, then emits a minimal valid event stream so Dispatch still
+// succeeds.
+func fakeCodexRecordEnv() {
+	p := os.Getenv("CLI_RECORD_PATH")
+	cwd, _ := os.Getwd()
+	rec := struct {
+		Cwd        string `json:"cwd"`
+		GOCACHE    string `json:"gocache"`
+		GOMODCACHE string `json:"gomodcache"`
+		HOME       string `json:"home"`
+	}{
+		Cwd:        cwd,
+		GOCACHE:    os.Getenv("GOCACHE"),
+		GOMODCACHE: os.Getenv("GOMODCACHE"),
+		HOME:       os.Getenv("HOME"),
+	}
+	body, _ := json.Marshal(rec)
+	os.WriteFile(p, body, 0644)
+	writeStdoutLine(`{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}`)
 }
 
 // testBinaryPath returns the path to the running test binary so it can

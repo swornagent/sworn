@@ -7,7 +7,7 @@
   "covers_needs": ["N-10"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S03-codex-subprocess-driver/spec.json",
   "design_path": "docs/release/2026-06-28-driver-contract/S03-codex-subprocess-driver/design.md",
-  "start_commit": null,
+  "start_commit": "71b4e5cfecf144ab22da4536a95fd351b32ffcd5",
   "effort_complexity": {
     "effort": "low",
     "complexity": "high",

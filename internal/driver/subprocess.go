@@ -27,7 +27,10 @@ const (
 	// the driver rewire (ratified 2026-07-03, see spec.json R-03).
 	ErrKindAuth = "auth"
 	// ErrKindProvider is reserved for a future driver's genuinely-distinct
-	// provider-side failure. Unused by claude.go itself.
+	// provider-side failure. Unused by claude.go and codex.go — both map a
+	// non-zero CLI exit to ErrKindAuth, the binding cross-driver contract
+	// (see docs/release/2026-06-28-driver-contract/S03-codex-subprocess-driver/design.md
+	// decision 6).
 	ErrKindProvider = "provider"
 	// ErrKindProtocol means the CLI's output did not parse as expected
 	// (the outer JSON envelope, or a verifier's inner result text).
@@ -72,7 +75,21 @@ func (e *DriverError) Unwrap() error { return e.Err }
 // spawn runs binary with args, rooted at dir, bounded by timeout, and
 // returns its stdout on success or a classified DriverError on failure. It
 // never panics: every exec/timeout/exit-code failure is mapped to a Kind.
+// A non-zero exit classifies as ErrKindAuth — see spawnClassified for a
+// driver that needs a different non-zero-exit Kind.
 func spawn(ctx context.Context, binary string, args []string, dir string, timeout time.Duration) spawnResult {
+	return spawnClassified(ctx, binary, args, dir, timeout, ErrKindAuth)
+}
+
+// spawnClassified is spawn's generalisation: nonZeroExitKind lets a driver
+// classify a non-zero CLI exit as something other than ErrKindAuth (e.g.
+// codex.go reuses ErrKindAuth too, per the binding cross-driver contract in
+// docs/release/2026-06-28-driver-contract/S03-codex-subprocess-driver/design.md
+// decision 6 — but the parameter exists so a future driver isn't forced to
+// match). Timeout and missing-binary classification are unaffected by this
+// parameter — those failure modes mean the same thing regardless of which
+// CLI is being spawned; only the non-zero-exit arm varies per driver.
+func spawnClassified(ctx context.Context, binary string, args []string, dir string, timeout time.Duration, nonZeroExitKind string) spawnResult {
 	if timeout <= 0 {
 		timeout = 300 * time.Second
 	}
@@ -91,14 +108,15 @@ func spawn(ctx context.Context, binary string, args []string, dir string, timeou
 	if err == nil {
 		return spawnResult{Stdout: stdout, DurationMS: duration}
 	}
-	return spawnResult{DurationMS: duration, Err: classifySpawnError(ctx, binary, timeout, err)}
+	return spawnResult{DurationMS: duration, Err: classifySpawnError(ctx, binary, timeout, err, nonZeroExitKind)}
 }
 
 // classifySpawnError maps a subprocess error to a DriverError. The ordering
 // mirrors internal/model/cli.go's classifyError: deadline-exceeded first
 // (it can otherwise present as any of the other cases once the process is
-// killed), then binary-not-found, then non-zero exit.
-func classifySpawnError(ctx context.Context, binary string, timeout time.Duration, err error) *DriverError {
+// killed), then binary-not-found, then non-zero exit (classified as
+// nonZeroExitKind — the one axis that varies per calling driver).
+func classifySpawnError(ctx context.Context, binary string, timeout time.Duration, err error, nonZeroExitKind string) *DriverError {
 	if ctx.Err() == context.DeadlineExceeded {
 		return &DriverError{
 			Kind:    ErrKindTransient,
@@ -125,7 +143,7 @@ func classifySpawnError(ctx context.Context, binary string, timeout time.Duratio
 	if exitErr, ok := err.(*exec.ExitError); ok {
 		stderr := string(exitErr.Stderr)
 		return &DriverError{
-			Kind:    ErrKindAuth,
+			Kind:    nonZeroExitKind,
 			Message: fmt.Sprintf("%s exited with code %d: %s", binary, exitErr.ExitCode(), stderr),
 			Err:     err,
 		}
