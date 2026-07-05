@@ -16,10 +16,17 @@ import (
 
 // TrackInfo holds data about one track, as displayed by the board pane.
 type TrackInfo struct {
-	ID      string
-	Slices  []string
+	ID     string
+	Slices []string
+	// Depends is the display-ready form of DependsOn (comma-joined), rendered
+	// as a track-header badge.
 	Depends string
-	State   string
+	// DependsOn holds the raw dependency track IDs (board.BoardTrack.DependsOn),
+	// used by topoSortTracks to compute dependency-order display. Kept
+	// alongside Depends rather than re-parsing it, since Depends is
+	// display-formatted (joined, no defined split-back guarantee).
+	DependsOn []string
+	State     string
 }
 
 // SliceBoardInfo holds live state data for one slice on the board.
@@ -56,6 +63,109 @@ type BoardView struct {
 	// until the user asks for gates.
 	GatesLoaded  bool
 	GatesLoading bool
+
+	// SortMode controls track display order in View(): "" (zero value) is
+	// declaration order (the order tracks appear in board.json — numerically
+	// T1, T2, T3... by convention); trackSortDeps is dependency order, a
+	// topological sort so a track always renders after every track it
+	// depends on. Toggled by the 'o' key (handleBoardKey) and preserved
+	// across LoadBoard reloads.
+	SortMode string
+}
+
+// trackSortDeps is the BoardView.SortMode value for dependency-order display.
+const trackSortDeps = "deps"
+
+// ToggleSort flips the track display order between declaration order and
+// dependency (topological) order, then rebuilds orderedSlices so cursor
+// navigation (j/k) stays in sync with the newly displayed order.
+func (b *BoardView) ToggleSort() {
+	if b.SortMode == trackSortDeps {
+		b.SortMode = ""
+	} else {
+		b.SortMode = trackSortDeps
+	}
+	b.rebuildOrderedSlices()
+}
+
+// displayTracks returns b.Tracks in the current SortMode's display order.
+func (b *BoardView) displayTracks() []TrackInfo {
+	if b.SortMode == trackSortDeps {
+		return topoSortTracks(b.Tracks)
+	}
+	return b.Tracks
+}
+
+// rebuildOrderedSlices recomputes orderedSlices (and clamps Cursor) from the
+// current display order. Called after LoadBoard and after ToggleSort — both
+// change what "display order" means — so cursor navigation always matches
+// what's rendered on screen.
+func (b *BoardView) rebuildOrderedSlices() {
+	b.orderedSlices = nil
+	for _, track := range b.displayTracks() {
+		b.orderedSlices = append(b.orderedSlices, track.Slices...)
+	}
+	if b.Cursor >= len(b.orderedSlices) {
+		b.Cursor = len(b.orderedSlices) - 1
+	}
+	if b.Cursor < 0 {
+		b.Cursor = 0
+	}
+}
+
+// topoSortTracks returns tracks ordered so every track appears after all of
+// its DependsOn tracks — a stable topological sort (Kahn's algorithm, ties
+// broken by declaration order) so the result is deterministic and matches
+// declaration order whenever declaration order already satisfies the
+// dependency constraints. A DependsOn reference to a track ID absent from
+// this slice (dangling ref) is ignored — display-only ordering, not the
+// scheduling gate (internal/run/parallel.go owns enforcement). A dependency
+// cycle can't be resolved into a valid order; affected tracks are appended in
+// declaration order rather than dropped or looping forever, so toggling sort
+// can never make a track disappear from the board.
+func topoSortTracks(tracks []TrackInfo) []TrackInfo {
+	n := len(tracks)
+	idx := make(map[string]int, n)
+	for i, t := range tracks {
+		idx[t.ID] = i
+	}
+
+	inDegree := make([]int, n)
+	dependents := make([][]int, n)
+	for i, t := range tracks {
+		for _, dep := range t.DependsOn {
+			if j, ok := idx[dep]; ok {
+				inDegree[i]++
+				dependents[j] = append(dependents[j], i)
+			}
+		}
+	}
+
+	visited := make([]bool, n)
+	ordered := make([]TrackInfo, 0, n)
+	for len(ordered) < n {
+		progressed := false
+		for i := range n {
+			if !visited[i] && inDegree[i] == 0 {
+				visited[i] = true
+				ordered = append(ordered, tracks[i])
+				progressed = true
+				for _, dep := range dependents[i] {
+					inDegree[dep]--
+				}
+			}
+		}
+		if !progressed {
+			for i := range n {
+				if !visited[i] {
+					visited[i] = true
+					ordered = append(ordered, tracks[i])
+				}
+			}
+			break
+		}
+	}
+	return ordered
 }
 
 // LoadBoard reads the selected release's board (via internal/board's oracle,
@@ -80,10 +190,11 @@ func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
 	}
 	for _, t := range br.Tracks {
 		b.Tracks = append(b.Tracks, TrackInfo{
-			ID:      t.ID,
-			Slices:  t.Slices,
-			Depends: strings.Join(t.DependsOn, ", "),
-			State:   t.State,
+			ID:        t.ID,
+			Slices:    t.Slices,
+			Depends:   strings.Join(t.DependsOn, ", "),
+			DependsOn: append([]string(nil), t.DependsOn...),
+			State:     t.State,
 		})
 	}
 
@@ -152,19 +263,7 @@ func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
 		b.Slices[sliceID] = sliceBoardInfoFromStatus(sliceID, st)
 	}
 
-	// Populate orderedSlices in display order.
-	b.orderedSlices = nil
-	for _, track := range b.Tracks {
-		for _, sliceID := range track.Slices {
-			b.orderedSlices = append(b.orderedSlices, sliceID)
-		}
-	}
-	if b.Cursor >= len(b.orderedSlices) {
-		b.Cursor = len(b.orderedSlices) - 1
-	}
-	if b.Cursor < 0 {
-		b.Cursor = 0
-	}
+	b.rebuildOrderedSlices()
 
 	b.Loaded = true
 
@@ -402,7 +501,13 @@ func (b *BoardView) View() string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(BoardTitle.Render("Board: " + b.ReleaseName))
+	title := "Board: " + b.ReleaseName
+	if b.SortMode == trackSortDeps {
+		title += "  (sorted: dependency order)"
+	} else {
+		title += "  (sorted: declaration order)"
+	}
+	sb.WriteString(BoardTitle.Render(title))
 	sb.WriteString("\n\n")
 
 	if len(b.Tracks) == 0 {
@@ -410,9 +515,12 @@ func (b *BoardView) View() string {
 		return sb.String()
 	}
 
-	for _, track := range b.Tracks {
+	for _, track := range b.displayTracks() {
 		stateCol := StateColor(track.State)
 		header := fmt.Sprintf("▸ %s  [%s]", track.ID, stateCol)
+		if track.Depends != "" {
+			header += " " + DependsBadge.Render(fmt.Sprintf("(needs: %s)", track.Depends))
+		}
 		if b.MergeActive[track.ID] {
 			header += " " + MergeBadge.Render("⟪merge⟫")
 		}

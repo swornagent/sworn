@@ -388,6 +388,11 @@ func (m *Model) handleBoardKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 			m.Board.GatesLoading = true
 			return m, loadGatesCmd(m.repoRoot, m.Board.ReleaseName)
 		}
+	case "o":
+		// Toggle track display order between declaration order and
+		// dependency (topological) order.
+		m.Board.ToggleSort()
+		return m, nil
 	}
 	return m, nil
 }
@@ -526,10 +531,10 @@ func (m *Model) renderHelp() string {
 	bar := HelpBar.Copy().Width(w)
 	if m.showHelp {
 		return bar.Render(`
-	? help     ↑/k up     ↓/j down     enter select     l live     L logs     b board     g gates     s settings     esc back     q quit`)
+	? help     ↑/k up     ↓/j down     enter select     l live     L logs     b board     g gates     o order     s settings     esc back     q quit`)
 	}
 	return bar.Render(fmt.Sprintf(
-		"%s help  %s up  %s down  %s select  %s live  %s logs  %s board  %s gates  %s settings  %s back  %s quit",
+		"%s help  %s up  %s down  %s select  %s live  %s logs  %s board  %s gates  %s order  %s settings  %s back  %s quit",
 		HelpKey.Render("?"),
 		HelpKey.Render("↑/k"),
 		HelpKey.Render("↓/j"),
@@ -538,6 +543,7 @@ func (m *Model) renderHelp() string {
 		HelpKey.Render("L"),
 		HelpKey.Render("b"),
 		HelpKey.Render("g"),
+		HelpKey.Render("o"),
 		HelpKey.Render("s"),
 		HelpKey.Render("esc"),
 		HelpKey.Render("q"),

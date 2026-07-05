@@ -1519,6 +1519,211 @@ func TestBoardViewNoMergeBadge(t *testing.T) {
 	}
 }
 
+// TestBoardViewShowsDependsBadge verifies a track header shows a "needs: ..."
+// badge derived from board.json's depends_on, and that a root track (no
+// depends_on) shows no badge.
+func TestBoardViewShowsDependsBadge(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-contract", Slices: []string{"S01-first"}, State: "merged", WorktreeBranch: "track/test-release/T1-contract"},
+		{ID: "T2-subprocess", Slices: []string{"S02-second"}, DependsOn: []string{"T1-contract"}, State: "planned", WorktreeBranch: "track/test-release/T2-subprocess"},
+	})
+	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-contract")
+	createSliceStatus(t, releaseDir, "S02-second", "planned", "T2-subprocess")
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(dir, "test-release"); err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+
+	view := bv.View()
+	if !strings.Contains(view, "needs: T1-contract") {
+		t.Errorf("expected view to contain 'needs: T1-contract' badge, got:\n%s", view)
+	}
+	// T1-contract has no depends_on — its own header line must not claim to
+	// need anything (checking the header specifically, not the whole view:
+	// T2's "needs: T1-contract" badge legitimately contains the substring
+	// "T1-contract" too).
+	for l := range strings.SplitSeq(view, "\n") {
+		if strings.Contains(l, "▸ T1-contract") && strings.Contains(l, "needs:") {
+			t.Errorf("expected T1-contract header to have no 'needs:' badge, got line: %q", l)
+		}
+	}
+}
+
+// TestBoardViewToggleSortReordersTracksAndOrderedSlices verifies that 'o'
+// (ToggleSort) switches the board from declaration order to dependency
+// (topological) order, and that orderedSlices (which drives j/k cursor
+// navigation) is rebuilt to match — otherwise cursor movement would desync
+// from the visual layout the moment sort mode changes.
+func TestBoardViewToggleSortReordersTracksAndOrderedSlices(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	// Declared out of dependency order: T2 (depends on T1) declared first.
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T2-subprocess", Slices: []string{"S02-second"}, DependsOn: []string{"T1-contract"}, State: "planned", WorktreeBranch: "track/test-release/T2-subprocess"},
+		{ID: "T1-contract", Slices: []string{"S01-first"}, State: "merged", WorktreeBranch: "track/test-release/T1-contract"},
+	})
+	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-contract")
+	createSliceStatus(t, releaseDir, "S02-second", "planned", "T2-subprocess")
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(dir, "test-release"); err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+
+	// Declaration order (default): T2 renders before T1, exactly as declared.
+	view := bv.View()
+	if strings.Index(view, "T2-subprocess") > strings.Index(view, "T1-contract") {
+		t.Errorf("expected declaration order (T2 before T1), got:\n%s", view)
+	}
+	if got, want := bv.orderedSlices, []string{"S02-second", "S01-first"}; !slicesEqual(got, want) {
+		t.Errorf("expected orderedSlices %v in declaration order, got %v", want, got)
+	}
+
+	bv.ToggleSort()
+
+	// Dependency order: T1 (the dependency) must now render before T2.
+	view = bv.View()
+	if !strings.Contains(view, "sorted: dependency order") {
+		t.Errorf("expected title to advertise dependency-order sort, got:\n%s", view)
+	}
+	if strings.Index(view, "T1-contract") > strings.Index(view, "T2-subprocess") {
+		t.Errorf("expected dependency order (T1 before T2), got:\n%s", view)
+	}
+	if got, want := bv.orderedSlices, []string{"S01-first", "S02-second"}; !slicesEqual(got, want) {
+		t.Errorf("expected orderedSlices %v in dependency order after ToggleSort, got %v", want, got)
+	}
+
+	bv.ToggleSort()
+	if got, want := bv.orderedSlices, []string{"S02-second", "S01-first"}; !slicesEqual(got, want) {
+		t.Errorf("expected ToggleSort to flip back to declaration order, got %v want %v", got, want)
+	}
+}
+
+// TestBoardOKeyTogglesSort verifies pressing 'o' in the board view flips
+// BoardView.SortMode via the same Model.Update dispatch path a real
+// keypress takes (handleBoardKey), rather than only unit-testing ToggleSort
+// in isolation.
+func TestBoardOKeyTogglesSort(t *testing.T) {
+	m := &Model{
+		state: viewBoard,
+		Board: &BoardView{Loaded: true, Tracks: []TrackInfo{{ID: "T1-a"}}},
+	}
+
+	upd, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m2 := upd.(*Model)
+	if m2.state != viewBoard {
+		t.Fatalf("expected to remain in viewBoard, got %d", m2.state)
+	}
+	if m2.Board.SortMode != trackSortDeps {
+		t.Errorf("expected SortMode=%q after one 'o' press, got %q", trackSortDeps, m2.Board.SortMode)
+	}
+
+	upd, _ = m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m3 := upd.(*Model)
+	if m3.Board.SortMode != "" {
+		t.Errorf("expected SortMode=\"\" after second 'o' press, got %q", m3.Board.SortMode)
+	}
+}
+
+// TestTopoSortTracksHandlesCycleAndDanglingRef verifies topoSortTracks never
+// drops a track: a dependency cycle or a depends_on reference to a track ID
+// absent from the board must still produce every track exactly once, rather
+// than looping forever or silently omitting the unresolvable tracks.
+func TestTopoSortTracksHandlesCycleAndDanglingRef(t *testing.T) {
+	tracks := []TrackInfo{
+		{ID: "T1-a", DependsOn: []string{"T2-b"}}, // cycle: T1 -> T2 -> T1
+		{ID: "T2-b", DependsOn: []string{"T1-a"}},
+		{ID: "T3-c", DependsOn: []string{"T99-ghost"}}, // dangling ref, no such track
+	}
+	got := topoSortTracks(tracks)
+	if len(got) != len(tracks) {
+		t.Fatalf("expected topoSortTracks to preserve all %d tracks, got %d: %v", len(tracks), len(got), got)
+	}
+	seen := map[string]bool{}
+	for _, tr := range got {
+		seen[tr.ID] = true
+	}
+	for _, tr := range tracks {
+		if !seen[tr.ID] {
+			t.Errorf("expected track %s to survive topoSortTracks, it was dropped", tr.ID)
+		}
+	}
+}
+
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestBoardViewDependencyOrderOnRealDriverContractRelease is the reachability
+// test for the dependency-order sort feature: it loads THIS repo's real,
+// committed 2026-06-28-driver-contract release (the exact release shown in
+// the bug report screenshot) rather than a synthetic fixture, and verifies
+// dependency badges render and that dependency-order sort places every track
+// after all tracks it depends on — the real T1->T2/T3->T4->T5/T6->T7 chain
+// recorded in that release's board.json.
+func TestBoardViewDependencyOrderOnRealDriverContractRelease(t *testing.T) {
+	repoRoot, err := findRepoRoot()
+	if err != nil {
+		t.Skipf("skipping live-repo reachability test: findRepoRoot: %v", err)
+	}
+	const release = "2026-06-28-driver-contract"
+	boardPath := filepath.Join(repoRoot, "docs", "release", release, "board.json")
+	if _, err := os.Stat(boardPath); err != nil {
+		t.Skipf("skipping live-repo reachability test: %s not found in this checkout: %v", boardPath, err)
+	}
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(repoRoot, release); err != nil {
+		t.Fatalf("LoadBoard against real repo release %q: %v", release, err)
+	}
+	if !bv.Loaded {
+		t.Fatal("expected Loaded=true")
+	}
+
+	view := bv.View()
+	t.Logf("declaration-order view:\n%s", view)
+	for _, want := range []string{"needs: T1-contract", "needs: T2-subprocess, T3-inprocess"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("expected declaration-order view to contain %q, got:\n%s", want, view)
+		}
+	}
+
+	bv.ToggleSort()
+	view = bv.View()
+	t.Logf("dependency-order view:\n%s", view)
+	pos := map[string]int{}
+	for _, tr := range bv.displayTracks() {
+		pos[tr.ID] = len(pos)
+	}
+	for id, deps := range map[string][]string{
+		"T2-subprocess":      {"T1-contract"},
+		"T3-inprocess":       {"T1-contract"},
+		"T4-resolution-loop": {"T2-subprocess", "T3-inprocess"},
+		"T7-baton-revendor":  {"T4-resolution-loop", "T5-catalog", "T6-proof"},
+	} {
+		for _, dep := range deps {
+			if pos[dep] >= pos[id] {
+				t.Errorf("dependency-order violated: %s (pos %d) must render before %s (pos %d)", dep, pos[dep], id, pos[id])
+			}
+		}
+	}
+}
+
 // TestBoardViewLoadsRealOperationalReadinessRelease is the AC-05 reachability
 // test: it drives the integration point that owns the affordance
 // (BoardView.LoadBoard, called from Model.handleReleasesKey at the "enter"
