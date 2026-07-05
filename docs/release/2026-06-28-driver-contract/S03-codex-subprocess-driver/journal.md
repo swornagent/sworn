@@ -101,3 +101,44 @@ does not run a verifier prompt or claim `verified`.
 
 `/verify-slice S03-codex-subprocess-driver 2026-06-28-driver-contract` in a
 fresh terminal session (Rule 7 — no inherited context from this session).
+
+## Verifier verdicts received
+
+### 2026-07-05 — Fresh-context verifier — PASS
+
+PASS. All six gates satisfied:
+
+1. **Reachability** — `CodexDriver.Dispatch` (internal/driver/codex.go) is
+   not yet wired to a dispatch registry, matching S02's `ClaudeDriver`
+   identical precedent (also unreferenced outside internal/driver); S05
+   (T4-resolution-loop, planned, depends_on T2/T3) is the tracked, owned
+   Pass-2 that wires both. Legitimate Rule 1 exception, not a fresh
+   violation.
+2. **Touchpoints** — `git diff --name-only <start_commit>` matches
+   spec.json's `touchpoints` exactly (codex.go, codex_test.go,
+   subprocess.go, subprocess_test.go).
+3. **Tests** — re-ran myself: `go build ./...`, `go vet ./...`,
+   `go test ./internal/driver/... -v` (30/30 PASS, all TestCodex* +
+   TestClaude* unmodified), `go test ./...` (full suite, zero
+   regressions).
+4. **Reachability artefact** — read `TestCodexDispatchImplementer`
+   directly: it spawns a real re-exec'd fake-CLI subprocess rooted at a
+   real git worktree and asserts cmd.Dir/argv end-to-end through
+   `Dispatch`'s actual subprocess boundary, matching proof.json's claim
+   (not a leaf-level mock).
+5. **No silent deferrals** — grep of all 4 changed source/test files for
+   TODO/FIXME/deferred/placeholder/stub: zero hits. The one deferral (AC-03
+   stale `provider` parenthetical) has why + tracking (sworn#84, confirmed
+   OPEN via `gh issue view 84`) + acknowledgement (Captain design review pin
+   3) — satisfies Rule 2.
+6. **Delivered vs evidence** — cross-checked each proof.json `delivered`
+   item's cited test/evidence directly (TestCodexErrorMapping confirms
+   ErrKindAuth per the pre-ratified design decision 6; TestCodexEnvHygiene /
+   TestCodexEnvelopeDefaults confirm AC-04's zero-cost/unknown-source
+   degrade-gracefully path). All commit SHAs cited in this journal
+   (a925a05, 8eb7867, 5a6491b, 71b4e5c, 3c25d36, aa44a31) verified present
+   in track history.
+
+`state: verified`. Next step: T2-subprocess's other slice (S02) is already
+`verified`, so the track is complete — `/merge-track T2-subprocess
+2026-06-28-driver-contract`.
