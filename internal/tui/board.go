@@ -1,13 +1,16 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/swornagent/sworn/internal/board"
+	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/state"
 )
 
@@ -35,10 +38,24 @@ type BoardView struct {
 	Tracks        []TrackInfo
 	Slices        map[string]SliceBoardInfo // slice ID -> live data
 	Loaded        bool
+	Loading       bool                  // true while an async LoadBoard is in flight (sworn#82)
 	Cursor        int                   // index of the selected slice in orderedSlices
 	orderedSlices []string              // slice IDs in display order
 	MergeActive   map[string]bool       // track IDs with an active merge in flight
 	GateResults   map[string]GateResult // per-slice gate check results (S72)
+
+	// GatesLoaded/GatesLoading (sworn#82): gate results are no longer
+	// computed as part of LoadBoard — LoadGateResults shells `git diff` per
+	// slice (trace once + coverage/design/mock per implemented slice) and
+	// was measured as ~100% of the board-load cost (21.3s of 21.5s on a
+	// 73-slice release). Gates are now on-demand only, via the 'g'
+	// keybinding: GatesLoading is true while that async compute is in
+	// flight, GatesLoaded is true once GateResults holds a real (possibly
+	// stale, session-cached) result set. Both are false after a fresh
+	// LoadBoard, which is what makes the board badges render as "unloaded"
+	// until the user asks for gates.
+	GatesLoaded  bool
+	GatesLoading bool
 }
 
 // LoadBoard reads the selected release's board (via internal/board's oracle,
@@ -70,7 +87,13 @@ func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
 		})
 	}
 
-	// Load live state from each slice's status.json.
+	// Load live state from each slice's status.json, resolved via the
+	// git-ref oracle (the same ownership-keyed path `sworn board` and the
+	// MCP ops tools use — sworn#81) so track-branch work is reflected even
+	// before it lands in the primary checkout. The working-tree filesystem
+	// read remains the fallback for repos with no usable git history (e.g.
+	// a release with no branches at all) or when a slice can't be resolved
+	// via any ref.
 	b.Slices = map[string]SliceBoardInfo{}
 	releaseDir := filepath.Join(repoRoot, "docs", "release", releaseName)
 	entries, err := os.ReadDir(releaseDir)
@@ -78,29 +101,55 @@ func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
 		return fmt.Errorf("reading release dir %s: %w", releaseDir, err)
 	}
 
+	sliceOracle := newSliceOracle(repoRoot, releaseName)
+	trackMap := trackInfoMap(br.Tracks)
+	ctx := context.Background()
+
 	for _, entry := range entries {
 		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "S") {
 			continue
 		}
-		statusPath := filepath.Join(releaseDir, entry.Name(), "status.json")
+		sliceID := entry.Name()
+		statusPath := filepath.Join(releaseDir, sliceID, "status.json")
+
+		if sliceOracle != nil {
+			ss, resolvedFrom, errO := sliceOracle.oracle.ReadSliceStatus(ctx, sliceOracle.reader, "", sliceOracle.releaseRef, releaseName, sliceID, trackMap)
+			if errO == nil {
+				// The resolved ref may BE the branch we're sitting on right
+				// now (the common serial/solo `sworn run` shape: one
+				// worktree, no separate track worktree). In that case a git
+				// commit is not the authoritative source — the filesystem
+				// is, since internal/run/slice.go writes status.json
+				// repeatedly between commit milestones. Only trust the
+				// committed ref as-is when it resolved from a DIFFERENT
+				// checkout we have no live filesystem access to (a genuine
+				// other worktree's track branch or a release-wt branch that
+				// isn't the one checked out here).
+				if sliceOracle.resolvedRefIsLiveCheckout(resolvedFrom, ss.Track, trackMap) {
+					if st, errR := state.Read(statusPath); errR == nil {
+						b.Slices[sliceID] = sliceBoardInfoFromStatus(sliceID, st)
+						continue
+					}
+					// Live checkout but the working-tree file is
+					// unreadable (e.g. mid-write) — fall through to the
+					// oracle's last-known-good committed value below.
+				}
+				b.Slices[sliceID] = sliceBoardInfoFromOracle(sliceID, ss)
+				continue
+			}
+		}
+
+		// Fallback: working-tree filesystem read (repos with no usable git
+		// history, e.g. a release with no branches/commits at all yet).
 		st, errR := state.Read(statusPath)
 		if errR != nil {
-			b.Slices[entry.Name()] = SliceBoardInfo{
-				ID:    entry.Name(),
+			b.Slices[sliceID] = SliceBoardInfo{
+				ID:    sliceID,
 				State: "unknown",
 			}
 			continue
 		}
-		lastUp := st.LastUpdatedAt
-		if lastUp == "" {
-			lastUp = "—"
-		}
-		b.Slices[entry.Name()] = SliceBoardInfo{
-			ID:                 entry.Name(),
-			State:              string(st.State),
-			LastUpdatedAt:      formatLastUpdated(lastUp),
-			VerificationResult: st.Verification.Result,
-		}
+		b.Slices[sliceID] = sliceBoardInfoFromStatus(sliceID, st)
 	}
 
 	// Populate orderedSlices in display order.
@@ -119,13 +168,13 @@ func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
 
 	b.Loaded = true
 
-	// Load gate results for display (S72).
-	b.GateResults = LoadGateResults(repoRoot, releaseName)
-	for sid, gr := range b.GateResults {
-		si := b.Slices[sid]
-		si.Gate = gr
-		b.Slices[sid] = si
-	}
+	// Gate results are intentionally NOT computed here (sworn#82) — see the
+	// GatesLoaded/GatesLoading doc comment on BoardView. A fresh LoadBoard
+	// always resets to "not computed"; the 'g' keybinding (loadGatesCmd)
+	// populates GateResults on demand.
+	b.GateResults = nil
+	b.GatesLoaded = false
+	b.GatesLoading = false
 
 	// Populate MergeActive from the events table.
 	b.MergeActive = map[string]bool{}
@@ -138,6 +187,179 @@ func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
 	}
 
 	return nil
+}
+
+// boardLoadedMsg delivers the result of an async LoadBoard call dispatched
+// by loadBoardCmd (sworn#82). releaseName is carried so the receiving
+// Update() can detect and discard a stale load — one dispatched for a
+// release the user has since navigated away from — instead of clobbering
+// whatever board is now on screen.
+type boardLoadedMsg struct {
+	releaseName string
+	board       *BoardView
+	err         error
+}
+
+// loadBoardCmd returns a tea.Cmd that loads a release's board off the
+// bubbletea Update goroutine. Before sworn#82, handleReleasesKey called
+// BoardView.LoadBoard directly inline on Enter, which — combined with
+// LoadBoard eagerly recomputing gates — blocked the UI for up to 21.5s on a
+// 73-slice release (measured). Gates are now lazy (see GatesLoaded on
+// BoardView), which took LoadBoard itself down to ~1ms even on that
+// release, but the load is still dispatched as a Cmd on principle: board
+// loading shells out to git via the slice oracle and must never run
+// synchronously inside a key handler, regardless of today's measured cost.
+func loadBoardCmd(repoRoot, releaseName string) tea.Cmd {
+	return func() tea.Msg {
+		bv := &BoardView{}
+		err := bv.LoadBoard(repoRoot, releaseName)
+		return boardLoadedMsg{releaseName: releaseName, board: bv, err: err}
+	}
+}
+
+// tuiOracleReader adapts *git.Repo to internal/board's (unexported)
+// gitContentReader interface, satisfied structurally — the same pattern
+// cmd/sworn/board.go's oracleReader and internal/mcp's oracleReader use.
+type tuiOracleReader struct {
+	repo *git.Repo
+}
+
+func (r tuiOracleReader) Show(ref, path string) (string, error) {
+	return r.repo.Show(ref, path)
+}
+
+func (r tuiOracleReader) CatFileExists(ref, path string) (bool, error) {
+	return r.repo.CatFileExists(ref, path)
+}
+
+// sliceOracleContext bundles a board.Oracle with the reader and release ref
+// LoadBoard resolves once per call, so the per-slice loop can call
+// ReadSliceStatus without re-deriving them each iteration.
+type sliceOracleContext struct {
+	oracle     *board.Oracle
+	reader     tuiOracleReader
+	releaseRef string
+	// currentBranch is the branch checked out in repoRoot at LoadBoard time
+	// (empty when detached or unresolvable). Used to detect when an
+	// oracle-resolved ref is actually THIS checkout, in which case the
+	// working-tree filesystem — not the last commit — is authoritative.
+	currentBranch string
+}
+
+// newSliceOracle returns a sliceOracleContext backed by repoRoot's git repo,
+// or nil when repoRoot has no usable git history (e.g. a plain filesystem
+// fixture, or a release with no commits yet) — LoadBoard falls back to the
+// working-tree filesystem read in that case.
+func newSliceOracle(repoRoot, releaseName string) *sliceOracleContext {
+	repo := git.New(repoRoot)
+	if _, err := repo.RevParse("HEAD"); err != nil {
+		return nil
+	}
+	reader := tuiOracleReader{repo: repo}
+	branch, _ := repo.CurrentBranch() // best-effort; "" (e.g. detached) just disables the live-checkout match for track/release-wt refs
+	return &sliceOracleContext{
+		oracle:        board.NewGitOracle(repo),
+		reader:        reader,
+		releaseRef:    resolveOracleReleaseRef(reader, releaseName),
+		currentBranch: branch,
+	}
+}
+
+// resolvedRefIsLiveCheckout reports whether the git ref that
+// board.Oracle.ReadSliceStatus resolved a slice's status.json from is the
+// SAME checkout LoadBoard is running against — i.e. the filesystem read
+// would see everything the ref saw, plus anything written since the last
+// commit. This holds when:
+//   - the resolution fell through to plain "HEAD" (board.ResolvedByWorkingTree):
+//     HEAD is always repoRoot's own commit, by construction;
+//   - the resolution came from the owner track's branch and that branch is
+//     the one checked out here (a serial/solo `sworn run` with no separate
+//     track worktree);
+//   - the resolution came from the release-wt ref and that branch is the
+//     one checked out here.
+//
+// It's false for a genuine other worktree's track branch or a release-wt
+// branch that differs from repoRoot's — cases where the committed ref is
+// the only view LoadBoard has, exactly what sworn#81's fix intended.
+func (s *sliceOracleContext) resolvedRefIsLiveCheckout(resolvedFrom board.ResolvedFrom, ownerTrack string, trackMap map[string]board.TrackInfo) bool {
+	switch resolvedFrom {
+	case board.ResolvedByWorkingTree:
+		return true
+	case board.ResolvedByTrack:
+		if s.currentBranch == "" {
+			return false
+		}
+		ti, ok := trackMap[ownerTrack]
+		return ok && ti.WorktreeBranch != "" && ti.WorktreeBranch == s.currentBranch
+	case board.ResolvedByReleaseWT:
+		if s.currentBranch == "" {
+			return false
+		}
+		return s.releaseRef == "refs/heads/"+s.currentBranch
+	default:
+		return false
+	}
+}
+
+// sliceBoardInfoFromStatus builds a SliceBoardInfo from a live working-tree
+// state.Status read.
+func sliceBoardInfoFromStatus(sliceID string, st *state.Status) SliceBoardInfo {
+	lastUp := st.LastUpdatedAt
+	if lastUp == "" {
+		lastUp = "—"
+	}
+	return SliceBoardInfo{
+		ID:                 sliceID,
+		State:              string(st.State),
+		LastUpdatedAt:      formatLastUpdated(lastUp),
+		VerificationResult: st.Verification.Result,
+	}
+}
+
+// sliceBoardInfoFromOracle builds a SliceBoardInfo from an oracle-resolved
+// board.SliceState (a committed ref — track branch, release-wt, or HEAD).
+func sliceBoardInfoFromOracle(sliceID string, ss board.SliceState) SliceBoardInfo {
+	lastUp := ss.LastUpdated
+	if lastUp == "" {
+		lastUp = "—"
+	}
+	return SliceBoardInfo{
+		ID:                 sliceID,
+		State:              string(ss.State),
+		LastUpdatedAt:      formatLastUpdated(lastUp),
+		VerificationResult: ss.VerificationResult,
+	}
+}
+
+// resolveOracleReleaseRef mirrors cmd/sworn/board.go's release-wt resolution:
+// prefer the release-wt branch (docs or Fumadocs prefix), falling back to
+// HEAD when no release-wt branch has been materialised for this release.
+func resolveOracleReleaseRef(reader tuiOracleReader, releaseName string) string {
+	releaseRef := "refs/heads/release-wt/" + releaseName
+	for _, prefix := range []string{"docs/release", "apps/docs/content/docs/release"} {
+		exists, err := reader.CatFileExists(releaseRef, prefix+"/"+releaseName+"/index.md")
+		if err == nil && exists {
+			return releaseRef
+		}
+	}
+	return "HEAD"
+}
+
+// trackInfoMap converts board.json's on-disk track records into the
+// board.TrackInfo map ReadSliceStatus needs to resolve slice ownership.
+func trackInfoMap(tracks []board.BoardTrack) map[string]board.TrackInfo {
+	trackMap := make(map[string]board.TrackInfo, len(tracks))
+	for _, t := range tracks {
+		trackMap[t.ID] = board.TrackInfo{
+			ID:             t.ID,
+			Slices:         t.Slices,
+			DependsOn:      []string(t.DependsOn),
+			WorktreePath:   t.WorktreePath,
+			WorktreeBranch: t.WorktreeBranch,
+			State:          t.State,
+		}
+	}
+	return trackMap
 }
 
 // formatLastUpdated reformats a timestamp for display.
@@ -165,6 +387,15 @@ func formatLastUpdated(ts string) string {
 
 // View renders the board view pane for the currently selected release.
 func (b *BoardView) View() string {
+	if b.Loading {
+		// sworn#82: rendered while loadBoardCmd is in flight, so the user
+		// sees feedback instead of a frozen screen during the load.
+		title := "Board"
+		if b.ReleaseName != "" {
+			title = "Board: " + b.ReleaseName
+		}
+		return BoardTitle.Render(title) + "\n" + EmptyMessage.Render("Loading…")
+	}
 	if !b.Loaded {
 		return BoardTitle.Render("Board") + "\n" +
 			EmptyMessage.Render("Select a release from the left pane")
@@ -193,7 +424,7 @@ func (b *BoardView) View() string {
 				si = SliceBoardInfo{ID: sliceID, State: "unknown", LastUpdatedAt: "—"}
 			}
 			sliceState := SliceStateColor(si.State, si.VerificationResult)
-			gateLine := si.Gate.RenderInline()
+			gateLine := b.renderGateLine(si)
 			line := fmt.Sprintf("  %s  %s  (%s)  %s", sliceID, sliceState, si.LastUpdatedAt, gateLine)
 			if len(b.orderedSlices) > 0 && b.Cursor >= 0 && b.Cursor < len(b.orderedSlices) && b.orderedSlices[b.Cursor] == sliceID {
 				sb.WriteString(BoardItemSelected.Render("▸" + line[1:]))
@@ -206,4 +437,20 @@ func (b *BoardView) View() string {
 	}
 
 	return sb.String()
+}
+
+// renderGateLine renders the gate badge for one slice row (sworn#82): the
+// computed GateResult once GatesLoaded, a "computing" placeholder while
+// loadGatesCmd is in flight, or an "unloaded" hint (press 'g') otherwise.
+// Gates are no longer computed as part of LoadBoard, so a freshly-loaded
+// board always starts in the "unloaded" state here.
+func (b *BoardView) renderGateLine(si SliceBoardInfo) string {
+	switch {
+	case b.GatesLoading:
+		return GateNeutralStyle.Render("[computing…]")
+	case b.GatesLoaded:
+		return si.Gate.RenderInline()
+	default:
+		return GateNeutralStyle.Render("[· press g]")
+	}
 }

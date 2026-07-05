@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/db"
+	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/state"
 )
 
@@ -130,6 +132,143 @@ tracks:
 	}
 }
 
+// TestBoardViewResolvesStateFromTrackBranch reproduces sworn#81: the primary
+// checkout's working-tree status.json is stale (design_review) while the
+// slice's owning track branch already carries the authoritative, more
+// advanced state (verified) — the exact "S01 verified on the oracle, planned
+// on the TUI" shape from the live driver-contract bug report. LoadBoard must
+// resolve the slice's state via the git-ref oracle (same ownership-keyed
+// path `sworn board`/the MCP ops tools use), not the primary working tree.
+func TestBoardViewResolvesStateFromTrackBranch(t *testing.T) {
+	dir := t.TempDir()
+	release := "oracle-release"
+	releaseDir := filepath.Join(dir, "docs", "release", release)
+	os.MkdirAll(releaseDir, 0o755)
+
+	repo := git.New(dir)
+	if err := repo.Init(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := repo.Config("user.email", "test@example.com"); err != nil {
+		t.Fatalf("git config user.email: %v", err)
+	}
+	if err := repo.Config("user.name", "Test"); err != nil {
+		t.Fatalf("git config user.name: %v", err)
+	}
+	primaryBranch := currentBranch(t, dir)
+
+	writeBoardFixture(t, dir, release, []board.BoardTrack{
+		{
+			ID:             "T1-core",
+			Slices:         []string{"S01-first"},
+			State:          "in_progress",
+			WorktreeBranch: "track/" + release + "/T1-core",
+		},
+	})
+	// Stale copy: what the primary working tree still has on disk.
+	createSliceStatus(t, releaseDir, "S01-first", "design_review", "T1-core")
+
+	if err := repo.Stage("."); err != nil {
+		t.Fatalf("git add: %v", err)
+	}
+	if err := repo.Commit("initial: stale design_review state"); err != nil {
+		t.Fatalf("git commit: %v", err)
+	}
+
+	// The owning track branch has moved on: verified, committed there, but
+	// never synced back into the primary checkout's filesystem.
+	if err := repo.Branch("track/" + release + "/T1-core"); err != nil {
+		t.Fatalf("git branch: %v", err)
+	}
+	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-core")
+	if err := repo.Stage("."); err != nil {
+		t.Fatalf("git add (track branch): %v", err)
+	}
+	if err := repo.Commit("track: S01 verified"); err != nil {
+		t.Fatalf("git commit (track branch): %v", err)
+	}
+
+	// Return to the primary branch — the working tree now reflects the
+	// stale design_review status.json again, exactly like the live bug.
+	if err := repo.Checkout(primaryBranch); err != nil {
+		t.Fatalf("git checkout %s: %v", primaryBranch, err)
+	}
+	if got := mustReadSliceState(t, releaseDir, "S01-first"); got != "design_review" {
+		t.Fatalf("test setup: expected working tree to show stale design_review, got %q", got)
+	}
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(dir, release); err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+
+	// The authoritative state lives on the track branch (verified), not the
+	// stale primary-checkout filesystem copy (design_review).
+	checkSlice(t, bv, "S01-first", "verified")
+}
+
+// TestBoardViewLiveWorktreeStateNotMaskedByLastCommit is the regression test
+// for the fresh-verifier FAIL on sworn#81's first attempt: when the slice's
+// owning track branch IS the branch currently checked out in repoRoot (the
+// common serial/solo `sworn run` shape — one worktree doing everything, no
+// separate track worktree), the oracle's git-ref read must not shadow an
+// uncommitted state.Write() to the live status.json. internal/run/slice.go
+// writes state repeatedly and only commits at specific milestones, so the
+// working tree is routinely ahead of the last commit on the slice's own
+// branch during a live run.
+func TestBoardViewLiveWorktreeStateNotMaskedByLastCommit(t *testing.T) {
+	dir := t.TempDir()
+	release := "live-release"
+	releaseDir := filepath.Join(dir, "docs", "release", release)
+	os.MkdirAll(releaseDir, 0o755)
+
+	repo := git.New(dir)
+	if err := repo.Init(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := repo.Config("user.email", "test@example.com"); err != nil {
+		t.Fatalf("git config user.email: %v", err)
+	}
+	if err := repo.Config("user.name", "Test"); err != nil {
+		t.Fatalf("git config user.name: %v", err)
+	}
+	primaryBranch := currentBranch(t, dir)
+
+	// The track's WorktreeBranch equals the branch actually checked out
+	// here — no separate track worktree exists for this run.
+	writeBoardFixture(t, dir, release, []board.BoardTrack{
+		{
+			ID:             "T1-core",
+			Slices:         []string{"S01-first"},
+			State:          "in_progress",
+			WorktreeBranch: primaryBranch,
+		},
+	})
+	createSliceStatus(t, releaseDir, "S01-first", "planned", "T1-core")
+
+	if err := repo.Stage("."); err != nil {
+		t.Fatalf("git add: %v", err)
+	}
+	if err := repo.Commit("initial: planned"); err != nil {
+		t.Fatalf("git commit: %v", err)
+	}
+
+	// Rewrite status.json on disk WITHOUT committing — exactly what
+	// internal/run/slice.go's state.Write() calls do between commit
+	// milestones during a live run.
+	createSliceStatus(t, releaseDir, "S01-first", "in_progress", "T1-core")
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(dir, release); err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+
+	// The live, uncommitted working-tree state must win: the primary
+	// checkout IS the track's own branch here, so the last commit is stale
+	// relative to the filesystem, not authoritative over it.
+	checkSlice(t, bv, "S01-first", "in_progress")
+}
+
 // TestKeyNavigation simulates j, k, Enter, Esc keypresses on the model
 // and asserts correct view transitions.
 func TestKeyNavigation(t *testing.T) {
@@ -170,14 +309,22 @@ func TestKeyNavigation(t *testing.T) {
 		t.Fatalf("expected cursor 0 after k, got %d", m3.Releases.Cursor)
 	}
 
-	// Press Enter to select release and enter board view.
-	upd, _ = m3.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// Press Enter to select release and enter board view. Board loading is
+	// dispatched as a tea.Cmd (sworn#82) — drive it to completion the same
+	// way the bubbletea runtime would: run the returned Cmd and feed its
+	// msg back through Update.
+	upd, cmd := m3.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m4 := upd.(*Model)
 	if m4.state != viewBoard {
 		t.Fatalf("expected viewBoard state after Enter, got %d", m4.state)
 	}
+	if cmd == nil {
+		t.Fatal("expected a board-load Cmd after Enter")
+	}
+	upd, _ = m4.Update(cmd())
+	m4 = upd.(*Model)
 	if !m4.Board.Loaded {
-		t.Fatal("expected board to be loaded after Enter")
+		t.Fatal("expected board to be loaded after the async load completes")
 	}
 
 	// Press Esc to go back to releases view.
@@ -709,6 +856,31 @@ func createSliceStatus(t *testing.T, releaseDir, sliceID, sliceState, track stri
 	}
 }
 
+// currentBranch returns the short name of the branch currently checked out
+// in dir (equivalent to `git symbolic-ref --short HEAD`).
+func currentBranch(t *testing.T, dir string) string {
+	t.Helper()
+	cmd := exec.Command("git", "symbolic-ref", "--short", "HEAD")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git symbolic-ref: %v", err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// mustReadSliceState reads a slice's status.json directly off disk (bypassing
+// the oracle) so the test can assert the fixture setup produced the intended
+// stale-on-disk / ahead-on-branch shape before exercising LoadBoard.
+func mustReadSliceState(t *testing.T, releaseDir, sliceID string) string {
+	t.Helper()
+	st, err := state.Read(filepath.Join(releaseDir, sliceID, "status.json"))
+	if err != nil {
+		t.Fatalf("mustReadSliceState: %v", err)
+	}
+	return string(st.State)
+}
+
 func checkSlice(t *testing.T, bv *BoardView, sliceID, expectedState string) {
 	t.Helper()
 	si, ok := bv.Slices[sliceID]
@@ -986,11 +1158,18 @@ func TestBoardEnterTransitionsToBlocked(t *testing.T) {
 		t.Fatalf("LoadReleases: %v", err)
 	}
 
-	upd, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// Board loading is dispatched as a tea.Cmd (sworn#82) — drive it to
+	// completion before pressing Enter again on the (now-populated) board.
+	upd, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m2 := upd.(*Model)
 	if m2.state != viewBoard {
 		t.Fatalf("expected viewBoard state, got %d", m2.state)
 	}
+	if cmd == nil {
+		t.Fatal("expected a board-load Cmd after Enter")
+	}
+	upd, _ = m2.Update(cmd())
+	m2 = upd.(*Model)
 
 	upd2, _ := m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m3 := upd2.(*Model)
@@ -1045,12 +1224,18 @@ func TestBoardEnterTransitionsToBlockedOnImplementedBlockedVerdict(t *testing.T)
 		t.Fatalf("LoadReleases: %v", err)
 	}
 
-	// Enter to select release → board view
-	upd, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// Enter to select release → board view. Board loading is dispatched as
+	// a tea.Cmd (sworn#82) — drive it to completion before the next Enter.
+	upd, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m2 := upd.(*Model)
 	if m2.state != viewBoard {
 		t.Fatalf("expected viewBoard state, got %d", m2.state)
 	}
+	if cmd == nil {
+		t.Fatal("expected a board-load Cmd after Enter")
+	}
+	upd, _ = m2.Update(cmd())
+	m2 = upd.(*Model)
 
 	// Enter on the implemented+blocked slice → should go to blocked panel
 	upd2, _ := m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -1589,5 +1774,138 @@ func TestHelpBarSpansFullWidth(t *testing.T) {
 	m.Width = 0
 	if got := lipgloss.Width(m.renderHelp()); got != 110 {
 		t.Fatalf("help bar fallback width should be the legacy 110 when Width is unset, got %d", got)
+	}
+}
+
+// --- sworn#82: async board load + lazy on-demand gate results ---
+
+// TestEnterDispatchesAsyncBoardLoad is the reachability test for the fix:
+// pressing Enter on the releases list must return a tea.Cmd instead of
+// running BoardView.LoadBoard inline in the key handler. Before the fix,
+// LoadBoard (and the gates it re-ran on every call) executed synchronously
+// inside handleReleasesKey, so Board.Loaded flipped to true in the SAME
+// Update() call that handled the keypress — bubbletea never got a chance to
+// repaint a loading indicator in between, which is the reported freeze.
+func TestEnterDispatchesAsyncBoardLoad(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+	createIndex(t, dir, "test-release", "Test Release")
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-first"}, State: "in_progress", WorktreeBranch: "track/test-release/T1-core"},
+	})
+	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-core")
+
+	m := &Model{
+		state:    viewReleases,
+		repoRoot: dir,
+		Releases: &ReleasesList{},
+		Board:    &BoardView{},
+	}
+	if err := m.Releases.LoadReleases(dir); err != nil {
+		t.Fatalf("LoadReleases: %v", err)
+	}
+
+	upd, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m2 := upd.(*Model)
+
+	// The key handler must return immediately — no inline LoadBoard.
+	if m2.state != viewBoard {
+		t.Fatalf("expected viewBoard state right after Enter, got %d", m2.state)
+	}
+	if m2.Board.Loaded {
+		t.Fatal("expected Board.Loaded=false immediately after Enter — LoadBoard must not run inline in the key handler (this is the sworn#82 freeze)")
+	}
+	if cmd == nil {
+		t.Fatal("expected Enter to return a non-nil tea.Cmd to load the board asynchronously")
+	}
+
+	// Executing the returned Cmd (as the bubbletea runtime would, off the
+	// Update goroutine) and feeding the resulting msg back through Update is
+	// what actually populates the board.
+	msg := cmd()
+	upd2, _ := m2.Update(msg)
+	m3 := upd2.(*Model)
+	if !m3.Board.Loaded {
+		t.Fatal("expected Board.Loaded=true after the async load msg is delivered")
+	}
+	if len(m3.Board.Tracks) != 1 {
+		t.Fatalf("expected 1 track after async load, got %d", len(m3.Board.Tracks))
+	}
+	checkSlice(t, m3.Board, "S01-first", "verified")
+}
+
+// TestLoadBoardDoesNotComputeGatesEagerly proves the lazy-gates half of
+// sworn#82: LoadBoard must NOT call LoadGateResults (trace + per-slice
+// coverage/design/mock, each shelling git diff) as part of every board load.
+// Before the fix this was ~100% of the measured cost (up to 21.3s of a
+// 21.5s load on a 73-slice release).
+func TestLoadBoardDoesNotComputeGatesEagerly(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-first"}, State: "in_progress", WorktreeBranch: "track/test-release/T1-core"},
+	})
+	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-core")
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(dir, "test-release"); err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+
+	if bv.GatesLoaded {
+		t.Fatal("expected GatesLoaded=false after LoadBoard — gates must be lazy, not computed eagerly")
+	}
+	if len(bv.GateResults) != 0 {
+		t.Fatalf("expected no GateResults populated by LoadBoard, got %d entries", len(bv.GateResults))
+	}
+}
+
+// TestGateKeyTriggersAsyncGateLoad verifies the on-demand path: pressing 'g'
+// in board view dispatches a tea.Cmd (not an inline call) that computes gate
+// results, and delivering the resulting msg populates BoardView.GateResults
+// and flips GatesLoaded.
+func TestGateKeyTriggersAsyncGateLoad(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-first"}, State: "in_progress", WorktreeBranch: "track/test-release/T1-core"},
+	})
+	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-core")
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(dir, "test-release"); err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+
+	m := &Model{
+		state:    viewBoard,
+		repoRoot: dir,
+		Releases: &ReleasesList{},
+		Board:    bv,
+	}
+
+	upd, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("g")})
+	m2 := upd.(*Model)
+	if !m2.Board.GatesLoading {
+		t.Fatal("expected GatesLoading=true right after pressing 'g'")
+	}
+	if cmd == nil {
+		t.Fatal("expected 'g' to return a non-nil tea.Cmd to compute gates asynchronously")
+	}
+
+	msg := cmd()
+	upd2, _ := m2.Update(msg)
+	m3 := upd2.(*Model)
+	if m3.Board.GatesLoading {
+		t.Fatal("expected GatesLoading=false after the gates-loaded msg is delivered")
+	}
+	if !m3.Board.GatesLoaded {
+		t.Fatal("expected GatesLoaded=true after the gates-loaded msg is delivered")
+	}
+	if _, ok := m3.Board.GateResults["S01-first"]; !ok {
+		t.Fatalf("expected GateResults to contain S01-first, got %+v", m3.Board.GateResults)
 	}
 }
