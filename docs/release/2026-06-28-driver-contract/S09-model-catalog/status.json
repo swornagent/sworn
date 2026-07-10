@@ -3,12 +3,33 @@
   "slice_id": "S09-model-catalog",
   "release": "2026-06-28-driver-contract",
   "track": "T5-catalog",
-  "state": "in_progress",
+  "state": "implemented",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-11T02:20:00Z",
+  "last_updated_at": "2026-07-11T02:55:00Z",
   "covers_needs": ["N-11"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S09-model-catalog/spec.json",
   "start_commit": "0c4d4e63979a62de450f49675fa32f61303fff48",
+  "actual_files": [
+    "cmd/sworn/models.go",
+    "cmd/sworn/models_test.go",
+    "internal/model/catalog.go",
+    "internal/model/catalog_test.go"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go vet ./...",
+    "gofmt -l internal/model/catalog.go internal/model/catalog_test.go cmd/sworn/models.go cmd/sworn/models_test.go",
+    "go test -count=1 ./cmd/sworn/... ./internal/model/... (spec.json AC-04's named command)",
+    "go test -count=1 -v -run Catalog ./internal/model/...",
+    "go test -count=1 -v -run Models ./cmd/sworn/...",
+    "go test -count=1 -timeout 300s ./... (full suite)"
+  ],
+  "reachability_artifacts": [
+    "cli-run: go test -count=1 -v -run TestModelsCommand ./cmd/sworn/... — drives the registered `models` command's Run function end to end through command.Lookup(\"models\").Run(nil), the exact integration point main.dispatch resolves at runtime (Rule 1), not a leaf internal/model/catalog.go unit test. All 7 providers configured via env vars; the 6 HTTP-based providers redirected to a combined fixture server via a host-routing test Transport (modelsHTTPClient seam in cmd/sworn/models.go); Ollama reached directly via OLLAMA_HOST. Asserts the rendered stdout carries every provider's grouped-by-prefix block with the correct wire-sourced tools annotation (AC-01, AC-02).",
+    "cmd/sworn/models_test.go:TestModelsCommand_ProviderFilter — --provider mistral restricts output to exactly one provider through the same cmdModels entrypoint.",
+    "cmd/sworn/models_test.go:TestModelsCommand_AllFailedExitsNonZero / TestModelsCommand_PartialFailureExitsZero — AC-03's per-provider isolation and exit-code rule, driven through cmdModels.",
+    "cmd/sworn/models_test.go:TestModelsCommand_UnknownProviderFlag — an unsupported --provider value is a usage error (exit 64) rejected before any HTTP call."
+  ],
   "effort_complexity": {
     "effort": "high",
     "complexity": "low",
@@ -60,6 +81,15 @@
       "human_decision": "Type-2 — implementer default, no human ratification required; flagged for Captain design review.",
       "rationale": "No positively identified marker for tool support exists in Google's models.list response; guessing would violate AC-02's fail-closed rule.",
       "architecturally_significant": false
+    }
+  ],
+  "open_deferrals": [
+    {
+      "item": "Pricing display (OpenRouter's wire-honest pricing block) — no AC requires it, and PriceForModel is keyed by the registry's fully-resolved provider/model ID, not catalog's raw per-provider wire IDs, so wiring it in would need its own normalisation pass.",
+      "why": "Adding an unasked capability-shaped surface risks scope creep against an unwritten AC.",
+      "tracking": "sworn#92",
+      "acknowledgement": "Coach-ratified proceed, captain-proceed.md pin 3, 2026-07-11: 'tracking issue FILED as sworn#92 ... cite sworn#92 in proof.json not_delivered.'",
+      "acknowledged_by": "Brad (Coach)"
     }
   ],
   "verification": {
