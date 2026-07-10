@@ -50,7 +50,7 @@
       "id": "AC-01",
       "type": "event-driven",
       "ears_keyword": "When",
-      "text": "When `sworn loop --release <r> --parallel` starts, the engine SHALL resolve the implementer, verifier, and captain models AND every escalation-list entry through Registry.Resolve for their roles BEFORE spawning any worker; on any failure it SHALL exit non-zero with an error naming the model, the role, and the registered prefixes/roles that ARE available (TestParallelStartupFailFast)."
+      "text": "When `sworn loop --release <r> --parallel` starts, the engine SHALL resolve the implementer, verifier, and captain models AND every escalation-list entry through Registry.Resolve for their roles BEFORE spawning any worker; on an implementer-, verifier-, or escalation-entry resolution failure it SHALL exit non-zero with an error naming the model, the role, and the registered prefixes/roles that ARE available; on a captain-leg resolution failure it SHALL record that same descriptive error as a durable Rule 2 deferral and proceed, mirroring the S06 Coach-ratified policy (2026-07-10, S06 captain-proceed.md pin 1 / amended S06 AC-02; sworn#86 tracks restoring captain declarability) (TestParallelStartupFailFast)."
     },
     {
       "id": "AC-02",
