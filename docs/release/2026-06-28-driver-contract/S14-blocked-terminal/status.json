@@ -10,7 +10,7 @@
     "N-15"
   ],
   "spec_path": "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/spec.json",
-  "start_commit": null,
+  "start_commit": "79fce5426f1f2289fb87237fa4e8b421d6f5f16d",
   "effort_complexity": {
     "effort": "low",
     "complexity": "high",

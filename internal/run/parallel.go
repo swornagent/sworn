@@ -274,6 +274,21 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 		docShared = nil
 	}
 
+	// ── Blocked-lane collector (S14 AC-05) ──────────────────────────────
+	// Workers report blocked-terminal lanes through the RecordBlocked
+	// side-channel (their TrackResult stays TrackFail — D3); the collector
+	// feeds the exit report so BLOCKED lanes (replan required, blocker
+	// verbatim) render distinctly from FAIL lanes (retries exhausted).
+	var (
+		blockedMu    sync.Mutex
+		blockedLanes []blockedLane
+	)
+	recordBlocked := func(trackID, sliceID, reason string) {
+		blockedMu.Lock()
+		defer blockedMu.Unlock()
+		blockedLanes = append(blockedLanes, blockedLane{Track: trackID, Slice: sliceID, Reason: reason})
+	}
+
 	// ── Fan out per phase ───────────────────────────────────────────────
 	var outcomeMap sync.Map
 	// failCtx propagates cancellation to subsequent phases when any track fails.
@@ -354,6 +369,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 					Oracle:              ora,
 					PauseCh:             pauseEngine.PauseCh(releaseName),
 					MergeTrackFn:        opts.MergeTrackFn,
+					RecordBlocked:       recordBlocked,
 				}
 				// Run on the parent ctx, NOT phaseCtx (#33): a sibling track's
 				// failCancel() must not cancel this track mid-run. Tracks in a
@@ -423,6 +439,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 						Oracle:              ora,
 						PauseCh:             pauseEngine.PauseCh(releaseName),
 						MergeTrackFn:        opts.MergeTrackFn,
+						RecordBlocked:       recordBlocked,
 					}
 					// Run on the parent ctx, NOT phaseCtx (#33): a sibling track's
 					// failCancel() must not cancel this track mid-run. Tracks in a
@@ -472,6 +489,18 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 	}
 
 	if len(failedTracks) > 0 {
+		// S14 AC-05: when any blocked lane exists, the returned error carries
+		// the distinguishing report — BLOCKED lanes (blocker verbatim, routed
+		// to /replan-release) vs FAIL lanes (retries exhausted). cmd/sworn
+		// prints this error and exits non-zero (existing plumbing). When no
+		// blocked lane exists the error stays byte-identical to the legacy
+		// format (protects TestRunParallel_FailureCascade and any caller
+		// matching on it — D5).
+		if len(blockedLanes) > 0 {
+			report := renderBlockedVsFailReport(releaseName, blockedLanes, failedTracks)
+			fmt.Fprintln(lw, report)
+			return fmt.Errorf("%s", report)
+		}
 		return fmt.Errorf("RunParallel: %d track(s) failed: %s",
 			len(failedTracks), strings.Join(failedTracks, ", "))
 	}
@@ -494,6 +523,50 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 	fmt.Fprintf(lw, "RunParallel: all %d tracks PASS (skipped: %d, blocked: %d)\n",
 		len(tracks), len(skippedTracks), len(blockedTracksList))
 	return nil
+}
+
+// blockedLane records one blocked-terminal lane reported by a worker through
+// the RecordBlocked side-channel (S14): the owning track, the slice whose
+// dispatch/verdict was blocked, and the blocker text verbatim.
+type blockedLane struct {
+	Track  string
+	Slice  string
+	Reason string
+}
+
+// renderBlockedVsFailReport builds the S14 AC-05 exit report: BLOCKED lanes
+// with the verbatim blocker and an explicit route-to-/replan-release
+// directive, then FAIL lanes (retries exhausted). A failed track with a
+// blocked record renders as a BLOCKED lane; the remaining failed tracks are
+// FAIL lanes. The blocker text is emitted verbatim — no summarisation, no
+// truncation (R-03).
+func renderBlockedVsFailReport(releaseName string, blockedLanes []blockedLane, failedTracks []string) string {
+	blockedSet := make(map[string]bool, len(blockedLanes))
+	for _, bl := range blockedLanes {
+		blockedSet[bl.Track] = true
+	}
+	var failLanes []string
+	for _, tid := range failedTracks {
+		if !blockedSet[strings.TrimSuffix(tid, " (no outcome)")] {
+			failLanes = append(failLanes, tid)
+		}
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "RunParallel: %d lane(s) BLOCKED (replan required), %d track(s) failed",
+		len(blockedLanes), len(failLanes))
+	b.WriteString("\nBLOCKED lanes — terminal for this run; route to /replan-release:")
+	for _, bl := range blockedLanes {
+		fmt.Fprintf(&b, "\n  [%s] %s: %s", bl.Track, bl.Slice, bl.Reason)
+		fmt.Fprintf(&b, "\n      -> /replan-release %s", releaseName)
+	}
+	if len(failLanes) > 0 {
+		b.WriteString("\nFAIL lanes — retries exhausted:")
+		for _, tid := range failLanes {
+			fmt.Fprintf(&b, "\n  [%s]", tid)
+		}
+	}
+	return b.String()
 }
 
 // trackInfosFromBoardTracks converts board.json BoardTrack records into the

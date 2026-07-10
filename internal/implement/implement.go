@@ -124,6 +124,19 @@ func Run(ctx context.Context, workspaceRoot, specPath, priorFeedback string, d d
 		return res, fmt.Errorf("implement: agent loop: %w", runErr)
 	}
 
+	// S14 (D4): a dispatched implementer returning StatusBlocked signals a
+	// blocker that re-dispatch cannot clear (spec defect, out-of-authority
+	// change, missing dependency). Do NOT certify the dispatch: skip the
+	// spec record, proof generation, and the implemented transition — the
+	// slice stays in_progress and RunSlice owns the terminal blocked
+	// handling (status write, commit, notify, sentinel error). The engine
+	// keys ONLY off Status; blockedness is never inferred from ResultText
+	// prose. Without this early return a blocked dispatch fell through to
+	// proof generation and a spurious implemented transition.
+	if res.Status == driver.StatusBlocked {
+		return res, nil
+	}
+
 	// Step 4: Write spec.json record from spec.md.
 	if err := WriteSpecRecord(specPath, statusPath, sliceDir); err != nil {
 		return res, fmt.Errorf("implement: write spec record: %w", err)

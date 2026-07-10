@@ -571,6 +571,73 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			ModelIDConfirmed: implRes.ModelID,
 		})
 
+		// ── Implementer BLOCKED: terminal for the lane (S14 AC-01) ──
+		// A dispatched implementer returning Status==StatusBlocked reports a
+		// blocker re-dispatch cannot clear (spec defect, out-of-authority
+		// change, missing dependency). Terminal: no verifier dispatch, no
+		// triage, no retry budget consumed (resolveCount/modelIdx untouched)
+		// — exactly one dispatch total for the lane, mirroring the verifier
+		// BLOCKED Halt branch below. The dispatch ledger record above stays:
+		// economics survive a blocked dispatch (S08 posture). The runner
+		// keys ONLY off Status, never off ResultText prose.
+		if implRes.Status == driver.StatusBlocked {
+			reason := strings.TrimSpace(implRes.BlockedReason)
+			if reason == "" {
+				reason = strings.TrimSpace(implRes.ResultText)
+			}
+			if reason == "" {
+				reason = "(no blocker reason provided)"
+			}
+			fmt.Fprintf(os.Stderr, "sworn run: implementer BLOCKED — %s\n", reason)
+			// Write the blocked verification record BEFORE committing so the
+			// commit always has content and the tree stays clean for the
+			// caller (same reason the normal path commits before verify).
+			stBlk, stErr := state.Read(statusPath)
+			if stErr == nil {
+				stBlk.Verification.Result = "blocked"
+				// Verbatim blocker (R-03): no summarisation, no truncation.
+				stBlk.Verification.Violations = violationsFromStrings([]string{reason})
+				// Machine-readable replan directive: vocabulary bound at both
+				// ends (verdict.Result.Routing doc, board.BlockedNeedsPlanner);
+				// the oracle surfaces it as blocked_owner and the router (S58)
+				// routes the slice to /replan-release.
+				stBlk.Verification.Routing = "needs_planner"
+				stBlk.Verification.Model = implModelID
+				stBlk.Verification.Attempt = totalAttempts
+				stBlk.Verification.Dispatches = dispatches
+				stBlk.LastUpdatedBy = "run-slice"
+				stBlk.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
+				_ = state.Write(statusPath, stBlk)
+			}
+			if err := repo.Stage("."); err != nil {
+				return fmt.Errorf("RunSlice: stage blocked-implementer changes: %w", err)
+			}
+			if err := repo.Commit("chore(run): implementer blocked — terminal for lane (replan required)"); err != nil {
+				return fmt.Errorf("RunSlice: commit blocked-implementer changes: %w", err)
+			}
+			if opts.Notifier != nil {
+				stNotify, _ := state.Read(statusPath)
+				if stNotify != nil {
+					summary := reason
+					if len(summary) > 200 {
+						summary = summary[:197] + "..."
+					}
+					opts.Notifier.Notify(ctx, account.NotifyEvent{
+						Release:           stNotify.Release,
+						Track:             stNotify.Track,
+						SliceID:           stNotify.SliceID,
+						State:             "blocked",
+						ViolationsSummary: summary,
+						WorktreePath:      worktreeRoot,
+					})
+				}
+			}
+			// Reason stays verbatim; the route directive rides in the same
+			// error so the AC-01 assertion is self-contained. The worker
+			// trims the suffix when recording the lane (flag (a)).
+			return fmt.Errorf("%s %s%s", errVerdictBlockedPrefix, reason, orchestrator.BlockedLaneRouteSuffix)
+		}
+
 		// ── Commit agent changes ────────────────────────────────────
 		if err := repo.Stage("."); err != nil {
 			return fmt.Errorf("RunSlice: stage agent changes: %w", err)
@@ -945,7 +1012,11 @@ func writeTempFile(dir, pattern, content string) (string, error) {
 // Sentinel error string prefixes used by RunSlice. Callers can use
 // strings.Contains on the returned error to distinguish exit causes.
 const (
-	errVerdictBlockedPrefix  = "RunSlice: verification blocked:"
+	// errVerdictBlockedPrefix aliases the shared sentinel (S14 D2) — the
+	// value is byte-identical to the previous private literal, so IsBlocked
+	// and every existing assertion hold. The constant lives in orchestrator
+	// because the scheduler worker consumes it and cannot import run.
+	errVerdictBlockedPrefix  = orchestrator.BlockedLaneSentinel
 	errVerdictFailPrefix     = "RunSlice: verification failed after"
 	errVerdictMaxTurnsPrefix = "RunSlice: max turns exhausted:"
 )

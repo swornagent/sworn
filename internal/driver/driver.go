@@ -104,10 +104,15 @@ type Status string
 const (
 	// StatusOK means the dispatch completed and produced a result.
 	StatusOK Status = "ok"
-	// StatusBlocked means the dispatch could not proceed for a reason
-	// outside the driver's control (e.g. the model itself returned a
-	// BLOCKED verdict) — distinct from StatusError, which is the driver or
-	// transport failing.
+	// StatusBlocked means the dispatch itself completed but the work cannot
+	// proceed for a reason that re-dispatch cannot clear — a spec defect, an
+	// out-of-authority change, a missing dependency (S14 semantics binding).
+	// Terminal for the lane: the engine makes no further dispatches for the
+	// slice, consumes no retry budget, and routes to /replan-release.
+	// Distinct from StatusError, which is the driver or transport failing:
+	// retryable incompleteness (budget/env) is StatusError with a
+	// non-terminal ErrKind, never StatusBlocked. The engine keys ONLY off
+	// this Status — it never infers blockedness from ResultText prose.
 	StatusBlocked Status = "blocked"
 	// StatusError means the dispatch failed. ErrKind names the failure
 	// class.
@@ -123,6 +128,12 @@ type Result struct {
 	// ErrKind is set when Status == StatusError, naming the failure class
 	// (e.g. "auth", "credits", "timeout") for triage/escalation logic.
 	ErrKind string
+	// BlockedReason is the blocker text, set when Status == StatusBlocked.
+	// The engine emits it VERBATIM (status.json violations, exit report) —
+	// never summarised, never truncated (S14 R-03). It is diagnostic
+	// payload, not the signal: the engine keys only off Status and never
+	// infers blockedness from prose. Zero value ("") on every other Status.
+	BlockedReason string
 	// ResultText is the model's raw text response, always populated when
 	// available (even alongside StructuredJSON) so callers that only need
 	// prose never have to round-trip through JSON.
