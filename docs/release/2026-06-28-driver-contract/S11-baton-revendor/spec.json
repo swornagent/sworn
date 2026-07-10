@@ -32,7 +32,7 @@
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
-    "quadrant": "beast",
+    "quadrant": "epic",
     "rationale": "Was grind (known-shape vendor bump + enum rename, fixture sweep across five packages). Folding in sworn#80 raises complexity to high: the correct worktree-path derivation isn't track-mode.md's plainly-documented formula but the repo-local sibling-of-release-worktree logic worker.go already carries for a real prior incident (eval finding 3) — the implementer must find and preserve that nuance, not re-derive the naive convention. It also requires a cross-package consumer sweep (~12 files verified to read through internal/board's TrackInfo, not board.json directly) and coordinated baton-repo schema/command-spec edits landing before the v0.7.1 tag. Re-assess at design_review.",
     "confirmed_by_implementer": false
   },

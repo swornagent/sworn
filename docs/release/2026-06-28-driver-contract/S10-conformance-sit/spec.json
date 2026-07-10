@@ -51,7 +51,7 @@
       "id": "AC-01",
       "type": "ubiquitous",
       "ears_keyword": "shall",
-      "text": "An exported conformance suite (internal/driver/drivertest, entry point Run(t, NewDriver)) SHALL assert for ANY Driver: a successful dispatch returns a well-formed Result (Status set, tokens/duration non-negative, ResultText or StructuredJSON present per role); every error path returns Status=error with a non-empty ErrKind and never panics; a dispatch with a Role outside the driver's declared RoleSet returns an error; a verifier-role dispatch returns StructuredJSON that parses as a JSON object or fails closed; and the Rule-11 guard fires on a missing/non-worktree WorktreeRoot before any work."
+      "text": "An exported conformance suite (internal/driver/drivertest, entry point Run(t, NewDriver)) SHALL assert for ANY Driver: a successful dispatch returns a well-formed Result (Status set, tokens/duration non-negative, ResultText or StructuredJSON present per role); every error path returns Status=error with a non-empty ErrKind and never panics; requesting a Role outside the driver's declared RoleSet fails at the RESOLUTION boundary — the suite asserts Registry.Resolve's role-arm error for an undeclared role, per the release's ratified fail-fast-at-resolution contract (S01 Type-1 decision; ADR-0012 deliberately disclaims Dispatch-level role re-checks; amended 2026-07-11 per S10 review pin 1); a verifier-role dispatch returns StructuredJSON that parses as a JSON object or fails closed; and the Rule-11 guard fires on a missing/non-worktree WorktreeRoot before any work."
     },
     {
       "id": "AC-02",

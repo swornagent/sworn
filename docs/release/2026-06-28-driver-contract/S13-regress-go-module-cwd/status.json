@@ -21,7 +21,7 @@
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "quick",
+    "quadrant": "chore",
     "rationale": "One function's cwd derivation plus a subdir-module test fixture; known shape.",
     "confirmed_by_implementer": false
   },
