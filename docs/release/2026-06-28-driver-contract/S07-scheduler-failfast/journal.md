@@ -93,3 +93,75 @@ Newline-eating-corruption grep over every changed `.go` file — clean.
 `design_review` → `in_progress` (commit `c06c13d`, start_commit) →
 `implemented` (this session's final commit). Verification left `pending` —
 this implementer session never marks a slice verified (Rule 7).
+
+## Verifier verdicts received
+
+### 2026-07-10 — PASS (fresh-context verifier)
+
+```
+PASS
+
+Slice: `S07-scheduler-failfast`
+Verified against: `3aac7aee4f302850920ce1708406800c2325491a`
+Verifier session: `fresh, artefact-only`
+```
+
+Gate walk (fresh session, artefact-only inputs, all tests re-run live):
+
+1. Gate 1 (user-reachable outcome) — PASS. The startup resolution sweep is
+   wired into the real `sworn run --parallel` entry point (cmd/sworn/run.go,
+   --parallel branch, before openDefaultDB/supervisor.Open/RunParallel).
+   TestParallelStartupFailFast drives cmdRun end-to-end: unregistered
+   escalation prefix "nope/model-x" → non-zero exit naming the model, role
+   "implementer", and every registered prefix; zero rows in the tracks table
+   proves no worker ever spawned. Re-run live: PASS.
+2. Gate 2 (touchpoints) — PASS with explanations. Four files beyond
+   spec.json touchpoints (internal/run/resolve.go, resolve_test.go,
+   slice.go, imports_test.go) were pre-authorised by the Coach
+   (captain-proceed.md pin 4) and recorded in proof.json divergence.
+   internal/run/parallel.go (planned) is unchanged per ratified design
+   decision D3 (sweep lives in cmd/sworn/run.go; parallel.go kept free of a
+   second resolution path) — no AC required a parallel.go change and its
+   planned test file parallel_test.go WAS extended. No unrelated churn.
+3. Gate 3 (tests) — PASS. Re-run live in the track worktree:
+   go build ./... clean; go test -count=1 -timeout 300s ./cmd/sworn/...
+   ./internal/scheduler/... ./internal/run/... all ok (AC-04); full
+   go test -count=1 -timeout 300s ./... = 45 packages ok, exit 0.
+   Named tests re-run verbose, all PASS: TestParallelStartupFailFast,
+   TestRunTrack_TerminalDriverErrorHaltsTrack,
+   TestRunParallel_FailureCascade (T2 PASS sibling survives / T3 SKIPPED
+   dependent, asserted from loop.log), TestNoWireImports (now scanning
+   cmd/sworn — AC-02), TestComposeEscalationModels, TestResolveDispatch_*
+   (verifier/implementer fatal, captain non-fatal), and the pre-existing
+   TestRunSliceResolutionFailure +
+   TestRunSliceCaptainResolutionFailureDefersAndProceeds pass unedited
+   (extraction is behaviour-preserving).
+   Gate 3b/4b (LLM checks) skipped non-blocking: no $SWORN_MODEL configured.
+   Manual AC walk: AC-01 graded against the AMENDED spec text (Coach
+   2026-07-10, S07 captain-proceed.md pin 1 propagating the S06
+   ratification): fatal legs exit non-zero pre-spawn; captain-leg failure
+   warns and proceeds, durable Rule 2 recording owned by RunSlice's
+   recordDesignGateDeferral per-slice — exactly the S06-ratified mechanism
+   the amended AC cites. AC-02: newAgentFromModel/newVerifierFromModel exist
+   only in comments; import-boundary net extended to cmd/sworn. AC-03:
+   fake-driver-after-N-dispatches scheduler test halts only its own track;
+   no phase-wide cascade. AC-04: green.
+4. Gate 4 (reachability artefact) — PASS. cli-run artefact re-executed
+   live; names the user gesture (`sworn run --parallel` with a bad
+   escalation model).
+5. Gate 5 (silent deferrals) — PASS. TODO/FIXME/placeholder grep clean on
+   all changed files; newline-corruption grep clean; gofmt -l clean; go vet
+   clean. sworn#86 confirmed to exist (OPEN) as the tracking leg for the
+   captain-leg deferral policy. proof.json not_delivered empty;
+   status.json has no open_deferrals; spec out_of_scope items all name
+   owners.
+6. Gate 6 (design conformance) — EXEMPT: sworn designaudit reports project
+   not ui_bearing.
+7. Gate 7 (claimed scope) — PASS. Every delivered item's evidence reference
+   verified against live repo state, including the corrected design.md
+   AC-03 coverage claim (Captain review pin 3) and the D1 shared-helper
+   extraction.
+
+Deterministic first-pass (~/.claude/bin/release-verify.sh): only FAILs are
+the known spec.md/proof.md false negatives on spec-v1 slices (declared
+project hazard); dark-code scan and structural checks pass.
