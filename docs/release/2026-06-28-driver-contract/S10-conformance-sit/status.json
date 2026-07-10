@@ -3,7 +3,7 @@
   "slice_id": "S10-conformance-sit",
   "release": "2026-06-28-driver-contract",
   "track": "T6-proof",
-  "state": "planned",
+  "state": "design_review",
   "covers_needs": ["N-07"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S10-conformance-sit/spec.json",
   "start_commit": null,
