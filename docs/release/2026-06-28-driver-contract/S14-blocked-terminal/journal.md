@@ -85,3 +85,56 @@ asserting the supervisor row is `failed`, not `done`). Full
 
 **Rule 2 deferrals (each with why + tracking + acknowledgement):** see
 proof.json `not_delivered`.
+
+## Verifier verdicts received
+
+### 2026-07-10T15:41:23Z — PASS (round 1, fresh-context session, Rule 7)
+
+```
+PASS
+
+Slice: `S14-blocked-terminal`
+Verified against: `2574c0bd705d84fe54049200ced372be69d48f05`
+Verifier session: `fresh, artefact-only`
+```
+
+Evidence summary (all regenerated from live repo state, not the proof bundle):
+
+- Gate 1 (reachable): run.RunSlice / run.RunParallel are the engine entry
+  points wired at cmd/sworn/run.go:173/:191; the five AC tests drive them
+  directly (real temp git repo, real RunParallel with sqlite supervisor).
+- Gate 2 (touchpoints): 13 changed files match proof.json exactly; planned-
+  but-untouched files (resolve.go, parallel_test.go, internal/verify/,
+  cmd/sworn/run.go, run_test.go) explained in proof divergence — existing
+  plumbing suffices and AC-06 forbids editing the test files; unplanned
+  implement.go + orchestrator/blocked.go covered by D2/D4 design decisions.
+- Gate 3 (tests): all five AC tests re-run PASS in this session
+  (TestLoopBlockedImplementerTerminal, TestLoopBlockedVerifierTerminal,
+  TestLoopFailRetrySemanticsUnchanged, TestLoopBlockedSliceHaltsTrack,
+  TestLoopExitReportBlockedVsFail). Assertions are strong: exactly-one-
+  dispatch with a second escalation model available (zero retry budget),
+  blocker VERBATIM + /replan-release directive, supervisor row StateFailed
+  read back from the tracks DB (never coerced "done"), status.json
+  verification.result=blocked + routing=needs_planner read off disk.
+- AC-06 regression gate: git diff --name-status from start_commit 79fce54
+  shows the ONLY test files are three NEW files (status A) — zero pre-
+  existing retry test edits; full `go test -count=1 -timeout 300s ./...`
+  exit 0, every package ok.
+- Gate 3b/4b (LLM checks): skipped non-blocking — no provider configured
+  ($SWORN_MODEL unset, no credentials). Noted: proof.json's claim that
+  `sworn llm-check` "does not exist in this branch's binary" is inaccurate
+  (the command exists); the operative no-credentials half is true.
+- Gate 5 (deferrals): no undeclared markers in the slice's diff hunks;
+  sworn#90 confirmed OPEN; captain-proceed.md@31c3290 present; remaining
+  not_delivered items are spec-owned out_of_scope boundaries with named
+  owners.
+- Gate 6: designaudit EXEMPT — project not ui_bearing.
+- Gate 7: every delivered item's evidence confirmed in code and tests.
+- First-pass: deterministic `sworn verify` PASS on the code diff; the
+  boundary_mock hit on the full diff is the known sworn#87 prose false-
+  positive (it flags the proof bundle's own text) — declared, not contorted.
+- Hygiene: gofmt clean, go vet clean, newline-eating-edit hazard grep clean
+  on all nine changed .go files.
+
+State: implemented -> verified. Track T4-resolution-loop is now fully
+verified (S05, S06, S07, S08, S14) — next step /merge-track.
