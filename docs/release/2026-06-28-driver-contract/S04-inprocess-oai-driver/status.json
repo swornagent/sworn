@@ -3,18 +3,81 @@
   "slice_id": "S04-inprocess-oai-driver",
   "release": "2026-06-28-driver-contract",
   "track": "T3-inprocess",
-  "state": "planned",
+  "state": "verified",
   "covers_needs": ["N-03", "N-08"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S04-inprocess-oai-driver/spec.json",
-  "start_commit": null,
+  "proof_path": "docs/release/2026-06-28-driver-contract/S04-inprocess-oai-driver/proof.json",
+  "journal_path": "docs/release/2026-06-28-driver-contract/S04-inprocess-oai-driver/journal.md",
+  "start_commit": "6ce9d30526cd8eb1911fa8916ad8df8a8a117fed",
+  "actual_files": [
+    "internal/driver/inprocess/inprocess.go",
+    "internal/driver/inprocess/inprocess_verify.go",
+    "internal/driver/inprocess/inprocess_test.go"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go vet ./internal/driver/...",
+    "go test -timeout 120s ./internal/driver/...",
+    "go test -timeout 300s ./..."
+  ],
+  "reachability_artifacts": [
+    "internal/driver/inprocess/inprocess_test.go:TestInprocessImplementer",
+    "internal/driver/inprocess/inprocess_test.go:TestInprocessVerifier",
+    "internal/driver/inprocess/inprocess_test.go:TestInprocessContentAlwaysPresent"
+  ],
   "effort_complexity": {
     "effort": "low",
     "complexity": "high",
     "quadrant": "puzzle",
     "rationale": "Wrap-don't-rewrite, but the loop-then-structured-verdict mechanism is new; provider quirks must stay contained.",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
+  "design_decisions": [
+    {
+      "choice": "D1 — One InProcess struct, two registered identities: NewOAIChat() -> \"oai-inprocess\" (chat/completions family) and NewOAIResponses() -> \"oai-responses-inprocess\" (/v1/responses). Dispatch always re-resolves the concrete client from DispatchInput.ModelID via model.NewClient; the identities differ only in reported Name. Which prefixes route to which identity is S05's registry decision. AC-03's content-present test obligation is narrowed to the chat identity; the Responses identity is exempt as moot-by-construction (convertMessages emits tool-calling assistant turns as pure function_call input items — the Responses wire format structurally cannot express the tool-only content-drop).",
+      "stake_class": "Type-1",
+      "options": [
+        "one struct, two named identities, Dispatch re-resolves per ModelID (chosen)",
+        "two separate driver types duplicating the Dispatch logic",
+        "one registered identity with internal provider-prefix branching (loses the sworn#31 openai/ vs openai-completions/ routing split)"
+      ],
+      "human_decision": "Brad (Coach), 2026-07-10, captain-proceed.md pins 3+4: D1 classified Type-1 and decided in the acknowledgement; AC-03 narrowed to the oai-inprocess chat identity by code inspection of internal/model/openai_responses.go convertMessages (no spec scope change required).",
+      "rationale": "The registry (S05) and rewire (S06) consume the driver-identity model, making it a cross-slice contract; duplicating Dispatch would fork the error-mapping and metering logic the pins standardise.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "D5 — Cross-driver error contract: Dispatch returns the error chain carrying the underlying *model.Error (pin 1 option (a)) so the engine's model.IsTerminal terminal-halt keeps firing on the pre-S06 path; Result.ErrKind maps kind-for-kind through the shared driver.ErrKind* constants with KindAuth -> driver.ErrKindAuth as an explicit mapping (pin 2); agent.ErrMaxTurns wins first -> ErrKindTransient (retryable); on the verifier's structured-verdict call, a CLASSIFIED provider error (auth/credits/rate_limit/upstream/transient) keeps its real ErrKind and only otherwise-unclassified failures fold to ErrKindProtocol (pin 6). Rule-2 tracked obligation on S06-loop-dispatch-rewire: the rewired loop MUST treat Result.ErrKind in {auth, credits} as terminal to keep parity with the subprocess drivers.",
+      "stake_class": "Type-1",
+      "options": [
+        "(a) return the underlying *model.Error so model.IsTerminal keeps firing regardless of how S06 reads ErrKind (chosen) + tracked S06 obligation",
+        "(b) rely solely on the S06 rewire reading Result.ErrKind, collapsing terminal cases to \"auth\" like the subprocess drivers",
+        "fold every verdict-call failure into ErrKindProtocol (rejected: hides the fail-fast signal pin 1 protects)"
+      ],
+      "human_decision": "Brad (Coach), 2026-07-10, captain-proceed.md pins 1, 2 and 6: option (a) accepted with the tracked S06 obligation; ErrKind constants + explicit KindAuth mapping accepted; the pin-6 narrowing of AC-04's \"structured-emission failure\" explicitly blessed.",
+      "rationale": "Removes the temporal coupling across the S06 rewire boundary: the intermediate state (S04 landed, S06 not yet) stays safe on its own; a transport auth failure is not a protocol failure and folding it would send triage down the wrong retry/escalation path.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Placement — the driver lives in subpackage internal/driver/inprocess/ (package inprocess), not as internal/driver/inprocess.go, because ADR-0012 pins \"internal/driver itself imports neither internal/model nor internal/agent\" and TestNoWireImports enforces it over every file in that directory; the spec's literal touchpoint paths are unimplementable against its own AC-05 test command. Contract vocabulary is consumed via the exported driver.ErrKind* constants and driver.Result/DispatchInput types.",
+      "stake_class": "Type-2",
+      "options": [
+        "subpackage internal/driver/inprocess/ preserving the ADR-0012 leaf invariant (chosen)",
+        "same-directory placement + exempting inprocess*.go in imports_test.go (rejected: weakens a Coach-ratified Type-1 invariant, edits a file outside touchpoints, and makes every contract consumer transitively import the wire packages)"
+      ],
+      "human_decision": "",
+      "rationale": "Forced move dictated by the existing Type-1 ADR-0012 decision, easy to reverse (git mv), narrow blast radius (S05 imports one package deeper; S08's touchpoint path note recorded in journal.md). Flagged prominently in journal.md and proof.json divergence for Coach/verifier visibility.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "D2 — Roles() declares implementer + verifier only (no captain: no AC references it). D3 — token/duration metering via an unexported chatMeter wrapping the client's Chat (pure observation; zero change to internal/agent). D4 — toModelMessages converts the agent transcript for the single ChatStructured verdict call; a final user nudge turn is appended so the conversation never ends on an assistant turn. D6 — CostUSD is the nominal ~$2/1M-token placeholder tagged CostSource=\"estimated\" (captain-proceed.md pin 5: the contract's documented value, not a new \"nominal\") for S08 to replace. D7 — fail-closed guards: empty WorktreeRoot / AssertWorktree failure / chat-incapable client -> ErrKindConfig; verifier client without StructuredOutput -> ErrKindProtocol before the investigation loop spends tokens; empty Choices always checked, never indexed unchecked.",
+      "stake_class": "Type-2",
+      "rationale": "Narrow, local, reversible defaults acknowledged as sound in review.md (§2) and captain-proceed.md pin 4 (D6/D7 remain Type-2 defaults; D6's value fixed to \"estimated\" by pin 5).",
+      "architecturally_significant": false
+    }
+  ],
   "verification": {
-    "result": "pending"
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-10T01:14:14Z"
   }
 }
