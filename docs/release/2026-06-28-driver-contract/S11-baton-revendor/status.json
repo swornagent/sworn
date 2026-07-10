@@ -12,7 +12,7 @@
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
-    "quadrant": "beast",
+    "quadrant": "epic",
     "rationale": "Vendor bump to v0.9.0 + chore->quick & epic->beast enum + acknowledged_by round-trip + sworn#80 (derive worktree/state from refs, board-v1 pure plan) + Defect-2 regression lock; complexity high per the worker.go worktree-derivation nuance (spec R-05).",
     "confirmed_by_implementer": false
   },
