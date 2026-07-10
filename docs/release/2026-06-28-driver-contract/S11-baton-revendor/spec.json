@@ -14,6 +14,7 @@
     "internal/baton/schemas re-sync (spec-v1 with required in_scope/out_of_scope; reconciled status/journeys/attestations; verifier-verdict-v1; board-v1 with worktree_path/worktree_branch/state removed from tracks[])",
     "Quadrant enum code change: 'quick' replaces 'chore' (low/low) AND 'beast' replaces 'epic' (high/high) to match baton v0.9.0's enum {quick,grind,puzzle,beast}, with transitional acceptance of the retired 'chore'/'epic' until S12 migrates the data",
     "Spec writer (internal/spec) emits in_scope/out_of_scope; strict reader (internal/implement/spec_record.go) accepts and exposes them",
+    "schema_version retirement (replan 2026-07-10): v0.9.0's spec-v1 and board-v1 set additionalProperties:false and no longer define schema_version ($schema carries the version) — the spec writer stops emitting it, and readers/validators accept records both with and without it transitionally until S12 strips the data (same transitional pattern as the quadrant rename)",
     "acknowledged_by round-trip smoke test through writer + reader + schema validation",
     "Test-fixture updates across internal/state, internal/run, internal/router, cmd/sworn",
     "sworn#80: pure helper functions deriving track worktree branch (track/<release>/<track-id>) and path (the naming-convention path) from (release, track-id); track state (planned/in_progress/merged) derived from git ref existence + merge-base --is-ancestor against release-wt/<release>",

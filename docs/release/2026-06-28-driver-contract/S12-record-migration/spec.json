@@ -4,8 +4,8 @@
   "slice_id": "S12-record-migration",
   "release": "2026-06-28-driver-contract",
   "track": "T7-baton-revendor",
-  "user_outcome": "Every live release record on the integration branch conforms to the v0.9.0 contract: quadrant 'chore' is migrated to 'quick' AND 'epic' to 'beast' across all releases, in_scope/out_of_scope is present on every spec.json, every board.json drops the now-derived tracks[].state and worktree fields (board-v1 pure plan), the one invalid 'feature' quadrant is fixed, index.md renders are refreshed, and the reader then enforces the v0.9.0 enum only — the data half of sworn#48.",
-  "rationale": "sworn#48 items 2-3 data half. The issue counted ~28 live records using quadrant 'chore' across 2026-06-30-sworn-operational-readiness, 2026-07-01-release-hygiene, and 2026-07-01-render-drift-reconciliation; this release adds its own (S07 is 'chore' at planning; others are grind/puzzle/epic and unchanged). Backfill policy per the issue: historical specs get empty in_scope/out_of_scope arrays (schema-valid, lazy); this release's 12 specs already carry real content (backfilled at planning, 2026-07-02). The #48 aside is also in scope: one record carries invalid 'quadrant': 'feature' (reported near render-drift's S03-tui-chrome-rework — locate by grep, fix to the correct enum value, note the choice in the journal). FILE-CEILING NOTE: the sweep touches ~40+ record files, over the nominal 15-25 ceiling — accepted as a documented exception because every edit is a one-line mechanical data change from one sweep script; splitting by release would be artificial. DRIFT RISK: in-flight releases (operational-readiness tracks, release-hygiene T1) hold diverged copies of their records on track branches; this migration lands on release/v0.1.0 and reaches those tracks via /implement-slice Step-0 forward-merge self-heal — named here so the drift-gate behaviour is expected, not mysterious (the 2026-06-28 replan-propagation lesson).",
+  "user_outcome": "Every spec-v1-era release record on the integration branch conforms to the v0.9.0 contract: quadrant 'chore' is migrated to 'quick' AND 'epic' to 'beast', in_scope/out_of_scope is present on every spec.json, each of the five spec-v1-era board.json files drops the now-derived tracks[].state and worktree fields (board-v1 pure plan), the one invalid 'feature' quadrant is fixed, index.md renders are refreshed, and the reader then enforces the v0.9.0 enum only — the data half of sworn#48. The sweep lands as a committed, re-runnable script so consumer repos (e.g. ~/projects/fired) can migrate their own incomplete releases with the same tool. Pre-spec-v1 legacy releases are explicitly untouched (Coach decision 2026-07-10: completed releases are not repaired).",
+  "rationale": "sworn#48 items 2-3 data half. The issue counted ~28 live records using quadrant 'chore' across 2026-06-30-sworn-operational-readiness, 2026-07-01-release-hygiene, and 2026-07-01-render-drift-reconciliation; this release adds its own (S07 is 'chore' at planning; others are grind/puzzle/epic and unchanged). Backfill policy per the issue: historical specs get empty in_scope/out_of_scope arrays (schema-valid, lazy); this release's 12 specs already carry real content (backfilled at planning, 2026-07-02). The #48 aside is also in scope: one record carries invalid 'quadrant': 'feature' (reported near render-drift's S03-tui-chrome-rework — locate by grep, fix to the correct enum value, note the choice in the journal). FILE-CEILING NOTE: the sweep touches ~40+ record files, over the nominal 15-25 ceiling — accepted as a documented exception because every edit is a one-line mechanical data change from one sweep script; splitting by release would be artificial. DRIFT RISK: in-flight releases (operational-readiness tracks, release-hygiene T1) hold diverged copies of their records on track branches; this migration lands on release/v0.1.0 and reaches those tracks via /implement-slice Step-0 forward-merge self-heal — named here so the drift-gate behaviour is expected, not mysterious (the 2026-06-28 replan-propagation lesson). REPLAN AMENDMENT 2026-07-10: (1) the true chore/epic count is 42 record files across FIVE spec-v1-era releases — the original ~28 estimate missed 2026-07-01-loop-cli-ux (6 files) and undercounted; touchpoints updated. (2) Coach decision: pre-spec-v1 legacy releases (2026-06-19-safe-parallelism, 2026-06-27-conformance-foundation, and earlier markdown-era records — 106 slices with no spec.json) are NOT repaired; completed releases stay as-is, so their pre-existing doctor render-drift and timestamp findings remain, accepted. AC-05/AC-06 are scoped to the five spec-v1-era releases accordingly. (3) The sweep must be a committed re-runnable script, not a one-shot: ~/projects/fired carries incomplete releases needing the identical migration, run in that repo as follow-up work outside this release.",
   "covers_needs": [
     "N-13"
   ],
@@ -14,13 +14,17 @@
     "in_scope/out_of_scope presence backfill: empty arrays for historical specs (driver-contract's 12 already carry real content)",
     "Fixing the single invalid 'quadrant': 'feature' record (the sworn#48 aside)",
     "Tightening state.EffortComplexity.Validate to quick-only (removing S11's transitional chore acceptance)",
-    "Re-rendering index.md for every board.json-backed release so the E-by-C column shows the migrated values",
-    "board.json pure-plan migration: every docs/release/*/board.json drops tracks[].state, tracks[].worktree, and release.worktree — the fields baton v0.9.0's board-v1 removed as derived; sequenced AFTER S11 lands the deriving code so no binary reads a field that's gone"
+    "Re-rendering index.md for each of the five spec-v1-era releases (2026-06-28-driver-contract, 2026-06-30-sworn-operational-readiness, 2026-07-01-loop-cli-ux, 2026-07-01-release-hygiene, 2026-07-01-render-drift-reconciliation) so the E-by-C column shows the migrated values",
+    "board.json pure-plan migration: each of the five spec-v1-era releases' board.json drops tracks[].state, tracks[].worktree_path/worktree_branch, and release worktree fields — the fields baton v0.9.0's board-v1 removed as derived; sequenced AFTER S11 lands the deriving code so no binary reads a field that's gone",
+    "The migration sweep is a committed, re-runnable, idempotent script (scripts/migrate-records-v0.9.sh or equivalent) taking a docs/release root as its argument, so consumer repos (~/projects/fired) can run the identical migration on their incomplete releases",
+    "schema_version field strip: v0.9.0's spec-v1 and board-v1 set additionalProperties:false and no longer define schema_version ($schema carries the version) — remove it from every spec.json and board.json in the five spec-v1-era releases; status.json may keep it (slice-status-v1 has additionalProperties:true)"
   ],
   "out_of_scope": [
     "Any schema or Go behaviour change beyond removing the transitional tolerance (S11 owns the code half)",
     "Migrating records on in-flight TRACK branches directly — they receive the migration via forward-merge self-heal, never by cross-worktree edits (Rule 11)",
-    "board-v1/proof-v1 canonical-shape migration (baton#54, excluded by sworn#48)"
+    "board-v1/proof-v1 canonical-shape migration (baton#54, excluded by sworn#48)",
+    "Pre-spec-v1 legacy releases (2026-06-19-safe-parallelism, 2026-06-27-conformance-foundation, and earlier markdown-era records): completed releases are not repaired — Coach decision 2026-07-10; their existing doctor render-drift and timestamp findings stay as accepted, known findings",
+    "Running the migration script in consumer repos (~/projects/fired) — follow-up work executed in that repo after this release ships"
   ],
   "effort_complexity": {
     "effort": "high",
@@ -31,9 +35,11 @@
   },
   "touchpoints": [
     "docs/release/2026-06-30-sworn-operational-readiness/",
+    "docs/release/2026-07-01-loop-cli-ux/",
     "docs/release/2026-07-01-release-hygiene/",
     "docs/release/2026-07-01-render-drift-reconciliation/",
     "docs/release/2026-06-28-driver-contract/",
+    "scripts/",
     "internal/state/state.go",
     "internal/state/effort_complexity_test.go"
   ],
@@ -78,13 +84,13 @@
       "id": "AC-05",
       "type": "event-driven",
       "ears_keyword": "When",
-      "text": "When `sworn render` is re-run for each board.json-backed release after the migration, the committed index.md files SHALL match the render output (the fail-closed drift guard passes repo-wide), with the refreshed renders committed in this slice."
+      "text": "When `sworn render` is re-run for each of the five spec-v1-era releases (2026-06-28-driver-contract, 2026-06-30-sworn-operational-readiness, 2026-07-01-loop-cli-ux, 2026-07-01-release-hygiene, 2026-07-01-render-drift-reconciliation) after the migration, the committed index.md files SHALL match the render output (the fail-closed drift guard passes for those releases), with the refreshed renders committed in this slice. Pre-spec-v1 legacy releases are excluded (Coach decision 2026-07-10)."
     },
     {
       "id": "AC-06",
       "type": "ubiquitous",
       "ears_keyword": "shall",
-      "text": "After the board.json migration, no docs/release/*/board.json SHALL carry tracks[].state, tracks[].worktree, or release.worktree, and every board.json SHALL validate against the vendored v0.9.0 board-v1 (pure plan: tracks[] = id/slices/depends_on); the validation sweep output is captured in proof.json."
+      "text": "After the board.json migration, none of the five spec-v1-era releases' board.json files SHALL carry tracks[].state, tracks[].worktree_path/worktree_branch, or release-level worktree fields, and each of those five SHALL validate against the vendored v0.9.0 board-v1 (pure plan: tracks[] = id/slices/depends_on); the validation sweep output is captured in proof.json. Pre-spec-v1 legacy releases' board.json files are excluded (Coach decision 2026-07-10)."
     }
   ]
 }
