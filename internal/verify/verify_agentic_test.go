@@ -38,7 +38,7 @@ func okResult(emitted string) driver.Result {
 		ResultText:     "investigation notes",
 		StructuredJSON: json.RawMessage(emitted),
 		CostUSD:        0.002,
-		CostSource:     "estimated",
+		CostSource:     driver.CostSourcePricingTable,
 		InputTokens:    700,
 		OutputTokens:   300,
 		ModelID:        "confirmed-model",
@@ -92,6 +92,9 @@ func TestRunAgenticPass(t *testing.T) {
 	}
 	if result.CostUSD <= 0 {
 		t.Error("expected non-zero Result-sourced cost")
+	}
+	if result.CostSource != driver.CostSourcePricingTable {
+		t.Errorf("CostSource = %q, want %q (S08: honest cost telemetry threaded off driver.Result)", result.CostSource, driver.CostSourcePricingTable)
 	}
 	if result.InputTokens != 700 || result.OutputTokens != 300 {
 		t.Errorf("expected token split 700/300, got %d/%d", result.InputTokens, result.OutputTokens)

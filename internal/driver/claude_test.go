@@ -52,8 +52,8 @@ func TestClaudeDispatchImplementer(t *testing.T) {
 	if result.CostUSD != 0.05 {
 		t.Errorf("CostUSD = %v, want 0.05", result.CostUSD)
 	}
-	if result.CostSource != "provider-reported" {
-		t.Errorf("CostSource = %q, want provider-reported", result.CostSource)
+	if result.CostSource != CostSourceCLI {
+		t.Errorf("CostSource = %q, want %q", result.CostSource, CostSourceCLI)
 	}
 	if result.InputTokens != 100 || result.OutputTokens != 50 {
 		t.Errorf("tokens = %d/%d, want 100/50", result.InputTokens, result.OutputTokens)
@@ -330,8 +330,8 @@ func TestClaudeEnvelopeDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dispatch() error: %v", err)
 	}
-	if result.CostSource != "unknown" {
-		t.Errorf("CostSource = %q, want unknown", result.CostSource)
+	if result.CostSource != CostSourceUnknown {
+		t.Errorf("CostSource = %q, want %q", result.CostSource, CostSourceUnknown)
 	}
 	if result.CostUSD != 0 || result.InputTokens != 0 || result.OutputTokens != 0 {
 		t.Errorf("expected zero cost/tokens for a minimal envelope, got CostUSD=%v InputTokens=%d OutputTokens=%d", result.CostUSD, result.InputTokens, result.OutputTokens)
@@ -341,6 +341,42 @@ func TestClaudeEnvelopeDefaults(t *testing.T) {
 	}
 	if result.DurationMS <= 0 {
 		t.Errorf("DurationMS = %d, want a positive measured fallback", result.DurationMS)
+	}
+}
+
+// TestClaudeEnvelopeExplicitZeroCostIsUnknown proves design_decision D1
+// (Coach-ratified, S08 status.json): an EXPLICIT reported zero
+// (total_cost_usd: 0) is NOT treated as a positively identified subscription
+// marker — it classifies CostSourceUnknown, the same as a missing field,
+// because an explicit zero is equally consistent with a genuinely free turn
+// or an envelope quirk as with subscription coverage, and claudeEnvelope
+// carries no field that distinguishes the two. This is the fail-closed
+// posture the Coach ratified in place of a TotalCostUSD==0 -> "subscription"
+// inference (Rule 2 note: no positively identified marker exists in the
+// current CLI output — see proof.json not_delivered).
+func TestClaudeEnvelopeExplicitZeroCostIsUnknown(t *testing.T) {
+	t.Setenv("GO_TEST_FAKE_CLAUDE", "zero-cost")
+	dir := gitWorktree(t)
+
+	d := &ClaudeDriver{Binary: testBinaryPath(t)}
+	result, err := d.Dispatch(context.Background(), DispatchInput{
+		Role:         RoleImplementer,
+		ModelID:      "sonnet",
+		WorktreeRoot: dir,
+	})
+	if err != nil {
+		t.Fatalf("Dispatch() error: %v", err)
+	}
+	if result.CostSource != CostSourceUnknown {
+		t.Errorf("CostSource = %q, want %q (D1: explicit zero is not a subscription marker)", result.CostSource, CostSourceUnknown)
+	}
+	if result.CostUSD != 0 {
+		t.Errorf("CostUSD = %v, want 0", result.CostUSD)
+	}
+	// Tokens/model/duration still parse normally — only cost classification
+	// is affected by the ambiguous zero.
+	if result.InputTokens != 10 || result.OutputTokens != 5 {
+		t.Errorf("tokens = %d/%d, want 10/5", result.InputTokens, result.OutputTokens)
 	}
 }
 

@@ -39,8 +39,11 @@ func TestCodexDispatchImplementer(t *testing.T) {
 	if result.CostUSD != 0 {
 		t.Errorf("CostUSD = %v, want 0 (codex never reports cost)", result.CostUSD)
 	}
-	if result.CostSource != "provider-reported" {
-		t.Errorf("CostSource = %q, want provider-reported", result.CostSource)
+	// D2 (Coach-ratified, S08 status.json): codex.go ships CostSource=unknown
+	// universally — Usage != nil is not a positively identified subscription
+	// marker, and codexEnvelope never carries a cost field at all.
+	if result.CostSource != CostSourceUnknown {
+		t.Errorf("CostSource = %q, want %q", result.CostSource, CostSourceUnknown)
 	}
 	if result.InputTokens != 100 || result.OutputTokens != 50 {
 		t.Errorf("tokens = %d/%d, want 100/50", result.InputTokens, result.OutputTokens)
@@ -320,8 +323,8 @@ func TestCodexEnvelopeDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dispatch() error: %v", err)
 	}
-	if result.CostSource != "unknown" {
-		t.Errorf("CostSource = %q, want unknown", result.CostSource)
+	if result.CostSource != CostSourceUnknown {
+		t.Errorf("CostSource = %q, want %q", result.CostSource, CostSourceUnknown)
 	}
 	if result.CostUSD != 0 || result.InputTokens != 0 || result.OutputTokens != 0 {
 		t.Errorf("expected zero cost/tokens for a stream with no turn.completed, got CostUSD=%v InputTokens=%d OutputTokens=%d", result.CostUSD, result.InputTokens, result.OutputTokens)

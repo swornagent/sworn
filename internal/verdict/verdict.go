@@ -25,14 +25,17 @@ const (
 
 // Result is the machine-readable verdict emitted by `swornagent verify`.
 type Result struct {
-	Verdict          Verdict `json:"verdict"`
-	FailedGate       string  `json:"failed_gate,omitempty"`
-	Rationale        string  `json:"rationale"`
-	CostUSD          float64 `json:"cost_usd"`
-	InputTokens      int64   `json:"input_tokens,omitempty"`
-	OutputTokens     int64   `json:"output_tokens,omitempty"`
-	DurationMS       int64   `json:"duration_ms,omitempty"`
-	ModelIDConfirmed string  `json:"model_id_confirmed,omitempty"`
+	Verdict    Verdict `json:"verdict"`
+	FailedGate string  `json:"failed_gate,omitempty"`
+	Rationale  string  `json:"rationale"`
+	CostUSD    float64 `json:"cost_usd"`
+	// CostSource names where CostUSD came from — one of the driver.CostSource*
+	// constants (S08, honest cost telemetry — sworn#70).
+	CostSource       string `json:"cost_source,omitempty"`
+	InputTokens      int64  `json:"input_tokens,omitempty"`
+	OutputTokens     int64  `json:"output_tokens,omitempty"`
+	DurationMS       int64  `json:"duration_ms,omitempty"`
+	ModelIDConfirmed string `json:"model_id_confirmed,omitempty"`
 	// Violations carries the per-gate violation summaries the verifier emits
 	// with a FAIL/BLOCKED verdict. Since ADR-0011 these come off the typed
 	// verifier-verdict-v1 record (one string per emitted violation:

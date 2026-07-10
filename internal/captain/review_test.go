@@ -35,7 +35,7 @@ func (f *fakeCaptainDriver) Dispatch(_ context.Context, in driver.DispatchInput)
 		Status:       driver.StatusOK,
 		ResultText:   f.text,
 		CostUSD:      0.0042,
-		CostSource:   "estimated",
+		CostSource:   driver.CostSourcePricingTable,
 		InputTokens:  700,
 		OutputTokens: 300,
 		ModelID:      "confirmed-model",
@@ -157,6 +157,9 @@ func TestReviewResultCarriesDispatchEconomics(t *testing.T) {
 	}
 	if result.Dispatch.ModelID != "confirmed-model" {
 		t.Errorf("Dispatch.ModelID = %q, want confirmed-model", result.Dispatch.ModelID)
+	}
+	if result.Dispatch.CostSource != driver.CostSourcePricingTable {
+		t.Errorf("Dispatch.CostSource = %q, want %q (S08: honest cost telemetry)", result.Dispatch.CostSource, driver.CostSourcePricingTable)
 	}
 }
 

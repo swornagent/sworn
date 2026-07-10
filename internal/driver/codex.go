@@ -144,14 +144,20 @@ type codexEnvelope struct {
 	Usage      *codexUsage
 }
 
-// reported is true when the stream carried a turn.completed usage object.
-func (e *codexEnvelope) reported() bool { return e.Usage != nil }
-
+// costSource classifies the stream's cost data per design_decision D2
+// (Coach-ratified, this slice's status.json): codexEnvelope never carries a
+// cost field in any documented shape — codex CLI's JSONL stream never
+// reports cost by design. Usage != nil (a turn completed) is NOT, by itself,
+// a positively identified, testable subscription marker — it only proves a
+// turn happened, not that it was subscription-covered rather than
+// API-billed; no field in codexEnvelope distinguishes the two. This
+// deliberately does NOT implement a Usage!=nil -> "subscription" inference —
+// ship "unknown" universally for codex.go in this slice (Rule 2 note: see
+// this slice's proof.json not_delivered). CostUSD is always 0 for codex
+// (Dispatch never sets it from this envelope), consistent with
+// CostSourceUnknown's fail-closed honesty.
 func (e *codexEnvelope) costSource() string {
-	if e.reported() {
-		return "provider-reported"
-	}
-	return "unknown"
+	return CostSourceUnknown
 }
 
 func (e *codexEnvelope) inputTokens() int64 {

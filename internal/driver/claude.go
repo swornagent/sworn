@@ -133,14 +133,23 @@ func parseClaudeEnvelope(raw []byte) (*claudeEnvelope, error) {
 	return &env, nil
 }
 
-// reported is true when the CLI's envelope carried any cost/usage data.
-func (e *claudeEnvelope) reported() bool { return e.TotalCostUSD != nil || e.Usage != nil }
-
+// costSource classifies the envelope's cost data per design_decision D1
+// (Coach-ratified, this slice's status.json): a positively identified,
+// testable marker — a strictly positive TotalCostUSD — is the ONLY signal
+// that earns CostSourceCLI. A nil TotalCostUSD (the field is absent) and an
+// explicit reported zero are BOTH classified CostSourceUnknown: an explicit
+// zero is not, by itself, a positively identified subscription marker — it
+// is equally consistent with a genuinely free/no-cost turn or an envelope
+// quirk, and claudeEnvelope carries no field that distinguishes the two.
+// This deliberately does NOT implement a TotalCostUSD==0 -> "subscription"
+// inference (no such marker exists in the currently observed claude-cli
+// output) — ship "unknown" rather than guess (Rule 2 note: see this slice's
+// proof.json not_delivered).
 func (e *claudeEnvelope) costSource() string {
-	if e.reported() {
-		return "provider-reported"
+	if e.TotalCostUSD != nil && *e.TotalCostUSD > 0 {
+		return CostSourceCLI
 	}
-	return "unknown"
+	return CostSourceUnknown
 }
 
 func (e *claudeEnvelope) costUSD() float64 {

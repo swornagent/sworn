@@ -133,8 +133,8 @@ type Result struct {
 	// that was passed in DispatchInput.
 	StructuredJSON json.RawMessage
 	CostUSD        float64
-	// CostSource names where CostUSD came from (e.g. "provider-reported",
-	// "estimated") since not every provider reports cost.
+	// CostSource names where CostUSD came from — one of the CostSource*
+	// constants below — since not every provider reports cost.
 	CostSource   string
 	InputTokens  int64
 	OutputTokens int64
@@ -144,6 +144,43 @@ type Result struct {
 	ModelID    string
 	DurationMS int64
 }
+
+// CostSource names where Result.CostUSD came from (S08, honest cost
+// telemetry — sworn#70). Every producer and every test references these
+// constants, never a scattered string literal, so a typo (e.g.
+// "pricing_table" vs "pricing-table") is a compile error instead of a
+// silently schema-valid drift (slice-status-v1 is additionalProperties:true,
+// so a wrong string would otherwise pass validation unnoticed).
+const (
+	// CostSourceProviderReported names a dispatch whose CostUSD came directly
+	// off the wire from the provider's own billing figure. Reserved for a
+	// future driver whose wired client genuinely returns billing data — no
+	// currently-wired client does (the in-process Anthropic client computes
+	// CostUSD from the pricing table itself; it is not provider-reported).
+	// No live dispatch path emits this value in S08 (spec.json AC-02,
+	// amended 2026-07-10).
+	CostSourceProviderReported = "provider"
+	// CostSourcePricingTable names an in-process dispatch whose CostUSD was
+	// computed from the CONFIRMED response model-id and the true token split
+	// via the unified pricing registry (model.PriceForModel /
+	// model.ComputeCostFromTokens).
+	CostSourcePricingTable = "pricing-table"
+	// CostSourceCLI names a subprocess dispatch whose CostUSD was reported
+	// directly by the CLI (e.g. claude -p's total_cost_usd, when positive).
+	CostSourceCLI = "cli"
+	// CostSourceSubscription names a dispatch that is known to be covered by
+	// a subscription rather than metered API billing — CostUSD is honestly
+	// 0, not a fabricated API-equivalent price. Emitted only on a positively
+	// identified, testable marker in the CLI's own output; no such marker
+	// exists in the currently observed claude-cli/codex output, so no
+	// subprocess driver emits this value in S08 (Coach-ratified fail-closed
+	// posture, design_decisions D1/D2 — see this slice's status.json).
+	CostSourceSubscription = "subscription"
+	// CostSourceUnknown names a dispatch whose true cost source could not be
+	// positively identified — CostUSD is recorded as 0 (fail-closed honesty)
+	// rather than guessed or defaulted.
+	CostSourceUnknown = "unknown"
+)
 
 // Driver is the role-dispatch contract every loop-role dispatch crosses.
 // Implementations wrap a specific delivery mechanism — a subprocess CLI, an

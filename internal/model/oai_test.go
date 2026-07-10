@@ -162,50 +162,55 @@ func TestOAI_Verify_EmptyChoices(t *testing.T) {
 
 func TestComputeCost(t *testing.T) {
 	tests := []struct {
-		name  string
-		model string
-		usage *UsageBlock
-		want  float64
+		name         string
+		model        string
+		inputTokens  int64
+		outputTokens int64
+		want         float64
 	}{
 		{
-			name:  "nil usage",
+			name:  "zero tokens",
 			model: "gpt-4.1-mini",
-			usage: nil,
 			want:  0,
 		},
 		{
-			name:  "unknown model",
-			model: "unknown-model",
-			usage: &UsageBlock{PromptTokens: 1000, CompletionTokens: 500},
-			want:  0,
+			name:         "unknown model",
+			model:        "unknown-model",
+			inputTokens:  1000,
+			outputTokens: 500,
+			want:         0,
 		},
 		{
-			name:  "gpt-4.1-mini exact",
-			model: "gpt-4.1-mini",
-			usage: &UsageBlock{PromptTokens: 1_000_000, CompletionTokens: 1_000_000},
-			want:  0.30 + 0.80,
+			name:         "gpt-4.1-mini exact",
+			model:        "gpt-4.1-mini",
+			inputTokens:  1_000_000,
+			outputTokens: 1_000_000,
+			want:         0.30 + 0.80,
 		}, {
-			name:  "gpt-4.1 exact",
-			model: "gpt-4.1",
-			usage: &UsageBlock{PromptTokens: 500_000, CompletionTokens: 250_000},
-			want:  1.00 + 2.00,
+			name:         "gpt-4.1 exact",
+			model:        "gpt-4.1",
+			inputTokens:  500_000,
+			outputTokens: 250_000,
+			want:         1.00 + 2.00,
 		},
 		{
-			name:  "gpt-4o exact",
-			model: "gpt-4o",
-			usage: &UsageBlock{PromptTokens: 1_000_000, CompletionTokens: 1_000_000},
-			want:  2.50 + 10.00,
+			name:         "gpt-4o exact",
+			model:        "gpt-4o",
+			inputTokens:  1_000_000,
+			outputTokens: 1_000_000,
+			want:         2.50 + 10.00,
 		},
 		{
-			name:  "o3 exact",
-			model: "o3",
-			usage: &UsageBlock{PromptTokens: 1_000_000, CompletionTokens: 1_000_000},
-			want:  10.00 + 40.00,
+			name:         "o3 exact",
+			model:        "o3",
+			inputTokens:  1_000_000,
+			outputTokens: 1_000_000,
+			want:         10.00 + 40.00,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := computeCost(tt.model, tt.usage)
+			got := ComputeCostFromTokens(tt.model, tt.inputTokens, tt.outputTokens)
 			// tolerate float rounding
 			if got < tt.want-0.01 || got > tt.want+0.01 {
 				t.Fatalf("want ~%f, got %f", tt.want, got)

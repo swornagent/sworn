@@ -113,6 +113,19 @@ func textTurn(content string) turn {
 	}`}
 }
 
+// pricedTextTurn scripts a terminal assistant turn (no tool calls) whose
+// "model" field is a real, pricing-registry-known model ID rather than the
+// synthetic "gpt-test" — used to exercise AC-02's pricing-table happy path
+// (TestInprocessImplementerPricingTable) distinctly from the fail-closed
+// "unknown" path the other tests' unpriced "gpt-test" model exercises.
+func pricedTextTurn(model, content string) turn {
+	return turn{body: `{
+		"model": ` + jsonString(model) + `,
+		"choices": [{"message": {"content": ` + jsonString(content) + `}, "finish_reason": "stop"}],
+		"usage": {"prompt_tokens": 13, "completion_tokens": 7, "total_tokens": 20}
+	}`}
+}
+
 func jsonString(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
@@ -235,8 +248,43 @@ func TestInprocessImplementer(t *testing.T) {
 	if res.ModelID != "gpt-test" {
 		t.Errorf("ModelID = %q, want provider-confirmed %q", res.ModelID, "gpt-test")
 	}
-	if res.CostUSD <= 0 || res.CostSource != "estimated" {
-		t.Errorf("CostUSD/CostSource = %v/%q, want estimated placeholder > 0 (Coach ack pin 5)", res.CostUSD, res.CostSource)
+	// "gpt-test" is a synthetic test model with no pricing-registry entry —
+	// this exercises AC-04's fail-closed path (S08 replaces the old flat
+	// "estimated" nominal-rate stand-in, Coach ack pin 5): no guessed rate,
+	// CostUSD=0, CostSource=unknown, plus a stderr warning naming the model.
+	if res.CostUSD != 0 || res.CostSource != driver.CostSourceUnknown {
+		t.Errorf("CostUSD/CostSource = %v/%q, want 0/%q (no pricing entry for the synthetic test model)", res.CostUSD, res.CostSource, driver.CostSourceUnknown)
+	}
+}
+
+// TestInprocessImplementerPricingTable proves AC-02's happy path: when the
+// CONFIRMED response model-id resolves in the unified pricing registry,
+// CostUSD is computed from the true accumulated token split and
+// CostSource=pricing-table — not a flat nominal estimate.
+func TestInprocessImplementerPricingTable(t *testing.T) {
+	s := &script{turns: []turn{pricedTextTurn("gpt-4o-mini", "done")}}
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+
+	d := testDriver(srv.URL)
+	res, err := d.Dispatch(context.Background(), dispatchInput(driver.RoleImplementer, tempWorktree(t)))
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if res.Status != driver.StatusOK {
+		t.Fatalf("Status = %q, want %q (ErrKind %q)", res.Status, driver.StatusOK, res.ErrKind)
+	}
+	if res.ModelID != "gpt-4o-mini" {
+		t.Errorf("ModelID = %q, want provider-confirmed %q", res.ModelID, "gpt-4o-mini")
+	}
+	if res.CostSource != driver.CostSourcePricingTable {
+		t.Errorf("CostSource = %q, want %q", res.CostSource, driver.CostSourcePricingTable)
+	}
+	// gpt-4o-mini: $0.15/$0.60 per 1M. 13 prompt + 7 completion tokens (one
+	// textTurn-shaped turn, see pricedTextTurn).
+	wantCost := float64(13)/1_000_000*0.15 + float64(7)/1_000_000*0.60
+	if res.CostUSD < wantCost-0.0000001 || res.CostUSD > wantCost+0.0000001 {
+		t.Errorf("CostUSD = %v, want ~%v (computed from real tokens via the pricing registry)", res.CostUSD, wantCost)
 	}
 }
 

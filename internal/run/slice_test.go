@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/implement"
 	"github.com/swornagent/sworn/internal/state"
@@ -540,5 +541,104 @@ func TestDesignGate_CaptainDispatchFailureRecordsDeferral(t *testing.T) {
 	}
 	if !strings.Contains(d.Why, "captain design-review dispatch failed") {
 		t.Errorf("expected captain dispatch-failure reason, got %q", d.Why)
+	}
+}
+
+// TestRunSlice_CostSourceThreadedToStatusJSON is AC-05's Rule 1 reachability
+// artefact: it drives a full slice run THROUGH RunSlice — not a leaf
+// state.Dispatch struct-literal unit test — against a fake driver whose
+// implementer and verifier legs report DISTINCT CostSource values, and
+// asserts the written status.json's verification.dispatches[].cost_source
+// carries each one through unmodified end to end (driver.Result ->
+// implement.Run / verify.RunAgentic -> state.Dispatch -> status.json), and
+// that the written file still validates against slice-status-v1 (R-02's
+// additive/omitempty mitigation, confirmed live rather than by inspection).
+func TestRunSlice_CostSourceThreadedToStatusJSON(t *testing.T) {
+	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
+
+	// Pre-create a valid six-section design.md so the design gate skips
+	// straight through (no captain dispatch, no open_deferrals entry) — this
+	// test is about cost_source threading, not the design gate, and an
+	// open_deferrals entry has its own pre-existing, unrelated schema gap
+	// (missing acknowledgement/acknowledged_by) that would otherwise fail the
+	// slice-status-v1 validation this test performs for a different reason.
+	designMD := "§1 Approach\n§2 Data\n§3 Surface\n§4 Risks\n§5 Tests\n§6 Rollback\n"
+	if err := os.WriteFile(filepath.Join(filepath.Dir(specPath), "design.md"), []byte(designMD), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	implementArm := func(_ context.Context, in driver.DispatchInput) (driver.Result, error) {
+		if err := os.WriteFile(filepath.Join(in.WorktreeRoot, "output.txt"), []byte("hi"), 0o644); err != nil {
+			return driver.Result{Status: driver.StatusError, ErrKind: driver.ErrKindConfig}, err
+		}
+		return driver.Result{
+			Status:       driver.StatusOK,
+			ResultText:   "Implementation complete.",
+			CostUSD:      0.0123,
+			CostSource:   driver.CostSourcePricingTable,
+			InputTokens:  111,
+			OutputTokens: 22,
+			ModelID:      "confirmed-impl-model",
+		}, nil
+	}
+	verifyArm := func(_ context.Context, _ driver.DispatchInput) (driver.Result, error) {
+		res := okStructured(structuredVerdictReply("PASS"))
+		res.CostUSD = 0.0045
+		res.CostSource = driver.CostSourceCLI
+		res.InputTokens = 33
+		res.OutputTokens = 4
+		res.ModelID = "confirmed-verifier-model"
+		return res, nil
+	}
+
+	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
+		VerifierModel:    "fake/verifier",
+		RetryCap:         0,
+		EscalationModels: []string{"fake/impl"},
+		Registry: testRegistry(&fakeDriver{
+			implement: implementArm,
+			verify:    verifyArm,
+		}),
+	})
+	if err != nil {
+		t.Fatalf("RunSlice() error: %v", err)
+	}
+
+	st, err := state.Read(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.State != state.Verified {
+		t.Fatalf("expected state verified, got %q", st.State)
+	}
+
+	var implDispatch, verifDispatch *state.Dispatch
+	for i := range st.Verification.Dispatches {
+		switch st.Verification.Dispatches[i].Role {
+		case "implementer":
+			implDispatch = &st.Verification.Dispatches[i]
+		case "verifier":
+			verifDispatch = &st.Verification.Dispatches[i]
+		}
+	}
+	if implDispatch == nil {
+		t.Fatal("no implementer dispatch recorded in status.json")
+	}
+	if implDispatch.CostSource != driver.CostSourcePricingTable {
+		t.Errorf("implementer dispatch cost_source = %q, want %q", implDispatch.CostSource, driver.CostSourcePricingTable)
+	}
+	if verifDispatch == nil {
+		t.Fatal("no verifier dispatch recorded in status.json")
+	}
+	if verifDispatch.CostSource != driver.CostSourceCLI {
+		t.Errorf("verifier dispatch cost_source = %q, want %q", verifDispatch.CostSource, driver.CostSourceCLI)
+	}
+
+	raw, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := baton.ValidateSchema("slice-status-v1", raw); err != nil {
+		t.Errorf("status.json with cost_source fails slice-status-v1 validation: %v", err)
 	}
 }

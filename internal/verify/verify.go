@@ -249,6 +249,7 @@ func RunAgentic(ctx context.Context, in AgenticInput, d driver.Driver) (verdict.
 // (S06 AC-05 plumbing; honest population lands in S08).
 func withDispatchEconomics(v verdict.Result, res driver.Result) verdict.Result {
 	v.CostUSD = res.CostUSD
+	v.CostSource = res.CostSource
 	v.InputTokens = res.InputTokens
 	v.OutputTokens = res.OutputTokens
 	v.DurationMS = res.DurationMS
@@ -295,6 +296,7 @@ func acceptStructuredVerdict(emitted string, res driver.Result) verdict.Result {
 		FailedGate:       sv.FailedGate,
 		Routing:          sv.Routing,
 		CostUSD:          cost,
+		CostSource:       res.CostSource,
 		InputTokens:      res.InputTokens,
 		OutputTokens:     res.OutputTokens,
 		DurationMS:       res.DurationMS,

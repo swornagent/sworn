@@ -23,6 +23,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/swornagent/sworn/internal/agent"
@@ -46,13 +47,6 @@ const (
 // defaultTimeout bounds a dispatch when DispatchInput.Timeout is zero,
 // mirroring the subprocess drivers' 300s default.
 const defaultTimeout = 300 * time.Second
-
-// nominalCostPerToken is the flat ~$2/1M-token placeholder estimate,
-// identical in spirit to internal/agent's computeCost. S08 (honest cost
-// telemetry) replaces it with real per-model pricing; until then the value
-// is clearly tagged CostSource="estimated" so it is never mistaken for a
-// provider-reported number (Coach ack pin 5).
-const nominalCostPerToken = 0.000002
 
 // InProcess is the in-process OpenAI-compatible driver. One struct carries
 // two registered identities (design D1, Coach-decided Type-1): NewOAIChat
@@ -180,7 +174,7 @@ func (d *InProcess) dispatchCaptain(ctx context.Context, in driver.DispatchInput
 // dispatchLoop runs the plain multi-turn tool loop (the implementer path,
 // AC-01) and maps its outcome to a driver.Result.
 func (d *InProcess) dispatchLoop(ctx context.Context, in driver.DispatchInput, meter *chatMeter, start time.Time) (driver.Result, error) {
-	text, _, _, err := agent.Run(ctx, meter, in.SystemPrompt, in.Payload, in.WorktreeRoot, agent.Config{MaxTurns: d.maxTurns})
+	text, _, err := agent.Run(ctx, meter, in.SystemPrompt, in.Payload, in.WorktreeRoot, agent.Config{MaxTurns: d.maxTurns})
 	if err != nil {
 		res := d.economics(driver.Result{Status: driver.StatusError, ErrKind: classifyErr(err)}, in, meter, start)
 		return res, err
@@ -191,14 +185,32 @@ func (d *InProcess) dispatchLoop(ctx context.Context, in driver.DispatchInput, m
 }
 
 // economics fills the dispatch-economics fields the engine records
-// regardless of Status (driver.Result contract): token counts, the nominal
-// cost estimate, the confirmed model ID, and wall-clock duration.
+// regardless of Status (driver.Result contract): token counts, the confirmed
+// model ID, wall-clock duration, and honest cost (S08, sworn#70). Cost is
+// computed from the CONFIRMED response model-id (meter.modelID, not the
+// requested in.ModelID string) and the true accumulated token split via the
+// unified pricing registry (model.PriceForModel/ComputeCostFromTokens) — the
+// single choke point dispatchLoop, dispatchCaptain, and dispatchVerifier all
+// already call as their last step, so this one fix covers all three roles.
+// If no pricing entry exists for the confirmed model, CostUSD is recorded as
+// 0 with CostSource=unknown (AC-04, fail-closed honesty) and a warning is
+// logged naming the model — never a guessed or defaulted rate. The
+// CostSource="provider" branch (AC-02) is not implemented: no client wired
+// into this driver today receives a real provider-reported billing figure
+// over the wire (see driver.CostSourceProviderReported's doc comment) —
+// implementing an unreachable branch would be untestable dead code.
 func (d *InProcess) economics(res driver.Result, in driver.DispatchInput, meter *chatMeter, start time.Time) driver.Result {
 	res.InputTokens = meter.inputTokens
 	res.OutputTokens = meter.outputTokens
-	res.CostUSD = float64(meter.inputTokens+meter.outputTokens) * nominalCostPerToken
-	res.CostSource = "estimated"
 	res.ModelID = meter.modelID(in.ModelID)
+	if _, ok := model.PriceForModel(res.ModelID); ok {
+		res.CostUSD = model.ComputeCostFromTokens(res.ModelID, meter.inputTokens, meter.outputTokens)
+		res.CostSource = driver.CostSourcePricingTable
+	} else {
+		res.CostUSD = 0
+		res.CostSource = driver.CostSourceUnknown
+		fmt.Fprintf(os.Stderr, "inprocess: no pricing entry for model %q — cost recorded as 0 (CostSource=unknown)\n", res.ModelID)
+	}
 	res.DurationMS = time.Since(start).Milliseconds()
 	return res
 }
