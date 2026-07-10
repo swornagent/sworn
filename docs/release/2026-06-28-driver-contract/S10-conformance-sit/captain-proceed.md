@@ -49,3 +49,41 @@ Verdict: PROCEED — dispositions below
    written in the Captain's suggested acknowledgement reply.
 
 Proceed to implementation.
+
+---
+
+## Supplementary Coach decision — 2026-07-11 (sworn#93 fold)
+
+**Context:** the S10 cold-board SIT (AC-03), while being implemented, surfaced a
+real parallel-loop bug (sworn#93): `RunSlice`'s verified/PASS path wrote
+`status.json` but never committed it — alone among all terminal paths (the four
+blocked variants and `failed_verification` all `repo.Stage`+`repo.Commit`). The
+parallel router reads committed track-ref state, so a verified slice was re-read
+as `implemented` and re-dispatched `verify` endlessly. Single-slice `Run()`
+masked it by committing the whole tree afterward. Strong candidate root cause of
+the historically-unreliable autonomous parallel loop.
+
+**Decision (Brad, Coach): FOLD the fix into S10.** Not routed to the owning
+slice S06 (merged/immutable), and not a separate slice — because AC-03's SIT
+cannot reach a stable verified state without the fix, so it blocks this slice's
+own acceptance. Spec amended on release-wt @b80c7ad (forward-merged here):
+`internal/run/slice.go` added to in_scope + touchpoints; AC-06 added as the
+non-tautological regression assertion (reverting the fix must make the SIT
+fail); out_of_scope carve-out + a one-line-fix ceiling. Traces to N-07 (dead
+loop wiring caught in CI, not shipped DOA). Tracked: sworn#93.
+
+**Implementer instructions (this is a RESUMED dispatch — continuation handshake
+required):**
+- Already committed on this branch: the drivertest conformance suite (AC-01/02,
+  @be5b9a2) and the verified-path commit fix in `internal/run/slice.go` (WIP
+  checkpoint @108c945 — do NOT rewrite it; verify it is present and correct).
+- REMAINING: write the cold-board SIT (`internal/run/loop_sit_test.go` +
+  `testdata/sit-fixture/`) satisfying AC-03/AC-04/AC-05, INCLUDING the AC-06
+  regression assertion that the verified transition is committed to the ref and
+  the router does not re-dispatch; record the sworn#93 fold as a **Type-1**
+  design_decision citing this acknowledgement as the human decision; write the
+  proof bundle; transition to `implemented`.
+- Prove AC-06 has teeth: demonstrate (in the journal/proof) that with the
+  verified-path commit reverted, the SIT fails or stalls to its bounded deadline.
+
+Proceed to implementation (resume).
