@@ -24,11 +24,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 
-	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/driver/inprocess"
 	"github.com/swornagent/sworn/internal/model"
@@ -373,20 +371,16 @@ func keyProbe(cfg model.ProviderConfig, prefixes []string, viaProxy func(string)
 	}
 }
 
-// proxyRouting returns the per-prefix proxy predicate: true when sworn login
-// credentials are present, SWORN_DIRECT is unset, and account.Endpoint
-// yields a proxy URL for the prefix — the exact condition model.FromEnv
-// routes on, evaluated per prefix (never a blanket login flag). Reads env
-// and the credentials file only; cannot dispatch.
+// proxyRouting returns the per-prefix proxy predicate. It delegates to
+// model.ProxyRoute — the SINGLE proxy predicate shared with FromEnv and
+// ResolveLoopClient (S06 D6, spec R-04) — so the enumeration surface (`sworn
+// capabilities` ViaProxy) and the actual dispatch route of a
+// registry-resolved in-process driver evaluate literally the same function;
+// there is no second hand-synced login condition. Reads env and the
+// credentials file only; cannot dispatch.
 func proxyRouting() func(prefix string) bool {
 	return func(prefix string) bool {
-		if os.Getenv("SWORN_DIRECT") == "1" {
-			return false
-		}
-		creds, err := account.Load(filepath.Dir(account.CredentialsPath()))
-		if err != nil || creds == nil || !account.IsLoggedIn(creds) {
-			return false
-		}
-		return account.Endpoint(creds, prefix+"/probe") != ""
+		_, _, ok := model.ProxyRoute(prefix + "/probe")
+		return ok
 	}
 }

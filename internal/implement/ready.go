@@ -11,33 +11,40 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/swornagent/sworn/internal/agent"
-	"github.com/swornagent/sworn/internal/model"
+	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/reqvalidate"
 	"github.com/swornagent/sworn/internal/reqverify"
 	"github.com/swornagent/sworn/internal/rtm"
 )
 
-// agentVerifier adapts agent.Agent to reqverify.Verifier, allowing the
-// implementer's Run() function to evaluate the requirements-verification
-// gate (S04) as part of the Definition of Ready without needing a separate
-// model client.
-type agentVerifier struct {
-	a agent.Agent
+// driverVerifier adapts a registry-resolved driver.Driver to
+// reqverify.Verifier (S06 rewire, replacing the wire-typed agentVerifier),
+// allowing the implementer's Run() function to evaluate the
+// requirements-verification gate (S04) as part of the Definition of Ready
+// without needing a separate model client. The DoR grading call is a
+// captain-family judgement call — single tool-less dispatch, read-only —
+// served by the same driver instance the implement leg resolved.
+type driverVerifier struct {
+	d            driver.Driver
+	modelID      string
+	worktreeRoot string
 }
 
-func (v agentVerifier) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
-	resp, err := v.a.Chat(ctx, []model.ChatMessage{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: userPayload},
-	}, nil)
+func (v driverVerifier) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
+	res, err := v.d.Dispatch(ctx, driver.DispatchInput{
+		Role:         driver.RoleCaptain,
+		ModelID:      v.modelID,
+		SystemPrompt: systemPrompt,
+		Payload:      userPayload,
+		WorktreeRoot: v.worktreeRoot,
+	})
 	if err != nil {
-		return "", 0, 0, 0, err
+		return "", res.CostUSD, res.InputTokens, res.OutputTokens, err
 	}
-	if len(resp.Choices) == 0 {
-		return "", 0, 0, 0, fmt.Errorf("agent verifier: empty response")
+	if res.Status != driver.StatusOK || strings.TrimSpace(res.ResultText) == "" {
+		return "", res.CostUSD, res.InputTokens, res.OutputTokens, fmt.Errorf("driver verifier: empty response")
 	}
-	return resp.Choices[0].Message.Content, 0.0, 0, 0, nil
+	return res.ResultText, res.CostUSD, res.InputTokens, res.OutputTokens, nil
 }
 
 // DoRResult captures the Definition of Ready evaluation for one slice.

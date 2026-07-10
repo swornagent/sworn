@@ -189,8 +189,11 @@ func TestInprocessIdentities(t *testing.T) {
 		if !roles.Has(driver.RoleImplementer) || !roles.Has(driver.RoleVerifier) {
 			t.Errorf("%s: Roles() = %v, want implementer+verifier", d.Name(), roles)
 		}
-		if roles.Has(driver.RoleCaptain) {
-			t.Errorf("%s: Roles() declares captain — out of scope (design D2)", d.Name())
+		// S06 D2: the in-process identities declare captain — the
+		// captain-family calls are single tool-less judgement dispatches
+		// served by dispatchCaptain (never the tool loop).
+		if !roles.Has(driver.RoleCaptain) {
+			t.Errorf("%s: Roles() must declare captain (S06 D2)", d.Name())
 		}
 	}
 	// Both identities satisfy the contract.
@@ -394,7 +397,7 @@ func TestInprocessTerminalErrorsPreserveModelError(t *testing.T) {
 		wantErrKind string
 	}{
 		{"auth 401", http.StatusUnauthorized, driver.ErrKindAuth},
-		{"credits 402", http.StatusPaymentRequired, errKindCredits},
+		{"credits 402", http.StatusPaymentRequired, driver.ErrKindCredits},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

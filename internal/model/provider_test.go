@@ -169,13 +169,20 @@ func TestNewClient_OpenRouterSubPath(t *testing.T) {
 }
 
 func TestProviderConfigFromEnv(t *testing.T) {
-	// Clear all provider env vars first to avoid real env leak.
+	// Clear all provider env vars first to avoid real env leak — including
+	// every SWORN_* alias, since S06 D7 widened ProviderConfigFromEnv so
+	// each key falls back to its SWORN_* counterpart.
 	for _, k := range []string{
 		"OPENAI_API_KEY", "DEEPSEEK_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY",
 		"OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY",
 		"CLOUDFLARE_API_KEY", "GITHUB_TOKEN", "OLLAMA_HOST",
-		"SWORN_OPENAI_API_KEY", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
-		"AZURE_OPENAI_API_KEY",
+		"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
+		"AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_VERSION",
+		"SWORN_OPENAI_API_KEY", "SWORN_DEEPSEEK_API_KEY", "SWORN_GROQ_API_KEY",
+		"SWORN_MISTRAL_API_KEY", "SWORN_OPENROUTER_API_KEY", "SWORN_ANTHROPIC_API_KEY",
+		"SWORN_GOOGLE_API_KEY", "SWORN_CLOUDFLARE_API_KEY", "SWORN_GITHUB_TOKEN",
+		"SWORN_AWS_ACCESS_KEY_ID", "SWORN_AWS_SECRET_ACCESS_KEY",
+		"SWORN_AZURE_OPENAI_API_KEY", "SWORN_AZURE_OPENAI_ENDPOINT", "SWORN_AZURE_OPENAI_API_VERSION",
 	} {
 		t.Setenv(k, "")
 	}

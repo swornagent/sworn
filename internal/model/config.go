@@ -62,35 +62,12 @@ func FromEnv(modelID string) (Verifier, error) {
 
 	prefix := strings.ToUpper(strings.ReplaceAll(provider, "-", "_"))
 
-	// Proxy routing: check for sworn credentials and SWORN_DIRECT override.
-	// (Coach ack pin B — credential-trust boundary.)
-	if os.Getenv("SWORN_DIRECT") != "1" {
-		creds, credErr := account.Load(filepath.Dir(account.CredentialsPath()))
-		if credErr == nil && creds != nil && account.IsLoggedIn(creds) {
-			proxyURL := account.Endpoint(creds, modelID)
-			if proxyURL != "" {
-				// Coach pin 1 (S39), re-keyed for sworn#31: openai/ and its
-				// deprecated alias openai-responses/ are the Responses API
-				// and need the responses-API provider, not the OAI
-				// chat/completions adapter; openai-completions/ is the
-				// legacy chat/completions wire format. The proxy URL +
-				// token are identical; only the struct type differs so
-				// /v1/responses is called.
-				if provider == "openai" || provider == "openai-responses" {
-					return &OpenAIResponses{
-						BaseURL:         proxyURL,
-						Model:           model,
-						APIKey:          creds.Token,
-						ReasoningEffort: "medium",
-					}, nil
-				}
-				return &OAI{
-					BaseURL: proxyURL,
-					Model:   model,
-					APIKey:  creds.Token,
-				}, nil
-			}
-		}
+	// Proxy routing: ONE predicate (ProxyRoute) shared with ResolveLoopClient
+	// and the registry's ViaProxy enumeration (S06 D6/R-04) — the capability
+	// surface and the dispatch route must evaluate literally the same
+	// condition. (Coach ack pin B — credential-trust boundary.)
+	if baseURL, token, ok := ProxyRoute(modelID); ok {
+		return proxyClient(provider, model, baseURL, token), nil
 	}
 
 	// Direct provider routing (S10-refactored).
@@ -155,6 +132,75 @@ func FromEnv(modelID string) (Verifier, error) {
 	}
 
 	return verifier, nil
+}
+
+// ProxyRoute is the single proxy-routing predicate (S06 D6, R-04): it reports
+// whether modelID currently routes through the SwornAgent proxy, and if so
+// the proxy base URL and bearer token to use. The condition is exactly what
+// FromEnv has always routed on: SWORN_DIRECT unset, sworn login credentials
+// present, and account.Endpoint yielding a proxy URL for the model ID.
+//
+// Every surface that answers "does this dispatch go via the proxy?" —
+// FromEnv, ResolveLoopClient (the in-process drivers' client resolution), and
+// the registry's ViaProxy capability enumeration — MUST delegate here so
+// advertised and actual routing can never disagree (the S06b/OpenRouter
+// keyless-credits journey). No logging of the token (AGENTS.md Security).
+func ProxyRoute(modelID string) (baseURL, token string, ok bool) {
+	if os.Getenv("SWORN_DIRECT") == "1" {
+		return "", "", false
+	}
+	creds, err := account.Load(filepath.Dir(account.CredentialsPath()))
+	if err != nil || creds == nil || !account.IsLoggedIn(creds) {
+		return "", "", false
+	}
+	proxyURL := account.Endpoint(creds, modelID)
+	if proxyURL == "" {
+		return "", "", false
+	}
+	return proxyURL, creds.Token, true
+}
+
+// proxyClient constructs the proxy-routed client for a provider prefix.
+// Coach pin 1 (S39), re-keyed for sworn#31: openai/ and its deprecated alias
+// openai-responses/ are the Responses API and need the responses-API
+// provider, not the OAI chat/completions adapter; everything else speaks the
+// legacy chat/completions wire format. The proxy URL + token are identical;
+// only the struct type differs so /v1/responses is called.
+func proxyClient(provider, model, baseURL, token string) Verifier {
+	if provider == "openai" || provider == "openai-responses" {
+		return &OpenAIResponses{
+			BaseURL:         baseURL,
+			Model:           model,
+			APIKey:          token,
+			ReasoningEffort: "medium",
+		}
+	}
+	return &OAI{
+		BaseURL: baseURL,
+		Model:   model,
+		APIKey:  token,
+	}
+}
+
+// ResolveLoopClient is the FromEnv-equivalent client resolution the loop's
+// in-process drivers use as their default (S06 D6): proxy route when
+// ProxyRoute says so, otherwise direct via NewClient(modelID, pcfg). It
+// exists so a registry-dispatched loop client satisfies the exact condition
+// `sworn capabilities` advertises — replacing the proxy-blind bare NewClient
+// default that would have made enumeration claim proxy while dispatch went
+// direct (spec R-04).
+func ResolveLoopClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
+	provider, model, err := parseModelID(modelID)
+	if err != nil {
+		return nil, err
+	}
+	// claude-cli is keyless and never proxy-routed — same carve-out as FromEnv.
+	if provider != "claude-cli" {
+		if baseURL, token, ok := ProxyRoute(modelID); ok {
+			return proxyClient(provider, model, baseURL, token), nil
+		}
+	}
+	return NewClient(modelID, pcfg)
 }
 
 // errorsIs is a local helper to check if err matches target, avoiding an

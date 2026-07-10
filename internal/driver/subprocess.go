@@ -35,7 +35,25 @@ const (
 	// ErrKindProtocol means the CLI's output did not parse as expected
 	// (the outer JSON envelope, or a verifier's inner result text).
 	ErrKindProtocol = "protocol"
+	// ErrKindCredits means the provider reported exhausted credits/quota.
+	// Promoted from the in-process driver's private errKindCredits so the
+	// terminal vocabulary has a single source (S04 Coach acknowledgement,
+	// T3 captain-proceed.md 2026-07-10).
+	ErrKindCredits = "credits"
 )
+
+// TerminalErrKind reports whether kind can never succeed on retry or model
+// escalation (revoked/missing credentials, exhausted credits). The set is
+// exactly {auth, credits} — the S04 Coach acknowledgement (T3
+// captain-proceed.md, 2026-07-10) is the binding record: subprocess drivers
+// collapse all terminal cases to auth, but the in-process driver emits
+// credits as its own kind, and an auth-only check would silently lose the
+// credits fail-fast. Consumed by BOTH the engine's implement leg and the
+// verify leg's terminal->BLOCKED mapping (S06 spec R-03) so the fail-fast
+// property cannot split across consumers.
+func TerminalErrKind(kind string) bool {
+	return kind == ErrKindAuth || kind == ErrKindCredits
+}
 
 // spawnCacheDir is the fixed directory subprocess Go tooling caches are
 // redirected to, kept outside any slice worktree so a dispatch never leaves

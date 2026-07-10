@@ -117,20 +117,27 @@ func TestResolveUnknownPrefix(t *testing.T) {
 // the missing role, and which registered drivers DO declare it — and that
 // no fallback driver is ever returned.
 func TestResolveRoleFailFast(t *testing.T) {
-	// No compiled-in driver declares captain.
+	// The subprocess drivers do not declare captain (S06 D2 keeps captain
+	// on the in-process identities only; sworn#86 tracks widening it).
 	r := Default(fullKeyConfig())
-	d, err := r.Resolve("openai/gpt-5", driver.RoleCaptain)
+	d, err := r.Resolve("claude-cli/opus", driver.RoleCaptain)
 	if err == nil {
-		t.Fatal("Resolve(openai/..., captain) returned nil error")
+		t.Fatal("Resolve(claude-cli/..., captain) returned nil error")
 	}
 	if d != nil {
 		t.Fatalf("Resolve returned a fallback driver %q alongside the role error", d.Name())
 	}
 	msg := err.Error()
-	for _, part := range []string{`"oai-responses-inprocess"`, `"captain"`, "implementer,verifier", "(none)"} {
+	for _, part := range []string{`"claude-subprocess"`, `"captain"`, "implementer,verifier", "oai-inprocess,oai-responses-inprocess"} {
 		if !strings.Contains(msg, part) {
 			t.Errorf("role error missing %q: %s", part, msg)
 		}
+	}
+
+	// The in-process identities DO declare captain (S06 D2) — resolution
+	// succeeds for an in-process prefix.
+	if _, err := r.Resolve("openai/gpt-5", driver.RoleCaptain); err != nil {
+		t.Errorf("Resolve(openai/..., captain) should succeed post-S06: %v", err)
 	}
 
 	// Fake-driver variant: the error enumerates which drivers DO declare

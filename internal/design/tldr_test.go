@@ -8,36 +8,30 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/model"
+	"github.com/swornagent/sworn/internal/driver"
 )
 
-// fakeAgent is a minimal agent.Agent that returns a canned ChatResponse.
-type fakeAgent struct {
+// fakeCaptainDriver is a minimal driver.Driver returning a canned captain
+// response (S06: the wire-typed fakeAgent became a driver fake; Generate now
+// dispatches Role=captain through the driver seam).
+type fakeCaptainDriver struct {
 	text string
 	err  error
+	last *driver.DispatchInput
 }
 
-func (f fakeAgent) Chat(_ context.Context, _ []model.ChatMessage, _ []model.ToolDef) (*model.ChatResponse, error) {
-	if f.err != nil {
-		return nil, f.err
+func (f fakeCaptainDriver) Name() string { return "fake-captain-driver" }
+func (f fakeCaptainDriver) Roles() driver.RoleSet {
+	return driver.RoleSet{driver.RoleCaptain: true}
+}
+func (f fakeCaptainDriver) Dispatch(_ context.Context, in driver.DispatchInput) (driver.Result, error) {
+	if f.last != nil {
+		*f.last = in
 	}
-	return &model.ChatResponse{
-		Choices: []struct {
-			Message struct {
-				Content   string           `json:"content"`
-				ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
-			} `json:"message"`
-			FinishReason string `json:"finish_reason"`
-		}{
-			{
-				Message: struct {
-					Content   string           `json:"content"`
-					ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
-				}{Content: f.text},
-				FinishReason: "stop",
-			},
-		},
-	}, nil
+	if f.err != nil {
+		return driver.Result{Status: driver.StatusError, ErrKind: driver.ErrKindConfig}, f.err
+	}
+	return driver.Result{Status: driver.StatusOK, ResultText: f.text}, nil
 }
 
 const cannedTLDR = `## §1 User-visible change
@@ -73,8 +67,8 @@ func TestGenerateWritesSixSections(t *testing.T) {
 	dir := t.TempDir()
 	spec := "# Test spec\n\n## User outcome\n\nA test outcome.\n"
 
-	fa := fakeAgent{text: cannedTLDR}
-	got, err := Generate(context.Background(), dir, spec, fa, GenerateOptions{})
+	fa := fakeCaptainDriver{text: cannedTLDR}
+	got, err := Generate(context.Background(), dir, spec, fa, "fake/model", "/tmp/wt", 0, GenerateOptions{})
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
@@ -108,8 +102,8 @@ func TestGenerateRespectsExisting(t *testing.T) {
 	}
 
 	// Without Regenerate, Generate should skip.
-	fa := fakeAgent{text: cannedTLDR}
-	got, err := Generate(context.Background(), dir, spec, fa, GenerateOptions{})
+	fa := fakeCaptainDriver{text: cannedTLDR}
+	got, err := Generate(context.Background(), dir, spec, fa, "fake/model", "/tmp/wt", 0, GenerateOptions{})
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
@@ -127,7 +121,7 @@ func TestGenerateRespectsExisting(t *testing.T) {
 	}
 
 	// With Regenerate, Generate should overwrite.
-	got, err = Generate(context.Background(), dir, spec, fa, GenerateOptions{Regenerate: true})
+	got, err = Generate(context.Background(), dir, spec, fa, "fake/model", "/tmp/wt", 0, GenerateOptions{Regenerate: true})
 	if err != nil {
 		t.Fatalf("Generate with Regenerate: %v", err)
 	}
@@ -167,8 +161,8 @@ func TestGenerateModelError(t *testing.T) {
 	dir := t.TempDir()
 	spec := "# Test\n\n## User outcome\n\nTest.\n"
 
-	fa := fakeAgent{err: errors.New("model unavailable")}
-	_, err := Generate(context.Background(), dir, spec, fa, GenerateOptions{})
+	fa := fakeCaptainDriver{err: errors.New("model unavailable")}
+	_, err := Generate(context.Background(), dir, spec, fa, "fake/model", "/tmp/wt", 0, GenerateOptions{})
 	if err == nil {
 		t.Fatal("expected error from model, got nil")
 	}
@@ -178,8 +172,8 @@ func TestGenerateMissingSections(t *testing.T) {
 	dir := t.TempDir()
 	spec := "# Test\n\n## User outcome\n\nTest.\n"
 
-	fa := fakeAgent{text: "Just some text without section markers."}
-	_, err := Generate(context.Background(), dir, spec, fa, GenerateOptions{})
+	fa := fakeCaptainDriver{text: "Just some text without section markers."}
+	_, err := Generate(context.Background(), dir, spec, fa, "fake/model", "/tmp/wt", 0, GenerateOptions{})
 	if err == nil {
 		t.Fatal("expected error for missing sections, got nil")
 	}

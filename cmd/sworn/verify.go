@@ -8,8 +8,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/config"
+	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/driver/registry"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/state"
 	"github.com/swornagent/sworn/internal/verify"
@@ -107,19 +108,29 @@ func cmdVerify(args []string) int {
 			return 2
 		}
 
-		// Create an agentic verifier (agent.Agent, not model.Verifier).
-		va, vaErr := model.FromEnv(resolvedModel)
-		if vaErr != nil {
-			fmt.Fprintf(os.Stderr, "sworn verify: create agentic verifier: %v\n", vaErr)
+		// Resolve the verifier driver through the registry (S06 rewire) —
+		// the same seam RunSlice's verify leg dispatches through, so the
+		// standalone agentic path and the loop can never disagree on how a
+		// verifier dispatch travels.
+		reg := registry.Default(model.ProviderConfigFromEnv())
+		d, dErr := reg.Resolve(resolvedModel, driver.RoleVerifier)
+		if dErr != nil {
+			fmt.Fprintf(os.Stderr, "sworn verify: resolve %q for role %q: %v\n", resolvedModel, driver.RoleVerifier, dErr)
 			return 2
 		}
-		verifierAgent, ok := va.(agent.Agent)
-		if !ok {
-			fmt.Fprintf(os.Stderr, "sworn verify: model %q does not support agent interface\n", resolvedModel)
+		repoRoot, rrErr := findRepoRoot()
+		if rrErr != nil {
+			fmt.Fprintf(os.Stderr, "sworn verify: %v\n", rrErr)
 			return 2
 		}
 
-		result, rErr := verify.RunAgentic(context.Background(), specContent, diffContent, proofContent, verifierAgent)
+		result, rErr := verify.RunAgentic(context.Background(), verify.AgenticInput{
+			Spec:         specContent,
+			Diff:         diffContent,
+			Proof:        proofContent,
+			ModelID:      resolvedModel,
+			WorktreeRoot: repoRoot,
+		}, d)
 		if rErr != nil {
 			fmt.Fprintf(os.Stderr, "sworn verify: agentic dispatch: %v\n", rErr)
 			return 2

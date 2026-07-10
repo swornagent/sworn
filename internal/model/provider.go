@@ -33,28 +33,32 @@ type ProviderConfig struct {
 }
 
 // ProviderConfigFromEnv reads per-provider configuration from environment
-// variables. The SWORN_OPENAI_API_KEY alias is checked as a fallback when
-// OPENAI_API_KEY is empty (backward compatibility per spec Risk #1).
+// variables. Every provider key checks its SWORN_* alias as a fallback when
+// the canonical var is empty (S06 D7, Coach ack pin 5): canonical wins,
+// SWORN_* is fallback only — per the envOrAlias contract. The widening keeps
+// SWORN_*-only environments (the documented worker setup) on direct dispatch
+// now that the loop's default registry is built from this config, and makes
+// `sworn capabilities` truthful for those environments.
 func ProviderConfigFromEnv() ProviderConfig {
 	return ProviderConfig{
 		OpenAIKey:           envOrAlias("OPENAI_API_KEY", "SWORN_OPENAI_API_KEY"),
-		DeepSeekKey:         os.Getenv("DEEPSEEK_API_KEY"),
-		GroqKey:             os.Getenv("GROQ_API_KEY"),
-		MistralKey:          os.Getenv("MISTRAL_API_KEY"),
-		OpenRouterKey:       os.Getenv("OPENROUTER_API_KEY"),
-		AnthropicKey:        os.Getenv("ANTHROPIC_API_KEY"),
+		DeepSeekKey:         envOrAlias("DEEPSEEK_API_KEY", "SWORN_DEEPSEEK_API_KEY"),
+		GroqKey:             envOrAlias("GROQ_API_KEY", "SWORN_GROQ_API_KEY"),
+		MistralKey:          envOrAlias("MISTRAL_API_KEY", "SWORN_MISTRAL_API_KEY"),
+		OpenRouterKey:       envOrAlias("OPENROUTER_API_KEY", "SWORN_OPENROUTER_API_KEY"),
+		AnthropicKey:        envOrAlias("ANTHROPIC_API_KEY", "SWORN_ANTHROPIC_API_KEY"),
 		GoogleKey:           envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY"),
 		GoogleCloudProject:  os.Getenv("GOOGLE_CLOUD_PROJECT"),
 		GoogleCloudLocation: os.Getenv("GOOGLE_CLOUD_LOCATION"),
-		CloudflareKey:       os.Getenv("CLOUDFLARE_API_KEY"),
-		GitHubToken:         os.Getenv("GITHUB_TOKEN"),
+		CloudflareKey:       envOrAlias("CLOUDFLARE_API_KEY", "SWORN_CLOUDFLARE_API_KEY"),
+		GitHubToken:         envOrAlias("GITHUB_TOKEN", "SWORN_GITHUB_TOKEN"),
 		OllamaHost:          ollamaHost(),
-		AwsAccessKey:        os.Getenv("AWS_ACCESS_KEY_ID"),
-		AwsSecretKey:        os.Getenv("AWS_SECRET_ACCESS_KEY"),
+		AwsAccessKey:        envOrAlias("AWS_ACCESS_KEY_ID", "SWORN_AWS_ACCESS_KEY_ID"),
+		AwsSecretKey:        envOrAlias("AWS_SECRET_ACCESS_KEY", "SWORN_AWS_SECRET_ACCESS_KEY"),
 		AwsRegion:           envOrAlias("AWS_REGION", "AWS_DEFAULT_REGION"),
-		AzureAPIKey:         os.Getenv("AZURE_OPENAI_API_KEY"),
-		AzureEndpoint:       os.Getenv("AZURE_OPENAI_ENDPOINT"),
-		AzureAPIVersion:     os.Getenv("AZURE_OPENAI_API_VERSION"),
+		AzureAPIKey:         envOrAlias("AZURE_OPENAI_API_KEY", "SWORN_AZURE_OPENAI_API_KEY"),
+		AzureEndpoint:       envOrAlias("AZURE_OPENAI_ENDPOINT", "SWORN_AZURE_OPENAI_ENDPOINT"),
+		AzureAPIVersion:     envOrAlias("AZURE_OPENAI_API_VERSION", "SWORN_AZURE_OPENAI_API_VERSION"),
 		OCICompartmentID:    os.Getenv("OCI_COMPARTMENT_ID"),
 	}
 }

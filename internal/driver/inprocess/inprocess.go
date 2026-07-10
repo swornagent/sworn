@@ -30,14 +30,14 @@ import (
 	"github.com/swornagent/sworn/internal/model"
 )
 
-// ErrKind values with no shared constant in the contract package. The
-// contract documents "credits" as a sample ErrKind (driver.go Result docs);
+// ErrKind values with no shared constant in the contract package.
 // rate_limit/upstream/other reuse the model taxonomy's names verbatim so the
 // engine sees one vocabulary across the in-process surface. The shared
-// values (config/transient/auth/protocol) come from the driver package
-// constants — never string literals (Coach ack pin 2).
+// values (config/transient/auth/protocol/credits) come from the driver
+// package constants — never string literals (Coach ack pin 2; credits was
+// promoted to driver.ErrKindCredits in S06 so the terminal vocabulary has a
+// single source).
 const (
-	errKindCredits   = "credits"
 	errKindRateLimit = "rate_limit"
 	errKindUpstream  = "upstream"
 	errKindOther     = "other"
@@ -70,30 +70,38 @@ type InProcess struct {
 	maxTurns int
 
 	// newClient resolves a model ID to a concrete client. Defaults to
-	// model.NewClient; tests inject a factory pointing at an httptest
-	// server so no dispatch ever leaves the process.
+	// model.ResolveLoopClient — the FromEnv-equivalent resolution that
+	// honours the shared proxy predicate (model.ProxyRoute), so a
+	// registry-dispatched loop client actually takes the route `sworn
+	// capabilities` advertises (S06 D6, spec R-04). Tests inject a factory
+	// pointing at an httptest server so no dispatch ever leaves the process.
 	newClient func(modelID string, pcfg model.ProviderConfig) (model.Verifier, error)
 }
 
 // NewOAIChat returns the chat/completions-family identity ("oai-inprocess").
 func NewOAIChat(pcfg model.ProviderConfig) *InProcess {
-	return &InProcess{name: "oai-inprocess", pcfg: pcfg, newClient: model.NewClient}
+	return &InProcess{name: "oai-inprocess", pcfg: pcfg, newClient: model.ResolveLoopClient}
 }
 
 // NewOAIResponses returns the /v1/responses identity
 // ("oai-responses-inprocess").
 func NewOAIResponses(pcfg model.ProviderConfig) *InProcess {
-	return &InProcess{name: "oai-responses-inprocess", pcfg: pcfg, newClient: model.NewClient}
+	return &InProcess{name: "oai-responses-inprocess", pcfg: pcfg, newClient: model.ResolveLoopClient}
 }
 
 // Name identifies this driver instance for logging, telemetry, and
 // resolution.
 func (d *InProcess) Name() string { return d.name }
 
-// Roles declares implementer and verifier. Captain dispatch is deliberately
-// not declared (design D2): no acceptance check in this slice describes it.
+// Roles declares implementer, verifier, and captain. Captain was added in
+// S06 (design D2): the captain-family dispatches (design TL;DR, captain
+// review, DoR check) are single tool-less judgement calls served by
+// dispatchCaptain — never the tool loop, which would hand the reviewer
+// file-edit tools. The subprocess drivers keep captain undeclared (claude -p
+// is an edit-capable loop that cannot be made read-only); restoring
+// role-universality there is tracked as sworn#86.
 func (d *InProcess) Roles() driver.RoleSet {
-	return driver.RoleSet{driver.RoleImplementer: true, driver.RoleVerifier: true}
+	return driver.RoleSet{driver.RoleImplementer: true, driver.RoleVerifier: true, driver.RoleCaptain: true}
 }
 
 // Dispatch serves one role dispatch. For Role=verifier it runs the tool loop
@@ -140,7 +148,33 @@ func (d *InProcess) Dispatch(ctx context.Context, in driver.DispatchInput) (driv
 	if in.Role == driver.RoleVerifier {
 		return d.dispatchVerifier(ctx, in, client, meter, start)
 	}
+	if in.Role == driver.RoleCaptain {
+		return d.dispatchCaptain(ctx, in, meter, start)
+	}
 	return d.dispatchLoop(ctx, in, meter, start)
+}
+
+// dispatchCaptain serves a Role=captain dispatch (S06 design D2): exactly one
+// tool-less Chat call — system prompt + payload, nil tools — because the
+// captain-family calls (design TL;DR, captain review, DoR check) are
+// read-only judgement calls; dispatching them through the tool loop would
+// hand the reviewer file-edit tools. Error classification reuses classifyErr
+// (the max-turns arm is unreachable here — there is no loop).
+func (d *InProcess) dispatchCaptain(ctx context.Context, in driver.DispatchInput, meter *chatMeter, start time.Time) (driver.Result, error) {
+	resp, err := meter.Chat(ctx, []model.ChatMessage{
+		{Role: "system", Content: in.SystemPrompt},
+		{Role: "user", Content: in.Payload},
+	}, nil)
+	if err != nil {
+		res := d.economics(driver.Result{Status: driver.StatusError, ErrKind: classifyErr(err)}, in, meter, start)
+		return res, err
+	}
+	if resp == nil || len(resp.Choices) == 0 {
+		res := d.economics(driver.Result{Status: driver.StatusError, ErrKind: driver.ErrKindProtocol}, in, meter, start)
+		return res, fmt.Errorf("inprocess: captain dispatch: empty response choices")
+	}
+	res := d.economics(driver.Result{Status: driver.StatusOK, ResultText: resp.Choices[0].Message.Content}, in, meter, start)
+	return res, nil
 }
 
 // dispatchLoop runs the plain multi-turn tool loop (the implementer path,
@@ -197,7 +231,7 @@ func errKindFromModel(kind model.ErrorKind) string {
 	case model.KindAuth:
 		return driver.ErrKindAuth
 	case model.KindCredits:
-		return errKindCredits
+		return driver.ErrKindCredits
 	case model.KindRateLimit:
 		return errKindRateLimit
 	case model.KindUpstream:

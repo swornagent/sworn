@@ -8,7 +8,7 @@
   "last_updated_at": "2026-07-10T03:30:00Z",
   "covers_needs": ["N-05", "N-08"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S06-loop-dispatch-rewire/spec.json",
-  "start_commit": null,
+  "start_commit": "16a8160daba4042c088f69b70bb648c37e20c915",
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",

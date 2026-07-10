@@ -7,35 +7,39 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/model"
 )
 
-// fakeAgent is a minimal agent.Agent that returns a canned ChatResponse.
-type fakeAgent struct {
+// fakeCaptainDriver is a minimal driver.Driver returning a canned captain
+// response (S06: the wire-typed fakeAgent became a driver fake; Review now
+// dispatches Role=captain through the driver seam).
+type fakeCaptainDriver struct {
 	text string
 	err  error
+	last *driver.DispatchInput
 }
 
-func (f fakeAgent) Chat(_ context.Context, _ []model.ChatMessage, _ []model.ToolDef) (*model.ChatResponse, error) {
-	if f.err != nil {
-		return nil, f.err
+func (f *fakeCaptainDriver) Name() string { return "fake-captain-driver" }
+func (f *fakeCaptainDriver) Roles() driver.RoleSet {
+	return driver.RoleSet{driver.RoleCaptain: true}
+}
+func (f *fakeCaptainDriver) Dispatch(_ context.Context, in driver.DispatchInput) (driver.Result, error) {
+	if f.last != nil {
+		*f.last = in
 	}
-	return &model.ChatResponse{
-		Choices: []struct {
-			Message struct {
-				Content   string           `json:"content"`
-				ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
-			} `json:"message"`
-			FinishReason string `json:"finish_reason"`
-		}{
-			{
-				Message: struct {
-					Content   string           `json:"content"`
-					ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
-				}{Content: f.text},
-				FinishReason: "stop",
-			},
-		},
+	if f.err != nil {
+		return driver.Result{Status: driver.StatusError, ErrKind: driver.ErrKindConfig}, f.err
+	}
+	return driver.Result{
+		Status:       driver.StatusOK,
+		ResultText:   f.text,
+		CostUSD:      0.0042,
+		CostSource:   "estimated",
+		InputTokens:  700,
+		OutputTokens: 300,
+		ModelID:      "confirmed-model",
+		DurationMS:   21,
 	}, nil
 }
 
@@ -68,8 +72,8 @@ func TestEscalatePinHalts(t *testing.T) {
 	spec := "# Test spec\n\n## User outcome\n\nTest.\n"
 	design := "## §1 User-visible change\n\nTest change.\n"
 
-	fa := fakeAgent{text: cannedEscalateOutput}
-	result, err := Review(context.Background(), dir, spec, design, fa, "/tmp/wt")
+	fd := &fakeCaptainDriver{text: cannedEscalateOutput}
+	result, err := Review(context.Background(), dir, spec, design, fd, "fake/model", "/tmp/wt", 0)
 	if err != nil {
 		t.Fatalf("Review: %v", err)
 	}
@@ -100,8 +104,8 @@ func TestCleanDesignProceeds(t *testing.T) {
 	spec := "# Test spec\n\n## User outcome\n\nTest.\n"
 	design := "## §1 User-visible change\n\nTest change.\n"
 
-	fa := fakeAgent{text: cannedCleanOutput}
-	result, err := Review(context.Background(), dir, spec, design, fa, "/tmp/wt")
+	fd := &fakeCaptainDriver{text: cannedCleanOutput}
+	result, err := Review(context.Background(), dir, spec, design, fd, "fake/model", "/tmp/wt", 0)
 	if err != nil {
 		t.Fatalf("Review: %v", err)
 	}
@@ -132,6 +136,30 @@ func TestCleanDesignProceeds(t *testing.T) {
 	}
 }
 
+// TestReviewResultCarriesDispatchEconomics pins the S06 AC-05 plumbing: the
+// review's telemetry fields come off the driver Result, not a slice.go-side
+// stopwatch or a usage-derived estimate.
+func TestReviewResultCarriesDispatchEconomics(t *testing.T) {
+	dir := t.TempDir()
+	fd := &fakeCaptainDriver{text: cannedCleanOutput}
+	result, err := Review(context.Background(), dir, "# spec", "## design", fd, "fake/model", "/tmp/wt", 0)
+	if err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	if result.CostUSD != 0.0042 {
+		t.Errorf("CostUSD = %v, want the driver Result's 0.0042", result.CostUSD)
+	}
+	if result.Dispatch.DurationMS != 21 {
+		t.Errorf("Dispatch.DurationMS = %d, want 21", result.Dispatch.DurationMS)
+	}
+	if result.Dispatch.InputTokens != 700 || result.Dispatch.OutputTokens != 300 {
+		t.Errorf("Dispatch tokens = %d/%d, want 700/300", result.Dispatch.InputTokens, result.Dispatch.OutputTokens)
+	}
+	if result.Dispatch.ModelID != "confirmed-model" {
+		t.Errorf("Dispatch.ModelID = %q, want confirmed-model", result.Dispatch.ModelID)
+	}
+}
+
 func TestPinsClassified(t *testing.T) {
 	dir := t.TempDir()
 	spec := "# Test spec\n\n## User outcome\n\nTest.\n"
@@ -152,8 +180,8 @@ func TestPinsClassified(t *testing.T) {
 Pins: 3 total — 1 mechanical, 1 memory-cited, 1 escalate
 `
 
-	fa := fakeAgent{text: mixedOutput}
-	result, err := Review(context.Background(), dir, spec, design, fa, "/tmp/wt")
+	fd := &fakeCaptainDriver{text: mixedOutput}
+	result, err := Review(context.Background(), dir, spec, design, fd, "fake/model", "/tmp/wt", 0)
 	if err != nil {
 		t.Fatalf("Review: %v", err)
 	}
@@ -205,8 +233,8 @@ func TestReviewModelError(t *testing.T) {
 	spec := "# Test\n\n## User outcome\n\nTest.\n"
 	design := "## §1 User-visible change\n\nTest.\n"
 
-	fa := fakeAgent{err: model.ErrNotConfigured}
-	_, err := Review(context.Background(), dir, spec, design, fa, "/tmp/wt")
+	fd := &fakeCaptainDriver{err: model.ErrNotConfigured}
+	_, err := Review(context.Background(), dir, spec, design, fd, "fake/model", "/tmp/wt", 0)
 	if err == nil {
 		t.Fatal("expected error from model, got nil")
 	}
@@ -241,8 +269,8 @@ func TestSummaryLineNotCountedAsEscalate(t *testing.T) {
 		"Pins: 1 total — 1 [mechanical], 0 [memory-cited], 0 [escalate]\n" +
 		"1. **Missing tracker** — file the issue and cite the number.\n"
 
-	fa := fakeAgent{text: canned}
-	result, err := Review(context.Background(), dir, spec, design, fa, "/tmp/wt")
+	fd := &fakeCaptainDriver{text: canned}
+	result, err := Review(context.Background(), dir, spec, design, fd, "fake/model", "/tmp/wt", 0)
 	if err != nil {
 		t.Fatalf("Review: %v", err)
 	}
@@ -257,38 +285,33 @@ func TestSummaryLineNotCountedAsEscalate(t *testing.T) {
 	}
 }
 
-// captureAgent records the messages it was dispatched with, then behaves
-// like fakeAgent.
-type captureAgent struct {
-	fakeAgent
-	messages *[]model.ChatMessage
-}
-
-func (c captureAgent) Chat(ctx context.Context, msgs []model.ChatMessage, tools []model.ToolDef) (*model.ChatResponse, error) {
-	*c.messages = msgs
-	return c.fakeAgent.Chat(ctx, msgs, tools)
-}
-
 // TestReviewDispatchesDesignReviewerPrompt verifies the S19-captain-split
 // contract at the engine dispatch: the design-review stage must run under the
 // design-reviewer identity, not the conflated captain release-orchestrator
-// prompt (which asserts authority the deterministic engine owns).
+// prompt (which asserts authority the deterministic engine owns). It also
+// pins the S06 dispatch shape: Role=captain, prompts orchestrator-side.
 func TestReviewDispatchesDesignReviewerPrompt(t *testing.T) {
 	dir := t.TempDir()
-	var got []model.ChatMessage
-	ca := captureAgent{fakeAgent: fakeAgent{text: cannedCleanOutput}, messages: &got}
+	var got driver.DispatchInput
+	fd := &fakeCaptainDriver{text: cannedCleanOutput, last: &got}
 
-	if _, err := Review(context.Background(), dir, "# spec", "## design", ca, "/tmp/wt"); err != nil {
+	if _, err := Review(context.Background(), dir, "# spec", "## design", fd, "fake/model", "/tmp/wt", 0); err != nil {
 		t.Fatalf("Review: %v", err)
 	}
-	if len(got) == 0 || got[0].Role != "system" {
-		t.Fatalf("expected a system message first, got %+v", got)
+	if got.Role != driver.RoleCaptain {
+		t.Fatalf("expected Role=captain dispatch, got %q", got.Role)
 	}
-	sys := got[0].Content
+	if got.ModelID != "fake/model" {
+		t.Errorf("expected ModelID passthrough, got %q", got.ModelID)
+	}
+	sys := got.SystemPrompt
 	if !strings.Contains(sys, "You are the **Design Reviewer**") {
 		t.Errorf("system prompt missing design-reviewer identity; starts with: %.200s", sys)
 	}
 	if strings.Contains(sys, "release-level orchestrator") {
 		t.Errorf("system prompt still carries the conflated release-orchestrator identity (S19 regression); starts with: %.200s", sys)
+	}
+	if !strings.Contains(got.Payload, "## Spec") || !strings.Contains(got.Payload, "## Design TL;DR") {
+		t.Errorf("payload should carry the orchestrator-assembled spec+design sections, got: %.200s", got.Payload)
 	}
 }
