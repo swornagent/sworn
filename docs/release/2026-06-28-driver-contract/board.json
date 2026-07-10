@@ -41,7 +41,7 @@
       "depends_on": ["T1-contract"],
       "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-28-driver-contract-T3-inprocess",
       "worktree_branch": "track/2026-06-28-driver-contract/T3-inprocess",
-      "state": "in_progress"
+      "state": "merged"
     },
     {
       "id": "T4-resolution-loop",
