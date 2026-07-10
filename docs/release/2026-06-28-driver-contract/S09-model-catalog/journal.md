@@ -119,3 +119,60 @@ Full suite (`go test -count=1 -timeout 300s ./...`) green: 47 packages ok,
 0 FAIL, zero regressions in any untouched package. `status.json` ->
 `state: implemented`. Stopping here per role boundary — no verifier prompt
 run in this session.
+
+## Verifier verdicts received
+
+### 2026-07-10 — Round 1: PASS (fresh-context verifier)
+
+All six verification gates passed against `track/2026-06-28-driver-contract/T5-catalog`
+HEAD `850ca98` (S09 code at `4fbeaac`; `850ca98` is the forward-sync merge of
+`release-wt` that cleared drift before verify — its S10 spec.json delta is
+expected merge noise, not S09 scope).
+
+- **Gate 1 (user-reachable outcome):** PASS. `cmdModels` self-registers via
+  `init()` + `command.Register` into the process command registry that
+  `main.go:dispatch` resolves through (`main.go:93 command.Lookup(name)`) — the
+  exact runtime integration point, not a test-only registry. `TestModelsCommand`
+  drives `command.Lookup("models").Run(...)` end-to-end (Rule 1, not the leaf
+  catalog unit).
+- **Gate 2 (touchpoints):** PASS. Four code files added (`cmd/sworn/models.go`,
+  `cmd/sworn/models_test.go`, `internal/model/catalog.go`,
+  `internal/model/catalog_test.go`) match spec touchpoints; `cmd/sworn/main.go`
+  intentionally untouched (self-registration precedent) — declared divergence,
+  captain-proceed pin 4.
+- **Gate 3 (tests exercise the integration point):** PASS. Re-ran all named
+  tests in a fresh window — targeted, verbose subtests (7 provider-class
+  `TestCatalogAnnotations` cases), and full `go test -count=1 -timeout 300s
+  ./...` (all packages ok, 0 FAIL). `go build`, `go vet`, `gofmt -l` clean.
+- **Gate 3b (ac-satisfaction LLM):** skipped, no LLM provider configured
+  (non-blocking). Manual adversarial AC walk: AC-01..AC-04 all satisfied.
+  AC-01's "registry enumeration" parenthetical is dispositioned by the
+  Coach-ratified D1 (design review, captain-proceed pin 2) — an upstream gate
+  the verifier trusts; the testable outcome (no-dispatch credential-based
+  availability + grouped-by-prefix listing) is delivered.
+- **Gate 4 (reachability):** PASS. `cli-run` artefact names the `sworn models`
+  gesture and drives the real entrypoint; annotations + grouping asserted on
+  captured stdout.
+- **Gate 5 (no silent deferrals):** PASS. Changed-source grep clean; the sole
+  deferral (pricing display) carries all three Rule 2 legs — why + tracking
+  (`sworn#92`) + acknowledgement (`captain-proceed.md` pin 3, `acknowledged_by:
+  Brad (Coach)`).
+- **Gate 6 (design conformance):** auto-pass — no `docs/baton/design-fidelity.json`,
+  non-UI Go CLI.
+- **Gate 7 (scope matches):** PASS. Every `delivered` evidence reference
+  resolves to real, working code/tests.
+
+Fail-closed capability honesty independently confirmed: `annotateStringListTools`
+returns `unknown` on an absent wire field and `yes` only on an explicit `tools`
+entry; `annotateMistralTools` maps nil→unknown; bare-ID providers (OpenAI/Groq/
+Anthropic) and Google are unconditionally `unknown` — no model renders capable
+from absent/unknown metadata, and tests assert the absent-field→unknown and
+Google-present-field→unknown edges. Zero model dispatches confirmed: availability
+is credential-presence only, every HTTP path is a models/list-or-metadata
+endpoint (no completion/chat/generate strings in `catalog.go`), and
+`TestListCatalog_NoDispatchPaths` fails on any non-list path. Both declared
+divergences (Ollama `/api/show` POST body shape; D3 closed-port `127.0.0.1:1`
+test) match the code and mask no real gap.
+
+`status.json` -> `state: verified`, `verification.result: pass`,
+`verifier_was_fresh_context: true`.
