@@ -62,7 +62,7 @@
       "id": "AC-02",
       "type": "event-driven",
       "ears_keyword": "When",
-      "text": "When an in-process driver dispatch completes, Result.CostUSD SHALL be computed from the CONFIRMED response model-id (not the requested string) and the true input/output token split via the unified pricing registry, with CostSource=\"pricing-table\"; when the provider itself reports a cost (Anthropic resp.CostUSD), that figure SHALL be carried with CostSource=\"provider\" instead of recomputed."
+      "text": "When an in-process driver dispatch completes, Result.CostUSD SHALL be computed from the CONFIRMED response model-id (not the requested string) and the true input/output token split via the unified pricing registry, with CostSource=\"pricing-table\". The CostSource=\"provider\" vocabulary and its Result-envelope plumbing SHALL exist as a named constant with a contract test, reserved for a driver whose wired client genuinely returns a provider-reported billing figure — no currently-wired client does (the Anthropic client is judge-only and not on the loop path), so NO live dispatch path claims CostSource=\"provider\" in this slice; emitting it from a computed or inferred figure is a spec violation (amended by Coach decision 2026-07-10, S08 review pin 2: the verifier grades reachable behaviour, and a provider-reported figure is never fabricated)."
     },
     {
       "id": "AC-03",
