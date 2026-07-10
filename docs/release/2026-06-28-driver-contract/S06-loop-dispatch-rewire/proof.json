@@ -1,0 +1,79 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S06-loop-dispatch-rewire",
+  "release": "2026-06-28-driver-contract",
+  "scope": "RunSlice performs its captain, implement, and verify legs exclusively through registry-resolved Driver.Dispatch — no factory fields, no provider wire types in the orchestration path, verdicts engine-validated from Result.StructuredJSON — so the nil-factory SIGSEGV class is unrepresentable and a toolless dispatch cannot reach a loop role.",
+  "files_changed": [
+    "cmd/sworn/verify.go",
+    "internal/captain/review.go",
+    "internal/captain/review_test.go",
+    "internal/design/tldr.go",
+    "internal/design/tldr_test.go",
+    "internal/driver/inprocess/inprocess.go",
+    "internal/driver/inprocess/inprocess_test.go",
+    "internal/driver/registry/registry.go",
+    "internal/driver/registry/registry_r04_test.go",
+    "internal/driver/registry/registry_test.go",
+    "internal/driver/subprocess.go",
+    "internal/implement/implement.go",
+    "internal/implement/implement_test.go",
+    "internal/implement/ready.go",
+    "internal/model/config.go",
+    "internal/model/provider.go",
+    "internal/model/provider_env_test.go",
+    "internal/model/provider_test.go",
+    "internal/run/capabilities_test.go",
+    "internal/run/cold_start_test.go",
+    "internal/run/dispatch_quadrant_test.go",
+    "internal/run/factory_default_test.go",
+    "internal/run/imports_test.go",
+    "internal/run/run.go",
+    "internal/run/run_test.go",
+    "internal/run/slice.go",
+    "internal/run/slice_terminal_test.go",
+    "internal/run/slice_test.go",
+    "internal/verify/verify.go",
+    "internal/verify/verify_agentic_test.go",
+    "docs/release/2026-06-28-driver-contract/S06-loop-dispatch-rewire/status.json"
+  ],
+  "test_results": [
+    { "command": "go build ./...", "passed": true, "exit_code": 0 },
+    { "command": "go test -count=1 -timeout 300s ./internal/run/... ./internal/verify/... ./internal/implement/... (spec AC-05 command, fresh cache)", "passed": true, "exit_code": 0 },
+    { "command": "go test -count=1 -timeout 300s ./internal/driver/... ./internal/model/... ./internal/captain/... ./internal/design/... (fresh cache)", "passed": true, "exit_code": 0 },
+    { "command": "go test -count=1 -timeout 300s ./... (full suite, fresh cache — 45 packages ok, 0 FAIL; R-02 gate)", "passed": true, "exit_code": 0 },
+    { "command": "go vet ./... && gofmt -l . (clean; newline-corruption grep over changed .go files clean)", "passed": true, "exit_code": 0 },
+    { "command": "sworn verify --spec spec.json --diff <code-only diff 16a8160..HEAD> --proof proof.json --verifier-model claude-cli/sonnet --deferral '<sworn#87 false-positive declaration>' (deterministic first-pass gate: PASS. First run FAILed boundary_mock on a DELETED doc-comment line — 'fake ... authoring' prose in the removed verifierAwareAgent, scanner counts '-' lines and substring-matches 'auth' inside 'authoring'; filed swornagent/sworn#87 and re-ran with the declaration, the gate's sanctioned mechanism. No auth-boundary mock exists in the added code.)", "passed": true, "exit_code": 0 }
+  ],
+  "reachability": {
+    "type": "cli-run",
+    "evidence": "Two end-to-end runs through the integration points that own the affordance. (1) `go test -count=1 -v -run 'TestRunSliceDispatchesAllLegsViaRegistry|TestRunSliceResolutionFailure|TestRunSliceCaptainResolutionFailureDefersAndProceeds' ./internal/run/` — PASS: RunSlice drives captain+implement+verify legs through a registry-injected fake driver recording every DispatchInput (AC-01); an unresolvable implement/verify model errors naming model+role+alternatives with ZERO dispatches (AC-02); a captain-leg resolution failure records the Rule 2 deferral and proceeds (AC-02 amended arm). (2) `go test -count=1 -v -run TestProxyRoutingAdvertisedEqualsActual ./internal/driver/registry/` — PASS: with a logged-in credentials fixture and SWORN_PROXY_URL at an httptest server, `Drivers()` advertises openai/ ViaProxy, a registry-resolved REAL in-process driver's Dispatch request is observed arriving at the proxy host server-side, and SWORN_DIRECT=1 flips both the advertisement and the constructed dispatch route off together (spec R-04 three-part binding artefact)."
+  },
+  "delivered": [
+    { "item": "AC-01: NewAgent/NewVerifier factory fields deleted from RunSliceOptions and run.Options (with newAgentFromModel/newVerifierFromModel); every role leg resolves via Registry.Resolve and dispatches via Driver.Dispatch; tests inject fake drivers through registry.New()+Register.", "evidence": "internal/run/slice.go (upfront resolution block), internal/run/run.go; TestRunSliceDispatchesAllLegsViaRegistry (internal/run/capabilities_test.go); fakeDriver+testRegistry harness (internal/run/run_test.go)" },
+    { "item": "AC-02 (amended): implement/verify Resolve failures hard-error before any dispatch, wrapped as RunSlice: resolve <model> for role <role> so the error names model, role, and registered alternatives (Coach ack pin 2); captain-leg Resolve failure records the descriptive role error as a durable Rule 2 deferral via recordDesignGateDeferral and proceeds (Coach ack pin 1).", "evidence": "TestRunSliceResolutionFailure (3 subtests, zero-dispatch asserted) and TestRunSliceCaptainResolutionFailureDefersAndProceeds in internal/run/capabilities_test.go; TestRunSliceDefaultsNilRegistry (internal/run/factory_default_test.go)" },
+    { "item": "AC-03: verify leg re-cut onto verify.RunAgentic(ctx, AgenticInput, driver) — engine validates Result.StructuredJSON via the retained acceptStructuredVerdict + baton.ValidateSchema path verbatim (invalid/missing -> INCONCLUSIVE fail-closed, terminal ErrKind -> BLOCKED, valid -> mapped Result); existing verify acceptance tests adapted onto driver.Result, assertions minimally diffed.", "evidence": "internal/verify/verify.go (RunAgentic/acceptStructuredVerdict/blockedTerminal); internal/verify/verify_agentic_test.go (PASS/FAIL/BLOCKED/malformed/invalid/missing + TestRunAgenticTerminalDispatchErrorBlocked auth+credits + transient-continues)" },
+    { "item": "R-03/D3: driver.TerminalErrKind with the set exactly {auth, credits} (ErrKindCredits promoted to the contract package, S04 Coach ack citation in the doc comment) consumed at BOTH points — implement leg (replacing model.IsTerminal) and verify leg's terminal->BLOCKED mapping; four halt tests plus non-terminal-continues.", "evidence": "internal/driver/subprocess.go (TerminalErrKind + ErrKindCredits); internal/run/slice_terminal_test.go (TestTerminalError_KindAuth_Halts, TestTerminalError_KindCredits_Halts, TestTerminalError_AllKinds); internal/verify/verify_agentic_test.go (TestRunAgenticTerminalDispatchErrorBlocked)" },
+    { "item": "AC-04: TestNoWireImports — AST selector scan (including _test.go files) over internal/run, internal/verify, internal/scheduler failing with package+file+identifier on any model.{ChatMessage|ToolDef|ChatResponse|ToolCall} reference; all three packages pass.", "evidence": "internal/run/imports_test.go; go test ./internal/run/ -run TestNoWireImports PASS" },
+    { "item": "AC-05: every appendDispatch telemetry record (captain via ReviewResult.Dispatch, implementer via implement.Run's returned driver.Result, verifier via acceptStructuredVerdict) sources duration/tokens/cost/confirmed-model-id from the Dispatch leg's Result fields; RunFirstPass untouched (byte-identical, its tests unchanged); slice test command green.", "evidence": "internal/run/slice.go appendDispatch call sites; internal/captain/review.go ReviewResult.Dispatch + TestReviewResultCarriesDispatchEconomics; verify_agentic_test.go economics assertions in TestRunAgenticPass; go test ./internal/run/... ./internal/verify/... ./internal/implement/... PASS" },
+    { "item": "R-04/D6 (Coach ack pin 4): single proxy predicate model.ProxyRoute extracted from FromEnv; model.ResolveLoopClient is the in-process drivers' client default (replacing proxy-blind model.NewClient); registry.proxyRouting delegates to the same predicate; three-part reachability test binding.", "evidence": "internal/model/config.go (ProxyRoute/proxyClient/ResolveLoopClient); internal/driver/inprocess/inprocess.go (newClient default); internal/driver/registry/registry.go (proxyRouting delegation); TestProxyRoutingAdvertisedEqualsActual (internal/driver/registry/registry_r04_test.go)" },
+    { "item": "D7 (Coach ack pin 5): ProviderConfigFromEnv widened — every provider key reads envOrAlias(CANONICAL, SWORN_CANONICAL); canonical-wins precedence proven per widened key, plus the SWORN_*-only fallback half.", "evidence": "internal/model/provider.go; TestProviderConfigFromEnvCanonicalWins + TestProviderConfigFromEnvSwornFallback (internal/model/provider_env_test.go, 14 keys each)" },
+    { "item": "D2: in-process drivers declare RoleCaptain served by a tool-less dispatchCaptain (single Chat call, nil tools — the reviewer never gets edit tools); design.Generate and captain.Review re-cut onto Role=captain driver dispatch with prompts assembled orchestrator-side; DoR gate adapted via driverVerifier.", "evidence": "internal/driver/inprocess/inprocess.go (dispatchCaptain, Roles); internal/design/tldr.go; internal/captain/review.go; internal/implement/ready.go (driverVerifier); TestReviewDispatchesDesignReviewerPrompt asserts Role=captain + design-reviewer identity" },
+    { "item": "Flags (a)+(b): InterpretVerifier deleted without a shim (zero readers, internal visibility); pre-existing fused comments repaired at internal/run/slice.go:694 (verify-leg region), internal/verify/verify.go:123, internal/run/run.go:27+229; newline-corruption grep + gofmt -l clean after the sweep.", "evidence": "git diff 16a8160..9ad50b2 — slice.go InterpretVerifier removal note; repaired comment blocks; gofmt -l empty" },
+    { "item": "Standalone `sworn verify --agentic` moved onto the same registry seam (registry.Default -> Resolve(RoleVerifier) -> RunAgentic with the repo root as WorktreeRoot).", "evidence": "cmd/sworn/verify.go; cmd/sworn package compiles and full suite green" }
+  ],
+  "not_delivered": [
+    {
+      "item": "RoleCaptain on the subprocess drivers (claude-cli, codex) — a subprocess-first escalation head still routes its captain leg through the fail-open Rule 2 deferral instead of a served dispatch.",
+      "why": "claude -p is an edit-capable loop that cannot be made read-only this slice; no AC requires subprocess captain dispatch (AC-02 was amended to the deferral contract).",
+      "tracking": "swornagent/sworn#86",
+      "acknowledgement": "Brad (Coach), 2026-07-10, S06 captain-proceed.md pin 1 — deferral reading ratified live, follow-up filed as sworn#86."
+    }
+  ],
+  "divergence": [
+    "ImplementTimeout opt-out (negative value) semantics narrowed at the driver boundary: pre-S06 a negative timeout meant literally no deadline; the in-process driver treats Timeout <= 0 as its own 300s default (S04 contract — the driver has no unbounded mode), so a negative opt-out now bounds an in-process implement dispatch at 300s. The ctx-level wrap behaviour in slice.go is unchanged. Recorded in journal.md; surfaced for the verifier.",
+    "Verify-leg dispatch is now bounded: AgenticInput.Timeout is set to implementTimeout in RunSlice (pre-S06 the single ChatStructured call had no explicit deadline). Design D4 introduced the Timeout field without pinning the value; implementTimeout mirrors the other legs (D5's explicit-timeout rationale).",
+    "TestProviderConfigFromEnv (pre-existing, internal/model/provider_test.go) gained SWORN_* alias isolation — the D7 widening made the ambient SWORN_MISTRAL_API_KEY leak into the previously-canonical-only field; the test now clears every widened alias first.",
+    "TestResolveRoleFailFast and TestInprocessIdentities (S04/S05-era) asserted captain was undeclared; updated to the S06 contract (in-process identities declare captain; the subprocess captain-role failure is now the fail-fast case).",
+    "Deterministic first-pass gate initially FAILed boundary_mock on a scanner false positive: a DELETED doc-comment line from the removed wire-typed test fake matches 'fake' + 'auth' (substring of 'authoring'). Not a mock at a validated boundary — the line leaves the codebase. Scanner defect (deleted-line scanning + substring keyword match) filed as swornagent/sworn#87; gate re-run PASSes with the declaration citing it. Fixing the scanner is out of S06 scope (gate behaviour change; R-01 minimal-diff constraint on internal/verify)."
+  ]
+}

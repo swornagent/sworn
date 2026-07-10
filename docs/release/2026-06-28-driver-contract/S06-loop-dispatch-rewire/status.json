@@ -3,12 +3,58 @@
   "slice_id": "S06-loop-dispatch-rewire",
   "release": "2026-06-28-driver-contract",
   "track": "T4-resolution-loop",
-  "state": "in_progress",
+  "state": "implemented",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-10T03:30:00Z",
+  "last_updated_at": "2026-07-10T05:30:00Z",
   "covers_needs": ["N-05", "N-08"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S06-loop-dispatch-rewire/spec.json",
   "start_commit": "16a8160daba4042c088f69b70bb648c37e20c915",
+  "actual_files": [
+    "cmd/sworn/verify.go",
+    "internal/captain/review.go",
+    "internal/captain/review_test.go",
+    "internal/design/tldr.go",
+    "internal/design/tldr_test.go",
+    "internal/driver/inprocess/inprocess.go",
+    "internal/driver/inprocess/inprocess_test.go",
+    "internal/driver/registry/registry.go",
+    "internal/driver/registry/registry_r04_test.go",
+    "internal/driver/registry/registry_test.go",
+    "internal/driver/subprocess.go",
+    "internal/implement/implement.go",
+    "internal/implement/implement_test.go",
+    "internal/implement/ready.go",
+    "internal/model/config.go",
+    "internal/model/provider.go",
+    "internal/model/provider_env_test.go",
+    "internal/model/provider_test.go",
+    "internal/run/capabilities_test.go",
+    "internal/run/cold_start_test.go",
+    "internal/run/dispatch_quadrant_test.go",
+    "internal/run/factory_default_test.go",
+    "internal/run/imports_test.go",
+    "internal/run/run.go",
+    "internal/run/run_test.go",
+    "internal/run/slice.go",
+    "internal/run/slice_terminal_test.go",
+    "internal/run/slice_test.go",
+    "internal/verify/verify.go",
+    "internal/verify/verify_agentic_test.go"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go test -count=1 -timeout 300s ./internal/run/... ./internal/verify/... ./internal/implement/...",
+    "go test -count=1 -timeout 300s ./internal/driver/... ./internal/model/... ./internal/captain/... ./internal/design/...",
+    "go test -count=1 -timeout 300s ./...",
+    "go vet ./... && gofmt -l ."
+  ],
+  "reachability_artifacts": [
+    "cli-run: go test -count=1 -v -run 'TestRunSliceDispatchesAllLegsViaRegistry|TestRunSliceResolutionFailure|TestRunSliceCaptainResolutionFailureDefersAndProceeds' ./internal/run/ — RunSlice drives all three role legs through a registry-injected fake driver; resolution failures error/defer with zero dispatches — see proof.json reachability.evidence",
+    "cli-run: go test -count=1 -v -run TestProxyRoutingAdvertisedEqualsActual ./internal/driver/registry/ — R-04 three-part artefact: advertise / server-side-observed proxy dispatch / SWORN_DIRECT flips both surfaces",
+    "internal/run/imports_test.go:TestNoWireImports (AC-04 boundary over internal/run, internal/verify, internal/scheduler)",
+    "internal/run/slice_terminal_test.go:TestTerminalError_AllKinds (D3 terminal set {auth, credits} at the implement leg)",
+    "internal/verify/verify_agentic_test.go:TestRunAgenticTerminalDispatchErrorBlocked (D3 terminal set at the verify leg)"
+  ],
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
@@ -72,6 +118,16 @@
       "human_decision": "Brad (Coach), 2026-07-10, S06 captain-proceed.md pin 5 (ACCEPTED with the mandatory per-key canonical-wins precedence test; behaviour outside the literal touchpoints contained by the track merging as one unit).",
       "rationale": "The default registry must be built from the same config sworn capabilities uses or the R-04 predicate splits on the key half; canonical-wins keeps the widening backward-compatible.",
       "architecturally_significant": false
+    }
+  ],
+  "open_deferrals": [
+    {
+      "item": "RoleCaptain on the subprocess drivers (claude-cli, codex) — a subprocess-first escalation head routes its captain leg through the fail-open Rule 2 deferral path instead of a served dispatch",
+      "why": "claude -p is an edit-capable loop that cannot be made read-only this slice; no AC requires subprocess captain dispatch — AC-02 was amended to the deferral contract",
+      "tracking": "swornagent/sworn#86",
+      "acknowledgement": "Escalate pin ratified live: fail-open deferral reading stands, AC-02 amended on release-wt, follow-up filed as sworn#86 (S06 captain-proceed.md pin 1)",
+      "acknowledged_by": "Brad (Coach)",
+      "acknowledged_at": "2026-07-10"
     }
   ],
   "verification": {
