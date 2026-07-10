@@ -81,14 +81,19 @@ type ValidationRecord struct {
 // deterministically — downstream consumers (S56) treat 0 as "no signal",
 // never as "free".
 type Dispatch struct {
-	Role             string  `json:"role"`
-	Model            string  `json:"model"`
-	CostUSD          float64 `json:"cost_usd"`
-	Attempt          int     `json:"attempt"`
-	DurationMS       int64   `json:"duration_ms,omitempty"`
-	InputTokens      int64   `json:"input_tokens,omitempty"`
-	OutputTokens     int64   `json:"output_tokens,omitempty"`
-	ModelIDConfirmed string  `json:"model_id_confirmed,omitempty"`
+	Role    string  `json:"role"`
+	Model   string  `json:"model"`
+	CostUSD float64 `json:"cost_usd"`
+	Attempt int     `json:"attempt"`
+	// CostSource names where CostUSD came from — one of the
+	// driver.CostSource* constants (S08, honest cost telemetry — sworn#70).
+	// Additive/omitempty: a synthetic dispatch record (proof-absent,
+	// first-pass) that made no driver call carries no cost source, honestly.
+	CostSource       string `json:"cost_source,omitempty"`
+	DurationMS       int64  `json:"duration_ms,omitempty"`
+	InputTokens      int64  `json:"input_tokens,omitempty"`
+	OutputTokens     int64  `json:"output_tokens,omitempty"`
+	ModelIDConfirmed string `json:"model_id_confirmed,omitempty"`
 	// Quadrant is the slice's effort_complexity quadrant (chore/grind/puzzle/epic)
 	// at dispatch time (#36 / T16). Capturing it per dispatch is what turns the
 	// ledger from a global model leaderboard into the routing function

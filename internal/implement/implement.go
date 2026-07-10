@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/swornagent/sworn/internal/agent"
+	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/reqverify"
@@ -23,20 +23,27 @@ import (
 
 // Run drives the implementer role for one slice:
 //  1. Read status.json; if design_review, transition to in_progress.
-//  2. Read spec.md and build prompts.
-//  3. Run the agentic tool loop (agent.Run).
+//  2. Read spec.md and build prompts (orchestrator-side — S06 seam).
+//  3. Dispatch the implementer role via the registry-resolved driver
+//     (d.Dispatch, Role=implementer); the tool loop lives behind the driver.
 //  4. Write spec.json record (spec-v1) from spec.md.
 //  5. Generate proof.md from live repo state (git diff + test output).
 //  6. Write proof.json record (proof-v1) from live repo state.
 //  7. Transition status.json to implemented.
 //
-// Workspace root is the root of the repository the agent operates in.
+// Workspace root is the root of the repository the dispatch operates in.
 // Spec path is the absolute path to the slice's spec.md (status.json and
 // proof.md are derived from the same directory).
 // priorFeedback is the prior verifier's rationale. When non-empty, it is
-// injected into the user prompt ahead of the spec so the agent can address
+// injected into the user prompt ahead of the spec so the model can address
 // the named failures.
-func Run(ctx context.Context, workspaceRoot, specPath, priorFeedback string, a agent.Agent) (costUSD float64, err error) {
+//
+// The returned driver.Result carries the dispatch economics
+// (cost/tokens/duration/confirmed model ID) so the engine's telemetry
+// sources them from Result fields (S06 AC-05; honest population lands in
+// S08). It is returned even when err is non-nil, so an errored dispatch's
+// economics still reach the ledger.
+func Run(ctx context.Context, workspaceRoot, specPath, priorFeedback string, d driver.Driver, modelID string, timeout time.Duration) (driver.Result, error) {
 	sliceDir := filepath.Dir(specPath)
 	statusPath := filepath.Join(sliceDir, "status.json")
 	proofPath := filepath.Join(sliceDir, "proof.md")
@@ -44,7 +51,7 @@ func Run(ctx context.Context, workspaceRoot, specPath, priorFeedback string, a a
 	// Step 1: Read and validate current state.
 	st, err := state.Read(statusPath)
 	if err != nil {
-		return 0, fmt.Errorf("implement: read status: %w", err)
+		return driver.Result{}, fmt.Errorf("implement: read status: %w", err)
 	}
 	// State transition guard: design_review → in_progress
 	// before launching the agent loop.  The Definition of Ready gate
@@ -55,8 +62,8 @@ func Run(ctx context.Context, workspaceRoot, specPath, priorFeedback string, a a
 		releaseDir := filepath.Dir(filepath.Dir(specPath))
 		if err := st.State.TransitionGate(state.InProgress, func() error {
 			var v reqverify.Verifier
-			if a != nil {
-				v = agentVerifier{a: a}
+			if d != nil {
+				v = driverVerifier{d: d, modelID: modelID, worktreeRoot: workspaceRoot}
 			}
 			result, err := CheckDoR(ctx, releaseDir, st.SliceID, v)
 			if err != nil {
@@ -67,27 +74,28 @@ func Run(ctx context.Context, workspaceRoot, specPath, priorFeedback string, a a
 			}
 			return nil
 		}); err != nil {
-			return 0, fmt.Errorf("implement: design_review → in_progress gate: %w", err)
+			return driver.Result{}, fmt.Errorf("implement: design_review → in_progress gate: %w", err)
 		}
 		st.State = state.InProgress
 		st.LastUpdatedBy = "implementer"
 		st.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
 		if err := state.Write(statusPath, st); err != nil {
-			return 0, fmt.Errorf("implement: write status: %w", err)
+			return driver.Result{}, fmt.Errorf("implement: write status: %w", err)
 		}
 	} else if st.State != state.InProgress && st.State != state.FailedVerification {
-		return 0, fmt.Errorf("implement: cannot run from state %q", st.State)
+		return driver.Result{}, fmt.Errorf("implement: cannot run from state %q", st.State)
 	}
 
 	// Step 2: Read spec.
 	spec, err := os.ReadFile(specPath)
 	if err != nil {
-		return 0, fmt.Errorf("implement: read spec: %w", err)
+		return driver.Result{}, fmt.Errorf("implement: read spec: %w", err)
 	}
-	// Step 3: Build prompts and run agent loop.
-	// The agent's final prose is not required: proof.md is built from git
-	// diff + test output, so an empty agent return still produces a valid
-	// proof bundle and proceeds to verification.
+	// Step 3: Build prompts and dispatch the implementer role. Prompt
+	// assembly stays orchestrator-side; the loop execution lives behind the
+	// driver (S06 seam). The model's final prose is not required: proof.md
+	// is built from git diff + test output, so an empty result still
+	// produces a valid proof bundle and proceeds to verification.
 	systemPrompt := prompt.Implementer()
 
 	var userPrompt string
@@ -104,43 +112,63 @@ func Run(ctx context.Context, workspaceRoot, specPath, priorFeedback string, a a
 		)
 	}
 
-	_, cost, _, runErr := agent.Run(ctx, a, systemPrompt, userPrompt, workspaceRoot, agent.Config{})
+	res, runErr := d.Dispatch(ctx, driver.DispatchInput{
+		Role:         driver.RoleImplementer,
+		ModelID:      modelID,
+		SystemPrompt: systemPrompt,
+		Payload:      userPrompt,
+		WorktreeRoot: workspaceRoot,
+		Timeout:      timeout,
+	})
 	if runErr != nil {
-		return cost, fmt.Errorf("implement: agent loop: %w", runErr)
+		return res, fmt.Errorf("implement: agent loop: %w", runErr)
+	}
+
+	// S14 (D4): a dispatched implementer returning StatusBlocked signals a
+	// blocker that re-dispatch cannot clear (spec defect, out-of-authority
+	// change, missing dependency). Do NOT certify the dispatch: skip the
+	// spec record, proof generation, and the implemented transition — the
+	// slice stays in_progress and RunSlice owns the terminal blocked
+	// handling (status write, commit, notify, sentinel error). The engine
+	// keys ONLY off Status; blockedness is never inferred from ResultText
+	// prose. Without this early return a blocked dispatch fell through to
+	// proof generation and a spurious implemented transition.
+	if res.Status == driver.StatusBlocked {
+		return res, nil
 	}
 
 	// Step 4: Write spec.json record from spec.md.
 	if err := WriteSpecRecord(specPath, statusPath, sliceDir); err != nil {
-		return cost, fmt.Errorf("implement: write spec record: %w", err)
+		return res, fmt.Errorf("implement: write spec record: %w", err)
 	}
 
 	// Step 5: Generate proof.md from live repo state.
 	// Re-read status to get the latest start_commit.
 	st, err = state.Read(statusPath)
 	if err != nil {
-		return cost, fmt.Errorf("implement: re-read status: %w", err)
+		return res, fmt.Errorf("implement: re-read status: %w", err)
 	}
 	if err := generateProof(workspaceRoot, specPath, proofPath, st); err != nil {
-		return cost, fmt.Errorf("implement: generate proof: %w", err)
+		return res, fmt.Errorf("implement: generate proof: %w", err)
 	}
 
 	// Step 6: Write proof.json record from live repo state.
 	if err := WriteProofRecord(workspaceRoot, specPath, statusPath, sliceDir); err != nil {
-		return cost, fmt.Errorf("implement: write proof record: %w", err)
+		return res, fmt.Errorf("implement: write proof record: %w", err)
 	}
 
 	// Step 7: Transition to implemented.
 	if err := st.State.Transition(state.Implemented); err != nil {
-		return cost, fmt.Errorf("implement: %w", err)
+		return res, fmt.Errorf("implement: %w", err)
 	}
 	st.State = state.Implemented
 	st.LastUpdatedBy = "implementer"
 	st.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	if err := state.Write(statusPath, st); err != nil {
-		return cost, fmt.Errorf("implement: write status: %w", err)
+		return res, fmt.Errorf("implement: write status: %w", err)
 	}
 
-	return cost, nil
+	return res, nil
 }
 
 // generateProof writes proof.md in the slice directory from live repo state.

@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/agent"
-	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/state"
 )
 
@@ -42,17 +40,11 @@ func TestRunSlice_ColdStartBootstrapsStartCommit(t *testing.T) {
 
 	called := false
 	opts := RunSliceOptions{
-		EscalationModels: []string{"quick"},
+		EscalationModels: []string{"fake/quick"},
 		VerifierModel:    "fake/verifier",
 		RetryCap:         0,
 		ImplementTimeout: DefaultImplementTimeout,
-		NewAgent: func(modelID string) (agent.Agent, error) {
-			if modelID == "fake/verifier" {
-				return &passingVerifierAgent{}, nil
-			}
-			return &markedAgent{called: &called}, nil
-		},
-		NewVerifier: func(_ string) (model.Verifier, error) { return &alwaysPassVerifier{}, nil },
+		Registry:         testRegistry(&fakeDriver{implement: markedImplement(&called)}),
 	}
 
 	if err := RunSlice(context.Background(), workspaceRoot, specPath, statusPath, opts); err != nil {

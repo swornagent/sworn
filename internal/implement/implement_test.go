@@ -2,7 +2,6 @@ package implement
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,81 +9,65 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/agent"
-	"github.com/swornagent/sworn/internal/model"
+	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/state"
 )
 
 // ---------------------------------------------------------------------------
-// Fake agent — scripted responses for testing
+// Fake driver — the S06 test seam. The old fakeAgent scripted tool calls
+// that internal/agent executed; under the driver contract the tool loop
+// lives BEHIND the driver, so the fake applies its file effects directly in
+// the implement dispatch and answers the DoR reqverify call on the captain
+// arm.
 // ---------------------------------------------------------------------------
 
-// fakeAgent returns scripted ChatResponses. Each entry in script is one turn.
-// The last entry must be a text response (no tool calls) to terminate the loop.
-type fakeAgent struct {
-	t              *testing.T
-	script         []fakeResponse
-	next           int
-	lastUserPrompt string
+type fakeImplDriver struct {
+	t *testing.T
+	// effect runs at implement dispatch, rooted at the dispatch worktree —
+	// the driver-seam equivalent of the old scripted write/edit tool calls.
+	effect func(worktreeRoot string) error
+	// dorText is the captain-arm reply used by the DoR reqverify gate.
+	// Empty defaults to a passing grade for the fixture's single AC.
+	dorText string
+	// err, when set, fails the implement dispatch (simulated model error).
+	err error
+
+	lastUserPrompt string // the implement dispatch's Payload
 }
 
-type fakeResponse struct {
-	text      string
-	toolCalls []fakeToolCall
+func (f *fakeImplDriver) Name() string { return "fake-impl-driver" }
+func (f *fakeImplDriver) Roles() driver.RoleSet {
+	return driver.RoleSet{driver.RoleImplementer: true, driver.RoleVerifier: true, driver.RoleCaptain: true}
 }
 
-type fakeToolCall struct {
-	name string
-	args string
-}
-
-func (f *fakeAgent) Chat(_ context.Context, messages []model.ChatMessage, _ []model.ToolDef) (*model.ChatResponse, error) {
-	if f.next >= len(f.script) {
-		f.t.Fatal("fakeAgent: no more scripted responses")
-	}
-	r := f.script[f.next]
-	f.next++
-
-	cr := &model.ChatResponse{
-		Choices: []struct {
-			Message struct {
-				Content   string           `json:"content"`
-				ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
-			} `json:"message"`
-			FinishReason string `json:"finish_reason"`
-		}{{}},
-	}
-	cr.Choices[0].Message.Content = r.text
-
-	// Record the last user/system messages for assertion purposes.
-	// Store a copy of the most recent user message content if available.
-	for _, m := range messages {
-		if m.Role == "user" {
-			f.lastUserPrompt = m.Content
+func (f *fakeImplDriver) Dispatch(_ context.Context, in driver.DispatchInput) (driver.Result, error) {
+	switch in.Role {
+	case driver.RoleCaptain:
+		text := f.dorText
+		if text == "" {
+			text = "## RESULTS\n\nAC 1 (S06-test-slice): PASS\n"
 		}
+		return driver.Result{Status: driver.StatusOK, ResultText: text}, nil
+	default:
+		f.lastUserPrompt = in.Payload
+		if f.err != nil {
+			return driver.Result{Status: driver.StatusError, ErrKind: "other"}, f.err
+		}
+		if f.effect != nil {
+			if err := f.effect(in.WorktreeRoot); err != nil {
+				return driver.Result{Status: driver.StatusError, ErrKind: "other"}, err
+			}
+		}
+		return driver.Result{Status: driver.StatusOK, ResultText: "Implementation complete."}, nil
 	}
-
-	for i, tc := range r.toolCalls {
-		cr.Choices[0].Message.ToolCalls = append(cr.Choices[0].Message.ToolCalls, model.ToolCall{
-			ID:   fmt.Sprintf("call_%d_%d", f.next, i),
-			Type: "function",
-			Function: model.FunctionCall{
-				Name:      tc.name,
-				Arguments: tc.args,
-			},
-		})
-	}
-	if len(r.toolCalls) > 0 {
-		cr.Choices[0].FinishReason = "tool_calls"
-	} else {
-		cr.Choices[0].FinishReason = "stop"
-	}
-
-	return cr, nil
 }
 
-// Compile-time check: fakeAgent satisfies agent.Agent.
-var _ agent.Agent = (*fakeAgent)(nil)
+// writeFile returns an effect that writes one file under the worktree.
+func writeFile(rel, content string) func(string) error {
+	return func(worktreeRoot string) error {
+		return os.WriteFile(filepath.Join(worktreeRoot, rel), []byte(content), 0o644)
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -260,27 +243,10 @@ func run(t *testing.T, dir string, name string, args ...string) string {
 func TestRun_GeneratesProofFromLiveRepoState(t *testing.T) {
 	workspaceRoot, specPath, _ := setupTempRepo(t)
 
-	// Fake agent: write hello.txt, verify with bash, then finish.
-	fa := &fakeAgent{
-		t: t,
-		script: []fakeResponse{
-			{
-				toolCalls: []fakeToolCall{
-					{name: "write", args: `{"path":"hello.txt","content":"hello world"}`},
-				},
-			},
-			{
-				toolCalls: []fakeToolCall{
-					{name: "bash", args: `{"command":"cat hello.txt"}`},
-				},
-			},
-			{
-				text: "I've written hello.txt with 'hello world'. Implementation complete.",
-			},
-		},
-	}
+	// Fake driver: the implement dispatch writes hello.txt.
+	fa := &fakeImplDriver{t: t, effect: writeFile("hello.txt", "hello world")}
 
-	_, err := Run(context.Background(), workspaceRoot, specPath, "", fa)
+	_, err := Run(context.Background(), workspaceRoot, specPath, "", fa, "fake/model", 0)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}
@@ -353,28 +319,11 @@ func TestRun_DesignReviewToInProgress(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Fake agent: first response is the reqverify call (DoR gate),
-	// subsequent responses drive the implementation.
-	fa := &fakeAgent{
-		t: t,
-		script: []fakeResponse{
-			{
-				// reqverify gate response — must contain ## RESULTS with a PASS grade
-				// for the fixture's single AC.
-				text: "## RESULTS\n\nAC 1 (S06-test-slice): PASS\n",
-			},
-			{
-				toolCalls: []fakeToolCall{
-					{name: "write", args: `{"path":"output.txt","content":"from design_review"}`},
-				},
-			},
-			{
-				text: "Done.",
-			},
-		},
-	}
+	// Fake driver: the captain arm answers the DoR reqverify call with a
+	// passing grade (the fake's default); the implement arm writes a file.
+	fa := &fakeImplDriver{t: t, effect: writeFile("output.txt", "from design_review")}
 
-	_, err = Run(context.Background(), workspaceRoot, specPath, "", fa)
+	_, err = Run(context.Background(), workspaceRoot, specPath, "", fa, "fake/model", 0)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}
@@ -404,14 +353,9 @@ func TestRun_IllegalStateRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fa := &fakeAgent{
-		t: t,
-		script: []fakeResponse{
-			{text: "Done."},
-		},
-	}
+	fa := &fakeImplDriver{t: t}
 
-	_, err = Run(context.Background(), workspaceRoot, specPath, "", fa)
+	_, err = Run(context.Background(), workspaceRoot, specPath, "", fa, "fake/model", 0)
 	if err == nil {
 		t.Fatal("expected error for planned state, got nil")
 	}
@@ -420,17 +364,11 @@ func TestRun_IllegalStateRejected(t *testing.T) {
 	}
 }
 
-// errorAgent is a fake agent that returns an error on every Chat call.
-type errorAgent struct{}
-
-func (errorAgent) Chat(context.Context, []model.ChatMessage, []model.ToolDef) (*model.ChatResponse, error) {
-	return nil, fmt.Errorf("simulated model error")
-}
-
 func TestRun_AgentErrorDoesNotTransition(t *testing.T) {
 	workspaceRoot, specPath, _ := setupTempRepo(t)
 
-	_, err := Run(context.Background(), workspaceRoot, specPath, "", &errorAgent{})
+	_, err := Run(context.Background(), workspaceRoot, specPath, "",
+		&fakeImplDriver{t: t, err: fmt.Errorf("simulated model error")}, "fake/model", 0)
 	if err == nil {
 		t.Fatal("expected error from agent, got nil")
 	}
@@ -507,21 +445,13 @@ Write a hello world file and verify it exists.
 		t.Fatal(err)
 	}
 
-	// Fake agent — the DoR gate will call CheckDoR before the agent loop.
-	// The agent IS called as part of the reqverify verifier, so provide
-	// a passing verifier response (the RTM gate failure is the one we're
-	// testing — orphaned need N-99).
-	fa := &fakeAgent{
-		t: t,
-		script: []fakeResponse{
-			{
-				// reqverify gate response — passing.
-				text: "## RESULTS\n\nAC 1 (S06-test-slice): PASS\n",
-			},
-		},
-	}
+	// Fake driver — the DoR gate will call CheckDoR before the implement
+	// dispatch. The driver's captain arm serves the reqverify call with a
+	// passing grade (the RTM gate failure is the one we're testing —
+	// orphaned need N-99).
+	fa := &fakeImplDriver{t: t}
 
-	_, err = Run(context.Background(), workspaceRoot, specPath, "", fa)
+	_, err = Run(context.Background(), workspaceRoot, specPath, "", fa, "fake/model", 0)
 	if err == nil {
 		t.Fatal("expected Run() to return error due to DoR gate blocking, got nil")
 	}
@@ -557,19 +487,9 @@ Write a hello world file and verify it exists.
 func TestProof_ContainsRequiredSections(t *testing.T) {
 	workspaceRoot, specPath, _ := setupTempRepo(t)
 
-	fa := &fakeAgent{
-		t: t,
-		script: []fakeResponse{
-			{
-				toolCalls: []fakeToolCall{
-					{name: "write", args: `{"path":"test.txt","content":"test"}`},
-				},
-			},
-			{text: "Done."},
-		},
-	}
+	fa := &fakeImplDriver{t: t, effect: writeFile("test.txt", "test")}
 
-	if _, err := Run(context.Background(), workspaceRoot, specPath, "", fa); err != nil {
+	if _, err := Run(context.Background(), workspaceRoot, specPath, "", fa, "fake/model", 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -623,23 +543,9 @@ func TestProof_FilesChangedFromGit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fa := &fakeAgent{
-		t: t,
-		script: []fakeResponse{
-			{
-				toolCalls: []fakeToolCall{
-					{name: "edit", args: mustMarshal(map[string]string{
-						"path":       "existing.txt",
-						"old_string": "before",
-						"new_string": "after",
-					})},
-				},
-			},
-			{text: "Edited existing.txt."},
-		},
-	}
+	fa := &fakeImplDriver{t: t, effect: writeFile("existing.txt", "after")}
 
-	if _, err := Run(context.Background(), workspaceRoot, specPath, "", fa); err != nil {
+	if _, err := Run(context.Background(), workspaceRoot, specPath, "", fa, "fake/model", 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -673,14 +579,6 @@ func TestProof_FilesChangedFromGit(t *testing.T) {
 	}
 }
 
-func mustMarshal(v interface{}) string {
-	b, err := json.Marshal(v)
-	if err != nil {
-		panic(err)
-	}
-	return string(b)
-}
-
 // ---------------------------------------------------------------------------
 // Feedback injection tests
 // ---------------------------------------------------------------------------
@@ -688,16 +586,10 @@ func mustMarshal(v interface{}) string {
 func TestRunInjectsPriorFeedback(t *testing.T) {
 	workspaceRoot, specPath, _ := setupTempRepo(t)
 
-	fa := &fakeAgent{
-		t: t,
-		script: []fakeResponse{
-			{toolCalls: []fakeToolCall{{name: "write", args: `{"path":"feedback.txt","content":"ok"}`}}},
-			{text: "Done."},
-		},
-	}
+	fa := &fakeImplDriver{t: t, effect: writeFile("feedback.txt", "ok")}
 
 	feedback := "previous attempt failed because gate 2 missing integration test"
-	_, err := Run(context.Background(), workspaceRoot, specPath, feedback, fa)
+	_, err := Run(context.Background(), workspaceRoot, specPath, feedback, fa, "fake/model", 0)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}
@@ -717,15 +609,9 @@ func TestRunInjectsPriorFeedback(t *testing.T) {
 	}
 
 	// Empty feedback must not inject the block.
-	fa2 := &fakeAgent{
-		t: t,
-		script: []fakeResponse{
-			{toolCalls: []fakeToolCall{{name: "write", args: `{"path":"empty.txt","content":"ok"}`}}},
-			{text: "Done."},
-		},
-	}
+	fa2 := &fakeImplDriver{t: t, effect: writeFile("empty.txt", "ok")}
 	workspaceRoot2, specPath2, _ := setupTempRepo(t)
-	_, err = Run(context.Background(), workspaceRoot2, specPath2, "", fa2)
+	_, err = Run(context.Background(), workspaceRoot2, specPath2, "", fa2, "fake/model", 0)
 	if err != nil {
 		t.Fatalf("Run() with empty feedback error: %v", err)
 	}

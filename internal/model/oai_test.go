@@ -162,50 +162,55 @@ func TestOAI_Verify_EmptyChoices(t *testing.T) {
 
 func TestComputeCost(t *testing.T) {
 	tests := []struct {
-		name  string
-		model string
-		usage *UsageBlock
-		want  float64
+		name         string
+		model        string
+		inputTokens  int64
+		outputTokens int64
+		want         float64
 	}{
 		{
-			name:  "nil usage",
+			name:  "zero tokens",
 			model: "gpt-4.1-mini",
-			usage: nil,
 			want:  0,
 		},
 		{
-			name:  "unknown model",
-			model: "unknown-model",
-			usage: &UsageBlock{PromptTokens: 1000, CompletionTokens: 500},
-			want:  0,
+			name:         "unknown model",
+			model:        "unknown-model",
+			inputTokens:  1000,
+			outputTokens: 500,
+			want:         0,
 		},
 		{
-			name:  "gpt-4.1-mini exact",
-			model: "gpt-4.1-mini",
-			usage: &UsageBlock{PromptTokens: 1_000_000, CompletionTokens: 1_000_000},
-			want:  0.30 + 0.80,
+			name:         "gpt-4.1-mini exact",
+			model:        "gpt-4.1-mini",
+			inputTokens:  1_000_000,
+			outputTokens: 1_000_000,
+			want:         0.30 + 0.80,
 		}, {
-			name:  "gpt-4.1 exact",
-			model: "gpt-4.1",
-			usage: &UsageBlock{PromptTokens: 500_000, CompletionTokens: 250_000},
-			want:  1.00 + 2.00,
+			name:         "gpt-4.1 exact",
+			model:        "gpt-4.1",
+			inputTokens:  500_000,
+			outputTokens: 250_000,
+			want:         1.00 + 2.00,
 		},
 		{
-			name:  "gpt-4o exact",
-			model: "gpt-4o",
-			usage: &UsageBlock{PromptTokens: 1_000_000, CompletionTokens: 1_000_000},
-			want:  2.50 + 10.00,
+			name:         "gpt-4o exact",
+			model:        "gpt-4o",
+			inputTokens:  1_000_000,
+			outputTokens: 1_000_000,
+			want:         2.50 + 10.00,
 		},
 		{
-			name:  "o3 exact",
-			model: "o3",
-			usage: &UsageBlock{PromptTokens: 1_000_000, CompletionTokens: 1_000_000},
-			want:  10.00 + 40.00,
+			name:         "o3 exact",
+			model:        "o3",
+			inputTokens:  1_000_000,
+			outputTokens: 1_000_000,
+			want:         10.00 + 40.00,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := computeCost(tt.model, tt.usage)
+			got := ComputeCostFromTokens(tt.model, tt.inputTokens, tt.outputTokens)
 			// tolerate float rounding
 			if got < tt.want-0.01 || got > tt.want+0.01 {
 				t.Fatalf("want ~%f, got %f", tt.want, got)
@@ -255,6 +260,14 @@ func TestFromEnv(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "openai-completions with key → legacy chat/completions (sworn#31)",
+			env: map[string]string{
+				"SWORN_OPENAI_API_KEY": "sk-test",
+			},
+			modelID: "openai-completions/gpt-4.1",
+			wantErr: false,
+		},
+		{
 			name: "groq provider with key, no base URL — uses preset",
 			env: map[string]string{
 				"SWORN_GROQ_API_KEY": "sk-test",
@@ -280,12 +293,14 @@ func TestFromEnv(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			// sworn#31 migration: the base-URL override applies to the *OAI
+			// client, which openai-completions/ now names.
 			name: "invalid base URL",
 			env: map[string]string{
-				"SWORN_OPENAI_API_KEY":  "sk-test",
-				"SWORN_OPENAI_BASE_URL": "://bad",
+				"SWORN_OPENAI_API_KEY":              "sk-test",
+				"SWORN_OPENAI_COMPLETIONS_BASE_URL": "://bad",
 			},
-			modelID: "openai/gpt-4.1",
+			modelID: "openai-completions/gpt-4.1",
 			wantErr: true,
 		},
 	}
@@ -294,6 +309,7 @@ func TestFromEnv(t *testing.T) {
 			// Clear relevant env vars first
 			for _, k := range []string{
 				"SWORN_OPENAI_API_KEY", "SWORN_OPENAI_BASE_URL", "SWORN_OPENAI_MODEL",
+				"SWORN_OPENAI_COMPLETIONS_BASE_URL", "SWORN_OPENAI_COMPLETIONS_MODEL",
 				"SWORN_GROQ_API_KEY", "SWORN_GROQ_BASE_URL", "SWORN_GROQ_MODEL",
 				"SWORN_DIRECT", "SWORN_PROXY_URL",
 			} {
@@ -312,7 +328,13 @@ func TestFromEnv(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			if !tt.wantErr {
-				if _, ok := v.(*OAI); !ok {
+				// sworn#31: openai/ is now the Responses API; every other
+				// OAI-compat prefix (incl. openai-completions/) is *OAI.
+				if strings.HasPrefix(tt.modelID, "openai/") {
+					if _, ok := v.(*OpenAIResponses); !ok {
+						t.Fatalf("want *OpenAIResponses for openai/ (sworn#31), got %T", v)
+					}
+				} else if _, ok := v.(*OAI); !ok {
 					t.Fatalf("want *OAI, got %T", v)
 				}
 			}
@@ -363,7 +385,9 @@ func TestFromEnvUsesProxy(t *testing.T) {
 	t.Setenv("SWORN_OPENAI_API_KEY", "")
 	t.Setenv("SWORN_DIRECT", "")
 
-	v, err := FromEnv("openai/gpt-4.1")
+	// sworn#31 migration: the chat/completions-shaped mock pairs with the
+	// openai-completions/ prefix (openai/ is the Responses API now).
+	v, err := FromEnv("openai-completions/gpt-4.1")
 	if err != nil {
 		t.Fatalf("FromEnv failed: %v", err)
 	}
@@ -376,6 +400,33 @@ func TestFromEnvUsesProxy(t *testing.T) {
 
 	if !proxyHit {
 		t.Error("expected request to hit the proxy server, but it did not")
+	}
+}
+
+// TestFromEnvProxyOpenAIIsResponses (sworn#31): via the proxy, openai/ (and
+// its deprecated alias openai-responses/) selects the Responses-API client
+// so /v1/responses is called — not the OAI chat/completions adapter.
+func TestFromEnvProxyOpenAIIsResponses(t *testing.T) {
+	t.Setenv("SWORN_PROXY_URL", "")
+	writeTestCreds(t, t.TempDir())
+	t.Setenv("SWORN_OPENAI_API_KEY", "")
+	t.Setenv("SWORN_DIRECT", "")
+
+	for _, modelID := range []string{"openai/gpt-5", "openai-responses/gpt-5"} {
+		v, err := FromEnv(modelID)
+		if err != nil {
+			t.Fatalf("FromEnv(%q) failed: %v", modelID, err)
+		}
+		resp, ok := v.(*OpenAIResponses)
+		if !ok {
+			t.Fatalf("FromEnv(%q) = %T, want *OpenAIResponses", modelID, v)
+		}
+		if !strings.HasPrefix(resp.BaseURL, "https://api.swornagent.com") {
+			t.Errorf("FromEnv(%q) BaseURL = %q, want the proxy host", modelID, resp.BaseURL)
+		}
+		if resp.APIKey != "tok_proxy" {
+			t.Errorf("FromEnv(%q) APIKey = %q, want the sworn token", modelID, resp.APIKey)
+		}
 	}
 }
 
@@ -403,11 +454,12 @@ func TestFromEnvBypassProxy(t *testing.T) {
 	// Write credentials file into a temp config dir.
 	writeTestCreds(t, t.TempDir())
 
-	// Set SWORN_DIRECT=1 and provider key + base URL.
+	// Set SWORN_DIRECT=1 and provider key + base URL. sworn#31 migration:
+	// the chat/completions leg is openai-completions/ now.
 	t.Setenv("SWORN_DIRECT", "1")
 	t.Setenv("SWORN_OPENAI_API_KEY", "sk-direct")
-	t.Setenv("SWORN_OPENAI_BASE_URL", providerSrv.URL)
-	v, err := FromEnv("openai/gpt-4.1")
+	t.Setenv("SWORN_OPENAI_COMPLETIONS_BASE_URL", providerSrv.URL)
+	v, err := FromEnv("openai-completions/gpt-4.1")
 	if err != nil {
 		t.Fatalf("FromEnv failed: %v", err)
 	}
@@ -436,7 +488,8 @@ func TestFromEnvProxyDefaultHost(t *testing.T) {
 
 	t.Setenv("SWORN_OPENAI_API_KEY", "")
 	t.Setenv("SWORN_DIRECT", "")
-	v, err := FromEnv("openai/gpt-4.1")
+	// sworn#31 migration: the *OAI proxy leg is openai-completions/ now.
+	v, err := FromEnv("openai-completions/gpt-4.1")
 	if err != nil {
 		t.Fatalf("FromEnv failed: %v", err)
 	}
@@ -471,7 +524,8 @@ func TestFromEnvProxyOverrideWarns(t *testing.T) {
 
 	t.Setenv("SWORN_OPENAI_API_KEY", "")
 	t.Setenv("SWORN_DIRECT", "")
-	v, err := FromEnv("openai/gpt-4.1")
+	// sworn#31 migration: the *OAI proxy leg is openai-completions/ now.
+	v, err := FromEnv("openai-completions/gpt-4.1")
 	if err != nil {
 		t.Fatalf("FromEnv failed: %v", err)
 	}
@@ -522,11 +576,13 @@ func TestFromEnvInsufficientCredits(t *testing.T) {
 	// Write credentials file into a temp config dir.
 	writeTestCreds(t, t.TempDir())
 
-	// Set provider key + URL so a fallback *could* happen if the code were buggy.
+	// Set provider key + URL so a fallback *could* happen if the code were
+	// buggy. sworn#31 migration: the chat/completions leg is
+	// openai-completions/ now.
 	t.Setenv("SWORN_OPENAI_API_KEY", "sk-direct")
-	t.Setenv("SWORN_OPENAI_BASE_URL", providerSrv.URL)
+	t.Setenv("SWORN_OPENAI_COMPLETIONS_BASE_URL", providerSrv.URL)
 	t.Setenv("SWORN_DIRECT", "")
-	v, err := FromEnv("openai/gpt-4.1")
+	v, err := FromEnv("openai-completions/gpt-4.1")
 	if err != nil {
 		t.Fatalf("FromEnv failed: %v", err)
 	}
@@ -559,7 +615,8 @@ func TestFromEnvNoCredsUnchanged(t *testing.T) {
 	t.Setenv("SWORN_DIRECT", "")
 	t.Setenv("SWORN_OPENAI_API_KEY", "sk-test")
 
-	v, err := FromEnv("openai/gpt-4.1")
+	// sworn#31 migration: the *OAI direct leg is openai-completions/ now.
+	v, err := FromEnv("openai-completions/gpt-4.1")
 	if err != nil {
 		t.Fatalf("FromEnv failed: %v", err)
 	}

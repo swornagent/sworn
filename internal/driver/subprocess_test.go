@@ -28,6 +28,9 @@ func TestMain(m *testing.M) {
 	case "minimal":
 		fakeClaudeMinimal()
 		return
+	case "zero-cost":
+		fakeClaudeZeroCost()
+		return
 	case "fail":
 		fakeClaudeFail()
 		return
@@ -102,6 +105,17 @@ func fakeClaudeVerdictBad() {
 func fakeClaudeMinimal() {
 	recordInvocation()
 	writeStdoutLine(`{"result":"ok"}`)
+}
+
+// fakeClaudeZeroCost emits an envelope carrying an EXPLICIT reported zero
+// (total_cost_usd: 0, distinct from the field being absent entirely) — the
+// case design_decision D1 examined and the Coach ratified fail-closed: an
+// explicit zero is NOT treated as a positively identified subscription
+// marker (it is equally consistent with a genuinely free/no-cost turn), so
+// costSource() classifies it CostSourceUnknown, same as a missing field.
+func fakeClaudeZeroCost() {
+	recordInvocation()
+	writeStdoutLine(`{"result":"done","total_cost_usd":0,"usage":{"input_tokens":10,"output_tokens":5},"duration_ms":100,"model":"claude-sonnet-4"}`)
 }
 
 // fakeClaudeFail exits non-zero — simulates the CLI not being logged in.

@@ -18,14 +18,17 @@ import (
 	"time"
 
 	"github.com/swornagent/sworn/internal/account"
-	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/db"
+	"github.com/swornagent/sworn/internal/driver/registry"
 	"github.com/swornagent/sworn/internal/git"
-	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/state"
 	"github.com/swornagent/sworn/internal/supervisor"
-) // DefaultEscalationModels is the default model escalation path when none is// provided. Each entry is a "provider/model" ID suitable for model.FromEnv.
-// The list runs from cheapest to most capable; on retry the next model is used.
+)
+
+// DefaultEscalationModels is the default model escalation path when none is
+// provided. Each entry is a "provider/model" ID resolvable by the driver
+// registry. The list runs from cheapest to most capable; on retry the next
+// model is used.
 var DefaultEscalationModels = []string{
 	"openai/gpt-4o-mini",
 	"openai/gpt-4o",
@@ -62,13 +65,12 @@ type Options struct {
 	// WorkspaceRoot is the repo root directory. Default ".".
 	WorkspaceRoot string
 
-	// NewAgent is a factory for creating an agent.Agent from a model ID.
-	// When nil, model.FromEnv is used (production path). Tests inject fakes.
-	NewAgent func(modelID string) (agent.Agent, error)
-
-	// NewVerifier is a factory for creating a model.Verifier from a model ID.
-	// When nil, model.FromEnv is used (production path). Tests inject fakes.
-	NewVerifier func(modelID string) (model.Verifier, error)
+	// Registry is the driver-resolution authority for every role leg (S06
+	// rewire, replacing the deleted NewAgent/NewVerifier factories). When
+	// nil, RunSlice defaults it to
+	// registry.Default(model.ProviderConfigFromEnv()) (production path).
+	// Tests inject fake drivers through a test registry.
+	Registry *registry.Registry
 
 	// DBPath is the path to the SQLite database. If empty, the default
 	// (.sworn/sworn.db under WorkspaceRoot) is used.
@@ -103,12 +105,6 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	if opts.WorkspaceRoot == "" {
 		opts.WorkspaceRoot = "."
-	}
-	if opts.NewAgent == nil {
-		opts.NewAgent = newAgentFromModel
-	}
-	if opts.NewVerifier == nil {
-		opts.NewVerifier = newVerifierFromModel
 	}
 
 	workspaceRoot, err := filepath.Abs(opts.WorkspaceRoot)
@@ -221,12 +217,13 @@ func Run(ctx context.Context, opts Options) error {
 		EscalationModels: opts.EscalationModels,
 		RetryCap:         opts.RetryCap,
 		ImplementTimeout: opts.ImplementTimeout,
-		NewAgent:         opts.NewAgent,
-		NewVerifier:      opts.NewVerifier,
+		Registry:         opts.Registry,
 		Notifier:         opts.Notifier,
 		DB:               database,
 	})
-	if err != nil { // Re-wrap Blocked errors to preserve the run: prefix for		// existing tests that check "verification blocked".
+	if err != nil {
+		// Re-wrap Blocked errors to preserve the run: prefix for
+		// existing tests that check "verification blocked".
 		if IsBlocked(err) {
 			return fmt.Errorf("run: %s", err)
 		}
@@ -340,30 +337,9 @@ func sanitiseBranch(task string) string {
 	return name
 }
 
-func newAgentFromModel(modelID string) (agent.Agent, error) {
-	v, err := model.FromEnv(modelID)
-	if err != nil {
-		return nil, err
-	}
-
-	// ── Chat capability gate (S08) ─────────────────────────────────
-	// The implementer role requires Chat. Check CapabilityProvider before
-	// asserting agent.Agent — a driver that supports Verify but not Chat
-	// should fail fast here, not mid-run.
-	if cp, ok := v.(model.CapabilityProvider); !ok || cp.Capabilities()&model.CapChat == 0 {
-		provider := modelID
-		if idx := strings.IndexByte(modelID, '/'); idx >= 0 {
-			provider = modelID[:idx]
-		}
-		return nil, fmt.Errorf("driver %s does not support Chat — required for the implementer role", provider)
-	}
-
-	a, ok := v.(agent.Agent)
-	if !ok {
-		return nil, fmt.Errorf("model %q does not support agent interface", modelID)
-	}
-	return a, nil
-}
-func newVerifierFromModel(modelID string) (model.Verifier, error) {
-	return model.FromEnv(modelID)
-}
+// NOTE (S06): newAgentFromModel / newVerifierFromModel — the factory
+// defaults behind the deleted Options.NewAgent/NewVerifier fields — were
+// removed with the registry rewire. Their CapChat capability gate is
+// subsumed by the registry's role check ("capability IS the role set",
+// S05): an incapable driver is rejected by name at Resolve time, before any
+// dispatch.

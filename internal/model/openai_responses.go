@@ -212,7 +212,12 @@ func (c *OpenAIResponses) Verify(ctx context.Context, systemPrompt, userPayload 
 
 	text := extractOutputText(ar.Output)
 	usage := convertUsage(ar.Usage)
-	cost := computeCost(c.Model, usage)
+	var inputTokens, outputTokens int64
+	if usage != nil {
+		inputTokens = int64(usage.PromptTokens)
+		outputTokens = int64(usage.CompletionTokens)
+	}
+	cost := ComputeCostFromTokens(c.Model, inputTokens, outputTokens)
 	return text, cost, 0, 0, nil
 }
 

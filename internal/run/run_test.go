@@ -3,13 +3,6 @@ package run
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"github.com/swornagent/sworn/internal/account"
-	"github.com/swornagent/sworn/internal/agent"
-	"github.com/swornagent/sworn/internal/model"
-	"github.com/swornagent/sworn/internal/prompt"
-	"github.com/swornagent/sworn/internal/state"
-	"github.com/swornagent/sworn/internal/verdict"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +10,12 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/swornagent/sworn/internal/account"
+	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/driver/registry"
+	"github.com/swornagent/sworn/internal/state"
+	"github.com/swornagent/sworn/internal/verdict"
 )
 
 // structuredVerdictReply bridges the pre-agentic scripted verifiers (which
@@ -56,74 +55,130 @@ func structuredVerdictReply(text string) string {
 }
 
 // ---------------------------------------------------------------------------
-// Fake agent — scripted implementer
+// fakeDriver — the S06 test seam: tests inject fake drivers through a test
+// registry (AC-01), never through factories.
 // ---------------------------------------------------------------------------
 
-type fakeImplementer struct {
-	t      *testing.T
-	script []fakeAgentResponse
-	next   int
+type fakeDriver struct {
+	name  string
+	roles driver.RoleSet // nil → all three roles
+
+	// Per-role dispatch behaviour. Nil arms fall back to a benign default:
+	// implement → StatusOK "Done."; captain → StatusOK prose (no §-headers,
+	// so the design gate defers, matching the old fakes' behaviour);
+	// verify → a schema-valid PASS emission.
+	implement func(ctx context.Context, in driver.DispatchInput) (driver.Result, error)
+	verify    func(ctx context.Context, in driver.DispatchInput) (driver.Result, error)
+	captain   func(ctx context.Context, in driver.DispatchInput) (driver.Result, error)
+
+	mu    sync.Mutex
+	calls []driver.DispatchInput
 }
 
-type fakeAgentResponse struct {
-	text      string
-	toolCalls []fakeToolCall
+func (d *fakeDriver) Name() string {
+	if d.name == "" {
+		return "fake-driver"
+	}
+	return d.name
 }
 
-type fakeToolCall struct {
-	name string
-	args string
+func (d *fakeDriver) Roles() driver.RoleSet {
+	if d.roles == nil {
+		return driver.RoleSet{driver.RoleImplementer: true, driver.RoleVerifier: true, driver.RoleCaptain: true}
+	}
+	return d.roles
 }
 
-func (f *fakeImplementer) Chat(_ context.Context, _ []model.ChatMessage, _ []model.ToolDef) (*model.ChatResponse, error) {
-	if f.next >= len(f.script) {
-		// Return a simple done message if script exhausted.
-		return &model.ChatResponse{
-			Choices: []struct {
-				Message struct {
-					Content   string           `json:"content"`
-					ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
-				} `json:"message"`
-				FinishReason string `json:"finish_reason"`
-			}{{Message: struct {
-				Content   string           `json:"content"`
-				ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
-			}{Content: "Done."}}},
-		}, nil
+func (d *fakeDriver) Dispatch(ctx context.Context, in driver.DispatchInput) (driver.Result, error) {
+	d.mu.Lock()
+	d.calls = append(d.calls, in)
+	d.mu.Unlock()
+	switch in.Role {
+	case driver.RoleVerifier:
+		if d.verify != nil {
+			return d.verify(ctx, in)
+		}
+		return okStructured(structuredVerdictReply("PASS")), nil
+	case driver.RoleCaptain:
+		if d.captain != nil {
+			return d.captain(ctx, in)
+		}
+		return driver.Result{Status: driver.StatusOK, ResultText: "captain judgement (no sections, no pins)"}, nil
+	default:
+		if d.implement != nil {
+			return d.implement(ctx, in)
+		}
+		return driver.Result{Status: driver.StatusOK, ResultText: "Done."}, nil
 	}
-	r := f.script[f.next]
-	f.next++
-
-	cr := &model.ChatResponse{
-		Choices: []struct {
-			Message struct {
-				Content   string           `json:"content"`
-				ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
-			} `json:"message"`
-			FinishReason string `json:"finish_reason"`
-		}{{}},
-	}
-	cr.Choices[0].Message.Content = r.text
-
-	for i, tc := range r.toolCalls {
-		cr.Choices[0].Message.ToolCalls = append(cr.Choices[0].Message.ToolCalls, model.ToolCall{
-			ID:   fmt.Sprintf("call_%d_%d", f.next, i),
-			Type: "function",
-			Function: model.FunctionCall{
-				Name:      tc.name,
-				Arguments: tc.args,
-			},
-		})
-	}
-	if len(r.toolCalls) > 0 {
-		cr.Choices[0].FinishReason = "tool_calls"
-	} else {
-		cr.Choices[0].FinishReason = "stop"
-	}
-	return cr, nil
 }
 
-var _ agent.Agent = (*fakeImplementer)(nil)
+// dispatchCount returns how many Dispatch calls the fake served.
+func (d *fakeDriver) dispatchCount() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.calls)
+}
+
+// dispatchedRoles returns the set of roles Dispatch was called with.
+func (d *fakeDriver) dispatchedRoles() map[driver.Role]int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	out := map[driver.Role]int{}
+	for _, c := range d.calls {
+		out[c.Role]++
+	}
+	return out
+}
+
+// okStructured builds a StatusOK verifier result carrying the emitted verdict.
+func okStructured(emitted string) driver.Result {
+	return driver.Result{Status: driver.StatusOK, StructuredJSON: json.RawMessage(emitted)}
+}
+
+// testRegistry builds a registry with d registered under the "fake" prefix
+// (plus any extras) — the AC-01 injection contract.
+func testRegistry(d driver.Driver, prefixes ...string) *registry.Registry {
+	r := registry.New()
+	if len(prefixes) == 0 {
+		prefixes = []string{"fake"}
+	}
+	r.Register(registry.Entry{Driver: d, Prefixes: prefixes})
+	return r
+}
+
+// writeFileImplementer returns an implement arm that writes output.txt into
+// the dispatch worktree (the driver-seam successor of the old stdoutAgent
+// tool-call script).
+func writeFileImplementer(content string) func(context.Context, driver.DispatchInput) (driver.Result, error) {
+	return func(_ context.Context, in driver.DispatchInput) (driver.Result, error) {
+		if err := os.WriteFile(filepath.Join(in.WorktreeRoot, "output.txt"), []byte(content), 0o644); err != nil {
+			return driver.Result{Status: driver.StatusError, ErrKind: "other"}, err
+		}
+		return driver.Result{Status: driver.StatusOK, ResultText: "Implementation complete."}, nil
+	}
+}
+
+// proseVerifier is the scripted-verdict seam the legacy verifier fakes
+// satisfy (fakeVerifier, textVerifier, failThenPassVerifier, ...). It is
+// wire-free by construction: prose in, prose out.
+type proseVerifier interface {
+	Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error)
+}
+
+// verdictsFrom adapts a scripted proseVerifier onto the driver verify arm,
+// translating its prose verdict into a schema-valid verifier-verdict-v1
+// emission (the same bridge the pre-S06 verifierAwareAgent provided).
+func verdictsFrom(v proseVerifier) func(context.Context, driver.DispatchInput) (driver.Result, error) {
+	return func(ctx context.Context, _ driver.DispatchInput) (driver.Result, error) {
+		text, cost, _, _, err := v.Verify(ctx, "", "")
+		if err != nil {
+			return driver.Result{Status: driver.StatusError, ErrKind: "other"}, err
+		}
+		res := okStructured(structuredVerdictReply(text))
+		res.CostUSD = cost
+		return res, nil
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Fake verifier — returns scripted verdicts
@@ -143,75 +198,12 @@ func (f *fakeVerifier) Verify(_ context.Context, _, _ string) (string, float64, 
 	return string(v.Verdict) + ": " + v.Rationale, v.CostUSD, 0, 0, nil
 }
 
-var _ model.Verifier = (*fakeVerifier)(nil)
-
 // ---------------------------------------------------------------------------
-// verifierAwareAgent — bridges scripted verdicts to the agentic verify path
-// ---------------------------------------------------------------------------
-
-// verifierAwareAgent routes the agentic verifier dispatch (system prompt ==
-// prompt.Verifier(), no tools) to a scripted model.Verifier `v`, returning its
-// verdict as agent chat content; every other dispatch (implementer, design,
-// captain) delegates to `impl`. This bridges the pre-agentic-migration tests —
-// which scripted verdicts via NewVerifier / verify.Run — onto the agentic verify
-// path (RunSlice dispatches the verifier through NewAgent → verify.RunAgentic).
-// 2026-06-28.
-type verifierAwareAgent struct {
-	impl agent.Agent
-	v    model.Verifier
-}
-
-func (a *verifierAwareAgent) Chat(ctx context.Context, messages []model.ChatMessage, tools []model.ToolDef) (*model.ChatResponse, error) {
-	if len(messages) > 0 && messages[0].Role == "system" && messages[0].Content == prompt.Verifier() {
-		text, _, _, _, err := a.v.Verify(ctx, messages[0].Content, "")
-		if err != nil {
-			return nil, err
-		}
-		return newChatResponse(text), nil
-	}
-	return a.impl.Chat(ctx, messages, tools)
-}
-
-// ChatStructured satisfies model.StructuredOutput so RunAgentic's structured
-// authoring path (ADR-0011) accepts this fake as a verifier driver. It routes
-// to the scripted verifier and translates the prose verdict into a schema-valid
-// verifier-verdict-v1 emission.
-func (a *verifierAwareAgent) ChatStructured(ctx context.Context, messages []model.ChatMessage, schema []byte) (*model.ChatResponse, error) {
-	text, _, _, _, err := a.v.Verify(ctx, prompt.Verifier(), "")
-	if err != nil {
-		return nil, err
-	}
-	return newChatResponse(structuredVerdictReply(text)), nil
-}
-
-var (
-	_ agent.Agent            = (*verifierAwareAgent)(nil)
-	_ model.StructuredOutput = (*verifierAwareAgent)(nil)
-)
-
-// newChatResponse builds a single-choice ChatResponse carrying content (used by
-// the test fakes to return a stop-finish reply).
-func newChatResponse(content string) *model.ChatResponse {
-	cr := &model.ChatResponse{
-		Choices: []struct {
-			Message struct {
-				Content   string           `json:"content"`
-				ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
-			} `json:"message"`
-			FinishReason string `json:"finish_reason"`
-		}{{}},
-	}
-	cr.Choices[0].Message.Content = content
-	cr.Choices[0].FinishReason = "stop"
-	return cr
-}
-
-// ---------------------------------------------------------------------------
-// textVerifier — returns a fixed raw reply, optionally capturing the system prompt
+// textVerifier — returns a fixed raw reply, optionally capturing the system
+// prompt. Used for S03 reachability tests that must inspect what prompt the
+// run loop wired.
 // ---------------------------------------------------------------------------
 
-// textVerifier returns a fixed reply text. When capture is non-nil, it records
-// the system prompt it receives from verify.RunFirstPass. Used for S03 reachability tests// that must inspect what prompt the run loop wired.
 type textVerifier struct {
 	reply   string
 	capture *string
@@ -223,8 +215,6 @@ func (v *textVerifier) Verify(_ context.Context, systemPrompt, _ string) (string
 	}
 	return v.reply, 0, 0, 0, nil
 }
-
-var _ model.Verifier = (*textVerifier)(nil)
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -262,20 +252,6 @@ func runCmd(t *testing.T, dir, name string, args ...string) string {
 	return string(out)
 }
 
-// stdoutAgent creates a fake implementer that writes a file then exits.
-func stdoutAgent(content string) *fakeImplementer {
-	return &fakeImplementer{
-		script: []fakeAgentResponse{
-			{
-				toolCalls: []fakeToolCall{
-					{name: "write", args: fmt.Sprintf(`{"path":"output.txt","content":%q}`, content)},
-				},
-			},
-			{text: "Implementation complete."},
-		},
-	}
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -290,15 +266,16 @@ func TestRun_PassPath_Merges(t *testing.T) {
 	}
 
 	err := Run(context.Background(), Options{
-		Task:          "Write a hello file",
-		VerifierModel: "fake/verifier",
-		Base:          "main",
-		RetryCap:      0,
-		WorkspaceRoot: workspaceRoot,
-		NewAgent: func(_ string) (agent.Agent, error) {
-			return &verifierAwareAgent{impl: stdoutAgent("hello from sworn run"), v: verifier}, nil
-		},
-		NewVerifier: func(_ string) (model.Verifier, error) { return verifier, nil },
+		Task:             "Write a hello file",
+		VerifierModel:    "fake/verifier",
+		Base:             "main",
+		RetryCap:         0,
+		WorkspaceRoot:    workspaceRoot,
+		EscalationModels: []string{"fake/impl"},
+		Registry: testRegistry(&fakeDriver{
+			implement: writeFileImplementer("hello from sworn run"),
+			verify:    verdictsFrom(verifier),
+		}),
 	})
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -337,8 +314,6 @@ func TestRun_PassPath_Merges(t *testing.T) {
 func TestRun_FailPath_NoMerge(t *testing.T) {
 	workspaceRoot, _ := setupTestRepo(t)
 
-	impl := stdoutAgent("should not merge")
-
 	// K=1 resolve-in-place: with 1 model and 2 FAILs, the triage
 	// exhausts (first FAIL → resolve_in_place, second FAIL → halt
 	// because no more models to escalate to).
@@ -356,8 +331,10 @@ func TestRun_FailPath_NoMerge(t *testing.T) {
 		RetryCap:         1,
 		WorkspaceRoot:    workspaceRoot,
 		EscalationModels: []string{"fake/impl1"},
-		NewAgent:         func(_ string) (agent.Agent, error) { return &verifierAwareAgent{impl: impl, v: verifier}, nil },
-		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
+		Registry: testRegistry(&fakeDriver{
+			implement: writeFileImplementer("should not merge"),
+			verify:    verdictsFrom(verifier),
+		}),
 	})
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -380,8 +357,6 @@ func TestRun_FailPath_NoMerge(t *testing.T) {
 func TestRun_FailThenPass_RetrySucceeds(t *testing.T) {
 	workspaceRoot, _ := setupTestRepo(t)
 
-	impl := stdoutAgent("retry success")
-
 	verifier := &fakeVerifier{
 		verdicts: []verdict.Result{
 			{Verdict: verdict.Fail, Rationale: "first try fail"},
@@ -396,8 +371,10 @@ func TestRun_FailThenPass_RetrySucceeds(t *testing.T) {
 		RetryCap:         1,
 		WorkspaceRoot:    workspaceRoot,
 		EscalationModels: []string{"fake/impl1", "fake/impl2"},
-		NewAgent:         func(_ string) (agent.Agent, error) { return &verifierAwareAgent{impl: impl, v: verifier}, nil },
-		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
+		Registry: testRegistry(&fakeDriver{
+			implement: writeFileImplementer("retry success"),
+			verify:    verdictsFrom(verifier),
+		}),
 	})
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -414,8 +391,6 @@ func TestRun_FailThenPass_RetrySucceeds(t *testing.T) {
 func TestRun_Blocked_StopsImmediately(t *testing.T) {
 	workspaceRoot, _ := setupTestRepo(t)
 
-	impl := stdoutAgent("blocked test")
-
 	verifier := &fakeVerifier{
 		verdicts: []verdict.Result{
 			{Verdict: verdict.Blocked, Rationale: "spec missing required section"},
@@ -429,8 +404,10 @@ func TestRun_Blocked_StopsImmediately(t *testing.T) {
 		RetryCap:         3,
 		WorkspaceRoot:    workspaceRoot,
 		EscalationModels: []string{"fake/impl1", "fake/impl2", "fake/impl3", "fake/impl4"},
-		NewAgent:         func(_ string) (agent.Agent, error) { return &verifierAwareAgent{impl: impl, v: verifier}, nil },
-		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
+		Registry: testRegistry(&fakeDriver{
+			implement: writeFileImplementer("blocked test"),
+			verify:    verdictsFrom(verifier),
+		}),
 	})
 	if err == nil {
 		t.Fatal("expected error for BLOCKED, got nil")
@@ -478,18 +455,19 @@ func TestRun_MissingTask(t *testing.T) {
 func TestRun_VerifyMarkdownPass(t *testing.T) {
 	workspaceRoot, _ := setupTestRepo(t)
 
-	impl := stdoutAgent("markdown pass test")
-
 	verifier := &textVerifier{reply: "**PASS** — verification successful"}
 
 	err := Run(context.Background(), Options{
-		Task:          "Write a markdown pass file",
-		VerifierModel: "fake/verifier",
-		Base:          "main",
-		RetryCap:      0,
-		WorkspaceRoot: workspaceRoot,
-		NewAgent:      func(_ string) (agent.Agent, error) { return &verifierAwareAgent{impl: impl, v: verifier}, nil },
-		NewVerifier:   func(_ string) (model.Verifier, error) { return verifier, nil },
+		Task:             "Write a markdown pass file",
+		VerifierModel:    "fake/verifier",
+		Base:             "main",
+		RetryCap:         0,
+		WorkspaceRoot:    workspaceRoot,
+		EscalationModels: []string{"fake/impl"},
+		Registry: testRegistry(&fakeDriver{
+			implement: writeFileImplementer("markdown pass test"),
+			verify:    verdictsFrom(verifier),
+		}),
 	})
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -536,20 +514,21 @@ func TestRun_VerifyMarkdownPass(t *testing.T) {
 func TestRun_VerifyToolCallLeakBlocks(t *testing.T) {
 	workspaceRoot, _ := setupTestRepo(t)
 
-	impl := stdoutAgent("tool call leak test")
-
 	verifier := &textVerifier{reply: `<tool_call name="Bash">
 {"command": "cat /etc/passwd"}
 </tool_call>`}
 
 	err := Run(context.Background(), Options{
-		Task:          "Tool call leak task",
-		VerifierModel: "fake/verifier",
-		Base:          "main",
-		RetryCap:      0,
-		WorkspaceRoot: workspaceRoot,
-		NewAgent:      func(_ string) (agent.Agent, error) { return &verifierAwareAgent{impl: impl, v: verifier}, nil },
-		NewVerifier:   func(_ string) (model.Verifier, error) { return verifier, nil },
+		Task:             "Tool call leak task",
+		VerifierModel:    "fake/verifier",
+		Base:             "main",
+		RetryCap:         0,
+		WorkspaceRoot:    workspaceRoot,
+		EscalationModels: []string{"fake/impl"},
+		Registry: testRegistry(&fakeDriver{
+			implement: writeFileImplementer("tool call leak test"),
+			verify:    verdictsFrom(verifier),
+		}),
 	})
 	if err == nil {
 		t.Fatal("expected error for garbage verifier reply, got nil")
@@ -652,10 +631,10 @@ func TestRunSlice(t *testing.T) {
 		VerifierModel:    "fake/verifier",
 		RetryCap:         0,
 		EscalationModels: []string{"fake/impl"},
-		NewAgent: func(_ string) (agent.Agent, error) {
-			return &verifierAwareAgent{impl: stdoutAgent("hello from RunSlice"), v: verifier}, nil
-		},
-		NewVerifier: func(_ string) (model.Verifier, error) { return verifier, nil },
+		Registry: testRegistry(&fakeDriver{
+			implement: writeFileImplementer("hello from RunSlice"),
+			verify:    verdictsFrom(verifier),
+		}),
 	})
 	if err != nil {
 		t.Fatalf("RunSlice() error: %v", err)
@@ -683,8 +662,6 @@ func TestRunSlice(t *testing.T) {
 func TestRunSliceFail(t *testing.T) {
 	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
 
-	impl := stdoutAgent("should not pass")
-
 	verifier := &fakeVerifier{
 		verdicts: []verdict.Result{
 			{Verdict: verdict.Fail, Rationale: "missing test"},
@@ -696,8 +673,10 @@ func TestRunSliceFail(t *testing.T) {
 		VerifierModel:    "fake/verifier",
 		RetryCap:         1,
 		EscalationModels: []string{"fake/impl1"},
-		NewAgent:         func(_ string) (agent.Agent, error) { return &verifierAwareAgent{impl: impl, v: verifier}, nil },
-		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
+		Registry: testRegistry(&fakeDriver{
+			implement: writeFileImplementer("should not pass"),
+			verify:    verdictsFrom(verifier),
+		}),
 	})
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -772,8 +751,6 @@ func (f *fakeNotifier) lastCall() (account.NotifyEvent, bool) {
 func TestRunSlice_FailNotifiesOnce(t *testing.T) {
 	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
 
-	impl := stdoutAgent("should not pass")
-
 	// Failing verifier — FAILs every attempt so the retry loop exhausts and
 	// transitions to failed_verification, firing the FAIL notifier.
 	verifier := &fakeVerifier{
@@ -789,9 +766,11 @@ func TestRunSlice_FailNotifiesOnce(t *testing.T) {
 		VerifierModel:    "fake/verifier",
 		RetryCap:         1,
 		EscalationModels: []string{"fake/impl1"},
-		NewAgent:         func(_ string) (agent.Agent, error) { return &verifierAwareAgent{impl: impl, v: verifier}, nil },
-		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
-		Notifier:         notifier,
+		Registry: testRegistry(&fakeDriver{
+			implement: writeFileImplementer("should not pass"),
+			verify:    verdictsFrom(verifier),
+		}),
+		Notifier: notifier,
 	})
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -843,8 +822,6 @@ func TestRunSlice_FailNotifiesOnce(t *testing.T) {
 func TestRunSlice_BlockedNotifies(t *testing.T) {
 	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
 
-	impl := stdoutAgent("blocked test")
-
 	// BLOCKED verifier — the run loop returns immediately on the first attempt.
 	verifier := &fakeVerifier{
 		verdicts: []verdict.Result{
@@ -858,9 +835,11 @@ func TestRunSlice_BlockedNotifies(t *testing.T) {
 		VerifierModel:    "fake/verifier",
 		RetryCap:         0,
 		EscalationModels: []string{"fake/impl"},
-		NewAgent:         func(_ string) (agent.Agent, error) { return &verifierAwareAgent{impl: impl, v: verifier}, nil },
-		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
-		Notifier:         notifier,
+		Registry: testRegistry(&fakeDriver{
+			implement: writeFileImplementer("blocked test"),
+			verify:    verdictsFrom(verifier),
+		}),
+		Notifier: notifier,
 	})
 	if err == nil {
 		t.Fatal("expected error for BLOCKED, got nil")
@@ -894,7 +873,6 @@ func TestRunSlice_BlockedNotifies(t *testing.T) {
 func TestRunSlice_NilNotifierNoOp(t *testing.T) {
 	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
 
-	impl := stdoutAgent("nil notifier test")
 	verifier := &fakeVerifier{
 		verdicts: []verdict.Result{{Verdict: verdict.Pass, Rationale: "ok"}},
 	}
@@ -903,9 +881,11 @@ func TestRunSlice_NilNotifierNoOp(t *testing.T) {
 		VerifierModel:    "fake/verifier",
 		RetryCap:         0,
 		EscalationModels: []string{"fake/impl"},
-		NewAgent:         func(_ string) (agent.Agent, error) { return &verifierAwareAgent{impl: impl, v: verifier}, nil },
-		NewVerifier:      func(_ string) (model.Verifier, error) { return verifier, nil },
-		Notifier:         nil, // no notifier — must not panic
+		Registry: testRegistry(&fakeDriver{
+			implement: writeFileImplementer("nil notifier test"),
+			verify:    verdictsFrom(verifier),
+		}),
+		Notifier: nil, // no notifier — must not panic
 	})
 	if err != nil {
 		t.Fatalf("RunSlice error: %v", err)

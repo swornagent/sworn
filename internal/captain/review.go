@@ -16,8 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/swornagent/sworn/internal/agent"
-	"github.com/swornagent/sworn/internal/model"
+	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/prompt"
 )
 
@@ -46,16 +45,23 @@ type ReviewResult struct {
 	EscalateCount   int
 	HasEscalatePins bool
 	RawOutput       string  // full model output for review.md
-	CostUSD         float64 // dispatch cost from token usage; 0 if unpriced
+	CostUSD         float64 // dispatch cost, sourced from Dispatch.CostUSD; 0 if unpriced
+	// Dispatch carries the leg's full driver.Result so the engine's
+	// telemetry (appendDispatch) sources duration/tokens/cost/confirmed
+	// model ID from the Dispatch leg's Result fields (S06 AC-05 plumbing;
+	// honest population semantics land in S08).
+	Dispatch driver.Result
 }
 
 // Review runs the captain design-review for one slice. It takes the TL;DR
-// (design.md content), the spec, and a model agent, prompts the captain to
-// review the design, parses the pin list, and writes review.md to sliceDir.
+// (design.md content), the spec, and a registry-resolved driver (S06
+// rewire), dispatches the review as a single tool-less Role=captain call —
+// prompt assembly stays orchestrator-side — parses the pin list, and writes
+// review.md to sliceDir.
 //
-// On success, review.md is written to sliceDir. On model error, the function
-// returns an error; the caller may proceed without review or halt.
-func Review(ctx context.Context, sliceDir, spec, design string, a agent.Agent, worktreeRoot string) (*ReviewResult, error) {
+// On success, review.md is written to sliceDir. On dispatch error, the
+// function returns an error; the caller may proceed without review or halt.
+func Review(ctx context.Context, sliceDir, spec, design string, d driver.Driver, modelID, worktreeRoot string, timeout time.Duration) (*ReviewResult, error) {
 	// S19-captain-split: dispatch under the design-reviewer identity, not the
 	// conflated captain.md (vendored verbatim from upstream, still carries the
 	// release-orchestrator function the deterministic engine owns).
@@ -75,34 +81,31 @@ func Review(ctx context.Context, sliceDir, spec, design string, a agent.Agent, w
 	userPayload.WriteString("Produce the pin list, review.md content, and suggested acknowledgement reply ")
 	userPayload.WriteString("as described in the /design-review function.\n")
 
-	messages := []model.ChatMessage{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: userPayload.String()},
-	}
-
-	// Tool-less call — the captain reads artefacts, doesn't write code.
-	resp, err := a.Chat(ctx, messages, nil)
+	// Tool-less Role=captain dispatch — the captain reads artefacts,
+	// doesn't write code; the driver's captain path never hands out tools.
+	res, err := d.Dispatch(ctx, driver.DispatchInput{
+		Role:         driver.RoleCaptain,
+		ModelID:      modelID,
+		SystemPrompt: systemPrompt,
+		Payload:      userPayload.String(),
+		WorktreeRoot: worktreeRoot,
+		Timeout:      timeout,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("captain: model call: %w", err)
 	}
 
-	if len(resp.Choices) == 0 {
+	if res.Status != driver.StatusOK || strings.TrimSpace(res.ResultText) == "" {
 		return nil, fmt.Errorf("captain: empty response from model")
 	}
 
-	text := resp.Choices[0].Message.Content
+	text := res.ResultText
 
-	// Compute dispatch cost from token usage (same nominal estimate as
-	// agent.computeCost — $2/1M tokens).  An unpriced model or nil usage
-	// yields 0, treated downstream as "no cost signal."
-	var costUSD float64
-	if resp.Usage != nil && resp.Usage.TotalTokens > 0 {
-		costUSD = float64(resp.Usage.TotalTokens) * 0.000002
-	}
-
-	// Parse pins from the model output.
+	// Parse pins from the model output. Dispatch economics come off the
+	// driver Result (S06 AC-05: Result is the plumbing source).
 	result := parsePins(text)
-	result.CostUSD = costUSD
+	result.CostUSD = res.CostUSD
+	result.Dispatch = res
 	// Write review.md.
 	reviewPath := filepath.Join(sliceDir, "review.md")
 	reviewContent := buildReviewMD(sliceDir, text, result)

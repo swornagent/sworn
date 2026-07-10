@@ -3,18 +3,106 @@
   "slice_id": "S08-honest-cost-telemetry",
   "release": "2026-06-28-driver-contract",
   "track": "T4-resolution-loop",
-  "state": "planned",
+  "state": "verified",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-11T14:46:03Z",
   "covers_needs": ["N-06"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S08-honest-cost-telemetry/spec.json",
-  "start_commit": null,
+  "start_commit": "f8ca6b5ca57206471857adb3d14710e49c83732f",
+  "actual_files": [
+    "internal/model/pricing.go",
+    "internal/model/pricing_test.go",
+    "internal/model/anthropic.go",
+    "internal/model/oai.go",
+    "internal/model/oai_test.go",
+    "internal/model/openai_responses.go",
+    "internal/agent/agent.go",
+    "internal/agent/agent_test.go",
+    "internal/driver/driver.go",
+    "internal/driver/driver_test.go",
+    "internal/driver/claude.go",
+    "internal/driver/claude_test.go",
+    "internal/driver/codex.go",
+    "internal/driver/codex_test.go",
+    "internal/driver/subprocess_test.go",
+    "internal/driver/inprocess/inprocess.go",
+    "internal/driver/inprocess/inprocess_test.go",
+    "internal/driver/inprocess/inprocess_verify.go",
+    "internal/verdict/verdict.go",
+    "internal/verify/verify.go",
+    "internal/verify/verify_agentic_test.go",
+    "internal/state/state.go",
+    "internal/state/state_test.go",
+    "internal/run/slice.go",
+    "internal/run/slice_test.go",
+    "internal/captain/review_test.go",
+    "docs/release/2026-06-28-driver-contract/S08-honest-cost-telemetry/status.json",
+    "docs/release/2026-06-28-driver-contract/S08-honest-cost-telemetry/journal.md",
+    "docs/release/2026-06-28-driver-contract/S08-honest-cost-telemetry/proof.json",
+    "docs/release/2026-06-28-driver-contract/S08-honest-cost-telemetry/proof.md"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go vet ./...",
+    "gofmt -l <every changed .go file>",
+    "go test -count=1 -v -run TestCostSourceVocabulary ./internal/driver/...",
+    "go test -count=1 ./internal/model/... ./internal/agent/... ./internal/state/... ./internal/run/... ./internal/driver/... ./internal/verify/... ./internal/verdict/... ./internal/captain/...",
+    "go test -count=1 -timeout 300s ./..."
+  ],
+  "reachability_artifacts": [
+    "cli-run: go test -count=1 -v -run TestRunSlice_CostSourceThreadedToStatusJSON ./internal/run/ — drives the real RunSlice engine entry point (Rule 1: not a leaf state.Dispatch struct literal), asserts the WRITTEN status.json's verification.dispatches[].cost_source carries two distinct driver-reported CostSource values through unmodified, and that the file still validates against slice-status-v1 — see proof.json reachability.evidence",
+    "internal/driver/claude_test.go:TestClaudeEnvelopeExplicitZeroCostIsUnknown (D1: a real fake-CLI subprocess spawn with an envelope carrying an explicit reported zero classifies CostSourceUnknown, not CostSourceSubscription)",
+    "internal/driver/inprocess/inprocess_test.go:TestInprocessImplementerPricingTable (AC-02: InProcess.Dispatch against a real httptest server with a priced model ID computes CostUSD from the true accumulated token split via the pricing registry, CostSource=pricing-table)",
+    "internal/driver/inprocess/inprocess_test.go:TestInprocessImplementer (AC-04: an unpriced confirmed model-id records CostUSD=0/CostSource=unknown through the same Dispatch path)",
+    "internal/model/pricing_test.go:TestPricingUnified (AC-01/R-01: every model key across all four provider pricing maps resolves through PriceForModel to the exact source-map rate)",
+    "internal/driver/driver_test.go:TestCostSourceVocabulary (re-entry session, closes verifier round-1 Gate 3: pins all five CostSource* constants' persisted string values, including CostSourceProviderReported==\"provider\")"
+  ],
   "effort_complexity": {
     "effort": "high",
     "complexity": "low",
     "quadrant": "grind",
     "rationale": "Mechanical but wide: two pricing tables unified, two flat-rate functions deleted, cost_source threaded driver->Result->Dispatch->status.json.",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
+  "design_decisions": [
+    {
+      "choice": "D1 — claude.go costSource() ships CostSourceUnknown for BOTH a nil and an explicit-zero TotalCostUSD; only a strictly positive TotalCostUSD earns CostSourceCLI. Design.md's own proposal (TotalCostUSD==0 -> CostSourceSubscription) is NOT implemented.",
+      "stake_class": "Type-1",
+      "options": [
+        "Infer subscription from an explicit reported zero (TotalCostUSD != nil && == 0) — matches documented `claude -p` behaviour when authenticated against a Claude subscription rather than an API key (design.md's own proposal, flagged for ratification).",
+        "Ship every case as \"unknown\" until the inference is verified against a live subscription-authenticated CLI run (chosen) — no positively identified, testable marker in current CLI output distinguishes 'explicit zero because subscription' from 'explicit zero because a genuinely free/no-cost turn or a protocol quirk'; claudeEnvelope carries no field that disambiguates the two."
+      ],
+      "human_decision": "Brad (Coach) ratified fail-closed: ship \"unknown\" for both the nil and the explicit-zero case — an explicit reported zero is NOT, by itself, a positively identified subscription marker. Do NOT implement the TotalCostUSD==0 -> \"subscription\" inference; only a non-zero TotalCostUSD (CostSource=\"cli\") is positively identified. Record the absent marker as a Rule 2 note in proof.json. (captain-proceed.md@4753eb3 pin 1, restated verbatim in this implementer session's task brief.)",
+      "rationale": "A fabricated or guessed dollar figure — or an under-confident \"subscription\" label that hides real API spend — is precisely the dishonesty sworn#70 (this slice's own rationale) exists to close. An honest \"unknown\" is worth more to the telemetry data-moat than a plausible guess that poisons it.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "D2 — codex.go costSource() always returns CostSourceUnknown; the Usage!=nil -> CostSourceSubscription inference design.md proposed is NOT implemented.",
+      "stake_class": "Type-1",
+      "options": [
+        "Infer subscription from Usage != nil (a turn actually completed) on the theory that codex CLI is subscription-authenticated by default and its JSONL stream never reports cost by design (design.md's own proposal, flagged for ratification).",
+        "Ship every case as \"unknown\" until verified against a live codex binary (chosen) — codex.go's own header already flags its envelope shape as unverified (SIT-deferred); Usage != nil proves a turn happened, not that it was subscription-covered rather than API-billed; codexEnvelope carries no field distinguishing the two."
+      ],
+      "human_decision": "Brad (Coach) ratified fail-closed: ship \"unknown\" universally for codex.go in this slice. Do NOT implement the Usage!=nil -> \"subscription\" inference. Record the absent marker as a Rule 2 note in proof.json. (captain-proceed.md@4753eb3 pin 1, restated verbatim in this implementer session's task brief.)",
+      "rationale": "Same financial-honesty stake as D1 — codex CLI never reports cost in any documented shape, so Usage!=nil is evidence of activity, not of billing status.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "D3 — Named driver.CostSource* constants (mirroring the existing ErrKind* pattern) replace scattered CostSource string literals across producers and tests.",
+      "stake_class": "Type-2",
+      "options": [
+        "Named constants in internal/driver/driver.go, one per vocabulary value: provider, pricing-table, cli, subscription, unknown (chosen).",
+        "Continue with ad hoc string literals per call site — rejected: a typo (\"pricing_table\" vs \"pricing-table\") is schema-valid and fails silently since slice-status-v1 is additionalProperties:true."
+      ],
+      "human_decision": "Confirmed as designed (memory-cited, pre-acknowledged captain-proceed.md@4753eb3 pin 5) — proceed with named constants.",
+      "rationale": "Mirrors the ErrKindAuth-and-siblings precedent already binding on this track (project_provider_error_taxonomy, project_driver_contract_recut): a cross-cutting driver vocabulary gets named constants, not string literals.",
+      "architecturally_significant": false
+    }
+  ],
   "verification": {
-    "result": "pending"
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-11T14:46:03Z",
+    "violations": []
   }
 }

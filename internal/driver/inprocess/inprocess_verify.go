@@ -40,7 +40,7 @@ func (d *InProcess) dispatchVerifier(ctx context.Context, in driver.DispatchInpu
 	// path's do (AC-04: max-turns → transient; classified provider errors
 	// keep their kind; the *model.Error stays in the returned chain so
 	// model.IsTerminal keeps firing — Coach ack pin 1).
-	text, _, transcript, err := agent.Run(ctx, meter, in.SystemPrompt, in.Payload, in.WorktreeRoot, agent.Config{MaxTurns: d.maxTurns})
+	text, transcript, err := agent.Run(ctx, meter, in.SystemPrompt, in.Payload, in.WorktreeRoot, agent.Config{MaxTurns: d.maxTurns})
 	if err != nil {
 		res := d.economics(driver.Result{Status: driver.StatusError, ErrKind: classifyErr(err)}, in, meter, start)
 		return res, err

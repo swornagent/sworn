@@ -272,6 +272,29 @@ tracks:
 	if !strings.Contains(err.Error(), "T1") {
 		t.Errorf("error should mention T1, got: %v", err)
 	}
+
+	// ── S07 AC-03: no phase-wide cascade cancel ─────────────────────────
+	// T1 and T2 share phase 1 (neither depends_on anything); T3 sits alone
+	// in phase 2 (depends_on: [T1]). T1's failure must not cancel its
+	// same-phase sibling T2 — RunTrack runs on the parent ctx, not
+	// phaseCtx (#33) — while T3, the actual *dependent*, is skipped via the
+	// phaseCtx.Err() check at phase-2 launch. The design.md draft claimed
+	// this base test already asserted the T3-skip half; it does not (Captain
+	// review pin 3) — both outcomes are asserted here, read from the durable
+	// per-run loop log (RunParallel's "[<track>] result: <OUTCOME>" lines),
+	// since RunParallel's return value only reports failedTracks by design.
+	logPath := filepath.Join(tmpDir, ".sworn", "logs", "test-cascade", "loop.log")
+	logBytes, logErr := os.ReadFile(logPath)
+	if logErr != nil {
+		t.Fatalf("read loop log %s: %v", logPath, logErr)
+	}
+	logContent := string(logBytes)
+	if !strings.Contains(logContent, "[T2] result: PASS") {
+		t.Errorf("expected T2 (independent same-phase sibling of failed T1) to reach TrackPass — no phase-wide cascade cancel; loop log:\n%s", logContent)
+	}
+	if !strings.Contains(logContent, "[T3] result: SKIPPED") {
+		t.Errorf("expected T3 (depends_on: [T1], the actual dependent) to reach TrackSkipped; loop log:\n%s", logContent)
+	}
 }
 
 // TestRunParallel_TimingConcurrency exercises AC-1:

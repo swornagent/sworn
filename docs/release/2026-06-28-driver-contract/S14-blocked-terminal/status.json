@@ -3,20 +3,117 @@
   "slice_id": "S14-blocked-terminal",
   "release": "2026-06-28-driver-contract",
   "track": "T4-resolution-loop",
-  "state": "planned",
+  "state": "verified",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-10T15:41:23Z",
   "covers_needs": [
     "N-15"
   ],
   "spec_path": "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/spec.json",
-  "start_commit": null,
+  "start_commit": "79fce5426f1f2289fb87237fa4e8b421d6f5f16d",
   "effort_complexity": {
     "effort": "low",
     "complexity": "high",
     "quadrant": "puzzle",
     "rationale": "Small code surface, but the semantics thread through the just-rewired loop state machine; retry/escalation interaction is the risk.",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "pending"
-  }
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-10T15:41:23Z",
+    "violations": []
+  },
+  "design_decisions": [
+    {
+      "choice": "D1 — blocked signal = the EXISTING driver.Status enum member StatusBlocked plus one additive Result.BlockedReason string (zero-value default = today's semantics); no separate Blocked bool; no driver emits StatusBlocked this slice (spec out_of_scope item 4).",
+      "stake_class": "Type-1",
+      "options": [
+        "Existing StatusBlocked enum member + additive BlockedReason string (chosen) — one source of truth for blockedness on the Result struct; spec in_scope item 1 explicitly allows 'blocked boolean OR verdict enum member'; matches the ErrKindAuth-style vocab-binding precedent and the S01 contract-file additive-change discipline (R-02 mitigation).",
+        "A separate Blocked bool field alongside Status (rejected) — two sources of truth for one fact on the same struct; a driver could emit Blocked=true with Status=ok."
+      ],
+      "human_decision": "Brad (Coach) acknowledged proceed-as-designed: captain-proceed.md@31c3290 pin 3 ('D1 confirmed — vocab-binding precedent applies; enum + additive BlockedReason, zero-value default, no driver emission this slice — proceed exactly as designed'), ratifying Captain review.md pin 3 (memory-cited: project_driver_contract_recut), design commit 051de7b.",
+      "rationale": "Touches the S01 contract file all four drivers implement, but zero-value semantics keep every driver byte-identical; the runner keys ONLY off Status and never infers blockedness from prose — the exact anti-pattern this slice removes.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "D2 — the shared blocked-lane sentinel constant lives in internal/orchestrator (BlockedLaneSentinel), value identical to run's private errVerdictBlockedPrefix string; run aliases its prefix to the shared constant.",
+      "stake_class": "Type-2",
+      "options": [
+        "internal/orchestrator (chosen) — scheduler cannot import run (run imports scheduler); both already import orchestrator; precedent: orchestrator.InterpreterInconclusiveSentinel consumed the same way in worker.go.",
+        "Duplicate the string literal in scheduler (rejected — drift risk).",
+        "internal/verdict (rejected — it is a RunSlice error-shape fact, not verdict vocabulary)."
+      ],
+      "human_decision": "Type-2 noted default; acknowledged in captain-proceed.md@31c3290 (pin 4 catch-all accepting the Captain's suggested reply, which acknowledged D2-D6).",
+      "rationale": "One constant, two consumers; the string value is unchanged so run.IsBlocked and every existing assertion hold."
+    },
+    {
+      "choice": "D3 — no new scheduler TrackResult enum value: TrackFail remains the carrier for blocked lanes; the blocked/failed distinction travels ONLY via the new WorkerOptions.RecordBlocked side-channel, which the RunParallel exit report consumes. Persisted supervisor state for a blocked lane is supervisor.StateFailed (NEVER the string 'blocked', which supervisor.Release silently coerces to 'done' — supervisor.go:205-207).",
+      "stake_class": "Type-2",
+      "options": [
+        "TrackFail + RecordBlocked side-channel + releaseTrack(supervisor.StateFailed) (chosen) — TestRunTrack_TerminalDriverErrorHaltsTrack (S07 AC-03) asserts TrackFail on exactly this error shape; TrackBlocked is already taken by invariant-2; failCancel() dependent-phase skip inherited for free; no AC requires a distinct scheduler enum (AC-05 requires a distinct REPORT).",
+        "New TrackBlockedLane TrackResult = 'blocked_lane' (rejected) — forces edits to existing scheduler tests and supervisor-state plumbing for zero AC value, violating the AC-06 gate.",
+        "releaseTrack('blocked') (rejected per Captain review pin 1, CRITICAL) — supervisor.Release coerces unknown states to StateDone, recording a blocked (unmergeable, replan-required) lane as complete in the tracks DB."
+      ],
+      "human_decision": "Brad (Coach), captain-proceed.md@31c3290 pin 1 (CRITICAL, accepted): use supervisor.StateFailed as the persisted supervisor state; do NOT pass a string Release silently rewrites; the blocked-vs-failed distinction travels via RecordBlocked. D3's rejected TrackBlockedLane alternative explicitly acknowledged and agreed in the Captain's reply (§2).",
+      "rationale": "The load-bearing decision: keeps every existing retry/terminal scheduler test green unmodified (AC-06) while giving the report the distinction it needs."
+    },
+    {
+      "choice": "D4 — implement.Run early-returns (nil error, no state transition) on Result.Status==StatusBlocked: the slice stays in_progress; RunSlice owns the terminal blocked handling (status write, commit, notify, sentinel error).",
+      "stake_class": "Type-2",
+      "options": [
+        "Early return in implement.Run, terminal handling in RunSlice (chosen) — keeps implement.Run's 'never certifies' contract and exactly one blocked-handling site; also fixes the latent bug where a blocked dispatch fell through to proof generation and a spurious implemented transition.",
+        "Handle blocked entirely inside implement.Run (rejected — splits terminal status/commit/notify ownership across two packages)."
+      ],
+      "human_decision": "Type-2 noted default; acknowledged in captain-proceed.md@31c3290 (pin 4 catch-all).",
+      "rationale": "Board/router resume path verified sound by Captain review pin 4: oracle derives Blocked from verification.result regardless of state (board/oracle.go:233); router checks ss.Blocked before the state switch and routes /replan-release (router.go:100-110)."
+    },
+    {
+      "choice": "D5 — the blocked-vs-fail exit report is embedded in RunParallel's returned error plus the loop log; no new printing surface; byte-identical legacy error format when no blocked lane exists. TUI/board surfacing stays out of scope.",
+      "stake_class": "Type-2",
+      "options": [
+        "Report in the returned error + loop log (chosen) — cmd/sworn/run.go already prints the returned error and exits non-zero; protects TestRunParallel_FailureCascade and unknown callers matching the legacy format.",
+        "A new report printer / TUI surface (rejected — spec out_of_scope item 3)."
+      ],
+      "human_decision": "Type-2 noted default; acknowledged in captain-proceed.md@31c3290 (pin 4 catch-all).",
+      "rationale": "AC-05 requires a distinguishing report on a non-zero exit, not a presentation surface."
+    },
+    {
+      "choice": "D6 — blocked lanes skip circuit-breaker fingerprinting and the worker-level track_failed notification (RunSlice already emitted the blocked notification); terminal auth/credits driver halts JOIN the BLOCKED report section as designed, with NO reason-string sniffing to carve them out.",
+      "stake_class": "Type-2",
+      "options": [
+        "Skip breaker + skip duplicate notify; accept the terminal-driver-error widening (chosen) — a blocked lane must not accrue breaker pages; removes an existing double-notify on verifier-blocked lanes; auth/credits halts are blocked-class by nature (re-dispatch cannot help) and their verbatim reason self-explains the credentials remedy.",
+        "Carve terminal driver errors out of the BLOCKED section by matching their reason text (rejected per captain-proceed.md pin 3 — reason-string sniffing is the exact anti-pattern this slice removes)."
+      ],
+      "human_decision": "Brad (Coach), captain-proceed.md@31c3290 pin 3: terminal driver errors join the BLOCKED report section, accepted as designed; no reason-string sniffing.",
+      "rationale": "Captain review flag (c) verified regression-safety: no scheduler test wires a Notifier or asserts track_failed; the notify-skip and breaker-skip cannot break the protected set."
+    }
+  ],
+  "proof_path": "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/proof.md",
+  "journal_path": "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/journal.md",
+  "actual_files": [
+    "internal/driver/driver.go",
+    "internal/implement/implement.go",
+    "internal/orchestrator/blocked.go",
+    "internal/run/slice.go",
+    "internal/run/parallel.go",
+    "internal/scheduler/worker.go",
+    "internal/run/blocked_terminal_test.go",
+    "internal/run/blocked_report_test.go",
+    "internal/scheduler/blocked_lane_test.go",
+    "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/status.json",
+    "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/journal.md",
+    "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/proof.json",
+    "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/proof.md"
+  ],
+  "test_commands": [
+    "go test -count=1 -run 'TestLoopBlocked|TestLoopFail|TestLoopExitReport' -v ./internal/run/ ./internal/scheduler/",
+    "go test -count=1 -timeout 300s ./...",
+    "go vet ./internal/driver/ ./internal/implement/ ./internal/run/ ./internal/scheduler/ ./internal/orchestrator/"
+  ],
+  "reachability_artifacts": [
+    "internal/run/blocked_terminal_test.go:TestLoopBlockedImplementerTerminal (fired S05 replay through the real run.RunSlice entry point)",
+    "internal/run/blocked_report_test.go:TestLoopExitReportBlockedVsFail (real run.RunParallel exit report, BLOCKED vs FAIL lanes)",
+    "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/proof.md"
+  ]
 }
