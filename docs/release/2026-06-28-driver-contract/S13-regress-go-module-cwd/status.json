@@ -3,10 +3,21 @@
   "slice_id": "S13-regress-go-module-cwd",
   "release": "2026-06-28-driver-contract",
   "track": "T8-regress-cwd",
-  "state": "in_progress",
+  "state": "implemented",
   "covers_needs": ["N-14"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S13-regress-go-module-cwd/spec.json",
-  "start_commit": null,
+  "start_commit": "fcb93ad5d75284d6fa2133dcde33a68ef1865408",
+  "actual_files": [
+    "internal/gate/regress.go",
+    "internal/gate/regress_test.go"
+  ],
+  "test_commands": [
+    "go test ./internal/gate/... -v",
+    "go test -timeout 300s ./..."
+  ],
+  "reachability_artifacts": [
+    "internal/gate/regress_test.go:TestRunRegress_GoModuleInSubdir — drives runRegress (the CLI-invoked gate entry point) against a <worktree>/go go.mod fixture; mock keys only satisfy the module-dir dispatch, so the test fails with ExitCode -1 unless runGoSuite actually runs from the discovered module dir"
+  ],
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
