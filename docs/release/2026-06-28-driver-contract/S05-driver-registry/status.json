@@ -6,7 +6,7 @@
   "state": "in_progress",
   "covers_needs": ["N-04", "N-09"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S05-driver-registry/spec.json",
-  "start_commit": null,
+  "start_commit": "20dc2dc9edecaed23995d7adcccbc1fff8aba8a9",
   "effort_complexity": {
     "effort": "high",
     "complexity": "low",

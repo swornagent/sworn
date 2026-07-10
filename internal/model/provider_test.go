@@ -22,7 +22,9 @@ func TestNewClient_OAICompat(t *testing.T) {
 		wantURL string
 		wantKey string
 	}{
-		{"openai/gpt-4o", "https://api.openai.com/v1", "sk-test"},
+		// sworn#31: openai-completions/ is the chat/completions wire format
+		// (openai/ is the Responses API — see TestNewClientOpenAIIsResponses).
+		{"openai-completions/gpt-4o", "https://api.openai.com/v1", "sk-test"},
 		{"deepseek/deepseek-chat", "https://api.deepseek.com/v1", "ds-test"},
 		{"groq/llama-3.3-70b", "https://api.groq.com/openai/v1", "groq-test"},
 		{"mistral/mistral-large", "https://api.mistral.ai/v1", "mistral-test"},
@@ -102,6 +104,42 @@ func TestNewClient_NativeStub(t *testing.T) {
 		if !errors.Is(err, ErrDriverNotImplemented) {
 			t.Errorf("NewClient(%q) error = %v, want ErrDriverNotImplemented", modelID, err)
 		}
+	}
+}
+
+// TestNewClientOpenAIIsResponses (S05 AC-04, sworn#31): openai/ now routes
+// to the Responses API driver.
+func TestNewClientOpenAIIsResponses(t *testing.T) {
+	v, err := NewClient("openai/gpt-5", ProviderConfig{OpenAIKey: "sk-test"})
+	if err != nil {
+		t.Fatalf("NewClient(openai/gpt-5) error: %v", err)
+	}
+	resp, ok := v.(*OpenAIResponses)
+	if !ok {
+		t.Fatalf("NewClient(openai/gpt-5) returned %T, want *OpenAIResponses", v)
+	}
+	if resp.BaseURL != "https://api.openai.com/v1" {
+		t.Errorf("BaseURL = %q, want https://api.openai.com/v1", resp.BaseURL)
+	}
+	if resp.APIKey != "sk-test" {
+		t.Errorf("APIKey = %q, want sk-test", resp.APIKey)
+	}
+}
+
+// TestNewClientOpenAICompletions (S05 AC-04, sworn#31): openai-completions/
+// is the legacy chat/completions wire format under its new explicit name,
+// keeping the strict json_schema structured mode the old openai/ case had.
+func TestNewClientOpenAICompletions(t *testing.T) {
+	v, err := NewClient("openai-completions/gpt-4.1", ProviderConfig{OpenAIKey: "sk-test"})
+	if err != nil {
+		t.Fatalf("NewClient(openai-completions/gpt-4.1) error: %v", err)
+	}
+	oai, ok := v.(*OAI)
+	if !ok {
+		t.Fatalf("NewClient(openai-completions/gpt-4.1) returned %T, want *OAI", v)
+	}
+	if oai.Structured != StructuredResponseFormat {
+		t.Errorf("Structured = %v, want StructuredResponseFormat", oai.Structured)
 	}
 }
 

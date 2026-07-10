@@ -47,10 +47,12 @@ func FromEnv(modelID string) (Verifier, error) {
 		return nil, err
 	}
 
-	// Keyless subscription drivers: claude-cli and codex authenticate via the
-	// user's logged-in CLI session — no API key, no proxy routing. Return the
-	// subprocess driver directly, BEFORE the proxy routing block.
-	if provider == "claude-cli" || provider == "codex" {
+	// Keyless subscription driver: claude-cli authenticates via the user's
+	// logged-in CLI session — no API key, no proxy routing. Return the
+	// subprocess driver directly, BEFORE the proxy routing block. claude-cli
+	// is the only keyless model.Verifier: codex/ is served by the subprocess
+	// DRIVER via internal/driver/registry (S03/S05), not by this utility path.
+	if provider == "claude-cli" {
 		verifier, err := NewClient(modelID, ProviderConfig{})
 		if err != nil {
 			return nil, err
@@ -60,17 +62,21 @@ func FromEnv(modelID string) (Verifier, error) {
 
 	prefix := strings.ToUpper(strings.ReplaceAll(provider, "-", "_"))
 
-	// Proxy routing: check for sworn credentials and SWORN_DIRECT override.	// (Coach ack pin B — credential-trust boundary.)
+	// Proxy routing: check for sworn credentials and SWORN_DIRECT override.
+	// (Coach ack pin B — credential-trust boundary.)
 	if os.Getenv("SWORN_DIRECT") != "1" {
 		creds, credErr := account.Load(filepath.Dir(account.CredentialsPath()))
 		if credErr == nil && creds != nil && account.IsLoggedIn(creds) {
 			proxyURL := account.Endpoint(creds, modelID)
 			if proxyURL != "" {
-				// Coach pin 1 (S39): openai-responses needs the
-				// responses-API provider, not the OAI chat/completions
-				// adapter. The proxy URL + token are identical; only
-				// the struct type differs so /v1/responses is called.
-				if provider == "openai-responses" {
+				// Coach pin 1 (S39), re-keyed for sworn#31: openai/ and its
+				// deprecated alias openai-responses/ are the Responses API
+				// and need the responses-API provider, not the OAI
+				// chat/completions adapter; openai-completions/ is the
+				// legacy chat/completions wire format. The proxy URL +
+				// token are identical; only the struct type differs so
+				// /v1/responses is called.
+				if provider == "openai" || provider == "openai-responses" {
 					return &OpenAIResponses{
 						BaseURL:         proxyURL,
 						Model:           model,
@@ -110,6 +116,11 @@ func FromEnv(modelID string) (Verifier, error) {
 		key = envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY")
 	case "openai-responses":
 		key = envOrAlias("OPENAI_API_KEY", "SWORN_OPENAI_API_KEY")
+	case "openai-completions":
+		// Shares the openai key: the generic default would demand
+		// SWORN_OPENAI_COMPLETIONS_API_KEY, which nothing sets and which
+		// swornProviderConfig would not read into OpenAIKey.
+		key = os.Getenv("SWORN_OPENAI_API_KEY")
 	case "azure":
 		key = envOrAlias("AZURE_OPENAI_API_KEY", "SWORN_AZURE_OPENAI_API_KEY")
 	default:

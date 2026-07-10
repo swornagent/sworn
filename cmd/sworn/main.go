@@ -133,6 +133,7 @@ func usage() {
 		rest string
 	}{
 		{"bench", " --task-set <dir> [--models <comma-sep>] [--output <dir>]"},
+		{"capabilities", ""},
 		{"init", " [--api-key <key>] [--force]"},
 		{"journeys", " [--check] [--impact <release>] [project-path]"},
 		{"lint ac", " <release>"},
@@ -165,6 +166,12 @@ func usage() {
 	b.WriteString("of slice specs with known-good diffs, record pass-rate + cost + jurisdiction, and\n")
 	b.WriteString("pick the safe-hosted default model from data.\n\n")
 
+	b.WriteString(style.Accent("capabilities"))
+	b.WriteString(" lists the registered drivers from the driver registry: prefixes,\n")
+	b.WriteString("roles, availability (no dispatch), and which prefixes route via the sworn proxy.\n")
+	b.WriteString("Model prefixes (sworn#31): openai/ = Responses API; openai-completions/ =\n")
+	b.WriteString("legacy chat/completions; openai-responses/ = deprecated alias of openai/ (one\n")
+	b.WriteString("release); claude-cli/ and codex/ = subscription CLI subprocess drivers.\n")
 	b.WriteString(style.Accent("init"))
 	b.WriteString(" bootstraps SwornAgent in a repo: writes a config file, vendors the Baton\n")
 	b.WriteString("protocol into docs/baton/, and splices the seven-rule fragment into AGENTS.md.\n")

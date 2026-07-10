@@ -215,14 +215,22 @@ func TestClaudeCLI_EmptyModel(t *testing.T) {
 	}
 }
 
-func TestCodex_Deferred(t *testing.T) {
+// TestNewClientCodexRemoved (S05 AC-04): the codex ErrDriverNotImplemented
+// stub is gone — codex/ is served by the subprocess DRIVER via
+// internal/driver/registry (S03/S05, closing sworn#19), so on the
+// model.Verifier utility path it falls to the plain unknown-provider error
+// with no "deferred" stub text.
+func TestNewClientCodexRemoved(t *testing.T) {
 	t.Run("NewClient", func(t *testing.T) {
 		_, err := NewClient("codex/gpt-5", ProviderConfig{})
 		if err == nil {
-			t.Fatal("expected deferral error, got nil")
+			t.Fatal("expected unknown-provider error, got nil")
 		}
-		if !strings.Contains(err.Error(), "codex support deferred") {
-			t.Errorf("error = %v, want codex support deferred", err)
+		if strings.Contains(err.Error(), "deferred") {
+			t.Errorf("stub text leaked into the error: %v", err)
+		}
+		if !strings.Contains(err.Error(), `unknown provider "codex"`) {
+			t.Errorf("error = %v, want unknown provider %q", err, "codex")
 		}
 		if !strings.Contains(err.Error(), ErrDriverNotImplemented.Error()) {
 			t.Errorf("error should wrap ErrDriverNotImplemented: %v", err)
@@ -230,12 +238,15 @@ func TestCodex_Deferred(t *testing.T) {
 	})
 
 	t.Run("FromEnv", func(t *testing.T) {
+		// codex also left FromEnv's keyless block (claude-cli is the only
+		// keyless model.Verifier), so the utility path fails at the key
+		// check — never with the old stub text.
 		_, err := FromEnv("codex/gpt-5")
 		if err == nil {
-			t.Fatal("expected deferral error, got nil")
+			t.Fatal("expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "codex support deferred") {
-			t.Errorf("error = %v, want codex support deferred", err)
+		if strings.Contains(err.Error(), "deferred") {
+			t.Errorf("stub text leaked into the error: %v", err)
 		}
 	})
 }
