@@ -118,3 +118,41 @@ here, not silently skipped.
 `in_progress → implemented` at this commit. Handoff: fresh-context
 `/verify-slice S04-inprocess-oai-driver 2026-06-28-driver-contract`. The
 implementer does not certify its own work.
+
+## Verifier verdicts received
+
+### 2026-07-10 — fresh-context verifier — PASS
+
+PASS
+
+Slice: `S04-inprocess-oai-driver`
+Verified against: `fc1751a` (track/2026-06-28-driver-contract/T3-inprocess HEAD)
+Verifier session: fresh, artefact-only (spec.json, proof.json, status.json, captain-proceed.md + live repo state)
+
+Gate walk:
+1. User-reachable outcome — Dispatch (the contract entry point the ACs name) is real and
+   exercised end-to-end: real internal/agent.Run loop, real git worktree gated by
+   AssertWorktree, real HTTP wire via httptest. Registry/rewire out-scoped to S05/S06,
+   both existing planned slices (owned Pass-2 split).
+2. Touchpoints — diff from start_commit 6ce9d30 touches only internal/driver/inprocess/*
+   + slice docs. Subpackage placement divergence is explained in proof.json and verified:
+   TestNoWireImports (internal/driver/imports_test.go) forbids internal/model +
+   internal/agent imports across the literal touchpoint directory, making the spec's
+   literal path unimplementable against AC-05's own test command.
+3. Tests — all 10 tests re-run fresh (-count=1): PASS. go build ./... OK, go vet OK,
+   full `go test -count=1 -timeout 300s ./...` = exit 0, 44 packages ok, no failures.
+   AC-01..AC-05 each map to a named, non-tautological test asserting raw wire bytes.
+3b/4b. LLM checks skipped non-blocking — no provider key in this session's environment
+   (sworn llm-check: SWORN_*_API_KEY not set). Manual AC-to-test cross-check performed.
+4. Reachability — cli-run artefacts (TestInprocessImplementer/Verifier/ContentAlwaysPresent)
+   re-executed live; they drive the user gesture (a role dispatch through the Driver seam).
+5. No silent deferrals — the one "placeholder" hit (nominalCostPerToken) is D6,
+   Coach-acknowledged (captain-proceed.md pin 5), tracked to S08-honest-cost-telemetry
+   (exists on board). not_delivered AC-03/responses entry carries all three Rule 2 legs
+   (why: moot-by-construction; tracking: captain-proceed.md pin 3; ack: Brad, Coach,
+   2026-07-10). spec out_of_scope items all name owning slices (S05/S06/S08).
+   gofmt clean; newline-corruption grep clean.
+6. Design conformance — `sworn designaudit .` = DESIGNAUDIT EXEMPT (not ui_bearing), exit 0.
+7. Claimed vs implemented scope — every delivered item's evidence reference verified
+   against live code and fresh test runs; D1/D5 Type-1 decisions carry human_decision
+   (Brad, Coach, captain-proceed.md pins 1-6).
