@@ -102,3 +102,19 @@ here, not silently skipped.
   including the untouched `TestNoWireImports`).
 - Full `go test -timeout 300s ./...` green — every package ok, zero
   failures.
+- `sworn llm-check -type ac-satisfaction` skipped: exits
+  `read spec.md: no such file` on this spec-v1 (spec.json) slice — the known
+  format-lag false-negative class (same family as the release-verify.sh
+  spec.md false-FAIL). Manual AC-to-test cross-check substituted, per the S02
+  session precedent: every AC has a named test in `inprocess_test.go`.
+- `sworn verify --spec spec.json --diff <start_commit..HEAD> --proof
+  proof.json --verifier-model deepseek/deepseek-chat` → **PASS** (first-pass
+  gate green).
+- No `sworn coverage` subcommand exists in the installed binary (role-prompt
+  reference implementation lag); AC↔test coverage asserted manually as above.
+
+### State transition
+
+`in_progress → implemented` at this commit. Handoff: fresh-context
+`/verify-slice S04-inprocess-oai-driver 2026-06-28-driver-contract`. The
+implementer does not certify its own work.
