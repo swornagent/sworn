@@ -13,12 +13,14 @@ figure is ever guessed or fabricated.
 
 ## Files changed
 
-26 files — see `proof.json` `files_changed` for the full list. Summary:
+27 files — see `proof.json` `files_changed` for the full list. Summary:
 `internal/model/pricing.go` deleted; `internal/model/{anthropic,oai,openai_responses,pricing_test}.go`,
 `internal/agent/agent.go` (+test), `internal/driver/{driver,claude,codex,subprocess_test}.go`
 (+tests), `internal/driver/inprocess/*.go` (+tests), `internal/verdict/verdict.go`,
 `internal/verify/verify.go` (+test), `internal/state/state.go` (+test),
-`internal/run/slice.go` (+test), `internal/captain/review_test.go`.
+`internal/run/slice.go` (+test), `internal/captain/review_test.go`. Re-entry
+session (addressing verifier round-1 Gate 3): `internal/driver/driver_test.go`
+gained `TestCostSourceVocabulary` — no other production or test file touched.
 
 ## Test results
 
@@ -26,9 +28,10 @@ figure is ever guessed or fabricated.
 |---|---|
 | `go build ./...` | PASS |
 | `go vet ./...` | PASS |
-| `gofmt -l <every changed .go file>` | PASS (clean) |
+| `gofmt -l <every changed .go file, incl. driver_test.go>` | PASS (clean) |
+| `go test -count=1 -v -run TestCostSourceVocabulary ./internal/driver/...` (re-entry session, closes verifier round-1 Gate 3) | PASS — 5 subtests, pins all `CostSource*` constants incl. `CostSourceProviderReported == "provider"` |
 | `go test -count=1 ./internal/model/... ./internal/agent/... ./internal/state/... ./internal/run/... ./internal/driver/... ./internal/verify/... ./internal/verdict/... ./internal/captain/...` (AC-05's named command + design.md's additional touched packages) | PASS |
-| `go test -count=1 -timeout 300s ./...` (full suite, fresh cache) | PASS — 45 packages ok, 0 FAIL |
+| `go test -count=1 -timeout 300s ./...` (full suite, re-run after the round-1 fix) | PASS — 45 packages ok, 0 FAIL |
 
 ## Reachability artefact
 
@@ -56,11 +59,19 @@ Two supporting non-leaf-adjacent proofs:
   true accumulated token split via the pricing registry, through the actual
   `chatMeter`/`agent.Run` loop.
 
+Plus, added this re-entry session to close verifier round-1 Gate 3:
+`TestCostSourceVocabulary` (`internal/driver/driver_test.go`) — a table-driven
+contract test pinning all five `CostSource*` constants' persisted string
+values, including `CostSourceProviderReported == "provider"`, the reserved
+vocabulary member the round-1 verifier found had no contract test anywhere in
+the repo (spec prose cited in AC-02 is not a test).
+
 ## Delivered
 
 See `proof.json` `delivered` for the full per-AC breakdown with evidence
 citations (AC-01 through AC-05, D3, D1/D2 recorded as Coach-ratified Type-1
-`design_decisions`).
+`design_decisions`). AC-02's evidence now includes
+`internal/driver/driver_test.go:TestCostSourceVocabulary`.
 
 ## Not delivered
 
@@ -91,4 +102,9 @@ overrode the design's proposed inference in favour of the stricter
 fail-closed posture (the expected outcome of the design_review gate, not an
 implementer-session deviation); the test command run was widened beyond
 AC-05's literal string to the additional touched packages design.md's own
-traceability section names.
+traceability section names. Re-entry session (addressing verifier round-1
+FAIL, Gate 3 only): the first-pass proof.json had substituted amended AC-02's
+own spec text as the `CostSource="provider"` vocabulary's contract — the
+fresh verifier correctly rejected spec prose as not a test. Fix scoped
+exactly to the one required violation (`TestCostSourceVocabulary`); no other
+file touched; `start_commit` unchanged; full suite re-run green.

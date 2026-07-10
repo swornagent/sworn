@@ -136,3 +136,53 @@ subscription inference); cost_source threaded end-to-end into the WRITTEN
 status.json validating slice-status-v1
 (TestRunSlice_CostSourceThreadedToStatusJSON re-run PASS); full suite
 `go test -count=1 -timeout 300s ./...` — 45 packages ok, exit 0.
+
+## 2026-07-11 — Implementer re-entry session: failed_verification → implemented
+
+**Scope: exactly the one numbered violation from the round-1 verifier, nothing
+else.** `start_commit` (f8ca6b5) left untouched per the S02b/S01
+re-entry lesson (feedback_start_commit_reentry;
+project_2026_07_02...cf72bcd precedent) — the historical FAIL
+`verification` block in `status.json` is also left untouched, not
+overwritten, for the same reason: it is the durable record of round 1, not a
+scratch field.
+
+**Fix.** Added `internal/driver/driver_test.go:TestCostSourceVocabulary`, a
+table-driven contract test pinning all five `CostSource*` constants'
+persisted string values (`driver.go:162` onward), including
+`CostSourceProviderReported == "provider"` — the reserved vocabulary member
+the round-1 verifier found had zero test references anywhere in the repo.
+This directly answers Gate 3: proof.json's first-pass AC-02 delivered item
+had substituted the amended spec text itself as the "contract", which the
+verifier correctly rejected as prose, not a test.
+
+No other file touched. Verified via `git diff f8ca6b5..HEAD --stat` that
+`internal/driver/driver_test.go` is the only file changed relative to the
+round-1 commit (all round-1 files land unchanged in the diff-vs-start_commit
+already captured in status.json `actual_files`).
+
+**Checks run this session.**
+- `grep -n '//.*\t+(return|sendRequest|[a-z]+\()' internal/driver/driver_test.go`
+  — zero hits (newline-eating-edit hazard check, per project hazards).
+- `gofmt -l internal/driver/driver_test.go` — clean.
+- `go vet ./internal/driver/...` — clean.
+- `go test -count=1 -v -run TestCostSourceVocabulary ./internal/driver/...` —
+  PASS, 5/5 subtests.
+- `go test -count=1 ./internal/driver/...` — PASS (full package, no
+  regression from the new test).
+- `go build ./...` — clean.
+- `go vet ./...` — clean.
+- `go test -count=1 -timeout 300s ./...` — 45 packages ok, exit 0 (full
+  suite re-run, no regressions anywhere).
+
+**proof.json / proof.md updated** to add `internal/driver/driver_test.go` to
+`files_changed`/`actual_files`, add the new test command and reachability
+line, and amend AC-02's `delivered` evidence to cite
+`TestCostSourceVocabulary` instead of the rejected spec-prose substitute. A
+`divergence` entry records the re-entry scope explicitly.
+
+**State transition:** `failed_verification` → `implemented` (this session).
+Historical round-1 FAIL verdict preserved verbatim in `status.json`
+`verification` and in this journal's "Verifier verdicts received" section
+above, per Rule 6/Rule 7 (the proof bundle records live state, but does not
+erase the verification history that got it there).

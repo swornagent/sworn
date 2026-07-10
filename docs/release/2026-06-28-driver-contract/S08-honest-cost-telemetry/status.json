@@ -3,9 +3,9 @@
   "slice_id": "S08-honest-cost-telemetry",
   "release": "2026-06-28-driver-contract",
   "track": "T4-resolution-loop",
-  "state": "failed_verification",
-  "last_updated_by": "verifier",
-  "last_updated_at": "2026-07-10T14:31:54Z",
+  "state": "implemented",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-11T09:00:00Z",
   "covers_needs": ["N-06"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S08-honest-cost-telemetry/spec.json",
   "start_commit": "f8ca6b5ca57206471857adb3d14710e49c83732f",
@@ -19,6 +19,7 @@
     "internal/agent/agent.go",
     "internal/agent/agent_test.go",
     "internal/driver/driver.go",
+    "internal/driver/driver_test.go",
     "internal/driver/claude.go",
     "internal/driver/claude_test.go",
     "internal/driver/codex.go",
@@ -44,6 +45,7 @@
     "go build ./...",
     "go vet ./...",
     "gofmt -l <every changed .go file>",
+    "go test -count=1 -v -run TestCostSourceVocabulary ./internal/driver/...",
     "go test -count=1 ./internal/model/... ./internal/agent/... ./internal/state/... ./internal/run/... ./internal/driver/... ./internal/verify/... ./internal/verdict/... ./internal/captain/...",
     "go test -count=1 -timeout 300s ./..."
   ],
@@ -52,7 +54,8 @@
     "internal/driver/claude_test.go:TestClaudeEnvelopeExplicitZeroCostIsUnknown (D1: a real fake-CLI subprocess spawn with an envelope carrying an explicit reported zero classifies CostSourceUnknown, not CostSourceSubscription)",
     "internal/driver/inprocess/inprocess_test.go:TestInprocessImplementerPricingTable (AC-02: InProcess.Dispatch against a real httptest server with a priced model ID computes CostUSD from the true accumulated token split via the pricing registry, CostSource=pricing-table)",
     "internal/driver/inprocess/inprocess_test.go:TestInprocessImplementer (AC-04: an unpriced confirmed model-id records CostUSD=0/CostSource=unknown through the same Dispatch path)",
-    "internal/model/pricing_test.go:TestPricingUnified (AC-01/R-01: every model key across all four provider pricing maps resolves through PriceForModel to the exact source-map rate)"
+    "internal/model/pricing_test.go:TestPricingUnified (AC-01/R-01: every model key across all four provider pricing maps resolves through PriceForModel to the exact source-map rate)",
+    "internal/driver/driver_test.go:TestCostSourceVocabulary (re-entry session, closes verifier round-1 Gate 3: pins all five CostSource* constants' persisted string values, including CostSourceProviderReported==\"provider\")"
   ],
   "effort_complexity": {
     "effort": "high",

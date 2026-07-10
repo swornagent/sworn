@@ -118,6 +118,36 @@ func TestAssertWorktree(t *testing.T) {
 	})
 }
 
+// TestCostSourceVocabulary pins the persisted string value of every
+// CostSource* constant (S08, honest cost telemetry — sworn#70; amended AC-02,
+// Coach decision 2026-07-10, S08 verifier round-1 Gate 3). slice-status-v1 is
+// additionalProperties:true, so a typo in one of these strings would
+// otherwise be schema-valid and drift silently; this test makes that drift a
+// compile-visible + test-visible failure instead. It specifically covers
+// CostSourceProviderReported == "provider" — the reserved vocabulary member
+// with zero live emission sites — so the reserved value has a contract test
+// even though no producer currently emits it.
+func TestCostSourceVocabulary(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{"CostSourceProviderReported", CostSourceProviderReported, "provider"},
+		{"CostSourcePricingTable", CostSourcePricingTable, "pricing-table"},
+		{"CostSourceCLI", CostSourceCLI, "cli"},
+		{"CostSourceSubscription", CostSourceSubscription, "subscription"},
+		{"CostSourceUnknown", CostSourceUnknown, "unknown"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.value != tc.want {
+				t.Errorf("%s = %q, want %q", tc.name, tc.value, tc.want)
+			}
+		})
+	}
+}
+
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
