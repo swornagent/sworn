@@ -1,0 +1,22 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S14-blocked-terminal",
+  "release": "2026-06-28-driver-contract",
+  "track": "T4-resolution-loop",
+  "state": "planned",
+  "covers_needs": [
+    "N-15"
+  ],
+  "spec_path": "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/spec.json",
+  "start_commit": null,
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "high",
+    "quadrant": "puzzle",
+    "rationale": "Small code surface, but the semantics thread through the just-rewired loop state machine; retry/escalation interaction is the risk.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending"
+  }
+}

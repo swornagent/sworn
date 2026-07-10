@@ -158,6 +158,17 @@ are cut. Trace gate binds every N-NN to at least one slice's `covers_needs`.)
   worktree root — so a repo whose Go module lives in a subdirectory (e.g. `<repo>/go`)
   no longer reports a spurious `go test` setup failure. Surfaced downstream during
   fired's `/merge-track` (capture brief Defect 1).
+- **N-15 (added 2026-07-10, driver-contract replan; inbound packet from fired)**:
+  the runner treats BLOCKED as terminal-for-the-lane — a dispatched implementer's
+  explicit `blocked` return or a verifier BLOCKED verdict stops all further
+  dispatches for that slice in the run, halts the owning sequential track, consumes
+  no retry budget, and the exit report distinguishes halted-BLOCKED (routed to
+  `/replan-release`, blocker text verbatim) from exhausted-FAIL — so the loop never
+  burns dispatches against a blocker only a replan can clear. FAIL keeps existing
+  retry semantics unchanged. Evidence: fired's 2026-07-10 one-CP run dispatched
+  three implementers against an unchanged spec defect (two wasted full-context
+  dispatches). Origin packet: fired repo,
+  `apps/docs/content/docs/captures/2026-07-10-sworn-blocked-terminal-slice-packet.md`.
 
 ## Constraints and non-negotiables
 
