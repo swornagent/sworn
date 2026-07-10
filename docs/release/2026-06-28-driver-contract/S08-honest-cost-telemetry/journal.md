@@ -97,3 +97,42 @@ acknowledged at design review, carried forward here).
 
 **State transition:** `design_review` → `in_progress` (this session, commit
 f8ca6b5) → `implemented` (this session, closing commit below).
+
+## Verifier verdicts received
+
+### 2026-07-11 — fresh-context verifier (round 1)
+
+FAIL
+
+Slice: `S08-honest-cost-telemetry`
+
+Violations:
+1. Gate 3 — Amended AC-02 (Coach, 2026-07-10) requires the reserved
+   CostSource="provider" vocabulary to exist "as a named constant with a
+   contract test". The constant `driver.CostSourceProviderReported` exists
+   (internal/driver/driver.go:162) and correctly has ZERO live emission
+   sites (verified by repo-wide grep — no production path claims it), but
+   NO contract test exists anywhere in the repo: no test file references
+   `CostSourceProviderReported` or asserts its "provider" value.
+   proof.json's delivered item concedes it substituted "the pre-existing
+   amended AC-02 spec text as its contract" — spec prose is not a test.
+   Evidence: internal/driver/driver.go:162; `grep -rn
+   CostSourceProviderReported --include='*_test.go'` returns zero hits;
+   proof.json delivered (AC-02 item).
+
+Required to address:
+1. Add a contract test in internal/driver (e.g. TestCostSourceVocabulary)
+   pinning each CostSource* constant's persisted string value — including
+   `CostSourceProviderReported == "provider"` — so the reserved vocabulary
+   member cannot drift or be silently claimed; re-run
+   `go test ./internal/driver/...` and the full suite.
+
+Verified green (for the record): pricing unification complete — all 15
+deleted-table models resolve via PriceForModel at identical rates
+(TestPricingUnified re-run PASS); no flat-rate cost function remains
+anywhere; D1/D2 fail-closed rulings correctly implemented (claude explicit
+zero -> unknown, codex always unknown, no fabricated figure, no
+subscription inference); cost_source threaded end-to-end into the WRITTEN
+status.json validating slice-status-v1
+(TestRunSlice_CostSourceThreadedToStatusJSON re-run PASS); full suite
+`go test -count=1 -timeout 300s ./...` — 45 packages ok, exit 0.

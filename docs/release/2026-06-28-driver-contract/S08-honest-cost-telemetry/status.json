@@ -3,9 +3,9 @@
   "slice_id": "S08-honest-cost-telemetry",
   "release": "2026-06-28-driver-contract",
   "track": "T4-resolution-loop",
-  "state": "implemented",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-10T14:19:53Z",
+  "state": "failed_verification",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-10T14:31:54Z",
   "covers_needs": ["N-06"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S08-honest-cost-telemetry/spec.json",
   "start_commit": "f8ca6b5ca57206471857adb3d14710e49c83732f",
@@ -97,6 +97,11 @@
     }
   ],
   "verification": {
-    "result": "pending"
+    "result": "fail",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-10T14:31:54Z",
+    "violations": [
+      "Gate 3 — amended AC-02 requires the reserved CostSource=\"provider\" vocabulary to exist as a named constant WITH A CONTRACT TEST; driver.CostSourceProviderReported exists (internal/driver/driver.go:162) with zero live emission sites (correct), but no test anywhere references CostSourceProviderReported or asserts its \"provider\" value — spec prose cited in proof.json is not a test. Fix: add a contract test in internal/driver pinning each CostSource* constant's persisted string value, including CostSourceProviderReported == \"provider\"."
+    ]
   }
 }
