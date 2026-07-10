@@ -248,13 +248,11 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	}
 
 	// ── Build escalation list ─────────────────────────────────────────
-	escalationModels := opts.EscalationModels
-	if opts.ImplementerModel != "" {
-		escalationModels = append([]string{opts.ImplementerModel}, escalationModels...)
-	}
-	if len(escalationModels) == 0 {
-		escalationModels = DefaultEscalationModels
-	}
+	// Extracted to ComposeEscalationModels (S07 resolve.go) so the startup
+	// sweep (cmd/sworn/run.go, S07 AC-01) composes the IDENTICAL list this
+	// per-attempt resolution below resolves — one composition, two callers,
+	// never two.
+	escalationModels := ComposeEscalationModels(opts.ImplementerModel, opts.EscalationModels)
 
 	// ── Upfront driver resolution (S06 AC-02) ─────────────────────────
 	// Every role leg resolves its driver here, BEFORE any model dispatch.
@@ -266,22 +264,15 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	// design/review stages below and the run proceeds (Coach decision
 	// 2026-07-10, captain-proceed.md pin 1 — no subprocess driver declares
 	// RoleCaptain yet; sworn#86 tracks restoring role-universality).
-	verifierDriver, err := opts.Registry.Resolve(opts.VerifierModel, driver.RoleVerifier)
+	// Extracted to ResolveDispatch (S07 resolve.go) — identical resolution
+	// logic, error text, and captain fail-open policy as before; see resolve.go.
+	resolution, err := ResolveDispatch(opts.Registry, "RunSlice", opts.VerifierModel, escalationModels)
 	if err != nil {
-		return fmt.Errorf("RunSlice: resolve %q for role %q: %w", opts.VerifierModel, driver.RoleVerifier, err)
+		return err
 	}
-	implDrivers := make([]driver.Driver, len(escalationModels))
-	for i, m := range escalationModels {
-		d, rerr := opts.Registry.Resolve(m, driver.RoleImplementer)
-		if rerr != nil {
-			return fmt.Errorf("RunSlice: resolve %q for role %q: %w", m, driver.RoleImplementer, rerr)
-		}
-		implDrivers[i] = d
-	}
-	captainDriver, captainResolveErr := opts.Registry.Resolve(escalationModels[0], driver.RoleCaptain)
-	if captainResolveErr != nil {
-		captainResolveErr = fmt.Errorf("RunSlice: resolve %q for role %q: %w", escalationModels[0], driver.RoleCaptain, captainResolveErr)
-	}
+	verifierDriver := resolution.Verifier
+	implDrivers := resolution.Implementers
+	captainDriver, captainResolveErr := resolution.Captain, resolution.CaptainErr
 
 	// ── Triage policy (S47) ────────────────────────────────────────────
 	// The loop is driven by the triage policy, not a fixed attempt counter.

@@ -27,16 +27,20 @@ var wireTypes = map[string]bool{
 const wirePackage = "github.com/swornagent/sworn/internal/model"
 
 // scannedPackages are the orchestration-path packages AC-04 covers,
-// relative to this test file's directory (internal/run).
-var scannedPackages = []string{".", "../verify", "../scheduler"}
+// relative to this test file's directory (internal/run). cmd/sworn was
+// added by S07 AC-02: the retired newAgentFromModel/newVerifierFromModel
+// factory helpers were deleted from cmd/sworn/run.go by S06, and this
+// extends the import-boundary net to cmd/sworn's loop wiring so no future
+// edit can reintroduce a wire-type-holding construction path there.
+var scannedPackages = []string{".", "../verify", "../scheduler", "../../cmd/sworn"}
 
 // TestNoWireImports parses every .go file — INCLUDING _test.go files — in
-// internal/run, internal/verify, and internal/scheduler and fails, naming
-// the package, file, and identifier, on any selector expression
-// <alias>.<WireType> where <alias> binds to an internal/model import
-// (AC-04). After the S06 rewire every model dispatch crosses the
-// driver.Dispatch seam; wire formats are a driver implementation detail the
-// orchestration path can never see again.
+// internal/run, internal/verify, internal/scheduler, and cmd/sworn (S07
+// AC-02) and fails, naming the package, file, and identifier, on any
+// selector expression <alias>.<WireType> where <alias> binds to an
+// internal/model import (AC-04). After the S06 rewire every model dispatch
+// crosses the driver.Dispatch seam; wire formats are a driver implementation
+// detail the orchestration path can never see again.
 func TestNoWireImports(t *testing.T) {
 	for _, dir := range scannedPackages {
 		files, err := filepath.Glob(filepath.Join(dir, "*.go"))

@@ -179,13 +179,21 @@ then returns a `run.IsBlocked`-shaped (terminal `ErrKind`) error, proving
 inside the worker loop — retry/escalation is `RunSlice`'s concern per
 spec's explicit out-of-scope, this test only proves the scheduler *surfaces*
 the terminal error and stops) — and an extension of the existing
-`TestRunParallel_FailureCascade` pattern (`internal/run/parallel_test.go:197`)
-with a second, independent, same-phase track whose fake driver never fails,
-asserting it still reaches `TrackPass` in the same `RunParallel` call where
-the first track's terminal error fails it — i.e., proving the "no
-phase-wide cascade cancel" property `TestRunParallel_FailureCascade` today
-does not explicitly assert for a *sibling* (it only asserts the
-*dependent* T3 is skipped).
+`TestRunParallel_FailureCascade` (`internal/run/parallel_test.go:197`),
+which already fixtures T2 as an independent same-phase sibling of the
+failing T1 and T3 as the dependent (`depends_on: [T1]`), but — per Captain
+review pin 3 (2026-07-10) — its ONLY existing assertions are `err != nil`
+and `strings.Contains(err.Error(), "T1")`; it asserts **nothing** about
+either T2's or T3's actual per-track outcome today. (Design's original
+draft claimed the base test "asserts the dependent T3 is skipped" — that
+claim did not hold against the live test body and is corrected here.) The
+extension reads the durable per-run loop log
+(`.sworn/logs/<release>/loop.log`, `"[<track>] result: <OUTCOME>"` lines —
+`RunParallel`'s own outcome-reporting sink; its return value only reports
+`failedTracks`, not skip/pass detail) and asserts BOTH `"[T2] result: PASS"`
+(no phase-wide cascade cancel — the sibling completes in the same
+`RunParallel` call where T1 fails) AND `"[T3] result: SKIPPED"` (the actual
+dependent is gated) are present.
 
 ## Key design decisions
 

@@ -3,18 +3,43 @@
   "slice_id": "S07-scheduler-failfast",
   "release": "2026-06-28-driver-contract",
   "track": "T4-resolution-loop",
-  "state": "in_progress",
+  "state": "implemented",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-10T13:00:00Z",
+  "last_updated_at": "2026-07-10T13:40:00Z",
   "covers_needs": ["N-05"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S07-scheduler-failfast/spec.json",
-  "start_commit": null,
+  "start_commit": "c06c13d0f947ba9cdcb47d40214b71056de69b7b",
+  "actual_files": [
+    "cmd/sworn/run.go",
+    "cmd/sworn/run_test.go",
+    "internal/run/resolve.go",
+    "internal/run/resolve_test.go",
+    "internal/run/slice.go",
+    "internal/run/imports_test.go",
+    "internal/run/parallel_test.go",
+    "internal/scheduler/worker_test.go",
+    "docs/release/2026-06-28-driver-contract/S07-scheduler-failfast/design.md",
+    "docs/release/2026-06-28-driver-contract/S07-scheduler-failfast/status.json"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go test -count=1 -timeout 300s ./cmd/sworn/... ./internal/scheduler/... ./internal/run/...",
+    "go test -count=1 -timeout 300s ./...",
+    "go vet ./internal/run/... ./internal/scheduler/... ./cmd/sworn/... && gofmt -l internal/run/resolve.go internal/run/resolve_test.go internal/run/slice.go internal/run/imports_test.go internal/run/parallel_test.go internal/scheduler/worker_test.go cmd/sworn/run.go cmd/sworn/run_test.go"
+  ],
+  "reachability_artifacts": [
+    "cli-run: go test -count=1 -v -run TestParallelStartupFailFast ./cmd/sworn/ — drives the real `sworn run --parallel` CLI entry point (cmdRun), not a leaf unit (Rule 1): an unregistered escalation-list prefix is rejected with non-zero exit BEFORE openDefaultDB/RunParallel spawn any worker, proven by zero rows in the tracks table (no supervisor.Acquire ever ran) — see proof.json reachability.evidence",
+    "internal/scheduler/worker_test.go:TestRunTrack_TerminalDriverErrorHaltsTrack (AC-03: a fake driver dispatching successfully twice then failing with a run.IsBlocked-shaped terminal error halts RunTrack immediately — TrackFail, no further slices in that track attempted)",
+    "internal/run/parallel_test.go:TestRunParallel_FailureCascade (extended, AC-03: T1 fails, its independent same-phase sibling T2 still reaches TrackPass in the same RunParallel call — no phase-wide cascade cancel — while the actual dependent T3 (depends_on: [T1]) reaches TrackSkipped)",
+    "internal/run/imports_test.go:TestNoWireImports extended to scan cmd/sworn (AC-02 coverage: the deleted newAgentFromModel/newVerifierFromModel factory helpers cannot be reintroduced via a wire-type-holding construction path)",
+    "internal/run/resolve_test.go: unit coverage for ComposeEscalationModels/ResolveDispatch in isolation (fake registry) — verifier/implementer resolution failure is fatal, captain resolution failure is not"
+  ],
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
     "quadrant": "chore",
     "rationale": "Startup resolution sweep + factory-helper deletion; heavy rewiring already done in S06.",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
   "design_decisions": [
     {
