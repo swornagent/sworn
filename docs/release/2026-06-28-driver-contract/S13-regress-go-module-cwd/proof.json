@@ -1,0 +1,33 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S13-regress-go-module-cwd",
+  "release": "2026-06-28-driver-contract",
+  "scope": "sworn regress runs the Go test suite from the directory containing go.mod (root or a first-level subdirectory), not always the worktree root, so a repo whose Go module lives in a subdirectory (e.g. fired's <repo>/go) reports real Go test results instead of a spurious 'directory prefix . does not contain main module' setup failure.",
+  "files_changed": [
+    "internal/gate/regress.go",
+    "internal/gate/regress_test.go",
+    "docs/release/2026-06-28-driver-contract/S13-regress-go-module-cwd/status.json",
+    "docs/release/2026-06-28-driver-contract/S13-regress-go-module-cwd/journal.md"
+  ],
+  "test_results": [
+    { "command": "go test ./internal/gate/... -v", "passed": true, "exit_code": 0 },
+    { "command": "go test -timeout 300s ./...", "passed": true, "exit_code": 0 },
+    { "command": "gofmt -l internal/gate/regress.go internal/gate/regress_test.go", "passed": true, "exit_code": 0 },
+    { "command": "go vet ./internal/gate/...", "passed": true, "exit_code": 0 }
+  ],
+  "reachability": {
+    "type": "test-run",
+    "evidence": "TestRunRegress_GoModuleInSubdir (internal/gate/regress_test.go) drives the same runRegress entry point the sworn regress CLI calls, against a fixture with go.mod at <worktree>/go: the mock only satisfies the 'go' test './...' key when dir == the module subdir, so the test would fail with ExitCode -1 (unmocked key) if runGoSuite still dispatched at the worktree root. It asserts Passed=true and Skipped=false, i.e. the Go suite executed from the module directory, reproducing the fired-shaped defect fix end-to-end through the CLI-invoked gate function."
+  },
+  "delivered": [
+    { "item": "findGoModuleDir discovers the Go module dir: worktree root first, else exactly one first-level subdirectory (skipping .git/vendor/node_modules/testdata and other hidden dirs).", "evidence": "internal/gate/regress.go findGoModuleDir; TestFindGoModuleDir_IgnoresVendorAndHidden" },
+    { "item": "AC-01: runGoSuite runs go test ./... with cmd.Dir = the discovered module dir, not the worktree root.", "evidence": "internal/gate/regress.go runGoSuite; TestRunRegress_GoModuleInSubdir" },
+    { "item": "AC-02: root-module case (sworn's own shape) continues to pass; go test ./internal/gate/... passes.", "evidence": "TestRunRegress_AllPass, TestRunRegress_AllFail, TestRunRegress_Mixed, TestRunRegress_NoPackageJSON (all now carry a root go.mod fixture); go test ./internal/gate/... exit 0" },
+    { "item": "AC-03: no go.mod anywhere under the worktree -> Go suite reported Skipped with a scan-bound-honest reason, not a hard FAIL.", "evidence": "TestRunRegress_NoGoMod; skip reason 'no go.mod at worktree root or in a first-level subdirectory' (design-review pin 1 applied)" },
+    { "item": "D1: multiple first-level Go modules -> skipped with a distinct multi-module reason, not an arbitrary pick.", "evidence": "TestRunRegress_MultipleGoModules" },
+    { "item": "D1/D2 recorded as Type-2 noted defaults in status.json per Coach pin disposition.", "evidence": "status.json design_decisions[]" },
+    { "item": "Full-suite regression sweep (pin 3) confirms no cross-package fixture breakage, including cmd/sworn's real-RunRegress integration tests tolerating the FAIL->Skipped flip.", "evidence": "go test -timeout 300s ./... — all packages ok, including cmd/sworn" }
+  ],
+  "not_delivered": [],
+  "divergence": []
+}
