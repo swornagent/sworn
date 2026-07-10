@@ -79,3 +79,4 @@ S05. Canonical adversarial gate is the fresh-context `/verify-slice` handoff.
 3. Fixture starts the slice at `implemented` (the exact sworn#93 shape) rather than `planned`; both are valid cold-board states.
 4. Fixture ships `start_commit=""` (RunSlice self-bootstraps) and a `__RELEASE_WT__` board.json token the test substitutes.
 5. Model-backed gate could not run (no key / structured-output-unsupported keyless driver); no `spec.md` manufactured for the spec-v1 first-pass false-FAIL.
+6. Touchpoint expansion (prior session @be5b9a2): `drivertest/stub.go` (D4 StubDriver) and `drivertest/wiring.go` (AC-02 fixture wiring) are in the diff beyond the two `drivertest` files spec.json enumerates — both within the conformance-suite package this slice owns and described in design.md. Nothing outside the slice's packages was touched.
