@@ -186,3 +186,54 @@ Historical round-1 FAIL verdict preserved verbatim in `status.json`
 `verification` and in this journal's "Verifier verdicts received" section
 above, per Rule 6/Rule 7 (the proof bundle records live state, but does not
 erase the verification history that got it there).
+
+## Verifier verdicts received (round 2)
+
+### 2026-07-11 — fresh-context verifier (round 2)
+
+PASS
+
+Slice: `S08-honest-cost-telemetry`
+Verified against: `48e5dda8ff1bd0617775686f05b67822668506cf`
+Verifier session: fresh, artefact-only
+
+All gates re-run from live worktree state:
+
+- Gate 1 (reachable outcome): economics() is the single choke point on every
+  InProcess dispatch/verify exit path (success AND error); claude/codex
+  subprocess drivers classify costSource() on every Dispatch;
+  TestRunSlice_CostSourceThreadedToStatusJSON drives the real RunSlice engine
+  and reads cost_source off the WRITTEN status.json (re-run PASS).
+- Gate 2 (touchpoints): actual diff matches status.json actual_files;
+  expansions explained in proof.json divergence and design-reviewed.
+  internal/model/client.go unchanged — investigated, non-violating: it is the
+  SURVIVING unified registry (pricing.go deleted, all callers redirected into
+  client.go's PriceForModel/ComputeCostFromTokens); AC-01 outcome proven by
+  TestPricingUnified.
+- Gate 3 (round-1 violation closed): TestCostSourceVocabulary exists in
+  internal/driver/driver_test.go, re-run PASS 5/5 subtests, pinning
+  CostSourceProviderReported == "provider" and every sibling constant.
+- Amended AC-02 specifically re-checked: CostSourceProviderReported has ZERO
+  live emission sites (grep: constant definition + doc comments only); no
+  dispatch path fabricates a cost figure (flat-rate computeCost and
+  computeAgenticCost deleted repo-wide; AC-04 fail-closed unknown/0 branch
+  observed emitting its stderr warning in test output).
+- Subprocess ruling re-checked: claude costSource() = cli only on strictly
+  positive TotalCostUSD, unknown for nil AND explicit zero
+  (TestClaudeEnvelopeExplicitZeroCostIsUnknown re-run PASS through a real
+  fake-CLI subprocess spawn); codex costSource() = unknown universally
+  (TestCodexDispatchImplementer re-run PASS); CostSourceSubscription has zero
+  emission sites — no subscription inference from undocumented behaviour.
+- Gate 3b/4b: sworn llm-check has no model configured — noted, skipped
+  (non-blocking per contract).
+- Gate 4 (reachability): all cited artefact tests exist and re-ran PASS.
+- Gate 5 (deferrals): no untracked deferral in changed files; D1/D2
+  not-implemented inferences are Coach-ratified Type-1 decisions with all
+  three Rule 2 legs; sworn#89 confirmed OPEN on GitHub; newline-eating-edit
+  sweep clean; gofmt/vet clean.
+- Gate 6 (design conformance): sworn designaudit — EXEMPT, not ui_bearing.
+- Gate 7 (claimed scope): every delivered item's evidence reference verified
+  against live code/tests.
+- Full suite: `go test -count=1 -timeout 300s ./...` — exit 0, zero failures.
+
+**State transition:** `implemented` → `verified`.
