@@ -34,18 +34,21 @@ caching/auto-refresh.
   `modelPricing` (OAI-compat), `anthropicPricing`, `googlePricing`,
   `bedrockPricing`. Consulted for informational purposes only (see "Pricing
   is not part of this slice's contract" below) — not required by any AC.
-- **HTTP client convention**: every provider driver in `internal/model`
-  (`oai.go`, `ollama.go`, `anthropic.go`) uses stdlib `net/http` +
-  `encoding/json` directly (AGENTS.md: no provider SDK for the model client
-  path), with tests built on `httptest.NewServer` (`oai_test.go`
-  `fakeServer`). `google.go` is the one exception — it uses the
-  `google.golang.org/genai` SDK for **dispatch** (`Verify`), an
-  already-justified dependency. This slice does **not** need SDK dispatch
-  machinery — `models.list` is a plain authenticated GET — so it uses raw
-  `net/http` for all 7 providers, including Google, to stay inside the
+- **HTTP client convention**: `oai.go` and `ollama.go` use stdlib `net/http`
+  + `encoding/json` directly (AGENTS.md: no provider SDK for the model
+  client path), with tests built on `httptest.NewServer` (`oai_test.go`
+  `fakeServer`). Two providers are documented ADR-0007 exceptions to that
+  default: `anthropic.go` uses `anthropic-sdk-go` for **dispatch**
+  (`Verify`/`Chat`), and `google.go` uses `google.golang.org/genai`, also
+  for dispatch. This slice does **not** need SDK dispatch machinery —
+  `models.list` is a plain authenticated GET — so it uses raw `net/http` for
+  all 7 providers, including Anthropic and Google, to stay inside the
   zero-new-deps default and keep every provider's list-client testable the
   same way (`httptest.Server` + a transport recorder, matching AC-04's own
-  test requirement).
+  test requirement). `catalog.go` therefore does not import
+  `anthropic-sdk-go` or `google.golang.org/genai` at all — it is a
+  standalone stdlib-only file even though two of its 7 providers have an
+  SDK-based dispatch driver elsewhere in the package.
 
 ## Design gap the spec text doesn't resolve: "registry enumeration" can't answer for 2 of the 7 providers
 
