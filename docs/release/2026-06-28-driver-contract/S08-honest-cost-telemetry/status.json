@@ -3,7 +3,7 @@
   "slice_id": "S08-honest-cost-telemetry",
   "release": "2026-06-28-driver-contract",
   "track": "T4-resolution-loop",
-  "state": "design_review",
+  "state": "in_progress",
   "covers_needs": ["N-06"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S08-honest-cost-telemetry/spec.json",
   "start_commit": null,
@@ -14,6 +14,44 @@
     "rationale": "Mechanical but wide: two pricing tables unified, two flat-rate functions deleted, cost_source threaded driver->Result->Dispatch->status.json.",
     "confirmed_by_implementer": false
   },
+  "design_decisions": [
+    {
+      "id": "D1",
+      "stake_class": "Type-1",
+      "description": "claude.go costSource() classification for the CLI-reported TotalCostUSD field.",
+      "options_considered": [
+        "Infer subscription from an explicit reported zero (TotalCostUSD != nil && == 0) — matches documented `claude -p` behaviour when authenticated against a Claude subscription rather than an API key.",
+        "Ship every case as \"unknown\" until the inference is verified against a live subscription-authenticated CLI run — no positively identified, testable marker in current CLI output distinguishes 'explicit zero because subscription' from 'explicit zero because a genuinely free/no-cost turn or a protocol quirk'."
+      ],
+      "human_decision": "Coach ratified fail-closed: ship \"unknown\" for both the nil and the explicit-zero case. An explicit reported zero is NOT, by itself, a positively identified subscription marker — it is also consistent with a genuinely free turn or an envelope quirk. No field in claudeEnvelope distinguishes the two today. Do NOT implement the TotalCostUSD==0 -> \"subscription\" inference; only a non-zero TotalCostUSD (CostSource=\"cli\") is positively identified. Record the absent marker as a Rule 2 note in proof.json.",
+      "decided_by": "Brad (Coach)",
+      "decision_ref": "docs/release/2026-06-28-driver-contract/S08-honest-cost-telemetry/captain-proceed.md@4753eb3 pin 1"
+    },
+    {
+      "id": "D2",
+      "stake_class": "Type-1",
+      "description": "codex.go costSource() classification for the JSONL Usage field (codex CLI never carries a cost field in any documented shape).",
+      "options_considered": [
+        "Infer subscription from Usage != nil (a turn actually completed) on the theory that codex CLI is subscription-authenticated by default and its JSONL stream never reports cost by design.",
+        "Ship every case as \"unknown\" until verified against a live codex binary — codex.go's own header already flags its envelope shape as unverified (SIT-deferred); Usage != nil proves a turn happened, not that it was subscription-covered rather than API-billed."
+      ],
+      "human_decision": "Coach ratified fail-closed: ship \"unknown\" universally for codex.go in this slice. Usage != nil is not a positively identified subscription marker, only evidence a turn completed — codexEnvelope carries no field distinguishing subscription-covered from API-billed. Do NOT implement the Usage!=nil -> \"subscription\" inference. Record the absent marker as a Rule 2 note in proof.json.",
+      "decided_by": "Brad (Coach)",
+      "decision_ref": "docs/release/2026-06-28-driver-contract/S08-honest-cost-telemetry/captain-proceed.md@4753eb3 pin 1"
+    },
+    {
+      "id": "D3",
+      "stake_class": "Type-2",
+      "description": "Named driver.CostSource* constants (mirroring the existing ErrKind* pattern) replace scattered CostSource string literals across producers and tests.",
+      "options_considered": [
+        "Named constants in internal/driver/driver.go, one per vocabulary value (provider, pricing-table, cli, subscription, unknown).",
+        "Continue with ad hoc string literals per call site."
+      ],
+      "human_decision": "Confirmed as designed (memory-cited, pre-acknowledged in captain-proceed.md pin 5) — proceed with named constants.",
+      "decided_by": "Brad (Coach)",
+      "decision_ref": "docs/release/2026-06-28-driver-contract/S08-honest-cost-telemetry/captain-proceed.md@4753eb3 pin 5"
+    }
+  ],
   "verification": {
     "result": "pending"
   }
