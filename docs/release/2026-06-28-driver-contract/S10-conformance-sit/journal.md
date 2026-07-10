@@ -121,3 +121,60 @@ This is AC-06's non-tautology proof: with the fix the committed ref is
 
 State transition: `in_progress -> implemented`. Handing off to a fresh-context
 `/verify-slice S10-conformance-sit 2026-06-28-driver-contract` (Rule 7).
+
+## Verifier verdicts received
+
+### 2026-07-10T23:42:35Z — PASS (fresh-context Rule 7 verifier)
+
+Verified against track HEAD `cfa05456f5dc993e4f688f5eb6eabf546270fb0c` (T6-proof,
+`start_commit..HEAD` = the 7 non-merge commits of this slice; drift vs
+`release-wt/2026-06-28-driver-contract` = 0, no forward-merge needed). No
+implementer context loaded.
+
+All six gates pass. This is the release's PROOF slice folding sworn#93, so the
+four scrutiny points were checked independently:
+
+1. **Cold-board SIT boots the REAL RunParallel/RunSlice path (not a mocked leaf)**
+   — re-ran `TestLoopSIT` (0.27s PASS): live log shows the cold-start bootstrap
+   creating `release-wt/sit-fixture`, the release + track worktrees materialising
+   via real `git worktree add`, the auto-constructed PRODUCTION router routing
+   `implemented -> verify`, and the design/captain/implement/verify legs firing
+   through the S05 registry (`stub.RoleCounts` non-zero for all three). Only the
+   model transport is stubbed; the state machine, DoR gate, verdict validation,
+   and git commits are the real thing.
+2. **Conformance suite enrols all four registered drivers fail-closed** — re-ran
+   `TestDriverConformance` (0.16s): five subjects run the full clause set —
+   claude-subprocess, codex-subprocess, oai-inprocess, oai-responses-inprocess
+   (the four `registry.Default` entries) plus the conformance-reference stub.
+   `conformance_all_test.go` Fatal-fails on any registered driver name missing
+   from the enrolment map; `registry.Default` registers exactly those four.
+3. **AC-06 has teeth (independently reproduced)** — exported HEAD into a scratch
+   copy, reverted ONLY the verified-path `repo.Stage`/`repo.Commit`, re-ran
+   `TestLoopSIT`: `--- FAIL: TestLoopSIT (30.16s)` — the loop stalled to its
+   bounded deadline with the committed track ref stuck (verification pending /
+   state not `verified`) and the router re-dispatching verify. With the fix
+   present it is 0.27s PASS. The AC-06 assertion reads the COMMITTED ref via
+   `git show`, never the worktree file, so it is non-tautological by construction.
+4. **slice.go change is exactly the verified-path commit, nothing broader** —
+   `git diff start_commit..HEAD -- internal/run/slice.go` is a single
+   `@@ -850,6 +850,21 @@` hunk adding the Stage+Commit inside the verified branch;
+   the four blocked variants (612/685/767/931) and failed_verification (974)
+   already committed. The one-line-fix ceiling holds.
+
+Independently re-ran: full `go test -count=1 -timeout 300s ./...` (46 packages
+ok, 0 FAIL), slice-scoped `go test ./internal/driver/... ./internal/run/...`,
+`gofmt -l` (clean), `go vet ./internal/run/ ./internal/driver/...` (exit 0),
+newline-eating-corruption grep (clean). No network / paid dispatch anywhere:
+StubDriver is transport-less, conformance fakes are shell scripts + httptest,
+SIT verdict cost `$0.0000`; host/provider-API sweep of changed files empty.
+Gate 5 grep hits (`slice.go:436` "deferred", `slice.go:860` "later") are false
+positives — a pre-existing reference to the named `recordDesignGateDeferral`
+mechanism outside this slice's hunk, and the English adverb "that later empty
+commit". Gate 6 auto-passes (non-UI project, no `design-fidelity.json`).
+Touchpoint expansion (`stub.go`, `wiring.go`) is declared in proof.json
+divergence[5] and lives inside the owned `drivertest` package. `not_delivered`
+items (real-provider dispatch, perf) are Coach-ratified out_of_scope owned by the
+Rule-10 cutover journey.
+
+state: implemented -> verified; verification.result: pass;
+verifier_was_fresh_context: true.

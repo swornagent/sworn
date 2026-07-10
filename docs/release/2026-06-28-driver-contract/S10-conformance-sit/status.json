@@ -3,9 +3,9 @@
   "slice_id": "S10-conformance-sit",
   "release": "2026-06-28-driver-contract",
   "track": "T6-proof",
-  "state": "implemented",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-10T23:25:45Z",
+  "state": "verified",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-10T23:42:35Z",
   "covers_needs": ["N-07"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S10-conformance-sit/spec.json",
   "start_commit": "97dc24b06b161eb461626b0040d8c3a5594cc0c3",
@@ -100,6 +100,8 @@
     "Teeth demo (journal.md): reverting the verified-path repo.Stage/repo.Commit in internal/run/slice.go makes TestLoopSIT STALL to its bounded deadline with the committed ref stuck at 'implemented' and the router re-dispatching verify dozens of times"
   ],
   "verification": {
-    "result": "pending"
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-10T23:42:35Z"
   }
 }
