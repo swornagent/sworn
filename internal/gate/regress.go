@@ -117,8 +117,77 @@ func runRegress(worktreePath, releaseName string, runner testRunner) (*RegressRe
 
 // --- suite runners ---
 
+// findGoModuleDir locates the Go module directory under worktree.
+//
+// Resolution order (spec R-01 mitigation):
+//  1. <worktree>/go.mod exists -> the module is at the worktree root.
+//  2. Else scan first-level subdirectories only (skipping hidden dirs,
+//     vendor, node_modules, testdata) for exactly one go.mod.
+//
+// Returns ("", 0) when no go.mod is found under the worktree (within the
+// scan bound above), (dir, 1) when exactly one module is found, and
+// ("", n) with n>1 when more than one first-level module is found (D1:
+// multi-module repos are unsupported — caller skips rather than guessing).
+func findGoModuleDir(worktree string) (dir string, found int) {
+	if _, err := os.Stat(filepath.Join(worktree, "go.mod")); err == nil {
+		return worktree, 1
+	}
+
+	entries, err := os.ReadDir(worktree)
+	if err != nil {
+		return "", 0
+	}
+
+	skip := map[string]bool{
+		".git":         true,
+		"vendor":       true,
+		"node_modules": true,
+		"testdata":     true,
+	}
+
+	var candidates []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if strings.HasPrefix(name, ".") || skip[name] {
+			continue
+		}
+		candidatePath := filepath.Join(worktree, name)
+		if _, err := os.Stat(filepath.Join(candidatePath, "go.mod")); err == nil {
+			candidates = append(candidates, candidatePath)
+		}
+	}
+
+	switch len(candidates) {
+	case 0:
+		return "", 0
+	case 1:
+		return candidates[0], 1
+	default:
+		return "", len(candidates)
+	}
+}
+
 func runGoSuite(worktree string, runner testRunner) SuiteResult {
-	out, exitCode, err := runner.Run(worktree, "go", "test", "./...")
+	moduleDir, count := findGoModuleDir(worktree)
+	if count == 0 {
+		return SuiteResult{
+			Name:          "Go tests",
+			Skipped:       true,
+			SkippedReason: "no go.mod at worktree root or in a first-level subdirectory",
+		}
+	}
+	if count > 1 {
+		return SuiteResult{
+			Name:          "Go tests",
+			Skipped:       true,
+			SkippedReason: "multiple Go modules found; multi-module repos unsupported (see spec out_of_scope)",
+		}
+	}
+
+	out, exitCode, err := runner.Run(moduleDir, "go", "test", "./...")
 	if err != nil {
 		return SuiteResult{
 			Name:     "Go tests",

@@ -31,6 +31,8 @@ func (m mockRunner) Run(dir, name string, args ...string) (string, int, error) {
 
 func TestRunRegress_AllPass(t *testing.T) {
 	worktree := t.TempDir()
+	// Root go.mod so the Go suite resolves the repo-root module path.
+	os.WriteFile(filepath.Join(worktree, "go.mod"), []byte("module fixture\n"), 0644)
 	// Create package.json so the TS suite check passes.
 	os.WriteFile(filepath.Join(worktree, "package.json"), []byte("{}"), 0644)
 
@@ -70,6 +72,7 @@ func TestRunRegress_AllPass(t *testing.T) {
 
 func TestRunRegress_AllFail(t *testing.T) {
 	worktree := t.TempDir()
+	os.WriteFile(filepath.Join(worktree, "go.mod"), []byte("module fixture\n"), 0644)
 	os.WriteFile(filepath.Join(worktree, "package.json"), []byte("{}"), 0644)
 
 	runner := mockRunner{results: mockResults(worktree, map[string]mockResult{
@@ -107,6 +110,7 @@ func TestRunRegress_Mixed(t *testing.T) {
 	// Go passes, pnpm missing (skip), golden fails.
 	// No package.json needed — pnpm check fails before we reach os.Stat.
 	worktree := t.TempDir()
+	os.WriteFile(filepath.Join(worktree, "go.mod"), []byte("module fixture\n"), 0644)
 
 	runner := mockRunner{results: mockResults(worktree, map[string]mockResult{
 		"go test ./...":                          {stdout: "ok\t./...\n", exitCode: 0},
@@ -159,6 +163,7 @@ func TestRunRegress_Mixed(t *testing.T) {
 func TestRunRegress_NoPackageJSON(t *testing.T) {
 	// pnpm is available but there's no package.json in the worktree.
 	worktree := t.TempDir() // no package.json
+	os.WriteFile(filepath.Join(worktree, "go.mod"), []byte("module fixture\n"), 0644)
 
 	runner := mockRunner{results: mockResults(worktree, map[string]mockResult{
 		"go test ./...":                          {stdout: "ok\n", exitCode: 0},
@@ -190,6 +195,141 @@ func TestRunRegress_NoPackageJSON(t *testing.T) {
 	}
 	if tsSuite.SkippedReason != "no package.json in worktree" {
 		t.Errorf("expected skip reason 'no package.json in worktree', got %q", tsSuite.SkippedReason)
+	}
+}
+
+// --- unit: Go module in a first-level subdirectory (fired shape) ---
+
+func TestRunRegress_GoModuleInSubdir(t *testing.T) {
+	worktree := t.TempDir()
+	os.MkdirAll(filepath.Join(worktree, "go"), 0755)
+	os.WriteFile(filepath.Join(worktree, "go", "go.mod"), []byte("module fixture\n"), 0644)
+	os.WriteFile(filepath.Join(worktree, "package.json"), []byte("{}"), 0644)
+
+	moduleDir := filepath.Join(worktree, "go")
+	results := map[string]mockResult{
+		"pnpm --version":                         {stdout: "8.15.0\n", exitCode: 0},
+		"pnpm test":                              {stdout: "> test passed\n", exitCode: 0},
+		"git diff --exit-code -- **/testdata/**": {stdout: "", exitCode: 0},
+	}
+	runner := mockRunner{results: mockResults(worktree, results)}
+	// go test must run with cmd.Dir = the module dir, not the worktree root.
+	runner.results[moduleDir+"/go test ./..."] = mockResult{stdout: "ok\t./...\t0.1s\n", exitCode: 0}
+
+	report, err := runRegress(worktree, "test-release", runner)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var goSuite *SuiteResult
+	for i := range report.Suites {
+		if report.Suites[i].Name == "Go tests" {
+			goSuite = &report.Suites[i]
+			break
+		}
+	}
+	if goSuite == nil {
+		t.Fatal("expected Go tests suite in report")
+	}
+	if goSuite.Skipped {
+		t.Fatalf("expected Go suite not skipped, got skip reason %q", goSuite.SkippedReason)
+	}
+	if !goSuite.Passed {
+		t.Errorf("expected Go suite Passed=true (ran from module dir %s), got Passed=false, ExitCode=%d", moduleDir, goSuite.ExitCode)
+	}
+}
+
+// --- unit: no go.mod anywhere under the worktree -> skipped, not FAIL ---
+
+func TestRunRegress_NoGoMod(t *testing.T) {
+	worktree := t.TempDir() // no go.mod anywhere
+
+	runner := mockRunner{results: mockResults(worktree, map[string]mockResult{
+		"pnpm --version":                         {stdout: "", exitCode: -1, err: errMockNotFound},
+		"git diff --exit-code -- **/testdata/**": {stdout: "", exitCode: 0},
+	})}
+
+	report, err := runRegress(worktree, "test-release", runner)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var goSuite *SuiteResult
+	for i := range report.Suites {
+		if report.Suites[i].Name == "Go tests" {
+			goSuite = &report.Suites[i]
+			break
+		}
+	}
+	if goSuite == nil {
+		t.Fatal("expected Go tests suite in report")
+	}
+	if !goSuite.Skipped {
+		t.Error("expected Go suite to be skipped when no go.mod exists")
+	}
+	if goSuite.SkippedReason == "" {
+		t.Error("expected a non-empty skip reason")
+	}
+	if goSuite.Passed {
+		t.Error("a skipped suite must not also report Passed=true")
+	}
+}
+
+// --- unit: multiple first-level Go modules -> skipped with distinct reason (D1) ---
+
+func TestRunRegress_MultipleGoModules(t *testing.T) {
+	worktree := t.TempDir()
+	os.MkdirAll(filepath.Join(worktree, "a"), 0755)
+	os.MkdirAll(filepath.Join(worktree, "b"), 0755)
+	os.WriteFile(filepath.Join(worktree, "a", "go.mod"), []byte("module a\n"), 0644)
+	os.WriteFile(filepath.Join(worktree, "b", "go.mod"), []byte("module b\n"), 0644)
+
+	runner := mockRunner{results: mockResults(worktree, map[string]mockResult{
+		"pnpm --version":                         {stdout: "", exitCode: -1, err: errMockNotFound},
+		"git diff --exit-code -- **/testdata/**": {stdout: "", exitCode: 0},
+	})}
+
+	report, err := runRegress(worktree, "test-release", runner)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var goSuite *SuiteResult
+	for i := range report.Suites {
+		if report.Suites[i].Name == "Go tests" {
+			goSuite = &report.Suites[i]
+			break
+		}
+	}
+	if goSuite == nil {
+		t.Fatal("expected Go tests suite in report")
+	}
+	if !goSuite.Skipped {
+		t.Error("expected Go suite to be skipped when multiple modules are found")
+	}
+	if !strings.Contains(goSuite.SkippedReason, "multiple") {
+		t.Errorf("expected a multi-module skip reason, got %q", goSuite.SkippedReason)
+	}
+}
+
+// --- unit: vendor/hidden dirs are ignored during discovery (R-01) ---
+
+func TestFindGoModuleDir_IgnoresVendorAndHidden(t *testing.T) {
+	worktree := t.TempDir()
+	os.MkdirAll(filepath.Join(worktree, "vendor"), 0755)
+	os.MkdirAll(filepath.Join(worktree, ".git"), 0755)
+	os.MkdirAll(filepath.Join(worktree, "go"), 0755)
+	os.WriteFile(filepath.Join(worktree, "vendor", "go.mod"), []byte("module vendored\n"), 0644)
+	os.WriteFile(filepath.Join(worktree, ".git", "go.mod"), []byte("module hidden\n"), 0644)
+	os.WriteFile(filepath.Join(worktree, "go", "go.mod"), []byte("module fixture\n"), 0644)
+
+	dir, found := findGoModuleDir(worktree)
+	if found != 1 {
+		t.Fatalf("expected exactly 1 module found, got %d", found)
+	}
+	want := filepath.Join(worktree, "go")
+	if dir != want {
+		t.Errorf("expected discovery to pick %s, got %s", want, dir)
 	}
 }
 
