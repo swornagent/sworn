@@ -1,0 +1,25 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/board-v1.json",
+  "schema_version": 1,
+  "release": {
+    "name": "sit-fixture",
+    "integration_branch": "main",
+    "target_version": "v0.0.0",
+    "vertical_trace": {
+      "benefit": "Cold-board SIT: the assembled sworn loop boots end-to-end over a hermetic fixture release with a stub driver, so a dead loop wiring fails a test in CI instead of shipping a DOA release (S10 AC-03/AC-06)."
+    }
+  },
+  "release_worktree_path": "__RELEASE_WT__",
+  "release_worktree_branch": "release-wt/sit-fixture",
+  "tracks": [
+    {
+      "id": "T1-sit",
+      "slices": [
+        "S01-sit-slice"
+      ],
+      "depends_on": [],
+      "worktree_branch": "track/sit-fixture/T1-sit",
+      "state": "planned"
+    }
+  ]
+}

@@ -3,18 +3,105 @@
   "slice_id": "S10-conformance-sit",
   "release": "2026-06-28-driver-contract",
   "track": "T6-proof",
-  "state": "planned",
+  "state": "verified",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-10T23:42:35Z",
   "covers_needs": ["N-07"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S10-conformance-sit/spec.json",
-  "start_commit": null,
+  "start_commit": "97dc24b06b161eb461626b0040d8c3a5594cc0c3",
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
     "quadrant": "epic",
     "rationale": "Hermetic SIT over a cold board is exactly where the 2026-06-28 eval's twelve novel bugs lived; deterministic CI harness is genuinely hard.",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
+  "design_decisions": [
+    {
+      "choice": "AC-01 undeclared-role clause asserts the failure at the RESOLUTION boundary (Registry.Resolve's role-arm error for an undeclared role); the conformance suite does NOT harden the four drivers' Dispatch with role re-checks. Dispatch is additionally asserted not to panic on an undeclared-role input.",
+      "stake_class": "Type-1",
+      "options": [
+        "Amend AC-01 so role rejection is asserted at the landed enforcement boundary (registry.Resolve role-arm), preserving the S01 Type-1 fail-fast-at-resolution contract that ADR-0012 records (chosen).",
+        "Harden all four drivers' Dispatch with a fail-closed Roles().Has(in.Role) guard — a production change to the S01 contract posture, outside this slice's pure-test scope."
+      ],
+      "human_decision": "Brad (Coach), 2026-07-11 (captain-proceed.md pin 1): resolved by PROPAGATING the release's original S01 fail-fast-at-resolution Type-1 decision, not a new ruling; AC-01 amended on release-wt @32328e5 and forward-merged to this track.",
+      "rationale": "Capability IS the declared role set; resolution checks it before ever dispatching. Re-checking in Dispatch would amend ADR-0012's deliberately-disclaimed posture from a test slice.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "D1 — drivertest.Run takes a fresh-driver factory (func() driver.Driver), not a driver instance, so no subtest's dispatch leaks state into the next.",
+      "stake_class": "Type-2",
+      "rationale": "Matches the constructor shape every driver already exposes; callers close over their fake-binary path or httptest URL.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "D4 — one exported StubDriver in drivertest is both the fifth conformance subject and the SIT's dispatched driver, with per-role scripted outputs (captain design-TL;DR/review/reqverify legs plus implement/verify) so the SIT stub can never silently diverge from what conformance certified.",
+      "stake_class": "Type-2",
+      "rationale": "Divergence between 'what conformance certified' and 'what the SIT dispatches' is exactly the anti-leaf-mocking failure mode this slice encodes (Captain pin 8).",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "D7 — TestLoopSIT leaves MergeTrackFn nil (auto-skip): AC-03's boundary is 'at least one slice reaches verified', not 'track merged'.",
+      "stake_class": "Type-2",
+      "rationale": "Confirmed by Captain review pin 7 from the spec's verbatim wording; pulling merge in would make a stall ambiguous between loop failure and merge failure.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "In-process drivers' conformance wiring goes via fake credentials + SWORN_PROXY_URL (the landed S06 ProxyRoute seam) to reach the httptest server; no exported client-factory seam is added.",
+      "stake_class": "Type-2",
+      "rationale": "Coach disposition 3: the proxy route is the honest, already-tested seam with zero production edits; an exported seam would be a declared touchpoint divergence taken only if the proxy route proves insufficient.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "conformance_all_test.go enrolment is fail-closed detection: iterate Registry.Drivers() for registered names, look each up in a test-owned name->factory map (fresh fake-wired drivers), and fail loudly on any registered name missing from the map.",
+      "stake_class": "Type-2",
+      "rationale": "Drivers() returns []Info, not instances, so zero-edit auto-enrolment is impossible; fail-closed detection preserves AC-02's intent that a newly registered driver cannot ship unenrolled silently (Coach disposition 4).",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "No RequiresWorktree opt-out knob: the Rule-11 worktree clause is mandatory for every driver.",
+      "stake_class": "Type-2",
+      "rationale": "All four registered drivers AssertWorktree unconditionally, so the knob is dead configuration at birth; a future transport-less driver failing the clause is the R-02 surface-to-human path (Coach disposition 5).",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "The sworn#93 verified-path commit fix (internal/run/slice.go: repo.Stage(statusPath)+repo.Commit after the PASS->verified transition) is FOLDED into S10 rather than routed to the owning slice S06 or cut as a separate slice.",
+      "stake_class": "Type-1",
+      "options": [
+        "Fold the one-line verified-path commit fix into S10 because AC-06's cold-board SIT cannot reach a stable COMMITTED verified state without it — the bug blocks this slice's own acceptance (chosen).",
+        "Route the fix to the owning slice S06-loop-dispatch-rewire — rejected: S06 is merged/immutable, so its spec and diff cannot be reopened.",
+        "Cut a separate slice for the one-line fix — rejected: it blocks S10's own AC-06 acceptance and would leave AC-06 unverifiable within this slice."
+      ],
+      "human_decision": "Brad (Coach), 2026-07-11, captain-proceed.md 'Supplementary Coach decision - 2026-07-11 (sworn#93 fold)': FOLD the fix into S10. Spec amended on release-wt @b80c7ad (forward-merged here): internal/run/slice.go added to in_scope + touchpoints; AC-06 added as the non-tautological regression assertion. Tracked: sworn#93.",
+      "rationale": "The verified/PASS path wrote status.json but, alone among all terminal paths (the four blocked variants and failed_verification all repo.Stage+repo.Commit), never committed it, so the parallel router re-read the COMMITTED track ref as 'implemented' and re-dispatched verify endlessly; single-slice Run() masked it by committing the whole tree afterward. This is a loop-state-machine change that crosses a slice boundary, so it is architecturally significant (Type-1). Scope ceiling: exactly the single verified-path commit, no broader state-machine change (S06's rewire is otherwise immutable). AC-06 is the regression assertion, demonstrated non-tautological: reverting the commit makes the SIT stall to its bounded deadline with the committed ref stuck at 'implemented'.",
+      "architecturally_significant": true
+    }
+  ],
+  "actual_files": [
+    "internal/driver/drivertest/conformance.go",
+    "internal/driver/drivertest/conformance_test.go",
+    "internal/driver/drivertest/stub.go",
+    "internal/driver/drivertest/wiring.go",
+    "internal/driver/conformance_all_test.go",
+    "internal/run/loop_sit_test.go",
+    "internal/run/testdata/sit-fixture/board.json",
+    "internal/run/testdata/sit-fixture/index.md",
+    "internal/run/testdata/sit-fixture/intake.md",
+    "internal/run/testdata/sit-fixture/S01-sit-slice/spec.md",
+    "internal/run/testdata/sit-fixture/S01-sit-slice/reqverify.md",
+    "internal/run/slice.go"
+  ],
+  "test_commands": [
+    "go test ./internal/driver/... ./internal/run/...",
+    "go test -count=1 -timeout 300s ./..."
+  ],
+  "reachability_artifacts": [
+    "internal/run/loop_sit_test.go:TestLoopSIT — boots the real RunParallel path over the cold-board sit-fixture; asserts release+track worktrees materialise, captain/implement/verify legs dispatch through the registry, verdict consumed, committed track-ref state == verified, no panic",
+    "Teeth demo (journal.md): reverting the verified-path repo.Stage/repo.Commit in internal/run/slice.go makes TestLoopSIT STALL to its bounded deadline with the committed ref stuck at 'implemented' and the router re-dispatching verify dozens of times"
+  ],
   "verification": {
-    "result": "pending"
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-10T23:42:35Z"
   }
 }
