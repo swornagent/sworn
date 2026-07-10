@@ -3,9 +3,9 @@
   "slice_id": "S14-blocked-terminal",
   "release": "2026-06-28-driver-contract",
   "track": "T4-resolution-loop",
-  "state": "in_progress",
+  "state": "implemented",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-10T15:20:10Z",
+  "last_updated_at": "2026-07-10T15:33:18Z",
   "covers_needs": [
     "N-15"
   ],
@@ -85,5 +85,32 @@
       "human_decision": "Brad (Coach), captain-proceed.md@31c3290 pin 3: terminal driver errors join the BLOCKED report section, accepted as designed; no reason-string sniffing.",
       "rationale": "Captain review flag (c) verified regression-safety: no scheduler test wires a Notifier or asserts track_failed; the notify-skip and breaker-skip cannot break the protected set."
     }
+  ],
+  "proof_path": "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/proof.md",
+  "journal_path": "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/journal.md",
+  "actual_files": [
+    "internal/driver/driver.go",
+    "internal/implement/implement.go",
+    "internal/orchestrator/blocked.go",
+    "internal/run/slice.go",
+    "internal/run/parallel.go",
+    "internal/scheduler/worker.go",
+    "internal/run/blocked_terminal_test.go",
+    "internal/run/blocked_report_test.go",
+    "internal/scheduler/blocked_lane_test.go",
+    "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/status.json",
+    "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/journal.md",
+    "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/proof.json",
+    "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/proof.md"
+  ],
+  "test_commands": [
+    "go test -count=1 -run 'TestLoopBlocked|TestLoopFail|TestLoopExitReport' -v ./internal/run/ ./internal/scheduler/",
+    "go test -count=1 -timeout 300s ./...",
+    "go vet ./internal/driver/ ./internal/implement/ ./internal/run/ ./internal/scheduler/ ./internal/orchestrator/"
+  ],
+  "reachability_artifacts": [
+    "internal/run/blocked_terminal_test.go:TestLoopBlockedImplementerTerminal (fired S05 replay through the real run.RunSlice entry point)",
+    "internal/run/blocked_report_test.go:TestLoopExitReportBlockedVsFail (real run.RunParallel exit report, BLOCKED vs FAIL lanes)",
+    "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/proof.md"
   ]
 }
