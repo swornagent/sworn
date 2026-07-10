@@ -3,9 +3,9 @@
   "slice_id": "S06-loop-dispatch-rewire",
   "release": "2026-06-28-driver-contract",
   "track": "T4-resolution-loop",
-  "state": "design_review",
+  "state": "in_progress",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-10T02:35:33Z",
+  "last_updated_at": "2026-07-10T03:30:00Z",
   "covers_needs": ["N-05", "N-08"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S06-loop-dispatch-rewire/spec.json",
   "start_commit": null,
@@ -14,8 +14,66 @@
     "complexity": "high",
     "quadrant": "epic",
     "rationale": "Largest seam rewire: three role legs, verify transport swap with semantics preservation, factory deletion, import-boundary contract.",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
+  "design_decisions": [
+    {
+      "choice": "D1 — Registry injection: RunSliceOptions.Registry *registry.Registry, nil -> registry.Default(model.ProviderConfigFromEnv()); the NewAgent/NewVerifier factory fields are deleted (not deprecated) from RunSliceOptions AND run.Options, and tests inject fake drivers through a test registry (registry.New() + Register), never through factories.",
+      "stake_class": "Type-2",
+      "options": [
+        "registry field with nil->Default (chosen) — one seam, cmd call sites compile unchanged",
+        "keep factory fields alongside the registry — rejected: preserves the nil-factory SIGSEGV class AC-01 exists to delete"
+      ],
+      "human_decision": "Brad, 2026-07-02, planning session (intake registry/resolution decisions); acknowledged clean in the Captain review (review.md 2026-07-10 §2) and the Coach acknowledgement (captain-proceed.md 2026-07-10).",
+      "rationale": "The registry's role check subsumes the deleted newAgentFromModel CapChat gate ('capability IS the role set', S05 design intent); no code path can hold an unresolved driver.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "D2 — RoleCaptain declared by the in-process drivers only; a captain-leg Resolve failure records the registry's descriptive role error as a durable Rule 2 deferral via recordDesignGateDeferral (sworn#51) and proceeds — AC-02's hard-error contract applies to the implement and verify legs. AC-02's text was AMENDED on release-wt (@8ff95cc) so spec and code agree; this narrowing is decided, not drifted.",
+      "stake_class": "Type-1",
+      "options": [
+        "(i) fail-open deferral for the captain leg, hard error for implement/verify (chosen, with AC-02 amendment)",
+        "(ii) hard-fail all three legs per AC-02's original literal text — rejected: bricks every subprocess-first run at the design gate since no subprocess driver declares RoleCaptain"
+      ],
+      "human_decision": "Brad (Coach), 2026-07-10, S06 captain-proceed.md pin 1 (escalate pin RATIFIED live): deferral reading stands, AC-02 amended, follow-up restoring role-universality (RoleCaptain on subprocess drivers) filed as sworn#86.",
+      "rationale": "A captain gate that cannot run defers loudly and the run proceeds (the established recordDesignGateDeferral contract); an unserved implement/verify dispatch is a wrong-answer path and must hard-error before any model dispatch.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "D3 — One terminal-kind predicate in the contract package: driver.TerminalErrKind with the set exactly {auth, credits} (driver.ErrKindAuth, driver.ErrKindCredits — the latter promoted from inprocess's private errKindCredits), consumed at BOTH the implement leg (replacing model.IsTerminal) and the verify leg's terminal->BLOCKED mapping. Closes the S04 D5 Rule-2 tracked obligation on this slice.",
+      "stake_class": "Type-2",
+      "options": [
+        "single contract predicate consumed at both points (chosen)",
+        "auth-only check — rejected: silently loses the credits fail-fast (subprocess drivers collapse terminal cases to auth; the in-process driver emits credits as its own kind)",
+        "per-consumer hand-synced sets — rejected: the drift R-03 names"
+      ],
+      "human_decision": "Brad (Coach), 2026-07-10, T3 captain-proceed.md (S04 acknowledgement — the binding record for the {auth, credits} set) and S06 captain-proceed.md pin 3 (citation carried into the TerminalErrKind doc comment and this record).",
+      "rationale": "A terminal driver error can never succeed on retry or model escalation; one predicate at both consumption points means the fail-fast property cannot split across the transport swap.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "D6 — Single proxy predicate model.ProxyRoute extracted from FromEnv; model.ResolveLoopClient is the in-process drivers' FromEnv-equivalent client default (replacing proxy-blind model.NewClient); registry.proxyRouting delegates to the same predicate. Binding R-04 artefact: three-part reachability test (capabilities advertise ViaProxy / dispatch observed server-side at the proxy / SWORN_DIRECT=1 flips both surfaces together). SWORN_PROXY_URL stays test-only per the credential-trust boundary.",
+      "stake_class": "Type-1",
+      "options": [
+        "extract one predicate behind FromEnv + ResolveLoopClient + registry (chosen)",
+        "keep registry-side duplicate of the login condition — rejected: capabilities would claim proxy while registry-dispatched execution goes direct, regressing the keyless-credits (S06b/OpenRouter) journey"
+      ],
+      "human_decision": "Brad (Coach), 2026-07-10, S06 captain-proceed.md pin 4 (CONFIRMED, proceed as designed; constitutional flag acknowledged — D6/D7 change credential-based routing).",
+      "rationale": "Enumeration and dispatch must evaluate literally the same function so the capability surface can never lie about the dispatch route; protects the memory-validated aggregator/proxy journey.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "D7 — ProviderConfigFromEnv widened so every provider key reads envOrAlias(CANONICAL, SWORN_CANONICAL): canonical wins, SWORN_* becomes a fallback everywhere, keeping SWORN_*-only worker setups on direct dispatch when the default registry is built from ProviderConfigFromEnv. Strictly additive, proven by a canonical-wins precedence test covering every widened key.",
+      "stake_class": "Type-2",
+      "options": [
+        "widen with envOrAlias for every provider key (chosen)",
+        "leave only OPENAI/GOOGLE aliased — rejected: a SWORN_OPENROUTER_API_KEY-only environment (the documented worker setup) would silently lose direct dispatch at the S06 cutover"
+      ],
+      "human_decision": "Brad (Coach), 2026-07-10, S06 captain-proceed.md pin 5 (ACCEPTED with the mandatory per-key canonical-wins precedence test; behaviour outside the literal touchpoints contained by the track merging as one unit).",
+      "rationale": "The default registry must be built from the same config sworn capabilities uses or the R-04 predicate splits on the key half; canonical-wins keeps the widening backward-compatible.",
+      "architecturally_significant": false
+    }
+  ],
   "verification": {
     "result": "pending"
   }
