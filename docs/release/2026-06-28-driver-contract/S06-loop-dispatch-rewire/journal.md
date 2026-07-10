@@ -105,3 +105,75 @@
   (fresh cache, R-02 gate). go vet + gofmt -l clean.
 - State: in_progress → implemented. Next: fresh-context
   `/verify-slice S06-loop-dispatch-rewire 2026-06-28-driver-contract`.
+
+## Verifier verdicts received
+
+### 2026-07-10 — PASS (fresh-context verifier, Rule 7)
+
+PASS
+
+Slice: `S06-loop-dispatch-rewire`
+Verified against: `0e4265b` (track/2026-06-28-driver-contract/T4-resolution-loop)
+Verifier session: `fresh, artefact-only`
+
+Gate walk (all re-run live by the verifier, not recalled from proof.json):
+
+- Gate 1 (user-reachable): RunSlice is the engine loop behind `sworn run`;
+  cmd call sites inherit the nil->registry.Default seam
+  (TestRunSliceDefaultsNilRegistry); `sworn verify --agentic` re-cut onto the
+  same registry seam (cmd/sworn/verify.go:115-127). Reachability test drives
+  captain+implement+verify legs end-to-end through a registry-injected fake
+  driver — re-run verbose, PASS.
+- Gate 2 (touchpoints): all spec touchpoints changed except
+  internal/verify/verify_test.go, which holds ONLY the RunFirstPass/first-pass
+  tests AC-05 requires unchanged; the verify acceptance tests the spec's R-01
+  references live in verify_agentic_test.go (pre-existing at start_commit,
+  adapted not rewritten — test-name diff confirms). Files beyond the literal
+  touchpoints were all pre-declared in the Coach-ratified design.md "Required
+  beyond the literal touchpoints" list. No smuggled or undelivered scope.
+- Gate 3 (tests re-run): go build OK; slice packages OK; driver/model/
+  captain/design packages OK; FULL `go test -count=1 -timeout 300s ./...`
+  = 45 packages ok, 0 FAIL, exit 0; go vet + gofmt -l clean.
+  TestRunSliceResolutionFailure asserts model ID + role + registered
+  alternatives in the error text AND zero dispatches (strong assertions);
+  TestRunSliceCaptainResolutionFailureDefersAndProceeds proves the amended
+  AC-02 captain arm (recordDesignGateDeferral + proceed).
+- Gate 3b/4b (LLM checks): skipped non-blocking — no LLM provider configured
+  in the verification environment ($SWORN_MODEL unset).
+- Gate 4 (reachability artefact): both cited cli-run commands re-run PASS.
+  R-04 binding artefact TestProxyRoutingAdvertisedEqualsActual verified to
+  contain all three parts: (a) Drivers() advertises openai/ ViaProxy under
+  the login condition, (b) a registry-resolved REAL in-process driver's
+  Dispatch observed server-side at the httptest proxy, (c) SWORN_DIRECT=1
+  flips advertisement AND dispatch route together, plus the source predicate
+  model.ProxyRoute asserted directly.
+- Gate 5 (silent deferrals): grep over changed .go files clean except the
+  nominalCostPerToken doc comment — an S08-owned deferral (owning slice
+  exists in this release; spec out_of_scope names S08; Coach ack pin 5
+  cited). open_deferrals entry (RoleCaptain on subprocess drivers) carries
+  all three Rule 2 legs + acknowledged_by; tracking swornagent/sworn#86
+  confirmed OPEN via gh. Scanner false-positive tracking swornagent/sworn#87
+  confirmed OPEN. Newline-corruption sweep clean; the pre-existing fused
+  comments (slice.go:694 region, verify.go:123) verified repaired in the diff.
+- Gate 6 (design conformance): `sworn designaudit .` = EXEMPT (not
+  ui_bearing). Type-1 decisions D2/D6 carry human decisions citing the Coach
+  acknowledgement (captain-proceed.md 2026-07-10).
+- Gate 7 (claimed scope): every delivered item's evidence spot-checked live —
+  factory fields deleted (grep: only historical comments remain), upfront
+  resolution block wraps errors with model+role (Coach pin 2),
+  driver.TerminalErrKind = {auth, credits} single predicate consumed at
+  slice.go:525 AND verify.go:226 (R-03: both kinds tested at both legs),
+  TestNoWireImports scans ".", "../verify", "../scheduler" (AC-04),
+  acceptStructuredVerdict retained with baton.ValidateSchema and economics
+  sourced from driver.Result (AC-03/AC-05), appendDispatch call sites source
+  captain/implementer/verifier records from the leg's Result (AC-05),
+  ResolveLoopClient is the in-process newClient default and
+  registry.proxyRouting delegates to model.ProxyRoute (R-04/D6),
+  canonical-wins + SWORN_* fallback tests present (D7).
+
+Amended AC-02 graded as directed: captain-leg Resolve failure defers via
+recordDesignGateDeferral and proceeds; implement/verify legs hard-error
+naming model, role, and alternatives BEFORE any dispatch. R-03 and R-04
+binding mitigations explicitly verified.
+
+state -> verified.
