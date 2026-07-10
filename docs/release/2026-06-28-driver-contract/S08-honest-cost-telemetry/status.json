@@ -3,7 +3,7 @@
   "slice_id": "S08-honest-cost-telemetry",
   "release": "2026-06-28-driver-contract",
   "track": "T4-resolution-loop",
-  "state": "planned",
+  "state": "design_review",
   "covers_needs": ["N-06"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S08-honest-cost-telemetry/spec.json",
   "start_commit": null,
