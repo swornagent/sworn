@@ -71,7 +71,7 @@
       "id": "AC-02",
       "type": "unwanted",
       "ears_keyword": "If",
-      "text": "If Resolve fails for any role leg, RunSlice SHALL return a descriptive error naming the model, role, and registered alternatives BEFORE any model dispatch — no nil dereference is possible because no code path holds an unresolved driver (TestRunSliceResolutionFailure)."
+      "text": "If Resolve fails for the implement or verify role leg, RunSlice SHALL return a descriptive error naming the model, role, and registered alternatives BEFORE any model dispatch — no nil dereference is possible because no code path holds an unresolved driver (TestRunSliceResolutionFailure). If Resolve fails for the captain leg, RunSlice SHALL record that same descriptive role error as a durable Rule 2 deferral via the existing design-gate deferral path (recordDesignGateDeferral, sworn#51) and proceed — a hard error here would halt every subprocess-first run, since no subprocess driver declares RoleCaptain (Coach decision 2026-07-10, S06 captain-proceed.md pin 1; follow-up to declare RoleCaptain on subprocess drivers tracked separately)."
     },
     {
       "id": "AC-03",
