@@ -3,7 +3,9 @@
   "slice_id": "S09-model-catalog",
   "release": "2026-06-28-driver-contract",
   "track": "T5-catalog",
-  "state": "planned",
+  "state": "design_review",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-10T15:53:04Z",
   "covers_needs": ["N-11"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S09-model-catalog/spec.json",
   "start_commit": null,
@@ -12,8 +14,54 @@
     "complexity": "low",
     "quadrant": "grind",
     "rationale": "Known-shape listing per provider + normalisation + CLI command; breadth across ~6 endpoints with canned fixtures.",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
+  "design_decisions": [
+    {
+      "choice": "D1 — catalog.go implements its own no-dispatch credential-presence check against model.ProviderConfig for all 7 providers, rather than reusing internal/driver/registry.Drivers().",
+      "stake_class": "Type-2",
+      "options": [
+        "Reuse internal/driver/registry.Drivers() for availability across all 7 providers — rejected: the registry only enumerates 4 of the 7 (Google/Ollama deliberately unregistered per the registry's own header comment); extending it is out of scope (Registry/resolution changes (S05)).",
+        "Uniform catalog-local ProviderConfig credential check for all 7 providers (chosen) — one code path, no split between registry-backed and side-channel availability inside the same command."
+      ],
+      "human_decision": "Type-2 — implementer default, no human ratification required; flagged for Captain design review.",
+      "rationale": "Registry cannot answer for 2 of the 7 target providers by its own documented design; a single uniform check is simpler and narrower in blast radius than a partial-reuse split.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "D2 — Ollama capability lookup makes one /api/show call per listed model (N+1 against the local daemon), the only provider allowlisted for 2 list-shaped paths in the AC-04 transport recorder.",
+      "stake_class": "Type-2",
+      "options": [
+        "Skip per-model /api/show and leave Ollama tools always unknown — simpler, but ignores the wire capability signal spec.json's own rationale names.",
+        "Call /api/show per model (chosen) — spec.json rationale explicitly names \"/api/show capabilities\" as the wire source; local daemon, low latency."
+      ],
+      "human_decision": "Type-2 — implementer default, no human ratification required; flagged for Captain design review.",
+      "rationale": "Matches the spec's own stated capability source for Ollama; /api/tags alone carries no capability field.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "D3 — Ollama is always attempted (no credential gate); a daemon-down failure is a normal AC-03 per-provider error, not a silent skip.",
+      "stake_class": "Type-2",
+      "options": [
+        "Gate Ollama on some presence signal before attempting — no reliable no-dispatch signal exists short of the call itself.",
+        "Always attempt (chosen) — mirrors the registry's own claude-cli keyless-availability precedent; also removes the zero-providers-attempted ambiguity for AC-03's exit-code rule."
+      ],
+      "human_decision": "Type-2 — implementer default, no human ratification required; flagged for Captain design review.",
+      "rationale": "Ollama is a keyless local daemon; the registry treats claude-cli (also keyless) the same way (binary presence, not key presence).",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "D4 — Google's tools annotation is unconditionally \"unknown\", never derived from supportedGenerationMethods.",
+      "stake_class": "Type-2",
+      "options": [
+        "Infer tools support from the presence of some supportedGenerationMethods value — rejected: spec.json's rationale states this field is \"partial — tool support not explicit\", so no wire-derivable Yes/No exists.",
+        "Always Unknown (chosen) — fail-closed per AC-02, matches spec intent verbatim."
+      ],
+      "human_decision": "Type-2 — implementer default, no human ratification required; flagged for Captain design review.",
+      "rationale": "No positively identified marker for tool support exists in Google's models.list response; guessing would violate AC-02's fail-closed rule.",
+      "architecturally_significant": false
+    }
+  ],
   "verification": {
     "result": "pending"
   }
