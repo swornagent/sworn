@@ -3,10 +3,38 @@
   "slice_id": "S05-driver-registry",
   "release": "2026-06-28-driver-contract",
   "track": "T4-resolution-loop",
-  "state": "in_progress",
+  "state": "implemented",
   "covers_needs": ["N-04", "N-09"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S05-driver-registry/spec.json",
+  "proof_path": "docs/release/2026-06-28-driver-contract/S05-driver-registry/proof.json",
+  "journal_path": "docs/release/2026-06-28-driver-contract/S05-driver-registry/journal.md",
   "start_commit": "20dc2dc9edecaed23995d7adcccbc1fff8aba8a9",
+  "actual_files": [
+    "AGENTS.md",
+    "cmd/sworn/capabilities.go",
+    "cmd/sworn/capabilities_test.go",
+    "cmd/sworn/main.go",
+    "internal/driver/registry/registry.go",
+    "internal/driver/registry/registry_test.go",
+    "internal/model/cli_test.go",
+    "internal/model/config.go",
+    "internal/model/oai_test.go",
+    "internal/model/provider.go",
+    "internal/model/provider_test.go",
+    "internal/model/registry.go (deleted)"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go vet ./internal/driver/... ./internal/model/... ./cmd/sworn/...",
+    "go test -timeout 300s ./internal/driver/... ./internal/model/... ./cmd/sworn/...",
+    "go test -timeout 300s ./..."
+  ],
+  "reachability_artifacts": [
+    "cli-run: SWORN_DIRECT=1 sworn capabilities (binary built from this branch) renders the live registry enumeration — see proof.json reachability.evidence",
+    "cmd/sworn/capabilities_test.go:TestCapabilitiesRendersRegistry",
+    "internal/driver/registry/registry_test.go:TestDefaultRegistryTable",
+    "internal/driver/registry/registry_test.go:TestEnumerationShowsProxyRouting"
+  ],
   "effort_complexity": {
     "effort": "high",
     "complexity": "low",
