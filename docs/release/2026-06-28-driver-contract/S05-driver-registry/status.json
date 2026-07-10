@@ -3,7 +3,7 @@
   "slice_id": "S05-driver-registry",
   "release": "2026-06-28-driver-contract",
   "track": "T4-resolution-loop",
-  "state": "implemented",
+  "state": "verified",
   "covers_needs": ["N-04", "N-09"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S05-driver-registry/spec.json",
   "proof_path": "docs/release/2026-06-28-driver-contract/S05-driver-registry/proof.json",
@@ -79,6 +79,8 @@
     }
   ],
   "verification": {
-    "result": "pending"
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-10T02:22:30Z"
   }
 }

@@ -59,3 +59,54 @@ trade-offs a verifier may want context on:
 
 State: implemented. Next: fresh-context `/verify-slice S05-driver-registry
 2026-06-28-driver-contract` (Rule 7).
+
+## Verifier verdicts received
+
+### 2026-07-10 — PASS (fresh-context, Rule 7)
+
+```
+PASS
+
+Slice: S05-driver-registry
+Verified against: d4c66b9 (track/2026-06-28-driver-contract/T4-resolution-loop; drift-gate forward-merge of release-wt applied first, 8 commits, docs+T8 only)
+Verifier session: fresh, artefact-only
+```
+
+Gate walk (all pass):
+
+1. User-reachable outcome: `sworn capabilities` registered via command.Register
+   init() and dispatched by main; verifier built the binary from this branch and
+   ran `SWORN_DIRECT=1 sworn capabilities` live — all four drivers, prefixes,
+   roles, real availability probes, sworn#31 footer rendered. Registry.Resolve is
+   the loop-dispatch authority; loop consumption is S06 per spec out_of_scope.
+2. Touchpoints: match, with the four captain-accepted divergences confirmed
+   against live state (registry subpackage forced by TestNoWireImports + the
+   driver<->inprocess import cycle; registry.Default symbol; internal/model/
+   registry_test.go never existed in git history; capabilities verb created,
+   not re-pointed). Extra *_test.go files are companions of planned touchpoints,
+   all listed in proof.json files_changed.
+3. Tests: every evidence-cited test exists and was re-run by the verifier —
+   registry package 7/7 PASS verbose; `go build ./...`, `go vet`, slice packages
+   and full `go test -count=1 -timeout 300s ./...` all green (45 ok, 0 FAIL).
+3b. Model-backed gate re-run by the verifier: `sworn verify --spec spec.json
+   --diff <code diff 20dc2dc..bbb9ab2> --proof proof.json --verifier-model
+   claude-cli/sonnet` -> PASS. (Run against the full docs-inclusive diff the
+   deterministic boundary_mock scanner false-positives on the literal phrase
+   "stub removed" inside proof.json prose at diff:305 — doc text, not code;
+   code-only diff is the correct scope and PASSes. `sworn llm-check -type
+   ac-satisfaction` remains format-lagged: reads spec.md, absent on spec-v1
+   slices — same known false-negative class as release-verify.sh.)
+4. Reachability: cli-run artefact reproduced live (see gate 1) + the same path
+   pinned by TestCapabilitiesRendersRegistry through command.Lookup.
+5. Deferrals: single not_delivered (proxy-aware in-process dispatch) carries
+   why + concrete tracking (S06-loop-dispatch-rewire spec.json R-04 — confirmed
+   present) + acknowledgement (Brad/Coach, captain-proceed.md disposition 1).
+   Changed-file grep clean (config.go:113 "checked later" is pre-existing at
+   start_commit). gofmt -l clean; fused-comment grep clean.
+6. Design conformance: no docs/baton/design-fidelity.json — non-UI auto-pass.
+   Three design_decisions recorded Type-2 with human_decision fields.
+7. Scope: all 13 evidence test names exist and pass; internal/model/registry.go
+   deleted with zero dangling references (one doc-comment mention only).
+
+State: verified. Next: /implement-slice S06-loop-dispatch-rewire
+2026-06-28-driver-contract (next incomplete slice in T4-resolution-loop).
