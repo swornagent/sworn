@@ -1,0 +1,99 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "schema_version": 1,
+  "slice_id": "S14-blocked-terminal",
+  "release": "2026-06-28-driver-contract",
+  "track": "T4-resolution-loop",
+  "user_outcome": "The runner treats BLOCKED as terminal-for-the-lane: when a dispatched implementer returns an explicit blocked signal, or a verifier returns BLOCKED, the run makes zero further dispatches for that slice, halts the owning sequential track before its subsequent slices start, consumes no retry budget, and exits non-zero with a report that distinguishes halted-BLOCKED lanes (blocker text verbatim, routed to /replan-release) from exhausted-FAIL lanes — so the loop never burns full-context dispatches against a blocker that only a replan can clear. FAIL keeps its existing retryable semantics unchanged.",
+  "rationale": "Inbound replan packet from fired's 2026-07-10 one-CP build (fired repo: apps/docs/content/docs/captures/2026-07-10-sworn-blocked-terminal-slice-packet.md; proposal capture: docs/captures/2026-07-10-baton-sworn-edge-contracts-proposal.md, Rec 4). Evidence from a real run: fired S05-section-owned-saves hit a spec defect only /replan-release could clear; the runner dispatched THREE implementer sessions against the unchanged blocker — each correctly returned BLOCKED and could not proceed by construction — wasting two Fable-tier full-context dispatches (journal: fired docs/release/2026-07-10-one-current-position/S05-section-owned-saves/journal.md, all three entries). The agents behaved correctly; the harness could not distinguish 'incomplete, retry me' from 'blocked, retrying cannot help'. Sworn-side only per the packet's ordering ruling: the PASS/FAIL/BLOCKED taxonomy is already Baton Rule 7; the trailing Baton item (documenting the blocked return field in role-prompt return contracts) is explicitly non-blocking and owned by the later Baton contract-edge work. Handoff directionality (session-discipline): BLOCKED routes to the planner/replan, never back to the sender. Placed at T4's tail: the packet's touchpoints (dispatch-boundary Result envelope, loop legs, scheduler, exit report) collide with T4's in-flight files (slice.go, scheduler, run.go, driver contract) — standard replan rule, append not parallelise. Builds directly on landed T4 work: S06's registry-dispatch rewire (Result envelope consumption at all legs) and S07's ComposeEscalationModels/ResolveDispatch + startup sweep. Added by /replan-release 2026-07-10 (second pass, Coach: Brad).",
+  "covers_needs": [
+    "N-15"
+  ],
+  "in_scope": [
+    "driver.Result gains an explicit first-class blocked signal (blocked boolean or verdict enum member) distinct from completed=false — semantics: completed=false + not-blocked = retryable incompleteness (budget/env); blocked = not clearable by re-dispatch (spec defect, out-of-authority change, missing dependency); the runner never infers blockedness from prose",
+    "Implement-leg consumption: a dispatched implementer returning blocked=true ends the slice's dispatches for the run and halts the owning lane",
+    "Verify-leg consumption: a verifier BLOCKED verdict (vocabulary already present in verifier-verdict-v1 / sworn verify) terminates the lane identically and is not mapped onto FAIL; no implementer retry budget is consumed by either blocked path (a BLOCKED lane with retries remaining is still terminal)",
+    "Sequential-track halt: while a track contains a blocked slice, the runner does not start that track's subsequent slices",
+    "Exit report: a run ending with any blocked lane exits non-zero with a section distinguishing BLOCKED lanes (blocker text VERBATIM + an explicit route-to-/replan-release directive) from FAIL lanes (retries exhausted)",
+    "Validation fixture replaying the fired S05 case as a loop-state-machine unit test with synthetic verdict objects: dispatch 1 returns blocked=true -> assert exactly one dispatch occurred, lane halted, replan directive emitted (no fired checkout required)"
+  ],
+  "out_of_scope": [
+    "Any change to FAIL retry semantics — existing retry-cap behaviour and its tests stay green unmodified (AC-06 is the regression gate)",
+    "Baton role-prompt return-contract documentation for the blocked field — explicitly non-blocking per the packet's ordering ruling; owned by the later Baton contract-edge work (fired proposal capture)",
+    "TUI/board surfacing of blocked lanes beyond the run exit report — presentation polish, separate follow-up",
+    "Retroactive blocked-signal support in the subprocess drivers' upstream CLIs — the drivers map what their harnesses expose; absent an explicit signal they return completed=false (retryable), never a fabricated blocked=true"
+  ],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "high",
+    "quadrant": "puzzle",
+    "rationale": "Small code surface (one Result field, two consumption points, scheduler halt, report section) but the semantics thread through the loop state machine that S06/S07 just rewired — the risk is subtle interaction with retry/escalation paths, guarded by the synthetic-verdict state-machine test and the AC-06 regression gate. Re-assess at design_review.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    "internal/driver/driver.go",
+    "internal/run/slice.go",
+    "internal/run/resolve.go",
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go",
+    "internal/scheduler/",
+    "internal/verify/",
+    "cmd/sworn/run.go",
+    "cmd/sworn/run_test.go"
+  ],
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "The blocked-terminal path interacts with the retry/escalation state machine S06/S07 just landed; a wrong wiring could either consume retries on BLOCKED or, worse, retry a blocked lane.",
+      "mitigation": "The synthetic-verdict state-machine fixture (AC-01 test) asserts exactly-one-dispatch on blocked=true; AC-06 keeps every existing retry-cap test green unmodified — any semantic bleed fails one side or the other."
+    },
+    {
+      "id": "R-02",
+      "description": "Adding a field to driver.Result touches the S01 contract file all four drivers implement; a careless change could break the subprocess drivers' decode or the inprocess driver's emission.",
+      "mitigation": "The field is additive with a zero-value default (blocked=false = today's semantics); full go test ./... plus the driver conformance tests gate the track merge."
+    },
+    {
+      "id": "R-03",
+      "description": "The exit report's verbatim-blocker requirement could truncate or reformat blocker text, losing the diagnostic the replan needs.",
+      "mitigation": "AC-01/AC-05 tests assert the blocker string appears verbatim in the report output; no summarisation in the report path."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When a dispatched implementer returns blocked=true, the runner SHALL make no further implementer dispatches for that slice in the run, halt the owning lane, and emit the blocker text verbatim with an explicit route-to-/replan-release directive in the exit report — proven by the loop-state-machine unit test replaying the fired S05 case with synthetic verdict objects: dispatch 1 returns blocked=true, assert exactly one dispatch occurred, lane halted, replan directive emitted (TestLoopBlockedImplementerTerminal)."
+    },
+    {
+      "id": "AC-02",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When a verifier returns BLOCKED, the runner SHALL terminate the lane identically to AC-01 without consuming any implementer retry budget — a BLOCKED lane with retries remaining is still terminal, and BLOCKED is never mapped onto FAIL (TestLoopBlockedVerifierTerminal)."
+    },
+    {
+      "id": "AC-03",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When a verifier returns FAIL with retries remaining, the runner SHALL retain existing retry semantics — numbered violations forwarded to the next implementer dispatch and the retry cap consumed (TestLoopFailRetrySemanticsUnchanged)."
+    },
+    {
+      "id": "AC-04",
+      "type": "state-driven",
+      "ears_keyword": "While",
+      "text": "While a sequential track contains a blocked slice, the runner SHALL NOT start that track's subsequent slices (TestLoopBlockedSliceHaltsTrack)."
+    },
+    {
+      "id": "AC-05",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When a run ends with any blocked lane, the runner SHALL exit non-zero with a report section distinguishing BLOCKED lanes (replan-routed, blocker verbatim) from FAIL lanes (retries exhausted) (TestLoopExitReportBlockedVsFail)."
+    },
+    {
+      "id": "AC-06",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "All existing retry-cap behaviour for FAIL verdicts SHALL remain unchanged: the pre-existing loop retry tests pass green without modification (the regression gate for this slice; any edit to an existing retry test is a spec violation, not an adaptation)."
+    }
+  ]
+}

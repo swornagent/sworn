@@ -49,11 +49,13 @@
         "S05-driver-registry",
         "S06-loop-dispatch-rewire",
         "S07-scheduler-failfast",
-        "S08-honest-cost-telemetry"
+        "S08-honest-cost-telemetry",
+        "S14-blocked-terminal"
       ],
       "depends_on": ["T2-subprocess", "T3-inprocess"],
+      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-28-driver-contract-T4-resolution-loop",
       "worktree_branch": "track/2026-06-28-driver-contract/T4-resolution-loop",
-      "state": "planned"
+      "state": "in_progress"
     },
     {
       "id": "T5-catalog",
@@ -89,8 +91,9 @@
         "S13-regress-go-module-cwd"
       ],
       "depends_on": [],
+      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-28-driver-contract-T8-regress-cwd",
       "worktree_branch": "track/2026-06-28-driver-contract/T8-regress-cwd",
-      "state": "planned"
+      "state": "merged"
     }
   ]
 }
