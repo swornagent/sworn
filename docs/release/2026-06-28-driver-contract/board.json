@@ -73,7 +73,7 @@
       ],
       "depends_on": ["T4-resolution-loop"],
       "worktree_branch": "track/2026-06-28-driver-contract/T6-proof",
-      "state": "planned"
+      "state": "merged"
     },
     {
       "id": "T7-baton-revendor",
