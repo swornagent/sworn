@@ -850,6 +850,21 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			if err := state.Write(statusPath, st); err != nil {
 				return fmt.Errorf("RunSlice: write verified status: %w", err)
 			}
+			// Commit the verified transition (S10 SIT finding). The parallel
+			// worker's router reads COMMITTED track-ref state; the blocked and
+			// failed_verification terminal paths below already commit their
+			// status writes, but this PASS path did not — so a router-driven
+			// worker re-read "implemented" off the ref and re-dispatched
+			// "verify" forever. The single-slice Run() path was unaffected only
+			// because it commits the whole tree itself after RunSlice returns
+			// (run.go "chore(run): verified — merge"); that later empty commit
+			// stays harmless (git.Commit uses --allow-empty).
+			if err := repo.Stage(statusPath); err != nil {
+				return fmt.Errorf("RunSlice: stage verified status: %w", err)
+			}
+			if err := repo.Commit("chore(run): slice verified — verdict consumed by state machine"); err != nil {
+				return fmt.Errorf("RunSlice: commit verified status: %w", err)
+			}
 			return nil
 		}
 
