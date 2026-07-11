@@ -5,7 +5,9 @@
   "track": "T1-conformance",
   "user_outcome": "Every site in sworn that reads a slice's machine contract reads spec.json (spec-v1) as authoritative, with spec.md used only as a legacy fallback for pre-spec-v1 slices — matching the ears.go/reqverify.go pattern (ADR-0009). Most importantly, the engine's implement leg (the autonomous loop's RunSlice → implement.Run path) reads spec.json, so `sworn run --parallel` can implement a spec-v1 release instead of hard-failing on a missing spec.md (sworn#97). A spec.json-only release (what /plan-release produces) drives the loop end-to-end.",
   "rationale": "sworn#97, found by the 2026-07-11 dogfood: `sworn run` halted on `implement: read spec: open .../spec.md: no such file or directory` because the engine implement leg reads spec.md while /plan-release writes spec.json. The whole driver-contract release was built via the /implement-slice SKILL (reads spec.json), so this ENGINE path was never exercised until the first real `sworn run`. Established pattern: internal/ears/ears.go and internal/reqverify/reqverify.go are already spec.json-preferred with spec.md legacy fallback (ears.go:201 'spec.json is preferred over spec.md whenever spec.json [exists]... authoritative on disagreement'). This slice applies that exact pattern to the file-read sites that never migrated. Sites from the audit: internal/run/run.go (specPath/SpecPath spec.md; also WRITES spec.md at :285 — that write becomes spec.json or is dropped), internal/implement/implement.go (reads spec.md for prompts), internal/implement/spec_record.go (WriteSpecRecord parses spec.md→spec.json — inverted once spec.json is authored directly), internal/implement/proof_record.go (deliveredFromSpec parses spec.md checkboxes → read spec.json acceptance_criteria), internal/scheduler/worker.go (:331,:396,:488 spec.md), internal/gate/coverage.go (:251 parseAcceptanceChecks), internal/specquality/specquality.go (:122), internal/rtm/rtm.go (:139), and align internal/gate/trace.go's spec.md-first order.",
-  "covers_needs": ["N-01"],
+  "covers_needs": [
+    "N-01"
+  ],
   "in_scope": [
     "internal/implement/implement.go: read spec.json (user_outcome + acceptance_criteria + in_scope/out_of_scope) to build the implementer prompt, spec.md legacy fallback only",
     "internal/implement/proof_record.go: derive delivered[] from spec.json acceptance_criteria (not spec.md checkbox scrape)",
@@ -14,7 +16,9 @@
     "internal/scheduler/worker.go, internal/gate/coverage.go, internal/specquality, internal/rtm: read spec.json acceptance_criteria / fields, spec.md legacy fallback — matching the ears.go/reqverify.go pattern",
     "Align internal/gate/trace.go spec.md-first order to spec.json-first",
     "A shared spec-read helper (or reuse the ears.go/reqverify.go path) so 'spec.json-preferred, spec.md-legacy-fallback' is one implementation, not N copies",
-    "Reachability: `sworn run --parallel` on a spec.json-only release (the contract-edge-gates fixture) reaches the implement dispatch without a spec.md-missing error (the exact dogfood failure)"
+    "Reachability: `sworn run --parallel` on a spec.json-only release (the contract-edge-gates fixture) reaches the implement dispatch without a spec.md-missing error (the exact dogfood failure)",
+    "Additional prose-read sites the design review found (Coach 2026-07-12, Pin 2, per Brad's 'sweep ALL sites' directive): internal/gate/llmcheck.go:257, internal/lint/touchpoints.go:117, cmd/sworn/task.go:131 — same spec.json-preferred, spec.md-legacy-fallback treatment; completes the sweep so 'every site' is literal, not the 9-site subset",
+    "Extend the shared spec reader (spec.Record.AC) to expose the spec-v1 test_refs field (Coach 2026-07-12, Pin 1) so internal/rtm's need->AC->test golden thread resolves on a spec.json-only release — test_refs is a real spec-v1 AC field, not a new invention"
   ],
   "out_of_scope": [
     "Model-RESPONSE prose parsing (design §1-§6, reqverify ## RESULTS) — S02 owns those (this slice is FILE reads, not model-response reads)",
@@ -52,7 +56,10 @@
     "internal/gate/coverage.go",
     "internal/gate/trace.go",
     "internal/specquality/specquality.go",
-    "internal/rtm/rtm.go"
+    "internal/rtm/rtm.go",
+    "internal/gate/llmcheck.go",
+    "internal/lint/touchpoints.go",
+    "cmd/sworn/task.go"
   ],
   "acceptance_criteria": [
     {
@@ -79,6 +86,11 @@
       "id": "AC-05",
       "text": "The reachability artefact SHALL be a `sworn run --parallel` dispatch on a spec.json-only release reaching the implement step without the spec.md-missing error (captured in proof.json) — the dogfood failure, now cleared.",
       "ears_pattern": "ubiquitous"
+    },
+    {
+      "id": "AC-06",
+      "text": "When internal/rtm builds the traceability matrix for a spec.json-only slice, the shared reader SHALL expose each AC's test_refs so the need->AC->test thread resolves (no broken trace from a missing field); a test asserts the golden thread on a spec.json-only fixture.",
+      "ears_pattern": "event-driven"
     }
   ]
 }
