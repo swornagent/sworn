@@ -16,6 +16,56 @@
     "rationale": "See spec.json; re-assess at design_review.",
     "confirmed_by_implementer": false
   },
+  "design_decisions": [
+    {
+      "choice": "D1: rename DispatchInput.VerdictSchema -> StructuredSchema (role-agnostic) and give dispatchCaptain a structured-output path (ChatStructured) when a schema is present; both dispatchCaptain and dispatchVerifier consume it, Result.StructuredJSON returned uniformly. ADR-0012 driver-contract amendment.",
+      "stake_class": "Type-1",
+      "options": [
+        "(a) rename VerdictSchema -> StructuredSchema (one role-agnostic field)",
+        "(b) add a parallel CaptainSchema field alongside VerdictSchema"
+      ],
+      "human_decision": "Option (a) RATIFIED by Brad (Coach), 'Go with all four' (2026-07-12, captain-proceed.md pin 1). The driver enforces an output schema and does not care which role asked; two fields for one concept invites drift, and the VerdictSchema doc already anticipated generalisation. Rename is compile-checked across all call sites. Record as ADR-0012 amendment note.",
+      "rationale": "Hard to reverse, structural, edits the Driver contract surface consumed by every driver -> Type-1, architecturally significant; carries a recorded Coach decision.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "D3: add a dedicated ErrKindUnsupported = \"unsupported\" to the binding cross-driver ErrKind taxonomy (internal/driver/subprocess.go); dispatchCaptain type-asserts client.(model.StructuredOutput) and returns ErrKindUnsupported when absent, which the gates map to a declared Rule 2 deferral. Every other structured failure stays a hard error (fail-closed).",
+      "stake_class": "Type-1",
+      "options": [
+        "(a) new dedicated ErrKindUnsupported (capability-absent distinguishable from emission-failure)",
+        "(b) reuse ErrKindProtocol (folds capability-absent into a hard failure)"
+      ],
+      "human_decision": "Option (a) RATIFIED by Brad (Coach), 'Go with all four' (2026-07-12, captain-proceed.md pin 3). A dedicated ErrKind is what makes AC-03's deferral declared rather than a silent fold into ErrKindProtocol. Subprocess-family drivers must be able to produce/map it too so capability-absent stays distinguishable on every driver path.",
+      "rationale": "Adds a member to the cross-driver ErrKind vocabulary that project_driver_contract_recut binds as a contract for all future drivers -> Type-1-adjacent, architecturally significant; carries a recorded Coach decision.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "D2: sworn-local inline emit schemas (lenient strict-mode subset, title-named) for design-tldr and reqverify-results, NOT canonical Baton *-v1.json (these are sworn-internal gate transports, not a cross-tool contract; spec-blessed). Validate where it gates: design TL;DR = inline emit-only; reqverify DoR-results = inline emit + a lightweight sworn-local validate before trusting the structured output.",
+      "stake_class": "Type-2",
+      "human_decision": "CONFIRMED by Brad (Coach), 'Go with all four' (2026-07-12, captain-proceed.md pin 2). reqverify is a fail-closed gate so its structured output is validated (matches verifier-verdict-v1's emit+validate parity and 'exit 0 only on PASS'); the design TL;DR is an artefact, so inline-emit-only.",
+      "rationale": "Additive and reversible; schema home is spec-blessed. The reqverify validate arm carried a Coach confirmation but is not architecturally significant.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "No design-vs-reqverify split: keep S02 as one slice. D1 (the driver-contract rename) is the shared spine both gate migrations depend on; splitting would duplicate or serialise the same contract edit.",
+      "stake_class": "Type-2",
+      "human_decision": "CONFIRMED by Brad (Coach), 'Go with all four' (2026-07-12, captain-proceed.md pin 4). Fallback if the file count exceeds the ceiling during implementation: split with D1 landing first as its own slice both depend on.",
+      "rationale": "Planning/scope decision; reversible. One coherent refactor porting two prose scrapers onto the proven verifier-verdict-v1 structured pattern.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "D4: acceptance semantics preserved verbatim. Design PASS = all six section fields present and non-empty (schema-enforced, replacing the hasSixSections substring scrape); DoR PASS = the identical per-AC fail-closed grade logic applied to the parsed results array instead of scraped ## RESULTS lines. design.md is rendered deterministically from the structured fields so /design-review still reads a prose doc.",
+      "stake_class": "Type-2",
+      "rationale": "Local, reversible; preserves the existing gate semantics rather than changing them.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "D5: test adaptation not rewrite. Existing gate tests keep their semantic assertions; fake drivers switch from prose ResultText to StructuredJSON. Two new tests per gate: the Grok case (prose lacks literal markers but structured output is valid -> PASS) and the capability-absent case (stub advertises no structured output -> declared deferral, not a crash).",
+      "stake_class": "Type-2",
+      "rationale": "Local, reversible; adapts tests to the new transport while holding the acceptance assertions constant.",
+      "architecturally_significant": false
+    }
+  ],
   "verification": {
     "result": "pending"
   }
