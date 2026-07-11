@@ -3,7 +3,7 @@
   "slice_id": "S01-spec-json-read-conformance",
   "release": "2026-07-11-loop-operability",
   "track": "T1-conformance",
-  "state": "design_review",
+  "state": "in_progress",
   "covers_needs": [
     "N-01"
   ],
@@ -13,9 +13,34 @@
     "effort": "high",
     "complexity": "low",
     "quadrant": "grind",
-    "rationale": "See spec.json; re-assess at design_review.",
-    "confirmed_by_implementer": false
+    "rationale": "Breadth across ~13 read/write sites applying one established ears.go precedence; depth low except the shared spec.Record test_refs extension (Coach-ratified). Confirmed at design review.",
+    "confirmed_by_implementer": true
   },
+  "design_decisions": [
+    {
+      "choice": "CHOICE-A: keep worker/RunSliceFn slice-dir-anchored path; no signature change. implement.Run derives sliceDir=filepath.Dir(specPath) and resolves spec.json via spec.LoadSpec, so callers pass a directory-anchored path unchanged.",
+      "stake_class": "Type-2",
+      "rationale": "Local and reversible; minimal churn. No cross-package signature ripple.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "CHOICE-B: sworn run --task on-ramp (run.go setupSlice and cmd/sworn/task.go) emits an authoritative spec.json (via implement.WriteSpecRecord) alongside the human spec.md, keeping the engine on one contract path.",
+      "stake_class": "Type-2",
+      "rationale": "In-scope item 4 authorises stopping spec.md as the source of truth; spec.md retained as legacy artefact so the on-ramp is consistent with every other read site.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "Extend the shared spec.Record AC contract with test_refs []string (spec-v1 schema-sanctioned) so internal/rtm's need->AC->test golden thread resolves on a spec.json-only release; sourced spec.json-preferred with spec.md fallback (AC-06).",
+      "stake_class": "Type-1",
+      "options": [
+        "(a) extend spec.Record.AC with test_refs now (additive, omitempty, spec.json-preferred)",
+        "(b) leave rtm required-tests on spec.md and defer required-tests-from-spec.json as a tracked Rule 2 item"
+      ],
+      "human_decision": "Option (a) RATIFIED by Brad (Coach) — captain-proceed.md Pin 1 (2026-07-12). test_refs is a real spec-v1 AC field (id/text/ears_pattern/test_refs); exposing it completes the machine-contract read. AC-06 added to the amended spec.json.",
+      "rationale": "Additive/reversible but modifies the shared spec.Record contract consumed by ears/trace/coverage/rtm — a shared read contract, so classified Type-1 and carried a recorded Coach decision.",
+      "architecturally_significant": true
+    }
+  ],
   "verification": {
     "result": "pending"
   }
