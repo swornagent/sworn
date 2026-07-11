@@ -3,7 +3,7 @@
   "slice_id": "S01-spec-json-read-conformance",
   "release": "2026-07-11-loop-operability",
   "track": "T1-conformance",
-  "state": "in_progress",
+  "state": "implemented",
   "covers_needs": [
     "N-01"
   ],
@@ -43,5 +43,37 @@
   ],
   "verification": {
     "result": "pending"
-  }
+  },
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-12T00:00:00Z",
+  "proof_path": "docs/release/2026-07-11-loop-operability/S01-spec-json-read-conformance/proof.json",
+  "journal_path": "docs/release/2026-07-11-loop-operability/S01-spec-json-read-conformance/journal.md",
+  "test_commands": [
+    "go test -count=1 -timeout 300s ./...",
+    "go test -count=1 ./internal/spec/... ./internal/implement/... ./internal/run/... ./internal/scheduler/... ./internal/gate/... ./internal/specquality/... ./internal/rtm/... ./internal/lint/... ./cmd/sworn/..."
+  ],
+  "reachability_artifacts": [
+    "internal/run/spec_json_reach_test.go:TestRunSlice_SpecJSONOnly_ReachesImplement",
+    "internal/implement/spec_json_read_test.go:TestRun_SpecJSONOnly_ReadsSpecJSON",
+    "live: sworn specquality 2026-07-11-loop-operability PASS + sworn lint ac 2026-07-11-loop-operability (reads 6 S01 ACs from spec.json)"
+  ],
+  "actual_files": [
+    "cmd/sworn/task.go",
+    "internal/gate/coverage.go",
+    "internal/gate/llmcheck.go",
+    "internal/gate/trace.go",
+    "internal/implement/implement.go",
+    "internal/implement/proof_record.go",
+    "internal/implement/spec_json_read_test.go",
+    "internal/implement/spec_record.go",
+    "internal/lint/touchpoints.go",
+    "internal/rtm/rtm.go",
+    "internal/rtm/rtm_test.go",
+    "internal/run/run.go",
+    "internal/run/slice.go",
+    "internal/run/spec_json_reach_test.go",
+    "internal/scheduler/worker.go",
+    "internal/spec/spec.go",
+    "internal/specquality/specquality.go"
+  ]
 }
