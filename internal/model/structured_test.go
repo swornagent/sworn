@@ -161,6 +161,46 @@ func TestOAI_ChatStructured_ResponseFormat(t *testing.T) {
 	}
 }
 
+// TestXAI_ChatStructured_ResponseFormat (S03 AC-03) proves the xai/ driver,
+// as resolved through NewClient, drives the native strict json_schema
+// structured path end-to-end: the emitted request carries a strict
+// json_schema response_format and the response normalises into Content. The
+// httptest server stands in for api.x.ai (no live dispatch). This confirms
+// verifier/captain (which need ChatStructured) work on xai/ — the honest
+// declared role set. Strict-schema acceptance by the LIVE xAI API is
+// doc-confirmed (docs.x.ai structured-outputs), not asserted here; if a live
+// wire quirk ever surfaces, D2's StructuredToolCall is the contained fallback.
+func TestXAI_ChatStructured_ResponseFormat(t *testing.T) {
+	var captured chatRequest
+	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &captured)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(oaiResp([]struct{ content string }{{`{"verdict":"PASS","summary":"ok","violations":[],"evidence":{"files":[]}}`}}, nil))
+	})
+
+	v, err := NewClient("xai/grok-4.5", ProviderConfig{XAIKey: "sk-xai"})
+	if err != nil {
+		t.Fatalf("NewClient(xai/grok-4.5): %v", err)
+	}
+	o := v.(*OAI)
+	o.BaseURL = srv.URL // redirect the resolved xai client at the fixture
+
+	cr, err := o.ChatStructured(context.Background(), []ChatMessage{{Role: "user", Content: "verify"}}, sampleSchema)
+	if err != nil {
+		t.Fatalf("ChatStructured: %v", err)
+	}
+	if captured.ResponseFormat == nil || captured.ResponseFormat.Type != "json_schema" {
+		t.Fatalf("response_format not set to json_schema: %+v", captured.ResponseFormat)
+	}
+	if !captured.ResponseFormat.JSONSchema.Strict {
+		t.Error("response_format.json_schema.strict = false, want true")
+	}
+	if got := cr.Choices[0].Message.Content; got == "" {
+		t.Error("expected non-empty structured content")
+	}
+}
+
 // --- OAI ChatStructured: tool-call fallback path -----------------------------
 
 func TestOAI_ChatStructured_ToolCall(t *testing.T) {

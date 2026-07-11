@@ -26,6 +26,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/swornagent/sworn/internal/spec"
 	"github.com/swornagent/sworn/internal/style"
 )
 
@@ -136,18 +137,40 @@ func Build(releaseDir string) (*Matrix, []Violation, error) {
 			continue
 		}
 		sliceDir := filepath.Join(releaseDir, sliceID)
-		specPath := filepath.Join(sliceDir, "spec.md")
 		statusPath := filepath.Join(sliceDir, "status.json")
 
-		// Parse spec.md for acceptance checks and required tests.
-		specText, err := os.ReadFile(specPath)
-		if err != nil {
-			return nil, nil, fmt.Errorf("rtm: read %s: %w", specPath, err)
+		// Acceptance checks + required tests: spec.json preferred (authoritative),
+		// spec.md legacy fallback (ADR-0009). On a spec.json-only release the
+		// required tests come from each AC's test_refs field so the
+		// need->AC->test golden thread resolves; without exposing test_refs the
+		// slice would show zero required tests -> an orphaned_ac_no_test trace
+		// break on exactly the releases this slice makes work (AC-06).
+		rec, recErr := spec.ReadRecord(sliceDir)
+		if recErr != nil {
+			return nil, nil, fmt.Errorf("rtm: %w", recErr)
 		}
-		acs := parseAcceptanceChecks(sliceID, string(specText))
-		m.ACs = append(m.ACs, acs...)
-		tests := parseRequiredTests(sliceID, string(specText))
-		m.Tests = append(m.Tests, tests...)
+		if rec != nil && len(rec.AcceptanceCriteria) > 0 {
+			for _, ac := range rec.AcceptanceCriteria {
+				m.ACs = append(m.ACs, AcceptanceCriterion{
+					SliceID: sliceID,
+					Text:    ac.Text,
+					NeedIDs: extractNeedRefs(ac.Text),
+				})
+				for _, tr := range ac.TestRefs {
+					if tr = strings.TrimSpace(tr); tr != "" {
+						m.Tests = append(m.Tests, Test{SliceID: sliceID, Text: tr})
+					}
+				}
+			}
+		} else {
+			specPath := filepath.Join(sliceDir, "spec.md")
+			specText, err := os.ReadFile(specPath)
+			if err != nil {
+				return nil, nil, fmt.Errorf("rtm: read %s: %w", specPath, err)
+			}
+			m.ACs = append(m.ACs, parseAcceptanceChecks(sliceID, string(specText))...)
+			m.Tests = append(m.Tests, parseRequiredTests(sliceID, string(specText))...)
+		}
 
 		// Parse status.json for the vertical link.
 		statusText, err := os.ReadFile(statusPath)

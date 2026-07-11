@@ -85,7 +85,7 @@ func TestClaudeDispatchImplementer(t *testing.T) {
 }
 
 // TestClaudeDispatchVerifier proves AC-03: verifier dispatches pass
-// --no-session-persistence, include VerdictSchema in the prompt, and
+// --no-session-persistence, include StructuredSchema in the prompt, and
 // populate Result.StructuredJSON when the CLI's result text is a JSON
 // object.
 func TestClaudeDispatchVerifier(t *testing.T) {
@@ -97,12 +97,12 @@ func TestClaudeDispatchVerifier(t *testing.T) {
 	schema := []byte(`{"type":"object","required":["verdict"]}`)
 	d := &ClaudeDriver{Binary: testBinaryPath(t)}
 	result, err := d.Dispatch(context.Background(), DispatchInput{
-		Role:          RoleVerifier,
-		ModelID:       "sonnet",
-		SystemPrompt:  "you are the verifier",
-		Payload:       "check this diff",
-		WorktreeRoot:  dir,
-		VerdictSchema: schema,
+		Role:             RoleVerifier,
+		ModelID:          "sonnet",
+		SystemPrompt:     "you are the verifier",
+		Payload:          "check this diff",
+		WorktreeRoot:     dir,
+		StructuredSchema: schema,
 	})
 	if err != nil {
 		t.Fatalf("Dispatch() error: %v", err)
@@ -125,7 +125,7 @@ func TestClaudeDispatchVerifier(t *testing.T) {
 		t.Errorf("verifier dispatch missing --no-session-persistence: %s", invocation)
 	}
 	if !strings.Contains(invocation, string(schema)) {
-		t.Errorf("verifier dispatch prompt missing VerdictSchema: %s", invocation)
+		t.Errorf("verifier dispatch prompt missing StructuredSchema: %s", invocation)
 	}
 }
 
@@ -138,10 +138,10 @@ func TestClaudeDispatchVerifier_ProtocolError(t *testing.T) {
 
 	d := &ClaudeDriver{Binary: testBinaryPath(t)}
 	result, err := d.Dispatch(context.Background(), DispatchInput{
-		Role:          RoleVerifier,
-		ModelID:       "sonnet",
-		WorktreeRoot:  dir,
-		VerdictSchema: []byte(`{"type":"object"}`),
+		Role:             RoleVerifier,
+		ModelID:          "sonnet",
+		WorktreeRoot:     dir,
+		StructuredSchema: []byte(`{"type":"object"}`),
 	})
 	if err == nil {
 		t.Fatal("expected error for non-JSON-object verifier result, got nil")

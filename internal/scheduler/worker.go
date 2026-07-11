@@ -15,6 +15,7 @@ import (
 	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/orchestrator"
 	"github.com/swornagent/sworn/internal/router"
+	"github.com/swornagent/sworn/internal/spec"
 	"github.com/swornagent/sworn/internal/supervisor"
 	"github.com/swornagent/sworn/internal/tracklog"
 )
@@ -328,7 +329,10 @@ func runTrackRouter(
 			// A separate verify-only step would be needed for a genuine
 			// "implemented but not verified" resume, but RunSlice already
 			// handles both phases atomically.
-			specPath := filepath.Join(workRoot, specBase, currentSlice, "spec.md")
+			// spec.json preferred, spec.md legacy fallback: pass a truthful,
+			// slice-dir-anchored spec path (implement/verify resolve spec.json
+			// from the directory regardless) — S01-spec-json-read-conformance.
+			specPath := spec.SpecFilePath(filepath.Join(workRoot, specBase, currentSlice))
 			statusPath := filepath.Join(workRoot, specBase, currentSlice, "status.json")
 
 			fmt.Fprintf(w, "[%s] running slice %s\n", trackID, currentSlice)
@@ -393,7 +397,10 @@ func runTrackRouter(
 			// the next implement attempt. Then dispatch implement.
 			stripCaptainProceed(w, workRoot, specBase, currentSlice)
 
-			specPath := filepath.Join(workRoot, specBase, currentSlice, "spec.md")
+			// spec.json preferred, spec.md legacy fallback: pass a truthful,
+			// slice-dir-anchored spec path (implement/verify resolve spec.json
+			// from the directory regardless) — S01-spec-json-read-conformance.
+			specPath := spec.SpecFilePath(filepath.Join(workRoot, specBase, currentSlice))
 			statusPath := filepath.Join(workRoot, specBase, currentSlice, "status.json")
 
 			fmt.Fprintf(w, "[%s] redesign: stripped captain-proceed.md for %s, re-running\n",
@@ -485,7 +492,8 @@ func runTrackLegacy(
 
 		fmt.Fprintf(w, "[%s] running slice %s (legacy)\n", trackID, sliceID)
 
-		specPath := filepath.Join(workRoot, specBase, sliceID, "spec.md")
+		// spec.json preferred, spec.md legacy fallback (truthful anchored path).
+		specPath := spec.SpecFilePath(filepath.Join(workRoot, specBase, sliceID))
 		statusPath := filepath.Join(workRoot, specBase, sliceID, "status.json")
 
 		if err := opts.RunSliceFn(ctx, workRoot, specPath, statusPath); err != nil {

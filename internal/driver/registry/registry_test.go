@@ -39,6 +39,7 @@ func fullKeyConfig() model.ProviderConfig {
 		AnthropicKey:  "sk-anthropic",
 		CloudflareKey: "sk-cloudflare",
 		GitHubToken:   "sk-github",
+		XAIKey:        "sk-xai",
 	}
 }
 
@@ -54,7 +55,7 @@ func TestDefaultRegistryTable(t *testing.T) {
 		"oai-responses-inprocess": {"openai"},
 		"oai-inprocess": {
 			"anthropic", "cloudflare", "deepseek", "github",
-			"groq", "mistral", "openai-completions", "openrouter",
+			"groq", "mistral", "openai-completions", "openrouter", "xai",
 		},
 	}
 
@@ -88,6 +89,26 @@ func TestDefaultRegistryTable(t *testing.T) {
 	}
 }
 
+// TestResolveXAIRoles (S03 AC-01) asserts xai/grok-4.5 resolves to the
+// in-process oai chat driver for the implementer, verifier, AND captain roles
+// — the honest role set inherited by joining chatPrefixes. This is the
+// integration point that owns native xai/ resolution (Rule 1), not a leaf.
+func TestResolveXAIRoles(t *testing.T) {
+	r := Default(fullKeyConfig())
+	for _, role := range []driver.Role{
+		driver.RoleImplementer, driver.RoleVerifier, driver.RoleCaptain,
+	} {
+		d, err := r.Resolve("xai/grok-4.5", role)
+		if err != nil {
+			t.Errorf("Resolve(xai/grok-4.5, %s) error: %v", role, err)
+			continue
+		}
+		if d.Name() != "oai-inprocess" {
+			t.Errorf("Resolve(xai/grok-4.5, %s) = driver %q, want oai-inprocess", role, d.Name())
+		}
+	}
+}
+
 // TestResolveUnknownPrefix (AC-02) asserts the unknown-prefix error names
 // the unknown prefix AND contains the full registered-prefix list, aliases
 // included and marked.
@@ -104,7 +125,7 @@ func TestResolveUnknownPrefix(t *testing.T) {
 	for _, p := range []string{
 		"anthropic/", "claude-cli/", "cloudflare/", "codex/", "deepseek/",
 		"github/", "groq/", "mistral/", "openai/", "openai-completions/",
-		"openrouter/",
+		"openrouter/", "xai/",
 		"openai-responses/ (deprecated alias of openai/)",
 	} {
 		if !strings.Contains(msg, p) {
@@ -297,7 +318,7 @@ func TestEnumerationShowsProxyRouting(t *testing.T) {
 		t.Errorf("responses identity ViaProxy = %q, want openai", respVia)
 	}
 	chatVia := strings.Join(byName["oai-inprocess"].ViaProxy, ",")
-	wantChat := "anthropic,cloudflare,deepseek,github,groq,mistral,openai-completions,openrouter"
+	wantChat := "anthropic,cloudflare,deepseek,github,groq,mistral,openai-completions,openrouter,xai"
 	if chatVia != wantChat {
 		t.Errorf("chat identity ViaProxy = %q, want %q", chatVia, wantChat)
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -64,7 +65,26 @@ func cmdReqverify(args []string) int {
 		v = model.Unconfigured{}
 	}
 
-	return cmdReqverifyWithVerifier(releaseName, v)
+	return cmdReqverifyWithVerifier(releaseName, structuredReqverifier{v: v})
+}
+
+// structuredReqverifier adapts a model.Verifier to reqverify.Verifier (S02
+// migration): the DoR requirements-grading call is schema-constrained, so it
+// routes through model.StructuredOutput rather than a prose Verify. A model
+// without structured-output capability yields reqverify.ErrStructuredUnsupported
+// so the gate records a declared Rule 2 deferral (AC-03) instead of a hard
+// failure or a silent pass.
+type structuredReqverifier struct{ v model.Verifier }
+
+func (s structuredReqverifier) Verify(ctx context.Context, systemPrompt, userPayload string, schema []byte) (string, float64, int64, int64, error) {
+	out, err := model.ChatStructuredJSON(ctx, s.v, systemPrompt, userPayload, schema)
+	if errors.Is(err, model.ErrStructuredUnsupported) {
+		return "", 0, 0, 0, reqverify.ErrStructuredUnsupported
+	}
+	if err != nil {
+		return "", 0, 0, 0, err
+	}
+	return out, 0, 0, 0, nil
 }
 
 // cmdReqverifyWithVerifier runs the reqverify business logic with an already-
@@ -87,6 +107,13 @@ func cmdReqverifyWithVerifier(releaseName string, v reqverify.Verifier) int {
 	report, err := reqverify.Run(context.Background(), releaseDir, v, systemPrompt)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sworn reqverify: %v\n", err)
+		return 2
+	}
+	if report.Deferred {
+		// The requirements-grading model cannot emit structured output — the
+		// gate could not be evaluated. Fail closed (never a silent pass): a
+		// declared Rule 2 deferral naming the missing capability (S02 AC-03).
+		fmt.Fprintf(os.Stderr, "sworn reqverify: %s\n", report.DeferredReason)
 		return 2
 	}
 

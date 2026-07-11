@@ -21,6 +21,7 @@ package inprocess
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -143,18 +144,24 @@ func (d *InProcess) Dispatch(ctx context.Context, in driver.DispatchInput) (driv
 		return d.dispatchVerifier(ctx, in, client, meter, start)
 	}
 	if in.Role == driver.RoleCaptain {
-		return d.dispatchCaptain(ctx, in, meter, start)
+		return d.dispatchCaptain(ctx, in, client, meter, start)
 	}
 	return d.dispatchLoop(ctx, in, meter, start)
 }
 
 // dispatchCaptain serves a Role=captain dispatch (S06 design D2): exactly one
-// tool-less Chat call — system prompt + payload, nil tools — because the
-// captain-family calls (design TL;DR, captain review, DoR check) are
-// read-only judgement calls; dispatching them through the tool loop would
-// hand the reviewer file-edit tools. Error classification reuses classifyErr
-// (the max-turns arm is unreachable here — there is no loop).
-func (d *InProcess) dispatchCaptain(ctx context.Context, in driver.DispatchInput, meter *chatMeter, start time.Time) (driver.Result, error) {
+// tool-less call — system prompt + payload — because the captain-family calls
+// (design TL;DR, captain review, DoR check) are read-only judgement calls;
+// dispatching them through the tool loop would hand the reviewer file-edit
+// tools. When in.StructuredSchema is set (S02 D1) the call is schema-
+// constrained via ChatStructured and the emission is returned in
+// Result.StructuredJSON; when nil it is the unchanged prose Chat path. Error
+// classification reuses classifyErr (the max-turns arm is unreachable here —
+// there is no loop).
+func (d *InProcess) dispatchCaptain(ctx context.Context, in driver.DispatchInput, client model.Verifier, meter *chatMeter, start time.Time) (driver.Result, error) {
+	if len(in.StructuredSchema) > 0 {
+		return d.dispatchCaptainStructured(ctx, in, client, meter, start)
+	}
 	resp, err := meter.Chat(ctx, []model.ChatMessage{
 		{Role: "system", Content: in.SystemPrompt},
 		{Role: "user", Content: in.Payload},
@@ -168,6 +175,48 @@ func (d *InProcess) dispatchCaptain(ctx context.Context, in driver.DispatchInput
 		return res, fmt.Errorf("inprocess: captain dispatch: empty response choices")
 	}
 	res := d.economics(driver.Result{Status: driver.StatusOK, ResultText: resp.Choices[0].Message.Content}, in, meter, start)
+	return res, nil
+}
+
+// dispatchCaptainStructured serves a schema-constrained captain dispatch (S02
+// D1): exactly ONE ChatStructured call — no investigation loop (unlike the
+// verifier), because the design-TL;DR and reqverify-DoR gates are one-shot
+// judgement emissions. The emitted JSON is returned unmodified in both
+// Result.StructuredJSON (for the gate's typed parse) and Result.ResultText
+// (so prose-only callers still see content); the ENGINE validates it against
+// the schema, fail-closed, after Dispatch returns.
+//
+// Fail-closed capability split (S02 D3): a client that can chat but cannot emit
+// structured output is rejected with driver.ErrKindUnsupported — a DECLARED
+// Rule 2 deferral the gate records, distinct from a structured-EMISSION failure
+// (ErrKindProtocol via classifyVerdictErr), which stays a hard error.
+func (d *InProcess) dispatchCaptainStructured(ctx context.Context, in driver.DispatchInput, client model.Verifier, meter *chatMeter, start time.Time) (driver.Result, error) {
+	so, ok := client.(model.StructuredOutput)
+	if !ok {
+		res := d.economics(driver.Result{Status: driver.StatusError, ErrKind: driver.ErrKindUnsupported}, in, meter, start)
+		return res, fmt.Errorf("inprocess: client for %q does not support structured output", in.ModelID)
+	}
+	resp, err := so.ChatStructured(ctx, []model.ChatMessage{
+		{Role: "system", Content: in.SystemPrompt},
+		{Role: "user", Content: in.Payload},
+	}, in.StructuredSchema)
+	if resp != nil {
+		meter.observe(resp)
+	}
+	if err != nil {
+		res := d.economics(driver.Result{Status: driver.StatusError, ErrKind: classifyVerdictErr(err)}, in, meter, start)
+		return res, fmt.Errorf("inprocess: captain structured dispatch: %w", err)
+	}
+	if len(resp.Choices) == 0 {
+		res := d.economics(driver.Result{Status: driver.StatusError, ErrKind: driver.ErrKindProtocol}, in, meter, start)
+		return res, fmt.Errorf("inprocess: captain structured dispatch: empty choices")
+	}
+	emission := resp.Choices[0].Message.Content
+	res := d.economics(driver.Result{
+		Status:         driver.StatusOK,
+		ResultText:     emission,
+		StructuredJSON: json.RawMessage(emission),
+	}, in, meter, start)
 	return res, nil
 }
 

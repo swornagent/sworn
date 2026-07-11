@@ -206,7 +206,7 @@ func dispatch(t *testing.T, d driver.Driver, role driver.Role, modelID, worktree
 		Timeout:      dispatchTimeout,
 	}
 	if role == driver.RoleVerifier {
-		in.VerdictSchema = conformanceVerdictSchema
+		in.StructuredSchema = conformanceVerdictSchema
 	}
 	return d.Dispatch(ctx, in)
 }

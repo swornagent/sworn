@@ -93,6 +93,10 @@ func FromEnv(modelID string) (Verifier, error) {
 		key = envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY")
 	case "openai-responses":
 		key = envOrAlias("OPENAI_API_KEY", "SWORN_OPENAI_API_KEY")
+	case "xai":
+		// D4: honour the canonical XAI_API_KEY (SWORN_XAI_API_KEY fallback) on
+		// the one-shot path too; the generic default reads SWORN_-only.
+		key = envOrAlias("XAI_API_KEY", "SWORN_XAI_API_KEY")
 	case "openai-completions":
 		// Shares the openai key: the generic default would demand
 		// SWORN_OPENAI_COMPLETIONS_API_KEY, which nothing sets and which
@@ -222,6 +226,7 @@ func swornProviderConfig() ProviderConfig {
 		GroqKey:             os.Getenv("SWORN_GROQ_API_KEY"),
 		MistralKey:          os.Getenv("SWORN_MISTRAL_API_KEY"),
 		OpenRouterKey:       os.Getenv("SWORN_OPENROUTER_API_KEY"),
+		XAIKey:              envOrAlias("XAI_API_KEY", "SWORN_XAI_API_KEY"),
 		AnthropicKey:        os.Getenv("SWORN_ANTHROPIC_API_KEY"),
 		GoogleKey:           envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY"),
 		GoogleCloudProject:  os.Getenv("GOOGLE_CLOUD_PROJECT"),

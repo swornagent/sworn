@@ -34,6 +34,23 @@ func TestPricing_Haiku4_5(t *testing.T) {
 	}
 }
 
+// TestPricing_Grok45 asserts xAI grok-4.5 carries a real non-zero pricing
+// entry (S03 AC-04) so honest cost is CostSource=pricing-table, not the
+// "unknown" the 2026-07-11 dogfood showed. The native xai/ driver dispatches
+// the bare model id "grok-4.5" to PriceForModel.
+func TestPricing_Grok45(t *testing.T) {
+	p, ok := PriceForModel("grok-4.5")
+	if !ok {
+		t.Fatal("grok-4.5 not resolvable via PriceForModel")
+	}
+	if p.InputPricePer1M <= 0 {
+		t.Errorf("InputPricePer1M = %f, want > 0", p.InputPricePer1M)
+	}
+	if p.OutputPricePer1M <= 0 {
+		t.Errorf("OutputPricePer1M = %f, want > 0", p.OutputPricePer1M)
+	}
+}
+
 // TestPricing_UnknownModelReturnsZero asserts an unknown model ID returns 0
 // cost (AC-04: fail-closed, no guessed rate). Maps AC7.
 func TestPricing_UnknownModelReturnsZero(t *testing.T) {
