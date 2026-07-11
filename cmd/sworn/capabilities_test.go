@@ -34,6 +34,7 @@ func clearProviderEnv(t *testing.T) {
 		"GROQ_API_KEY", "MISTRAL_API_KEY", "OPENROUTER_API_KEY",
 		"ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY",
 		"CLOUDFLARE_API_KEY", "GITHUB_TOKEN",
+		"XAI_API_KEY", "SWORN_XAI_API_KEY",
 		"SWORN_DIRECT", "SWORN_PROXY_URL",
 	} {
 		t.Setenv(k, "")
@@ -101,4 +102,60 @@ func TestCapabilitiesRendersRegistry(t *testing.T) {
 	if strings.Contains(out, "via proxy:") {
 		t.Errorf("output advertises proxy routing while logged out\noutput:\n%s", out)
 	}
+}
+
+// runCapabilities executes the capabilities verb and returns its stdout.
+func runCapabilities(t *testing.T) string {
+	t.Helper()
+	c, ok := command.Lookup("capabilities")
+	if !ok {
+		t.Fatal("capabilities verb not registered")
+	}
+	saved := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stdout = w
+	code := c.Run(nil)
+	w.Close()
+	os.Stdout = saved
+	outBytes, _ := io.ReadAll(r)
+	out := string(outBytes)
+	if code != 0 {
+		t.Fatalf("capabilities exited %d, want 0\noutput:\n%s", code, out)
+	}
+	return out
+}
+
+// TestCapabilitiesListsXAI (S03 AC-02) proves `sworn capabilities` surfaces
+// the native xai/ prefix: present-and-available when XAI_API_KEY is set,
+// present-but-unavailable when absent — no dispatch either way. The prefix
+// appears automatically because xai joined chatPrefixes (renderCapabilities
+// is registry-driven, no per-prefix edit).
+func TestCapabilitiesListsXAI(t *testing.T) {
+	t.Run("key present -> available", func(t *testing.T) {
+		clearProviderEnv(t)
+		t.Setenv("XAI_API_KEY", "sk-xai")
+		out := runCapabilities(t)
+		if !strings.Contains(out, "xai/") {
+			t.Errorf("output missing xai/ prefix\noutput:\n%s", out)
+		}
+		if !strings.Contains(out, "API keys present: xai/") {
+			t.Errorf("output should show xai/ key availability\noutput:\n%s", out)
+		}
+	})
+
+	t.Run("key absent -> listed but not available via key", func(t *testing.T) {
+		clearProviderEnv(t)
+		out := runCapabilities(t)
+		// The prefix is still enumerated (it is a registered driver prefix).
+		if !strings.Contains(out, "xai/") {
+			t.Errorf("output missing xai/ prefix when key absent\noutput:\n%s", out)
+		}
+		// With no key and logged out, xai/ must NOT be advertised as available.
+		if strings.Contains(out, "API keys present: xai/") {
+			t.Errorf("output claims xai/ key availability with no key set\noutput:\n%s", out)
+		}
+	})
 }

@@ -86,6 +86,10 @@ func PriceForModel(modelID string) (ModelPricing, bool) {
 	if p, ok := bedrockPricing[modelID]; ok {
 		return ModelPricing{InputPricePer1M: p.inputPricePer1M, OutputPricePer1M: p.outputPricePer1M}, true
 	}
+	// Check xAI pricing map.
+	if p, ok := xaiPricing[modelID]; ok {
+		return ModelPricing{InputPricePer1M: p.inputPricePer1M, OutputPricePer1M: p.outputPricePer1M}, true
+	}
 	return ModelPricing{}, false
 }
 

@@ -133,6 +133,7 @@ func TestCatalogAnnotations(t *testing.T) {
 		{"openai", listOpenAIModels, &catalogOpenAIBaseURL},
 		{"groq", listGroqModels, &catalogGroqBaseURL},
 		{"anthropic", listAnthropicModels, &catalogAnthropicBaseURL},
+		{"xai", listXAIModels, &catalogXAIBaseURL},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -362,10 +363,12 @@ func TestListCatalog_OllamaAlwaysAttempted(t *testing.T) {
 	}
 }
 
-// CatalogProviderNames must expose all 7 providers in the fixed
-// alphabetical order the design decision (D1) fixes.
+// CatalogProviderNames must expose all providers in the fixed diff-stable
+// order (the design decision D1 fixes). xai sorts LAST — after openrouter —
+// per the catalogProviderDefs alphabetical-iteration invariant (S03 Coach
+// pin 1).
 func TestCatalogProviderNames(t *testing.T) {
-	want := []string{"anthropic", "google", "groq", "mistral", "ollama", "openai", "openrouter"}
+	want := []string{"anthropic", "google", "groq", "mistral", "ollama", "openai", "openrouter", "xai"}
 	got := CatalogProviderNames()
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)

@@ -13,6 +13,7 @@ type ProviderConfig struct {
 	GroqKey             string
 	MistralKey          string
 	OpenRouterKey       string
+	XAIKey              string
 	AnthropicKey        string
 	GoogleKey           string
 	GoogleCloudProject  string
@@ -46,6 +47,7 @@ func ProviderConfigFromEnv() ProviderConfig {
 		GroqKey:             envOrAlias("GROQ_API_KEY", "SWORN_GROQ_API_KEY"),
 		MistralKey:          envOrAlias("MISTRAL_API_KEY", "SWORN_MISTRAL_API_KEY"),
 		OpenRouterKey:       envOrAlias("OPENROUTER_API_KEY", "SWORN_OPENROUTER_API_KEY"),
+		XAIKey:              envOrAlias("XAI_API_KEY", "SWORN_XAI_API_KEY"),
 		AnthropicKey:        envOrAlias("ANTHROPIC_API_KEY", "SWORN_ANTHROPIC_API_KEY"),
 		GoogleKey:           envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY"),
 		GoogleCloudProject:  os.Getenv("GOOGLE_CLOUD_PROJECT"),
@@ -150,6 +152,19 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 			BaseURL: "https://openrouter.ai/api/v1",
 			Model:   model,
 			APIKey:  pcfg.OpenRouterKey,
+		}, nil
+
+	case "xai":
+		// xAI (Grok) is OpenAI chat/completions-compatible and accepts the
+		// exact strict json_schema response_format shape (docs.x.ai
+		// structured-outputs), so it rides the shared OAI chat client with
+		// native structured output — no bespoke SDK (ADR-0007). This is the
+		// native xai/ path; openrouter/x-ai/grok-* stays as an alternate route.
+		return &OAI{
+			BaseURL:    "https://api.x.ai/v1",
+			Model:      model,
+			APIKey:     pcfg.XAIKey,
+			Structured: StructuredResponseFormat, // native strict json_schema (ADR-0011)
 		}, nil
 
 	case "ollama":

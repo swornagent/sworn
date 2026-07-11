@@ -3,12 +3,13 @@
   "slice_id": "S03-xai-driver",
   "release": "2026-07-11-loop-operability",
   "track": "T2-xai-driver",
-  "state": "in_progress",
+  "state": "implemented",
   "covers_needs": [
     "N-03"
   ],
+  "last_updated_at": "2026-07-12T00:00:00Z",
   "spec_path": "docs/release/2026-07-11-loop-operability/S03-xai-driver/spec.json",
-  "start_commit": "e6970753520e8fd602579c6597dabcc7715a5bdd",
+  "start_commit": "71b003057abe46483df0bfcdfdace70c6e7582bd",
   "effort_complexity": {
     "effort": "high",
     "complexity": "low",
@@ -52,5 +53,38 @@
   ],
   "verification": {
     "result": "pending"
-  }
+  },
+  "actual_files": [
+    "internal/model/provider.go",
+    "internal/model/config.go",
+    "internal/model/client.go",
+    "internal/model/catalog.go",
+    "internal/model/xai.go",
+    "internal/driver/registry/registry.go",
+    "internal/model/provider_test.go",
+    "internal/model/structured_test.go",
+    "internal/model/catalog_test.go",
+    "internal/model/pricing_test.go",
+    "internal/driver/registry/registry_test.go",
+    "cmd/sworn/capabilities_test.go"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go vet ./internal/model/... ./internal/driver/... ./cmd/sworn/...",
+    "go test -count=1 ./internal/driver/... ./internal/model/... ./cmd/sworn/...",
+    "go test -count=1 -timeout 300s ./..."
+  ],
+  "reachability_artifacts": [
+    "cli-run: XAI_API_KEY=sk-smoke-test sworn capabilities -> oai-inprocess lists xai/ prefix, roles implementer,verifier,captain, available: yes - API keys present: xai/; no key -> xai/ listed, available: no",
+    "cli-run: sworn models --provider zzz -> 'valid providers: ..., openrouter, xai'",
+    "httptest: TestXAI_ChatStructured_ResponseFormat drives ChatStructured through the NewClient-resolved xai client (strict json_schema, no live dispatch); TestResolveXAIRoles, TestCapabilitiesListsXAI, TestPricing_Grok45, TestCatalogProviderNames"
+  ],
+  "open_deferrals": [
+    {
+      "item": "Confirm exact grok-4.5 published per-1M pricing (placeholder = xAI Grok flagship $3/$15, 2026-07-12 snapshot).",
+      "tracking": "sworn#99",
+      "acknowledgement": "Recorded in proof.json not_delivered and journal.md; filed as GitHub issue sworn#99. AC-04 requires only a real non-zero entry (delivered); exact-rate accuracy is pricing-snapshot maintenance beyond this slice (spec R-4).",
+      "acknowledged_by": "Implementer (S03-xai-driver session, 2026-07-12)"
+    }
+  ]
 }

@@ -90,6 +90,7 @@ var catalogProviderDefs = []catalogProviderDef{
 	{"ollama", func(cfg ProviderConfig) bool { return true }, listOllamaModels},
 	{"openai", func(cfg ProviderConfig) bool { return cfg.OpenAIKey != "" }, listOpenAIModels},
 	{"openrouter", func(cfg ProviderConfig) bool { return cfg.OpenRouterKey != "" }, listOpenRouterModels},
+	{"xai", func(cfg ProviderConfig) bool { return cfg.XAIKey != "" }, listXAIModels},
 }
 
 // CatalogProviderNames returns the ordered list of provider prefixes
