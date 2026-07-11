@@ -3,7 +3,7 @@
   "slice_id": "S12-record-migration",
   "release": "2026-06-28-driver-contract",
   "track": "T7-baton-revendor",
-  "state": "failed_verification",
+  "state": "in_progress",
   "covers_needs": [
     "N-13"
   ],
@@ -43,18 +43,7 @@
     }
   ],
   "verification": {
-    "result": "fail",
-    "verifier_was_fresh_context": true,
-    "verifier_verdict_at": "2026-07-11T00:00:00Z",
-    "violations": [
-      "Violation 1 (AC-05, Gate 3/4 — fail-closed drift guard fails on a required release): `sworn doctor` exits 1 and reports `[ERROR] render drift (2026-06-28-driver-contract) — committed index.md does not match render(board.json)`. 2026-06-28-driver-contract is one of the five spec-v1-era releases AC-05 explicitly requires the drift guard to pass for. The committed docs/release/2026-06-28-driver-contract/index.md renders the S12-record-migration row with state `in_progress`, but render(board.json)+status.json yields `implemented` (single-line drift; the migrated quadrant `grind` is correct — the drift is the slice's own state cell, not a quadrant defect). AC-05 requires 'the committed index.md files SHALL match the render output (the fail-closed drift guard passes for those releases), with the refreshed renders committed in this slice' — unmet for driver-contract. The other four of the five render clean.",
-      "Violation 2 (Gate 7 / Rule 6 — proof bundle not generated from live repo state): proof.json's AC-05 evidence is false against live state. reachability.evidence (line 136) and delivered[AC-05].evidence (lines 156-157) both assert 'sworn doctor render-drift flags only the 2 excluded legacy releases, not the five' / 'drift guard clean'. Live `sworn doctor` flags THREE releases: the 2 excluded legacy (2026-06-19-safe-parallelism, 2026-06-27-conformance-foundation) PLUS 2026-06-28-driver-contract — one of the five. A proof bundle must be generated from live repo state (Rule 6)."
-    ],
-    "required_to_address": [
-      "Re-render docs/release/2026-06-28-driver-contract/index.md via `sworn render 2026-06-28-driver-contract` so the committed index.md matches render(board.json) at the slice's committed state, and commit it in this slice. Then re-run `sworn doctor` and confirm none of the five spec-v1-era releases are flagged for render drift — only the two excluded legacy releases (2026-06-19-safe-parallelism, 2026-06-27-conformance-foundation) may remain, which are accepted per Coach 2026-07-10.",
-      "Correct the proof.json AC-05 reachability + delivered evidence to reflect actual `sworn doctor` output.",
-      "All other acceptance criteria verified PASS (AC-01/AC-02 zero chore/epic/feature; AC-03 spec.json strict-v0.10.0 + in_scope/out_of_scope; AC-04 Validate quick-only + shim removed wholesale; AC-06 board.json pure-plan; AC-07 ears_pattern mapped + ears.go repointed + classification preserved), so the remediation scope is narrow."
-    ]
+    "result": "pending"
   },
   "actual_files": [
     "docs/release/2026-06-28-driver-contract/S01-driver-contract/spec.json",
