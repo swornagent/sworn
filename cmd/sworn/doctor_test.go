@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/baton/schemas"
 	"github.com/swornagent/sworn/internal/board"
 )
 
@@ -92,6 +93,143 @@ func TestDoctorAllOK(t *testing.T) {
 	// No ERROR in the output at all.
 	if strings.Contains(output, "[ERROR]") {
 		t.Errorf("expected no [ERROR] in output for clean repo\nOutput:\n%s", output)
+	}
+}
+
+// doctorLine returns the first line of output containing substr, or "" if
+// none found. Used to assert a specific check's [OK]/[WARN]/[ERROR] tag
+// without depending on the exact column-padding of unrelated lines.
+func doctorLine(output, substr string) string {
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, substr) {
+			return line
+		}
+	}
+	return ""
+}
+
+// doctorEntry returns a checkResult's tag line (e.g. "[OK]    baton/...")
+// and its following detail line, as printResult renders them: name+tag on
+// one line, detail (if any) on the next.
+func doctorEntry(output, substr string) (tagLine, detailLine string) {
+	lines := strings.Split(output, "\n")
+	for i, line := range lines {
+		if strings.Contains(line, substr) {
+			if i+1 < len(lines) {
+				detailLine = lines[i+1]
+			}
+			return line, detailLine
+		}
+	}
+	return "", ""
+}
+
+// TestDoctorSchemaManifestRendersGradedAndAdvisory drives S15 AC-01 through
+// the CLI affordance (cmdDoctor), not the leaf SchemaManifest function
+// directly (Rule 1): `sworn doctor`'s Group 1b must name every vendored
+// baton schema's $id/version/status, with the two newly-vendored (S11,
+// baton v0.10.0) schemas rendered ADVISORY and the rest GRADED.
+func TestDoctorSchemaManifestRendersGradedAndAdvisory(t *testing.T) {
+	dir, _ := os.Getwd()
+	dir = filepath.Dir(dir)
+
+	_, output := runDoctorInDir(t, dir)
+
+	if !strings.Contains(output, "Group 1b: Baton schema manifest") {
+		t.Fatalf("expected 'Group 1b: Baton schema manifest' heading in doctor output\nOutput:\n%s", output)
+	}
+
+	graded := []string{
+		"slice-status-v1", "board-v1", "spec-v1", "proof-v1",
+		"journeys-v1", "attestations-v1", "verifier-verdict-v1",
+	}
+	for _, name := range graded {
+		tagLine, detail := doctorEntry(output, "baton/schema-manifest/"+name)
+		if tagLine == "" {
+			t.Errorf("expected a baton/schema-manifest/%s line in doctor output\nOutput:\n%s", name, output)
+			continue
+		}
+		if !strings.HasPrefix(tagLine, "[OK]") {
+			t.Errorf("expected [OK] for graded schema %s, got: %q", name, tagLine)
+		}
+		if !strings.Contains(detail, "status=GRADED") {
+			t.Errorf("expected status=GRADED detail for %s, got: %q", name, detail)
+		}
+		if !strings.Contains(detail, "$id=https://baton.sawy3r.net/schemas/"+name+".json") {
+			t.Errorf("expected $id for %s in detail, got: %q", name, detail)
+		}
+	}
+
+	for _, name := range []string{"contracts-v1", "assembly-proof-v1"} {
+		tagLine, detail := doctorEntry(output, "baton/schema-manifest/"+name)
+		if tagLine == "" {
+			t.Errorf("expected a baton/schema-manifest/%s line in doctor output\nOutput:\n%s", name, output)
+			continue
+		}
+		if !strings.HasPrefix(tagLine, "[OK]") {
+			t.Errorf("expected [OK] for advisory schema %s (ADVISORY is a classified, non-skewed status), got: %q", name, tagLine)
+		}
+		if !strings.Contains(detail, "status=ADVISORY") {
+			t.Errorf("expected status=ADVISORY detail for %s, got: %q", name, detail)
+		}
+	}
+
+	skewLine := doctorLine(output, "baton/schema-skew")
+	if skewLine == "" {
+		t.Fatalf("expected a baton/schema-skew line in doctor output\nOutput:\n%s", output)
+	}
+	if !strings.HasPrefix(skewLine, "[OK]") {
+		t.Errorf("expected [OK] for baton/schema-skew on the real (unskewed) vendored set, got: %q", skewLine)
+	}
+}
+
+// TestDoctorSchemaSkewFiresOnFixture drives S15 AC-02 through the CLI
+// affordance (cmdDoctor): with a deliberately-skewed schema-map fixture
+// injected (an extra vendored schema absent from the graded/advisory
+// classification table), doctor SHALL surface a clearly-flagged WARN for
+// baton/schema-skew and for the unclassified entry itself — never a silent
+// OK.
+func TestDoctorSchemaSkewFiresOnFixture(t *testing.T) {
+	fixture := make(map[string][]byte, len(schemas.SchemaMap)+1)
+	for k, v := range schemas.SchemaMap {
+		fixture[k] = v
+	}
+	fixture["made-up-v1"] = []byte(`{"$id":"https://baton.sawy3r.net/schemas/made-up-v1.json","type":"object"}`)
+
+	baton.SetSchemaMapForTest(fixture)
+	defer baton.ClearSchemaMapForTest()
+
+	dir, _ := os.Getwd()
+	dir = filepath.Dir(dir)
+
+	_, output := runDoctorInDir(t, dir)
+
+	skewLine := doctorLine(output, "baton/schema-skew")
+	if skewLine == "" {
+		t.Fatalf("expected a baton/schema-skew line in doctor output\nOutput:\n%s", output)
+	}
+	if !strings.HasPrefix(skewLine, "[WARN]") {
+		t.Errorf("expected [WARN] for baton/schema-skew with an injected skew fixture, got: %q\nOutput:\n%s", skewLine, output)
+	}
+	if strings.Contains(skewLine, "[OK]") {
+		t.Errorf("baton/schema-skew must never render OK when skewed, got: %q", skewLine)
+	}
+
+	manifestLine := doctorLine(output, "baton/schema-manifest/made-up-v1")
+	if manifestLine == "" {
+		t.Fatalf("expected a baton/schema-manifest/made-up-v1 line in doctor output\nOutput:\n%s", output)
+	}
+	if !strings.HasPrefix(manifestLine, "[WARN]") {
+		t.Errorf("expected [WARN] for the unclassified made-up-v1 entry, got: %q", manifestLine)
+	}
+
+	// Skew is a WARN, not an ERROR (S15 design decision D2) — it must not
+	// flip cmdDoctor's exit code on its own. A pre-existing S19-dependent
+	// heading WARN already keeps this repo's baseline exit 0 (TestDoctorAllOK);
+	// asserting no [ERROR] anywhere proves schema-skew specifically didn't
+	// gate, without over-asserting the exact exit code of unrelated groups.
+	if strings.Contains(output, "[ERROR]") {
+		t.Errorf("schema-skew WARN must not produce an [ERROR] anywhere in doctor output\nOutput:\n%s", output)
 	}
 }
 

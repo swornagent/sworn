@@ -3,12 +3,30 @@
   "slice_id": "S15-baton-version-handshake",
   "release": "2026-06-28-driver-contract",
   "track": "T7-baton-revendor",
-  "state": "in_progress",
+  "state": "implemented",
   "covers_needs": [
     "N-16"
   ],
   "spec_path": "docs/release/2026-06-28-driver-contract/S15-baton-version-handshake/spec.json",
   "start_commit": "c393459d769c8f98c79c0d8b2fc70aa87857a0bb",
+  "actual_files": [
+    "internal/baton/manifest.go",
+    "internal/baton/manifest_stub.go",
+    "internal/baton/manifest_test.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go vet ./internal/baton/... ./cmd/sworn/...",
+    "go test ./cmd/sworn/... ./internal/baton/...",
+    "go test -count=1 -timeout 300s ./..."
+  ],
+  "reachability_artifacts": [
+    "cmd/sworn/doctor_test.go:TestDoctorSchemaManifestRendersGradedAndAdvisory — drives cmdDoctor (the CLI-invoked entry point sworn doctor calls), asserts Group 1b renders all 9 schemas with correct GRADED/ADVISORY status",
+    "cmd/sworn/doctor_test.go:TestDoctorSchemaSkewFiresOnFixture — drives cmdDoctor with an injected skew fixture (baton.SetSchemaMapForTest), asserts baton/schema-skew and the unclassified entry both render [WARN], never [OK]",
+    "Manual smoke: `go run ./cmd/sworn doctor` live against this repo — Group 1b output captured in journal.md; git-stash A/B diff of the doctor CLI's [ERROR] line set confirms zero regression to existing groups (75 pre-existing, unrelated ERRORs, byte-identical before/after)"
+  ],
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",

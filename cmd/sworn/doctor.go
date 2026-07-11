@@ -194,6 +194,17 @@ func cmdDoctor(args []string) int {
 		printResult(r)
 	}
 
+	// --- Group 1b: Baton schema manifest ---
+	fmt.Println()
+	fmt.Println(style.Heading("Group 1b: Baton schema manifest"))
+	g1b := checkSchemaManifest()
+	for _, r := range g1b {
+		if r.level == levelError {
+			hasError = true
+		}
+		printResult(r)
+	}
+
 	// --- Group 2: Repo artifact audit ---
 	fmt.Println()
 	fmt.Println(style.Heading("Group 2: Repo artifact audit"))
@@ -449,6 +460,62 @@ func checkEmbeddedPrompts() []checkResult {
 
 	// --- Prompt-currency check: pre-records-as-JSON marker detection.
 	results = append(results, checkPromptCurrency())
+
+	return results
+}
+
+// checkSchemaManifest renders the graded-schema-version manifest: one
+// checkResult per vendored Baton schema (name/$id/version/GRADED-or-ADVISORY,
+// baton.SchemaManifest), plus a final skew check that WARNs when the
+// declared graded/advisory classification table disagrees with the live
+// vendored schema set. Never a silent OK on skew (S15 AC-01/AC-02) — the
+// scar this manages is baton#54/#55/#58 (vendored schemas at one version
+// while the binary graded stale shapes, silently).
+func checkSchemaManifest() []checkResult {
+	var results []checkResult
+
+	entries, err := baton.SchemaManifest()
+	if err != nil {
+		return []checkResult{{
+			level:  levelError,
+			name:   "baton/schema-manifest",
+			detail: fmt.Sprintf("failed to build schema manifest: %v", err),
+		}}
+	}
+
+	for _, e := range entries {
+		if e.Status == "" {
+			results = append(results, checkResult{
+				level:  levelWarn,
+				name:   fmt.Sprintf("baton/schema-manifest/%s", e.Name),
+				detail: fmt.Sprintf("$id=%s version=%s status=UNCLASSIFIED — no graded/advisory entry in schemaGradeStatus", e.ID, e.Version),
+			})
+			continue
+		}
+		results = append(results, checkResult{
+			level:  levelOK,
+			name:   fmt.Sprintf("baton/schema-manifest/%s", e.Name),
+			detail: fmt.Sprintf("$id=%s version=%s status=%s", e.ID, e.Version, e.Status),
+		})
+	}
+
+	// Skew is WARN, never ERROR — it does not gate cmdDoctor's exit code
+	// (S15 design decision D2). A structural failure above (malformed
+	// embedded schema JSON, which //go:embed makes a compile-time
+	// impossibility in practice) is the only path that returns levelError.
+	if skew := baton.SchemaSkew(); len(skew) == 0 {
+		results = append(results, checkResult{
+			level:  levelOK,
+			name:   "baton/schema-skew",
+			detail: "declared graded/advisory set matches the vendored schema set",
+		})
+	} else {
+		results = append(results, checkResult{
+			level:  levelWarn,
+			name:   "baton/schema-skew",
+			detail: strings.Join(skew, "; "),
+		})
+	}
 
 	return results
 }
