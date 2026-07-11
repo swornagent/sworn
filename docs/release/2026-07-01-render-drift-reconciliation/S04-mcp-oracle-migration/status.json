@@ -13,7 +13,7 @@
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "Six call sites across four MCP files, same fix pattern; tools_plan.go's write-back path needs the most care.",
     "confirmed_by_implementer": false
   },

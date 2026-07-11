@@ -130,10 +130,12 @@ func LoadBlockedView(repoRoot, releaseName, sliceID string) (*BlockedView, error
 
 	worktreePath := ""
 	if br, errB := board.ReadBoard(repoRoot, releaseName); errB == nil {
+		// board-v1 is a pure plan: the track worktree path is DERIVED (sworn#80).
+		releaseWTPath := board.ReleaseWorktreePathFrom(repoRoot, releaseName)
 		for _, t := range br.Tracks {
 			for _, sid := range t.Slices {
 				if sid == sliceID {
-					worktreePath = t.WorktreePath
+					worktreePath = board.TrackWorktreePathFrom(releaseWTPath, releaseName, t.ID)
 					break
 				}
 			}

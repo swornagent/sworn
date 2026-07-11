@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/run"
 	_ "modernc.org/sqlite"
 )
@@ -239,6 +240,18 @@ func runSingleIteration(n int, cfg FixtureConfig, numSlices int) (*OverclaimResu
 	// Write index.md for this N.
 	if err := WriteIndexForN(releaseDir, cfg.ReleaseName, n, numSlices, worktreePaths, tmpRoot); err != nil {
 		return nil, fmt.Errorf("overclaim: write index: %w", err)
+	}
+
+	// board-v1 is a pure plan (sworn#80): worktree paths are DERIVED, not read
+	// from the index. Pre-create the derived release + track worktree dirs so
+	// RunParallel skips `git worktree add` materialisation (this synthetic
+	// tmpRoot is not a real git repo).
+	if br, berr := board.ReadBoard(tmpRoot, cfg.ReleaseName); berr == nil {
+		relWT := board.ReleaseWorktreePathFrom(tmpRoot, cfg.ReleaseName)
+		_ = os.MkdirAll(relWT, 0o755)
+		for _, tr := range br.Tracks {
+			_ = os.MkdirAll(board.TrackWorktreePathFrom(relWT, cfg.ReleaseName, tr.ID), 0o755)
+		}
 	}
 
 	// Open in-memory SQLite DB and init schema (Pin 1).

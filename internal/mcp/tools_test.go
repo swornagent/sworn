@@ -126,19 +126,13 @@ func writeBoardJSON(t *testing.T, releaseDir, releaseName string, trackSlices ma
 	var tracks []board.BoardTrack
 	for trackID, slices := range trackSlices {
 		tracks = append(tracks, board.BoardTrack{
-			ID:             trackID,
-			Slices:         slices,
-			State:          "in_progress",
-			WorktreePath:   "/tmp/wt/" + trackID,
-			WorktreeBranch: "track/x/" + trackID,
+			ID:     trackID,
+			Slices: slices,
 		})
 	}
 	br := &board.BoardRecord{
-		SchemaVersion:         1,
-		Release:               board.StringRelease(releaseName),
-		ReleaseWorktreePath:   "/tmp/release-wt",
-		ReleaseWorktreeBranch: "release-wt/x",
-		Tracks:                tracks,
+		Release: board.StringRelease(releaseName),
+		Tracks:  tracks,
 	}
 	data, err := json.MarshalIndent(br, "", "  ")
 	if err != nil {
@@ -162,8 +156,17 @@ type gitRepoFixture struct {
 // a second commit, returning the repo dir and the initial commit hash. Tests
 // can use StartCommit as the diff base and expect feature.go in the diff output.
 func setupGitRepo(t *testing.T) *gitRepoFixture {
+	return setupGitRepoAt(t, t.TempDir())
+}
+
+// setupGitRepoAt initialises the same base+feature.go git fixture at an explicit
+// directory (used to place the repo at a DERIVED track worktree path — sworn#80).
+func setupGitRepoAt(t *testing.T, dir string) *gitRepoFixture {
 	t.Helper()
-	dir := t.TempDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
 	runCmd(t, dir, "git", "init")
 	runCmd(t, dir, "git", "config", "user.name", "test")
@@ -322,22 +325,18 @@ func TestGetBlockedExtractsViolations(t *testing.T) {
 
 func TestGetSliceContext(t *testing.T) {
 	fr := setupFixtureRelease(t, "test-release-c")
-	gitFixture := setupGitRepo(t)
 
-	// Build board.json with worktree_path pointing to the real git repo
 	writeBoardJSON(t, fr.Dir, "test-release-c", map[string][]string{
 		"T1-engine": {"S01-test-slice"},
 	})
-	// Update the worktree_path in board.json to the real git repo.
-	boardJSONPath := filepath.Join(fr.Dir, "board.json")
-	boardData, err := os.ReadFile(boardJSONPath)
-	if err != nil {
-		t.Fatalf("read board.json: %v", err)
-	}
-	boardData = []byte(strings.Replace(string(boardData), "/tmp/wt/T1-engine", gitFixture.Dir, 1))
-	if err := os.WriteFile(boardJSONPath, boardData, 0o644); err != nil {
-		t.Fatalf("write board.json: %v", err)
-	}
+
+	// board-v1 is a pure plan: context.go DERIVES the slice's worktree path (a
+	// sibling of the release worktree — sworn#80), no longer reading it from
+	// board.json. Create the base+feature.go git fixture AT the derived path so
+	// the start_commit..HEAD diff surfaces feature.go.
+	worktreePath := board.TrackWorktreePathFrom(
+		board.ReleaseWorktreePathFrom(fr.Root, "test-release-c"), "test-release-c", "T1-engine")
+	gitFixture := setupGitRepoAt(t, worktreePath)
 
 	fr.writeSlice(t, "S01-test-slice", "# S01-test-slice\n\nSome spec content.")
 	// Write status.json directly with exact JSON to avoid writeStatus quoting issues

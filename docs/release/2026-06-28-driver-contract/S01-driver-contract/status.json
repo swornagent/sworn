@@ -3,16 +3,36 @@
   "slice_id": "S01-driver-contract",
   "release": "2026-06-28-driver-contract",
   "track": "T1-contract",
-  "state": "planned",
+  "state": "verified",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-03T06:36:22Z",
   "covers_needs": ["N-01", "N-08"],
   "spec_path": "docs/release/2026-06-28-driver-contract/S01-driver-contract/spec.json",
-  "start_commit": null,
+  "proof_path": "docs/release/2026-06-28-driver-contract/S01-driver-contract/proof.json",
+  "journal_path": "docs/release/2026-06-28-driver-contract/S01-driver-contract/journal.md",
+  "start_commit": "530c5539c2c72846f1a2c335cd166b8090952a89",
+  "actual_files": [
+    "internal/driver/driver.go",
+    "internal/driver/worktree.go",
+    "internal/driver/driver_test.go",
+    "internal/driver/imports_test.go",
+    "docs/adr/0012-driver-contract.md"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go vet ./internal/driver/...",
+    "go test ./internal/driver/... -v",
+    "go test ./..."
+  ],
+  "reachability_artifacts": [
+    "go test ./internal/driver/... -v output: TestRoleSet (4 subtests), TestAssertWorktree (5 subtests incl. linked-worktree), TestNoWireImports — all PASS"
+  ],
   "effort_complexity": {
     "effort": "low",
     "complexity": "high",
     "quadrant": "puzzle",
     "rationale": "Small diff, keystone contract — shape errors here are the release's most expensive defect class.",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
   "design_decisions": [
     {
@@ -29,6 +49,8 @@
     }
   ],
   "verification": {
-    "result": "pending"
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-03T06:36:22Z"
   }
 }

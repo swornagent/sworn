@@ -1,11 +1,10 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-  "schema_version": 1,
   "slice_id": "S10-conformance-sit",
   "release": "2026-06-28-driver-contract",
   "track": "T6-proof",
   "user_outcome": "Every registered driver passes one exported behavioural conformance suite, and the assembled `sworn loop` boots end-to-end over a fixture release with a stub driver — so a contract-violating driver or a dead loop wiring fails a test in CI instead of shipping a DOA release.",
-  "rationale": "The S08-drop decision (2026-07-02) folded the validation intent into this slice: the cross-engine differential died with the coach-loop reference; what replaces it is (a) a conformance suite exported as a package (drivertest.Run(t, driver)) so every current and future driver is held to the same behavioural clauses, and (b) the architecture capture §3.5 lesson wired in as a SIT smoke — the three-model dogfood shipped DOA on unit-green because nothing ever booted the assembled `sworn loop --parallel` from a cold board; the nil-factory SIGSEGV and cold-start crash were invisible to per-slice verification over mocked leaves. The SIT test boots the real RunParallel path over a fixture release in testdata with a stub driver registered via the S05 registry, from a cold board (no worktrees pre-made), and asserts the loop reaches verified without a panic. This is the release's own Rule-1 reachability artefact for the whole seam. Runs with fake binaries/stub drivers only — no paid dispatch in CI.",
+  "rationale": "The S08-drop decision (2026-07-02) folded the validation intent into this slice: the cross-engine differential died with the coach-loop reference; what replaces it is (a) a conformance suite exported as a package (drivertest.Run(t, driver)) so every current and future driver is held to the same behavioural clauses, and (b) the architecture capture §3.5 lesson wired in as a SIT smoke — the three-model dogfood shipped DOA on unit-green because nothing ever booted the assembled `sworn loop --parallel` from a cold board; the nil-factory SIGSEGV and cold-start crash were invisible to per-slice verification over mocked leaves. The SIT test boots the real RunParallel path over a fixture release in testdata with a stub driver registered via the S05 registry, from a cold board (no worktrees pre-made), and asserts the loop reaches verified without a panic. This is the release's own Rule-1 reachability artefact for the whole seam. Runs with fake binaries/stub drivers only — no paid dispatch in CI. FOLD 2026-07-11 (sworn#93, Coach-ratified): building AC-03's cold-board SIT surfaced exactly the class of bug this slice exists to catch — a 'dead loop wiring' defect (N-07's own words): RunSlice's verified/PASS path wrote status.json but, alone among all terminal paths (the four blocked variants + failed_verification all commit), never committed it, so the parallel router re-read the committed ref as 'implemented' and re-dispatched verify endlessly (single-slice Run() masked it by committing the whole tree afterward). The one-line fix (Stage+Commit the verified write) is folded in here rather than routed to the owning slice S06 because (a) S06 is merged/immutable, and (b) AC-03's SIT cannot reach a stable verified state without it — the bug blocks this slice's own acceptance, so it is not the 'incidental driver bug' the out_of_scope routing rule addresses. AC-06 is the regression assertion; this is a strong candidate root cause of the historically-unreliable autonomous parallel loop.",
   "covers_needs": [
     "N-07"
   ],
@@ -13,17 +12,19 @@
     "internal/driver/drivertest: exported conformance suite (Run(t, NewDriver)) over the behavioural contract clauses",
     "conformance_all_test.go enrolling every DefaultRegistry driver automatically",
     "Cold-board SIT smoke: hermetic fixture release + stub driver through the real RunParallel path",
-    "Bounded-deadline board-state dump on stall"
+    "Bounded-deadline board-state dump on stall",
+    "internal/run/slice.go: commit the verified/PASS status write (repo.Stage+Commit, matching every sibling terminal path — the four blocked variants and failed_verification all already commit) — the sworn#93 parallel-loop verdict-commit fix. Folded in by Coach decision 2026-07-11 because AC-06's SIT cannot pass without it (see rationale): the bug BLOCKS this slice's own acceptance, it is not an incidental driver bug the suite found, and the owning slice S06 is merged/immutable so the spec's default routing cannot apply"
   ],
   "out_of_scope": [
     "Real-provider / real-CLI dispatch tests (the Rule-10 cutover journey walk owns that)",
     "Performance benchmarking",
-    "Fixing driver bugs the suite finds — those route back to the owning slice"
+    "Fixing driver bugs the suite finds in a driver's own contract behaviour — those route back to the owning slice. EXCEPTION (Coach 2026-07-11): sworn#93 is a loop-state-machine bug that blocks AC-06's SIT itself and whose owning slice (S06) is already merged; it is folded in here, not routed",
+    "Any broader loop-state-machine change beyond the single verified-path commit fix (sworn#93) — S06's rewire is otherwise immutable"
   ],
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
-    "quadrant": "epic",
+    "quadrant": "beast",
     "rationale": "The SIT harness over a cold board is exactly where the 2026-06-28 eval's twelve novel bugs lived; making it deterministic in CI (git fixtures, temp worktrees, stub driver) is genuinely hard.",
     "confirmed_by_implementer": false
   },
@@ -32,7 +33,8 @@
     "internal/driver/drivertest/conformance_test.go",
     "internal/driver/conformance_all_test.go",
     "internal/run/loop_sit_test.go",
-    "internal/run/testdata/sit-fixture/"
+    "internal/run/testdata/sit-fixture/",
+    "internal/run/slice.go"
   ],
   "risks": [
     {
@@ -49,33 +51,33 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "An exported conformance suite (internal/driver/drivertest, entry point Run(t, NewDriver)) SHALL assert for ANY Driver: a successful dispatch returns a well-formed Result (Status set, tokens/duration non-negative, ResultText or StructuredJSON present per role); every error path returns Status=error with a non-empty ErrKind and never panics; a dispatch with a Role outside the driver's declared RoleSet returns an error; a verifier-role dispatch returns StructuredJSON that parses as a JSON object or fails closed; and the Rule-11 guard fires on a missing/non-worktree WorktreeRoot before any work."
+      "text": "An exported conformance suite (internal/driver/drivertest, entry point Run(t, NewDriver)) SHALL assert for ANY Driver: a successful dispatch returns a well-formed Result (Status set, tokens/duration non-negative, ResultText or StructuredJSON present per role); every error path returns Status=error with a non-empty ErrKind and never panics; requesting a Role outside the driver's declared RoleSet fails at the RESOLUTION boundary — the suite asserts Registry.Resolve's role-arm error for an undeclared role, per the release's ratified fail-fast-at-resolution contract (S01 Type-1 decision; ADR-0012 deliberately disclaims Dispatch-level role re-checks; amended 2026-07-11 per S10 review pin 1); a verifier-role dispatch returns StructuredJSON that parses as a JSON object or fails closed; and the Rule-11 guard fires on a missing/non-worktree WorktreeRoot before any work.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-02",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "The suite SHALL run against all four compiled-in drivers — claude subprocess (fake claude binary), codex subprocess (fake codex binary), in-process oai and in-process responses (httptest servers) — plus the reference stub driver, via conformance_all_test.go iterating DefaultRegistry's entries so a newly registered driver is automatically enrolled."
+      "text": "The suite SHALL run against all four compiled-in drivers — claude subprocess (fake claude binary), codex subprocess (fake codex binary), in-process oai and in-process responses (httptest servers) — plus the reference stub driver, via conformance_all_test.go iterating DefaultRegistry's entries so a newly registered driver is automatically enrolled.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-03",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When TestLoopSIT runs, it SHALL boot the assembled parallel loop (the real RunParallel path from cmd wiring, not a mocked leaf) over the hermetic sit-fixture release from a COLD board — no pre-made release or track worktrees — with a stub driver registered for all roles, and SHALL assert: the release and track worktrees materialise, implement and verify dispatches fire through the registry, the verdict is consumed by the state machine, at least one slice reaches verified, and the process never panics."
+      "text": "When TestLoopSIT runs, it SHALL boot the assembled parallel loop (the real RunParallel path from cmd wiring, not a mocked leaf) over the hermetic sit-fixture release from a COLD board — no pre-made release or track worktrees — with a stub driver registered for all roles, and SHALL assert: the release and track worktrees materialise, implement and verify dispatches fire through the registry, the verdict is consumed by the state machine, at least one slice reaches verified, and the process never panics.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-04",
-      "type": "unwanted",
-      "ears_keyword": "If",
-      "text": "If any registered driver violates a conformance clause, the test failure SHALL name the driver and the violated clause (subtest naming: driver/clause); if the SIT loop stalls, the test SHALL fail with the board state dump rather than hanging (bounded by a test deadline)."
+      "text": "If any registered driver violates a conformance clause, the test failure SHALL name the driver and the violated clause (subtest naming: driver/clause); if the SIT loop stalls, the test SHALL fail with the board state dump rather than hanging (bounded by a test deadline).",
+      "ears_pattern": "unwanted-behaviour"
     },
     {
       "id": "AC-05",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "The whole slice SHALL run without network access or paid dispatch (fake binaries, httptest, stub driver only), and `go test ./internal/driver/... ./internal/run/...` SHALL pass; the track merge gate's full `go test ./...` is the release-level regression backstop."
+      "text": "The whole slice SHALL run without network access or paid dispatch (fake binaries, httptest, stub driver only), and `go test ./internal/driver/... ./internal/run/...` SHALL pass; the track merge gate's full `go test ./...` is the release-level regression backstop.",
+      "ears_pattern": "ubiquitous"
+    },
+    {
+      "id": "AC-06",
+      "text": "When the cold-board SIT drives a slice to a PASS verdict through the real RunParallel path, the SIT SHALL assert that the slice's `verified` status transition is COMMITTED to the track ref (not merely written to the worktree), such that a router re-read of the committed state observes `verified` and does NOT re-dispatch the verify leg — the regression assertion for sworn#93. Reverting the verified-path `repo.Stage`/`repo.Commit` in internal/run/slice.go SHALL make this SIT fail (or stall to its bounded deadline), proving the assertion has teeth and is not tautological.",
+      "ears_pattern": "event-driven"
     }
   ]
 }

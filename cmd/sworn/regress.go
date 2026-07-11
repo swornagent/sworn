@@ -7,6 +7,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/gate"
+	"github.com/swornagent/sworn/internal/git"
 )
 
 // cmdRegress implements `sworn regress --release <release-name>`.
@@ -60,13 +61,22 @@ func cmdRegress(args []string) int {
 			return 2
 		}
 
-		// Fail-closed target assertion (Rule 11): an empty path must never
-		// flow into the worktree-stat guard below, which would otherwise
-		// report a confusing "not found" against the empty string instead of
-		// naming the real problem.
-		worktreePath = br.ReleaseWorktreePath
+		// board-v1 is a pure plan: the release worktree path is DERIVED as a
+		// sibling of the primary repo (Pin 1 / sworn#80), not read from board.json.
+		// Resolve the primary worktree root so the derivation holds even when
+		// regress runs from a linked worktree; _ = br keeps the board read (which
+		// still fails closed on a malformed/absent board).
+		_ = br
+		root, rerr := git.New(".").PrimaryWorktreeRoot()
+		if rerr != nil {
+			fmt.Fprintf(os.Stderr, "sworn regress: cannot resolve repo root: %v\n", rerr)
+			return 2
+		}
+		// Fail-closed target assertion (Rule 11): an empty path must never flow
+		// into the worktree-stat guard below.
+		worktreePath = board.ReleaseWorktreePathFrom(root, *releaseName)
 		if worktreePath == "" {
-			fmt.Fprintln(os.Stderr, "sworn regress: release_worktree_path not set in board.json (or index.md frontmatter)")
+			fmt.Fprintln(os.Stderr, "sworn regress: release worktree path not derivable (no repo root)")
 			return 2
 		}
 	}

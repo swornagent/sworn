@@ -4,7 +4,12 @@
   "release": "2026-06-30-sworn-operational-readiness",
   "track": "T1-operational-unblock",
   "state": "verified",
-  "covers_needs": ["N-01", "N-02", "N-03", "N-04"],
+  "covers_needs": [
+    "N-01",
+    "N-02",
+    "N-03",
+    "N-04"
+  ],
   "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/spec.json",
   "proof_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/proof.json",
   "journal_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/journal.md",
@@ -79,7 +84,7 @@
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
-    "quadrant": "epic",
+    "quadrant": "beast",
     "rationale": "Careful atomic type migration touching the Rule-10 no-mock-boundary, with a round-trip-fidelity trap (fired data uses acknowledged_by, schema requires acknowledgement); ~15 files.",
     "confirmed_by_implementer": true
   },

@@ -1,6 +1,5 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-  "schema_version": 1,
   "slice_id": "S05-driver-registry",
   "release": "2026-06-28-driver-contract",
   "track": "T4-resolution-loop",
@@ -56,39 +55,33 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "internal/driver/registry.go SHALL provide DefaultRegistry(cfg) explicitly registering the compiled-in drivers (claude-cli subprocess, codex subprocess, in-process oai, in-process responses) with their prefix mappings, and Resolve(modelID string, role Role) (Driver, error) as the single resolution authority for loop dispatch; the hand-maintained capabilityRegistry table in internal/model/registry.go SHALL be deleted, with `sworn capabilities` re-pointed at registry enumeration."
+      "text": "internal/driver/registry.go SHALL provide DefaultRegistry(cfg) explicitly registering the compiled-in drivers (claude-cli subprocess, codex subprocess, in-process oai, in-process responses) with their prefix mappings, and Resolve(modelID string, role Role) (Driver, error) as the single resolution authority for loop dispatch; the hand-maintained capabilityRegistry table in internal/model/registry.go SHALL be deleted, with `sworn capabilities` re-pointed at registry enumeration.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-02",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When Resolve is called with a prefix that has no registered driver, it SHALL return an error naming the unknown prefix AND enumerating the registered prefixes, before any dispatch; TestResolveUnknownPrefix asserts the error text contains the full registered list."
+      "text": "When Resolve is called with a prefix that has no registered driver, it SHALL return an error naming the unknown prefix AND enumerating the registered prefixes, before any dispatch; TestResolveUnknownPrefix asserts the error text contains the full registered list.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-03",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When the resolved driver does not declare the requested role in its RoleSet, Resolve SHALL fail fast with an error naming the driver, the missing role, and which registered drivers DO declare it; there SHALL be no fallback to a different driver (explicit prefix, no magic — decided 2026-07-02)."
+      "text": "When the resolved driver does not declare the requested role in its RoleSet, Resolve SHALL fail fast with an error naming the driver, the missing role, and which registered drivers DO declare it; there SHALL be no fallback to a different driver (explicit prefix, no magic — decided 2026-07-02).",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-04",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "The prefix mapping SHALL route openai/ to the Responses driver, openai-completions/ to the legacy chat/completions driver, and openai-responses/ as a deprecated alias of openai/ that resolves with a deprecation warning (sworn#31); the codex ErrDriverNotImplemented stub in internal/model/provider.go SHALL be removed; AGENTS.md and command help text SHALL reflect the new prefixes."
+      "text": "The prefix mapping SHALL route openai/ to the Responses driver, openai-completions/ to the legacy chat/completions driver, and openai-responses/ as a deprecated alias of openai/ that resolves with a deprecation warning (sworn#31); the codex ErrDriverNotImplemented stub in internal/model/provider.go SHALL be removed; AGENTS.md and command help text SHALL reflect the new prefixes.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-05",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When the registry enumerates (Drivers()), each entry SHALL report the driver name, its prefixes, its RoleSet, and its availability in this environment (CLI binary found on PATH / API key or proxy login present) WITHOUT making any model dispatch; when proxy login is active and SWORN_DIRECT is unset, enumeration SHALL show which prefixes resolve through the proxy (the routing is visible, sworn#69)."
+      "text": "When the registry enumerates (Drivers()), each entry SHALL report the driver name, its prefixes, its RoleSet, and its availability in this environment (CLI binary found on PATH / API key or proxy login present) WITHOUT making any model dispatch; when proxy login is active and SWORN_DIRECT is unset, enumeration SHALL show which prefixes resolve through the proxy (the routing is visible, sworn#69).",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-06",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "`go build ./...` and `go test ./internal/driver/... ./internal/model/... ./cmd/sworn/...` SHALL pass."
+      "text": "`go build ./...` and `go test ./internal/driver/... ./internal/model/... ./cmd/sworn/...` SHALL pass.",
+      "ears_pattern": "ubiquitous"
     }
   ]
 }

@@ -222,8 +222,13 @@ func (ot *OpsTools) readReleaseBoard(release string) (string, error) {
 	fmt.Fprintf(&b, "Release: %s\n", release)
 	fmt.Fprintf(&b, "Tracks: %d\n", len(br.Tracks))
 
+	// board-v1 is a pure plan: track state is DERIVED from git refs (sworn#80).
+	stateByID := map[string]string{}
+	for _, ti := range board.DeriveTrackInfos(br.Tracks, ot.repoRoot, release, git.New(ot.repoRoot)) {
+		stateByID[ti.ID] = ti.State
+	}
 	for _, t := range br.Tracks {
-		fmt.Fprintf(&b, "\n  Track: %s (state: %s)\n", t.ID, t.State)
+		fmt.Fprintf(&b, "\n  Track: %s (state: %s)\n", t.ID, stateByID[t.ID])
 		fmt.Fprintf(&b, "    Slices: %d\n", len(t.Slices))
 
 		for _, sliceID := range t.Slices {
@@ -324,7 +329,8 @@ func (ot *OpsTools) findBlockedInRelease(release string) []string {
 				sliceDir := filepath.Join(ot.repoRoot, "docs", "release", release, sliceID)
 				violations := readProofViolations(sliceDir)
 				entry := fmt.Sprintf("Release: %s\n  Track: %s\n  Slice: %s\n  State: %s\n  Worktree: %s\n",
-					release, t.ID, sliceID, s.State, t.WorktreePath)
+					release, t.ID, sliceID, s.State,
+					board.TrackWorktreePathFrom(board.ReleaseWorktreePathFrom(ot.repoRoot, release), release, t.ID))
 				if violations != "" {
 					entry += fmt.Sprintf("  Violations:\n%s\n", violations)
 				}
@@ -442,10 +448,8 @@ func (ot *OpsTools) handleApproveMerge(ctx context.Context, params json.RawMessa
 		return textResult(fmt.Sprintf("Track %q not found in release %q.", p.TrackID, p.Release)), nil
 	}
 
-	trackBranch := matchTrack.WorktreeBranch
-	if trackBranch == "" {
-		return textResult(fmt.Sprintf("Track %q has no worktree_branch set.", p.TrackID)), nil
-	}
+	// board-v1 is a pure plan: the branch is DERIVED as track/<release>/<id> (sworn#80).
+	trackBranch := board.TrackWorktreeBranch(p.Release, matchTrack.ID)
 
 	// Validate all track slices are in verified state via oracle (git-ref reads).
 	var unverified []string
@@ -463,10 +467,11 @@ func (ot *OpsTools) handleApproveMerge(ctx context.Context, params json.RawMessa
 			p.TrackID, strings.Join(unverified, "\n  - "))), nil
 	}
 
-	// Run invariant-4 classifier on the release worktree if repo is available.
-	releaseWorktreePath := br.ReleaseWorktreePath
+	// Run invariant-4 classifier on the release worktree. board-v1 is a pure plan:
+	// the release worktree path is DERIVED as a sibling of the repo (Pin 1 / sworn#80).
+	releaseWorktreePath := board.ReleaseWorktreePathFrom(ot.repoRoot, p.Release)
 	if releaseWorktreePath == "" {
-		return textResult(fmt.Sprintf("release_worktree_path not found in board.json for release %q", p.Release)), nil
+		return textResult(fmt.Sprintf("release worktree path not derivable for release %q (no repo root)", p.Release)), nil
 	}
 
 	releaseRepo := git.New(releaseWorktreePath)
@@ -509,14 +514,14 @@ func (ot *OpsTools) checkTrackVerifiedOracle(release string, t *board.BoardTrack
 
 	// Build track map for the oracle. The oracle expects board.TrackInfo,
 	// so materialise a one-entry map from the BoardTrack we resolved.
+	// board-v1 is a pure plan: derive the branch (track/<release>/<id>) — sworn#80.
+	trackBranch := board.TrackWorktreeBranch(release, t.ID)
 	trackMap := make(map[string]board.TrackInfo)
 	trackMap[t.ID] = board.TrackInfo{
 		ID:             t.ID,
 		Slices:         t.Slices,
 		DependsOn:      []string(t.DependsOn),
-		WorktreePath:   t.WorktreePath,
-		WorktreeBranch: t.WorktreeBranch,
-		State:          t.State,
+		WorktreeBranch: trackBranch,
 	}
 
 	var unverified []string
@@ -524,7 +529,7 @@ func (ot *OpsTools) checkTrackVerifiedOracle(release string, t *board.BoardTrack
 		ss, _, err := oracle.ReadSliceStatus(
 			context.Background(),
 			oracleReader{repo: ot.repo},
-			"refs/heads/"+t.WorktreeBranch,
+			"refs/heads/"+trackBranch,
 			releaseRef,
 			release,
 			sliceID,

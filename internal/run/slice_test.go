@@ -9,91 +9,33 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swornagent/sworn/internal/agent"
+	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/implement"
-	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/state"
 	"github.com/swornagent/sworn/internal/verdict"
 )
 
 // ---------------------------------------------------------------------------
-// blockingFakeAgent — blocks on ctx.Done() to simulate a hung model
+// implement-arm helpers (driver seam — S06). These replace the old wire-typed
+// agent fakes (blockingFakeAgent / quickFakeAgent / markedAgent /
+// passingVerifierAgent); the verify arm defaults to a schema-valid PASS
+// emission in fakeDriver.
 // ---------------------------------------------------------------------------
 
-type blockingFakeAgent struct{}
-
-func (b *blockingFakeAgent) Chat(ctx context.Context, _ []model.ChatMessage, _ []model.ToolDef) (*model.ChatResponse, error) {
+// blockingImplement blocks on ctx.Done() to simulate a hung model dispatch.
+func blockingImplement(ctx context.Context, _ driver.DispatchInput) (driver.Result, error) {
 	<-ctx.Done()
-	return nil, ctx.Err()
+	return driver.Result{Status: driver.StatusError, ErrKind: driver.ErrKindTransient}, ctx.Err()
 }
 
-var _ agent.Agent = (*blockingFakeAgent)(nil)
-
-// ---------------------------------------------------------------------------
-// quickFakeAgent — returns a simple text response immediately
-// ---------------------------------------------------------------------------
-
-type quickFakeAgent struct{}
-
-func (q *quickFakeAgent) Chat(_ context.Context, _ []model.ChatMessage, _ []model.ToolDef) (*model.ChatResponse, error) {
-	return &model.ChatResponse{
-		Choices: []struct {
-			Message struct {
-				Content   string           `json:"content"`
-				ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
-			} `json:"message"`
-			FinishReason string `json:"finish_reason"`
-		}{{Message: struct {
-			Content   string           `json:"content"`
-			ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
-		}{Content: "Done."}, FinishReason: "stop"}},
-	}, nil
+// markedImplement records that the implement arm was dispatched.
+func markedImplement(called *bool) func(context.Context, driver.DispatchInput) (driver.Result, error) {
+	return func(_ context.Context, _ driver.DispatchInput) (driver.Result, error) {
+		*called = true
+		return driver.Result{Status: driver.StatusOK, ResultText: "Done."}, nil
+	}
 }
-
-var _ agent.Agent = (*quickFakeAgent)(nil)
-
-// ---------------------------------------------------------------------------
-// passingVerifierAgent — returns a PASS verdict for agentic verification
-// ---------------------------------------------------------------------------
-
-type passingVerifierAgent struct{}
-
-func (v *passingVerifierAgent) Chat(_ context.Context, _ []model.ChatMessage, _ []model.ToolDef) (*model.ChatResponse, error) {
-	return &model.ChatResponse{
-		Choices: []struct {
-			Message struct {
-				Content   string           `json:"content"`
-				ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
-			} `json:"message"`
-			FinishReason string `json:"finish_reason"`
-		}{{Message: struct {
-			Content   string           `json:"content"`
-			ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
-		}{Content: "PASS"}, FinishReason: "stop"}},
-	}, nil
-}
-
-// ChatStructured satisfies model.StructuredOutput so the ADR-0011 structured
-// verifier path accepts this fake; it emits a schema-valid PASS verdict.
-func (v *passingVerifierAgent) ChatStructured(_ context.Context, _ []model.ChatMessage, _ []byte) (*model.ChatResponse, error) {
-	return &model.ChatResponse{
-		Choices: []struct {
-			Message struct {
-				Content   string           `json:"content"`
-				ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
-			} `json:"message"`
-			FinishReason string `json:"finish_reason"`
-		}{{Message: struct {
-			Content   string           `json:"content"`
-			ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
-		}{Content: structuredVerdictReply("PASS")}, FinishReason: "stop"}},
-	}, nil
-}
-
-var (
-	_ agent.Agent            = (*passingVerifierAgent)(nil)
-	_ model.StructuredOutput = (*passingVerifierAgent)(nil)
-)
 
 // ---------------------------------------------------------------------------
 // alwaysPassVerifier — returns PASS for every verify call
@@ -104,34 +46,6 @@ type alwaysPassVerifier struct{}
 func (v *alwaysPassVerifier) Verify(_ context.Context, _, _ string) (string, float64, int64, int64, error) {
 	return string(verdict.Pass), 0, 0, 0, nil
 }
-
-var _ model.Verifier = (*alwaysPassVerifier)(nil)
-
-// ---------------------------------------------------------------------------
-// markedAgent — records that it was called via a pointer
-// ---------------------------------------------------------------------------
-
-type markedAgent struct {
-	called *bool
-}
-
-func (m *markedAgent) Chat(_ context.Context, _ []model.ChatMessage, _ []model.ToolDef) (*model.ChatResponse, error) {
-	*m.called = true
-	return &model.ChatResponse{
-		Choices: []struct {
-			Message struct {
-				Content   string           `json:"content"`
-				ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
-			} `json:"message"`
-			FinishReason string `json:"finish_reason"`
-		}{{Message: struct {
-			Content   string           `json:"content"`
-			ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
-		}{Content: "Done."}, FinishReason: "stop"}},
-	}, nil
-}
-
-var _ agent.Agent = (*markedAgent)(nil)
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -231,27 +145,22 @@ Test outcome
 func TestImplementTimeoutEscalates(t *testing.T) {
 	workspaceRoot, specPath, statusPath, _ := setupSliceTestRepo(t)
 
-	slot1Called := false
 	slot2Called := false
 
 	opts := RunSliceOptions{
-		EscalationModels: []string{"blocking", "working"},
+		EscalationModels: []string{"fake/blocking", "fake/working"},
 		VerifierModel:    "fake/verifier",
 		RetryCap:         1,
 		ImplementTimeout: 500 * time.Millisecond,
-		NewAgent: func(modelID string) (agent.Agent, error) {
-			switch modelID {
-			case "blocking":
-				return &blockingFakeAgent{}, nil
-			case "working":
-				return &markedAgent{called: &slot2Called}, nil
-			case "fake/verifier":
-				return &passingVerifierAgent{}, nil
-			default:
-				return nil, fmt.Errorf("unknown model: %s", modelID)
-			}
-		},
-		NewVerifier: func(_ string) (model.Verifier, error) { return &alwaysPassVerifier{}, nil },
+		Registry: testRegistry(&fakeDriver{
+			implement: func(ctx context.Context, in driver.DispatchInput) (driver.Result, error) {
+				if in.ModelID == "fake/blocking" {
+					return blockingImplement(ctx, in)
+				}
+				slot2Called = true
+				return driver.Result{Status: driver.StatusOK, ResultText: "Done."}, nil
+			},
+		}),
 	}
 
 	err := RunSlice(context.Background(), workspaceRoot, specPath, statusPath, opts)
@@ -260,29 +169,22 @@ func TestImplementTimeoutEscalates(t *testing.T) {
 	}
 
 	// Slot 1 (blocking) blocks on ctx.Done(). After 500ms, the context deadline
-	// fires, Chat returns context.DeadlineExceeded, implement.Run returns an error,
-	// and RunSlice detects the timeout and escalates to slot 2.
-	// slot2Called should be true — the escalation succeeded.
-	_ = slot1Called // not used for blockingFakeAgent (no pointer)
+	// fires, the dispatch returns context.DeadlineExceeded, implement.Run
+	// returns an error, and RunSlice detects the timeout and escalates to
+	// slot 2. slot2Called should be true — the escalation succeeded.
 	if !slot2Called {
-		t.Error("expected slot 2 agent to be called after escalation from timeout")
+		t.Error("expected slot 2 model to be dispatched after escalation from timeout")
 	}
 }
 func TestImplementTimeoutExhaustsToHuman(t *testing.T) {
 	workspaceRoot, specPath, statusPath, _ := setupSliceTestRepo(t)
 
 	opts := RunSliceOptions{
-		EscalationModels: []string{"blocking1", "blocking2"},
+		EscalationModels: []string{"fake/blocking1", "fake/blocking2"},
 		VerifierModel:    "fake/verifier",
 		RetryCap:         1,
 		ImplementTimeout: 100 * time.Millisecond,
-		NewAgent: func(modelID string) (agent.Agent, error) {
-			if modelID == "fake/verifier" {
-				return &passingVerifierAgent{}, nil
-			}
-			return &blockingFakeAgent{}, nil
-		},
-		NewVerifier: func(_ string) (model.Verifier, error) { return &alwaysPassVerifier{}, nil },
+		Registry:         testRegistry(&fakeDriver{implement: blockingImplement}),
 	}
 
 	err := RunSlice(context.Background(), workspaceRoot, specPath, statusPath, opts)
@@ -302,17 +204,11 @@ func TestImplementTimeoutHappyPath(t *testing.T) {
 	called := false
 
 	opts := RunSliceOptions{
-		EscalationModels: []string{"quick"},
+		EscalationModels: []string{"fake/quick"},
 		VerifierModel:    "fake/verifier",
 		RetryCap:         0,
 		ImplementTimeout: DefaultImplementTimeout, // generous timeout
-		NewAgent: func(modelID string) (agent.Agent, error) {
-			if modelID == "fake/verifier" {
-				return &passingVerifierAgent{}, nil
-			}
-			return &markedAgent{called: &called}, nil
-		},
-		NewVerifier: func(_ string) (model.Verifier, error) { return &alwaysPassVerifier{}, nil },
+		Registry:         testRegistry(&fakeDriver{implement: markedImplement(&called)}),
 	}
 
 	err := RunSlice(context.Background(), workspaceRoot, specPath, statusPath, opts)
@@ -330,17 +226,11 @@ func TestImplementTimeoutZeroUsesDefault(t *testing.T) {
 	called := false
 
 	opts := RunSliceOptions{
-		EscalationModels: []string{"quick"},
+		EscalationModels: []string{"fake/quick"},
 		VerifierModel:    "fake/verifier",
 		RetryCap:         0,
 		ImplementTimeout: 0, // zero → use default (15m), not instant timeout
-		NewAgent: func(modelID string) (agent.Agent, error) {
-			if modelID == "fake/verifier" {
-				return &passingVerifierAgent{}, nil
-			}
-			return &markedAgent{called: &called}, nil
-		},
-		NewVerifier: func(_ string) (model.Verifier, error) { return &alwaysPassVerifier{}, nil },
+		Registry:         testRegistry(&fakeDriver{implement: markedImplement(&called)}),
 	}
 
 	err := RunSlice(context.Background(), workspaceRoot, specPath, statusPath, opts)
@@ -358,17 +248,11 @@ func TestImplementTimeoutNegativeNoTimeout(t *testing.T) {
 	called := false
 
 	opts := RunSliceOptions{
-		EscalationModels: []string{"quick"},
+		EscalationModels: []string{"fake/quick"},
 		VerifierModel:    "fake/verifier",
 		RetryCap:         0,
 		ImplementTimeout: -1, // negative → no timeout, unbounded
-		NewAgent: func(modelID string) (agent.Agent, error) {
-			if modelID == "fake/verifier" {
-				return &passingVerifierAgent{}, nil
-			}
-			return &markedAgent{called: &called}, nil
-		},
-		NewVerifier: func(_ string) (model.Verifier, error) { return &alwaysPassVerifier{}, nil },
+		Registry:         testRegistry(&fakeDriver{implement: markedImplement(&called)}),
 	}
 
 	err := RunSlice(context.Background(), workspaceRoot, specPath, statusPath, opts)
@@ -384,84 +268,22 @@ func TestImplementTimeoutNegativeNoTimeout(t *testing.T) {
 // Feedback-driven retry tests
 // ---------------------------------------------------------------------------
 
-// recordingPromptAgent records the most recent user prompt it receives and
-// always returns a stop response. It supports the optional "require feedback"
-// behaviour: if requireFeedbackBlock is set, it returns a tool-call response
-// (which never terminates) when the feedback block is absent, so the verifier
-// can be driven to FAIL; when the block is present it returns "Done.".
-type recordingPromptAgent struct {
-	lastUserPrompt       string
-	requireFeedbackBlock string
-	seenFeedback         bool
+// recordingImplement records the most recent dispatch payload (the user
+// prompt the orchestrator assembled) and whether it carried the S44 feedback
+// block, then returns a stop response. Driver-seam successor of the old
+// recordingPromptAgent.
+type recordingImplement struct {
+	lastUserPrompt string
+	seenFeedback   bool
 }
 
-func (r *recordingPromptAgent) Chat(_ context.Context, messages []model.ChatMessage, _ []model.ToolDef) (*model.ChatResponse, error) {
-	for _, m := range messages {
-		if m.Role == "user" {
-			r.lastUserPrompt = m.Content
-			if strings.Contains(m.Content, "Previous attempt failed verification") {
-				r.seenFeedback = true
-			}
-		}
+func (r *recordingImplement) dispatch(_ context.Context, in driver.DispatchInput) (driver.Result, error) {
+	r.lastUserPrompt = in.Payload
+	if strings.Contains(in.Payload, "Previous attempt failed verification") {
+		r.seenFeedback = true
 	}
-	resp := &model.ChatResponse{
-		Choices: []struct {
-			Message struct {
-				Content   string           `json:"content"`
-				ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
-			} `json:"message"`
-			FinishReason string `json:"finish_reason"`
-		}{{}},
-	}
-	if r.requireFeedbackBlock != "" && !strings.Contains(r.lastUserPrompt, r.requireFeedbackBlock) {
-		// Non-terminating tool-call: the verifier will judge the diff.
-		// Use a unique call ID each turn so the agent loop keeps accepting it.
-		callID := fmt.Sprintf("call_%d_%d", time.Now().UnixNano(), len(messages))
-		path := fmt.Sprintf("no-feedback-%d.txt", len(messages))
-		resp.Choices[0].Message.ToolCalls = []model.ToolCall{{
-			ID:   callID,
-			Type: "function",
-			Function: model.FunctionCall{
-				Name:      "write",
-				Arguments: fmt.Sprintf(`{"path":"%s","content":"no feedback"}`, path),
-			},
-		}}
-		resp.Choices[0].FinishReason = "tool_calls"
-	} else {
-		resp.Choices[0].Message.Content = "Done."
-		resp.Choices[0].FinishReason = "stop"
-	}
-	return resp, nil
+	return driver.Result{Status: driver.StatusOK, ResultText: "Done."}, nil
 }
-
-// failThenPassVerifierAgent returns FAIL on the first call and PASS on the second,
-// for use with the agentic verifier path (RunAgentic via Chat).
-type failThenPassVerifierAgent struct {
-	calls      int
-	failReason string
-}
-
-func (v *failThenPassVerifierAgent) Chat(_ context.Context, _ []model.ChatMessage, _ []model.ToolDef) (*model.ChatResponse, error) {
-	v.calls++
-	content := "PASS"
-	if v.calls == 1 {
-		content = v.failReason
-	}
-	return &model.ChatResponse{
-		Choices: []struct {
-			Message struct {
-				Content   string           `json:"content"`
-				ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
-			} `json:"message"`
-			FinishReason string `json:"finish_reason"`
-		}{{Message: struct {
-			Content   string           `json:"content"`
-			ToolCalls []model.ToolCall `json:"tool_calls,omitempty"`
-		}{Content: content}, FinishReason: "stop"}},
-	}, nil
-}
-
-var _ agent.Agent = (*failThenPassVerifierAgent)(nil)
 
 // failThenPassVerifier returns FAIL on the first call and PASS on the second.
 // The FAIL carries a fixed rationale so the retry path can pass it back.
@@ -478,101 +300,64 @@ func (v *failThenPassVerifier) Verify(_ context.Context, _, _ string) (string, f
 	return string(verdict.Pass), 0, 0, 0, nil
 }
 
-var _ model.Verifier = (*failThenPassVerifier)(nil)
-
-// verdictReplyVerifier parses a recorded agent's text reply as a verdict.
-type verdictReplyVerifier struct {
-	expectedReply string
-}
-
-func (v *verdictReplyVerifier) Verify(_ context.Context, _, _ string) (string, float64, int64, int64, error) {
-	return v.expectedReply, 0, 0, 0, nil
-}
-
-var _ model.Verifier = (*verdictReplyVerifier)(nil)
-
 func TestRetryPassesVerifierRationale(t *testing.T) {
 	workspaceRoot, specPath, statusPath, _ := setupSliceTestRepo(t)
 
 	failReason := "FAIL: gate 1 — no feedback block in implementer prompt"
 	verifier := &failThenPassVerifier{failReason: failReason}
 
-	// With K=1 resolve_in_place, model-a retries itself on FAIL.
-	// agent0 handles both attempts: attempt 0 (no feedback) and attempt 1
-	// (with the verifier's rationale as feedback).
-	var agent0 *recordingPromptAgent
+	// With K=1 resolve_in_place, model-a retries itself on FAIL. The
+	// recording arm captures both attempts' payloads (last wins): attempt 0
+	// (no feedback) and attempt 1 (with the verifier's rationale as feedback).
+	rec := &recordingImplement{}
 
 	opts := RunSliceOptions{
-		EscalationModels: []string{"model-a"},
+		EscalationModels: []string{"fake/model-a"},
 		VerifierModel:    "fake/verifier",
 		RetryCap:         1,
 		ImplementTimeout: -1,
-		NewAgent: func(modelID string) (agent.Agent, error) {
-			if modelID == "model-a" {
-				agent0 = &recordingPromptAgent{requireFeedbackBlock: ""}
-				return agent0, nil
-			}
-			if modelID == "fake/verifier" {
-				// Agentic verify dispatches the verifier through NewAgent; route
-				// it to the scripted fail-then-pass verifier so the retry fires.
-				return &verifierAwareAgent{impl: stdoutAgent(""), v: verifier}, nil
-			}
-			return nil, fmt.Errorf("unknown model: %s", modelID)
-		},
-		NewVerifier: func(_ string) (model.Verifier, error) { return verifier, nil },
+		Registry: testRegistry(&fakeDriver{
+			implement: rec.dispatch,
+			verify:    verdictsFrom(verifier),
+		}),
 	}
 
 	err := RunSlice(context.Background(), workspaceRoot, specPath, statusPath, opts)
 	if err != nil {
 		t.Fatalf("RunSlice() error: %v", err)
 	}
-	if agent0 == nil {
-		t.Fatal("expected agent to be created")
+	// The recording arm captures the LAST prompt (attempt 1 with feedback).
+	// We verify the retry carried the rationale. Attempt 0's empty feedback
+	// is covered by TestAttempt0EmptyFeedback.
+	if !strings.Contains(rec.lastUserPrompt, failReason) {
+		t.Fatalf("retry did not receive prior rationale; got:\n%s", rec.lastUserPrompt)
 	}
-	// agent0 is reused; the recordingPromptAgent captures the LAST prompt
-	// (attempt 1 with feedback). We verify the retry carried the rationale.
-	// Note: recordingPromptAgent stores only the last call, so we can't
-	// assert on attempt 0 here — that's covered by TestAttempt0EmptyFeedback.
-	if !strings.Contains(agent0.lastUserPrompt, failReason) {
-		t.Fatalf("retry did not receive prior rationale; got:\n%s", agent0.lastUserPrompt)
-	}
-	if !strings.Contains(agent0.lastUserPrompt, "Previous attempt failed verification") {
-		t.Fatalf("retry did not receive feedback header; got:\n%s", agent0.lastUserPrompt)
+	if !strings.Contains(rec.lastUserPrompt, "Previous attempt failed verification") {
+		t.Fatalf("retry did not receive feedback header; got:\n%s", rec.lastUserPrompt)
 	}
 }
 func TestAttempt0EmptyFeedback(t *testing.T) {
 	workspaceRoot, specPath, statusPath, _ := setupSliceTestRepo(t)
 
-	agent0 := &recordingPromptAgent{}
+	rec := &recordingImplement{}
 
 	opts := RunSliceOptions{
-		EscalationModels: []string{"model-a"},
+		EscalationModels: []string{"fake/model-a"},
 		VerifierModel:    "fake/verifier",
 		RetryCap:         0,
 		ImplementTimeout: -1,
-		NewAgent: func(modelID string) (agent.Agent, error) {
-			if modelID == "model-a" {
-				return agent0, nil
-			}
-			if modelID == "fake/verifier" {
-				return &passingVerifierAgent{}, nil
-			}
-			return nil, fmt.Errorf("unknown model: %s", modelID)
-		},
-		NewVerifier: func(_ string) (model.Verifier, error) {
-			return &verdictReplyVerifier{expectedReply: string(verdict.Pass)}, nil
-		},
+		Registry:         testRegistry(&fakeDriver{implement: rec.dispatch}),
 	}
 
 	err := RunSlice(context.Background(), workspaceRoot, specPath, statusPath, opts)
 	if err != nil {
 		t.Fatalf("RunSlice() error: %v", err)
 	}
-	if strings.Contains(agent0.lastUserPrompt, "Previous attempt failed verification") {
-		t.Fatalf("attempt 0 should not receive feedback block, got:\n%s", agent0.lastUserPrompt)
+	if strings.Contains(rec.lastUserPrompt, "Previous attempt failed verification") {
+		t.Fatalf("attempt 0 should not receive feedback block, got:\n%s", rec.lastUserPrompt)
 	}
-	if !strings.HasPrefix(agent0.lastUserPrompt, "Implement the following spec") {
-		t.Fatalf("attempt 0 prompt should start with original spec prefix, got:\n%s", agent0.lastUserPrompt)
+	if !strings.HasPrefix(rec.lastUserPrompt, "Implement the following spec") {
+		t.Fatalf("attempt 0 prompt should start with original spec prefix, got:\n%s", rec.lastUserPrompt)
 	}
 }
 
@@ -582,39 +367,27 @@ func TestRetryFeedbackResolvesToPass(t *testing.T) {
 	failReason := "FAIL: implementer prompt missing feedback block"
 	verifier := &failThenPassVerifier{failReason: failReason}
 
-	// With K=1 resolve_in_place, model-a retries itself. The recordingPromptAgent
+	// With K=1 resolve_in_place, model-a retries itself. The recording arm
 	// captures the last prompt (attempt 1 with feedback).
-	var agent0 *recordingPromptAgent
+	rec := &recordingImplement{}
 
 	opts := RunSliceOptions{
-		EscalationModels: []string{"model-a"},
+		EscalationModels: []string{"fake/model-a"},
 		VerifierModel:    "fake/verifier",
 		RetryCap:         1,
 		ImplementTimeout: -1,
-		NewAgent: func(modelID string) (agent.Agent, error) {
-			if modelID == "model-a" {
-				agent0 = &recordingPromptAgent{}
-				return agent0, nil
-			}
-			if modelID == "fake/verifier" {
-				// Agentic verify dispatches the verifier through NewAgent; route
-				// it to the scripted fail-then-pass verifier so the retry fires.
-				return &verifierAwareAgent{impl: stdoutAgent(""), v: verifier}, nil
-			}
-			return nil, fmt.Errorf("unknown model: %s", modelID)
-		},
-		NewVerifier: func(_ string) (model.Verifier, error) { return verifier, nil },
+		Registry: testRegistry(&fakeDriver{
+			implement: rec.dispatch,
+			verify:    verdictsFrom(verifier),
+		}),
 	}
 
 	err := RunSlice(context.Background(), workspaceRoot, specPath, statusPath, opts)
 	if err != nil {
 		t.Fatalf("RunSlice() error: %v", err)
 	}
-	if agent0 == nil {
-		t.Fatal("expected agent to be created")
-	}
-	if !agent0.seenFeedback {
-		t.Fatalf("model-a should have seen feedback on resolve_in_place retry; got prompt:\n%s", agent0.lastUserPrompt)
+	if !rec.seenFeedback {
+		t.Fatalf("model-a should have seen feedback on resolve_in_place retry; got prompt:\n%s", rec.lastUserPrompt)
 	}
 	final, err := state.Read(statusPath)
 	if err != nil {
@@ -677,21 +450,17 @@ func TestRunSlice_ProofGate_Integration(t *testing.T) {
 }
 
 // ensureCallCount is an unexported compile-time guard that implement.Run
-// is callable with the new signature inside this package.
+// is callable with the new driver-seam signature inside this package.
 var _ = func() error {
-	_, _ = implement.Run(context.Background(), "", "", "", nil)
+	_, _ = implement.Run(context.Background(), "", "", "", nil, "", 0)
 	return nil
 }()
 
-// erroringAgent always returns an error from Chat, simulating a transient
-// provider failure (e.g. an HTTP 429) at dispatch time.
-type erroringAgent struct{}
-
-func (e *erroringAgent) Chat(_ context.Context, _ []model.ChatMessage, _ []model.ToolDef) (*model.ChatResponse, error) {
-	return nil, fmt.Errorf("simulated provider 429")
+// erroringDispatch always returns an error, simulating a transient provider
+// failure (e.g. an HTTP 429) at dispatch time — any role.
+func erroringDispatch(_ context.Context, _ driver.DispatchInput) (driver.Result, error) {
+	return driver.Result{Status: driver.StatusError, ErrKind: "rate_limit"}, fmt.Errorf("simulated provider 429")
 }
-
-var _ agent.Agent = (*erroringAgent)(nil)
 
 // findDesignGateDeferral returns the first open_deferrals entry recording a
 // skipped Rule 9 design gate, or nil.
@@ -716,19 +485,16 @@ func TestDesignGate_GenerationFailureRecordsDeferral(t *testing.T) {
 	workspaceRoot, specPath, statusPath, _ := setupSliceTestRepo(t)
 
 	opts := RunSliceOptions{
-		EscalationModels: []string{"m1"},
+		EscalationModels: []string{"fake/m1"},
 		VerifierModel:    "fake/verifier",
 		ImplementTimeout: -1,
-		NewAgent: func(modelID string) (agent.Agent, error) {
-			if modelID == "fake/verifier" {
-				return &passingVerifierAgent{}, nil
-			}
-			return &erroringAgent{}, nil
-		},
-		NewVerifier: func(_ string) (model.Verifier, error) { return &alwaysPassVerifier{}, nil },
+		Registry: testRegistry(&fakeDriver{
+			captain:   erroringDispatch,
+			implement: erroringDispatch,
+		}),
 	}
 
-	// The implement loop will also fail with the erroring agent; we only
+	// The implement loop will also fail with the erroring dispatch; we only
 	// assert the deferral, which is recorded before the loop.
 	_ = RunSlice(context.Background(), workspaceRoot, specPath, statusPath, opts)
 
@@ -758,16 +524,13 @@ func TestDesignGate_CaptainDispatchFailureRecordsDeferral(t *testing.T) {
 	}
 
 	opts := RunSliceOptions{
-		EscalationModels: []string{"m1"},
+		EscalationModels: []string{"fake/m1"},
 		VerifierModel:    "fake/verifier",
 		ImplementTimeout: -1,
-		NewAgent: func(modelID string) (agent.Agent, error) {
-			if modelID == "fake/verifier" {
-				return &passingVerifierAgent{}, nil
-			}
-			return &erroringAgent{}, nil
-		},
-		NewVerifier: func(_ string) (model.Verifier, error) { return &alwaysPassVerifier{}, nil },
+		Registry: testRegistry(&fakeDriver{
+			captain:   erroringDispatch,
+			implement: erroringDispatch,
+		}),
 	}
 
 	_ = RunSlice(context.Background(), workspaceRoot, specPath, statusPath, opts)
@@ -778,5 +541,104 @@ func TestDesignGate_CaptainDispatchFailureRecordsDeferral(t *testing.T) {
 	}
 	if !strings.Contains(d.Why, "captain design-review dispatch failed") {
 		t.Errorf("expected captain dispatch-failure reason, got %q", d.Why)
+	}
+}
+
+// TestRunSlice_CostSourceThreadedToStatusJSON is AC-05's Rule 1 reachability
+// artefact: it drives a full slice run THROUGH RunSlice — not a leaf
+// state.Dispatch struct-literal unit test — against a fake driver whose
+// implementer and verifier legs report DISTINCT CostSource values, and
+// asserts the written status.json's verification.dispatches[].cost_source
+// carries each one through unmodified end to end (driver.Result ->
+// implement.Run / verify.RunAgentic -> state.Dispatch -> status.json), and
+// that the written file still validates against slice-status-v1 (R-02's
+// additive/omitempty mitigation, confirmed live rather than by inspection).
+func TestRunSlice_CostSourceThreadedToStatusJSON(t *testing.T) {
+	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
+
+	// Pre-create a valid six-section design.md so the design gate skips
+	// straight through (no captain dispatch, no open_deferrals entry) — this
+	// test is about cost_source threading, not the design gate, and an
+	// open_deferrals entry has its own pre-existing, unrelated schema gap
+	// (missing acknowledgement/acknowledged_by) that would otherwise fail the
+	// slice-status-v1 validation this test performs for a different reason.
+	designMD := "§1 Approach\n§2 Data\n§3 Surface\n§4 Risks\n§5 Tests\n§6 Rollback\n"
+	if err := os.WriteFile(filepath.Join(filepath.Dir(specPath), "design.md"), []byte(designMD), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	implementArm := func(_ context.Context, in driver.DispatchInput) (driver.Result, error) {
+		if err := os.WriteFile(filepath.Join(in.WorktreeRoot, "output.txt"), []byte("hi"), 0o644); err != nil {
+			return driver.Result{Status: driver.StatusError, ErrKind: driver.ErrKindConfig}, err
+		}
+		return driver.Result{
+			Status:       driver.StatusOK,
+			ResultText:   "Implementation complete.",
+			CostUSD:      0.0123,
+			CostSource:   driver.CostSourcePricingTable,
+			InputTokens:  111,
+			OutputTokens: 22,
+			ModelID:      "confirmed-impl-model",
+		}, nil
+	}
+	verifyArm := func(_ context.Context, _ driver.DispatchInput) (driver.Result, error) {
+		res := okStructured(structuredVerdictReply("PASS"))
+		res.CostUSD = 0.0045
+		res.CostSource = driver.CostSourceCLI
+		res.InputTokens = 33
+		res.OutputTokens = 4
+		res.ModelID = "confirmed-verifier-model"
+		return res, nil
+	}
+
+	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
+		VerifierModel:    "fake/verifier",
+		RetryCap:         0,
+		EscalationModels: []string{"fake/impl"},
+		Registry: testRegistry(&fakeDriver{
+			implement: implementArm,
+			verify:    verifyArm,
+		}),
+	})
+	if err != nil {
+		t.Fatalf("RunSlice() error: %v", err)
+	}
+
+	st, err := state.Read(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.State != state.Verified {
+		t.Fatalf("expected state verified, got %q", st.State)
+	}
+
+	var implDispatch, verifDispatch *state.Dispatch
+	for i := range st.Verification.Dispatches {
+		switch st.Verification.Dispatches[i].Role {
+		case "implementer":
+			implDispatch = &st.Verification.Dispatches[i]
+		case "verifier":
+			verifDispatch = &st.Verification.Dispatches[i]
+		}
+	}
+	if implDispatch == nil {
+		t.Fatal("no implementer dispatch recorded in status.json")
+	}
+	if implDispatch.CostSource != driver.CostSourcePricingTable {
+		t.Errorf("implementer dispatch cost_source = %q, want %q", implDispatch.CostSource, driver.CostSourcePricingTable)
+	}
+	if verifDispatch == nil {
+		t.Fatal("no verifier dispatch recorded in status.json")
+	}
+	if verifDispatch.CostSource != driver.CostSourceCLI {
+		t.Errorf("verifier dispatch cost_source = %q, want %q", verifDispatch.CostSource, driver.CostSourceCLI)
+	}
+
+	raw, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := baton.ValidateSchema("slice-status-v1", raw); err != nil {
+		t.Errorf("status.json with cost_source fails slice-status-v1 validation: %v", err)
 	}
 }

@@ -14,18 +14,31 @@ import (
 )
 
 // AC is one acceptance criterion in a spec-v1 record.
+//
+// At baton v0.10.0 the AC item is strict (additionalProperties:false, allowing
+// only id/text/ears_pattern/test_refs): the retired sworn-local type/ears_keyword
+// fields are gone, replaced by the canonical ears_pattern (the EARS pattern class
+// itself — "ubiquitous", "event-driven", "unwanted-behaviour", …). The
+// internal/ears classifier reads EARSPattern directly (S12 record migration
+// mapped every legacy type -> ears_pattern, sworn#95).
 type AC struct {
 	ID          string `json:"id"`
 	Text        string `json:"text"`
-	Type        string `json:"type,omitempty"`
-	EARSKeyword string `json:"ears_keyword,omitempty"`
+	EARSPattern string `json:"ears_pattern,omitempty"`
 }
 
 // Record is the subset of a spec-v1 spec.json that read-side consumers use.
+//
+// in_scope/out_of_scope became required spec-v1 fields at baton v0.10.0
+// (previously scraped `## In scope` / `## Out of scope` spec.md headings); the
+// reader parses and exposes them so gates and verifiers read one boundary
+// source instead of re-scraping markdown.
 type Record struct {
 	SliceID            string   `json:"slice_id"`
 	Release            string   `json:"release"`
 	UserOutcome        string   `json:"user_outcome"`
+	InScope            []string `json:"in_scope"`
+	OutOfScope         []string `json:"out_of_scope"`
 	CoversNeeds        []string `json:"covers_needs"`
 	AcceptanceCriteria []AC     `json:"acceptance_criteria"`
 }

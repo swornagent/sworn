@@ -2,63 +2,80 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://baton.sawy3r.net/schemas/board-v1.json",
   "title": "Baton Release Board",
-  "description": "Machine-readable release board record — the oracle's source of truth, replacing index.md YAML frontmatter.",
+  "description": "Machine-readable structure of one release board: tracks, slices, dependency edges, and the vertical trace — a PURE PLAN artefact. All runtime state is DERIVED from git refs, never persisted here (track-mode invariant 5): worktree paths are conventional (computed from repo basename + release + track-id), and a track's state is computed from ref existence + merge-base ancestry against release-wt. Slice runtime state lives in each slice's status.json (slice-status-v1); the board references slices by id and never duplicates their state.",
   "type": "object",
-  "additionalProperties": true,
-  "required": ["schema_version", "release", "tracks"],
+  "additionalProperties": false,
+  "required": ["release", "tracks"],
+  "$defs": {
+    "id_token": {
+      "type": "string",
+      "description": "A clean identifier token. Disallows whitespace and ':' so a newline-fusion defect (e.g. a track id that absorbed a following 'slices:' key) fails validation by construction.",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "minLength": 1
+    }
+  },
   "properties": {
     "$schema": {
       "type": "string",
       "const": "https://baton.sawy3r.net/schemas/board-v1.json"
     },
-    "schema_version": {
-      "type": "integer",
-      "const": 1
-    },
     "release": {
-      "description": "Release identifier — the canonical baton object form {name, ...}. sworn both emits and reads this form (S05 strict reader); a legacy bare string fails closed at the schema, the validator, and the reader, and is migrated to the object form at cutover (AC-06) rather than read-tolerated. additionalProperties:true accepts the canonical extras (target_version, vertical_trace, ...) without enumerating them here (full canonical parity is the board-v1 re-vendor follow-up).",
       "type": "object",
-      "additionalProperties": true,
+      "additionalProperties": false,
       "required": ["name"],
       "properties": {
-        "name": { "type": "string", "minLength": 1 }
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Release identifier, e.g. 2026-06-19-safe-parallelism."
+        },
+        "target_version": {
+          "type": "string",
+          "description": "Semver the release ships, e.g. v0.1.0."
+        },
+        "integration_branch": {
+          "type": "string",
+          "description": "The release integration base branch, e.g. release/v0.1.0."
+        },
+        "vertical_trace": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The golden-thread top: the benefit every slice traces up to, and the optional higher objective it serves. Grouped so the trace can grow without a breaking change.",
+          "required": ["benefit"],
+          "properties": {
+            "benefit": {
+              "type": "string",
+              "description": "The user/business benefit this release delivers. The RTM gate threads every slice up to this."
+            },
+            "org_objective": {
+              "type": "string",
+              "description": "Optional higher objective the benefit serves. The solo/small-team floor has none; absence is valid."
+            }
+          }
+        }
       }
-    },
-    "release_worktree_path": {
-      "type": "string"
-    },
-    "release_worktree_branch": {
-      "type": "string"
     },
     "tracks": {
       "type": "array",
+      "description": "Touchpoint-disjoint tracks. Order is informational; dependencies are explicit via depends_on.",
       "items": {
         "type": "object",
-        "additionalProperties": true,
-        "required": ["id", "state", "worktree_branch"],
+        "additionalProperties": false,
+        "required": ["id", "slices"],
         "properties": {
           "id": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "#/$defs/id_token",
+            "description": "Track id, e.g. T14-baton-integration."
           },
           "slices": {
             "type": "array",
-            "items": { "type": "string", "minLength": 1 }
+            "description": "Slice ids in this track, in implementation order. Each slice's own status.json (slice-status-v1) holds its runtime state; the track's own state (planned/in_progress/merged) is DERIVED from git refs, not stored here (invariant 5).",
+            "items": { "$ref": "#/$defs/id_token" }
           },
           "depends_on": {
             "type": "array",
-            "items": { "type": "string" }
-          },
-          "worktree_path": {
-            "type": "string"
-          },
-          "worktree_branch": {
-            "type": "string",
-            "minLength": 1
-          },
-          "state": {
-            "type": "string",
-            "enum": ["planned", "in_progress", "merged"]
+            "description": "Track ids that must merge before this track.",
+            "items": { "$ref": "#/$defs/id_token" }
           }
         }
       }

@@ -53,17 +53,13 @@ func TestBoardViewShowsSlices(t *testing.T) {
 
 	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
 		{
-			ID:             "T1-core",
-			Slices:         []string{"S01-first", "S02-second"},
-			State:          "in_progress",
-			WorktreeBranch: "track/test-release/T1-core",
+			ID:     "T1-core",
+			Slices: []string{"S01-first", "S02-second"},
 		},
 		{
-			ID:             "T2-extras",
-			Slices:         []string{"S03-third"},
-			DependsOn:      board.StringList{"T1-core"},
-			State:          "planned",
-			WorktreeBranch: "track/test-release/T2-extras",
+			ID:        "T2-extras",
+			Slices:    []string{"S03-third"},
+			DependsOn: board.StringList{"T1-core"},
 		},
 	})
 
@@ -159,10 +155,8 @@ func TestBoardViewResolvesStateFromTrackBranch(t *testing.T) {
 
 	writeBoardFixture(t, dir, release, []board.BoardTrack{
 		{
-			ID:             "T1-core",
-			Slices:         []string{"S01-first"},
-			State:          "in_progress",
-			WorktreeBranch: "track/" + release + "/T1-core",
+			ID:     "T1-core",
+			Slices: []string{"S01-first"},
 		},
 	})
 	// Stale copy: what the primary working tree still has on disk.
@@ -232,16 +226,13 @@ func TestBoardViewLiveWorktreeStateNotMaskedByLastCommit(t *testing.T) {
 	if err := repo.Config("user.name", "Test"); err != nil {
 		t.Fatalf("git config user.name: %v", err)
 	}
-	primaryBranch := currentBranch(t, dir)
-
-	// The track's WorktreeBranch equals the branch actually checked out
-	// here — no separate track worktree exists for this run.
+	// board-v1 is a pure plan: the track branch is DERIVED as track/<release>/T1-core.
+	// No such ref exists in this single-branch setup, so the oracle resolves the
+	// slice via the release-wt/HEAD fallback (working tree), which is the point.
 	writeBoardFixture(t, dir, release, []board.BoardTrack{
 		{
-			ID:             "T1-core",
-			Slices:         []string{"S01-first"},
-			State:          "in_progress",
-			WorktreeBranch: primaryBranch,
+			ID:     "T1-core",
+			Slices: []string{"S01-first"},
 		},
 	})
 	createSliceStatus(t, releaseDir, "S01-first", "planned", "T1-core")
@@ -499,7 +490,7 @@ func TestAutoTransitionNoTracks(t *testing.T) {
 	os.MkdirAll(releaseDir, 0o755)
 	createIndex(t, dir, "test-release", "Test Release")
 	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
-		{ID: "T1-core", Slices: []string{"S01-first"}, State: "in_progress", WorktreeBranch: "track/test-release/T1-core"},
+		{ID: "T1-core", Slices: []string{"S01-first"}},
 	})
 	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-core")
 
@@ -943,7 +934,7 @@ func TestBlockedPanelViolationsFromProofJSONNotProofMD(t *testing.T) {
 	os.MkdirAll(releaseDir, 0o755)
 
 	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
-		{ID: "T1-core", Slices: []string{"S01-first"}, State: "in_progress", WorktreeBranch: "track/test-release/T1-core"},
+		{ID: "T1-core", Slices: []string{"S01-first"}},
 	})
 	createSliceStatus(t, releaseDir, "S01-first", "failed_verification", "T1-core")
 
@@ -1034,7 +1025,7 @@ func TestDeferWritesRuleTwo(t *testing.T) {
 	os.MkdirAll(releaseDir, 0o755)
 
 	writeBoardFixture(t, tmpDir, "test-release", []board.BoardTrack{
-		{ID: "T1-core", Slices: []string{"S01-first"}, State: "in_progress", WorktreePath: tmpDir, WorktreeBranch: "track/test-release/T1-core"},
+		{ID: "T1-core", Slices: []string{"S01-first"}},
 	})
 
 	createSliceStatus(t, releaseDir, "S01-first", "failed_verification", "T1-core")
@@ -1043,9 +1034,11 @@ func TestDeferWritesRuleTwo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadBlockedView: %v", err)
 	}
-	// AC-02: worktree_path resolved from board.json, not index.md frontmatter.
-	if bv.worktreePath != tmpDir {
-		t.Fatalf("expected worktreePath %q from board.json, got %q", tmpDir, bv.worktreePath)
+	// board-v1 is a pure plan: the worktree path is DERIVED for the owning track
+	// (found via Slices membership), a sibling of the release worktree (sworn#80).
+	wantWT := board.TrackWorktreePathFrom(board.ReleaseWorktreePathFrom(tmpDir, "test-release"), "test-release", "T1-core")
+	if bv.worktreePath != wantWT {
+		t.Fatalf("expected derived worktreePath %q, got %q", wantWT, bv.worktreePath)
 	}
 
 	bv2, _ := bv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("5")})
@@ -1112,11 +1105,8 @@ func TestBlockedPanelWorktreeSurvivesStaleTrackField(t *testing.T) {
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
 	os.MkdirAll(releaseDir, 0o755)
 
-	realWorktree := filepath.Join(dir, "real-worktree")
-	os.MkdirAll(realWorktree, 0o755)
-
 	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
-		{ID: "T1-core-renamed", Slices: []string{"S01-first"}, State: "in_progress", WorktreePath: realWorktree, WorktreeBranch: "track/test-release/T1-core-renamed"},
+		{ID: "T1-core-renamed", Slices: []string{"S01-first"}},
 	})
 	// status.json.track deliberately stale: still points at the track's
 	// pre-rename ID, which no longer exists in board.json.
@@ -1127,8 +1117,16 @@ func TestBlockedPanelWorktreeSurvivesStaleTrackField(t *testing.T) {
 		t.Fatalf("LoadBlockedView: %v", err)
 	}
 
-	if bv.worktreePath != realWorktree {
-		t.Fatalf("expected worktreePath %q resolved via Slices membership despite stale status.json.track, got %q (silently-wrong fallback)", realWorktree, bv.worktreePath)
+	// The path is DERIVED for the track that OWNS the slice via Slices membership
+	// (T1-core-renamed), NOT the stale status.json.track ("T1-core"): the derived
+	// path carries "T1-core-renamed", proving the owning track was resolved by
+	// membership and never fell back to repoRoot (the silently-wrong-fallback AC-02 kills).
+	wantWT := board.TrackWorktreePathFrom(board.ReleaseWorktreePathFrom(dir, "test-release"), "test-release", "T1-core-renamed")
+	if bv.worktreePath != wantWT {
+		t.Fatalf("expected derived worktreePath %q resolved via Slices membership despite stale status.json.track, got %q", wantWT, bv.worktreePath)
+	}
+	if !strings.Contains(bv.worktreePath, "T1-core-renamed") {
+		t.Fatalf("worktreePath %q must derive from the owning track T1-core-renamed, not the stale track field T1-core", bv.worktreePath)
 	}
 	if bv.worktreePath == dir {
 		t.Fatalf("worktreePath fell back to repoRoot %q — the exact silently-wrong-fallback AC-02 requires eliminating", dir)
@@ -1143,7 +1141,7 @@ func TestBoardEnterTransitionsToBlocked(t *testing.T) {
 	createIndex(t, dir, "test-release", "Test Release")
 
 	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
-		{ID: "T1-core", Slices: []string{"S01-first"}, State: "in_progress", WorktreeBranch: "track/test-release/T1-core"},
+		{ID: "T1-core", Slices: []string{"S01-first"}},
 	})
 
 	createSliceStatus(t, releaseDir, "S01-first", "failed_verification", "T1-core")
@@ -1195,7 +1193,7 @@ func TestBoardEnterTransitionsToBlockedOnImplementedBlockedVerdict(t *testing.T)
 
 	createIndex(t, dir, "test-release", "Test Release")
 	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
-		{ID: "T1-core", Slices: []string{"S01-blocked"}, State: "in_progress", WorktreeBranch: "track/test-release/T1-core"},
+		{ID: "T1-core", Slices: []string{"S01-blocked"}},
 	})
 
 	// Create a slice at "implemented" with verification.result == "blocked"
@@ -1260,7 +1258,7 @@ func TestBlockedPanelViewProof(t *testing.T) {
 	os.MkdirAll(releaseDir, 0o755)
 
 	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
-		{ID: "T1-core", Slices: []string{"S01-first"}, State: "in_progress", WorktreeBranch: "track/test-release/T1-core"},
+		{ID: "T1-core", Slices: []string{"S01-first"}},
 	})
 
 	createSliceStatus(t, releaseDir, "S01-first", "failed_verification", "T1-core")
@@ -1453,7 +1451,7 @@ func TestBoardViewShowsMergeBadge(t *testing.T) {
 	os.MkdirAll(releaseDir, 0o755)
 
 	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
-		{ID: "T1-core", Slices: []string{"S01-first"}, State: "in_progress", WorktreeBranch: "track/test-release/T1-core"},
+		{ID: "T1-core", Slices: []string{"S01-first"}},
 	})
 	createSliceStatus(t, releaseDir, "S01-first", "in_progress", "T1-core")
 
@@ -1498,7 +1496,7 @@ func TestBoardViewNoMergeBadge(t *testing.T) {
 	os.MkdirAll(releaseDir, 0o755)
 
 	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
-		{ID: "T1-core", Slices: []string{"S01-first"}, State: "in_progress", WorktreeBranch: "track/test-release/T1-core"},
+		{ID: "T1-core", Slices: []string{"S01-first"}},
 	})
 	createSliceStatus(t, releaseDir, "S01-first", "in_progress", "T1-core")
 
@@ -1528,8 +1526,8 @@ func TestBoardViewShowsDependsBadge(t *testing.T) {
 	os.MkdirAll(releaseDir, 0o755)
 
 	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
-		{ID: "T1-contract", Slices: []string{"S01-first"}, State: "merged", WorktreeBranch: "track/test-release/T1-contract"},
-		{ID: "T2-subprocess", Slices: []string{"S02-second"}, DependsOn: []string{"T1-contract"}, State: "planned", WorktreeBranch: "track/test-release/T2-subprocess"},
+		{ID: "T1-contract", Slices: []string{"S01-first"}},
+		{ID: "T2-subprocess", Slices: []string{"S02-second"}, DependsOn: []string{"T1-contract"}},
 	})
 	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-contract")
 	createSliceStatus(t, releaseDir, "S02-second", "planned", "T2-subprocess")
@@ -1566,8 +1564,8 @@ func TestBoardViewToggleSortReordersTracksAndOrderedSlices(t *testing.T) {
 
 	// Declared out of dependency order: T2 (depends on T1) declared first.
 	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
-		{ID: "T2-subprocess", Slices: []string{"S02-second"}, DependsOn: []string{"T1-contract"}, State: "planned", WorktreeBranch: "track/test-release/T2-subprocess"},
-		{ID: "T1-contract", Slices: []string{"S01-first"}, State: "merged", WorktreeBranch: "track/test-release/T1-contract"},
+		{ID: "T2-subprocess", Slices: []string{"S02-second"}, DependsOn: []string{"T1-contract"}},
+		{ID: "T1-contract", Slices: []string{"S01-first"}},
 	})
 	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-contract")
 	createSliceStatus(t, releaseDir, "S02-second", "planned", "T2-subprocess")
@@ -2052,7 +2050,7 @@ func TestEnterDispatchesAsyncBoardLoad(t *testing.T) {
 	os.MkdirAll(releaseDir, 0o755)
 	createIndex(t, dir, "test-release", "Test Release")
 	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
-		{ID: "T1-core", Slices: []string{"S01-first"}, State: "in_progress", WorktreeBranch: "track/test-release/T1-core"},
+		{ID: "T1-core", Slices: []string{"S01-first"}},
 	})
 	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-core")
 
@@ -2105,7 +2103,7 @@ func TestLoadBoardDoesNotComputeGatesEagerly(t *testing.T) {
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
 	os.MkdirAll(releaseDir, 0o755)
 	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
-		{ID: "T1-core", Slices: []string{"S01-first"}, State: "in_progress", WorktreeBranch: "track/test-release/T1-core"},
+		{ID: "T1-core", Slices: []string{"S01-first"}},
 	})
 	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-core")
 
@@ -2131,7 +2129,7 @@ func TestGateKeyTriggersAsyncGateLoad(t *testing.T) {
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
 	os.MkdirAll(releaseDir, 0o755)
 	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
-		{ID: "T1-core", Slices: []string{"S01-first"}, State: "in_progress", WorktreeBranch: "track/test-release/T1-core"},
+		{ID: "T1-core", Slices: []string{"S01-first"}},
 	})
 	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-core")
 

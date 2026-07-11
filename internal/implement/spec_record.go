@@ -13,25 +13,37 @@ import (
 )
 
 // specRecord is the JSON shape written to spec.json.
+//
+// The shape conforms to the strict vendored v0.10.0 spec-v1 schema
+// (additionalProperties:false): schema_version is retired ($schema carries the
+// version), and in_scope/out_of_scope are required arrays. They are never nil
+// on the wire — an absent or empty section marshals as [] (not null), which the
+// schema's "type": "array" requires.
 type specRecord struct {
 	Schema             string     `json:"$schema"`
-	SchemaVersion      int        `json:"schema_version"`
 	SliceID            string     `json:"slice_id"`
 	Release            string     `json:"release"`
 	UserOutcome        string     `json:"user_outcome"`
-	AcceptanceCriteria []acRecord `json:"acceptance_criteria"`
+	InScope            []string   `json:"in_scope"`
+	OutOfScope         []string   `json:"out_of_scope"`
 	CoversNeeds        []string   `json:"covers_needs"`
+	AcceptanceCriteria []acRecord `json:"acceptance_criteria"`
 }
 
-// acRecord is one acceptance criterion in spec.json.
+// acRecord is one acceptance criterion in spec.json. The v0.10.0 spec-v1 AC
+// item is strict (additionalProperties:false, allowing only id/text/ears_pattern/
+// test_refs), so the retired scraper fields type/ears_keyword are not emitted.
 type acRecord struct {
-	ID          string `json:"id"`
-	Text        string `json:"text"`
-	Type        string `json:"type,omitempty"`
-	EARSKeyword string `json:"ears_keyword,omitempty"`
+	ID   string `json:"id"`
+	Text string `json:"text"`
 }
 
 var reACLine = regexp.MustCompile(`^\s*-\s*\[[ xX]\]\s*(.+)`)
+
+// reScopeBullet matches a plain markdown bullet ("- item" or "* item") under a
+// "## In scope" / "## Out of scope" section (as distinct from the "- [ ]"
+// acceptance-check bullets reACLine matches).
+var reScopeBullet = regexp.MustCompile(`^\s*[-*]\s+(.+)`)
 
 // WriteSpecRecord parses spec.md, extracts the user outcome and acceptance
 // criteria, reads covers_needs from status.json, and writes spec.json
@@ -50,12 +62,13 @@ func WriteSpecRecord(specPath, statusPath, sliceDir string) error {
 	}
 
 	rec := specRecord{
-		Schema:        baton.SpecSchemaURI,
-		SchemaVersion: 1,
-		SliceID:       st.SliceID,
-		Release:       st.Release,
-		UserOutcome:   extractUserOutcome(specText),
-		CoversNeeds:   st.CoversNeeds,
+		Schema:      baton.SpecSchemaURI,
+		SliceID:     st.SliceID,
+		Release:     st.Release,
+		UserOutcome: extractUserOutcome(specText),
+		InScope:     parseScopeSection(specText, "In scope"),
+		OutOfScope:  parseScopeSection(specText, "Out of scope"),
+		CoversNeeds: st.CoversNeeds,
 	}
 
 	// Parse acceptance criteria.
@@ -114,21 +127,40 @@ func parseAcceptanceCriteria(spec string) []acRecord {
 			if strings.HasPrefix(strings.ToUpper(text), "NOTE:") {
 				continue
 			}
-			checked := strings.Contains(line, "[x]") || strings.Contains(line, "[X]")
-			acType := "unchecked"
-			if checked {
-				acType = "checked"
-			}
-			earsKw := classifyEARSKeyword(text)
 			acs = append(acs, acRecord{
-				ID:          fmt.Sprintf("AC-%d", len(acs)+1),
-				Text:        text,
-				Type:        acType,
-				EARSKeyword: earsKw,
+				ID:   fmt.Sprintf("AC-%d", len(acs)+1),
+				Text: text,
 			})
 		}
 	}
 	return acs
+}
+
+// parseScopeSection extracts the bullet items under a "## <heading>" section of
+// spec.md — used for "In scope" and "Out of scope". It returns a NON-nil slice
+// (an absent or empty section yields []string{}), so the emitted spec.json
+// always carries in_scope/out_of_scope as arrays and never as JSON null, which
+// the strict v0.10.0 spec-v1 schema requires (required + "type": "array").
+func parseScopeSection(spec, heading string) []string {
+	items := []string{}
+	inSection := false
+	for _, line := range strings.Split(spec, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "## ") {
+			name := strings.TrimSpace(strings.TrimPrefix(trimmed, "## "))
+			inSection = strings.EqualFold(name, heading)
+			continue
+		}
+		if !inSection {
+			continue
+		}
+		if m := reScopeBullet.FindStringSubmatch(line); m != nil {
+			if text := strings.TrimSpace(m[1]); text != "" {
+				items = append(items, text)
+			}
+		}
+	}
+	return items
 }
 
 // classifyEARSKeyword determines the EARS pattern keyword for an AC.

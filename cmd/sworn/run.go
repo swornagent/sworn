@@ -15,6 +15,7 @@ import (
 	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/config"
 	"github.com/swornagent/sworn/internal/db"
+	"github.com/swornagent/sworn/internal/driver/registry"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/run"
 	"github.com/swornagent/sworn/internal/supervisor"
@@ -116,6 +117,43 @@ func cmdRun(args []string) int {
 
 	// ── Parallel mode ─────────────────────────────────────────────────
 	if *parallel {
+		// ── Startup resolution sweep (S07 AC-01) ────────────────────────
+		// Resolve every role RunSlice will need per-attempt — the full
+		// implementer escalation chain, the verifier, and the captain —
+		// through the registry BEFORE any worker spawns. Reuses
+		// run.ComposeEscalationModels/run.ResolveDispatch, the exact
+		// composition+resolution RunSlice performs per-attempt (S06 AC-02),
+		// so a model that resolves here is guaranteed to resolve identically
+		// inside every worker's RunSlice call — one composed/resolved list,
+		// never two independently-built ones that could drift.
+		//
+		// An implementer-, verifier-, or escalation-entry resolution
+		// failure exits non-zero naming the model, role, and registered
+		// alternatives, before openDefaultDB/supervisor.Open/RunParallel —
+		// no worker, DB handle, or event store is ever opened. A
+		// captain-leg resolution failure is surfaced as a warning and does
+		// NOT block startup, matching RunSlice's own per-attempt fail-open
+		// captain policy (Coach ratification 2026-07-10, S06
+		// captain-proceed.md pin 1, propagated to S07 captain-proceed.md
+		// pin 1 — sworn#86 tracks restoring role-universality). Enforcing
+		// AC-01's literal text against the captain leg would put the
+		// startup sweep and every in-flight RunSlice call on opposite
+		// policies for the identical role/model pair.
+		startupModels := run.ComposeEscalationModels(impl, escalationModels)
+		startupReg := registry.Default(model.ProviderConfigFromEnv())
+		resolution, rerr := run.ResolveDispatch(startupReg, "sworn run", verifier, startupModels)
+		if rerr != nil {
+			fmt.Fprintf(os.Stderr, "sworn run: %v\n", rerr)
+			return 1
+		}
+		if resolution.CaptainErr != nil {
+			fmt.Fprintf(os.Stderr,
+				"sworn run: warning: %v — captain leg proceeds (S06 D2 / S07 captain-proceed.md "+
+					"pin 1: no subprocess driver declares RoleCaptain yet; sworn#86); recorded "+
+					"per-slice as a design-gate deferral when the affected slice runs\n",
+				resolution.CaptainErr)
+		}
+
 		database, dbErr := openDefaultDB()
 		if dbErr != nil {
 			fmt.Fprintf(os.Stderr, "sworn run: open database: %v\n", dbErr)

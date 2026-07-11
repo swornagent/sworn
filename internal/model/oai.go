@@ -229,12 +229,12 @@ func (c *OAI) Verify(ctx context.Context, systemPrompt, userPayload string) (str
 		return "", 0, 0, 0, fmt.Errorf("model: empty choices in response")
 	}
 
-	cost := computeCost(c.Model, cr.Usage)
 	var inputTokens, outputTokens int64
 	if cr.Usage != nil {
 		inputTokens = int64(cr.Usage.PromptTokens)
 		outputTokens = int64(cr.Usage.CompletionTokens)
 	}
+	cost := ComputeCostFromTokens(c.Model, inputTokens, outputTokens)
 	return reasoningFallback(body, cr.Choices[0].Message.Content), cost, inputTokens, outputTokens, nil
 }
 
@@ -387,16 +387,6 @@ func reasoningFallback(body []byte, content string) string {
 		return rp.Choices[0].Message.ReasoningContent
 	}
 	return content
-}
-
-func computeCost(model string, usage *UsageBlock) float64 {
-	p, ok := modelPricing[model]
-	if !ok || usage == nil {
-		return 0
-	}
-	promptCost := float64(usage.PromptTokens) / 1_000_000 * p.promptCostPer1M
-	completionCost := float64(usage.CompletionTokens) / 1_000_000 * p.completionCostPer1M
-	return promptCost + completionCost
 }
 
 func trimBody(b []byte, max int) string {

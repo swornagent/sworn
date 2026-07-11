@@ -10,9 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
-	"github.com/swornagent/sworn/internal/agent"
-	"github.com/swornagent/sworn/internal/model"
+	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/prompt"
 )
 
@@ -24,13 +24,15 @@ type GenerateOptions struct {
 }
 
 // Generate produces a design TL;DR (design.md) in sliceDir from the given
-// spec content. It uses a for a single-shot, tool-less model call — no agent
+// spec content via a single Role=captain driver dispatch (S06 rewire):
+// prompt assembly stays here (orchestrator-side); the model call happens
+// behind the driver, which serves captain dispatches tool-lessly — no agent
 // loop, no file writes by the model itself. Returns the generated design
 // text (or "" if skipped).
 //
 // Idempotency: if design.md already exists and opts.Regenerate is false,
-// Generate returns ("", nil) without calling the model.
-func Generate(ctx context.Context, sliceDir, spec string, a agent.Agent, opts GenerateOptions) (string, error) {
+// Generate returns ("", nil) without dispatching.
+func Generate(ctx context.Context, sliceDir, spec string, d driver.Driver, modelID, worktreeRoot string, timeout time.Duration, opts GenerateOptions) (string, error) {
 	designPath := filepath.Join(sliceDir, "design.md")
 
 	if _, err := os.Stat(designPath); err == nil && !opts.Regenerate {
@@ -38,25 +40,22 @@ func Generate(ctx context.Context, sliceDir, spec string, a agent.Agent, opts Ge
 		return "", nil
 	}
 
-	systemPrompt := prompt.DesignTLDR()
-	userPayload := fmt.Sprintf("Spec:\n\n%s", spec)
-
-	messages := []model.ChatMessage{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: userPayload},
-	}
-
-	// Tool-less call: pass nil tools so the model cannot request tool use.
-	resp, err := a.Chat(ctx, messages, nil)
+	res, err := d.Dispatch(ctx, driver.DispatchInput{
+		Role:         driver.RoleCaptain,
+		ModelID:      modelID,
+		SystemPrompt: prompt.DesignTLDR(),
+		Payload:      fmt.Sprintf("Spec:\n\n%s", spec),
+		WorktreeRoot: worktreeRoot,
+		Timeout:      timeout,
+	})
 	if err != nil {
-		return "", fmt.Errorf("design: model call: %w", err)
+		return "", fmt.Errorf("design: dispatch: %w", err)
 	}
-
-	if len(resp.Choices) == 0 {
+	if res.Status != driver.StatusOK || strings.TrimSpace(res.ResultText) == "" {
 		return "", fmt.Errorf("design: empty response from model")
 	}
 
-	text := resp.Choices[0].Message.Content
+	text := res.ResultText
 
 	// Sanity: the response must contain all six § headers.
 	if !hasSixSections(text) {

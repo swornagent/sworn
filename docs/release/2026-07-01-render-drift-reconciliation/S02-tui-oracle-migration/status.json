@@ -13,7 +13,7 @@
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "Migrate board.go + blocked.go to the oracle; regenerate stale test fixtures.",
     "confirmed_by_implementer": false
   },

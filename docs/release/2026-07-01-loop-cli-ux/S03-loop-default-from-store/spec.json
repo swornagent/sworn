@@ -1,15 +1,16 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-  "schema_version": 1,
   "slice_id": "S03-loop-default-from-store",
   "release": "2026-07-01-loop-cli-ux",
   "user_outcome": "Running a bare `sworn loop` (no flags at all) resolves the active release from S01's store and drives it exactly as `sworn loop --release <name>` (S02) does — restoring the coach-loop `coach use <release>` + `coach loop` two-command ergonomics on sworn's own CLI.",
   "rationale": "S01 gives sworn a persisted active-release pointer; S02 makes `--release <name>` work standalone. This slice is the small join: when `sworn loop` is invoked with neither `--task` nor `--release`, read the active release from S01's settings table and feed it through the exact same code path S02 established for an explicit `--release`, rather than duplicating dispatch logic. Per the planning decision, this is purely a convenience default — it is not a concurrency mechanism (S02's explicit `--release` remains the way to run multiple releases' loops at once) and does not need to disambiguate between multiple actionable releases.",
-  "covers_needs": ["N-03"],
+  "covers_needs": [
+    "N-03"
+  ],
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "Read one value from the S01 settings table, feed it into the exact dispatch path S02 built for an explicit --release. No new dispatch logic.",
     "confirmed_by_implementer": false
   },
@@ -20,27 +21,25 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When `sworn loop` is run with neither `--task` nor `--release`, and an active release is set (via `sworn use`, S01), it SHALL resolve that release from the settings table and drive it through the identical path `sworn loop --release <name>` (S02) uses — no behavioral difference beyond the source of the release name."
+      "text": "When `sworn loop` is run with neither `--task` nor `--release`, and an active release is set (via `sworn use`, S01), it SHALL resolve that release from the settings table and drive it through the identical path `sworn loop --release <name>` (S02) uses — no behavioral difference beyond the source of the release name.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-02",
-      "type": "unwanted",
-      "ears_keyword": "If",
-      "text": "If `sworn loop` is run with neither `--task` nor `--release`, and NO active release is set, it SHALL fail closed with a clear, actionable error (e.g. \"no active release selected — run `sworn use <release>` first\"), not the current generic \"--task is required\" usage error."
+      "text": "If `sworn loop` is run with neither `--task` nor `--release`, and NO active release is set, it SHALL fail closed with a clear, actionable error (e.g. \"no active release selected — run `sworn use <release>` first\"), not the current generic \"--task is required\" usage error.",
+      "ears_pattern": "unwanted-behaviour"
     },
     {
       "id": "AC-03",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "An explicit `--release <name>` flag SHALL always take precedence over the stored active release when both are present — the store is a default for the omitted case only, never an override of an explicit flag."
+      "text": "An explicit `--release <name>` flag SHALL always take precedence over the stored active release when both are present — the store is a default for the omitted case only, never an override of an explicit flag.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-04",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "After the change, `go build ./...` SHALL succeed and `go test ./cmd/sworn/...` SHALL pass, including a reachability test that runs the bare-`sworn loop` dispatch path end-to-end against a fake/stub active-release store (no real model call), proving AC-01 and AC-02 render through the actual CLI entry point, not a leaf helper function in isolation."
+      "text": "After the change, `go build ./...` SHALL succeed and `go test ./cmd/sworn/...` SHALL pass, including a reachability test that runs the bare-`sworn loop` dispatch path end-to-end against a fake/stub active-release store (no real model call), proving AC-01 and AC-02 render through the actual CLI entry point, not a leaf helper function in isolation.",
+      "ears_pattern": "ubiquitous"
     }
-  ]
+  ],
+  "in_scope": [],
+  "out_of_scope": []
 }

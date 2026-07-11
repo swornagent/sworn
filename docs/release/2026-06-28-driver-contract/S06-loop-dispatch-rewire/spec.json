@@ -1,6 +1,5 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-  "schema_version": 1,
   "slice_id": "S06-loop-dispatch-rewire",
   "release": "2026-06-28-driver-contract",
   "track": "T4-resolution-loop",
@@ -25,7 +24,7 @@
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
-    "quadrant": "epic",
+    "quadrant": "beast",
     "rationale": "The largest seam rewire in the release: three role legs, verify.go transport replacement with semantics preservation, factory deletion, and an import-boundary contract — regression risk concentrated here.",
     "confirmed_by_implementer": false
   },
@@ -48,38 +47,43 @@
       "id": "R-02",
       "description": "A tightened dispatch seam regresses test fixtures in OTHER packages (the S05-strict-reader lesson: internal/board fixtures broke across packages).",
       "mitigation": "The slice's test commands include the affected packages, and the track merge gate runs the full `go test ./...` — the memory-documented failure mode is named in the journal template for this slice."
+    },
+    {
+      "id": "R-03",
+      "description": "AC-03's 'terminal error kinds -> BLOCKED' preserves acceptStructuredVerdict's existing semantics verbatim, but today's terminal check (internal/run/slice.go:487, model.IsTerminal on the implement leg's returned *model.Error, KindAuth/KindCredits) reads model.ErrorKind, not the new internal/driver.Result.ErrKind string vocabulary S02 introduces. Swapping the transport without an explicit mapping silently drops the fail-fast-on-auth property (flagged during S02's Captain design review, 2026-07-03; S02 spec.json R-03 is the producing side of this contract).",
+      "mitigation": "This slice's implementation must explicitly treat Result.ErrKind IN {\"auth\", \"credits\"} (from any driver, not just claude-cli) as terminal at both consumption points: the implement leg (replacing the slice.go:487 model.IsTerminal check) and the verify leg's acceptStructuredVerdict 'terminal error kinds -> BLOCKED' mapping in AC-03. The set is {auth, credits}, not auth alone — the S04 Coach acknowledgement (T3 captain-proceed.md, 2026-07-10) is the binding record: subprocess drivers collapse all terminal cases to auth, but the in-process driver emits credits as its own kind, and an auth-only check silently loses the credits fail-fast. Add tests asserting BOTH an ErrKind=auth AND an ErrKind=credits Dispatch result halt immediately rather than entering the retry/escalation path."
+    },
+    {
+      "id": "R-04",
+      "description": "Advertised-vs-actual routing honesty (S05 Captain escalate pin, Coach-ratified 2026-07-10): S05's `sworn capabilities` enumeration advertises ViaProxy for in-process prefixes keyed on the same login condition model.FromEnv uses, but the registry's resolved in-process drivers construct their client via proxy-blind model.NewClient — so after this slice rewires the loop onto registry dispatch, execution would go direct while the capability surface claims proxy routing, regressing the keyless-credits (S06b/OpenRouter) journey.",
+      "mitigation": "BINDING for this slice: registry-dispatched in-process drivers must obtain their model client through the FromEnv-equivalent resolution path (or an extracted shared helper) so the actual dispatch route satisfies the exact condition `sworn capabilities` advertises. Add a test asserting that under the proxy login condition a registry-resolved in-process driver's dispatch goes via the proxy route, and that the capabilities enumeration and the dispatch condition evaluate from the same predicate (no second hand-synced table). The track merges as one unit, so the S05-landed/S06-pending intermediate state never reaches the integration branch."
     }
   ],
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "RunSliceOptions SHALL NOT expose NewAgent/NewVerifier factory fields (deleted, not deprecated); every role leg (captain, implement, verify) SHALL obtain its driver via Registry.Resolve(modelID, role) and dispatch via Driver.Dispatch; tests inject fake drivers through a test registry, not through factories."
+      "text": "RunSliceOptions SHALL NOT expose NewAgent/NewVerifier factory fields (deleted, not deprecated); every role leg (captain, implement, verify) SHALL obtain its driver via Registry.Resolve(modelID, role) and dispatch via Driver.Dispatch; tests inject fake drivers through a test registry, not through factories.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-02",
-      "type": "unwanted",
-      "ears_keyword": "If",
-      "text": "If Resolve fails for any role leg, RunSlice SHALL return a descriptive error naming the model, role, and registered alternatives BEFORE any model dispatch — no nil dereference is possible because no code path holds an unresolved driver (TestRunSliceResolutionFailure)."
+      "text": "If Resolve fails for the implement or verify role leg, RunSlice SHALL return a descriptive error naming the model, role, and registered alternatives BEFORE any model dispatch — no nil dereference is possible because no code path holds an unresolved driver (TestRunSliceResolutionFailure). If Resolve fails for the captain leg, RunSlice SHALL record that same descriptive role error as a durable Rule 2 deferral via the existing design-gate deferral path (recordDesignGateDeferral, sworn#51) and proceed — a hard error here would halt every subprocess-first run, since no subprocess driver declares RoleCaptain (Coach decision 2026-07-10, S06 captain-proceed.md pin 1; follow-up to declare RoleCaptain on subprocess drivers tracked separately).",
+      "ears_pattern": "unwanted-behaviour"
     },
     {
       "id": "AC-03",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When the verify leg's Dispatch returns, the engine SHALL validate Result.StructuredJSON against verifier-verdict-v1 via the existing acceptStructuredVerdict + baton.ValidateSchema path with semantics preserved verbatim: invalid or missing StructuredJSON -> INCONCLUSIVE (fail-closed), terminal error kinds -> BLOCKED, valid verdict -> mapped Result; the existing verify acceptance tests SHALL pass against the new transport."
+      "text": "When the verify leg's Dispatch returns, the engine SHALL validate Result.StructuredJSON against verifier-verdict-v1 via the existing acceptStructuredVerdict + baton.ValidateSchema path with semantics preserved verbatim: invalid or missing StructuredJSON -> INCONCLUSIVE (fail-closed), terminal error kinds -> BLOCKED, valid verdict -> mapped Result; the existing verify acceptance tests SHALL pass against the new transport.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-04",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "internal/run, internal/verify, and internal/scheduler SHALL NOT import internal/model wire types (ChatMessage, ToolDef, ChatResponse, ToolCall) — enforced by TestNoWireImports in internal/run/imports_test.go covering all three packages and failing with the offending package + import named."
+      "text": "internal/run, internal/verify, and internal/scheduler SHALL NOT import internal/model wire types (ChatMessage, ToolDef, ChatResponse, ToolCall) — enforced by TestNoWireImports in internal/run/imports_test.go covering all three packages and failing with the offending package + import named.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-05",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "Every appendDispatch telemetry call SHALL source duration/tokens/cost/confirmed-model-id from the Dispatch leg's Result fields (honest population semantics land in S08; this AC pins the plumbing source); RunFirstPass SHALL remain byte-identical in behaviour (its tests unchanged); `go test ./internal/run/... ./internal/verify/... ./internal/implement/...` SHALL pass."
+      "text": "Every appendDispatch telemetry call SHALL source duration/tokens/cost/confirmed-model-id from the Dispatch leg's Result fields (honest population semantics land in S08; this AC pins the plumbing source); RunFirstPass SHALL remain byte-identical in behaviour (its tests unchanged); `go test ./internal/run/... ./internal/verify/... ./internal/implement/...` SHALL pass.",
+      "ears_pattern": "ubiquitous"
     }
   ]
 }

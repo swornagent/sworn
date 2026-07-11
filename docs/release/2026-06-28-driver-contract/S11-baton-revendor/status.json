@@ -3,18 +3,169 @@
   "slice_id": "S11-baton-revendor",
   "release": "2026-06-28-driver-contract",
   "track": "T7-baton-revendor",
-  "state": "planned",
-  "covers_needs": ["N-12"],
+  "state": "verified",
+  "covers_needs": [
+    "N-12"
+  ],
   "spec_path": "docs/release/2026-06-28-driver-contract/S11-baton-revendor/spec.json",
-  "start_commit": null,
+  "start_commit": "4dbd21b3bfd1a62dfc9842ce1aea80d365ff01ee",
+  "design_decisions": [
+    {
+      "choice": "D1 — Transition mechanism is NORMALISE-BEFORE-VALIDATE, not tolerant-validate: one read-path normalise() shim maps retired quadrant chore->quick / epic->beast, strips schema_version, and reshapes legacy board tracks[] AND top-level release fields into canonical v0.10.0 form BEFORE validation. Validate and additionalProperties:false stay strictly strict; the vendored schemas are byte-identical to the tag; S12 deletes the shim wholesale.",
+      "stake_class": "Type-1",
+      "options": [
+        "Normalise-before-validate (chosen)",
+        "Tolerant-validate (weaken Validate / relax additionalProperties)",
+        "Big-bang migrate all records in-slice"
+      ],
+      "human_decision": "Coach (Brad) 2026-07-11 — ratified in spec rationale + captain-proceed.md pin 1; keeps drift detectable during the S11->S12 window.",
+      "rationale": "A weakened Validate would silently accept genuine drift; normalise on read preserves strict validation while letting un-migrated records still parse until S12 migrates the data.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Pin-1 — EXPAND board pure-plan to the RELEASE level: the board writer stops persisting top-level schema_version, release_worktree_path, release_worktree_branch; the reader DERIVES the release worktree branch (release-wt/<release>) and path (sibling-of-repo); the normalise shim strips the three from legacy board.json on read. Required so a byte-identical v0.10.0 board-v1 (additionalProperties:false) accepts freshly-written boards.",
+      "stake_class": "Type-1",
+      "options": [
+        "Extend sworn#80 derivation to the release level (chosen)",
+        "Retain release_worktree_* in a sworn-local, non-byte-identical board-v1",
+        "Defer with a Coach-acknowledged Rule-2 window tolerance"
+      ],
+      "human_decision": "Coach (Brad) 2026-07-11 — the critical escalate pin, ratified live in captain-proceed.md; spec amended on release-wt @e8ecbd5 (AC-06/AC-07 + in_scope).",
+      "rationale": "Byte-identical v0.10.0 board-v1 drops the top-level fields; the writer still emitted them and WriteBoard validates every write, so a byte-identical vendor would make every board write schema-invalid. The release worktree branch/path are as derivable as the track ones.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "D2 — Track AND release path derivation REUSE worker.go's sibling-of-release-worktree logic (defaultTrackWorktreePath, eval finding 3), moved to a shared internal/board helper; NOT the naive $HOME/projects/<repo>-worktrees formula. Track state is derived via git merge-base --is-ancestor (git.Repo.IsAncestor), the same primitive /merge-track uses.",
+      "stake_class": "Type-1",
+      "options": [
+        "Reuse worker.go's repo-local sibling derivation (chosen)",
+        "Re-derive the naive $HOME convention formula"
+      ],
+      "human_decision": "Coach (Brad) 2026-07-11 — confirmed in captain-proceed.md pin 6; spec R-05/AC-07.",
+      "rationale": "The naive $HOME formula caused eval finding 3's cross-repo collision (a fired-repo run materialised on sworn's worktree tree). The repo-local sibling path is the correct derivation and must be the single source of truth.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "D3 — sworn#80: board-v1 tracks[] loses worktree_path/worktree_branch/state as persisted fields (upstream-first, v0.10.0); internal/board computes them. Scope bounded to exactly these three track fields (plus the three release-level fields of Pin-1); baton#55 owns the remaining board-v1 canonical-conformance gaps.",
+      "stake_class": "Type-1",
+      "options": [
+        "Remove the three fields as persisted data, derive them (chosen)",
+        "Reshape to upstream's nested worktree{path,branch} object",
+        "Keep persisting them"
+      ],
+      "human_decision": "Coach (Brad) 2026-07-11 — AC-06/AC-07 + baton v0.10.0 board-v1.",
+      "rationale": "Removing the fields moots the flattened-vs-nested shape question baton#54 flagged and eliminates the release-wt write race two concurrent /implement-slice sessions hit.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "D4 — The two new v0.10.0 schemas (contracts-v1, assembly-proof-v1) are VENDORED-ADVISORY: stored in internal/baton/schemas (root B only, Pin 3), byte-matched to the published $id, doctor-declarable, NOT graded. No `sworn lint contracts` / `sworn assemble` grader is wired here; do not fork the shape under the same $id.",
+      "stake_class": "Type-1",
+      "options": [
+        "Vendor advisory-only, byte-identical (chosen)",
+        "Vendor + wire the graders now",
+        "Do not vendor until the graders land"
+      ],
+      "human_decision": "Coach (Brad) 2026-07-11 — AC-10/AC-11 + captain-proceed.md pin 3; the graders are the follow-on contract-edge-gates release.",
+      "rationale": "Revendoring to v0.9.0 would ship an already-stale pin and reopen the schema-skew scar (baton#54/#55/#58); vendoring the two new schemas advisory keeps the binary's set aligned to the tag without pulling the grader scope forward.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "D5 — AC-08 write-isolation is SATISFIED-BY-ENGINE: sworn vendors no commands/ directory (the implement-slice.md/merge-track.md prose lives in the private ~/.claude harness + upstream baton, per the ADR-0010 boundary). sworn's obligation is Go behaviour only — no engine code path writes a track's worktree identity/state to release-wt's board.json (owned by AC-06/AC-07). The command-spec prose edit is tracked as baton#61.",
+      "stake_class": "Type-2",
+      "human_decision": "Coach (Brad) 2026-07-11 — boundary already set by ADR-0010; captain-proceed.md pin 8.",
+      "rationale": "sworn vendors the contract, not the workflow prose; the no-commands evidence test plus the AC-06/AC-07 write-isolation tests are the correct proof."
+    },
+    {
+      "choice": "D6 — Do NOT author records in quick/beast on disk yet: the binary accepts chore/grind/puzzle/epic until this slice lands v0.10.0's quick/beast via the normalise shim (sworn#90). S11's own status.json/spec.json quadrant fields stay legacy-valid (epic) until the enum flip + normalise land atomically in-track; S12 migrates the on-disk data. confirmed_by_implementer flips true now, recorded against the legacy epic value.",
+      "stake_class": "Type-2",
+      "human_decision": "Coach (Brad) 2026-07-11 — sequencing default; captain-proceed.md pin (P4 acknowledged).",
+      "rationale": "Writing quick/beast before the enum flip lands would produce records the live binary rejects; keeping S11's records legacy-valid until the in-track flip avoids a self-inflicted invalid-record window."
+    }
+  ],
   "effort_complexity": {
     "effort": "high",
-    "complexity": "low",
-    "quadrant": "grind",
-    "rationale": "Vendor bump + enum rename + two adoption points; breadth is the five-package fixture sweep; traps sequenced away via S12 in-track.",
-    "confirmed_by_implementer": false
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "Vendor bump to baton v0.10.0 + chore->quick/epic->beast enum with a strict Validate fed by a read-path normalise shim + acknowledged_by round-trip + sworn#80 (derive track AND release worktree/state from refs, board-v1 pure plan) + two advisory schemas + Defect-2 regression lock; complexity high per the worker.go worktree-derivation nuance (spec R-05). Quadrant recorded as legacy 'epic' per D6 (maps to 'beast' post-flip via normalise; S12 migrates the on-disk value).",
+    "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "pending"
-  }
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-11T09:03:35Z",
+    "violations": []
+  },
+  "actual_files": [
+    "cmd/sworn/merge_test.go",
+    "cmd/sworn/regress.go",
+    "cmd/sworn/regress_test.go",
+    "docs/release/2026-06-28-driver-contract/S11-baton-revendor/journal.md",
+    "docs/release/2026-06-28-driver-contract/S11-baton-revendor/proof.json",
+    "docs/release/2026-06-28-driver-contract/S11-baton-revendor/status.json",
+    "internal/adopt/baton/VERSION",
+    "internal/adopt/baton/rules/02-no-silent-deferrals.md",
+    "internal/adopt/baton/rules/10-customer-journey-validation.md",
+    "internal/baton/normalise.go",
+    "internal/baton/normalise_test.go",
+    "internal/baton/schemas/assembly-proof-v1.json",
+    "internal/baton/schemas/attestations-v1.json",
+    "internal/baton/schemas/board-v1.json",
+    "internal/baton/schemas/contracts-v1.json",
+    "internal/baton/schemas/embed.go",
+    "internal/baton/schemas/embed_test.go",
+    "internal/baton/schemas/journeys-v1.json",
+    "internal/baton/schemas/proof-v1.json",
+    "internal/baton/schemas/slice-status-v1.json",
+    "internal/baton/schemas/spec-v1.json",
+    "internal/baton/schemas/testdata/published-v0.10.0/assembly-proof-v1.json",
+    "internal/baton/schemas/testdata/published-v0.10.0/contracts-v1.json",
+    "internal/baton/testdata/normalise/board.json",
+    "internal/baton/testdata/normalise/spec.json",
+    "internal/baton/validate_schema_test.go",
+    "internal/baton/validator.go",
+    "internal/bench/overclaim.go",
+    "internal/board/board.go",
+    "internal/board/board_test.go",
+    "internal/board/derive.go",
+    "internal/board/derive_test.go",
+    "internal/board/oracle.go",
+    "internal/board/oracle_test.go",
+    "internal/board/render.go",
+    "internal/board/testdata/render/rel-fixture.golden.md",
+    "internal/git/git.go",
+    "internal/implement/spec_record.go",
+    "internal/implement/spec_record_test.go",
+    "internal/mcp/context.go",
+    "internal/mcp/lint_test.go",
+    "internal/mcp/tools_ops.go",
+    "internal/mcp/tools_plan.go",
+    "internal/mcp/tools_test.go",
+    "internal/run/blocked_report_test.go",
+    "internal/run/loop_sit_test.go",
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go",
+    "internal/scheduler/worker.go",
+    "internal/scheduler/worktree_path_test.go",
+    "internal/spec/spec.go",
+    "internal/spec/spec_test.go",
+    "internal/state/effort_complexity_test.go",
+    "internal/state/state.go",
+    "internal/tui/blocked.go",
+    "internal/tui/board.go",
+    "internal/tui/tui_test.go"
+  ],
+  "test_commands": [
+    "go test -count=1 -timeout 300s ./...  (all pkgs ok, 0 FAIL; internal/verdict has no test files)",
+    "go build ./...  (ok)",
+    "gofmt -l .  (clean, tree)",
+    "go vet ./...  (clean)",
+    "go test -count=1 -run 'TestWriteSpecRecord|TestReadRecord' ./internal/implement/... ./internal/spec/...  (AC-03 round trip PASS)"
+  ],
+  "reachability_artifacts": [
+    "test: internal/implement TestWriteSpecRecord_RoundTripValidatesStrictSchema — WriteSpecRecord -> baton.ValidateSchema(\"spec-v1\", written) strict draft-2020-12 -> spec.ReadRecord exposes in_scope/out_of_scope (AC-03 writer->reader round trip)",
+    "cli-run: sworn doctor -> Baton v0.10.0 (AC-01)",
+    "cli-run: sworn board --release 2026-06-28-driver-contract -> EXIT 0 (derives track states from git ancestry)",
+    "cli-run: sworn designfit 2026-06-28-driver-contract -> DESIGNFIT PASS, EXIT 0 over 15 slices (reads spec records through the read path via the normalise shim)",
+    "test: internal/baton TestNormaliseRealRecordsValidateStrict + internal/baton/schemas TestAdvisorySchemasByteMatchPublished"
+  ]
 }

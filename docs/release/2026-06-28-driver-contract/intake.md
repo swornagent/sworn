@@ -140,17 +140,51 @@ are cut. Trace gate binds every N-NN to at least one slice's `covers_needs`.)
   capability info where the provider reports it over the wire and an honest
   "unknown" where it doesn't. Unknown is never treated as capable
   (fail-closed). Own slice; late-deferrable; active probing out of scope.
-- **N-12 (added 2026-07-02, second pass)**: sworn re-vendors Baton at the
-  v0.7.1 tag — both embed roots re-synced; the spec writer emits and the
+- **N-12 (added 2026-07-02; re-aimed v0.9.0 2026-07-06; re-aimed v0.10.0 2026-07-11)**: sworn re-vendors Baton at the
+  **v0.10.0** tag (commit a5ab2aa) — both embed roots re-synced; the spec writer emits and the
   strict reader accepts `in_scope`/`out_of_scope`; the quadrant enum adopts
-  `quick` in place of `chore` in code; `acknowledged_by` round-trips — the
-  code half of sworn#48.
-- **N-13 (added 2026-07-02, second pass)**: every live release record on the
-  integration branch conforms to the v0.7.1 contract — quadrant data migrated
-  `chore`→`quick` across all releases, `in_scope`/`out_of_scope` present on
-  every spec.json (empty arrays for historical records), the one invalid
-  `feature` quadrant fixed, renders refreshed, reader tightened to quick-only —
+  `quick` for `chore` and `beast` for `epic` in code (via a read-path normalise shim,
+  Validate strict — D1 2026-07-11); `acknowledged_by` round-trips;
+  (sworn#80) a track's worktree path + state are derived from git refs, not
+  persisted to board.json (board-v1 pure plan); AND the two new v0.10.0 schemas
+  (contracts-v1, assembly-proof-v1) are vendored ADVISORY-only into both embed
+  roots — the code half of sworn#48. Baton shipped v0.10.0 mid-build 2026-07-11;
+  revendoring to the now-stale v0.9.0 would reopen the schema-skew scar.
+- **N-13 (added 2026-07-02; re-aimed to v0.9.0 2026-07-06)**: every live release record on the
+  integration branch conforms to the v0.9.0 contract — quadrant data migrated
+  `chore`→`quick` and `epic`→`beast` across all releases, `in_scope`/`out_of_scope` present on
+  every spec.json (empty arrays for historical records), every board.json migrated to the
+  pure-plan shape (tracks[].state + worktree dropped), the one invalid
+  `feature` quadrant fixed, renders refreshed, reader tightened to the v0.9.0 enum —
   the data half of sworn#48.
+- **N-14 (added 2026-07-06, driver-contract replan)**: `sworn regress` runs the Go
+  test suite from the module directory (the dir containing `go.mod`), not the
+  worktree root — so a repo whose Go module lives in a subdirectory (e.g. `<repo>/go`)
+  no longer reports a spurious `go test` setup failure. Surfaced downstream during
+  fired's `/merge-track` (capture brief Defect 1).
+- **N-15 (added 2026-07-10, driver-contract replan; inbound packet from fired)**:
+  the runner treats BLOCKED as terminal-for-the-lane — a dispatched implementer's
+  explicit `blocked` return or a verifier BLOCKED verdict stops all further
+  dispatches for that slice in the run, halts the owning sequential track, consumes
+  no retry budget, and the exit report distinguishes halted-BLOCKED (routed to
+  `/replan-release`, blocker text verbatim) from exhausted-FAIL — so the loop never
+  burns dispatches against a blocker only a replan can clear. FAIL keeps existing
+  retry semantics unchanged. Evidence: fired's 2026-07-10 one-CP run dispatched
+  three implementers against an unchanged spec defect (two wasted full-context
+  dispatches). Origin packet: fired repo,
+  `apps/docs/content/docs/captures/2026-07-10-sworn-blocked-terminal-slice-packet.md`.
+  DELIVERED by S14-blocked-terminal (verified+merged); this is W1 of the
+  2026-07-11 contract-edge handoff (sworn#88, closed 2026-07-11).
+- **N-16 (added 2026-07-11, contract-edge replan; W2 part 2)**: `sworn doctor`
+  declares which Baton schema versions this binary grades — an explicit
+  graded-schema-version manifest (graded vs vendored-advisory, including the new
+  contracts-v1 / assembly-proof-v1) — so the next protocol/runner skew surfaces as
+  a VISIBLE doctor warning, not a silent divergence under identical `$id`
+  (the baton#54/#55/#58 scar). Split into sibling slice S15-baton-version-handshake
+  in T7. Source: `docs/captures/2026-07-11-contract-edge-step3-handoff.md` (W2),
+  `docs/captures/2026-07-11-replan-driver-contract-contract-edges.md`.
+  NOTE: the contract-edge GRADERS (W3 `sworn lint contracts`, W4 `sworn assemble`)
+  are a separate follow-on release (Coach 2026-07-11), NOT scoped here.
 
 ## Constraints and non-negotiables
 

@@ -126,6 +126,18 @@ type WorkerOptions struct {
 	// When nil, no cooperative pause is checked.
 	PauseCh <-chan struct{}
 
+	// RecordBlocked, when non-nil, is invoked exactly once when a slice
+	// returns a blocked-terminal error (the orchestrator.BlockedLaneSentinel
+	// shape RunSlice emits for verifier BLOCKED verdicts, implementer
+	// StatusBlocked results, and terminal auth/credits driver errors). The
+	// reason is the blocker text after the sentinel, verbatim, with the
+	// route-directive suffix trimmed. RunParallel wires a collector here so
+	// the exit report can distinguish BLOCKED lanes (replan required) from
+	// FAIL lanes (retries exhausted) — the scheduler itself keeps returning
+	// TrackFail for blocked lanes (S14 D3: no new TrackResult value; the
+	// distinction travels via this side-channel only).
+	RecordBlocked func(trackID, sliceID, reason string)
+
 	// MergeTrackFn is invoked when a track finishes (all slices terminal).
 	// It merges the track branch into the release worktree. When nil,
 	// auto-merge is skipped (backward-compatible with tests and legacy
@@ -197,13 +209,17 @@ func RunTrack(ctx context.Context, opts WorkerOptions) TrackResult {
 
 	// ── Materialise track worktree if absent ────────────────────────────
 	if trackWorktreePath == "" {
-		p, err := defaultTrackWorktreePath(opts.ReleaseWorktreePath, opts.ProjectDir, opts.ReleaseName, trackID)
-		if err != nil {
-			fmt.Fprintf(w, "[%s] cannot determine home dir: %v\n", trackID, err)
+		// internal/board normally DERIVES and populates the path (sworn#80); if it
+		// is empty here, derive it from the SAME shared helper — the repo-local
+		// sibling-of-release-worktree logic (eval finding 3). Never fall back to a
+		// $HOME/projects convention: a wrong path would materialise a worktree on
+		// another repo's tree (eval finding 3 / Rule 11), so fail closed instead.
+		trackWorktreePath = board.TrackWorktreePathFrom(opts.ReleaseWorktreePath, opts.ReleaseName, trackID)
+		if trackWorktreePath == "" {
+			fmt.Fprintf(w, "[%s] cannot derive track worktree path: no release worktree path known\n", trackID)
 			releaseTrack(supervisor.StateFailed)
 			return TrackFail
 		}
-		trackWorktreePath = p
 	}
 
 	if !dirExists(trackWorktreePath) {
@@ -333,6 +349,14 @@ func runTrackRouter(
 					releaseTrack("paused")
 					return TrackPaused
 				}
+				// S14: blocked-terminal lane — checked after the pause
+				// sentinels, before breaker fingerprinting (see
+				// blockedLaneTerminal). Ends the track before any subsequent
+				// slice starts (AC-04); TrackFail still triggers failCancel so
+				// dependent tracks skip.
+				if blockedLaneTerminal(w, opts, trackID, currentSlice, err, releaseTrack) {
+					return TrackFail
+				}
 				// S03 circuit breaker: check cross-run failure fingerprint.
 				fingerprint := supervisor.Fingerprint(currentSlice, err.Error())
 				_ = supervisor.RecordFailure(opts.DB, opts.ReleaseName, currentSlice, fingerprint)
@@ -389,6 +413,10 @@ func runTrackRouter(
 					_ = supervisor.RecordPage(opts.DB, opts.ReleaseName, currentSlice, "max_turns")
 					releaseTrack("paused")
 					return TrackPaused
+				}
+				// S14: blocked-terminal lane (see blockedLaneTerminal).
+				if blockedLaneTerminal(w, opts, trackID, currentSlice, err, releaseTrack) {
+					return TrackFail
 				}
 				// S03 circuit breaker: check cross-run failure fingerprint.
 				fingerprint := supervisor.Fingerprint(currentSlice, err.Error())
@@ -475,6 +503,12 @@ func runTrackLegacy(
 				_ = supervisor.RecordPage(opts.DB, opts.ReleaseName, sliceID, "max_turns")
 				releaseTrack("paused")
 				return TrackPaused
+			}
+			// S14: blocked-terminal lane (see blockedLaneTerminal). Returning
+			// here ends the per-slice loop before any subsequent slice in the
+			// track starts (AC-04).
+			if blockedLaneTerminal(w, opts, trackID, sliceID, err, releaseTrack) {
+				return TrackFail
 			}
 			// S03 circuit breaker: check cross-run failure fingerprint.
 			fingerprint := supervisor.Fingerprint(sliceID, err.Error())
@@ -566,6 +600,46 @@ func finishTrack(
 	return TrackPass
 }
 
+// blockedLaneTerminal classifies a RunSliceFn error as blocked-terminal and,
+// when it is, handles the lane: logs, records it via opts.RecordBlocked, and
+// releases the supervisor with StateFailed. Returns true when the caller must
+// return TrackFail. Shared by the three RunSliceFn-error sites (router
+// implement/verify, redesign, legacy loop), checked AFTER the pause sentinels
+// and BEFORE circuit-breaker fingerprinting: a blocked lane must not accrue
+// breaker pages, and the worker-level track_failed notification is skipped
+// because RunSlice already emitted the blocked notification (S14 D6 — this
+// also removes the pre-existing double-notify on verifier-blocked lanes).
+//
+// The supervisor state is StateFailed, never a bare "blocked" string —
+// supervisor.Release coerces unknown states to StateDone, which would record
+// a blocked (unmergeable, replan-required) track as complete. The
+// blocked-vs-failed distinction travels via RecordBlocked only (S14 D3,
+// Captain review pin 1).
+func blockedLaneTerminal(w io.Writer, opts WorkerOptions, trackID, sliceID string, err error, releaseTrack func(string)) bool {
+	if !strings.Contains(err.Error(), orchestrator.BlockedLaneSentinel) {
+		return false
+	}
+	reason := blockedLaneReason(err.Error())
+	fmt.Fprintf(w, "[%s] slice %s BLOCKED — terminal for lane (replan required): %s\n",
+		trackID, sliceID, reason)
+	if opts.RecordBlocked != nil {
+		opts.RecordBlocked(trackID, sliceID, reason)
+	}
+	releaseTrack(supervisor.StateFailed)
+	return true
+}
+
+// blockedLaneReason extracts the verbatim blocker text following the
+// BlockedLaneSentinel, trimming the route-directive suffix RunSlice appends
+// on implementer-blocked lanes so the exit report does not render the
+// directive twice (S14, Captain review flag (a)).
+func blockedLaneReason(errText string) string {
+	idx := strings.Index(errText, orchestrator.BlockedLaneSentinel)
+	reason := errText[idx+len(orchestrator.BlockedLaneSentinel):]
+	reason = strings.TrimSuffix(strings.TrimSpace(reason), strings.TrimSpace(orchestrator.BlockedLaneRouteSuffix))
+	return strings.TrimSpace(reason)
+}
+
 // findFirstNonTerminal returns the first slice ID in the track whose committed
 // state (read via the oracle) is non-terminal per router.IsTerminal. Returns ""
 // if all slices are terminal — the track is fully done and should merge.
@@ -615,29 +689,6 @@ func stripCaptainProceed(w io.Writer, workRoot, specBase, sliceID string) {
 func dirExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
-}
-
-// defaultTrackWorktreePath returns where a track worktree should live when the
-// board doesn't pin one. It is REPO-LOCAL — a sibling of the release worktree —
-// so a run in any repo keeps its worktrees beside that repo's release worktree.
-// The old default (~/projects/<projectDir>-worktrees, projectDir hardcoded
-// "sworn") was identical for every repo, so a fired-repo run silently
-// materialised — and could collide on — sworn's worktree tree (eval finding 3).
-// The ~/projects fallback is reached only when no release worktree path is
-// known, which never happens in production (the board sets it).
-func defaultTrackWorktreePath(releaseWorktreePath, projectDir, releaseName, trackID string) (string, error) {
-	base := "release-" + releaseName + "-" + trackID
-	if releaseWorktreePath != "" {
-		return filepath.Join(filepath.Dir(releaseWorktreePath), base), nil
-	}
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	if projectDir == "" {
-		projectDir = "sworn"
-	}
-	return filepath.Join(homeDir, "projects", projectDir+"-worktrees", base), nil
 }
 
 // defaultRunSliceFn is the production RunSlice wrapper.

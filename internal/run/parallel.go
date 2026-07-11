@@ -168,20 +168,14 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 		return fmt.Errorf("RunParallel: read release board: %w", err)
 	}
 
-	releaseWorktreePath := br.ReleaseWorktreePath
-	if releaseWorktreePath == "" {
-		// Cold-start (eval finding 1): this default now fires ONLY when board.json
-		// genuinely records no worktree path — not unconditionally, as the old
-		// index.md parser did for every current-format release (AC-02). Default to
-		// a REPO-LOCAL path (a <repo>-worktrees sibling) so the engine
-		// self-bootstraps the release worktree below. The track worktrees then
-		// default to siblings of this path (worker.go).
-		releaseWorktreePath = filepath.Join(filepath.Dir(absRoot),
-			filepath.Base(absRoot)+"-worktrees", "release-"+releaseName)
-		fmt.Fprintf(lw, "RunParallel: release_worktree_path unset — defaulting to %s (cold-start)\n", releaseWorktreePath)
-	}
+	// board-v1 is a pure plan (sworn#80): the release worktree path is DERIVED as
+	// a REPO-LOCAL sibling of the repo (<repo>-worktrees/release-<name>), the same
+	// repo-local formula the cold-start default used — now the single always-on
+	// derivation rather than a persisted board.json field (eval finding 3).
+	releaseWorktreePath := board.ReleaseWorktreePathFrom(absRoot, releaseName)
 
-	tracks := trackInfosFromBoardTracks(br.Tracks)
+	// Tracks with DERIVED worktree branch/path (state is not consumed here).
+	tracks := board.DeriveTrackInfos(br.Tracks, absRoot, releaseName, nil)
 	if len(tracks) == 0 {
 		return fmt.Errorf("RunParallel: no tracks found in release board")
 	}
@@ -274,6 +268,21 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 		docShared = nil
 	}
 
+	// ── Blocked-lane collector (S14 AC-05) ──────────────────────────────
+	// Workers report blocked-terminal lanes through the RecordBlocked
+	// side-channel (their TrackResult stays TrackFail — D3); the collector
+	// feeds the exit report so BLOCKED lanes (replan required, blocker
+	// verbatim) render distinctly from FAIL lanes (retries exhausted).
+	var (
+		blockedMu    sync.Mutex
+		blockedLanes []blockedLane
+	)
+	recordBlocked := func(trackID, sliceID, reason string) {
+		blockedMu.Lock()
+		defer blockedMu.Unlock()
+		blockedLanes = append(blockedLanes, blockedLane{Track: trackID, Slice: sliceID, Reason: reason})
+	}
+
 	// ── Fan out per phase ───────────────────────────────────────────────
 	var outcomeMap sync.Map
 	// failCtx propagates cancellation to subsequent phases when any track fails.
@@ -354,6 +363,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 					Oracle:              ora,
 					PauseCh:             pauseEngine.PauseCh(releaseName),
 					MergeTrackFn:        opts.MergeTrackFn,
+					RecordBlocked:       recordBlocked,
 				}
 				// Run on the parent ctx, NOT phaseCtx (#33): a sibling track's
 				// failCancel() must not cancel this track mid-run. Tracks in a
@@ -423,6 +433,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 						Oracle:              ora,
 						PauseCh:             pauseEngine.PauseCh(releaseName),
 						MergeTrackFn:        opts.MergeTrackFn,
+						RecordBlocked:       recordBlocked,
 					}
 					// Run on the parent ctx, NOT phaseCtx (#33): a sibling track's
 					// failCancel() must not cancel this track mid-run. Tracks in a
@@ -472,6 +483,18 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 	}
 
 	if len(failedTracks) > 0 {
+		// S14 AC-05: when any blocked lane exists, the returned error carries
+		// the distinguishing report — BLOCKED lanes (blocker verbatim, routed
+		// to /replan-release) vs FAIL lanes (retries exhausted). cmd/sworn
+		// prints this error and exits non-zero (existing plumbing). When no
+		// blocked lane exists the error stays byte-identical to the legacy
+		// format (protects TestRunParallel_FailureCascade and any caller
+		// matching on it — D5).
+		if len(blockedLanes) > 0 {
+			report := renderBlockedVsFailReport(releaseName, blockedLanes, failedTracks)
+			fmt.Fprintln(lw, report)
+			return fmt.Errorf("%s", report)
+		}
 		return fmt.Errorf("RunParallel: %d track(s) failed: %s",
 			len(failedTracks), strings.Join(failedTracks, ", "))
 	}
@@ -496,27 +519,53 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 	return nil
 }
 
+// blockedLane records one blocked-terminal lane reported by a worker through
+// the RecordBlocked side-channel (S14): the owning track, the slice whose
+// dispatch/verdict was blocked, and the blocker text verbatim.
+type blockedLane struct {
+	Track  string
+	Slice  string
+	Reason string
+}
+
+// renderBlockedVsFailReport builds the S14 AC-05 exit report: BLOCKED lanes
+// with the verbatim blocker and an explicit route-to-/replan-release
+// directive, then FAIL lanes (retries exhausted). A failed track with a
+// blocked record renders as a BLOCKED lane; the remaining failed tracks are
+// FAIL lanes. The blocker text is emitted verbatim — no summarisation, no
+// truncation (R-03).
+func renderBlockedVsFailReport(releaseName string, blockedLanes []blockedLane, failedTracks []string) string {
+	blockedSet := make(map[string]bool, len(blockedLanes))
+	for _, bl := range blockedLanes {
+		blockedSet[bl.Track] = true
+	}
+	var failLanes []string
+	for _, tid := range failedTracks {
+		if !blockedSet[strings.TrimSuffix(tid, " (no outcome)")] {
+			failLanes = append(failLanes, tid)
+		}
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "RunParallel: %d lane(s) BLOCKED (replan required), %d track(s) failed",
+		len(blockedLanes), len(failLanes))
+	b.WriteString("\nBLOCKED lanes — terminal for this run; route to /replan-release:")
+	for _, bl := range blockedLanes {
+		fmt.Fprintf(&b, "\n  [%s] %s: %s", bl.Track, bl.Slice, bl.Reason)
+		fmt.Fprintf(&b, "\n      -> /replan-release %s", releaseName)
+	}
+	if len(failLanes) > 0 {
+		b.WriteString("\nFAIL lanes — retries exhausted:")
+		for _, tid := range failLanes {
+			fmt.Fprintf(&b, "\n  [%s]", tid)
+		}
+	}
+	return b.String()
+}
+
 // trackInfosFromBoardTracks converts board.json BoardTrack records into the
 // board.TrackInfo shape the scheduler and router consume. Kept local to
 // internal/run rather than added to internal/board because internal/board is
-// T1-drift-guard's exclusive touchpoint this release — this is a field-for-field
-// copy, not new shared-library surface. DependsOn narrows board.StringList to a
-// plain []string.
-func trackInfosFromBoardTracks(bts []board.BoardTrack) []board.TrackInfo {
-	tis := make([]board.TrackInfo, len(bts))
-	for i, bt := range bts {
-		tis[i] = board.TrackInfo{
-			ID:             bt.ID,
-			Slices:         bt.Slices,
-			DependsOn:      []string(bt.DependsOn),
-			WorktreePath:   bt.WorktreePath,
-			WorktreeBranch: bt.WorktreeBranch,
-			State:          bt.State,
-		}
-	}
-	return tis
-}
-
 // ProductionMergeTrack merges a track branch into the release worktree.
 // Called from finishTrack when MergeTrackFn is wired in WorkerOptions.
 //

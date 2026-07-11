@@ -1,15 +1,17 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-  "schema_version": 1,
   "slice_id": "S02-tui-oracle-migration",
   "release": "2026-07-01-render-drift-reconciliation",
   "user_outcome": "The sworn TUI board actually renders tracks and slices for any current-format release (the originally reported bug); the blocked-slice view resolves the real per-track worktree path and reads violations from proof.json instead of a stale, silently-wrong fallback.",
   "rationale": "internal/tui/board.go's LoadBoard hand-parses index.md frontmatter for a tracks: YAML key that sworn render's current output never emits (tracks moved to a Markdown table) — silently renders zero tracks, no error. internal/tui/blocked.go's LoadBlockedView has the same frontmatter parse for worktree_path (silently falls back to repoRoot instead of the real path) and its own ExtractViolations regex-scrapes proof.md sections instead of reading proof.json.not_delivered (already a clean string array). Both files migrate to internal/board's already-correct oracle/BoardRecord machinery. The existing test (tui_test.go TestBoardViewShowsSlices) hand-writes its own pre-migration-shape index.md fixture directly in the test source rather than generating one via sworn render — this is why the bug shipped undetected; fixtures must be regenerated from real render output.",
-  "covers_needs": ["N-01", "N-03"],
+  "covers_needs": [
+    "N-01",
+    "N-03"
+  ],
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "Two files' data-loading functions rewired to an already-correct reader, plus regenerating hand-authored test fixtures in tui_test.go to match real sworn render output. No new logic invented, but touches live BoardView/BlockedView struct shapes consumed elsewhere in the tui package.",
     "confirmed_by_implementer": false
   },
@@ -21,45 +23,40 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When `BoardView.LoadBoard` is called for a release with a committed `board.json`, it SHALL populate `Tracks` and `Slices` by reading `board.json` (via `internal/board`'s existing reader) instead of parsing `index.md` frontmatter."
+      "text": "When `BoardView.LoadBoard` is called for a release with a committed `board.json`, it SHALL populate `Tracks` and `Slices` by reading `board.json` (via `internal/board`'s existing reader) instead of parsing `index.md` frontmatter.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-02",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When `LoadBlockedView` resolves a track's worktree path, it SHALL read it from `board.json` via the same reader, not from `index.md` frontmatter's `worktree_path` key."
+      "text": "When `LoadBlockedView` resolves a track's worktree path, it SHALL read it from `board.json` via the same reader, not from `index.md` frontmatter's `worktree_path` key.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-03",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When `LoadBlockedView`'s `ExtractViolations` needs a slice's not-delivered items, it SHALL read `proof.json`'s `not_delivered` array directly instead of regex-scraping `proof.md` sections."
+      "text": "When `LoadBlockedView`'s `ExtractViolations` needs a slice's not-delivered items, it SHALL read `proof.json`'s `not_delivered` array directly instead of regex-scraping `proof.md` sections.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-04",
-      "type": "unwanted",
-      "ears_keyword": "If",
-      "text": "`internal/tui/tui_test.go`'s `TestBoardViewShowsSlices` (and any sibling test using a hand-written `index.md` fixture with the legacy `tracks:` YAML shape) SHALL be regenerated to build its fixture via the real `sworn render`/`internal/board` render path, not a hand-authored string literal — closing the exact Reachability Gate gap that let this bug ship undetected."
+      "text": "`internal/tui/tui_test.go`'s `TestBoardViewShowsSlices` (and any sibling test using a hand-written `index.md` fixture with the legacy `tracks:` YAML shape) SHALL be regenerated to build its fixture via the real `sworn render`/`internal/board` render path, not a hand-authored string literal — closing the exact Reachability Gate gap that let this bug ship undetected.",
+      "ears_pattern": "unwanted-behaviour"
     },
     {
       "id": "AC-05",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "Reachability artefact: with this fix applied, launching the TUI (`sworn` with no args or `sworn top`), selecting any release with a `board.json` (e.g. `2026-06-30-sworn-operational-readiness`), and pressing enter SHALL show its real tracks and slice states in the board pane — captured as a terminal screenshot or recorded session, not just a passing unit test."
+      "text": "Reachability artefact: with this fix applied, launching the TUI (`sworn` with no args or `sworn top`), selecting any release with a `board.json` (e.g. `2026-06-30-sworn-operational-readiness`), and pressing enter SHALL show its real tracks and slice states in the board pane — captured as a terminal screenshot or recorded session, not just a passing unit test.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-06",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "Releases with no `board.json` (genuinely pre-migration) SHALL continue to render via the existing legacy fallback — this slice does not regress support for them."
+      "text": "Releases with no `board.json` (genuinely pre-migration) SHALL continue to render via the existing legacy fallback — this slice does not regress support for them.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-07",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "After the change, `go build ./...` SHALL succeed and `go test ./internal/tui/...` SHALL pass."
+      "text": "After the change, `go build ./...` SHALL succeed and `go test ./internal/tui/...` SHALL pass.",
+      "ears_pattern": "ubiquitous"
     }
-  ]
+  ],
+  "in_scope": [],
+  "out_of_scope": []
 }

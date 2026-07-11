@@ -1,6 +1,5 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-  "schema_version": 1,
   "slice_id": "S08-honest-cost-telemetry",
   "release": "2026-06-28-driver-contract",
   "track": "T4-resolution-loop",
@@ -54,33 +53,28 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "The two pricing surfaces (internal/model/pricing.go Pricing/ComputeCost and internal/model/client.go PriceForModel/ComputeCostFromTokens) SHALL be unified into one registry with one lookup path; the flat-rate computeCost (internal/agent/agent.go:182) and computeAgenticCost (internal/verify/verify.go:246) SHALL be deleted; TestPricingUnified asserts every model from either legacy table resolves to exactly one rate."
+      "text": "The two pricing surfaces (internal/model/pricing.go Pricing/ComputeCost and internal/model/client.go PriceForModel/ComputeCostFromTokens) SHALL be unified into one registry with one lookup path; the flat-rate computeCost (internal/agent/agent.go:182) and computeAgenticCost (internal/verify/verify.go:246) SHALL be deleted; TestPricingUnified asserts every model from either legacy table resolves to exactly one rate.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-02",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When an in-process driver dispatch completes, Result.CostUSD SHALL be computed from the CONFIRMED response model-id (not the requested string) and the true input/output token split via the unified pricing registry, with CostSource=\"pricing-table\"; when the provider itself reports a cost (Anthropic resp.CostUSD), that figure SHALL be carried with CostSource=\"provider\" instead of recomputed."
+      "text": "When an in-process driver dispatch completes, Result.CostUSD SHALL be computed from the CONFIRMED response model-id (not the requested string) and the true input/output token split via the unified pricing registry, with CostSource=\"pricing-table\". The CostSource=\"provider\" vocabulary and its Result-envelope plumbing SHALL exist as a named constant with a contract test, reserved for a driver whose wired client genuinely returns a provider-reported billing figure — no currently-wired client does (the Anthropic client is judge-only and not on the loop path), so NO live dispatch path claims CostSource=\"provider\" in this slice; emitting it from a computed or inferred figure is a spec violation (amended by Coach decision 2026-07-10, S08 review pin 2: the verifier grades reachable behaviour, and a provider-reported figure is never fabricated).",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-03",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When a subprocess CLI dispatch reports its own cost (claude-cli total_cost_usd), Result SHALL carry it with CostSource=\"cli\"; when a subscription-covered CLI reports 0 by design, the record SHALL show CostUSD=0 with CostSource=\"subscription\" — never a fabricated API-equivalent price."
+      "text": "When a subprocess CLI dispatch reports its own cost (claude-cli total_cost_usd), Result SHALL carry it with CostSource=\"cli\"; when a subscription-covered CLI reports 0 by design, the record SHALL show CostUSD=0 with CostSource=\"subscription\" — never a fabricated API-equivalent price.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-04",
-      "type": "unwanted",
-      "ears_keyword": "If",
-      "text": "If no pricing entry exists for a confirmed model-id, CostUSD SHALL be recorded as 0 with CostSource=\"unknown\" (fail-closed honesty) and a warning logged naming the model — never a guessed or defaulted rate."
+      "text": "If no pricing entry exists for a confirmed model-id, CostUSD SHALL be recorded as 0 with CostSource=\"unknown\" (fail-closed honesty) and a warning logged naming the model — never a guessed or defaulted rate.",
+      "ears_pattern": "unwanted-behaviour"
     },
     {
       "id": "AC-05",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "state.Dispatch SHALL persist cost_source (additive, omitempty) alongside the existing DurationMS/InputTokens/OutputTokens/ModelIDConfirmed fields; a written status.json containing dispatches SHALL validate against slice-status-v1; `go test ./internal/model/... ./internal/agent/... ./internal/state/... ./internal/run/...` SHALL pass."
+      "text": "state.Dispatch SHALL persist cost_source (additive, omitempty) alongside the existing DurationMS/InputTokens/OutputTokens/ModelIDConfirmed fields; a written status.json containing dispatches SHALL validate against slice-status-v1; `go test ./internal/model/... ./internal/agent/... ./internal/state/... ./internal/run/...` SHALL pass.",
+      "ears_pattern": "ubiquitous"
     }
   ]
 }

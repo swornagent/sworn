@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/spec"
 )
 
 func TestWriteSpecRecord_ParsesSpecAndWritesJSON(t *testing.T) {
@@ -81,9 +82,6 @@ The system writes spec.json with ACs and covers_needs.
 	if rec.Schema != baton.SpecSchemaURI {
 		t.Errorf("$schema = %q, want %q", rec.Schema, baton.SpecSchemaURI)
 	}
-	if rec.SchemaVersion != 1 {
-		t.Errorf("schema_version = %d, want 1", rec.SchemaVersion)
-	}
 	if rec.SliceID != "S15-test-slice" {
 		t.Errorf("slice_id = %q, want S15-test-slice", rec.SliceID)
 	}
@@ -92,6 +90,14 @@ The system writes spec.json with ACs and covers_needs.
 	}
 	if !strings.Contains(rec.UserOutcome, "writes spec.json") {
 		t.Errorf("user_outcome = %q, want text about spec.json", rec.UserOutcome)
+	}
+	// in_scope/out_of_scope are scraped from the spec.md sections and must be
+	// present (v0.10.0 spec-v1 requires them as arrays).
+	if len(rec.InScope) != 1 || rec.InScope[0] != "Write spec.json" {
+		t.Errorf("in_scope = %v, want [Write spec.json]", rec.InScope)
+	}
+	if len(rec.OutOfScope) != 1 || rec.OutOfScope[0] != "N/A" {
+		t.Errorf("out_of_scope = %v, want [N/A]", rec.OutOfScope)
 	}
 	if len(rec.AcceptanceCriteria) != 2 {
 		t.Fatalf("acceptance_criteria length = %d, want 2", len(rec.AcceptanceCriteria))
@@ -102,9 +108,6 @@ The system writes spec.json with ACs and covers_needs.
 	if !strings.Contains(rec.AcceptanceCriteria[0].Text, "write spec.json") {
 		t.Errorf("AC[0].text = %q, want text about spec.json", rec.AcceptanceCriteria[0].Text)
 	}
-	if rec.AcceptanceCriteria[0].EARSKeyword != "When" {
-		t.Errorf("AC[0].ears_keyword = %q, want When", rec.AcceptanceCriteria[0].EARSKeyword)
-	}
 	if !strings.Contains(rec.AcceptanceCriteria[1].Text, "covers_needs") {
 		t.Errorf("AC[1].text = %q, want text about covers_needs", rec.AcceptanceCriteria[1].Text)
 	}
@@ -113,6 +116,106 @@ The system writes spec.json with ACs and covers_needs.
 	}
 	if rec.CoversNeeds[0] != "N-04" || rec.CoversNeeds[1] != "N-08" {
 		t.Errorf("covers_needs = %v, want [N-04 N-08]", rec.CoversNeeds)
+	}
+}
+
+// TestWriteSpecRecord_RoundTripValidatesStrictSchema is the AC-03 writer→reader
+// round trip: WriteSpecRecord's output must conform to the strict vendored
+// v0.10.0 spec-v1 schema (draft-2020-12, additionalProperties:false), and the
+// read side (internal/spec.ReadRecord) must parse and expose the in_scope /
+// out_of_scope boundary the writer emitted. A conformant record carries NO
+// schema_version and NO AC type/ears_keyword (all forbidden by the strict
+// schema) and DOES carry in_scope/out_of_scope as arrays. This is the round
+// trip the prior read-path-only normalise test never exercised.
+func TestWriteSpecRecord_RoundTripValidatesStrictSchema(t *testing.T) {
+	dir := t.TempDir()
+
+	specMD := `# Slice: S21-round-trip
+
+## User outcome
+
+The writer emits a spec.json that conforms to strict v0.10.0 spec-v1.
+
+## In scope
+
+- Emit in_scope and out_of_scope
+- Drop schema_version and AC type/ears_keyword
+
+## Acceptance checks
+
+- [ ] WHEN WriteSpecRecord runs, the record SHALL validate against spec-v1 (N-12)
+
+## Out of scope
+
+- Migrating live records
+`
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte(specMD), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	status := `{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S21-round-trip",
+  "release": "2026-06-28-driver-contract",
+  "state": "in_progress",
+  "covers_needs": ["N-12"],
+  "verification": {"result": "pending"}
+}`
+	if err := os.WriteFile(filepath.Join(dir, "status.json"), []byte(status), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := WriteSpecRecord(filepath.Join(dir, "spec.md"), filepath.Join(dir, "status.json"), dir); err != nil {
+		t.Fatalf("WriteSpecRecord: %v", err)
+	}
+
+	written, err := os.ReadFile(filepath.Join(dir, "spec.json"))
+	if err != nil {
+		t.Fatalf("read written spec.json: %v", err)
+	}
+
+	// The written record must conform to the STRICT vendored v0.10.0 spec-v1
+	// schema — no normalise shim on the write path, so the writer's own output
+	// is the thing under test (unlike the read-path normalise fixture test).
+	if err := baton.ValidateSchema("spec-v1", written); err != nil {
+		t.Fatalf("written spec.json does not conform to strict spec-v1: %v\npayload: %s", err, written)
+	}
+
+	// The retired fields must be absent by key (additionalProperties:false makes
+	// their presence a strict-validation failure; assert directly for a clear
+	// signal on the flagged fields).
+	var raw map[string]interface{}
+	if err := json.Unmarshal(written, &raw); err != nil {
+		t.Fatalf("re-parse written spec.json: %v", err)
+	}
+	if _, ok := raw["schema_version"]; ok {
+		t.Error("written spec.json still carries schema_version")
+	}
+	if acs, ok := raw["acceptance_criteria"].([]interface{}); ok {
+		for i, a := range acs {
+			am, _ := a.(map[string]interface{})
+			if _, ok := am["type"]; ok {
+				t.Errorf("acceptance_criteria[%d] still carries type", i)
+			}
+			if _, ok := am["ears_keyword"]; ok {
+				t.Errorf("acceptance_criteria[%d] still carries ears_keyword", i)
+			}
+		}
+	}
+
+	// Writer → reader round trip: the read side parses and EXPOSES the boundary.
+	rec, err := spec.ReadRecord(dir)
+	if err != nil {
+		t.Fatalf("spec.ReadRecord: %v", err)
+	}
+	if rec == nil {
+		t.Fatal("spec.ReadRecord returned nil record")
+	}
+	if len(rec.InScope) != 2 {
+		t.Errorf("reader in_scope = %v, want 2 items", rec.InScope)
+	}
+	if len(rec.OutOfScope) != 1 || rec.OutOfScope[0] != "Migrating live records" {
+		t.Errorf("reader out_of_scope = %v, want [Migrating live records]", rec.OutOfScope)
 	}
 }
 
