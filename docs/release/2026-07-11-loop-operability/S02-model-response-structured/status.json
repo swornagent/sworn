@@ -3,7 +3,7 @@
   "slice_id": "S02-model-response-structured",
   "release": "2026-07-11-loop-operability",
   "track": "T1-conformance",
-  "state": "planned",
+  "state": "design_review",
   "covers_needs": [
     "N-02"
   ],
