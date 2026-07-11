@@ -173,6 +173,21 @@ and not part of either violation. Editing another slice's record would be
 scope-creep; left untouched. The AC-05 requirement is the render-drift guard,
 which is clean for all five.
 
+### First-pass gate (`sworn verify`) — known false-positive, not a real gate fail
+- Model-backed path: `sworn verify` exits 2 (`SWORN_ANTHROPIC_API_KEY not set`) —
+  no verifier API key in this environment; the canonical Rule-7 gate is the
+  fresh-context `/verify-slice`, which re-runs tests independently (as round 1 did).
+- Deterministic first-pass (`RunFirstPass`, no model dispatch): returns
+  `FAIL failed_gate=boundary_mock` on FOUR hits — all sworn#87 prose
+  false-positives: they are acceptance-criterion TEXT in migrated spec.json
+  records (S02 AC-01 "...TestClaudeDispatchImplementer proves this with a fake
+  claude binary..."; S06/S07 "...a scheduler test with a fake driver that fails
+  after N dispatches..."), re-emitted into the diff by the AC-07 type->ears_pattern
+  reshape — NOT mock code, and NOT in this round's remediation files. The round-1
+  fresh verifier saw the same content and correctly did not cite boundary_mock
+  (its only findings were AC-05 + proof.json, both now fixed). The scanner regexes
+  `fake` near a boundary word (`auth`/`entitlement`) in prose; tracked sworn#87.
+
 ### Terminal state
 `implemented`. Proof bundle: `proof.json` (AC-05 evidence regenerated from live
 repo state). Ready for fresh-context verification.
