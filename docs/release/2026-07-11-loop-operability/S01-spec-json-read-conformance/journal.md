@@ -67,3 +67,45 @@ proof.json `divergence`.
   intake.md; ACs do not cite needs inline) — a planner concern, independent of
   S01's spec-read scope, not a regression. Left for /replan-release or a planner
   pass on intake.md.
+
+## Verifier verdicts received
+
+### 2026-07-12 — PASS (fresh-context /verify-slice)
+
+Verified against track HEAD 83fce7f (track/2026-07-11-loop-operability/T1-conformance).
+Fresh-context, artefact-only session; no implementer context loaded.
+
+All seven gates passed:
+- Gate 1 (user-reachable outcome): implement.Run via RunSlice — the `sworn run --parallel`
+  per-slice engine path — reads spec.json on a spec.json-only slice. AC-05 reachability test
+  TestRunSlice_SpecJSONOnly_ReachesImplement drives RunSlice end-to-end and reaches implement
+  with the spec.md-missing error asserted absent (the sworn#97 dogfood failure, now cleared).
+- Gate 2 (touchpoints): 13 declared touchpoints migrated; the two extra changed files
+  (internal/run/slice.go sibling, internal/spec/spec.go shared primitive) are surfaced in
+  proof.json divergence with Rule 2 justification; implement_test.go's coverage delivered via
+  the new spec_json_read_test.go (same package). No unexplained churn.
+- Gate 3 (tests exercise integration point): all named tests re-run green in this session —
+  TestRun_SpecJSONOnly_ReadsSpecJSON / _SpecJSONAuthoritative_OverSpecMD / _SpecMDLegacyFallback
+  / _PlannerSpecJSON_ByteUnchanged (AC-01/02/03), TestRunSlice_SpecJSONOnly_ReachesImplement
+  (AC-05), TestBuild_SpecJSONOnly_GoldenThread (AC-06), TestSetupSlice_WritesSpecJSON. Strong
+  assertions driving the integration points, not leaf-only.
+- Gate 3b/4b (LLM checks): no SWORN_ANTHROPIC_API_KEY — non-blocking skip; this fresh-context
+  pass is the model-backed adversarial check.
+- Gate 4 (reachability): spec_json_reach_test.go names the parallel-loop per-slice gesture and
+  matches the spec outcome; corroborated live by the worktree-built binary —
+  `sworn specquality 2026-07-11-loop-operability` PASS on S01/S02/S03 and `sworn lint ac` reading
+  all 6 S01 ACs from spec.json (Violations: none). (The ambient PATH binary is stale and FAILs
+  specquality — the stale-binary hazard; verified against a binary built from this worktree.)
+- Gate 5 (no silent deferrals): no TODO/FIXME/placeholder in added lines; the one not_delivered
+  item (model-backed sworn verify/llm-check, no API key) carries why+tracking(verifier handoff)
+  +acknowledgement. gofmt/vet clean; newline-eating-corruption grep clean.
+- Gate 6 (design conformance): backend engine slice, non-UI — n/a.
+- Gate 7 (scope match): every delivered item maps to a passing test / real artefact.
+
+Full `go test -count=1 -timeout 300s ./...` re-run green (0 failures). AC-04 single shared
+precedence helper confirmed: spec.LoadSpec / spec.SpecFilePath / spec.RenderMarkdown /
+spec.ReadRecord is the one implementation; all 13 read sites route through it, no N-copy
+duplication. AC-03 R-02 guard confirmed: WriteSpecRecord validates (does not regenerate) an
+existing spec.json; byte-equality test passes.
+
+Next: /implement-slice S02-model-response-structured 2026-07-11-loop-operability (next slice in track T1-conformance).
