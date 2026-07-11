@@ -111,3 +111,67 @@ not a proof-bundle failure. The deterministic evidence above stands; the canonic
 Rule-7 verification is the separate fresh-context `/verify-slice` session.
 `release-verify.sh` would also false-FAIL "spec.md missing" on this spec-v1 slice
 (Captain Pin 7) — a spec.md was deliberately NOT manufactured.
+
+## Verifier verdicts received
+
+### 2026-07-11 — FAIL (fresh-context /verify-slice, Rule 7)
+
+Verified against `df08667` (`start_commit..HEAD` = the two feat commits `64503ae`,
+`df08667`). Full suite re-run by the verifier: `go test -count=1 -timeout 300s ./...`
+= 47 pkgs ok, 0 FAIL; `go build ./...` ok; `gofmt -l` clean; `go vet ./...` exit 0;
+newline-eating-corruption sweep clean.
+
+**What passed** (re-verified independently): AC-01 (VERSION pins v0.10.0 @ a5ab2aa,
+digest sha256:68cae03…; both embed roots byte-identical to the tag — all 9 vendored
+schemas + all 11 rule docs + README.md + architecture.json diff-clean vs
+`baton@v0.10.0`; `sworn doctor` prints "on Baton v0.10.0"); AC-02 (Quadrant
+quick/beast; Validate strictly strict — TestQuadrant asserts Validate rejects
+retired 'chore'); AC-04 (acknowledged_by round-trips via state.go marshal/unmarshal);
+AC-06 + Pin-1 (TestWriteBoard_RoundTrip: a freshly-written board.json is pure-plan
+$schema/release/tracks only and passes strict ValidateSchema("board-v1");
+TestReadBoard_NormalisesLegacyOnDisk proves the shim strips release-level
+release_worktree_path/branch + track worktree/state); AC-07/D2 (derive.go uses the
+sibling-of-repo path logic, not the naive $HOME formula, + IsAncestor for state —
+`sworn board` derives T7=in_progress, T1–T6/T8=merged live, EXIT 0); AC-08 (vendored
+rules/ carries 11 numbered docs, no implement-slice.md/merge-track.md; BoardTrack no
+longer holds worktree/state); AC-09 (`sworn board` reports unmerged slices from
+status.json via oracle); AC-10/AC-11 (contracts-v1 + assembly-proof-v1 byte-identical
+to the tag, embedded advisory-only); scrutiny-5 (`sworn designfit` DESIGNFIT PASS
+EXIT 0 over 15 un-migrated records via the shim).
+
+**Why FAIL — AC-03 not satisfied.** The spec writer emits neither in_scope nor
+out_of_scope, the reader parses neither, and no writer-to-reader round-trip test
+validates against the vendored v0.10.0 spec-v1:
+
+1. Writer `internal/implement/spec_record.go` (specRecord/WriteSpecRecord) has no
+   in_scope/out_of_scope fields, still emits `schema_version:1` and
+   `acceptance_criteria[].type/ears_keyword`, and validates only against the lax
+   hand-rolled `baton.Validate` (validator.go `validateSpec` still REQUIRES
+   `schema_version==1`). Its output does not conform to strict v0.10.0 spec-v1
+   (additionalProperties:false forbids schema_version + AC type/ears_keyword and
+   requires in_scope/out_of_scope).
+2. Reader `internal/spec/spec.go` `Record` struct has no InScope/OutOfScope — it does
+   not parse or expose the fields.
+3. No writer→reader round-trip test validates against v0.10.0 spec-v1. The
+   `internal/baton/normalise_test.go` spec case runs Normalise over a hand-authored
+   fixture (which already contains in_scope/out_of_scope); it never exercises
+   WriteSpecRecord, and spec-v1 is not normalised on any production read path
+   (Normalise is wired only for slice-status-v1 and board-v1).
+4. Gate 2 + Gate 7: all four AC-03 touchpoints (internal/spec/spec.go +
+   spec_test.go, internal/implement/spec_record.go + spec_record_test.go) are
+   UNCHANGED since `start_commit`, yet proof.json `delivered` claims
+   "AC-03: internal/implement/spec_record.go writer emits in_scope/out_of_scope +
+   drops schema_version + drops AC type/ears_keyword" — an overclaim contradicted by
+   the unchanged file, not surfaced in `not_delivered`.
+
+This is a **legal implementer fix** (satisfiable within the listed touchpoints and
+the prescribed round-trip-test shape), so the verdict is **FAIL**, not BLOCKED:
+add in_scope/out_of_scope to the writer (empty arrays min; the test spec.md already
+carries `## In scope`/`## Out of scope`) and make its output conform to strict
+v0.10.0 spec-v1; add the fields to internal/spec.Record and expose them; add a
+round-trip test asserting `baton.ValidateSchema("spec-v1", written)` passes.
+Planner note (does not change the FAIL): AC-03 labels internal/spec the "writer" and
+spec_record.go the "reader", but the code has these reversed.
+
+**Next step:** `/implement-slice S11-baton-revendor 2026-06-28-driver-contract` in a
+fresh session to address the numbered violations.

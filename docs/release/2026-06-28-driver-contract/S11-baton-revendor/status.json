@@ -3,7 +3,7 @@
   "slice_id": "S11-baton-revendor",
   "release": "2026-06-28-driver-contract",
   "track": "T7-baton-revendor",
-  "state": "implemented",
+  "state": "failed_verification",
   "covers_needs": [
     "N-12"
   ],
@@ -90,7 +90,16 @@
     "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "pending"
+    "result": "fail",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-11T08:18:40Z",
+    "violations": [
+      "AC-03 (writer) NOT satisfied: internal/implement/spec_record.go (WriteSpecRecord/specRecord) does not emit in_scope/out_of_scope, still emits schema_version:1 and acceptance_criteria[].type/ears_keyword, and validates only against the lax hand-rolled baton.Validate (validator.go validateSpec REQUIRES schema_version==1). A record produced by WriteSpecRecord therefore does NOT conform to the strict vendored v0.10.0 spec-v1 (additionalProperties:false forbids schema_version + AC type/ears_keyword and REQUIRES in_scope/out_of_scope).",
+      "AC-03 (reader) NOT satisfied: internal/spec/spec.go Record struct has no InScope/OutOfScope fields, so the reader neither parses nor exposes in_scope/out_of_scope.",
+      "AC-03 (round-trip test) NOT satisfied: no writer-to-reader round-trip test validates a spec record against the vendored v0.10.0 spec-v1 schema. internal/baton/normalise_test.go's spec case runs the Normalise shim over a hand-authored testdata fixture (which already contains in_scope/out_of_scope) — it does not exercise WriteSpecRecord's output, and spec-v1 is not normalised on any production read path (baton.Normalise is wired only for slice-status-v1 in state.go and board-v1 in board.go).",
+      "Gate 2 + Gate 7: all four AC-03 touchpoints (internal/spec/spec.go, internal/spec/spec_test.go, internal/implement/spec_record.go, internal/implement/spec_record_test.go) are UNCHANGED since start_commit (4dbd21b), yet proof.json 'delivered' claims 'AC-03: internal/implement/spec_record.go writer emits in_scope/out_of_scope + drops schema_version + drops AC type/ears_keyword' — an overclaim contradicted by the unchanged file; the gap is not surfaced in proof.json not_delivered.",
+      "Required to address (legal implementer fix, all within listed touchpoints + the prescribed test shape): (1) add in_scope/out_of_scope to the spec writer and emit them (empty arrays minimum; the test spec.md already carries '## In scope'/'## Out of scope' sections) and make the written record conform to strict v0.10.0 spec-v1 (drop schema_version + AC type/ears_keyword, reconciling validator.go validateSpec with the byte-identical vendored schema); (2) add in_scope/out_of_scope to internal/spec.Record and expose them; (3) add a writer-to-reader round-trip test asserting baton.ValidateSchema(\"spec-v1\", written) passes. NOTE for planner (does not change the FAIL): AC-03 labels internal/spec the 'writer' and internal/implement/spec_record.go the 'reader', but the code has these roles reversed (internal/spec is read-only, internal/implement/spec_record.go writes)."
+    ]
   },
   "actual_files": [
     "cmd/sworn/merge_test.go",
