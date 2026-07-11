@@ -1,0 +1,22 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S03-xai-driver",
+  "release": "2026-07-11-loop-operability",
+  "track": "T2-xai-driver",
+  "state": "planned",
+  "covers_needs": [
+    "N-03"
+  ],
+  "spec_path": "docs/release/2026-07-11-loop-operability/S03-xai-driver/spec.json",
+  "start_commit": null,
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "See spec.json; re-assess at design_review.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending"
+  }
+}
