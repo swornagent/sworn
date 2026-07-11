@@ -46,7 +46,26 @@ The fired `docs/release/2026-07-10-one-current-position/` release folder, recons
 
 ## Decisions made during planning
 
-_(appended as they land)_
+**2026-07-11 (Brad, Coach):**
+- **A-01 — W3 decomposition = TWO slices.** S01-lint-contracts-registry (schema-validate + wire-ref completeness + live_test resolution + ownership sanity) and S02-lint-contracts-mock-parity (fixture freshness + consumer-mock-import). Mock-parity has distinct git-timestamp + mock-detection logic and its own failure mode; splitting keeps each within the file ceiling and independently verifiable.
+- **A-02 — W4 fired#1168 = scope with explicit dependency, verify at start.** S03-assemble-command is scoped normally; fired#1168 (derive_ports without index.md) is a start-of-implementation verification item and R-01. If unresolved, the board.json-era-without-index.md path is a declared Rule 2 deferral in the assembly proof — the common case (index.md present) ships regardless.
+- **A-03 — Track grouping = TWO parallel tracks.** T1-lint-contracts (S01, S02) and T2-assemble (S03), disjoint touchpoints, no depends_on edge — run in parallel.
+- **A-04 — target_version = continue v0.1.0.** Same integration branch (release/v0.1.0, not yet prod-deployed, can still grow); graders land alongside the contracts they grade. Bump to v0.2.0 at a real prod-cut boundary later.
+
+## Track plan + touchpoint matrix (Phase 3b)
+
+Two tracks, no `depends_on` edge — parallel-safe because their touchpoints are disjoint:
+
+| File / area | T1-lint-contracts (S01, S02) | T2-assemble (S03) |
+|---|---|---|
+| `cmd/sworn/lint.go` | ✅ (contracts subcommand) | — |
+| `internal/lint/contracts.go` (+tests, testdata) | ✅ | — |
+| `cmd/sworn/assemble.go` | — | ✅ (new command) |
+| `internal/assemble/` (new pkg, +tests, testdata) | — | ✅ |
+
+Both tracks add to `cmd/sworn/` but in **different files** (`lint.go` vs a new `assemble.go`) — no shared-file collision. `internal/lint` and `internal/assemble` are disjoint packages. Matrix proves T1 ∥ T2 safe.
+
+Within T1, S01 → S02 is serial (S02 extends S01's `internal/lint/contracts.go`). T2's S03 is a single slice (may split at design_review if the file estimate exceeds the ceiling — flagged in its effort rationale).
 
 ## Screenshots / references
 

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S01-lint-contracts-registry",
+  "release": "2026-07-11-contract-edge-gates",
+  "track": "T1-lint-contracts",
+  "user_outcome": "`sworn lint contracts <release>` grades a release's contracts.json registry, fail-closed: it validates every record against the vendored contracts-v1 schema, flags any spec.json in-scope/AC that names a wire-level artefact (header, endpoint path, env var, schema-version, storage key) with no registry entry, verifies each contract's live_test resolves to a real test, and rejects a surface with two owners or an owner slice whose touchpoints cannot plausibly contain the surface. Absent contracts.json is an advisory warning (exit 0) during the skew window. It follows the existing `sworn lint` subcommand conventions (ac/trace/deps/coverage/design/mock).",
+  "rationale": "W3 registry half of the 2026-07-11 contract-edge step-3 handoff (Rec 1). The vendored contracts-v1 (id/kind/surface/shape/owner required; kind enum of 11; live_test required when consumers non-empty; edge_config required for http-endpoint/header/cookie) landed advisory in the driver-contract release; this slice is its grader. Grounding: sworn already has internal/lint with a subcommand dispatch (ac/trace/deps/touchpoints/symbols/status/coverage/design/mock) and cmd/sworn/lint.go wiring — this adds a `contracts` sibling. The wire-reference scan reuses the trace gate's test_refs resolution for live_test and the spec.json readers already in internal/lint. The proposal's spec-wire-reference heuristics: header names, endpoint paths, env vars matching [A-Z_]{4,}, schemaVersion, storage keys.",
+  "covers_needs": ["N-01"],
+  "in_scope": [
+    "A `contracts` subcommand on the existing `sworn lint` surface (cmd/sworn/lint.go dispatch + internal/lint/contracts.go), following the sibling-subcommand pattern",
+    "Validate every contracts.json record against the vendored contracts-v1 schema (baton.ValidateSchema) — FAIL on any non-validating record",
+    "Wire-reference completeness: scan each spec.json in-scope + acceptance_criteria text for wire-level artefacts (header names, endpoint paths, env vars [A-Z_]{4,}, schemaVersion tokens, storage keys) and FAIL on any that has no matching contracts.json entry (heuristic set from the proposal, tuned to avoid false positives on prose)",
+    "live_test resolution: FAIL if a contract's live_test does not resolve to a real test (reuse the trace gate's test_refs resolution logic)",
+    "Ownership sanity: FAIL if two contracts name the same surface with different owners, or if an owner slice's touchpoints cannot plausibly contain the surface (e.g. an http-endpoint owned by a slice with no server-side touchpoint)",
+    "Advisory window: absent docs/release/<release>/contracts.json → single WARN, exit 0 (flips to required when this gate ships — coordinated with baton per the skew policy)"
+  ],
+  "out_of_scope": [
+    "Mock-parity checks (fixtures freshness + consumer-mock-import) — S02 owns those",
+    "sworn assemble / assembly-proof (T2)",
+    "Emitting or authoring contracts.json (planner-emitted, baton role-prompt side)",
+    "Changing the vendored contracts-v1 schema (it is fixed upstream; grade against it, never fork under the same $id)"
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "Breadth of fail-closed checks (schema-validate, wire-ref scan, live_test resolution, ownership) over a known shape, in an established lint package following the sibling-subcommand pattern. Breadth not depth. Re-assess at design_review.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    "cmd/sworn/lint.go",
+    "cmd/sworn/lint_test.go",
+    "internal/lint/contracts.go",
+    "internal/lint/contracts_test.go",
+    "internal/lint/testdata/contracts/"
+  ],
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "The wire-reference heuristic over-fires on prose (a spec mentioning a header name in passing), producing false-positive FAILs that erode trust in the gate.",
+      "mitigation": "Tune the heuristics conservatively (the proposal names the token classes); the acceptance corpus (fired pre-S17 release) is the calibration set — it must FAIL on the real seam (CP-PUT with no entry) and PASS on the well-formed baton exemplar registry."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "When `sworn lint contracts <release>` runs against a release whose contracts.json contains a record that does not validate against the vendored contracts-v1 schema, it SHALL exit non-zero naming the record id and the validation failure.",
+      "ears_pattern": "event-driven"
+    },
+    {
+      "id": "AC-02",
+      "text": "When a spec.json in-scope item or acceptance criterion references a wire-level artefact (header name, endpoint path, env var matching [A-Z_]{4,}, schemaVersion, or storage key) that has no matching contracts.json entry, `sworn lint contracts` SHALL exit non-zero naming the slice, the unregistered surface, and the artefact class — proven against the fired 2026-07-10 corpus (S01/S02/S14 with no CP-PUT registry entry → FAIL, seam 1).",
+      "ears_pattern": "event-driven"
+    },
+    {
+      "id": "AC-03",
+      "text": "If a contract's live_test does not resolve to a real test (same resolution as the trace gate's test_refs), OR two contracts name one surface with different owners, OR an owner slice's touchpoints cannot plausibly contain the surface, `sworn lint contracts` SHALL exit non-zero naming the specific violation.",
+      "ears_pattern": "unwanted-behaviour"
+    },
+    {
+      "id": "AC-04",
+      "text": "While a release has no contracts.json file, `sworn lint contracts` SHALL emit a single advisory WARN and exit 0 (the skew-window behaviour), never a hard failure.",
+      "ears_pattern": "state-driven"
+    },
+    {
+      "id": "AC-05",
+      "text": "`sworn lint contracts` SHALL exit 0 with no findings on a well-formed registry (the baton repo's release-mode-template/contracts.json exemplar), and `go build ./...` + `go test ./internal/lint/... ./cmd/sworn/...` SHALL pass.",
+      "ears_pattern": "ubiquitous"
+    }
+  ]
+}
