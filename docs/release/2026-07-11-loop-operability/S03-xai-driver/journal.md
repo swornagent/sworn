@@ -71,3 +71,19 @@ map — each mirroring an existing sibling prefix.
   entry so `CostSource=pricing-table` not `unknown` (AC-04). Exact per-1M rate to
   be re-confirmed against x.ai/api pricing (grok-4.5 may postdate the flagship
   $3/$15 snapshot used here). Spec R-4. Tracked: sworn#99.
+
+## 2026-07-12 — Verifier verdicts received
+
+### PASS (fresh-context verifier, artefact-only)
+All six gates passed against `track/2026-07-11-loop-operability/T2-xai-driver` @ 9c71410 (start 71b0030):
+- Gate 1 (user-reachable outcome): xai/ resolves through the driver registry; `sworn capabilities` and `sworn models` surface it. Re-run live from the worktree binary.
+- Gate 2 (touchpoints): all changed files within plan. Planned `cmd/sworn/capabilities.go` and `cmd/sworn/models.go` were not edited because both surfaces derive dynamically (`registry.Default(...).Drivers()` and `model.CatalogProviderNames()`) — the outcome is delivered without editing them; benign over-estimate, not a dropped deliverable.
+- Gate 3 (tests exercise integration point): TestResolveXAIRoles (registry integration point, all three roles), TestCapabilitiesListsXAI (both key states), TestXAI_ChatStructured_ResponseFormat (ChatStructured via httptest, strict json_schema). All re-run green in fresh window.
+- Gate 4 (reachability): cli-run evidence reproduced live — xai/ available with key, listed+unavailable without, `xai` in valid providers.
+- Gate 5 (no silent deferrals): no markers in changed files; single deferral (exact grok-4.5 pricing) tracked to existing OPEN GitHub issue sworn#99. Minor nit: the `internal/model/xai.go` comment cites sworn#41 (which actually tracks claude-sonnet-5 pricing) — the authoritative deferral surfaces (proof.json/status.json) correctly cite sworn#99. Non-blocking.
+- Gate 6 (design conformance): no design-fidelity config; non-UI backend slice — passes automatically.
+- Gate 7 (claimed scope): each delivered item maps to real, verified code + tests.
+- Divergence D4 (envOrAlias vs SWORN_-only) reviewed: sound realisation of the design's stated intent, consistent with the sibling GoogleKey line; correctness-preserving.
+- Full `go test -count=1 -timeout 300s ./...` re-run: exit 0, all packages PASS. gofmt/vet clean; no newline-eating corruption.
+
+Verdict: PASS. Slice → verified. T2-xai-driver has only this slice → track complete; next `/merge-track T2-xai-driver`.
