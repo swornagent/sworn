@@ -15,6 +15,7 @@ func TestNewClient_OAICompat(t *testing.T) {
 		OpenRouterKey: "or-test",
 		CloudflareKey: "cf-test",
 		GitHubToken:   "gh-test",
+		XAIKey:        "xai-test",
 	}
 
 	tests := []struct {
@@ -31,6 +32,7 @@ func TestNewClient_OAICompat(t *testing.T) {
 		{"openrouter/anthropic/claude-sonnet-4-6", "https://openrouter.ai/api/v1", "or-test"},
 		{"cloudflare/@cf/meta/llama-3", "https://api.cloudflare.com/client/v4/ai/v1", "cf-test"},
 		{"github/gpt-4o", "https://models.inference.ai.azure.com", "gh-test"},
+		{"xai/grok-4.5", "https://api.x.ai/v1", "xai-test"},
 	}
 
 	for _, tt := range tests {
@@ -140,6 +142,26 @@ func TestNewClientOpenAICompletions(t *testing.T) {
 	}
 	if oai.Structured != StructuredResponseFormat {
 		t.Errorf("Structured = %v, want StructuredResponseFormat", oai.Structured)
+	}
+}
+
+// TestNewClient_XAIStructured (S03 AC-03): xai/ resolves to an *OAI in the
+// native strict json_schema structured mode (StructuredResponseFormat) — the
+// mode verifier/captain need — so the declared role set is honest.
+func TestNewClient_XAIStructured(t *testing.T) {
+	v, err := NewClient("xai/grok-4.5", ProviderConfig{XAIKey: "xai-test"})
+	if err != nil {
+		t.Fatalf("NewClient(xai/grok-4.5) error: %v", err)
+	}
+	oai, ok := v.(*OAI)
+	if !ok {
+		t.Fatalf("NewClient(xai/grok-4.5) returned %T, want *OAI", v)
+	}
+	if oai.Structured != StructuredResponseFormat {
+		t.Errorf("Structured = %v, want StructuredResponseFormat", oai.Structured)
+	}
+	if oai.BaseURL != "https://api.x.ai/v1" {
+		t.Errorf("BaseURL = %q, want https://api.x.ai/v1", oai.BaseURL)
 	}
 }
 

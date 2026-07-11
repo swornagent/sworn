@@ -265,7 +265,7 @@ var (
 	responsesPrefixes = []string{"openai"}
 	chatPrefixes      = []string{
 		"openai-completions", "deepseek", "groq", "mistral",
-		"openrouter", "cloudflare", "github", "anthropic",
+		"openrouter", "cloudflare", "github", "anthropic", "xai",
 	}
 )
 
@@ -325,6 +325,8 @@ func keyFor(cfg model.ProviderConfig, prefix string) string {
 		return cfg.GitHubToken
 	case "anthropic":
 		return cfg.AnthropicKey
+	case "xai":
+		return cfg.XAIKey
 	}
 	return ""
 }
