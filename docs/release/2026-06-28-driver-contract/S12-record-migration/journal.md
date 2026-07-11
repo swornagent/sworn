@@ -120,3 +120,59 @@ confirm none of the five are flagged (only the 2 excluded legacy remain); correc
 the proof.json AC-05 evidence. Legal in-spec implementer fix — FAIL, not BLOCKED.
 Board.json left unchanged (pure-plan carries no slice state); index.md left
 un-re-rendered so the drift stands as the AC-05 evidence for the next round.
+
+## 2026-07-11 — Implementer session (round 2: failed_verification → implemented)
+
+Re-entered from `failed_verification` to address EXACTLY the two verifier
+violations. `start_commit` unchanged (71a2954). Reset `verification.result`
+fail → pending on re-entry (the FAIL verdict history stays above).
+
+### Root cause (both violations share one)
+The first pass rendered `docs/release/2026-06-28-driver-contract/index.md` while
+`status.json` still read `in_progress`, then flipped the slice to `implemented`
+WITHOUT re-rendering. `checkRenderDrift` (cmd/sworn/doctor.go) compares the
+committed index.md against `board.Render`, whose Slices-table `State` column is
+read from the on-disk `status.json` (`readSliceRecord` → `os.ReadFile`). So the
+one S12 cell drifted (`in_progress` committed vs `implemented` rendered). The
+Tracks-table state is git-ref-derived (`DeriveTrackState` → `in_progress` for
+T7, not an ancestor of release-wt), stable across my commits, so it was NOT part
+of the drift — the diagnostic render diff showed a single changed line.
+
+### Fix (legal, in-spec — FAIL not BLOCKED)
+1. **AC-05 / Violation 1.** Set `status.json` → `implemented`, then
+   `sworn render 2026-06-28-driver-contract` (freshly-built binary). The ONLY
+   index.md change is the S12 State cell `in_progress` → `implemented` (quadrant
+   `grind` already correct). Live `sworn doctor` render-drift now reports
+   `2 of 7` — flagging ONLY the two excluded legacy releases
+   (2026-06-19-safe-parallelism: missing S01 spec.json; 2026-06-27-conformance-
+   foundation: bare-string board.json). None of the five spec-v1-era releases
+   drift. Render is idempotent (index.md md5 96cf8795 stable across a 2nd render).
+2. **Rule 6 / Violation 2.** Corrected proof.json `reachability.evidence` and
+   `delivered[AC-05]` to the live `sworn doctor` result (2 legacy only, not the
+   five) instead of the stale recalled claim; added journal.md to files_changed;
+   updated the board test_result ref to S12 `implemented`.
+
+### Live evidence (this session, freshly-built binary)
+- Full `go test -count=1 -timeout 300s ./...` → exit 0, 47 packages ok, 0 FAIL/
+  panic (doc-only remediation; no Go delta).
+- `bash scripts/migrate-records.sh docs/release` → idempotent no-op (processed 5
+  spec-v1-era, skipped legacy, "all postconditions satisfied"); git clean after.
+- `sworn lint ac 2026-06-28-driver-contract` → 82 ACs well-formed EARS,
+  Violations: none; ubiquitous 41 / event-driven 29 / state-driven 1 /
+  unwanted-behaviour 11 (NOT all-Ubiquitous — AC-07/sworn#95 preserved).
+- `sworn designfit 2026-06-28-driver-contract` → PASS, 15 slices, all gates clear.
+- `sworn render` on driver-contract idempotent (md5 stable).
+
+### Out of scope (NOT touched — Rule 11 / role boundary)
+`sworn doctor` Group 2b still reports status-timestamp findings. Almost all are
+in the two excluded legacy releases (accepted, Coach 2026-07-10). One is
+`2026-06-28-driver-contract/S08-honest-cost-telemetry` (last_updated_at
+2026-07-11T14:46:03Z reads ~future against this session's wall clock) — a
+different, already-`verified` slice and a clock-skew artefact, not an S12 record
+and not part of either violation. Editing another slice's record would be
+scope-creep; left untouched. The AC-05 requirement is the render-drift guard,
+which is clean for all five.
+
+### Terminal state
+`implemented`. Proof bundle: `proof.json` (AC-05 evidence regenerated from live
+repo state). Ready for fresh-context verification.

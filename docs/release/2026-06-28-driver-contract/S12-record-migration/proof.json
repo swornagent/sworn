@@ -21,6 +21,8 @@
     "docs/release/2026-06-28-driver-contract/S11-baton-revendor/status.json",
     "docs/release/2026-06-28-driver-contract/S12-record-migration/spec.json",
     "docs/release/2026-06-28-driver-contract/S12-record-migration/status.json",
+    "docs/release/2026-06-28-driver-contract/S12-record-migration/journal.md",
+    "docs/release/2026-06-28-driver-contract/S12-record-migration/proof.json",
     "docs/release/2026-06-28-driver-contract/S13-regress-go-module-cwd/spec.json",
     "docs/release/2026-06-28-driver-contract/S13-regress-go-module-cwd/status.json",
     "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/spec.json",
@@ -128,12 +130,12 @@
       "command": "sworn board --release 2026-06-28-driver-contract",
       "passed": true,
       "exit_code": 0,
-      "output_ref": "board renders; S12 in_progress; oracle reads the migrated pure-plan board.json"
+      "output_ref": "board renders; S12 implemented; oracle reads the migrated pure-plan board.json"
     }
   ],
   "reachability": {
     "type": "cli-run",
-    "evidence": "AC-07 sworn#95 reachability (freshly-built binary): `sworn lint ac 2026-06-28-driver-contract` over the MIGRATED records classifies ubiquitous=41, event-driven=29, state-driven=1, unwanted-behaviour=11, total=82 \u2014 NOT the all-Ubiquitous(82) degradation the stale ears_keyword reader produced. Proves the type->ears_pattern migration + the ears.go reader repoint preserve EARS classification end-to-end. Backed by TestRecordsConformance_EARSClassificationPreserved (asserts event-driven>0 and unwanted-behaviour>0 on the real migrated release). Render reachability (AC-05): `sworn render` on the five is idempotent (md5 stable) and `sworn doctor` render-drift flags only the 2 excluded legacy releases, not the five."
+    "evidence": "AC-07 sworn#95 reachability (freshly-built binary): `sworn lint ac 2026-06-28-driver-contract` over the MIGRATED records classifies ubiquitous=41, event-driven=29, state-driven=1, unwanted-behaviour=11, total=82 \u2014 NOT the all-Ubiquitous(82) degradation the stale ears_keyword reader produced. Proves the type->ears_pattern migration + the ears.go reader repoint preserve EARS classification end-to-end. Backed by TestRecordsConformance_EARSClassificationPreserved (asserts event-driven>0 and unwanted-behaviour>0 on the real migrated release). Render reachability (AC-05, re-verified live 2026-07-11 after re-rendering driver-contract's index.md at the slice's committed `implemented` state): `sworn render` on all five is idempotent (driver-contract index.md md5 96cf8795 stable across a second render). Live `sworn doctor` render-drift now reports `2 of 7 board.json-backed release(s) drifted or failed to render` — flagging ONLY the two excluded legacy releases (2026-06-19-safe-parallelism: missing S01-process-ownership spec.json; 2026-06-27-conformance-foundation: bare-string board.json). None of the five spec-v1-era releases (driver-contract included) drift. The first pass had rendered driver-contract's committed index.md at `in_progress` while the slice's committed state advanced to `implemented`; this re-render clears that single-cell drift (quadrant `grind` was already correct)."
   },
   "delivered": [
     {
@@ -153,8 +155,8 @@
       "evidence": "internal/baton/normalise.go + normalise_test.go + testdata/normalise/ deleted; state.go/board.go call sites removed; 0 baton.Normalise references; TestReadRejectsRetiredQuadrant; go test ./internal/state/... exit 0 (sworn#90 closed)"
     },
     {
-      "item": "AC-05: index.md re-rendered for the five spec-v1-era releases (E-by-C shows migrated quadrants); drift guard clean",
-      "evidence": "5 index.md re-rendered (0 chore/epic tokens, was 6/6/3/2/7); render idempotent (md5 stable); sworn doctor render-drift flags only the 2 legacy releases, not the five"
+      "item": "AC-05: index.md re-rendered for the five spec-v1-era releases (E-by-C shows migrated quadrants); driver-contract re-rendered at its committed `implemented` state so the fail-closed render-drift guard passes for all five",
+      "evidence": "5 index.md re-rendered (0 chore/epic tokens, was 6/6/3/2/7); render idempotent (index.md md5 96cf8795 stable). Live `sworn doctor` render-drift = `2 of 7`, flagging ONLY the 2 excluded legacy releases (2026-06-19-safe-parallelism, 2026-06-27-conformance-foundation); none of the five drift. driver-contract's single-cell drift (committed index.md `in_progress` vs render `implemented`) cleared by this re-render"
     },
     {
       "item": "AC-06: the five board.json reshaped to strict v0.10.0 pure-plan {$schema, release, tracks:{id,slices,depends_on}}",

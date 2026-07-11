@@ -3,7 +3,7 @@
   "slice_id": "S12-record-migration",
   "release": "2026-06-28-driver-contract",
   "track": "T7-baton-revendor",
-  "state": "in_progress",
+  "state": "implemented",
   "covers_needs": [
     "N-13"
   ],
