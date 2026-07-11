@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/swornagent/sworn/internal/spec"
 	"github.com/swornagent/sworn/internal/state"
 	"github.com/swornagent/sworn/internal/style"
 )
@@ -119,7 +120,21 @@ func resultPassed(r SliceResult) bool {
 func evaluateSlice(releaseDir, sliceID string, threshold float64) SliceResult {
 	result := SliceResult{SliceID: sliceID}
 
-	specPath := filepath.Join(releaseDir, sliceID, "spec.md")
+	sliceDir := filepath.Join(releaseDir, sliceID)
+
+	// Acceptance examples are a spec.md-only concept: spec-v1 (spec.json) has no
+	// "## Acceptance examples" section (design PIN-2). On a spec.json slice there
+	// are no examples to soundness/completeness-check, and that is NOT a gate
+	// failure — the check is a no-op pass. Only legacy spec.md slices carry
+	// examples and require them.
+	if rec, _ := spec.ReadRecord(sliceDir); rec != nil && len(rec.AcceptanceCriteria) > 0 {
+		result.Soundness = 1.0
+		result.Completeness = 1.0
+		result.ExampleCount = 0
+		return result
+	}
+
+	specPath := filepath.Join(sliceDir, "spec.md")
 	examples := parseExamples(specPath)
 
 	if len(examples) == 0 {

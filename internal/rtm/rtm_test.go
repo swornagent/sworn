@@ -128,6 +128,52 @@ func TestBuild_FullyTraced(t *testing.T) {
 	}
 }
 
+// TestBuild_SpecJSONOnly_GoldenThread exercises S01 AC-06: on a spec.json-only
+// slice (no spec.md "Required tests" section) the rtm reader must expose each
+// AC's test_refs so the need->AC->test golden thread resolves. Without exposing
+// test_refs the slice would show zero required tests and every AC would be
+// flagged orphaned_ac_no_test — a trace break on exactly the releases this
+// slice makes work.
+func TestBuild_SpecJSONOnly_GoldenThread(t *testing.T) {
+	dir := writeFixture(t, func(dir string) {
+		sliceDir := filepath.Join(dir, "S01-test-slice")
+		// spec.json-ONLY: remove the legacy spec.md, author spec.json.
+		os.Remove(filepath.Join(sliceDir, "spec.md"))
+		specJSON := `{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S01-test-slice",
+  "release": "test-release",
+  "user_outcome": "Test outcome.",
+  "covers_needs": ["N-01", "N-02"],
+  "in_scope": ["do the thing"],
+  "out_of_scope": ["not the other thing"],
+  "acceptance_criteria": [
+    {"id": "AC-01", "text": "WHEN a release has a need, THE SYSTEM SHALL link it to N-01.", "ears_pattern": "event-driven", "test_refs": ["internal/rtm/rtm_test.go:TestBuild_SpecJSONOnly_GoldenThread"]},
+    {"id": "AC-02", "text": "WHEN a test runs, THE SYSTEM SHALL verify N-02.", "ears_pattern": "event-driven", "test_refs": ["internal/rtm/rtm_test.go:TestBuild_SpecJSONOnly_GoldenThread"]}
+  ]
+}`
+		os.WriteFile(filepath.Join(sliceDir, "spec.json"), []byte(specJSON), 0644)
+	})
+
+	m, vs, err := Build(dir)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	// ACs sourced from spec.json.
+	if len(m.ACs) != 2 {
+		t.Fatalf("expected 2 ACs from spec.json, got %d", len(m.ACs))
+	}
+	// Required tests sourced from each AC's test_refs — the golden-thread link.
+	if len(m.Tests) == 0 {
+		t.Fatal("expected required tests sourced from AC test_refs on a spec.json-only slice, got 0")
+	}
+	for _, v := range vs {
+		if v.Kind == "orphaned_ac_no_test" {
+			t.Fatalf("golden thread broke on a spec.json-only slice: %s\nall: %s", v, violationsString(vs))
+		}
+	}
+}
+
 // TestBuild_VerticalTraceFromBoardJSON exercises S06 AC-04: when a release has
 // a committed board.json, Build reads release.vertical_trace.benefit /
 // .org_objective from it (the ADR-0009 source of truth) rather than scraping

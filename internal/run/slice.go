@@ -286,6 +286,11 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	if !filepath.IsAbs(specPath) {
 		absSliceDir = filepath.Join(worktreeRoot, absSliceDir)
 	}
+	// spec.json-preferred, spec.md legacy fallback (ADR-0009): resolve the
+	// truthful machine-contract path so the first-pass gate, implement, and
+	// verify legs all read spec.json when present — even when the caller passed
+	// a spec.md-named path (S01-spec-json-read-conformance).
+	specPath = resolveSpecPath(absSliceDir)
 	proofPath := filepath.Join(absSliceDir, "proof.md")
 	// ── Resolve implement timeout ──────────────────────────────────────
 	// 0 means use default; negative means no timeout; positive is used as-is.
@@ -306,7 +311,10 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	// step. A hung TL;DR call must not wedge the run: on timeout, warn
 	// and proceed without design.md.
 	{
-		spec, specErr := os.ReadFile(specPath)
+		// spec.json preferred (rendered), spec.md legacy fallback — a
+		// spec.json-only slice feeds the design gate without a missing-spec.md
+		// hard failure (S01-spec-json-read-conformance).
+		specText, specErr := loadSpecText(absSliceDir)
 		if specErr == nil {
 			firstModelID := escalationModels[0]
 			if captainResolveErr != nil {
@@ -324,7 +332,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 					defer designCancel()
 				}
 				fmt.Fprintf(os.Stderr, "sworn run: generating design TL;DR with %s\n", firstModelID)
-				_, genErr := design.Generate(designCtx, absSliceDir, string(spec), captainDriver,
+				_, genErr := design.Generate(designCtx, absSliceDir, specText, captainDriver,
 					firstModelID, worktreeRoot, implementTimeout,
 					design.GenerateOptions{Regenerate: opts.RegenerateDesign})
 				if genErr != nil {
@@ -355,7 +363,8 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	{
 		designPath := filepath.Join(absSliceDir, "design.md")
 		if designBytes, err := os.ReadFile(designPath); err == nil {
-			specBytes, specErr := os.ReadFile(specPath)
+			// spec.json preferred (rendered), spec.md legacy fallback.
+			specTextForReview, specErr := loadSpecText(absSliceDir)
 			if specErr == nil {
 				firstModelID := escalationModels[0]
 				if captainResolveErr != nil {
@@ -383,7 +392,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 						defer reviewCancel()
 					}
 					fmt.Fprintf(os.Stderr, "sworn run: running captain design-review with %s\n", firstModelID)
-					reviewResult, revErr := captain.Review(reviewCtx, absSliceDir, string(specBytes), string(designBytes), captainDriver, firstModelID, worktreeRoot, implementTimeout)
+					reviewResult, revErr := captain.Review(reviewCtx, absSliceDir, specTextForReview, string(designBytes), captainDriver, firstModelID, worktreeRoot, implementTimeout)
 					if revErr != nil {
 						// Captain review dispatch failed (e.g. a transient
 						// provider 429 or timeout). Previously the run proceeded
@@ -793,15 +802,18 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		// verifier-verdict-v1 inside verify.RunAgentic (AC-03).
 		fmt.Fprintf(os.Stderr, "sworn run: verifying (agentic) with %s\n", verifierModelID)
 
-		// Read spec and diff content for the agentic payload.
-		specContent, specErr := os.ReadFile(specPath)
+		// Read spec and diff content for the agentic payload — spec.json
+		// preferred (rendered), spec.md legacy fallback, so the verify leg does
+		// not hard-fail on a spec.json-only slice
+		// (S01-spec-json-read-conformance AC-02).
+		specContent, specErr := loadSpecText(absSliceDir)
 		if specErr != nil {
 			return fmt.Errorf("RunSlice: read spec for agentic verify: %w", specErr)
 		}
 		proofBytes2, _ := os.ReadFile(proofPath)
 
 		result, runErr := verify.RunAgentic(ctx, verify.AgenticInput{
-			Spec:         string(specContent),
+			Spec:         specContent,
 			Diff:         diff,
 			Proof:        string(proofBytes2),
 			ModelID:      verifierModelID,

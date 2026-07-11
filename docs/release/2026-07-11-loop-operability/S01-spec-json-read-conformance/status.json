@@ -8,7 +8,7 @@
     "N-01"
   ],
   "spec_path": "docs/release/2026-07-11-loop-operability/S01-spec-json-read-conformance/spec.json",
-  "start_commit": null,
+  "start_commit": "e887f101c318734dbe42c4b89caf6027c164d930",
   "effort_complexity": {
     "effort": "high",
     "complexity": "low",

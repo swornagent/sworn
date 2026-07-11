@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/swornagent/sworn/internal/spec"
 	"github.com/swornagent/sworn/internal/state"
 )
 
@@ -113,9 +114,12 @@ func CheckTouchpoints(sliceDir, releaseDir string) error {
 
 	result := &touchpointResult{}
 
-	// 1. Extract file/package references from spec.md sections.
-	specPath := filepath.Join(sliceDir, "spec.md")
-	refs, err := extractSectionRefs(specPath)
+	// 1. Extract file/package references from the spec — spec.json preferred
+	// (back-ticked path tokens in in_scope), spec.md legacy fallback (## In
+	// scope / ## Planned touchpoints). Without the spec.json branch
+	// `sworn lint touchpoints` hard-failed on a spec.json-only slice (Coach
+	// Pin 2 / AC-02).
+	refs, err := extractSpecRefs(sliceDir)
 	if err != nil {
 		return fmt.Errorf("lint touchpoints: reading spec: %w", err)
 	}
@@ -181,6 +185,33 @@ func plannedFilesContainPrefix(plannedSet map[string]bool, prefix string) bool {
 		}
 	}
 	return false
+}
+
+// extractSpecRefs returns the back-ticked file/package references a slice's
+// spec declares, spec.json preferred (in_scope items) with spec.md legacy
+// fallback (## In scope / ## Planned touchpoints). It fails closed on a
+// malformed spec.json and on a slice with neither spec.json nor spec.md — the
+// single LoadSpec precedence (ADR-0009). This is what keeps
+// `sworn lint touchpoints` from hard-failing on a spec.json-only slice.
+func extractSpecRefs(sliceDir string) ([]string, error) {
+	rec, _, err := spec.LoadSpec(sliceDir)
+	if err != nil {
+		return nil, err
+	}
+	if rec != nil {
+		var refs []string
+		seen := make(map[string]bool)
+		body := strings.Join(rec.InScope, "\n")
+		for _, match := range backtickPathRe.FindAllStringSubmatch(body, -1) {
+			token := match[1]
+			if isFilePath(token) && !seen[token] {
+				refs = append(refs, token)
+				seen[token] = true
+			}
+		}
+		return refs, nil
+	}
+	return extractSectionRefs(filepath.Join(sliceDir, "spec.md"))
 }
 
 // extractSectionRefs extracts back-ticked file/package references from the

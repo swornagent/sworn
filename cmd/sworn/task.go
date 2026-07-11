@@ -11,6 +11,7 @@ import (
 	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/config"
 	"github.com/swornagent/sworn/internal/git"
+	"github.com/swornagent/sworn/internal/implement"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/run"
@@ -156,6 +157,17 @@ func cmdRunTask(
 	}
 	if err := state.Write(statusPath, st); err != nil {
 		fmt.Fprintf(os.Stderr, "sworn run: write status: %v\n", err)
+		return 1
+	}
+
+	// ── 7b. Synthesise authoritative spec.json ────────────────────────────
+	// Pin 2 / CHOICE-B: the on-ramp must keep the engine on one machine-contract
+	// path. Emit an authoritative spec.json from the planner's spec.md so every
+	// downstream read site (implement/verify/gates) reads spec.json rather than
+	// re-introducing the legacy spec.md contract (S01-spec-json-read-conformance).
+	// spec.md is retained as the human artefact / legacy fallback.
+	if err := implement.WriteSpecRecord(specPath, statusPath, sliceDir); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn run: write spec.json: %v\n", err)
 		return 1
 	}
 

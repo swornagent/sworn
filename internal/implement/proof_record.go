@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/spec"
 	"github.com/swornagent/sworn/internal/state"
 )
 
@@ -44,18 +45,22 @@ func WriteProofRecord(workspaceRoot, specPath, statusPath, sliceDir string) erro
 		return fmt.Errorf("proof_record: read status: %w", err)
 	}
 
-	specBytes, err := os.ReadFile(specPath)
-	if err != nil {
-		return fmt.Errorf("proof_record: read spec: %w", err)
+	// Spec content: spec.json preferred (authoritative), spec.md legacy fallback.
+	specRec, specMD, loadErr := spec.LoadSpec(sliceDir)
+	if loadErr != nil {
+		return fmt.Errorf("proof_record: read spec: %w", loadErr)
 	}
-	specText := string(specBytes)
 
 	rec := proofRecord{
 		Schema:        baton.ProofSchemaURI,
 		SchemaVersion: 1,
 		SliceID:       st.SliceID,
 		Release:       st.Release,
-		Scope:         extractScope(specText),
+	}
+	if specRec != nil {
+		rec.Scope = specRec.UserOutcome
+	} else {
+		rec.Scope = extractScope(specMD)
 	}
 
 	// files_changed: use git diff --name-only <start_commit>..HEAD
@@ -67,8 +72,14 @@ func WriteProofRecord(workspaceRoot, specPath, statusPath, sliceDir string) erro
 	// reachability_artifacts: from status.json.
 	rec.ReachabilityArtifacts = st.ReachabilityArtifacts
 
-	// delivered: parse checked acceptance criteria from spec.md.
-	rec.Delivered = deliveredFromSpec(specText)
+	// delivered: from spec.json acceptance criteria when present (each AC is a
+	// delivered item — spec-v1 has no per-AC checkbox), else the checked
+	// spec.md acceptance criteria (legacy fallback).
+	if specRec != nil {
+		rec.Delivered = deliveredFromRecord(specRec)
+	} else {
+		rec.Delivered = deliveredFromSpec(specMD)
+	}
 
 	// not_delivered: from status.json open_deferrals.
 	rec.NotDelivered = notDeliveredFromDeferrals(st.DeferralStrings())
@@ -164,6 +175,24 @@ func runTestCommands(workspaceRoot string, commands []string) []testResultRec {
 		})
 	}
 	return results
+}
+
+// deliveredFromRecord lists a spec.json record's acceptance criteria as
+// delivered items ("AC-NN: text"). spec-v1 has no per-AC checkbox, so every
+// acceptance criterion in the authoritative record is a delivered item.
+func deliveredFromRecord(rec *spec.Record) []string {
+	if rec == nil {
+		return nil
+	}
+	var delivered []string
+	for _, ac := range rec.AcceptanceCriteria {
+		if ac.ID != "" {
+			delivered = append(delivered, ac.ID+": "+ac.Text)
+		} else {
+			delivered = append(delivered, ac.Text)
+		}
+	}
+	return delivered
 }
 
 // deliveredFromSpec extracts checked acceptance criteria from spec.md.
