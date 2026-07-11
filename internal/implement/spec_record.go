@@ -45,10 +45,28 @@ var reACLine = regexp.MustCompile(`^\s*-\s*\[[ xX]\]\s*(.+)`)
 // acceptance-check bullets reACLine matches).
 var reScopeBullet = regexp.MustCompile(`^\s*[-*]\s+(.+)`)
 
-// WriteSpecRecord parses spec.md, extracts the user outcome and acceptance
-// criteria, reads covers_needs from status.json, and writes spec.json
-// (spec-v1 schema) to the slice directory.
+// WriteSpecRecord ensures the slice directory carries an authoritative
+// spec.json (spec-v1).
+//
+// When a planner-authored spec.json ALREADY exists, spec.json is authoritative
+// (ADR-0009): WriteSpecRecord VALIDATES it and returns without rewriting, so an
+// implement run never regenerates (and thereby lossily overwrites) a spec.json
+// that carries ears_pattern/test_refs/risks (R-02 / AC-03). A malformed
+// existing spec.json fails closed — it is surfaced, not silently overwritten.
+//
+// Only when spec.json is absent (a legacy, markdown-era slice) does it fall back
+// to synthesising spec.json from the spec.md body — parsing the user outcome and
+// acceptance criteria and reading covers_needs from status.json.
 func WriteSpecRecord(specPath, statusPath, sliceDir string) error {
+	specJSONPath := filepath.Join(sliceDir, "spec.json")
+	if existing, statErr := os.ReadFile(specJSONPath); statErr == nil {
+		// spec.json exists — validate (fail closed) and preserve byte-for-byte.
+		if err := baton.Validate("spec-v1", existing); err != nil {
+			return fmt.Errorf("spec_record: existing spec.json is invalid (not overwriting): %w", err)
+		}
+		return nil
+	}
+
 	specBytes, err := os.ReadFile(specPath)
 	if err != nil {
 		return fmt.Errorf("spec_record: read spec: %w", err)
@@ -83,7 +101,6 @@ func WriteSpecRecord(specPath, statusPath, sliceDir string) error {
 		return fmt.Errorf("spec_record: validation failed: %w", err)
 	}
 
-	specJSONPath := filepath.Join(sliceDir, "spec.json")
 	if err := os.WriteFile(specJSONPath, data, 0o644); err != nil {
 		return fmt.Errorf("spec_record: write: %w", err)
 	}

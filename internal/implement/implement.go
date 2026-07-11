@@ -18,6 +18,7 @@ import (
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/reqverify"
+	"github.com/swornagent/sworn/internal/spec"
 	"github.com/swornagent/sworn/internal/state"
 )
 
@@ -86,10 +87,19 @@ func Run(ctx context.Context, workspaceRoot, specPath, priorFeedback string, d d
 		return driver.Result{}, fmt.Errorf("implement: cannot run from state %q", st.State)
 	}
 
-	// Step 2: Read spec.
-	spec, err := os.ReadFile(specPath)
+	// Step 2: Read the machine contract — spec.json preferred, spec.md legacy
+	// fallback (ADR-0009 / internal/ears rule). On a spec.json-only slice (what
+	// /plan-release now writes) this reads spec.json instead of hard-failing on
+	// a missing spec.md — the exact sworn#97 dogfood failure (AC-01/AC-02). The
+	// prompt gets a readable markdown rendering of the spec.json record; a
+	// legacy slice keeps feeding its raw spec.md body.
+	rec, specMD, err := spec.LoadSpec(sliceDir)
 	if err != nil {
 		return driver.Result{}, fmt.Errorf("implement: read spec: %w", err)
+	}
+	specText := specMD
+	if rec != nil {
+		specText = spec.RenderMarkdown(rec)
 	}
 	// Step 3: Build prompts and dispatch the implementer role. Prompt
 	// assembly stays orchestrator-side; the loop execution lives behind the
@@ -103,12 +113,12 @@ func Run(ctx context.Context, workspaceRoot, specPath, priorFeedback string, d d
 		feedback := truncateString(priorFeedback, 2000)
 		userPrompt = fmt.Sprintf(
 			"Previous attempt failed verification — address these specifically:\n\n%s\n\n---\n\nImplement the following spec in workspace %s.\n\n%s\n\nAfter implementation, stop.",
-			feedback, workspaceRoot, string(spec),
+			feedback, workspaceRoot, specText,
 		)
 	} else {
 		userPrompt = fmt.Sprintf(
 			"Implement the following spec in workspace %s.\n\n%s\n\nAfter implementation, stop.",
-			workspaceRoot, string(spec),
+			workspaceRoot, specText,
 		)
 	}
 
@@ -175,9 +185,16 @@ func Run(ctx context.Context, workspaceRoot, specPath, priorFeedback string, d d
 // Every machine-producible section is generated from actual git output and
 // test runs — not from the model's narration.
 func generateProof(workspaceRoot, specPath, proofPath string, st *state.Status) error {
-	specBytes, _ := os.ReadFile(specPath)
-	specText := string(specBytes)
-	scope := extractScope(specText)
+	// Scope + delivered ACs come from spec.json when present (authoritative),
+	// else the spec.md body (legacy fallback) — the single LoadSpec precedence.
+	sliceDir := filepath.Dir(specPath)
+	rec, specMD, _ := spec.LoadSpec(sliceDir)
+	specText := specMD
+	scope := extractScope(specMD)
+	if rec != nil {
+		specText = spec.RenderMarkdown(rec)
+		scope = rec.UserOutcome
+	}
 
 	// Files changed: use git diff --name-only <start_commit>..HEAD.
 	var filesChanged string

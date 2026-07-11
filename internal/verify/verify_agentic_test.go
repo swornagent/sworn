@@ -70,10 +70,10 @@ func TestRunAgenticPass(t *testing.T) {
 				}
 			}
 			// The emit schema is the judgement subset, named verifier-verdict-v1.
-			if !strings.Contains(string(in.VerdictSchema), "verifier-verdict-v1") {
+			if !strings.Contains(string(in.StructuredSchema), "verifier-verdict-v1") {
 				t.Error("emit schema should carry the verifier-verdict-v1 title")
 			}
-			if !strings.Contains(string(in.VerdictSchema), "INCONCLUSIVE") {
+			if !strings.Contains(string(in.StructuredSchema), "INCONCLUSIVE") {
 				t.Error("emit schema should constrain the verdict enum")
 			}
 			return okResult(`{"verdict":"PASS","rationale":"All acceptance checks satisfied."}`), nil

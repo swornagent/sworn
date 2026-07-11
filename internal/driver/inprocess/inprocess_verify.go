@@ -22,7 +22,7 @@ const verdictNudge = "Investigation complete. Now emit your verdict as a single 
 // multi-turn tool loop for investigation — the in-process verifier can
 // re-run tests and read live repo state (sworn#55) — then obtain the verdict
 // via exactly ONE ChatStructured call over the accumulated transcript
-// against DispatchInput.VerdictSchema. The driver returns the emitted JSON
+// against DispatchInput.StructuredSchema. The driver returns the emitted JSON
 // unmodified in Result.StructuredJSON and never validates or self-certifies
 // it; the ENGINE validates it against verifier-verdict-v1, fail-closed.
 func (d *InProcess) dispatchVerifier(ctx context.Context, in driver.DispatchInput, client model.Verifier, meter *chatMeter, start time.Time) (driver.Result, error) {
@@ -48,7 +48,7 @@ func (d *InProcess) dispatchVerifier(ctx context.Context, in driver.DispatchInpu
 
 	// One structured verdict call over the accumulated transcript.
 	messages := append(toModelMessages(transcript), model.ChatMessage{Role: "user", Content: verdictNudge})
-	vresp, err := so.ChatStructured(ctx, messages, in.VerdictSchema)
+	vresp, err := so.ChatStructured(ctx, messages, in.StructuredSchema)
 	if vresp != nil {
 		meter.observe(vresp)
 	}

@@ -40,6 +40,20 @@ const (
 	// terminal vocabulary has a single source (S04 Coach acknowledgement,
 	// T3 captain-proceed.md 2026-07-10).
 	ErrKindCredits = "credits"
+	// ErrKindUnsupported means the dispatch asked for a capability the resolved
+	// client does not have — specifically, a schema-constrained
+	// (StructuredSchema-set) dispatch to a client that cannot emit structured
+	// output. It is DELIBERATELY distinct from ErrKindProtocol (a structured
+	// EMISSION that failed): capability-absent is not a failure to retry but a
+	// declared Rule 2 deferral the gate records (the model genuinely cannot do
+	// this), whereas an emission failure stays a hard, fail-closed error
+	// (S02 D3, Coach-ratified 2026-07-12; [[project_driver_contract_recut]] —
+	// the ErrKind vocabulary binds for all future drivers, so subprocess-family
+	// drivers map capability-absent to THIS kind too rather than folding it
+	// into ErrKindProtocol). Not terminal: TerminalErrKind stays {auth,
+	// credits} — an unsupported capability is neither retryable nor a
+	// credentials halt, it is a portability deferral.
+	ErrKindUnsupported = "unsupported"
 )
 
 // TerminalErrKind reports whether kind can never succeed on retry or model

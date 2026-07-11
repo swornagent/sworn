@@ -11,17 +11,59 @@ package reqverify
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/swornagent/sworn/internal/spec"
 	"github.com/swornagent/sworn/internal/style"
 )
+
+// ErrStructuredUnsupported is returned by a Verifier whose underlying model
+// cannot emit structured output (no StructuredOutput capability). It is a
+// DECLARED Rule 2 deferral signal (S02 AC-03): Run surfaces it as
+// Report.Deferred with a capability-naming reason so the DoR gate records a
+// declared deferral (routed through CheckDoR's "not evaluated" arm), never a
+// silent pass and never a hard prose-format failure. Every other Verify error
+// stays a hard, fail-closed dispatch error.
+var ErrStructuredUnsupported = errors.New("reqverify: verifier model does not support structured output (capability absent)")
+
+// reqverifyResultsSchema is the sworn-local emit schema handed to the Verifier
+// for the DoR requirements-grading call (S02 D2, Coach-confirmed inline emit +
+// a lightweight sworn-local validate — reqverify is a fail-closed gate, so its
+// structured output is validated before being trusted). It stays inside
+// OpenAI's strict-mode keyword subset — no minLength/pattern/format (those
+// break a strict response_format target; see internal/model/structured.go
+// strict-projection). The "title" sets the OpenAI json_schema name.
+var reqverifyResultsSchema = []byte(`{
+  "title": "reqverify-results",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["results"],
+  "properties": {
+    "results": {
+      "type": "array",
+      "description": "One grade per acceptance criterion evaluated.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slice_id", "ac_index", "status"],
+        "properties": {
+          "slice_id": { "type": "string", "description": "The slice id the AC belongs to." },
+          "ac_index": { "type": "integer", "description": "1-based index of the AC within its slice." },
+          "status": { "type": "string", "enum": ["PASS", "FAIL"], "description": "PASS if the AC satisfies every 29148 quality characteristic; else FAIL." },
+          "characteristic": { "type": "string", "description": "On FAIL, the breached 29148 characteristic (singular, ambiguous, incomplete, ...)." },
+          "reason": { "type": "string", "description": "On FAIL, a one-sentence reason." }
+        }
+      }
+    }
+  }
+}`)
 
 // Characteristic is a 29148 quality characteristic for requirements.
 type Characteristic string
@@ -74,6 +116,13 @@ type Report struct {
 	PassedACs    int
 	FailedACs    int
 	FreshContext bool // records that a fresh-context model pass was used
+	// Deferred is set when the requirements-grading model could not emit
+	// structured output (capability absent). It is a DECLARED Rule 2 deferral
+	// (S02 AC-03): the gate was not evaluated, so the caller (CheckDoR) fails
+	// closed on it (ReqverifyPassed=false) with DeferredReason as the
+	// capability-naming explanation — never a silent pass, never a crash.
+	Deferred       bool
+	DeferredReason string
 }
 
 // HasViolations returns true when at least one characteristic breach exists.
@@ -87,10 +136,16 @@ type AC struct {
 	Content string // the AC text without the checkbox marker
 }
 
-// Verifier is the model interface reqverify needs — a subset of model.Verifier
-// so the package has no dependency on the model package.
+// Verifier is the model interface reqverify needs. The grading call is
+// schema-constrained (S02 migration): the model emits a JSON object conforming
+// to schema (reqverifyResultsSchema) and Verify returns that structured JSON —
+// not a `## RESULTS` prose section. A verifier whose model cannot emit
+// structured output returns ErrStructuredUnsupported so the DoR gate records a
+// declared Rule 2 deferral (AC-03). The package keeps its own interface (a
+// superset shape of the old model.Verifier signature plus the schema arg) so it
+// has no dependency on the model package.
 type Verifier interface {
-	Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error)
+	Verify(ctx context.Context, systemPrompt, userPayload string, schema []byte) (structuredJSON string, costUSD float64, inputTokens, outputTokens int64, err error)
 }
 
 // Run executes requirements verification over a release directory.
@@ -120,14 +175,23 @@ func Run(ctx context.Context, releaseDir string, verifier Verifier, systemPrompt
 	// 2. Build the model payload.
 	payload := buildPayload(acs)
 
-	// 3. Dispatch to model.
-	reply, _, _, _, err := verifier.Verify(ctx, systemPrompt, payload)
+	// 3. Dispatch to model, constrained to emit the structured results object.
+	reply, _, _, _, err := verifier.Verify(ctx, systemPrompt, payload, reqverifyResultsSchema)
 	if err != nil {
+		// Capability-absent is a DECLARED Rule 2 deferral, not a hard dispatch
+		// failure (S02 AC-03): the model genuinely cannot emit structured
+		// output. Surface it as Report.Deferred so CheckDoR fails closed on it
+		// with a capability-naming reason — never a silent pass, never a crash.
+		if errors.Is(err, ErrStructuredUnsupported) {
+			report.Deferred = true
+			report.DeferredReason = "requirements verification not evaluated (verifier model lacks structured-output capability): " + err.Error()
+			return report, nil
+		}
 		return report, fmt.Errorf("reqverify: model dispatch: %w", err)
 	}
 
-	// 4. Parse per-AC grades from the model response.
-	grades, err := parseGrades(reply, acs)
+	// 4. Parse per-AC grades from the model's structured response.
+	grades, err := parseStructuredGrades(reply, acs)
 	if err != nil {
 		return report, fmt.Errorf("reqverify: parsing model response: %w", err)
 	}
@@ -292,87 +356,89 @@ func buildPayload(acs []AC) string {
 	return b.String()
 }
 
-// acResultRe parses a single model output line: AC <N> (<slice-id>): PASS|FAIL...
-var acResultRe = regexp.MustCompile(`^AC\s+(\d+)\s+\(([^)]+)\):\s*(PASS|FAIL)`)
+// resultRecord is one per-AC grade in the model's structured emission
+// (reqverifyResultsSchema). Parsed from validated JSON, never scraped from
+// prose.
+type resultRecord struct {
+	SliceID        string `json:"slice_id"`
+	ACIndex        int    `json:"ac_index"`
+	Status         string `json:"status"`
+	Characteristic string `json:"characteristic"`
+	Reason         string `json:"reason"`
+}
 
-// parseGrades interprets the model's response and assigns a Grade per AC.
-//
-// The model is expected to return a "## RESULTS" section with lines in format:
-//
-//	AC <N> (<slice-id>): PASS
-//	AC <N> (<slice-id>): FAIL — <characteristic> [<reason>]
-//
-// If the model response lacks a RESULTS section, we BLOCK. If an AC is missing
-// from the results, we treat it as FAIL (fail-closed). If an AC has an
-// unparseable result line, we treat it as FAIL.
-func parseGrades(reply string, acs []AC) ([]Grade, error) {
-	// Find the ## RESULTS section.
-	resultsIdx := -1
-	lines := strings.Split(reply, "\n")
-	for i, line := range lines {
-		if strings.TrimSpace(line) == "## RESULTS" {
-			resultsIdx = i
-			break
+// resultsEnvelope is the top-level structured results object.
+type resultsEnvelope struct {
+	Results []resultRecord `json:"results"`
+}
+
+// validateReqverifyResults is the lightweight sworn-local validate (S02 D2,
+// Coach-confirmed) applied before the structured output is trusted: the
+// emission must be a JSON object carrying a `results` array, and every record
+// must name a slice, a positive AC index, and a PASS/FAIL status. A breach is
+// the structured equivalent of the old "missing ## RESULTS section" BLOCK —
+// the model did not follow the contract at all — so it fails closed (returns a
+// non-nil error that Run surfaces as a parse BLOCK). Per-AC completeness (an AC
+// absent from a well-formed results array) is NOT a validation breach here — it
+// is handled fail-closed as a FAIL grade in parseStructuredGrades.
+func validateReqverifyResults(reply string) (resultsEnvelope, error) {
+	var env resultsEnvelope
+	// Distinguish "no results key" from "empty results array": a valid
+	// emission always carries the key. Decode into a probe that keeps the key
+	// presence.
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(reply), &probe); err != nil {
+		return env, fmt.Errorf("structured results not a JSON object: %w", err)
+	}
+	raw, ok := probe["results"]
+	if !ok {
+		return env, fmt.Errorf("structured results object missing required \"results\" array")
+	}
+	if err := json.Unmarshal(raw, &env.Results); err != nil {
+		return env, fmt.Errorf("structured results \"results\" is not an array of grades: %w", err)
+	}
+	for i, r := range env.Results {
+		if strings.TrimSpace(r.SliceID) == "" {
+			return env, fmt.Errorf("structured results[%d] missing slice_id", i)
+		}
+		if r.ACIndex < 1 {
+			return env, fmt.Errorf("structured results[%d] has non-positive ac_index %d", i, r.ACIndex)
+		}
+		if r.Status != "PASS" && r.Status != "FAIL" {
+			return env, fmt.Errorf("structured results[%d] has invalid status %q (want PASS|FAIL)", i, r.Status)
 		}
 	}
+	return env, nil
+}
 
-	if resultsIdx < 0 {
-		// No RESULTS section — BLOCKED.
-		return nil, fmt.Errorf("model response missing ## RESULTS section")
+// parseStructuredGrades interprets the model's structured results object and
+// assigns a Grade per AC (S02 migration, replacing the `## RESULTS` prose
+// scrape). Acceptance semantics are preserved verbatim (D4):
+//
+//   - the whole emission failing the lightweight validate BLOCKS (the
+//     structured equivalent of the old "missing ## RESULTS section"),
+//   - an AC absent from a well-formed results array is a fail-closed FAIL,
+//   - a per-AC FAIL carries its characteristic and reason.
+func parseStructuredGrades(reply string, acs []AC) ([]Grade, error) {
+	env, err := validateReqverifyResults(reply)
+	if err != nil {
+		return nil, err
 	}
 
-	// Parse result lines after ## RESULTS.
 	resultMap := make(map[string]bool)         // "sliceID:index" -> passed
 	violationMap := make(map[string]Violation) // "sliceID:index" -> violation
-
-	for i := resultsIdx + 1; i < len(lines); i++ {
-		line := strings.TrimSpace(lines[i])
-		if line == "" {
+	for _, r := range env.Results {
+		key := fmt.Sprintf("%s:%d", r.SliceID, r.ACIndex)
+		if r.Status == "PASS" {
+			resultMap[key] = true
 			continue
 		}
-		// Stop at next top-level heading.
-		if strings.HasPrefix(line, "#") && !strings.HasPrefix(line, "AC") {
-			break
-		}
-
-		m := acResultRe.FindStringSubmatch(line)
-		if m == nil {
-			continue // skip non-matching lines
-		}
-
-		idx, _ := strconv.Atoi(m[1])
-		sliceID := m[2]
-		status := m[3]
-		key := fmt.Sprintf("%s:%d", sliceID, idx)
-
-		if status == "PASS" {
-			resultMap[key] = true
-		} else {
-			// FAIL — extract characteristic and reason.
-			resultMap[key] = false
-			rest := line[len(m[0]):] // everything after "AC N (id): FAIL"
-			rest = strings.TrimSpace(rest)
-			var char Characteristic
-			var reason string
-			if strings.HasPrefix(rest, "—") || strings.HasPrefix(rest, "-") || strings.HasPrefix(rest, "–") {
-				rest = strings.TrimLeft(rest, "—–- ")
-			}
-			rest = strings.TrimSpace(rest)
-
-			// The characteristic is the first word/token before any space or punctuation.
-			if idx2 := strings.IndexAny(rest, " \t["); idx2 > 0 {
-				char = Characteristic(rest[:idx2])
-				reason = strings.TrimSpace(rest[idx2:])
-			} else {
-				char = Characteristic(rest)
-			}
-
-			violationMap[key] = Violation{
-				SliceID:        sliceID,
-				ACIndex:        idx,
-				Characteristic: char,
-				Reason:         reason,
-			}
+		resultMap[key] = false
+		violationMap[key] = Violation{
+			SliceID:        r.SliceID,
+			ACIndex:        r.ACIndex,
+			Characteristic: Characteristic(strings.TrimSpace(r.Characteristic)),
+			Reason:         strings.TrimSpace(r.Reason),
 		}
 	}
 

@@ -86,14 +86,20 @@ type DispatchInput struct {
 	// CLI, a sandboxed edit loop) should pass it to AssertWorktree before
 	// spawning (Rule 11 fail-closed target assertion).
 	WorktreeRoot string
-	// VerdictSchema is the verdict JSON schema for a Role=verifier dispatch
-	// (verifier-verdict-v1). It is opaque to the driver: the driver's job is
-	// to get the model to emit JSON conforming to it and return that JSON
-	// unmodified as Result.StructuredJSON. The driver never validates
-	// against VerdictSchema and never self-certifies a verdict — the ENGINE
-	// validates Result.StructuredJSON fail-closed after Dispatch returns.
-	// For non-verifier roles this is nil.
-	VerdictSchema []byte
+	// StructuredSchema is the JSON schema a schema-constrained dispatch must
+	// emit against. It is role-agnostic (ADR-0012 amendment, D1): the verifier
+	// dispatch passes verifier-verdict-v1; the captain-family gates (design
+	// TL;DR, reqverify DoR) pass their own sworn-local emit schemas. It is
+	// opaque to the driver: the driver's job is to get the model to emit JSON
+	// conforming to it and return that JSON unmodified as
+	// Result.StructuredJSON. The driver never validates against it and never
+	// self-certifies — the ENGINE validates Result.StructuredJSON fail-closed
+	// after Dispatch returns. When nil, the dispatch takes the plain prose path
+	// (no structured-output constraint). A driver whose resolved client cannot
+	// emit structured output for a non-nil schema fails closed with
+	// ErrKindUnsupported so the gate can record a declared Rule 2 deferral (D3)
+	// rather than a silent pass or a hard prose-format failure.
+	StructuredSchema []byte
 	// Timeout bounds the dispatch. Zero means the driver's own default.
 	Timeout time.Duration
 }
@@ -139,9 +145,9 @@ type Result struct {
 	// prose never have to round-trip through JSON.
 	ResultText string
 	// StructuredJSON is the model's structured output, when the dispatch
-	// requested one (VerdictSchema set, or another schema-constrained role).
-	// The engine — never the driver — validates this against the schema
-	// that was passed in DispatchInput.
+	// requested one (DispatchInput.StructuredSchema set — a verifier verdict
+	// or a captain-family gate emission). The engine — never the driver —
+	// validates this against the schema that was passed in DispatchInput.
 	StructuredJSON json.RawMessage
 	CostUSD        float64
 	// CostSource names where CostUSD came from — one of the CostSource*
@@ -205,10 +211,11 @@ type Driver interface {
 	// calls Roles().Has(role) before ever dispatching that role to this
 	// driver — capability IS the declared role set.
 	Roles() RoleSet
-	// Dispatch serves one role dispatch. For Role=verifier, the driver
-	// returns the model's verdict as Result.StructuredJSON and never
-	// validates or self-certifies it — the ENGINE validates it against
-	// DispatchInput.VerdictSchema (the verifier-verdict-v1 schema),
-	// fail-closed, after Dispatch returns (see docs/adr/0012-driver-contract.md).
+	// Dispatch serves one role dispatch. For a schema-constrained dispatch
+	// (DispatchInput.StructuredSchema set — a verifier verdict or a
+	// captain-family gate emission), the driver returns the model's emission
+	// as Result.StructuredJSON and never validates or self-certifies it — the
+	// ENGINE validates it against DispatchInput.StructuredSchema, fail-closed,
+	// after Dispatch returns (see docs/adr/0012-driver-contract.md).
 	Dispatch(ctx context.Context, in DispatchInput) (Result, error)
 }

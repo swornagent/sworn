@@ -2,6 +2,7 @@ package reqverify
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,14 +10,33 @@ import (
 	"testing"
 )
 
-// fakeVerifier returns a canned reply for model dispatch.
+// fakeVerifier returns a canned structured reply for the schema-constrained
+// model dispatch (S02: Verify now carries the emit schema and returns the
+// structured JSON, not prose).
 type fakeVerifier struct {
 	reply string
 	cost  float64
 }
 
-func (f fakeVerifier) Verify(context.Context, string, string) (string, float64, int64, int64, error) {
+func (f fakeVerifier) Verify(context.Context, string, string, []byte) (string, float64, int64, int64, error) {
 	return f.reply, f.cost, 0, 0, nil
+}
+
+// unsupportedVerifier models a model with no structured-output capability: its
+// Verify returns ErrStructuredUnsupported, driving the AC-03 declared-deferral
+// arm.
+type unsupportedVerifier struct{}
+
+func (unsupportedVerifier) Verify(context.Context, string, string, []byte) (string, float64, int64, int64, error) {
+	return "", 0, 0, 0, ErrStructuredUnsupported
+}
+
+// gradesReply builds a structured reqverify-results emission (the shape the
+// model emits against reqverifyResultsSchema) from per-AC records — the
+// structured replacement for the old `## RESULTS` prose fixtures.
+func gradesReply(recs ...resultRecord) string {
+	b, _ := json.Marshal(resultsEnvelope{Results: recs})
+	return string(b)
 }
 
 // writeFixture creates a slice spec.md under a temp release directory.
@@ -200,21 +220,19 @@ func TestBuildPayload_FormatsCorrectly(t *testing.T) {
 	}
 }
 
-// --- parseGrades tests ---
+// --- parseStructuredGrades tests (S02: structured object, not `## RESULTS`) ---
 
-func TestParseGrades_AllPass(t *testing.T) {
+func TestParseStructuredGrades_AllPass(t *testing.T) {
 	acs := []AC{
 		{SliceID: "S01-test", Index: 1, Content: "THE SYSTEM SHALL do X."},
 		{SliceID: "S01-test", Index: 2, Content: "WHEN Y THE SYSTEM SHALL do Z."},
 	}
-	reply := `Some analysis preamble.
+	reply := gradesReply(
+		resultRecord{SliceID: "S01-test", ACIndex: 1, Status: "PASS"},
+		resultRecord{SliceID: "S01-test", ACIndex: 2, Status: "PASS"},
+	)
 
-## RESULTS
-
-AC 1 (S01-test): PASS
-AC 2 (S01-test): PASS`
-
-	grades, err := parseGrades(reply, acs)
+	grades, err := parseStructuredGrades(reply, acs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,17 +246,17 @@ AC 2 (S01-test): PASS`
 	}
 }
 
-func TestParseGrades_MixedPassFail(t *testing.T) {
+func TestParseStructuredGrades_MixedPassFail(t *testing.T) {
 	acs := []AC{
 		{SliceID: "S01-test", Index: 1, Content: "THE SYSTEM SHALL do X."},
 		{SliceID: "S01-test", Index: 2, Content: "WHEN Y THE SYSTEM SHALL do Z and also do W."},
 	}
-	reply := `## RESULTS
+	reply := gradesReply(
+		resultRecord{SliceID: "S01-test", ACIndex: 1, Status: "PASS"},
+		resultRecord{SliceID: "S01-test", ACIndex: 2, Status: "FAIL", Characteristic: "singular", Reason: "bundles two distinct actions"},
+	)
 
-AC 1 (S01-test): PASS
-AC 2 (S01-test): FAIL — singular [bundles two distinct actions]`
-
-	grades, err := parseGrades(reply, acs)
+	grades, err := parseStructuredGrades(reply, acs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,92 +275,80 @@ AC 2 (S01-test): FAIL — singular [bundles two distinct actions]`
 	if grades[1].Violation.Characteristic != CharSingular {
 		t.Errorf("AC 2: want characteristic 'singular', got %q", grades[1].Violation.Characteristic)
 	}
+	if grades[1].Violation.Reason != "bundles two distinct actions" {
+		t.Errorf("AC 2: reason = %q", grades[1].Violation.Reason)
+	}
 }
 
-func TestParseGrades_AmbiguousBreach(t *testing.T) {
+func TestParseStructuredGrades_AmbiguousBreach(t *testing.T) {
 	acs := []AC{
 		{SliceID: "S01-test", Index: 1, Content: "THE SYSTEM SHALL do X."},
 		{SliceID: "S01-test", Index: 2, Content: "THE SYSTEM SHALL display the data appropriately."},
 	}
-	reply := `## RESULTS
+	reply := gradesReply(
+		resultRecord{SliceID: "S01-test", ACIndex: 1, Status: "PASS"},
+		resultRecord{SliceID: "S01-test", ACIndex: 2, Status: "FAIL", Characteristic: "ambiguous", Reason: "could mean any format"},
+	)
 
-AC 1 (S01-test): PASS
-AC 2 (S01-test): FAIL — ambiguous [could mean any format]`
-
-	grades, err := parseGrades(reply, acs)
+	grades, err := parseStructuredGrades(reply, acs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(grades) != 2 {
-		t.Fatalf("want 2 grades, got %d", len(grades))
-	}
-	if !grades[0].Passed {
-		t.Errorf("AC 1: want PASS")
-	}
-	if grades[1].Passed {
-		t.Errorf("AC 2: want FAIL")
-	}
-	if grades[1].Violation == nil {
-		t.Fatal("AC 2: want Violation, got nil")
-	}
-	if grades[1].Violation.Characteristic != CharAmbiguous {
-		t.Errorf("AC 2: want characteristic 'ambiguous', got %q", grades[1].Violation.Characteristic)
+	if grades[1].Violation == nil || grades[1].Violation.Characteristic != CharAmbiguous {
+		t.Errorf("AC 2: want characteristic 'ambiguous', got %+v", grades[1].Violation)
 	}
 }
 
-func TestParseGrades_IncompleteBreach(t *testing.T) {
+func TestParseStructuredGrades_IncompleteBreach(t *testing.T) {
 	acs := []AC{
 		{SliceID: "S01-test", Index: 1, Content: "THE SYSTEM SHALL display the dashboard."},
 		{SliceID: "S01-test", Index: 2, Content: "THE SYSTEM SHALL notify the user."},
 	}
-	reply := `## RESULTS
+	reply := gradesReply(
+		resultRecord{SliceID: "S01-test", ACIndex: 1, Status: "PASS"},
+		resultRecord{SliceID: "S01-test", ACIndex: 2, Status: "FAIL", Characteristic: "incomplete", Reason: "lacks trigger condition"},
+	)
 
-AC 1 (S01-test): PASS
-AC 2 (S01-test): FAIL — incomplete [lacks trigger condition]`
-
-	grades, err := parseGrades(reply, acs)
+	grades, err := parseStructuredGrades(reply, acs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(grades) != 2 {
-		t.Fatalf("want 2 grades, got %d", len(grades))
-	}
-	if !grades[0].Passed {
-		t.Errorf("AC 1: want PASS")
-	}
-	if grades[1].Passed {
-		t.Errorf("AC 2: want FAIL")
-	}
-	if grades[1].Violation == nil {
-		t.Fatal("AC 2: want Violation, got nil")
-	}
-	if grades[1].Violation.Characteristic != "incomplete" {
-		t.Errorf("AC 2: want characteristic 'complete', got %q", grades[1].Violation.Characteristic)
+	if grades[1].Violation == nil || grades[1].Violation.Characteristic != "incomplete" {
+		t.Errorf("AC 2: want characteristic 'incomplete', got %+v", grades[1].Violation)
 	}
 }
 
-func TestParseGrades_MissingResultsBlocks(t *testing.T) {
-	acs := []AC{
-		{SliceID: "S01-test", Index: 1, Content: "THE SYSTEM SHALL do X."},
-	}
-	reply := `Some analysis without a RESULTS section.`
+// TestParseStructuredGrades_MalformedBlocks is the structured equivalent of the
+// old "missing ## RESULTS section" BLOCK: an emission that is not a
+// results-bearing object fails the lightweight validate and blocks.
+func TestParseStructuredGrades_MalformedBlocks(t *testing.T) {
+	acs := []AC{{SliceID: "S01-test", Index: 1, Content: "THE SYSTEM SHALL do X."}}
 
-	_, err := parseGrades(reply, acs)
-	if err == nil {
-		t.Fatal("want error for missing RESULTS section, got nil")
+	cases := map[string]string{
+		"not an object":     `"just a string"`,
+		"no results key":    `{"analysis":"some prose"}`,
+		"results not array": `{"results":"nope"}`,
+		"bad status":        `{"results":[{"slice_id":"S01-test","ac_index":1,"status":"MAYBE"}]}`,
+		"non-positive idx":  `{"results":[{"slice_id":"S01-test","ac_index":0,"status":"PASS"}]}`,
+	}
+	for name, reply := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseStructuredGrades(reply, acs); err == nil {
+				t.Fatalf("want BLOCK error for %s, got nil", name)
+			}
+		})
 	}
 }
 
-func TestParseGrades_FailClosedOnMissingAC(t *testing.T) {
+func TestParseStructuredGrades_FailClosedOnMissingAC(t *testing.T) {
 	acs := []AC{
 		{SliceID: "S01-test", Index: 1, Content: "THE SYSTEM SHALL do X."},
 		{SliceID: "S01-test", Index: 2, Content: "THE SYSTEM SHALL do Y."},
 	}
-	reply := `## RESULTS
+	// AC 2 absent from a well-formed results array — fail-closed FAIL, not a BLOCK.
+	reply := gradesReply(resultRecord{SliceID: "S01-test", ACIndex: 1, Status: "PASS"})
 
-AC 1 (S01-test): PASS`
-
-	grades, err := parseGrades(reply, acs)
+	grades, err := parseStructuredGrades(reply, acs)
 	if err != nil {
 		t.Fatal(err) // missing AC is not a parse error — it's a failing grade
 	}
@@ -370,10 +376,10 @@ func TestRun_AllPass(t *testing.T) {
 - [ ] WHEN a user clicks save THE SYSTEM SHALL persist the form.
 `)
 
-	reply := `## RESULTS
-
-AC 1 (S01-test): PASS
-AC 2 (S01-test): PASS`
+	reply := gradesReply(
+		resultRecord{SliceID: "S01-test", ACIndex: 1, Status: "PASS"},
+		resultRecord{SliceID: "S01-test", ACIndex: 2, Status: "PASS"},
+	)
 
 	report, err := Run(context.Background(), releaseDir, fakeVerifier{reply: reply}, sampleSystemPrompt)
 	if err != nil {
@@ -390,6 +396,58 @@ AC 2 (S01-test): PASS`
 	}
 }
 
+// TestRun_StructuredNoProseResults is AC-02: the Grok DoR failure now passes.
+// The model emits a valid structured results object with NO `## RESULTS` prose
+// anywhere — the gate parses the structured object, not a prose section.
+func TestRun_StructuredNoProseResults(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	writeFixture(t, releaseDir, "S01-test", `## Acceptance checks
+
+- [ ] THE SYSTEM SHALL display the dashboard.
+`)
+
+	reply := gradesReply(resultRecord{SliceID: "S01-test", ACIndex: 1, Status: "PASS"})
+	if strings.Contains(reply, "## RESULTS") {
+		t.Fatal("fixture precondition: structured reply must not contain a `## RESULTS` prose section")
+	}
+
+	report, err := Run(context.Background(), releaseDir, fakeVerifier{reply: reply}, sampleSystemPrompt)
+	if err != nil {
+		t.Fatalf("Run over a prose-marker-less structured reply must PASS, got: %v", err)
+	}
+	if report.HasViolations() || report.PassedACs != 1 {
+		t.Errorf("want 1 passed / 0 violations, got passed=%d violations=%d", report.PassedACs, len(report.Violations))
+	}
+}
+
+// TestRun_CapabilityAbsentDeferred is AC-03 for the DoR gate: a model that
+// cannot emit structured output yields a DECLARED Rule 2 deferral
+// (report.Deferred), never a hard error and never a silent pass.
+func TestRun_CapabilityAbsentDeferred(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	writeFixture(t, releaseDir, "S01-test", `## Acceptance checks
+
+- [ ] THE SYSTEM SHALL display the dashboard.
+`)
+
+	report, err := Run(context.Background(), releaseDir, unsupportedVerifier{}, sampleSystemPrompt)
+	if err != nil {
+		t.Fatalf("capability-absent must be a deferral, not an error: %v", err)
+	}
+	if !report.Deferred {
+		t.Fatal("want report.Deferred=true for a capability-absent model")
+	}
+	if !strings.Contains(report.DeferredReason, "structured-output capability") {
+		t.Errorf("DeferredReason should name the missing capability, got: %q", report.DeferredReason)
+	}
+}
+
 func TestRun_WithViolations(t *testing.T) {
 	dir := t.TempDir()
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
@@ -401,10 +459,10 @@ func TestRun_WithViolations(t *testing.T) {
 - [ ] WHEN Y THE SYSTEM SHALL do Z and also do W.
 `)
 
-	reply := `## RESULTS
-
-AC 1 (S01-test): PASS
-AC 2 (S01-test): FAIL — singular [bundles two actions]`
+	reply := gradesReply(
+		resultRecord{SliceID: "S01-test", ACIndex: 1, Status: "PASS"},
+		resultRecord{SliceID: "S01-test", ACIndex: 2, Status: "FAIL", Characteristic: "singular", Reason: "bundles two actions"},
+	)
 
 	report, err := Run(context.Background(), releaseDir, fakeVerifier{reply: reply}, sampleSystemPrompt)
 	if err != nil {
@@ -438,10 +496,10 @@ func TestRun_AmbiguousViolation(t *testing.T) {
 - [ ] THE SYSTEM SHALL display the data appropriately.
 `)
 
-	reply := `## RESULTS
-
-AC 1 (S01-test): PASS
-AC 2 (S01-test): FAIL — ambiguous [could mean any format]`
+	reply := gradesReply(
+		resultRecord{SliceID: "S01-test", ACIndex: 1, Status: "PASS"},
+		resultRecord{SliceID: "S01-test", ACIndex: 2, Status: "FAIL", Characteristic: "ambiguous", Reason: "could mean any format"},
+	)
 
 	report, err := Run(context.Background(), releaseDir, fakeVerifier{reply: reply}, sampleSystemPrompt)
 	if err != nil {
@@ -472,10 +530,10 @@ func TestRun_IncompleteViolation(t *testing.T) {
 - [ ] THE SYSTEM SHALL notify the user.
 `)
 
-	reply := `## RESULTS
-
-AC 1 (S01-test): PASS
-AC 2 (S01-test): FAIL — incomplete [lacks trigger condition]`
+	reply := gradesReply(
+		resultRecord{SliceID: "S01-test", ACIndex: 1, Status: "PASS"},
+		resultRecord{SliceID: "S01-test", ACIndex: 2, Status: "FAIL", Characteristic: "incomplete", Reason: "lacks trigger condition"},
+	)
 
 	report, err := Run(context.Background(), releaseDir, fakeVerifier{reply: reply}, sampleSystemPrompt)
 	if err != nil {
@@ -592,9 +650,9 @@ func TestRun_SpecJSONDispatchesModel(t *testing.T) {
   ]
 }`)
 
-	report, err := Run(context.Background(), releaseDir, fakeVerifier{reply: `## RESULTS
-
-AC 1 (S01-test): PASS`}, sampleSystemPrompt)
+	report, err := Run(context.Background(), releaseDir,
+		fakeVerifier{reply: gradesReply(resultRecord{SliceID: "S01-test", ACIndex: 1, Status: "PASS"})},
+		sampleSystemPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -622,7 +680,7 @@ func TestRun_ModelErrorBlocks(t *testing.T) {
 // errorVerifier returns an error on dispatch, simulating a model failure.
 type errorVerifier struct{}
 
-func (errorVerifier) Verify(context.Context, string, string) (string, float64, int64, int64, error) {
+func (errorVerifier) Verify(context.Context, string, string, []byte) (string, float64, int64, int64, error) {
 	return "", 0, 0, 0, fmt.Errorf("model unavailable")
 }
 

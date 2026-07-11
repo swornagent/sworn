@@ -23,6 +23,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/swornagent/sworn/internal/spec"
 	"github.com/swornagent/sworn/internal/style"
 )
 
@@ -240,17 +241,25 @@ func diffTestFiles(baseRef string) ([]string, error) {
 // Returns an error only for I/O / git failures; coverage gaps are in the report.
 func RunCoverage(releaseDir, sliceID, baseRef string) (*CoverageReport, error) {
 	sliceDir := filepath.Join(releaseDir, sliceID)
-	specPath := filepath.Join(sliceDir, "spec.md")
 
-	specText, err := os.ReadFile(specPath)
+	// 1. Extract ACs — spec.json preferred (authoritative), spec.md legacy
+	// fallback (ADR-0009). On a spec.json-only slice the acceptance criteria
+	// come straight from the record instead of hard-failing on a missing
+	// spec.md (AC-02/AC-04).
+	rec, specMD, err := spec.LoadSpec(sliceDir)
 	if err != nil {
-		return nil, fmt.Errorf("coverage: read spec.md: %w", err)
+		return nil, fmt.Errorf("coverage: read spec: %w", err)
 	}
-
-	// 1. Extract ACs.
-	acs := parseAcceptanceChecks(string(specText))
+	var acs []string
+	if rec != nil {
+		for _, ac := range rec.AcceptanceCriteria {
+			acs = append(acs, ac.Text)
+		}
+	} else {
+		acs = parseAcceptanceChecks(specMD)
+	}
 	if len(acs) == 0 {
-		return nil, fmt.Errorf("coverage: no acceptance checks found in %s", specPath)
+		return nil, fmt.Errorf("coverage: no acceptance checks found in %s", sliceDir)
 	}
 
 	// 2. Get test files from the diff.

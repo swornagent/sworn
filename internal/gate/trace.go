@@ -183,29 +183,30 @@ func RunTrace(releaseDir string) (*TraceReport, error) {
 			coveredSet[nid] = true
 		}
 
-		// Parse acceptance checks: spec.md when present, else the spec-v1
-		// record (spec.json) — the canonical current format. The AC-level
-		// checks below must not silently skip on spec.json-only slices.
+		// Parse acceptance checks: spec.json when present (authoritative — the
+		// canonical current format), else spec.md as the legacy fallback. This
+		// is spec.json-FIRST (ADR-0009), aligning with resolveNeeds below which
+		// already prefers spec.json; the AC-level checks must not silently skip
+		// on spec.json-only slices (AC-02).
 		var specStr string
 		var acs []string
-		if specText, err := os.ReadFile(specPath); err == nil {
-			specStr = string(specText)
-			acs = parseAcceptanceChecks(specStr)
-		} else {
-			rec, recErr := spec.ReadRecord(sliceDir)
-			if recErr != nil {
-				return nil, fmt.Errorf("trace: %w", recErr)
-			}
-			if rec == nil || len(rec.AcceptanceCriteria) == 0 {
-				// No spec artefact yet — optional for planned slices.
-				continue
-			}
+		rec, recErr := spec.ReadRecord(sliceDir)
+		if recErr != nil {
+			return nil, fmt.Errorf("trace: %w", recErr)
+		}
+		if rec != nil && len(rec.AcceptanceCriteria) > 0 {
 			for _, ac := range rec.AcceptanceCriteria {
 				acs = append(acs, ac.Text)
 			}
 			// spec-v1 carries no markdown body; the AC texts are the spec
 			// surface the text-level checks (5a/5c) run against.
 			specStr = strings.Join(acs, "\n")
+		} else if specText, err := os.ReadFile(specPath); err == nil {
+			specStr = string(specText)
+			acs = parseAcceptanceChecks(specStr)
+		} else {
+			// No spec artefact yet — optional for planned slices.
+			continue
 		}
 		specTexts[sliceID] = specStr
 

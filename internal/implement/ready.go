@@ -30,21 +30,33 @@ type driverVerifier struct {
 	worktreeRoot string
 }
 
-func (v driverVerifier) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
+// Verify dispatches the DoR requirements-grading call as a schema-constrained
+// captain-family dispatch (S02 migration): StructuredSchema is set, so the
+// driver constrains the model to emit the reqverify-results object and returns
+// it in Result.StructuredJSON. A model that cannot emit structured output
+// surfaces as driver.ErrKindUnsupported, which maps to
+// reqverify.ErrStructuredUnsupported so the DoR gate records a declared Rule 2
+// deferral (AC-03) rather than a hard failure.
+func (v driverVerifier) Verify(ctx context.Context, systemPrompt, userPayload string, schema []byte) (string, float64, int64, int64, error) {
 	res, err := v.d.Dispatch(ctx, driver.DispatchInput{
-		Role:         driver.RoleCaptain,
-		ModelID:      v.modelID,
-		SystemPrompt: systemPrompt,
-		Payload:      userPayload,
-		WorktreeRoot: v.worktreeRoot,
+		Role:             driver.RoleCaptain,
+		ModelID:          v.modelID,
+		SystemPrompt:     systemPrompt,
+		Payload:          userPayload,
+		WorktreeRoot:     v.worktreeRoot,
+		StructuredSchema: schema,
 	})
 	if err != nil {
+		if res.ErrKind == driver.ErrKindUnsupported {
+			return "", res.CostUSD, res.InputTokens, res.OutputTokens,
+				fmt.Errorf("%w: %v", reqverify.ErrStructuredUnsupported, err)
+		}
 		return "", res.CostUSD, res.InputTokens, res.OutputTokens, err
 	}
-	if res.Status != driver.StatusOK || strings.TrimSpace(res.ResultText) == "" {
-		return "", res.CostUSD, res.InputTokens, res.OutputTokens, fmt.Errorf("driver verifier: empty response")
+	if res.Status != driver.StatusOK || len(res.StructuredJSON) == 0 {
+		return "", res.CostUSD, res.InputTokens, res.OutputTokens, fmt.Errorf("driver verifier: empty structured response")
 	}
-	return res.ResultText, res.CostUSD, res.InputTokens, res.OutputTokens, nil
+	return string(res.StructuredJSON), res.CostUSD, res.InputTokens, res.OutputTokens, nil
 }
 
 // DoRResult captures the Definition of Ready evaluation for one slice.
@@ -107,13 +119,22 @@ func CheckDoR(ctx context.Context, releaseDir, sliceID string, verifier reqverif
 		if rvErr != nil {
 			return result, fmt.Errorf("dor: reqverify: %w", rvErr)
 		}
-		for _, v := range rvReport.Violations {
-			if v.SliceID == sliceID {
-				failure := fmt.Sprintf("%s (AC %d): %s", v.Characteristic, v.ACIndex, v.Reason)
-				result.ReqverifyFailures = append(result.ReqverifyFailures, failure)
+		if rvReport.Deferred {
+			// Capability-absent (S02 AC-03): the model cannot emit structured
+			// output. This routes through the SAME fail-closed "not evaluated"
+			// arm as the nil-verifier case, carrying the capability-naming
+			// reason — a declared Rule 2 deferral, never a silent pass.
+			result.ReqverifyPassed = false
+			result.ReqverifyFailures = append(result.ReqverifyFailures, rvReport.DeferredReason)
+		} else {
+			for _, v := range rvReport.Violations {
+				if v.SliceID == sliceID {
+					failure := fmt.Sprintf("%s (AC %d): %s", v.Characteristic, v.ACIndex, v.Reason)
+					result.ReqverifyFailures = append(result.ReqverifyFailures, failure)
+				}
 			}
+			result.ReqverifyPassed = len(result.ReqverifyFailures) == 0
 		}
-		result.ReqverifyPassed = len(result.ReqverifyFailures) == 0
 	}
 
 	// ---- 3. reqvalidate check ----

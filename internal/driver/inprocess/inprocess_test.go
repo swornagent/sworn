@@ -180,7 +180,7 @@ func dispatchInput(role driver.Role, worktree string) driver.DispatchInput {
 		Timeout:      30 * time.Second,
 	}
 	if role == driver.RoleVerifier {
-		in.VerdictSchema = verdictSchema
+		in.StructuredSchema = verdictSchema
 	}
 	return in
 }
@@ -559,5 +559,106 @@ func TestInprocessVerifierRequiresStructuredOutput(t *testing.T) {
 	res, err := d.Dispatch(context.Background(), dispatchInput(driver.RoleVerifier, tempWorktree(t)))
 	if err == nil || res.ErrKind != driver.ErrKindProtocol {
 		t.Errorf("Result/err = %+v/%v, want protocol error (can chat, cannot emit a verdict)", res, err)
+	}
+}
+
+// --- S02: schema-constrained captain dispatch (design TL;DR / reqverify DoR) --
+
+// captainSchema is a minimal sworn-local emit schema for the structured captain
+// tests — strict-mode-subset (no minLength/pattern/format).
+var captainSchema = []byte(`{
+	"title": "captain-emit",
+	"type": "object",
+	"additionalProperties": false,
+	"properties": {"summary": {"type": "string"}},
+	"required": ["summary"]
+}`)
+
+func captainStructuredInput(worktree string) driver.DispatchInput {
+	return driver.DispatchInput{
+		Role:             driver.RoleCaptain,
+		ModelID:          "openai/gpt-test",
+		SystemPrompt:     "You are the captain.",
+		Payload:          "Emit the structured object.",
+		WorktreeRoot:     worktree,
+		Timeout:          30 * time.Second,
+		StructuredSchema: captainSchema,
+	}
+}
+
+// TestInprocessCaptainStructured proves the S02 driver-contract change: a
+// captain dispatch carrying StructuredSchema emits via ChatStructured — exactly
+// ONE call (no investigation loop, unlike the verifier) — and returns the JSON
+// unmodified in Result.StructuredJSON. This is the seam the design + DoR gates
+// ride (AC-01/AC-02).
+func TestInprocessCaptainStructured(t *testing.T) {
+	emission := `{"summary":"the design is coherent and in scope"}`
+	s := &script{turns: []turn{textTurn(emission)}}
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+
+	d := testDriver(srv.URL)
+	res, err := d.Dispatch(context.Background(), captainStructuredInput(tempWorktree(t)))
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if res.Status != driver.StatusOK {
+		t.Fatalf("Status = %q, want ok (ErrKind %q)", res.Status, res.ErrKind)
+	}
+	if string(res.StructuredJSON) != emission {
+		t.Errorf("StructuredJSON = %s, want the emission unmodified", res.StructuredJSON)
+	}
+	if res.ResultText != emission {
+		t.Errorf("ResultText = %q, want the emission (prose-only callers still see content)", res.ResultText)
+	}
+	if got := s.structuredRequestCount(); got != 1 {
+		t.Errorf("structured (response_format) requests = %d, want exactly 1", got)
+	}
+	if s.requestCount() != 1 {
+		t.Errorf("server saw %d requests, want 1 — a captain structured dispatch is one-shot (no investigation loop)", s.requestCount())
+	}
+}
+
+// TestInprocessCaptainProseUnchanged proves the nil-schema captain path is the
+// unchanged prose Chat call (S02 D1: prose path unchanged when schema is nil).
+func TestInprocessCaptainProseUnchanged(t *testing.T) {
+	s := &script{turns: []turn{textTurn("prose judgement, no schema")}}
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+
+	d := testDriver(srv.URL)
+	in := captainStructuredInput(tempWorktree(t))
+	in.StructuredSchema = nil // prose path
+	res, err := d.Dispatch(context.Background(), in)
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if res.Status != driver.StatusOK || res.ResultText != "prose judgement, no schema" {
+		t.Errorf("Status/ResultText = %q/%q, want ok/prose", res.Status, res.ResultText)
+	}
+	if len(res.StructuredJSON) != 0 {
+		t.Errorf("StructuredJSON = %s, want empty on the prose path", res.StructuredJSON)
+	}
+	if got := s.structuredRequestCount(); got != 0 {
+		t.Errorf("structured requests = %d, want 0 on the prose path", got)
+	}
+}
+
+// TestInprocessCaptainStructuredRequiresStructuredOutput is AC-03 at the driver
+// seam: a captain schema-constrained dispatch to a client that can chat but
+// cannot emit structured output fails closed with ErrKindUnsupported — a
+// DECLARED Rule 2 deferral the gate records, distinct from ErrKindProtocol (a
+// structured-emission failure).
+func TestInprocessCaptainStructuredRequiresStructuredOutput(t *testing.T) {
+	d := NewOAIChat(model.ProviderConfig{})
+	d.newClient = func(string, model.ProviderConfig) (model.Verifier, error) {
+		return chatOnly{}, nil
+	}
+	res, err := d.Dispatch(context.Background(), captainStructuredInput(tempWorktree(t)))
+	if err == nil || res.ErrKind != driver.ErrKindUnsupported {
+		t.Errorf("Result/err = %+v/%v, want unsupported error (can chat, cannot emit structured output)", res, err)
+	}
+	if len(res.StructuredJSON) != 0 {
+		t.Errorf("StructuredJSON = %s, want empty — never a fabricated emission", res.StructuredJSON)
 	}
 }
