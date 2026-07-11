@@ -5,8 +5,10 @@
   "track": "T4-resolution-loop",
   "state": "verified",
   "last_updated_by": "verifier",
-  "last_updated_at": "2026-07-11T14:46:03Z",
-  "covers_needs": ["N-06"],
+  "last_updated_at": "2026-07-10T14:31:54Z",
+  "covers_needs": [
+    "N-06"
+  ],
   "spec_path": "docs/release/2026-06-28-driver-contract/S08-honest-cost-telemetry/spec.json",
   "start_commit": "f8ca6b5ca57206471857adb3d14710e49c83732f",
   "actual_files": [
@@ -102,7 +104,7 @@
   "verification": {
     "result": "pass",
     "verifier_was_fresh_context": true,
-    "verifier_verdict_at": "2026-07-11T14:46:03Z",
+    "verifier_verdict_at": "2026-07-10T14:31:54Z",
     "violations": []
   }
 }
