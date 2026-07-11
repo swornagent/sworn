@@ -240,3 +240,65 @@ FAIL. `go build ./...`, `gofmt -l .`, `go vet ./...` clean. Reachability:
 DESIGNFIT PASS over 15 slices; the new round-trip test is the AC-03 end-to-end
 artefact. Kept Validate strict + normalise-before-validate; board byte-identical
 to v0.10.0 (untouched); no live records migrated.
+
+---
+
+## 2026-07-11 — PASS (fresh-context /verify-slice, Rule 7, round 2)
+
+Verified against `aa4bd0e` (`start_commit 4dbd21b..HEAD`; non-merge feat/fix
+commits `64503ae`, `df08667`, `97fb7f3`; drift vs `release-wt` = 0, no forward-merge
+needed). Fresh context, artefact-only (spec.json/proof.json/status.json + live repo).
+Full suite re-run by the verifier: `go test -count=1 -timeout 300s ./...` = 47 pkgs
+ok, 0 FAIL (`internal/verdict` no test files); `go build ./...` ok; `gofmt -l .`
+clean; `go vet ./...` exit 0; newline-eating-corruption sweep on changed `.go` clean
+(the two `oracle.go` comment-fusions at :155/:249 predate `start_commit` — commit
+`5e1d3c29`, 2026-06-24 — and are out of this slice's diff, so not an S11 regression).
+
+**AC-03 remediation confirmed (the sole prior-round FAIL).** Independently
+re-verified all four numbered violations are closed: writer
+`internal/implement/spec_record.go` now emits `in_scope`/`out_of_scope` (non-nil
+arrays) and drops `schema_version` + AC `type`/`ears_keyword`; reader
+`internal/spec/spec.go` `Record` exposes `InScope`/`OutOfScope`;
+`validator.go validateSpec` reconciled (no `schema_version==1` requirement, requires
+the two arrays); `TestWriteSpecRecord_RoundTripValidatesStrictSchema` drives
+WriteSpecRecord → strict `ValidateSchema("spec-v1")` → key-absence asserts →
+`ReadRecord` exposes the boundary (2 in / 1 out). Genuine, non-tautological — PASS.
+
+**All 11 ACs independently verified.** AC-01: VERSION pins v0.10.0 @ a5ab2aa
+(digest sha256:68cae03…); both embed roots diff byte-identical to `baton@v0.10.0`
+(9 schemas + 11 rule docs + README.md + architecture.json); `sworn doctor` →
+"on Baton v0.10.0". AC-02: `Quadrant` returns quick/beast; `EffortComplexity.Validate`
+strictly strict (`want` ∈ {quick,grind,puzzle,beast} so stored chore/epic never
+matches → rejected); normalise() maps chore→quick/epic→beast BEFORE Validate
+(TestQuadrant, TestReadNormalisesRetiredQuadrant). AC-04: `TestWrite_CanonicalDeferral_RoundTrips`
++ `TestSchema_OpenDeferralStrictAdditive` (acknowledged_by round-trips + strict
+fail-closed). AC-05: full targeted suite green. AC-06+Pin-1: vendored board-v1
+top-level = `$schema/release/tracks` only, additionalProperties:false;
+`TestWriteBoard_RoundTrip` writes then strict-validates + asserts exactly those
+top-level keys (I re-ran it — PASS). AC-07/D2: `derive.go` derives branch
+(`track/<rel>/<id>`), path (repo-local sibling — eval-finding-3 logic, NOT the naive
+`$HOME` formula), state (merge-base --is-ancestor); `worker.go defaultTrackWorktreePath`
+removed; `IsAncestor` fix correct + Rule-11 empty-Dir guard. AC-08: `BoardTrack` =
+`{id,slices,depends_on}` (writer cannot emit worktree/state); no
+implement-slice.md/merge-track.md vendored (satisfied-by-engine). AC-09:
+`ReadSliceStatus` owner-track-branch-first; `TestOwnerBranchWins` PASS. AC-10/AC-11:
+contracts-v1 + assembly-proof-v1 byte-identical to the tag & to their published $id,
+in `internal/baton/schemas` only, registered in `SchemaMap` but absent from the
+`Validate()` grader switch (advisory, not graded); `TestAdvisorySchemasByteMatchPublished`
+PASS. Scrutiny-5: `sworn board` + `sworn designfit` both exit 0 / DESIGNFIT PASS over
+the UN-migrated on-disk records (quadrant=epic, schema_version present, AC
+type/ears_keyword present) — sworn#90 proven live via the read-path shim.
+
+**Notes (non-blocking, no gate implicated):** (1) pre-existing `oracle.go:249`
+newline-fusion makes `parseStatusJSON` Actionable always-false — predates this
+slice, out of scope, worth a cleanup ticket; (2) inert stale `"quadrant":"chore"`
+literal at `router_test.go:792` (never validated; suite green) — a cosmetic AC-05
+"all fixtures updated" miss; (3) no automated test asserts the AC-08 no-commands
+negative-evidence (manually confirmed + structurally guaranteed); (4)
+`not_delivered` #4 (internal/prompt re-sync) has soft tracking but is out of AC-01's
+named embed roots with "no gate depends on it"; (5) proof reachability phrasing says
+designfit reads specs "through the normalise shim" — actually `spec.ReadRecord`
+tolerantly unmarshals; the OUTCOME (passes on un-migrated records) is real.
+
+**Next step:** `/implement-slice S15-baton-version-handshake 2026-06-28-driver-contract`
+(next incomplete slice in track T7-baton-revendor).

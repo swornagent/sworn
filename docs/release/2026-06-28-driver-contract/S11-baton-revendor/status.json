@@ -3,7 +3,7 @@
   "slice_id": "S11-baton-revendor",
   "release": "2026-06-28-driver-contract",
   "track": "T7-baton-revendor",
-  "state": "implemented",
+  "state": "verified",
   "covers_needs": [
     "N-12"
   ],
@@ -90,7 +90,10 @@
     "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "pending"
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-11T09:03:35Z",
+    "violations": []
   },
   "actual_files": [
     "cmd/sworn/merge_test.go",
