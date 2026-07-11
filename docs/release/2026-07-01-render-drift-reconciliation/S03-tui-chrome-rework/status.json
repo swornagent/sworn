@@ -12,7 +12,7 @@
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
-    "quadrant": "epic",
+    "quadrant": "beast",
     "rationale": "Wire WindowSizeMsg into Model, make pane widths responsive, add header, restyle help bar.",
     "confirmed_by_implementer": true
   },

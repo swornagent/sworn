@@ -4,13 +4,15 @@
   "release": "2026-07-01-release-hygiene",
   "track": "T1-version-hygiene",
   "state": "planned",
-  "covers_needs": ["N-01"],
+  "covers_needs": [
+    "N-01"
+  ],
   "spec_path": "docs/release/2026-07-01-release-hygiene/S01-embedded-version/spec.json",
   "start_commit": null,
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "Version package (txt + go:embed) + main.go default + Makefile line.",
     "confirmed_by_implementer": false
   },

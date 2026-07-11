@@ -200,7 +200,7 @@ func Classify(text string) Pattern {
 //
 // For each slice, spec.json is preferred over spec.md whenever spec.json
 // exists and carries at least one acceptance criterion (AC-02/AC-04): the
-// already-computed ears_keyword field is read directly instead of
+// already-computed ears_pattern field is read directly instead of
 // re-classifying spec.md prose text, and this holds even when spec.md is
 // also present — spec.json is authoritative on disagreement. spec.md is
 // used only as a legacy fallback for slices with no spec.json (pre-ADR-0009
@@ -344,18 +344,18 @@ func classifySpec(sliceID, text string) []Result {
 	return results
 }
 
-// classifySpecJSON classifies each acceptance criterion in a spec-v1 record
-// (AC-02). Unlike classifySpec, it does not re-derive the pattern from the
-// AC text via Classify — it reads the already-computed ears_keyword field
-// spec_record.go wrote at spec-authoring time and maps it directly. Returns
-// one Result per AC, in acceptance_criteria[] order; Line is the 1-based
-// ordinal position (see Result's doc comment — there is no markdown line
-// for a JSON record).
+// classifySpecJSON classifies each acceptance criterion in a spec-v1 record.
+// Unlike classifySpec, it does not re-derive the pattern from the AC text via
+// Classify — it reads the already-computed ears_pattern field (the canonical
+// v0.10.0 EARS pattern class the planner recorded, and that S12 migrated from
+// the retired sworn-local type field) and maps it directly. Returns one Result
+// per AC, in acceptance_criteria[] order; Line is the 1-based ordinal position
+// (see Result's doc comment — there is no markdown line for a JSON record).
 func classifySpecJSON(sliceID string, rec *spec.Record) []Result {
 	results := make([]Result, 0, len(rec.AcceptanceCriteria))
 	for i, ac := range rec.AcceptanceCriteria {
 		text := strings.TrimSpace(ac.Text)
-		pattern := patternFromKeyword(ac.EARSKeyword)
+		pattern := patternFromEARSPattern(ac.EARSPattern)
 		// Defensive NOTE: check — belt-and-braces. The current spec.json
 		// writer already filters NOTE: lines out at write time, but this
 		// matches the spec.md path's behaviour if a future writer changes.
@@ -372,28 +372,21 @@ func classifySpecJSON(sliceID string, rec *spec.Record) []Result {
 	return results
 }
 
-// patternFromKeyword maps a spec.json acceptance-criterion's stored
-// ears_keyword field to an EARS Pattern. Case-insensitive; unrecognized or
-// empty values default to PatternUbiquitous, mirroring
-// internal/implement/spec_record.go's writer-side default-to-ubiquitous
-// fallback. "complex" is accepted for forward-compatibility even though no
-// current writer emits it — spec_record.go's classifyEARSKeyword is a
-// first-match sequential check that cannot represent two-or-more
-// preconditions, so a spec.json-sourced AC can never actually classify as
-// PatternComplex today; this is an accepted precision loss versus
-// classifying from prose (see status.json design_decisions).
-func patternFromKeyword(keyword string) Pattern {
-	switch strings.ToLower(strings.TrimSpace(keyword)) {
-	case "when":
-		return PatternEventDriven
-	case "while":
-		return PatternStateDriven
-	case "where":
-		return PatternOptionalFeature
-	case "if":
-		return PatternUnwanted
-	case "complex":
-		return PatternComplex
+// patternFromEARSPattern maps a spec-v1 acceptance-criterion's stored
+// ears_pattern field (the canonical v0.10.0 EARS pattern class) to an
+// ears.Pattern. The stored values are identical to the Pattern constants, so
+// the mapping is a direct, case-insensitive match. An empty or unrecognised
+// value defaults to PatternUbiquitous, mirroring the writer-side
+// default-to-ubiquitous fallback (a plain "THE SYSTEM SHALL" AC carries no
+// precondition). "none" is deliberately absent from the accepted set — the
+// strict spec-v1 schema forbids it as an authored value, so an unknown value
+// collapses to Ubiquitous here rather than surfacing as a spurious violation.
+func patternFromEARSPattern(pat string) Pattern {
+	p := Pattern(strings.ToLower(strings.TrimSpace(pat)))
+	switch p {
+	case PatternUbiquitous, PatternEventDriven, PatternStateDriven,
+		PatternOptionalFeature, PatternUnwanted, PatternComplex, PatternNote:
+		return p
 	default:
 		return PatternUbiquitous
 	}

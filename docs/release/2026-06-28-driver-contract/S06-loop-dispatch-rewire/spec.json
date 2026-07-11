@@ -1,6 +1,5 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-  "schema_version": 1,
   "slice_id": "S06-loop-dispatch-rewire",
   "release": "2026-06-28-driver-contract",
   "track": "T4-resolution-loop",
@@ -25,7 +24,7 @@
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
-    "quadrant": "epic",
+    "quadrant": "beast",
     "rationale": "The largest seam rewire in the release: three role legs, verify.go transport replacement with semantics preservation, factory deletion, and an import-boundary contract — regression risk concentrated here.",
     "confirmed_by_implementer": false
   },
@@ -63,33 +62,28 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "RunSliceOptions SHALL NOT expose NewAgent/NewVerifier factory fields (deleted, not deprecated); every role leg (captain, implement, verify) SHALL obtain its driver via Registry.Resolve(modelID, role) and dispatch via Driver.Dispatch; tests inject fake drivers through a test registry, not through factories."
+      "text": "RunSliceOptions SHALL NOT expose NewAgent/NewVerifier factory fields (deleted, not deprecated); every role leg (captain, implement, verify) SHALL obtain its driver via Registry.Resolve(modelID, role) and dispatch via Driver.Dispatch; tests inject fake drivers through a test registry, not through factories.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-02",
-      "type": "unwanted",
-      "ears_keyword": "If",
-      "text": "If Resolve fails for the implement or verify role leg, RunSlice SHALL return a descriptive error naming the model, role, and registered alternatives BEFORE any model dispatch — no nil dereference is possible because no code path holds an unresolved driver (TestRunSliceResolutionFailure). If Resolve fails for the captain leg, RunSlice SHALL record that same descriptive role error as a durable Rule 2 deferral via the existing design-gate deferral path (recordDesignGateDeferral, sworn#51) and proceed — a hard error here would halt every subprocess-first run, since no subprocess driver declares RoleCaptain (Coach decision 2026-07-10, S06 captain-proceed.md pin 1; follow-up to declare RoleCaptain on subprocess drivers tracked separately)."
+      "text": "If Resolve fails for the implement or verify role leg, RunSlice SHALL return a descriptive error naming the model, role, and registered alternatives BEFORE any model dispatch — no nil dereference is possible because no code path holds an unresolved driver (TestRunSliceResolutionFailure). If Resolve fails for the captain leg, RunSlice SHALL record that same descriptive role error as a durable Rule 2 deferral via the existing design-gate deferral path (recordDesignGateDeferral, sworn#51) and proceed — a hard error here would halt every subprocess-first run, since no subprocess driver declares RoleCaptain (Coach decision 2026-07-10, S06 captain-proceed.md pin 1; follow-up to declare RoleCaptain on subprocess drivers tracked separately).",
+      "ears_pattern": "unwanted-behaviour"
     },
     {
       "id": "AC-03",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When the verify leg's Dispatch returns, the engine SHALL validate Result.StructuredJSON against verifier-verdict-v1 via the existing acceptStructuredVerdict + baton.ValidateSchema path with semantics preserved verbatim: invalid or missing StructuredJSON -> INCONCLUSIVE (fail-closed), terminal error kinds -> BLOCKED, valid verdict -> mapped Result; the existing verify acceptance tests SHALL pass against the new transport."
+      "text": "When the verify leg's Dispatch returns, the engine SHALL validate Result.StructuredJSON against verifier-verdict-v1 via the existing acceptStructuredVerdict + baton.ValidateSchema path with semantics preserved verbatim: invalid or missing StructuredJSON -> INCONCLUSIVE (fail-closed), terminal error kinds -> BLOCKED, valid verdict -> mapped Result; the existing verify acceptance tests SHALL pass against the new transport.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-04",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "internal/run, internal/verify, and internal/scheduler SHALL NOT import internal/model wire types (ChatMessage, ToolDef, ChatResponse, ToolCall) — enforced by TestNoWireImports in internal/run/imports_test.go covering all three packages and failing with the offending package + import named."
+      "text": "internal/run, internal/verify, and internal/scheduler SHALL NOT import internal/model wire types (ChatMessage, ToolDef, ChatResponse, ToolCall) — enforced by TestNoWireImports in internal/run/imports_test.go covering all three packages and failing with the offending package + import named.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-05",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "Every appendDispatch telemetry call SHALL source duration/tokens/cost/confirmed-model-id from the Dispatch leg's Result fields (honest population semantics land in S08; this AC pins the plumbing source); RunFirstPass SHALL remain byte-identical in behaviour (its tests unchanged); `go test ./internal/run/... ./internal/verify/... ./internal/implement/...` SHALL pass."
+      "text": "Every appendDispatch telemetry call SHALL source duration/tokens/cost/confirmed-model-id from the Dispatch leg's Result fields (honest population semantics land in S08; this AC pins the plumbing source); RunFirstPass SHALL remain byte-identical in behaviour (its tests unchanged); `go test ./internal/run/... ./internal/verify/... ./internal/implement/...` SHALL pass.",
+      "ears_pattern": "ubiquitous"
     }
   ]
 }

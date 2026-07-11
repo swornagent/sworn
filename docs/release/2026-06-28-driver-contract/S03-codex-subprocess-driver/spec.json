@@ -1,6 +1,5 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-  "schema_version": 1,
   "slice_id": "S03-codex-subprocess-driver",
   "release": "2026-06-28-driver-contract",
   "track": "T2-subprocess",
@@ -48,33 +47,28 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When Dispatch is called with Role=implementer, a codex model ID, and a valid WorktreeRoot, the driver SHALL spawn `codex exec` non-interactively with the working directory set to WorktreeRoot (cmd.Dir and the -C flag) and machine-readable output enabled, and SHALL return Status=ok with ResultText set to the final agent message and InputTokens/OutputTokens/DurationMS/ModelID populated from the CLI's reported usage where present. TestCodexDispatchImplementer proves this with a fake codex binary emitting a canned envelope."
+      "text": "When Dispatch is called with Role=implementer, a codex model ID, and a valid WorktreeRoot, the driver SHALL spawn `codex exec` non-interactively with the working directory set to WorktreeRoot (cmd.Dir and the -C flag) and machine-readable output enabled, and SHALL return Status=ok with ResultText set to the final agent message and InputTokens/OutputTokens/DurationMS/ModelID populated from the CLI's reported usage where present. TestCodexDispatchImplementer proves this with a fake codex binary emitting a canned envelope.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-02",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When Dispatch is called with Role=verifier, the driver SHALL include DispatchInput.VerdictSchema in the prompt as the required output contract and SHALL populate Result.StructuredJSON with the final message when it parses as a JSON object, returning Status=error with ErrKind=protocol when it does not (fail-closed; engine owns verifier-verdict-v1 validation)."
+      "text": "When Dispatch is called with Role=verifier, the driver SHALL include DispatchInput.VerdictSchema in the prompt as the required output contract and SHALL populate Result.StructuredJSON with the final message when it parses as a JSON object, returning Status=error with ErrKind=protocol when it does not (fail-closed; engine owns verifier-verdict-v1 validation).",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-03",
-      "type": "unwanted",
-      "ears_keyword": "If",
-      "text": "If the codex CLI exits non-zero, exceeds DispatchInput.Timeout, or the binary is missing, Dispatch SHALL return Status=error with the same ErrKind mapping as the claude driver (timeout -> transient; binary-not-found -> config; non-zero exit -> provider with stderr excerpt) — never a panic, never a half-populated ok Result. Table-driven TestCodexErrorMapping covers all three."
+      "text": "If the codex CLI exits non-zero, exceeds DispatchInput.Timeout, or the binary is missing, Dispatch SHALL return Status=error with the same ErrKind mapping as the claude driver (timeout -> transient; binary-not-found -> config; non-zero exit -> provider with stderr excerpt) — never a panic, never a half-populated ok Result. Table-driven TestCodexErrorMapping covers all three.",
+      "ears_pattern": "unwanted-behaviour"
     },
     {
       "id": "AC-04",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "The codex child environment SHALL apply the same hygiene as the claude driver (GOCACHE/GOMODCACHE outside WorktreeRoot; HOME not overridden), asserted by test; when usage metadata is absent from the envelope, cost SHALL be recorded as 0 with CostSource=unknown — never fabricated."
+      "text": "The codex child environment SHALL apply the same hygiene as the claude driver (GOCACHE/GOMODCACHE outside WorktreeRoot; HOME not overridden), asserted by test; when usage metadata is absent from the envelope, cost SHALL be recorded as 0 with CostSource=unknown — never fabricated.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-05",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "`go test ./internal/driver/...` SHALL pass, including the S02 claude-driver tests unchanged (shared-plumbing regression guard)."
+      "text": "`go test ./internal/driver/...` SHALL pass, including the S02 claude-driver tests unchanged (shared-plumbing regression guard).",
+      "ears_pattern": "ubiquitous"
     }
   ]
 }

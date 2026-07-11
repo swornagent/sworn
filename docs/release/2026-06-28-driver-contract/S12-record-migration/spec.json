@@ -1,6 +1,5 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-  "schema_version": 1,
   "slice_id": "S12-record-migration",
   "release": "2026-06-28-driver-contract",
   "track": "T7-baton-revendor",
@@ -62,45 +61,38 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "After the migration, `grep -rn '\"quadrant\": \"chore\"' docs/release/` SHALL return zero matches, with every migrated record now reading 'quick', and `grep -rn '\"quadrant\": \"epic\"' docs/release/` likewise returning zero (all migrated to 'beast'); grind/puzzle untouched (the grep outputs are the slice's reachability artefact, captured in proof.json)."
+      "text": "After the migration, `grep -rn '\"quadrant\": \"chore\"' docs/release/` SHALL return zero matches, with every migrated record now reading 'quick', and `grep -rn '\"quadrant\": \"epic\"' docs/release/` likewise returning zero (all migrated to 'beast'); grind/puzzle untouched (the grep outputs are the slice's reachability artefact, captured in proof.json).",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-02",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "`grep -rn '\"quadrant\": \"feature\"' docs/release/` across the five spec-v1-era releases SHALL return zero matches (a regression guard, same shape as AC-01). The original 'correct the single feature-quadrant record' claim was stale — zero such records exist in JSON form (verified 2026-07-11); AC-02 is a zero-match GUARD against a future invalid-quadrant record, not a correction (Coach 2026-07-11, S12 review pin 2)."
+      "text": "`grep -rn '\"quadrant\": \"feature\"' docs/release/` across the five spec-v1-era releases SHALL return zero matches (a regression guard, same shape as AC-01). The original 'correct the single feature-quadrant record' claim was stale — zero such records exist in JSON form (verified 2026-07-11); AC-02 is a zero-match GUARD against a future invalid-quadrant record, not a correction (Coach 2026-07-11, S12 review pin 2).",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-03",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "Every spec.json under docs/release/ SHALL contain in_scope and out_of_scope fields (empty arrays permitted for historical records) and SHALL validate against the vendored v0.10.0 spec-v1 schema — proven by a validation sweep whose output is captured in proof.json."
+      "text": "Every spec.json under docs/release/ SHALL contain in_scope and out_of_scope fields (empty arrays permitted for historical records) and SHALL validate against the vendored v0.10.0 spec-v1 schema — proven by a validation sweep whose output is captured in proof.json.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-04",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "state.EffortComplexity.Validate SHALL accept only quick/grind/puzzle/beast (S11's normalise shim removed (Validate strictly quick-only)), and `go test ./internal/state/...` SHALL pass."
+      "text": "state.EffortComplexity.Validate SHALL accept only quick/grind/puzzle/beast (S11's normalise shim removed (Validate strictly quick-only)), and `go test ./internal/state/...` SHALL pass.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-05",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When `sworn render` is re-run for each of the five spec-v1-era releases (2026-06-28-driver-contract, 2026-06-30-sworn-operational-readiness, 2026-07-01-loop-cli-ux, 2026-07-01-release-hygiene, 2026-07-01-render-drift-reconciliation) after the migration, the committed index.md files SHALL match the render output (the fail-closed drift guard passes for those releases), with the refreshed renders committed in this slice. Pre-spec-v1 legacy releases are excluded (Coach decision 2026-07-10)."
+      "text": "When `sworn render` is re-run for each of the five spec-v1-era releases (2026-06-28-driver-contract, 2026-06-30-sworn-operational-readiness, 2026-07-01-loop-cli-ux, 2026-07-01-release-hygiene, 2026-07-01-render-drift-reconciliation) after the migration, the committed index.md files SHALL match the render output (the fail-closed drift guard passes for those releases), with the refreshed renders committed in this slice. Pre-spec-v1 legacy releases are excluded (Coach decision 2026-07-10).",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-06",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "After the board.json migration, none of the five spec-v1-era releases' board.json files SHALL carry tracks[].state, tracks[].worktree_path/worktree_branch, or release-level worktree fields, and each of those five SHALL validate against the vendored v0.10.0 board-v1 (pure plan: tracks[] = id/slices/depends_on); the validation sweep output is captured in proof.json. Pre-spec-v1 legacy releases' board.json files are excluded (Coach decision 2026-07-10)."
+      "text": "After the board.json migration, none of the five spec-v1-era releases' board.json files SHALL carry tracks[].state, tracks[].worktree_path/worktree_branch, or release-level worktree fields, and each of those five SHALL validate against the vendored v0.10.0 board-v1 (pure plan: tracks[] = id/slices/depends_on); the validation sweep output is captured in proof.json. Pre-spec-v1 legacy releases' board.json files are excluded (Coach decision 2026-07-10).",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-07",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When the migration reshapes each acceptance criterion for strict v0.10.0 spec-v1 conformance (which allows only id/text/ears_pattern/test_refs), it SHALL MAP the retired sworn-local 'type' field to the canonical 'ears_pattern' field (ubiquitous->ubiquitous, event-driven->event-driven, state-driven->state-driven, optional-feature->optional-feature, complex->complex, unwanted->unwanted-behaviour, note->note) rather than dropping the classification, and SHALL drop the now-redundant 'ears_keyword'; internal (ears.go / classifySpecJSON) SHALL read 'ears_pattern' so `sworn lint` EARS classification is PRESERVED (no all-Ubiquitous degradation). A test SHALL assert lint classifies a migrated event-driven/unwanted-behaviour record correctly (not as Ubiquitous). sworn#95."
+      "text": "When the migration reshapes each acceptance criterion for strict v0.10.0 spec-v1 conformance (which allows only id/text/ears_pattern/test_refs), it SHALL MAP the retired sworn-local 'type' field to the canonical 'ears_pattern' field (ubiquitous->ubiquitous, event-driven->event-driven, state-driven->state-driven, optional-feature->optional-feature, complex->complex, unwanted->unwanted-behaviour, note->note) rather than dropping the classification, and SHALL drop the now-redundant 'ears_keyword'; internal (ears.go / classifySpecJSON) SHALL read 'ears_pattern' so `sworn lint` EARS classification is PRESERVED (no all-Ubiquitous degradation). A test SHALL assert lint classifies a migrated event-driven/unwanted-behaviour record correctly (not as Ubiquitous). sworn#95.",
+      "ears_pattern": "event-driven"
     }
   ]
 }

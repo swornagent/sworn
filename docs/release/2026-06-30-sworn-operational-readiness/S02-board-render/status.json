@@ -12,7 +12,7 @@
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "Deterministic render of board.json + slice records into a fixed Markdown layout; new files only, no model dispatch.",
     "confirmed_by_implementer": true
   },

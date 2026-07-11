@@ -1,15 +1,16 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-  "schema_version": 1,
   "slice_id": "S01-active-release-store",
   "release": "2026-07-01-loop-cli-ux",
   "user_outcome": "Running `sworn use <release>` validates the release against the board oracle and persists it as the active release in `.sworn/sworn.db`; running `sworn use` with no arguments prints the current selection, or a clear \"no active release\" message if none is set.",
   "rationale": "No persisted notion of \"the active release\" exists anywhere in sworn today (confirmed by grep across the codebase). This is the storage primitive the coach-loop precedent (`coach use <release>`) provides and that S03's bare `sworn loop` depends on. `.sworn/sworn.db` (already the home of per-track/per-release orchestration runtime state — tracks/events/decisions/circuit_failures) is the chosen home over a new flat file or internal/config's static-settings JSON, per the planning decision: a fast-changing 'what am I working on right now' pointer fits the same character as the DB's existing content, and a second local-state mechanism alongside the DB would just fragment where local sworn state lives.",
-  "covers_needs": ["N-01"],
+  "covers_needs": [
+    "N-01"
+  ],
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "One new SQLite table (or a generic key-value settings table) + one new cmd/sworn/use.go file + oracle validation call. No changes to existing tables or to run.go.",
     "confirmed_by_implementer": false
   },
@@ -23,33 +24,30 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "internal/db SHALL gain a settings table (or equivalent key-value mechanism) capable of storing a single string value keyed by name (e.g. \"active_release\"), added as schema version 2 with a migration that is a no-op on a fresh database and additive (non-destructive) on an existing one."
+      "text": "internal/db SHALL gain a settings table (or equivalent key-value mechanism) capable of storing a single string value keyed by name (e.g. \"active_release\"), added as schema version 2 with a migration that is a no-op on a fresh database and additive (non-destructive) on an existing one.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-02",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When `sworn use <release>` is run and `<release>` resolves successfully via the board oracle (the same resolution `sworn board --release <name>` uses), it SHALL persist `<release>` as the active release in the settings table and print a one-line confirmation (e.g. \"active release set to <release>\")."
+      "text": "When `sworn use <release>` is run and `<release>` resolves successfully via the board oracle (the same resolution `sworn board --release <name>` uses), it SHALL persist `<release>` as the active release in the settings table and print a one-line confirmation (e.g. \"active release set to <release>\").",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-03",
-      "type": "unwanted",
-      "ears_keyword": "If",
-      "text": "If `sworn use <release>` is run and `<release>` does NOT resolve via the board oracle (unknown release name), it SHALL fail closed: print a clear error naming the unresolved release and exit non-zero, WITHOUT persisting anything to the settings table."
+      "text": "If `sworn use <release>` is run and `<release>` does NOT resolve via the board oracle (unknown release name), it SHALL fail closed: print a clear error naming the unresolved release and exit non-zero, WITHOUT persisting anything to the settings table.",
+      "ears_pattern": "unwanted-behaviour"
     },
     {
       "id": "AC-04",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When `sworn use` is run with no arguments and an active release is currently set, it SHALL print that release name. When run with no arguments and no active release is set, it SHALL print a clear \"no active release selected — run `sworn use <release>`\" message and exit 0 (this is a query, not an error)."
+      "text": "When `sworn use` is run with no arguments and an active release is currently set, it SHALL print that release name. When run with no arguments and no active release is set, it SHALL print a clear \"no active release selected — run `sworn use <release>`\" message and exit 0 (this is a query, not an error).",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-05",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "After the change, `go build ./...` SHALL succeed and `go test ./internal/db/... ./cmd/sworn/...` SHALL pass."
+      "text": "After the change, `go build ./...` SHALL succeed and `go test ./internal/db/... ./cmd/sworn/...` SHALL pass.",
+      "ears_pattern": "ubiquitous"
     }
-  ]
+  ],
+  "in_scope": [],
+  "out_of_scope": []
 }

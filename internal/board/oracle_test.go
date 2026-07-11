@@ -7,17 +7,39 @@ import (
 	"testing"
 )
 
-// fakeGitReader implements gitContentReader with a map of ref:path -> content.
+// fakeGitReader implements gitContentReader (and, for track-state derivation
+// tests, RefAncestry) with a map of ref:path -> content plus ref-existence and
+// ancestry maps.
 type fakeGitReader struct {
 	content    map[string]string // "ref|path" → content
 	showCounts map[string]int    // "ref|path" → call count
+	refs       map[string]bool   // ref → exists (RefExists)
+	ancestors  map[string]bool   // "ancestor|descendant" → is-ancestor (IsAncestor)
 }
 
 func newFakeReader() *fakeGitReader {
 	return &fakeGitReader{
 		content:    make(map[string]string),
 		showCounts: make(map[string]int),
+		refs:       make(map[string]bool),
+		ancestors:  make(map[string]bool),
 	}
+}
+
+// setRef marks a ref as existing (for DeriveTrackState via RefExists).
+func (f *fakeGitReader) setRef(ref string) { f.refs[ref] = true }
+
+// setAncestor marks ancestor as an ancestor of descendant (for IsAncestor).
+func (f *fakeGitReader) setAncestor(ancestor, descendant string) {
+	f.ancestors[ancestor+"|"+descendant] = true
+}
+
+func (f *fakeGitReader) RefExists(ref string) (bool, error) {
+	return f.refs[ref], nil
+}
+
+func (f *fakeGitReader) IsAncestor(ancestor, descendant string) (bool, error) {
+	return f.ancestors[ancestor+"|"+descendant], nil
 }
 
 func (f *fakeGitReader) key(ref, path string) string {
@@ -512,98 +534,38 @@ func TestExtractFrontmatterBody(t *testing.T) {
 	}
 }
 
-// TestReadReleaseWorktreePath_FromBoardJSON is the S05 AC-01/AC-02 integration
-// point: a board.json-backed release resolves release_worktree_path via the
-// oracle instead of index.md frontmatter.
-func TestReadReleaseWorktreePath_FromBoardJSON(t *testing.T) {
+// TestReadReleaseWorktreePath_Derives proves the release worktree path is DERIVED
+// as a sibling of the primary repo (Pin 1 / sworn#80), no longer read from a
+// persisted board.json/index.md field.
+func TestReadReleaseWorktreePath_Derives(t *testing.T) {
 	fr := newFakeReader()
 	release := "test-release"
 	rwtRef := "refs/heads/release-wt/test-release"
 
-	fr.setContent(rwtRef, "docs/release/test-release/board.json",
-		`{"schema_version":1,"release":{"name":"test-release"},"release_worktree_path":"/tmp/release-wt","tracks":[]}`)
-
 	o := NewOracle(fr)
+	o.repoRoot = "/home/x/sworn"
 	got, err := o.ReadReleaseWorktreePath(fr, rwtRef, release)
 	if err != nil {
 		t.Fatalf("ReadReleaseWorktreePath: %v", err)
 	}
-	if got != "/tmp/release-wt" {
-		t.Fatalf("got %q, want /tmp/release-wt", got)
+	if want := "/home/x/sworn-worktrees/release-test-release"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }
 
-// TestReadReleaseWorktreePath_EmptyFieldFailsClosed is the Rule 11 pin: a
-// board.json with no release_worktree_path field must return an error, not
-// "" — an empty path flowing into git.New("") would run merge gates against
-// the ambient cwd instead of failing closed.
-func TestReadReleaseWorktreePath_EmptyFieldFailsClosed(t *testing.T) {
+// TestReadReleaseWorktreePath_NoRepoRootFailsClosed is the Rule 11 pin: when the
+// path is not derivable (the oracle has no primary repo root) it must return an
+// error, not "" — an empty path flowing into git.New("") would run merge gates
+// against the ambient cwd instead of failing closed.
+func TestReadReleaseWorktreePath_NoRepoRootFailsClosed(t *testing.T) {
 	fr := newFakeReader()
 	release := "test-release"
 	rwtRef := "refs/heads/release-wt/test-release"
 
-	fr.setContent(rwtRef, "docs/release/test-release/board.json",
-		`{"schema_version":1,"release":{"name":"test-release"},"tracks":[]}`)
-
-	o := NewOracle(fr)
+	o := NewOracle(fr) // repoRoot == "" — nothing to derive from
 	got, err := o.ReadReleaseWorktreePath(fr, rwtRef, release)
 	if err == nil {
-		t.Fatalf("want error for empty release_worktree_path, got nil (value %q)", got)
-	}
-}
-
-// A release that has migrated to board.json (committed on HEAD) must fail
-// closed rather than silently fall back to the legacy index.md frontmatter
-// parser when releaseRef's copy is missing — mirrors readTrackInfos's guard.
-func TestReadReleaseWorktreePath_MigratedOnHeadButMissingOnReleaseRef_FailsClosed(t *testing.T) {
-	fr := newFakeReader()
-	release := "test-release"
-	rwtRef := "refs/heads/release-wt/test-release"
-
-	fr.setContent("HEAD", "docs/release/test-release/board.json",
-		`{"schema_version":1,"release":{"name":"test-release"},"release_worktree_path":"/tmp/x","tracks":[]}`)
-	fr.setContent(rwtRef, "docs/release/test-release/index.md",
-		"---\nrelease_worktree_path: /tmp/stale\n---\n")
-
-	o := NewOracle(fr)
-	if _, err := o.ReadReleaseWorktreePath(fr, rwtRef, release); err == nil {
-		t.Fatal("want error when board.json exists on HEAD but not releaseRef, got nil (silently used legacy index.md)")
-	}
-}
-
-// AC-03: a release that never had board.json anywhere (pre-ADR-0009) still
-// resolves via the legacy index.md frontmatter fallback.
-func TestReadReleaseWorktreePath_LegacyIndexMDFallback(t *testing.T) {
-	fr := newFakeReader()
-	release := "test-release"
-	rwtRef := "refs/heads/release-wt/test-release"
-
-	fr.setContent(rwtRef, "docs/release/test-release/index.md",
-		"---\nrelease_worktree_path: /tmp/legacy-wt\n---\n# legacy release\n")
-
-	o := NewOracle(fr)
-	got, err := o.ReadReleaseWorktreePath(fr, rwtRef, release)
-	if err != nil {
-		t.Fatalf("legacy index.md fallback: %v", err)
-	}
-	if got != "/tmp/legacy-wt" {
-		t.Fatalf("got %q, want /tmp/legacy-wt", got)
-	}
-}
-
-// A legacy release whose index.md frontmatter has no release_worktree_path
-// key at all must also fail closed, not return "".
-func TestReadReleaseWorktreePath_LegacyIndexMD_MissingKeyFailsClosed(t *testing.T) {
-	fr := newFakeReader()
-	release := "test-release"
-	rwtRef := "refs/heads/release-wt/test-release"
-
-	fr.setContent(rwtRef, "docs/release/test-release/index.md",
-		"---\nrelease_benefit: no worktree path here\n---\n")
-
-	o := NewOracle(fr)
-	if _, err := o.ReadReleaseWorktreePath(fr, rwtRef, release); err == nil {
-		t.Fatal("want error for legacy index.md missing release_worktree_path key, got nil")
+		t.Fatalf("want error when the release worktree path is not derivable, got nil (value %q)", got)
 	}
 }
 
@@ -615,10 +577,12 @@ func TestOracleReaderAdapter_ReadReleaseWorktreePath(t *testing.T) {
 	release := "test-release"
 	rwtRef := "refs/heads/release-wt/test-release"
 
+	// A minimal pure-plan board.json so the adapter can build its track map.
 	fr.setContent(rwtRef, "docs/release/test-release/board.json",
-		`{"schema_version":1,"release":{"name":"test-release"},"release_worktree_path":"/tmp/adapter-wt","tracks":[]}`)
+		`{"$schema":"https://baton.sawy3r.net/schemas/board-v1.json","release":{"name":"test-release"},"tracks":[]}`)
 
 	o := NewOracle(fr)
+	o.repoRoot = "/home/x/sworn"
 	adapter, err := NewOracleReaderAdapter(o, fr, release, rwtRef)
 	if err != nil {
 		t.Fatalf("NewOracleReaderAdapter: %v", err)
@@ -628,8 +592,8 @@ func TestOracleReaderAdapter_ReadReleaseWorktreePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("adapter.ReadReleaseWorktreePath: %v", err)
 	}
-	if got != "/tmp/adapter-wt" {
-		t.Fatalf("got %q, want /tmp/adapter-wt", got)
+	if want := "/home/x/sworn-worktrees/release-test-release"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 
 	if _, err := adapter.ReadReleaseWorktreePath("other-release"); err == nil {

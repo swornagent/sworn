@@ -91,6 +91,8 @@ type gitContentReader interface {
 type gitRepoReader struct {
 	show          func(ref, path string) (string, error)
 	catFileExists func(ref, path string) (bool, error)
+	refExists     func(ref string) (bool, error)
+	isAncestor    func(ancestor, descendant string) (bool, error)
 }
 
 func (g *gitRepoReader) Show(ref, path string) (string, error) {
@@ -99,6 +101,16 @@ func (g *gitRepoReader) Show(ref, path string) (string, error) {
 
 func (g *gitRepoReader) CatFileExists(ref, path string) (bool, error) {
 	return g.catFileExists(ref, path)
+}
+
+// RefExists / IsAncestor make gitRepoReader satisfy RefAncestry so the Oracle can
+// derive a track's state (planned/in_progress/merged) from git refs.
+func (g *gitRepoReader) RefExists(ref string) (bool, error) {
+	return g.refExists(ref)
+}
+
+func (g *gitRepoReader) IsAncestor(ancestor, descendant string) (bool, error) {
+	return g.isAncestor(ancestor, descendant)
 }
 
 // OracleReader is the consumer contract for the router (S58) and scheduler
@@ -116,9 +128,16 @@ type OracleReader interface {
 // a gitRepoReader wrapping *git.Repo.
 type Oracle struct {
 	reader gitContentReader
+	// repoRoot is the primary repo root, used to DERIVE the release worktree path
+	// (a sibling of the repo) and thence track worktree paths (Pin 1 / sworn#80).
+	// Empty for a content-only fake reader (tests), in which case path derivation
+	// yields "" rather than a wrong path.
+	repoRoot string
 }
 
-// NewOracle returns an Oracle backed by the given gitContentReader.
+// NewOracle returns an Oracle backed by the given gitContentReader. repoRoot is
+// left empty (worktree-path derivation is skipped); use NewGitOracle for the
+// production path-deriving Oracle.
 func NewOracle(r gitContentReader) *Oracle {
 	return &Oracle{reader: r}
 }
@@ -388,7 +407,13 @@ func (o *Oracle) readTrackInfos(reader gitContentReader, releaseRef, release str
 		if err := json.Unmarshal([]byte(rawBoard), &br); err != nil {
 			return nil, fmt.Errorf("parse board.json from %s: %w", releaseRef, err)
 		}
-		return boardTracksToTrackInfos(br.Tracks), nil
+		// board-v1 is a pure plan: the branch is derived by boardTracksToTrackInfos;
+		// the path + state are derived here where the repo root + git ancestry are
+		// available (sworn#80). Any legacy worktree/state keys on disk are ignored
+		// on read (the struct no longer carries them).
+		tis := boardTracksToTrackInfos(br.Tracks, release)
+		o.deriveTrackWorktrees(tis, release)
+		return tis, nil
 	}
 
 	for _, boardPath := range boardPaths {
@@ -419,80 +444,41 @@ func (o *Oracle) readTrackInfos(reader gitContentReader, releaseRef, release str
 	return ParseTracks(fmBody), nil
 }
 
-// ReadReleaseWorktreePath reads the release_worktree_path field from
-// board.json (preferred) or index.md frontmatter (legacy fallback) at the
-// given git ref — the S05 replacement for cmd/sworn's hand-rolled frontmatter
-// scrapers (resolveReleaseWorktree / extractReleaseWorktreePath). It mirrors
-// readTrackInfos's board.json-path-list-first, index.md-fallback shape,
-// including the "board.json exists on HEAD but not on releaseRef → fail
-// closed instead of silently falling through" guard, so callers get one
-// consistent answer to "has this release migrated" regardless of which field
-// they're after.
-//
-// Fails closed (returns an error, never "") whenever the field is absent —
-// from a found board.json, from a found-but-key-less index.md frontmatter
-// block, or from a release with no board.json/index.md at all. An empty path
-// must never reach a caller that feeds it into git.New(""), which would
-// silently operate on the ambient cwd instead of the intended release
-// worktree (Rule 11).
-func (o *Oracle) ReadReleaseWorktreePath(reader gitContentReader, releaseRef, release string) (string, error) {
-	boardPaths := []string{
-		"docs/release/" + release + "/board.json",
-		"apps/docs/content/docs/release/" + release + "/board.json",
-	}
-
-	for _, boardPath := range boardPaths {
-		rawBoard, err := reader.Show(releaseRef, boardPath)
-		if err != nil {
-			continue
-		}
-		var br BoardRecord
-		if err := json.Unmarshal([]byte(rawBoard), &br); err != nil {
-			return "", fmt.Errorf("parse board.json from %s: %w", releaseRef, err)
-		}
-		if br.ReleaseWorktreePath == "" {
-			return "", fmt.Errorf("release_worktree_path not set in board.json at %s:%s", releaseRef, boardPath)
-		}
-		return br.ReleaseWorktreePath, nil
-	}
-
-	for _, boardPath := range boardPaths {
-		exists, err := reader.CatFileExists("HEAD", boardPath)
-		if err != nil {
-			return "", fmt.Errorf("check board.json on HEAD at %s: %w", boardPath, err)
-		}
-		if exists {
-			return "", fmt.Errorf("board.json exists on HEAD (%s) but not on %s — this release has migrated to board.json; sync releaseRef before reading it rather than falling back to legacy index.md", boardPath, releaseRef)
-		}
-	}
-
-	// Fallback: read index.md frontmatter (legacy — board.json has never
-	// existed for this release, on HEAD or releaseRef).
-	indexPath := "docs/release/" + release + "/index.md"
-	rawIndex, err := reader.Show(releaseRef, indexPath)
-	if err != nil {
-		fumaPath := "apps/docs/content/docs/release/" + release + "/index.md"
-		rawIndex2, err2 := reader.Show(releaseRef, fumaPath)
-		if err2 != nil {
-			return "", fmt.Errorf("read board.json: %v; read index.md: %v (also tried %s: %v)",
-				err, err, fumaPath, err2)
-		}
-		rawIndex = rawIndex2
-	}
-
-	fmBody := extractFrontmatterBody(rawIndex)
-	for _, line := range strings.Split(fmBody, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "release_worktree_path:") {
-			val := strings.TrimSpace(strings.TrimPrefix(line, "release_worktree_path:"))
-			val = strings.Trim(val, `"' `)
-			if val == "" {
-				return "", fmt.Errorf("release_worktree_path empty in index.md frontmatter at %s", releaseRef)
+// deriveTrackWorktrees fills the DERIVED worktree path and state on each
+// TrackInfo (sworn#80). The branch is already set by boardTracksToTrackInfos.
+// The path is a sibling of the release worktree (itself a sibling of the primary
+// repo — Pin 1 / eval finding 3); the state comes from git ref ancestry when the
+// reader supports it. A content-only fake reader (tests) resolves neither, so the
+// path and state stay "" there rather than becoming a wrong value.
+func (o *Oracle) deriveTrackWorktrees(tis []TrackInfo, release string) {
+	releaseWTPath := ReleaseWorktreePathFrom(o.repoRoot, release)
+	ra, hasAncestry := o.reader.(RefAncestry)
+	for i := range tis {
+		tis[i].WorktreePath = TrackWorktreePathFrom(releaseWTPath, release, tis[i].ID)
+		if hasAncestry {
+			if st, err := DeriveTrackState(ra, release, tis[i].ID); err == nil {
+				tis[i].State = st
 			}
-			return val, nil
 		}
 	}
-	return "", fmt.Errorf("release_worktree_path not found in index.md frontmatter")
+}
+
+// ReadReleaseWorktreePath DERIVES the release worktree path (Pin 1 / sworn#80).
+// board-v1 is a pure plan, so the path is no longer persisted: it is a sibling of
+// the PRIMARY repo — <dir(repoRoot)>/<base(repoRoot)>-worktrees/release-<release>,
+// the release-level analogue of the eval-finding-3 track derivation. The reader
+// and releaseRef params are retained for interface/signature compatibility but no
+// longer consulted (nothing is read from board.json for this field anymore).
+//
+// Fails closed (returns an error, never "") when the primary repo root is unknown,
+// so an empty path never reaches git.New("") — which would silently operate on the
+// ambient cwd instead of the intended release worktree (Rule 11).
+func (o *Oracle) ReadReleaseWorktreePath(reader gitContentReader, releaseRef, release string) (string, error) {
+	p := ReleaseWorktreePathFrom(o.repoRoot, release)
+	if p == "" {
+		return "", fmt.Errorf("release_worktree_path not derivable for %s: oracle has no repo root", release)
+	}
+	return p, nil
 }
 
 // ReadBoard reads the full release board: every track and every slice's
@@ -603,11 +589,21 @@ func extractFrontmatterBody(text string) string {
 // NewGitOracle returns an Oracle backed by a *git.Repo. This is the
 // production constructor; tests use NewOracle with a fake reader.
 func NewGitOracle(repo *git.Repo) *Oracle {
+	// Resolve the PRIMARY repo root (not this worktree) so release/track worktree
+	// paths derive as siblings of the repo. Best-effort: on failure fall back to
+	// the repo's own dir rather than emitting no path at all.
+	root, err := repo.PrimaryWorktreeRoot()
+	if err != nil {
+		root = repo.Dir
+	}
 	return &Oracle{
 		reader: &gitRepoReader{
 			show:          repo.Show,
 			catFileExists: repo.CatFileExists,
+			refExists:     repo.RefExists,
+			isAncestor:    repo.IsAncestor,
 		},
+		repoRoot: root,
 	}
 }
 

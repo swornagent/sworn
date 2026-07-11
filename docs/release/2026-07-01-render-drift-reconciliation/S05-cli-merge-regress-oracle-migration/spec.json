@@ -1,15 +1,16 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-  "schema_version": 1,
   "slice_id": "S05-cli-merge-regress-oracle-migration",
   "release": "2026-07-01-render-drift-reconciliation",
   "user_outcome": "`sworn merge-release` and `sworn regress` succeed against any current-format (board.json-backed) release instead of hard-erroring with \"release_worktree_path not found in index.md frontmatter\".",
   "rationale": "cmd/sworn/merge.go's resolveReleaseWorktree (used by cmdMergeRelease) and cmd/sworn/regress.go's extractReleaseWorktreePath both look for a release_worktree_path: key in index.md frontmatter that sworn render's current output never emits — a hard error, not a silent failure, but a hard error against every current-format release is still a broken command.",
-  "covers_needs": ["N-01"],
+  "covers_needs": [
+    "N-01"
+  ],
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "Two files, one function each, same fix pattern as every other slice in this release: read board.json's release_worktree_path field via the oracle instead of frontmatter.",
     "confirmed_by_implementer": false
   },
@@ -22,39 +23,35 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When `sworn merge-release <release>` runs against a release with a committed board.json, `resolveReleaseWorktree` SHALL read `release_worktree_path` from board.json (via the oracle) instead of index.md frontmatter, and the command SHALL succeed instead of erroring."
+      "text": "When `sworn merge-release <release>` runs against a release with a committed board.json, `resolveReleaseWorktree` SHALL read `release_worktree_path` from board.json (via the oracle) instead of index.md frontmatter, and the command SHALL succeed instead of erroring.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-02",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When `sworn regress <release>` runs against a release with a committed board.json, `extractReleaseWorktreePath` SHALL read the same field the same way, and the command SHALL succeed instead of erroring."
+      "text": "When `sworn regress <release>` runs against a release with a committed board.json, `extractReleaseWorktreePath` SHALL read the same field the same way, and the command SHALL succeed instead of erroring.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-03",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "Releases with no board.json (genuinely pre-migration) SHALL continue to resolve via the existing frontmatter fallback — this slice does not regress support for them."
+      "text": "Releases with no board.json (genuinely pre-migration) SHALL continue to resolve via the existing frontmatter fallback — this slice does not regress support for them.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-04",
-      "type": "unwanted",
-      "ears_keyword": "If",
-      "text": "`cmd/sworn/merge_test.go` and `cmd/sworn/regress_test.go`'s hand-written frontmatter fixtures SHALL be regenerated via the real `sworn render` path (or supplemented with a board.json-backed fixture case) so these commands are proven against what the renderer actually produces, not only the legacy shape."
+      "text": "`cmd/sworn/merge_test.go` and `cmd/sworn/regress_test.go`'s hand-written frontmatter fixtures SHALL be regenerated via the real `sworn render` path (or supplemented with a board.json-backed fixture case) so these commands are proven against what the renderer actually produces, not only the legacy shape.",
+      "ears_pattern": "unwanted-behaviour"
     },
     {
       "id": "AC-05",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "Reachability artefact: running `sworn merge-release` (or `sworn regress`, whichever is more directly testable without a real merge) against one of this repo's own current-format releases (e.g. `2026-07-01-loop-cli-ux`) SHALL be captured as command output proving it no longer errors on the frontmatter lookup."
+      "text": "Reachability artefact: running `sworn merge-release` (or `sworn regress`, whichever is more directly testable without a real merge) against one of this repo's own current-format releases (e.g. `2026-07-01-loop-cli-ux`) SHALL be captured as command output proving it no longer errors on the frontmatter lookup.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-06",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "After the change, `go build ./...` SHALL succeed and `go test ./cmd/sworn/...` SHALL pass."
+      "text": "After the change, `go build ./...` SHALL succeed and `go test ./cmd/sworn/...` SHALL pass.",
+      "ears_pattern": "ubiquitous"
     }
-  ]
+  ],
+  "in_scope": [],
+  "out_of_scope": []
 }

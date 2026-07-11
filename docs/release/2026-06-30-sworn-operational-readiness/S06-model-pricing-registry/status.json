@@ -12,7 +12,7 @@
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "Static pricing-map correctness fix across three maps (add claude-sonnet-5, correct claude-opus-4-8 $15/$75->$5/$25) plus test assertions. No dispatch-path logic, no dep, no schema change.",
     "confirmed_by_implementer": false
   },

@@ -1,6 +1,5 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-  "schema_version": 1,
   "slice_id": "S02-claude-subprocess-driver",
   "release": "2026-06-28-driver-contract",
   "track": "T2-subprocess",
@@ -58,39 +57,33 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When Dispatch is called with Role=implementer, a claude-cli model ID, and a valid WorktreeRoot, the driver SHALL spawn `claude -p --output-format json --model <model>` with cmd.Dir set to WorktreeRoot and SHALL return Status=ok with ResultText, CostUSD, InputTokens, OutputTokens, DurationMS, and ModelID populated from the CLI's JSON result envelope (fields result, total_cost_usd, usage.input_tokens, usage.output_tokens, duration_ms, model when present). TestClaudeDispatchImplementer proves this with a fake claude binary emitting a canned envelope and asserting the recorded cmd.Dir."
+      "text": "When Dispatch is called with Role=implementer, a claude-cli model ID, and a valid WorktreeRoot, the driver SHALL spawn `claude -p --output-format json --model <model>` with cmd.Dir set to WorktreeRoot and SHALL return Status=ok with ResultText, CostUSD, InputTokens, OutputTokens, DurationMS, and ModelID populated from the CLI's JSON result envelope (fields result, total_cost_usd, usage.input_tokens, usage.output_tokens, duration_ms, model when present). TestClaudeDispatchImplementer proves this with a fake claude binary emitting a canned envelope and asserting the recorded cmd.Dir.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-02",
-      "type": "unwanted",
-      "ears_keyword": "If",
-      "text": "If WorktreeRoot does not exist or is not a git working tree, Dispatch SHALL return Status=error with ErrKind=config BEFORE any process is spawned (AssertWorktree from S01 fires first); the test asserts no child process launch was attempted (Rule 11)."
+      "text": "If WorktreeRoot does not exist or is not a git working tree, Dispatch SHALL return Status=error with ErrKind=config BEFORE any process is spawned (AssertWorktree from S01 fires first); the test asserts no child process launch was attempted (Rule 11).",
+      "ears_pattern": "unwanted-behaviour"
     },
     {
       "id": "AC-03",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When Dispatch is called with Role=verifier, the driver SHALL pass --no-session-persistence (fresh context, Rule 7), SHALL include the DispatchInput.VerdictSchema in the prompt as the required output contract, and SHALL populate Result.StructuredJSON with the CLI's final result text when that text parses as a JSON object; when it does not parse as a JSON object, Dispatch SHALL return Status=error with ErrKind=protocol (fail-closed — the engine, not the driver, performs verifier-verdict-v1 schema validation)."
+      "text": "When Dispatch is called with Role=verifier, the driver SHALL pass --no-session-persistence (fresh context, Rule 7), SHALL include the DispatchInput.VerdictSchema in the prompt as the required output contract, and SHALL populate Result.StructuredJSON with the CLI's final result text when that text parses as a JSON object; when it does not parse as a JSON object, Dispatch SHALL return Status=error with ErrKind=protocol (fail-closed — the engine, not the driver, performs verifier-verdict-v1 schema validation).",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-04",
-      "type": "unwanted",
-      "ears_keyword": "If",
-      "text": "If the CLI exits non-zero, exceeds DispatchInput.Timeout, or the binary is missing, Dispatch SHALL return Status=error with a mapped ErrKind (timeout -> transient; binary-not-found -> config; non-zero exit -> auth, with a stderr excerpt in the error message) — never a panic and never a half-populated Status=ok Result. The non-zero-exit -> auth mapping deliberately matches internal/model/cli.go's existing coarse-but-production-proven heuristic (any non-zero exit is treated as an auth failure) rather than a generic provider label, so the engine's existing terminal-halt-on-auth fail-fast (internal/run/slice.go, model.IsTerminal/KindAuth) can be preserved once S06 wires Dispatch into the loop. Table-driven TestClaudeErrorMapping covers all three."
+      "text": "If the CLI exits non-zero, exceeds DispatchInput.Timeout, or the binary is missing, Dispatch SHALL return Status=error with a mapped ErrKind (timeout -> transient; binary-not-found -> config; non-zero exit -> auth, with a stderr excerpt in the error message) — never a panic and never a half-populated Status=ok Result. The non-zero-exit -> auth mapping deliberately matches internal/model/cli.go's existing coarse-but-production-proven heuristic (any non-zero exit is treated as an auth failure) rather than a generic provider label, so the engine's existing terminal-halt-on-auth fail-fast (internal/run/slice.go, model.IsTerminal/KindAuth) can be preserved once S06 wires Dispatch into the loop. Table-driven TestClaudeErrorMapping covers all three.",
+      "ears_pattern": "unwanted-behaviour"
     },
     {
       "id": "AC-05",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "The child process environment SHALL set GOCACHE and GOMODCACHE to directories outside WorktreeRoot and SHALL NOT override HOME (CLI credentials live under the real home); TestClaudeEnvHygiene asserts the child env values and that no cache directory appears inside the worktree after a dispatch."
+      "text": "The child process environment SHALL set GOCACHE and GOMODCACHE to directories outside WorktreeRoot and SHALL NOT override HOME (CLI credentials live under the real home); TestClaudeEnvHygiene asserts the child env values and that no cache directory appears inside the worktree after a dispatch.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-06",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "internal/model/cli.go SHALL no longer advertise CapChat nor expose the stacked-prompt toolless Chat path; its one-shot Verify SHALL remain unchanged for the utility path; `go test ./internal/driver/... ./internal/model/...` SHALL pass."
+      "text": "internal/model/cli.go SHALL no longer advertise CapChat nor expose the stacked-prompt toolless Chat path; its one-shot Verify SHALL remain unchanged for the utility path; `go test ./internal/driver/... ./internal/model/...` SHALL pass.",
+      "ears_pattern": "ubiquitous"
     }
   ]
 }

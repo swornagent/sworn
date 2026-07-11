@@ -72,9 +72,15 @@ func TestValidateSchema_VerifierVerdict(t *testing.T) {
 // and slice-status-v1 (implementer mirror): a conformant rating validates, an
 // off-enum axis is rejected, and a rating missing a required axis is rejected.
 func TestValidateSchema_EffortComplexity(t *testing.T) {
+	// v0.10.0 spec-v1: additionalProperties:false, schema_version retired, and
+	// slice_id/user_outcome/covers_needs/acceptance_criteria/in_scope/out_of_scope
+	// all required.
 	specGood := `{
 		"$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-		"schema_version": 1, "slice_id": "S01", "release": "r1",
+		"slice_id": "S01", "release": "r1",
+		"user_outcome": "the thing works", "covers_needs": ["N-01"],
+		"in_scope": ["do the thing"], "out_of_scope": ["not the other thing"],
+		"acceptance_criteria": [{"id": "AC-01", "text": "the thing shall work"}],
 		"effort_complexity": {"effort": "high", "complexity": "low", "quadrant": "grind"}
 	}`
 	if err := ValidateSchema("spec-v1", []byte(specGood)); err != nil {
@@ -83,7 +89,10 @@ func TestValidateSchema_EffortComplexity(t *testing.T) {
 
 	specBadEnum := `{
 		"$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-		"schema_version": 1, "slice_id": "S01", "release": "r1",
+		"slice_id": "S01", "release": "r1",
+		"user_outcome": "the thing works", "covers_needs": ["N-01"],
+		"in_scope": ["do the thing"], "out_of_scope": ["not the other thing"],
+		"acceptance_criteria": [{"id": "AC-01", "text": "the thing shall work"}],
 		"effort_complexity": {"effort": "medium", "complexity": "low", "quadrant": "grind"}
 	}`
 	if err := ValidateSchema("spec-v1", []byte(specBadEnum)); err == nil {

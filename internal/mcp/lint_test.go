@@ -385,19 +385,14 @@ func writeLintBoardJSON(t *testing.T, releaseDir, releaseName string, trackSlice
 	var tracks []board.BoardTrack
 	for trackID, slices := range trackSlices {
 		tracks = append(tracks, board.BoardTrack{
-			ID:             trackID,
-			Slices:         slices,
-			State:          "planned",
-			WorktreePath:   worktreeRoot,
-			WorktreeBranch: "track/" + releaseName + "/" + trackID,
+			ID:     trackID,
+			Slices: slices,
 		})
 	}
+	_ = worktreeRoot // pure-plan board: worktree paths are derived, not persisted
 	br := &board.BoardRecord{
-		SchemaVersion:         1,
-		Release:               board.StringRelease(releaseName),
-		ReleaseWorktreePath:   worktreeRoot,
-		ReleaseWorktreeBranch: "release-wt/" + releaseName,
-		Tracks:                tracks,
+		Release: board.StringRelease(releaseName),
+		Tracks:  tracks,
 	}
 	data, err := json.MarshalIndent(br, "", "  ")
 	if err != nil {

@@ -168,20 +168,14 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 		return fmt.Errorf("RunParallel: read release board: %w", err)
 	}
 
-	releaseWorktreePath := br.ReleaseWorktreePath
-	if releaseWorktreePath == "" {
-		// Cold-start (eval finding 1): this default now fires ONLY when board.json
-		// genuinely records no worktree path — not unconditionally, as the old
-		// index.md parser did for every current-format release (AC-02). Default to
-		// a REPO-LOCAL path (a <repo>-worktrees sibling) so the engine
-		// self-bootstraps the release worktree below. The track worktrees then
-		// default to siblings of this path (worker.go).
-		releaseWorktreePath = filepath.Join(filepath.Dir(absRoot),
-			filepath.Base(absRoot)+"-worktrees", "release-"+releaseName)
-		fmt.Fprintf(lw, "RunParallel: release_worktree_path unset — defaulting to %s (cold-start)\n", releaseWorktreePath)
-	}
+	// board-v1 is a pure plan (sworn#80): the release worktree path is DERIVED as
+	// a REPO-LOCAL sibling of the repo (<repo>-worktrees/release-<name>), the same
+	// repo-local formula the cold-start default used — now the single always-on
+	// derivation rather than a persisted board.json field (eval finding 3).
+	releaseWorktreePath := board.ReleaseWorktreePathFrom(absRoot, releaseName)
 
-	tracks := trackInfosFromBoardTracks(br.Tracks)
+	// Tracks with DERIVED worktree branch/path (state is not consumed here).
+	tracks := board.DeriveTrackInfos(br.Tracks, absRoot, releaseName, nil)
 	if len(tracks) == 0 {
 		return fmt.Errorf("RunParallel: no tracks found in release board")
 	}
@@ -572,24 +566,6 @@ func renderBlockedVsFailReport(releaseName string, blockedLanes []blockedLane, f
 // trackInfosFromBoardTracks converts board.json BoardTrack records into the
 // board.TrackInfo shape the scheduler and router consume. Kept local to
 // internal/run rather than added to internal/board because internal/board is
-// T1-drift-guard's exclusive touchpoint this release — this is a field-for-field
-// copy, not new shared-library surface. DependsOn narrows board.StringList to a
-// plain []string.
-func trackInfosFromBoardTracks(bts []board.BoardTrack) []board.TrackInfo {
-	tis := make([]board.TrackInfo, len(bts))
-	for i, bt := range bts {
-		tis[i] = board.TrackInfo{
-			ID:             bt.ID,
-			Slices:         bt.Slices,
-			DependsOn:      []string(bt.DependsOn),
-			WorktreePath:   bt.WorktreePath,
-			WorktreeBranch: bt.WorktreeBranch,
-			State:          bt.State,
-		}
-	}
-	return tis
-}
-
 // ProductionMergeTrack merges a track branch into the release worktree.
 // Called from finishTrack when MergeTrackFn is wired in WorkerOptions.
 //

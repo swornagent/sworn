@@ -1,6 +1,5 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/board-v1.json",
-  "schema_version": 1,
   "release": {
     "name": "2026-06-28-driver-contract",
     "integration_branch": "release/v0.1.0",
@@ -9,18 +8,13 @@
       "benefit": "sworn loop completes releases on any capable model or agent CLI the user has — subscription or API key — because every loop-role dispatch goes through one stable Driver contract: provider quirks are contained inside drivers, capability is honest at resolution, and delivery economics are measured per dispatch."
     }
   },
-  "release_worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-28-driver-contract",
-  "release_worktree_branch": "release-wt/2026-06-28-driver-contract",
   "tracks": [
     {
       "id": "T1-contract",
       "slices": [
         "S01-driver-contract"
       ],
-      "depends_on": [],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-28-driver-contract-T1-contract",
-      "worktree_branch": "track/2026-06-28-driver-contract/T1-contract",
-      "state": "merged"
+      "depends_on": []
     },
     {
       "id": "T2-subprocess",
@@ -30,10 +24,7 @@
       ],
       "depends_on": [
         "T1-contract"
-      ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-28-driver-contract-T2-subprocess",
-      "worktree_branch": "track/2026-06-28-driver-contract/T2-subprocess",
-      "state": "merged"
+      ]
     },
     {
       "id": "T3-inprocess",
@@ -42,10 +33,7 @@
       ],
       "depends_on": [
         "T1-contract"
-      ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-28-driver-contract-T3-inprocess",
-      "worktree_branch": "track/2026-06-28-driver-contract/T3-inprocess",
-      "state": "merged"
+      ]
     },
     {
       "id": "T4-resolution-loop",
@@ -59,10 +47,7 @@
       "depends_on": [
         "T2-subprocess",
         "T3-inprocess"
-      ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-28-driver-contract-T4-resolution-loop",
-      "worktree_branch": "track/2026-06-28-driver-contract/T4-resolution-loop",
-      "state": "merged"
+      ]
     },
     {
       "id": "T5-catalog",
@@ -71,9 +56,7 @@
       ],
       "depends_on": [
         "T4-resolution-loop"
-      ],
-      "worktree_branch": "track/2026-06-28-driver-contract/T5-catalog",
-      "state": "merged"
+      ]
     },
     {
       "id": "T6-proof",
@@ -82,9 +65,7 @@
       ],
       "depends_on": [
         "T4-resolution-loop"
-      ],
-      "worktree_branch": "track/2026-06-28-driver-contract/T6-proof",
-      "state": "merged"
+      ]
     },
     {
       "id": "T7-baton-revendor",
@@ -97,19 +78,14 @@
         "T4-resolution-loop",
         "T5-catalog",
         "T6-proof"
-      ],
-      "worktree_branch": "track/2026-06-28-driver-contract/T7-baton-revendor",
-      "state": "planned"
+      ]
     },
     {
       "id": "T8-regress-cwd",
       "slices": [
         "S13-regress-go-module-cwd"
       ],
-      "depends_on": [],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-28-driver-contract-T8-regress-cwd",
-      "worktree_branch": "track/2026-06-28-driver-contract/T8-regress-cwd",
-      "state": "merged"
+      "depends_on": []
     }
   ]
 }

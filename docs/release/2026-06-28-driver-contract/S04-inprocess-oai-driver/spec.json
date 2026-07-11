@@ -1,6 +1,5 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-  "schema_version": 1,
   "slice_id": "S04-inprocess-oai-driver",
   "release": "2026-06-28-driver-contract",
   "track": "T3-inprocess",
@@ -47,33 +46,28 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When Dispatch is called with Role=implementer and an OAI-compatible model, the driver SHALL execute the multi-turn tool loop (internal/agent.Run) rooted at WorktreeRoot (after the S01 AssertWorktree guard) and return Status=ok with ResultText set to the loop's final text and InputTokens/OutputTokens/DurationMS populated. TestInprocessImplementer proves it against an httptest server scripting a tool-call turn followed by a terminal turn."
+      "text": "When Dispatch is called with Role=implementer and an OAI-compatible model, the driver SHALL execute the multi-turn tool loop (internal/agent.Run) rooted at WorktreeRoot (after the S01 AssertWorktree guard) and return Status=ok with ResultText set to the loop's final text and InputTokens/OutputTokens/DurationMS populated. TestInprocessImplementer proves it against an httptest server scripting a tool-call turn followed by a terminal turn.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-02",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When Dispatch is called with Role=verifier, the driver SHALL first run the tool loop for investigation and then obtain the verdict via exactly one ChatStructured call over the accumulated transcript against DispatchInput.VerdictSchema, returning it in Result.StructuredJSON — the in-process verifier can now re-run tests and read live repo state (sworn#55) while the ENGINE still performs verifier-verdict-v1 validation."
+      "text": "When Dispatch is called with Role=verifier, the driver SHALL first run the tool loop for investigation and then obtain the verdict via exactly one ChatStructured call over the accumulated transcript against DispatchInput.VerdictSchema, returning it in Result.StructuredJSON — the in-process verifier can now re-run tests and read live repo state (sworn#55) while the ENGINE still performs verifier-verdict-v1 validation.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-03",
-      "type": "unwanted",
-      "ears_keyword": "If",
-      "text": "If the model emits a tool-only turn (empty content), the wire request SHALL still serialize a present content field (the S27 content-omitempty regression guard), asserted by a test that inspects the raw request body the driver sends."
+      "text": "If the model emits a tool-only turn (empty content), the wire request SHALL still serialize a present content field (the S27 content-omitempty regression guard), asserted by a test that inspects the raw request body the driver sends.",
+      "ears_pattern": "unwanted-behaviour"
     },
     {
       "id": "AC-04",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "The loop SHALL exit on no-tool-calls with the turn cap acting only as a circuit breaker; a max-turns exit SHALL map to Status=error with ErrKind=transient (retryable), and a structured-emission failure on the verifier path SHALL map to Status=error with ErrKind=protocol — never a panic, never a fabricated verdict."
+      "text": "The loop SHALL exit on no-tool-calls with the turn cap acting only as a circuit breaker; a max-turns exit SHALL map to Status=error with ErrKind=transient (retryable), and a structured-emission failure on the verifier path SHALL map to Status=error with ErrKind=protocol — never a panic, never a fabricated verdict.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-05",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "This slice SHALL NOT edit internal/agent or internal/model (wrapping only — verified by the diff touching only internal/driver files); `go test ./internal/driver/...` SHALL pass."
+      "text": "This slice SHALL NOT edit internal/agent or internal/model (wrapping only — verified by the diff touching only internal/driver files); `go test ./internal/driver/...` SHALL pass.",
+      "ears_pattern": "ubiquitous"
     }
   ]
 }

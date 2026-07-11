@@ -6,13 +6,15 @@
   "state": "verified",
   "last_updated_by": "verifier",
   "last_updated_at": "2026-07-10T23:42:35Z",
-  "covers_needs": ["N-07"],
+  "covers_needs": [
+    "N-07"
+  ],
   "spec_path": "docs/release/2026-06-28-driver-contract/S10-conformance-sit/spec.json",
   "start_commit": "97dc24b06b161eb461626b0040d8c3a5594cc0c3",
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
-    "quadrant": "epic",
+    "quadrant": "beast",
     "rationale": "Hermetic SIT over a cold board is exactly where the 2026-06-28 eval's twelve novel bugs lived; deterministic CI harness is genuinely hard.",
     "confirmed_by_implementer": true
   },

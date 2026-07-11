@@ -1,62 +1,120 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://baton.sawy3r.net/schemas/proof-v1.json",
-  "title": "Baton Proof Record",
-  "description": "Machine-readable proof record derived from live repo state — the evidence bundle for a verified slice.",
+  "title": "Baton Proof Bundle",
+  "description": "The machine-readable facts of one slice's proof bundle (Rule 6), generated from live repo state. The human-readable proof.md is rendered from this record. Every Rule 6 section is present; empty arrays are valid where the rule allows (e.g. nothing deferred, no divergence).",
   "type": "object",
-  "additionalProperties": true,
-  "required": ["schema_version", "slice_id", "release"],
+  "additionalProperties": false,
+  "required": ["slice_id", "scope", "files_changed", "test_results", "reachability", "delivered", "not_delivered", "divergence"],
+  "$defs": {
+    "id_token": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "minLength": 1
+    }
+  },
   "properties": {
     "$schema": {
       "type": "string",
       "const": "https://baton.sawy3r.net/schemas/proof-v1.json"
     },
-    "schema_version": {
-      "type": "integer",
-      "const": 1
-    },
-    "slice_id": {
-      "type": "string",
-      "minLength": 1
-    },
-    "release": {
-      "type": "string",
-      "minLength": 1
-    },
+    "slice_id": { "$ref": "#/$defs/id_token" },
+    "release": { "type": "string" },
     "scope": {
-      "type": "string"
+      "type": "string",
+      "minLength": 1,
+      "description": "One sentence: what the slice was meant to deliver."
     },
     "files_changed": {
       "type": "array",
+      "description": "Output of git diff --name-only against the base branch.",
       "items": { "type": "string" }
     },
     "test_results": {
       "type": "array",
+      "description": "Slice-relevant test commands and their outcomes (not the full suite — the merge gate owns that).",
       "items": {
         "type": "object",
-        "additionalProperties": true,
+        "additionalProperties": false,
+        "required": ["command", "passed"],
         "properties": {
-          "command": { "type": "string" },
+          "command": { "type": "string", "minLength": 1 },
+          "passed": { "type": "boolean" },
           "exit_code": { "type": "integer" },
-          "output": { "type": "string" }
+          "output_ref": {
+            "type": "string",
+            "description": "Path to captured output, if retained."
+          }
         }
       }
     },
-    "reachability_artifacts": {
-      "type": "array",
-      "items": { "type": "string" }
+    "reachability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "evidence"],
+      "description": "Rule 1 reachability artefact — proof the feature is reachable through its integration point, not just a leaf test.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["e2e-test", "cli-run", "screenshot", "smoke-step"]
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path, command + output, or explicit 'do X, observe Y' smoke step."
+        }
+      }
     },
     "delivered": {
       "type": "array",
-      "items": { "type": "string" }
+      "description": "Each delivered item with an evidence reference.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["item", "evidence"],
+        "properties": {
+          "item": { "type": "string", "minLength": 1 },
+          "evidence": {
+            "type": "string",
+            "minLength": 1,
+            "description": "File, test name, or artefact path."
+          }
+        }
+      }
     },
     "not_delivered": {
       "type": "array",
-      "items": { "type": "string" }
+      "description": "Each not-delivered item surfaced as a Rule 2 deferral. Empty array is valid (nothing deferred).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["item", "why", "tracking", "acknowledged"],
+        "properties": {
+          "item": { "type": "string", "minLength": 1 },
+          "why": { "type": "string", "minLength": 1 },
+          "tracking": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Linked issue / slice / punch-list item."
+          },
+          "acknowledged": {
+            "type": "boolean",
+            "description": "True when the decision-maker was told in plain text."
+          }
+        }
+      }
     },
     "divergence": {
       "type": "array",
-      "items": { "type": "string" }
+      "description": "Any implementation that differs from the plan. Empty array is valid, but the section must be present.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["description"],
+        "properties": {
+          "description": { "type": "string", "minLength": 1 }
+        }
+      }
     }
   }
 }

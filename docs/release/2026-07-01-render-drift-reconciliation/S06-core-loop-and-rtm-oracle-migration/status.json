@@ -6,13 +6,15 @@
   "state": "verified",
   "last_updated_by": "verifier",
   "last_updated_at": "2026-07-01T23:10:00Z",
-  "covers_needs": ["N-01"],
+  "covers_needs": [
+    "N-01"
+  ],
   "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S06-core-loop-and-rtm-oracle-migration/spec.json",
   "start_commit": "d427d181bc725199aadbd9f3fc17b22247b1b8d2",
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "Highest-severity slice: the autonomous loop's own dispatch and shared-file safety invariant, plus RTM's golden-thread trace. Three functions in parallel.go plus rtm.go's two field parsers, all the same fix pattern (read board.json via the oracle).",
     "confirmed_by_implementer": true
   },

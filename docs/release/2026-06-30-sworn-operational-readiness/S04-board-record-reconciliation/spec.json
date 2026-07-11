@@ -1,15 +1,16 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-  "schema_version": 1,
   "slice_id": "S04-board-record-reconciliation",
   "release": "2026-06-30-sworn-operational-readiness",
   "user_outcome": "sworn reads a real coach-produced board.json whose `release` is the canonical baton OBJECT form ({name, vertical_trace, ...}) without an unmarshal error, so the oracle and `sworn run` can load a real release instead of failing at board-read — the board-level companion to D6.",
   "rationale": "Same bug as D6, one level up: sworn's Go BoardRecord.Release is `string`, but the canonical baton board-v1 (~/projects/baton/schemas/board-v1.json) defines `release` as an OBJECT with required `name` (and vertical_trace — the Rule-8 golden thread). sworn's embedded board-v1 + Go struct are pinned to an older baton (the binary reports Baton v0.6.3) and lag the contract. Every coach-produced fired board uses the canonical object form, so the installed oracle reads NONE of them: `sworn board --release 2026-06-28-yearSnapshot-schema-cleanup` fails with 'cannot unmarshal object into BoardRecord.release of type string'. Direction is settled by the canonical baton schema: migrate sworn UP to the object form, do NOT downgrade boards to string (an earlier downgrade of THIS release's own board.json was wrong-direction and is reverted once this lands). Fix is surgical: make BoardRecord.Release tolerate both the canonical object and the legacy string; reconcile the embedded board-v1 schema; update the one value-consumer (cmd/sworn/board.go). The full baton re-vendor (all schemas) is a larger follow-up; this slice is the board-read unblock only.",
-  "covers_needs": ["N-07"],
+  "covers_needs": [
+    "N-07"
+  ],
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "A custom UnmarshalJSON on the release field (accept string OR {name}), one value-consumer update (cmd/sworn/board.go:110), an embedded-schema reconcile, and tests. Well-bounded; oracle.go (T1) does not read .Release, so disjoint and low-risk.",
     "confirmed_by_implementer": false
   },
@@ -22,45 +23,40 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When the oracle reads a board.json whose `release` is a JSON object {\"name\": \"<release>\", ...} (canonical baton board-v1, e.g. fired's coach-produced boards), ReadBoard / readTrackInfos SHALL unmarshal it without error and resolve the release name from release.name."
+      "text": "When the oracle reads a board.json whose `release` is a JSON object {\"name\": \"<release>\", ...} (canonical baton board-v1, e.g. fired's coach-produced boards), ReadBoard / readTrackInfos SHALL unmarshal it without error and resolve the release name from release.name.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-02",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When the oracle reads a board.json whose `release` is a bare JSON string (legacy form), it SHALL still unmarshal successfully, so existing string-form boards keep working (back-compatible)."
+      "text": "When the oracle reads a board.json whose `release` is a bare JSON string (legacy form), it SHALL still unmarshal successfully, so existing string-form boards keep working (back-compatible).",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-03",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "BoardRecord.Release SHALL be a Go type that unmarshals from BOTH a JSON string and a JSON object with a `name` field, exposing the release name to callers; the sole value-consumer (cmd/sworn/board.go ~line 110, `bs.Release`) SHALL be updated to read the name. A missing/empty name on the object form SHALL be an unmarshal error (fail closed)."
+      "text": "BoardRecord.Release SHALL be a Go type that unmarshals from BOTH a JSON string and a JSON object with a `name` field, exposing the release name to callers; the sole value-consumer (cmd/sworn/board.go ~line 110, `bs.Release`) SHALL be updated to read the name. A missing/empty name on the object form SHALL be an unmarshal error (fail closed).",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-04",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "The embedded internal/baton/schemas/board-v1.json SHALL be reconciled toward the canonical baton shape (release as object with required name) so embedded schema validation accepts real coach boards; the Go reader SHALL remain tolerant of the legacy string form regardless. Migrate UP to canonical — never downgrade the schema to string."
+      "text": "The embedded internal/baton/schemas/board-v1.json SHALL be reconciled toward the canonical baton shape (release as object with required name) so embedded schema validation accepts real coach boards; the Go reader SHALL remain tolerant of the legacy string form regardless. Migrate UP to canonical — never downgrade the schema to string.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-05",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When `sworn board --release 2026-06-28-yearSnapshot-schema-cleanup` is run against the live fired repo (--docs-prefix apps/docs/content/docs) — the board that today fails with 'cannot unmarshal object into BoardRecord.release of type string' — it SHALL print the board (track T1-schema-cleanup + its slices) with no parse error. Reachability artefact: capture that output."
+      "text": "When `sworn board --release 2026-06-28-yearSnapshot-schema-cleanup` is run against the live fired repo (--docs-prefix apps/docs/content/docs) — the board that today fails with 'cannot unmarshal object into BoardRecord.release of type string' — it SHALL print the board (track T1-schema-cleanup + its slices) with no parse error. Reachability artefact: capture that output.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-06",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "After the change, `go build ./...` SHALL succeed and `go test ./internal/board/...` SHALL pass (including new tests for both release shapes)."
+      "text": "After the change, `go build ./...` SHALL succeed and `go test ./internal/board/...` SHALL pass (including new tests for both release shapes).",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-07",
-      "type": "unwanted",
-      "ears_keyword": "If",
-      "text": "If sworn writes the board back (WriteBoard / materialise), the round-trip SHALL preserve every field of the canonical `release` object (name, vertical_trace, target_version, integration_branch) — no field dropped — exactly as the D6 deferral round-trip requires. A read->write fixture test SHALL prove vertical_trace survives. (Achievable by preserving the raw object on the Release type and re-emitting it; a legacy string round-trips as a string.)"
+      "text": "If sworn writes the board back (WriteBoard / materialise), the round-trip SHALL preserve every field of the canonical `release` object (name, vertical_trace, target_version, integration_branch) — no field dropped — exactly as the D6 deferral round-trip requires. A read->write fixture test SHALL prove vertical_trace survives. (Achievable by preserving the raw object on the Release type and re-emitting it; a legacy string round-trips as a string.)",
+      "ears_pattern": "unwanted-behaviour"
     }
-  ]
+  ],
+  "in_scope": [],
+  "out_of_scope": []
 }

@@ -14,7 +14,7 @@
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "Three independent, small, mechanical swaps of a re-derived value for the JSON field that already has it.",
     "confirmed_by_implementer": true
   },
