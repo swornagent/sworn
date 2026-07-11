@@ -22,6 +22,29 @@ func fakeRunSlicePass(_ context.Context, _, _, _ string) error {
 	return nil
 }
 
+// preCreateDerivedWorktrees mkdir's the DERIVED release + track worktree paths so
+// a fake-RunSlice orchestration test — whose WorkspaceRoot is not a real git repo
+// — SKIPS `git worktree add` materialisation (dirExists → true). board-v1 is a
+// pure plan (sworn#80): worktree paths are derived, no longer read from an
+// index.md/board field that a test could point at the workspace root. It reads
+// the board (lazily migrating index.md) to enumerate the tracks to pre-create.
+func preCreateDerivedWorktrees(t *testing.T, absRoot, release string) {
+	t.Helper()
+	relWT := board.ReleaseWorktreePathFrom(absRoot, release)
+	if err := os.MkdirAll(relWT, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	br, err := board.ReadBoard(absRoot, release)
+	if err != nil {
+		return // best-effort: error-path tests that never materialise don't need it
+	}
+	for _, tr := range br.Tracks {
+		if err := os.MkdirAll(board.TrackWorktreePathFrom(relWT, release, tr.ID), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // fakeRunSliceFail always returns an error.
 func fakeRunSliceFail(_ context.Context, _, _, _ string) error {
 	return fmt.Errorf("simulated slice failure")
@@ -112,6 +135,7 @@ tracks:
 	db.SetMaxOpenConns(1)
 	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
 	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+	preCreateDerivedWorktrees(t, tmpDir, "test-parallel")
 	opts := ParallelOptions{
 		ReleaseName:   "test-parallel",
 		WorkspaceRoot: tmpDir,
@@ -256,6 +280,7 @@ tracks:
 	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
 	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
 
+	preCreateDerivedWorktrees(t, tmpDir, "test-cascade")
 	opts := ParallelOptions{
 		ReleaseName:   "test-cascade",
 		WorkspaceRoot: tmpDir,
@@ -347,6 +372,7 @@ tracks:
 	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
 	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
 
+	preCreateDerivedWorktrees(t, tmpDir, "test-concurrent")
 	opts := ParallelOptions{
 		ReleaseName:   "test-concurrent",
 		WorkspaceRoot: tmpDir,
@@ -447,6 +473,7 @@ tracks:
 	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
 	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
 
+	preCreateDerivedWorktrees(t, tmpDir, "test-dep-success")
 	opts := ParallelOptions{
 		ReleaseName:   "test-dep-success",
 		WorkspaceRoot: tmpDir,
@@ -513,6 +540,7 @@ tracks:
 	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
 	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
 
+	preCreateDerivedWorktrees(t, tmpDir, "test-paused")
 	opts := ParallelOptions{
 		ReleaseName:   "test-paused",
 		WorkspaceRoot: tmpDir,
@@ -599,6 +627,7 @@ func TestInvariant2_OverlapBlocksSecondTrack(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stderr = w
 
+	preCreateDerivedWorktrees(t, tmpDir, "test-inv2-overlap")
 	opts := ParallelOptions{
 		ReleaseName:   "test-inv2-overlap",
 		WorkspaceRoot: tmpDir,
@@ -696,6 +725,7 @@ func TestInvariant2_NoOverlapBothRun(t *testing.T) {
 	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
 	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
 
+	preCreateDerivedWorktrees(t, tmpDir, "test-inv2-no-overlap")
 	opts := ParallelOptions{
 		ReleaseName:   "test-inv2-no-overlap",
 		WorkspaceRoot: tmpDir,
@@ -778,6 +808,7 @@ func TestInvariant2_DocumentedSharedExempt(t *testing.T) {
 	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
 	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
 
+	preCreateDerivedWorktrees(t, tmpDir, "test-inv2-docshared")
 	opts := ParallelOptions{
 		ReleaseName:   "test-inv2-docshared",
 		WorkspaceRoot: tmpDir,
@@ -883,6 +914,7 @@ func TestInvariant2_DocumentedSharedFromRenderedBoard(t *testing.T) {
 		return nil
 	}
 
+	preCreateDerivedWorktrees(t, tmpDir, release)
 	opts := ParallelOptions{
 		ReleaseName:   release,
 		WorkspaceRoot: tmpDir,
@@ -956,6 +988,7 @@ func TestInvariant2_OracleReadFailureFailsOpen(t *testing.T) {
 		return nil, fmt.Errorf("simulated oracle read failure")
 	}
 
+	preCreateDerivedWorktrees(t, tmpDir, "test-inv2-failopen")
 	opts := ParallelOptions{
 		ReleaseName:    "test-inv2-failopen",
 		WorkspaceRoot:  tmpDir,
@@ -1049,6 +1082,7 @@ func TestRunParallel_AC06_RealReleaseBoardResolvesTracks(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stderr = w
 
+	preCreateDerivedWorktrees(t, tmpDir, release)
 	opts := ParallelOptions{
 		ReleaseName:    release,
 		WorkspaceRoot:  tmpDir,

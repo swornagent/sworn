@@ -74,10 +74,13 @@ func AssembleSliceContext(release, sliceID, repoRoot string) (*SliceContext, err
 		trackID = extractField(string(statusData), "track")
 	}
 	if br, err := board.ReadBoard(repoRoot, release); err == nil {
+		// board-v1 is a pure plan: the track worktree path is DERIVED (sworn#80),
+		// a sibling of the release worktree (itself a sibling of repoRoot).
+		releaseWTPath := board.ReleaseWorktreePathFrom(repoRoot, release)
 		for _, t := range br.Tracks {
 			for _, sid := range t.Slices {
 				if sid == sliceID {
-					worktreePath = t.WorktreePath
+					worktreePath = board.TrackWorktreePathFrom(releaseWTPath, release, t.ID)
 					break
 				}
 			}

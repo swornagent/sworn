@@ -80,6 +80,7 @@ tracks:
 	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
 	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
 
+	preCreateDerivedWorktrees(t, tmpDir, "test-report")
 	err = RunParallel(context.Background(), ParallelOptions{
 		ReleaseName:   "test-report",
 		WorkspaceRoot: tmpDir,

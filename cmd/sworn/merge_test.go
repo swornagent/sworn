@@ -243,16 +243,27 @@ func TestMergeTrack_LegacyIndexMDFallback(t *testing.T) {
 func setupLegacyMergeFixture(t *testing.T, name string) (repoDir, releaseName, trackID string) {
 	t.Helper()
 
-	repoDir = t.TempDir()
+	primaryDir := t.TempDir()
 	releaseName = "merge-test-" + name
 	trackID = "T1-core"
 
-	runGit(t, repoDir, "init")
-	runGit(t, repoDir, "config", "user.email", "test@swornagent.dev")
-	runGit(t, repoDir, "config", "user.name", "sworn test")
+	runGit(t, primaryDir, "init")
+	runGit(t, primaryDir, "config", "user.email", "test@swornagent.dev")
+	runGit(t, primaryDir, "config", "user.name", "sworn test")
+	if err := os.WriteFile(filepath.Join(primaryDir, ".gitkeep"), []byte("x\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, primaryDir, "add", ".gitkeep")
+	runGit(t, primaryDir, "commit", "-m", "initial")
 
+	// board-v1 is a pure plan (sworn#80): materialise the release worktree at the
+	// DERIVED sibling-of-repo path on release-wt and run the fixture from it.
 	releaseWtBranch := "release-wt/" + releaseName
-	runGit(t, repoDir, "checkout", "-b", releaseWtBranch)
+	repoDir = board.ReleaseWorktreePathFrom(primaryDir, releaseName)
+	if err := os.MkdirAll(filepath.Dir(repoDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, primaryDir, "worktree", "add", repoDir, "-b", releaseWtBranch)
 
 	releaseDir := filepath.Join(repoDir, "docs", "release", releaseName)
 	if err := os.MkdirAll(releaseDir, 0755); err != nil {
@@ -324,17 +335,30 @@ func writeLegacyMergeStatus(t *testing.T, repoDir, release, sliceID, state strin
 func setupMergeFixture(t *testing.T, name string) (repoDir, releaseName, trackID string) {
 	t.Helper()
 
-	repoDir = t.TempDir()
+	primaryDir := t.TempDir()
 	releaseName = "merge-test-" + name
 	trackID = "T1-core"
 
-	runGit(t, repoDir, "init")
-	runGit(t, repoDir, "config", "user.email", "test@swornagent.dev")
-	runGit(t, repoDir, "config", "user.name", "sworn test")
+	runGit(t, primaryDir, "init")
+	runGit(t, primaryDir, "config", "user.email", "test@swornagent.dev")
+	runGit(t, primaryDir, "config", "user.name", "sworn test")
+	// Initial commit on the default branch so `git worktree add -b` has a base.
+	if err := os.WriteFile(filepath.Join(primaryDir, ".gitkeep"), []byte("x\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, primaryDir, "add", ".gitkeep")
+	runGit(t, primaryDir, "commit", "-m", "initial")
 
-	// Create release-wt branch.
+	// board-v1 is a pure plan (sworn#80): the release worktree path is DERIVED as a
+	// sibling of the primary repo. Materialise the release worktree there on a fresh
+	// release-wt/<release> branch and run the whole fixture from it — merge.go,
+	// invoked from this worktree, derives back to this same path.
 	releaseWtBranch := "release-wt/" + releaseName
-	runGit(t, repoDir, "checkout", "-b", releaseWtBranch)
+	repoDir = board.ReleaseWorktreePathFrom(primaryDir, releaseName)
+	if err := os.MkdirAll(filepath.Dir(repoDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, primaryDir, "worktree", "add", repoDir, "-b", releaseWtBranch)
 
 	// Create docs/release/<rel>/ directory.
 	releaseDir := filepath.Join(repoDir, "docs", "release", releaseName)

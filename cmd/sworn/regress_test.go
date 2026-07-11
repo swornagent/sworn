@@ -98,13 +98,24 @@ tracks:
 		t.Fatal(err)
 	}
 
+	// board-v1 is a pure plan (sworn#80): regress DERIVES the release worktree path
+	// from the primary repo root regardless of whether the release has board.json or
+	// only a legacy index.md. Make repoDir a real git repo + create the derived dir.
+	runGit(t, repoDir, "init")
+	runGit(t, repoDir, "config", "user.email", "test@test")
+	runGit(t, repoDir, "config", "user.name", "test")
+	if err := os.MkdirAll(board.ReleaseWorktreePathFrom(repoDir, release), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = worktreeTarget
+
 	if err := os.Chdir(repoDir); err != nil {
 		t.Fatalf("chdir: %v", err)
 	}
 
 	exit := cmdRegress([]string{"--release", release})
 	if exit == 2 {
-		t.Fatalf("expected legacy index.md fallback to resolve past the worktree-path lookup (exit 0 or 1), got exit 2")
+		t.Fatalf("expected the release worktree path to resolve past the lookup (exit 0 or 1), got exit 2")
 	}
 }
 
@@ -120,6 +131,18 @@ func setupRegressFixture(t *testing.T, repoDir, release, worktreeTarget string) 
 	if err := os.MkdirAll(releaseDir, 0755); err != nil {
 		t.Fatal(err)
 	}
+
+	// board-v1 is a pure plan (sworn#80): regress DERIVES the release worktree path
+	// from the primary repo root, no longer reading the persisted worktreeTarget.
+	// Make repoDir a real git repo (so PrimaryWorktreeRoot resolves) and create the
+	// derived release worktree dir so the fail-closed stat guard passes.
+	runGit(t, repoDir, "init")
+	runGit(t, repoDir, "config", "user.email", "test@test")
+	runGit(t, repoDir, "config", "user.name", "test")
+	if err := os.MkdirAll(board.ReleaseWorktreePathFrom(repoDir, release), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = worktreeTarget
 
 	boardContent := fmt.Sprintf(`{
   "schema_version": 1,

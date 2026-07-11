@@ -142,11 +142,12 @@ func RegisterPlanTools(s *Server, repoRoot string) {
 			}
 		}
 		if !found {
+			// board-v1 is a pure plan: the worktree branch (track/<release>/<track-id>)
+			// and state are DERIVED on read (board.TrackWorktreeBranch / the oracle),
+			// never persisted here (sworn#80).
 			newTrack := board.BoardTrack{
-				ID:             p.TrackID,
-				Slices:         p.Slices,
-				WorktreeBranch: fmt.Sprintf("track/%s/%s", p.Release, p.TrackID),
-				State:          "planned",
+				ID:     p.TrackID,
+				Slices: p.Slices,
 			}
 			if p.DependsOn != "" {
 				newTrack.DependsOn = board.StringList{p.DependsOn}

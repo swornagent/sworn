@@ -273,8 +273,11 @@ func setupSITFixture(t *testing.T) (absRoot, releaseWT, trackWT string) {
 	if err := os.MkdirAll(absRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// wtParent must exist before `git worktree add` targets a child of it.
-	wtParent := filepath.Join(tmpRoot, "wt")
+	// board-v1 is a pure plan (sworn#80): worktree paths are DERIVED as siblings of
+	// the repo, so the loop materialises the release/track worktrees under
+	// <repo>-worktrees/, not a configurable wt/ dir. wtParent must exist before
+	// `git worktree add` targets a child of it.
+	wtParent := filepath.Join(filepath.Dir(absRoot), filepath.Base(absRoot)+"-worktrees")
 	if err := os.MkdirAll(wtParent, 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -188,7 +188,9 @@ func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
 	if err != nil {
 		return fmt.Errorf("reading board for %s: %w", releaseName, err)
 	}
-	for _, t := range br.Tracks {
+	// board-v1 is a pure plan: track worktree branch/path and state are DERIVED
+	// from git refs (sworn#80), not read from board.json.
+	for _, t := range board.DeriveTrackInfos(br.Tracks, repoRoot, releaseName, git.New(repoRoot)) {
 		b.Tracks = append(b.Tracks, TrackInfo{
 			ID:        t.ID,
 			Slices:    t.Slices,
@@ -213,7 +215,7 @@ func (b *BoardView) LoadBoard(repoRoot, releaseName string) error {
 	}
 
 	sliceOracle := newSliceOracle(repoRoot, releaseName)
-	trackMap := trackInfoMap(br.Tracks)
+	trackMap := trackInfoMap(br.Tracks, repoRoot, releaseName)
 	ctx := context.Background()
 
 	for _, entry := range entries {
@@ -391,6 +393,13 @@ func (s *sliceOracleContext) resolvedRefIsLiveCheckout(resolvedFrom board.Resolv
 		ti, ok := trackMap[ownerTrack]
 		return ok && ti.WorktreeBranch != "" && ti.WorktreeBranch == s.currentBranch
 	case board.ResolvedByReleaseWT:
+		// A "HEAD" releaseRef means the oracle read repoRoot's own current commit
+		// (the release-wt ref resolution fell back to HEAD because no release-wt
+		// branch exists — the solo/single-worktree `sworn run` shape). HEAD is
+		// always the live checkout, so the working-tree file is authoritative.
+		if s.releaseRef == "HEAD" {
+			return true
+		}
 		if s.currentBranch == "" {
 			return false
 		}
@@ -446,17 +455,11 @@ func resolveOracleReleaseRef(reader tuiOracleReader, releaseName string) string 
 
 // trackInfoMap converts board.json's on-disk track records into the
 // board.TrackInfo map ReadSliceStatus needs to resolve slice ownership.
-func trackInfoMap(tracks []board.BoardTrack) map[string]board.TrackInfo {
+func trackInfoMap(tracks []board.BoardTrack, repoRoot, release string) map[string]board.TrackInfo {
 	trackMap := make(map[string]board.TrackInfo, len(tracks))
-	for _, t := range tracks {
-		trackMap[t.ID] = board.TrackInfo{
-			ID:             t.ID,
-			Slices:         t.Slices,
-			DependsOn:      []string(t.DependsOn),
-			WorktreePath:   t.WorktreePath,
-			WorktreeBranch: t.WorktreeBranch,
-			State:          t.State,
-		}
+	// board-v1 is a pure plan: worktree branch/path + state are DERIVED (sworn#80).
+	for _, ti := range board.DeriveTrackInfos(tracks, repoRoot, release, git.New(repoRoot)) {
+		trackMap[ti.ID] = ti
 	}
 	return trackMap
 }

@@ -155,27 +155,11 @@ func validateBoard(data []byte) error {
 	}
 
 	if len(m) == 0 {
-		return fmt.Errorf("validator: empty object — required fields missing: schema_version, release, tracks")
+		return fmt.Errorf("validator: empty object — required fields missing: release, tracks")
 	}
 
-	// schema_version must be 1.
-	sv, ok := m["schema_version"]
-	if !ok {
-		return fmt.Errorf("validator: missing required field \"schema_version\"")
-	}
-	// schema_version can be float64 from JSON unmarshal.
-	var svInt int
-	switch v := sv.(type) {
-	case float64:
-		svInt = int(v)
-	case int:
-		svInt = v
-	default:
-		return fmt.Errorf("validator: schema_version must be a number, got %T", sv)
-	}
-	if svInt != 1 {
-		return fmt.Errorf("validator: schema_version must be 1, got %d", svInt)
-	}
+	// board-v1 is a PURE PLAN at v0.10.0: the retired schema_version integer is
+	// gone ($schema carries the version), so it is neither required nor checked.
 
 	// release must be the canonical object form {name, ...} with a non-empty
 	// name. sworn EMITS this form (board.Release.MarshalJSON) and READS only this
@@ -205,7 +189,9 @@ func validateBoard(data []byte) error {
 		return fmt.Errorf("validator: tracks must be an array, got %T", tracksRaw)
 	}
 
-	// Each track must have id, state, worktree_branch.
+	// Each track is a pure plan entry: id + slices. worktree_branch and state are
+	// DERIVED from (release, track-id) + git ancestry, never persisted (sworn#80),
+	// so they are neither required nor checked here.
 	for i, t := range tracks {
 		tm, ok := t.(map[string]interface{})
 		if !ok {
@@ -220,23 +206,12 @@ func validateBoard(data []byte) error {
 		if !ok || strings.TrimSpace(idStr) == "" {
 			return fmt.Errorf("validator: tracks[%d].id must be a non-empty string", i)
 		}
-		// state
-		state, ok := tm["state"]
-		if !ok {
-			return fmt.Errorf("validator: tracks[%d] (%s) missing required field \"state\"", i, idStr)
+		// slices
+		if _, ok := tm["slices"]; !ok {
+			return fmt.Errorf("validator: tracks[%d] (%s) missing required field \"slices\"", i, idStr)
 		}
-		stateStr, ok := state.(string)
-		if !ok || !validTrackStates[stateStr] {
-			return fmt.Errorf("validator: tracks[%d] (%s) invalid state %q", i, idStr, stateStr)
-		}
-		// worktree_branch
-		wb, ok := tm["worktree_branch"]
-		if !ok {
-			return fmt.Errorf("validator: tracks[%d] (%s) missing required field \"worktree_branch\"", i, idStr)
-		}
-		wbStr, ok := wb.(string)
-		if !ok || strings.TrimSpace(wbStr) == "" {
-			return fmt.Errorf("validator: tracks[%d] (%s) worktree_branch must be a non-empty string", i, idStr)
+		if _, ok := tm["slices"].([]interface{}); !ok {
+			return fmt.Errorf("validator: tracks[%d] (%s) slices must be an array", i, idStr)
 		}
 	}
 

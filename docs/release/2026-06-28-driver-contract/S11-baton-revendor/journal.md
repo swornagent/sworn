@@ -61,3 +61,53 @@ D5/D6 Type-2). Flipped to in_progress; quadrant stays legacy `epic` on disk per 
   a coherent role-prompt revendor is a separate role-revendor concern. Tracked: this is the
   same class as the historical S20-role-revendor slice; if a future release wants role prompts
   at v0.10.0 it re-runs the full `sworn baton vendor`. No gate depends on it.
+
+## 2026-07-11 — implementation complete (state: implemented)
+
+All 11 acceptance criteria delivered. Full suite: **47 packages ok, 0 FAIL**
+(`go test -count=1 -timeout 300s ./...`). gofmt -l clean on all 33 changed .go
+files; `go vet ./...` clean; newline-eating scan (fused `//`+code) clean.
+
+### Self-check (sworn#90 resolution — PROVEN)
+- `sworn board --release 2026-06-28-driver-contract` → EXIT 0. Reads the
+  un-migrated board.json (legacy schema_version + release_worktree_* + tracks[]
+  worktree/state) and derives track state from git ancestry: T1-T6/T8 = merged,
+  T7 = planned.
+- `sworn designfit 2026-06-28-driver-contract` → DESIGNFIT PASS, EXIT 0 over 15
+  slices, reading the un-migrated status.json records (quadrant=epic) through the
+  D1 normalise() shim (epic→beast) so state.Read's strict EffortComplexity.Validate
+  passes. This is the sworn#90 proof: un-migrated records still load after the
+  enum flip; S12 owns the data migration + shim deletion.
+- Pin-4: `TestNormaliseRealRecordsValidateStrict` normalises the LIVE board.json
+  + S11 spec.json (which FAIL strict v0.10.0 ValidateSchema as authored) and both
+  then PASS — the strip-set is derived from the real delta, not hand-listed.
+
+### Necessary divergences from plan (all in proof.json `divergence`)
+1. **git.Repo.IsAncestor bug fix** — it returned `(false, err)` not `(false, nil)`
+   for the documented exit-1 not-ancestor case (run() drops the exit code into an
+   empty-stderr string). AC-07/D2 mandate reusing IsAncestor for state derivation,
+   so it had to be correct; the fix also corrects merge-release's ancestor gate
+   (was exit 2 instead of the intended exit 1). Added RefExists + PrimaryWorktreeRoot.
+2. **Consumer sweep beyond touchpoints** — spec R-05 assumed all consumers read
+   worktree/state via the internal/board TrackInfo struct, but internal/run/parallel.go,
+   internal/mcp/{context,tools_ops}.go, internal/tui/{board,blocked}.go, cmd/sworn/regress.go
+   read BoardTrack/BoardRecord DIRECTLY. The BoardTrack struct change (a T7 touchpoint)
+   necessarily breaks them; all other tracks (T1-T6,T8) are merged so there is no live
+   collision. Fixed to use the derivation helpers. Surfaced here (Rule 2).
+3. **render.go** derives the tracks-table State via git (AC-07 lists it as a
+   state-resolution site); **tui/board.go resolvedRefIsLiveCheckout** now treats
+   releaseRef=="HEAD" as a live checkout (solo single-worktree run shape).
+4. **Extensive test-fixture sweep** across internal/{run,mcp,tui,bench} + cmd/sworn:
+   derivation changed WHERE worktrees live (sibling-of-repo, not a configurable
+   path), so orchestration tests pre-create the derived worktree dirs and the
+   merge/regress fixtures use a real primary+release-worktree layout.
+
+### Proof-bundle gate (`sworn verify`) — environmental note
+The model-backed `sworn verify` gate cannot run in this environment
+(`SWORN_ANTHROPIC_API_KEY not set`); it exits at verifier-model resolution
+before the deterministic first-pass. This is an environment limitation (keyless
+env = model-judge unavailable — see memory `project_model_layer_service_refactor`),
+not a proof-bundle failure. The deterministic evidence above stands; the canonical
+Rule-7 verification is the separate fresh-context `/verify-slice` session.
+`release-verify.sh` would also false-FAIL "spec.md missing" on this spec-v1 slice
+(Captain Pin 7) — a spec.md was deliberately NOT manufactured.
