@@ -110,17 +110,23 @@ run the release's deferred end-to-end set — **no-mock, serially, with verified
 emit `docs/release/<name>/assembly-proof.json`; exit non-zero on any non-excepted failure.
 `/merge-release` (baton side, already landed) reads that artefact.
 
-Two dependencies to clear **before** implementation starts; surface both at replan:
+One dependency remains; surface it at replan:
 
-1. **`assembly-proof-v1` is not yet a ratified baton schema.** The proof's shape (per-suite
-   counts, preflight/API observations, screenshot paths, verdict) is named in Rule 10 prose but
-   has no published schema. Per the ordering ruling, sworn must not invent the shape — request
-   ratification from baton first (reference material: fired
-   `docs/captures/2026-07-10-one-cp-assembly-verification.md` and S16's `status.json`
-   `verification.evidence` block). Until it exists, a W4 slice fails Definition of Ready.
+1. **`assembly-proof-v1` — RATIFIED AND PUBLISHED (2026-07-11).** Resolvable at
+   `https://baton.sawy3r.net/schemas/assembly-proof-v1.json`; source of truth `sawy3r/baton`
+   `schemas/assembly-proof-v1.json` (main, commit `0a75b02`). `sworn assemble` emits this record;
+   the derived `assembled` state is its existence + `verdict: "pass"`. Shape (grounded in the
+   fired improvised run): `environment` (worktree_branch, services, and a **required** ss-verified
+   `teardown` block — Rule 11), `suites[]` with per-test `outcome` + `disposition`
+   (`product-regression` / `spec-defect` / `by-design-excepted` / `environment-blocked`) +
+   `tracking`, `observations[]` (the boundary/preflight surface — the CORS class), `screenshots[]`,
+   and the authoritative `verdict`. Structurally fail-closed: a non-pass result must carry a
+   disposition; an excepted disposition must carry tracking (Rule 2). Vendor it in W2 alongside
+   contracts-v1. Exemplar: baton `baton/release-mode-template/assembly-proof.json`. **W4 is now
+   Ready on the baton side.**
 2. **fired#1168** — `derive_ports` must handle board.json-era releases without `index.md`;
    the improvised assembly phase hit this. Verify where that fix actually lives (fired extension
-   vs sworn) before scoping.
+   vs sworn) before scoping. This is the one remaining W4 blocker.
 
 ### Explicitly not in scope (from the proposal)
 
