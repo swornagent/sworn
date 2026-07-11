@@ -8,7 +8,7 @@
     "N-16"
   ],
   "spec_path": "docs/release/2026-06-28-driver-contract/S15-baton-version-handshake/spec.json",
-  "start_commit": null,
+  "start_commit": "c393459d769c8f98c79c0d8b2fc70aa87857a0bb",
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
