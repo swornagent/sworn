@@ -175,3 +175,68 @@ spec_record.go the "reader", but the code has these reversed.
 
 **Next step:** `/implement-slice S11-baton-revendor 2026-06-28-driver-contract` in a
 fresh session to address the numbered violations.
+
+---
+
+## 2026-07-11 — Implementer resume (failed_verification → in_progress → implemented): AC-03 fix
+
+Re-entered from `failed_verification` to address exactly the AC-03 violations.
+`start_commit` (4dbd21b) preserved per the re-entry rule; verification reset to
+`pending`. The prior pass had built the read-path `Normalise` shim for spec-v1
+(strips AC type/ears_keyword, schema_version on read) but never touched the
+writer or reader — so the proof `delivered` AC-03 claim was an overclaim against
+an unchanged file. Fixed by actually changing the writer, reader, validator, and
+adding the round-trip test.
+
+**Roles-reversed note (per the verifier's planner note).** AC-03 text labels
+`internal/spec` the "writer" and `internal/implement/spec_record.go` the
+"reader", but the code is the reverse: `internal/implement/spec_record.go`
+WRITES spec.json (WriteSpecRecord, on the implement path at implement.go:141),
+`internal/spec/spec.go` READS it (ReadRecord). I implemented against the ACTUAL
+code roles, which is what the verifier's numbered "Required to address" steps
+specified. No spec edit (planner-owned); recorded as a divergence note.
+
+**Changes (all within the four AC-03 touchpoints + validator.go, which the
+verifier explicitly named for the validateSpec reconciliation):**
+
+1. Writer `internal/implement/spec_record.go`: dropped `schema_version` and the
+   AC `type`/`ears_keyword` fields; added `in_scope`/`out_of_scope`, scraped
+   from the spec.md `## In scope` / `## Out of scope` sections via a new
+   `parseScopeSection` helper that always returns a NON-nil slice so an empty or
+   absent section marshals `[]` (not `null`) for the schema's required
+   `"type":"array"`. `classifyEARSKeyword` retained (still exercised by its unit
+   test; the ears.go doc-comment reference stays valid) but no longer called by
+   the writer.
+2. Reader `internal/spec/spec.go`: `Record` gains `InScope`/`OutOfScope`. The AC
+   struct keeps `Type`/`EARSKeyword` — `internal/ears.patternFromKeyword`
+   consumes `ears_keyword` from un-migrated on-disk records until S12, so
+   removing them would break the ears/reqverify/gate consumers.
+3. Validator `internal/baton/validator.go`: `validateSpec` no longer requires
+   `schema_version==1` (a direct contradiction with the byte-identical v0.10.0
+   schema, which forbids it via additionalProperties:false) and now requires the
+   `in_scope`/`out_of_scope` arrays via a new `checkArrayField` helper —
+   reconciling the fast structural guard with the schema's required set. Kept
+   strict; ValidateSchema remains the full draft-2020-12 gate.
+4. Test `internal/implement/spec_record_test.go`: new
+   `TestWriteSpecRecord_RoundTripValidatesStrictSchema` — WriteSpecRecord →
+   `baton.ValidateSchema("spec-v1", written)` (strict) → key-absence assertions
+   (no schema_version, no AC type/ears_keyword) → `spec.ReadRecord` exposes
+   in_scope/out_of_scope. Updated the existing writer test (removed the
+   schema_version/ears_keyword assertions, added in_scope/out_of_scope); updated
+   the reader test to carry + assert the new fields while keeping the legacy AC
+   fields for backward-compat coverage.
+
+**Rule-2 note (surfaced, not silent).** The writer no longer emits any EARS
+classification field for freshly-scraped specs (ears_keyword dropped per strict
+v0.10.0; `ears_pattern` intentionally NOT emitted because nothing reads it —
+`internal/ears` reads the legacy `ears_keyword`). New spec.md-scraped records
+therefore classify as `PatternUbiquitous` in ears until `internal/ears` is
+rewired to `ears_pattern`. Tracked with the ears-consumer retirement that rides
+S12-record-migration (once legacy ears_keyword records are gone).
+
+**Verification.** `go test -count=1 -timeout 300s ./...` → all packages ok, 0
+FAIL. `go build ./...`, `gofmt -l .`, `go vet ./...` clean. Reachability:
+`sworn doctor` → v0.10.0; `sworn board --release` → exit 0; `sworn designfit` →
+DESIGNFIT PASS over 15 slices; the new round-trip test is the AC-03 end-to-end
+artefact. Kept Validate strict + normalise-before-validate; board byte-identical
+to v0.10.0 (untouched); no live records migrated.

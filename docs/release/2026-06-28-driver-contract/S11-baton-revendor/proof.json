@@ -7,11 +7,8 @@
     "cmd/sworn/merge_test.go",
     "cmd/sworn/regress.go",
     "cmd/sworn/regress_test.go",
-    "docs/release/2026-06-28-driver-contract/.captain-trial-log.md",
-    "docs/release/2026-06-28-driver-contract/S11-baton-revendor/captain-proceed.md",
-    "docs/release/2026-06-28-driver-contract/S11-baton-revendor/design.md",
     "docs/release/2026-06-28-driver-contract/S11-baton-revendor/journal.md",
-    "docs/release/2026-06-28-driver-contract/S11-baton-revendor/review.md",
+    "docs/release/2026-06-28-driver-contract/S11-baton-revendor/proof.json",
     "docs/release/2026-06-28-driver-contract/S11-baton-revendor/status.json",
     "internal/adopt/baton/VERSION",
     "internal/adopt/baton/rules/02-no-silent-deferrals.md",
@@ -37,11 +34,15 @@
     "internal/bench/overclaim.go",
     "internal/board/board.go",
     "internal/board/board_test.go",
+    "internal/board/derive.go",
+    "internal/board/derive_test.go",
     "internal/board/oracle.go",
     "internal/board/oracle_test.go",
     "internal/board/render.go",
     "internal/board/testdata/render/rel-fixture.golden.md",
     "internal/git/git.go",
+    "internal/implement/spec_record.go",
+    "internal/implement/spec_record_test.go",
     "internal/mcp/context.go",
     "internal/mcp/lint_test.go",
     "internal/mcp/tools_ops.go",
@@ -53,6 +54,8 @@
     "internal/run/parallel_test.go",
     "internal/scheduler/worker.go",
     "internal/scheduler/worktree_path_test.go",
+    "internal/spec/spec.go",
+    "internal/spec/spec_test.go",
     "internal/state/effort_complexity_test.go",
     "internal/state/state.go",
     "internal/tui/blocked.go",
@@ -64,10 +67,15 @@
       "command": "go test -count=1 -timeout 300s ./...",
       "passed": true,
       "exit_code": 0,
-      "output_ref": "docs/release/2026-06-28-driver-contract/S11-baton-revendor/journal.md (47 pkgs ok, 0 FAIL)"
+      "output_ref": "docs/release/2026-06-28-driver-contract/S11-baton-revendor/journal.md (all packages ok, 0 FAIL; internal/verdict has no test files)"
     },
     {
-      "command": "gofmt -l <33 changed .go files>",
+      "command": "go build ./...",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "gofmt -l . (tree)",
       "passed": true,
       "exit_code": 0
     },
@@ -77,14 +85,14 @@
       "exit_code": 0
     },
     {
-      "command": "go test -count=1 ./internal/state/... ./internal/baton/... ./internal/board/... ./internal/scheduler/... ./internal/run/... ./internal/router/... ./internal/mcp/... ./cmd/sworn/... (AC-05 targeted)",
+      "command": "go test -count=1 -run TestWriteSpecRecord|TestReadRecord ./internal/implement/... ./internal/spec/... (AC-03 round trip)",
       "passed": true,
       "exit_code": 0
     }
   ],
   "reachability": {
     "type": "cli-run",
-    "evidence": "sworn doctor reports 'on Baton v0.10.0' (AC-01). sworn board --release 2026-06-28-driver-contract -> EXIT 0, deriving track states from git ancestry (T1-T6/T8 = merged, T7 = planned). sworn designfit 2026-06-28-driver-contract -> DESIGNFIT PASS, EXIT 0 over 15 slices, reading the UN-MIGRATED status.json records (quadrant=epic, schema_version-free) through the D1 normalise() shim -> proves sworn#90 (un-migrated records still pass after the enum flip). Pin-4 test TestNormaliseRealRecordsValidateStrict normalises the live board.json + S11 spec.json and both then pass strict v0.10.0 ValidateSchema."
+    "evidence": "sworn doctor reports 'on Baton v0.10.0' (AC-01). sworn board --release 2026-06-28-driver-contract -> EXIT 0, deriving track states from git ancestry (T1-T6/T8 = merged, T7 = planned). sworn designfit 2026-06-28-driver-contract -> DESIGNFIT PASS, EXIT 0 over 15 slices, reading the UN-MIGRATED status.json records (quadrant=epic, schema_version-free) through the D1 normalise() shim -> proves sworn#90 (un-migrated records still pass after the enum flip). Pin-4 test TestNormaliseRealRecordsValidateStrict normalises the live board.json + S11 spec.json and both then pass strict v0.10.0 ValidateSchema. AC-03 end-to-end: internal/implement/spec_record_test.go TestWriteSpecRecord_RoundTripValidatesStrictSchema drives WriteSpecRecord -> baton.ValidateSchema(\"spec-v1\", written) strict -> spec.ReadRecord exposes in_scope/out_of_scope (the writer->reader round trip the read-path-only normalise fixture test never gave). Re-confirmed live: sworn doctor -> v0.10.0, sworn board --release -> exit 0, sworn designfit -> DESIGNFIT PASS over 15 slices."
   },
   "delivered": [
     {
@@ -96,8 +104,8 @@
       "evidence": "internal/state/state.go Quadrant/Validate; internal/baton/normalise.go; internal/state/effort_complexity_test.go TestReadNormalisesRetiredQuadrant"
     },
     {
-      "item": "AC-03: internal/implement/spec_record.go writer emits in_scope/out_of_scope (empty arrays min) + drops schema_version + drops AC type/ears_keyword; validates against strict v0.10.0 spec-v1.",
-      "evidence": "internal/implement/spec_record.go; internal/baton/normalise.go (spec-v1 AC-field strip); internal/baton/normalise_test.go spec case"
+      "item": "AC-03: the spec WRITER (internal/implement/spec_record.go — the writer, despite AC-03's inverted label) emits in_scope/out_of_scope (scraped from the spec.md '## In scope'/'## Out of scope' sections, always non-nil arrays so they marshal [] not null) and DROPS schema_version + the AC type/ears_keyword fields; the READER (internal/spec/spec.go Record) parses and exposes InScope/OutOfScope; validator.go validateSpec is reconciled (no longer requires the retired schema_version — the byte-identical v0.10.0 schema forbids it — and now requires the in_scope/out_of_scope arrays); a writer->reader round-trip test asserts baton.ValidateSchema(\"spec-v1\", written) passes strict draft-2020-12 and spec.ReadRecord exposes the boundary.",
+      "evidence": "internal/implement/spec_record.go (specRecord/acRecord/parseScopeSection); internal/spec/spec.go (Record.InScope/OutOfScope); internal/baton/validator.go (validateSpec/checkArrayField); internal/implement/spec_record_test.go TestWriteSpecRecord_RoundTripValidatesStrictSchema + updated TestWriteSpecRecord_ParsesSpecAndWritesJSON; internal/spec/spec_test.go TestReadRecord_ParsesSpecV1"
     },
     {
       "item": "AC-04: acknowledged_by round-trips through the slice-status Deferral shape + validates against the vendored slice-status-v1.",
@@ -158,6 +166,12 @@
       "why": "Explicitly out of scope; the writers for proof/journeys/attestations are unchanged",
       "tracking": "baton#55",
       "acknowledged": true
+    },
+    {
+      "item": "Emitting an EARS classification field for freshly-scraped specs. The writer drops ears_keyword (forbidden by strict v0.10.0 spec-v1) and does NOT emit the canonical ears_pattern, so new spec.md-scraped ACs default to PatternUbiquitous in internal/ears until it is rewired to read ears_pattern.",
+      "why": "Rewiring internal/ears is outside the AC-03 touchpoint set, and emitting ears_pattern with no reader would be dead data; internal/ears.patternFromKeyword still reads the legacy ears_keyword from un-migrated on-disk records. The verifier's remediation explicitly said drop type/ears_keyword, not add ears_pattern.",
+      "tracking": "S12-record-migration (rides the legacy-ears_keyword retirement once on-disk records migrate)",
+      "acknowledged": true
     }
   ],
   "divergence": [
@@ -168,13 +182,19 @@
       "description": "Consumer sweep beyond the declared touchpoints: spec R-05 assumed every consumer reads worktree/state via the internal/board TrackInfo/Oracle struct, but internal/run/parallel.go, internal/mcp/{context,tools_ops}.go, internal/tui/{board,blocked}.go, and cmd/sworn/regress.go read BoardTrack/BoardRecord fields DIRECTLY. Since the BoardTrack struct change (a T7 touchpoint) necessarily breaks them and all other tracks (T1-T6, T8) are merged (no live collision), they were fixed to use the new derivation helpers (board.DeriveTrackInfos / Track{Worktree,Release}*From)."
     },
     {
-      "description": "render.go's tracks-table State column now derives the track state via git (best-effort, defaults to '-') rather than reading a persisted board.json field \u2014 AC-07 lists render.go as a state-resolution site. The golden fixture (no track branches) derives 'planned'."
+      "description": "render.go's tracks-table State column now derives the track state via git (best-effort, defaults to '-') rather than reading a persisted board.json field — AC-07 lists render.go as a state-resolution site. The golden fixture (no track branches) derives 'planned'."
     },
     {
       "description": "tui/board.go resolvedRefIsLiveCheckout now treats releaseRef=='HEAD' as a live checkout (the solo single-worktree run shape, exposed once the derived track branch is absent): HEAD is always the working tree, so the live status.json wins over the last commit."
     },
     {
       "description": "Extensive test-fixture sweep across internal/{run,mcp,tui,bench} + cmd/sworn: the derivation changed WHERE worktrees live (sibling-of-repo, not a configurable board.json path), so orchestration tests pre-create the derived worktree dirs (or use a real primary+release-worktree layout for merge/regress) instead of pointing worktree_path at the workspace root."
+    },
+    {
+      "description": "AC-03's spec text labels internal/spec the 'writer' and internal/implement/spec_record.go the 'reader', but the code has these reversed: internal/implement/spec_record.go WRITES (WriteSpecRecord, on the implement path at implement.go:141) and internal/spec/spec.go READS (ReadRecord). Implemented against the actual code roles, per the verifier's numbered remediation steps. The spec label is planner-owned and left unchanged; flagged for a spec correction."
+    },
+    {
+      "description": "validateSpec reconciliation removed the schema_version==1 requirement (the direct contradiction with the byte-identical v0.10.0 schema) and added in_scope/out_of_scope array checks, keeping the existing slice_id + release non-empty + $schema checks. It deliberately does NOT add covers_needs/user_outcome/acceptance_criteria presence checks — full draft-2020-12 conformance (additionalProperties:false, AC-item shape, enums, patterns) is asserted by ValidateSchema in the round-trip test; the lax write-path guard is not tightened beyond the schema reconciliation, so real spec.md scrapes are not newly rejected."
     }
   ]
 }
