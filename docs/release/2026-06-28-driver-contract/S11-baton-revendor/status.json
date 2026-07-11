@@ -3,18 +3,68 @@
   "slice_id": "S11-baton-revendor",
   "release": "2026-06-28-driver-contract",
   "track": "T7-baton-revendor",
-  "state": "design_review",
+  "state": "in_progress",
   "covers_needs": [
     "N-12"
   ],
   "spec_path": "docs/release/2026-06-28-driver-contract/S11-baton-revendor/spec.json",
   "start_commit": null,
+  "design_decisions": [
+    {
+      "choice": "D1: transition mechanism for un-migrated records during the S11-landed/S12-pending window (schema_version, board tracks[] worktree/state, quadrant chore/epic) — NORMALISE-BEFORE-VALIDATE vs tolerant-validate",
+      "stake_class": "Type-1",
+      "architecturally_significant": true,
+      "options": [
+        "(a) tolerant-validate: readers/validators do not enforce additionalProperties:false / schema_version-absence / the quadrant checksum against un-migrated records until S12",
+        "(b) normalise-before-validate: one read-path normalise() shim maps retired chore->quick/epic->beast, strips schema_version, and reshapes legacy board-v1 tracks[] into canonical v0.9.0 form BEFORE validation/checksum, while Validate and additionalProperties:false stay strictly strict"
+      ],
+      "human_decision": "Coach (Brad) 2026-07-11 RATIFIED option (b) NORMALISE-BEFORE-VALIDATE (captain-proceed.md pin 1). state.EffortComplexity.Validate stays STRICTLY strict (accepts only quick/grind/puzzle/beast, rejects chore/epic); additionalProperties:false is never relaxed; the vendored v0.9.0 schemas stay byte-identical to the tag. One enumerated, round-trip-tested normalise() covering exactly the retired surfaces. S12 migrates the on-disk data and DELETES the shim wholesale.",
+      "rationale": "Keeps genuine drift caught during the window (strict Validate + strict schema) while the un-migrated records the release still carries (its own board.json/spec.json/status.json) continue to pass the in-track gates. Resolves the sworn#90 bootstrap paradox without weakening the contract."
+    },
+    {
+      "choice": "D2: source of truth for the track worktree PATH derivation helper",
+      "stake_class": "Type-1",
+      "architecturally_significant": true,
+      "options": [
+        "(a) track-mode.md's plainly-documented $HOME/projects/<REPO_BASENAME>-worktrees/... formula",
+        "(b) worker.go's repo-local sibling-of-release-worktree logic (filepath.Dir(releaseWorktreePath)/release-<release>-<track>)"
+      ],
+      "human_decision": "Coach (Brad) 2026-07-11 CONFIRMED option (b): reuse worker.go's repo-local sibling-of-release-worktree logic, NOT the naive $HOME formula (captain-proceed.md pin 4). Move the logic into the shared internal/board helper and repoint worker.go + mcp/tools_plan.go; do not re-derive the naive convention.",
+      "rationale": "The naive $HOME formula was identical for every repo, so a fired-repo run silently materialised on sworn's worktree tree (eval finding 3, project_parallel_cold_start_broken). worker.go's sibling logic is the incident-hardened derivation and must be the single source of truth."
+    },
+    {
+      "choice": "D3: AC-08 command-spec write-isolation — satisfied-by-engine vs vendor a commands/ mapping vs replan",
+      "stake_class": "Type-1",
+      "architecturally_significant": true,
+      "options": [
+        "(a) satisfied-by-engine: sworn's obligation is the Go behaviour (no engine writer stamps track worktree/state to release-wt board.json, owned by AC-06/AC-07); the command-spec prose lives in the private ~/.claude harness + upstream baton (ADR-0010 boundary)",
+        "(b) add a commands/ vendor mapping so sworn vendors implement-slice.md/merge-track.md",
+        "(c) /replan-release to rewrite AC-08"
+      ],
+      "human_decision": "Coach (Brad) 2026-07-11 RATIFIED option (a) SATISFIED-BY-ENGINE (captain-proceed.md pin 2). sworn vendors only the 11 numbered rule docs, NOT commands/. Verification = assert no engine writer stamps worktree/state to board.json (AC-06/AC-07 tests) + assert sworn's vendored rules/ contains no implement-slice.md/merge-track.md. The command-spec prose edit is tracked baton-side as baton#61. Do NOT add a commands/ mapping.",
+      "rationale": "ADR-0010 boundary: sworn vendors the contract, not the workflow prose. AC-08's named artefact does not exist in-repo; the real write-isolation obligation for sworn is the engine behaviour."
+    },
+    {
+      "choice": "D4: quadrant retired-name mapping location",
+      "stake_class": "Type-2",
+      "architecturally_significant": false,
+      "human_decision": "",
+      "rationale": "chore->quick / epic->beast mapping lives in the D1 normalise() read-path shim (NOT a tolerant branch inside Validate), removed wholesale by S12. Type-2, proceed on default per the Coach's D1 ruling."
+    },
+    {
+      "choice": "D5: AC-01 re-sync drives two independent pipelines",
+      "stake_class": "Type-2",
+      "architecturally_significant": false,
+      "human_decision": "",
+      "rationale": "The internal/baton Vendor pipeline (rules/role-prompts/protocol docs, byte-identical) and the separate internal/baton/schemas embed sync are driven independently; sworn doctor + a vendor diff confirm byte-identity to the v0.9.0 tag. Type-2, proceed."
+    }
+  ],
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
     "quadrant": "epic",
     "rationale": "Vendor bump to v0.9.0 + chore->quick & epic->beast enum + acknowledged_by round-trip + sworn#80 (derive worktree/state from refs, board-v1 pure plan) + Defect-2 regression lock; complexity high per the worker.go worktree-derivation nuance (spec R-05).",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
   "verification": {
     "result": "pending"
