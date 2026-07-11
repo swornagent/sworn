@@ -1,0 +1,64 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "schema_version": 1,
+  "slice_id": "S15-baton-version-handshake",
+  "release": "2026-06-28-driver-contract",
+  "track": "T7-baton-revendor",
+  "user_outcome": "`sworn doctor` declares which Baton schema versions this binary grades — an explicit graded-schema-version manifest (e.g. spec-v1, board-v1, slice-status-v1, verifier-verdict-v1, and the newly-vendored contracts-v1 / assembly-proof-v1 with their graded-or-advisory status) — so the next protocol/runner skew is a VISIBLE warning at doctor time, not a silent behaviour gap where the vendored schemas diverge from the binary's graded set under identical $id. This is W2 part 2 of the 2026-07-11 contract-edge handoff (doctor --sync-baton), split out of S11 to keep the vendoring slice focused.",
+  "rationale": "The scar this manages is baton#54/#55/#58: vendored baton schemas at one version while the binary graded stale shapes, silently. S11 vendors v0.10.0 (including the two advisory new schemas); S15 makes the binary DECLARE its graded set + versions so any future skew surfaces. Sworn side of the handoff's 'declare which baton schema versions this binary grades'. Sibling of S11 in T7 (shares the vendoring touchpoints — must stay same-track, not parallel). Placed BETWEEN S11 and S12 in T7 order: it depends on S11's vendored schema set existing, and it must land BEFORE S12 tightens Validate to quick-only and removes the normalise shim (S12 stays the final migration slice). Advisory schemas (contracts-v1, assembly-proof-v1) are declared as vendored-but-not-yet-graded until the follow-on contract-edge-gates release ships their graders. Source: docs/captures/2026-07-11-contract-edge-step3-handoff.md (W2), docs/captures/2026-07-11-replan-driver-contract-contract-edges.md (§2).",
+  "covers_needs": [
+    "N-16"
+  ],
+  "in_scope": [
+    "A graded-schema-version manifest in the binary: for each vendored baton schema ($id + version), whether sworn GRADES it (enforces) or carries it ADVISORY-only (stored, not yet enforced)",
+    "`sworn doctor` output section (natural home: a --sync-baton mode or a doctor group) listing the graded schema set + versions + graded/advisory status, sourced from the vendored VERSION pin + the manifest",
+    "A skew check: doctor warns (non-zero-advisory or a clearly-flagged WARN, following the existing doctor group conventions) when the vendored pin's schema set and the binary's declared graded set disagree",
+    "Tests: the doctor section renders the manifest; a deliberately-skewed fixture makes the skew check fire"
+  ],
+  "out_of_scope": [
+    "GRADING contracts-v1 / assembly-proof-v1 (the lint contracts / assemble graders — follow-on contract-edge-gates release); S15 only DECLARES them as vendored-advisory",
+    "Changing the vendored pin or schema files (S11 owns vendoring)",
+    "The record data migration (S12 owns that)",
+    "Auto-fetching or auto-syncing from the network — doctor declares the vendored/graded state, it does not phone home"
+  ],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "chore",
+    "rationale": "A declarative manifest + one doctor output section + a skew warn, following existing doctor-group conventions. Low breadth, low depth. Authored in current-valid quadrant vocab (chore); S12's migration sweep re-maps it to quick with every other record. Re-assess at design_review.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go",
+    "internal/baton/",
+    "internal/adopt/baton/VERSION"
+  ],
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "The manifest hard-codes a version list that drifts from the actual vendored schemas — the exact skew it exists to prevent.",
+      "mitigation": "Source the graded set from the vendored schema files / VERSION pin where possible rather than a hand-maintained literal; the skew-check test asserts manifest-vs-vendored agreement."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "type": "event-driven",
+      "ears_keyword": "When",
+      "text": "When `sworn doctor` runs (its --sync-baton mode or the relevant doctor group), it SHALL print each vendored baton schema's $id, version, and graded-vs-advisory status, including contracts-v1 and assembly-proof-v1 marked ADVISORY (vendored, not yet graded); a test SHALL assert the rendered manifest names the graded set and the two advisory schemas."
+    },
+    {
+      "id": "AC-02",
+      "type": "unwanted",
+      "ears_keyword": "If",
+      "text": "If the binary's declared graded-schema set disagrees with the vendored pin's schema set (a skew fixture), doctor SHALL surface a clearly-flagged WARN/non-OK for that check (following the existing doctor-group conventions), never a silent OK; a test SHALL make the skew check fire on the fixture."
+    },
+    {
+      "id": "AC-03",
+      "type": "ubiquitous",
+      "ears_keyword": "shall",
+      "text": "`go build ./...` and `go test ./cmd/sworn/... ./internal/baton/...` SHALL pass, and the new doctor section SHALL NOT regress the existing `sworn doctor` groups (the full doctor test stays green)."
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S15-baton-version-handshake",
+  "release": "2026-06-28-driver-contract",
+  "track": "T7-baton-revendor",
+  "state": "planned",
+  "covers_needs": [
+    "N-16"
+  ],
+  "spec_path": "docs/release/2026-06-28-driver-contract/S15-baton-version-handshake/spec.json",
+  "start_commit": null,
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "chore",
+    "rationale": "Declarative manifest + one doctor section + skew warn; low breadth, low depth. Current-valid vocab (chore); S12 migrates to quick.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending"
+  }
+}
