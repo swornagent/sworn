@@ -83,3 +83,40 @@ line is a script-env quirk (run with `PLAYWRIGHT_OPTIN=0`), not a slice failure.
 
 ### Terminal state
 `implemented`. Proof bundle: `proof.json`. Ready for fresh-context verification.
+
+## Verifier verdicts received
+
+### 2026-07-11 — FAIL (fresh-context verifier, artefact-only)
+
+Verified against track/2026-06-28-driver-contract/T7-baton-revendor @ 4dbbedc
+(start_commit 71a2954). Re-ran the full `go test -count=1 -timeout 300s ./...`
+(exit 0, 47 pkgs ok) and every AC test independently.
+
+PASS on: AC-01 (grep chore/epic = 0), AC-02 (feature = 0), AC-03
+(TestRecordsConformance_SpecV1Era — 33 spec.json strict-v0.10.0 + in_scope/
+out_of_scope present; actual `"schema_version":` key only in the 2 excluded
+legacy boards), AC-04 (TestReadRejectsRetiredQuadrant; internal/baton/normalise.go
+deleted, 0 live baton.Normalise call sites — shim gone wholesale), AC-06
+(5 board.json pure-plan {$schema,release,tracks}), AC-07 (type->ears_pattern
+mapped, ears.go reads EARSPattern, TestRecordsConformance_EARSClassificationPreserved
++ `sworn lint ac` = 82 ACs non-all-Ubiquitous). Migration script committed,
+re-runnable, idempotent (diff -rq copy-vs-worktree IDENTICAL after re-run).
+Legacy releases untouched (0 files). gofmt/vet clean.
+
+FAIL on AC-05:
+1. `sworn doctor` (the AC-05 fail-closed render-drift guard) exits 1 and flags
+   `render drift (2026-06-28-driver-contract) — committed index.md does not match
+   render(board.json)`. driver-contract is one of the five spec-v1-era releases
+   AC-05 requires the guard to pass for. The committed index.md renders the S12
+   row state as `in_progress`; render yields `implemented` (single-line drift,
+   quadrant grind correct). The other four of the five render clean.
+2. proof.json reachability (l.136) + delivered[AC-05] (l.156-157) claim
+   `sworn doctor render-drift flags only the 2 excluded legacy releases, not the
+   five` — false against live state; doctor flags the 2 legacy PLUS driver-contract.
+
+Required: re-render 2026-06-28-driver-contract/index.md so the committed file
+matches render(board.json) and commit it in this slice; re-run `sworn doctor` and
+confirm none of the five are flagged (only the 2 excluded legacy remain); correct
+the proof.json AC-05 evidence. Legal in-spec implementer fix — FAIL, not BLOCKED.
+Board.json left unchanged (pure-plan carries no slice state); index.md left
+un-re-rendered so the drift stands as the AC-05 evidence for the next round.
