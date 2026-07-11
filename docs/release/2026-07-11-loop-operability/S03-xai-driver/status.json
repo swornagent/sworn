@@ -3,7 +3,7 @@
   "slice_id": "S03-xai-driver",
   "release": "2026-07-11-loop-operability",
   "track": "T2-xai-driver",
-  "state": "planned",
+  "state": "design_review",
   "covers_needs": [
     "N-03"
   ],
