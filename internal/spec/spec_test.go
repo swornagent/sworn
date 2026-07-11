@@ -8,11 +8,17 @@ import (
 
 func TestReadRecord_ParsesSpecV1(t *testing.T) {
 	dir := t.TempDir()
+	// A legacy-shaped record (still carrying type/ears_keyword on the ACs, as
+	// on-disk records do until S12 migrates them) that ALSO carries the v0.10.0
+	// in_scope/out_of_scope arrays — the reader must tolerate the legacy AC
+	// fields (kept for the internal/ears consumer) AND expose the new boundary.
 	specJSON := `{
-  "schema_version": 1,
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
   "slice_id": "S01-test",
   "release": "test-release",
   "user_outcome": "The user gets the thing.",
+  "in_scope": ["Read the record", "Expose in_scope/out_of_scope"],
+  "out_of_scope": ["Writing records"],
   "covers_needs": ["N-01", "N-02"],
   "acceptance_criteria": [
     {"id": "AC-1", "type": "ubiquitous", "text": "THE SYSTEM SHALL do X."},
@@ -35,6 +41,12 @@ func TestReadRecord_ParsesSpecV1(t *testing.T) {
 	}
 	if len(rec.CoversNeeds) != 2 || rec.CoversNeeds[0] != "N-01" {
 		t.Errorf("want covers_needs [N-01 N-02], got %v", rec.CoversNeeds)
+	}
+	if len(rec.InScope) != 2 || rec.InScope[0] != "Read the record" {
+		t.Errorf("want in_scope exposed, got %v", rec.InScope)
+	}
+	if len(rec.OutOfScope) != 1 || rec.OutOfScope[0] != "Writing records" {
+		t.Errorf("want out_of_scope [Writing records], got %v", rec.OutOfScope)
 	}
 	if len(rec.AcceptanceCriteria) != 2 {
 		t.Fatalf("want 2 ACs, got %d", len(rec.AcceptanceCriteria))

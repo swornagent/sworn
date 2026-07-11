@@ -22,10 +22,17 @@ type AC struct {
 }
 
 // Record is the subset of a spec-v1 spec.json that read-side consumers use.
+//
+// in_scope/out_of_scope became required spec-v1 fields at baton v0.10.0
+// (previously scraped `## In scope` / `## Out of scope` spec.md headings); the
+// reader parses and exposes them so gates and verifiers read one boundary
+// source instead of re-scraping markdown.
 type Record struct {
 	SliceID            string   `json:"slice_id"`
 	Release            string   `json:"release"`
 	UserOutcome        string   `json:"user_outcome"`
+	InScope            []string `json:"in_scope"`
+	OutOfScope         []string `json:"out_of_scope"`
 	CoversNeeds        []string `json:"covers_needs"`
 	AcceptanceCriteria []AC     `json:"acceptance_criteria"`
 }

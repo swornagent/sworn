@@ -226,6 +226,15 @@ func validateBoard(data []byte) error {
 }
 
 // validateSpec validates data against the spec-v1 schema.
+//
+// spec-v1 is strict at v0.10.0 (additionalProperties:false): the retired
+// schema_version integer is gone ($schema carries the version), so it is
+// neither required nor checked — requiring it here would REJECT every
+// conformant v0.10.0 record the writer now emits. in_scope and out_of_scope are
+// required arrays. This hand-rolled check is the fast structural guard on the
+// write path; full draft-2020-12 conformance (additionalProperties:false, the
+// AC-item shape, enums, patterns) is asserted by ValidateSchema, which the
+// writer's round-trip test round-trips through.
 func validateSpec(data []byte) error {
 	var m map[string]interface{}
 	if err := json.Unmarshal(data, &m); err != nil {
@@ -233,25 +242,7 @@ func validateSpec(data []byte) error {
 	}
 
 	if len(m) == 0 {
-		return fmt.Errorf("validator: empty object — required fields missing: schema_version, slice_id, release")
-	}
-
-	// schema_version must be 1.
-	sv, ok := m["schema_version"]
-	if !ok {
-		return fmt.Errorf("validator: missing required field \"schema_version\"")
-	}
-	var svInt int
-	switch v := sv.(type) {
-	case float64:
-		svInt = int(v)
-	case int:
-		svInt = v
-	default:
-		return fmt.Errorf("validator: schema_version must be a number, got %T", sv)
-	}
-	if svInt != 1 {
-		return fmt.Errorf("validator: schema_version must be 1, got %d", svInt)
+		return fmt.Errorf("validator: empty object — required fields missing: slice_id, in_scope, out_of_scope")
 	}
 
 	// slice_id must be present and non-empty.
@@ -261,6 +252,17 @@ func validateSpec(data []byte) error {
 
 	// release must be present and non-empty.
 	if err := checkNonEmptyString(m, "release"); err != nil {
+		return err
+	}
+
+	// in_scope and out_of_scope are required arrays at v0.10.0 (each may be
+	// empty; the boundary is drawn even when nothing adjacent is worth calling
+	// out). Requiring them here keeps the structural guard reconciled with the
+	// byte-identical vendored schema's required set.
+	if err := checkArrayField(m, "in_scope"); err != nil {
+		return err
+	}
+	if err := checkArrayField(m, "out_of_scope"); err != nil {
 		return err
 	}
 
@@ -332,6 +334,21 @@ func checkNonEmptyString(m map[string]interface{}, f string) error {
 	s, ok := v.(string)
 	if !ok || strings.TrimSpace(s) == "" {
 		return fmt.Errorf("validator: field %q must be a non-empty string", f)
+	}
+	return nil
+}
+
+// checkArrayField verifies that m[f] is present and is a JSON array (which may
+// be empty). Used for the spec-v1 required in_scope/out_of_scope arrays, where
+// a missing field or a JSON null (a nil Go slice marshalled naively) must fail
+// closed against the schema's "type": "array".
+func checkArrayField(m map[string]interface{}, f string) error {
+	v, ok := m[f]
+	if !ok {
+		return fmt.Errorf("validator: missing required field %q", f)
+	}
+	if _, ok := v.([]interface{}); !ok {
+		return fmt.Errorf("validator: field %q must be an array, got %T", f, v)
 	}
 	return nil
 }
