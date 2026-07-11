@@ -91,8 +91,8 @@ func (d *ClaudeDriver) Dispatch(ctx context.Context, in DispatchInput) (Result, 
 // output contract for verifier dispatches (AC-03).
 func buildPrompt(in DispatchInput) string {
 	prompt := in.SystemPrompt + "\n\n" + in.Payload
-	if in.Role == RoleVerifier && len(in.VerdictSchema) > 0 {
-		prompt += "\n\nRespond with a single JSON object conforming to this schema:\n" + string(in.VerdictSchema)
+	if in.Role == RoleVerifier && len(in.StructuredSchema) > 0 {
+		prompt += "\n\nRespond with a single JSON object conforming to this schema:\n" + string(in.StructuredSchema)
 	}
 	return prompt
 }

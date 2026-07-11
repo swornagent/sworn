@@ -210,13 +210,13 @@ type AgenticInput struct {
 // judgement-only (ADR-0011 §3.3 g).
 func RunAgentic(ctx context.Context, in AgenticInput, d driver.Driver) (verdict.Result, error) {
 	res, derr := d.Dispatch(ctx, driver.DispatchInput{
-		Role:          driver.RoleVerifier,
-		ModelID:       in.ModelID,
-		SystemPrompt:  verifierRolePrompt,
-		Payload:       buildPayload(in.Spec, in.Diff, in.Proof),
-		VerdictSchema: verifierEmitSchema,
-		WorktreeRoot:  in.WorktreeRoot,
-		Timeout:       in.Timeout,
+		Role:             driver.RoleVerifier,
+		ModelID:          in.ModelID,
+		SystemPrompt:     verifierRolePrompt,
+		Payload:          buildPayload(in.Spec, in.Diff, in.Proof),
+		StructuredSchema: verifierEmitSchema,
+		WorktreeRoot:     in.WorktreeRoot,
+		Timeout:          in.Timeout,
 	})
 
 	// Terminal error kinds (auth, credits — revoked key, exhausted credits)

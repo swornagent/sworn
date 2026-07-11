@@ -128,3 +128,48 @@ provider-neutral regardless of which wire library a given driver wraps.
   type-assert this contract replaces) and `internal/run/slice.go`
   (`RunSliceOptions.NewAgent`/`NewVerifier`) — the seam this ADR supersedes,
   rewired in T4 (S05-S08).
+
+## Amendment (2026-07-12) — role-agnostic StructuredSchema + ErrKindUnsupported
+
+Release `2026-07-11-loop-operability`, slice `S02-model-response-structured`.
+**Type-1, architecturally significant** — decided by the Coach (Brad),
+`captain-proceed.md` pins 1 and 3; recorded in that slice's `status.json`
+`design_decisions` (D1, D3). This amends the contract shape landed above; it
+does not supersede the ADR.
+
+Two prose-scraping loop gates — the design-TL;DR gate (`internal/design`, which
+required literal `§1`–`§6` headers) and the reqverify Definition-of-Ready gate
+(`internal/reqverify`, which scraped a `## RESULTS` prose section) — are
+migrated onto the same schema-constrained structured-output transport the
+verifier verdict already uses. Both are captain-family dispatches, so the
+contract change is:
+
+1. **`DispatchInput.VerdictSchema` → `DispatchInput.StructuredSchema`
+   (role-agnostic).** The driver enforces an output schema; it does not care
+   which role asked. The verifier passes verifier-verdict-v1; the captain-family
+   gates pass their own sworn-local emit schemas. Chosen over a parallel
+   `CaptainSchema` field: two fields for one concept invite drift, and the
+   field's own doc already anticipated generalisation. The rename is
+   compile-checked across every call site (`driver.go`, `claude.go`,
+   `codex.go`, `verify.go`, `inprocess*.go`, `drivertest/conformance.go`, and
+   the tests). `dispatchCaptain` gains a structured path (one ChatStructured
+   call, no investigation loop) taken when `StructuredSchema` is set; the prose
+   `Chat` path is unchanged when it is nil.
+
+2. **New `ErrKindUnsupported = "unsupported"` in the binding cross-driver
+   ErrKind taxonomy (`internal/driver/subprocess.go`).** A schema-constrained
+   dispatch to a client that cannot emit structured output fails closed with
+   THIS kind — deliberately distinct from `ErrKindProtocol` (a structured
+   *emission* that failed). Capability-absent is not a failure to retry but a
+   **declared Rule 2 deferral** the gate records; every other structured
+   failure stays a hard, fail-closed error. It is NOT terminal —
+   `TerminalErrKind` stays `{auth, credits}`. Per `[[project_driver_contract_recut]]`
+   the ErrKind vocabulary binds for all future drivers, so subprocess-family
+   drivers map capability-absent to this kind too rather than folding it into
+   `ErrKindProtocol`.
+
+Consequence: a `StructuredOutput`-capable model that does not reproduce the
+exact prose shape the gates were tuned against (as Grok did not) now passes
+both gates; a model that genuinely cannot emit structured output degrades to a
+declared deferral naming the missing capability, never a silent pass and never
+a hard prose-format failure.

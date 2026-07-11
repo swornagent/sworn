@@ -74,7 +74,7 @@ func TestCodexDispatchImplementer(t *testing.T) {
 }
 
 // TestCodexDispatchVerifier proves AC-02: verifier dispatches pass
-// --ephemeral, include VerdictSchema in the prompt, and populate
+// --ephemeral, include StructuredSchema in the prompt, and populate
 // Result.StructuredJSON when the final agent_message parses as a JSON
 // object.
 func TestCodexDispatchVerifier(t *testing.T) {
@@ -86,12 +86,12 @@ func TestCodexDispatchVerifier(t *testing.T) {
 	schema := []byte(`{"type":"object","required":["verdict"]}`)
 	d := &CodexDriver{Binary: testBinaryPath(t)}
 	result, err := d.Dispatch(context.Background(), DispatchInput{
-		Role:          RoleVerifier,
-		ModelID:       "gpt-5-codex",
-		SystemPrompt:  "you are the verifier",
-		Payload:       "check this diff",
-		WorktreeRoot:  dir,
-		VerdictSchema: schema,
+		Role:             RoleVerifier,
+		ModelID:          "gpt-5-codex",
+		SystemPrompt:     "you are the verifier",
+		Payload:          "check this diff",
+		WorktreeRoot:     dir,
+		StructuredSchema: schema,
 	})
 	if err != nil {
 		t.Fatalf("Dispatch() error: %v", err)
@@ -114,7 +114,7 @@ func TestCodexDispatchVerifier(t *testing.T) {
 		t.Errorf("verifier dispatch missing --ephemeral: %s", invocation)
 	}
 	if !strings.Contains(invocation, string(schema)) {
-		t.Errorf("verifier dispatch prompt missing VerdictSchema: %s", invocation)
+		t.Errorf("verifier dispatch prompt missing StructuredSchema: %s", invocation)
 	}
 }
 
@@ -127,10 +127,10 @@ func TestCodexDispatchVerifier_ProtocolError(t *testing.T) {
 
 	d := &CodexDriver{Binary: testBinaryPath(t)}
 	result, err := d.Dispatch(context.Background(), DispatchInput{
-		Role:          RoleVerifier,
-		ModelID:       "gpt-5-codex",
-		WorktreeRoot:  dir,
-		VerdictSchema: []byte(`{"type":"object"}`),
+		Role:             RoleVerifier,
+		ModelID:          "gpt-5-codex",
+		WorktreeRoot:     dir,
+		StructuredSchema: []byte(`{"type":"object"}`),
 	})
 	if err == nil {
 		t.Fatal("expected error for non-JSON-object verifier result, got nil")

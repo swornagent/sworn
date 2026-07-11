@@ -2,6 +2,7 @@ package implement
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -43,11 +44,14 @@ func (f *fakeImplDriver) Roles() driver.RoleSet {
 func (f *fakeImplDriver) Dispatch(_ context.Context, in driver.DispatchInput) (driver.Result, error) {
 	switch in.Role {
 	case driver.RoleCaptain:
+		// S02: the DoR reqverify grading call is schema-constrained — the
+		// captain arm returns the structured reqverify-results object in
+		// StructuredJSON (not a `## RESULTS` prose section).
 		text := f.dorText
 		if text == "" {
-			text = "## RESULTS\n\nAC 1 (S06-test-slice): PASS\n"
+			text = `{"results":[{"slice_id":"S06-test-slice","ac_index":1,"status":"PASS"}]}`
 		}
-		return driver.Result{Status: driver.StatusOK, ResultText: text}, nil
+		return driver.Result{Status: driver.StatusOK, ResultText: text, StructuredJSON: json.RawMessage(text)}, nil
 	default:
 		f.lastUserPrompt = in.Payload
 		if f.err != nil {

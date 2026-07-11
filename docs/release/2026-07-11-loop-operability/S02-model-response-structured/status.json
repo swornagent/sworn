@@ -3,12 +3,12 @@
   "slice_id": "S02-model-response-structured",
   "release": "2026-07-11-loop-operability",
   "track": "T1-conformance",
-  "state": "in_progress",
+  "state": "implemented",
   "covers_needs": [
     "N-02"
   ],
   "spec_path": "docs/release/2026-07-11-loop-operability/S02-model-response-structured/spec.json",
-  "start_commit": null,
+  "start_commit": "aa89ada3765668afae2d81d5fc1ae81dbd21a18e",
   "effort_complexity": {
     "effort": "low",
     "complexity": "high",
