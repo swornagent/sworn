@@ -1,15 +1,16 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-  "schema_version": 1,
   "slice_id": "S01-render-drift-guard",
   "release": "2026-07-01-render-drift-reconciliation",
   "user_outcome": "`sworn doctor` fails closed (non-zero exit, ERROR not WARN) when any board.json-backed release's committed index.md doesn't match render(board.json + slice records) — the ADR-0009-mandated drift guard, made real and fail-closed instead of the existing advisory, already-broken version.",
   "rationale": "docs/adr/0009-records-json-prose-markdown.md's Consequences section mandates this exact check. A guard already exists (internal/board/board.go driftGuard) but is (a) advisory-only (log.Printf, explicitly 'does not block the write'), (b) only runs inside WriteBoard at planning/implementation time rather than as a standalone check, and (c) itself calls board.ParseTracks(extractFrontmatterBody(...)) on raw index.md — the same broken pattern this whole release exists to remove, so it would not even correctly detect the drift class it exists to catch. This slice replaces driftGuard's comparison logic with a real re-render-and-diff against internal/board/render.go's actual output, and surfaces it as a sworn doctor check (Group 2 repo artifact audit, per the planning decision) rather than only firing on write.",
-  "covers_needs": ["N-02"],
+  "covers_needs": [
+    "N-02"
+  ],
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "Mechanical: for every docs/release/<release>/board.json found, call the existing internal/board/render.go render function in-memory, compare byte-for-byte (or normalised) against the committed index.md, report ERROR on mismatch. Replaces driftGuard's body; the render.go function itself is untouched (already correct).",
     "confirmed_by_implementer": false
   },
@@ -22,39 +23,35 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When `sworn doctor` runs against a repo containing a release with a committed `board.json`, it SHALL re-render that release's `index.md` in-memory (via the existing `internal/board` render function, not a new implementation) and compare it against the committed `index.md`."
+      "text": "When `sworn doctor` runs against a repo containing a release with a committed `board.json`, it SHALL re-render that release's `index.md` in-memory (via the existing `internal/board` render function, not a new implementation) and compare it against the committed `index.md`.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-02",
-      "type": "unwanted",
-      "ears_keyword": "If",
-      "text": "If the re-rendered output does not match the committed `index.md` for any board.json-backed release, `sworn doctor` SHALL report it as an ERROR (not WARN) naming the release and, `sworn doctor` SHALL exit non-zero — this is the fail-closed behavior ADR-0009 mandates and the current advisory `driftGuard` does not provide."
+      "text": "If the re-rendered output does not match the committed `index.md` for any board.json-backed release, `sworn doctor` SHALL report it as an ERROR (not WARN) naming the release and, `sworn doctor` SHALL exit non-zero — this is the fail-closed behavior ADR-0009 mandates and the current advisory `driftGuard` does not provide.",
+      "ears_pattern": "unwanted-behaviour"
     },
     {
       "id": "AC-03",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "Releases with no `board.json` (genuinely pre-migration) SHALL be skipped by this check — it applies only where a JSON source of truth exists to render from."
+      "text": "Releases with no `board.json` (genuinely pre-migration) SHALL be skipped by this check — it applies only where a JSON source of truth exists to render from.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-04",
-      "type": "unwanted",
-      "ears_keyword": "If",
-      "text": "The existing `internal/board.driftGuard` function (advisory, `log.Printf`-only, itself using the broken `ParseTracks`-on-raw-`index.md` pattern) SHALL be replaced by this new re-render-and-diff comparison — not left in place alongside the new check as a second, weaker mechanism."
+      "text": "The existing `internal/board.driftGuard` function (advisory, `log.Printf`-only, itself using the broken `ParseTracks`-on-raw-`index.md` pattern) SHALL be replaced by this new re-render-and-diff comparison — not left in place alongside the new check as a second, weaker mechanism.",
+      "ears_pattern": "unwanted-behaviour"
     },
     {
       "id": "AC-05",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When run against this repo's current state (post S01-S07 landing), `sworn doctor` SHALL report zero drift errors for releases in scope of this release's tracks (T1-T5) — pre-existing drift or malformed board.json in releases outside this release's scope (tracked separately: swornagent/sworn#44 for `2026-06-27-conformance-foundation`'s legacy board.json shape, swornagent/sworn#45 for `2026-07-01-release-hygiene`'s stale index.md) is a known, tracked exception and SHALL NOT block this slice's or this release's verification. Proof: run `sworn doctor` for real against the live repo and confirm the drift-guard check reports no errors beyond the tracked exceptions above — not a synthetic fixture."
+      "text": "When run against this repo's current state (post S01-S07 landing), `sworn doctor` SHALL report zero drift errors for releases in scope of this release's tracks (T1-T5) — pre-existing drift or malformed board.json in releases outside this release's scope (tracked separately: swornagent/sworn#44 for `2026-06-27-conformance-foundation`'s legacy board.json shape, swornagent/sworn#45 for `2026-07-01-release-hygiene`'s stale index.md) is a known, tracked exception and SHALL NOT block this slice's or this release's verification. Proof: run `sworn doctor` for real against the live repo and confirm the drift-guard check reports no errors beyond the tracked exceptions above — not a synthetic fixture.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-06",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "After the change, `go build ./...` SHALL succeed and `go test ./internal/board/... ./cmd/sworn/...` SHALL pass."
+      "text": "After the change, `go build ./...` SHALL succeed and `go test ./internal/board/... ./cmd/sworn/...` SHALL pass.",
+      "ears_pattern": "ubiquitous"
     }
-  ]
+  ],
+  "in_scope": [],
+  "out_of_scope": []
 }

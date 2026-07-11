@@ -35,9 +35,10 @@ func TestQuadrant(t *testing.T) {
 
 // TestEffortComplexityValidate proves the checksum accepts consistent canonical
 // ratings and rejects both an off-enum axis and a quadrant that contradicts the
-// axes — INCLUDING the retired chore/epic names, which Validate now rejects
-// (Validate stays strictly strict; the read-path normalise() shim, not Validate,
-// maps chore->quick / epic->beast).
+// axes — INCLUDING the retired chore/epic names, which Validate rejects
+// (Validate is strictly quick/grind/puzzle/beast; the S11 read-path normalise
+// shim that once mapped chore->quick / epic->beast was removed by S12, so there
+// is no tolerance layer any more).
 func TestEffortComplexityValidate(t *testing.T) {
 	good := []EffortComplexity{
 		{Effort: "low", Complexity: "low", Quadrant: "quick"},
@@ -58,8 +59,8 @@ func TestEffortComplexityValidate(t *testing.T) {
 	if err := (EffortComplexity{Effort: "low", Complexity: "high", Quadrant: "grind"}).Validate(); err == nil {
 		t.Error("inconsistent quadrant accepted — checksum not enforced")
 	}
-	// The retired names are rejected by Validate itself (strictly strict) — they
-	// are mapped only by the read-path normalise shim, never tolerated here.
+	// The retired names are rejected by Validate itself (strictly strict) — with
+	// the S11 read-path shim gone (S12), nothing maps them, so they never load.
 	if err := (EffortComplexity{Effort: "low", Complexity: "low", Quadrant: "chore"}).Validate(); err == nil {
 		t.Error("retired 'chore' accepted by Validate — Validate must stay strict")
 	}
@@ -121,15 +122,17 @@ func TestStatusEffortComplexityRoundTrip(t *testing.T) {
 	}
 }
 
-// TestReadNormalisesRetiredQuadrant proves the D1 read-path normalise shim
-// (S11-baton-revendor) maps a legacy record's retired quadrant NAME to its
-// canonical replacement so an un-migrated status.json still loads, while a
-// genuinely inconsistent legacy rating still fails the strict checksum (the
-// shim maps the name only, never fixes the axes). Removed by S12.
-func TestReadNormalisesRetiredQuadrant(t *testing.T) {
+// TestReadRejectsRetiredQuadrant proves the S11 read-path normalise shim is gone
+// (removed wholesale by S12-record-migration, sworn#90): a status.json still
+// carrying the retired chore/epic quadrant name no longer loads — Read fails
+// closed on the strict quadrant<->axes checksum instead of silently mapping the
+// name to quick/beast. This is the AC-04 tolerance-removal proof at the
+// integration point (state.Read), the inverse of the shim behaviour it replaces.
+func TestReadRejectsRetiredQuadrant(t *testing.T) {
 	dir := t.TempDir()
 
-	// A consistent legacy rating: high/high/epic -> high/high/beast, loads clean.
+	// A legacy epic rating no longer loads — the shim that mapped epic->beast on
+	// read is gone, so the strict checksum (want=beast, got=epic) fails closed.
 	epicPath := filepath.Join(dir, "epic.json")
 	epicRaw := `{"slice_id":"S01","release":"r1","state":"planned",` +
 		`"verification":{"result":"pending"},` +
@@ -137,15 +140,11 @@ func TestReadNormalisesRetiredQuadrant(t *testing.T) {
 	if err := os.WriteFile(epicPath, []byte(epicRaw), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := Read(epicPath)
-	if err != nil {
-		t.Fatalf("Read(legacy epic) unexpected error: %v", err)
-	}
-	if got.EffortComplexity == nil || got.EffortComplexity.Quadrant != "beast" {
-		t.Errorf("legacy epic not normalised to beast: %+v", got.EffortComplexity)
+	if _, err := Read(epicPath); err == nil {
+		t.Error("Read accepted a retired 'epic' quadrant — the S12 tolerance removal must make it fail closed")
 	}
 
-	// low/low/chore -> low/low/quick, loads clean.
+	// A legacy chore rating likewise fails closed (was low/low/chore -> quick).
 	chorePath := filepath.Join(dir, "chore.json")
 	choreRaw := `{"slice_id":"S02","release":"r1","state":"planned",` +
 		`"verification":{"result":"pending"},` +
@@ -153,24 +152,19 @@ func TestReadNormalisesRetiredQuadrant(t *testing.T) {
 	if err := os.WriteFile(chorePath, []byte(choreRaw), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got2, err := Read(chorePath)
-	if err != nil {
-		t.Fatalf("Read(legacy chore) unexpected error: %v", err)
-	}
-	if got2.EffortComplexity == nil || got2.EffortComplexity.Quadrant != "quick" {
-		t.Errorf("legacy chore not normalised to quick: %+v", got2.EffortComplexity)
+	if _, err := Read(chorePath); err == nil {
+		t.Error("Read accepted a retired 'chore' quadrant — the S12 tolerance removal must make it fail closed")
 	}
 
-	// An INCONSISTENT legacy rating (low/low labelled epic) maps name-only to
-	// low/low/beast and still fails the strict checksum — the shim never fixes axes.
-	inconsistentPath := filepath.Join(dir, "inconsistent.json")
-	inconsistentRaw := `{"slice_id":"S03","release":"r1","state":"planned",` +
+	// Control: the canonical replacement rating still loads cleanly.
+	okPath := filepath.Join(dir, "ok.json")
+	okRaw := `{"slice_id":"S03","release":"r1","state":"planned",` +
 		`"verification":{"result":"pending"},` +
-		`"effort_complexity":{"effort":"low","complexity":"low","quadrant":"epic"}}`
-	if err := os.WriteFile(inconsistentPath, []byte(inconsistentRaw), 0o644); err != nil {
+		`"effort_complexity":{"effort":"low","complexity":"low","quadrant":"quick"}}`
+	if err := os.WriteFile(okPath, []byte(okRaw), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Read(inconsistentPath); err == nil {
-		t.Error("Read accepted an inconsistent legacy rating after name-only normalise")
+	if _, err := Read(okPath); err != nil {
+		t.Errorf("Read rejected a canonical quick rating: %v", err)
 	}
 }

@@ -369,35 +369,36 @@ Test outcome.
 	}
 }
 
-// writeSpecJSON writes a minimal spec-v1 spec.json fixture with the given
-// (text, ears_keyword) acceptance criteria into sliceDir/spec.json.
-func writeSpecJSON(t *testing.T, sliceDir, sliceID string, acs []struct{ Text, Keyword string }) {
+// writeSpecJSON writes a minimal v0.10.0 spec-v1 spec.json fixture with the
+// given (text, ears_pattern) acceptance criteria into sliceDir/spec.json. The
+// AC item is strict at v0.10.0 (id/text/ears_pattern/test_refs); classification
+// is read from ears_pattern (the retired type/ears_keyword are gone — S12).
+func writeSpecJSON(t *testing.T, sliceDir, sliceID string, acs []struct{ Text, Pattern string }) {
 	t.Helper()
 	type acJSON struct {
 		ID          string `json:"id"`
 		Text        string `json:"text"`
-		Type        string `json:"type,omitempty"`
-		EARSKeyword string `json:"ears_keyword,omitempty"`
+		EARSPattern string `json:"ears_pattern,omitempty"`
 	}
 	rec := struct {
-		SchemaVersion      int      `json:"schema_version"`
+		Schema             string   `json:"$schema"`
 		SliceID            string   `json:"slice_id"`
 		Release            string   `json:"release"`
 		UserOutcome        string   `json:"user_outcome"`
 		CoversNeeds        []string `json:"covers_needs"`
 		AcceptanceCriteria []acJSON `json:"acceptance_criteria"`
 	}{
-		SchemaVersion: 1,
-		SliceID:       sliceID,
-		Release:       "test-release",
-		UserOutcome:   "Test outcome.",
-		CoversNeeds:   []string{"N-01"},
+		Schema:      "https://baton.sawy3r.net/schemas/spec-v1.json",
+		SliceID:     sliceID,
+		Release:     "test-release",
+		UserOutcome: "Test outcome.",
+		CoversNeeds: []string{"N-01"},
 	}
 	for i, ac := range acs {
 		rec.AcceptanceCriteria = append(rec.AcceptanceCriteria, acJSON{
 			ID:          fmt.Sprintf("AC-%02d", i+1),
 			Text:        ac.Text,
-			EARSKeyword: ac.Keyword,
+			EARSPattern: ac.Pattern,
 		})
 	}
 	data, err := json.Marshal(rec)
@@ -409,21 +410,25 @@ func writeSpecJSON(t *testing.T, sliceDir, sliceID string, acs []struct{ Text, K
 	}
 }
 
-// TestValidate_ReadsEARSKeywordFromSpecJSON is AC-02's integration test: a
-// spec.json-only slice (no spec.md at all, the shape of every slice but S04
-// in this release) classifies from the already-computed ears_keyword field.
-func TestValidate_ReadsEARSKeywordFromSpecJSON(t *testing.T) {
+// TestValidate_ReadsEARSPatternFromSpecJSON is AC-07's integration test: a
+// spec.json-only slice (no spec.md, the shape of every slice but S04 in this
+// release) classifies from the already-computed ears_pattern field, so a
+// migrated event-driven / unwanted-behaviour AC is NOT collapsed to Ubiquitous
+// (sworn#95). This is the reader half of the S12 ears_keyword->ears_pattern
+// migration: the strip alone would degrade classification; reading ears_pattern
+// preserves it.
+func TestValidate_ReadsEARSPatternFromSpecJSON(t *testing.T) {
 	dir := t.TempDir()
 	sliceDir := filepath.Join(dir, "S01-json-only")
 	if err := os.MkdirAll(sliceDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	writeSpecJSON(t, sliceDir, "S01-json-only", []struct{ Text, Keyword string }{
-		{"THE SYSTEM SHALL display the dashboard.", "shall"},
-		{"WHEN a user clicks save THE SYSTEM SHALL persist the form.", "When"},
-		{"WHILE the system is in maintenance mode THE SYSTEM SHALL show a banner.", "While"},
-		{"WHERE a premium feature is enabled THE SYSTEM SHALL show the export button.", "Where"},
-		{"IF the database is unreachable THEN THE SYSTEM SHALL return a 503 error.", "If"},
+	writeSpecJSON(t, sliceDir, "S01-json-only", []struct{ Text, Pattern string }{
+		{"THE SYSTEM SHALL display the dashboard.", "ubiquitous"},
+		{"WHEN a user clicks save THE SYSTEM SHALL persist the form.", "event-driven"},
+		{"WHILE the system is in maintenance mode THE SYSTEM SHALL show a banner.", "state-driven"},
+		{"WHERE a premium feature is enabled THE SYSTEM SHALL show the export button.", "optional-feature"},
+		{"IF the database is unreachable THEN THE SYSTEM SHALL return a 503 error.", "unwanted-behaviour"},
 		{"NOTE: this is a deliberate non-requirement note.", ""},
 	})
 
@@ -488,8 +493,8 @@ title: S01-both
 		t.Fatal(err)
 	}
 	// spec.json disagrees: same AC index, explicitly event-driven.
-	writeSpecJSON(t, sliceDir, "S01-both", []struct{ Text, Keyword string }{
-		{"Make sure the form is saved.", "When"},
+	writeSpecJSON(t, sliceDir, "S01-both", []struct{ Text, Pattern string }{
+		{"Make sure the form is saved.", "event-driven"},
 	})
 
 	report, err := Validate(dir)

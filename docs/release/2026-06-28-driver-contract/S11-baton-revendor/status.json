@@ -85,7 +85,7 @@
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
-    "quadrant": "epic",
+    "quadrant": "beast",
     "rationale": "Vendor bump to baton v0.10.0 + chore->quick/epic->beast enum with a strict Validate fed by a read-path normalise shim + acknowledged_by round-trip + sworn#80 (derive track AND release worktree/state from refs, board-v1 pure plan) + two advisory schemas + Defect-2 regression lock; complexity high per the worker.go worktree-derivation nuance (spec R-05). Quadrant recorded as legacy 'epic' per D6 (maps to 'beast' post-flip via normalise; S12 migrates the on-disk value).",
     "confirmed_by_implementer": true
   },

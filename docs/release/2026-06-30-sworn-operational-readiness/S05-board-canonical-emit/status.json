@@ -4,7 +4,9 @@
   "release": "2026-06-30-sworn-operational-readiness",
   "track": "T4-board-record-reconciliation",
   "state": "verified",
-  "covers_needs": ["N-08"],
+  "covers_needs": [
+    "N-08"
+  ],
   "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S05-board-canonical-emit/spec.json",
   "proof_path": "docs/release/2026-06-30-sworn-operational-readiness/S05-board-canonical-emit/proof.md",
   "start_commit": "0d22f65",
@@ -26,7 +28,7 @@
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "Canonical marshal + object-only schema/validator (first cut) + object-only strict reader (this session) + inverted string-read tests + two test board.json fixtures migrated to object form, on S04's base.",
     "confirmed_by_implementer": true
   },

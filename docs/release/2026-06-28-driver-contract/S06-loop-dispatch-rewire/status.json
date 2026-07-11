@@ -6,7 +6,10 @@
   "state": "verified",
   "last_updated_by": "verifier",
   "last_updated_at": "2026-07-10T07:05:00Z",
-  "covers_needs": ["N-05", "N-08"],
+  "covers_needs": [
+    "N-05",
+    "N-08"
+  ],
   "spec_path": "docs/release/2026-06-28-driver-contract/S06-loop-dispatch-rewire/spec.json",
   "start_commit": "16a8160daba4042c088f69b70bb648c37e20c915",
   "actual_files": [
@@ -58,7 +61,7 @@
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
-    "quadrant": "epic",
+    "quadrant": "beast",
     "rationale": "Largest seam rewire: three role legs, verify transport swap with semantics preservation, factory deletion, import-boundary contract.",
     "confirmed_by_implementer": true
   },

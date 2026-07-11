@@ -14,7 +14,7 @@
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "Replace driftGuard's broken comparison with a real re-render-and-diff; surface as a sworn doctor check.",
     "confirmed_by_implementer": false
   },

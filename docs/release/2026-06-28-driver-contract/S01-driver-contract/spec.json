@@ -1,6 +1,5 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-  "schema_version": 1,
   "slice_id": "S01-driver-contract",
   "release": "2026-06-28-driver-contract",
   "track": "T1-contract",
@@ -52,39 +51,33 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "Package internal/driver SHALL define: type Driver interface { Name() string; Roles() RoleSet; Dispatch(ctx context.Context, in DispatchInput) (Result, error) }; type DispatchInput struct with fields Role, ModelID, SystemPrompt, Payload (strings), WorktreeRoot string, VerdictSchema []byte, Timeout time.Duration; and type Result struct with fields Status (enum ok|blocked|error), ErrKind (string, set when Status=error), ResultText string, StructuredJSON json.RawMessage, CostUSD float64, CostSource string, InputTokens int64, OutputTokens int64, ModelID string, DurationMS int64 — the shape decided 2026-07-02 and recorded in this slice's status.json design_decisions."
+      "text": "Package internal/driver SHALL define: type Driver interface { Name() string; Roles() RoleSet; Dispatch(ctx context.Context, in DispatchInput) (Result, error) }; type DispatchInput struct with fields Role, ModelID, SystemPrompt, Payload (strings), WorktreeRoot string, VerdictSchema []byte, Timeout time.Duration; and type Result struct with fields Status (enum ok|blocked|error), ErrKind (string, set when Status=error), ResultText string, StructuredJSON json.RawMessage, CostUSD float64, CostSource string, InputTokens int64, OutputTokens int64, ModelID string, DurationMS int64 — the shape decided 2026-07-02 and recorded in this slice's status.json design_decisions.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-02",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "Roles SHALL be a declared set over at least {implementer, verifier, captain}; RoleSet SHALL expose a Has(Role) bool check that resolution uses, and TestRoleSet SHALL cover membership, the empty set, and String() output naming the declared roles."
+      "text": "Roles SHALL be a declared set over at least {implementer, verifier, captain}; RoleSet SHALL expose a Has(Role) bool check that resolution uses, and TestRoleSet SHALL cover membership, the empty set, and String() output naming the declared roles.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-03",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When a dispatch carries Role=verifier, the contract doc (godoc on Driver.Dispatch plus docs/adr/0012-driver-contract.md) SHALL state that DispatchInput.VerdictSchema carries the verdict JSON schema, that the driver returns the model's verdict as Result.StructuredJSON, and that the ENGINE validates it against verifier-verdict-v1 fail-closed — a driver never self-certifies a verdict."
+      "text": "When a dispatch carries Role=verifier, the contract doc (godoc on Driver.Dispatch plus docs/adr/0012-driver-contract.md) SHALL state that DispatchInput.VerdictSchema carries the verdict JSON schema, that the driver returns the model's verdict as Result.StructuredJSON, and that the ENGINE validates it against verifier-verdict-v1 fail-closed — a driver never self-certifies a verdict.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-04",
-      "type": "unwanted",
-      "ears_keyword": "If",
-      "text": "If AssertWorktree(path) is called with a path that does not exist, is not a directory, or is not inside a git working tree, it SHALL return a descriptive error naming the path and the failed check; TestAssertWorktree SHALL cover all three failure cases plus the success case (Rule 11 fail-closed target assertion, available to every driver before spawning work rooted at WorktreeRoot)."
+      "text": "If AssertWorktree(path) is called with a path that does not exist, is not a directory, or is not inside a git working tree, it SHALL return a descriptive error naming the path and the failed check; TestAssertWorktree SHALL cover all three failure cases plus the success case (Rule 11 fail-closed target assertion, available to every driver before spawning work rooted at WorktreeRoot).",
+      "ears_pattern": "unwanted-behaviour"
     },
     {
       "id": "AC-05",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "internal/driver SHALL NOT import internal/model or internal/agent — enforced by TestNoWireImports in imports_test.go, which parses the package's import lists and fails naming any forbidden import."
+      "text": "internal/driver SHALL NOT import internal/model or internal/agent — enforced by TestNoWireImports in imports_test.go, which parses the package's import lists and fails naming any forbidden import.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-06",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "docs/adr/0012-driver-contract.md SHALL record the Type-1 decision with the options considered (role-dispatch vs core+optional-interfaces vs maximal), the decision, the decider (Brad, 2026-07-02), and the four clauses: role-universality, engine-owned verdict validation, explicit-table registration with enumeration, explicit-prefix resolution with no smart fallback; `go build ./...` and `go test ./internal/driver/...` SHALL pass."
+      "text": "docs/adr/0012-driver-contract.md SHALL record the Type-1 decision with the options considered (role-dispatch vs core+optional-interfaces vs maximal), the decision, the decider (Brad, 2026-07-02), and the four clauses: role-universality, engine-owned verdict validation, explicit-table registration with enumeration, explicit-prefix resolution with no smart fallback; `go build ./...` and `go test ./internal/driver/...` SHALL pass.",
+      "ears_pattern": "ubiquitous"
     }
   ]
 }

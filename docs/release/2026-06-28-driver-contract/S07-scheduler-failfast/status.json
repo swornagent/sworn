@@ -6,7 +6,9 @@
   "state": "verified",
   "last_updated_by": "verifier",
   "last_updated_at": "2026-07-10T13:22:29Z",
-  "covers_needs": ["N-05"],
+  "covers_needs": [
+    "N-05"
+  ],
   "spec_path": "docs/release/2026-06-28-driver-contract/S07-scheduler-failfast/spec.json",
   "start_commit": "c06c13d0f947ba9cdcb47d40214b71056de69b7b",
   "actual_files": [
@@ -37,7 +39,7 @@
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "Startup resolution sweep + factory-helper deletion; heavy rewiring already done in S06.",
     "confirmed_by_implementer": true
   },

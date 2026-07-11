@@ -20,9 +20,10 @@ import (
 // ONLY. The retired schema_version and the release-level worktree fields
 // (release_worktree_path/release_worktree_branch) are NO LONGER persisted:
 // $schema carries the version, and the release worktree branch/path are DERIVED
-// from (release) + repo location (sworn#80, Pin 1). The read-path normalise shim
-// (internal/baton.Normalise) strips the three retired fields from a legacy
-// board.json so it still parses until S12 migrates the on-disk data.
+// from (release) + repo location (sworn#80, Pin 1). There is no read-path
+// normalise shim any more (removed by S12-record-migration): the struct carries
+// only the pure-plan fields, so json.Unmarshal drops the retired keys a legacy
+// (un-migrated) board still carries — legacy boards parse by construction.
 type BoardRecord struct {
 	Schema  string       `json:"$schema,omitempty"`
 	Release Release      `json:"release"`
@@ -131,12 +132,11 @@ func ReadBoard(repoRoot, release string) (*BoardRecord, error) {
 	boardPath := filepath.Join(repoRoot, "docs", "release", release, "board.json")
 	data, err := os.ReadFile(boardPath)
 	if err == nil {
-		// D1 normalise-before-parse (S11): strip the retired schema_version and
-		// release/track worktree+state fields from a legacy board.json so it still
-		// loads as a pure-plan board-v1 until S12 migrates the on-disk data.
-		if norm, nerr := baton.Normalise("board-v1", data); nerr == nil {
-			data = norm
-		}
+		// No normalise shim (removed by S12-record-migration once the on-disk
+		// data was migrated): BoardRecord carries only the pure-plan fields, so
+		// json.Unmarshal silently drops any retired schema_version / worktree /
+		// state keys a legacy (un-migrated) on-disk board still carries — the
+		// reader tolerates legacy boards by construction, not by a tolerance layer.
 		var br BoardRecord
 		if err := json.Unmarshal(data, &br); err != nil {
 			return nil, fmt.Errorf("parse board.json: %w", err)

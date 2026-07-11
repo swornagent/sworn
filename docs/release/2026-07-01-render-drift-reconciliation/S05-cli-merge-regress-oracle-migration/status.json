@@ -4,7 +4,9 @@
   "release": "2026-07-01-render-drift-reconciliation",
   "track": "T4-cli-merge-regress",
   "state": "verified",
-  "covers_needs": ["N-01"],
+  "covers_needs": [
+    "N-01"
+  ],
   "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S05-cli-merge-regress-oracle-migration/spec.json",
   "proof_path": "docs/release/2026-07-01-render-drift-reconciliation/S05-cli-merge-regress-oracle-migration/proof.md",
   "journal_path": "docs/release/2026-07-01-render-drift-reconciliation/S05-cli-merge-regress-oracle-migration/journal.md",
@@ -12,7 +14,7 @@
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "Two files, one function each, same fix pattern.",
     "confirmed_by_implementer": true
   },

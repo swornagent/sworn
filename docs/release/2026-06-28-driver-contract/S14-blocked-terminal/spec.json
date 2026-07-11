@@ -1,6 +1,5 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-  "schema_version": 1,
   "slice_id": "S14-blocked-terminal",
   "release": "2026-06-28-driver-contract",
   "track": "T4-resolution-loop",
@@ -61,39 +60,33 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When a dispatched implementer returns blocked=true, the runner SHALL make no further implementer dispatches for that slice in the run, halt the owning lane, and emit the blocker text verbatim with an explicit route-to-/replan-release directive in the exit report — proven by the loop-state-machine unit test replaying the fired S05 case with synthetic verdict objects: dispatch 1 returns blocked=true, assert exactly one dispatch occurred, lane halted, replan directive emitted (TestLoopBlockedImplementerTerminal)."
+      "text": "When a dispatched implementer returns blocked=true, the runner SHALL make no further implementer dispatches for that slice in the run, halt the owning lane, and emit the blocker text verbatim with an explicit route-to-/replan-release directive in the exit report — proven by the loop-state-machine unit test replaying the fired S05 case with synthetic verdict objects: dispatch 1 returns blocked=true, assert exactly one dispatch occurred, lane halted, replan directive emitted (TestLoopBlockedImplementerTerminal).",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-02",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When a verifier returns BLOCKED, the runner SHALL terminate the lane identically to AC-01 without consuming any implementer retry budget — a BLOCKED lane with retries remaining is still terminal, and BLOCKED is never mapped onto FAIL (TestLoopBlockedVerifierTerminal)."
+      "text": "When a verifier returns BLOCKED, the runner SHALL terminate the lane identically to AC-01 without consuming any implementer retry budget — a BLOCKED lane with retries remaining is still terminal, and BLOCKED is never mapped onto FAIL (TestLoopBlockedVerifierTerminal).",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-03",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When a verifier returns FAIL with retries remaining, the runner SHALL retain existing retry semantics — numbered violations forwarded to the next implementer dispatch and the retry cap consumed (TestLoopFailRetrySemanticsUnchanged)."
+      "text": "When a verifier returns FAIL with retries remaining, the runner SHALL retain existing retry semantics — numbered violations forwarded to the next implementer dispatch and the retry cap consumed (TestLoopFailRetrySemanticsUnchanged).",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-04",
-      "type": "state-driven",
-      "ears_keyword": "While",
-      "text": "While a sequential track contains a blocked slice, the runner SHALL NOT start that track's subsequent slices (TestLoopBlockedSliceHaltsTrack)."
+      "text": "While a sequential track contains a blocked slice, the runner SHALL NOT start that track's subsequent slices (TestLoopBlockedSliceHaltsTrack).",
+      "ears_pattern": "state-driven"
     },
     {
       "id": "AC-05",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When a run ends with any blocked lane, the runner SHALL exit non-zero with a report section distinguishing BLOCKED lanes (replan-routed, blocker verbatim) from FAIL lanes (retries exhausted) (TestLoopExitReportBlockedVsFail)."
+      "text": "When a run ends with any blocked lane, the runner SHALL exit non-zero with a report section distinguishing BLOCKED lanes (replan-routed, blocker verbatim) from FAIL lanes (retries exhausted) (TestLoopExitReportBlockedVsFail).",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-06",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "All existing retry-cap behaviour for FAIL verdicts SHALL remain unchanged: the pre-existing loop retry tests pass green without modification (the regression gate for this slice; any edit to an existing retry test is a spec violation, not an adaptation)."
+      "text": "All existing retry-cap behaviour for FAIL verdicts SHALL remain unchanged: the pre-existing loop retry tests pass green without modification (the regression gate for this slice; any edit to an existing retry test is a spec violation, not an adaptation).",
+      "ears_pattern": "ubiquitous"
     }
   ]
 }

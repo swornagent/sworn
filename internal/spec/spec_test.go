@@ -8,10 +8,10 @@ import (
 
 func TestReadRecord_ParsesSpecV1(t *testing.T) {
 	dir := t.TempDir()
-	// A legacy-shaped record (still carrying type/ears_keyword on the ACs, as
-	// on-disk records do until S12 migrates them) that ALSO carries the v0.10.0
-	// in_scope/out_of_scope arrays — the reader must tolerate the legacy AC
-	// fields (kept for the internal/ears consumer) AND expose the new boundary.
+	// A v0.10.0-shaped record: the AC item is strict (id/text/ears_pattern/
+	// test_refs) — the retired type/ears_keyword are gone (S12 migrated them to
+	// the canonical ears_pattern) — and it carries the required in_scope/
+	// out_of_scope arrays. The reader exposes ears_pattern for internal/ears.
 	specJSON := `{
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
   "slice_id": "S01-test",
@@ -21,8 +21,8 @@ func TestReadRecord_ParsesSpecV1(t *testing.T) {
   "out_of_scope": ["Writing records"],
   "covers_needs": ["N-01", "N-02"],
   "acceptance_criteria": [
-    {"id": "AC-1", "type": "ubiquitous", "text": "THE SYSTEM SHALL do X."},
-    {"id": "AC-2", "type": "event-driven", "ears_keyword": "When", "text": "WHEN Y THE SYSTEM SHALL do Z."}
+    {"id": "AC-1", "ears_pattern": "ubiquitous", "text": "THE SYSTEM SHALL do X."},
+    {"id": "AC-2", "ears_pattern": "event-driven", "text": "WHEN Y THE SYSTEM SHALL do Z."}
   ]
 }`
 	if err := os.WriteFile(filepath.Join(dir, "spec.json"), []byte(specJSON), 0o644); err != nil {
@@ -51,8 +51,8 @@ func TestReadRecord_ParsesSpecV1(t *testing.T) {
 	if len(rec.AcceptanceCriteria) != 2 {
 		t.Fatalf("want 2 ACs, got %d", len(rec.AcceptanceCriteria))
 	}
-	if rec.AcceptanceCriteria[1].EARSKeyword != "When" {
-		t.Errorf("want ears_keyword When, got %q", rec.AcceptanceCriteria[1].EARSKeyword)
+	if rec.AcceptanceCriteria[1].EARSPattern != "event-driven" {
+		t.Errorf("want ears_pattern event-driven, got %q", rec.AcceptanceCriteria[1].EARSPattern)
 	}
 	if rec.AcceptanceCriteria[0].Text != "THE SYSTEM SHALL do X." {
 		t.Errorf("unexpected AC text %q", rec.AcceptanceCriteria[0].Text)

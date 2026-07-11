@@ -1,6 +1,5 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-  "schema_version": 1,
   "slice_id": "S15-baton-version-handshake",
   "release": "2026-06-28-driver-contract",
   "track": "T7-baton-revendor",
@@ -24,7 +23,7 @@
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "A declarative manifest + one doctor output section + a skew warn, following existing doctor-group conventions. Low breadth, low depth. Authored in current-valid quadrant vocab (chore); S12's migration sweep re-maps it to quick with every other record. Re-assess at design_review.",
     "confirmed_by_implementer": false
   },
@@ -44,21 +43,18 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When `sworn doctor` runs (its --sync-baton mode or the relevant doctor group), it SHALL print each vendored baton schema's $id, version, and graded-vs-advisory status, including contracts-v1 and assembly-proof-v1 marked ADVISORY (vendored, not yet graded); a test SHALL assert the rendered manifest names the graded set and the two advisory schemas."
+      "text": "When `sworn doctor` runs (its --sync-baton mode or the relevant doctor group), it SHALL print each vendored baton schema's $id, version, and graded-vs-advisory status, including contracts-v1 and assembly-proof-v1 marked ADVISORY (vendored, not yet graded); a test SHALL assert the rendered manifest names the graded set and the two advisory schemas.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-02",
-      "type": "unwanted",
-      "ears_keyword": "If",
-      "text": "If the binary's declared graded-schema set disagrees with the vendored pin's schema set (a skew fixture), doctor SHALL surface a clearly-flagged WARN/non-OK for that check (following the existing doctor-group conventions), never a silent OK; a test SHALL make the skew check fire on the fixture."
+      "text": "If the binary's declared graded-schema set disagrees with the vendored pin's schema set (a skew fixture), doctor SHALL surface a clearly-flagged WARN/non-OK for that check (following the existing doctor-group conventions), never a silent OK; a test SHALL make the skew check fire on the fixture.",
+      "ears_pattern": "unwanted-behaviour"
     },
     {
       "id": "AC-03",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "`go build ./...` and `go test ./cmd/sworn/... ./internal/baton/...` SHALL pass, and the new doctor section SHALL NOT regress the existing `sworn doctor` groups (the full doctor test stays green)."
+      "text": "`go build ./...` and `go test ./cmd/sworn/... ./internal/baton/...` SHALL pass, and the new doctor section SHALL NOT regress the existing `sworn doctor` groups (the full doctor test stays green).",
+      "ears_pattern": "ubiquitous"
     }
   ]
 }

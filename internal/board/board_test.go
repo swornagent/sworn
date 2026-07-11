@@ -136,10 +136,12 @@ func TestReadBoard_ExistingBoardJSON(t *testing.T) {
 	}
 }
 
-// TestReadBoard_NormalisesLegacyOnDisk proves a legacy board.json still on disk
-// (schema_version + release/track worktree+state) loads via the D1 normalise
-// shim as a pure plan (sworn#90).
-func TestReadBoard_NormalisesLegacyOnDisk(t *testing.T) {
+// TestReadBoard_ToleratesLegacyOnDisk proves a legacy board.json still on disk
+// (schema_version + release/track worktree+state — the shape of the un-migrated
+// pre-spec-v1 releases) still loads as a pure plan AFTER the S11 normalise shim
+// was removed by S12: BoardRecord carries only the pure-plan fields, so
+// json.Unmarshal drops the retired keys by construction, no tolerance layer (sworn#90).
+func TestReadBoard_ToleratesLegacyOnDisk(t *testing.T) {
 	repoRoot := setupReleaseDir(t, "test-release", baseFrontmatter())
 	legacy := `{
 		"$schema": "https://baton.sawy3r.net/schemas/board-v1.json",
@@ -234,7 +236,8 @@ func TestOracleReadBoard_BoardJSONFirst(t *testing.T) {
 	rwtRef := "refs/heads/release-wt/test-release"
 
 	// A LEGACY board.json on the release ref — the retired keys must be ignored
-	// on read (struct removal + normalise), and the track branch/state DERIVED.
+	// on read (struct removal drops unknown fields; no normalise shim), and the
+	// track branch/state DERIVED.
 	boardContent := `{
 		"schema_version": 1,
 		"release": {"name": "test-release"},

@@ -1,15 +1,16 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-  "schema_version": 1,
   "slice_id": "S06-core-loop-and-rtm-oracle-migration",
   "release": "2026-07-01-render-drift-reconciliation",
   "user_outcome": "`sworn loop --release <name>` (the autonomous loop) actually finds its tracks and correctly detects shared touchpoint files across tracks, instead of hard-erroring or silently disabling that invariant; Rule 8's requirements-traceability matrix carries the real release benefit/org objective instead of empty strings.",
   "rationale": "internal/run/parallel.go's RunParallel hard-errors 'no tracks found in release board' against any current-format release (board.ParseTracks on raw index.md returns zero tracks); extractReleaseWorktreePath always falls into the cold-start branch, silently overriding an already-set worktree path; parseDocumentedSharedFiles always returns an empty map, silently disabling invariant-2 shared-file detection between tracks. internal/rtm/rtm.go's parseReleaseBenefit/parseOrgObjective (via board.ParseVerticalTrace) silently return empty strings for the golden-thread trace. This is the highest-severity slice in the release — it's not a read tool or a CLI convenience, it's the autonomous loop's own dispatch and safety-invariant logic. Also adds the regression test internal/router/router.go's ParseDocumentedShared/parseTouchpointMatrix was found to be missing (structurally compatible with current render.go output but never exercised against a real multi-track rendered file).",
-  "covers_needs": ["N-01"],
+  "covers_needs": [
+    "N-01"
+  ],
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "Three functions in parallel.go (find-tracks, worktree-path, shared-files) plus rtm.go's two field parsers, all the same fix pattern (read board.json via the oracle). parallel.go is the loop's hot path so needs careful regression testing given prior project history of real bugs in this exact file (project_parallel_cold_start_broken memory).",
     "confirmed_by_implementer": false
   },
@@ -24,45 +25,40 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When `RunParallel` resolves a release's tracks, it SHALL read them from board.json via the internal/board oracle instead of `board.ParseTracks(extractFrontmatterBody(...))` on raw index.md, and SHALL NOT error \"no tracks found\" for any release with a committed board.json that has tracks."
+      "text": "When `RunParallel` resolves a release's tracks, it SHALL read them from board.json via the internal/board oracle instead of `board.ParseTracks(extractFrontmatterBody(...))` on raw index.md, and SHALL NOT error \"no tracks found\" for any release with a committed board.json that has tracks.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-02",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When `RunParallel` resolves the release worktree path, `extractReleaseWorktreePath` SHALL read it from board.json via the oracle; it SHALL NOT unconditionally fall into the cold-start branch for a release that already has a worktree path recorded."
+      "text": "When `RunParallel` resolves the release worktree path, `extractReleaseWorktreePath` SHALL read it from board.json via the oracle; it SHALL NOT unconditionally fall into the cold-start branch for a release that already has a worktree path recorded.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-03",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When two or more tracks in a release declare an overlapping touchpoint file, `parseDocumentedSharedFiles` SHALL correctly detect and return it — proven by a test with a real multi-track rendered index.md (via `internal/board/render.go`, not a hand-written fixture) containing a genuinely shared file, asserting it is NOT silently dropped."
+      "text": "When two or more tracks in a release declare an overlapping touchpoint file, `parseDocumentedSharedFiles` SHALL correctly detect and return it — proven by a test with a real multi-track rendered index.md (via `internal/board/render.go`, not a hand-written fixture) containing a genuinely shared file, asserting it is NOT silently dropped.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-04",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When `internal/rtm`'s `parseReleaseBenefit`/`parseOrgObjective` build the golden-thread trace for a release with a committed board.json, they SHALL read `release.vertical_trace.benefit`/`.org_objective` from board.json (via the oracle) instead of returning empty strings from a stale `ParseVerticalTrace` call on index.md."
+      "text": "When `internal/rtm`'s `parseReleaseBenefit`/`parseOrgObjective` build the golden-thread trace for a release with a committed board.json, they SHALL read `release.vertical_trace.benefit`/`.org_objective` from board.json (via the oracle) instead of returning empty strings from a stale `ParseVerticalTrace` call on index.md.",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-05",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "`internal/router/router_test.go` SHALL gain a regression test exercising `ParseDocumentedShared`/`parseTouchpointMatrix` against a real multi-track `sworn render`-generated index.md (not the pre-migration `2026-06-27-conformance-foundation/index.md` fixture currently used, which predates the board.json migration) — this function was found structurally compatible but previously unverified against this exact case."
+      "text": "`internal/router/router_test.go` SHALL gain a regression test exercising `ParseDocumentedShared`/`parseTouchpointMatrix` against a real multi-track `sworn render`-generated index.md (not the pre-migration `2026-06-27-conformance-foundation/index.md` fixture currently used, which predates the board.json migration) — this function was found structurally compatible but previously unverified against this exact case.",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-06",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "Reachability artefact: running `sworn loop --release <name>` (or `--parallel`, per whatever this repo's current flag surface is at implementation time) against one of this repo's own multi-track current-format releases (e.g. `2026-07-01-render-drift-reconciliation` itself, once its own board.json exists) SHALL be captured showing the loop finds its tracks instead of erroring \"no tracks found\"."
+      "text": "Reachability artefact: running `sworn loop --release <name>` (or `--parallel`, per whatever this repo's current flag surface is at implementation time) against one of this repo's own multi-track current-format releases (e.g. `2026-07-01-render-drift-reconciliation` itself, once its own board.json exists) SHALL be captured showing the loop finds its tracks instead of erroring \"no tracks found\".",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-07",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "After the change, `go build ./...` SHALL succeed and `go test ./internal/run/... ./internal/rtm/... ./internal/router/...` SHALL pass."
+      "text": "After the change, `go build ./...` SHALL succeed and `go test ./internal/run/... ./internal/rtm/... ./internal/router/...` SHALL pass.",
+      "ears_pattern": "ubiquitous"
     }
-  ]
+  ],
+  "in_scope": [],
+  "out_of_scope": []
 }

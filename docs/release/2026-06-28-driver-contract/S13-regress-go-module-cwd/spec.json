@@ -1,12 +1,13 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
-  "schema_version": 1,
   "slice_id": "S13-regress-go-module-cwd",
   "release": "2026-06-28-driver-contract",
   "track": "T8-regress-cwd",
   "user_outcome": "`sworn regress` runs the Go test suite from the directory that contains go.mod, not the worktree root — so a repo whose Go module lives in a subdirectory (e.g. fired's `<repo>/go`) reports real regression results instead of a spurious `go test ./...: directory prefix . does not contain main module` setup failure.",
   "rationale": "Capture-brief Defect 1, surfaced downstream during fired's /merge-track T3-tax-constants (sworn 0.1.0 @ v0.6.3). internal/gate/regress.go runGoSuite (regress.go:120-121) invokes runner.Run(worktree, \"go\", \"test\", \"./...\") with cmd.Dir set to the worktree ROOT. sworn's own module is at the repo root so its regress passes; fired's module is at <repo>/go, so `go test ./...` from the root errors with exit 1 and the sweep reports a phantom Go FAIL on a clean, verified track. The tell it's a tool bug not a regression: the identical failure reproduces on the pristine base branch. Fix: discover the Go module directory under the worktree (nearest go.mod) and run `go test ./...` with cmd.Dir = that module dir. Do NOT run `go test ./go/...` from the root — the module root must be the CWD.",
-  "covers_needs": ["N-14"],
+  "covers_needs": [
+    "N-14"
+  ],
   "in_scope": [
     "internal/gate/regress.go runGoSuite: discover the Go module directory under the worktree (locate the go.mod nearest the worktree root — repo-root go.mod, else a single-level subdir like <worktree>/go) and set cmd.Dir to that directory when invoking `go test ./...`",
     "A skip/degrade path when no go.mod is found under the worktree (report the Go suite as not-applicable rather than a hard FAIL), so a non-Go project's regress is unaffected",
@@ -20,7 +21,7 @@
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "One function's cwd derivation plus a subdir-module test fixture; known shape, one file of production code and its test.",
     "confirmed_by_implementer": false
   },
@@ -38,21 +39,18 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "type": "event-driven",
-      "ears_keyword": "When",
-      "text": "When `sworn regress` runs the Go suite against a worktree whose go.mod is in a subdirectory (e.g. <worktree>/go), runGoSuite SHALL set cmd.Dir to that module directory and `go test ./...` SHALL execute there; the Go suite result reflects the actual test outcome, not a `directory prefix . does not contain main module` setup failure. (N-14)"
+      "text": "When `sworn regress` runs the Go suite against a worktree whose go.mod is in a subdirectory (e.g. <worktree>/go), runGoSuite SHALL set cmd.Dir to that module directory and `go test ./...` SHALL execute there; the Go suite result reflects the actual test outcome, not a `directory prefix . does not contain main module` setup failure. (N-14)",
+      "ears_pattern": "event-driven"
     },
     {
       "id": "AC-02",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "internal/gate/regress_test.go SHALL include a fixture with a Go module in a subdirectory asserting the Go suite runs from the module dir and passes, AND the existing repo-root-module case SHALL continue to pass; `go test ./internal/gate/...` SHALL pass. (N-14)"
+      "text": "internal/gate/regress_test.go SHALL include a fixture with a Go module in a subdirectory asserting the Go suite runs from the module dir and passes, AND the existing repo-root-module case SHALL continue to pass; `go test ./internal/gate/...` SHALL pass. (N-14)",
+      "ears_pattern": "ubiquitous"
     },
     {
       "id": "AC-03",
-      "type": "ubiquitous",
-      "ears_keyword": "shall",
-      "text": "WHERE no go.mod exists anywhere under the worktree, the Go suite SHALL be reported as not-applicable (skipped), not a hard FAIL — a non-Go project's regress is unaffected. (N-14)"
+      "text": "WHERE no go.mod exists anywhere under the worktree, the Go suite SHALL be reported as not-applicable (skipped), not a hard FAIL — a non-Go project's regress is unaffected. (N-14)",
+      "ears_pattern": "ubiquitous"
     }
   ]
 }

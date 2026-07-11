@@ -4,9 +4,11 @@
   "release": "2026-06-28-driver-contract",
   "track": "T7-baton-revendor",
   "state": "in_progress",
-  "covers_needs": ["N-13"],
+  "covers_needs": [
+    "N-13"
+  ],
   "spec_path": "docs/release/2026-06-28-driver-contract/S12-record-migration/spec.json",
-  "start_commit": null,
+  "start_commit": "71a2954496c1723de8e55f13347026f0a26a5f25",
   "effort_complexity": {
     "effort": "high",
     "complexity": "low",

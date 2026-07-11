@@ -30,7 +30,7 @@
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "Declarative manifest + one doctor section + skew warn; low breadth, low depth. Current-valid vocab (chore); S12 migrates to quick.",
     "confirmed_by_implementer": false
   },

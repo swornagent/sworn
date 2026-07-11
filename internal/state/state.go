@@ -426,10 +426,10 @@ type EffortComplexity struct {
 //	high effort    grind            beast
 //	low effort     quick            puzzle
 //
-// It returns "" if either axis is not "low" or "high". The retired chore/epic
-// names are mapped to quick/beast by the read-path normalise() shim
-// (internal/baton.Normalise) BEFORE this function's result is compared in
-// Validate — Quadrant itself only ever emits the canonical v0.10.0 names.
+// It returns "" if either axis is not "low" or "high". Quadrant only ever emits
+// the canonical v0.10.0 names; the retired chore/epic names have no tolerance
+// layer any more (the S11 read-path normalise shim was removed by S12), so a
+// record still carrying them fails the strict quadrant<->axes checksum in Validate.
 func Quadrant(effort, complexity string) string {
 	switch {
 	case effort == "low" && complexity == "low":
@@ -520,15 +520,11 @@ func Read(path string) (*Status, error) {
 	if err != nil {
 		return nil, fmt.Errorf("state: read %s: %w", path, err)
 	}
-	// D1 normalise-before-validate (S11-baton-revendor): map a legacy record's
-	// retired effort_complexity.quadrant name (chore/epic) to its canonical
-	// v0.10.0 replacement (quick/beast) BEFORE the strict quadrant<->axes
-	// checksum below, so an un-migrated status.json still loads while Validate
-	// stays strict. Removed wholesale by S12-record-migration. On non-JSON input
-	// the shim is skipped so Unmarshal surfaces the canonical parse error.
-	if norm, nerr := baton.Normalise("slice-status-v1", data); nerr == nil {
-		data = norm
-	}
+	// The S11 read-path normalise shim was removed wholesale by
+	// S12-record-migration once all on-disk records were migrated to canonical
+	// baton v0.10.0. There is no tolerance layer: EffortComplexity.Validate below
+	// is strictly quick/grind/puzzle/beast, so a record still carrying the retired
+	// chore/epic quadrant now fails closed on read (sworn#90 fully closed).
 	var s Status
 	if err := json.Unmarshal(data, &s); err != nil {
 		return nil, fmt.Errorf("state: parse %s: %w", path, err)
