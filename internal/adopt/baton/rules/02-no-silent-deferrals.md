@@ -42,6 +42,17 @@ The same triple applies wherever work is punted, not just inline comments. Audit
 - a slice's `spec.json` / `spec.md` **`## Out of scope`** block (an out-of-scope item is fine *only* if it names the owning slice that does deliver it; an out-of-scope item that simply punts the work with no owner is an untracked deferral);
 - user-visible "coming soon" / "deferred" labels (see "The UI-label cousin").
 
+### Encoding in the `open_deferrals` record
+
+When a deferral is recorded in a slice's `status.json` `open_deferrals[]` (schema `slice-status-v1`), the conceptual triple maps to **four required fields** — `acknowledgement` splits into the plain-text evidence and its structured attribution:
+
+- **`why`** — the concrete reason (rule part 1).
+- **`tracking`** — the resolvable owning-slice id or tracker ref (rule part 2).
+- **`acknowledgement`** — the plain-text record that the decision-maker was **told** (rule part 3): the "told" evidence itself.
+- **`acknowledged_by`** — **who** acknowledged it (required since Baton v0.7.0). Strict-additive to `acknowledgement`, not a substitute: a name alone is not the plain-text "told" evidence Rule 2 demands, and the evidence alone leaves the decision unattributed. `acknowledged_at` (ISO 8601) is optional.
+
+An `open_deferrals[]` entry missing `acknowledged_by` is schema-invalid — the record has an unattributed acknowledgement, which is not a decision.
+
 ## Why
 
 The v0.5.0 audit traced six schema-level "deferrals" in inline header comments. Of the six, **only one had a real framework-level reason**. The other five were silent absences dressed up as decisions:

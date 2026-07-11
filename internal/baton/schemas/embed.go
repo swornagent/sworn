@@ -53,6 +53,25 @@ var AttestationsV1 []byte
 //go:embed verifier-verdict-v1.json
 var VerifierVerdictV1 []byte
 
+// ContractsV1 is the canonical contracts-v1.json schema (baton v0.10.0),
+// embedded at build time. VENDORED-ADVISORY: it is stored and version-declared
+// so `sworn doctor` can report it, but sworn does NOT yet grade against it —
+// the `sworn lint contracts` grader is the follow-on contract-edge-gates
+// release. It is byte-identical to the published $id at the pinned tag; do not
+// fork the shape under the same $id.
+//
+//go:embed contracts-v1.json
+var ContractsV1 []byte
+
+// AssemblyProofV1 is the canonical assembly-proof-v1.json schema (baton
+// v0.10.0), embedded at build time. VENDORED-ADVISORY: stored and
+// version-declared but not yet graded — the `sworn assemble` grader that
+// emits/reads this proof is the follow-on release. Byte-identical to the
+// published $id at the pinned tag; do not fork the shape under the same $id.
+//
+//go:embed assembly-proof-v1.json
+var AssemblyProofV1 []byte
+
 // SchemaMap maps a short schema name (e.g. "slice-status-v1") to its
 // embedded bytes. Callers use this to look up the schema by the name
 // they store in the $schema field.
@@ -64,4 +83,6 @@ var SchemaMap = map[string][]byte{
 	"journeys-v1":         JourneysV1,
 	"attestations-v1":     AttestationsV1,
 	"verifier-verdict-v1": VerifierVerdictV1,
+	"contracts-v1":        ContractsV1,
+	"assembly-proof-v1":   AssemblyProofV1,
 }

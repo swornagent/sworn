@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://baton.sawy3r.net/schemas/assembly-proof-v1.json",
+  "title": "Baton Assembly Proof",
+  "description": "The machine-readable result of the Rule 10 assembly stage: a no-mock, end-to-end run over the merged release, emitted at docs/release/<name>/assembly-proof.json on release-wt/<name> (reference implementation: sworn assemble). The release's derived 'assembled' state IS this artefact's existence plus verdict == 'pass' — nothing stores the state elsewhere. /merge-release gates on it. This is the record SHAPE (protocol); the runner owns the verdict policy: a run is 'pass' only when no suite has an un-excepted failure. The schema is structurally fail-closed on the two things a runner most easily drops silently — an unexplained non-pass result, and an undeclared server teardown after the stack was brought up (Rule 11).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["release", "generated_at", "environment", "suites", "verdict"],
+  "$defs": {
+    "id_token": {
+      "type": "string",
+      "description": "A clean identifier token. Disallows whitespace and ':' so a newline-fusion defect fails validation by construction.",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "minLength": 1
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["pass", "fail", "skip"],
+      "description": "pass: the check ran green against real infra. fail: ran red. skip: not run (a gated/by-design skip)."
+    },
+    "disposition": {
+      "type": "string",
+      "enum": ["product-regression", "spec-defect", "by-design-excepted", "environment-blocked"],
+      "description": "Why a non-pass result is what it is. product-regression: a real defect in the merged system — blocks the release. spec-defect: the test itself is wrong (stale locator, unreachable target), the product is fine — does not block, but is a Rule 2 deferral and needs tracking. by-design-excepted: an intentional gated skip declared in the slice's spec/proof (e.g. a staging-only harness) — does not block, needs tracking. environment-blocked: real infra could not be reached at a boundary — never mock around it; blocks and needs tracking (Rule 10 no-mock)."
+    }
+  },
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://baton.sawy3r.net/schemas/assembly-proof-v1.json"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Artefact schema version for forward compatibility."
+    },
+    "release": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Release identifier this run assembled, e.g. 2026-07-10-one-current-position."
+    },
+    "generated_at": {
+      "type": "string",
+      "description": "ISO 8601 timestamp the run completed."
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["worktree_branch", "teardown"],
+      "description": "How the stack was brought up and torn down. Assembly mutates process-global state (ports, spawned servers), so the teardown attestation is load-bearing (Rule 11).",
+      "properties": {
+        "worktree_branch": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The branch assembled — must be release-wt/<release>. The run builds from this worktree by construction, never the primary checkout."
+        },
+        "worktree_path": {
+          "type": "string",
+          "description": "Absolute path of the release worktree the stack ran from."
+        },
+        "services": {
+          "type": "array",
+          "description": "The services brought up, with the ports/urls they were reached on. Records that the run pointed at a fresh build on isolated ports, not a pre-existing process.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "url"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1, "description": "e.g. web, api, db." },
+              "url": { "type": "string", "description": "Base URL / DSN the service was reached on." },
+              "health_ok": { "type": "boolean", "description": "True if a health probe (e.g. GET /health) passed before suites ran." }
+            }
+          }
+        },
+        "teardown": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["verified"],
+          "description": "Proof the run restored process-global state (Rule 11 guaranteed-restore). verified must be true for a clean run.",
+          "properties": {
+            "verified": {
+              "type": "boolean",
+              "description": "True when every server the run spawned was killed AND its ports were confirmed free (e.g. ss-verified), and any pre-existing unrelated process was left untouched."
+            },
+            "method": {
+              "type": "string",
+              "description": "How teardown was confirmed, e.g. 'ss-verified: spawned pids killed, ports freed, human process untouched'."
+            },
+            "worktree_clean": {
+              "type": "boolean",
+              "description": "True if the release worktree git tree was clean after the run (no artefact left uncommitted, e.g. a test-overwritten screenshot restored)."
+            }
+          }
+        }
+      }
+    },
+    "suites": {
+      "type": "array",
+      "description": "The end-to-end suites run, one entry per suite. An empty array is NOT valid — an assembly run with no suites proves nothing.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "tests"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Suite identifier, usually the spec file path, e.g. tests/e2e/workspace-autosave-status.spec.ts."
+          },
+          "no_mock": {
+            "type": "boolean",
+            "description": "True when this suite ran against real infra at every validated boundary (Rule 10). A suite that mocked a validated boundary without a declared deferral should not appear here as passing."
+          },
+          "runs": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "How many times the suite was run (a flake check reruns; identical results across runs are the reliable signal)."
+          },
+          "tests": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Per-test results within the suite.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "outcome"],
+              "properties": {
+                "name": { "type": "string", "minLength": 1, "description": "Test title." },
+                "outcome": { "$ref": "#/$defs/outcome" },
+                "disposition": { "$ref": "#/$defs/disposition" },
+                "tracking": {
+                  "type": "string",
+                  "description": "Issue / deferral reference. REQUIRED whenever a non-pass result is excused (spec-defect / by-design-excepted / environment-blocked) — a non-pass with no tracking is a silent deferral (Rule 2)."
+                },
+                "note": { "type": "string", "description": "One-line diagnosis, e.g. the observed failure signature." }
+              },
+              "allOf": [
+                {
+                  "if": { "properties": { "outcome": { "enum": ["fail", "skip"] } } },
+                  "then": { "required": ["disposition"] }
+                },
+                {
+                  "if": {
+                    "required": ["disposition"],
+                    "properties": { "disposition": { "enum": ["spec-defect", "by-design-excepted", "environment-blocked"] } }
+                  },
+                  "then": { "required": ["tracking"] }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "observations": {
+      "type": "array",
+      "description": "Wire-level / boundary observations the suites surfaced that per-slice gates cannot see — the assembly stage's whole reason to exist. E.g. the CORS preflight the 2026-07-10 release's #1169 seam broke: 'OPTIONS /api/... from Origin :3400 → 204 with If-Match in Access-Control-Allow-Headers'.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["surface", "observed"],
+        "properties": {
+          "surface": { "type": "string", "minLength": 1, "description": "What was observed, e.g. 'preflight OPTIONS /api/current-position', 'PUT /api/current-position status'." },
+          "observed": { "type": "string", "minLength": 1, "description": "What actually happened at that surface against real infra." },
+          "contract_ref": { "type": "string", "description": "Optional contracts.json C-NN id this observation confirms or refutes." }
+        }
+      }
+    },
+    "screenshots": {
+      "type": "array",
+      "description": "Paths to screenshots captured during the run (reachability evidence).",
+      "items": { "type": "string" }
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["pass", "fail"],
+      "description": "Authoritative outcome the /merge-release gate reads. The runner sets 'pass' only when no suite has an un-excepted failure (a fail dispositioned product-regression or environment-blocked forces 'fail'); spec-defect and by-design-excepted results do not block. A 'pass' verdict alongside a product-regression/environment-blocked failure is a runner defect."
+    },
+    "verdict_note": {
+      "type": "string",
+      "description": "One or two sentences the runner emits explaining the verdict — what blocked, or that all failures were excepted."
+    }
+  }
+}

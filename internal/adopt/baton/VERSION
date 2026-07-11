@@ -1,7 +1,9 @@
-baton-protocol: v0.6.3
+baton-protocol: v0.10.0
 upstream: github.com/sawy3r/baton
-vendored: 2026-06-29
-upstream-sha: a5aca64849b9c36be6590606269a5c5b363b9888
-upstream-digest: sha256:14d45a048731b05a4c96a5066af3bd7f6e46508e1bbf243bc8b2b9a65bcc05fd
+vendored: 2026-07-11
+upstream-sha: a5ab2aaab23429961cb17871c20254ecac4e1436
+upstream-digest: sha256:68cae0347d77ee2082acadbf010b56bff498b90990018285460d6fa6bb7a7ec0
 rules-added: 08-requirements-fidelity (2026-06-16-fidelity-layer S01), 09-design-fidelity (2026-06-16-fidelity-layer S07), 10-customer-journey-validation (2026-06-16-fidelity-layer S11), 11-process-global-mutation (2026-06-19-safe-parallelism), role-prompt-operational-gates (v0.4.1/v0.4.2 implementer/verifier canonical prompts)
 rules-hardened: 02-no-silent-deferrals tracking enforcement (v0.7.0)
+schemas-added: contracts-v1, assembly-proof-v1 (v0.10.0, vendored-advisory — stored + doctor-declarable, not graded here; graders are the follow-on contract-edge-gates release)
+schema-reconciled: spec-v1 required in_scope/out_of_scope + additionalProperties:false + schema_version retired (v0.7.1/v0.9.0); board-v1 pure-plan — worktree_path/worktree_branch/state dropped from tracks[] and release_worktree_path/release_worktree_branch/schema_version dropped from the top level, all derived from git refs (v0.8.0/v0.9.0/v0.10.0); quadrant chore->quick, epic->beast (v0.7.1)

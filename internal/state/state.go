@@ -94,7 +94,7 @@ type Dispatch struct {
 	InputTokens      int64  `json:"input_tokens,omitempty"`
 	OutputTokens     int64  `json:"output_tokens,omitempty"`
 	ModelIDConfirmed string `json:"model_id_confirmed,omitempty"`
-	// Quadrant is the slice's effort_complexity quadrant (chore/grind/puzzle/epic)
+	// Quadrant is the slice's effort_complexity quadrant (quick/grind/puzzle/beast)
 	// at dispatch time (#36 / T16). Capturing it per dispatch is what turns the
 	// ledger from a global model leaderboard into the routing function
 	// f(effort_complexity, cost/velocity) → model: "which model fits this kind of
@@ -412,29 +412,34 @@ type DesignDecision struct {
 type EffortComplexity struct {
 	Effort                 string `json:"effort"`     // "low" | "high"
 	Complexity             string `json:"complexity"` // "low" | "high"
-	Quadrant               string `json:"quadrant"`   // "chore" | "grind" | "puzzle" | "epic"
+	Quadrant               string `json:"quadrant"`   // "quick" | "grind" | "puzzle" | "beast"
 	Rationale              string `json:"rationale,omitempty"`
 	ConfirmedByImplementer bool   `json:"confirmed_by_implementer,omitempty"`
 }
 
 // Quadrant derives the routing quadrant from the two axes — the single source of
-// truth for the effort×complexity → quadrant mapping (ADR-0011 §3.7):
+// truth for the effort×complexity → quadrant mapping (ADR-0011 §3.7). Baton
+// v0.7.1 renamed the two extreme quadrants: low/low is "quick" (was "chore") and
+// high/high is "beast" (was "epic"); grind/puzzle are unchanged.
 //
 //	             low complexity   high complexity
-//	high effort    grind            epic
-//	low effort     chore            puzzle
+//	high effort    grind            beast
+//	low effort     quick            puzzle
 //
-// It returns "" if either axis is not "low" or "high".
+// It returns "" if either axis is not "low" or "high". The retired chore/epic
+// names are mapped to quick/beast by the read-path normalise() shim
+// (internal/baton.Normalise) BEFORE this function's result is compared in
+// Validate — Quadrant itself only ever emits the canonical v0.10.0 names.
 func Quadrant(effort, complexity string) string {
 	switch {
 	case effort == "low" && complexity == "low":
-		return "chore"
+		return "quick"
 	case effort == "high" && complexity == "low":
 		return "grind"
 	case effort == "low" && complexity == "high":
 		return "puzzle"
 	case effort == "high" && complexity == "high":
-		return "epic"
+		return "beast"
 	default:
 		return ""
 	}
@@ -514,6 +519,15 @@ func Read(path string) (*Status, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("state: read %s: %w", path, err)
+	}
+	// D1 normalise-before-validate (S11-baton-revendor): map a legacy record's
+	// retired effort_complexity.quadrant name (chore/epic) to its canonical
+	// v0.10.0 replacement (quick/beast) BEFORE the strict quadrant<->axes
+	// checksum below, so an un-migrated status.json still loads while Validate
+	// stays strict. Removed wholesale by S12-record-migration. On non-JSON input
+	// the shim is skipped so Unmarshal surfaces the canonical parse error.
+	if norm, nerr := baton.Normalise("slice-status-v1", data); nerr == nil {
+		data = norm
 	}
 	var s Status
 	if err := json.Unmarshal(data, &s); err != nil {

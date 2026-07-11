@@ -8,7 +8,7 @@
     "N-12"
   ],
   "spec_path": "docs/release/2026-06-28-driver-contract/S11-baton-revendor/spec.json",
-  "start_commit": null,
+  "start_commit": "4dbd21b3bfd1a62dfc9842ce1aea80d365ff01ee",
   "design_decisions": [
     {
       "choice": "D1 — Transition mechanism is NORMALISE-BEFORE-VALIDATE, not tolerant-validate: one read-path normalise() shim maps retired quadrant chore->quick / epic->beast, strips schema_version, and reshapes legacy board tracks[] AND top-level release fields into canonical v0.10.0 form BEFORE validation. Validate and additionalProperties:false stay strictly strict; the vendored schemas are byte-identical to the tag; S12 deletes the shim wholesale.",
