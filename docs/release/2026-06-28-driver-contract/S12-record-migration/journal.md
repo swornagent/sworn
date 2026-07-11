@@ -191,3 +191,51 @@ which is clean for all five.
 ### Terminal state
 `implemented`. Proof bundle: `proof.json` (AC-05 evidence regenerated from live
 repo state). Ready for fresh-context verification.
+
+### 2026-07-11 — PASS (fresh-context verifier, artefact-only, round 2)
+
+Verified against `track/2026-06-28-driver-contract/T7-baton-revendor` @ 5d0323e
+(start_commit 71a2954). Fresh context, artefact-only (spec.json / proof.json /
+status.json + live repo state). Zero drift vs release-wt (already carries tip).
+S12 is the FINAL slice of track T7 and of the release — scrutinised hardest.
+
+Independently re-ran and confirmed:
+- Full `go test -count=1 -timeout 300s ./...` → exit 0, 47 packages ok, 0 FAIL/panic.
+- Slice tests: TestRecordsConformance_SpecV1Era (33 spec.json + 5 board.json strict
+  v0.10.0), TestRecordsConformance_EARSClassificationPreserved (event-driven 29 /
+  unwanted-behaviour 11 — not all-Ubiquitous), TestReadRejectsRetiredQuadrant,
+  TestValidate_ReadsEARSPatternFromSpecJSON, TestValidate_SpecJSONWinsOverDisagreeingSpecMd
+  — all green.
+
+Gate results:
+- AC-01: `grep '"quadrant": "chore"' / "epic"` under docs/release = 0/0; only
+  canonical beast/grind/puzzle/quick present.
+- AC-02: `"quadrant": "feature"` = 0 (zero-match guard).
+- AC-03: 33 spec.json (all in the five spec-v1-era releases; none outside), all
+  carry in_scope + out_of_scope, all validate strict v0.10.0 spec-v1. Zero actual
+  `"schema_version":` fields in the five (the only real ones are in the 2 excluded
+  legacy boards).
+- AC-04: `EffortComplexity.Validate` strictly quick/grind/puzzle/beast; the S11
+  normalise shim is GONE wholesale (normalise.go/_test.go/testdata deleted; 0
+  `baton.Normalise` references); fail-closed on retired chore/epic.
+- AC-05: `sworn doctor` render-drift = `2 of 7`, flagging ONLY the 2 excluded
+  legacy releases (safe-parallelism, conformance-foundation); none of the five drift.
+- AC-06: all 5 board.json strict pure-plan — top-level exactly {$schema,release,tracks};
+  tracks[] keys ⊆ {id,slices,depends_on}; zero state/worktree/activity fields.
+- AC-07 (sworn#95): `type` → `ears_pattern` mapped, `ears_keyword` dropped;
+  `internal/ears` `classifySpecJSON`/`patternFromEARSPattern` read `ears_pattern`;
+  no production reader (internal/gate/trace.go, reqverify) reads the retired fields;
+  `sworn lint ac` over migrated records = 82 ACs, diverse distribution (not
+  all-Ubiquitous).
+
+Migration script `scripts/migrate-records.sh` committed, re-runnable, idempotent
+(re-run over docs/release = zero tree changes; processes 5, skips 7 legacy, all
+postconditions satisfied). `sworn designfit` PASS (15 slices, Type-1 ears_pattern
+carries the Coach human_decision); `sworn board` exit 0 with no shim. Legacy
+pre-spec-v1 releases untouched by the diff. gofmt/vet clean; no newline-eating
+fusion; no TODO/FIXME/placeholder; not_delivered empty, no open_deferrals, 3
+disclosed+ratified divergences. All 84 changed files reconcile exactly with
+proof.files_changed.
+
+All six gates pass. State → `verified`. Track T7 slices (S11, S15, S12) are all
+verified — track complete; next step `/merge-track T7-baton-revendor`.
