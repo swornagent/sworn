@@ -72,7 +72,7 @@ The verifier does NOT re-run planner or captain checks (traceability, spec-ambig
 
 ### Gate 1 — User-reachable outcome exists
 
-Read `spec.json` `scope` and the entry point named in its `acceptance_criteria`. Manually walk through the diff and identify whether the entry point named in the spec actually renders / responds / processes the user gesture described.
+Read `spec.json` `user_outcome` and the entry point named in its `acceptance_criteria`. Manually walk through the diff and identify whether the entry point named in the spec actually renders / responds / processes the user gesture described.
 
 - If the entry point exists only as a test fixture, FAIL.
 - If the entry point is wired in code but unreachable from any user-facing surface, FAIL.
@@ -168,10 +168,12 @@ Grep the changed files for `TODO`, `FIXME`, `deferred`, `later`, `placeholder`, 
 
 1. `proof.json` / `proof.md` **`## Not delivered`**
 2. `status.json` **`open_deferrals`**
-3. `spec.json` / `spec.md` **`## Out of scope`** (an out-of-scope item that names the owning slice is fine; one that punts work with no owner is a deferral)
+3. `spec.json` **`out_of_scope`** (an out-of-scope item that names the owning slice is fine; one that punts work with no owner is a deferral)
 4. inline `// deferred` / `// later` / `// future` / `// TODO` in changed source
 
 For each deferral found on any of those surfaces, the **Tracking** leg must be a **concrete, resolvable reference** per Rule 2 ("What counts as tracking"): an **owning slice id** that exists (e.g. `S14-board-json`), OR a **tracker ref** in any issue tool (GitHub `#123`/URL, Jira `ABC-123`, Linear `ENG-123`, issue URL). If the tracking is vague or absent — "a follow-up slice", "later", "future concern", a release-theme name, an ADR/decision-record id, a process name, or a circular pointer to the deferral's own list — **FAIL**, naming the slice, the surface, and the deferral text. Do not pass a deferral on the strength of an owning-slice id you cannot confirm exists; an invented-but-uncreated slice id is not tracking. This sub-gate is the teeth of Rule 2: a deferral the gate cannot resolve to a real home is a violation, not a decision.
+
+For any deferral in `status.json` `open_deferrals`, also confirm the **Acknowledgement** leg is present as *both* `acknowledgement` (plain-text told-evidence) and `acknowledged_by` (who — required by `slice-status-v1` since v0.7.0). An `open_deferrals` entry missing `acknowledged_by` is schema-invalid; **FAIL**, naming the slice and the entry.
 
 ### Gate 6 — Design conformance (Rule 9, Layer 1)
 
@@ -182,6 +184,17 @@ Run the **design-conformance gate** (reference implementation: `sworn designaudi
 - Violations declared in `proof.json` `not_delivered` as Rule 2 deferrals with human or captain acknowledgement are also acceptable — note them but do not FAIL on them.
 - If the project has no design-fidelity config (`docs/baton/design-fidelity.json` absent or `ui_bearing: false`), the gate passes automatically (non-UI project).
 - Hardcoded colours in test files (`*.test.*`, `*.spec.*`, `__tests__/`, `tests/`) are excluded — tests may assert against literal values.
+
+### Gate 6b — Guard fidelity (Rule 12)
+
+When `proof.json` cites a **guard** — a regression test, lint rule, CI gate, invariant, or documentation check — as evidence for a claim that **quantifies over a domain** ("no component does X", "every Y is Z", "the doc is true", "machine-checked"), do not accept the guard's green as proof of the claim. A guard can be structurally incapable of detecting the defect it names and still return green at every layer. Check:
+
+- **Scope parity.** Does the domain the guard actually searches equal the domain the claim quantifies over? A guard scoped to one directory, one file glob, one quote style, or one syntactic form, backing a claim about "every" or "no" — FAIL, naming the uncovered domain. The claim must be bounded to what the guard checks, or the guard widened to the claim.
+- **Mutation against the real defect form.** The proof must record a mutation that breaks the guard **in the form the defect actually took in this codebase** — not a form the author imagined. If the recorded mutation is a strawman (a shape no real instance uses) while the real defect form goes unmutated, the mutation proof is void: FAIL. When in doubt, construct the real-form mutation yourself, run it, and confirm the guard fails; a guard that stays green on the real defect form is not evidence.
+- **Right instrument.** If the claim requires resolving scope, bindings, or structure (identifiers, JSX/HTML nesting, class composition, imports) and the guard is a regex or substring match, treat it as a guess, not a check: FAIL unless the claim is bounded to exactly what the pattern can see.
+- **Presence over absence.** A guard asserting the *absence of a known-bad token* (`not.toMatch(/bad/)`) does not establish the *presence of the truth*. If the claim is "the artefact is correct" and the guard only forbids one wrong value, it is scope-narrow: FAIL.
+
+This gate is what stops a silent guard from passing verification — the failure mode Rules 6 and 7 cannot see because they observe the same green the guard shows.
 
 ### Gate 7 — Claimed scope matches implemented scope
 

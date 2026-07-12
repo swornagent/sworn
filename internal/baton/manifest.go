@@ -76,6 +76,10 @@ var schemaGradeStatus = map[string]GradeStatus{
 	// Advisory: vendored at baton v0.10.0. The `sworn assemble` grader that
 	// emits/reads this proof is the follow-on release.
 	"assembly-proof-v1": Advisory,
+	// Advisory: vendored at baton v0.11.0. The ADR-0013 capability-eligibility
+	// gate (role.requires ∩ provider-registry.provides) + the provider registry
+	// are the follow-on release; stored + version-declared here, not yet graded.
+	"capability-policy-v1": Advisory,
 }
 
 // schemaVersionRE extracts a schema's trailing "-vN" version suffix from

@@ -30,6 +30,21 @@ When the planner reaches a design choice during planning:
 
 The model may propose options, classify stakes, and surface trade-offs — but for a Type-1 choice the model **may not record the human decision itself**. (This is the design-time analogue of Rule 7: the agent that proposes is not the authority that decides.)
 
+## Prevalence is not correctness
+
+**"Most of the code already does X" is a reason X spread. It is not a reason X is right.** A design or architecture decision ratified on prevalence **launders an existing defect into an official standard** — it takes something that was drifted into, never chosen, and stamps it as the contract every future slice must conform to.
+
+When proposing a decision from an audit or inventory:
+
+1. **Separate the prevalence finding from the recommendation.** "60 files do X" and "we should standardise on X" are two different claims; the first does not establish the second. State them separately so the recommendation must stand on its own argument.
+2. **Run the domain's quality floor on the incumbent before ratifying it** — contrast and touch-target size for UI, latency for a query pattern, correctness for an algorithm, whatever the floor is. If the incumbent fails that floor, prevalence becomes an argument **for** change, not against it.
+
+**The tell:** any decision whose rationale is *"this ratifies reality"*, *"it follows the code's gravity"*, or *"it minimises migration"*. Those are **cost arguments dressed as design arguments**. They may still be right — migration cost is real — but they must be argued **on cost, openly**, not smuggled in as correctness. This is the structural failure mode of every codification or consolidation effort: the audit is necessary (you cannot uplift what you cannot see) but it is **descriptive**, and description cannot distinguish a convention from a bug when the only evidence is "most files do this."
+
+This pairs with Rule 9's human-ownership stance and the same root cause the sibling rules catch (a claim made wider than its evidence — here, "prevalent" widened into "correct"). **The machine can prove a colour fails a contrast ratio; it cannot notice that a button feels like it is shouting** — and in the motivating case those turned out to be the same defect.
+
+**Evidence.** A Type-1 decision ratified the source project's primary button colour, explicitly reasoned as *"follow the code's actual gravity: 60 files already do this."* White text on that colour measures **3.29:1; WCAG AA requires 4.5:1.** The decision would have made a button whose own label fails accessibility the official design standard. It was caught only because the human said *"it's too loud"* — and the loudness and the contrast failure were the same defect.
+
 ## Record format
 
 Each design decision is an entry in `status.json`:
@@ -57,6 +72,29 @@ A deterministic, fail-closed gate reads each slice's `design_decisions` and chec
 2. Every `architecturally_significant` choice is classified Type-1 — otherwise it violates, naming the slice + choice.
 
 This is the design-time counterpart to the delivery first-pass: cheap, deterministic, and run before model or human review time is spent.
+
+## Autonomous-mode gate semantics
+
+The design-review gate's **human-in-the-loop** behaviour is well-defined: the implementer produces the Design TL;DR and halts at `design_review`; a captain surfaces pins; the Coach acknowledges before code lands. Its **autonomous** behaviour — when no human Coach is present at dispatch time (an unattended `loop` run) — must be defined too, or "autonomous" silently downgrades design review to a no-op. That is the exact fidelity gap Rule 9 exists to close (2026-07-12 dogfood, finding 6: an autonomous loop generated the Design TL;DR and proceeded straight to implementing, because the gating captain dispatch had deferred out).
+
+The gate's autonomous behaviour is **keyed to the stakes class it already computes**:
+
+- **Type-2 choices** (and slices with no Type-1 choice): auto-proceed is permitted, provided the noted default is **recorded** in `status.json` exactly as a human-attended run would record it. A reversible, local choice does not need a human present.
+- **Type-1 / architecturally-significant choices**: by **default** the loop **must hard-pause and surface** the decision for asynchronous Coach acknowledgement (page/notify + halt at `design_review`); it does not auto-proceed, and a captain-role self-review may *enrich* the pins the Coach later sees but may not *clear* the gate. This is the safe default: an autonomous loop treating "no human here right now" as licence to auto-authorise a one-way-door choice is the exact silent downgrade Rule 9 exists to prevent.
+
+**The default is overridable — delegation, not abdication.** How much autonomous authority is appropriate is not universal: it scales with the maturity of the codebase and its tooling, the capability of the driving model (a frontier model can be trusted with more than a weak one), and the operator's risk tolerance. So an operator **may** grant an autonomous loop authority to auto-proceed on Type-1, via an explicit, recorded governance setting — never a flag an agent can set for itself. This preserves Rule 9's core principle intact: **the human still decides *whether*; they decide it once, ahead of time, as a standing delegation, rather than per-choice.** The authority to auto-proceed is itself a Type-1 human decision — recorded when the envelope is set, not invented at dispatch.
+
+An `autonomous_design_authority` setting (project governance config, e.g. `docs/baton/design-fidelity.json`) declares the envelope:
+
+| Value | Type-1 behaviour when no human is present |
+|---|---|
+| `hard_pause` (default) | Halt at `design_review` and page; never auto-proceed. |
+| `auto_proceed_recorded` | The loop may choose and record the Type-1 decision, attributed to the standing delegation. |
+
+The setting must name **who delegated** and **the envelope's rationale/scope** (the audit trail: *"Coach Brad, 2026-07-12 — Fable-5-driven runs on this repo may auto-proceed on Type-1; revisit at v1.0"*), and an operator may narrow it — e.g. gate `auto_proceed_recorded` on the driving model meeting a capability bar (tie-in: [capability-policy](capability-policy.md)), or on specific choice domains. Whatever the envelope, the invariants below always hold, so autonomy is never a silent no-op:
+
+- Every auto-proceeded Type-1 choice is **fully recorded** in `status.json` — options, the chosen option, rationale, and the delegation it was authorised under — so it is auditable after the fact exactly as a human-attended decision would be.
+- With `hard_pause` (or no setting), a Type-1 choice with no human decision **blocks**, exactly as the deterministic gate already enforces. Fail closed is the default; opting out is an explicit, recorded, human act.
 
 ## Design-system input (UI-bearing projects)
 

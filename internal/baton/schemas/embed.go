@@ -72,6 +72,16 @@ var ContractsV1 []byte
 //go:embed assembly-proof-v1.json
 var AssemblyProofV1 []byte
 
+// CapabilityPolicyV1 is the canonical capability-policy-v1.json schema (baton
+// v0.11.0), embedded at build time. VENDORED-ADVISORY: stored and
+// version-declared but not yet graded — the capability-based eligibility gate
+// (role.requires ∩ registry.provides; ADR-0013) is the follow-on release.
+// Byte-identical to the published $id at the pinned tag; do not fork the shape
+// under the same $id.
+//
+//go:embed capability-policy-v1.json
+var CapabilityPolicyV1 []byte
+
 // SchemaMap maps a short schema name (e.g. "slice-status-v1") to its
 // embedded bytes. Callers use this to look up the schema by the name
 // they store in the $schema field.
@@ -85,4 +95,5 @@ var SchemaMap = map[string][]byte{
 	"verifier-verdict-v1": VerifierVerdictV1,
 	"contracts-v1":        ContractsV1,
 	"assembly-proof-v1":   AssemblyProofV1,
+	"capability-policy-v1": CapabilityPolicyV1,
 }

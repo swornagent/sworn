@@ -9,12 +9,12 @@ A portable, project-agnostic process package for engineering teams working with 
 
 The package contains four kinds of artefact, in increasing order of operational specificity:
 
-1. **Rules** (ten, listed below) — the underlying engineering discipline. Adoptable independently or together.
+1. **Rules** (twelve, listed below) — the underlying engineering discipline. Adoptable independently or together.
 2. **Role prompts** (planner, implementer, verifier, captain) — paste-into-session prompts that operationalise the rules for a specific role in a release. The **Captain** runs design-review (Rule 9). Authority over strategy and product/architecture sits with the **Coach** — the human-in-the-loop who owns the team; the agent roles surface decisions to the Coach but never self-authorise them.
 3. **Templates** (slice folder, release intake, release board) — fillable artefacts that become the durable record of a release.
 4. **Brainstorm patterns** (Option Matrix, Decision Card, Scope-Ceiling Bar, Dependency Graph, Deferral Card) — visual decision surfaces that make planning decisions discrete, visible, and capturable.
 
-Rules 1-5 can be adopted on their own; the rest of the package is needed only when Rules 6–11 (Proof Bundle through Process-Global Mutation Guard — the harness-enforced rules) are in play. See `INSTALL.md` for adoption paths.
+Rules 1-5 can be adopted on their own; the rest of the package is needed only when Rules 6–12 (Proof Bundle through Guard Fidelity — the harness-enforced rules) are in play. See `INSTALL.md` for adoption paths.
 
 ## Core principle — DRY applied bidirectionally to knowledge
 
@@ -30,7 +30,7 @@ Knowledge that survives both directions of DRY is **codified, organised, traceab
 - **Traceable** — origin and decision path are visible, not inferred.
 - **Auditable** — verifiable from external evidence, not from someone's recollection.
 
-The eleven rules below are facets of this principle. Each rule prevents one specific way knowledge gets repeated, lost, or re-litigated.
+The twelve rules below are facets of this principle. Each rule prevents one specific way knowledge gets repeated, lost, or re-litigated.
 
 ## Why this matters — insulation against requirements failure
 
@@ -63,9 +63,9 @@ AI-assisted engineering has a small number of recurring failure modes that compo
 5. **Completion overclaiming** — the implementer's session declares the slice done while only a thin slice actually landed; the next session's stocktake re-discovers the gap. *(The cost is repetition: the work that wasn't done gets re-planned, re-scoped, and re-attempted.)*
 6. **Self-certification** — the implementer's reasoning thread also writes the proof bundle. Optimism contaminates the certification. *(The cost is repetition: gaps appear in verification rather than implementation, and propagate downstream.)*
 
-Every failure mode is a violation of bidirectional DRY on knowledge. This package codifies eleven rules that intervene at each failure mode's source. Adopt them whole, in fragments, or as a starting point for your own rule-set.
+Every failure mode is a violation of bidirectional DRY on knowledge. This package codifies twelve rules that intervene at each failure mode's source. Adopt them whole, in fragments, or as a starting point for your own rule-set.
 
-## The eleven rules
+## The twelve rules
 
 | Rule | What it does | Forward DRY ↔ Backward DRY | File |
 |---|---|---|---|
@@ -80,10 +80,11 @@ Every failure mode is a violation of bidirectional DRY on knowledge. This packag
 | 9. Design Fidelity | Design stays human-owned, with judgement calibrated to each choice's stakes (reversibility × blast-radius); Type-1 choices carry a recorded human decision the model can't self-authorise. | Decide the design once, with the right human attention ↔ Don't re-litigate or reverse-engineer the choice later | `design-fidelity.md` |
 | 10. Customer Journey Validation | Critical end-to-end journeys are a ratified, version-controlled artefact, re-walked against real boundaries; a journey walked over a mocked boundary proves nothing. | Capture the journey once and re-walk it for real ↔ Don't ship a stale or mock-faked end-to-end path | `customer-journey-validation.md` |
 | 11. Process-Global Mutation Guard | Any change mutating process-global state (working directory, environment, worktree/branch selection) must guarantee restore, assert the target before acting, and show a reachability artefact proving the guard. Especially load-bearing under parallel/multi-worktree execution. | Mutate scoped and restore once ↔ Don't let an unrestored mutation silently corrupt the next unit of work | `process-global-mutation.md` |
+| 12. Guard Fidelity | A guard cited as evidence must be mutation-proved against the form the defect *actually* takes and scope-matched to the claim it backs; a check narrower than its claim converts an unknown into a false assurance. Logically upstream of 6/7 — it governs whether their evidence means anything. | Prove the guard sound once, against the real defect ↔ Don't bank false confidence in a green that never searched the defect's domain | `guard-fidelity.md` |
 
 ## Release Mode harness
 
-Rules 6 through 11 are operationalised through a comprehensive harness:
+Rules 6 through 12 are operationalised through a comprehensive harness:
 
 - **Mechanical gates** — Baton specifies each gate (what it checks, that it fails closed); the reference implementation, the open `sworn` binary, runs them: the trace gate (RTM + EARS + sniff-test; `sworn trace`), the coverage gate (AC → test mapping; `sworn coverage`), the design-conformance gate (colours + architecture rules; `sworn designaudit`), the mock-boundary gate (undeclared mock boundaries), the regression gate (post-merge full suite; `sworn regress`), the proof-bundle verification gate (proof-bundle structure; `sworn verify`), and the board oracle (state-machine resolution from the git refs; `sworn board`). Baton itself ships no binaries.
 - **LLM check types (6)** — `spec-ambiguity` (planner), `design-review` (captain), `ac-satisfaction` (implementer + verifier), `security-review` (implementer + verifier), `semantic-coverage` (verifier), `maintainability-review` (implementer + verifier). Deterministic (temp=0), structured prompts, structured JSON output, fail-closed; run via the LLM-check gate (`sworn llm-check --check <name>`).

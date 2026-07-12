@@ -72,9 +72,9 @@ func TestDoctorAllOK(t *testing.T) {
 		t.Errorf("expected [OK] for planner.md\nOutput:\n%s", output)
 	}
 
-	// Group 1: baton/rules/ should be OK (11/11).
-	if !strings.Contains(output, "11/11 rule files present") {
-		t.Errorf("expected 11/11 rule files present\nOutput:\n%s", output)
+	// Group 1: baton/rules/ should be OK (12/12).
+	if !strings.Contains(output, "12/12 rule files present") {
+		t.Errorf("expected 12/12 rule files present\nOutput:\n%s", output)
 	}
 
 	// Group 1: planner.md should have all Phase 1-6 headings.

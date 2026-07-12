@@ -122,6 +122,17 @@ The same triple applies wherever work is punted, not just inline comments. Audit
 - a slice's `spec.json` / `spec.md` **`## Out of scope`** block (an out-of-scope item is fine *only* if it names the owning slice that does deliver it; an out-of-scope item that simply punts the work with no owner is an untracked deferral);
 - user-visible "coming soon" / "deferred" labels (see "The UI-label cousin").
 
+### Encoding in the `open_deferrals` record
+
+When a deferral is recorded in a slice's `status.json` `open_deferrals[]` (schema `slice-status-v1`), the conceptual triple maps to **four required fields** — `acknowledgement` splits into the plain-text evidence and its structured attribution:
+
+- **`why`** — the concrete reason (rule part 1).
+- **`tracking`** — the resolvable owning-slice id or tracker ref (rule part 2).
+- **`acknowledgement`** — the plain-text record that the decision-maker was **told** (rule part 3): the "told" evidence itself.
+- **`acknowledged_by`** — **who** acknowledged it (required since Baton v0.7.0). Strict-additive to `acknowledgement`, not a substitute: a name alone is not the plain-text "told" evidence Rule 2 demands, and the evidence alone leaves the decision unattributed. `acknowledged_at` (ISO 8601) is optional.
+
+An `open_deferrals[]` entry missing `acknowledged_by` is schema-invalid — the record has an unattributed acknowledgement, which is not a decision.
+
 ## Why
 
 The v0.5.0 audit traced six schema-level "deferrals" in inline header comments. Of the six, **only one had a real framework-level reason**. The other five were silent absences dressed up as decisions:
@@ -774,6 +785,18 @@ description: The spec is not an axiom. Requirements are verified (quality), vali
 
 A need that drops silently between intake and spec is a requirements-fidelity defect. The traceability matrix makes it visible and blocks the release.
 
+## An acceptance criterion must be bounded
+
+Verifiable (29148) is necessary but **not sufficient**: an acceptance criterion can *look* verifiable and be **unbounded**, and an unbounded criterion produces a **non-terminating verification loop** — it can only be failed again, never discharged.
+
+**An acceptance criterion whose satisfaction cannot be enumerated is not verifiable, however verifiable it sounds.** If an AC quantifies over an open domain — *"no claim in the doc that the code contradicts"*, *"the system is secure"*, *"the API is consistent"* — it has no edge for verification to converge on. Bound it to a **named, enumerable set**, make each member machine-checkable, and declare everything outside the bound explicitly **non-normative**. An open-domain AC is not a criterion; it is an infinite regress with a checkbox.
+
+**The honest-bounding test.** Correctly bounding an AC is simultaneously a **narrowing** (of the claim) and a **strengthening** (of the enforcement) — the claim covers less, but every member of what it now covers is actually checked. That combination is the signature of an honest bound; a bounding that only narrows (drops items to make the check pass) without strengthening (checking the ones it keeps) is a dodge, and the gate should treat the distinction as the test.
+
+This is the front-half twin of Rule 12's scope-parity condition: Rule 12 forbids a *check* narrower than its claim; this forbids a *criterion* wider than any check can discharge. Both are the same root cause — a claim made wider than the evidence that backs it — caught at different layers.
+
+**Evidence.** A slice failed fresh-context verification **seven times, and not one failure touched the AC's named items.** Every failure lived in an `in_scope` clause reading *"no claim in the doc that the code contradicts"* — which asks a prose document to be verifiably true about an entire monorepo. The guard suite sat 125-green while the document could still have claimed the wrong font and a non-existent component variant — two of the four things the AC named by name. The fix (bound the AC to its six named items, machine-check all six) narrowed *and* strengthened at once.
+
 ## Why
 
 Rules 1, 6, and 7 verify **delivery against the spec** rigorously. They treat the spec itself as an axiom — the spec is the contract, and the verifier checks the code against it. But the spec can be wrong, incomplete, or disconnected from what the user actually asked for. The front half of the fidelity chain — from intake need to spec acceptance criterion — is unverified by the delivery rules. A perfectly implemented, perfectly verified slice that answers the wrong question is a fidelity defect no amount of delivery rigour will catch.
@@ -970,6 +993,21 @@ When the planner reaches a design choice during planning:
 
 The model may propose options, classify stakes, and surface trade-offs — but for a Type-1 choice the model **may not record the human decision itself**. (This is the design-time analogue of Rule 7: the agent that proposes is not the authority that decides.)
 
+## Prevalence is not correctness
+
+**"Most of the code already does X" is a reason X spread. It is not a reason X is right.** A design or architecture decision ratified on prevalence **launders an existing defect into an official standard** — it takes something that was drifted into, never chosen, and stamps it as the contract every future slice must conform to.
+
+When proposing a decision from an audit or inventory:
+
+1. **Separate the prevalence finding from the recommendation.** "60 files do X" and "we should standardise on X" are two different claims; the first does not establish the second. State them separately so the recommendation must stand on its own argument.
+2. **Run the domain's quality floor on the incumbent before ratifying it** — contrast and touch-target size for UI, latency for a query pattern, correctness for an algorithm, whatever the floor is. If the incumbent fails that floor, prevalence becomes an argument **for** change, not against it.
+
+**The tell:** any decision whose rationale is *"this ratifies reality"*, *"it follows the code's gravity"*, or *"it minimises migration"*. Those are **cost arguments dressed as design arguments**. They may still be right — migration cost is real — but they must be argued **on cost, openly**, not smuggled in as correctness. This is the structural failure mode of every codification or consolidation effort: the audit is necessary (you cannot uplift what you cannot see) but it is **descriptive**, and description cannot distinguish a convention from a bug when the only evidence is "most files do this."
+
+This pairs with Rule 9's human-ownership stance and the same root cause the sibling rules catch (a claim made wider than its evidence — here, "prevalent" widened into "correct"). **The machine can prove a colour fails a contrast ratio; it cannot notice that a button feels like it is shouting** — and in the motivating case those turned out to be the same defect.
+
+**Evidence.** A Type-1 decision ratified the source project's primary button colour, explicitly reasoned as *"follow the code's actual gravity: 60 files already do this."* White text on that colour measures **3.29:1; WCAG AA requires 4.5:1.** The decision would have made a button whose own label fails accessibility the official design standard. It was caught only because the human said *"it's too loud"* — and the loudness and the contrast failure were the same defect.
+
 ## Record format
 
 Each design decision is an entry in `status.json`:
@@ -997,6 +1035,29 @@ A deterministic, fail-closed gate reads each slice's `design_decisions` and chec
 2. Every `architecturally_significant` choice is classified Type-1 — otherwise it violates, naming the slice + choice.
 
 This is the design-time counterpart to the delivery first-pass: cheap, deterministic, and run before model or human review time is spent.
+
+## Autonomous-mode gate semantics
+
+The design-review gate's **human-in-the-loop** behaviour is well-defined: the implementer produces the Design TL;DR and halts at `design_review`; a captain surfaces pins; the Coach acknowledges before code lands. Its **autonomous** behaviour — when no human Coach is present at dispatch time (an unattended `loop` run) — must be defined too, or "autonomous" silently downgrades design review to a no-op. That is the exact fidelity gap Rule 9 exists to close (2026-07-12 dogfood, finding 6: an autonomous loop generated the Design TL;DR and proceeded straight to implementing, because the gating captain dispatch had deferred out).
+
+The gate's autonomous behaviour is **keyed to the stakes class it already computes**:
+
+- **Type-2 choices** (and slices with no Type-1 choice): auto-proceed is permitted, provided the noted default is **recorded** in `status.json` exactly as a human-attended run would record it. A reversible, local choice does not need a human present.
+- **Type-1 / architecturally-significant choices**: by **default** the loop **must hard-pause and surface** the decision for asynchronous Coach acknowledgement (page/notify + halt at `design_review`); it does not auto-proceed, and a captain-role self-review may *enrich* the pins the Coach later sees but may not *clear* the gate. This is the safe default: an autonomous loop treating "no human here right now" as licence to auto-authorise a one-way-door choice is the exact silent downgrade Rule 9 exists to prevent.
+
+**The default is overridable — delegation, not abdication.** How much autonomous authority is appropriate is not universal: it scales with the maturity of the codebase and its tooling, the capability of the driving model (a frontier model can be trusted with more than a weak one), and the operator's risk tolerance. So an operator **may** grant an autonomous loop authority to auto-proceed on Type-1, via an explicit, recorded governance setting — never a flag an agent can set for itself. This preserves Rule 9's core principle intact: **the human still decides *whether*; they decide it once, ahead of time, as a standing delegation, rather than per-choice.** The authority to auto-proceed is itself a Type-1 human decision — recorded when the envelope is set, not invented at dispatch.
+
+An `autonomous_design_authority` setting (project governance config, e.g. `docs/baton/design-fidelity.json`) declares the envelope:
+
+| Value | Type-1 behaviour when no human is present |
+|---|---|
+| `hard_pause` (default) | Halt at `design_review` and page; never auto-proceed. |
+| `auto_proceed_recorded` | The loop may choose and record the Type-1 decision, attributed to the standing delegation. |
+
+The setting must name **who delegated** and **the envelope's rationale/scope** (the audit trail: *"Coach Brad, 2026-07-12 — Fable-5-driven runs on this repo may auto-proceed on Type-1; revisit at v1.0"*), and an operator may narrow it — e.g. gate `auto_proceed_recorded` on the driving model meeting a capability bar (tie-in: [capability-policy](capability-policy.md)), or on specific choice domains. Whatever the envelope, the invariants below always hold, so autonomy is never a silent no-op:
+
+- Every auto-proceeded Type-1 choice is **fully recorded** in `status.json` — options, the chosen option, rationale, and the delegation it was authorised under — so it is auditable after the fact exactly as a human-attended decision would be.
+- With `hard_pause` (or no setting), a Type-1 choice with no human decision **blocks**, exactly as the deterministic gate already enforces. Fail closed is the default; opting out is an explicit, recorded, human act.
 
 ## Design-system input (UI-bearing projects)
 
@@ -1131,6 +1192,7 @@ The journeys artefact is a version-controlled JSON document at a stable project 
 
 - **Version** — schema version for forward compatibility.
 - **Journeys** — the list of critical journeys, each with an **id** (e.g. `J01-onboard-new-user`), a **user_type** (e.g. `free_user`, `pro_user`, `admin`), an **outcome** (what the user achieves), ordered **steps**, and an **entry_surface** (where the journey begins).
+- **Regression + boundary metadata** (per journey, added in v0.7.0) — `regression_test_path`, the path to the regression test asserted by `has_regression` (present once `has_regression` is true); and `no_mock_boundary`, the entitlement/infra boundary this journey must cross against **real** infrastructure when walked (its absence means no boundary is declared for the journey). `no_mock_boundary` is the machine-readable home of the "No-mock boundary" enforcement below — the gate reads it to know which boundary a walk may not mock.
 - **Ratification metadata** — `is_ratified`, `ratified_by`, `ratified_at`.
 
 ## Enforcement
@@ -1155,9 +1217,36 @@ The artefact and the gate are not two rules that happen to compose — they are 
 
 This reads as a Rule 2 concern too — an undeclared mock is a species of silent deferral — but its home is Rule 10, because the specific failure it prevents is *a journey that lies about working*.
 
-**Detection (deterministic first-pass).** A diff-scanning check flags lines that combine a mock/stub/fake marker (`mock`, `fake`, `stub`, …) with a validated-boundary keyword (`sql.DB`, `auth`, `premium`, …). If the flagged mock matches an open declared deferral, it is surfaced as a known deferral; otherwise it is an undeclared boundary mock and the gate exits non-zero, naming the offending mock and boundary.
+**What "mock at a boundary" means — a code construct, not a string.** A mock at a validated boundary is a **code construct**: a call, binding, or type that *substitutes* the real boundary (a fake `sql.DB`, a stubbed auth client, a hand-rolled entitlement double). It is not the mere textual appearance of the words `mock` / `fake` / `stub` / `@no-mock`. The distinction is load-bearing: code that legitimately *handles the boundary-mock vocabulary* — a slice whose job is to parse `// @no-mock` / `// @mock-boundary` annotations — contains those tokens inside **string literals and comments** without mocking anything (2026-07-12 dogfood, finding 5: an assemble slice failed its own gate closed because a string literal `"// @no-mock\n// @mock-boundary (boundary: entitlement)"` matched the detector).
+
+**Detection (deterministic first-pass).** A diff-scanning check flags **code tokens** — spans that are neither string literals nor comments (AST-level, or a lexer that skips string/comment spans) — combining a mock/stub/fake construct with a validated-boundary reference (`sql.DB`, `auth`, `premium`, …). Occurrences inside string literals or comments are **not** mocks and do not trip the gate. If a flagged construct matches an open declared deferral, it is surfaced as a known deferral; otherwise it is an undeclared boundary mock and the gate exits non-zero, naming the offending construct and boundary. The gate stays fail-closed on real substitutions while not penalising code that handles the annotation vocabulary.
 
 **When the no-mock gate applies:** every slice whose diff introduces, uses, or constructs a mock/stub/fake at a validated boundary. **When it does not:** pure unit-test mocks that touch no validated boundary (a mock calculator, a mock string formatter), and the human walkthrough itself, where mocks are fully off and real journeys run against real infra.
+
+## Mock parity at registered contract boundaries (sub-rule)
+
+The no-mock boundary above activates at release level, at the validated infra boundaries (DB, auth, entitlement). This sub-rule applies the same principle **earlier and lower**: at slice-implementation time, at every boundary registered in the release's contract registry (`contracts.json`, `contracts-v1` schema).
+
+**The sub-rule.** A consumer slice may mock a registered boundary **only with fixtures recorded by the owner's live contract test.** The owner's proof bundle commits actual request/response pairs captured from its passing live test (`fixtures/` in the slice folder, path recorded in the registry entry). Consumer tests load those fixtures as mock data. A hand-written mock at a registered boundary is a silent deferral (Rule 2) unless the consumer includes at least one unmocked in-process round-trip against the real handler.
+
+**Why.** A mock and a spec written from the same assumption share the same blind spot. The observed failure (2026-07-10): a consumer slice passed legitimate fresh-context adversarial verification with a latently-400 PUT, because its mock and its spec both encoded the spec author's wrong body-shape assumption — implementer, tests, and verifier were structurally blind together. Owner-recorded fixtures break the symmetry: the fixture can only contain what the real handler actually accepted, so a wrong consumer assumption goes red at the consumer's own test run instead of surviving to assembly.
+
+**Freshness invariant.** Fixtures are regenerated by the owner's live contract test on green, and must be **newer than the owner's last production-code change to the surface**. A stale fixture is treated as no fixture: drift between handler and fixture must break the consumer's tests visibly, never silently re-agree with an outdated shape. (How freshness is checked is the gate's concern; the invariant is the rule.)
+
+**Mechanics are file-based, inside the existing artefact model** — pact-style without a broker: owner test writes `fixtures/<surface>.json` `{request, response}`; the registry's `fixtures` field points at it; the consumer's mocks import from that path (a grep-level check suffices to start).
+
+**Status: advisory until the grading gate ships.** Per the skew-window policy (baton#59), planners and implementers follow this discipline now, enforced by review; it flips to fail-closed when the reference gate (`sworn lint contracts` fixture checks) ships.
+
+## The assembly stage
+
+Per-slice verification proves the parts; the journey walk proves the whole — but between them sits the assembled system, and every decisive 2026-07-10 failure (a CORS preflight no unit, handler, or per-slice test could see) was caught by an assembly phase that existed only as orchestrator improvisation. Rule 10 makes it first-class: the machine half of validating the assembled whole, run **before** the human half.
+
+**Release-level chain:** `tracks-merged → assembled → journey-validated → merged`.
+
+- **`assembled` is a derived state, not a stored one** (the same invariant that keeps `board.json` a pure plan): a release is `assembled` when `docs/release/<name>/assembly-proof.json` (schema `assembly-proof-v1`, `https://baton.sawy3r.net/schemas/assembly-proof-v1.json`) exists on `release-wt/<name>` with `verdict: "pass"`. No record stores the state; the artefact's existence and verdict are the state.
+- **The assembly run** (reference implementation: `sworn assemble <release>`) brings up the stack from the release worktree, runs the release's deferred end-to-end set — no-mock, serially, with verified teardown — and emits `assembly-proof.json` (per-suite results, boundary/preflight observations, screenshot paths, and the authoritative verdict). Non-zero exit on any non-excepted failure. The record is structurally fail-closed on the two things a runner most easily drops silently: an unexplained non-pass result (a `fail`/`skip` must carry a disposition, and any excepted disposition must carry tracking — Rule 2), and an undeclared server teardown after the stack was brought up (Rule 11 guaranteed-restore).
+- **The human walk comes after.** The touched journeys are re-walked against real infra **after the assembly run passes**, not merely "after all slices verify" — the machine half catches the wire-level seams (the CORS class) so the human walk spends its attention on journey semantics, not transport failures.
+- **`/merge-release` gates on `assembled`** the way it gates on per-slice `verified`. Until the reference implementation ships, the gate is advisory (a missing `assembly-proof.json` is a surfaced warning, a failing one is a hard block); it flips to fail-closed when `sworn assemble` ships (baton#59 skew-window policy).
 
 ## Workflow
 
@@ -1165,7 +1254,8 @@ This reads as a Rule 2 concern too — an undeclared mock is a species of silent
 2. The model drafts candidate journeys from the project structure.
 3. The human reviews, edits, and ratifies the artefact (`is_ratified=true`, `ratified_by`, `ratified_at`).
 4. The journeys gate passes; the artefact is committed and maintained as the project evolves.
-5. At release cutover, the journeys that the release touches are re-walked against real boundaries (no-mock), and the walkthrough is human-attested before ship.
+5. After all tracks merge to `release-wt/<name>`, the assembly run executes and emits a passing `assembly-proof.json` (the release is now `assembled`).
+6. At release cutover, the journeys that the release touches are re-walked against real boundaries (no-mock) **after the assembly run passes**, and the walkthrough is human-attested before ship.
 
 ## Relationship to existing rules
 
@@ -1231,6 +1321,16 @@ state — a worktree silently flipped to its base branch — surfacing later as 
 unrelated-looking failure. Wherever sessions run concurrently against a shared
 base, this is a systematic failure class, not an incidental one.
 
+## Resumed-loop restore contract
+
+The same fail-closed principle extends to **resumption after an unclean exit**. A crashed or interrupted run can leave a track worktree holding uncommitted implementer output — debris that is process-global state by another name: it is silently inherited by whatever acts in that worktree next.
+
+**A resumed loop must restore each track worktree to its committed slice state before it re-dispatches into that worktree.** Concretely: `git reset --hard` to the slice's committed head and `git clean` untracked debris, having first asserted the target is the expected worktree on the expected branch (clause 2 above — a `reset --hard` in the wrong directory is exactly the high-blast-radius case). Only then may the resumed unit of work re-dispatch.
+
+Restoring to committed state is not the same as re-bootstrapping. A correct resume **preserves** committed progress and the board (the release plan is intact, verified slices stay verified); it discards only the *uncommitted* leftovers of the interrupted attempt. "Recovers without corrupting" is the floor; "recovers **cleanly**" — no crash debris surviving into the retry — is the contract, because leftover code contaminates the new attempt's diff and every diff-scanning gate that reads it (the 2026-07-12 dogfood: leftover implementer output tripped a boundary-mock detector on code the retry never wrote).
+
+Any Baton engine that runs concurrent worktrees and supports resume inherits this hazard; the restore is therefore part of the protocol, not an engine detail.
+
 ## How to apply
 
 - **Implementers:** prefer scoped mutation (pass an explicit working directory
@@ -1268,3 +1368,93 @@ worktree to its base branch, and the pattern recurred across slices until the
 guard was made a standing design-review check. It composes Rule 9 (design
 review flags the unsafe design) with Rules 1/6 (reachability/proof that the
 guard fires), specialised onto one high-blast-radius pattern.
+
+---
+title: Rule 12 — Guard Fidelity
+description: A check must be mutation-proved against the form the defect actually takes, and its scope must equal the scope of the claim it backs. A check narrower than its claim is a decoration.
+---
+
+# Rule 12 — Guard Fidelity
+
+## The rule
+
+A **guard** is any automated check whose purpose is to prevent a class of defect from recurring: a regression test, a lint rule, a CI gate, an invariant assertion. Guards are the only durable output of a quality effort. Everything else is a convention, and conventions lose.
+
+Before a guard may be cited as evidence in a proof bundle (Rule 6) or relied on by a verifier (Rule 7), it must satisfy **four** conditions:
+
+1. **Mutation proof.** The guard must be demonstrated to FAIL. Break the thing it protects, observe red, restore, observe green. Record the mutation and both outcomes in the proof bundle. **A guard that has never failed is not a guard; it is a decoration that returns green.**
+
+2. **Scope parity.** The domain the guard *checks* must equal the domain the claim *quantifies over*. If the claim is "no component does X", the guard must search every component — not every component in one directory. **A check whose scope is narrower than the claim it backs is a decoration**, and it is worse than no check, because it converts an unknown into a false assurance.
+
+3. **Mutate the form the defect ACTUALLY takes.** This is the condition that is nearly always violated. Authors mutate the form they *imagined* — and real defects arrive in forms they did not. A guard that catches only the shape you thought of will pass its own mutation test and still miss every real instance. Derive the mutation from **how the defect has actually occurred in this codebase**, not from how you would write it.
+
+4. **Right instrument.** If detecting the defect requires resolving scope, bindings, or structure, use a **parser**, not a pattern match. A regex over a structured language is a guess that looks like a check.
+
+### The corollary: quantifier discipline
+
+**A universally-quantified claim is a promise about a search you have not run.**
+
+"No X exists." "Every Y is Z." "This is machine-checked." "It never happened."
+
+Each of those is a claim over a domain. State it only if a check covers that whole domain. Otherwise **bound the claim to the search you actually ran** ("no X in `packages/ui`") and say so. An unbounded claim backed by a bounded check is the single most common way a green suite ships a live defect.
+
+## Why
+
+Rules 6 and 7 assume the *evidence* is sound and adversarially verify the *delivery*. Rule 12 closes the gap underneath them: **the evidence itself can be structurally incapable of detecting the defect it claims to prevent**, and neither a proof bundle nor a fresh-context verifier will notice, because both see the same green.
+
+A guard fails in one of exactly two ways, and the second is the dangerous one:
+
+- **It fails loudly** — a broken guard that goes red on correct code. Annoying, self-correcting.
+- **It fails silently** — a guard that returns green over a domain it never searched. This *adds confidence while removing safety*, and it is indistinguishable from success at every layer above it: the implementer's proof cites it, the verifier runs it, CI enforces it, and the defect ships.
+
+The economics are stark. Writing the guard costs an hour. Writing the guard *wrong* costs every verification round that follows, plus the false confidence banked in every artefact that cites it.
+
+## Priority-order note
+
+Rule 12 is numbered last but sits **logically upstream of Rules 6 and 7**: it governs whether the evidence those rules rest on means anything. The number is an append, not a ranking — Baton's priority order breaks *conflicts* ("higher rules win"), and Rule 12 rarely conflicts with 1–11; it strengthens their foundation. It is numbered 12 rather than renumbered into the low positions because renumbering eleven established rules would break every reference in every adopter's pasted fragment, every vendored engine copy, and every provenance citation — a cost far larger than the small conceptual awkwardness of a foundational rule wearing a high number.
+
+## Relationship to existing rules
+
+| Rule | What it does | How Rule 12 relates |
+|---|---|---|
+| Rule 6 — Proof Bundle | Requires evidence generated from live repo state | Rule 12 requires that evidence be *sound* — a guard cited in a proof bundle must be mutation-proved against the real defect form and scope-matched to its claim |
+| Rule 7 — Adversarial Verification | Fresh-context verifier grades delivery against the spec | The verifier sees the same green a silent guard shows; Rule 12 is what stops a structurally-blind guard from passing verification. Enforced in the verifier role prompt: before accepting a guard as evidence, mutate the form the defect actually took and confirm the guard fails |
+| Rule 8 — Requirements Fidelity | The criterion must be bounded and enumerable | Same root cause one layer up: an unbounded AC is a claim wider than any check can discharge, just as a narrow guard is a check narrower than its claim |
+| Rule 2 — No Silent Deferrals | Surfaces deferrals explicitly | A guard whose scope is narrower than its claim is an *undeclared* deferral of the uncovered domain — Rule 12 makes it a named condition rather than a silent gap |
+
+## When this rule applies
+
+- Any guard cited as evidence in a proof bundle or relied on by a verifier — regression test, lint rule, CI gate, invariant assertion, or a documentation/prose check.
+- Any claim in a spec, proof, or verdict that quantifies over a domain ("no X", "every Y", "machine-checked", "never happens").
+
+## When this rule does NOT apply
+
+- Exploratory or scratch checks not cited as evidence — a guard becomes subject to Rule 12 the moment a proof bundle or verifier leans on it.
+- A claim already bounded to the exact domain its check covers ("no undeclared colour in `packages/ui`") — that is Rule 12 satisfied, not exempted.
+
+## Provenance
+
+Derived from a design-system release in the source monorepo (2026-07-11/12), where a single guard — enforcing that UI components own their own styling — failed fresh-context verification **four consecutive times**, each time in a new disguise of one error: **the check's scope was narrower than the claim it backed.**
+
+It was defeated, in turn, by:
+
+1. **No word boundary inside an identifier.** `/\bfieldClassName\b/` does not match `termFieldClassName`. A clone shipped, and the guard's own name claimed it caught "every incarnation".
+2. **A tag scanner that stops at the first `>`.** In JSX that is routinely the arrow in `onChange={(e) => ...}` — long before `className` is reached. (The codebase already contained a brace-aware scanner whose doc comment *warned about this exact bug*. It was walked into anyway, ten lines below the warning.)
+3. **Literal-only class reading.** `className={someConst}` was invisible.
+4. **Template literals.** `` className={`${a} ${b}`} `` — the extractor's `[^}]*` truncated at the first interpolation.
+5. **`cn()` / `clsx()` composition.**
+6. **Double-quoted bindings** (the resolver handled only single quotes).
+7. **A basename-anchored exemption** (`/Input\.tsx$/` exempts *any* `Input.tsx`, anywhere).
+8. **An incomplete file list** — two whole applications were outside the glob.
+9. **A missing element type** (`<textarea>` was never in the list, so a textarea had no owner and went back to improvising).
+10. **Fill-only surfaces** — the guard required a border *and* a radius, and the style the slice itself introduced was fill-first.
+
+**Every one of those guards passed its author's own mutation tests.** Each author dutifully broke the thing, watched it go red, restored it, and recorded the proof — because each author mutated the form they *imagined*, and every real clone used a form they did *not*. That is condition (3), and it is why conditions (1) and (2) alone are insufficient.
+
+A sibling slice in the same release failed verification **seven** times on the same root cause in prose rather than code: a documentation guard that asserted the **absence of a known-bad string** (`not.toMatch(/tremor/i)`) rather than the **presence of the truth**, and so sat green while the document stated a falsehood. Same disease: the check's scope (one string) was narrower than the claim's scope (the document is true).
+
+Two live WCAG failures in that codebase — a primary button at 3.29:1 against a 4.5:1 floor, and a mobile touch target at ~20px against a 24px minimum — had shipped and persisted for the same structural reason: **there was no guard for them to violate.** Neither was ever *chosen*. Both were drifted into, at call sites, because the system had authority nowhere and enforcement nowhere.
+
+The releasing engineer's summary, which is the rule in one line:
+
+> *A guard that has to be clever is a guard that will be outsmarted. Ask "is this a field at all?" before you ask "is this styled like a field?" — the first needs a substring search, the second needs a compiler.*

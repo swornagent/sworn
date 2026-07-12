@@ -76,7 +76,7 @@ var promptHeadingSpecs = map[string]headingSpec{
 	},
 }
 
-// batonRuleFiles is the list of all 11 embedded Baton rule files that must
+// batonRuleFiles is the list of all 12 embedded Baton rule files that must
 // exist and be non-empty.
 var batonRuleFiles = []string{
 	"01-reachability-gate.md",
@@ -89,10 +89,11 @@ var batonRuleFiles = []string{
 	"09-design-fidelity.md",
 	"10-customer-journey-validation.md",
 	"11-process-global-mutation.md",
+	"12-guard-fidelity.md",
 }
 
 // batonRulesIndexHeading is the heading the README.md must carry.
-const batonRulesIndexHeading = "## The eleven rules"
+const batonRulesIndexHeading = "## The twelve rules"
 
 // minPromptLength is the minimum byte length for an embedded prompt.
 const minPromptLength = 500
