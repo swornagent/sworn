@@ -74,5 +74,50 @@ deeper. **D**/**E**/**G** are already-planned slices (S04/S10) or protocol notes
 
 ## Cleanup pending
 
-- Discard hollow S07: reset the T4 track worktree + revert S07 status to `planned`.
+- Discard hollow S07: reset the T4 track worktree + revert S07 status to `planned`. **DONE.**
 - The board-read fix (`880af26`) stays — it is validated and correct.
+
+---
+
+## Strategy pivot (Coach, 2026-07-13): descend the confidence ladder
+
+The full-parallel-autonomous run on meta-slices via a buggy driver was validating
+sworn at MAXIMUM complexity — the opposite of how the coach-loop got operational
+(drive one Baton step by hand → serial → parallel, each rung proven first). The
+coach-loop was also easier because it drove the mature Claude CLI, which owns the
+agent loop; sworn's in-process drivers RE-implement it and carry that surface area.
+
+**Decision:** stop making the top rung work; climb from the bottom with a proven
+driver (`claude-cli/`) on trivial slices, fixing only what each rung reveals.
+
+### Rung 1 — `sworn verify --agentic` via `claude-cli/sonnet` — GREEN
+
+Verified the committed H fix (a real known-good case). Surfaced FIVE compounding
+`claude-cli` driver bugs (all masked under the openai/ full-parallel run), fixed
++ committed as **`36e28be`**:
+
+| # | Finding | Fix |
+|---|---------|-----|
+| M | prompt (opens with `---` YAML) parsed by claude as an unknown option | pass after `--` end-of-options separator |
+| N | non-zero CLI exit discarded stdout, hiding claude's JSON error (rate limit/max-turns/model error) | attach captured stdout to the classified error |
+| O | `claude-cli/` prefix passed verbatim to `--model` → invalid model → exit 1 | strip the driver prefix |
+| P | current `claude -p --output-format json` emits a JSON ARRAY of events; parser expected one object | extract the `type:result` element (legacy object still supported) |
+| Q | verifier result may be ```json-fenced + trailed by prose | extract the JSON object (first `{`..last `}`) |
+
+Result: `claude-cli/sonnet` runs a full Rule-7 fresh-context verification —
+independently checks HEAD vs the diff, re-runs `go test`, performs its own Rule-12
+mutation test — and returns a schema-valid **PASS**. The driver had drifted from
+the CLI's evolving output format; nobody noticed because nobody drove the bottom
+rung. Session engine commits landed on `release/v0.1.0`: `880af26` (board-read),
+`a045ab1` (reasoning-effort guard, finding H), `36e28be` (claude-cli driver).
+
+### Remaining ladder (next)
+
+- **Rung 2:** one TRIVIAL throwaway slice via `/implement-slice` → `/verify-slice` (claude-cli).
+- **Rung 3:** `sworn loop --task "trivial"` single-slice autonomous.
+- **Rung 4:** one track, 2–3 simple slices, serial.
+- **Rung 5:** parallel — only after 1–4 are clean.
+
+The in-process-driver findings (H done; I/J/K/L, and D/E→S04/S10) become a separate
+hardening track; the ladder does NOT need them (it runs on the subprocess path).
+Note: the `claude` subscription is at ~0.87 of the 7-day rate limit — pace runs.
