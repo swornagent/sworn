@@ -333,6 +333,10 @@ func (r tuiOracleReader) CatFileExists(ref, path string) (bool, error) {
 	return r.repo.CatFileExists(ref, path)
 }
 
+func (r tuiOracleReader) RefExists(ref string) (bool, error) {
+	return r.repo.RefExists(ref)
+}
+
 // sliceOracleContext bundles a board.Oracle with the reader and release ref
 // LoadBoard resolves once per call, so the per-slice loop can call
 // ReadSliceStatus without re-deriving them each iteration.
@@ -357,11 +361,19 @@ func newSliceOracle(repoRoot, releaseName string) *sliceOracleContext {
 		return nil
 	}
 	reader := tuiOracleReader{repo: repo}
+	// A release-wt branch that carries no board record is a real skew, but this
+	// is a read-only live view: degrade to the filesystem read (as above) rather
+	// than taking the whole TUI down. The gates (sworn board / sworn route) fail
+	// closed on the same condition.
+	releaseRef, err := board.ReleaseRefFor(reader, releaseName)
+	if err != nil {
+		return nil
+	}
 	branch, _ := repo.CurrentBranch() // best-effort; "" (e.g. detached) just disables the live-checkout match for track/release-wt refs
 	return &sliceOracleContext{
 		oracle:        board.NewGitOracle(repo),
 		reader:        reader,
-		releaseRef:    resolveOracleReleaseRef(reader, releaseName),
+		releaseRef:    releaseRef,
 		currentBranch: branch,
 	}
 }
@@ -437,20 +449,6 @@ func sliceBoardInfoFromOracle(sliceID string, ss board.SliceState) SliceBoardInf
 		LastUpdatedAt:      formatLastUpdated(lastUp),
 		VerificationResult: ss.VerificationResult,
 	}
-}
-
-// resolveOracleReleaseRef mirrors cmd/sworn/board.go's release-wt resolution:
-// prefer the release-wt branch (docs or Fumadocs prefix), falling back to
-// HEAD when no release-wt branch has been materialised for this release.
-func resolveOracleReleaseRef(reader tuiOracleReader, releaseName string) string {
-	releaseRef := "refs/heads/release-wt/" + releaseName
-	for _, prefix := range []string{"docs/release", "apps/docs/content/docs/release"} {
-		exists, err := reader.CatFileExists(releaseRef, prefix+"/"+releaseName+"/index.md")
-		if err == nil && exists {
-			return releaseRef
-		}
-	}
-	return "HEAD"
 }
 
 // trackInfoMap converts board.json's on-disk track records into the
