@@ -320,16 +320,38 @@ func (c *OpenAIResponses) postResponses(ctx context.Context, reqBody responsesRe
 // Request building
 // ---------------------------------------------------------------------------
 
+// reasoningCapableModel reports whether an OpenAI model accepts the Responses
+// API `reasoning` parameter. Reasoning models (o1/o3/o4-series, the gpt-5
+// family) do; classic chat models (gpt-4o, gpt-4.1, …) return a 400
+// "Unsupported parameter: 'reasoning.effort'". Matched on the model id,
+// tolerating an optional "provider/" prefix and version/date suffixes.
+// STOPGAP heuristic — superseded by the ADR-0013 provider capability registry
+// (S04), which reports reasoning support per model from provider metadata
+// rather than a hardcoded family list.
+func reasoningCapableModel(model string) bool {
+	m := strings.ToLower(model)
+	if i := strings.LastIndex(m, "/"); i >= 0 {
+		m = m[i+1:]
+	}
+	return strings.HasPrefix(m, "o1") ||
+		strings.HasPrefix(m, "o3") ||
+		strings.HasPrefix(m, "o4") ||
+		strings.HasPrefix(m, "gpt-5")
+}
+
 // buildRequest constructs the /v1/responses request body.
 // Temperature is intentionally omitted (design decision D2).
-// reasoning_effort is included when configured.
+// reasoning_effort is included ONLY for reasoning-capable models (finding H,
+// 2026-07-13 dogfood: sending it to gpt-4o broke the default escalation chain).
 // Built-in web_search is included when UseWebSearch is true.
 func (c *OpenAIResponses) buildRequest(instructions string, input []responsesInput, tools []ToolDef) responsesRequest {
 	req := responsesRequest{
 		Model:        c.Model,
 		Input:        input,
 		Instructions: instructions,
-		Reasoning:    &reasoningConfig{Effort: c.ReasoningEffort},
+	}
+	if reasoningCapableModel(c.Model) {
+		req.Reasoning = &reasoningConfig{Effort: c.ReasoningEffort}
 	}
 
 	// Convert ToolDefs to responses-format tool items.
