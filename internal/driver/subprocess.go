@@ -140,7 +140,20 @@ func spawnClassified(ctx context.Context, binary string, args []string, dir stri
 	if err == nil {
 		return spawnResult{Stdout: stdout, DurationMS: duration}
 	}
-	return spawnResult{DurationMS: duration, Err: classifySpawnError(ctx, binary, timeout, err, nonZeroExitKind)}
+	de := classifySpawnError(ctx, binary, timeout, err, nonZeroExitKind)
+	// `claude -p --output-format json` (and codex) write their error result —
+	// rate limit, max-turns, refusal, model error — to STDOUT with a non-zero
+	// exit, while stderr stays empty. Surfacing only stderr hid the real failure
+	// as "exited with code 1: " (finding N, 2026-07-13 dogfood Rung 1). Attach
+	// the captured stdout so the classifier's caller can see what actually broke.
+	if de != nil && len(stdout) > 0 {
+		s := string(stdout)
+		if len(s) > 2000 {
+			s = s[:2000] + "…(truncated)"
+		}
+		de.Message += "; cli stdout: " + s
+	}
+	return spawnResult{Stdout: stdout, DurationMS: duration, Err: de}
 }
 
 // classifySpawnError maps a subprocess error to a DriverError. The ordering

@@ -46,11 +46,23 @@ func (d *ClaudeDriver) Dispatch(ctx context.Context, in DispatchInput) (Result, 
 		binary = "claude"
 	}
 
-	args := []string{"-p", "--output-format", "json", "--model", in.ModelID}
+	// The registry resolves e.g. "claude-cli/sonnet" to this driver but passes
+	// the full prefixed id through; claude's --model wants the bare model
+	// ("sonnet"), so "claude-cli/sonnet" is an invalid model and exits non-zero
+	// (finding O, 2026-07-13 dogfood Rung 1). Strip the driver prefix.
+	model := in.ModelID
+	if i := strings.Index(model, "/"); i >= 0 {
+		model = model[i+1:]
+	}
+	args := []string{"-p", "--output-format", "json", "--model", model}
 	if in.Role == RoleVerifier {
 		args = append(args, "--no-session-persistence")
 	}
-	args = append(args, buildPrompt(in))
+	// The prompt is a POSITIONAL operand, so it must follow a "--" end-of-options
+	// separator: the verifier role prompt begins with "---" (YAML frontmatter),
+	// which `claude` otherwise parses as an unknown option ("error: unknown
+	// option '---…'") and exits non-zero (finding M, 2026-07-13 dogfood Rung 1).
+	args = append(args, "--", buildPrompt(in))
 
 	sr := spawn(ctx, binary, args, in.WorktreeRoot, in.Timeout)
 	if sr.Err != nil {
@@ -75,7 +87,7 @@ func (d *ClaudeDriver) Dispatch(ctx context.Context, in DispatchInput) (Result, 
 	}
 
 	if in.Role == RoleVerifier {
-		text := strings.TrimSpace(env.Result)
+		text := extractJSONObject(env.Result)
 		if !isJSONObject(text) {
 			return Result{Status: StatusError, ErrKind: ErrKindProtocol, DurationMS: result.DurationMS},
 				fmt.Errorf("claude-subprocess: verifier result did not parse as a JSON object")
@@ -125,12 +137,59 @@ type claudeUsage struct {
 	OutputTokens int64 `json:"output_tokens"`
 }
 
+// parseClaudeEnvelope extracts the result envelope from `claude -p
+// --output-format json` output. Current CLI versions (2.x) emit a JSON ARRAY of
+// stream events — [{"type":"system"…}, {"type":"assistant"…}, {"type":"result",
+// "result":…, "total_cost_usd":…}] — and the envelope is the "type":"result"
+// element. Older CLIs emitted a single result object; both are supported
+// (finding P, 2026-07-13 dogfood Rung 1).
 func parseClaudeEnvelope(raw []byte) (*claudeEnvelope, error) {
+	s := strings.TrimSpace(string(raw))
+	if strings.HasPrefix(s, "[") {
+		var events []json.RawMessage
+		if err := json.Unmarshal([]byte(s), &events); err != nil {
+			return nil, err
+		}
+		var resultRaw json.RawMessage
+		for _, ev := range events {
+			var typed struct {
+				Type string `json:"type"`
+			}
+			if err := json.Unmarshal(ev, &typed); err != nil {
+				continue
+			}
+			if typed.Type == "result" {
+				resultRaw = ev // keep the last result event
+			}
+		}
+		if resultRaw == nil {
+			return nil, fmt.Errorf("claude-subprocess: no \"type\":\"result\" event in output array")
+		}
+		var env claudeEnvelope
+		if err := json.Unmarshal(resultRaw, &env); err != nil {
+			return nil, err
+		}
+		return &env, nil
+	}
 	var env claudeEnvelope
-	if err := json.Unmarshal(raw, &env); err != nil {
+	if err := json.Unmarshal([]byte(s), &env); err != nil {
 		return nil, err
 	}
 	return &env, nil
+}
+
+// extractJSONObject pulls a JSON object out of a model's result text, which may
+// wrap it in a ```json fence and/or trail it with prose (e.g. an insight block)
+// — finding Q, 2026-07-13 dogfood Rung 1. It returns the substring from the
+// first '{' to the last '}'; callers still validate it parses as an object.
+func extractJSONObject(s string) string {
+	s = strings.TrimSpace(s)
+	start := strings.Index(s, "{")
+	end := strings.LastIndex(s, "}")
+	if start >= 0 && end > start {
+		return s[start : end+1]
+	}
+	return s
 }
 
 // costSource classifies the envelope's cost data per design_decision D1
