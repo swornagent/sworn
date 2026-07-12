@@ -157,13 +157,18 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 	defer closeLoop()
 
 	// ── Read release board (board.json via the oracle) ──────────────────
-	// board.ReadBoard reads docs/release/<release>/board.json, lazily migrating
-	// from index.md frontmatter when board.json is absent (legacy releases). This
-	// replaces the former hand-rolled index.md frontmatter parse (extractFrontmatter
-	// + board.ParseTracks), which returned zero tracks for any current-format
-	// release and hard-errored "no tracks found", silently disabling dispatch
-	// (AC-01).
-	br, err := board.ReadBoard(absRoot, releaseName)
+	// The authoritative board lives on the release-wt ref once a release has been
+	// (re)planned in flight: /replan-release commits board.json + specs to
+	// release-wt/<name>, never to the integration branch — only the initial
+	// /plan-release lands on the integration branch (which is also the cold-start
+	// fallback, before release-wt exists). Read the board STRUCTURE from the same
+	// ref the oracle reads slice STATE from (below); reading it from the working
+	// tree instead made a replanned track/slice list invisible to a loop launched
+	// from the integration-branch primary worktree. board.ReadBoard is the
+	// cold-start/legacy fallback (lazily migrates from index.md frontmatter).
+	releaseRef := "release-wt/" + releaseName
+	repo := git.New(absRoot)
+	br, err := resolveReleaseBoard(ctx, repo, absRoot, releaseName, releaseRef)
 	if err != nil {
 		return fmt.Errorf("RunParallel: read release board: %w", err)
 	}
@@ -227,8 +232,6 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 	// succeeds and the router-driven loop is the live path.
 	var ora router.OracleReader
 	if opts.Router == nil {
-		repo := git.New(absRoot)
-		releaseRef := "release-wt/" + releaseName
 		if o, oraErr := board.NewOracleReaderAdapterFromRepo(repo, releaseName, releaseRef); oraErr == nil {
 			ora = o
 			opts.Router = &productionSliceRouter{
@@ -623,6 +626,41 @@ func branchExists(ctx context.Context, dir, branch string) bool {
 	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
 	cmd.Dir = dir
 	return cmd.Run() == nil
+}
+
+// resolveReleaseBoard reads the release board, preferring the release-wt ref
+// (authoritative once a release is (re)planned in flight — /replan-release
+// commits board.json there, never to the integration branch) over the working
+// tree. This aligns the board-STRUCTURE read with the oracle's slice-STATE reads,
+// with /replan-release, and with the reference coach-loop — all of which read the
+// board straight from git refs, so a replanned track/slice list is never missed.
+// It also hardens resume: a loop relaunched after a crash/kill re-reads the
+// current board (and, via the oracle, the current slice states) from the refs.
+//
+// It falls back to the working-tree board (board.ReadBoard) when the release-wt
+// branch does not exist yet (cold start: the initial /plan-release plan is still
+// on the integration branch) or when board.json is not present on the ref. The
+// two board paths mirror the oracle's readTrackInfos (plain + Fumadocs monorepo).
+func resolveReleaseBoard(ctx context.Context, repo *git.Repo, absRoot, release, releaseRef string) (*board.BoardRecord, error) {
+	if branchExists(ctx, absRoot, releaseRef) {
+		for _, boardPath := range []string{
+			"docs/release/" + release + "/board.json",
+			"apps/docs/content/docs/release/" + release + "/board.json",
+		} {
+			raw, err := repo.Show(releaseRef, boardPath)
+			if err != nil {
+				continue
+			}
+			var br board.BoardRecord
+			if err := json.Unmarshal([]byte(raw), &br); err != nil {
+				return nil, fmt.Errorf("parse board.json from %s: %w", releaseRef, err)
+			}
+			return &br, nil
+		}
+	}
+	// Cold start (release-wt absent) or board.json not on the ref: fall back to
+	// the working-tree board (integration branch / initial plan; legacy migration).
+	return board.ReadBoard(absRoot, release)
 }
 
 // ── Invariant-2 enforcement (S06) ─────────────────────────────────────────
