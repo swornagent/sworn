@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/swornagent/sworn/internal/config"
 	"github.com/swornagent/sworn/internal/ears"
 	"github.com/swornagent/sworn/internal/gate"
 	"github.com/swornagent/sworn/internal/lint"
@@ -338,7 +339,7 @@ func RegisterLintTools(s *Server, repoRoot string) {
 			"release":  {"type": "string", "description": "Release name"},
 			"slice_id": {"type": "string", "description": "Slice ID"},
 			"type":     {"type": "string", "description": "Check type: ac-satisfaction, spec-ambiguity, design-review, security-review, semantic-coverage, maintainability-review"},
-			"model":    {"type": "string", "description": "Optional model ID in provider/model format (default: $SWORN_MODEL)"},
+			"model":    {"type": "string", "description": "Optional model ID (provider/model); default: $SWORN_VERIFIER_MODEL or config.json verifier model"},
 			"base":     {"type": "string", "description": "Optional base ref for git diff"}
 		},
 		"required": ["release", "slice_id", "type"]
@@ -369,13 +370,19 @@ func RegisterLintTools(s *Server, repoRoot string) {
 			return nil, fmt.Errorf("slice %q not found in release %q", p.SliceID, p.Release)
 		}
 
-		// Resolve model.
-		mid := p.Model
-		if mid == "" {
-			mid = os.Getenv("SWORN_MODEL")
+		// Resolve model (param > $SWORN_VERIFIER_MODEL > config.json).
+		//
+		// This is the SAME llm-check gate the CLI runs, so it must resolve the model
+		// the same way. It previously read env-only ($SWORN_MODEL) — a different env
+		// var from every sibling — so an agent driving llm-check over MCP got
+		// "no model configured" on a fully-configured setup, exactly as the CLI did.
+		cfg, cfgErr := config.Load()
+		if cfgErr != nil {
+			return nil, fmt.Errorf("loading config: %w", cfgErr)
 		}
-		if mid == "" {
-			return nil, fmt.Errorf("no model configured (set --model or $SWORN_MODEL)")
+		mid, err := config.ResolveVerifierModel(p.Model, cfg)
+		if err != nil {
+			return nil, err
 		}
 
 		verifier, err := model.FromEnv(mid)
