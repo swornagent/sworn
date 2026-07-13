@@ -6,7 +6,7 @@ Sworn issue: [swornagent/sworn#100](https://github.com/swornagent/sworn/issues/1
 
 ## Origin
 
-Dogfooding a fresh Baton install into a downstream project (`fired`, via Codex) surfaced
+Dogfooding a fresh Baton install into a downstream consumer project (via Codex) surfaced
 two independent problems that had been conflated:
 
 1. `sworn board` failed with "path does not exist in HEAD" on a board.json-native
@@ -86,7 +86,7 @@ raised with the Coach in the session wrap-up.
 
 ## Not done, deliberately
 
-**baton-web site copy** (`~/projects/baton-web`) still carries the pre-v0.12.0 framing and
+**baton-web site copy** (the `baton-web` repo) still carries the pre-v0.12.0 framing and
 will restate the "zero-binary by-hand loop" claim. *Why:* out of scope for the two repos
 in flight; the site should follow the merged protocol wording, not lead it. *Tracking:*
 this capture + the session wrap-up. *Acknowledgement:* raised with the Coach.

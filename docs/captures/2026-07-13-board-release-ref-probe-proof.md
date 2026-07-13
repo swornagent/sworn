@@ -92,7 +92,7 @@ hit (`internal/board/oracle.go:431`) is the legacy `index.md` *content* read ins
 ## Reachability artefact
 
 The affordance is the CLI command that failed. Run against the real downstream repo
-(`~/projects/fired`, release `2026-07-11-design-system`, board.json-native):
+(a downstream consumer repo, release `2026-07-11-design-system`, board.json-native):
 
 Before (installed `sworn` v0.1.0):
 
