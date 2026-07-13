@@ -50,6 +50,23 @@ func TestDetectProjectContext(t *testing.T) {
 			want: "a Next.js and TypeScript monorepo",
 		},
 		{
+			// The real shape that bit: a polyglot monorepo whose Go backend sits
+			// in a TOP-LEVEL go/ directory, beside apps/ and packages/. Scanning
+			// only the JS-ecosystem workspace names (apps, packages, services,
+			// libs) reports this as "a Next.js and TypeScript monorepo" while the
+			// backend sits in plain sight at go/go.mod — so a security check on a
+			// diff in go/ would be told it is reading a TypeScript frontend.
+			name: "polyglot monorepo with a top-level go backend",
+			files: []string{
+				"package.json", "turbo.json", "pnpm-workspace.yaml", "tsconfig.base.json",
+				"apps/web/next.config.mjs", "apps/web/tsconfig.json",
+				"packages/auth/tsconfig.json",
+				"go/go.mod",
+				"node_modules/react/package.json", // must not be scanned
+			},
+			want: "a Go, Next.js and TypeScript monorepo",
+		},
+		{
 			name:  "polyglot",
 			files: []string{"go.mod", "tsconfig.json", "pyproject.toml"},
 			want:  "a Go, Python and TypeScript project",

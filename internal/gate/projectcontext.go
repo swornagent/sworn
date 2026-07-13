@@ -41,12 +41,25 @@ var techMarkers = []techMarker{
 	{name: "package.json", tech: "JavaScript"},
 }
 
-// monorepoMarkers signal a workspace root whose real technology markers live one
-// level down, under a workspace directory.
+// monorepoMarkers signal a workspace root whose real technology markers live
+// below it rather than at the root.
 var monorepoMarkers = []string{"turbo.json", "pnpm-workspace.yaml", "lerna.json", "nx.json", "rush.json"}
 
-// workspaceDirs are the conventional places a monorepo keeps its packages.
-var workspaceDirs = []string{"apps", "packages", "services", "libs"}
+// workspaceDirs are the conventional places a monorepo keeps its packages. These
+// get scanned one level deeper (apps/web/next.config.mjs), because the directory
+// itself holds no markers.
+var workspaceDirs = map[string]bool{
+	"apps": true, "packages": true, "services": true, "libs": true, "modules": true,
+}
+
+// skipDirs are never scanned: dependency trees, build output, and agent scratch.
+// Without these, a repo's node_modules would dominate detection and cost a
+// pointless walk.
+var skipDirs = map[string]bool{
+	"node_modules": true, ".git": true, "dist": true, "build": true, "out": true,
+	"vendor": true, "target": true, ".next": true, ".turbo": true, ".claude": true,
+	"coverage": true, "tmp": true, ".venv": true, "venv": true, "__pycache__": true,
+}
 
 // DetectProjectContext returns a one-line description of the project rooted at
 // repoRoot, for substitution into the LLM checks' user payload
@@ -70,8 +83,6 @@ func DetectProjectContext(repoRoot string) string {
 	seen := map[string]bool{}
 	scanDir(repoRoot, seen)
 
-	// A monorepo root often carries only a package.json and a workspace config;
-	// the frameworks that actually describe the project live one level down.
 	isMonorepo := false
 	for _, m := range monorepoMarkers {
 		if _, err := os.Stat(filepath.Join(repoRoot, m)); err == nil {
@@ -79,15 +90,34 @@ func DetectProjectContext(repoRoot string) string {
 			break
 		}
 	}
+
+	// A monorepo root carries only a workspace config; the technologies that
+	// actually describe the project live below it. Scan EVERY child directory,
+	// not just the JS-ecosystem workspace names — a polyglot repo keeps its
+	// backend in a top-level dir named after its language (go/, server/, api/).
+	// Scanning only apps/ and packages/ reported one such repo as "a Next.js and
+	// TypeScript monorepo" while its Go backend sat in plain sight at go/go.mod.
 	if isMonorepo {
-		for _, wd := range workspaceDirs {
-			entries, err := os.ReadDir(filepath.Join(repoRoot, wd))
-			if err != nil {
-				continue
-			}
-			for _, e := range entries {
-				if e.IsDir() {
-					scanDir(filepath.Join(repoRoot, wd, e.Name()), seen)
+		children, err := os.ReadDir(repoRoot)
+		if err == nil {
+			for _, c := range children {
+				if !c.IsDir() || skipDirs[c.Name()] || strings.HasPrefix(c.Name(), ".") {
+					continue
+				}
+				child := filepath.Join(repoRoot, c.Name())
+				scanDir(child, seen)
+
+				// Workspace dirs hold no markers themselves — go one level deeper.
+				if workspaceDirs[c.Name()] {
+					pkgs, err := os.ReadDir(child)
+					if err != nil {
+						continue
+					}
+					for _, p := range pkgs {
+						if p.IsDir() && !skipDirs[p.Name()] {
+							scanDir(filepath.Join(child, p.Name()), seen)
+						}
+					}
 				}
 			}
 		}
