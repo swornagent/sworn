@@ -15,6 +15,7 @@ builds:
     goos:
       - linux
       - darwin
+      - windows
     goarch:
       - amd64
       - arm64
@@ -30,6 +31,10 @@ archives:
       {{- .Version }}_
       {{- .Os }}_
       {{- .Arch }}
+    # Windows users expect .zip, not .tar.gz — and Scoop consumes the zip.
+    format_overrides:
+      - goos: windows
+        formats: [zip]
 
 checksum:
   name_template: checksums.txt
@@ -57,6 +62,33 @@ brews:
     license: MIT
     test: |
       system "#{bin}/sworn version"
+
+# Windows (Scoop). Reuses the SAME PAT as the Homebrew tap — grant that one
+# token write access to BOTH swornagent/homebrew-tap and swornagent/scoop-bucket
+# so there is a single secret to manage. Consumes the windows .zip archive.
+scoops:
+  - name: sworn
+    repository:
+      owner: swornagent
+      name: scoop-bucket
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/swornagent/sworn
+    description: "Provider-neutral adversarial verification for coding agents"
+    license: MIT
+
+# Linux distro packages (.deb / .rpm / .apk). No external repo or token needed —
+# GoReleaser's nfpm is pure Go and simply attaches these to the GitHub release.
+nfpms:
+  - id: sworn
+    package_name: sworn
+    vendor: SwornAgent
+    homepage: https://github.com/swornagent/sworn
+    maintainer: SwornAgent <maintainer@sworn.sh>
+    description: "Provider-neutral adversarial verification for coding agents"
+    license: MIT
+    formats: [deb, rpm, apk]
+    bindir: /usr/bin
+    section: devel
 
 dockers:
   - image_templates:
