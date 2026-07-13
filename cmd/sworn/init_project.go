@@ -167,10 +167,16 @@ func currentUser() string {
 // verifierFromConfig builds a model client from the adopter's configured verifier
 // model. The elicitation runs on THEIR model and THEIR credentials — that is the
 // whole reason it lives in `sworn init`, which already holds both.
+//
+// It resolves through config.ResolveVerifierModel — the same precedence every other
+// model-using command uses ($SWORN_VERIFIER_MODEL > config.json). Reading
+// cfg.Verifier.Model directly would have been a fourth, subtly different resolution
+// path, which is precisely the drift that made `sworn llm-check` unrunnable on a
+// fully-configured setup.
 func verifierFromConfig(cfg config.Config) (model.Verifier, string, error) {
-	id := cfg.Verifier.Model
-	if id == "" {
-		return nil, "", fmt.Errorf("no verifier model configured")
+	id, err := config.ResolveVerifierModel("", cfg)
+	if err != nil {
+		return nil, "", err
 	}
 	v, err := model.FromEnv(id)
 	if err != nil {
