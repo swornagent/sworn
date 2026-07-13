@@ -7,7 +7,7 @@
 - **State**: `planned → in_progress`
 - **Notes**:
   - Set up status.json with state: in_progress and start_commit.
-  - Created track worktree already existed at `/home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T3-leaf-gates`.
+  - Created track worktree already existed at `/home/user/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T3-leaf-gates`.
 
 ### 2026-06-20 02:54 — implement design system types and validation
 

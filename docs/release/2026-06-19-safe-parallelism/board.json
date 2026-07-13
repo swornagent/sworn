@@ -3,7 +3,7 @@
   "release": {
     "name": "2026-06-19-safe-parallelism"
   },
-  "release_worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism",
+  "release_worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism",
   "release_worktree_branch": "release-wt/2026-06-19-safe-parallelism",
   "tracks": [
     {
@@ -14,7 +14,7 @@
         "S02b-concurrent-scheduler",
         "S03-verify-under-concurrency"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T1-concurrency-core",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T1-concurrency-core",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T1-concurrency-core",
       "state": "merged"
     },
@@ -30,7 +30,7 @@
       "depends_on": [
         "T1-concurrency-core"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T2-monitoring",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T2-monitoring",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T2-monitoring",
       "state": "merged"
     },
@@ -49,7 +49,7 @@
         "T1-concurrency-core",
         "T15-cli-registry"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T3-commercial",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T3-commercial",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T3-commercial",
       "state": "merged"
     },
@@ -64,7 +64,7 @@
       "depends_on": [
         "T1-concurrency-core"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T4-mcp",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T4-mcp",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T4-mcp",
       "state": "merged"
     },
@@ -85,7 +85,7 @@
         "T1-concurrency-core",
         "T3-commercial"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T5-providers",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T5-providers",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T5-providers",
       "state": "merged"
     },
@@ -99,7 +99,7 @@
         "T5-providers",
         "T18-cli-polish"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T6-provider-ux",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T6-provider-ux",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T6-provider-ux",
       "state": "merged"
     },
@@ -112,7 +112,7 @@
         "T3-commercial",
         "T4-mcp"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T7-mcp-extensions",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T7-mcp-extensions",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T7-mcp-extensions",
       "state": "merged"
     },
@@ -127,7 +127,7 @@
       "depends_on": [
         "T1-concurrency-core"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T8-memory",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T8-memory",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T8-memory",
       "state": "merged"
     },
@@ -139,7 +139,7 @@
       "depends_on": [
         "T1-concurrency-core"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T9-telemetry",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T9-telemetry",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T9-telemetry",
       "state": "merged"
     },
@@ -166,7 +166,7 @@
         "T18-cli-polish",
         "T19-status-hygiene"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T10-public-readiness",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T10-public-readiness",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T10-public-readiness",
       "state": "merged"
     },
@@ -178,7 +178,7 @@
       "depends_on": [
         "T1-concurrency-core"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T11-infra-safety",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T11-infra-safety",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T11-infra-safety",
       "state": "merged"
     },
@@ -202,7 +202,7 @@
       "depends_on": [
         "T1-concurrency-core"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T12-harness-hardening",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T12-harness-hardening",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T12-harness-hardening",
       "state": "merged"
     },
@@ -217,7 +217,7 @@
         "T12-harness-hardening",
         "T17-orchestration-core"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T13-sworn-role-parity",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T13-sworn-role-parity",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T13-sworn-role-parity",
       "state": "merged"
     },
@@ -234,7 +234,7 @@
         "T3-commercial",
         "T15-cli-registry"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T14-baton-integration",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T14-baton-integration",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T14-baton-integration",
       "state": "merged"
     },
@@ -246,7 +246,7 @@
       "depends_on": [
         "T1-concurrency-core"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T15-cli-registry",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T15-cli-registry",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T15-cli-registry",
       "state": "merged"
     },
@@ -264,7 +264,7 @@
         "T12-harness-hardening",
         "T13-sworn-role-parity"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T16-verdict-ledger",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T16-verdict-ledger",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T16-verdict-ledger",
       "state": "merged"
     },
@@ -280,7 +280,7 @@
         "T12-harness-hardening",
         "T18-cli-polish"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T17-orchestration-core",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T17-orchestration-core",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T17-orchestration-core",
       "state": "merged"
     },
@@ -294,7 +294,7 @@
         "T2-monitoring",
         "T15-cli-registry"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T18-cli-polish",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T18-cli-polish",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T18-cli-polish",
       "state": "merged"
     },
@@ -308,7 +308,7 @@
         "T12-harness-hardening",
         "T15-cli-registry"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T19-status-hygiene",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T19-status-hygiene",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T19-status-hygiene",
       "state": "merged"
     },
@@ -326,7 +326,7 @@
         "T14-baton-integration",
         "T15-cli-registry"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T20-gate-engine",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T20-gate-engine",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T20-gate-engine",
       "state": "merged"
     },
@@ -339,7 +339,7 @@
         "T4-mcp",
         "T20-gate-engine"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T21-mcp-lint",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T21-mcp-lint",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T21-mcp-lint",
       "state": "merged"
     },
@@ -352,7 +352,7 @@
         "T2-monitoring",
         "T20-gate-engine"
       ],
-      "worktree_path": "/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T22-tui-gate",
+      "worktree_path": "/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T22-tui-gate",
       "worktree_branch": "track/2026-06-19-safe-parallelism/T22-tui-gate",
       "state": "merged"
     }

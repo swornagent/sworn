@@ -67,7 +67,7 @@ addressed inline:
    `event = 'acquired'`. Added `TestLiveViewNoMergeActorAfterRelease` which
    inserts `acquired` then `released-done` and asserts no merge row renders.
 3. **Confirm track_id format** — verified in the private coach-loop
-   (`/home/brad/.claude/bin/coach-loop` line 2230: `WORKER_TRACK="merge:$_PENDING_MERGE"`,
+   (`/home/user/.claude/bin/coach-loop` line 2230: `WORKER_TRACK="merge:$_PENDING_MERGE"`,
    line 2260: `WORKER_TRACK="merge:$READY_TRACK"`). Format is `merge:<track-id>`
    (e.g. `merge:T1-engine`). The supervisor's `Acquire()` writes `acquired`
    events and `Release()` writes `released-done`/`released-failed` events to

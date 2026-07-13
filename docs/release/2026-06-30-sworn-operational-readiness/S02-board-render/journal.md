@@ -67,7 +67,7 @@ record the cutover dependency if desired. Cutover execution is a Coach/operator 
 Coach authorised running the cutover. Done + verified (all live):
 - Built canonical `sworn` from release-wt HEAD (bd72c3f, has S05 strict reader);
   confirmed it FAILS closed on the string board (exit 2, "not a canonical {name}
-  object"). Installed globally to /home/brad/go/bin/sworn — byte-identical to the
+  object"). Installed globally to /home/user/go/bin/sworn — byte-identical to the
   verified-strict build; definitively strict (rejects the still-string
   2026-07-01-release-hygiene board, exit 2).
 - Migrated board.json `release` string -> {"name": ..., "integration_branch":

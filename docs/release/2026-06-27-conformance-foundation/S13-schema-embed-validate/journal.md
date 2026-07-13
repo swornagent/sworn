@@ -11,7 +11,7 @@
 
 - State: in_progress → implemented
 - Created `internal/baton/schemas/embed.go` with `//go:embed` directive
-- Vendored canonical `slice-status-v1.json` from `/home/brad/projects/baton/schemas/`
+- Vendored canonical `slice-status-v1.json` from `/home/user/projects/baton/schemas/`
 - Created `internal/baton/validator.go` with `Validate()` function
   - Structural required-fields check per spec Risks option (b)
   - Required: slice_id, release, track, state (non-empty strings)

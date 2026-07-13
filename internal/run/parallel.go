@@ -45,7 +45,7 @@ type ParallelOptions struct {
 	ProjectDir string
 
 	// DocsPrefix is the git-ref path prefix for release boards (default "docs").
-	// On monorepos where docs/ is a symlink (e.g. fired: docs → apps/docs/content/docs),
+	// On monorepos where docs/ is a symlink (e.g. a monorepo: docs → apps/docs/content/docs),
 	// the on-disk readers resolve through the symlink but git-ref readers (the
 	// router and the planned-files reader) cannot, so they need the real prefix
 	// (e.g. "apps/docs/content/docs"). The oracle auto-detects independently.

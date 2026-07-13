@@ -45,7 +45,7 @@ $ ./bin/sworn regress --release 2026-06-19-safe-parallelism
 
 Regression — 2026-06-19-safe-parallelism
 
-Worktree: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism
+Worktree: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism
 
   FAIL  Go tests (exit 1)
   SKIP  TypeScript tests (no package.json in worktree)

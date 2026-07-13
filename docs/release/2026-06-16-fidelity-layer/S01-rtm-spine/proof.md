@@ -69,7 +69,7 @@ sworn lint trace: release name is required
 usage: sworn lint trace <release>
 --- PASS: TestRtmCmd_MissingReleaseArg (0.00s)
 === RUN   TestRtmCmd_NonexistentRelease
-sworn lint trace: release directory not found: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core/cmd/sworn/docs/release/nonexistent-release-xyz
+sworn lint trace: release directory not found: /home/user/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core/cmd/sworn/docs/release/nonexistent-release-xyz
 --- PASS: TestRtmCmd_NonexistentRelease (0.00s)
 === RUN   TestRtmCmd_FullyTracedRelease
 Requirements Traceability Matrix: test-release

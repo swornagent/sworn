@@ -103,7 +103,7 @@ DECISION: PROCEED, Coach Brad; D1 Type-1 recorded in `design_decisions[0].human_
 - AC-06: `NeedIDs`→`CoversNeeds` (`need_ids`→`covers_needs`); writers spec_record.go + task.go.
 - AC-07: schema `verification.result` enum + `inconclusive`. Confirmed safe (merge.go:105 gates on
   STATE; routeImplemented default-routes to verify; no switch passes inconclusive).
-- AC-08: reachability proven NON-DESTRUCTIVELY on the live fired repo (git clean before+after).
+- AC-08: reachability proven NON-DESTRUCTIVELY on the live consumer repo (git clean before+after).
   Board oracle (same `state.Read` path as `RunSlice: read status`): real object slice S05 reads
   `unknown` on old binary → `verified` on new binary. Direct `state.Read` on S01-networth + S05:
   both OK, Extra preserves acknowledged_by/id on real data.
@@ -219,7 +219,7 @@ already-committed artefacts, so re-verification should PASS without new implemen
 
 `/replan-release` ran and the human ratified the verifier's proposed amendment.
 The inbound BLOCKED verdict was correct: AC-08 demanded the `sworn run` LOOP be
-run on the fired repo and "proceed past the D6 failure point", but AC-11 (added
+run on the consumer repo and "proceed past the D6 failure point", but AC-11 (added
 in the same `61df7ac` replan) forbids running the fired loop on the strict-schema
 binary until the #40 / 127-deferral migration lands — and this slice DELIVERS
 that strict binary (AC-10). AC-08 was the stale orphan the strict-direction
@@ -295,7 +295,7 @@ verdict, whose sole blocker (AC-08 ↔ AC-11 contradiction) the `/replan-release
 All six gates passed:
 - **Gate 1 (user-reachable outcome):** AC-08's strict-schema `state.Read` path (exercised by
   `sworn board --release <R>` and a direct read) is wired into user-reachable code (board oracle,
-  RunSlice) and proven on the LIVE fired repo's object-form deferrals — not a fixture.
+  RunSlice) and proven on the LIVE consumer repo's object-form deferrals — not a fixture.
 - **Gate 2 (touchpoints):** 13/16 planned code touchpoints changed; the 3 unchanged
   (`validate_blocked.go`, `router.go`, `route.go`) are explained in `proof.json` divergence
   (consume the oracle `SliceState.Violations`, which stays `[]string`). One unplanned code file,

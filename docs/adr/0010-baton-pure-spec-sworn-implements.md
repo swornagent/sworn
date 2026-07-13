@@ -44,7 +44,7 @@ becomes pure specification.** The line is: **Baton specifies, Sworn implements.*
   what makes Baton standalone.
 - **Sworn (the reference implementation, and the product — open Go binary).**
   Implements every gate plus the oracle, then adds orchestration (`sworn run`) and
-  the hosted/moat hooks on top. Continues to vendor Baton at a semver pin.
+  the hosted-layer hooks on top. Continues to vendor Baton at a semver pin.
 
 **Arm's-length is preserved, and sharpened.** Baton and Sworn stay separate repos.
 The dependency is *soft*: the contract is the schemas + rule semantics, so Sworn is

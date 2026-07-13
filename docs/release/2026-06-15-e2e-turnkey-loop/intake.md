@@ -57,10 +57,10 @@ verifier valuable to someone who has none of the surrounding machinery.
   Acknowledged: 2026-06-15.
 - **Full planner / multi-slice decomposition**: v0.1 takes a single task/spec;
   rich `sworn plan` decomposition is a later release.
-- **Enterprise tier** (private ledger, SSO, outcome billing, sovereignty config,
-  high-touch onboarding): post-MVP; enterprise gets handholding, not self-serve.
+- **Enterprise tier** (private ledger, SSO, sovereignty config,
+  high-touch onboarding): post-MVP; out of scope for the open binary.
 - **GitLab/Bitbucket/Azure adapters, provenance/license gate, web UI, tracker/
-  actor config, telemetry/data-moat**: roadmap.
+  actor config, telemetry/data-differentiator**: roadmap.
 - **Standalone CI-gate (verify-on-top of an existing pipeline)**: a secondary
   adoption mode for teams that already produce specs; not the v0.1 lead.
 

@@ -198,7 +198,7 @@ func TestRunRegress_NoPackageJSON(t *testing.T) {
 	}
 }
 
-// --- unit: Go module in a first-level subdirectory (fired shape) ---
+// --- unit: Go module in a first-level subdirectory (consumer-repo shape) ---
 
 func TestRunRegress_GoModuleInSubdir(t *testing.T) {
 	worktree := t.TempDir()

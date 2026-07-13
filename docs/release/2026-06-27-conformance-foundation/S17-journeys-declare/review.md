@@ -50,7 +50,7 @@ Traceability table in design.md maps all 7 ACs. Spot-check:
 
 **Rule 9 (Design Fidelity):** All three key choices are Type-2 (additive, narrow, easily reversible): struct field, schema property, committed JSON file. No Type-1 architectural choices.
 
-**Rule 10 (Customer Journey Validation):** Design writes `ratified_by: brad@sawyer.net.au` at implementation time. Rule 10 requires "human-reviewed and … ratified." The design assumes Coach acknowledgment of the design TL;DR constitutes the human ratification authorization. This is the standard tool-mediated flow — but the three journey definitions should be explicitly ratified by the Coach in the acknowledgment reply, not just implicitly. See Pin 5.
+**Rule 10 (Customer Journey Validation):** Design writes `ratified_by: maintainer@sworn.sh` at implementation time. Rule 10 requires "human-reviewed and … ratified." The design assumes Coach acknowledgment of the design TL;DR constitutes the human ratification authorization. This is the standard tool-mediated flow — but the three journey definitions should be explicitly ratified by the Coach in the acknowledgment reply, not just implicitly. See Pin 5.
 
 ### Step 3 — Mechanical check
 
@@ -93,7 +93,7 @@ Unlisted risk in design: the committed `.sworn/journeys.json` file is never sche
 
 **[mechanical]** **Pin 4** — AC7 traceability indirect: design maps "AC7 — `sworn merge-release` does not BLOCK" to "`sworn journeys --check` exits 0." These are different commands. S05 (the slice that wires `journey.Check()` into `sworn merge-release`) is `planned` and blocked behind S04 (`design_review`) in T1. `sworn merge-release` as a CLI gate doesn't exist yet. **Directive:** update the AC7 row in the design.md traceability table to read: "AC6 (`journey.Check()` → `CheckPass`) + S05 gate wiring → AC7 satisfied transitively. Until S05 ships, `sworn merge-release` has no journey gate; `sworn journeys --check` exits 0 is the direct reachability artefact for this slice."
 
-**[memory-cited]** **Pin 5** — Human ratification ceremony: Rule 10 requires journeys to be "human-reviewed and … ratified." Design proposes writing `ratified_by: brad@sawyer.net.au` at implementation time (agent writes on human's behalf). This is acceptable IF the Coach explicitly ratifies J1, J2, J3 as part of the design acknowledgment. **Directive:** the suggested acknowledgment reply (below) includes an explicit ratification statement. Implementer may write `ratified_by: brad@sawyer.net.au` and `ratified_at: <today>` only after receiving the Coach's explicit ratification in the acknowledgment.
+**[memory-cited]** **Pin 5** — Human ratification ceremony: Rule 10 requires journeys to be "human-reviewed and … ratified." Design proposes writing `ratified_by: maintainer@sworn.sh` at implementation time (agent writes on human's behalf). This is acceptable IF the Coach explicitly ratifies J1, J2, J3 as part of the design acknowledgment. **Directive:** the suggested acknowledgment reply (below) includes an explicit ratification statement. Implementer may write `ratified_by: maintainer@sworn.sh` and `ratified_at: <today>` only after receiving the Coach's explicit ratification in the acknowledgment.
 
 ---
 

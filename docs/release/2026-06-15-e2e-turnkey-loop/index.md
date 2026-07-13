@@ -2,34 +2,34 @@
 title: Release board — 2026-06-15-e2e-turnkey-loop
 description: sworn v0.1 — native-Go end-to-end loop. Machine-readable track registry + human-readable board.
 release_index: 1
-release_worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop
+release_worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop
 release_worktree_branch: release-wt/2026-06-15-e2e-turnkey-loop
 tracks:
   - id: T1-engine
     slices: [S01-verifier-core, S02-oai-model-client, S03-agentic-tool-loop, S04-embed-baton-prompts]
     depends_on: null
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop-T1-engine
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop-T1-engine
     worktree_branch: track/2026-06-15-e2e-turnkey-loop/T1-engine
     state: merged
     e2e_specs: []
   - id: T2-orchestration
     slices: [S05-state-and-git, S06-implementer, S07-run-loop]
     depends_on: T1-engine
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop-T2-orchestration
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop-T2-orchestration
     worktree_branch: track/2026-06-15-e2e-turnkey-loop/T2-orchestration
     state: merged
     e2e_specs: []
   - id: T3-turnkey-ux
     slices: [S08-init-config, S09-distribution]
     depends_on: T1-engine
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop-T3-turnkey-ux
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop-T3-turnkey-ux
     worktree_branch: track/2026-06-15-e2e-turnkey-loop/T3-turnkey-ux
     state: merged
     e2e_specs: []
   - id: T4-proof
     slices: [S10-benchmark-dogfood]
     depends_on: T2-orchestration
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop-T4-proof
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-15-e2e-turnkey-loop-T4-proof
     worktree_branch: track/2026-06-15-e2e-turnkey-loop/T4-proof
     state: merged
     e2e_specs: []

@@ -56,7 +56,7 @@ tracks:
 `
 	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0o644)
 
-	// The fired S05 blocker text, emitted verbatim end to end (R-03).
+	// The reference S05 blocker text, emitted verbatim end to end (R-03).
 	const blocker = "spec defect: section-ownership model undefined — only /replan-release can clear it"
 
 	runSliceFn := func(_ context.Context, _, specPath, _ string) error {

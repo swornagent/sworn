@@ -17,6 +17,9 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: public-safe scan
+        run: bash scripts/public-safe-scan.sh
+
       - name: gofmt
         run: |
           unformatted=$(gofmt -l .)

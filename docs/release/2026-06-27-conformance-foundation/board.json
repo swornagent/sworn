@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "release": "2026-06-27-conformance-foundation",
-  "release_worktree_path": "/home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation",
+  "release_worktree_path": "/home/user/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation",
   "release_worktree_branch": "release-wt/2026-06-27-conformance-foundation",
   "tracks": [
     {
@@ -17,7 +17,7 @@
         "S27-parallel-dispatch-fix"
       ],
       "depends_on": null,
-      "worktree_path": "/home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T1-orchestration",
+      "worktree_path": "/home/user/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T1-orchestration",
       "worktree_branch": "track/2026-06-27-conformance-foundation/T1-orchestration",
       "state": "merged"
     },
@@ -29,7 +29,7 @@
         "S10-agentic-chat-anthropic"
       ],
       "depends_on": null,
-      "worktree_path": "/home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T2-model-layer",
+      "worktree_path": "/home/user/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T2-model-layer",
       "worktree_branch": "track/2026-06-27-conformance-foundation/T2-model-layer",
       "state": "merged"
     },
@@ -40,7 +40,7 @@
         "S12-first-pass-demote"
       ],
       "depends_on": "T2-model-layer",
-      "worktree_path": "/home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T3-agentic-verifier",
+      "worktree_path": "/home/user/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T3-agentic-verifier",
       "worktree_branch": "track/2026-06-27-conformance-foundation/T3-agentic-verifier",
       "state": "merged"
     },
@@ -54,7 +54,7 @@
         "S17-journeys-declare"
       ],
       "depends_on": null,
-      "worktree_path": "/home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T4-records-as-json",
+      "worktree_path": "/home/user/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T4-records-as-json",
       "worktree_branch": "track/2026-06-27-conformance-foundation/T4-records-as-json",
       "state": "merged"
     },
@@ -67,7 +67,7 @@
         "S21-sworn-run-task"
       ],
       "depends_on": "T6-contract-revendor",
-      "worktree_path": "/home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T5-role-ontology",
+      "worktree_path": "/home/user/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T5-role-ontology",
       "worktree_branch": "track/2026-06-27-conformance-foundation/T5-role-ontology",
       "state": "merged"
     },
@@ -78,7 +78,7 @@
         "S23-version-centralise-doctor"
       ],
       "depends_on": null,
-      "worktree_path": "/home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T6-contract-revendor",
+      "worktree_path": "/home/user/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T6-contract-revendor",
       "worktree_branch": "track/2026-06-27-conformance-foundation/T6-contract-revendor",
       "state": "merged"
     },
@@ -90,7 +90,7 @@
         "S26-eval-projections"
       ],
       "depends_on": "T2-model-layer",
-      "worktree_path": "/home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T7-telemetry-eval",
+      "worktree_path": "/home/user/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T7-telemetry-eval",
       "worktree_branch": "track/2026-06-27-conformance-foundation/T7-telemetry-eval",
       "state": "merged"
     }

@@ -38,7 +38,7 @@ description: 'Align the internal journeys-v1 and attestations-v1 record shapes t
 ## Acceptance checks
 
 - [ ] `JourneyArtefact` struct in `journey.go` has a nested `Ratification` field (not flat `IsRatified bool`, `RatifiedAt string`, `RatifiedBy string` at the top level); `grep -n "IsRatified bool" internal/journey/journey.go` returns zero results (moved to nested struct)
-- [ ] WHEN `JourneyArtefact.Ratify("brad@sawyer.net.au")` is called, the written JSON includes `"ratification": {"by": "brad@sawyer.net.au", "at": "...", "is_ratified": true}` (nested)
+- [ ] WHEN `JourneyArtefact.Ratify("maintainer@sworn.sh")` is called, the written JSON includes `"ratification": {"by": "maintainer@sworn.sh", "at": "...", "is_ratified": true}` (nested)
 - [ ] WHEN a journey is written to disk, the JSON includes `"$schema": "https://baton.sawy3r.net/schemas/journeys-v1.json"`
 - [ ] WHEN an attestation is written to disk, the JSON includes `"$schema": "https://baton.sawy3r.net/schemas/attestations-v1.json"` and the nested `ratification` shape
 - [ ] WHEN validate-on-write fails (e.g. missing required field), the writer returns an error and does NOT write the file

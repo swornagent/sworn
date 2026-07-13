@@ -18,7 +18,7 @@ Verdict: PROCEED
    codex.go, verify.go, inprocess*.go, conformance.go, tests).
 2. **[escalate] Pin 2/3 — D2 schema home + reqverify validate: CONFIRMED.**
    Sworn-local inline emit schemas (spec-blessed; do NOT fork canonical Baton
-   `*-v1.json` under an existing `$id`) — these are sworn-internal gate
+   `*-v1.json` under an existing `$id`) — these are sworn-local gate
    transports, not a cross-tool contract. Validate where it gates: **design
    TL;DR = inline emit-only** (an artefact, not a gate); **reqverify DoR-results
    = inline emit + a lightweight sworn-local validate** (a fail-closed gate, so

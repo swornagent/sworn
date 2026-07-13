@@ -58,7 +58,7 @@ credits); `sworn account buy <N>`.
 
 ## Out of scope
 
-- Billing webhook or Stripe integration (backend-side)
+- Billing webhook or external-billing integration (backend-side)
 - Team credit pools (post-R3)
 - In-TUI credit purchase flow (post-R3)
 - The TUI header credit display integration (S04b reads the cache file directly)

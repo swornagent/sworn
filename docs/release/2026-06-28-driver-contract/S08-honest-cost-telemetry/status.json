@@ -75,7 +75,7 @@
         "Ship every case as \"unknown\" until the inference is verified against a live subscription-authenticated CLI run (chosen) — no positively identified, testable marker in current CLI output distinguishes 'explicit zero because subscription' from 'explicit zero because a genuinely free/no-cost turn or a protocol quirk'; claudeEnvelope carries no field that disambiguates the two."
       ],
       "human_decision": "Brad (Coach) ratified fail-closed: ship \"unknown\" for both the nil and the explicit-zero case — an explicit reported zero is NOT, by itself, a positively identified subscription marker. Do NOT implement the TotalCostUSD==0 -> \"subscription\" inference; only a non-zero TotalCostUSD (CostSource=\"cli\") is positively identified. Record the absent marker as a Rule 2 note in proof.json. (captain-proceed.md@4753eb3 pin 1, restated verbatim in this implementer session's task brief.)",
-      "rationale": "A fabricated or guessed dollar figure — or an under-confident \"subscription\" label that hides real API spend — is precisely the dishonesty sworn#70 (this slice's own rationale) exists to close. An honest \"unknown\" is worth more to the telemetry data-moat than a plausible guess that poisons it.",
+      "rationale": "A fabricated or guessed dollar figure — or an under-confident \"subscription\" label that hides real API spend — is precisely the dishonesty sworn#70 (this slice's own rationale) exists to close. An honest \"unknown\" is worth more to the telemetry data-differentiator than a plausible guess that poisons it.",
       "architecturally_significant": true
     },
     {

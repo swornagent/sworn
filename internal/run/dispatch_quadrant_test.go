@@ -10,7 +10,7 @@ import (
 // TestRunSlice_DispatchesCarryQuadrant proves the #36 → T16 link: when a slice
 // carries an effort_complexity rating, every recorded dispatch is stamped with
 // its quadrant, so the verdict ledger can project model fit per quadrant (the
-// routing function). This is the reachability point for the eval/routing moat.
+// routing function). This is the reachability point for the eval/routing layer.
 func TestRunSlice_DispatchesCarryQuadrant(t *testing.T) {
 	workspaceRoot, specPath, statusPath, _ := setupSliceTestRepo(t)
 

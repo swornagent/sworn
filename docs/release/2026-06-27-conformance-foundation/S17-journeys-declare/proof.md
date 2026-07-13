@@ -34,7 +34,7 @@
 - AC2: parses as valid journeys-v1 → `TestCheck_S17Journeys`: `baton.Validate("journeys-v1", data)` passes (Pin 2)
 - AC3: exactly 3 journeys with correct IDs → `TestCheck_S17Journeys`: asserts `len==3` and all three IDs present
 - AC4: each journey has `no_mock_boundary` → `TestCheck_S17Journeys`: asserts `NoMockBoundary != ""` on each (Pin 3)
-- AC5: `artefact.IsRatified` true → `.sworn/journeys.json`: `ratification.is_ratified: true`, `ratified_by: brad@sawyer.net.au` (Pin 5)
+- AC5: `artefact.IsRatified` true → `.sworn/journeys.json`: `ratification.is_ratified: true`, `ratified_by: maintainer@sworn.sh` (Pin 5)
 - AC6: `journey.Check()` returns CheckPass → `TestCheck_S17Journeys`: asserts `result == CheckPass`
 - AC7: journey gate satisfied (transitive via S05) → AC6 satisfied; S05 wires `Check()` into merge-release gate (Pin 4)
 - `NoMockBoundary` field on `Journey` struct → `internal/journey/journey.go`

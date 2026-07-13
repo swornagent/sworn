@@ -3,7 +3,7 @@
   "slice_id": "S01-embedded-version",
   "release": "2026-07-01-release-hygiene",
   "user_outcome": "Running `sworn version` (or `sworn --version`) reports the real version from a single embedded source for ANY build method — `go build`, `go install`, or `make` — instead of the 0.0.0-dev placeholder, while release builds can still override via ldflags.",
-  "rationale": "Today the version is an ldflags-injected literal with a dev default (cmd/sworn/main.go:27 `var version = \"0.0.0-dev\"`; Makefile `VERSION ?= 0.1.0` -> `-X main.version`). A plain `go build`/`go install` skips ldflags and reports 0.0.0-dev (how the live /home/brad/go/bin/sworn was built). Establish one embedded source: internal/version/version.txt, embedded via go:embed (go:embed cannot reach a repo-root file from cmd/sworn, so the file lives in the version package). main.go uses it as the default and still honours an ldflags `-X main.version` override; the Makefile sources the SAME file so there is no second copy to drift.",
+  "rationale": "Today the version is an ldflags-injected literal with a dev default (cmd/sworn/main.go:27 `var version = \"0.0.0-dev\"`; Makefile `VERSION ?= 0.1.0` -> `-X main.version`). A plain `go build`/`go install` skips ldflags and reports 0.0.0-dev (how the live /home/user/go/bin/sworn was built). Establish one embedded source: internal/version/version.txt, embedded via go:embed (go:embed cannot reach a repo-root file from cmd/sworn, so the file lives in the version package). main.go uses it as the default and still honours an ldflags `-X main.version` override; the Makefile sources the SAME file so there is no second copy to drift.",
   "covers_needs": [
     "N-01"
   ],

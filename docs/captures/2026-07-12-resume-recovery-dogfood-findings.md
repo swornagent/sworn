@@ -110,7 +110,7 @@ the whole catalog the moment the provider publishes it.
 **This is foundational infra, not a bug-fix (scope flag, Rule 2).** A live
 provider-metadata registry has THREE consumers: (1) structured-output gating
 [Finding 2], (2) cost measurement [Finding 3], (3) the model ROUTER + telemetry
-— the eval-derived routing that is sworn's positioned moat. It converges Findings
+— the eval-derived routing that is sworn's positioned differentiator. It converges Findings
 2+3 into ONE spine (capability discovery and price discovery are the same query),
 and the router consumes it later. Decision needed: does `loop-hardening` grow to
 hold this, or is it its own foundation release (`provider-registry`) that
@@ -128,7 +128,7 @@ as 0 (CostSource=unknown)
 inprocess: no pricing entry for model "x-ai/grok-4.5-20260708" — cost recorded as 0
 ```
 Both the requested id and the resolved dated id (`x-ai/grok-4.5-20260708`) miss
-the pricing map. Telemetry records $0 → the model-eval data moat is blind to this
+the pricing map. Telemetry records $0 → the model-eval data differentiator is blind to this
 run's cost.
 
 **Crux (not OpenRouter-specific).** Cost is RE-DERIVED, not measured: `tokens ×
@@ -211,7 +211,7 @@ implementation of capabilities and an override at most — never the constraint.
   `context-window`, `vision`, `reasoning-effort`, `agentic-multiturn`, …). sworn
   already seeds it (`CapStructuredOutput`, `sworn capabilities` per-driver roles);
   this promotes it from driver-level to model-level and to *the* constraint layer.
-- **Moat linkage:** capability-match is the INPUT FILTER to the eval-derived
+- **Differentiator linkage:** capability-match is the INPUT FILTER to the eval-derived
   routing function `f(effort_complexity, cost/velocity) → model` — capability-match
   first (eligible set), then eval/cost-route within it. Capabilities are also the
   audit trail for "why was this model a candidate."
@@ -223,7 +223,7 @@ implementation of capabilities and an override at most — never the constraint.
     Baton because Baton owns the roles. → upstream contribution (feedback loop).
   - **Routing preferences → sworn (`config.json` / routing-preferences):**
     eval-based ranking + cost/velocity + explore/exploit budget. SOFT preference,
-    the engine's moat. **Already seeded in code** — `config.json` carries
+    the engine's differentiator. **Already seeded in code** — `config.json` carries
     `OptimizeMode` (quality/cost/balanced) + `PassRateFloor`, which ARE routing
     preferences, already sworn-side. The split names a seam the code already cut.
   - **Taxonomy is the interop contract → Baton-owned.** Baton policy says a role

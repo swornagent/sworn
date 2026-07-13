@@ -12,7 +12,7 @@ verification.
 
 ## Context
 
-- Workspace used: `/home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer`
+- Workspace used: `/home/user/projects/sworn-worktrees/release-2026-06-16-fidelity-layer`
   (branch `release-wt/2026-06-16-fidelity-layer`, materialised from
   `release/v0.1.0`).
 - Binary version: `sworn 0.0.0-dev`, `baton-protocol v1.0.0`.
@@ -73,7 +73,7 @@ verdicts, but model judgement on a trivial no-op diff is inconsistent. DeepSeek
 returned `PASS` for a diff that touches none of the acceptance checks — this is
 a false positive. Groq consistently found the diff insufficient (FAIL or
 INCONCLUSIVE). This is consistent with the earlier capture
-`internal-docs/captures/2026-06-16-swornagent-verify-prompt-runtime-mismatch.md`
+`private-notes/captures/2026-06-16-swornagent-verify-prompt-runtime-mismatch.md`
 which showed the same path could emit `unparseable_verdict` before the
 stateless-prompt fix; the current build has the fix (`prompt.VerifyStateless()`
 + tolerant parser), but model reliability on thin/no-op diffs remains weak.
@@ -81,7 +81,7 @@ stateless-prompt fix; the current build has the fix (`prompt.VerifyStateless()`
 ### 3. Baton first-pass script (`release-verify.sh`)
 
 ```text
-$ bash /home/brad/.claude/bin/release-verify.sh S01-rtm-spine 2026-06-16-fidelity-layer
+$ bash /home/user/.claude/bin/release-verify.sh S01-rtm-spine 2026-06-16-fidelity-layer
 exit=1 (FIRST-PASS FAIL)
 ```
 
@@ -98,7 +98,7 @@ Failures:
 ### 4. Release board status
 
 ```text
-$ bash /home/brad/.claude/bin/release-board-status.sh --verbose
+$ bash /home/user/.claude/bin/release-board-status.sh --verbose
 fidelity-layer: 0 / 15 verified — BLOCKED (15 remaining)
 T1-fidelity-core: in_progress, 0/6
 T2/T3/T4: planned, blocked on T1
@@ -146,7 +146,7 @@ C. **Run the entire T1-fidelity-core track** serially: S01 → S02 → S04 → S
 
 ## Evidence artefacts
 
-- Binary build: `/home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer/bin/sworn`
+- Binary build: `/home/user/projects/sworn-worktrees/release-2026-06-16-fidelity-layer/bin/sworn`
 - Synthetic diff: `/tmp/s01-rtm.diff`
 - Verify outputs: `/tmp/groq-{1,2,3}.json`, `/tmp/deepseek-{1,2,3}.json`
 - This capture: `docs/captures/2026-06-17-fidelity-layer-hand-run.md`

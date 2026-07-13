@@ -15,7 +15,7 @@ Verdict: PROCEED — dispositions below
    from undocumented behaviour is "unknown". A fabricated dollar figure
    never appears on either path; token counts are recorded whenever the
    CLI exposes them. An honest "unknown" is worth more to the telemetry
-   data-moat than a plausible guess that poisons it. Record D1/D2 in
+   data-differentiator than a plausible guess that poisons it. Record D1/D2 in
    status.json.design_decisions as Type-1, decided by the Coach in this
    acknowledgement. If no positively identifiable subscription marker
    exists in the current CLI output, ship everything as "unknown" and

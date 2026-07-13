@@ -33,7 +33,7 @@
     },
     {
       "id": "AC-04",
-      "text": "When `sworn board --release 2026-06-28-yearSnapshot-schema-cleanup` is run against the live fired repo with the S05 binary, it SHALL read the real coach OBJECT-form board (canonical — the strict reader accepts it; coach boards were always object). Reachability artefact: the board output.",
+      "text": "When `sworn board --release 2026-06-28-yearSnapshot-schema-cleanup` is run against the live consumer repo with the S05 binary, it SHALL read the real coach OBJECT-form board (canonical — the strict reader accepts it; coach boards were always object). Reachability artefact: the board output.",
       "ears_pattern": "event-driven"
     },
     {

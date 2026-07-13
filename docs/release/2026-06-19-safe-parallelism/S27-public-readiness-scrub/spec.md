@@ -1,6 +1,6 @@
 ---
 title: 'S27-public-readiness-scrub — make the sworn repo + binary public-safe before launch'
-description: 'Final launch-gate slice. Generalise the embedded role prompts (keep Captain/Coach; strip coach-loop / --auto-ack / approved-ack / S21-stall / project-memory; re-express loop coupling via sworn run; operationally intact). Scrub dogfood provenance comments, the fired/GetFired product-name leak, and coach-loop references across tracked source, docs, and release artefacts. Runs last, after every other track merges.'
+description: 'Final launch-gate slice. Generalise the embedded role prompts (keep Captain/Coach; strip coach-loop / --auto-ack / approved-ack / S21-stall / project-memory; re-express loop coupling via sworn run; operationally intact). Scrub dogfood provenance comments, the fired/the consumer project product-name leak, and coach-loop references across tracked source, docs, and release artefacts. Runs last, after every other track merges.'
 ---
 
 # Slice: `S27-public-readiness-scrub`
@@ -11,7 +11,7 @@ The `sworn` repository (and the binary it ships) is **public-safe**: a developer
 who clones the public repo or reads the embedded prompts finds no references to the
 private orchestration tooling (`coach-loop`, `--auto-ack`, `approved-ack`/`decline`
 filesystem signals), no cryptic dogfood provenance comments (`// (Captain pin N)`),
-no internal project-memory citations, and no other product's name (`fired`/GetFired).
+no internal project-memory citations, and no other product's name (`fired`/the consumer project).
 The distinctive sport-aligned role vocabulary (**Captain / Coach / Planner /
 Implementer / Verifier**) is retained, and the autonomous loop (`sworn run`) still
 works — the generalisation is public-safety, not a behaviour change.
@@ -59,12 +59,12 @@ list): `cmd/sworn/main.go`, `cmd/sworn/bench.go`, `internal/agent/tools.go`,
 `internal/config/init.go`, `internal/config/config_test.go`,
 `internal/implement/implement.go`, `internal/model/oai.go`.
 
-### 3. Scrub the fired/GetFired product-name leak
+### 3. Scrub the fired/the consumer project product-name leak
 
 `docs/release/2026-06-19-safe-parallelism/S03-verify-under-concurrency/spec.md`
-references `fired`/GetFired. S03 is in the already-merged T1 track — this is a
+references `fired`/the consumer project. S03 is in the already-merged T1 track — this is a
 public-readiness **doc fix** (not a re-scope of S03's contract). Re-grep the whole tree
-for `fired` / `GetFired` / `firedau` and genericise every tracked hit.
+for `fired` / `the consumer project` / `consumer` and genericise every tracked hit.
 
 ### 4. Audit & genericise coach-loop references in release artefacts + ADR
 
@@ -101,7 +101,7 @@ mentions that are generic and harmless may stay; the **tool/script names** (`coa
   remaining hit in `docs/release/**` historical artefacts is explicitly listed in
   `proof.md` with a why-it-is-harmless note
 - [ ] `git grep -nE '\(Captain [Pp]in|\(Coach [Pp]in'` returns zero hits
-- [ ] `git grep -niE 'getfired|firedau|[^a-z]fired[^a-z]'` returns zero hits in tracked files
+- [ ] `git grep -niE 'the consumer repo|consumer|[^a-z]fired[^a-z]'` returns zero hits in tracked files
 - [ ] `git grep -nE '\[\[project_|\[\[feedback_'` returns zero hits in `internal/prompt/`
 - [ ] embedded `captain.md` retains the words "Captain" and "Coach" (role vocab kept)
 - [ ] `go build ./...` passes

@@ -450,7 +450,7 @@ timeout/retry budget; complexity is a strong prior for a **Rule 9 Type-1** check
 ```
 (A `low/med/high` 3-point scale is a natural v2; start with the 2×2.)
 
-**Eval tie-in:** the **planned → implementer-confirmed → actual** delta is moat
+**Eval tie-in:** the **planned → implementer-confirmed → actual** delta is differentiator
 data — calibrate planner estimates over time, and correlate complexity with
 per-model fit and $/verified-slice (feeds model-routing / FinOps). Tracked: **#36**.
 
@@ -499,7 +499,7 @@ decision-log, local eval, hosted eval.
 no network), **opt-in** phone-home (config flag + account token, off by default),
 **content-free allowlist** (metrics only; ids hashed; never source/spec/proof/raw-paths),
 batched + async + idempotent, validated on emit and on ingest. Start-simple ingest:
-HTTPS function → managed Postgres. (Data-tier/moat strategy: internal.)
+HTTPS function → managed Postgres. (Data-tier/differentiator strategy: internal.)
 
 **Schema sketch:**
 ```json
@@ -527,8 +527,8 @@ HTTPS function → managed Postgres. (Data-tier/moat strategy: internal.)
   }
 }
 ```
-No source, spec, proof, or raw file names — ever. Full transport + moat architecture:
-`sworn-internal/docs/strategy/2026-06-30-telemetry-eval-transport.md` (draft ADR-0012
+No source, spec, proof, or raw file names — ever. Full transport + differentiator architecture:
+a private telemetry-transport design doc (draft ADR-0012
 extracts the public-safe transport stance when built). Closes the FT-7 gaps (duration,
 real cost, token split, model-id bug, cross-run durability).
 
@@ -551,7 +551,7 @@ table, BLOCKED/coach `reason` strings). Two stand out against ADR-0009: the
 **interpreted verdict is the live prose-scrape** (`parseInterpretResult`), and
 **route/triage are lossy** — targets, `model_idx`, `attempt`, and cost are dropped at
 the flat `(role,action,reason)` boundary, so the decision-log shows *what* but cannot
-reconstruct *why* (which model slot, which attempt, what it cost — the eval moat).
+reconstruct *why* (which model slot, which attempt, what it cost — the eval differentiator).
 
 **Recommendation: not one flat record, not a sprawling family — one envelope with a
 discriminated `kind`, plus a separate verdict schema.**
@@ -722,7 +722,7 @@ For the coach layer: ntfy-button → `coach-response-v1` JSON → router un-bloc
 3. **`review-v1`** + **`design-v1`** (delete `parsePins`/`hasSixSections`; kills #34).
 4. **`orchestrator-event-v1`** envelope — fold `decisions`/`pages`/reason-strings
    into one `RecordEvent`; wire `cost_usd`/`model_idx`/`attempt` through (the eval
-   moat — capture telemetry from day 1).
+   differentiator — capture telemetry from day 1).
 5. **`coach-call-v1` + `coach-response-v1`** + the ntfy adapter as the first
    channel echo.
 6. **Reconcile the existing record schemas' field drift** (§2 findings) and

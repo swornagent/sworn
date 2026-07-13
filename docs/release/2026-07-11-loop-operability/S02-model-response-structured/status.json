@@ -40,7 +40,7 @@
       "architecturally_significant": true
     },
     {
-      "choice": "D2: sworn-local inline emit schemas (lenient strict-mode subset, title-named) for design-tldr and reqverify-results, NOT canonical Baton *-v1.json (these are sworn-internal gate transports, not a cross-tool contract; spec-blessed). Validate where it gates: design TL;DR = inline emit-only; reqverify DoR-results = inline emit + a lightweight sworn-local validate before trusting the structured output.",
+      "choice": "D2: sworn-local inline emit schemas (lenient strict-mode subset, title-named) for design-tldr and reqverify-results, NOT canonical Baton *-v1.json (these are sworn-local gate transports, not a cross-tool contract; spec-blessed). Validate where it gates: design TL;DR = inline emit-only; reqverify DoR-results = inline emit + a lightweight sworn-local validate before trusting the structured output.",
       "stake_class": "Type-2",
       "human_decision": "CONFIRMED by Brad (Coach), 'Go with all four' (2026-07-12, captain-proceed.md pin 2). reqverify is a fail-closed gate so its structured output is validated (matches verifier-verdict-v1's emit+validate parity and 'exit 0 only on PASS'); the design TL;DR is an artefact, so inline-emit-only.",
       "rationale": "Additive and reversible; schema home is spec-blessed. The reqverify validate arm carried a Coach confirmation but is not architecturally significant.",

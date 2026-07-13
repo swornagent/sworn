@@ -2,8 +2,8 @@ package run
 
 // S14-blocked-terminal — loop-state-machine tests (AC-01, AC-02, AC-03).
 //
-// These replay the fired S05-section-owned-saves failure with synthetic
-// verdict objects (no fired checkout required): the harness dispatched THREE
+// These replay the reference S05-section-owned-saves failure with synthetic
+// verdict objects (no consumer checkout required): the harness dispatched THREE
 // implementer sessions against an unchanged blocker because it had no typed
 // blocked signal. The tests assert BLOCKED is terminal-for-the-lane at both
 // consumption legs, consumes no retry budget, and that FAIL keeps its
@@ -36,7 +36,7 @@ func (d *fakeDriver) implementerPayloads() []string {
 	return out
 }
 
-// TestLoopBlockedImplementerTerminal is the AC-01 proof — the fired S05
+// TestLoopBlockedImplementerTerminal is the AC-01 proof — the reference S05
 // replay. Dispatch 1 returns a typed blocked signal (Status==StatusBlocked +
 // BlockedReason); the runner must make no further implementer dispatches for
 // the slice, never dispatch the verifier, and emit the blocker text VERBATIM
@@ -44,7 +44,7 @@ func (d *fakeDriver) implementerPayloads() []string {
 func TestLoopBlockedImplementerTerminal(t *testing.T) {
 	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
 
-	// The fired S05 blocker, verbatim-shaped: a spec defect only a replan can
+	// The reference S05 blocker, verbatim-shaped: a spec defect only a replan can
 	// clear. Retries REMAIN (two models in the escalation list) — a blocked
 	// lane with budget left is still terminal.
 	const blocker = "spec defect: the saves contract references a section-ownership model the spec never defines — not clearable by re-dispatch"

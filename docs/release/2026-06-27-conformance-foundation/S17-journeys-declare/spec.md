@@ -19,7 +19,7 @@ description: 'Declare and human-ratify three Rule-10 critical journeys (keyless-
   - **J1 — keyless-full-loop**: user type = Coach (keyless subscription); steps = plan via /plan-release → `sworn run --release <name>` (full implement+verify loop) → merge; no-mock boundary = `entitlement/credits` (the subscription/credits check cannot be mocked — must cross the real entitlement boundary); reachability_test_path = TBD (manual attestation at ship)
   - **J2 — loop-verifier-negative**: user type = Coach; steps = submit a deliberately thin implemented slice to the loop verifier → assert the verifier does NOT advance to `verified` (the negative path); no-mock boundary = `loop-verifier` (real agentic verifier must run, not the stateless judge); reachability_test_path = TBD
   - **J3 — ship-a-release (surface-seam)**: user type = Coach; steps = /plan-release (Driver 1) → `sworn run` (Driver 3) → observe via TUI/MCP (Driver 2) → escalate and resolve a BLOCKED slice via /implement-slice → merge and /mark-shipped (Driver 1); no-mock boundary = `real-board/real-gates` (all three drivers operate against a real board.json and real gate suite); reachability_test_path = TBD
-- Ratify the artefact with `ratified_by: "brad@sawyer.net.au"` and `ratified_at: <date>`
+- Ratify the artefact with `ratified_by: "maintainer@sworn.sh"` and `ratified_at: <date>`
 - The ratified `.sworn/journeys.json` is committed to the integration branch (not a track branch — it is a cross-release artefact)
 - `journey.Check()` returns true after this slice is implemented
 

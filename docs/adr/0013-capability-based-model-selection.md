@@ -94,7 +94,7 @@ sworn  : models → provided capabilities           (registry maps provider meta
    ↓
          eligibility = requirements ∩ provided     (HARD gate; sworn enforces Baton's contract)
    ↓
-sworn  : route by eval + cost/velocity + explore   (routing-preferences — the moat)
+sworn  : route by eval + cost/velocity + explore   (routing-preferences — sworn's differentiated layer)
    ↓
          dispatch
 ```
@@ -110,7 +110,7 @@ frozen benchmark-max snapshot.
   no release. Kills the static-table treadmill.
 - Findings 2 and 3 stop being one-off patches and become the *first two consumers*
   of one registry (capability discovery and price discovery are the same query).
-- The router (sworn's positioned moat — eval-derived auditable routing) gets its
+- The router (sworn's differentiated layer — eval-derived auditable routing) gets its
   input filter: capability-match first, eval/cost route within. Capabilities are
   the audit trail for "why was this model even a candidate."
 - Model pins survive only as an explicit override/escape hatch — legible, not the

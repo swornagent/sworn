@@ -50,14 +50,14 @@ $ go build ./...
   memory config: using defaults (no config file found)
 
   Harnesses:
-    Claude Code:    ✗ not found /home/brad/.claude/projects/-tmp-sworn-empty-test/memory
+    Claude Code:    ✗ not found /home/user/.claude/projects/-tmp-sworn-empty-test/memory
 
   Embedding:
     provider:  voyage
     model:     voyage-code-3
     api key:   VOYAGE_API_KEY (<not set>)
 
-  Index path: /home/brad/.sworn/memory.db
+  Index path: /home/user/.sworn/memory.db
   ```
 
   **With project config:**
@@ -67,7 +67,7 @@ $ go build ./...
     loaded: /tmp/sworn-proof-test/.sworn/memory.json
 
   Harnesses:
-    Claude Code:    ✗ not found /home/brad/.claude/projects/-tmp-sworn-proof-test/memory
+    Claude Code:    ✗ not found /home/user/.claude/projects/-tmp-sworn-proof-test/memory
     Cursor:         ✗ not found /tmp/sworn-proof-test/.cursorrules
     Windsurf:       ✗ not found /tmp/sworn-proof-test/.windsurfrules
 

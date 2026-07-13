@@ -141,7 +141,7 @@ sworn specquality: release name is required
 usage: sworn specquality <release> [--threshold <0.0-1.0>]
 --- PASS: TestSpecqualityCmd_MissingReleaseArg (0.00s)
 === RUN   TestSpecqualityCmd_NonexistentRelease
-sworn specquality: release directory not found: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T3-leaf-gates/cmd/sworn/docs/release/nonexistent-release-xyz
+sworn specquality: release directory not found: /home/user/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T3-leaf-gates/cmd/sworn/docs/release/nonexistent-release-xyz
 --- PASS: TestSpecqualityCmd_NonexistentRelease (0.00s)
 === RUN   TestSpecqualityCmd_Pass
 Spec-quality first-pass report

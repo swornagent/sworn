@@ -46,8 +46,8 @@ Violations:
    Evidence: `grep TrackPaused internal/run/parallel_test.go` → empty.
 4. Gate 7 (AC-6) — `RunParallel` returns `nil` for paused tracks; only `failedTracks > 0` triggers a non-zero exit. Spec AC-6 requires "a paused/failed track yields non-zero." Proof marks AC-6 as satisfied ("[x]") but acknowledges "nil on Pass/Paused" — directly contradicting the spec's requirement.
    Evidence: `parallel.go:175–178` — `case scheduler.TrackPaused:` logs and appends to `pausedTracks`; function returns `nil` at line 192.
-5. Gate 7 (AC-7) — No cooperative pause signal mechanism exists. No `sworn pause <release>` command in `cmd/sworn/`. No channel or signal in `runTrackRouter` that an external actor can trigger. The referenced decision doc (`internal-docs/decisions/2026-06-24-sworn-orchestration-surfaces-and-subscription-drivers.md`) does not exist.
-   Evidence: `ls internal-docs/decisions/` → directory not found; `grep -r pause cmd/sworn/` → empty.
+5. Gate 7 (AC-7) — No cooperative pause signal mechanism exists. No `sworn pause <release>` command in `cmd/sworn/`. No channel or signal in `runTrackRouter` that an external actor can trigger. The referenced decision doc (`docs/decisions/2026-06-24-sworn-orchestration-surfaces-and-subscription-drivers.md`) does not exist.
+   Evidence: `ls private-notes/decisions/` → directory not found; `grep -r pause cmd/sworn/` → empty.
 
 Required to address:
 1. Add a `Router scheduler.SliceRouter` field to `run.ParallelOptions`; inside `RunParallel`, when `Router` is nil, auto-construct a production `SliceRouter` wrapping `internal/router.Route`; pass it via `WorkerOptions.Router`. This makes the router-driven loop the live production path.
@@ -68,7 +68,7 @@ State transition: `failed_verification` → `implemented`.
 
 - **V4 (AC-6) fix — paused track yields non-zero**: `RunParallel` now returns error when `pausedTracks` is non-empty: `"RunParallel: N track(s) paused (human decision required): <ids>"`.
 
-- **V5 (AC-7) fix — cooperative pause engine**: New `internal/scheduler/pause.go` with `PauseEngine` holding per-release closed channels; `PauseRelease`/`ResumeRelease`/`PauseCh` exported. Added `PauseCh <-chan struct{}` field to `WorkerOptions`. Pause check (non-blocking select) fires at top of each `runTrackRouter` iteration after any in-flight dispatch completes. `DefaultPauseEngine` is the process-global shared by CLI, TUI, and MCP via engine layer. Decision doc created at `internal-docs/decisions/2026-06-24-sworn-orchestration-surfaces-and-subscription-drivers.md`.
+- **V5 (AC-7) fix — cooperative pause engine**: New `internal/scheduler/pause.go` with `PauseEngine` holding per-release closed channels; `PauseRelease`/`ResumeRelease`/`PauseCh` exported. Added `PauseCh <-chan struct{}` field to `WorkerOptions`. Pause check (non-blocking select) fires at top of each `runTrackRouter` iteration after any in-flight dispatch completes. `DefaultPauseEngine` is the process-global shared by CLI, TUI, and MCP via engine layer. Decision doc created at `docs/decisions/2026-06-24-sworn-orchestration-surfaces-and-subscription-drivers.md`.
 
 - **V2/V3 (Gate 2/3) fix — parallel_test.go extended**: Added `TestRunParallel_TrackPaused` with `pausingRouter` fake that returns `coach_decision`; asserts `RunParallel` returns error containing "paused" and "T1". Covers the `case scheduler.TrackPaused:` path through `RunParallel`.
 

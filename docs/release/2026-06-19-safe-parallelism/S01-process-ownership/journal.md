@@ -3,7 +3,7 @@
 ## Session 1 — 2026-06-26
 
 **Role**: Implementer
-**Worktree**: `/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T1-concurrency-core`
+**Worktree**: `/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T1-concurrency-core`
 
 ### Decisions
 
@@ -122,7 +122,7 @@ After the planner ratifies the amendment, the implementer must also correct the 
 ## Session 2 — 2026-06-26
 
 **Role**: Implementer (re-entry)
-**Worktree**: `/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T1-concurrency-core`
+**Worktree**: `/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T1-concurrency-core`
 
 ### DoR gate status
 

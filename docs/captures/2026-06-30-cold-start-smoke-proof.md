@@ -52,7 +52,7 @@ at the missing provider key — the expected config boundary, not an engine faul
 ## Not delivered (tracked, Rule 2)
 - A *completed* slice through a real model — gated on a provider key in the
   environment (`SWORN_<PROVIDER>_API_KEY`). This is the fired-run prerequisite,
-  not an engine gap. Acknowledged: the dogfood target is the fired repo's queued
+  not an engine gap. Acknowledged: the dogfood target is the consumer repo's queued
   release.
 - T16 capture remainder (durable cross-run store, token enrichment for
   impl/captain, real cost) — tracked #26 / driver-contract S07.

@@ -289,7 +289,7 @@ func TestCheckBoundaryMocks_DeclaredDbMockPasses(t *testing.T) {
 }
 
 // AC-05: a mock declared via a real object-form deferral (the boundary+mock
-// keyword living in the Why field, fired's actual shape) is recognised as
+// keyword living in the Why field, a real consumer's actual shape) is recognised as
 // declared — the matcher reads the structured Item/Why fields, not a flat string.
 func TestCheckBoundaryMocks_DeclaredViaObjectWhyPasses(t *testing.T) {
 	diff := "+func TestDB(t *testing.T) {\n+	db := mockDB\n+}"

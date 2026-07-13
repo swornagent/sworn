@@ -171,7 +171,7 @@ are cut. Trace gate binds every N-NN to at least one slice's `covers_needs`.)
   burns dispatches against a blocker only a replan can clear. FAIL keeps existing
   retry semantics unchanged. Evidence: fired's 2026-07-10 one-CP run dispatched
   three implementers against an unchanged spec defect (two wasted full-context
-  dispatches). Origin packet: fired repo,
+  dispatches). Origin packet: consumer repo,
   `apps/docs/content/docs/captures/2026-07-10-sworn-blocked-terminal-slice-packet.md`.
   DELIVERED by S14-blocked-terminal (verified+merged); this is W1 of the
   2026-07-11 contract-edge handoff (sworn#88, closed 2026-07-11).

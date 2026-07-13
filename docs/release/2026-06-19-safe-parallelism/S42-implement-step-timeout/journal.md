@@ -21,7 +21,7 @@
 
 ### S44 forward-compatibility (Pin 3)
 
-`context.DeadlineExceeded` is a sworn-internal signal, not a `model.Error{Kind}`. When S44 adds Kind-based routing (`internal/run/slice.go`), `DeadlineExceeded` falls through to the existing "escalate to next model" path — the error does not carry a Kind, so S44's Kind switch won't match it.
+`context.DeadlineExceeded` is a sworn-local signal, not a `model.Error{Kind}`. When S44 adds Kind-based routing (`internal/run/slice.go`), `DeadlineExceeded` falls through to the existing "escalate to next model" path — the error does not carry a Kind, so S44's Kind switch won't match it.
 
 ### Trade-offs
 

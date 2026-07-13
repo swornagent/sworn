@@ -1,7 +1,7 @@
 package state
 
 // D6 record reconciliation (S01-d6-record-reconciliation). These tests pin the
-// object-form carriers that the live fired dogfood run crashed on: open_deferrals
+// object-form carriers that a live consumer dogfood run crashed on: open_deferrals
 // and verification.violations as arrays of OBJECTS, not []string. They cover
 // AC-01 (read object form), AC-02 (loss-free byte-stable round trip), AC-03
 // (typed structs preserving unknown keys), AC-07 (inconclusive result enum), and
@@ -18,7 +18,7 @@ import (
 	"github.com/swornagent/sworn/internal/baton"
 )
 
-// firedShapedStatus carries fired's real PRE-MIGRATION object shapes verbatim:
+// consumerShapedStatus carries a consumer's real PRE-MIGRATION object shapes verbatim:
 // open_deferrals items as {id, description, why, tracking, acknowledged_by} (note:
 // no top-level "item" and no acknowledgement — real coach data carries who
 // (acknowledged_by) but not yet the canonical plain-text acknowledgement, which
@@ -27,7 +27,7 @@ import (
 // it does not schema-validate); it is the exact shape that produced "cannot
 // unmarshal object into Go struct field ... of type string" on the old []string
 // carriers. The strict canonical schema is exercised separately (AC-10[B]).
-const firedShapedStatus = `{
+const consumerShapedStatus = `{
   "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
   "slice_id": "S01-networth-hierarchy-remap",
   "release": "2026-06-28-yearSnapshot-schema-cleanup",
@@ -59,9 +59,9 @@ func writeTemp(t *testing.T, name, content string) string {
 	return p
 }
 
-// AC-01: state.Read unmarshals fired's real object shape without error.
+// AC-01: state.Read unmarshals a consumer's real object shape without error.
 func TestRead_ObjectFormDeferralsAndViolations_NoUnmarshalError(t *testing.T) {
-	p := writeTemp(t, "status.json", firedShapedStatus)
+	p := writeTemp(t, "status.json", consumerShapedStatus)
 	st, err := Read(p)
 	if err != nil {
 		t.Fatalf("AC-01: Read of object-form status must not error, got: %v", err)
@@ -77,7 +77,7 @@ func TestRead_ObjectFormDeferralsAndViolations_NoUnmarshalError(t *testing.T) {
 // AC-03: the carriers are typed structs whose named fields are populated and
 // whose unknown keys (id, description, acknowledged_by) survive in Extra.
 func TestRead_TypedStructsPreserveUnknownKeys(t *testing.T) {
-	p := writeTemp(t, "status.json", firedShapedStatus)
+	p := writeTemp(t, "status.json", consumerShapedStatus)
 	st, err := Read(p)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
@@ -113,7 +113,7 @@ func TestRead_TypedStructsPreserveUnknownKeys(t *testing.T) {
 // unknown keys included) and is byte-stable on the write side — repeated writes
 // produce identical bytes, so a no-op transition never churns the drift gate.
 func TestRoundTrip_PreservesFieldsAndIsByteStable(t *testing.T) {
-	src := writeTemp(t, "status.json", firedShapedStatus)
+	src := writeTemp(t, "status.json", consumerShapedStatus)
 	st1, err := Read(src)
 	if err != nil {
 		t.Fatalf("Read 1: %v", err)
@@ -151,7 +151,7 @@ func TestRoundTrip_PreservesFieldsAndIsByteStable(t *testing.T) {
 // acknowledged_by, plus optional acknowledged_at) must Write without error,
 // validate against the schema, and read back with every canonical field populated
 // in its named struct field (not lost to Extra). This is the post-migration shape
-// the fired loop runs on once the AC-11 cutover has added acknowledgement.
+// the consumer loop runs on once the AC-11 cutover has added acknowledgement.
 func TestWrite_CanonicalDeferral_RoundTrips(t *testing.T) {
 	st := &Status{
 		SliceID: "S01-x",

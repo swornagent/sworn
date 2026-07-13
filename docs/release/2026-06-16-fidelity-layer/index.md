@@ -1,31 +1,31 @@
 ---
 title: '2026-06-16-fidelity-layer — release board'
 description: 'Fidelity layer (Baton Rules 8/9/10): requirements fidelity, design fidelity, and customer-journey / system-acceptance validation, as protocol + native sworn enforcement. 16 slices across 4 tracks.'
-release_worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer
+release_worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-16-fidelity-layer
 release_worktree_branch: release-wt/2026-06-16-fidelity-layer
 tracks:
   - id: T1-fidelity-core
     slices: [S01-rtm-spine, S02-ears-ac-format, S04-requirements-verify-gate, S05-requirements-validate-gate, S07-design-fit-gate, S11-journey-elicitation, S16-lint-rename]
     depends_on: null
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core
     worktree_branch: track/2026-06-16-fidelity-layer/T1-fidelity-core
     state: merged
   - id: T2-delivery-cutover
     slices: [S06-definition-of-ready, S10-no-mock-boundary, S12-journey-impact-analysis, S13-walkthrough-attestation, S14-journey-regression-suite]
     depends_on: T1-fidelity-core
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T2-delivery-cutover
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T2-delivery-cutover
     worktree_branch: track/2026-06-16-fidelity-layer/T2-delivery-cutover
     state: merged
   - id: T3-leaf-gates
     slices: [S03-spec-quality-firstpass, S08-design-system-input, S09-design-conformance-audit]
     depends_on: [T1-fidelity-core, T2-delivery-cutover, T4-evidence-surface]
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T3-leaf-gates
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T3-leaf-gates
     worktree_branch: track/2026-06-16-fidelity-layer/T3-leaf-gates
     state: merged
   - id: T4-evidence-surface
     slices: [S15-sworn-top-evidence]
     depends_on: T1-fidelity-core
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T4-evidence-surface
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T4-evidence-surface
     worktree_branch: track/2026-06-16-fidelity-layer/T4-evidence-surface
     state: merged
 ---

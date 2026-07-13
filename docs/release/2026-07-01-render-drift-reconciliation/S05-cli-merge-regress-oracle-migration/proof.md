@@ -211,7 +211,7 @@ release-verify.sh
 
 FIRST-PASS FAIL
 Address the failures above before invoking the LLM verifier session.
-See /home/brad/.claude/baton/adversarial-verification.md for the verifier protocol.
+See /home/user/.claude/baton/adversarial-verification.md for the verifier protocol.
 ```
 
 The single failure (`spec.md missing`) is the known `feedback_releaseverify_specmd_false_fail`

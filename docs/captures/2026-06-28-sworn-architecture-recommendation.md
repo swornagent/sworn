@@ -328,7 +328,7 @@ from "crashes the release on any hiccup" into "banks progress and stops safely."
    the in-process provider matrix as the default. This is where elegance, resilience, and memory all
    improve together.
 3. **Measure (continuous):** #8. Stand up the telemetry so the next eval produces real
-   verified-slices-per-dollar numbers per model (the data moat).
+   verified-slices-per-dollar numbers per model (the data differentiator).
 
 ---
 

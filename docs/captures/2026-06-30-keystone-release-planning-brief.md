@@ -66,7 +66,7 @@ name → delete that role's scraper → baton-web publish at `$id` → re-vendor
   resolve; the rest 404). Prerequisite for model-A portability; lands before cutover.
   (The Go engine validates against *embedded* bytes, so this gates portability, not the
   engine slices.)
-- **PT2 telemetry-event-v1** (§3.8) + transport (sworn-internal telemetry-eval-transport doc).
+- **PT2 telemetry-event-v1** (§3.8) + transport (a private design doc).
 
 ## Carry-ins for the Planner conversation
 **Rule 8 (requirements fidelity):** ACs in EARS; each emit slice needs the negative AC —

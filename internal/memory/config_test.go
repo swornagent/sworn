@@ -17,7 +17,7 @@ func TestEncodeProjectPath(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"/home/brad/projects/sworn", "-home-brad-projects-sworn"},
+		{"/home/user/projects/sworn", "-home-user-projects-sworn"},
 		{"/home/user/my-project", "-home-user-my-project"},
 		{"/", ""}, // root becomes empty after TrimRight
 		{"/var/www/app", "-var-www-app"},

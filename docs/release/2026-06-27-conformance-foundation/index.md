@@ -1,49 +1,49 @@
 ---
 title: 'Release board — 2026-06-27-conformance-foundation'
 description: 'Closes Sworn''s structural Baton-conformance gaps: records-as-JSON, orchestration completeness, agentic verifier, model-layer service, role ontology, contract/re-vendor, telemetry/eval from day 1.'
-release_worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation
+release_worktree_path: /home/user/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation
 release_worktree_branch: release-wt/2026-06-27-conformance-foundation
 tracks:
   - id: T1-orchestration
     slices: [S01-llm-interpreter, S02-orchestrator-decision-log, S03-crash-recovery, S04-scheduler-dependent-track, S05-merge-gate-oracle, S06-invariant2-enforcement, S07-pause-resume-committed, S27-parallel-dispatch-fix]
     depends_on: [T2-model-layer, T3-agentic-verifier]
-    worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T1-orchestration
+    worktree_path: /home/user/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T1-orchestration
     worktree_branch: track/2026-06-27-conformance-foundation/T1-orchestration
     state: merged
   - id: T2-model-layer
     slices: [S08-capability-descriptor, S09-error-kind-consumption, S10-agentic-chat-anthropic]
     depends_on: null
-    worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T2-model-layer
+    worktree_path: /home/user/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T2-model-layer
     worktree_branch: track/2026-06-27-conformance-foundation/T2-model-layer
     state: merged
   - id: T3-agentic-verifier
     slices: [S11-agentic-verifier-dispatch, S12-first-pass-demote]
     depends_on: T2-model-layer
-    worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T3-agentic-verifier
+    worktree_path: /home/user/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T3-agentic-verifier
     worktree_branch: track/2026-06-27-conformance-foundation/T3-agentic-verifier
     state: merged
   - id: T4-records-as-json
     slices: [S13-schema-embed-validate, S14-board-json, S15-spec-proof-records, S16-journeys-attestations-align, S17-journeys-declare]
     depends_on: null
-    worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T4-records-as-json
+    worktree_path: /home/user/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T4-records-as-json
     worktree_branch: track/2026-06-27-conformance-foundation/T4-records-as-json
     state: merged
   - id: T5-role-ontology
     slices: [S18-orchestrator-formalized, S19-captain-split, S20-role-revendor, S21-sworn-run-task]
     depends_on: T6-contract-revendor
-    worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T5-role-ontology
+    worktree_path: /home/user/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T5-role-ontology
     worktree_branch: track/2026-06-27-conformance-foundation/T5-role-ontology
     state: merged
   - id: T6-contract-revendor
     slices: [S22-pin-bump, S23-version-centralise-doctor]
     depends_on: null
-    worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T6-contract-revendor
+    worktree_path: /home/user/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T6-contract-revendor
     worktree_branch: track/2026-06-27-conformance-foundation/T6-contract-revendor
     state: merged
   - id: T7-telemetry-eval
     slices: [S24-dispatch-enrich, S25-event-store-durable, S26-eval-projections]
     depends_on: [T2-model-layer, T3-agentic-verifier]
-    worktree_path: /home/brad/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T7-telemetry-eval
+    worktree_path: /home/user/sworn-eval-coach-deepseek-worktrees/release-2026-06-27-conformance-foundation-T7-telemetry-eval
     worktree_branch: track/2026-06-27-conformance-foundation/T7-telemetry-eval
     state: merged
 ---
@@ -169,7 +169,7 @@ tracks:
 
 ## Decisions deferred (Rule 2)
 
-- **Hosted/SaaS layer**: attestation + credits. Why: private-repo scope. Tracking: sworn-internal. Acknowledged: Brad, 2026-06-27.
+- **Hosted/SaaS layer**: attestation + credits. Why: private-repo scope. Tracking: private repo. Acknowledged: Brad, 2026-06-27.
 - **Codex exec driver**: GH #19. Why: codex environment complexity; not a conformance gap. Acknowledged: Brad, 2026-06-27.
 - **sworn init test-capability detection**: proof-visibility theme. Why: FT-4 lays the foundation; extend sworn init in a dedicated release. Tracking: project memory project_proof_visibility_theme. Acknowledged: Brad, 2026-06-27.
 - **S01-llm-interpreter verify-side wiring descoped**: the agentic-verifier migration (S11/S12) made the verifier return a typed verdict (BLOCKED on unparseable), superseding S01's cheap-interpreter rescue on the verify path. Why: S01 was built against the stateless judge; with the agentic verifier the two overlap, and S01 is not integrated anywhere yet. The 2026-06-28 S04 forward-merge takes the agentic `lastVerdict = result` base and drops S01's stateless `verify.Run` + interpreter block from `internal/run/slice.go`. Tracking: re-home S01 onto the agentic/implementer path in a future slice if it earns its place (option A). Acknowledged: Brad, 2026-06-28.

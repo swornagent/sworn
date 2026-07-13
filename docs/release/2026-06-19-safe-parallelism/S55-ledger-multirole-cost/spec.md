@@ -23,7 +23,7 @@ into the slice's `status.json`. `ledger.Project` reads it into the `v:2` Record.
 ## Background
 
 The cost signal already exists and is **not** gated on the S06b commercial billing engine
-(Stripe/subscriptions are post-R3; this is local token-pricing):
+(external-billing/subscriptions are post-R3; this is local token-pricing):
 
 - `internal/model/client.go`: `Verify(...) (text string, costUSD float64, err error)` — every
   dispatch already returns its USD cost.

@@ -11,7 +11,7 @@ description: Implementation log for S53-ledger-cli — sworn ledger sync + repor
 
 - **State**: planned → in_progress
 - **Notes**:
-  - Track worktree at `/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T16-verdict-ledger`
+  - Track worktree at `/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T16-verdict-ledger`
   - Predecessor S52 is verified; dependency gate clear.
 
 ### 2026-07-22 — implementation complete

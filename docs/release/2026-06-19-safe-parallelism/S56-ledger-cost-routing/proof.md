@@ -7,7 +7,7 @@ Adds the cost objective to routing: pick the cheapest model whose measured pass-
 ## Files changed
 
 ```
-$ git -C /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T16-verdict-ledger diff --name-only 44bbe155582fc9a45d7110872ae097de18edd658..cca683e
+$ git -C /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T16-verdict-ledger diff --name-only 44bbe155582fc9a45d7110872ae097de18edd658..cca683e
 cmd/sworn/ledger.go
 cmd/sworn/run.go
 internal/config/config.go

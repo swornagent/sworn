@@ -83,7 +83,7 @@ applicable check passed.
 
 Fresh-context verifier session (Rule 7), no inherited implementer context.
 Discovered inside track worktree at
-`/home/brad/projects/sworn-worktrees/release-2026-07-01-render-drift-reconciliation-T1-drift-guard`
+`/home/user/projects/sworn-worktrees/release-2026-07-01-render-drift-reconciliation-T1-drift-guard`
 via the release board oracle (`sworn board --release
 2026-07-01-render-drift-reconciliation --json`) + `git worktree list`; zero
 drift against `release-wt/2026-07-01-render-drift-reconciliation` at time of
@@ -177,7 +177,7 @@ prompt in this session.
 
 Fresh-context verifier session (Rule 7), no inherited implementer context.
 Discovered inside track worktree at
-`/home/brad/projects/sworn-worktrees/release-2026-07-01-render-drift-reconciliation-T1-drift-guard`
+`/home/user/projects/sworn-worktrees/release-2026-07-01-render-drift-reconciliation-T1-drift-guard`
 via the release board oracle (`sworn board --release
 2026-07-01-render-drift-reconciliation --json`) + `git worktree list`; worktree
 clean, zero drift against `release-wt/2026-07-01-render-drift-reconciliation`

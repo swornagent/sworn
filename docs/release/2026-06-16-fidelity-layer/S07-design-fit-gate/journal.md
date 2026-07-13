@@ -12,7 +12,7 @@ description: Implementation log for the design-fit gate (Rule 9).
 - **State**: planned → in_progress
 - **Notes**:
   - Started S07-design-fit-gate implementation on track T1-fidelity-core.
-  - Worktree path: `/home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core`
+  - Worktree path: `/home/user/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core`
   - Branch: `track/2026-06-16-fidelity-layer/T1-fidelity-core`
 
 ### 2026-06-19 12:30 — implementation complete

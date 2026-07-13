@@ -6,7 +6,7 @@
 # code half — the read-path normalise shim removal + the ears_pattern reader
 # repoint — lives in the sworn binary, S12-record-migration).
 #
-# Consumer repos with incomplete spec-v1-era releases (e.g. ~/projects/fired) run
+# Consumer repos with incomplete spec-v1-era releases (e.g. ~/projects/<consumer-repo>) run
 # the identical tool:  scripts/migrate-records.sh <path-to>/docs/release
 #
 # SCOPE: only releases that carry at least one spec.json (spec-v1-era) are

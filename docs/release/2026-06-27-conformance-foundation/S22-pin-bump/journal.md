@@ -8,7 +8,7 @@
 
 - **Source map paths**: Replaced all `claude/baton/` → `baton/` across `internal/baton/source.go`, `vendor.go`, `diff.go`, `vendor_test.go`, `fetch_test.go`, and `cmd/sworn/baton_test.go`. The spec's planned_files listed `source_map.json` but the actual file is `source.go` (noted in spec Pre-requisites).
 
-- **Upstream digest**: Computed from the actual baton repo commit `42eb48b` via `git cat-file commit 42eb48b | sha256sum` → `7b91a0450d6d5b577e1f8638ba39919ecca86d880d2ec328467f7a031831715f`. The baton repo at `/home/brad/projects/baton` was available locally.
+- **Upstream digest**: Computed from the actual baton repo commit `42eb48b` via `git cat-file commit 42eb48b | sha256sum` → `7b91a0450d6d5b577e1f8638ba39919ecca86d880d2ec328467f7a031831715f`. The baton repo at `/home/user/projects/baton` was available locally.
 
 - **Test fixture directory**: Renamed `internal/baton/testdata/fixture/claude/baton/` → `internal/baton/testdata/fixture/baton/` to match the source-path prefix change. git detected these as renames (100% similarity).
 

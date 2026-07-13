@@ -11,7 +11,7 @@ description: Implementation log for the requirements-quality verification gate.
 
 - **State**: `planned → in_progress`
 - **Notes**:
-  - Track T1-fidelity-core worktree materialised at `/home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core`.
+  - Track T1-fidelity-core worktree materialised at `/home/user/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core`.
   - S01-rtm-spine and S02-ears-ac-format already `verified` — sequential ordering satisfied.
   - Designed and implemented `internal/reqverify/` package (core logic + test).
   - Created `internal/prompt/requirements-verifier.md` — fresh-context prompt for grading ACs against ISO/IEC/IEEE 29148 quality characteristics.

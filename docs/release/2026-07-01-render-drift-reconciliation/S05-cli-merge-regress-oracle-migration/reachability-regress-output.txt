@@ -24,7 +24,7 @@ with "release_worktree_path not set in index.md frontmatter" (exit 2).
 $ ./bin/sworn regress --release 2026-06-30-sworn-operational-readiness
 Regression — 2026-06-30-sworn-operational-readiness
 
-Worktree: /home/brad/projects/sworn-worktrees/release-2026-06-30-sworn-operational-readiness
+Worktree: /home/user/projects/sworn-worktrees/release-2026-06-30-sworn-operational-readiness
 
   PASS  Go tests
   SKIP  TypeScript tests (no package.json in worktree)

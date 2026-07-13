@@ -12,7 +12,7 @@ description: Implementation log. Append-only. Verifier reads this as context; ve
 - **State**: `planned → in_progress`
 - **Notes**:
   - Slice S10-no-mock-boundary assigned to track T2-delivery-cutover
-  - Track worktree exists at `/home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T2-delivery-cutover` (was checked out to `main` — fixed to track branch)
+  - Track worktree exists at `/home/user/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T2-delivery-cutover` (was checked out to `main` — fixed to track branch)
   - Prior slice S06-definition-of-ready is `verified` — sequential gate clear
   - status.json updated: state → in_progress, start_commit → 4d866d66
   - Implementation plan:

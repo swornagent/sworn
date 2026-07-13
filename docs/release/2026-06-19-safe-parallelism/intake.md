@@ -20,8 +20,7 @@ layer is the prerequisite (spec quality before parallelism); R3's concurrency is
 because R2 hardened the specs the agents implement against.
 
 Also in this release: the commercial on-ramp (`sworn account`) — opt-in cloud registration
-and managed model proxy, the SwornAgent Credits tier. Binary stays MIT; the managed service
-is the revenue surface.
+and a managed model proxy. Binary stays MIT.
 
 "Shipped" looks like: `sworn run --parallel` builds four tracks concurrently, all verified
 with independent fresh-context sessions, proof bundles for each, `sworn top` shows live
@@ -36,11 +35,8 @@ or a paged notification that something needs their input.
 - **Integration branch**: `release/v0.1.0`
 - **Prerequisite release**: `2026-06-16-fidelity-layer` (R2) — must be fully merged before
   R3 implementation begins. R3 planning can proceed in parallel with R2 implementation.
-- **ROADMAP reference**: `internal-docs/ROADMAP.md` §R3 safe-parallelism
-- **Related decisions**: `internal-docs/decisions/2026-06-14-swornagent-INDEX.md`
-- **Market research**: planning session 2026-06-19 (conversation context); OpenCode Zen
-  ($25M ARR proof of managed proxy model); Jules (Google async agent) pricing precedent;
-  Devin Agent Compute Unit billing precedent.
+- **ROADMAP reference**: `private-notes/ROADMAP.md` §R3 safe-parallelism
+- **Related decisions**: `private-notes/decisions/2026-06-14-swornagent-INDEX.md`
 
 ## Users and their gestures
 
@@ -50,9 +46,9 @@ or a paged notification that something needs their input.
   in `sworn top`.
 - **SwornAgent cloud user (opted into sworn account)**: routes model calls through the
   SwornAgent proxy instead of direct API keys. No keys to manage in CI. Sees credit balance
-  in `sworn top`. Converts from BYO-key free tier when the convenience is worth $20/month.
+  in `sworn top`.
 - **OSS / BYO-key user**: uses MIT binary forever, manages own API keys, no credits. Full
-  sworn functionality; no managed service. The word-of-mouth / star-growth segment.
+  sworn functionality; no managed service.
 - **Team user (future)**: shared credit pool, PR attestation badge, team release board.
   Scoped post-R3; not in this release.
 
@@ -94,55 +90,6 @@ or a paged notification that something needs their input.
   needs human input, the human is notified (webhook/email/Slack) rather than the terminal
   sitting blocked. Scope TBD.
 
-## Market context (captured from planning session)
-
-The async coding agent market is real and crowded in 2026: Jules (Google), Cursor Background
-Agents, Codex Cloud, Copilot Coding Agent, Devin all do "assign a task, walk away, PR
-arrives." None of them do verified delivery. Their quality bar is "passes CI tests."
-
-SwornAgent's differentiation is the fresh-context adversarial verify gate: a DIFFERENT model,
-in a DIFFERENT context, tries to fail the implementation against the spec before anything
-merges. No current competitor does this. The whitespace is verified async delivery, not just
-async delivery.
-
-Pricing precedents from the market:
-- OpenCode Zen: $25M ARR from managed model proxy on top of a free MIT binary — direct
-  proof of concept for the credits/proxy model.
-- Jules: free (15 tasks/day) / $20/mo / $125/mo — validates Pro tier price point.
-- Devin: ACU-based metered billing at $20-$500/mo — validates outcome-unit billing.
-
-Cursor acquired by SpaceX at $60B (June 2026) — validates the AI coding tool market at
-scale; also signals Cursor becoming a corporate tool, widening the solo-dev / async gap.
-
-## Commercialisation decisions (captured during planning session 2026-06-19)
-
-**Model**: Free (MIT binary, BYO API keys, unlimited) + SwornAgent Credits (managed model
-proxy, no keys needed, pay per E2E slice attempt).
-
-```
-Free (BYO key):    unlimited, MIT binary, manage own model API costs
-Credits:           $10 = 10 credits; 1 credit = 1 E2E slice attempt
-                   SwornAgent manages model calls, rate limiting, provider fallback
-Pro ($20-25/mo):   100 credits/month + async notifications (Slack/email/webhook)
-                   + release dashboard
-Team (~$12/dev/mo): shared credit pool, PR attestation badge, team board
-Enterprise:        volume + compliance ledger + SSO + SLAs + audit log
-```
-
-**Billing unit**: per E2E slice attempt (not per verified slice, to protect margin on
-complex slices with retries). Optionally offer "verified or refunded" credit guarantee
-as a marketing claim.
-
-**OSS line**: `sworn` binary = MIT (trust + distribution). SwornAgent cloud service =
-proprietary. Compliance ledger = proprietary (value IS the trust chain, not the code).
-Baton protocol = MIT (neutral standard, stays separate from SwornAgent).
-
-**Why not BSL**: fork risk (OpenTofu precedent), enterprise procurement blocks non-OSI
-licenses, enforcement requires infrastructure we don't have.
-
-**Positioning vs. competitors**: Jules/Devin/Cursor Background deliver async. SwornAgent
-delivers async AND verified. Same PR, different quality bar. This gap is unoccupied.
-
 ## Constraints and non-negotiables
 
 - **Zero runtime dependencies** (from R1 ADR-0001): stdlib + net/http + encoding/json
@@ -153,22 +100,22 @@ delivers async AND verified. Same PR, different quality bar. This gap is unoccup
 - **Process isolation**: concurrent implementer workers must not share a worktree,
   git index, or state file. Each track has its own worktree (from track mode).
 - **Public-safe**: no business-confidential content in the repo. Commercialisation
-  strategy lives in `internal-docs/` (private). R3 specs describe capabilities only.
+  strategy lives in `private-notes/` (private). R3 specs describe capabilities only.
 - **R2 prerequisite**: R3 implementation does not begin until R2 is fully merged.
   Planning is fine; worktree materialisation waits for R2.
 
 ## Adjacent / out of scope (Rule 2 deferrals)
 
 - **Full SaaS billing infrastructure**: the `sworn account` slice creates the
-  registration on-ramp and credit proxy; the full billing engine (Stripe integration,
-  subscription management, dunning) is post-R3. **Why**: too large for this release;
+  registration on-ramp and credit proxy; the full billing engine is post-R3.
+  **Why**: too large for this release;
   R3 credits can start as manually-granted beta credits. **Tracking**: launch-gate
   workstream. **Acknowledged**: 2026-06-19 planning session.
 - **GitHub Action / Marketplace integration**: the managed Action wrapping `sworn` with
-  billing is the next monetisation surface after `sworn account`, but is post-R3.
+  billing is a later hosted surface after `sworn account`, but is post-R3.
   **Why**: Action scope is its own release. **Tracking**: TBD issue. **Acknowledged**:
   2026-06-19.
-- **Compliance ledger**: signed attestation records, CA infrastructure. Post-launch moat.
+- **Compliance ledger**: signed attestation records, CA infrastructure. Post-launch differentiator.
   **Why**: requires legal + infrastructure investment. **Tracking**: post-launch roadmap.
   **Acknowledged**: strategy docs 2026-06-14.
 - **Team collaboration features** (shared boards, PR badges): post-R3. The Team tier
@@ -362,29 +309,6 @@ delivers async AND verified. Same PR, different quality bar. This gap is unoccup
 - **Scope note**: per-slice `status.json` files stay git-backed (unchanged). SQLite
   is the runtime coordination layer only; the durable audit trail is git.
 
-### 2026-06-19 — Commercialisation model: credits + managed proxy (not BSL, not SaaS-first)
-
-- **Context**: MIT binary + no payment surface at launch. User questioned how to create
-  a payment obligation. BSL rejected (fork risk, enterprise procurement, enforcement
-  cost). Full SaaS tier rejected (privacy objection from target customers, infrastructure
-  scope, timing). Professional services rejected (doesn't scale).
-- **Decision**: OpenCode Zen model — free MIT binary forever (BYO key), revenue from
-  SwornAgent Credits (managed model proxy, $10/10 credits). Pro/Team/Enterprise tiers
-  above that. Compliance ledger = future ACV.
-- **Why**: OpenCode Zen at $25M ARR is direct proof. Jules/Devin validate price points.
-  Binary being MIT is the distribution mechanism; proxy/ledger is the revenue surface.
-
-### 2026-06-19 — Market positioning: verified async delivery vs. async delivery
-
-- **Context**: Jules, Cursor Background Agents, Devin, Codex Cloud all do async delivery
-  (assign task, walk away, PR arrives). Quality bar = CI tests pass.
-- **Decision**: SwornAgent's positioning is the layer above: async AND verified. Fresh-
-  context adversarial review against a written spec, fail-closed. This gap is unoccupied
-  in the current market.
-- **Why**: research confirmed no competitor does spec-first adversarial verification.
-  "Did the code pass tests?" vs. "Did a different model try to prove the code wrong
-  against the spec and fail?" are fundamentally different quality bars.
-
 ## Product vision (captured 2026-06-19)
 
 **sworn is the engine. Any AI is the interface.**
@@ -417,13 +341,6 @@ the user's configured AI tool pre-loaded with spec + violations + diff. The AI c
 `sworn.get_slice_context()` (full context via MCP), proposes a fix, calls
 `sworn.rerun_slice()`. The AI interface (Claude Code, Codex, etc.) handles the
 conversational layer; sworn handles the execution layer.
-
-**Why this works commercially:**
-Every AI coding tool becomes a potential distribution channel. Claude Code users see
-sworn as a native extension. Codex users see sworn as a plugin (Codex shipped 90+ MCP
-plugins in Apr 2026). Cursor/Windsurf users get the same. sworn doesn't compete with
-these tools -- it completes them by adding verified autonomous execution and a
-shared state surface they all lack.
 
 ## Open questions (must resolve before dependent slices move to in_progress)
 

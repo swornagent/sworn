@@ -13,8 +13,8 @@ description: Implementation log for one slice. Append-only. Visible to verifier 
 
 - **State**: `planned -> in_progress`
 - **Notes**:
-  - Materialised track worktree at `/home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core` for track `T1-fidelity-core`.
-  - First `/implement-slice` in the release and track. Release worktree already existed at `/home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer`.
+  - Materialised track worktree at `/home/user/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core` for track `T1-fidelity-core`.
+  - First `/implement-slice` in the release and track. Release worktree already existed at `/home/user/projects/sworn-worktrees/release-2026-06-16-fidelity-layer`.
   - Recorded worktree_path in index.md frontmatter on release-wt branch.
 
 ### `2026-06-17 20:30` — implementation

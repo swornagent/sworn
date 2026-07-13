@@ -8,7 +8,7 @@ Solid design with 3 apply-inline pins:
 
 2. **Populate `design_decisions` in `status.json` before transitioning to `in_progress`.** Mirror the 5 §2 decisions using S41's structure (choice, stake_class "Type-2", options, rationale). `sworn designfit` reads this field; absent = trivially-passes, which defeats the gate.
 
-3. **S44 DeadlineExceeded interaction — add one-line ack.** In design.md §2.D2 or §4, note that `context.DeadlineExceeded` is a sworn-internal signal (not a `model.Error{Kind}`), so S44's Kind-based routing will leave it on the existing "escalate to next model" path. This forward-documents the seam for the S44 implementer.
+3. **S44 DeadlineExceeded interaction — add one-line ack.** In design.md §2.D2 or §4, note that `context.DeadlineExceeded` is a sworn-local signal (not a `model.Error{Kind}`), so S44's Kind-based routing will leave it on the existing "escalate to next model" path. This forward-documents the seam for the S44 implementer.
 
 Flags (not pins): (a) Strike "matches RetryCap: -1 pattern" from Decision 3 — use "Go zero-value-as-unset (`time.Duration`)." (b) S44 shares `slice.go` and `slice_test.go` — second-lander confines hunks; no action for S42.
 

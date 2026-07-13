@@ -47,7 +47,7 @@ None.
 
 ### 2026-06-25T21:01:50Z — PASS
 
-**Verifier:** fresh-context session, artefact-only inputs, worktree at `/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T16-verdict-ledger`.
+**Verifier:** fresh-context session, artefact-only inputs, worktree at `/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T16-verdict-ledger`.
 
 **Gate results:**
 - Gate 1 (User-reachable outcome exists): ✅ — `sworn ledger recommend --optimize cost`, `sworn ledger report`, `config.ResolveImplementerModel` all wired

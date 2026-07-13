@@ -1,6 +1,6 @@
 ---
 title: 'Fired dogfood — first sworn run on a real coach-loop release'
-description: 'sworn run --parallel on the live fired repo (release 2026-06-28-yearSnapshot-schema-cleanup, deepseek-v4-pro). The engine cold-started a real release end-to-end; three findings, two fixed live, the third is the D6 type-drift migration.'
+description: 'sworn run --parallel on the live consumer repo (release 2026-06-28-yearSnapshot-schema-cleanup, deepseek-v4-pro). The engine cold-started a real release end-to-end; three findings, two fixed live, the third is the D6 type-drift migration.'
 date: 2026-06-30
 ---
 
@@ -8,7 +8,7 @@ date: 2026-06-30
 
 ## Scope
 First run of the open `sworn` engine against a real, coach-loop-produced release
-in the live fired repo (`~/projects/fired`, release `2026-06-28-yearSnapshot-
+in the live consumer repo (`~/projects/fired`, release `2026-06-28-yearSnapshot-
 schema-cleanup`, 3 slices / 1 track, model `deepseek/deepseek-v4-pro`). Goal: prove
 the engine runs the loop on real-world content, not synthetic smoke.
 

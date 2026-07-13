@@ -138,7 +138,7 @@ Minimal IAM policy:
 ## First-pass script output
 
 ```
-$ /home/brad/.claude/bin/release-verify.sh S13-bedrock-driver 2026-06-19-safe-parallelism
+$ /home/user/.claude/bin/release-verify.sh S13-bedrock-driver 2026-06-19-safe-parallelism
 
 == Slice artefacts ==
   PASS  slice folder exists

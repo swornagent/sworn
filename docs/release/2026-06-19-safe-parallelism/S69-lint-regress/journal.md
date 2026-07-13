@@ -32,7 +32,7 @@ description: 'Session notes for implementing sworn regress.'
 ## Verifier verdicts received
 
 - **PASS** (2026-07-18T12:00:00Z)
-  - Verifier: fresh-context session, track worktree at `/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T20-gate-engine`
+  - Verifier: fresh-context session, track worktree at `/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T20-gate-engine`
   - All 6 gates passed. No violations.
   - Gate 1 ✅ user-reachable — `sworn regress` wired through command registry
   - Gate 2 ✅ planned touchpoints match (commands.go divergence documented)

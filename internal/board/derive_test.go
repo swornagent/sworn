@@ -16,8 +16,8 @@ func TestTrackAndReleaseBranchDerivation(t *testing.T) {
 // that repo, not in a shared ~/projects/<repo>-worktrees tree (eval finding 3).
 // Ported from the deleted scheduler defaultTrackWorktreePath test.
 func TestTrackWorktreePathFrom(t *testing.T) {
-	got := TrackWorktreePathFrom("/home/x/projects/fired-worktrees/release-r1", "r1", "T1")
-	if want := "/home/x/projects/fired-worktrees/release-r1-T1"; got != want {
+	got := TrackWorktreePathFrom("/home/x/projects/consumer-worktrees/release-r1", "r1", "T1")
+	if want := "/home/x/projects/consumer-worktrees/release-r1-T1"; got != want {
 		t.Errorf("repo-local path: got %q want %q", got, want)
 	}
 	// Unknown release worktree path -> "" (caller fails closed; no $HOME fallback).

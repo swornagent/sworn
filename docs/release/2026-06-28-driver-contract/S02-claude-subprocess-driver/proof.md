@@ -166,7 +166,7 @@ release-verify.sh
 
 FIRST-PASS FAIL
 Address the failures above before invoking the LLM verifier session.
-See /home/brad/.claude/baton/adversarial-verification.md for the verifier protocol.
+See /home/user/.claude/baton/adversarial-verification.md for the verifier protocol.
 ```
 
 The sole failing check — `spec.md missing` — is a documented false negative of this deterministic script against spec-v1 (`spec.json`) slices: this release's canonical spec artefact is `spec.json` (present, validated against spec-v1), not `spec.md`. See project memory `feedback_releaseverify_specmd_false_fail` — the sibling `S01-driver-contract` slice (already verified) has the identical false-negative shape. Not manufacturing a `spec.md` to paper over a script gap. The canonical spec-quality/traceability gates (`sworn lint ac`, `sworn lint trace`, `sworn specquality`) already run against `spec.json` at the release level. The canonical PASS/FAIL authority for this slice is the fresh-context `/verify-slice` session (Rule 7), not this deterministic script's exit code.

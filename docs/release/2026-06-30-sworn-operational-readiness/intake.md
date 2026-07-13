@@ -1,6 +1,6 @@
 ---
 title: 'Release intake — 2026-06-30-sworn-operational-readiness'
-description: 'Make sworn the operational delivery loop: drive a real coach-produced release end-to-end to merged, unattended, on getfired. D6 is the one live blocker; the rest is autonomy hardening.'
+description: 'Make sworn the operational delivery loop: drive a real coach-produced release end-to-end to merged, unattended, on the consumer repo. D6 is the one live blocker; the rest is autonomy hardening.'
 ---
 
 # Release Intake: `2026-06-30-sworn-operational-readiness`
@@ -9,12 +9,12 @@ description: 'Make sworn the operational delivery loop: drive a real coach-produ
 
 Make `sworn` operationally able to take a real, coach-produced multi-track release
 and drive it autonomously to merged — surfacing to the human only at design gates and
-on failure (paging) — proven by completing a real getfired release **unattended
+on failure (paging) — proven by completing a real consumer release **unattended
 overnight**. The strategic context (handoff 2026-06-30): coach-loop, the private bash
 orchestrator, is broken by the baton v0.6.3 JSON-records shift; Brad's call is **do not
-backport it — sworn is the operational loop now**. getfired's major release has been
+backport it — sworn is the operational loop now**. the consumer repo's major release has been
 blocked for ~2 months; sworn must be up to land it. "Shipped" = sworn runs a real
-getfired release end-to-end without a human babysitting it, and the human wakes to
+consumer release end-to-end without a human babysitting it, and the human wakes to
 merged (or a clean page explaining exactly where it stopped).
 
 Parallelism is explicitly **not** a goal of this release — serial track execution is
@@ -54,9 +54,9 @@ Rule-10 no-mock boundary, and unattended resilience.
 
 ## What's currently broken or missing
 
-Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.md`):
+Empirical, from the live consumer dogfood run (`2026-06-30-fired-dogfood-findings.md`):
 
-- **D6 type drift (THE BLOCKER).** `sworn run` on the live fired repo failed at:
+- **D6 type drift (THE BLOCKER).** `sworn run` on the live consumer repo failed at:
   `json: cannot unmarshal object into Go struct field Status.open_deferrals of type
   string`. fired's `open_deferrals` are schema-conformant objects
   (`{id, description, why, tracking, acknowledged_by}`); `state.Status.OpenDeferrals`
@@ -77,7 +77,7 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
 
 - D6 fixed so sworn reads real coach status.json (round-trips the object form — no
   flatten-to-string hack, which would degrade fired's real data on write-back).
-- sworn running a real getfired release **autonomously, overnight, tonight**.
+- sworn running a real consumer release **autonomously, overnight, tonight**.
 - Minimise churn and tech debt — nail it properly, no half-measures that need redoing.
 - Serial track execution is fine; parallelism is not required for this milestone.
 - N-01: sworn reads a real coach-produced status.json whose open_deferrals and verification.violations are arrays of OBJECTS (not strings) without an unmarshal error.
@@ -101,7 +101,7 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
 - **Fail-closed.** Exit 0 only on PASS; invalid/unparseable status → halt+page, never
   silent pass. Migrate Go types UP to the schema (D6 ratified direction), never
   downgrade the schema.
-- **Public-safe.** This release runs sworn against the PRIVATE getfired/fired repo.
+- **Public-safe.** This release runs sworn against the private consumer repo.
   Captures committed to the public sworn repo must not leak private business content
   (handoff flagged existing fired-path leakage → S27-public-readiness-scrub). Any new
   capture from the overnight run is private-by-default.
@@ -121,7 +121,7 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
   validates against embedded bytes; publish gates external portability only.
   **Tracking**: handoff open items. **Acknowledged**: 2026-06-30.
 - **T16 capture remainder** (durable cross-run store, token enrichment, real cost).
-  **Why deferred**: routing-moat data, not an operational blocker. **Tracking**: #26 /
+  **Why deferred**: routing-differentiator data, not an operational blocker. **Tracking**: #26 /
   driver-contract S07 (≡ T16). **Acknowledged**: 2026-06-30.
 
 ## Decisions made during planning
@@ -269,15 +269,15 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
   state/verify/run files) and can be done any time. Updating the planner skill/prompt to
   CALL `sworn render` is a separate private-harness change (out of scope for the Go slice).
 
-### 2026-06-30 — Overnight target = the fired dogfood release
+### 2026-06-30 — Overnight target = the consumer dogfood release
 
 - **Context**: what sworn actually drives overnight (A-01).
-- **Decision**: the **fired dogfood release** `2026-06-28-yearSnapshot-schema-cleanup`
+- **Decision**: the **consumer dogfood release** `2026-06-28-yearSnapshot-schema-cleanup`
   (`~/projects/fired`, 3 slices / 1 track, deepseek-v4-pro, provider keys seeded in
   `~/.sworn/.env`). It is the run that blocked at D6 and is the smallest real end-to-end
   operational proof.
 - **Why**: already planned + seeded; ready the moment D6 lands. Planning/running the big
-  getfired v0.5.0 release is a separate downstream effort — prove the loop on the dogfood
+  the consumer repo v0.5.0 release is a separate downstream effort — prove the loop on the dogfood
   first. (Landing the existing ~1M-line v0.5.0 branch is a different engine shape —
   reviewer/merger not builder — and is NOT this release.)
 
@@ -309,7 +309,7 @@ Empirical, from the live fired dogfood run (`2026-06-30-fired-dogfood-findings.m
 
 | # | Ambiguity | Affects | Resolution |
 |---|-----------|---------|------------|
-| A-01 | What does sworn drive overnight — the 3-slice fired dogfood release (`2026-06-28-yearSnapshot-schema-cleanup`), or a getfired v0.5.0 release that must be planned first, or LANDING the existing ~1M-line `release/v0.5.0` branch (review/merge of code that already exists)? These are different operational shapes. | The overnight run target + whether a downstream `/plan-release` is needed | human will provide tonight |
+| A-01 | What does sworn drive overnight — the 3-slice consumer dogfood release (`2026-06-28-yearSnapshot-schema-cleanup`), or a the consumer repo v0.5.0 release that must be planned first, or LANDING the existing ~1M-line `release/v0.5.0` branch (review/merge of code that already exists)? These are different operational shapes. | The overnight run target + whether a downstream `/plan-release` is needed | human will provide tonight |
 | A-02 | Does the unattended overnight run need the S02/S03 resilience hardening, or is D6-only + a watched first run acceptable for tonight? | Release scope boundary | resolved by scope-boundary decision (below) |
 | A-03 | D6 blast radius — exact consumer list and whether the object types are new Go structs or reuse an existing baton type. | S01 spec precision | requires grep during spec authoring (Phase 4) |
 

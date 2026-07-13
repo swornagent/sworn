@@ -3,7 +3,7 @@
 ## 2026-06-25 — Implementer session: BLOCKED on spec defects, routed to /replan-release
 
 Implementer entered the track worktree
-(`/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T14-baton-integration`,
+(`/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T14-baton-integration`,
 branch `track/2026-06-19-safe-parallelism/T14-baton-integration`). Gate -1 clean,
 Step 0b BLOCKED-guard clear (`verification.result: pending`). Did **not** transition
 to `in_progress` or edit any production file — required reading surfaced spec defects

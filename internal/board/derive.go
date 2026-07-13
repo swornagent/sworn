@@ -23,7 +23,7 @@ func ReleaseWorktreeBranch(release string) string {
 // PRIMARY repo root: <dir(primaryRoot)>/<base(primaryRoot)>-worktrees/release-<release>.
 // This is the release-level analogue of eval finding 3's track-path derivation:
 // repo-local (a sibling of the actual repo), never the naive
-// $HOME/projects/<repo>-worktrees convention that caused a fired-repo run to
+// $HOME/projects/<repo>-worktrees convention that caused a consumer-repo run to
 // materialise on sworn's worktree tree. Returns "" when primaryRoot is unknown
 // (e.g. a content-only fake reader in tests), which callers treat as "path not
 // derivable here" rather than emitting a wrong path.

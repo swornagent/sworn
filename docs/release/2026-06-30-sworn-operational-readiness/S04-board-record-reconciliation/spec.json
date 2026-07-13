@@ -43,7 +43,7 @@
     },
     {
       "id": "AC-05",
-      "text": "When `sworn board --release 2026-06-28-yearSnapshot-schema-cleanup` is run against the live fired repo (--docs-prefix apps/docs/content/docs) — the board that today fails with 'cannot unmarshal object into BoardRecord.release of type string' — it SHALL print the board (track T1-schema-cleanup + its slices) with no parse error. Reachability artefact: capture that output.",
+      "text": "When `sworn board --release 2026-06-28-yearSnapshot-schema-cleanup` is run against the live consumer repo (--docs-prefix apps/docs/content/docs) — the board that today fails with 'cannot unmarshal object into BoardRecord.release of type string' — it SHALL print the board (track T1-schema-cleanup + its slices) with no parse error. Reachability artefact: capture that output.",
       "ears_pattern": "event-driven"
     },
     {

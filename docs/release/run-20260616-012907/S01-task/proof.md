@@ -29,14 +29,14 @@ ok  	github.com/swornagent/sworn/internal/verify	0.003s
 ## Reachability artefact
 
 - **Type**: manual-smoke-step
-- **Path**: `/home/brad/projects/sworn/docs/release/run-20260616-012907/S01-task/proof.md`
+- **Path**: `/home/user/projects/sworn/docs/release/run-20260616-012907/S01-task/proof.md`
 - **User gesture**: `go test ./internal/implement/` exercises Run() end-to-end with a fake agent, asserting that proof.md is generated from live git state.
 
 ## Delivered
 
-- Proof bundle generated from live repo state — evidence: `/home/brad/projects/sworn/docs/release/run-20260616-012907/S01-task/proof.md`
+- Proof bundle generated from live repo state — evidence: `/home/user/projects/sworn/docs/release/run-20260616-012907/S01-task/proof.md`
 - Files changed from live git state (not model claims) — evidence: see §Files changed above
-- Slice ends at `implemented` — evidence: `/home/brad/projects/sworn/docs/release/run-20260616-012907/S01-task/status.json` state field
+- Slice ends at `implemented` — evidence: `/home/user/projects/sworn/docs/release/run-20260616-012907/S01-task/status.json` state field
 
 ## Not delivered
 

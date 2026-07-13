@@ -37,7 +37,7 @@
     "go test ./... -timeout 120s"
   ],
   "reachability_artifacts": [
-    "manual-smoke-step: STRICT-binary sworn board --release 2026-06-16-critical-journey-resolutions on the live fired repo (~/projects/fired, clean before+after — Rule 11) renders the full board with 0 'cannot unmarshal object' errors; S05-engine-owned-real-dollars (4 object-form open_deferrals) reads 'verified [verifier]' (reachability/ac08-reachability.txt)",
+    "manual-smoke-step: STRICT-binary sworn board --release 2026-06-16-critical-journey-resolutions on the live consumer repo (~/projects/fired, clean before+after — Rule 11) renders the full board with 0 'cannot unmarshal object' errors; S05-engine-owned-real-dollars (4 object-form open_deferrals) reads 'verified [verifier]' (reachability/ac08-reachability.txt)",
     "manual-smoke-step: direct state.Read on real fired S05 status.json — all 4 deferrals read OK; acknowledged_by + acknowledged_at populate the NEW named fields, acknowledgement='' (real pre-migration data, confirms AC-11), id/field preserved in Extra (reachability/ac08-direct-read.txt). The fired LOOP was NOT run on the strict binary (AC-11 sequencing: gated on #40)."
   ],
   "design_decisions": [

@@ -55,7 +55,7 @@ All 23 tests pass with race detector. `go vet` clean.
 ### 2026-06-22 — Verifier verdict: PASS
 
 - **Session**: fresh context, artefact-only inputs (Rule 7 compliant)
-- **Worktree**: `/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T8-memory`
+- **Worktree**: `/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T8-memory`
 - **Forward-merge**: synced 110 commits from `release-wt/2026-06-19-safe-parallelism`; resolved docs-only conflicts via union merge
 
 **Gate 1 — User-reachable outcome**: PASS. `sworn memory search` wired through `cmdMemory` → `cmdMemorySearch` → `memory.Search()`. CLI verified live: missing-args exits 64, no-index exits 1.

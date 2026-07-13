@@ -12,7 +12,7 @@ description: Implementation log for S52 — verdict ledger projection engine.
 - **State**: `planned → in_progress`
 - **Notes**:
   - Track worktree materialised for T16-verdict-ledger (first slice in track)
-  - Release worktree already existed at `/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism`
+  - Release worktree already existed at `/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism`
 
 ### 2026-07-21 01:00 — implementation
 
