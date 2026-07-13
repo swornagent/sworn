@@ -169,6 +169,7 @@ func TestLoopSIT(t *testing.T) {
 		return RunSlice(ctx, worktreeRoot, specPath, statusPath, RunSliceOptions{
 			ImplementerModel: "stub/impl",
 			VerifierModel:    "stub/verify",
+			CaptainModel:     "stub/verify",
 			EscalationModels: []string{"stub/impl"},
 			ImplementTimeout: -1, // no per-attempt timeout; the outer ctx bounds the whole run
 			Registry:         reg,

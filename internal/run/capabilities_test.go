@@ -30,6 +30,7 @@ func TestRunSliceDispatchesAllLegsViaRegistry(t *testing.T) {
 	err := RunSlice(context.Background(), workspaceRoot, specPath, statusPath, RunSliceOptions{
 		EscalationModels: []string{"fake/impl"},
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		ImplementTimeout: -1,
 		Registry:         testRegistry(fd),
 	})
@@ -61,6 +62,7 @@ func TestRunSliceResolutionFailure(t *testing.T) {
 		err := RunSlice(context.Background(), workspaceRoot, specPath, statusPath, RunSliceOptions{
 			EscalationModels: []string{"nope/model-x"},
 			VerifierModel:    "fake/verifier",
+			CaptainModel:     "fake/verifier",
 			ImplementTimeout: -1,
 			Registry:         testRegistry(fd),
 		})
@@ -93,6 +95,7 @@ func TestRunSliceResolutionFailure(t *testing.T) {
 		err := RunSlice(context.Background(), workspaceRoot, specPath, statusPath, RunSliceOptions{
 			EscalationModels: []string{"fake/impl"},
 			VerifierModel:    "fake/verifier",
+			CaptainModel:     "fake/verifier",
 			ImplementTimeout: -1,
 			Registry:         testRegistry(fd),
 		})
@@ -123,6 +126,7 @@ func TestRunSliceResolutionFailure(t *testing.T) {
 		err := RunSlice(context.Background(), workspaceRoot, specPath, statusPath, RunSliceOptions{
 			EscalationModels: []string{"fake/impl"},
 			VerifierModel:    "fake/verifier",
+			CaptainModel:     "fake/verifier",
 			ImplementTimeout: -1,
 			Registry:         testRegistry(fd),
 		})
@@ -159,6 +163,7 @@ func TestRunSliceCaptainResolutionFailureDefersAndProceeds(t *testing.T) {
 	err := RunSlice(context.Background(), workspaceRoot, specPath, statusPath, RunSliceOptions{
 		EscalationModels: []string{"fake/impl"},
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		ImplementTimeout: -1,
 		Registry:         testRegistry(fd),
 	})
@@ -173,8 +178,12 @@ func TestRunSliceCaptainResolutionFailureDefersAndProceeds(t *testing.T) {
 	if !strings.Contains(d.Why, `role "captain"`) {
 		t.Errorf("deferral should embed the registry's descriptive role error, got %q", d.Why)
 	}
-	if !strings.Contains(d.Why, `"fake/impl"`) {
-		t.Errorf("deferral should name the model ID, got %q", d.Why)
+	// The deferral names the CAPTAIN's model. It used to name the implementer's
+	// escalation head, because the captain took escalationModels[0] — this
+	// assertion encoded that coupling as if it were intended. The captain now
+	// resolves as its own role.
+	if !strings.Contains(d.Why, `"fake/verifier"`) {
+		t.Errorf("deferral should name the CAPTAIN's model ID, got %q", d.Why)
 	}
 
 	// The captain role must never have been dispatched; implement+verify ran.

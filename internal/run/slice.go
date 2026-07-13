@@ -46,8 +46,13 @@ type RunSliceOptions struct {
 	VerifierModel string
 
 	// EscalationModels is the ordered list of model IDs to try on retry.
-	// If empty, DefaultEscalationModels is used.
 	EscalationModels []string
+
+	// CaptainModel is the captain's model ID (provider/model) — the Rule 9
+	// design-authority role. It used to be taken from EscalationModels[0], the
+	// cheapest rung of a RETRY ladder, so the design reviewer silently ran on the
+	// weakest model configured. It is now resolved as its own role.
+	CaptainModel string
 
 	// RetryCap is the maximum number of retries. 0 = single attempt.
 	RetryCap int
@@ -266,7 +271,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	// RoleCaptain yet; sworn#86 tracks restoring role-universality).
 	// Extracted to ResolveDispatch (S07 resolve.go) — identical resolution
 	// logic, error text, and captain fail-open policy as before; see resolve.go.
-	resolution, err := ResolveDispatch(opts.Registry, "RunSlice", opts.VerifierModel, escalationModels)
+	resolution, err := ResolveDispatch(opts.Registry, "RunSlice", opts.VerifierModel, escalationModels, opts.CaptainModel)
 	if err != nil {
 		return err
 	}

@@ -32,6 +32,7 @@ func TestTerminalError_KindAuth_Halts(t *testing.T) {
 	opts := RunSliceOptions{
 		EscalationModels: []string{"fake/model"},
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		RetryCap:         0,
 		ImplementTimeout: -1, // no timeout
 		Registry: testRegistry(&fakeDriver{
@@ -57,6 +58,7 @@ func TestTerminalError_KindCredits_Halts(t *testing.T) {
 	opts := RunSliceOptions{
 		EscalationModels: []string{"fake/model"},
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		RetryCap:         0,
 		ImplementTimeout: -1,
 		Registry: testRegistry(&fakeDriver{
@@ -87,6 +89,7 @@ func TestTerminalError_KindRateLimit_DoesNotHalt(t *testing.T) {
 	opts := RunSliceOptions{
 		EscalationModels: []string{"fake/model"},
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		RetryCap:         0,
 		ImplementTimeout: -1,
 		Registry: testRegistry(&fakeDriver{
@@ -117,6 +120,7 @@ func TestTerminalError_NilError_Continues(t *testing.T) {
 	opts := RunSliceOptions{
 		EscalationModels: []string{"fake/quick"},
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		RetryCap:         0,
 		ImplementTimeout: -1,
 		Registry:         testRegistry(&fakeDriver{implement: markedImplement(&called)}),
@@ -140,6 +144,7 @@ func TestTerminalError_UnclassifiedKind(t *testing.T) {
 	opts := RunSliceOptions{
 		EscalationModels: []string{"fake/model"},
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		RetryCap:         0,
 		ImplementTimeout: -1,
 		Registry: testRegistry(&fakeDriver{
@@ -186,6 +191,7 @@ func TestTerminalError_AllKinds(t *testing.T) {
 			opts := RunSliceOptions{
 				EscalationModels: []string{"fake/model"},
 				VerifierModel:    "fake/verifier",
+				CaptainModel:     "fake/verifier",
 				RetryCap:         0,
 				ImplementTimeout: -1,
 				Registry: testRegistry(&fakeDriver{

@@ -9,7 +9,7 @@ import (
 
 // TestComposeEscalationModels covers the three composition arms in
 // isolation: implementer prepended, no implementer, and the
-// DefaultEscalationModels fallback when the result would otherwise be
+// nil /* no hardcoded ladder */ fallback when the result would otherwise be
 // empty. RunSlice and cmd/sworn's startup sweep both call this helper, so a
 // regression here would silently desync "resolvable at startup" from
 // "resolvable per-attempt" (S07 D1).
@@ -34,15 +34,14 @@ func TestComposeEscalationModels(t *testing.T) {
 		}
 	})
 
-	t.Run("empty result falls back to DefaultEscalationModels", func(t *testing.T) {
-		got := ComposeEscalationModels("", nil)
-		if len(got) != len(DefaultEscalationModels) {
-			t.Fatalf("got %v, want DefaultEscalationModels %v", got, DefaultEscalationModels)
-		}
-		for i := range DefaultEscalationModels {
-			if got[i] != DefaultEscalationModels[i] {
-				t.Errorf("got[%d] = %q, want %q", i, got[i], DefaultEscalationModels[i])
-			}
+	t.Run("empty result stays EMPTY — no hardcoded ladder", func(t *testing.T) {
+		// It used to fall back to ["openai/gpt-4o-mini", "openai/gpt-4o",
+		// "openai/o3-mini", "openai/o3"] — four stale, hardcoded models injected
+		// whenever nothing was configured. The captain then took entry [0], so the
+		// Rule 9 design-authority role silently ran on gpt-4o-mini.
+		if got := ComposeEscalationModels("", nil); len(got) != 0 {
+			t.Errorf("ComposeEscalationModels returned a hardcoded ladder %v — "+
+				"an unconfigured ladder must be empty, not a guess", got)
 		}
 	})
 }
@@ -54,7 +53,7 @@ func TestResolveDispatch_AllLegsResolve(t *testing.T) {
 	fd := &fakeDriver{}
 	reg := testRegistry(fd)
 
-	res, err := ResolveDispatch(reg, "test", "fake/verifier", []string{"fake/impl1", "fake/impl2"})
+	res, err := ResolveDispatch(reg, "test", "fake/verifier", []string{"fake/impl1", "fake/impl2"}, "fake/captain")
 	if err != nil {
 		t.Fatalf("ResolveDispatch: %v", err)
 	}
@@ -81,7 +80,7 @@ func TestResolveDispatch_VerifierFailureIsFatal(t *testing.T) {
 	fd := &fakeDriver{}
 	reg := testRegistry(fd)
 
-	_, err := ResolveDispatch(reg, "test-prefix", "nope/model-x", []string{"fake/impl"})
+	_, err := ResolveDispatch(reg, "test-prefix", "nope/model-x", []string{"fake/impl"}, "fake/captain")
 	if err == nil {
 		t.Fatal("expected a fatal error for an unresolvable verifier model")
 	}
@@ -102,7 +101,7 @@ func TestResolveDispatch_ImplementerFailureIsFatal(t *testing.T) {
 	fd := &fakeDriver{}
 	reg := testRegistry(fd)
 
-	_, err := ResolveDispatch(reg, "test-prefix", "fake/verifier", []string{"fake/impl", "nope/model-x"})
+	_, err := ResolveDispatch(reg, "test-prefix", "fake/verifier", []string{"fake/impl", "nope/model-x"}, "fake/captain")
 	if err == nil {
 		t.Fatal("expected a fatal error for an unresolvable escalation-list entry")
 	}
@@ -124,7 +123,7 @@ func TestResolveDispatch_CaptainFailureIsNonFatal(t *testing.T) {
 	}
 	reg := testRegistry(fd)
 
-	res, err := ResolveDispatch(reg, "test", "fake/verifier", []string{"fake/impl"})
+	res, err := ResolveDispatch(reg, "test", "fake/verifier", []string{"fake/impl"}, "fake/captain")
 	if err != nil {
 		t.Fatalf("captain resolution failure must not be fatal, got err: %v", err)
 	}

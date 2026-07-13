@@ -84,6 +84,15 @@ func cmdRunTask(
 		return 2
 	}
 
+	// The captain resolves as its OWN role (falling back to the verifier), not by
+	// taking the first rung of the implementer's retry ladder.
+	captainModel, err := resolveCaptainModel(verifierModel)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn run: %v\n", err)
+		os.RemoveAll(taskRoot)
+		return 2
+	}
+
 	// ── 3. Dispatch planner ───────────────────────────────────────────────
 	plannerV, err := plannerFromEnv(plannerModelID)
 	if err != nil {
@@ -212,6 +221,7 @@ func cmdRunTask(
 		run.RunSliceOptions{
 			ImplementerModel: implModel,
 			VerifierModel:    verifierModel,
+			CaptainModel:     captainModel,
 			EscalationModels: escalationModels,
 			RetryCap:         retryCap,
 			ImplementTimeout: implementTimeout,
@@ -232,21 +242,30 @@ func cmdRunTask(
 	return 0
 }
 
-// resolvePlannerModel returns the model ID to use for the planner dispatch.
-// It defaults to the configured implementer model, then to a hardcoded default.
-func resolvePlannerModel(implModel string) (string, error) {
-	if implModel != "" {
-		return implModel, nil
-	}
+// resolvePlannerModel returns the model ID for the planner dispatch: the flag, then
+// planner.model, then (its declared fallback) implementer.model — and an error if
+// neither is configured.
+//
+// It used to end in `return "openai/gpt-4o", nil` — a hardcoded, years-stale model,
+// silently assuming an OpenAI key, in a tool whose thesis is capability-based
+// selection. Nobody was ever told. An unconfigured planner is now an error with a
+// remedy, not a guess.
+func resolvePlannerModel(flagModel string) (string, error) {
 	cfg, err := config.Load()
-	if err == nil {
-		id, err := config.ResolveImplementerModel("", cfg, "", "", "quality", 0)
-		if err == nil {
-			return id, nil
-		}
+	if err != nil {
+		return "", fmt.Errorf("load config: %w", err)
 	}
-	// Hardcoded fallback — the planner can work with any Verify-capable model.
-	return "openai/gpt-4o", nil
+	return config.ResolvePlannerModel(flagModel, cfg)
+}
+
+// resolveCaptainModel returns the model ID for the captain (Rule 9 design review):
+// the flag, then captain.model, then (its declared fallback) verifier.model.
+func resolveCaptainModel(flagModel string) (string, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return "", fmt.Errorf("load config: %w", err)
+	}
+	return config.ResolveCaptainModel(flagModel, cfg)
 }
 
 // hasAcceptanceChecks returns true if the spec content contains at least one

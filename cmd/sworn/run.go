@@ -99,6 +99,14 @@ func cmdRun(args []string) int {
 		return 2
 	}
 
+	// ── Resolve captain model ──────────────────────────────────────────
+	// Its own role, not escalationModels[0]. See config.roleFallback.
+	captain, err := config.ResolveCaptainModel("", cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn run: %v\n", err)
+		return 2
+	}
+
 	// ── Resolve escalation models ──────────────────────────────────────
 	escalationModels := config.ResolveEscalationModels(parseEscalationFlag(*escalationFlag), cfg)
 
@@ -141,7 +149,7 @@ func cmdRun(args []string) int {
 		// policies for the identical role/model pair.
 		startupModels := run.ComposeEscalationModels(impl, escalationModels)
 		startupReg := registry.Default(model.ProviderConfigFromEnv())
-		resolution, rerr := run.ResolveDispatch(startupReg, "sworn run", verifier, startupModels)
+		resolution, rerr := run.ResolveDispatch(startupReg, "sworn run", verifier, startupModels, captain)
 		if rerr != nil {
 			fmt.Fprintf(os.Stderr, "sworn run: %v\n", rerr)
 			return 1
@@ -173,6 +181,7 @@ func cmdRun(args []string) int {
 			return run.RunSlice(ctx, worktreeRoot, specPath, statusPath, run.RunSliceOptions{
 				ImplementerModel: impl,
 				VerifierModel:    verifier,
+				CaptainModel:     captain,
 				EscalationModels: escalationModels,
 				RetryCap:         maxAttempts,
 				ImplementTimeout: implementTimeout,

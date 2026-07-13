@@ -31,6 +31,7 @@ func TestRunSlice_DispatchesCarryQuadrant(t *testing.T) {
 	opts := RunSliceOptions{
 		EscalationModels: []string{"fake/quick"},
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		ImplementTimeout: DefaultImplementTimeout,
 		Registry:         testRegistry(&fakeDriver{implement: markedImplement(&called)}),
 	}

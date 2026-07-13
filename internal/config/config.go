@@ -26,9 +26,20 @@ import (
 // design tokens source and component library, used by sworn designaudit (S09)
 // for design conformance checking.
 type Config struct {
-	Version     int          `json:"version"`
+	Version int `json:"version"`
+
+	// One entry per Baton work role. Model selection lives HERE — there is no
+	// env-var layer and no hardcoded default (see ResolveRoleModel).
+	//
+	// Planner and Captain are optional: an unset role borrows its declared
+	// fallback's model (planner → implementer, captain → verifier). Before they
+	// existed the planner fell back to a hardcoded "openai/gpt-4o" and the captain
+	// silently rode escalation_models[0] — the cheapest rung of a RETRY ladder — so
+	// the role holding Rule 9 design authority ran on the weakest model available.
 	Verifier    ModelSetting `json:"verifier"`
 	Implementer ModelSetting `json:"implementer,omitempty"`
+	Planner     ModelSetting `json:"planner,omitempty"`
+	Captain     ModelSetting `json:"captain,omitempty"`
 
 	// OptimizeMode selects the implementer routing strategy: "quality",
 	// "cost", or "balanced". When empty, defaults to "quality" (S54
@@ -89,24 +100,24 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// DefaultConfig returns the safe-hosted default configuration. The default model
-// is "anthropic/claude-sonnet-4-6" — a trusted-jurisdiction default. Users must
-// set SWORN_ANTHROPIC_API_KEY and, if needed, SWORN_ANTHROPIC_BASE_URL (defaults
-// to Anthropic's OpenAI-compatible endpoint). Run sworn init --api-key to scaffold.
+// DefaultConfig returns the scaffold configuration. It carries NO model IDs.
 //
-// By default, UIBearing is false — sworn itself is a CLI tool. UI-bearing
-// projects must set UIBearing to true and declare a DesignSystem.
+// It used to pre-fill "openai/gpt-4o-mini" (implementer), ["openai/gpt-4o",
+// "openai/o3"] (escalation) and "anthropic/claude-sonnet-4-6" (verifier). Load()
+// returns DefaultConfig when no config file exists, so a user who had never run
+// `sworn init` silently ran their implementer on a hardcoded, years-stale model and
+// was never told. That is a lie with a shelf life, and it defeated every
+// "not configured" error below: nothing could fail closed while the default
+// quietly answered for you.
+//
+// Model selection is now a decision the project makes, once, in config.json.
+// `sworn init` asks; nothing guesses. An unconfigured role is an error with a
+// remedy, not a silent substitution.
+//
+// UIBearing is false by default — a CLI project is exempt from design conformance.
 func DefaultConfig() Config {
 	return Config{
-		Version: 1,
-		Verifier: ModelSetting{
-			Model: "anthropic/claude-sonnet-4-6",
-		},
-		Implementer: ModelSetting{
-			Model:            "openai/gpt-4o-mini",
-			EscalationModels: []string{"openai/gpt-4o", "openai/o3"},
-			MaxAttempts:      3,
-		},
+		Version:      1,
 		UIBearing:    false,
 		DesignSystem: nil,
 	}
@@ -164,49 +175,136 @@ func Load() (Config, error) {
 	return cfg, nil
 }
 
-// ResolveVerifierModel returns the verifier model ID from the first available
-// source, in precedence order:
+// Role is a Baton work role that dispatches to a model.
+type Role string
+
+const (
+	RolePlanner     Role = "planner"
+	RoleImplementer Role = "implementer"
+	RoleVerifier    Role = "verifier"
+	RoleCaptain     Role = "captain"
+)
+
+// roleFallback declares whose model a role borrows when it has none of its own.
 //
-//  1. --verifier-model flag (explicit CLI)
-//  2. $SWORN_VERIFIER_MODEL env var
-//  3. config file (verifier.model)
+// Declared ONCE, here, instead of improvised at each call site — which is what
+// produced two silent defects. The planner fell back to a HARDCODED
+// "openai/gpt-4o" (a tool whose thesis is capability-based selection, quietly
+// assuming a provider and a model). The captain ran on escalationModels[0] — the
+// FIRST entry of a list ordered cheapest-first for RETRY escalation — so the
+// design-authority role, which owns Rule 9 Type-1 decisions, silently defaulted
+// to the weakest model in the ladder. Neither was ever decided; both were
+// artefacts of a call site improvising.
 //
-// Returns ("", nil) when no source is set — the caller must provide a clear
-// error (not a crash).
-func ResolveVerifierModel(flagModel string, cfg Config) (string, error) {
+// The fallbacks are chosen by what the role DOES:
+//   - planner  -> implementer: planning is authoring.
+//   - captain  -> verifier:    design review is judgement, not authoring, and the
+//     verifier is the role deliberately kept high-tier.
+//
+// implementer and verifier have no fallback: they are the two roles a project must
+// configure, and a missing one is an error, never a guess.
+var roleFallback = map[Role]Role{
+	RolePlanner: RoleImplementer,
+	RoleCaptain: RoleVerifier,
+}
+
+// roleSetting returns the ModelSetting a role reads from config.
+func roleSetting(role Role, cfg Config) ModelSetting {
+	switch role {
+	case RolePlanner:
+		return cfg.Planner
+	case RoleImplementer:
+		return cfg.Implementer
+	case RoleVerifier:
+		return cfg.Verifier
+	case RoleCaptain:
+		return cfg.Captain
+	}
+	return ModelSetting{}
+}
+
+// ResolveRoleModel returns the model ID for a role, in precedence order:
+//
+//  1. flag (an explicit, one-off CLI override)
+//  2. config file (<role>.model) — the single source of truth
+//  3. the role's declared fallback ROLE (see roleFallback), resolved the same way
+//  4. error
+//
+// There is no env-var layer and no hardcoded default. Model selection lives in
+// config.json, in one place, so `sworn doctor` can show it, a teammate can read it,
+// and CI runs what you run. A per-role env var was a second source of truth that
+// drifted: llm-check read $SWORN_MODEL while its siblings read
+// $SWORN_VERIFIER_MODEL, so a fully-configured setup still got "no model
+// configured".
+//
+// And it NEVER guesses a model. A hardcoded fallback is a lie with a shelf life:
+// the planner's was "openai/gpt-4o" and the escalation ladder's first rung was
+// "openai/gpt-4o-mini" — both long stale, both silently assuming an OpenAI key, in a
+// tool whose thesis is capability-based selection. An unconfigured role is an error.
+func ResolveRoleModel(role Role, flagModel string, cfg Config) (string, error) {
 	if flagModel != "" {
 		return flagModel, nil
 	}
-	if env := os.Getenv("SWORN_VERIFIER_MODEL"); env != "" {
-		return env, nil
+	if m := roleSetting(role, cfg).Model; m != "" {
+		return m, nil
 	}
-	if cfg.Verifier.Model != "" {
-		return cfg.Verifier.Model, nil
+
+	if fallback, ok := roleFallback[role]; ok {
+		if m := roleSetting(fallback, cfg).Model; m != "" {
+			return m, nil
+		}
+		return "", fmt.Errorf(
+			"no model configured for the %s role, and its fallback (%s) is not configured either — "+
+				"set %q.model in %s (run 'sworn init' to scaffold it)",
+			role, fallback, role, Path(),
+		)
 	}
+
 	return "", fmt.Errorf(
-		"verifier model not configured — run 'sworn init' to scaffold a config file (%s) or set $SWORN_VERIFIER_MODEL",
-		Path(),
+		"no model configured for the %s role — set %q.model in %s (run 'sworn init' to scaffold it)",
+		role, role, Path(),
 	)
 }
 
-// DefaultEscalationModels is the programmatic fallback when no escalation
-// models are configured via flag, env, or config. Each entry is a
-// "provider/model" ID suitable for model.FromEnv.
-var DefaultEscalationModels = []string{
-	"openai/gpt-4o-mini",
-	"openai/gpt-4o",
-	"openai/o3-mini",
-	"openai/o3",
+// ResolveVerifierModel resolves the verifier's model. Thin named accessor over
+// ResolveRoleModel — one implementation, read clearly at the call site.
+func ResolveVerifierModel(flagModel string, cfg Config) (string, error) {
+	return ResolveRoleModel(RoleVerifier, flagModel, cfg)
 }
+
+// ResolvePlannerModel resolves the planner's model (falling back to the
+// implementer's — planning is authoring).
+func ResolvePlannerModel(flagModel string, cfg Config) (string, error) {
+	return ResolveRoleModel(RolePlanner, flagModel, cfg)
+}
+
+// ResolveCaptainModel resolves the captain's model (falling back to the
+// verifier's — design review is judgement, and the verifier is kept high-tier).
+func ResolveCaptainModel(flagModel string, cfg Config) (string, error) {
+	return ResolveRoleModel(RoleCaptain, flagModel, cfg)
+}
+
+// There is deliberately no DefaultEscalationModels.
+//
+// It used to be ["openai/gpt-4o-mini", "openai/gpt-4o", "openai/o3-mini",
+// "openai/o3"] — four hardcoded, now-stale OpenAI models. Two things rode on it
+// silently: the escalation ladder itself, and the CAPTAIN, which took
+// escalation_models[0] and therefore ran the Rule 9 design-authority role on the
+// cheapest rung of a list ordered for retry.
+//
+// A hardcoded model list is a lie with a shelf life. When no escalation models are
+// configured, the ladder is just the implementer's own model — no escalation — and
+// the captain resolves through its own role (ResolveRoleModel), not by accident.
 
 // ResolveImplementerModel returns the implementer model ID from the first
 // available source, in precedence order:
 //
 //  1. --implementer-model flag
-//  2. $SWORN_IMPLEMENTER_MODEL env var
-//  3. config file (implementer.model)
-//  4. ledger recommendation for sliceKind (when corpus is confident)
-//  5. first entry of config file implementer.escalation_models
+//  2. config file (implementer.model)
+//  3. ledger recommendation for sliceKind (when corpus is confident)
+//  4. first entry of config file implementer.escalation_models
+//
+// No env-var layer: model selection lives in config.json (see ResolveRoleModel).
 //
 // sliceKind is the rubric dimension (e.g. "harness", "provider"). When
 // empty, the ledger lookup is skipped. ledgerPath is the path to
@@ -214,8 +312,7 @@ var DefaultEscalationModels = []string{
 //
 // optimizeMode selects the routing strategy: "quality", "cost", or
 // "balanced". When empty, defaults to "quality" (S54 behaviour unchanged).
-// Precedence: optimizeMode param → $SWORN_OPTIMIZE_MODE → config file
-// optimize_mode field.
+// Precedence: optimizeMode param → config file optimize_mode field.
 //
 // passRateFloor overrides the quality floor for cost-aware routing
 // (default 0.8). Values <= 0 or > 1 use the default. Precedence:
@@ -226,18 +323,12 @@ func ResolveImplementerModel(flagModel string, cfg Config, sliceKind string, led
 	if flagModel != "" {
 		return flagModel, nil
 	}
-	if env := os.Getenv("SWORN_IMPLEMENTER_MODEL"); env != "" {
-		return env, nil
-	}
 	if cfg.Implementer.Model != "" {
 		return cfg.Implementer.Model, nil
 	}
 
 	// Resolve optimize mode: param → env → config → default "quality".
 	mode := optimizeMode
-	if mode == "" {
-		mode = os.Getenv("SWORN_OPTIMIZE_MODE")
-	}
 	if mode == "" && cfg.OptimizeMode != "" {
 		mode = cfg.OptimizeMode
 	}
@@ -270,14 +361,13 @@ func ResolveImplementerModel(flagModel string, cfg Config, sliceKind string, led
 		return cfg.Implementer.EscalationModels[0], nil
 	}
 	return "", fmt.Errorf(
-		"implementer model not configured — run 'sworn init' to scaffold a config file (%s) or set $SWORN_IMPLEMENTER_MODEL",
+		"no model configured for the implementer role — set \"implementer\".model in %s (run 'sworn init' to scaffold it)",
 		Path(),
 	)
 } // ResolveEscalationModels returns the ordered escalation model list from the
 // first available source, in precedence order:
 //
 //  1. --escalation-models flag (passed as a pre-parsed []string)
-//  2. $SWORN_ESCALATION_MODELS env var (comma-separated)
 //  3. config file (implementer.escalation_models)
 //  4. DefaultEscalationModels
 //
@@ -287,20 +377,16 @@ func ResolveEscalationModels(flagModels []string, cfg Config) []string {
 	if len(flagModels) > 0 {
 		return flagModels
 	}
-	if env := os.Getenv("SWORN_ESCALATION_MODELS"); env != "" {
-		var models []string
-		for _, m := range strings.Split(env, ",") {
-			m = strings.TrimSpace(m)
-			if m != "" {
-				models = append(models, m)
-			}
-		}
-		return models
-	}
 	if len(cfg.Implementer.EscalationModels) > 0 {
 		return cfg.Implementer.EscalationModels
 	}
-	return DefaultEscalationModels
+	// No ladder configured: escalate to nothing. The implementer's own model is the
+	// only rung. Previously this returned four hardcoded OpenAI models — see the
+	// note where DefaultEscalationModels used to live.
+	if cfg.Implementer.Model != "" {
+		return []string{cfg.Implementer.Model}
+	}
+	return nil
 }
 
 // ResolveMaxAttempts returns the maximum retry count from the first available
