@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/swornagent/sworn/internal/db"
@@ -263,16 +262,6 @@ func RecordPage(db *sql.DB, release, sliceID, detail string) error {
 		sliceID, release, detail, time.Now().UTC().Format(time.RFC3339),
 	)
 	return err
-}
-
-// pidAlive returns true if pid corresponds to a live process.
-// Uses syscall.Kill(pid, 0) which is the POSIX-specified way to check
-// process existence without sending a signal.
-func pidAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	return syscall.Kill(pid, syscall.Signal(0)) == nil
 }
 
 // Open opens (or creates) the SQLite database for the supervisor event store
