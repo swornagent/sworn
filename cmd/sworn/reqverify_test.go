@@ -2,26 +2,46 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-// fakeVerifier returns a canned reply for model dispatch.
+// fakeVerifier returns a canned STRUCTURED reply for the schema-constrained
+// model dispatch (S02: reqverify.Verifier now carries the emit schema and
+// returns the reqverify-results JSON object, not a `## RESULTS` prose section).
 type fakeVerifier struct {
 	reply string
 	cost  float64
 }
 
-func (f fakeVerifier) Verify(context.Context, string, string) (string, float64, int64, int64, error) {
+func (f fakeVerifier) Verify(context.Context, string, string, []byte) (string, float64, int64, int64, error) {
 	return f.reply, f.cost, 0, 0, nil
 }
+
 // errVerifier returns an error on dispatch, simulating a model failure.
 type errVerifier struct{}
 
-func (errVerifier) Verify(context.Context, string, string) (string, float64, int64, int64, error) {
+func (errVerifier) Verify(context.Context, string, string, []byte) (string, float64, int64, int64, error) {
 	return "", 0, 0, 0, context.Canceled
 }
+
+// grade is one per-AC record in the structured reqverify-results emission.
+type grade struct {
+	SliceID        string `json:"slice_id"`
+	ACIndex        int    `json:"ac_index"`
+	Status         string `json:"status"`
+	Characteristic string `json:"characteristic,omitempty"`
+	Reason         string `json:"reason,omitempty"`
+}
+
+// gradesReply builds the structured reqverify-results emission the model emits.
+func gradesReply(recs ...grade) string {
+	b, _ := json.Marshal(map[string]any{"results": recs})
+	return string(b)
+}
+
 // writeReqverifyFixture creates a slice spec.md under a temp release directory.
 func writeReqverifyFixture(t *testing.T, releaseDir, sliceID, spec string) {
 	t.Helper()
@@ -31,6 +51,70 @@ func writeReqverifyFixture(t *testing.T, releaseDir, sliceID, spec string) {
 	}
 	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte(spec), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// writeReqverifySpecJSONFixture creates a slice spec.json (spec-v1 record)
+// under a temp release directory — the canonical current format, no spec.md.
+func writeReqverifySpecJSONFixture(t *testing.T, releaseDir, sliceID, specJSON string) {
+	t.Helper()
+	dir := filepath.Join(releaseDir, sliceID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "spec.json"), []byte(specJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestReqverifyCmdWithVerifier_SpecJSONViolation verifies that on a
+// spec.json-only (spec-v1) release the ACs are extracted and dispatched to the
+// model — a graded FAIL must surface as exit 1, not a vacuous exit 0.
+func TestReqverifyCmdWithVerifier_SpecJSONViolation(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0755)
+
+	writeReqverifySpecJSONFixture(t, releaseDir, "S01-test", `{
+  "schema_version": 1,
+  "slice_id": "S01-test",
+  "release": "test-release",
+  "acceptance_criteria": [
+    {"id": "AC-1", "type": "ubiquitous", "text": "THE SYSTEM SHALL do something."},
+    {"id": "AC-2", "type": "event-driven", "ears_keyword": "When", "text": "WHEN Y THE SYSTEM SHALL do Z and also do W."}
+  ]
+}`)
+
+	oldCwd, _ := os.Getwd()
+	defer os.Chdir(oldCwd)
+	os.Chdir(dir)
+
+	v := fakeVerifier{reply: gradesReply(
+		grade{SliceID: "S01-test", ACIndex: 1, Status: "PASS"},
+		grade{SliceID: "S01-test", ACIndex: 2, Status: "FAIL", Characteristic: "singular", Reason: "bundles two actions"},
+	)}
+
+	exit := cmdReqverifyWithVerifier("test-release", v)
+	if exit != 1 {
+		t.Errorf("expected exit 1 for spec.json AC violation, got %d", exit)
+	}
+}
+
+// TestReqverifyCmdWithVerifier_NoACsFailsClosed verifies that a release where
+// no slice yields any acceptance criterion exits non-zero — a requirements
+// gate with nothing evaluable must never report a vacuous PASS.
+func TestReqverifyCmdWithVerifier_NoACsFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(filepath.Join(releaseDir, "S01-test"), 0755)
+
+	oldCwd, _ := os.Getwd()
+	defer os.Chdir(oldCwd)
+	os.Chdir(dir)
+
+	exit := cmdReqverifyWithVerifier("test-release", fakeVerifier{reply: ""})
+	if exit != 2 {
+		t.Errorf("expected exit 2 for release with no evaluable ACs, got %d", exit)
 	}
 }
 
@@ -90,10 +174,10 @@ func TestReqverifyCmdWithVerifier_AllPass(t *testing.T) {
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
 
-	v := fakeVerifier{reply: `## RESULTS
-
-AC 1 (S01-test): PASS
-AC 2 (S01-test): PASS`}
+	v := fakeVerifier{reply: gradesReply(
+		grade{SliceID: "S01-test", ACIndex: 1, Status: "PASS"},
+		grade{SliceID: "S01-test", ACIndex: 2, Status: "PASS"},
+	)}
 
 	exit := cmdReqverifyWithVerifier("test-release", v)
 	if exit != 0 {
@@ -118,10 +202,10 @@ func TestReqverifyCmdWithVerifier_Violations(t *testing.T) {
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
 
-	v := fakeVerifier{reply: `## RESULTS
-
-AC 1 (S01-test): PASS
-AC 2 (S01-test): FAIL — singular [bundles two actions]`}
+	v := fakeVerifier{reply: gradesReply(
+		grade{SliceID: "S01-test", ACIndex: 1, Status: "PASS"},
+		grade{SliceID: "S01-test", ACIndex: 2, Status: "FAIL", Characteristic: "singular", Reason: "bundles two actions"},
+	)}
 
 	exit := cmdReqverifyWithVerifier("test-release", v)
 	if exit != 1 {
@@ -146,10 +230,10 @@ func TestReqverifyCmdWithVerifier_AmbiguousViolation(t *testing.T) {
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
 
-	v := fakeVerifier{reply: `## RESULTS
-
-AC 1 (S01-test): PASS
-AC 2 (S01-test): FAIL — ambiguous [could mean any format]`}
+	v := fakeVerifier{reply: gradesReply(
+		grade{SliceID: "S01-test", ACIndex: 1, Status: "PASS"},
+		grade{SliceID: "S01-test", ACIndex: 2, Status: "FAIL", Characteristic: "ambiguous", Reason: "could mean any format"},
+	)}
 
 	exit := cmdReqverifyWithVerifier("test-release", v)
 	if exit != 1 {
@@ -174,10 +258,10 @@ func TestReqverifyCmdWithVerifier_IncompleteViolation(t *testing.T) {
 	defer os.Chdir(oldCwd)
 	os.Chdir(dir)
 
-	v := fakeVerifier{reply: `## RESULTS
-
-AC 1 (S01-test): PASS
-AC 2 (S01-test): FAIL — incomplete [lacks trigger condition]`}
+	v := fakeVerifier{reply: gradesReply(
+		grade{SliceID: "S01-test", ACIndex: 1, Status: "PASS"},
+		grade{SliceID: "S01-test", ACIndex: 2, Status: "FAIL", Characteristic: "incomplete", Reason: "lacks trigger condition"},
+	)}
 
 	exit := cmdReqverifyWithVerifier("test-release", v)
 	if exit != 1 {

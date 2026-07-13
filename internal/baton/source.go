@@ -30,6 +30,10 @@ var batonFileMappings = []FileMapping{
 	{Source: "baton/design-fidelity.md", Dest: "internal/adopt/baton/rules/09-design-fidelity.md"},
 	{Source: "baton/customer-journey-validation.md", Dest: "internal/adopt/baton/rules/10-customer-journey-validation.md"},
 	{Source: "baton/process-global-mutation.md", Dest: "internal/adopt/baton/rules/11-process-global-mutation.md"},
+	{Source: "baton/guard-fidelity.md", Dest: "internal/adopt/baton/rules/12-guard-fidelity.md"},
+
+	// Capability policy companion doc (v0.11.0 — schema explainer, not a numbered rule)
+	{Source: "baton/capability-policy.md", Dest: "internal/adopt/baton/capability-policy.md"},
 
 	// Adopt README
 	{Source: "baton/README.md", Dest: "internal/adopt/baton/README.md"},
@@ -97,5 +101,6 @@ func RuleSources() []string {
 		"baton/design-fidelity.md",
 		"baton/customer-journey-validation.md",
 		"baton/process-global-mutation.md",
+		"baton/guard-fidelity.md",
 	}
 }

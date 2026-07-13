@@ -1,139 +1,139 @@
 ---
 title: 'Release board — 2026-06-19-safe-parallelism'
 description: 'R3 — safe parallelism: concurrent multi-track delivery, fail-closed verify gate under concurrency, sworn TUI cockpit, overclaim benchmark, sworn login credits on-ramp, webhook paging, MCP server for AI-driven planning + resolution, multi-provider model support with TUI settings, and cross-harness semantic memory search.'
-release_worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism
+release_worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism
 release_worktree_branch: release-wt/2026-06-19-safe-parallelism
 tracks:
   - id: T1-concurrency-core
     slices: [S01-process-ownership, S02a-run-refactor, S02b-concurrent-scheduler, S03-verify-under-concurrency]
     depends_on: null
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T1-concurrency-core
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T1-concurrency-core
     worktree_branch: track/2026-06-19-safe-parallelism/T1-concurrency-core
     state: merged
   - id: T2-monitoring
     slices: [S04a-tui-foundation, S04b-tui-live, S04c-tui-resolution, S05-overclaim-benchmark, S34-tui-merge-actor]
     depends_on: T1-concurrency-core
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T2-monitoring
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T2-monitoring
     worktree_branch: track/2026-06-19-safe-parallelism/T2-monitoring
     state: merged
   - id: T3-commercial
     slices: [S06a-sworn-login-auth, S06b-sworn-proxy-credits, S07-paging, S09-per-role-model-config, S18-consideration-catalog, S19-sworn-induction, S21-canonical-baton]
     depends_on: [T1-concurrency-core, T15-cli-registry]
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T3-commercial
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T3-commercial
     worktree_branch: track/2026-06-19-safe-parallelism/T3-commercial
     state: merged
   - id: T4-mcp
     slices: [S08a-mcp-transport, S08b-mcp-ops-tools, S08c-mcp-plan-tools, S22-sworn-doctor]
     depends_on: T1-concurrency-core
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T4-mcp
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T4-mcp
     worktree_branch: track/2026-06-19-safe-parallelism/T4-mcp
     state: merged
   - id: T5-providers
     slices: [S10-provider-foundation, S11-anthropic-driver, S12-google-driver, S13-bedrock-driver, S14-azure-driver, S15-oci-driver, S16-ollama-driver, S39-openai-responses-provider, S63-subscription-cli-driver]
     depends_on: [T1-concurrency-core, T3-commercial]
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T5-providers
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T5-providers
     worktree_branch: track/2026-06-19-safe-parallelism/T5-providers
     state: merged
   - id: T6-provider-ux
     slices: [S17-tui-provider-config]
     depends_on: [T2-monitoring, T5-providers, T18-cli-polish]
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T6-provider-ux
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T6-provider-ux
     worktree_branch: track/2026-06-19-safe-parallelism/T6-provider-ux
     state: merged
   - id: T7-mcp-extensions
     slices: [S20-mcp-catalog-tools]
     depends_on: [T3-commercial, T4-mcp]
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T7-mcp-extensions
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T7-mcp-extensions
     worktree_branch: track/2026-06-19-safe-parallelism/T7-mcp-extensions
     state: merged
   - id: T8-memory
     slices: [S23-memory-config, S24-memory-engine, S25-memory-search, S40-memory-test-hygiene]
     depends_on: T1-concurrency-core
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T8-memory
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T8-memory
     worktree_branch: track/2026-06-19-safe-parallelism/T8-memory
     state: merged
   - id: T9-telemetry
     slices: [S26-telemetry]
     depends_on: T1-concurrency-core
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T9-telemetry
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T9-telemetry
     worktree_branch: track/2026-06-19-safe-parallelism/T9-telemetry
     state: merged
   - id: T10-public-readiness
     slices: [S27-public-readiness-scrub]
     depends_on: [T1-concurrency-core, T2-monitoring, T3-commercial, T4-mcp, T5-providers, T6-provider-ux, T7-mcp-extensions, T8-memory, T9-telemetry, T11-infra-safety, T12-harness-hardening, T13-sworn-role-parity, T14-baton-integration, T16-verdict-ledger, T18-cli-polish, T19-status-hygiene]
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T10-public-readiness
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T10-public-readiness
     worktree_branch: track/2026-06-19-safe-parallelism/T10-public-readiness
     state: merged
   - id: T11-infra-safety
     slices: [S28-git-dir-guard]
     depends_on: T1-concurrency-core
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T11-infra-safety
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T11-infra-safety
     worktree_branch: track/2026-06-19-safe-parallelism/T11-infra-safety
     state: merged
   - id: T12-harness-hardening
     slices: [S29-lint-deps, S30-lint-touchpoints, S31-lint-symbols, S32-designfit-decisions-gate, S33-spec-template-hardening, S35-mutation-guard, S36-captain-resolve-dirty-worktree, S37-telemetry-tui-exclusion, S38-verifier-blocked-violations, S41-build-bin-target, S42-implement-step-timeout, S43-agent-loop-natural-stop, S44-feedback-driven-retry]
     depends_on: T1-concurrency-core
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T12-harness-hardening
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T12-harness-hardening
     worktree_branch: track/2026-06-19-safe-parallelism/T12-harness-hardening
     state: merged
   - id: T13-sworn-role-parity
     slices: [S45-design-tldr, S46-captain-review, S47-orchestrator-recovery]
     depends_on: [T12-harness-hardening, T17-orchestration-core]
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T13-sworn-role-parity
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T13-sworn-role-parity
     worktree_branch: track/2026-06-19-safe-parallelism/T13-sworn-role-parity
     state: merged
   - id: T14-baton-integration
     slices: [S48-baton-vendor, S49-baton-version, S50-baton-governance, S62-baton-upstream-source, S73-baton-v0.5.0-pin]
     depends_on: [T3-commercial, T15-cli-registry]
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T14-baton-integration
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T14-baton-integration
     worktree_branch: track/2026-06-19-safe-parallelism/T14-baton-integration
     state: merged
   - id: T15-cli-registry
     slices: [S51-cli-command-registry]
     depends_on: T1-concurrency-core
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T15-cli-registry
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T15-cli-registry
     worktree_branch: track/2026-06-19-safe-parallelism/T15-cli-registry
     state: merged
   - id: T16-verdict-ledger
     slices: [S52-ledger-projection, S53-ledger-cli, S54-ledger-routing, S55-ledger-multirole-cost, S56-ledger-cost-routing]
     depends_on: [T6-provider-ux, T12-harness-hardening, T13-sworn-role-parity]
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T16-verdict-ledger
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T16-verdict-ledger
     worktree_branch: track/2026-06-19-safe-parallelism/T16-verdict-ledger
     state: merged
   - id: T17-orchestration-core
     slices: [S57-oracle-reader, S58-slice-router, S59-scheduler-relayer]
     depends_on: [T1-concurrency-core, T12-harness-hardening, T18-cli-polish]
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T17-orchestration-core
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T17-orchestration-core
     worktree_branch: track/2026-06-19-safe-parallelism/T17-orchestration-core
     state: merged
   - id: T18-cli-polish
     slices: [S60-init-ui-bearing-fix, S61-cli-output-styling]
     depends_on: [T2-monitoring, T15-cli-registry]
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T18-cli-polish
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T18-cli-polish
     worktree_branch: track/2026-06-19-safe-parallelism/T18-cli-polish
     state: merged
   - id: T19-status-hygiene
     slices: [S64-status-timestamp-sanity]
     depends_on: [T4-mcp, T12-harness-hardening, T15-cli-registry]
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T19-status-hygiene
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T19-status-hygiene
     worktree_branch: track/2026-06-19-safe-parallelism/T19-status-hygiene
     state: merged
   - id: T20-gate-engine
     slices: [S65-lint-trace, S66-lint-coverage, S67-lint-design, S68-lint-mock, S69-lint-regress, S70-llm-check]
     depends_on: [T14-baton-integration, T15-cli-registry]
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T20-gate-engine
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T20-gate-engine
     worktree_branch: track/2026-06-19-safe-parallelism/T20-gate-engine
     state: merged
   - id: T21-mcp-lint
     slices: [S71-mcp-lint-tools]
     depends_on: [T4-mcp, T20-gate-engine]
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T21-mcp-lint
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T21-mcp-lint
     worktree_branch: track/2026-06-19-safe-parallelism/T21-mcp-lint
     state: merged
   - id: T22-tui-gate
     slices: [S72-tui-gate-display]
     depends_on: [T2-monitoring, T20-gate-engine]
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T22-tui-gate
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T22-tui-gate
     worktree_branch: track/2026-06-19-safe-parallelism/T22-tui-gate
     state: merged
 ---
@@ -432,7 +432,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
   (added to T10 `depends_on`).
 
 **T17 `depends_on T1+T12` notes (replan 2026-06-23 — orchestration-core port):**
-> Ported from the 2026-06-23 port-fidelity audit (`internal-docs/captures/2026-06-23-port-fidelity-audit/`).
+> Ported from the 2026-06-23 port-fidelity audit (`private-notes/captures/2026-06-23-port-fidelity-audit/`).
 > The audit found sworn captured the workflow plane (status.json state machine, worktree isolation,
 > verifier contract) but NOT the orchestration plane: the git-ref oracle reader and the
 > deterministic router (`captain-route.sh`) were never ported, and `RunParallel` is a static-DAG
@@ -478,7 +478,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 | `S25-memory-search` | T8 | `sworn memory search <query>` returns ranked results; captain-memory-search.py becomes a shim | verified | [spec](./S25-memory-search/spec.md) |
 | `S40-memory-test-hygiene` | T8 | memory tests use `t.TempDir()`; removes stray `test-fixture/` + root `fake_ollama.go` so `go test ./internal/memory/...` leaves git clean | verified | [spec](./S40-memory-test-hygiene/spec.md) |
 | `S26-telemetry` | T9 | Anonymous command telemetry to api.sworn.sh; opt-out via env var or sentinel file; first-run disclosure | verified | [spec](./S26-telemetry/spec.md) |
-| `S27-public-readiness-scrub` | T10 | Make repo + binary public-safe: generalise embedded role prompts (keep Captain/Coach, strip coach-loop coupling), scrub dogfood provenance comments + fired/GetFired + coach-loop refs. Final launch gate. | verified | [spec](./S27-public-readiness-scrub/spec.md) |
+| `S27-public-readiness-scrub` | T10 | Make repo + binary public-safe: generalise embedded role prompts (keep Captain/Coach, strip coach-loop coupling), scrub dogfood provenance comments + fired/the consumer project + coach-loop refs. Final launch gate. | verified | [spec](./S27-public-readiness-scrub/spec.md) |
 | `S28-git-dir-guard` | T11 | internal/git fails closed on empty Repo.Dir so a git op can't run on the ambient worktree (fixes workers writing to main, sworn#6) + regression test | verified | [spec](./S28-git-dir-guard/spec.md) |
 | `S29-lint-deps` | T12 | `sworn lint deps` — go.mod/go.sum diff vs planned_files, fail-closed; planner auto-adds dep files | verified | [spec](./S29-lint-deps/spec.md) |
 | `S30-lint-touchpoints` | T12 | `sworn lint touchpoints` — design files/pkgs vs planned_files + collision matrix + migration-number collision | verified | [spec](./S30-lint-touchpoints/spec.md) |
@@ -1072,7 +1072,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 ### 2026-06-23 — replan: add T17-orchestration-core (router/oracle/loop port from fidelity audit)
 - **Actor**: planner (`/replan-release`)
 - **Trigger (net-new scope, not a stalled slice)**: the 2026-06-23 port-fidelity audit
-  (`internal-docs/captures/2026-06-23-port-fidelity-audit/`) found sworn captured the workflow plane
+  (`private-notes/captures/2026-06-23-port-fidelity-audit/`) found sworn captured the workflow plane
   (status.json state machine, worktree isolation, verifier contract) but NOT the orchestration
   plane — the git-ref oracle reader and the deterministic router (`captain-route.sh`) were never
   ported, and `RunParallel` is a static-DAG executor rather than the reference's resumable
@@ -1298,7 +1298,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 ### 2026-06-21 — replan: new track T13-sworn-role-parity (S45/S46/S47)
 
 - **Actor**: planner (`/replan-release`)
-- **Directive**: sworn must mirror the coach-loop's roles — forward-only, no regressions. Losing captain / TL;DR-review / orchestrator is going backwards. See the parity capture (`internal-docs/captures/2026-06-21-sworn-coach-loop-role-parity.md`).
+- **Directive**: sworn must mirror the coach-loop's roles — forward-only, no regressions. Losing captain / TL;DR-review / orchestrator is going backwards. See the parity capture (`private-notes/captures/2026-06-21-sworn-coach-loop-role-parity.md`).
 - **New track `T13-sworn-role-parity`** (depends_on T12 — both touch `internal/run`, so serialized): **S45-design-tldr** (`sworn run` emits the §1–6 design TL;DR before code), **S46-captain-review** (captain agent reviews the TL;DR, emits classified pins, gates implement — the in-product `/design-review`), **S47-orchestrator-recovery** (intelligent triage on non-PASS: resolve-in-place / escalate / halt, + BLOCKED resolvability — the in-product orchestrator; builds on S44).
 - **Gap closed**: sworn had the captain's *known catches* as deterministic gates (S29–S33, S35) and the embedded `captain.md`, but not the captain's *judgment* in the loop, nor an intelligent recovery orchestrator. T13 restores both.
 - **Ripple (tracked separately)**: the MCP surface (T4) and the TUI (T2) will need parity updates to expose/render the new roles + states — to be sliced next.
@@ -1349,7 +1349,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 ### 2026-06-21 — replan: harness-hardening batch (S29–S36) from the trial-log harvest
 
 - **Actor**: planner (`/replan-release`)
-- **New track `T12-harness-hardening`** (depends T1; dispatch early): **S29-lint-deps**, **S30-lint-touchpoints**, **S31-lint-symbols**, **S32-designfit-decisions-gate**, **S33-spec-template-hardening**, **S35-mutation-guard**, **S36-captain-resolve-dirty-worktree**. Each hardens the automation against a recurring class the Captain design-gate has been catching by hand (186-review harvest at `internal-docs/captures/2026-06-21-captain-trial-log-harvest.md`).
+- **New track `T12-harness-hardening`** (depends T1; dispatch early): **S29-lint-deps**, **S30-lint-touchpoints**, **S31-lint-symbols**, **S32-designfit-decisions-gate**, **S33-spec-template-hardening**, **S35-mutation-guard**, **S36-captain-resolve-dirty-worktree**. Each hardens the automation against a recurring class the Captain design-gate has been catching by hand (186-review harvest at `private-notes/captures/2026-06-21-captain-trial-log-harvest.md`).
 - **S34-tui-merge-actor** appended to T2's tail: render the `merge:<track>` actor (now emitted by the coach-loop merge-tag) in the TUI live view + board.
 - **S36** added per Coach direction: dirty worktrees are only worker-caused, so the Captain auto-resolves (commit-by-default, record diff+resolution) rather than paging.
 - **Also landed live this session** (outside the release tree): coach-loop merge-actor tag + post-dispatch worktree-flip guard (sworn#6); verifier `## Status block` watcher-wrapper removed (metadata kept). 10 latent bugs filed in the private issue tracker.
@@ -1393,7 +1393,7 @@ Phase 6:  T10 (after ALL tracks merge incl. T16 + T19 — final public-readiness
 
 - **Actor**: planner (`/replan-release`)
 - **S21-canonical-baton re-scoped**: embed **10 rules** (not 7), built from the in-repo canonical `internal/adopt/baton/rules/` (`01`–`10`) instead of "verbatim from `~/.claude/baton/`" (stale at 7, would drop Rules 8/9/10). The role-prompt generalisation the verbatim copy would have leaked is split out to S27.
-- **S27-public-readiness-scrub added** in new track **T10-public-readiness** (depends on every track; runs last — the launch gate): generalise the embedded role prompts (keep Captain/Coach, strip coach-loop/`--auto-ack`/`approved-ack`/S21-stall/project-memory; operationally intact), scrub the 8 dogfood provenance comments, the `fired`/GetFired leak, and `coach-loop` references across source + release artefacts.
+- **S27-public-readiness-scrub added** in new track **T10-public-readiness** (depends on every track; runs last — the launch gate): generalise the embedded role prompts (keep Captain/Coach, strip coach-loop/`--auto-ack`/`approved-ack`/S21-stall/project-memory; operationally intact), scrub the 8 dogfood provenance comments, the `fired`/the consumer project leak, and `coach-loop` references across source + release artefacts.
 - **Base sync**: release-wt forward-merged `release/v0.1.0` to pick up the no-mock→Rule-10 reconciliation (`5139882`).
 - **S28-git-dir-guard added** in new track **T11-infra-safety** (depends on T1; dispatch early) — the in-repo structural fix for **sworn#6** (workers writing to `main`): `internal/git.run()` fails closed on empty `Repo.Dir` + regression test. Harness defence-in-depth (a coach-loop post-dispatch worktree-branch guard) landed separately in `~/.claude/bin/coach-loop`.
 - **Release now 34 slices across 11 tracks.**
@@ -1735,7 +1735,7 @@ See `intake.md` "Adjacent / out of scope" for full deferral cards.
   The cost signal is local token-pricing — `model.Verifier.Verify` already returns `costUSD`,
   `internal/agent`/`oai.go` already `computeCost` from a `modelPricing` table, `verdict.Result`
   already carries `CostUSD`. Cost-aware routing needs **none** of the S06b commercial billing
-  engine (Stripe/subscriptions, which stays post-R3). S54's deferral note corrected.
+  engine (external-billing/subscriptions, which stays post-R3). S54's deferral note corrected.
 - **Added** (T16 tail, after S54):
   - **S55-ledger-multirole-cost** — Record `v:2` with per-role `dispatches[] {role, model,
     cost_usd, attempt}`; captured at each in-binary dispatch site (implementer=`internal/agent`,

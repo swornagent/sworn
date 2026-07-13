@@ -1,0 +1,86 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S05-driver-registry",
+  "release": "2026-06-28-driver-contract",
+  "track": "T4-resolution-loop",
+  "state": "verified",
+  "covers_needs": ["N-04", "N-09"],
+  "spec_path": "docs/release/2026-06-28-driver-contract/S05-driver-registry/spec.json",
+  "proof_path": "docs/release/2026-06-28-driver-contract/S05-driver-registry/proof.json",
+  "journal_path": "docs/release/2026-06-28-driver-contract/S05-driver-registry/journal.md",
+  "start_commit": "20dc2dc9edecaed23995d7adcccbc1fff8aba8a9",
+  "actual_files": [
+    "AGENTS.md",
+    "cmd/sworn/capabilities.go",
+    "cmd/sworn/capabilities_test.go",
+    "cmd/sworn/main.go",
+    "internal/driver/registry/registry.go",
+    "internal/driver/registry/registry_test.go",
+    "internal/model/cli_test.go",
+    "internal/model/config.go",
+    "internal/model/oai_test.go",
+    "internal/model/provider.go",
+    "internal/model/provider_test.go",
+    "internal/model/registry.go (deleted)"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go vet ./internal/driver/... ./internal/model/... ./cmd/sworn/...",
+    "go test -timeout 300s ./internal/driver/... ./internal/model/... ./cmd/sworn/...",
+    "go test -timeout 300s ./..."
+  ],
+  "reachability_artifacts": [
+    "cli-run: SWORN_DIRECT=1 sworn capabilities (binary built from this branch) renders the live registry enumeration — see proof.json reachability.evidence",
+    "cmd/sworn/capabilities_test.go:TestCapabilitiesRendersRegistry",
+    "internal/driver/registry/registry_test.go:TestDefaultRegistryTable",
+    "internal/driver/registry/registry_test.go:TestEnumerationShowsProxyRouting"
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "Decided mechanics, breadth of mapping + availability probing + #31 rename spillover + capabilityRegistry retirement.",
+    "confirmed_by_implementer": true
+  },
+  "design_decisions": [
+    {
+      "choice": "Registration mechanism: explicit DefaultRegistry(cfg) table (not init() self-registration); resolution: explicit prefix->driver with no smart fallback",
+      "stake_class": "Type-2",
+      "options": [
+        "explicit table + enumeration API (chosen)",
+        "init() self-registration per driver file (sworn#15 as written)",
+        "smart fallback resolution (anthropic/ -> claude-cli when keyless) — rejected"
+      ],
+      "human_decision": "Brad, 2026-07-02, planning session (intake.md 'Registration: explicit table' + 'explicit prefix' decisions).",
+      "rationale": "Deterministic and auditable; config flows in explicitly; the #15 collision concern shrank from 14 provider files to ~4 drivers; silent rerouting rejected per the sworn#69 lesson. Classified Type-2 (reversible, local) — the Type-1 contract decision lives on S01.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "D2 prefix breadth: the oai-inprocess identity registers the full chat-capable OAI-compat prefix set (openai-completions/, deepseek/, groq/, mistral/, openrouter/, cloudflare/, github/) plus anthropic/, not only the openai* trio the spec names.",
+      "stake_class": "Type-2",
+      "options": [
+        "full chat-capable set (chosen) — preserves today's loop reach when S06 rewires dispatch through the registry",
+        "literal openai trio only — rejected: silently shrinks loop reach at the S06 cutover; verify-only providers stay on the one-shot utility path either way"
+      ],
+      "human_decision": "Noted default, Coach-directed recording: Brad (Coach), 2026-07-10, captain-proceed.md disposition 3; Captain verified determinable-correct against live code (review.md pin 3).",
+      "rationale": "*OAI, *OpenAIResponses and *Anthropic are the only Chat implementers, and model.NewClient maps exactly these prefixes to chat-capable clients today; the unknown-prefix error names what IS registered, so unregistered verify-only providers fail loudly by name.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "D3: the sworn#31 prefix rename lands at model.NewClient (the client-construction choke point), accepting utility-path spillover onto gates/bench, rather than registry-side model-ID rewriting.",
+      "stake_class": "Type-2",
+      "options": [
+        "choke-point rename in NewClient (chosen) — one authority for prefix meaning; registry enumeration and in-process dispatch (which re-resolves via NewClient) can never disagree",
+        "registry-side ID rewriting before dispatch — rejected: hidden mutation, contradicts the 'explicit prefix, no magic' planning decision"
+      ],
+      "human_decision": "Noted default, Coach-directed recording: Brad (Coach), 2026-07-10, captain-proceed.md disposition 3; the #31 rename direction itself was human-decided at planning (Brad, 2026-07-02, intake).",
+      "rationale": "InProcess.Dispatch re-resolves DispatchInput.ModelID via model.NewClient (inprocess.go:107), so any registry mapping NewClient does not share would make enumeration lie about dispatch; spillover to the one-shot utility path is forced, not chosen (review.md pin 3).",
+      "architecturally_significant": false
+    }
+  ],
+  "verification": {
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-10T02:22:30Z"
+  }
+}

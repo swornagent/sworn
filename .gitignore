@@ -33,3 +33,10 @@ test-fixture/
 # per-user coach-loop config — sourced at coach-loop startup; local to each
 # operator, must never be committed (may carry machine-specific paths/secrets)
 .coach-env
+
+# personal working notes — private, never commit to the public repo
+/BRAD-TODO.md
+
+# symlink into the private sibling repo (docs live in sworn-internal); must
+# never be tracked or packaged into the public tree
+/internal-docs

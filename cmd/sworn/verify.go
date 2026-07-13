@@ -8,8 +8,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/config"
+	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/driver/registry"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/state"
 	"github.com/swornagent/sworn/internal/verify"
@@ -28,9 +29,9 @@ func cmdVerify(args []string) int {
 	fs := flag.NewFlagSet("verify", flag.ExitOnError)
 	spec := fs.String("spec", "", "path to the spec / acceptance criteria (required)")
 	diff := fs.String("diff", "", "path to the unified diff, or - for stdin (required)")
-	proof := fs.String("proof", "", "path to the proof bundle (optional in this build)")
+	proof := fs.String("proof", "", "path to the proof bundle (required — fail closed per Rule 6)")
 	mdl := fs.String("verifier-model", "", "verifier model id (provider/model)")
-	agentic := fs.Bool("agentic", false, "use agentic verifier (full verifier.md role via Chat) instead of stateless judge")
+	agentic := fs.Bool("agentic", false, "use agentic verifier (full verifier.md role, schema-constrained verdict) instead of the deterministic first-pass")
 	var openDeferrals openDeferralsFlag
 	fs.Var(&openDeferrals, "deferral", "declared Rule-2 deferral (repeatable: 'why - tracking - ack')")
 	_ = fs.Parse(args) // Resolve verifier model with precedence: flag > env > config.
@@ -62,14 +63,22 @@ func cmdVerify(args []string) int {
 			return 2
 		}
 	}
-	// v remains nil when no model is configured -> Unconfigured (fail-closed).
+	// v remains nil when no model is configured; the default path below is
+	// the deterministic first-pass and never dispatches it.
 
 	// ── Agentic path (--agentic flag) ──────────────────────────────
 	if *agentic {
-		// Read spec, diff, proof content for the agentic payload.
+		// Read spec, diff, proof content for the agentic payload. All three
+		// are required and must be non-empty BEFORE the verifier is created
+		// or dispatched — an empty payload must never reach the model, and a
+		// missing/empty/unparseable proof must never upgrade to PASS (Rule 6).
 		specContent, sErr := readFileContent(*spec)
 		if sErr != nil {
 			fmt.Fprintf(os.Stderr, "sworn verify: read spec: %v\n", sErr)
+			return 2
+		}
+		if strings.TrimSpace(specContent) == "" {
+			fmt.Fprintf(os.Stderr, "sworn verify: spec is required and must be non-empty (--spec) — fail closed\n")
 			return 2
 		}
 		diffContent, dErr := readFileContent(*diff)
@@ -77,21 +86,51 @@ func cmdVerify(args []string) int {
 			fmt.Fprintf(os.Stderr, "sworn verify: read diff: %v\n", dErr)
 			return 2
 		}
-		proofContent, _ := readFileContent(*proof) // proof is optional
-
-		// Create an agentic verifier (agent.Agent, not model.Verifier).
-		va, vaErr := model.FromEnv(resolvedModel)
-		if vaErr != nil {
-			fmt.Fprintf(os.Stderr, "sworn verify: create agentic verifier: %v\n", vaErr)
+		if strings.TrimSpace(diffContent) == "" {
+			fmt.Fprintf(os.Stderr, "sworn verify: diff is required and must be non-empty (--diff) — fail closed\n")
 			return 2
 		}
-		verifierAgent, ok := va.(agent.Agent)
-		if !ok {
-			fmt.Fprintf(os.Stderr, "sworn verify: model %q does not support agent interface\n", resolvedModel)
+		if *proof == "" {
+			fmt.Fprintf(os.Stderr, "sworn verify: proof bundle is required (--proof) — fail closed (Rule 6)\n")
+			return 2
+		}
+		proofContent, pErr := readFileContent(*proof)
+		if pErr != nil {
+			fmt.Fprintf(os.Stderr, "sworn verify: read proof: %v\n", pErr)
+			return 2
+		}
+		if strings.TrimSpace(proofContent) == "" {
+			fmt.Fprintf(os.Stderr, "sworn verify: proof bundle %s is empty — fail closed (Rule 6)\n", *proof)
+			return 2
+		}
+		if strings.HasSuffix(*proof, ".json") && !json.Valid([]byte(proofContent)) {
+			fmt.Fprintf(os.Stderr, "sworn verify: proof bundle %s is not valid JSON — fail closed (Rule 6)\n", *proof)
 			return 2
 		}
 
-		result, rErr := verify.RunAgentic(context.Background(), specContent, diffContent, proofContent, verifierAgent)
+		// Resolve the verifier driver through the registry (S06 rewire) —
+		// the same seam RunSlice's verify leg dispatches through, so the
+		// standalone agentic path and the loop can never disagree on how a
+		// verifier dispatch travels.
+		reg := registry.Default(model.ProviderConfigFromEnv())
+		d, dErr := reg.Resolve(resolvedModel, driver.RoleVerifier)
+		if dErr != nil {
+			fmt.Fprintf(os.Stderr, "sworn verify: resolve %q for role %q: %v\n", resolvedModel, driver.RoleVerifier, dErr)
+			return 2
+		}
+		repoRoot, rrErr := findRepoRoot()
+		if rrErr != nil {
+			fmt.Fprintf(os.Stderr, "sworn verify: %v\n", rrErr)
+			return 2
+		}
+
+		result, rErr := verify.RunAgentic(context.Background(), verify.AgenticInput{
+			Spec:         specContent,
+			Diff:         diffContent,
+			Proof:        proofContent,
+			ModelID:      resolvedModel,
+			WorktreeRoot: repoRoot,
+		}, d)
 		if rErr != nil {
 			fmt.Fprintf(os.Stderr, "sworn verify: agentic dispatch: %v\n", rErr)
 			return 2
@@ -111,9 +150,12 @@ func cmdVerify(args []string) int {
 		deferrals = append(deferrals, state.Deferral{Item: d})
 	}
 	res := verify.RunFirstPass(context.Background(), verify.Input{
-		SpecPath:      *spec,
-		DiffPath:      *diff,
-		ProofPath:     *proof,
+		SpecPath:  *spec,
+		DiffPath:  *diff,
+		ProofPath: *proof,
+		// The standalone CLI is the proof-bundle gate: an absent --proof is
+		// BLOCKED, never PASS (Rule 6 fail-closed).
+		ProofRequired: true,
 		Model:         resolvedModel,
 		Verifier:      v,
 		OpenDeferrals: deferrals,

@@ -16,9 +16,10 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
-	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/state"
@@ -32,9 +33,15 @@ var verifierRolePrompt = prompt.Verifier()
 
 // Input is everything a verification needs.
 type Input struct {
-	SpecPath      string
-	DiffPath      string // "-" reads stdin
-	ProofPath     string // optional in S1
+	SpecPath  string
+	DiffPath  string // "-" reads stdin
+	ProofPath string // when set, gated by RunFirstPass (exists, non-empty, valid JSON for .json)
+	// ProofRequired makes an EMPTY ProofPath a BLOCKED first-pass verdict
+	// (Rule 6 — absence must not upgrade to PASS). The standalone CLI sets
+	// this: `sworn verify` is the proof-bundle gate. Left false by callers
+	// that own their own absence gate (RunSlice's proof-mandatory check) or
+	// that deliberately measure spec/diff structure only (bench).
+	ProofRequired bool
 	Model         string
 	Verifier      model.Verifier   // nil -> Unconfigured (fails closed)
 	OpenDeferrals []state.Deferral // Rule-2 deferrals from status.json (S10 no-mock-boundary)
@@ -46,7 +53,9 @@ type Input struct {
 //
 //	(a) spec is present and non-empty
 //	(b) diff is present and non-empty
-//	(c) no undeclared boundary mocks (S10 Rule 7/Rule 2 enforcement)
+//	(c) the proof bundle, when supplied (or required — Input.ProofRequired),
+//	    exists, is non-empty, and parses as JSON for .json bundles (Rule 6)
+//	(d) no undeclared boundary mocks (S10 Rule 7/Rule 2 enforcement)
 //
 // RunFirstPass MUST NOT be used to drive state transitions to verified.
 // A PASS from RunFirstPass only means "no structural blockers found";
@@ -65,7 +74,24 @@ func RunFirstPass(ctx context.Context, in Input) verdict.Result {
 	if err != nil {
 		return blocked("first_pass:diff", err.Error())
 	}
-	_ = in.ProofPath // proof is optional in first-pass; enforced by RunSlice proof-mandatory gate
+	// --- Proof-bundle gate (Rule 6) ---
+	// A supplied proof must exist, be non-empty, and (for .json bundles)
+	// parse as JSON — a missing/empty/unparseable proof must never upgrade
+	// to PASS. An empty ProofPath blocks only when the caller marked proof
+	// required (see Input.ProofRequired).
+	if in.ProofPath == "" {
+		if in.ProofRequired {
+			return blocked("first_pass:proof", "no proof bundle provided — fail closed (Rule 6)")
+		}
+	} else {
+		proofContent, err := readNonEmpty(in.ProofPath)
+		if err != nil {
+			return blocked("first_pass:proof", err.Error())
+		}
+		if strings.HasSuffix(in.ProofPath, ".json") && !json.Valid([]byte(proofContent)) {
+			return blocked("first_pass:proof", display(in.ProofPath)+" is not valid JSON")
+		}
+	}
 
 	// --- Boundary-mock check (S10 first-pass gate) ---
 	report := CheckBoundaryMocks(diff, in.OpenDeferrals)
@@ -95,7 +121,9 @@ func RunFirstPass(ctx context.Context, in Input) verdict.Result {
 		Verdict:   verdict.Pass,
 		Rationale: rationale,
 	}
-} // verifierEmitSchema is the model-authored JUDGEMENT subset of
+}
+
+// verifierEmitSchema is the model-authored JUDGEMENT subset of
 // verifier-verdict-v1 handed to ChatStructured (ADR-0011 authoring path). It
 // deliberately stays inside OpenAI's strict-mode keyword subset — no minLength /
 // pattern / format (those would break a strict response_format target; see the
@@ -145,56 +173,98 @@ type structuredVerdict struct {
 	} `json:"violations"`
 }
 
-// RunAgentic executes the agentic verification protocol: it dispatches the full
-// verifier.md role prompt and the SPEC+DIFF+PROOF payload, and the verifier
-// EMITS its verdict as a schema-constrained structured-output object
-// (verifier-verdict-v1), which is validated before acceptance (ADR-0011
-// authoring path). This replaces the prior prose reply scraped by HasPrefix —
-// the one live ADR-0009 invariant breach in the hot path.
+// AgenticInput is everything an agentic verification dispatch needs (S06
+// rewire). Spec/Diff/Proof are the payload content the caller has already
+// read; ModelID names the verifier model; WorktreeRoot roots the driver's
+// dispatch (the agentic verifier can re-run tests there); Timeout bounds the
+// dispatch (zero means the driver's own default).
+type AgenticInput struct {
+	Spec  string
+	Diff  string
+	Proof string
+
+	ModelID      string
+	WorktreeRoot string
+	Timeout      time.Duration
+}
+
+// RunAgentic executes the agentic verification protocol via one
+// registry-resolved driver dispatch (S06 rewire): it hands the full
+// verifier.md role prompt, the SPEC+DIFF+PROOF payload, and the
+// verifier-verdict-v1 emission schema to Driver.Dispatch (Role=verifier),
+// then the ENGINE — never the driver — validates Result.StructuredJSON
+// against the canonical schema before acceptance (ADR-0011 authoring path,
+// acceptance semantics preserved verbatim across the transport swap).
 //
-// Fail-closed at every boundary: a verifier driver that cannot emit structured
-// output, a dispatch error, a malformed emission, or an emission that fails
-// schema validation (e.g. a FAIL verdict that cites no violations) all resolve
-// to INCONCLUSIVE — never an optimistic or scraped verdict.
+// Fail-closed at every boundary: a dispatch error, an errored Status, a
+// missing emission, a malformed emission, or an emission that fails schema
+// validation (e.g. a FAIL verdict that cites no violations) all resolve to
+// INCONCLUSIVE — never an optimistic or scraped verdict. Terminal driver
+// error kinds (driver.TerminalErrKind: auth, credits) map to BLOCKED so
+// triage Halts instead of walking the retry/escalation ladder (S09 AC1
+// property, preserved across the swap; S06 AC-03).
 //
 // The caller (RunSlice) is responsible for the proof-mandatory check and
 // no-mock wiring before calling RunAgentic, and stamps the identity triple
 // (slice_id, release) into status.json post-emission — the model payload is
 // judgement-only (ADR-0011 §3.3 g).
-func RunAgentic(ctx context.Context, spec, diff, proof string, verifierAgent agent.Agent) (verdict.Result, error) {
-	userPayload := buildPayload(spec, diff, proof)
+func RunAgentic(ctx context.Context, in AgenticInput, d driver.Driver) (verdict.Result, error) {
+	res, derr := d.Dispatch(ctx, driver.DispatchInput{
+		Role:             driver.RoleVerifier,
+		ModelID:          in.ModelID,
+		SystemPrompt:     verifierRolePrompt,
+		Payload:          buildPayload(in.Spec, in.Diff, in.Proof),
+		StructuredSchema: verifierEmitSchema,
+		WorktreeRoot:     in.WorktreeRoot,
+		Timeout:          in.Timeout,
+	})
 
-	messages := []model.ChatMessage{
-		{Role: "system", Content: verifierRolePrompt},
-		{Role: "user", Content: userPayload},
+	// Terminal error kinds (auth, credits — revoked key, exhausted credits)
+	// can never succeed on retry or model escalation: surface BLOCKED so
+	// triage Halts (Blocked → Halt) — mirroring the implementer path's
+	// terminal-error halt. One predicate, both consumption points (D3).
+	if driver.TerminalErrKind(res.ErrKind) {
+		return withDispatchEconomics(blockedTerminal(res.ErrKind, derr), res), nil
+	}
+	if derr != nil {
+		return withDispatchEconomics(inconclusive("verifier_structured_dispatch", derr.Error()), res), nil
+	}
+	if res.Status != driver.StatusOK {
+		return withDispatchEconomics(inconclusive("verifier_structured_dispatch",
+			fmt.Sprintf("verifier dispatch status %q (%s)", res.Status, res.ErrKind)), res), nil
+	}
+	if len(res.StructuredJSON) == 0 {
+		// The old empty-choices class: the dispatch succeeded but no
+		// structured emission came back — fail closed.
+		return withDispatchEconomics(inconclusive("verifier_structured_dispatch",
+			"missing structured output"), res), nil
 	}
 
-	// The verifier must emit a schema-constrained object. A driver that does not
-	// advertise CapStructuredOutput cannot be trusted to a prose verdict any
-	// more (ADR-0009) — fail closed to INCONCLUSIVE.
-	so, ok := verifierAgent.(model.StructuredOutput)
-	if !ok {
-		return inconclusive("verifier_structured_unsupported",
-			"verifier driver does not support structured output (ADR-0011) — cannot emit verifier-verdict-v1"), nil
-	}
+	return acceptStructuredVerdict(string(res.StructuredJSON), res), nil
+}
 
-	resp, err := so.ChatStructured(ctx, messages, verifierEmitSchema)
-	if err != nil {
-		return inconclusive("verifier_structured_dispatch", err.Error()), nil
-	}
-	if len(resp.Choices) == 0 {
-		return inconclusive("verifier_structured_dispatch", "empty response choices"), nil
-	}
-
-	return acceptStructuredVerdict(resp.Choices[0].Message.Content, resp.Usage), nil
+// withDispatchEconomics attaches the dispatch-economics fields the engine
+// records regardless of outcome (the call may have been made and billed even
+// though the emission was not acceptable) — sourced from the driver Result
+// (S06 AC-05 plumbing; honest population lands in S08).
+func withDispatchEconomics(v verdict.Result, res driver.Result) verdict.Result {
+	v.CostUSD = res.CostUSD
+	v.CostSource = res.CostSource
+	v.InputTokens = res.InputTokens
+	v.OutputTokens = res.OutputTokens
+	v.DurationMS = res.DurationMS
+	v.ModelIDConfirmed = res.ModelID
+	return v
 }
 
 // acceptStructuredVerdict validates the emitted judgement against the canonical
 // verifier-verdict-v1 schema and maps it to a verdict.Result. Any failure along
 // the way is INCONCLUSIVE (fail-closed) — the verdict is taken from the typed,
-// validated object, never inferred from prose.
-func acceptStructuredVerdict(emitted string, usage *model.UsageBlock) verdict.Result {
-	cost := computeAgenticCost(usage)
+// validated object, never inferred from prose. Cost/usage fields are sourced
+// from the dispatch's driver.Result (S06 AC-05: Result is the plumbing
+// source; the acceptance semantics are otherwise preserved verbatim).
+func acceptStructuredVerdict(emitted string, res driver.Result) verdict.Result {
+	cost := res.CostUSD
 
 	// Stamp the binary-owned fields the model does not author, then validate the
 	// completed record against the canonical schema (this is where the
@@ -220,34 +290,26 @@ func acceptStructuredVerdict(emitted string, usage *model.UsageBlock) verdict.Re
 		return inconclusiveCost("verifier_structured_malformed", err.Error(), cost)
 	}
 
-	res := verdict.Result{
-		Verdict:    verdict.Verdict(sv.Verdict), // schema-validated to the 4-value enum
-		Rationale:  sv.Rationale,
-		FailedGate: sv.FailedGate,
-		Routing:    sv.Routing,
-		CostUSD:    cost,
-	}
-	if usage != nil {
-		res.InputTokens = int64(usage.PromptTokens)
-		res.OutputTokens = int64(usage.CompletionTokens)
+	out := verdict.Result{
+		Verdict:          verdict.Verdict(sv.Verdict), // schema-validated to the 4-value enum
+		Rationale:        sv.Rationale,
+		FailedGate:       sv.FailedGate,
+		Routing:          sv.Routing,
+		CostUSD:          cost,
+		CostSource:       res.CostSource,
+		InputTokens:      res.InputTokens,
+		OutputTokens:     res.OutputTokens,
+		DurationMS:       res.DurationMS,
+		ModelIDConfirmed: res.ModelID,
 	}
 	for _, v := range sv.Violations {
 		if v.Gate != "" {
-			res.Violations = append(res.Violations, v.Gate+": "+v.Description)
+			out.Violations = append(out.Violations, v.Gate+": "+v.Description)
 		} else {
-			res.Violations = append(res.Violations, v.Description)
+			out.Violations = append(out.Violations, v.Description)
 		}
 	}
-	return res
-}
-
-// computeAgenticCost computes a nominal cost from a UsageBlock.
-// Uses the same ~$2/1M tokens estimate as agent.computeCost for consistency.
-func computeAgenticCost(usage *model.UsageBlock) float64 {
-	if usage == nil {
-		return 0
-	}
-	return float64(usage.TotalTokens) * 0.000002 // ~$2/1M tokens
+	return out
 }
 
 func buildPayload(spec, diff, proof string) string {
@@ -270,6 +332,31 @@ func buildPayload(spec, diff, proof string) string {
 
 func blocked(gate, why string) verdict.Result {
 	return verdict.Result{Verdict: verdict.Blocked, FailedGate: gate, Rationale: why}
+}
+
+// blockedTerminal maps a terminal verifier-dispatch failure
+// (driver.TerminalErrKind: auth / credits, read from Result.ErrKind — S06
+// AC-03) to a BLOCKED verdict. BLOCKED — not INCONCLUSIVE — because the
+// triage policy retries/escalates Inconclusive but Halts on Blocked, and
+// dead verifier credentials fail identically on every attempt. Mirrors the
+// kind-label + message format of the implementer path's terminal halt
+// (internal/run/slice.go, S09 AC1).
+func blockedTerminal(kind string, err error) verdict.Result {
+	detail := "terminal driver error"
+	if err != nil {
+		var me *model.Error
+		if model.AsError(err, &me) {
+			detail = me.UserMessage()
+		} else {
+			detail = err.Error()
+		}
+	}
+	reason := detail
+	if kind != "" {
+		reason = fmt.Sprintf("Kind%s%s: %s", strings.ToUpper(kind[:1]), kind[1:], detail)
+	}
+	return blocked("verifier_terminal_error",
+		reason+" — halting; check verifier provider credentials")
 }
 
 // inconclusive builds a fail-closed INCONCLUSIVE result for the structured

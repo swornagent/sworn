@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/swornagent/sworn/internal/git"
 )
 
 // sliceRecord is the subset of a slice's spec.json + status.json the renderer
@@ -85,9 +87,15 @@ func Render(projectRoot, release string) (string, error) {
 		}
 	}
 
+	// board-v1 is a pure plan: a track's state is not persisted, so the tracks
+	// table shows the state DERIVED from git refs (track-mode invariant 5 /
+	// sworn#80). Best-effort: a track whose branch does not resolve derives to
+	// "planned"; if git is unavailable the cell renders "-".
+	trackStates := deriveTrackStatesForRender(projectRoot, release, tracks)
+
 	var b strings.Builder
 	writeFrontmatter(&b, release)
-	writeTracksTable(&b, tracks)
+	writeTracksTable(&b, tracks, trackStates)
 	writeSliceTable(&b, tracks, records)
 	writeTouchpointMatrix(&b, tracks, records)
 	writeDependencyGraph(&b, tracks)
@@ -169,16 +177,32 @@ func writeFrontmatter(b *strings.Builder, release string) {
 	fmt.Fprintf(b, "> plus each slice's `spec.json`/`status.json` — never hand-authored.\n\n")
 }
 
-// writeTracksTable emits the tracks table (AC-01): id, ordered slices, depends_on, state.
-func writeTracksTable(b *strings.Builder, tracks []BoardTrack) {
+// writeTracksTable emits the tracks table (AC-01): id, ordered slices, depends_on,
+// and the DERIVED state (sworn#80 — the board no longer persists track state).
+func writeTracksTable(b *strings.Builder, tracks []BoardTrack, states map[string]string) {
 	fmt.Fprintf(b, "## Tracks\n\n")
 	fmt.Fprintf(b, "| Track | Slices | depends_on | State |\n")
 	fmt.Fprintf(b, "|-------|--------|------------|-------|\n")
 	for _, t := range tracks {
 		fmt.Fprintf(b, "| `%s` | %s | %s | %s |\n",
-			t.ID, backtickJoin(t.Slices), dependsOn(t.DependsOn), cell(t.State))
+			t.ID, backtickJoin(t.Slices), dependsOn(t.DependsOn), cell(states[t.ID]))
 	}
 	fmt.Fprintf(b, "\n")
+}
+
+// deriveTrackStatesForRender computes each track's state from git refs
+// (track-mode invariant 5) for the rendered tracks table. It is best-effort: a
+// track whose branch cannot be resolved (absent, or git unavailable) is omitted
+// from the map, so cell() renders "-".
+func deriveTrackStatesForRender(projectRoot, release string, tracks []BoardTrack) map[string]string {
+	states := make(map[string]string, len(tracks))
+	repo := git.New(projectRoot)
+	for _, t := range tracks {
+		if st, err := DeriveTrackState(repo, release, t.ID); err == nil {
+			states[t.ID] = st
+		}
+	}
+	return states
 }
 
 // writeSliceTable emits the slice table (AC-01): id, track, one-line outcome

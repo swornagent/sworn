@@ -93,7 +93,7 @@ None. All five acceptance checks are demonstrably satisfied.
 ## First-pass script output
 
 ```
-$ /home/brad/.claude/bin/release-verify.sh S22-pin-bump 2026-06-27-conformance-foundation
+$ /home/user/.claude/bin/release-verify.sh S22-pin-bump 2026-06-27-conformance-foundation
 
 == Slice artefacts ==
   PASS  slice folder exists

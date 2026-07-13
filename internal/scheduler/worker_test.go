@@ -15,6 +15,7 @@ import (
 	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/router"
 	"github.com/swornagent/sworn/internal/state"
+	"github.com/swornagent/sworn/internal/supervisor"
 )
 
 // fakeRunSlice is a test helper that records the slices it was called with.
@@ -169,6 +170,85 @@ func TestRunTrack_MultiSliceOrdering(t *testing.T) {
 	want := []string{"S01-first", "S02-second", "S03-third"}
 	if len(called) != len(want) {
 		t.Fatalf("expected %d slice calls, got %d: %v", len(want), len(called), called)
+	}
+	for i, sid := range want {
+		if called[i] != sid {
+			t.Errorf("call[%d] = %q, want %q", i, called[i], sid)
+		}
+	}
+}
+
+// fakeRunSliceTerminal returns a RunSliceFn that succeeds for the first
+// okCount dispatches, recording every slice ID it was called with, then
+// returns a terminal (run.IsBlocked-shaped) error — the same
+// "RunSlice: verification blocked:" prefix RunSlice itself emits after its
+// own retry/escalation policy (out of scope for this slice, consumed
+// as-is) gives up on a terminal driver error (S07 AC-03).
+func fakeRunSliceTerminal(okCount int, called *[]string) func(context.Context, string, string, string) error {
+	n := 0
+	return func(ctx context.Context, worktreeRoot, specPath, statusPath string) error {
+		sliceID := filepath.Base(filepath.Dir(specPath))
+		*called = append(*called, sliceID)
+		n++
+		if n > okCount {
+			return fmt.Errorf("RunSlice: verification blocked: driver unavailable (ErrKind=auth) for %s", sliceID)
+		}
+		return nil
+	}
+}
+
+// TestRunTrack_TerminalDriverErrorHaltsTrack is the S07 AC-03 scheduler
+// proof: a fake driver dispatches successfully for the first two slices in
+// a four-slice track, then fails with a terminal (run.IsBlocked-shaped)
+// error. RunTrack must return TrackFail immediately — no further slices in
+// THAT track are attempted (runTrackLegacy's per-slice loop returns on the
+// first RunSliceFn error, before continuing to the next sliceID). This
+// proves the mid-run driver-unavailability surfacing property track-scoped:
+// AC-03's "sibling tracks continue (no phase-wide cascade cancel)" half is
+// covered separately by internal/run/parallel_test.go's
+// TestRunParallel_FailureCascade extension.
+func TestRunTrack_TerminalDriverErrorHaltsTrack(t *testing.T) {
+	tmpDir := t.TempDir()
+	sliceIDs := []string{"S01-a", "S02-b", "S03-c", "S04-d"}
+	for _, sid := range sliceIDs {
+		d := filepath.Join(tmpDir, "docs", "release", "test-release", sid)
+		os.MkdirAll(d, 0o755)
+		os.WriteFile(filepath.Join(d, "spec.md"), []byte("# test"), 0o644)
+		os.WriteFile(filepath.Join(d, "status.json"), []byte(`{"state":"implemented"}`), 0o644)
+	}
+
+	var called []string
+	opts := WorkerOptions{
+		ReleaseName:         "test-release",
+		PrimaryWorktreeRoot: tmpDir,
+		ProjectDir:          "sworn",
+		TrackInfo: board.TrackInfo{
+			ID:             "T1",
+			Slices:         sliceIDs,
+			WorktreePath:   tmpDir,
+			WorktreeBranch: "track/test/T1",
+		},
+		// Succeeds S01, S02; fails at S03 with a terminal-shaped error.
+		RunSliceFn: fakeRunSliceTerminal(2, &called),
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite not available: %v", err)
+	}
+	defer db.Close()
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+	opts.DB = db
+
+	result := RunTrack(context.Background(), opts)
+	if result != TrackFail {
+		t.Fatalf("expected TrackFail on terminal driver error, got %s", result)
+	}
+
+	want := []string{"S01-a", "S02-b", "S03-c"}
+	if len(called) != len(want) {
+		t.Fatalf("expected exactly %d slice dispatches (2 success + 1 terminal failure, S04-d never attempted), got %d: %v", len(want), len(called), called)
 	}
 	for i, sid := range want {
 		if called[i] != sid {
@@ -1519,7 +1599,14 @@ func TestDependentTrack_WorktreeBranchesFromMergedTip(t *testing.T) {
 
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	// Inject a committer identity so `git commit` works on a fresh CI runner
+	// with no global git config (otherwise: "Author identity unknown"). The
+	// -c flags are harmless for non-commit subcommands.
+	full := append([]string{
+		"-c", "user.email=test@swornagent.dev",
+		"-c", "user.name=sworn test",
+	}, args...)
+	cmd := exec.Command("git", full...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -1647,4 +1734,69 @@ func TestFindFirstNonTerminalOracleErrorSeedsAtUnreadable(t *testing.T) {
 func TestFindFirstNonTerminalIsTerminalImport(t *testing.T) {
 	// Compile-time check: router.IsTerminal compiles in scheduler package.
 	_ = router.IsTerminal("verified")
+}
+
+// TestReviewDecisionPausesTrack proves the router's "review" decision — a
+// slice sitting at design_review awaiting the Captain (Rule 9) — pauses the
+// track for the human gate instead of falling to the default case and
+// failing the whole track. Regression for sworn#46.
+func TestReviewDecisionPausesTrack(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	sid := "S01-design"
+	d := filepath.Join(tmpDir, "docs", "release", "test-release", sid)
+	os.MkdirAll(d, 0o755)
+	os.WriteFile(filepath.Join(d, "spec.md"), []byte("# test"), 0o644)
+	os.WriteFile(filepath.Join(d, "status.json"), []byte(`{"state":"design_review"}`), 0o644)
+
+	router := &fakeRouter{
+		decisions: []SliceDecision{
+			{Type: "review", Reason: "design.md awaits Captain review", Target: ""},
+		},
+	}
+
+	var called []string
+	opts := WorkerOptions{
+		ReleaseName:         "test-release",
+		PrimaryWorktreeRoot: tmpDir,
+		ProjectDir:          "sworn",
+		TrackInfo: board.TrackInfo{
+			ID:             "T1",
+			Slices:         []string{sid},
+			WorktreePath:   tmpDir,
+			WorktreeBranch: "track/test/T1",
+		},
+		RunSliceFn: fakeRunSlice("", &called),
+		Router:     router,
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite not available: %v", err)
+	}
+	defer db.Close()
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+	opts.DB = db
+
+	result := RunTrack(context.Background(), opts)
+	if result != TrackPaused {
+		t.Fatalf("expected TrackPaused for review decision, got %s", result)
+	}
+
+	if len(called) != 0 {
+		t.Errorf("expected 0 RunSlice calls for review pause, got %d", len(called))
+	}
+
+	// The supervisor row must NOT read failed — the design-review gate is a
+	// human pause, never a track failure. (supervisor.Release coerces
+	// non-terminal labels, so the exact pause label is not asserted here;
+	// the defect was releaseTrack(StateFailed).)
+	var state string
+	if err := db.QueryRow(`SELECT state FROM tracks WHERE id = 'T1' AND release = 'test-release'`).Scan(&state); err != nil {
+		t.Fatalf("read track state: %v", err)
+	}
+	if state == supervisor.StateFailed {
+		t.Errorf("supervisor track state is %q — review pause must not fail the track", state)
+	}
 }

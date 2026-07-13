@@ -1,0 +1,69 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "schema_version": 1,
+  "slice_id": "S03-tui-chrome-rework",
+  "release": "2026-07-01-render-drift-reconciliation",
+  "scope": "The sworn TUI now stores the real terminal size from tea.WindowSizeMsg (previously discarded) and uses it to size the releases pane, board pane, header, and help bar responsively; it renders a header (version + selected release), a full-width help bar, and ellipsis-truncates long release names so nothing wraps illegibly or overflows the terminal (the VS Code viewport root cause).",
+  "files_changed": [
+    "cmd/sworn/main.go",
+    "cmd/sworn/top.go",
+    "docs/release/2026-07-01-render-drift-reconciliation/S03-tui-chrome-rework/journal.md",
+    "docs/release/2026-07-01-render-drift-reconciliation/S03-tui-chrome-rework/proof.json",
+    "docs/release/2026-07-01-render-drift-reconciliation/S03-tui-chrome-rework/proof.md",
+    "docs/release/2026-07-01-render-drift-reconciliation/S03-tui-chrome-rework/reachability-tui-capture.txt",
+    "docs/release/2026-07-01-render-drift-reconciliation/S03-tui-chrome-rework/status.json",
+    "docs/release/2026-07-01-render-drift-reconciliation/index.md",
+    "go.mod",
+    "internal/tui/model.go",
+    "internal/tui/releases.go",
+    "internal/tui/styles.go",
+    "internal/tui/tui.go",
+    "internal/tui/tui_test.go"
+  ],
+  "test_results": [
+    {
+      "command": "go build ./...",
+      "exit_code": 0,
+      "output": "(no output, exit 0)"
+    },
+    {
+      "command": "go vet ./internal/tui/...",
+      "exit_code": 0,
+      "output": "(no output, exit 0)"
+    },
+    {
+      "command": "gofmt -l internal/tui/model.go internal/tui/styles.go internal/tui/releases.go internal/tui/tui.go internal/tui/tui_test.go cmd/sworn/main.go cmd/sworn/top.go",
+      "exit_code": 0,
+      "output": "(empty — all touched Go files gofmt-clean)"
+    },
+    {
+      "command": "go test ./internal/tui/... -count=1",
+      "exit_code": 0,
+      "output": "ok github.com/swornagent/sworn/internal/tui 0.954s — includes the 10 new S03 tests: TestWindowSizeMsgStoresDimensions, TestPaneWidthsReserveBorderColumns, TestPaneWidthsLeftFloor, TestTwoPaneRenderFitsTerminalWidth, TestReleasesListNoWrapAtTypicalWidth, TestReleasesListTruncatesLongNameAtNarrowPane, TestHeaderShowsVersionAndNoReleaseSelected, TestHeaderShowsSelectedRelease, TestViewRendersHeader, TestHelpBarSpansFullWidth"
+    },
+    {
+      "command": "go test ./... -count=1 -timeout 550s",
+      "exit_code": 0,
+      "output": "all test packages ok, 0 failures (cmd/sworn 39.913s exercises the tui.Run(version) signature change; internal/tui 1.392s). Full per-package list in proof.md."
+    }
+  ],
+  "reachability_artifacts": [
+    "docs/release/2026-07-01-render-drift-reconciliation/S03-tui-chrome-rework/reachability-tui-capture.txt — the real bin/sworn (built from this track's HEAD) run on a genuine pseudo-terminal (Python pty) whose window size was set via TIOCSWINSZ; bubbletea's checkResize() turned that into the tea.WindowSizeMsg the Model now stores, and the alt-screen stream was replayed through a pyte terminal emulator to reconstruct the final frame. Captured at BOTH 80 cols (the reported-symptom width) and 200 cols: the two frames show the header bar ('sworn 0.0.0-dev  •  no release selected'), the releases pane / board pane / help bar all sizing to the real width, and long release names ellipsis-truncated onto a single line each — no wrapping, no line exceeding the terminal width. The 80-vs-200 contrast is the responsiveness proof; before this slice every pane was pinned to a hardcoded width regardless of terminal.",
+    "AC-05 human smoke step (accepted AC-05 form per review pin 4; the sandbox cannot drive a real VS Code window): in VS Code's integrated terminal run `go build -o bin/sworn ./cmd/sworn && ./bin/sworn`; observe (a) the top row is the 'sworn <version>  •  no release selected' header — no content is rendered above it or scrolled above the visible viewport top; (b) release names do not wrap; (c) the help bar spans the full width. Compare against the before screenshot docs/release/2026-07-01-render-drift-reconciliation/screenshots/2026-07-01-tui-current-state.png."
+  ],
+  "delivered": [
+    "AC-01: Model gained Width/Height int fields; Model.Update's tea.WindowSizeMsg case now stores both (`m.Width, m.Height = msg.Width, msg.Height`) instead of discarding them (`return m, nil`). styles.go's ReleaseListStyle/BoardStyle/HelpBar dropped their hardcoded .Width(30)/.Width(80)/.Width(110); a new paneWidths(total) computes the two pane widths from the real width and Model.View applies them via .Copy().Width(...). Proven by TestWindowSizeMsgStoresDimensions (storage) and TestPaneWidthsReserveBorderColumns (paneWidths + legacy fallback).",
+    "AC-02 (as resolved by the Coach — option b, min-width floor + ellipsis truncation): paneWidths floors the left pane at minLeftPane (26); ReleasesList.View ellipsis-truncates each release label (ANSI-aware, x/ansi.Truncate) to the pane content width so a long name renders on ONE line with `…` rather than wrapping. Proven by TestReleasesListNoWrapAtTypicalWidth (a <40-char name at a wide pane stays one line, untruncated) and TestReleasesListTruncatesLongNameAtNarrowPane (a long name at an 80-col left pane is `…`-truncated on one line, width <= pane). Visually confirmed in the 80-col reachability frame: every release is a single line.",
+    "AC-03: Model gained a Version string field (set in tui.Run); new Model.renderHeader() renders `sworn <version>  •  <label>` through a new full-width HeaderStyle, where <label> is 'no release selected' when Board.ReleaseName is empty (initial screen) and the selected release name otherwise. Model.View prepends it to the two-pane branch. Proven by TestHeaderShowsVersionAndNoReleaseSelected, TestHeaderShowsSelectedRelease, and TestViewRendersHeader (header reached through the real Model.View integration point, Rule 1). Visually confirmed in both reachability frames.",
+    "AC-04: Model.renderHelp() now applies HelpBar.Copy().Width(m.Width) so the background-styled bar spans the full terminal width (fallback 110 when no WindowSizeMsg yet). Proven by TestHelpBarSpansFullWidth (lipgloss.Width(rendered) == m.Width, and == 110 fallback). Visually confirmed as a full-width bar in both reachability frames.",
+    "AC-05: a direct consequence of AC-01 — once every pane/bar tracks the reported width, no rendered line exceeds it, so the emulator never has to wrap TUI output (the spec-identified most-likely cause of the VS Code integrated-terminal viewport drift). Proven mechanically by TestTwoPaneRenderFitsTerminalWidth (lipgloss.Width(Model.View()) <= m.Width at 80/100/120/220) and the reachability capture (no line exceeds the width at 80 or 200), plus the explicit human VS-Code smoke step above (accepted AC-05 form, review pin 4).",
+    "AC-06: `go build ./...` exits 0; `go test ./internal/tui/...` passes; go vet clean; gofmt -l empty on all touched Go files; full `go test ./...` passes with no regression (cmd/sworn exercises the tui.Run(version) signature)."
+  ],
+  "not_delivered": [],
+  "divergence": [
+    "Touchpoint expansion beyond spec.json's 4 (model.go, styles.go, tui.go, tui_test.go), all pre-flagged and now realised: (a) internal/tui/releases.go — the Coach pin-1 decision (ellipsis truncation of release labels) is implemented where the label is built; releases.go was not in the spec touchpoint list but the binding Coach decision authorises it. (b) cmd/sworn/main.go + cmd/sworn/top.go — design DC-2: tui.Run gains a `version string` parameter (the only path for `sworn --version`'s value into internal/tui), so both call sites become tui.Run(version); one line each, mechanical. (c) go.mod — `go mod tidy` promoted github.com/charmbracelet/x/ansi from // indirect to a direct require because releases.go now imports ansi.Truncate for ANSI-aware truncation. This is NOT a new dependency: x/ansi is already compiled into the binary as a transitive dependency of lipgloss (go.sum unchanged, no new module downloaded); the change only reflects that it is now a direct import. No ADR required (ADR/dep policy governs adding modules to the binary, not promoting an existing transitive module to direct).",
+    "AC-01 stores Height but nothing uses it for sizing (review pin 3): width alone performs all sizing in this slice. Height is stored because AC-01's text requires storing the reported height, and is retained for tracked future vertical pagination (design.md design-level risk: no releases-list/board pagination exists before or after this slice — a longer-than-terminal list still overflows vertically, unchanged by this slice). Stated in code (Model.Height comment) and here so a fresh verifier does not read the unused field as dead code.",
+    "AC-05 reachability is a PTY-capture + terminal-emulation of the real binary (not a live VS Code recording — the sandbox cannot drive VS Code) PLUS the explicit human VS-Code smoke step in reachability_artifacts. Per review pin 4 the manual step is the accepted AC-05 form; both are present, neither is silently substituted for the other.",
+    "DC-3 (unchanged from design): 'currently selected release' persists across `esc` back to the releases list (Board.ReleaseName is not cleared on esc), so the header keeps showing the last-navigated release until a new enter changes it; 'no release selected' is scoped to the initial, never-navigated screen. Implemented as designed."
+  ]
+}

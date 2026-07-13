@@ -1,0 +1,60 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S04-mcp-oracle-migration",
+  "release": "2026-07-01-render-drift-reconciliation",
+  "user_outcome": "Every MCP tool an agent uses to read or act on release state (board reads, get_blocked, get_slice_context, approve_merge, plan mutation, catalog counts) returns real data for a current-format release instead of silently-empty results or a wrong-track error.",
+  "rationale": "internal/mcp/tools_ops.go (readReleaseBoard, findBlockedInRelease, handleApproveMerge x2), internal/mcp/context.go (AssembleSliceContext), internal/mcp/tools_plan.go, and internal/mcp/catalog.go (releaseStateSummary/countSliceTableRows) all call board.ParseTracks(extractFrontmatterBody(...)) directly on raw index.md, bypassing the already-correct internal/board oracle. tools_plan.go is the most severe: it MUTATES tracks parsed from the stale (empty) frontmatter and writes the result back, meaning a plan-mutation call against a current-format release could silently wipe track data on write. context.go additionally has its own extractViolations regex-scraper of proof.md, redundant with proof.json.not_delivered (folded into this slice since it's the same file as the tracks-parsing fix). catalog.go's countSliceTableRows greps for a table header literal that doesn't match render.go's actual header text, always returning zero counts.",
+  "covers_needs": [
+    "N-01"
+  ],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "quick",
+    "rationale": "Six call sites across four files, all the same mechanical fix (swap ParseTracks(frontmatter) for the oracle's board.json read; swap the proof.md violations scrape for proof.json.not_delivered). tools_plan.go's write-back path needs the most care since it's the one site that mutates state, not just reads it.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    "internal/mcp/tools_ops.go",
+    "internal/mcp/context.go",
+    "internal/mcp/tools_plan.go",
+    "internal/mcp/catalog.go",
+    "internal/mcp/tools_test.go",
+    "internal/mcp/lint_test.go",
+    "internal/mcp/catalog_test.go"
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "When any MCP tool in tools_ops.go (board read, get_blocked, approve_merge) is invoked against a release with a committed board.json, it SHALL resolve tracks via the internal/board oracle instead of `board.ParseTracks(extractFrontmatterBody(...))` on raw index.md.",
+      "ears_pattern": "event-driven"
+    },
+    {
+      "id": "AC-02",
+      "text": "When `AssembleSliceContext` (context.go) resolves a slice's worktree path or violations, it SHALL read them from board.json (via the oracle) and proof.json.not_delivered respectively, not from index.md frontmatter or a proof.md regex scrape.",
+      "ears_pattern": "event-driven"
+    },
+    {
+      "id": "AC-03",
+      "text": "If tools_plan.go's plan-mutation path updates a release's tracks, it SHALL read the existing tracks from board.json (via the oracle) before mutating and writing back — it SHALL NOT read from the stale frontmatter parse, which for any current-format release returns zero tracks and would silently wipe the board's track data on write.",
+      "ears_pattern": "unwanted-behaviour"
+    },
+    {
+      "id": "AC-04",
+      "text": "When `catalog.go`'s `releaseStateSummary`/`countSliceTableRows` count slices for a release, they SHALL derive counts from board.json/status.json data (via the oracle) instead of grepping for a Markdown table header literal that does not match `internal/board/render.go`'s actual output.",
+      "ears_pattern": "event-driven"
+    },
+    {
+      "id": "AC-05",
+      "text": "Every test in tools_test.go, lint_test.go, and catalog_test.go that currently hand-writes an index.md fixture with the legacy tracks: YAML shape SHALL be regenerated to build its fixture via the real sworn render path, proving these MCP tools work against what the renderer actually produces.",
+      "ears_pattern": "unwanted-behaviour"
+    },
+    {
+      "id": "AC-06",
+      "text": "After the change, `go build ./...` SHALL succeed and `go test ./internal/mcp/...` SHALL pass.",
+      "ears_pattern": "ubiquitous"
+    }
+  ],
+  "in_scope": [],
+  "out_of_scope": []
+}

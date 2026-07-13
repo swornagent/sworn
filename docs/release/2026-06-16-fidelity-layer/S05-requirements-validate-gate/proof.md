@@ -36,7 +36,7 @@ sworn reqvalidate: release name is required
 usage: sworn reqvalidate <release>
 --- PASS: TestReqvalidateCmd_MissingReleaseArg (0.00s)
 === RUN   TestReqvalidateCmd_NonexistentRelease
-sworn reqvalidate: release directory not found: /home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core/cmd/sworn/docs/release/nonexistent-release-xyz
+sworn reqvalidate: release directory not found: /home/user/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core/cmd/sworn/docs/release/nonexistent-release-xyz
 --- PASS: TestReqvalidateCmd_NonexistentRelease (0.00s)
 === RUN   TestReqvalidateCmd_WithFixtureRelease
 Requirements validation report

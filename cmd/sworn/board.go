@@ -43,16 +43,10 @@ func cmdBoard(args []string) int {
 	repo := git.New(cwd)
 	oracle := board.NewGitOracle(repo)
 
-	// Resolve the release-wt ref. Try refs/heads/release-wt/<release> first,
-	// then fall back to HEAD.
-	releaseRef := "refs/heads/release-wt/" + *releaseName
-	exists, err := repo.CatFileExists(releaseRef, "docs/release/"+*releaseName+"/index.md")
-	if err != nil || !exists {
-		// Try Fumadocs prefix.
-		exists2, err2 := repo.CatFileExists(releaseRef, "apps/docs/content/docs/release/"+*releaseName+"/index.md")
-		if err2 != nil || !exists2 {
-			releaseRef = "HEAD"
-		}
+	releaseRef, err := board.ReleaseRefFor(repo, *releaseName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn board: %v\n", err)
+		return 2
 	}
 
 	ctx := context.Background()

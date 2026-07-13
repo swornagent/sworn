@@ -1,17 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://baton.sawy3r.net/schemas/journeys-v1.json",
-  "title": "Baton Journeys Artefact",
-  "description": "Canonical schema for the durable journeys artefact (.sworn/journeys.json). A journey is an ordered, end-to-end path a user type takes across the app to achieve an outcome, crossing many slices.",
+  "title": "Baton Customer Journeys",
+  "description": "The critical customer journeys artefact (Rule 10): an ordered, version-controlled, human-ratified set of end-to-end journeys. Walkthrough attestations are a separate record (attestations-v1).",
   "type": "object",
-  "required": [
-    "$schema",
-    "version",
-    "created_at",
-    "updated_at",
-    "ratification",
-    "journeys"
-  ],
+  "additionalProperties": false,
+  "required": ["version", "journeys", "ratification"],
+  "$defs": {
+    "id_token": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "minLength": 1
+    }
+  },
   "properties": {
     "$schema": {
       "type": "string",
@@ -19,91 +20,77 @@
     },
     "version": {
       "type": "integer",
-      "minimum": 1
+      "minimum": 1,
+      "description": "Artefact schema version for forward compatibility."
     },
-    "created_at": {
-      "type": "string",
-      "format": "date-time"
-    },
-    "updated_at": {
-      "type": "string",
-      "format": "date-time"
-    },
+    "created_at": { "type": "string", "description": "ISO 8601." },
+    "updated_at": { "type": "string", "description": "ISO 8601." },
     "ratification": {
       "type": "object",
-      "required": [
-        "by",
-        "at",
-        "is_ratified"
-      ],
+      "additionalProperties": false,
+      "description": "Human ratification of the artefact (Rule 10). The gate fails closed unless ratified is true. Grouped so it can grow (e.g. scope, method) without a breaking change.",
+      "required": ["ratified"],
       "properties": {
-        "by": {
-          "type": "string",
-          "description": "Who ratified the artefact (email or identifier)."
-        },
-        "at": {
-          "type": "string",
-          "format": "date-time",
-          "description": "When the artefact was last ratified (ISO 8601)."
-        },
-        "is_ratified": {
+        "ratified": {
           "type": "boolean",
-          "description": "True when the artefact has been human-ratified."
-        }
+          "description": "True when a human has ratified the artefact."
+        },
+        "at": { "type": "string", "description": "ISO 8601; present once ratified." },
+        "by": { "type": "string", "description": "Who ratified the artefact." }
       }
     },
     "journeys": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": [
-          "id",
-          "user_type",
-          "outcome"
-        ],
+        "additionalProperties": false,
+        "required": ["id", "user_type", "outcome"],
         "properties": {
           "id": {
-            "type": "string"
+            "$ref": "#/$defs/id_token",
+            "description": "Journey id, e.g. J01-onboard-new-user."
           },
           "user_type": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "description": "The user type taking this journey."
           },
           "outcome": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "description": "The outcome the journey achieves."
+          },
+          "entry_surface": {
+            "type": "string",
+            "description": "Where the journey begins (route, command, screen)."
+          },
+          "has_regression": {
+            "type": "boolean",
+            "description": "True when an automated regression guards this journey."
+          },
+          "regression_test_path": {
+            "type": "string",
+            "description": "Path to the regression test asserted by has_regression. Present once has_regression is true."
+          },
+          "no_mock_boundary": {
+            "type": "string",
+            "description": "The entitlement/infra boundary that must cross real infrastructure (not mock) when this journey is walked (Rule 10 enforcement). Absence means no boundary is declared for this journey."
           },
           "steps": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": [
-                "order",
-                "description"
-              ],
+              "additionalProperties": false,
+              "required": ["order", "description"],
               "properties": {
-                "order": {
-                  "type": "integer"
-                },
-                "description": {
-                  "type": "string"
-                },
+                "order": { "type": "integer", "minimum": 0 },
+                "description": { "type": "string", "minLength": 1 },
                 "surface": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "The surface this step acts on."
                 }
               }
             }
-          },
-          "entry_surface": {
-            "type": "string"
-          },
-          "has_regression": {
-            "type": "boolean"
-          },
-          "regression_test_path": {
-            "type": "string"
-          },
-          "no_mock_boundary": {
-            "type": "string",
-            "description": "Boundary that must cross real infrastructure (not mock) when this journey is walked. Rule 10 enforcement."
           }
         }
       }

@@ -1,0 +1,37 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S03-codex-subprocess-driver",
+  "release": "2026-06-28-driver-contract",
+  "scope": "Build the second internal/driver.Driver: a codex-cli subprocess driver that dispatches the implementer and verifier roles rooted at the slice worktree, over S02's shared subprocess.go plumbing, proving the Driver contract (S01) is not claude-shaped (N=2) and closing sworn#19 (S63-deferral-1).",
+  "files_changed": [
+    "docs/release/2026-06-28-driver-contract/S03-codex-subprocess-driver/status.json",
+    "docs/release/2026-06-28-driver-contract/S03-codex-subprocess-driver/design.md",
+    "docs/release/2026-06-28-driver-contract/S03-codex-subprocess-driver/journal.md",
+    "internal/driver/codex.go",
+    "internal/driver/codex_test.go",
+    "internal/driver/subprocess.go",
+    "internal/driver/subprocess_test.go"
+  ],
+  "test_results": [
+    { "command": "go build ./...", "passed": true, "exit_code": 0 },
+    { "command": "go vet ./...", "passed": true, "exit_code": 0 },
+    { "command": "go test ./internal/driver/... -v", "passed": true, "exit_code": 0 },
+    { "command": "go test ./...", "passed": true, "exit_code": 0 }
+  ],
+  "reachability": {
+    "type": "cli-run",
+    "evidence": "go test ./internal/driver/... -run TestCodexDispatchImplementer -v: CodexDriver.Dispatch spawns a real subprocess (the re-exec'd test binary acting as a fake codex CLI) rooted at a real git worktree, asserts the recorded child cmd.Dir equals WorktreeRoot and the argv contains `exec --json -C <dir>`, and parses the subprocess's real JSONL stdout stream into Result (ResultText=\"done\", CostUSD=0, CostSource=provider-reported, InputTokens=100, OutputTokens=50, ModelID falls back to the requested model, DurationMS falls back to the measured wall-clock) — the full Dispatch path end-to-end through its actual subprocess boundary, not a leaf-level mock. TestCodexDispatchVerifier (AC-02, asserts --ephemeral + VerdictSchema in the prompt), TestCodexWorktreeGate (Rule 11: asserts the marker-writing fake was never invoked when AssertWorktree fails), and TestCodexErrorMapping (AC-03, table-driven timeout/missing-binary/non-zero-exit) exercise the same integration point for the remaining acceptance checks. Real-CLI (not fake-binary) integration proof is explicitly out of scope for this slice (spec.json out_of_scope, and R-01) and deferred to S10's SIT smoke + the Rule-10 cutover journey walk."
+  },
+  "delivered": [
+    { "item": "AC-01: implementer dispatch spawns `codex exec --json -C <dir>` with cmd.Dir=WorktreeRoot, JSONL stream normalized into Result", "evidence": "internal/driver/codex_test.go:TestCodexDispatchImplementer" },
+    { "item": "AC-02: verifier dispatch adds --ephemeral, includes VerdictSchema in the prompt, populates StructuredJSON when the final agent_message parses as a JSON object, ErrKind=protocol otherwise", "evidence": "internal/driver/codex_test.go:TestCodexDispatchVerifier, TestCodexDispatchVerifier_ProtocolError" },
+    { "item": "AC-03: non-zero exit -> auth (binding cross-driver contract, S02 pin 2 — not spec.json's stale 'provider' parenthetical, tracked sworn#84), timeout -> transient, missing binary -> config, table-driven; never a panic or half-populated ok Result", "evidence": "internal/driver/codex_test.go:TestCodexErrorMapping, TestCodexWorktreeGate" },
+    { "item": "AC-04: GOCACHE/GOMODCACHE redirected outside the worktree, HOME left untouched (shared hygieneEnv, unchanged); missing usage degrades to CostUSD=0/CostSource=unknown, never fabricated", "evidence": "internal/driver/codex_test.go:TestCodexEnvHygiene, TestCodexEnvelopeDefaults" },
+    { "item": "AC-05: go test ./internal/driver/... passes, including S02's claude-driver tests unchanged (shared-plumbing regression guard)", "evidence": "go test ./internal/driver/... -v output — 30 tests, all PASS, TestClaude* unmodified" },
+    { "item": "Design decision 6 (Type-1, pre-ratified): codex non-zero-exit ErrKind is ErrKindAuth, per the binding cross-driver contract from S02's pin 2 — recorded, not a fresh judgement call", "evidence": "docs/release/2026-06-28-driver-contract/S03-codex-subprocess-driver/status.json design_decisions[0].human_decision" },
+    { "item": "spawnClassified split: subprocess.go generalised to parameterize the non-zero-exit ErrKind without touching claude.go or any existing claude/subprocess test", "evidence": "internal/driver/subprocess.go (spawn() delegates ErrKindAuth to spawnClassified); go test ./internal/driver/... TestClaude*/TestSpawn_* all still pass unmodified" },
+    { "item": "Rule 2 deferral: spec.json AC-03's 'provider' parenthetical is stale text (pre-ratification carry-over), corrected via journal.md + tracker, not silently worked around", "evidence": "sworn#84 (https://github.com/swornagent/sworn/issues/84); docs/release/2026-06-28-driver-contract/S03-codex-subprocess-driver/journal.md" }
+  ],
+  "not_delivered": [],
+  "divergence": []
+}

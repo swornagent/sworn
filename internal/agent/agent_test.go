@@ -89,7 +89,7 @@ func TestRunReturnsOnEmptyStopAfterToolCalls(t *testing.T) {
 		},
 	}
 
-	text, _, msgs, err := Run(context.Background(), fa,
+	text, msgs, err := Run(context.Background(), fa,
 		"you are a helpful assistant", "write done.txt and verify it",
 		dir, Config{MaxTurns: 10, MaxOutputBytes: 10000})
 	if err != nil {
@@ -134,7 +134,7 @@ func TestRunStillCapsOnEndlessToolCalls(t *testing.T) {
 
 	fa := &fakeAgent{t: t, script: script}
 
-	_, _, _, err := Run(context.Background(), fa,
+	_, _, err := Run(context.Background(), fa,
 		"you are a helpful assistant", "run commands forever",
 		dir, Config{MaxTurns: 3, MaxOutputBytes: 10000})
 	if err == nil {
@@ -170,7 +170,7 @@ func TestRun_SuccessPath(t *testing.T) {
 
 	_ = msg // used in script above
 
-	text, cost, msgs, err := Run(context.Background(), fa,
+	text, msgs, err := Run(context.Background(), fa,
 		"you are a helpful assistant", "write hello.txt and verify it",
 		dir, Config{MaxTurns: 10, MaxOutputBytes: 10000})
 	if err != nil {
@@ -178,9 +178,6 @@ func TestRun_SuccessPath(t *testing.T) {
 	}
 	if text != "I've written hello.txt and verified it contains 'hello world'. Done." {
 		t.Fatalf("unexpected final text: %q", text)
-	}
-	if cost != 0 {
-		t.Logf("cost: %f (expected 0 for fake agent)", cost)
 	}
 
 	// Assert file was written (AC1: ≥1 file edit)
@@ -230,7 +227,7 @@ func TestRun_ToolError_ModelAdapts(t *testing.T) {
 		},
 	}
 
-	text, _, msgs, err := Run(context.Background(), fa,
+	text, msgs, err := Run(context.Background(), fa,
 		"you are a helpful assistant", "read missing.txt and if it fails, create it",
 		dir, Config{MaxTurns: 10, MaxOutputBytes: 10000})
 	if err != nil {
@@ -276,7 +273,7 @@ func TestRun_TurnCap(t *testing.T) {
 
 	fa := &fakeAgent{t: t, script: script}
 
-	_, _, _, err := Run(context.Background(), fa,
+	_, _, err := Run(context.Background(), fa,
 		"you are a helpful assistant", "run commands forever",
 		dir, Config{MaxTurns: 3, MaxOutputBytes: 10000})
 	if err == nil {
@@ -304,7 +301,7 @@ func TestRun_WorkspaceConfinement(t *testing.T) {
 		},
 	}
 
-	text, _, msgs, err := Run(context.Background(), fa,
+	text, msgs, err := Run(context.Background(), fa,
 		"you are a helpful assistant", "read /etc/passwd",
 		dir, Config{MaxTurns: 10, MaxOutputBytes: 10000})
 	if err != nil {
@@ -343,7 +340,7 @@ func TestRun_PathTraversalRejected(t *testing.T) {
 		},
 	}
 
-	text, _, msgs, err := Run(context.Background(), fa,
+	text, msgs, err := Run(context.Background(), fa,
 		"you are a helpful assistant", "read ../../../etc/passwd",
 		dir, Config{MaxTurns: 10, MaxOutputBytes: 10000})
 	if err != nil {

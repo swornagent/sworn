@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://baton.sawy3r.net/schemas/contracts-v1.json",
+  "title": "Baton Contract Registry",
+  "description": "Release-level registry of cross-slice wire contracts (planner-emitted, sibling to board.json at docs/release/<name>/contracts.json). The touchpoint matrix proves file-level disjointness between tracks; this record proves contract-level coherence between slices — every agreement two specs share (an endpoint's body shape, a header, an env var, a schema version) gets exactly one owning slice, a pinning live test when consumed, and an explicit edge-config disposition. Closes the 2026-07-10 failure class where every build halt lived on an EDGE between two specs that no single spec owned. ADVISORY while the grading gate (reference implementation: sworn lint contracts) is unshipped: planners emit it, nothing hard-fails on absence; it flips to required when the gate ships (baton#59 skew-window policy).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["release", "contracts"],
+  "$defs": {
+    "id_token": {
+      "type": "string",
+      "description": "A clean identifier token. Disallows whitespace and ':' so a newline-fusion defect fails validation by construction.",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "minLength": 1
+    },
+    "contract_id": {
+      "type": "string",
+      "pattern": "^C-[0-9]{2,}$",
+      "description": "Contract identifier, e.g. C-01."
+    }
+  },
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://baton.sawy3r.net/schemas/contracts-v1.json"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Artefact schema version for forward compatibility."
+    },
+    "release": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Release identifier this registry belongs to, e.g. 2026-07-10-one-current-position."
+    },
+    "contracts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "surface", "shape", "owner"],
+        "properties": {
+          "id": { "$ref": "#/$defs/contract_id" },
+          "kind": {
+            "enum": [
+              "http-endpoint",
+              "header",
+              "cookie",
+              "env-var",
+              "edge-config",
+              "schema-version",
+              "db-schema",
+              "storage-key",
+              "feature-flag",
+              "auth-scope",
+              "event"
+            ],
+            "description": "The seam class. Each kind names a contract with a DISTINCT config/middleware surface the linter treats specially — that is the bar for adding a kind. http-endpoint: method+path; its shape subsumes query params, content types, status codes, and error envelopes (no separate kinds for those). header: a request/response header crossing middleware (e.g. If-Match). cookie: name+attributes crossing cookie policy and CORS credentials mode. env-var: configuration one slice defines, another reads. edge-config: a middleware/config surface itself (CORS allowlist, proxy rewrite, body-size limit, rate limiter) — the sibling entry that http-endpoint/header/cookie contracts must reference via edge_config. schema-version: a versioned payload/document schema shared across slices. db-schema: a table/column/index contract between a migration slice and its readers. storage-key: a localStorage/KV/cache key + value shape. feature-flag: a flag one slice defines and others branch on. auth-scope: a role/scope/entitlement name and where it is enforced. event: a named event/message and payload shape over any bus (SSE, WS, queue). Client-side SPA routes are deliberately NOT a kind: a broken internal link crosses no middleware surface and is owned by the Rule 10 journey walk."
+          },
+          "surface": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The addressable artefact, e.g. 'PUT /api/current-position', 'If-Match', 'SESSION_SECRET', 'household_current_state.schema_version'."
+          },
+          "shape": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The agreement itself: body/payload shape, allowed values, status codes, attributes. Precise enough that a consumer spec author cannot re-derive it wrongly."
+          },
+          "owner": {
+            "$ref": "#/$defs/id_token",
+            "description": "Exactly one owning slice id. The owner's spec carries the AC that binds the live test; the linter fails on two owners for one surface."
+          },
+          "consumers": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/id_token" },
+            "description": "Slice ids that depend on this contract without owning it."
+          },
+          "live_test": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Reference to the owner's live (unmocked, real-transport) test that pins this contract, resolvable by the same logic as trace-gate test_refs. REQUIRED when consumers is non-empty: a consumed contract with no live pin is exactly the shared-blind-spot seam (mock and spec encoding the same wrong assumption)."
+          },
+          "fixtures": {
+            "type": "string",
+            "description": "Path to the request/response fixture file recorded by the owner's passing live test (mock parity, Rule 10 sub-rule). Consumer mocks at this boundary must load these fixtures, never hand-written shapes. Optional while the mock-parity gate is unshipped."
+          },
+          "edge_config": {
+            "type": "string",
+            "pattern": "^(C-[0-9]{2,}|n/a: .+)$",
+            "description": "Disposition of the middleware/config surfaces between the two ends: either the id of the sibling edge-config contract entry that owns them (e.g. 'C-04'), or an explicit waiver 'n/a: <reason>' (e.g. 'n/a: same-origin, no preflight'). REQUIRED for http-endpoint, header, and cookie kinds — this is the catcher for the class where a header is specced on both ends while the CORS allowlist between them is owned by nobody."
+          },
+          "rationale": {
+            "type": "string",
+            "description": "Optional prose: why this contract exists, trade-offs, provenance."
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": ["consumers"],
+              "properties": { "consumers": { "minItems": 1 } }
+            },
+            "then": { "required": ["live_test"] }
+          },
+          {
+            "if": {
+              "properties": { "kind": { "enum": ["http-endpoint", "header", "cookie"] } }
+            },
+            "then": { "required": ["edge_config"] }
+          }
+        ]
+      }
+    }
+  }
+}

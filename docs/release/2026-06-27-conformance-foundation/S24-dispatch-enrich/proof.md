@@ -479,6 +479,6 @@ release-verify.sh
 
 == Test results section scope ==
 [90m  proof.md not found; skipping Test results scope check[0m
-/home/brad/.claude/bin/release-verify.sh: line 532: PLAYWRIGHT_OPTIN: unbound variable
+/home/user/.claude/bin/release-verify.sh: line 532: PLAYWRIGHT_OPTIN: unbound variable
 EXIT:1
 ```

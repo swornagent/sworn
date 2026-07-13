@@ -2,107 +2,187 @@ package run
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/agent"
-	"github.com/swornagent/sworn/internal/model"
+	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/verdict"
 )
 
-// fakeCapDriver implements model.Verifier and model.CapabilityProvider.
-// The capabilities field is set by the test to simulate different drivers.
-type fakeCapDriver struct {
-	caps model.Capability
-}
+// NOTE (S06): the newAgentFromModel CapChat capability-gate cases that lived
+// here are superseded by the registry's role check ("capability IS the role
+// set", S05): an incapable driver is now rejected by name at Resolve time.
+// The tests below are the AC-01/AC-02 reachability net for that contract at
+// the RunSlice integration point.
 
-func (f *fakeCapDriver) Verify(context.Context, string, string) (string, float64, int64, int64, error) {
-	return "PASS", 0, 0, 0, nil
-}
-func (f *fakeCapDriver) Capabilities() model.Capability { return f.caps }
-var _ model.Verifier = (*fakeCapDriver)(nil)
-var _ model.CapabilityProvider = (*fakeCapDriver)(nil)
+// TestRunSliceDispatchesAllLegsViaRegistry is the AC-01 reachability test:
+// every role leg — captain (design TL;DR + review), implement, verify —
+// obtains its driver via Registry.Resolve and dispatches via Driver.Dispatch.
+// The fake driver records every DispatchInput; no factory seam exists.
+func TestRunSliceDispatchesAllLegsViaRegistry(t *testing.T) {
+	workspaceRoot, specPath, statusPath, _ := setupSliceTestRepo(t)
 
-// TestCapabilities_NewAgentRejectsNonChat confirms that newAgentFromModel
-// returns an error when the resolved driver does not support Chat.
-func TestCapabilities_NewAgentRejectsNonChat(t *testing.T) {
-	tests := []struct {
-		name          string
-		caps          model.Capability
-		wantErrPrefix string
-	}{
-		{
-			name:          "no Chat bit (Anthropic-like)",
-			caps:          model.CapVerify,
-			wantErrPrefix: "driver anthropic does not support Chat",
-		},
-		{
-			name:          "zero capabilities (Unconfigured)",
-			caps:          0,
-			wantErrPrefix: "driver anthropic does not support Chat",
-		},
-		{
-			name:          "Chat-capable (OAI-like)",
-			caps:          model.CapVerify | model.CapChat,
-			wantErrPrefix: "", // should succeed
-		},
+	verifier := &fakeVerifier{verdicts: []verdict.Result{{Verdict: verdict.Pass, Rationale: "ok"}}}
+	fd := &fakeDriver{
+		verify: verdictsFrom(verifier),
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			driver := &fakeCapDriver{caps: tt.caps}
-			factory := func(modelID string) (model.Verifier, error) {
-				return driver, nil
-			}
-			_ = factory // used implicitly — the test hooks at agent resolution
+	err := RunSlice(context.Background(), workspaceRoot, specPath, statusPath, RunSliceOptions{
+		EscalationModels: []string{"fake/impl"},
+		VerifierModel:    "fake/verifier",
+		ImplementTimeout: -1,
+		Registry:         testRegistry(fd),
+	})
+	if err != nil {
+		t.Fatalf("RunSlice: %v", err)
+	}
 
-			// Call newAgentFromModel with a factory that returns our fake.
-			// We inject via the opts-level NewAgent / NewVerifier in RunSliceOptions,
-			// but newAgentFromModel calls model.FromEnv directly.  So we test
-			// by building our own agent constructor that mirrors the FromEnv
-			// → CapabilityProvider check path.
-			agent, err := newAgentFromModelWithVerifier("anthropic/claude-3-7-sonnet", driver)
-			if tt.wantErrPrefix == "" {
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-				if agent == nil {
-					t.Fatal("expected non-nil agent")
-				}
-			} else {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if !strings.Contains(err.Error(), tt.wantErrPrefix) {
-					t.Errorf("error %q does not contain %q", err.Error(), tt.wantErrPrefix)
-				}
-			}
+	roles := fd.dispatchedRoles()
+	if roles[driver.RoleCaptain] == 0 {
+		t.Error("captain leg was not dispatched via the registry-resolved driver")
+	}
+	if roles[driver.RoleImplementer] == 0 {
+		t.Error("implement leg was not dispatched via the registry-resolved driver")
+	}
+	if roles[driver.RoleVerifier] == 0 {
+		t.Error("verify leg was not dispatched via the registry-resolved driver")
+	}
+}
+
+// TestRunSliceResolutionFailure is the AC-02 test: a Resolve failure for the
+// implement or verify role leg returns a descriptive error naming the model,
+// role, and registered alternatives BEFORE any model dispatch — no nil
+// dereference is possible because no code path holds an unresolved driver.
+func TestRunSliceResolutionFailure(t *testing.T) {
+	t.Run("unknown prefix for implementer", func(t *testing.T) {
+		workspaceRoot, specPath, statusPath, _ := setupSliceTestRepo(t)
+
+		fd := &fakeDriver{}
+		err := RunSlice(context.Background(), workspaceRoot, specPath, statusPath, RunSliceOptions{
+			EscalationModels: []string{"nope/model-x"},
+			VerifierModel:    "fake/verifier",
+			ImplementTimeout: -1,
+			Registry:         testRegistry(fd),
 		})
-	}
-}
-
-// newAgentFromModelWithVerifier is a test helper that skips model.FromEnv
-// and injects a pre-built Verifier.  It mirrors the CapabilityProvider check
-// in newAgentFromModel so we can test only the capability gate.
-func newAgentFromModelWithVerifier(modelID string, v model.Verifier) (agent.Agent, error) {
-	// ── Chat capability gate (S08) ─────────────────────────────────
-	if cp, ok := v.(model.CapabilityProvider); !ok || cp.Capabilities()&model.CapChat == 0 {
-		provider := modelID
-		if idx := strings.IndexByte(modelID, '/'); idx >= 0 {
-			provider = modelID[:idx]
+		if err == nil {
+			t.Fatal("expected resolution error for unknown prefix, got nil")
 		}
-		return nil, fmt.Errorf("driver %s does not support Chat — required for the implementer role", provider)
-	}
+		if !strings.Contains(err.Error(), `"nope/model-x"`) {
+			t.Errorf("error should name the model ID, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), `role "implementer"`) {
+			t.Errorf("error should name the role, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "registered prefixes") || !strings.Contains(err.Error(), "fake/") {
+			t.Errorf("error should enumerate the registered alternatives, got: %v", err)
+		}
+		if got := fd.dispatchCount(); got != 0 {
+			t.Fatalf("expected ZERO dispatches on resolution failure, got %d", got)
+		}
+	})
 
-	// We need an agent.Agent for the return type — use a minimal stub.
-	// real newAgentFromModel asserts agent.Agent; our test gate is the
-	// capability check, so we return a stub agent on success.
-	return &stubAgent{}, nil
+	t.Run("role-incapable driver for implementer", func(t *testing.T) {
+		workspaceRoot, specPath, statusPath, _ := setupSliceTestRepo(t)
+
+		// Driver declares verifier+captain only — implementer resolution
+		// must fail by name, before any dispatch.
+		fd := &fakeDriver{
+			name:  "verify-only-driver",
+			roles: driver.RoleSet{driver.RoleVerifier: true, driver.RoleCaptain: true},
+		}
+		err := RunSlice(context.Background(), workspaceRoot, specPath, statusPath, RunSliceOptions{
+			EscalationModels: []string{"fake/impl"},
+			VerifierModel:    "fake/verifier",
+			ImplementTimeout: -1,
+			Registry:         testRegistry(fd),
+		})
+		if err == nil {
+			t.Fatal("expected role-resolution error, got nil")
+		}
+		if !strings.Contains(err.Error(), `"fake/impl"`) {
+			t.Errorf("error should name the model ID, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), `role "implementer"`) {
+			t.Errorf("error should name the role, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "declared roles") {
+			t.Errorf("error should name the driver's declared roles (alternatives vocabulary), got: %v", err)
+		}
+		if got := fd.dispatchCount(); got != 0 {
+			t.Fatalf("expected ZERO dispatches on resolution failure, got %d", got)
+		}
+	})
+
+	t.Run("role-incapable driver for verifier", func(t *testing.T) {
+		workspaceRoot, specPath, statusPath, _ := setupSliceTestRepo(t)
+
+		fd := &fakeDriver{
+			name:  "impl-only-driver",
+			roles: driver.RoleSet{driver.RoleImplementer: true, driver.RoleCaptain: true},
+		}
+		err := RunSlice(context.Background(), workspaceRoot, specPath, statusPath, RunSliceOptions{
+			EscalationModels: []string{"fake/impl"},
+			VerifierModel:    "fake/verifier",
+			ImplementTimeout: -1,
+			Registry:         testRegistry(fd),
+		})
+		if err == nil {
+			t.Fatal("expected verifier role-resolution error, got nil")
+		}
+		if !strings.Contains(err.Error(), `"fake/verifier"`) {
+			t.Errorf("error should name the model ID, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), `role "verifier"`) {
+			t.Errorf("error should name the role, got: %v", err)
+		}
+		if got := fd.dispatchCount(); got != 0 {
+			t.Fatalf("expected ZERO dispatches on resolution failure, got %d", got)
+		}
+	})
 }
 
-// stubAgent is a minimal agent.Agent for testing the capability gate.
-type stubAgent struct{}
+// TestRunSliceCaptainResolutionFailureDefersAndProceeds is the AC-02
+// captain-leg arm (Coach decision 2026-07-10, captain-proceed.md pin 1): a
+// captain-leg Resolve failure — e.g. a subprocess-only escalation head, since
+// no subprocess driver declares RoleCaptain (sworn#86) — records the
+// descriptive role error as a durable Rule 2 deferral via the design-gate
+// deferral path and PROCEEDS; it never hard-halts the run.
+func TestRunSliceCaptainResolutionFailureDefersAndProceeds(t *testing.T) {
+	workspaceRoot, specPath, statusPath, _ := setupSliceTestRepo(t)
 
-func (s *stubAgent) Chat(ctx context.Context, messages []model.ChatMessage, tools []model.ToolDef) (*model.ChatResponse, error) {
-	return nil, fmt.Errorf("stub: not implemented")
+	// Driver declares implementer+verifier only — captain resolution fails.
+	fd := &fakeDriver{
+		name:  "no-captain-driver",
+		roles: driver.RoleSet{driver.RoleImplementer: true, driver.RoleVerifier: true},
+	}
+
+	err := RunSlice(context.Background(), workspaceRoot, specPath, statusPath, RunSliceOptions{
+		EscalationModels: []string{"fake/impl"},
+		VerifierModel:    "fake/verifier",
+		ImplementTimeout: -1,
+		Registry:         testRegistry(fd),
+	})
+	if err != nil {
+		t.Fatalf("captain resolution failure must fail open, not halt the run: %v", err)
+	}
+
+	d := findDesignGateDeferral(t, statusPath)
+	if d == nil {
+		t.Fatal("expected a design_review_gate deferral recording the captain resolution failure")
+	}
+	if !strings.Contains(d.Why, `role "captain"`) {
+		t.Errorf("deferral should embed the registry's descriptive role error, got %q", d.Why)
+	}
+	if !strings.Contains(d.Why, `"fake/impl"`) {
+		t.Errorf("deferral should name the model ID, got %q", d.Why)
+	}
+
+	// The captain role must never have been dispatched; implement+verify ran.
+	roles := fd.dispatchedRoles()
+	if roles[driver.RoleCaptain] != 0 {
+		t.Errorf("captain must not be dispatched after resolution failure, got %d dispatches", roles[driver.RoleCaptain])
+	}
+	if roles[driver.RoleImplementer] == 0 || roles[driver.RoleVerifier] == 0 {
+		t.Error("run should have proceeded to implement and verify legs")
+	}
 }

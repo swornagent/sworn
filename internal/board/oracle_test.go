@@ -7,17 +7,39 @@ import (
 	"testing"
 )
 
-// fakeGitReader implements gitContentReader with a map of ref:path -> content.
+// fakeGitReader implements gitContentReader (and, for track-state derivation
+// tests, RefAncestry) with a map of ref:path -> content plus ref-existence and
+// ancestry maps.
 type fakeGitReader struct {
 	content    map[string]string // "ref|path" → content
 	showCounts map[string]int    // "ref|path" → call count
+	refs       map[string]bool   // ref → exists (RefExists)
+	ancestors  map[string]bool   // "ancestor|descendant" → is-ancestor (IsAncestor)
 }
 
 func newFakeReader() *fakeGitReader {
 	return &fakeGitReader{
 		content:    make(map[string]string),
 		showCounts: make(map[string]int),
+		refs:       make(map[string]bool),
+		ancestors:  make(map[string]bool),
 	}
+}
+
+// setRef marks a ref as existing (for DeriveTrackState via RefExists).
+func (f *fakeGitReader) setRef(ref string) { f.refs[ref] = true }
+
+// setAncestor marks ancestor as an ancestor of descendant (for IsAncestor).
+func (f *fakeGitReader) setAncestor(ancestor, descendant string) {
+	f.ancestors[ancestor+"|"+descendant] = true
+}
+
+func (f *fakeGitReader) RefExists(ref string) (bool, error) {
+	return f.refs[ref], nil
+}
+
+func (f *fakeGitReader) IsAncestor(ancestor, descendant string) (bool, error) {
+	return f.ancestors[ancestor+"|"+descendant], nil
 }
 
 func (f *fakeGitReader) key(ref, path string) string {
@@ -509,5 +531,72 @@ func TestExtractFrontmatterBody(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestReadReleaseWorktreePath_Derives proves the release worktree path is DERIVED
+// as a sibling of the primary repo (Pin 1 / sworn#80), no longer read from a
+// persisted board.json/index.md field.
+func TestReadReleaseWorktreePath_Derives(t *testing.T) {
+	fr := newFakeReader()
+	release := "test-release"
+	rwtRef := "refs/heads/release-wt/test-release"
+
+	o := NewOracle(fr)
+	o.repoRoot = "/home/x/sworn"
+	got, err := o.ReadReleaseWorktreePath(fr, rwtRef, release)
+	if err != nil {
+		t.Fatalf("ReadReleaseWorktreePath: %v", err)
+	}
+	if want := "/home/x/sworn-worktrees/release-test-release"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// TestReadReleaseWorktreePath_NoRepoRootFailsClosed is the Rule 11 pin: when the
+// path is not derivable (the oracle has no primary repo root) it must return an
+// error, not "" — an empty path flowing into git.New("") would run merge gates
+// against the ambient cwd instead of failing closed.
+func TestReadReleaseWorktreePath_NoRepoRootFailsClosed(t *testing.T) {
+	fr := newFakeReader()
+	release := "test-release"
+	rwtRef := "refs/heads/release-wt/test-release"
+
+	o := NewOracle(fr) // repoRoot == "" — nothing to derive from
+	got, err := o.ReadReleaseWorktreePath(fr, rwtRef, release)
+	if err == nil {
+		t.Fatalf("want error when the release worktree path is not derivable, got nil (value %q)", got)
+	}
+}
+
+// TestOracleReaderAdapter_ReadReleaseWorktreePath verifies the adapter wrapper
+// (the entry point merge.go actually calls) delegates through the oracle and
+// enforces the same release-mismatch guard as ReadBoard/ReadSliceStatus.
+func TestOracleReaderAdapter_ReadReleaseWorktreePath(t *testing.T) {
+	fr := newFakeReader()
+	release := "test-release"
+	rwtRef := "refs/heads/release-wt/test-release"
+
+	// A minimal pure-plan board.json so the adapter can build its track map.
+	fr.setContent(rwtRef, "docs/release/test-release/board.json",
+		`{"$schema":"https://baton.sawy3r.net/schemas/board-v1.json","release":{"name":"test-release"},"tracks":[]}`)
+
+	o := NewOracle(fr)
+	o.repoRoot = "/home/x/sworn"
+	adapter, err := NewOracleReaderAdapter(o, fr, release, rwtRef)
+	if err != nil {
+		t.Fatalf("NewOracleReaderAdapter: %v", err)
+	}
+
+	got, err := adapter.ReadReleaseWorktreePath(release)
+	if err != nil {
+		t.Fatalf("adapter.ReadReleaseWorktreePath: %v", err)
+	}
+	if want := "/home/x/sworn-worktrees/release-test-release"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+
+	if _, err := adapter.ReadReleaseWorktreePath("other-release"); err == nil {
+		t.Fatal("want release-mismatch error, got nil")
 	}
 }

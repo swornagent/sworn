@@ -149,18 +149,64 @@ func (r *Repo) LastCommitTime(ref, path string) (int64, error) {
 }
 
 // IsAncestor returns true when ancestor is reachable from branch (i.e. branch
-// contains ancestor). Wraps `git merge-base --is-ancestor ancestor branch`.
+// contains ancestor). Wraps `git merge-base --is-ancestor ancestor branch`,
+// which exits 0 when ancestor is reachable and 1 when it is not — BOTH are valid
+// outcomes, distinguished here by the process exit code. (It does not go through
+// r.run: run collapses the exit code into a stderr-only error string, and
+// --is-ancestor writes nothing to stderr on exit 1, so the documented
+// not-an-ancestor outcome was indistinguishable from a real failure.)
 func (r *Repo) IsAncestor(ancestor, branch string) (bool, error) {
-	_, err := r.run("merge-base", "--is-ancestor", ancestor, branch)
-	if err != nil {
-		// git merge-base --is-ancestor exits 0 when ancestor is reachable,
-		// 1 when it is not. Both are valid outcomes.
-		if strings.Contains(err.Error(), "exit status 1") {
+	if r.Dir == "" {
+		return false, fmt.Errorf("git merge-base --is-ancestor: refusing to run with empty Repo.Dir " +
+			"(would operate on the ambient working directory / calling worktree)")
+	}
+	cmd := exec.Command("git", "merge-base", "--is-ancestor", ancestor, branch)
+	cmd.Dir = r.Dir
+	if err := cmd.Run(); err != nil {
+		if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() == 1 {
+			// Exit 1 is the documented "not an ancestor" outcome, not a failure.
 			return false, nil
 		}
-		return false, err
+		return false, fmt.Errorf("git merge-base --is-ancestor %s %s: %w", ancestor, branch, err)
 	}
 	return true, nil
+}
+
+// RefExists reports whether ref resolves in the repo (a branch, tag, or SHA).
+// It uses `git rev-parse --verify --quiet`, which exits 1 with no output when the
+// ref does not resolve — distinguished from a real failure by the exit code.
+func (r *Repo) RefExists(ref string) (bool, error) {
+	if r.Dir == "" {
+		return false, fmt.Errorf("git rev-parse --verify: refusing to run with empty Repo.Dir " +
+			"(would operate on the ambient working directory / calling worktree)")
+	}
+	cmd := exec.Command("git", "rev-parse", "--verify", "--quiet", ref)
+	cmd.Dir = r.Dir
+	if err := cmd.Run(); err != nil {
+		if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() == 1 {
+			return false, nil
+		}
+		return false, fmt.Errorf("git rev-parse --verify %s: %w", ref, err)
+	}
+	return true, nil
+}
+
+// PrimaryWorktreeRoot returns the absolute path of the repository's MAIN worktree
+// (the primary checkout that owns the shared .git dir). A caller running from any
+// linked worktree uses this to derive sibling paths against the primary repo
+// rather than its own worktree. It reads the first entry of
+// `git worktree list --porcelain`, which git always lists as the main worktree.
+func (r *Repo) PrimaryWorktreeRoot() (string, error) {
+	out, err := r.run("worktree", "list", "--porcelain")
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if p, ok := strings.CutPrefix(line, "worktree "); ok {
+			return strings.TrimSpace(p), nil
+		}
+	}
+	return "", fmt.Errorf("git worktree list: no worktree entry")
 }
 
 // MergeDryRun runs `git merge --no-commit --no-ff <branch>` and returns
@@ -233,6 +279,7 @@ func (r *Repo) CurrentBranch() (string, error) {
 	}
 	return out, nil
 }
+
 // run executes a git command in r.Dir and returns stdout (trimmed). On
 // non-zero exit it returns stderr as the error.//
 // It refuses to run when Dir is empty — executing git in the ambient cwd

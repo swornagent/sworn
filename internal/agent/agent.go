@@ -28,7 +28,7 @@ var ErrMaxTurns = errors.New("agent: max turns exhausted")
 // MaxTurnsSentinel is the substring the worker/router checks for in error
 // messages returned by RunSlice to detect max-turns exhaustion without
 // importing the run package (which would create an import cycle).
-const MaxTurnsSentinel = "RunSlice: max turns exhausted:"// Agent is a model that can carry a multi-turn conversation with tool calls.
+const MaxTurnsSentinel = "RunSlice: max turns exhausted:" // Agent is a model that can carry a multi-turn conversation with tool calls.
 // The model.Verifier interface (single-shot) is separate; the implementer
 // engine (S06) consumes Agent.
 type Agent interface {
@@ -76,9 +76,14 @@ type ToolCall struct {
 // Run drives the agentic loop: send the prompt, execute tool calls, feed
 // results back, repeat until the model produces text or the turn cap is hit.
 //
-// Returns the final text response, the total cost, and the full message
-// history (useful for the implementer's proof bundle).
-func Run(ctx context.Context, a Agent, systemPrompt, userPrompt string, workspaceRoot string, cfg Config) (string, float64, []Message, error) {
+// Returns the final text response and the full message history (useful for
+// the implementer's proof bundle). Run no longer returns a cost: the flat
+// nominal-rate estimate this signature slot used to carry was never a real
+// figure (S08, honest cost telemetry — sworn#70); real cost is now computed
+// by the driver that wraps this loop (internal/driver/inprocess), from the
+// CONFIRMED response model-id and the true token split via the unified
+// pricing registry, not accumulated here turn-by-turn.
+func Run(ctx context.Context, a Agent, systemPrompt, userPrompt string, workspaceRoot string, cfg Config) (string, []Message, error) {
 	if cfg.MaxTurns <= 0 {
 		cfg.MaxTurns = defaultMaxTurns
 	}
@@ -101,19 +106,16 @@ func Run(ctx context.Context, a Agent, systemPrompt, userPrompt string, workspac
 	agentMessages = append(agentMessages, Message{Role: "system", Content: systemPrompt})
 	agentMessages = append(agentMessages, Message{Role: "user", Content: userPrompt})
 
-	var totalCost float64
-
 	for turn := 0; turn < cfg.MaxTurns; turn++ {
 		resp, err := a.Chat(ctx, history, tools)
 		if err != nil {
-			return "", totalCost, agentMessages, fmt.Errorf("agent: turn %d: %w", turn, err)
+			return "", agentMessages, fmt.Errorf("agent: turn %d: %w", turn, err)
 		}
 		if len(resp.Choices) == 0 {
-			return "", totalCost, agentMessages, fmt.Errorf("agent: turn %d: empty choices", turn)
+			return "", agentMessages, fmt.Errorf("agent: turn %d: empty choices", turn)
 		}
 
 		choice := resp.Choices[0]
-		totalCost += computeCost(resp.Usage)
 
 		msg := choice.Message
 
@@ -131,7 +133,7 @@ func Run(ctx context.Context, a Agent, systemPrompt, userPrompt string, workspac
 				Role:    "assistant",
 				Content: msg.Content,
 			})
-			return msg.Content, totalCost, agentMessages, nil
+			return msg.Content, agentMessages, nil
 		}
 
 		// If the model requested tool calls, execute them and continue.
@@ -173,16 +175,5 @@ func Run(ctx context.Context, a Agent, systemPrompt, userPrompt string, workspac
 		}
 	}
 
-	return "", totalCost, agentMessages, fmt.Errorf("%w: turn cap (%d) reached with no text response", ErrMaxTurns, cfg.MaxTurns)}
-
-// computeCost is a local passthrough for testability. FakeAgent usage is nil
-// (cost 0). Real Chat responses include usage. For accurate model-specific
-// pricing, the model package's pricing table is authoritative (S10).
-func computeCost(usage *model.UsageBlock) float64 {
-	if usage == nil {
-		return 0
-	}
-	// Nominal cost estimate (~$2/1M tokens). Real model prices are in
-	// model.modelPricing. S10 (benchmark) will make this data-driven.
-	return float64(usage.TotalTokens) * 0.000002 // ~$2/1M tokens
+	return "", agentMessages, fmt.Errorf("%w: turn cap (%d) reached with no text response", ErrMaxTurns, cfg.MaxTurns)
 }

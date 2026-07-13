@@ -1,14 +1,19 @@
 package tui
 
 import (
+	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/db"
+	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/state"
 )
 
@@ -38,24 +43,25 @@ func TestReleasesListPopulates(t *testing.T) {
 
 // TestBoardViewShowsSlices verifies that given a fixture release with 3 slices
 // at known states, the board view model contains those states after board.Load().
+// This is the exact reproduction test for the originally reported bug
+// (AC-01): fixture is built via writeBoardFixture (the real board.WriteBoard
+// path), not a hand-authored `tracks:` YAML string literal (AC-04).
 func TestBoardViewShowsSlices(t *testing.T) {
 	dir := t.TempDir()
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
 	os.MkdirAll(releaseDir, 0o755)
 
-	// Create index.md with 2 tracks.
-	indexContent := `---
-tracks:
-  - id: T1-core
-    slices: [S01-first, S02-second]
-    depends_on:
-    state: in_progress
-  - id: T2-extras
-    slices: [S03-third]
-    depends_on: T1-core
-    state: planned
----`
-	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{
+			ID:     "T1-core",
+			Slices: []string{"S01-first", "S02-second"},
+		},
+		{
+			ID:        "T2-extras",
+			Slices:    []string{"S03-third"},
+			DependsOn: board.StringList{"T1-core"},
+		},
+	})
 
 	// Create slice directories with status.json files.
 	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-core")
@@ -78,6 +84,180 @@ tracks:
 	checkSlice(t, bv, "S01-first", "verified")
 	checkSlice(t, bv, "S02-second", "in_progress")
 	checkSlice(t, bv, "S03-third", "planned")
+}
+
+// TestBoardViewLegacyIndexFallback verifies AC-06: a release with NO
+// board.json (genuinely pre-migration) still renders via board.ReadBoard's
+// lazy migrateFromIndex fallback, which parses the legacy `tracks:` YAML
+// frontmatter in index.md. This is the ONE dedicated test intentionally kept
+// on the legacy frontmatter-only shape (per design.md) — every other test
+// in this file now builds its fixture via writeBoardFixture (AC-04).
+func TestBoardViewLegacyIndexFallback(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "legacy-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	indexContent := `---
+tracks:
+  - id: T1-legacy
+    slices: [S01-only]
+    depends_on:
+    worktree_branch: track/legacy-release/T1-legacy
+    state: in_progress
+---`
+	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+	createSliceStatus(t, releaseDir, "S01-only", "in_progress", "T1-legacy")
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(dir, "legacy-release"); err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+
+	if !bv.Loaded {
+		t.Fatal("expected Loaded=true")
+	}
+	if len(bv.Tracks) != 1 || bv.Tracks[0].ID != "T1-legacy" {
+		t.Fatalf("expected 1 track T1-legacy via legacy fallback, got %+v", bv.Tracks)
+	}
+	checkSlice(t, bv, "S01-only", "in_progress")
+
+	// The lazy migration should have materialised board.json on disk (the
+	// oracle's existing designed behaviour — DC-2 in design.md).
+	if _, err := os.Stat(filepath.Join(releaseDir, "board.json")); err != nil {
+		t.Errorf("expected board.json to be lazily written by migrateFromIndex: %v", err)
+	}
+}
+
+// TestBoardViewResolvesStateFromTrackBranch reproduces sworn#81: the primary
+// checkout's working-tree status.json is stale (design_review) while the
+// slice's owning track branch already carries the authoritative, more
+// advanced state (verified) — the exact "S01 verified on the oracle, planned
+// on the TUI" shape from the live driver-contract bug report. LoadBoard must
+// resolve the slice's state via the git-ref oracle (same ownership-keyed
+// path `sworn board`/the MCP ops tools use), not the primary working tree.
+func TestBoardViewResolvesStateFromTrackBranch(t *testing.T) {
+	dir := t.TempDir()
+	release := "oracle-release"
+	releaseDir := filepath.Join(dir, "docs", "release", release)
+	os.MkdirAll(releaseDir, 0o755)
+
+	repo := git.New(dir)
+	if err := repo.Init(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := repo.Config("user.email", "test@example.com"); err != nil {
+		t.Fatalf("git config user.email: %v", err)
+	}
+	if err := repo.Config("user.name", "Test"); err != nil {
+		t.Fatalf("git config user.name: %v", err)
+	}
+	primaryBranch := currentBranch(t, dir)
+
+	writeBoardFixture(t, dir, release, []board.BoardTrack{
+		{
+			ID:     "T1-core",
+			Slices: []string{"S01-first"},
+		},
+	})
+	// Stale copy: what the primary working tree still has on disk.
+	createSliceStatus(t, releaseDir, "S01-first", "design_review", "T1-core")
+
+	if err := repo.Stage("."); err != nil {
+		t.Fatalf("git add: %v", err)
+	}
+	if err := repo.Commit("initial: stale design_review state"); err != nil {
+		t.Fatalf("git commit: %v", err)
+	}
+
+	// The owning track branch has moved on: verified, committed there, but
+	// never synced back into the primary checkout's filesystem.
+	if err := repo.Branch("track/" + release + "/T1-core"); err != nil {
+		t.Fatalf("git branch: %v", err)
+	}
+	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-core")
+	if err := repo.Stage("."); err != nil {
+		t.Fatalf("git add (track branch): %v", err)
+	}
+	if err := repo.Commit("track: S01 verified"); err != nil {
+		t.Fatalf("git commit (track branch): %v", err)
+	}
+
+	// Return to the primary branch — the working tree now reflects the
+	// stale design_review status.json again, exactly like the live bug.
+	if err := repo.Checkout(primaryBranch); err != nil {
+		t.Fatalf("git checkout %s: %v", primaryBranch, err)
+	}
+	if got := mustReadSliceState(t, releaseDir, "S01-first"); got != "design_review" {
+		t.Fatalf("test setup: expected working tree to show stale design_review, got %q", got)
+	}
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(dir, release); err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+
+	// The authoritative state lives on the track branch (verified), not the
+	// stale primary-checkout filesystem copy (design_review).
+	checkSlice(t, bv, "S01-first", "verified")
+}
+
+// TestBoardViewLiveWorktreeStateNotMaskedByLastCommit is the regression test
+// for the fresh-verifier FAIL on sworn#81's first attempt: when the slice's
+// owning track branch IS the branch currently checked out in repoRoot (the
+// common serial/solo `sworn run` shape — one worktree doing everything, no
+// separate track worktree), the oracle's git-ref read must not shadow an
+// uncommitted state.Write() to the live status.json. internal/run/slice.go
+// writes state repeatedly and only commits at specific milestones, so the
+// working tree is routinely ahead of the last commit on the slice's own
+// branch during a live run.
+func TestBoardViewLiveWorktreeStateNotMaskedByLastCommit(t *testing.T) {
+	dir := t.TempDir()
+	release := "live-release"
+	releaseDir := filepath.Join(dir, "docs", "release", release)
+	os.MkdirAll(releaseDir, 0o755)
+
+	repo := git.New(dir)
+	if err := repo.Init(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := repo.Config("user.email", "test@example.com"); err != nil {
+		t.Fatalf("git config user.email: %v", err)
+	}
+	if err := repo.Config("user.name", "Test"); err != nil {
+		t.Fatalf("git config user.name: %v", err)
+	}
+	// board-v1 is a pure plan: the track branch is DERIVED as track/<release>/T1-core.
+	// No such ref exists in this single-branch setup, so the oracle resolves the
+	// slice via the release-wt/HEAD fallback (working tree), which is the point.
+	writeBoardFixture(t, dir, release, []board.BoardTrack{
+		{
+			ID:     "T1-core",
+			Slices: []string{"S01-first"},
+		},
+	})
+	createSliceStatus(t, releaseDir, "S01-first", "planned", "T1-core")
+
+	if err := repo.Stage("."); err != nil {
+		t.Fatalf("git add: %v", err)
+	}
+	if err := repo.Commit("initial: planned"); err != nil {
+		t.Fatalf("git commit: %v", err)
+	}
+
+	// Rewrite status.json on disk WITHOUT committing — exactly what
+	// internal/run/slice.go's state.Write() calls do between commit
+	// milestones during a live run.
+	createSliceStatus(t, releaseDir, "S01-first", "in_progress", "T1-core")
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(dir, release); err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+
+	// The live, uncommitted working-tree state must win: the primary
+	// checkout IS the track's own branch here, so the last commit is stale
+	// relative to the filesystem, not authoritative over it.
+	checkSlice(t, bv, "S01-first", "in_progress")
 }
 
 // TestKeyNavigation simulates j, k, Enter, Esc keypresses on the model
@@ -120,14 +300,22 @@ func TestKeyNavigation(t *testing.T) {
 		t.Fatalf("expected cursor 0 after k, got %d", m3.Releases.Cursor)
 	}
 
-	// Press Enter to select release and enter board view.
-	upd, _ = m3.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// Press Enter to select release and enter board view. Board loading is
+	// dispatched as a tea.Cmd (sworn#82) — drive it to completion the same
+	// way the bubbletea runtime would: run the returned Cmd and feed its
+	// msg back through Update.
+	upd, cmd := m3.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m4 := upd.(*Model)
 	if m4.state != viewBoard {
 		t.Fatalf("expected viewBoard state after Enter, got %d", m4.state)
 	}
+	if cmd == nil {
+		t.Fatal("expected a board-load Cmd after Enter")
+	}
+	upd, _ = m4.Update(cmd())
+	m4 = upd.(*Model)
 	if !m4.Board.Loaded {
-		t.Fatal("expected board to be loaded after Enter")
+		t.Fatal("expected board to be loaded after the async load completes")
 	}
 
 	// Press Esc to go back to releases view.
@@ -300,14 +488,10 @@ func TestAutoTransitionNoTracks(t *testing.T) {
 	// Create release structure with a sliced status but no SQLite DB.
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
 	os.MkdirAll(releaseDir, 0o755)
-	indexContent := `---
-tracks:
-  - id: T1-core
-    slices: [S01-first]
-    depends_on:
-    state: in_progress
----`
-	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+	createIndex(t, dir, "test-release", "Test Release")
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-first"}},
+	})
 	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-core")
 
 	m := &Model{
@@ -632,6 +816,21 @@ func createIndex(t *testing.T, root string, releaseID, title string) {
 	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(content), 0644)
 }
 
+// writeBoardFixture writes a board.json fixture via the real board.WriteBoard
+// write path (validated against the board-v1 schema) — AC-04: test fixtures
+// are built through the real render/internal/board machinery, not a
+// hand-authored legacy `tracks:` YAML string literal.
+func writeBoardFixture(t *testing.T, root, release string, tracks []board.BoardTrack) {
+	t.Helper()
+	br := &board.BoardRecord{
+		Release: board.StringRelease(release),
+		Tracks:  tracks,
+	}
+	if err := board.WriteBoard(root, release, br); err != nil {
+		t.Fatalf("writeBoardFixture: board.WriteBoard: %v", err)
+	}
+}
+
 func createSliceStatus(t *testing.T, releaseDir, sliceID, sliceState, track string) {
 	t.Helper()
 	sliceDir := filepath.Join(releaseDir, sliceID)
@@ -646,6 +845,31 @@ func createSliceStatus(t *testing.T, releaseDir, sliceID, sliceState, track stri
 	if err := state.Write(filepath.Join(sliceDir, "status.json"), st); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// currentBranch returns the short name of the branch currently checked out
+// in dir (equivalent to `git symbolic-ref --short HEAD`).
+func currentBranch(t *testing.T, dir string) string {
+	t.Helper()
+	cmd := exec.Command("git", "symbolic-ref", "--short", "HEAD")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git symbolic-ref: %v", err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// mustReadSliceState reads a slice's status.json directly off disk (bypassing
+// the oracle) so the test can assert the fixture setup produced the intended
+// stale-on-disk / ahead-on-branch shape before exercising LoadBoard.
+func mustReadSliceState(t *testing.T, releaseDir, sliceID string) string {
+	t.Helper()
+	st, err := state.Read(filepath.Join(releaseDir, sliceID, "status.json"))
+	if err != nil {
+		t.Fatalf("mustReadSliceState: %v", err)
+	}
+	return string(st.State)
 }
 
 func checkSlice(t *testing.T, bv *BoardView, sliceID, expectedState string) {
@@ -668,30 +892,80 @@ func mustParseTime(t *testing.T, s string) time.Time {
 	return parsed
 }
 
+// TestBlockedPanelExtractsViolations verifies AC-03: violations come from
+// proof.json's not_delivered array, not a proof.md regex scrape. A proof.md
+// with "## Violations"/"## Not delivered" sections in the SAME fixture is
+// deliberately ignored — proving the scraper is gone, not just unused.
 func TestBlockedPanelExtractsViolations(t *testing.T) {
-	proofContent := `---
-title: Proof Bundle
----
+	proofJSON, err := json.Marshal(map[string]any{
+		"$schema":        "https://baton.sawy3r.net/schemas/proof-v1.json",
+		"schema_version": 1,
+		"slice_id":       "S01-first",
+		"release":        "test-release",
+		"not_delivered": []string{
+			"Deferral 1: out of scope",
+			"Deferral 2: needs follow-up",
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal proof.json fixture: %v", err)
+	}
+
+	violations := ExtractViolations(proofJSON)
+	if len(violations) != 2 {
+		t.Fatalf("expected 2 violations, got %d: %v", len(violations), violations)
+	}
+	if violations[0] != "Deferral 1: out of scope" {
+		t.Errorf("expected 'Deferral 1: out of scope', got %q", violations[0])
+	}
+	if violations[1] != "Deferral 2: needs follow-up" {
+		t.Errorf("expected 'Deferral 2: needs follow-up', got %q", violations[1])
+	}
+}
+
+// TestBlockedPanelViolationsFromProofJSONNotProofMD verifies LoadBlockedView
+// (the integration point) reads violations from proof.json.not_delivered
+// even when a stray proof.md with "## Violations" bullets sits in the same
+// slice directory — proving the proof.md scrape path is fully retired
+// (AC-03), not just deprioritised.
+func TestBlockedPanelViolationsFromProofJSONNotProofMD(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-first"}},
+	})
+	createSliceStatus(t, releaseDir, "S01-first", "failed_verification", "T1-core")
+
+	// Decoy proof.md — must NOT be scraped for violations.
+	decoyProofMD := `# Proof Bundle
 
 ## Violations
-- Violation 1: spec mismatch
-- Violation 2: test failed
-
-## Not delivered
-- Deferral 1: out of scope
+- LEGACY-SCRAPE-MARKER: this must never surface as a violation
 `
-	violations := ExtractViolations(proofContent)
-	if len(violations) != 3 {
-		t.Fatalf("expected 3 violations, got %d: %v", len(violations), violations)
+	os.WriteFile(filepath.Join(releaseDir, "S01-first", "proof.md"), []byte(decoyProofMD), 0644)
+
+	proofJSON, err := json.Marshal(map[string]any{
+		"not_delivered": []string{"Real violation from proof.json"},
+	})
+	if err != nil {
+		t.Fatalf("marshal proof.json fixture: %v", err)
 	}
-	if violations[0] != "Violation 1: spec mismatch" {
-		t.Errorf("expected 'Violation 1: spec mismatch', got %q", violations[0])
+	os.WriteFile(filepath.Join(releaseDir, "S01-first", "proof.json"), proofJSON, 0644)
+
+	bv, err := LoadBlockedView(dir, "test-release", "S01-first")
+	if err != nil {
+		t.Fatalf("LoadBlockedView: %v", err)
 	}
-	if violations[1] != "Violation 2: test failed" {
-		t.Errorf("expected 'Violation 2: test failed', got %q", violations[1])
+
+	if len(bv.violations) != 1 || bv.violations[0] != "Real violation from proof.json" {
+		t.Fatalf("expected violations from proof.json.not_delivered only, got: %v", bv.violations)
 	}
-	if violations[2] != "Deferral 1: out of scope" {
-		t.Errorf("expected 'Deferral 1: out of scope', got %q", violations[2])
+	for _, v := range bv.violations {
+		if strings.Contains(v, "LEGACY-SCRAPE-MARKER") {
+			t.Errorf("proof.md was scraped for violations — the legacy path must be fully retired, got: %v", bv.violations)
+		}
 	}
 }
 
@@ -750,19 +1024,21 @@ func TestDeferWritesRuleTwo(t *testing.T) {
 	releaseDir := filepath.Join(tmpDir, "docs", "release", "test-release")
 	os.MkdirAll(releaseDir, 0o755)
 
-	indexContent := `---
-tracks:
-  - id: T1-core
-    slices: [S01-first]
-    worktree_path: ` + tmpDir + `
----`
-	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+	writeBoardFixture(t, tmpDir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-first"}},
+	})
 
 	createSliceStatus(t, releaseDir, "S01-first", "failed_verification", "T1-core")
 
 	bv, err := LoadBlockedView(tmpDir, "test-release", "S01-first")
 	if err != nil {
 		t.Fatalf("LoadBlockedView: %v", err)
+	}
+	// board-v1 is a pure plan: the worktree path is DERIVED for the owning track
+	// (found via Slices membership), a sibling of the release worktree (sworn#80).
+	wantWT := board.TrackWorktreePathFrom(board.ReleaseWorktreePathFrom(tmpDir, "test-release"), "test-release", "T1-core")
+	if bv.worktreePath != wantWT {
+		t.Fatalf("expected derived worktreePath %q, got %q", wantWT, bv.worktreePath)
 	}
 
 	bv2, _ := bv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("5")})
@@ -810,6 +1086,53 @@ tracks:
 	}
 }
 
+// TestBlockedPanelWorktreeSurvivesStaleTrackField verifies AC-02's real
+// robustness requirement: worktree_path resolution must survive a stale
+// status.json.track field (e.g. left behind by a /replan-release track
+// rename), not just resolve correctly when the two happen to agree.
+// status.json.track is a hint, never the authoritative match key — the
+// authoritative key is the slice's membership in a board track's Slices
+// list, matching S04's AssembleSliceContext (internal/mcp/context.go)
+// pattern exactly. Board fixture: the track's ID has been renamed to
+// "T1-core-renamed" (as /replan-release would do) but still lists the
+// target slice in Slices; status.json.track still says the OLD id
+// "T1-core". A match on t.ID == st.Track would silently fall back to
+// repoRoot here — the exact silently-wrong-fallback behaviour AC-02 exists
+// to eliminate, just reached via a different trigger (stale track field)
+// than the slice's original bug (frontmatter parse failure).
+func TestBlockedPanelWorktreeSurvivesStaleTrackField(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core-renamed", Slices: []string{"S01-first"}},
+	})
+	// status.json.track deliberately stale: still points at the track's
+	// pre-rename ID, which no longer exists in board.json.
+	createSliceStatus(t, releaseDir, "S01-first", "failed_verification", "T1-core")
+
+	bv, err := LoadBlockedView(dir, "test-release", "S01-first")
+	if err != nil {
+		t.Fatalf("LoadBlockedView: %v", err)
+	}
+
+	// The path is DERIVED for the track that OWNS the slice via Slices membership
+	// (T1-core-renamed), NOT the stale status.json.track ("T1-core"): the derived
+	// path carries "T1-core-renamed", proving the owning track was resolved by
+	// membership and never fell back to repoRoot (the silently-wrong-fallback AC-02 kills).
+	wantWT := board.TrackWorktreePathFrom(board.ReleaseWorktreePathFrom(dir, "test-release"), "test-release", "T1-core-renamed")
+	if bv.worktreePath != wantWT {
+		t.Fatalf("expected derived worktreePath %q resolved via Slices membership despite stale status.json.track, got %q", wantWT, bv.worktreePath)
+	}
+	if !strings.Contains(bv.worktreePath, "T1-core-renamed") {
+		t.Fatalf("worktreePath %q must derive from the owning track T1-core-renamed, not the stale track field T1-core", bv.worktreePath)
+	}
+	if bv.worktreePath == dir {
+		t.Fatalf("worktreePath fell back to repoRoot %q — the exact silently-wrong-fallback AC-02 requires eliminating", dir)
+	}
+}
+
 func TestBoardEnterTransitionsToBlocked(t *testing.T) {
 	dir := t.TempDir()
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
@@ -817,14 +1140,9 @@ func TestBoardEnterTransitionsToBlocked(t *testing.T) {
 
 	createIndex(t, dir, "test-release", "Test Release")
 
-	indexContent := `---
-title: Test Release
-tracks:
-  - id: T1-core
-    slices: [S01-first]
-    state: in_progress
----`
-	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-first"}},
+	})
 
 	createSliceStatus(t, releaseDir, "S01-first", "failed_verification", "T1-core")
 
@@ -838,11 +1156,18 @@ tracks:
 		t.Fatalf("LoadReleases: %v", err)
 	}
 
-	upd, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// Board loading is dispatched as a tea.Cmd (sworn#82) — drive it to
+	// completion before pressing Enter again on the (now-populated) board.
+	upd, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m2 := upd.(*Model)
 	if m2.state != viewBoard {
 		t.Fatalf("expected viewBoard state, got %d", m2.state)
 	}
+	if cmd == nil {
+		t.Fatal("expected a board-load Cmd after Enter")
+	}
+	upd, _ = m2.Update(cmd())
+	m2 = upd.(*Model)
 
 	upd2, _ := m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m3 := upd2.(*Model)
@@ -866,14 +1191,10 @@ func TestBoardEnterTransitionsToBlockedOnImplementedBlockedVerdict(t *testing.T)
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
 	os.MkdirAll(releaseDir, 0o755)
 
-	indexContent := `---
-title: Test Release
-tracks:
-  - id: T1-core
-    slices: [S01-blocked]
-    state: in_progress
----`
-	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+	createIndex(t, dir, "test-release", "Test Release")
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-blocked"}},
+	})
 
 	// Create a slice at "implemented" with verification.result == "blocked"
 	sliceDir := filepath.Join(releaseDir, "S01-blocked")
@@ -901,12 +1222,18 @@ tracks:
 		t.Fatalf("LoadReleases: %v", err)
 	}
 
-	// Enter to select release → board view
-	upd, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// Enter to select release → board view. Board loading is dispatched as
+	// a tea.Cmd (sworn#82) — drive it to completion before the next Enter.
+	upd, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m2 := upd.(*Model)
 	if m2.state != viewBoard {
 		t.Fatalf("expected viewBoard state, got %d", m2.state)
 	}
+	if cmd == nil {
+		t.Fatal("expected a board-load Cmd after Enter")
+	}
+	upd, _ = m2.Update(cmd())
+	m2 = upd.(*Model)
 
 	// Enter on the implemented+blocked slice → should go to blocked panel
 	upd2, _ := m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -930,14 +1257,9 @@ func TestBlockedPanelViewProof(t *testing.T) {
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
 	os.MkdirAll(releaseDir, 0o755)
 
-	indexContent := `---
-title: Test Release
-tracks:
-  - id: T1-core
-    slices: [S01-first]
-    state: in_progress
----`
-	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-first"}},
+	})
 
 	createSliceStatus(t, releaseDir, "S01-first", "failed_verification", "T1-core")
 
@@ -1128,14 +1450,9 @@ func TestBoardViewShowsMergeBadge(t *testing.T) {
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
 	os.MkdirAll(releaseDir, 0o755)
 
-	indexContent := `---
-tracks:
-  - id: T1-core
-    slices: [S01-first]
-    depends_on:
-    state: in_progress
----`
-	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-first"}},
+	})
 	createSliceStatus(t, releaseDir, "S01-first", "in_progress", "T1-core")
 
 	// Create a sworn DB with a merge:T1-core acquired event.
@@ -1178,14 +1495,9 @@ func TestBoardViewNoMergeBadge(t *testing.T) {
 	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
 	os.MkdirAll(releaseDir, 0o755)
 
-	indexContent := `---
-tracks:
-  - id: T1-core
-    slices: [S01-first]
-    depends_on:
-    state: in_progress
----`
-	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0644)
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-first"}},
+	})
 	createSliceStatus(t, releaseDir, "S01-first", "in_progress", "T1-core")
 
 	// No DB created — no merge events.
@@ -1202,5 +1514,656 @@ tracks:
 	view := bv.View()
 	if strings.Contains(view, "merge") {
 		t.Errorf("expected view to NOT contain 'merge', got:\n%s", view)
+	}
+}
+
+// TestBoardViewShowsDependsBadge verifies a track header shows a "needs: ..."
+// badge derived from board.json's depends_on, and that a root track (no
+// depends_on) shows no badge.
+func TestBoardViewShowsDependsBadge(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-contract", Slices: []string{"S01-first"}},
+		{ID: "T2-subprocess", Slices: []string{"S02-second"}, DependsOn: []string{"T1-contract"}},
+	})
+	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-contract")
+	createSliceStatus(t, releaseDir, "S02-second", "planned", "T2-subprocess")
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(dir, "test-release"); err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+
+	view := bv.View()
+	if !strings.Contains(view, "needs: T1-contract") {
+		t.Errorf("expected view to contain 'needs: T1-contract' badge, got:\n%s", view)
+	}
+	// T1-contract has no depends_on — its own header line must not claim to
+	// need anything (checking the header specifically, not the whole view:
+	// T2's "needs: T1-contract" badge legitimately contains the substring
+	// "T1-contract" too).
+	for l := range strings.SplitSeq(view, "\n") {
+		if strings.Contains(l, "▸ T1-contract") && strings.Contains(l, "needs:") {
+			t.Errorf("expected T1-contract header to have no 'needs:' badge, got line: %q", l)
+		}
+	}
+}
+
+// TestBoardViewToggleSortReordersTracksAndOrderedSlices verifies that 'o'
+// (ToggleSort) switches the board from declaration order to dependency
+// (topological) order, and that orderedSlices (which drives j/k cursor
+// navigation) is rebuilt to match — otherwise cursor movement would desync
+// from the visual layout the moment sort mode changes.
+func TestBoardViewToggleSortReordersTracksAndOrderedSlices(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+
+	// Declared out of dependency order: T2 (depends on T1) declared first.
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T2-subprocess", Slices: []string{"S02-second"}, DependsOn: []string{"T1-contract"}},
+		{ID: "T1-contract", Slices: []string{"S01-first"}},
+	})
+	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-contract")
+	createSliceStatus(t, releaseDir, "S02-second", "planned", "T2-subprocess")
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(dir, "test-release"); err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+
+	// Declaration order (default): T2 renders before T1, exactly as declared.
+	view := bv.View()
+	if strings.Index(view, "T2-subprocess") > strings.Index(view, "T1-contract") {
+		t.Errorf("expected declaration order (T2 before T1), got:\n%s", view)
+	}
+	if got, want := bv.orderedSlices, []string{"S02-second", "S01-first"}; !slicesEqual(got, want) {
+		t.Errorf("expected orderedSlices %v in declaration order, got %v", want, got)
+	}
+
+	bv.ToggleSort()
+
+	// Dependency order: T1 (the dependency) must now render before T2.
+	view = bv.View()
+	if !strings.Contains(view, "sorted: dependency order") {
+		t.Errorf("expected title to advertise dependency-order sort, got:\n%s", view)
+	}
+	if strings.Index(view, "T1-contract") > strings.Index(view, "T2-subprocess") {
+		t.Errorf("expected dependency order (T1 before T2), got:\n%s", view)
+	}
+	if got, want := bv.orderedSlices, []string{"S01-first", "S02-second"}; !slicesEqual(got, want) {
+		t.Errorf("expected orderedSlices %v in dependency order after ToggleSort, got %v", want, got)
+	}
+
+	bv.ToggleSort()
+	if got, want := bv.orderedSlices, []string{"S02-second", "S01-first"}; !slicesEqual(got, want) {
+		t.Errorf("expected ToggleSort to flip back to declaration order, got %v want %v", got, want)
+	}
+}
+
+// TestBoardOKeyTogglesSort verifies pressing 'o' in the board view flips
+// BoardView.SortMode via the same Model.Update dispatch path a real
+// keypress takes (handleBoardKey), rather than only unit-testing ToggleSort
+// in isolation.
+func TestBoardOKeyTogglesSort(t *testing.T) {
+	m := &Model{
+		state: viewBoard,
+		Board: &BoardView{Loaded: true, Tracks: []TrackInfo{{ID: "T1-a"}}},
+	}
+
+	upd, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m2 := upd.(*Model)
+	if m2.state != viewBoard {
+		t.Fatalf("expected to remain in viewBoard, got %d", m2.state)
+	}
+	if m2.Board.SortMode != trackSortDeps {
+		t.Errorf("expected SortMode=%q after one 'o' press, got %q", trackSortDeps, m2.Board.SortMode)
+	}
+
+	upd, _ = m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m3 := upd.(*Model)
+	if m3.Board.SortMode != "" {
+		t.Errorf("expected SortMode=\"\" after second 'o' press, got %q", m3.Board.SortMode)
+	}
+}
+
+// TestTopoSortTracksHandlesCycleAndDanglingRef verifies topoSortTracks never
+// drops a track: a dependency cycle or a depends_on reference to a track ID
+// absent from the board must still produce every track exactly once, rather
+// than looping forever or silently omitting the unresolvable tracks.
+func TestTopoSortTracksHandlesCycleAndDanglingRef(t *testing.T) {
+	tracks := []TrackInfo{
+		{ID: "T1-a", DependsOn: []string{"T2-b"}}, // cycle: T1 -> T2 -> T1
+		{ID: "T2-b", DependsOn: []string{"T1-a"}},
+		{ID: "T3-c", DependsOn: []string{"T99-ghost"}}, // dangling ref, no such track
+	}
+	got := topoSortTracks(tracks)
+	if len(got) != len(tracks) {
+		t.Fatalf("expected topoSortTracks to preserve all %d tracks, got %d: %v", len(tracks), len(got), got)
+	}
+	seen := map[string]bool{}
+	for _, tr := range got {
+		seen[tr.ID] = true
+	}
+	for _, tr := range tracks {
+		if !seen[tr.ID] {
+			t.Errorf("expected track %s to survive topoSortTracks, it was dropped", tr.ID)
+		}
+	}
+}
+
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestBoardViewDependencyOrderOnRealDriverContractRelease is the reachability
+// test for the dependency-order sort feature: it loads THIS repo's real,
+// committed 2026-06-28-driver-contract release (the exact release shown in
+// the bug report screenshot) rather than a synthetic fixture, and verifies
+// dependency badges render and that dependency-order sort places every track
+// after all tracks it depends on — the real T1->T2/T3->T4->T5/T6->T7 chain
+// recorded in that release's board.json.
+func TestBoardViewDependencyOrderOnRealDriverContractRelease(t *testing.T) {
+	repoRoot, err := findRepoRoot()
+	if err != nil {
+		t.Skipf("skipping live-repo reachability test: findRepoRoot: %v", err)
+	}
+	const release = "2026-06-28-driver-contract"
+	boardPath := filepath.Join(repoRoot, "docs", "release", release, "board.json")
+	if _, err := os.Stat(boardPath); err != nil {
+		t.Skipf("skipping live-repo reachability test: %s not found in this checkout: %v", boardPath, err)
+	}
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(repoRoot, release); err != nil {
+		t.Fatalf("LoadBoard against real repo release %q: %v", release, err)
+	}
+	if !bv.Loaded {
+		t.Fatal("expected Loaded=true")
+	}
+
+	view := bv.View()
+	t.Logf("declaration-order view:\n%s", view)
+	for _, want := range []string{"needs: T1-contract", "needs: T2-subprocess, T3-inprocess"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("expected declaration-order view to contain %q, got:\n%s", want, view)
+		}
+	}
+
+	bv.ToggleSort()
+	view = bv.View()
+	t.Logf("dependency-order view:\n%s", view)
+	pos := map[string]int{}
+	for _, tr := range bv.displayTracks() {
+		pos[tr.ID] = len(pos)
+	}
+	for id, deps := range map[string][]string{
+		"T2-subprocess":      {"T1-contract"},
+		"T3-inprocess":       {"T1-contract"},
+		"T4-resolution-loop": {"T2-subprocess", "T3-inprocess"},
+		"T7-baton-revendor":  {"T4-resolution-loop", "T5-catalog", "T6-proof"},
+	} {
+		for _, dep := range deps {
+			if pos[dep] >= pos[id] {
+				t.Errorf("dependency-order violated: %s (pos %d) must render before %s (pos %d)", dep, pos[dep], id, pos[id])
+			}
+		}
+	}
+}
+
+// TestBoardViewLoadsRealOperationalReadinessRelease is the AC-05 reachability
+// test: it drives the integration point that owns the affordance
+// (BoardView.LoadBoard, called from Model.handleReleasesKey at the "enter"
+// case) rooted at THIS repo's real, live checkout — not a synthetic
+// t.TempDir() fixture — and loads the real, committed
+// 2026-06-30-sworn-operational-readiness release (a genuine board.json-backed,
+// 5-track release). This is the originally reported bug's exact repro:
+// before this slice, BoardView.Tracks would silently come back empty for
+// this release because sworn render no longer emits the `tracks:` frontmatter
+// LoadBoard used to hand-parse.
+func TestBoardViewLoadsRealOperationalReadinessRelease(t *testing.T) {
+	repoRoot, err := findRepoRoot()
+	if err != nil {
+		t.Skipf("skipping live-repo reachability test: findRepoRoot: %v", err)
+	}
+	const release = "2026-06-30-sworn-operational-readiness"
+	boardPath := filepath.Join(repoRoot, "docs", "release", release, "board.json")
+	if _, err := os.Stat(boardPath); err != nil {
+		t.Skipf("skipping live-repo reachability test: %s not found in this checkout: %v", boardPath, err)
+	}
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(repoRoot, release); err != nil {
+		t.Fatalf("LoadBoard against real repo release %q: %v", release, err)
+	}
+
+	if !bv.Loaded {
+		t.Fatal("expected Loaded=true")
+	}
+
+	wantTracks := []string{
+		"T1-operational-unblock",
+		"T2-board-render",
+		"T3-consumer-repo-hygiene",
+		"T4-board-record-reconciliation",
+		"T5-model-pricing-registry",
+	}
+	if len(bv.Tracks) != len(wantTracks) {
+		t.Fatalf("expected %d tracks for %s, got %d: %+v", len(wantTracks), release, len(bv.Tracks), bv.Tracks)
+	}
+	got := map[string]bool{}
+	for _, tr := range bv.Tracks {
+		got[tr.ID] = true
+	}
+	for _, id := range wantTracks {
+		if !got[id] {
+			t.Errorf("expected track %q to be present, got tracks: %+v", id, bv.Tracks)
+		}
+	}
+
+	// Every track must have at least one slice with a non-"unknown" state —
+	// proving live status.json data was actually read, not just track shells.
+	for _, tr := range bv.Tracks {
+		for _, sliceID := range tr.Slices {
+			si, ok := bv.Slices[sliceID]
+			if !ok || si.State == "" || si.State == "unknown" {
+				t.Errorf("track %s slice %s: expected a real state, got %+v (ok=%v)", tr.ID, sliceID, si, ok)
+			}
+		}
+	}
+}
+
+// --- S03-tui-chrome-rework: responsive chrome (header, pane widths, help bar) ---
+
+// newChromeModel builds a two-pane Model with the given release names in the
+// left list and an empty board, for the S03 chrome tests.
+func newChromeModel(names ...string) *Model {
+	rl := &ReleasesList{}
+	for _, n := range names {
+		rl.Releases = append(rl.Releases, ReleaseInfo{
+			Name:        n,
+			TrackCount:  2,
+			SliceStates: map[string]int{"planned": 1},
+		})
+	}
+	return &Model{
+		state:    viewReleases,
+		Releases: rl,
+		Board:    &BoardView{},
+	}
+}
+
+// TestWindowSizeMsgStoresDimensions — AC-01: a tea.WindowSizeMsg is no longer
+// discarded; the reported width AND height are stored on the Model.
+func TestWindowSizeMsgStoresDimensions(t *testing.T) {
+	m := newChromeModel("rel-a")
+	upd, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m2 := upd.(*Model)
+	if m2.Width != 120 || m2.Height != 40 {
+		t.Fatalf("expected Width=120 Height=40 stored from WindowSizeMsg, got Width=%d Height=%d", m2.Width, m2.Height)
+	}
+}
+
+// TestPaneWidthsReserveBorderColumns — AC-01 + review pin 2: paneWidths must
+// reserve the 4 rounded-border columns (2 per pane; JoinHorizontal adds no
+// gap, verified live against lipgloss v1.1.0) so left+right+4 <= total. Also
+// asserts the legacy (30,80) fallback for the pre-WindowSizeMsg case.
+func TestPaneWidthsReserveBorderColumns(t *testing.T) {
+	if l, r := paneWidths(0); l != 30 || r != 80 {
+		t.Fatalf("paneWidths(0) legacy fallback: expected (30,80), got (%d,%d)", l, r)
+	}
+	for _, total := range []int{80, 100, 120, 220} {
+		l, r := paneWidths(total)
+		if l <= 0 || r <= 0 {
+			t.Fatalf("paneWidths(%d): expected positive pane widths, got (%d,%d)", total, l, r)
+		}
+		if l+r+4 > total {
+			t.Fatalf("paneWidths(%d): left+right+4=%d exceeds total %d — 4 border columns not reserved", total, l+r+4, total)
+		}
+	}
+}
+
+// TestPaneWidthsLeftFloor — AC-02 (Coach decision, option b): the left pane
+// gets a minimum-width floor so it stays legible at an 80-col terminal
+// instead of being squeezed to near-nothing by a pure proportional split.
+func TestPaneWidthsLeftFloor(t *testing.T) {
+	left, _ := paneWidths(80)
+	if left < minLeftPane {
+		t.Fatalf("paneWidths(80): left pane %d is below the minimum-width floor %d", left, minLeftPane)
+	}
+}
+
+// TestTwoPaneRenderFitsTerminalWidth — AC-01/AC-05 + review pin 2: the full
+// rendered frame (header + two panes + help bar) never renders a line wider
+// than the reported terminal width. A frame wider than the terminal forces
+// the emulator to line-wrap, which is the spec-identified root cause of the
+// VS Code integrated-terminal viewport bug (AC-05).
+func TestTwoPaneRenderFitsTerminalWidth(t *testing.T) {
+	m := newChromeModel("render-drift-reconciliation")
+	m.Version = "1.0.0"
+	for _, w := range []int{80, 100, 120, 220} {
+		upd, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: 40})
+		m = upd.(*Model)
+		view := m.View()
+		if got := lipgloss.Width(view); got > w {
+			t.Fatalf("at terminal width %d, rendered frame max line width is %d (> %d) — would force emulator wrap (AC-05 root cause)", w, got, w)
+		}
+	}
+}
+
+// TestReleasesListShowsBareIDNotFrontmatterTitle verifies the releases pane
+// displays the bare release directory name (e.g. "2026-06-28-driver-contract"),
+// not render.go's generated frontmatter title ("Release board — <release>").
+// Every index.md's title carries that constant prefix, so displaying it
+// verbatim meant every entry in the pane redundantly repeated "Release board —".
+func TestReleasesListShowsBareIDNotFrontmatterTitle(t *testing.T) {
+	dir := t.TempDir()
+	fixtureReleaseDir(filepath.Join(dir, "docs", "release"))
+	createIndex(t, dir, "2026-06-28-driver-contract", "Release board — 2026-06-28-driver-contract")
+
+	rl := &ReleasesList{}
+	if err := rl.LoadReleases(dir); err != nil {
+		t.Fatalf("LoadReleases: %v", err)
+	}
+
+	out := rl.View()
+	if !strings.Contains(out, "2026-06-28-driver-contract") {
+		t.Fatalf("expected the bare release ID in the pane, got:\n%s", out)
+	}
+	if strings.Contains(out, "Release board") {
+		t.Fatalf("expected no 'Release board —' prefix in the pane, got:\n%s", out)
+	}
+}
+
+// TestReleasesListRealRepoReleasesShowBareID is the reachability test for the
+// bare-ID fix: it loads THIS repo's real, live docs/release/ directory (every
+// release actually committed here, each with a render.go-generated
+// "Release board — <release>" frontmatter title) and verifies the pane shows
+// none of that prefix for any of them.
+func TestReleasesListRealRepoReleasesShowBareID(t *testing.T) {
+	repoRoot, err := findRepoRoot()
+	if err != nil {
+		t.Skipf("skipping live-repo reachability test: findRepoRoot: %v", err)
+	}
+
+	rl := &ReleasesList{}
+	if err := rl.LoadReleases(repoRoot); err != nil {
+		t.Fatalf("LoadReleases against real repo: %v", err)
+	}
+	if len(rl.Releases) == 0 {
+		t.Fatal("expected at least one real release under docs/release/")
+	}
+
+	out := rl.View()
+	t.Logf("releases pane:\n%s", out)
+	if strings.Contains(out, "Release board") {
+		t.Errorf("expected no 'Release board —' prefix in the real releases pane, got:\n%s", out)
+	}
+	for _, rel := range rl.Releases {
+		if !strings.Contains(out, rel.ID) {
+			t.Errorf("expected bare release ID %q to appear in the pane, got:\n%s", rel.ID, out)
+		}
+	}
+}
+
+// TestReleasesListNoWrapAtTypicalWidth — AC-02: a release name under 40 chars
+// with a comfortably wide pane renders on exactly one line, untruncated.
+func TestReleasesListNoWrapAtTypicalWidth(t *testing.T) {
+	rl := &ReleasesList{
+		Width: 100,
+		Releases: []ReleaseInfo{
+			{ID: "loop-cli-ux", Name: "Release board — loop-cli-ux", TrackCount: 3, SliceStates: map[string]int{"verified": 3}},
+		},
+	}
+	out := rl.View()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines (title + 1 release, no wrap) at pane width 100, got %d:\n%q", len(lines), out)
+	}
+	if strings.Contains(out, "…") {
+		t.Fatalf("a <40-char release name at pane width 100 must not be truncated, got:\n%q", out)
+	}
+	if !strings.Contains(out, "loop-cli-ux") {
+		t.Fatalf("expected the full release name present, got:\n%q", out)
+	}
+}
+
+// TestReleasesListTruncatesLongNameAtNarrowPane — AC-02 (Coach decision): at
+// an 80-col terminal (left pane ~28 cols) a long release name is truncated
+// with an ellipsis on a single line, NOT wrapped illegibly across lines.
+func TestReleasesListTruncatesLongNameAtNarrowPane(t *testing.T) {
+	longName := "an-extremely-long-release-name-that-would-wrap-illegibly-at-eighty-cols"
+	rl := &ReleasesList{
+		Width: 28,
+		Releases: []ReleaseInfo{
+			{ID: longName, Name: "Release board — " + longName, TrackCount: 2, SliceStates: map[string]int{"planned": 1}},
+		},
+	}
+	out := rl.View()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines (title + 1 truncated release, no wrap) at pane width 28, got %d:\n%q", len(lines), out)
+	}
+	if !strings.Contains(out, "…") {
+		t.Fatalf("a long release name at pane width 28 must be ellipsis-truncated, got:\n%q", out)
+	}
+	if strings.Contains(out, longName) {
+		t.Fatalf("the full untruncated long name must not appear at pane width 28, got:\n%q", out)
+	}
+	for _, ln := range lines {
+		if w := lipgloss.Width(ln); w > 28 {
+			t.Fatalf("rendered line %q has width %d, exceeding pane width 28 (would wrap)", ln, w)
+		}
+	}
+}
+
+// TestHeaderShowsVersionAndNoReleaseSelected — AC-03: on the initial releases
+// screen (never navigated into a release) the header shows the version and an
+// explicit "no release selected" label.
+func TestHeaderShowsVersionAndNoReleaseSelected(t *testing.T) {
+	m := newChromeModel("rel-a")
+	m.Version = "1.2.3"
+	m.Width = 100
+	m.state = viewReleases
+	m.Board.ReleaseName = ""
+	header := m.renderHeader()
+	if !strings.Contains(header, "1.2.3") {
+		t.Fatalf("header should show version 1.2.3, got:\n%q", header)
+	}
+	if !strings.Contains(header, "no release selected") {
+		t.Fatalf("header on the initial releases screen should show 'no release selected', got:\n%q", header)
+	}
+}
+
+// TestHeaderShowsSelectedRelease — AC-03: once the user has navigated into a
+// release, the header shows the version and the selected release name.
+func TestHeaderShowsSelectedRelease(t *testing.T) {
+	m := newChromeModel("rel-a")
+	m.Version = "9.9.9"
+	m.Width = 100
+	m.state = viewBoard
+	m.Board.ReleaseName = "2026-07-01-render-drift-reconciliation"
+	header := m.renderHeader()
+	if !strings.Contains(header, "9.9.9") {
+		t.Fatalf("header should show the version, got:\n%q", header)
+	}
+	if !strings.Contains(header, "2026-07-01-render-drift-reconciliation") {
+		t.Fatalf("header should show the selected release name, got:\n%q", header)
+	}
+}
+
+// TestViewRendersHeader — AC-03 through the integration point (Rule 1): the
+// header is actually rendered by Model.View, not only by renderHeader in
+// isolation.
+func TestViewRendersHeader(t *testing.T) {
+	m := newChromeModel("rel-a")
+	m.Version = "2.0.0"
+	upd, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = upd.(*Model)
+	view := m.View()
+	if !strings.Contains(view, "2.0.0") {
+		t.Fatalf("Model.View should render the header with version 2.0.0, got:\n%q", view[:min(300, len(view))])
+	}
+	if !strings.Contains(view, "no release selected") {
+		t.Fatalf("Model.View on the initial screen should render 'no release selected' in the header, got:\n%q", view[:min(300, len(view))])
+	}
+}
+
+// TestHelpBarSpansFullWidth — AC-04: the help bar spans the full terminal
+// width (background-styled bar), and falls back to the legacy 110 when no
+// WindowSizeMsg has been received yet.
+func TestHelpBarSpansFullWidth(t *testing.T) {
+	m := newChromeModel("rel-a")
+	m.Width = 137
+	if got := lipgloss.Width(m.renderHelp()); got != 137 {
+		t.Fatalf("help bar should span the full terminal width 137, got %d", got)
+	}
+	m.Width = 0
+	if got := lipgloss.Width(m.renderHelp()); got != 110 {
+		t.Fatalf("help bar fallback width should be the legacy 110 when Width is unset, got %d", got)
+	}
+}
+
+// --- sworn#82: async board load + lazy on-demand gate results ---
+
+// TestEnterDispatchesAsyncBoardLoad is the reachability test for the fix:
+// pressing Enter on the releases list must return a tea.Cmd instead of
+// running BoardView.LoadBoard inline in the key handler. Before the fix,
+// LoadBoard (and the gates it re-ran on every call) executed synchronously
+// inside handleReleasesKey, so Board.Loaded flipped to true in the SAME
+// Update() call that handled the keypress — bubbletea never got a chance to
+// repaint a loading indicator in between, which is the reported freeze.
+func TestEnterDispatchesAsyncBoardLoad(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+	createIndex(t, dir, "test-release", "Test Release")
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-first"}},
+	})
+	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-core")
+
+	m := &Model{
+		state:    viewReleases,
+		repoRoot: dir,
+		Releases: &ReleasesList{},
+		Board:    &BoardView{},
+	}
+	if err := m.Releases.LoadReleases(dir); err != nil {
+		t.Fatalf("LoadReleases: %v", err)
+	}
+
+	upd, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m2 := upd.(*Model)
+
+	// The key handler must return immediately — no inline LoadBoard.
+	if m2.state != viewBoard {
+		t.Fatalf("expected viewBoard state right after Enter, got %d", m2.state)
+	}
+	if m2.Board.Loaded {
+		t.Fatal("expected Board.Loaded=false immediately after Enter — LoadBoard must not run inline in the key handler (this is the sworn#82 freeze)")
+	}
+	if cmd == nil {
+		t.Fatal("expected Enter to return a non-nil tea.Cmd to load the board asynchronously")
+	}
+
+	// Executing the returned Cmd (as the bubbletea runtime would, off the
+	// Update goroutine) and feeding the resulting msg back through Update is
+	// what actually populates the board.
+	msg := cmd()
+	upd2, _ := m2.Update(msg)
+	m3 := upd2.(*Model)
+	if !m3.Board.Loaded {
+		t.Fatal("expected Board.Loaded=true after the async load msg is delivered")
+	}
+	if len(m3.Board.Tracks) != 1 {
+		t.Fatalf("expected 1 track after async load, got %d", len(m3.Board.Tracks))
+	}
+	checkSlice(t, m3.Board, "S01-first", "verified")
+}
+
+// TestLoadBoardDoesNotComputeGatesEagerly proves the lazy-gates half of
+// sworn#82: LoadBoard must NOT call LoadGateResults (trace + per-slice
+// coverage/design/mock, each shelling git diff) as part of every board load.
+// Before the fix this was ~100% of the measured cost (up to 21.3s of a
+// 21.5s load on a 73-slice release).
+func TestLoadBoardDoesNotComputeGatesEagerly(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-first"}},
+	})
+	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-core")
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(dir, "test-release"); err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+
+	if bv.GatesLoaded {
+		t.Fatal("expected GatesLoaded=false after LoadBoard — gates must be lazy, not computed eagerly")
+	}
+	if len(bv.GateResults) != 0 {
+		t.Fatalf("expected no GateResults populated by LoadBoard, got %d entries", len(bv.GateResults))
+	}
+}
+
+// TestGateKeyTriggersAsyncGateLoad verifies the on-demand path: pressing 'g'
+// in board view dispatches a tea.Cmd (not an inline call) that computes gate
+// results, and delivering the resulting msg populates BoardView.GateResults
+// and flips GatesLoaded.
+func TestGateKeyTriggersAsyncGateLoad(t *testing.T) {
+	dir := t.TempDir()
+	releaseDir := filepath.Join(dir, "docs", "release", "test-release")
+	os.MkdirAll(releaseDir, 0o755)
+	writeBoardFixture(t, dir, "test-release", []board.BoardTrack{
+		{ID: "T1-core", Slices: []string{"S01-first"}},
+	})
+	createSliceStatus(t, releaseDir, "S01-first", "verified", "T1-core")
+
+	bv := &BoardView{}
+	if err := bv.LoadBoard(dir, "test-release"); err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+
+	m := &Model{
+		state:    viewBoard,
+		repoRoot: dir,
+		Releases: &ReleasesList{},
+		Board:    bv,
+	}
+
+	upd, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("g")})
+	m2 := upd.(*Model)
+	if !m2.Board.GatesLoading {
+		t.Fatal("expected GatesLoading=true right after pressing 'g'")
+	}
+	if cmd == nil {
+		t.Fatal("expected 'g' to return a non-nil tea.Cmd to compute gates asynchronously")
+	}
+
+	msg := cmd()
+	upd2, _ := m2.Update(msg)
+	m3 := upd2.(*Model)
+	if m3.Board.GatesLoading {
+		t.Fatal("expected GatesLoading=false after the gates-loaded msg is delivered")
+	}
+	if !m3.Board.GatesLoaded {
+		t.Fatal("expected GatesLoaded=true after the gates-loaded msg is delivered")
+	}
+	if _, ok := m3.Board.GateResults["S01-first"]; !ok {
+		t.Fatalf("expected GateResults to contain S01-first, got %+v", m3.Board.GateResults)
 	}
 }

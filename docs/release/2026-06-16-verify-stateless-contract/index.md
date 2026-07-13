@@ -1,13 +1,13 @@
 ---
 title: Release board — 2026-06-16-verify-stateless-contract
 description: Patch on v0.1 — stateless prompt/parser contract for the verify gate. 3 slices, one track.
-release_worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-verify-stateless-contract
+release_worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-16-verify-stateless-contract
 release_worktree_branch: release-wt/2026-06-16-verify-stateless-contract
 tracks:
   - id: T1-verify-contract
     slices: [S01-stateless-verify-prompt, S02-tolerant-verdict-parser, S03-run-loop-verify-reachability]
     depends_on: null
-    worktree_path: /home/brad/projects/sworn-worktrees/release-2026-06-16-verify-stateless-contract-T1-verify-contract
+    worktree_path: /home/user/projects/sworn-worktrees/release-2026-06-16-verify-stateless-contract-T1-verify-contract
     worktree_branch: track/2026-06-16-verify-stateless-contract/T1-verify-contract
     state: merged
     e2e_specs: []

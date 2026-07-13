@@ -193,7 +193,7 @@ func TestSaveAttestations_NestedShapeRoundtrip(t *testing.T) {
 		Schema:  "https://baton.sawy3r.net/schemas/attestations-v1.json",
 		Version: 1,
 		Ratification: Ratification{
-			By:         "brad@sawyer.net.au",
+			By:         "maintainer@sworn.sh",
 			At:         "2026-01-01T00:00:00Z",
 			IsRatified: true,
 		},
@@ -240,8 +240,8 @@ func TestSaveAttestations_NestedShapeRoundtrip(t *testing.T) {
 	if !ok {
 		t.Fatal("ratification must be a nested object")
 	}
-	if rat["by"] != "brad@sawyer.net.au" {
-		t.Errorf("expected ratification.by 'brad@sawyer.net.au', got %q", rat["by"])
+	if rat["by"] != "maintainer@sworn.sh" {
+		t.Errorf("expected ratification.by 'maintainer@sworn.sh', got %q", rat["by"])
 	}
 
 	// Verify boundary is nested.

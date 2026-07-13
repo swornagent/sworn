@@ -12,6 +12,7 @@ import (
 	"github.com/swornagent/sworn/internal/adopt"
 	"github.com/swornagent/sworn/internal/config"
 	"github.com/swornagent/sworn/internal/style"
+	"github.com/swornagent/sworn/internal/templates"
 )
 
 func cmdInit(args []string) int {
@@ -262,37 +263,31 @@ done:
 	return 0
 }
 
-// createAgentsMD writes the MCP-pointer AGENTS.md from the embedded template
-// at docs/templates/agents.md.
+// createAgentsMD writes the MCP-pointer AGENTS.md from the template embedded
+// in the binary (internal/templates) — an adopting repo has no local copy on
+// cold start (sworn#28).
 func createAgentsMD(repoRoot string) error {
-	templatePath := filepath.Join(repoRoot, "docs", "templates", "agents.md")
 	targetPath := filepath.Join(repoRoot, "AGENTS.md")
-
-	data, err := os.ReadFile(templatePath)
-	if err != nil {
-		return fmt.Errorf("read AGENTS.md template: %w", err)
-	}
-	if err := os.WriteFile(targetPath, data, 0644); err != nil {
+	if err := os.WriteFile(targetPath, []byte(templates.AgentsMD()), 0644); err != nil {
 		return fmt.Errorf("write AGENTS.md: %w", err)
 	}
 	return nil
 }
 
-// materialiseCatalog copies the consideration catalog and decision registry
-// templates from docs/templates/ into the project root. If either target file
-// already exists, it prompts before overwriting (defaulting to no).
+// materialiseCatalog writes the consideration catalog and decision registry
+// from the templates embedded in the binary. If either target file already
+// exists, it prompts before overwriting (defaulting to no).
 func materialiseCatalog(repoRoot string, in *bufio.Reader) error {
-	templates := []struct {
-		src  string
-		dst  string
-		name string
+	items := []struct {
+		content string
+		dst     string
+		name    string
 	}{
-		{"docs/templates/considerations.md", "docs/considerations.md", "consideration catalog"},
-		{"docs/templates/decisions.md", "docs/decisions.md", "decision registry"},
+		{templates.ConsiderationsMD(), "docs/considerations.md", "consideration catalog"},
+		{templates.DecisionsMD(), "docs/decisions.md", "decision registry"},
 	}
 
-	for _, t := range templates {
-		srcPath := filepath.Join(repoRoot, t.src)
+	for _, t := range items {
 		dstPath := filepath.Join(repoRoot, t.dst)
 
 		// Ensure destination directory exists.
@@ -311,11 +306,7 @@ func materialiseCatalog(repoRoot string, in *bufio.Reader) error {
 			}
 		}
 
-		data, err := os.ReadFile(srcPath)
-		if err != nil {
-			return fmt.Errorf("read template %s: %w", t.src, err)
-		}
-		if err := os.WriteFile(dstPath, data, 0644); err != nil {
+		if err := os.WriteFile(dstPath, []byte(t.content), 0644); err != nil {
 			return fmt.Errorf("write %s: %w", t.name, err)
 		}
 		fmt.Printf("  %s  %s\n", style.Success("created"), t.dst)

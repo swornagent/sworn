@@ -1,0 +1,70 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S09-model-catalog",
+  "release": "2026-06-28-driver-contract",
+  "track": "T5-catalog",
+  "user_outcome": "Running `sworn models` lists, per linked provider, the models actually available on the user's account — grouped by the prefix the user would type — with capability annotations sourced only from wire-reported metadata (tools: yes/no/unknown), so explicit-prefix resolution ships with its discoverability counterpart and unknown never counts as capable.",
+  "rationale": "Delivers N-11 (decided in-release 2026-07-02): the explicit-prefix bargain trades away magic, so discovery must be one command. Capability metadata over the wire is heterogeneous (verified during planning): OpenRouter /api/v1/models reports supported_parameters (including 'tools'), modality, pricing, context; Mistral /v1/models reports a capabilities object (function_calling, vision); Ollama /api/show reports a capabilities list on recent versions; Google models.list reports supportedGenerationMethods (partial — tool support not explicit); OpenAI, Groq, and Anthropic return bare ID lists. The catalog therefore annotates honestly and fail-closed: only wire-reported facts, 'unknown' everywhere else, and NO paid probe calls — listing uses models/list endpoints only. Availability of a provider comes from registry enumeration (S05). Late-deferrable as its own slice per the planning decision.",
+  "covers_needs": [
+    "N-11"
+  ],
+  "in_scope": [
+    "cmd/sworn/models.go: the sworn models command with --provider filter",
+    "internal/model/catalog.go: per-provider models/list clients (OpenRouter, Mistral, Ollama, Google, OpenAI, Groq, Anthropic)",
+    "Wire-metadata-only capability annotation with fail-closed unknown",
+    "Per-provider error isolation (one failure never hides the rest)"
+  ],
+  "out_of_scope": [
+    "Active capability probing via paid test calls — excluded by planning decision, only ever a future explicit command",
+    "Registry/resolution changes (S05)",
+    "Catalog caching or auto-refresh"
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "Known-shape HTTP listing per provider + normalisation + a CLI command; breadth across ~6 provider endpoints with canned-fixture tests.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    "cmd/sworn/models.go",
+    "cmd/sworn/models_test.go",
+    "cmd/sworn/main.go",
+    "internal/model/catalog.go",
+    "internal/model/catalog_test.go"
+  ],
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "Provider models-endpoint shapes drift or differ by account tier.",
+      "mitigation": "Parse defensively with canned-fixture tests per provider; unknown fields ignored; a shape mismatch degrades that provider's annotations to unknown rather than failing the whole command."
+    },
+    {
+      "id": "R-02",
+      "description": "Temptation to infer capability from model-name heuristics (e.g. assuming every gpt-* supports tools).",
+      "mitigation": "AC-02 forbids it: annotation source is wire metadata only; heuristics are a spec violation, not a nice-to-have."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "When `sworn models` runs, it SHALL query the models/list endpoint of each provider whose credentials are configured (determined via registry enumeration/availability, no dispatch) and print the available model IDs grouped by the resolution prefix the user would type (e.g. openrouter/, mistral/, ollama/), with a --provider flag filtering to one provider (TestModelsCommand with canned fixtures).",
+      "ears_pattern": "event-driven"
+    },
+    {
+      "id": "AC-02",
+      "text": "Capability annotations SHALL be sourced exclusively from wire-reported metadata (OpenRouter supported_parameters, Mistral capabilities, Ollama /api/show capabilities, Google supportedGenerationMethods); providers returning bare ID lists (OpenAI, Groq, Anthropic) SHALL be annotated tools=unknown; no name-pattern heuristics SHALL be used (table-driven TestCatalogAnnotations covers one fixture per provider class).",
+      "ears_pattern": "ubiquitous"
+    },
+    {
+      "id": "AC-03",
+      "text": "If a provider's models endpoint fails (auth, network, non-2xx), `sworn models` SHALL print a per-provider error naming the provider and cause, continue listing the remaining providers, and exit non-zero only when EVERY configured provider failed.",
+      "ears_pattern": "unwanted-behaviour"
+    },
+    {
+      "id": "AC-04",
+      "text": "The command SHALL make no completion/dispatch/probe calls — models/list endpoints only (asserted in tests by a transport recorder that fails on any non-list path); `go build ./...` and `go test ./cmd/sworn/... ./internal/model/...` SHALL pass.",
+      "ears_pattern": "ubiquitous"
+    }
+  ]
+}

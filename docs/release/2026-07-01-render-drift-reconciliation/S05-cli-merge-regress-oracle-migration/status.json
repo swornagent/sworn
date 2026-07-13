@@ -1,0 +1,74 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S05-cli-merge-regress-oracle-migration",
+  "release": "2026-07-01-render-drift-reconciliation",
+  "track": "T4-cli-merge-regress",
+  "state": "verified",
+  "covers_needs": [
+    "N-01"
+  ],
+  "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S05-cli-merge-regress-oracle-migration/spec.json",
+  "proof_path": "docs/release/2026-07-01-render-drift-reconciliation/S05-cli-merge-regress-oracle-migration/proof.md",
+  "journal_path": "docs/release/2026-07-01-render-drift-reconciliation/S05-cli-merge-regress-oracle-migration/journal.md",
+  "start_commit": "c5634da7d8006072946fbc6f6f1e9fe1819864dd",
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "quick",
+    "rationale": "Two files, one function each, same fix pattern.",
+    "confirmed_by_implementer": true
+  },
+  "planned_files": [
+    "cmd/sworn/merge.go",
+    "cmd/sworn/regress.go",
+    "cmd/sworn/merge_test.go",
+    "cmd/sworn/regress_test.go",
+    "internal/board/oracle.go"
+  ],
+  "actual_files": [
+    "cmd/sworn/merge.go",
+    "cmd/sworn/merge_test.go",
+    "cmd/sworn/regress.go",
+    "cmd/sworn/regress_test.go",
+    "internal/board/oracle.go",
+    "internal/board/oracle_test.go"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go test ./internal/board/... ./cmd/sworn/... -timeout 120s",
+    "go test ./... -timeout 280s",
+    "go vet ./internal/board/... ./cmd/sworn/...",
+    "gofmt -l cmd/sworn/merge.go cmd/sworn/regress.go cmd/sworn/merge_test.go cmd/sworn/regress_test.go internal/board/oracle.go internal/board/oracle_test.go"
+  ],
+  "reachability_artifacts": [
+    "docs/release/2026-07-01-render-drift-reconciliation/S05-cli-merge-regress-oracle-migration/reachability-regress-output.txt"
+  ],
+  "design_decisions": [
+    {
+      "choice": "New Oracle.ReadReleaseWorktreePath + OracleReaderAdapter.ReadReleaseWorktreePath method in internal/board/oracle.go, outside spec.json's literal touchpoint list (which names only the two cmd/sworn files and their tests).",
+      "stake_class": "Type-2",
+      "rationale": "The board.json/index.md dual-path resolution logic already lives in oracle.go's readTrackInfos; duplicating it inside cmd/sworn/merge.go would recreate the exact drifting-second-copy bug class this release exists to close. Narrow, purely additive, no existing caller touched.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "regress.go resolves via the disk-based board.ReadBoard (repoRoot + release), merge.go resolves via the git-ref-based Oracle.ReadReleaseWorktreePath through the OracleReaderAdapter it already builds for gate 1 — two different resolution mechanisms for the same field, not unified onto one.",
+      "stake_class": "Type-2",
+      "rationale": "regress.go has no git-ref concept anywhere else in the file (a plain local-directory tool); merge.go already resolves everything via git refs (release-wt worktree may be on a different branch than the launch directory). Matches the precedented S04 split (git-ref oracle where a repo already exists, board.ReadBoard where it doesn't).",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "Delete resolveReleaseWorktree/extractFrontmatterBody (merge.go) and extractReleaseWorktreePath (regress.go) outright rather than deprecate.",
+      "stake_class": "Type-2",
+      "rationale": "No other callers (confirmed by grep) once both call sites switch to the oracle/board.ReadBoard. Dead frontmatter-parsing code left in place is the same attractive-nuisance class S04's design.md flagged and removed.",
+      "architecturally_significant": false
+    }
+  ],
+  "open_deferrals": [],
+  "verification": {
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-02T00:15:00Z"
+  },
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-02T00:15:00Z"
+}

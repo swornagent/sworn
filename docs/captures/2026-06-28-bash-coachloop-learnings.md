@@ -38,7 +38,7 @@
   4. Commit & push (or fail loudly)
 - Failures → return error, do NOT start workers.
 
-**File:line reference:** `/home/brad/.claude/bin/coach-loop:1745-1807`
+**File:line reference:** `/home/user/.claude/bin/coach-loop:1745-1807`
 
 ---
 
@@ -103,7 +103,7 @@
 - **Callers MUST check the error** and escalate to Page instead of proceeding.
 - **No nil pointers:** A missing driver cannot produce a nil agent that later dereferenced. Return error or a panic in `init()` when vendored drivers are missing.
 
-**File:line reference:** `/home/brad/.claude/bin/coach-loop:545-581`
+**File:line reference:** `/home/user/.claude/bin/coach-loop:545-581`
 
 ---
 
@@ -147,7 +147,7 @@ jq -nc \
   ```
 - Test both: message with empty content + message with content.
 
-**File:line reference:** `/home/brad/.claude/bin/drivers/oai-compat.sh:559-577`
+**File:line reference:** `/home/user/.claude/bin/drivers/oai-compat.sh:559-577`
 
 ---
 
@@ -193,7 +193,7 @@ The exit condition is **NOT "received stop reason"** — it is **"no tool calls 
   ```
 - Set `MAX_TURNS` as a circuit-breaker for pathological loops, not the normal exit.
 
-**File:line reference:** `/home/brad/.claude/bin/drivers/oai-compat.sh:851-872`
+**File:line reference:** `/home/user/.claude/bin/drivers/oai-compat.sh:851-872`
 
 ---
 
@@ -232,7 +232,7 @@ Every dispatch starts from a clean tree with a commit history. Retries don't res
   ```
 - DO NOT reset or clean the worktree on retry. Carry the history forward.
 
-**File:line reference:** `/home/brad/.claude/bin/coach-loop:765-789`
+**File:line reference:** `/home/user/.claude/bin/coach-loop:765-789`
 
 ---
 
@@ -259,7 +259,7 @@ VERIFIER_MODEL="${COACH_VERIFIER_MODEL:-${COACH_MODEL:-fable[1M]}}"
 - Model rotation must be **configurable**, not hardcoded per-role.
 - Provider inference is **in the driver**, not the orchestrator.
 
-**File:line reference:** `/home/brad/.claude/bin/coach-loop:102-104`
+**File:line reference:** `/home/user/.claude/bin/coach-loop:102-104`
 
 ---
 
@@ -276,7 +276,7 @@ The coordinator runs one worker **per track**, in parallel, and a failure in one
 - A PAGE from one track does NOT cancel other goroutines.
 - Implement a shared pause signal (context or file) that all workers check, but workers do NOT abort mid-dispatch.
 
-**File:line reference:** `/home/brad/.claude/bin/coach-loop:1956-2024`
+**File:line reference:** `/home/user/.claude/bin/coach-loop:1956-2024`
 
 ---
 
@@ -312,7 +312,7 @@ The dispatcher inherits the repo's settings. If the repo wants to isolate caches
   cmd.Env = append(os.Environ(), mapToEnv(goEnv)...)
   ```
 
-**File:line reference:** `/home/brad/.claude/bin/coach-loop:607-643`
+**File:line reference:** `/home/user/.claude/bin/coach-loop:607-643`
 
 ---
 
@@ -432,7 +432,7 @@ Active release from `~/.config/coach/active-release.<repo-key>`. Models/keys fro
 
 ```bash
 # In the sworn repo
-cd /home/brad/projects/sworn
+cd /home/user/projects/sworn
 
 # Set active release
 coach use 2026-06-27-conformance-foundation

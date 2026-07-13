@@ -110,7 +110,7 @@ Legend: `confirmed:<x>` = known-expected gap from the conformance audit. `NOVEL`
   is Driver-1 (`/implement-slice`) bootstrap the engine skips. Workaround: set `state:in_progress`.
 - **NOVEL — double-path join in RunSlice file ops.** `absSliceDir := filepath.Join(worktreeRoot,
   filepath.Dir(specPath))` (`internal/run/slice.go:147`) joins the worktree root with an already-absolute
-  specPath, producing `/…/T4-records-as-json/home/brad/…/T4-records-as-json/…/design.md` (path doubled).
+  specPath, producing `/…/T4-records-as-json/home/user/…/T4-records-as-json/…/design.md` (path doubled).
   Surfaced as `design: write design.md: … no such file or directory`. Affects design.md (and any other
   `absSliceDir`-derived path); `statusPath` is passed absolute and used directly so implement() still
   reads state. worker.go passes an absolute specPath where RunSlice expects a repo-relative one.

@@ -1,0 +1,61 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "schema_version": 1,
+  "slice_id": "S14-blocked-terminal",
+  "release": "2026-06-28-driver-contract",
+  "scope": "The runner treats BLOCKED as terminal-for-the-lane: a dispatched implementer returning an explicit blocked signal, or a verifier BLOCKED verdict, ends all dispatches for that slice in the run, halts the owning sequential track, consumes no retry budget, and exits non-zero with a report distinguishing BLOCKED lanes (blocker verbatim, routed to /replan-release) from FAIL lanes (retries exhausted). FAIL keeps its existing retryable semantics unchanged.",
+  "files_changed": [
+    "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/status.json",
+    "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/journal.md",
+    "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/proof.json",
+    "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/proof.md",
+    "internal/driver/driver.go",
+    "internal/implement/implement.go",
+    "internal/orchestrator/blocked.go",
+    "internal/run/blocked_report_test.go",
+    "internal/run/blocked_terminal_test.go",
+    "internal/run/parallel.go",
+    "internal/run/slice.go",
+    "internal/scheduler/blocked_lane_test.go",
+    "internal/scheduler/worker.go"
+  ],
+  "test_results": [
+    { "command": "go build ./...", "passed": true, "exit_code": 0 },
+    { "command": "go vet ./internal/driver/ ./internal/implement/ ./internal/run/ ./internal/scheduler/ ./internal/orchestrator/", "passed": true, "exit_code": 0 },
+    { "command": "gofmt -l <all 9 changed/new .go files>", "passed": true, "exit_code": 0, "output": "empty — all changed .go files gofmt-clean; the project's newline-eating-edit hazard grep (comment lines with code fused on) found nothing" },
+    { "command": "go test -count=1 -run 'TestLoopBlocked|TestLoopFail|TestLoopExitReport' -v ./internal/run/ ./internal/scheduler/", "passed": true, "exit_code": 0, "output": "PASS: TestLoopBlockedImplementerTerminal (AC-01), TestLoopBlockedVerifierTerminal (AC-02), TestLoopFailRetrySemanticsUnchanged (AC-03), TestLoopExitReportBlockedVsFail (AC-05) in internal/run; TestLoopBlockedSliceHaltsTrack (AC-04) in internal/scheduler" },
+    { "command": "go test -count=1 -timeout 300s ./... (AC-06 regression gate, full suite)", "passed": true, "exit_code": 0, "output": "every package ok (45 ok, 2 no-test-files), 0 FAIL — all pre-existing retry/terminal tests green UNMODIFIED (the diff contains no existing test file; the only _test.go files are the three new ones): TestRun_FailThenPass_RetrySucceeds, TestRunSliceFail, TestRunSlice_FailNotifiesOnce, TestRunSlice_BlockedNotifies, TestRun_Blocked_StopsImmediately, internal/orchestrator triage tests, TestRunTrack_SliceFail, TestRunTrack_TerminalDriverErrorHaltsTrack, TestRunParallel_FailureCascade" },
+    { "command": "go run ./cmd/sworn lint ac 2026-06-28-driver-contract", "passed": true, "exit_code": 0, "output": "S14-blocked-terminal: 6 ACs (1 ubiquitous, 4 event-driven, 1 state-driven); release: all 75 acceptance checks well-formed EARS, 0 violations" }
+  ],
+  "first_pass": {
+    "command": "go run ./cmd/sworn verify -verifier-model claude-cli/sonnet -spec docs/release/2026-06-28-driver-contract/S14-blocked-terminal/spec.json -diff <git diff 79fce54..HEAD> -proof docs/release/2026-06-28-driver-contract/S14-blocked-terminal/proof.md",
+    "verdict": "PASS",
+    "exit_code": 0,
+    "output": "{\"verdict\":\"PASS\",\"rationale\":\"\",\"cost_usd\":0} — deterministic first-pass (proof-mandatory, empty-spec/diff, boundary-mock gates) all satisfied; the -verifier-model flag names the keyless claude-cli provider purely to satisfy CLI construction — the deterministic path never dispatches a model"
+  },
+  "reachability": {
+    "type": "cli-run",
+    "evidence": "go test -count=1 -run TestLoopBlockedImplementerTerminal -v ./internal/run/ — PASS. The fired S05 replay with synthetic verdict objects, driving the REAL run.RunSlice engine entry point (the function sworn loop dispatches) against a real temp git repo: a fake driver's implementer leg returns {StatusBlocked, BlockedReason}; asserts exactly ONE implementer dispatch and ZERO verifier dispatches despite a second escalation model with retries remaining, IsBlocked(err) with the blocker VERBATIM plus the /replan-release directive in the error, and the WRITTEN status.json read back off disk carrying verification.result=blocked, routing=needs_planner, state still in_progress (never certified). Second entry point: go test -count=1 -run TestLoopExitReportBlockedVsFail -v ./internal/run/ — PASS, driving the REAL run.RunParallel (the sworn loop --parallel engine) with one blocked-terminal track and one plain-fail track, asserting the non-nil (exit-1) error renders the BLOCKED section (verbatim blocker, '-> /replan-release test-report') distinct from the FAIL section and that the same report lands in the durable loop log. Dark-code declaration (spec out_of_scope 4, Captain flag (b)): no production driver emits implement-leg StatusBlocked yet — live reachability today is the verify-leg BLOCKED verdict and the S07/S09 terminal auth/credits errors, which now render as BLOCKED lanes as designed (Coach ack pin 3, no reason-string sniffing). Spec-sanctioned, not dark code.",
+    "path": "docs/release/2026-06-28-driver-contract/S14-blocked-terminal/proof.md"
+  },
+  "delivered": [
+    { "item": "AC-01: implementer blocked=true ends the slice's dispatches for the run, halts the lane, and emits the blocker verbatim with an explicit route-to-/replan-release directive — driver.Result.BlockedReason (additive, zero-value default), implement.Run early return on StatusBlocked (no proof, no implemented transition — also fixes the latent spurious-certification fall-through), RunSlice implement-leg blocked-terminal branch (status blocked + needs_planner routing + single notify + sentinel error, returned BEFORE any triage so resolveCount/modelIdx are untouched).", "evidence": "internal/run/blocked_terminal_test.go:TestLoopBlockedImplementerTerminal; internal/driver/driver.go; internal/implement/implement.go; internal/run/slice.go" },
+    { "item": "AC-02: verifier BLOCKED terminates the lane identically without consuming implementer retry budget and is never mapped onto FAIL — existing orchestrator.Decide(Blocked)->Halt path anchored with a 2-model escalation list and retries remaining: 1 implementer + 1 verifier dispatch, verification.result=blocked, state never failed_verification, IsFailed(err)=false.", "evidence": "internal/run/blocked_terminal_test.go:TestLoopBlockedVerifierTerminal" },
+    { "item": "AC-03: FAIL with retries remaining keeps existing retry semantics — FAIL->PASS run makes exactly 2 implementer dispatches with the verifier's violations text forwarded verbatim into dispatch 2's payload (S44 feedback), retry consumed, slice verified.", "evidence": "internal/run/blocked_terminal_test.go:TestLoopFailRetrySemanticsUnchanged" },
+    { "item": "AC-04: a blocked slice halts the owning sequential track — WorkerOptions.RecordBlocked side-channel + blockedLaneTerminal helper at all three RunSliceFn-error sites (router implement/verify, redesign, legacy), checked after the pause sentinels and before breaker fingerprinting; slice 2 never dispatched; RecordBlocked invoked exactly once with the verbatim reason (route suffix trimmed); supervisor row persisted supervisor.StateFailed — never 'done' (Captain pin 1, CRITICAL: supervisor.Release coerces unknown states to StateDone).", "evidence": "internal/scheduler/blocked_lane_test.go:TestLoopBlockedSliceHaltsTrack; internal/scheduler/worker.go; internal/orchestrator/blocked.go" },
+    { "item": "AC-05: a run ending with any blocked lane exits non-zero with a report distinguishing BLOCKED lanes (blocker verbatim + '-> /replan-release <release>' directive) from FAIL lanes (retries exhausted); the same report lands in the durable loop log; the legacy 'RunParallel: %d track(s) failed: %s' error stays byte-identical when no lane is blocked (protects TestRunParallel_FailureCascade and unknown format-matching callers).", "evidence": "internal/run/blocked_report_test.go:TestLoopExitReportBlockedVsFail; internal/run/parallel.go:renderBlockedVsFailReport" },
+    { "item": "AC-06: all existing retry-cap behaviour unchanged — full go test -count=1 -timeout 300s ./... green; zero existing test files edited (all five new tests live in three NEW files; git diff 79fce54..HEAD contains no pre-existing _test.go).", "evidence": "full-suite run in test_results; git diff --name-only 79fce54..HEAD" }
+  ],
+  "not_delivered": [
+    "Baton role-prompt return-contract documentation for the blocked field — out of scope by spec (out_of_scope 2). Why: explicitly non-blocking per the inbound packet's ordering ruling; tracking: owned by the later Baton contract-edge work (fired proposal capture docs/captures/2026-07-10-baton-sworn-edge-contracts-proposal.md, Rec 4); acknowledgement: spec.json itself (Coach-authored second-pass replan 2026-07-10).",
+    "Production driver emission of implement-leg StatusBlocked — out of scope by spec (out_of_scope 4). Why: drivers map only what their upstream harnesses expose, and no observed CLI exposes an explicit blocked signal; absent a signal they return retryable shapes, never a fabricated blocked=true; tracking: spec out_of_scope 4 + the dark-code declaration in this bundle's reachability section; acknowledgement: Captain review flag (b) + Coach ack pin 4 catch-all (captain-proceed.md@31c3290).",
+    "sworn coverage + sworn llm-check --check ac-satisfaction gates not run — why: neither command exists in this branch's binary and no provider credentials are present in this environment; tracking: AC-to-test coverage traced manually in 'delivered' (one named test per AC) and the fresh-context Verifier (Rule 7) backstops — same posture as review.md flag (e); acknowledgement: Coach ack pin 4 catch-all accepting review.md's flags (captain-proceed.md@31c3290).",
+    "Release-wide sworn designfit exits 2 on S11-baton-revendor's pre-existing invalid quadrant 'beast' before evaluating any slice — not this slice's defect (T7 planner artefact, outside S14's touchpoints — track collision rule forbids absorbing it). Why: fixing another track's status.json from this session would be a silent cross-track write; tracking: sworn#90 (filed this session); acknowledgement: this proof bundle + journal entry."
+  ],
+  "divergence": [
+    "The RunSlice blocked branch writes the status record BEFORE Stage('.')+Commit so the commit is never empty when the blocked dispatch made no file edits (design.md's commit phrasing assumed partial edits exist; same clean-tree intent).",
+    "verification.routing uses the literal \"needs_planner\" with a vocab-binding comment (verdict.Result.Routing doc / board.BlockedNeedsPlanner) rather than importing internal/board into slice.go for the typed constant — no new import coupling; the value is identical at both bound ends.",
+    "Captain flag (a) resolved by choosing the trim option: blockedLaneReason strips orchestrator.BlockedLaneRouteSuffix before recording, so the exit report renders the replan directive once per lane (asserted in TestLoopExitReportBlockedVsFail).",
+    "Everything else matches design.md exactly, including the declared touchpoints deliberately left untouched: internal/run/resolve.go, internal/run/parallel_test.go, internal/verify/, cmd/sworn/run.go, cmd/sworn/run_test.go."
+  ]
+}

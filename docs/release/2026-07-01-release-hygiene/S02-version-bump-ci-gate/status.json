@@ -4,13 +4,15 @@
   "release": "2026-07-01-release-hygiene",
   "track": "T1-version-hygiene",
   "state": "planned",
-  "covers_needs": ["N-02"],
+  "covers_needs": [
+    "N-02"
+  ],
   "spec_path": "docs/release/2026-07-01-release-hygiene/S02-version-bump-ci-gate/spec.json",
   "start_commit": null,
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "One GitHub Actions workflow + a small semver-compare script. Depends on S01's version.txt source.",
     "confirmed_by_implementer": false
   },

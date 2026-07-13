@@ -18,13 +18,13 @@ func TestCapabilities_AllDrivers(t *testing.T) {
 		{name: "OAI-structured-toolcall", cp: &OAI{Structured: StructuredToolCall}, want: CapVerify | CapChat | CapStructuredOutput},
 		{name: "OpenAIResponses", cp: &OpenAIResponses{}, want: CapVerify | CapChat | CapStructuredOutput},
 		{name: "Anthropic", cp: &Anthropic{}, want: CapVerify | CapChat},
-		{name: "cliDriver", cp: &cliDriver{}, want: CapVerify | CapChat},
 		// Verify-only drivers.
 		{name: "AzureOAI", cp: &AzureOAI{}, want: CapVerify},
 		{name: "Bedrock", cp: &Bedrock{}, want: CapVerify},
 		{name: "Google", cp: &Google{}, want: CapVerify},
 		{name: "OCI", cp: &OCI{}, want: CapVerify},
 		{name: "Ollama", cp: &Ollama{}, want: CapVerify},
+		{name: "cliDriver", cp: &cliDriver{}, want: CapVerify},
 		// Unconfigured returns 0.
 		{name: "Unconfigured", cp: Unconfigured{}, want: 0},
 	}
@@ -47,7 +47,6 @@ func TestCapabilities_ChatBit(t *testing.T) {
 		&OAI{},
 		&OpenAIResponses{},
 		&Anthropic{},
-		&cliDriver{},
 	}
 	for _, cp := range chatDrivers {
 		if cp.Capabilities()&CapChat == 0 {
@@ -62,6 +61,7 @@ func TestCapabilities_ChatBit(t *testing.T) {
 		&Google{},
 		&OCI{},
 		&Ollama{},
+		&cliDriver{},
 	}
 	for _, cp := range noChatDrivers {
 		if cp.Capabilities()&CapChat != 0 {

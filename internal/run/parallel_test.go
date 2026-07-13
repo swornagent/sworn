@@ -3,20 +3,46 @@ package run
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
+	_ "modernc.org/sqlite"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-	_ "modernc.org/sqlite"
 
+	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/scheduler"
 ) // fakeRunSlicePass always returns nil (success).
 func fakeRunSlicePass(_ context.Context, _, _, _ string) error {
 	return nil
+}
+
+// preCreateDerivedWorktrees mkdir's the DERIVED release + track worktree paths so
+// a fake-RunSlice orchestration test — whose WorkspaceRoot is not a real git repo
+// — SKIPS `git worktree add` materialisation (dirExists → true). board-v1 is a
+// pure plan (sworn#80): worktree paths are derived, no longer read from an
+// index.md/board field that a test could point at the workspace root. It reads
+// the board (lazily migrating index.md) to enumerate the tracks to pre-create.
+func preCreateDerivedWorktrees(t *testing.T, absRoot, release string) {
+	t.Helper()
+	relWT := board.ReleaseWorktreePathFrom(absRoot, release)
+	if err := os.MkdirAll(relWT, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	br, err := board.ReadBoard(absRoot, release)
+	if err != nil {
+		return // best-effort: error-path tests that never materialise don't need it
+	}
+	for _, tr := range br.Tracks {
+		if err := os.MkdirAll(board.TrackWorktreePathFrom(relWT, release, tr.ID), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 // fakeRunSliceFail always returns an error.
@@ -58,87 +84,6 @@ func blockingRunSlice(startCh chan<- string, blockCh <-chan struct{}) func(conte
 		}
 	}
 }
-func TestExtractFrontmatter(t *testing.T) {
-	tests := []struct {
-		name string
-		text string
-		want string
-	}{
-		{
-			name: "simple frontmatter",
-			text: `---
-title: Board
-tracks:
-  - id: T1
-    slices: [S01]
----`,
-			want: "title: Board\ntracks:\n  - id: T1\n    slices: [S01]",
-		},
-		{
-			name: "no frontmatter",
-			text: "# Just a heading\nbody",
-			want: "",
-		},
-		{
-			name: "empty frontmatter",
-			text: "---\n---\nbody",
-			want: "",
-		},
-		{
-			name: "trailing whitespace on --- lines",
-			text: "---  \ntitle: Board\n---\nbody",
-			want: "title: Board",
-		},
-		{
-			name: "single line (too short)",
-			text: "---",
-			want: "",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := extractFrontmatter(tc.text)
-			if got != tc.want {
-				t.Errorf("extractFrontmatter:\ngot:  %q\nwant: %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestExtractReleaseWorktreePath(t *testing.T) {
-	tests := []struct {
-		name string
-		body string
-		want string
-	}{
-		{
-			name: "simple path",
-			body: "release_worktree_path: /home/user/worktrees/release-x",
-			want: "/home/user/worktrees/release-x",
-		},
-		{
-			name: "no path",
-			body: "title: Board\nrelease_index: 1",
-			want: "",
-		},
-		{
-			name: "quoted path",
-			body: `release_worktree_path: "/home/user/worktrees/release-x"`,
-			want: "/home/user/worktrees/release-x",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := extractReleaseWorktreePath(tc.body)
-			if got != tc.want {
-				t.Errorf("extractReleaseWorktreePath:\ngot:  %q\nwant: %q", got, tc.want)
-			}
-		})
-	}
-}
-
 func TestDirExists(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -190,6 +135,7 @@ tracks:
 	db.SetMaxOpenConns(1)
 	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
 	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+	preCreateDerivedWorktrees(t, tmpDir, "test-parallel")
 	opts := ParallelOptions{
 		ReleaseName:   "test-parallel",
 		WorkspaceRoot: tmpDir,
@@ -334,6 +280,7 @@ tracks:
 	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
 	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
 
+	preCreateDerivedWorktrees(t, tmpDir, "test-cascade")
 	opts := ParallelOptions{
 		ReleaseName:   "test-cascade",
 		WorkspaceRoot: tmpDir,
@@ -349,6 +296,29 @@ tracks:
 	}
 	if !strings.Contains(err.Error(), "T1") {
 		t.Errorf("error should mention T1, got: %v", err)
+	}
+
+	// ── S07 AC-03: no phase-wide cascade cancel ─────────────────────────
+	// T1 and T2 share phase 1 (neither depends_on anything); T3 sits alone
+	// in phase 2 (depends_on: [T1]). T1's failure must not cancel its
+	// same-phase sibling T2 — RunTrack runs on the parent ctx, not
+	// phaseCtx (#33) — while T3, the actual *dependent*, is skipped via the
+	// phaseCtx.Err() check at phase-2 launch. The design.md draft claimed
+	// this base test already asserted the T3-skip half; it does not (Captain
+	// review pin 3) — both outcomes are asserted here, read from the durable
+	// per-run loop log (RunParallel's "[<track>] result: <OUTCOME>" lines),
+	// since RunParallel's return value only reports failedTracks by design.
+	logPath := filepath.Join(tmpDir, ".sworn", "logs", "test-cascade", "loop.log")
+	logBytes, logErr := os.ReadFile(logPath)
+	if logErr != nil {
+		t.Fatalf("read loop log %s: %v", logPath, logErr)
+	}
+	logContent := string(logBytes)
+	if !strings.Contains(logContent, "[T2] result: PASS") {
+		t.Errorf("expected T2 (independent same-phase sibling of failed T1) to reach TrackPass — no phase-wide cascade cancel; loop log:\n%s", logContent)
+	}
+	if !strings.Contains(logContent, "[T3] result: SKIPPED") {
+		t.Errorf("expected T3 (depends_on: [T1], the actual dependent) to reach TrackSkipped; loop log:\n%s", logContent)
 	}
 }
 
@@ -402,6 +372,7 @@ tracks:
 	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
 	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
 
+	preCreateDerivedWorktrees(t, tmpDir, "test-concurrent")
 	opts := ParallelOptions{
 		ReleaseName:   "test-concurrent",
 		WorkspaceRoot: tmpDir,
@@ -502,6 +473,7 @@ tracks:
 	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
 	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
 
+	preCreateDerivedWorktrees(t, tmpDir, "test-dep-success")
 	opts := ParallelOptions{
 		ReleaseName:   "test-dep-success",
 		WorkspaceRoot: tmpDir,
@@ -568,6 +540,7 @@ tracks:
 	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
 	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
 
+	preCreateDerivedWorktrees(t, tmpDir, "test-paused")
 	opts := ParallelOptions{
 		ReleaseName:   "test-paused",
 		WorkspaceRoot: tmpDir,
@@ -654,6 +627,7 @@ func TestInvariant2_OverlapBlocksSecondTrack(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stderr = w
 
+	preCreateDerivedWorktrees(t, tmpDir, "test-inv2-overlap")
 	opts := ParallelOptions{
 		ReleaseName:   "test-inv2-overlap",
 		WorkspaceRoot: tmpDir,
@@ -697,6 +671,7 @@ func TestInvariant2_OverlapBlocksSecondTrack(t *testing.T) {
 		t.Errorf("stderr should mention the overlapping file, got: %s", stderr)
 	}
 }
+
 // TestInvariant2_NoOverlapBothRun exercises: disjoint planned_files → both
 // tracks launch and pass.
 func TestInvariant2_NoOverlapBothRun(t *testing.T) {
@@ -750,6 +725,7 @@ func TestInvariant2_NoOverlapBothRun(t *testing.T) {
 	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
 	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
 
+	preCreateDerivedWorktrees(t, tmpDir, "test-inv2-no-overlap")
 	opts := ParallelOptions{
 		ReleaseName:   "test-inv2-no-overlap",
 		WorkspaceRoot: tmpDir,
@@ -807,6 +783,7 @@ func TestInvariant2_DocumentedSharedExempt(t *testing.T) {
 		"    state: planned\n" +
 		"---\n\n" +
 		"# Test\n\n" +
+		"## Touchpoint matrix\n\n" +
 		"| File | T1 | T2 |\n" +
 		"|------|----|----|\n" +
 		"| " + "`" + "internal/model/oai.go" + "`" + " | ✓ (DOCUMENTED SHARED) | ✓ |\n"
@@ -831,6 +808,7 @@ func TestInvariant2_DocumentedSharedExempt(t *testing.T) {
 	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
 	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
 
+	preCreateDerivedWorktrees(t, tmpDir, "test-inv2-docshared")
 	opts := ParallelOptions{
 		ReleaseName:   "test-inv2-docshared",
 		WorkspaceRoot: tmpDir,
@@ -853,6 +831,122 @@ func TestInvariant2_DocumentedSharedExempt(t *testing.T) {
 	}
 	if !ran["S02-t2"] {
 		t.Error("T2's slice was not called")
+	}
+}
+
+// TestInvariant2_DocumentedSharedFromRenderedBoard exercises S06 AC-03: a file
+// declared as a touchpoint by two tracks is detected as documented-shared from a
+// GENUINELY RENDERED index.md (built by board.Render from board.json + slice
+// spec.json/status.json — NOT a hand-authored fixture), so the second track is
+// NOT blocked by invariant-2. The rendered matrix marks the shared file with a
+// ✓ under each owning track and carries NO explicit "(DOCUMENTED SHARED)"
+// annotation — exactly the ≥2-checkmark case the deleted parseDocumentedSharedFiles
+// silently dropped (it matched only the annotation). Delegating to
+// router.ParseDocumentedShared closes the gap: the assertion is that no
+// INVARIANT-2 block is emitted and both tracks run.
+func TestInvariant2_DocumentedSharedFromRenderedBoard(t *testing.T) {
+	tmpDir := t.TempDir()
+	release := "test-inv2-rendered"
+	relDir := filepath.Join(tmpDir, "docs", "release", release)
+	os.MkdirAll(relDir, 0o755)
+
+	sharedFile := "internal/shared/thing.go"
+
+	// board.json: two independent tracks, one slice each.
+	boardJSON := `{
+  "$schema": "https://baton.sawy3r.net/schemas/board-v1.json",
+  "schema_version": 1,
+  "release": {"name": "` + release + `"},
+  "release_worktree_path": "` + tmpDir + `",
+  "tracks": [
+    {"id": "T1-alpha", "slices": ["S01-alpha"], "worktree_path": "` + tmpDir + `", "worktree_branch": "track/test/T1-alpha", "state": "planned"},
+    {"id": "T2-beta", "slices": ["S02-beta"], "worktree_path": "` + tmpDir + `", "worktree_branch": "track/test/T2-beta", "state": "planned"}
+  ]
+}`
+	os.WriteFile(filepath.Join(relDir, "board.json"), []byte(boardJSON), 0o644)
+
+	// Each slice declares the SAME touchpoint file — a genuine ≥2-track overlap.
+	for _, s := range []struct{ id, track string }{
+		{"S01-alpha", "T1-alpha"},
+		{"S02-beta", "T2-beta"},
+	} {
+		sliceDir := filepath.Join(relDir, s.id)
+		os.MkdirAll(sliceDir, 0o755)
+		spec := `{"user_outcome": "outcome for ` + s.id + `", "touchpoints": ["` + sharedFile + `"], "effort_complexity": {"quadrant": "chore"}}`
+		os.WriteFile(filepath.Join(sliceDir, "spec.json"), []byte(spec), 0o644)
+		os.WriteFile(filepath.Join(sliceDir, "spec.md"), []byte("# "+s.id), 0o644)
+		os.WriteFile(filepath.Join(sliceDir, "status.json"), []byte(`{"state": "planned"}`), 0o644)
+	}
+
+	// Render index.md from the real renderer (NOT hand-authored markdown).
+	if err := board.RenderToFile(tmpDir, release); err != nil {
+		t.Fatalf("board.RenderToFile: %v", err)
+	}
+	// Guard: the rendered matrix must carry ≥2 checkmarks for the shared file and
+	// NO explicit annotation — otherwise the test would pass via the old
+	// explicit-marker path and prove nothing.
+	rendered, _ := os.ReadFile(filepath.Join(relDir, "index.md"))
+	if strings.Contains(string(rendered), "DOCUMENTED SHARED") {
+		t.Fatalf("rendered index.md unexpectedly contains an explicit DOCUMENTED SHARED annotation; test would not exercise the ≥2-checkmark path")
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+
+	// Capture stderr to prove NO invariant-2 block fires.
+	origStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	var mu sync.Mutex
+	ran := make(map[string]bool)
+	runSliceFn := func(_ context.Context, _, specPath, _ string) error {
+		sliceID := filepath.Base(filepath.Dir(specPath))
+		mu.Lock()
+		ran[sliceID] = true
+		mu.Unlock()
+		return nil
+	}
+
+	preCreateDerivedWorktrees(t, tmpDir, release)
+	opts := ParallelOptions{
+		ReleaseName:   release,
+		WorkspaceRoot: tmpDir,
+		DB:            db,
+		RunSliceFn:    runSliceFn,
+		ProjectDir:    "sworn",
+		PlannedFilesFn: fakePlannedFilesFn(map[string][]string{
+			"T1-alpha": {sharedFile},
+			"T2-beta":  {sharedFile},
+		}),
+	}
+
+	err = RunParallel(context.Background(), opts)
+
+	w.Close()
+	var stderrBuf strings.Builder
+	io.Copy(&stderrBuf, r)
+	os.Stderr = origStderr
+	stderr := stderrBuf.String()
+
+	if err != nil {
+		t.Fatalf("RunParallel: expected nil (shared file documented via rendered ≥2-checkmark matrix), got: %v\nstderr:\n%s", err, stderr)
+	}
+	// AC-03: the shared file must NOT be silently dropped — no invariant-2 block.
+	if strings.Contains(stderr, "INVARIANT-2") {
+		t.Errorf("shared file %q was NOT recognised as documented-shared from the rendered matrix — invariant-2 wrongly blocked a track:\n%s", sharedFile, stderr)
+	}
+	if !ran["S01-alpha"] {
+		t.Error("T1-alpha's slice was not called")
+	}
+	if !ran["S02-beta"] {
+		t.Error("T2-beta's slice was not called")
 	}
 }
 
@@ -894,6 +988,7 @@ func TestInvariant2_OracleReadFailureFailsOpen(t *testing.T) {
 		return nil, fmt.Errorf("simulated oracle read failure")
 	}
 
+	preCreateDerivedWorktrees(t, tmpDir, "test-inv2-failopen")
 	opts := ParallelOptions{
 		ReleaseName:    "test-inv2-failopen",
 		WorkspaceRoot:  tmpDir,
@@ -906,5 +1001,163 @@ func TestInvariant2_OracleReadFailureFailsOpen(t *testing.T) {
 	err = RunParallel(context.Background(), opts)
 	if err != nil {
 		t.Fatalf("RunParallel: expected nil (fail open), got: %v", err)
+	}
+}
+
+// TestRunParallel_AC06_RealReleaseBoardResolvesTracks is S06's AC-06
+// reachability artefact (Coach-ratified option (a), see review.md): a Go-level
+// run.RunParallel invocation against THIS repo's own multi-track current-format
+// release board.json, proving the loop finds its tracks instead of erroring "no
+// tracks found in release board" — the exact failure the old
+// board.ParseTracks(extractFrontmatter(index.md)) path produced against any
+// board.json-backed release.
+//
+// Isolation (no side effects on the real in-flight track worktrees, per the
+// Coach decision): the live board.json is copied into a throwaway temp
+// workspace with release_worktree_path redirected to that temp dir (so no real
+// worktree is materialised or merged), a pausing router is injected (so no real
+// /implement-slice dispatch runs and swornagent/sworn#46 is never reached), the
+// planned-files reader is faked (no git), and the DB is in-memory.
+func TestRunParallel_AC06_RealReleaseBoardResolvesTracks(t *testing.T) {
+	const release = "2026-07-01-render-drift-reconciliation"
+	liveBoard := filepath.Join("..", "..", "docs", "release", release, "board.json")
+	raw, err := os.ReadFile(liveBoard)
+	if os.IsNotExist(err) {
+		t.Skipf("live board.json not found at %s — not running from the worktree", liveBoard)
+	}
+	if err != nil {
+		t.Fatalf("read live board.json: %v", err)
+	}
+
+	// Copy the live board.json verbatim into an isolated temp workspace, then
+	// redirect ONLY release_worktree_path to the temp dir (an existing directory)
+	// so RunParallel skips worktree materialisation and never touches the real
+	// release-wt. A generic map preserves every other field (the canonical release
+	// object, nested per-track worktree records) exactly as committed.
+	tmpDir := t.TempDir()
+	relDir := filepath.Join(tmpDir, "docs", "release", release)
+	if err := os.MkdirAll(relDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]interface{}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("unmarshal live board.json: %v", err)
+	}
+	doc["release_worktree_path"] = tmpDir
+	// Redirect every track's worktree_path to the (existing) temp dir so the
+	// pausing workers skip worktree materialisation entirely — no git op runs
+	// against any real or temp path. This keeps the run purely about track
+	// resolution (the AC-06 claim), not dispatch mechanics.
+	if tracks, ok := doc["tracks"].([]interface{}); ok {
+		for _, tr := range tracks {
+			if tm, ok := tr.(map[string]interface{}); ok {
+				tm["worktree_path"] = tmpDir
+				delete(tm, "worktree")
+			}
+		}
+	}
+	patched, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("marshal patched board.json: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(relDir, "board.json"), patched, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Copy the live index.md too (used by the documented-shared parse); absence
+	// would only fail-open, but copying keeps the reachability run faithful.
+	if idx, err := os.ReadFile(filepath.Join("..", "..", "docs", "release", release, "index.md")); err == nil {
+		os.WriteFile(filepath.Join(relDir, "index.md"), idx, 0o644)
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+
+	origStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	preCreateDerivedWorktrees(t, tmpDir, release)
+	opts := ParallelOptions{
+		ReleaseName:    release,
+		WorkspaceRoot:  tmpDir,
+		DB:             db,
+		RunSliceFn:     fakeRunSlicePass, // never reached — pausing router pauses first
+		ProjectDir:     "sworn",
+		Router:         &pausingRouter{},
+		PlannedFilesFn: fakePlannedFilesFn(map[string][]string{}),
+	}
+
+	err = RunParallel(context.Background(), opts)
+
+	w.Close()
+	var stderrBuf strings.Builder
+	io.Copy(&stderrBuf, r)
+	os.Stderr = origStderr
+	stderr := stderrBuf.String()
+
+	// The whole point: the old frontmatter parser returned zero tracks here and
+	// hard-errored "no tracks found in release board". The oracle read must load
+	// all five tracks.
+	if strings.Contains(stderr, "no tracks found") {
+		t.Fatalf("RunParallel could not resolve tracks from the live board.json:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "loaded 5 tracks") {
+		t.Errorf("expected 'loaded 5 tracks' from the live 5-track board.json; stderr:\n%s", stderr)
+	}
+	// A pausing router makes every track pause, so RunParallel returns a paused
+	// error — that is the EXPECTED, side-effect-free outcome; track resolution
+	// (the AC-06 claim) already happened before dispatch.
+	if err == nil || !strings.Contains(err.Error(), "paused") {
+		t.Errorf("expected a 'paused' outcome from the injected pausing router, got: %v", err)
+	}
+	t.Logf("AC-06 reachability: live board.json resolved tracks — stderr:\n%s", stderr)
+}
+
+// TestProductionMergeTrack_LinkedWorktree proves the Rule 11 target assertion
+// accepts a real `git worktree add` release worktree — whose .git is a FILE
+// (gitdir pointer), not a directory — and that the merge actually engages.
+// Regression for the dirExists(.git) guard inversion that silently no-op'd
+// every production track auto-merge while finishTrack logged "auto-merged".
+func TestProductionMergeTrack_LinkedWorktree(t *testing.T) {
+	repo, _ := setupTestRepo(t)
+
+	// Release worktree, bootstrapped the same way RunParallel does it.
+	releasePath := filepath.Join(t.TempDir(), "release-wt")
+	runCmd(t, repo, "git", "worktree", "add", "-b", "release-wt/r1", releasePath)
+
+	// Track branch with one commit ahead of the release base.
+	runCmd(t, repo, "git", "switch", "-c", "track/r1/T1")
+	if err := os.WriteFile(filepath.Join(repo, "track.txt"), []byte("track work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runCmd(t, repo, "git", "add", "track.txt")
+	runCmd(t, repo, "git", "commit", "-m", "track commit")
+	trackHead := strings.TrimSpace(runCmd(t, repo, "git", "rev-parse", "HEAD"))
+	runCmd(t, repo, "git", "switch", "main")
+
+	if err := ProductionMergeTrack(releasePath, "T1", "track/r1/T1"); err != nil {
+		t.Fatalf("ProductionMergeTrack on linked worktree: %v", err)
+	}
+
+	// The track commit must now be an ancestor of the release worktree HEAD.
+	cmd := exec.Command("git", "merge-base", "--is-ancestor", trackHead, "HEAD")
+	cmd.Dir = releasePath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("track commit %s not an ancestor of release HEAD: merge silently skipped", trackHead)
+	}
+}
+
+// TestProductionMergeTrack_NonGitTargetErrors proves the target assertion
+// fails closed: a merge target that is not a git worktree must return an
+// error, never nil — a nil return is reported upstream as a successful merge.
+func TestProductionMergeTrack_NonGitTargetErrors(t *testing.T) {
+	if err := ProductionMergeTrack(t.TempDir(), "T1", "track/r1/T1"); err == nil {
+		t.Fatal("expected error for non-git merge target, got nil")
 	}
 }

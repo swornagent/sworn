@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/swornagent/sworn/internal/spec"
 	"github.com/swornagent/sworn/internal/style"
 )
 
@@ -160,6 +161,7 @@ func RunTrace(releaseDir string) (*TraceReport, error) {
 	needSet := map[string]bool{}       // set of valid need IDs from intake
 	coveredSet := map[string]bool{}    // needs covered by at least one slice's covers_needs
 	coversMap := map[string][]string{} // slice -> covers_needs
+	specTexts := map[string]string{}   // slice -> spec text ACs were parsed from (Check 3)
 
 	for _, n := range needs {
 		needSet[n.ID] = true
@@ -181,16 +183,34 @@ func RunTrace(releaseDir string) (*TraceReport, error) {
 			coveredSet[nid] = true
 		}
 
-		// Parse spec.md for acceptance checks.
-		specText, err := os.ReadFile(specPath)
-		if err != nil {
-			// spec.md is optional for planned slices.
+		// Parse acceptance checks: spec.json when present (authoritative — the
+		// canonical current format), else spec.md as the legacy fallback. This
+		// is spec.json-FIRST (ADR-0009), aligning with resolveNeeds below which
+		// already prefers spec.json; the AC-level checks must not silently skip
+		// on spec.json-only slices (AC-02).
+		var specStr string
+		var acs []string
+		rec, recErr := spec.ReadRecord(sliceDir)
+		if recErr != nil {
+			return nil, fmt.Errorf("trace: %w", recErr)
+		}
+		if rec != nil && len(rec.AcceptanceCriteria) > 0 {
+			for _, ac := range rec.AcceptanceCriteria {
+				acs = append(acs, ac.Text)
+			}
+			// spec-v1 carries no markdown body; the AC texts are the spec
+			// surface the text-level checks (5a/5c) run against.
+			specStr = strings.Join(acs, "\n")
+		} else if specText, err := os.ReadFile(specPath); err == nil {
+			specStr = string(specText)
+			acs = parseAcceptanceChecks(specStr)
+		} else {
+			// No spec artefact yet — optional for planned slices.
 			continue
 		}
-		specStr := string(specText)
+		specTexts[sliceID] = specStr
 
-		// Check 4: EARS conformance on every AC checkbox.
-		acs := parseAcceptanceChecks(specStr)
+		// Check 4: EARS conformance on every AC.
 		for _, ac := range acs {
 			acClean := strings.TrimSpace(ac)
 			if strings.HasPrefix(strings.ToUpper(acClean), "NOTE:") {
@@ -280,19 +300,19 @@ func RunTrace(releaseDir string) (*TraceReport, error) {
 	}
 
 	// Check 3: every covers_needs ID has an AC citation in that slice's spec.
+	// Uses the spec text captured above (spec.md body, or joined spec.json AC
+	// texts) — slices with no spec artefact yet are skipped.
 	for _, s := range slices {
-		specPath := filepath.Join(releaseDir, s.ID, "spec.md")
-		specText, err := os.ReadFile(specPath)
-		if err != nil {
+		specStr, ok := specTexts[s.ID]
+		if !ok {
 			continue
 		}
-		specStr := string(specText)
 		for _, nid := range s.Covers {
 			if !strings.Contains(specStr, nid) {
 				r.Violations = append(r.Violations, TraceViolation{
 					Check:    "unclaimed-coverage",
 					Severity: "FAIL",
-					Msg:      fmt.Sprintf("Slice %s claims %s in covers_needs but no AC in spec.md cites %s.", s.ID, nid, nid),
+					Msg:      fmt.Sprintf("Slice %s claims %s in covers_needs but no AC in its spec cites %s.", s.ID, nid, nid),
 					Slice:    s.ID,
 					Need:     nid,
 				})
@@ -435,6 +455,7 @@ func parseCoversNeeds(sliceDir string) []string {
 	}
 	return ids
 }
+
 // parseAcceptanceChecks extracts checkbox AC lines from spec.md.
 // NOTE lines (informational, not verifiable) are excluded.
 func parseAcceptanceChecks(text string) []string {

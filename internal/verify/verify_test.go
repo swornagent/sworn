@@ -149,6 +149,55 @@ func TestVerifyRun_Blocked_MissingFile(t *testing.T) {
 	}
 }
 
+// --- Proof-bundle first-pass gate (Rule 6 fail-closed) ---
+// A missing, empty, or unparseable proof must never upgrade to PASS, and an
+// absent proof BLOCKs when the caller requires one (the standalone CLI).
+func TestFirstPass_ProofGate(t *testing.T) {
+	dir := t.TempDir()
+	spec := filepath.Join(dir, "spec.md")
+	diff := filepath.Join(dir, "diff.patch")
+	os.WriteFile(spec, []byte("# spec"), 0644)
+	os.WriteFile(diff, []byte("diff content"), 0644)
+
+	cases := []struct {
+		name          string
+		proofPath     string
+		proofRequired bool
+		want          verdict.Verdict
+	}{
+		{"missing_proof_file", filepath.Join(dir, "nonexistent-proof.md"), false, verdict.Blocked},
+		{"empty_proof", writeTmp(t, "proof.md", "   \n"), false, verdict.Blocked},
+		{"malformed_json_proof", writeTmp(t, "proof.json", "{not json"), false, verdict.Blocked},
+		{"required_but_absent", "", true, verdict.Blocked},
+		{"valid_md_proof", writeTmp(t, "proof.md", "# Proof\nScope: x"), true, verdict.Pass},
+		{"valid_json_proof", writeTmp(t, "proof.json", `{"scope":"x"}`), true, verdict.Pass},
+		// Not supplied and not required: callers that own their own absence
+		// gate (RunSlice) or measure spec/diff structure only (bench).
+		{"not_supplied_not_required", "", false, verdict.Pass},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res := RunFirstPass(context.Background(), Input{
+				SpecPath:      spec,
+				DiffPath:      diff,
+				ProofPath:     tc.proofPath,
+				ProofRequired: tc.proofRequired,
+			})
+			if res.Verdict != tc.want {
+				t.Fatalf("expected %s, got %s (%s)", tc.want, res.Verdict, res.Rationale)
+			}
+			if tc.want == verdict.Blocked {
+				if res.FailedGate != "first_pass:proof" {
+					t.Errorf("expected gate first_pass:proof, got %s", res.FailedGate)
+				}
+				if res.ExitCode() != 2 {
+					t.Errorf("expected exit code 2 (BLOCKED), got %d", res.ExitCode())
+				}
+			}
+		})
+	}
+}
+
 // NOTE (ADR-0011 Step 3): TestParseVerdict* removed — the prose HasPrefix
 // verdict scrape they covered is deleted. The structured authoring path is
 // covered by the TestRunAgentic* cases in verify_agentic_test.go, which drive
@@ -240,7 +289,7 @@ func TestCheckBoundaryMocks_DeclaredDbMockPasses(t *testing.T) {
 }
 
 // AC-05: a mock declared via a real object-form deferral (the boundary+mock
-// keyword living in the Why field, fired's actual shape) is recognised as
+// keyword living in the Why field, a real consumer's actual shape) is recognised as
 // declared — the matcher reads the structured Item/Why fields, not a flat string.
 func TestCheckBoundaryMocks_DeclaredViaObjectWhyPasses(t *testing.T) {
 	diff := "+func TestDB(t *testing.T) {\n+	db := mockDB\n+}"

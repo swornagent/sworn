@@ -42,7 +42,7 @@ Separately, the bash TUI (`coach top`) has hit its limits.
   The wedge (`swornagent verify`) ships first regardless.
 - "Package it right from the start" → favours investing in `swornagent run` sooner
   rather than shipping a franken-bash reference impl users must later migrate off.
-- Moat preserved: Baton-the-spec stays a separate open standard; embedding a copy
+- Separation preserved: Baton-the-spec stays a separate open standard; embedding a copy
   in the product is implementation, not coupling (Docker embedding OCI doesn't make
   OCI less a standard).
 

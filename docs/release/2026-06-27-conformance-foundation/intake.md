@@ -110,7 +110,7 @@ Each need is numbered for RTM tracing. Needs map to acceptance criteria in each 
 
 ## Adjacent / out of scope
 
-- **Hosted/SaaS layer**: attestation + credits + moat data — out of scope; engineering this is a private release. **Why deferred**: this public-safe repo contains only the open binary. **Tracking**: sworn-internal. **Acknowledged**: Brad, 2026-06-27.
+- **Hosted/SaaS layer**: attestation + credits + differentiator data — out of scope; engineering this is a private release. **Why deferred**: this public-safe repo contains only the open binary. **Tracking**: private-repo. **Acknowledged**: Brad, 2026-06-27.
 - **Codex exec driver**: S63-deferral-1 carried from R3. **Why deferred**: codex environment complexity; issue #19. **Tracking**: GH #19. **Acknowledged**: Brad, 2026-06-27.
 - **Previous_response_id / streaming for OpenAI Responses API**: R3 deferrals. **Why deferred**: GH #16/#17. **Tracking**: GH #16, #17. **Acknowledged**: Brad, 2026-06-27.
 - **sworn init test-capability detection** (proof-visibility theme): worth doing but scoped to a later release. **Why deferred**: FT-4 lays the foundation; extending sworn init rides a dedicated release. **Tracking**: memory entry project_proof_visibility_theme. **Acknowledged**: Brad, 2026-06-27.

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S01-render-drift-guard",
+  "release": "2026-07-01-render-drift-reconciliation",
+  "track": "T1-drift-guard",
+  "state": "verified",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-01T20:33:00Z",
+  "covers_needs": [
+    "N-02"
+  ],
+  "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S01-render-drift-guard/spec.json",
+  "start_commit": "ae390d1ff59368dac21e09333237d80499625683",
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "quick",
+    "rationale": "Replace driftGuard's broken comparison with a real re-render-and-diff; surface as a sworn doctor check.",
+    "confirmed_by_implementer": false
+  },
+  "planned_files": [
+    "internal/board/board.go",
+    "internal/board/board_test.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go"
+  ],
+  "design_decisions": [
+    {
+      "choice": "Byte-for-byte comparison of rendered index.md against the committed file, no whitespace/line-ending normalisation.",
+      "stake_class": "Type-2",
+      "rationale": "index.md is a build artifact per ADR-0009; any hand-edit at all, even whitespace-only, is exactly the drift class this guard exists to catch. Narrow, reversible (comparison strategy is local to checkRenderDrift, not a schema or contract surface)."
+    },
+    {
+      "choice": "Remove driftGuard (internal/board/board.go) and its WriteBoard call site entirely, with no transition period, rather than leaving it running alongside the new doctor check.",
+      "stake_class": "Type-2",
+      "rationale": "driftGuard is advisory-only, already broken (re-parses raw index.md via the pattern this release removes), and would give false confidence if left in place as a second, weaker mechanism. Narrow, reversible (a pure deletion of dead code + its single call site)."
+    }
+  ],
+  "actual_files": [
+    "internal/board/board.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go",
+    "docs/release/2026-07-01-render-drift-reconciliation/index.md"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go test ./internal/board/... ./cmd/sworn/...",
+    "go test ./..."
+  ],
+  "reachability_artifacts": [
+    "docs/release/2026-07-01-render-drift-reconciliation/S01-render-drift-guard/reachability-doctor-output.txt"
+  ],
+  "verification": {
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-01T20:33:00Z"
+  }
+}

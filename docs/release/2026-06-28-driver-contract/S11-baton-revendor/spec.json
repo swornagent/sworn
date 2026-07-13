@@ -1,0 +1,161 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S11-baton-revendor",
+  "release": "2026-06-28-driver-contract",
+  "track": "T7-baton-revendor",
+  "user_outcome": "sworn's vendored Baton protocol is pinned to the v0.10.0 upstream tag (retargeted from v0.9.0 2026-07-11 — Baton shipped v0.10.0 mid-build): both embed roots carry the reconciled schemas (in_scope/out_of_scope as required spec-v1 fields, the published verifier-verdict-v1), the spec writer emits and the strict reader accepts the new fields, the quadrant enum gains 'quick' in place of 'chore' and 'beast' in place of 'epic', and acknowledged_by round-trips cleanly — the code half of sworn#48. The same pin also closes sworn#80: a track's worktree branch/path/state are no longer persisted, racy board.json fields — they're computed from (release, track-id) and git ancestry, so /implement-slice never writes to release-wt and /merge-track stays the sole write point. v0.10.0 also adds two NEW schemas to the vendored set in both embed roots — contracts-v1.json and assembly-proof-v1.json — VENDORED-ADVISORY (stored, byte-matched to the published $id, doctor declares them graded-or-not); sworn does NOT yet grade against them here (the `sworn lint contracts` + `sworn assemble` graders are the separate follow-on contract-edge-gates release).",
+  "rationale": "sworn#48, rolled into this release by decision 2026-07-02. Grounding: the pin is currently v0.6.3 @ a5aca64 (internal/adopt/baton/VERSION); preconditions sworn#23 (tool-neutral source map) and sworn#24 (VERSION centralisation) are CLOSED. UPDATE 2026-07-06: re-aimed from the originally-projected v0.7.1 to the RELEASED v0.9.0 tag (@ fc497b4), which supersedes it. v0.9.0 carries all of v0.7.1's schema reconciliation (in_scope/out_of_scope required, verifier-verdict-v1, acknowledged_by) PLUS the epic->beast quadrant rename (v0.7.1), invariant 5 / release-wt write-isolation (v0.8.0), and the board-v1 pure-plan change removing worktree+state from tracks[] (v0.9.0) — the last of which satisfies this slice's AC-06/AC-07 sworn#80 design as-written, upstream-first. The v0.7.1-tag precondition is closed. Adoption points verified live: writer internal/spec/spec.go, strict reader internal/implement/spec_record.go; quadrant code internal/state/state.go:410,426 with fixtures in internal/state, internal/run/parallel_test.go, internal/router/router_test.go, cmd/sworn/doctor_test.go, cmd/sworn/regress_test.go. Transition mechanism (D1, Coach 2026-07-11): NORMALISE-BEFORE-VALIDATE, not tolerant-validate — one read-path normalise() shim maps retired chore->quick/epic->beast, strips schema_version, and reshapes legacy board tracks[] into canonical v0.9.0 form BEFORE validation, while Validate and additionalProperties:false stay strictly strict throughout; S12 migrates the live records and deletes the shim wholesale — the track merges as one unit so the integration branch never carries the intermediate state. sworn#80 rolled in by decision 2026-07-03: two concurrent /implement-slice sessions (S02, S04) raced on the release-wt board.json write implement-slice makes when materialising a track's worktree, because tracks[].worktree_path/worktree_branch/state are modeled as persisted data even though track-mode.md's 'Naming, locked' table already makes branch/path a pure function of (release, track-id), and state is derivable via the same merge-base --is-ancestor check /merge-track's own idempotency gate already performs. This directly resolves the ONE board-v1 divergence baton#54 flagged that concerns track worktree binding (flattened worktree_path/worktree_branch vs upstream's nested worktree{path,branch}) — not by reshaping to match upstream, but by removing the fields as persisted data entirely, which moots the shape question for them. Explicitly out of scope: board-v1's remaining canonical-conformance gaps (additionalProperties strictness + id_token pattern, vertical_trace/target_version/integration_branch schema declarations) and proof-v1/journeys-v1/attestations-v1 conformance — baton#54 closed without actioning these; tracked fresh in baton#55. RETARGET 2026-07-11 (v0.9.0 -> v0.10.0): Baton tagged v0.10.0 (commit a5ab2aa) mid-build, adding contracts-v1 + assembly-proof-v1 + the Rule-10 mock-parity/assembly-stage governance, all additive-with-advisory (no existing shape changed). Revendoring to v0.9.0 now would ship an already-stale pin and immediately reopen the schema-skew scar (baton#54/#55/#58: vendored schemas diverging from the binary's graded set under identical $id). So S11 pins v0.10.0 and vendors the two new schemas as advisory. The GRADERS (lint contracts, assemble) are a separate follow-on release; the version handshake (doctor --sync-baton) is split to sibling S15. W1 (BLOCKED-terminal, sworn#88) was already delivered by S14 (verified+merged), so it is not re-scoped here. Source: docs/captures/2026-07-11-replan-driver-contract-contract-edges.md + 2026-07-11-contract-edge-step3-handoff.md. PIN 1 (Coach 2026-07-11): sworn#80 originally scoped board pure-plan to tracks[], but v0.10.0's strict board-v1 also drops the TOP-LEVEL release_worktree_path/release_worktree_branch/schema_version (confirmed against the tag: top-level = $schema/release/tracks, additionalProperties:false). sworn's writer still emits all three, so a byte-identical vendor would make WriteBoard produce schema-invalid boards. Resolution ratified: EXPAND the derive-don't-persist treatment to the release level (the release worktree branch=release-wt/<name> and path=sibling-of-repo are as derivable as the track ones), stop the writer emitting them, and have the normalise shim strip them from legacy boards on read. The two new advisory schemas vendor into internal/baton/schemas only (Pin 3: internal/adopt/baton embeds rules/docs, not schemas).",
+  "covers_needs": [
+    "N-12"
+  ],
+  "in_scope": [
+    "internal/adopt/baton/VERSION pin bump to the v0.9.0 tag (SHA + digest) and re-sync of that embed root from the tag",
+    "internal/baton/schemas re-sync (spec-v1 with required in_scope/out_of_scope; reconciled status/journeys/attestations; verifier-verdict-v1; board-v1 with worktree_path/worktree_branch/state removed from tracks[])",
+    "v0.10.0's two NEW schemas — contracts-v1.json and assembly-proof-v1.json — vendored into internal/baton/schemas (the sole schema embed root; internal/adopt/baton embeds rules/docs, not schemas — Pin 3), byte-matched to the published $id, VENDORED-ADVISORY only (stored + doctor-declared, NOT graded here; the graders are the follow-on contract-edge-gates release). Do not fork the shape under the same $id (the baton#55 divergence class)",
+    "Quadrant enum code change: 'quick' replaces 'chore' (low/low) AND 'beast' replaces 'epic' (high/high) to match baton v0.9.0's enum {quick,grind,puzzle,beast}. Transition mechanism = NORMALISE-BEFORE-VALIDATE (D1, Coach 2026-07-11): the read path maps retired 'chore'->'quick' and 'epic'->'beast' in a single normalise() shim BEFORE validation/checksum; state.EffortComplexity.Validate stays STRICTLY strict (quick/grind/puzzle/beast only, rejects chore/epic) — it never weakens. S12 migrates the on-disk data and DELETES the normalise shim wholesale (no tolerance branches left behind)",
+    "Spec writer (internal/spec) emits in_scope/out_of_scope; strict reader (internal/implement/spec_record.go) accepts and exposes them",
+    "schema_version retirement (replan 2026-07-10): v0.9.0's spec-v1 and board-v1 set additionalProperties:false and no longer define schema_version ($schema carries the version) — the spec writer stops emitting it. Transition = the SAME normalise-before-validate shim (D1, Coach 2026-07-11): the read path strips schema_version and reshapes the legacy board-v1 tracks[] (drops worktree_path/worktree_branch/state) into canonical v0.9.0 form BEFORE validating against the strict vendored schema; additionalProperties:false is NEVER relaxed, so genuine drift is still caught during the window. S12 strips the on-disk data and removes the shim",
+    "D1 normalise-before-validate shim (the unifying transition mechanism): one enumerated, tested normalise(record) covering exactly the retired fields (schema_version, board tracks[] worktree/state, quadrant chore/epic) — round-trip tested (normalise(legacy) validates strict; a migrated record needs no normalise); removed wholesale by S12. The vendored v0.9.0 schemas stay byte-identical to the tag (no sworn-local schema relaxation)",
+    "acknowledged_by round-trip smoke test through writer + reader + schema validation",
+    "Test-fixture updates across internal/state, internal/run, internal/router, cmd/sworn",
+    "sworn#80: pure helper functions deriving track worktree branch (track/<release>/<track-id>) and path (the naming-convention path) from (release, track-id); track state (planned/in_progress/merged) derived from git ref existence + merge-base --is-ancestor against release-wt/<release>",
+    "internal/board (Oracle.readTrackInfos, ReadSliceStatus, render.go) computes branch/path/state via the new helpers instead of parsing them from board.json",
+    "sworn#80 command-spec write-isolation is SATISFIED-BY-ENGINE (AC-08, Coach 2026-07-11): sworn vendors only the 11 numbered rule docs, NOT commands/ (the implement-slice.md/merge-track.md procedures live in the private ~/.claude harness + the upstream baton repo, per the ADR-0010 boundary — sworn vendors the contract, not the workflow prose). sworn's obligation is the Go behavior: no engine code path writes a track's worktree identity/state to release-wt's board.json (AC-06/AC-07 own this). The command-spec prose edits are a baton-repo concern, tracked separately (baton#61, filed 2026-07-11) — NOT vendored into this binary",
+    "RELEASE-LEVEL board pure-plan (Pin 1, Coach 2026-07-11, expanding sworn#80): stop the board writer persisting the top-level schema_version + release_worktree_path + release_worktree_branch; derive the release worktree branch/path (pure functions of release name, same machinery as the track-level derivation); the normalise shim strips these three from legacy board.json on read. Required so a byte-identical v0.10.0 board-v1 (additionalProperties:false) accepts freshly-written boards."
+  ],
+  "out_of_scope": [
+    "GRADING the two new v0.10.0 schemas (`sworn lint contracts` for contracts-v1, `sworn assemble` for assembly-proof-v1) — those graders are the separate follow-on contract-edge-gates release (W3/W4 of the 2026-07-11 contract-edge handoff, Coach-ratified 2026-07-11). S11 only VENDORS the schemas (advisory) so the binary carries them and doctor can declare them",
+    "The `doctor --sync-baton` version handshake (declaring which baton schema versions this binary grades) — split into sibling slice S15-baton-version-handshake in this same T7 track (W2 part 2)",
+    "board-v1's remaining canonical-conformance gaps beyond track worktree/state fields (additionalProperties strictness + id_token pattern, vertical_trace/target_version/integration_branch schema declarations) — tracked in baton#55 (successor to baton#54, which closed without actioning these)",
+    "proof-v1/journeys-v1/attestations-v1 canonical conformance — same baton#55",
+    "verifier-verdict-v1 upstreaming decision, and vendoring the 4 un-vendored design/architecture schemas — same baton#55",
+    "Migrating the live docs/release records (S12 owns the data half)",
+    "Any driver/registry/loop code (T1-T6 own those)",
+    "Retry-on-conflict hardening for /merge-track's residual board.json write race (smaller surface once state is derived; separate follow-up)"
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "Was grind (known-shape vendor bump + enum rename, fixture sweep across five packages). Folding in sworn#80 raises complexity to high: the correct worktree-path derivation isn't track-mode.md's plainly-documented formula but the repo-local sibling-of-release-worktree logic worker.go already carries for a real prior incident (eval finding 3) — the implementer must find and preserve that nuance, not re-derive the naive convention. It also requires a cross-package consumer sweep (~12 files verified to read through internal/board's TrackInfo, not board.json directly) and coordinated baton-repo schema/command-spec edits landing before the v0.7.1 tag. Re-assess at design_review.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    "internal/adopt/baton/VERSION",
+    "internal/adopt/baton/rules/",
+    "internal/baton/schemas/spec-v1.json",
+    "internal/baton/schemas/slice-status-v1.json",
+    "internal/baton/schemas/journeys-v1.json",
+    "internal/baton/schemas/attestations-v1.json",
+    "internal/baton/schemas/board-v1.json",
+    "internal/state/state.go",
+    "internal/state/effort_complexity_test.go",
+    "internal/spec/spec.go",
+    "internal/spec/spec_test.go",
+    "internal/implement/spec_record.go",
+    "internal/implement/spec_record_test.go",
+    "internal/run/parallel_test.go",
+    "internal/router/router_test.go",
+    "cmd/sworn/doctor_test.go",
+    "cmd/sworn/regress_test.go",
+    "internal/board/board.go",
+    "internal/board/board_test.go",
+    "internal/board/board_release_test.go",
+    "internal/board/oracle.go",
+    "internal/board/oracle_test.go",
+    "internal/board/track.go",
+    "internal/board/track_test.go",
+    "internal/board/track_comment_test.go",
+    "internal/board/index.go",
+    "internal/board/index_test.go",
+    "internal/board/render.go",
+    "internal/board/render_test.go",
+    "internal/scheduler/worker.go",
+    "internal/scheduler/worker_test.go",
+    "internal/mcp/tools_plan.go"
+  ],
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "The upstream tag must exist and be pinned by SHA. SATISFIED: v0.9.0 @ fc497b4 is public (released 2026-07-06); it supersedes the original v0.7.1 precondition, now closed.",
+      "mitigation": "Precondition satisfied: v0.9.0 is public (tag fc497b4). Pin that SHA + content digest; no BLOCK needed."
+    },
+    {
+      "id": "R-02",
+      "description": "The vendored spec-v1 flip to required in_scope/out_of_scope fails validation of historical records between S11 and S12.",
+      "mitigation": "S11 and S12 are sequential in one track and merge as a unit; no gate on the integration branch sees the intermediate state. Any in-track gate run between the slices is a known-transitional condition named in the journal."
+    },
+    {
+      "id": "R-03",
+      "description": "A tightened reader/schema regresses test fixtures in OTHER packages (the S05-strict-reader lesson).",
+      "mitigation": "The fixture sweep is in-scope and enumerated in touchpoints; the merge gate's full `go test ./...` is the backstop."
+    },
+    {
+      "id": "R-04",
+      "description": "Deriving track state/worktree identity instead of persisting it could silently expand into baton#54/#55's full board-v1 canonical-conformance scope (nested worktree object, additionalProperties strictness, vertical_trace/target_version/integration_branch), which this slice explicitly excludes.",
+      "mitigation": "out_of_scope names the excluded items and their tracking issue (baton#55) explicitly; AC-06/AC-07/AC-08 bound the change to exactly worktree_path/worktree_branch/state derivation, nothing else in board-v1's shape."
+    },
+    {
+      "id": "R-05",
+      "description": "~12 other packages (internal/run, internal/scheduler, internal/router, internal/tui, internal/mcp, internal/account, internal/bench, cmd/sworn/merge.go, cmd/sworn/route.go) read TrackInfo.WorktreeBranch/WorktreePath. A naive fix that only changes what's parsed, without confirming every consumer reads through the struct internal/board populates (rather than re-parsing board.json independently), would silently break them.",
+      "mitigation": "Verified by grep + read: every consumer reads via the TrackInfo/Oracle struct internal/board assembles (a field re-exposure, e.g. internal/mcp/context.go:80,107), not by independently parsing board.json. Switching internal/board's population from JSON-parse to computed-value requires zero consumer changes, EXCEPT internal/scheduler/worker.go's defaultTrackWorktreePath (worker.go:600-621) — an existing fallback for when the board doesn't pin a path, itself added to fix a real incident (comment: 'the old default ... was identical for every repo, so a fired-repo run silently materialised on sworn's worktree tree — eval finding 3'). That repo-local (sibling-of-release-worktree) logic is the CORRECT derivation and must be the one internal/board's new helper uses — NOT track-mode.md's plainly-documented `$HOME/projects/<REPO_BASENAME>-worktrees/...` formula, which is the naive convention eval finding 3 already moved away from. Once internal/board always returns a populated, correct WorktreePath, worker.go's now-redundant fallback is deleted, not left as dead code. internal/mcp/tools_plan.go already independently derives WorktreeBranch as track/<release>/<track-id> (line 148) — confirms the branch-derivation half of this design is already a proven pattern; point it at the new shared helper instead of its own inline fmt.Sprintf for a single source of truth."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "internal/adopt/baton/VERSION SHALL pin baton-protocol v0.10.0 (upstream commit a5ab2aa) with the tag's upstream SHA and content digest refreshed from the v0.10.0 tag (RELEASING.md: vendor from the tag, never main), and both embed roots (internal/adopt/baton rules/docs, internal/baton/schemas) SHALL be re-synced byte-identical from that tag; `sworn doctor` SHALL report the new pin.",
+      "ears_pattern": "ubiquitous"
+    },
+    {
+      "id": "AC-02",
+      "text": "state.EffortComplexity SHALL treat 'quick' as the canonical low-effort/low-complexity quadrant (Quadrant() returns 'quick'; comments/docs updated) and 'beast' as the canonical high/high quadrant; grind/puzzle unchanged. Per the D1 normalise-before-validate decision (Coach 2026-07-11), Validate SHALL stay STRICTLY strict — it accepts ONLY {quick,grind,puzzle,beast} and REJECTS the retired 'chore'/'epic'; the retired values are mapped 'chore'->'quick' and 'epic'->'beast' by the read-path normalise() shim BEFORE Validate/checksum runs, NOT tolerated inside Validate. TestQuadrant covers canonical-accepted, retired-rejected-by-Validate, and normalise-maps-retired-then-validates; the normalise shim is removed by S12.",
+      "ears_pattern": "ubiquitous"
+    },
+    {
+      "id": "AC-03",
+      "text": "When the spec writer (internal/spec) emits a spec record, in_scope and out_of_scope SHALL be present (planner-supplied content or empty arrays), and the strict reader (internal/implement/spec_record.go) SHALL parse and expose both fields; a writer-to-reader round-trip test SHALL validate the record against the vendored v0.10.0 spec-v1 schema.",
+      "ears_pattern": "event-driven"
+    },
+    {
+      "id": "AC-04",
+      "text": "When a status record carrying acknowledged_by is written and re-read, the field SHALL round-trip unchanged and the record SHALL validate against the vendored slice-status schema (the sworn#48 item-4 smoke test).",
+      "ears_pattern": "event-driven"
+    },
+    {
+      "id": "AC-05",
+      "text": "`go build ./...` SHALL succeed and `go test ./internal/state/... ./internal/spec/... ./internal/implement/... ./internal/run/... ./internal/router/... ./internal/board/... ./internal/scheduler/... ./internal/mcp/... ./cmd/sworn/...` SHALL pass with all quadrant fixtures updated.",
+      "ears_pattern": "ubiquitous"
+    },
+    {
+      "id": "AC-06",
+      "text": "The vendored board-v1.json schema SHALL be byte-identical to v0.10.0 (top-level properties = $schema, release, tracks ONLY, additionalProperties:false — NO top-level schema_version, release_worktree_path, or release_worktree_branch; tracks[] entries = id, slices, depends_on ONLY). The board WRITER SHALL NOT emit schema_version or the release-level/track-level worktree fields, and internal/board SHALL NOT read or require any of them from board.json — a freshly-written board.json SHALL validate against the strict vendored board-v1 (a WriteBoard round-trip test asserts it).",
+      "ears_pattern": "ubiquitous"
+    },
+    {
+      "id": "AC-07",
+      "text": "When internal/board resolves a track's worktree branch, path, or state (Oracle.readTrackInfos, ReadSliceStatus, render.go), it SHALL compute the branch as track/<release>/<track-id>, the path as the sibling-of-release-worktree location internal/scheduler/worker.go's defaultTrackWorktreePath already derives (never the plain $HOME/projects/<repo>-worktrees formula that caused eval finding 3's cross-repo collision), and the state as: no such branch ref exists -> planned; branch exists and is not an ancestor of release-wt/<release> -> in_progress; branch is an ancestor of release-wt/<release> -> merged (the same merge-base --is-ancestor check cmd/sworn/merge.go already performs for its own gate). internal/scheduler/worker.go's now-redundant defaultTrackWorktreePath fallback SHALL be removed once internal/board always returns a populated path. RELEASE-LEVEL (Pin 1, Coach 2026-07-11): the release worktree branch (release-wt/<release>) and path (the sibling-of-repo release worktree location, same derivation family as the track path) SHALL likewise be DERIVED, never persisted; the D1 normalise-before-validate shim SHALL strip the three retired top-level fields (schema_version, release_worktree_path, release_worktree_branch) from legacy board.json on read so old boards still parse, and S12 strips them from the on-disk data. This completes 'board-v1 pure plan' at the release level, not just tracks[] — required for the byte-identical v0.10.0 vendor's writes to validate.",
+      "ears_pattern": "event-driven"
+    },
+    {
+      "id": "AC-08",
+      "text": "sworn's ENGINE SHALL make no code-path write of a track's worktree identity or state to release-wt's board.json (the sworn#80 write-isolation, owned by AC-06/AC-07): /merge-track's own merge commit remains the only release-wt write attributable to a track, and /implement-slice's engine path makes none. AC-08 is SATISFIED-BY-ENGINE (Coach 2026-07-11): sworn vendors no commands/ directory — the implement-slice.md/merge-track.md command-spec prose lives in the private ~/.claude harness and the upstream baton repo (ADR-0010 boundary: sworn vendors the contract, not the workflow prose), so there is no in-repo command spec for this slice to edit. The command-spec prose write-isolation edit is tracked as baton#61 (filed 2026-07-11), out of this binary's scope. Verification: assert no engine writer stamps worktree/state to board.json (the AC-06/AC-07 tests), and assert sworn's vendored rules/ contains no implement-slice.md/merge-track.md (the satisfied-by-engine evidence).",
+      "ears_pattern": "ubiquitous"
+    },
+    {
+      "id": "AC-09",
+      "text": "When `sworn board` resolves the state of a slice whose owning track is verified-but-unmerged, it SHALL read that slice's status.json from the owning track branch (not release-wt's stale copy), returning the track-branch state; a regression test SHALL assert an unmerged verified slice reports 'verified', never 'planned'. This locks the board slice-state skew (fired-brief Defect 2) — already implemented by oracle.go's track-branch-first ReadSliceStatus (owner track branch -> release-wt -> HEAD); this AC prevents regression.",
+      "ears_pattern": "event-driven"
+    },
+    {
+      "id": "AC-10",
+      "text": "The vendored schema set SHALL include contracts-v1.json into internal/baton/schemas (the SOLE schema embed root — internal/adopt/baton embeds rules/docs, not schemas; Pin 3), byte-identical to — or provably transformed under the same $id from — the published https://baton.sawy3r.net/schemas/contracts-v1.json at baton v0.10.0; a test SHALL assert the byte-match (do NOT fork the shape under the same $id). VENDORED-ADVISORY: sworn stores and version-declares it but does not yet grade against it — the `sworn lint contracts` grader is the follow-on contract-edge-gates release.",
+      "ears_pattern": "ubiquitous"
+    },
+    {
+      "id": "AC-11",
+      "text": "The vendored schema set SHALL include assembly-proof-v1.json into internal/baton/schemas (the sole schema embed root; Pin 3), byte-identical to — or provably transformed under the same $id from — the published https://baton.sawy3r.net/schemas/assembly-proof-v1.json at baton v0.10.0; a test SHALL assert the byte-match. VENDORED-ADVISORY: the `sworn assemble` grader that emits/reads this proof is the follow-on release (also gated on fired#1168).",
+      "ears_pattern": "ubiquitous"
+    }
+  ]
+}

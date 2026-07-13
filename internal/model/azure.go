@@ -79,7 +79,8 @@ func NewAzureOAI(deployment, endpoint, apiKey, apiVersion string) (*AzureOAI, er
 // single-shot verification. Chat is available via the OAI adapter path.
 func (a *AzureOAI) Capabilities() Capability { return CapVerify }
 
-func (a *AzureOAI) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {	reqBody := chatRequest{
+func (a *AzureOAI) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
+	reqBody := chatRequest{
 		Model: a.Deployment,
 		Messages: []ChatMessage{
 			{Role: "system", Content: systemPrompt},

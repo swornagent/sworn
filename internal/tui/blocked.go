@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,8 +12,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/state"
-	"gopkg.in/yaml.v3"
 )
 
 // BlockedView is a Bubble Tea component for resolving blocked/failed slices.
@@ -33,33 +34,22 @@ type BlockedView struct {
 	errMessage   string
 }
 
-// ExtractViolations parses proof.md content and extracts bullet points under
-// "## Violations" or "## Not delivered" sections.
-func ExtractViolations(proofContent string) []string {
-	var violations []string
-	lines := strings.Split(proofContent, "\n")
-	inSection := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "## ") {
-			heading := strings.ToLower(strings.TrimPrefix(trimmed, "## "))
-			if strings.Contains(heading, "violations") || strings.Contains(heading, "not delivered") {
-				inSection = true
-			} else {
-				inSection = false
-			}
-			continue
-		}
-		if inSection {
-			if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") {
-				violation := strings.TrimSpace(trimmed[2:])
-				if violation != "" {
-					violations = append(violations, violation)
-				}
-			}
-		}
+// ExtractViolations parses a slice's proof.json content and returns its
+// not_delivered array as the violations list (AC-03). proof.json.not_delivered
+// is a proof-v1-stable, clean string array — there is no proof.md scrape
+// fallback: unparseable or missing proof.json content (empty proofJSON)
+// simply has no violations to report.
+func ExtractViolations(proofJSON []byte) []string {
+	if len(proofJSON) == 0 {
+		return nil
 	}
-	return violations
+	var pr struct {
+		NotDelivered []string `json:"not_delivered"`
+	}
+	if err := json.Unmarshal(proofJSON, &pr); err != nil {
+		return nil
+	}
+	return pr.NotDelivered
 }
 
 // AppendDeferralToIntake appends a Rule 2 deferral to intake.md.
@@ -103,6 +93,34 @@ func AppendDeferralToIntake(intakePath, sliceID, reason string) error {
 }
 
 // LoadBlockedView loads the blocked view for a slice.
+//
+// S02-tui-oracle-migration: worktree_path is resolved via internal/board's
+// oracle (board.ReadBoard) instead of parsing index.md frontmatter directly
+// — the frontmatter parse silently fell back to repoRoot on any parse miss,
+// which is why the blocked panel used to point developers at the wrong
+// directory. Violations are read from proof.json.not_delivered (AC-03)
+// rather than regex-scraped from proof.md.
+//
+// Track resolution matches S04's AssembleSliceContext (internal/mcp/context.go)
+// pattern: status.json's track field is a hint only, never the match key.
+// status.json.track can go stale after a track rename (e.g. via
+// /replan-release), so the only authoritative key is the slice's
+// membership in a board track's Slices list — we accept the first track
+// whose Slices contains sliceID, matching on content rather than a field
+// that can silently drift out of sync with board.json.
+//
+// sworn#81 checked: this reader still reads status.json/proof.json/proof.md
+// off the primary working tree, but that is NOT the same defect as #81.
+// #81 is about the board.State BoardView displays (and routes the "enter"
+// key on) coming from the stale working-tree copy — that's now oracle-backed
+// (see board.go LoadBoard). LoadBlockedView is only ever entered once
+// BoardView has already classified the slice as blocked via the oracle; it
+// reads st.Track here purely for display text, and worktreePath resolution
+// already avoids status.json entirely (board-track-membership match, above).
+// A genuinely stale proof.json/proof.md (violations text, raw proof view)
+// would require extending internal/board's oracle to fetch arbitrary
+// artefact paths per ref, not just status.json — out of this fix's scope;
+// flagging here rather than silently leaving it unexamined (Rule 2).
 func LoadBlockedView(repoRoot, releaseName, sliceID string) (*BlockedView, error) {
 	statusPath := filepath.Join(repoRoot, "docs", "release", releaseName, sliceID, "status.json")
 	st, err := state.Read(statusPath)
@@ -111,25 +129,17 @@ func LoadBlockedView(repoRoot, releaseName, sliceID string) (*BlockedView, error
 	}
 
 	worktreePath := ""
-	indexPath := filepath.Join(repoRoot, "docs", "release", releaseName, "index.md")
-	indexData, err := os.ReadFile(indexPath)
-	if err == nil {
-		type TrackInfoWithWT struct {
-			ID           string `yaml:"id"`
-			WorktreePath string `yaml:"worktree_path"`
-		}
-		type indexFM struct {
-			Tracks []TrackInfoWithWT `yaml:"tracks"`
-		}
-		var fm indexFM
-		rest := strings.TrimPrefix(string(indexData), "---")
-		parts := strings.SplitN(rest, "---", 2)
-		if len(parts) >= 1 {
-			_ = yaml.Unmarshal([]byte(parts[0]), &fm)
-		}
-		for _, t := range fm.Tracks {
-			if t.ID == st.Track {
-				worktreePath = t.WorktreePath
+	if br, errB := board.ReadBoard(repoRoot, releaseName); errB == nil {
+		// board-v1 is a pure plan: the track worktree path is DERIVED (sworn#80).
+		releaseWTPath := board.ReleaseWorktreePathFrom(repoRoot, releaseName)
+		for _, t := range br.Tracks {
+			for _, sid := range t.Slices {
+				if sid == sliceID {
+					worktreePath = board.TrackWorktreePathFrom(releaseWTPath, releaseName, t.ID)
+					break
+				}
+			}
+			if worktreePath != "" {
 				break
 			}
 		}
@@ -138,11 +148,15 @@ func LoadBlockedView(repoRoot, releaseName, sliceID string) (*BlockedView, error
 		worktreePath = repoRoot
 	}
 
+	// proof.md is kept only for the "[4] view full proof bundle" raw display
+	// (unchanged UX) — it is never scraped for violations.
 	proofPath := filepath.Join(repoRoot, "docs", "release", releaseName, sliceID, "proof.md")
 	proofData, _ := os.ReadFile(proofPath)
 	proofContent := string(proofData)
 
-	violations := ExtractViolations(proofContent)
+	proofJSONPath := filepath.Join(repoRoot, "docs", "release", releaseName, sliceID, "proof.json")
+	proofJSONData, _ := os.ReadFile(proofJSONPath)
+	violations := ExtractViolations(proofJSONData)
 
 	return &BlockedView{
 		repoRoot:     repoRoot,

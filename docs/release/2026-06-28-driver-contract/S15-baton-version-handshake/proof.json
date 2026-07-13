@@ -1,0 +1,34 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S15-baton-version-handshake",
+  "release": "2026-06-28-driver-contract",
+  "scope": "`sworn doctor` declares which Baton schema versions this binary grades — a graded-schema-version manifest ($id/version/GRADED-or-ADVISORY per vendored schema, including the newly-vendored contracts-v1/assembly-proof-v1 as advisory) plus a skew check, so a future protocol/runner skew is a visible WARN at doctor time, not a silent behaviour gap.",
+  "files_changed": [
+    "internal/baton/manifest.go",
+    "internal/baton/manifest_stub.go",
+    "internal/baton/manifest_test.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go",
+    "docs/release/2026-06-28-driver-contract/S15-baton-version-handshake/status.json",
+    "docs/release/2026-06-28-driver-contract/S15-baton-version-handshake/journal.md"
+  ],
+  "test_results": [
+    { "command": "go build ./...", "passed": true, "exit_code": 0 },
+    { "command": "gofmt -l internal/baton/manifest.go internal/baton/manifest_stub.go internal/baton/manifest_test.go cmd/sworn/doctor.go cmd/sworn/doctor_test.go", "passed": true, "exit_code": 0, "output": "empty — all 5 touched/new .go files gofmt-clean; the project's newline-eating-edit hazard grep ('//.*\\t+(return|sendRequest|[a-z]+\\()') found no matches" },
+    { "command": "go vet ./internal/baton/... ./cmd/sworn/...", "passed": true, "exit_code": 0 },
+    { "command": "go test ./cmd/sworn/... ./internal/baton/... (spec.json AC-03's named command)", "passed": true, "exit_code": 0 },
+    { "command": "go test -count=1 -timeout 300s ./... (full suite, fresh cache)", "passed": true, "exit_code": 0, "output": "47 packages ok (1 no-test-files: internal/verdict, pre-existing/unrelated), 0 FAIL, zero regressions in any untouched package" }
+  ],
+  "reachability": {
+    "type": "cli-run",
+    "evidence": "TestDoctorSchemaManifestRendersGradedAndAdvisory and TestDoctorSchemaSkewFiresOnFixture (cmd/sworn/doctor_test.go) drive cmdDoctor — the exact CLI entry point `sworn doctor` invokes (Rule 1), not the leaf baton.SchemaManifest()/SchemaSkew() functions in isolation (those get separate leaf-level coverage in internal/baton/manifest_test.go, in addition per Rule 1, not as the sole proof of life). The first test asserts Group 1b renders all 7 graded schemas as [OK] status=GRADED and both contracts-v1/assembly-proof-v1 as [OK] status=ADVISORY, plus baton/schema-skew as [OK] on the real, unskewed vendored set. The second injects a made-up-v1 fixture via baton.SetSchemaMapForTest and asserts baton/schema-skew renders [WARN] (never [OK]) and the unclassified entry itself renders [WARN] status=UNCLASSIFIED, and that no [ERROR] appears anywhere (skew must not gate the exit code, D2). Manual smoke: ran `go run ./cmd/sworn doctor` live against this repo — Group 1b prints all 9 schemas with $id/version/status exactly as designed (see journal.md for the full captured output), and `baton/schema-skew` shows [OK]. Confirmed no regression to existing doctor groups: diffed the full [ERROR] line set of the CLI's stdout before vs. after this slice's changes (via `git stash` of only the S15 files) — byte-identical 75 pre-existing [ERROR] lines both times, from unrelated repo-state staleness (future-dated status.json timestamps + stale index.md render drift in OTHER in-flight releases, not introduced by and not in scope for S15)."
+  },
+  "delivered": [
+    { "item": "AC-01: `sworn doctor`'s new Group 1b prints each vendored baton schema's $id, version, and graded-vs-advisory status; contracts-v1 and assembly-proof-v1 render ADVISORY, the other 7 (slice-status-v1, board-v1, spec-v1, proof-v1, journeys-v1, attestations-v1, verifier-verdict-v1) render GRADED. Name/$id/version are always parsed from the embedded schema bytes (baton.schemaID/parseSchemaVersion) — never hand-listed — per design decision D1.", "evidence": "internal/baton/manifest.go SchemaManifest/schemaID/parseSchemaVersion; cmd/sworn/doctor.go checkSchemaManifest, Group 1b wiring; cmd/sworn/doctor_test.go:TestDoctorSchemaManifestRendersGradedAndAdvisory" },
+    { "item": "AC-02: a deliberately-skewed schema-map fixture (one extra vendored schema absent from the graded/advisory classification table) makes doctor's skew check fire — a clearly-flagged [WARN], never a silent [OK] — for both the schema-skew line and the unclassified entry's own line.", "evidence": "internal/baton/manifest.go SchemaSkew; internal/baton/manifest_stub.go SetSchemaMapForTest/ClearSchemaMapForTest; cmd/sworn/doctor_test.go:TestDoctorSchemaSkewFiresOnFixture; internal/baton/manifest_test.go:TestSchemaSkewFiresOnExtraUnclassifiedSchema, TestSchemaSkewFiresOnMissingVendoredSchema (leaf-level, additional coverage)" },
+    { "item": "AC-03: go build ./... and go test ./cmd/sworn/... ./internal/baton/... pass; the new Group 1b does not regress any existing doctor group (byte-identical pre-existing [ERROR] set before/after, confirmed by git-stash A/B comparison); full go test -count=1 -timeout 300s ./... stays green (47 ok, 0 FAIL).", "evidence": "test_results above; journal.md 'Reachability proof' section" },
+    { "item": "Design decisions D1-D3 (Type-2 noted defaults) transcribed into status.json.design_decisions per the Coach's accepted review pin 1, before code was written.", "evidence": "status.json design_decisions[]; captain-proceed.md pin disposition 1" }
+  ],
+  "not_delivered": [],
+  "divergence": []
+}

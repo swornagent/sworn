@@ -1,0 +1,65 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "schema_version": 1,
+  "slice_id": "S02-tui-oracle-migration",
+  "release": "2026-07-01-render-drift-reconciliation",
+  "scope": "The sworn TUI board actually renders tracks and slices for any current-format release (the originally reported bug); the blocked-slice view resolves the real per-track worktree path and reads violations from proof.json instead of a stale, silently-wrong fallback.",
+  "files_changed": [
+    "docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/journal.md",
+    "docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/proof.json",
+    "docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/proof.md",
+    "docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/reachability-tui-capture.txt",
+    "docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/status.json",
+    "internal/tui/blocked.go",
+    "internal/tui/board.go",
+    "internal/tui/tui_test.go"
+  ],
+  "test_results": [
+    {
+      "command": "go build ./...",
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": "go vet ./internal/tui/...",
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": "gofmt -l internal/tui/board.go internal/tui/blocked.go internal/tui/tui_test.go",
+      "exit_code": 0,
+      "output": "(empty — all three touched files already gofmt-clean)"
+    },
+    {
+      "command": "go test ./internal/tui/... -count=1 -v",
+      "exit_code": 0,
+      "output": "PASS — 41 tests, including TestBoardViewShowsSlices, TestBoardViewLegacyIndexFallback, TestBlockedPanelExtractsViolations, TestBlockedPanelViolationsFromProofJSONNotProofMD, TestDeferWritesRuleTwo, TestBlockedPanelWorktreeSurvivesStaleTrackField (new second-pass regression test), TestBoardEnterTransitionsToBlocked, TestBoardEnterTransitionsToBlockedOnImplementedBlockedVerdict, TestBlockedPanelViewProof, TestBoardViewShowsMergeBadge, TestBoardViewNoMergeBadge, TestBoardViewLoadsRealOperationalReadinessRelease (0.983s total)"
+    },
+    {
+      "command": "go test ./... -count=1 -timeout 250s",
+      "exit_code": 0,
+      "output": "all 39 test packages ok, 0 failures (internal/tui 1.398s; cmd/sworn 39.326s; internal/account 10.129s; full per-package list in proof.md)"
+    }
+  ],
+  "reachability_artifacts": [
+    "docs/release/2026-07-01-render-drift-reconciliation/S02-tui-oracle-migration/reachability-tui-capture.txt — a real, recorded terminal session (tmux capture-pane), not a unit test: built ./bin/sworn from this worktree's HEAD, ran it live, navigated to the real 2026-06-30-sworn-operational-readiness release (committed board.json, 5 tracks), pressed Enter, and captured the board pane showing all 5 real tracks and all 6 real slices with live status.json states. Before this slice, the same gesture would have silently shown zero tracks (the originally reported bug). Unaffected by this second pass's blocked.go fix (that fix's own reachability proof is TestBlockedPanelWorktreeSurvivesStaleTrackField, described under AC-02 below, driving the same LoadBlockedView integration point the real BlockedView panel calls)."
+  ],
+  "delivered": [
+    "AC-01: BoardView.LoadBoard (internal/tui/board.go) reads board.json via internal/board.ReadBoard instead of hand-parsing index.md `tracks:` YAML frontmatter — see TestBoardViewShowsSlices (the exact bug reproduction, now green) and the live TestBoardViewLoadsRealOperationalReadinessRelease reachability test.",
+    "AC-02 (second pass, corrected): LoadBlockedView (internal/tui/blocked.go) resolves worktree_path via board.ReadBoard, matching the FIRST track whose Slices array contains the target sliceID — mirroring S04's AssembleSliceContext (internal/mcp/context.go) pattern exactly. status.json.track is read only for display (BlockedView.track) and is never used as the match key, so a stale track field (left behind by a /replan-release track rename) cannot cause a silent worktreePath=repoRoot fallback. First pass incorrectly matched on t.ID == st.Track instead; that match strategy is gone from the committed code. See TestBlockedPanelWorktreeSurvivesStaleTrackField (new): a board fixture with track ID 'T1-core-renamed' whose Slices still lists the target slice, paired with a deliberately stale status.json.track='T1-core' (the pre-rename ID, absent from board.json), asserts LoadBlockedView resolves the real worktree path via Slices membership and does NOT fall back to repoRoot. TestDeferWritesRuleTwo continues to pass unchanged (its fixture happens to have matching IDs, so it doesn't distinguish the two strategies on its own — the new test is what proves the fix).",
+    "AC-03: ExtractViolations reads a slice's proof.json.not_delivered array directly (blocked.go); the proof.md regex scraper is deleted. TestBlockedPanelExtractsViolations exercises the new signature; TestBlockedPanelViolationsFromProofJSONNotProofMD proves a decoy proof.md with '## Violations' bullets is never scraped (LEGACY-SCRAPE-MARKER assertion).",
+    "AC-04: every test in tui_test.go that previously hand-authored `tracks:` YAML frontmatter and drove LoadBoard/LoadBlockedView through it (TestBoardViewShowsSlices, TestAutoTransitionNoTracks, TestDeferWritesRuleTwo, TestBoardEnterTransitionsToBlocked, TestBoardEnterTransitionsToBlockedOnImplementedBlockedVerdict, TestBlockedPanelViewProof, TestBoardViewShowsMergeBadge, TestBoardViewNoMergeBadge) now builds its fixture via the writeBoardFixture helper, which calls the real board.WriteBoard write path (validated against board-v1). The new TestBlockedPanelWorktreeSurvivesStaleTrackField also uses writeBoardFixture. Exactly one dedicated test, TestBoardViewLegacyIndexFallback, is kept on the legacy frontmatter-only shape to prove AC-06.",
+    "AC-05: TestBoardViewLoadsRealOperationalReadinessRelease drives the integration point (Model.handleReleasesKey's 'enter' case -> BoardView.LoadBoard) against this checkout's own real repo root and the real, committed 2026-06-30-sworn-operational-readiness release, asserting all 5 track IDs and non-unknown slice states. Plus the live tmux-recorded manual smoke in reachability-tui-capture.txt: sworn -> select that release -> Enter -> real tracks and slices rendered in the board pane.",
+    "AC-06: TestBoardViewLegacyIndexFallback writes ONLY a legacy `tracks:` frontmatter index.md (no board.json) and asserts LoadBoard still populates tracks via board.ReadBoard's migrateFromIndex lazy-migration fallback — the pre-existing, unmodified legacy-release support path.",
+    "AC-07: go build ./... exits 0; go test ./internal/tui/... passes (41 tests, 0 failures); go vet ./internal/tui/... clean; gofmt -l empty on all three touched files; full go test ./... (39 packages) passes with no regression."
+  ],
+  "not_delivered": [],
+  "divergence": [
+    "Second pass (this pass): the verifier's Gate 6/AC-02 and Gate 7 violations are both accepted as-is, no push-back. Gate 6 fix: LoadBlockedView's track match strategy changed from t.ID == st.Track to a Slices-membership scan (see AC-02 above). Gate 7 fix: this proof bundle and journal.md are rewritten to describe the actual committed code (Slices-membership match) rather than the first pass's inaccurate claim of already having implemented that pattern.",
+    "Design review pin 1 (proof-visibility theme scope check): DC-1's local `struct{ NotDelivered []string }` read of proof.json in blocked.go is confirmed as a narrow, spec-scoped fix for AC-03 only, not a stand-in for the future proof-panel theme (project_proof_visibility_theme memory) — recorded explicitly here so that later release isn't surprised by this ad hoc reader pattern needing to be unified or replaced.",
+    "Design review pin 2 (board-v1 shape cross-check): already independently verified by the Captain against live code before implementation (StringRelease emits the canonical object form per board_release_test.go:TestStringRelease_EmitsCanonicalObject) — no implementation action was needed; citing the confirmation here per the review's suggested acknowledgement.",
+    "Design review pin 3 (tui_test.go touchpoint overlap with sibling S03-tui-chrome-rework): no design change made. S03 is still `planned` at the time this slice lands; single serial implementer per track worktree means S02 lands first and S03's implementer inherits the regenerated writeBoardFixture helper and the converted test fixtures without surprise.",
+    "AC-04 was interpreted per its literal text ('any sibling test using a hand-written index.md fixture with the legacy tracks: YAML shape SHALL be regenerated') rather than design.md's narrower named list of 5 tests: all 8 pre-existing tests that hand-authored `tracks:` frontmatter and drove LoadBoard/LoadBlockedView were converted (the named 5 plus TestAutoTransitionNoTracks, TestBoardViewShowsMergeBadge, TestBoardViewNoMergeBadge), plus a NEW dedicated test (TestBoardViewLegacyIndexFallback) added rather than repurposing an existing test, so the AC-06 legacy path stays explicitly and singularly proven, matching design.md's 'keep one dedicated test' intent.",
+    "First pass only: manually driving the live TUI via tmux to capture the AC-05 reachability artefact caused board.ReadBoard's designed lazy-migration side effect (DC-2) to materialise board.json for two other, unrelated releases in this checkout (2026-06-15-e2e-turnkey-loop, 2026-06-16-fidelity-layer) as navigation passed them during manual testing. Both were deleted before committing — confirmed via `git status --short` showing a clean tree except the intended reachability artefact — since they are not part of this slice's declared scope. Not repeated this pass (no new manual tmux capture was taken; the existing artefact remains valid for AC-05 since board.go was untouched this pass)."
+  ]
+}

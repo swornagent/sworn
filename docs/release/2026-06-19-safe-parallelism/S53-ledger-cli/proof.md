@@ -208,6 +208,6 @@ release-verify.sh
 FIRST-PASS PASS
 
 All deterministic checks passed. The slice is ready for the LLM verifier session.
-See /home/brad/.claude/baton/adversarial-verification.md for the verifier protocol.
+See /home/user/.claude/baton/adversarial-verification.md for the verifier protocol.
 exit_code:0
 ```

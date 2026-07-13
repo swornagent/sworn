@@ -12,7 +12,7 @@ import (
 // read both forms; S05 tightened the reader to object-only (no-wild-data).
 
 func TestRelease_ObjectForm(t *testing.T) {
-	// Canonical coach-produced board (fired's shape): release is an object.
+	// Canonical coach-produced board (a consumer's shape): release is an object.
 	raw := []byte(`{
 	  "schema_version": 1,
 	  "release": {

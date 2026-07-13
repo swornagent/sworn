@@ -30,7 +30,7 @@ cmd/sworn/board.go was briefly edited then reverted — `bs.Release` there is `B
 - `go test ./...` (full suite) → all green (no FAIL)
 
 ## Reachability artefact (Rule 1 — the real integration point)
-`sworn board --release 2026-06-28-yearSnapshot-schema-cleanup` run against the LIVE fired repo
+`sworn board --release 2026-06-28-yearSnapshot-schema-cleanup` run against the LIVE consumer repo
 (`~/projects/fired`) — the exact command that previously failed with
 `cannot unmarshal object into BoardRecord.release of type string` — now reads the real
 coach-produced (object-form) board:

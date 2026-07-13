@@ -7,7 +7,10 @@
 // fail-closed protocol is enforced by the caller (package verify), not here.
 package model
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // Capability describes what a model driver can do. It is a bitmask so that
 // a single driver can advertise multiple capabilities.
@@ -53,6 +56,37 @@ type StructuredOutput interface {
 	ChatStructured(ctx context.Context, messages []ChatMessage, schema []byte) (*ChatResponse, error)
 }
 
+// ErrStructuredUnsupported is returned by ChatStructuredJSON when the given
+// Verifier's concrete client does not implement StructuredOutput (no
+// structured-output capability). Callers on the orchestration path map it to
+// their own declared-deferral sentinel (S02 AC-03).
+var ErrStructuredUnsupported = constErr("model: client does not support structured output")
+
+// ChatStructuredJSON dispatches a one-shot schema-constrained judgement call
+// through a Verifier's StructuredOutput capability and returns the emitted JSON
+// object as a string. It encapsulates the wire-type construction
+// (ChatMessage / ChatResponse) inside internal/model so orchestration-path
+// callers (e.g. the `sworn reqverify` utility command) never reference wire
+// types directly (S06 AC-04, TestNoWireImports). A client without the
+// capability yields ErrStructuredUnsupported.
+func ChatStructuredJSON(ctx context.Context, v Verifier, systemPrompt, userPayload string, schema []byte) (string, error) {
+	so, ok := v.(StructuredOutput)
+	if !ok {
+		return "", ErrStructuredUnsupported
+	}
+	resp, err := so.ChatStructured(ctx, []ChatMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userPayload},
+	}, schema)
+	if err != nil {
+		return "", err
+	}
+	if resp == nil || len(resp.Choices) == 0 {
+		return "", fmt.Errorf("model: structured dispatch returned no choices")
+	}
+	return resp.Choices[0].Message.Content, nil
+}
+
 // Verifier dispatches one fresh-context verification and returns the model's raw
 // verdict text plus the dispatch cost in USD (0 if the provider does not report
 // cost). Token counts (input/output) and the confirmed model ID from the response
@@ -86,8 +120,13 @@ func PriceForModel(modelID string) (ModelPricing, bool) {
 	if p, ok := bedrockPricing[modelID]; ok {
 		return ModelPricing{InputPricePer1M: p.inputPricePer1M, OutputPricePer1M: p.outputPricePer1M}, true
 	}
+	// Check xAI pricing map.
+	if p, ok := xaiPricing[modelID]; ok {
+		return ModelPricing{InputPricePer1M: p.inputPricePer1M, OutputPricePer1M: p.outputPricePer1M}, true
+	}
 	return ModelPricing{}, false
 }
+
 // ComputeCostFromTokens returns the USD cost for a model given token counts.
 // Returns 0 for unknown models.
 func ComputeCostFromTokens(modelID string, inputTokens, outputTokens int64) float64 {

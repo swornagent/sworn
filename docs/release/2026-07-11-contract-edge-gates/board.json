@@ -1,0 +1,23 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/board-v1.json",
+  "release": {
+    "name": "2026-07-11-contract-edge-gates",
+    "target_version": "v0.1.0",
+    "integration_branch": "release/v0.1.0",
+    "vertical_trace": {
+      "benefit": "sworn catches cross-slice wire-contract seams that per-slice fresh-context verification structurally cannot — grading contracts.json (sworn lint contracts) and machine-walking the assembled release end-to-end no-mock (sworn assemble) — so a release cannot merge with an unpinned request shape, an owner-less header, or a mock encoding a wrong assumption."
+    }
+  },
+  "tracks": [
+    {
+      "id": "T1-lint-contracts",
+      "slices": ["S01-lint-contracts-registry", "S02-lint-contracts-mock-parity"],
+      "depends_on": []
+    },
+    {
+      "id": "T2-assemble",
+      "slices": ["S03-assemble-command"],
+      "depends_on": []
+    }
+  ]
+}

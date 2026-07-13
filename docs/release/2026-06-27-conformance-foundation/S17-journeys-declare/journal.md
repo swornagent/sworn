@@ -12,7 +12,7 @@ All 5 pins from design review (Captain, 2026-06-28) addressed inline:
 2. **Pin 2 (AC2 schema gap):** `TestCheck_S17Journeys` reads the saved artefact and calls `baton.Validate("journeys-v1", data)` — committed file is schema-validated directly.
 3. **Pin 3 (omitempty silent elision):** `TestCheck_S17Journeys` explicitly asserts `j.NoMockBoundary != ""` for all 3 journeys.
 4. **Pin 4 (AC7 traceability):** Updated design.md traceability table — AC7 note now reads "AC6 (`journey.Check()` → `CheckPass`) + S05 gate wiring → AC7 satisfied transitively."
-5. **Pin 5 (ratification ceremony):** Coach auto-ack approved. `.sworn/journeys.json` ratified with `brad@sawyer.net.au` at `2026-06-28T00:00:00Z`.
+5. **Pin 5 (ratification ceremony):** Coach auto-ack approved. `.sworn/journeys.json` ratified with `maintainer@sworn.sh` at `2026-06-28T00:00:00Z`.
 
 ### Implementation decisions
 

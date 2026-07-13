@@ -1,0 +1,100 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S09-model-catalog",
+  "release": "2026-06-28-driver-contract",
+  "track": "T5-catalog",
+  "state": "verified",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-10T22:54:05Z",
+  "covers_needs": ["N-11"],
+  "spec_path": "docs/release/2026-06-28-driver-contract/S09-model-catalog/spec.json",
+  "start_commit": "0c4d4e63979a62de450f49675fa32f61303fff48",
+  "actual_files": [
+    "cmd/sworn/models.go",
+    "cmd/sworn/models_test.go",
+    "internal/model/catalog.go",
+    "internal/model/catalog_test.go"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go vet ./...",
+    "gofmt -l internal/model/catalog.go internal/model/catalog_test.go cmd/sworn/models.go cmd/sworn/models_test.go",
+    "go test -count=1 ./cmd/sworn/... ./internal/model/... (spec.json AC-04's named command)",
+    "go test -count=1 -v -run Catalog ./internal/model/...",
+    "go test -count=1 -v -run Models ./cmd/sworn/...",
+    "go test -count=1 -timeout 300s ./... (full suite)"
+  ],
+  "reachability_artifacts": [
+    "cli-run: go test -count=1 -v -run TestModelsCommand ./cmd/sworn/... — drives the registered `models` command's Run function end to end through command.Lookup(\"models\").Run(nil), the exact integration point main.dispatch resolves at runtime (Rule 1), not a leaf internal/model/catalog.go unit test. All 7 providers configured via env vars; the 6 HTTP-based providers redirected to a combined fixture server via a host-routing test Transport (modelsHTTPClient seam in cmd/sworn/models.go); Ollama reached directly via OLLAMA_HOST. Asserts the rendered stdout carries every provider's grouped-by-prefix block with the correct wire-sourced tools annotation (AC-01, AC-02).",
+    "cmd/sworn/models_test.go:TestModelsCommand_ProviderFilter — --provider mistral restricts output to exactly one provider through the same cmdModels entrypoint.",
+    "cmd/sworn/models_test.go:TestModelsCommand_AllFailedExitsNonZero / TestModelsCommand_PartialFailureExitsZero — AC-03's per-provider isolation and exit-code rule, driven through cmdModels.",
+    "cmd/sworn/models_test.go:TestModelsCommand_UnknownProviderFlag — an unsupported --provider value is a usage error (exit 64) rejected before any HTTP call."
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "Known-shape listing per provider + normalisation + CLI command; breadth across ~6 endpoints with canned fixtures.",
+    "confirmed_by_implementer": true
+  },
+  "design_decisions": [
+    {
+      "choice": "D1 — catalog.go implements its own no-dispatch credential-presence check against model.ProviderConfig for all 7 providers, rather than reusing internal/driver/registry.Drivers().",
+      "stake_class": "Type-2",
+      "options": [
+        "Reuse internal/driver/registry.Drivers() for availability across all 7 providers — rejected: the registry only enumerates 4 of the 7 (Google/Ollama deliberately unregistered per the registry's own header comment); extending it is out of scope (Registry/resolution changes (S05)).",
+        "Uniform catalog-local ProviderConfig credential check for all 7 providers (chosen) — one code path, no split between registry-backed and side-channel availability inside the same command."
+      ],
+      "human_decision": "Type-2 — implementer default, no human ratification required; flagged for Captain design review.",
+      "rationale": "Registry cannot answer for 2 of the 7 target providers by its own documented design; a single uniform check is simpler and narrower in blast radius than a partial-reuse split.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "D2 — Ollama capability lookup makes one /api/show call per listed model (N+1 against the local daemon), the only provider allowlisted for 2 list-shaped paths in the AC-04 transport recorder.",
+      "stake_class": "Type-2",
+      "options": [
+        "Skip per-model /api/show and leave Ollama tools always unknown — simpler, but ignores the wire capability signal spec.json's own rationale names.",
+        "Call /api/show per model (chosen) — spec.json rationale explicitly names \"/api/show capabilities\" as the wire source; local daemon, low latency."
+      ],
+      "human_decision": "Type-2 — implementer default, no human ratification required; flagged for Captain design review.",
+      "rationale": "Matches the spec's own stated capability source for Ollama; /api/tags alone carries no capability field.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "D3 — Ollama is always attempted (no credential gate); a daemon-down failure is a normal AC-03 per-provider error, not a silent skip.",
+      "stake_class": "Type-2",
+      "options": [
+        "Gate Ollama on some presence signal before attempting — no reliable no-dispatch signal exists short of the call itself.",
+        "Always attempt (chosen) — mirrors the registry's own claude-cli keyless-availability precedent; also removes the zero-providers-attempted ambiguity for AC-03's exit-code rule."
+      ],
+      "human_decision": "Type-2 — implementer default, no human ratification required; flagged for Captain design review.",
+      "rationale": "Ollama is a keyless local daemon; the registry treats claude-cli (also keyless) the same way (binary presence, not key presence).",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "D4 — Google's tools annotation is unconditionally \"unknown\", never derived from supportedGenerationMethods.",
+      "stake_class": "Type-2",
+      "options": [
+        "Infer tools support from the presence of some supportedGenerationMethods value — rejected: spec.json's rationale states this field is \"partial — tool support not explicit\", so no wire-derivable Yes/No exists.",
+        "Always Unknown (chosen) — fail-closed per AC-02, matches spec intent verbatim."
+      ],
+      "human_decision": "Type-2 — implementer default, no human ratification required; flagged for Captain design review.",
+      "rationale": "No positively identified marker for tool support exists in Google's models.list response; guessing would violate AC-02's fail-closed rule.",
+      "architecturally_significant": false
+    }
+  ],
+  "open_deferrals": [
+    {
+      "item": "Pricing display (OpenRouter's wire-honest pricing block) — no AC requires it, and PriceForModel is keyed by the registry's fully-resolved provider/model ID, not catalog's raw per-provider wire IDs, so wiring it in would need its own normalisation pass.",
+      "why": "Adding an unasked capability-shaped surface risks scope creep against an unwritten AC.",
+      "tracking": "sworn#92",
+      "acknowledgement": "Coach-ratified proceed, captain-proceed.md pin 3, 2026-07-11: 'tracking issue FILED as sworn#92 ... cite sworn#92 in proof.json not_delivered.'",
+      "acknowledged_by": "Brad (Coach)"
+    }
+  ],
+  "verification": {
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-10T22:54:05Z"
+  }
+}

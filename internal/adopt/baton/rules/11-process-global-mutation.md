@@ -38,6 +38,16 @@ state — a worktree silently flipped to its base branch — surfacing later as 
 unrelated-looking failure. Wherever sessions run concurrently against a shared
 base, this is a systematic failure class, not an incidental one.
 
+## Resumed-loop restore contract
+
+The same fail-closed principle extends to **resumption after an unclean exit**. A crashed or interrupted run can leave a track worktree holding uncommitted implementer output — debris that is process-global state by another name: it is silently inherited by whatever acts in that worktree next.
+
+**A resumed loop must restore each track worktree to its committed slice state before it re-dispatches into that worktree.** Concretely: `git reset --hard` to the slice's committed head and `git clean` untracked debris, having first asserted the target is the expected worktree on the expected branch (clause 2 above — a `reset --hard` in the wrong directory is exactly the high-blast-radius case). Only then may the resumed unit of work re-dispatch.
+
+Restoring to committed state is not the same as re-bootstrapping. A correct resume **preserves** committed progress and the board (the release plan is intact, verified slices stay verified); it discards only the *uncommitted* leftovers of the interrupted attempt. "Recovers without corrupting" is the floor; "recovers **cleanly**" — no crash debris surviving into the retry — is the contract, because leftover code contaminates the new attempt's diff and every diff-scanning gate that reads it (the 2026-07-12 dogfood: leftover implementer output tripped a boundary-mock detector on code the retry never wrote).
+
+Any Baton engine that runs concurrent worktrees and supports resume inherits this hazard; the restore is therefore part of the protocol, not an engine detail.
+
 ## How to apply
 
 - **Implementers:** prefer scoped mutation (pass an explicit working directory

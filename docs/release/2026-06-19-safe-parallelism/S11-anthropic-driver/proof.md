@@ -388,10 +388,10 @@ VET OK (exit 0)
 sworn run: --task is required (or use --parallel --release)
 --- PASS: TestCmdRun_MissingTask (0.00s)
 === RUN   TestCmdRun_FlagParsing
-sworn run: implementer model not configured — run 'sworn init' to scaffold a config file (/home/brad/.config/sworn/config.json) or set $SWORN_IMPLEMENTER_MODEL
+sworn run: implementer model not configured — run 'sworn init' to scaffold a config file (/home/user/.config/sworn/config.json) or set $SWORN_IMPLEMENTER_MODEL
 --- PASS: TestCmdRun_FlagParsing (0.00s)
 === RUN   TestCmdRun_EscalationModelsFlag
-sworn run: implementer model not configured — run 'sworn init' to scaffold a config file (/home/brad/.config/sworn/config.json) or set $SWORN_IMPLEMENTER_MODEL
+sworn run: implementer model not configured — run 'sworn init' to scaffold a config file (/home/user/.config/sworn/config.json) or set $SWORN_IMPLEMENTER_MODEL
 --- PASS: TestCmdRun_EscalationModelsFlag (0.00s)
 === RUN   TestCmdRun_Parallel
 sworn run --parallel: loaded 2 tracks in 1 phases
@@ -497,7 +497,7 @@ release-verify.sh
 
 FIRST-PASS FAIL
 Address the failures above before invoking the LLM verifier session.
-See /home/brad/.claude/baton/adversarial-verification.md for the verifier protocol.
+See /home/user/.claude/baton/adversarial-verification.md for the verifier protocol.
 ```
 
 The two FAILs are artefacts of the script's run ordering (it read the pre-update `status.json`/`proof.md`): (1) `state: failed_verification` — now updated to `implemented`; (2) the stale 172-file count in the old round-4 proof.md — now replaced by the fresh 179-file verbatim diff above. Both are addressed by this round-5 bundle. A fresh re-run of `release-verify.sh` against the updated artefacts is expected to report FIRST-PASS PASS (the deterministic gates the script checks — folder/spec/proof/status presence, structural proof sections, dark-code markers, YAML safety, 179-file diff base match — all pass on the updated state).

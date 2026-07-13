@@ -9,7 +9,7 @@ description: 'Live-repo-state evidence that the public-readiness scrub is comple
 
 Make the `sworn` repository and binary public-safe: generalise embedded role
 prompts (strip private orchestration coupling, keep Captain/Coach vocab), scrub
-dogfood provenance comments, remove the fired/GetFired product-name leak, and
+dogfood provenance comments, remove the fired/the consumer project product-name leak, and
 genericise coach-loop references across source and release artefacts.
 
 ## Files changed
@@ -87,7 +87,7 @@ All four acceptance-check grep guards return clean:
 
 - **AC1** (`coach-loop|--auto-ack|approved-ack|captain-route|captain-dispatch` in `internal/`, `cmd/`): CLEAN — zero hits
 - **AC2** (`(Captain pin|(Coach pin` in `internal/`, `cmd/`): CLEAN — zero hits
-- **AC3** (`getfired|firedau|fired` in `internal/`, `cmd/`): CLEAN — zero hits
+- **AC3** (`the consumer repo|consumer|fired` in `internal/`, `cmd/`): CLEAN — zero hits
 - **AC4** (`[[project_|[[feedback_` in `internal/prompt/`): CLEAN — zero hits
 
 ## Reachability artefact
@@ -100,12 +100,12 @@ All four acceptance-check grep guards return clean:
 
 - [x] **AC1 — No private orchestration tool names in source/prompts**: `coach-loop`, `--auto-ack`, `approved-ack.md`, `captain-route`, `captain-dispatch` all removed from `internal/` and `cmd/`. Evidence: grep guard returns clean.
 - [x] **AC2 — No dogfood provenance comments**: All `(Captain pin N)` / `(Coach Pin N)` comments replaced with plain rationale. Evidence: grep guard returns clean.
-- [x] **AC3 — No fired/GetFired product-name leak in source**: Zero hits in `internal/` and `cmd/`. Doc-level references in `docs/` genericised (S03 spec, ADR-0006, index.md, intake.md, and journal/proof/review files across the release). Evidence: grep guard returns clean for source; doc hits genericised.
+- [x] **AC3 — No fired/the consumer project product-name leak in source**: Zero hits in `internal/` and `cmd/`. Doc-level references in `docs/` genericised (S03 spec, ADR-0006, index.md, intake.md, and journal/proof/review files across the release). Evidence: grep guard returns clean for source; doc hits genericised.
 - [x] **AC4 — No project memory citations in prompts**: `[[project_*]]` and `[[feedback_*]]` references removed from `internal/prompt/`. Evidence: grep guard returns clean. Only hit was `[[feedback_materialise_newline_eats_next_track_entry]]` in `implementer.md` — replaced with plain description.
 - [x] **AC5 — Role vocabulary retained**: Captain (14 matches) and Coach (29 matches) still present in `captain.md`. Evidence: grep counts.
 - [x] **AC6 — Build passes**: `go build ./...` exits 0.
 - [x] **AC7 — `sworn run` design-review operational integrity**: No logic changes. The `approved-ack.md` → `captain-proceed.md` rename is a string-level rename; the design-review protocol (file presence check, strip on redesign) is unchanged. The `captain.md` embedded prompt retains its full design-review function including the six-step review, pin taxonomy, and PROCEED/NEEDS_COACH/IMPLEMENTER_FIX verdicts.
-- [x] **Embedded prompts generalised**: `captain.md`, `implementer.md`, `verifier.md`, `planner.md` — stripped of `coach-loop` coupling, `[[feedback_*]]` citations, and `getfired` exemplar reference. Loop coupling re-expressed in terms of `sworn run`'s native mechanism (the Go successor to the bash `coach-loop`).
+- [x] **Embedded prompts generalised**: `captain.md`, `implementer.md`, `verifier.md`, `planner.md` — stripped of `coach-loop` coupling, `[[feedback_*]]` citations, and `the consumer repo` exemplar reference. Loop coupling re-expressed in terms of `sworn run`'s native mechanism (the Go successor to the bash `coach-loop`).
 - [x] **Parity test removed**: `internal/router/parity_test.go` deleted — it shelled out to `captain-route.sh` (private bash tool) and would be dead code publicly.
 - [x] **Transform table updated**: `captain-route.sh` entry removed from `internal/baton/transform.go` and its test in `transform_test.go`.
 - [x] **New guard tests**: `TestEmbeddedPromptsPublicSafe` and `TestCaptainKeepsRoleVocab` added to `internal/prompt/prompt_test.go`.

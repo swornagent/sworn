@@ -8,7 +8,7 @@
 without dropping any field, so the autonomous loop can run a real release instead of dying
 instantly on status-read.
 
-This is the D6 #31 hard blocker from the live fired dogfood run. The fix migrates sworn's Go
+This is the D6 #31 hard blocker from the live consumer dogfood run. The fix migrates sworn's Go
 carrier types **up** to the `slice-status-v1` schema (the schema is the ratified contract; the
 Go structs lag it).
 

@@ -52,7 +52,7 @@ Engine-readiness: #25 lint-deferrals · #26 vendor-guard · #27 `--task` handoff
 #29 docs/sworn ADR · #30 start_commit cold-start · #31 openai→responses prefix · #35 anthropic
 tool-use · #36 effort/complexity field (rides ADR-0011). Also: **publish the new schemas on
 baton-web** (only the old 5 resolve at their `$id`; the rest 404) — prerequisite for model-A
-portability. Telemetry transport: `sworn-internal/docs/strategy/2026-06-30-telemetry-eval-transport.md`
+portability. Telemetry transport: a private telemetry-transport design doc
 (+ `telemetry-event-v1` in ADR-0011 §3.8).
 
 ## Branches / where things are

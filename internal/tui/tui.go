@@ -18,8 +18,10 @@ import (
 
 // Run launches the Bubble Tea TUI program. It is the entry point called
 // from cmd/sworn/main.go and cmd/sworn/top.go (when no release arg given).
-// Returns an error only if the TUI cannot start (not on user quit).
-func Run() error {
+// version is the sworn binary version (the value `sworn --version` reports),
+// shown in the TUI header (S03, AC-03). Returns an error only if the TUI
+// cannot start (not on user quit).
+func Run(version string) error {
 	repoRoot, err := findRepoRoot()
 	if err != nil {
 		return fmt.Errorf("finding repo root: %w", err)
@@ -28,6 +30,7 @@ func Run() error {
 	m := &Model{
 		state:    viewReleases,
 		repoRoot: repoRoot,
+		Version:  version,
 		Releases: &ReleasesList{},
 		Board:    &BoardView{},
 	}

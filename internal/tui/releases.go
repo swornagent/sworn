@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/swornagent/sworn/internal/state"
 	"gopkg.in/yaml.v3"
 )
@@ -24,6 +25,13 @@ type ReleaseInfo struct {
 type ReleasesList struct {
 	Releases []ReleaseInfo
 	Cursor   int
+
+	// Width is the pane box width (from Model.View via paneWidths). When > 0
+	// each release label is ellipsis-truncated to fit the pane on one line
+	// (Coach pin 1 — legible names at 80 cols instead of wrapping). When 0
+	// (no tea.WindowSizeMsg received yet) labels are rendered untruncated,
+	// preserving pre-S03 behaviour.
+	Width int
 }
 
 // ErrNoReleases indicates no releases were found.
@@ -55,7 +63,7 @@ func (r *ReleasesList) LoadReleases(repoRoot string) error {
 	}
 
 	sort.Slice(releases, func(i, j int) bool {
-		return releases[i].Name < releases[j].Name
+		return releases[i].ID < releases[j].ID
 	})
 
 	r.Releases = releases
@@ -152,11 +160,18 @@ func (r *ReleasesList) View() string {
 	for i, rel := range r.Releases {
 		stateStr := rel.AggregatedState()
 		label := fmt.Sprintf("%s  %s (%d tracks, %s)",
-			rel.Name,
+			rel.ID,
 			Divider,
 			rel.TrackCount,
 			stateStr,
 		)
+		// Coach pin 1: when the pane width is known, truncate the label with
+		// an ellipsis so a long release name stays on one line rather than
+		// wrapping illegibly. Budget accounts for the pane's own padding (2),
+		// the item style's padding (2) and the 2-column "▸ "/"  " prefix.
+		if budget := r.Width - 6; r.Width > 0 && budget >= 1 {
+			label = ansi.Truncate(label, budget, "…")
+		}
 		if i == r.Cursor {
 			b.WriteString(ReleaseItemSelected.Render("▸ " + label))
 		} else {

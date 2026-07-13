@@ -78,7 +78,7 @@ func (a *Anthropic) Verify(ctx context.Context, systemPrompt, userPayload string
 	// (no tools); the only content we care about is type "text".
 	for _, block := range msg.Content {
 		if block.Type == "text" {
-			cost := computeAnthropicCost(a.Model, msg.Usage)
+			cost := ComputeCostFromTokens(a.Model, msg.Usage.InputTokens, msg.Usage.OutputTokens)
 			return block.Text, cost, int64(msg.Usage.InputTokens), int64(msg.Usage.OutputTokens), nil
 		}
 	}
@@ -93,7 +93,7 @@ func (a *Anthropic) Verify(ctx context.Context, systemPrompt, userPayload string
 //
 // The returned ChatResponse carries the first text block as content, actual
 // token counts in Usage.InputTokens / Usage.OutputTokens, and a computed
-// CostUSD from the Pricing table (not always 0).
+// CostUSD from the unified pricing registry (not always 0).
 func (a *Anthropic) Chat(ctx context.Context, messages []ChatMessage, tools []ToolDef) (*ChatResponse, error) {
 	// Separate system messages from user/assistant messages.
 	var systemBlocks []anthropic.TextBlockParam
@@ -153,12 +153,12 @@ func (a *Anthropic) Chat(ctx context.Context, messages []ChatMessage, tools []To
 					OutputTokens: outputTokens,
 					TotalTokens:  inputTokens + outputTokens,
 				},
-				CostUSD: ComputeCost(a.Model, inputTokens, outputTokens),
+				CostUSD: ComputeCostFromTokens(a.Model, int64(inputTokens), int64(outputTokens)),
 			}, nil
 		}
 	}
 	return nil, fmt.Errorf("model: no text content in Anthropic chat response")
-}// anthropicStatusCode extracts the HTTP status code from an anthropic-sdk-go
+} // anthropicStatusCode extracts the HTTP status code from an anthropic-sdk-go
 // error. The SDK's internal *apierror.Error formats as:
 //
 //	'<METHOD> "<URL>": <CODE> <TEXT> [(Request-ID: <ID>)] <JSON>'
@@ -197,16 +197,4 @@ var anthropicPricing = map[string]struct {
 	"claude-sonnet-5":   {2.00, 10.00},
 	"claude-sonnet-4-6": {3.00, 15.00},
 	"claude-haiku-4-5":  {1.00, 5.00},
-}
-
-// computeAnthropicCost returns the USD cost for a verify call from token
-// counts. Returns 0 for unknown models (the caller still received a verdict).
-func computeAnthropicCost(model string, usage anthropic.Usage) float64 {
-	p, ok := anthropicPricing[model]
-	if !ok {
-		return 0
-	}
-	inputCost := float64(usage.InputTokens) / 1_000_000 * p.inputPricePer1M
-	outputCost := float64(usage.OutputTokens) / 1_000_000 * p.outputPricePer1M
-	return inputCost + outputCost
 }

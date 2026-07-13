@@ -1,0 +1,63 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S15-baton-version-handshake",
+  "release": "2026-06-28-driver-contract",
+  "track": "T7-baton-revendor",
+  "state": "verified",
+  "covers_needs": [
+    "N-16"
+  ],
+  "spec_path": "docs/release/2026-06-28-driver-contract/S15-baton-version-handshake/spec.json",
+  "start_commit": "c393459d769c8f98c79c0d8b2fc70aa87857a0bb",
+  "actual_files": [
+    "internal/baton/manifest.go",
+    "internal/baton/manifest_stub.go",
+    "internal/baton/manifest_test.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go vet ./internal/baton/... ./cmd/sworn/...",
+    "go test ./cmd/sworn/... ./internal/baton/...",
+    "go test -count=1 -timeout 300s ./..."
+  ],
+  "reachability_artifacts": [
+    "cmd/sworn/doctor_test.go:TestDoctorSchemaManifestRendersGradedAndAdvisory — drives cmdDoctor (the CLI-invoked entry point sworn doctor calls), asserts Group 1b renders all 9 schemas with correct GRADED/ADVISORY status",
+    "cmd/sworn/doctor_test.go:TestDoctorSchemaSkewFiresOnFixture — drives cmdDoctor with an injected skew fixture (baton.SetSchemaMapForTest), asserts baton/schema-skew and the unclassified entry both render [WARN], never [OK]",
+    "Manual smoke: `go run ./cmd/sworn doctor` live against this repo — Group 1b output captured in journal.md; git-stash A/B diff of the doctor CLI's [ERROR] line set confirms zero regression to existing groups (75 pre-existing, unrelated ERRORs, byte-identical before/after)"
+  ],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "quick",
+    "rationale": "Declarative manifest + one doctor section + skew warn; low breadth, low depth. Current-valid vocab (chore); S12 migrates to quick.",
+    "confirmed_by_implementer": false
+  },
+  "design_decisions": [
+    {
+      "id": "D1",
+      "choice": "Vendored schema names + $id + version are 100% derived from schemas.SchemaMap (go:embed ground truth) — zero hand-typed name list. Only the graded/advisory classification is a small (9-entry) hand-authored table, cross-checked against SchemaMap by SchemaSkew() so it cannot silently drift.",
+      "stake_class": "Type-2",
+      "rationale": "Narrow, local, easily revisited. Satisfies R-01's 'source from vendored files where possible' — the one thing that can't be mechanically derived (which schemas are graded vs advisory) is compensated by a fail-loud skew check rather than a second fragile parser."
+    },
+    {
+      "id": "D2",
+      "choice": "Skew is surfaced as [WARN], not [ERROR] — it does not flip cmdDoctor's hasError / exit code. A structural failure (malformed embedded schema JSON) still returns levelError and gates, fail-closed.",
+      "stake_class": "Type-2",
+      "rationale": "Matches AC-02's literal wording ('clearly-flagged WARN/non-OK') and the existing convention that Groups 2/3/4 are visibility-only while Group 1's embedded-prompt/pin checks are the ones that gate exit code — doctor's own WARN/ERROR convention, already established."
+    },
+    {
+      "id": "D3",
+      "choice": "Rejected parsing internal/adopt/baton/VERSION's free-text 'schemas-added: ... vendored-advisory' line as the machine source for the advisory set; used a small explicit Go table + SchemaSkew() against SchemaMap instead.",
+      "stake_class": "Type-2",
+      "rationale": "Implementation-detail, no external contract. Free-text VERSION scraping is exactly the fragile prose-scraping pattern ADR-0011 already deleted elsewhere (the verifier-verdict prose scraper); the explicit table + skew check satisfies R-01's 'where possible' without adding a second, more fragile parser."
+    }
+  ],
+  "verification": {
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-11T10:15:51Z",
+    "violations": []
+  }
+}

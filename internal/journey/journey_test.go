@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/swornagent/sworn/internal/baton"
-)// newTestArtefact creates a minimal ratified artefact in a temp directory
+) // newTestArtefact creates a minimal ratified artefact in a temp directory
 // for use as a fixture. Returns the project root.
 func newTestArtefact(t *testing.T, ratified bool) string {
 	t.Helper()
@@ -303,7 +303,7 @@ func TestRatify_NestedShapeRoundtrip(t *testing.T) {
 		EntrySurface: "cli",
 	})
 
-	if err := a.Ratify("brad@sawyer.net.au"); err != nil {
+	if err := a.Ratify("maintainer@sworn.sh"); err != nil {
 		t.Fatalf("Ratify failed: %v", err)
 	}
 
@@ -366,8 +366,8 @@ func TestRatify_NestedShapeRoundtrip(t *testing.T) {
 	if !loaded.Ratification.IsRatified {
 		t.Error("loaded artefact should be ratified")
 	}
-	if loaded.Ratification.By != "brad@sawyer.net.au" {
-		t.Errorf("expected ratification.by 'brad@sawyer.net.au', got %q", loaded.Ratification.By)
+	if loaded.Ratification.By != "maintainer@sworn.sh" {
+		t.Errorf("expected ratification.by 'maintainer@sworn.sh', got %q", loaded.Ratification.By)
 	}
 	if loaded.Schema == "" {
 		t.Error("expected non-empty $schema on loaded artefact")
@@ -449,7 +449,7 @@ func TestCheck_S17Journeys(t *testing.T) {
 		NoMockBoundary: "real-board/real-gates",
 	})
 
-	if err := a.Ratify("brad@sawyer.net.au"); err != nil {
+	if err := a.Ratify("maintainer@sworn.sh"); err != nil {
 		t.Fatalf("Ratify failed: %v", err)
 	}
 

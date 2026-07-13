@@ -340,8 +340,8 @@ func TestDispatches_RoundTrip(t *testing.T) {
 			Result: "pass",
 			Model:  "claude-sonnet-4-20250514",
 			Dispatches: []Dispatch{
-				{Role: "implementer", Model: "claude-sonnet-4-20250514", CostUSD: 0.0420, Attempt: 1, DurationMS: 4200, InputTokens: 1000, OutputTokens: 500},
-				{Role: "verifier", Model: "claude-sonnet-4-20250514", CostUSD: 0.0085, Attempt: 1, DurationMS: 850, InputTokens: 200, OutputTokens: 100, ModelIDConfirmed: "claude-sonnet-4-20250514"},
+				{Role: "implementer", Model: "claude-sonnet-4-20250514", CostUSD: 0.0420, CostSource: "pricing-table", Attempt: 1, DurationMS: 4200, InputTokens: 1000, OutputTokens: 500},
+				{Role: "verifier", Model: "claude-sonnet-4-20250514", CostUSD: 0.0085, CostSource: "cli", Attempt: 1, DurationMS: 850, InputTokens: 200, OutputTokens: 100, ModelIDConfirmed: "claude-sonnet-4-20250514"},
 				{Role: "captain", Model: "claude-sonnet-4-20250514", CostUSD: 0.0120, Attempt: 1, DurationMS: 1200},
 			},
 		},
@@ -363,6 +363,18 @@ func TestDispatches_RoundTrip(t *testing.T) {
 	}
 	if got.Verification.Dispatches[0].CostUSD != 0.0420 {
 		t.Errorf("dispatch[0].CostUSD: want 0.0420, got %f", got.Verification.Dispatches[0].CostUSD)
+	}
+	// S08 (honest cost telemetry) — cost_source round-trips per dispatch.
+	if got.Verification.Dispatches[0].CostSource != "pricing-table" {
+		t.Errorf("dispatch[0].CostSource: want pricing-table, got %q", got.Verification.Dispatches[0].CostSource)
+	}
+	if got.Verification.Dispatches[1].CostSource != "cli" {
+		t.Errorf("dispatch[1].CostSource: want cli, got %q", got.Verification.Dispatches[1].CostSource)
+	}
+	// captain dispatch carries no CostSource (synthetic/omitted upstream) —
+	// zero-value round-trips as empty string, not a fabricated value.
+	if got.Verification.Dispatches[2].CostSource != "" {
+		t.Errorf("dispatch[2].CostSource: want empty (zero value), got %q", got.Verification.Dispatches[2].CostSource)
 	}
 	if got.Verification.Dispatches[1].Role != "verifier" {
 		t.Errorf("dispatch[1].Role: want verifier, got %s", got.Verification.Dispatches[1].Role)

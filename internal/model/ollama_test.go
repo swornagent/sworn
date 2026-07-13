@@ -24,7 +24,7 @@ func TestOllamaVerify_ReturnsContent(t *testing.T) {
 	defer srv.Close()
 
 	o := NewOllama("llama3.2", srv.URL)
-text, cost, _, _, err := o.Verify(context.Background(), "system", "user")
+	text, cost, _, _, err := o.Verify(context.Background(), "system", "user")
 	if err != nil {
 		t.Fatalf("Verify() error: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestOllamaVerify_ErrorField(t *testing.T) {
 	defer srv.Close()
 
 	o := NewOllama("nonexistent", srv.URL)
-_, _, _, _, err := o.Verify(context.Background(), "system", "user")
+	_, _, _, _, err := o.Verify(context.Background(), "system", "user")
 	if err == nil {
 		t.Fatal("Verify() returned nil error, want non-nil")
 	}
@@ -57,7 +57,7 @@ func TestOllamaVerify_NonOKStatus(t *testing.T) {
 	defer srv.Close()
 
 	o := NewOllama("llama3.2", srv.URL)
-_, _, _, _, err := o.Verify(context.Background(), "system", "user")
+	_, _, _, _, err := o.Verify(context.Background(), "system", "user")
 	if err == nil {
 		t.Fatal("Verify() returned nil error for 503, want non-nil")
 	}
@@ -90,7 +90,7 @@ func TestOllamaRequestFormat(t *testing.T) {
 	defer srv.Close()
 
 	o := NewOllama("llama3.2", srv.URL)
-_, _, _, _, err := o.Verify(context.Background(), "You are a verifier.", "Reply with PASS.")
+	_, _, _, _, err := o.Verify(context.Background(), "You are a verifier.", "Reply with PASS.")
 	if err != nil {
 		t.Fatalf("Verify() error: %v", err)
 	}

@@ -3,7 +3,7 @@
 ## Session: 2026-06-21 — Initial implementation
 
 **Role**: Implementer
-**Worktree**: `/home/brad/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T3-commercial`
+**Worktree**: `/home/user/projects/sworn-worktrees/release-2026-06-19-safe-parallelism-T3-commercial`
 **Branch**: `track/2026-06-19-safe-parallelism/T3-commercial`
 
 ### State transitions

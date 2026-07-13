@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/state"
 ) // ---- Fixture helpers ----
 
@@ -81,34 +82,65 @@ func (fr *fixtureRelease) writeStatus(t *testing.T, sliceID, stateJSON string) {
 	fr.writeSliceFile(t, sliceID, "status.json", tmpl)
 }
 
-func (fr *fixtureRelease) writeProof(t *testing.T, sliceID, proof string) {
+// writeProofJSON writes a minimal proof-v1 proof.json fixture whose
+// not_delivered list carries the given violations (AC-02: violations are read
+// from proof.json.not_delivered, never from a proof.md scrape).
+func (fr *fixtureRelease) writeProofJSON(t *testing.T, sliceID string, notDelivered []string) {
 	t.Helper()
-	fr.writeSliceFile(t, sliceID, "proof.md", proof)
+	rec := map[string]any{
+		"$schema":        "https://baton.sawy3r.net/schemas/proof-v1.json",
+		"schema_version": 1,
+		"slice_id":       sliceID,
+		"release":        fr.Name,
+		"not_delivered":  notDelivered,
+	}
+	data, err := json.MarshalIndent(rec, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal proof.json: %v", err)
+	}
+	fr.writeSliceFile(t, sliceID, "proof.json", string(data))
 }
 
-// writeOpsIndex writes a standard fixture index.md for the safe-parallelism release.
+// writeOpsIndex writes a standard fixture index.md and board.json for the release.
 func writeOpsIndex(t *testing.T, dir, name string, trackSlices map[string][]string) {
 	t.Helper()
 	var b strings.Builder
 	b.WriteString("---\n")
 	fmt.Fprintf(&b, "title: 'Release board — %s'\n", name)
-	b.WriteString("tracks:\n")
-	i := 0
-	for trackID, slices := range trackSlices {
-		i++
-		fmt.Fprintf(&b, "  - id: %s\n", trackID)
-		fmt.Fprintf(&b, "    slices: [%s]\n", strings.Join(slices, ", "))
-		fmt.Fprintf(&b, "    depends_on: null\n")
-		fmt.Fprintf(&b, "    worktree_path: /tmp/wt/%s\n", trackID)
-		fmt.Fprintf(&b, "    worktree_branch: track/x/%s\n", trackID)
-		fmt.Fprintf(&b, "    state: in_progress\n")
-	}
 	b.WriteString("release_worktree_path: /tmp/release-wt\n")
 	b.WriteString("release_worktree_branch: release-wt/x\n")
 	b.WriteString("---\n\nRelease board.\n")
 
 	if err := os.WriteFile(filepath.Join(dir, "index.md"), []byte(b.String()), 0o644); err != nil {
 		t.Fatalf("write index.md: %v", err)
+	}
+
+	// Write board.json — the current-format (ADR-0009) source of truth.
+	writeBoardJSON(t, dir, name, trackSlices)
+}
+
+// writeBoardJSON writes a board.json fixture for the release using the current
+// board.BoardRecord shape. Each entry in trackSlices is a track ID → []sliceID.
+func writeBoardJSON(t *testing.T, releaseDir, releaseName string, trackSlices map[string][]string) {
+	t.Helper()
+	var tracks []board.BoardTrack
+	for trackID, slices := range trackSlices {
+		tracks = append(tracks, board.BoardTrack{
+			ID:     trackID,
+			Slices: slices,
+		})
+	}
+	br := &board.BoardRecord{
+		Release: board.StringRelease(releaseName),
+		Tracks:  tracks,
+	}
+	data, err := json.MarshalIndent(br, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal board.json: %v", err)
+	}
+	boardPath := filepath.Join(releaseDir, "board.json")
+	if err := os.WriteFile(boardPath, append(data, '\n'), 0o644); err != nil {
+		t.Fatalf("write board.json: %v", err)
 	}
 }
 
@@ -124,8 +156,17 @@ type gitRepoFixture struct {
 // a second commit, returning the repo dir and the initial commit hash. Tests
 // can use StartCommit as the diff base and expect feature.go in the diff output.
 func setupGitRepo(t *testing.T) *gitRepoFixture {
+	return setupGitRepoAt(t, t.TempDir())
+}
+
+// setupGitRepoAt initialises the same base+feature.go git fixture at an explicit
+// directory (used to place the repo at a DERIVED track worktree path — sworn#80).
+func setupGitRepoAt(t *testing.T, dir string) *gitRepoFixture {
 	t.Helper()
-	dir := t.TempDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
 	runCmd(t, dir, "git", "init")
 	runCmd(t, dir, "git", "config", "user.name", "test")
@@ -251,12 +292,14 @@ func TestGetBlockedExtractsViolations(t *testing.T) {
 	writeOpsIndex(t, fr.Dir, "test-release-b", trackSlices)
 	fr.writeStatus(t, "S01-ok", `"state": "verified"`)
 	fr.writeStatus(t, "S02-fail", `"state": "failed_verification"`)
-	fr.writeProof(t, "S02-fail", `FAIL: Gate 2 — spec defect
-
-**Violation 1:** missing spec
-**Violation 2:** unreachable
-
-Some other text.`)
+	fr.writeProofJSON(t, "S02-fail", []string{
+		"Gate 2 — spec defect: missing spec",
+		"Gate 1 — unreachable affordance",
+	})
+	// A stray proof.md must NOT be scraped — proof.json.not_delivered is the
+	// sole violations source (AC-02). If this marker leaks into the output,
+	// the prohibited fallback is back.
+	fr.writeSliceFile(t, "S02-fail", "proof.md", "FAIL: LEGACY-SCRAPE-MARKER should never surface")
 
 	w, r, cleanup := opsToolRoundTrip(t, fr.Root)
 	defer cleanup()
@@ -266,8 +309,14 @@ Some other text.`)
 	if !strings.Contains(text, "S02-fail") {
 		t.Errorf("get_blocked should include failed slice %q, got: %s", "S02-fail", text)
 	}
-	if !strings.Contains(text, "FAIL:") {
-		t.Errorf("get_blocked should include violation text, got: %s", text)
+	if !strings.Contains(text, "FAIL: Gate 2 — spec defect: missing spec") {
+		t.Errorf("get_blocked should include violations from proof.json.not_delivered, got: %s", text)
+	}
+	if !strings.Contains(text, "FAIL: Gate 1 — unreachable affordance") {
+		t.Errorf("get_blocked should include every not_delivered entry, got: %s", text)
+	}
+	if strings.Contains(text, "LEGACY-SCRAPE-MARKER") {
+		t.Errorf("get_blocked scraped proof.md — violations must come only from proof.json.not_delivered, got: %s", text)
 	}
 	if strings.Contains(text, "S01-ok") {
 		t.Errorf("get_blocked should not include verified slice %q, got: %s", "S01-ok", text)
@@ -276,20 +325,18 @@ Some other text.`)
 
 func TestGetSliceContext(t *testing.T) {
 	fr := setupFixtureRelease(t, "test-release-c")
-	gitFixture := setupGitRepo(t)
 
-	// Build index.md with worktree_path pointing to the real git repo
-	var b strings.Builder
-	b.WriteString("tracks:\n")
-	b.WriteString("  - id: T1-engine\n")
-	b.WriteString("    slices: [S01-test-slice]\n")
-	b.WriteString("    depends_on: null\n")
-	fmt.Fprintf(&b, "    worktree_path: %s\n", gitFixture.Dir)
-	b.WriteString("    worktree_branch: track/x/T1-engine\n")
-	b.WriteString("    state: in_progress\n")
-	b.WriteString("release_worktree_path: /tmp/release-wt\n")
-	b.WriteString("release_worktree_branch: release-wt/x\n")
-	fr.writeIndexContent(t, b.String())
+	writeBoardJSON(t, fr.Dir, "test-release-c", map[string][]string{
+		"T1-engine": {"S01-test-slice"},
+	})
+
+	// board-v1 is a pure plan: context.go DERIVES the slice's worktree path (a
+	// sibling of the release worktree — sworn#80), no longer reading it from
+	// board.json. Create the base+feature.go git fixture AT the derived path so
+	// the start_commit..HEAD diff surfaces feature.go.
+	worktreePath := board.TrackWorktreePathFrom(
+		board.ReleaseWorktreePathFrom(fr.Root, "test-release-c"), "test-release-c", "T1-engine")
+	gitFixture := setupGitRepoAt(t, worktreePath)
 
 	fr.writeSlice(t, "S01-test-slice", "# S01-test-slice\n\nSome spec content.")
 	// Write status.json directly with exact JSON to avoid writeStatus quoting issues
@@ -306,6 +353,10 @@ func TestGetSliceContext(t *testing.T) {
   "verification": {"result": ""}
 }`, gitFixture.StartCommit)
 	fr.writeSliceFile(t, "S01-test-slice", "status.json", statusJSON)
+	// Violations must surface from proof.json.not_delivered (AC-02); the
+	// stray proof.md proves the legacy scrape stays dead.
+	fr.writeProofJSON(t, "S01-test-slice", []string{"AC-03 not covered by any test"})
+	fr.writeSliceFile(t, "S01-test-slice", "proof.md", "FAIL: LEGACY-SCRAPE-MARKER should never surface")
 	w, r, cleanup := opsToolRoundTrip(t, fr.Root)
 	defer cleanup()
 
@@ -324,6 +375,12 @@ func TestGetSliceContext(t *testing.T) {
 	// Verify non-empty diff — the real git repo has feature.go added after start_commit
 	if !strings.Contains(text, "feature.go") {
 		t.Errorf("get_slice_context should include diff with feature.go, got: %s", text)
+	}
+	if !strings.Contains(text, "FAIL: AC-03 not covered by any test") {
+		t.Errorf("get_slice_context should return violations from proof.json.not_delivered, got: %s", text)
+	}
+	if strings.Contains(text, "LEGACY-SCRAPE-MARKER") {
+		t.Errorf("get_slice_context scraped proof.md — violations must come only from proof.json.not_delivered, got: %s", text)
 	}
 }
 func TestDeferSliceWritesRuleTwo(t *testing.T) {

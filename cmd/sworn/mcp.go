@@ -9,6 +9,7 @@ import (
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/mcp"
 )
+
 func cmdMcp(args []string) int {
 	// sworn mcp starts the MCP server. All arguments are ignored — the server
 	// reads JSON-RPC 2.0 requests from stdin and writes responses to stdout.

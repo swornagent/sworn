@@ -1,0 +1,69 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S07-remaining-rescrape-cleanup",
+  "release": "2026-07-01-render-drift-reconciliation",
+  "track": "T5-core-loop-rtm-rescrape",
+  "state": "verified",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-01T23:41:56Z",
+  "covers_needs": [
+    "N-01"
+  ],
+  "spec_path": "docs/release/2026-07-01-render-drift-reconciliation/S07-remaining-rescrape-cleanup/spec.json",
+  "start_commit": "5b31ba86c166dc55a29fef49d4ce02ff976c4e11",
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "quick",
+    "rationale": "Three independent, small, mechanical swaps of a re-derived value for the JSON field that already has it.",
+    "confirmed_by_implementer": true
+  },
+  "design_decisions": [
+    {
+      "choice": "internal/ears prefers spec.json's ears_keyword over spec.md text (spec.json-first), diverging from internal/gate/trace.go's spec.md-first ordering.",
+      "stake_class": "Type-2",
+      "rationale": "trace.go also runs text-level prose checks that need a markdown body spec.json cannot supply; ears.go's only job is per-AC EARS classification, which ears_keyword already answers directly. Narrow — one function's source-of-truth order, reversible by flipping the branch order, does not touch trace.go."
+    },
+    {
+      "choice": "Accept the PatternComplex precision loss when classifying from spec.json's stored ears_keyword instead of re-deriving from prose (spec_record.go's writer cannot emit a keyword representing 2+ preconditions).",
+      "stake_class": "Type-2",
+      "rationale": "spec_record.go is not a touchpoint of this slice; AC-04 scopes this slice to which source future reads use, not to improving what the writer computes. Follow-up slice on spec_record.go's classifyEARSKeyword is the correct owner if unacceptable."
+    },
+    {
+      "choice": "Result.Line becomes a 1-based ordinal array-index (not a markdown line number) for spec.json-sourced ACs.",
+      "stake_class": "Type-2",
+      "rationale": "There is no physical markdown line for a JSON record; an ordinal position keeps the field non-zero, deterministic, and useful for a human pointer (\"AC #3\"). Doc comment updated to say so explicitly."
+    },
+    {
+      "choice": "ViolationsSummary returns only the first proof.json.not_delivered entry (trimmed, 200-char truncated), not the full list joined.",
+      "stake_class": "Type-2",
+      "rationale": "Preserves the existing one-line paging-summary contract and truncation budget. A future consumer wanting the full list already has direct access to proof.json.not_delivered — no new API invented for a need nobody has surfaced."
+    }
+  ],
+  "verification": {
+    "result": "pass",
+    "violations": [],
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-01T23:41:56Z"
+  },
+  "actual_files": [
+    "cmd/sworn/ledger.go",
+    "cmd/sworn/ledger_test.go",
+    "internal/account/notify.go",
+    "internal/account/notify_test.go",
+    "internal/ears/ears.go",
+    "internal/ears/ears_test.go",
+    "internal/run/slice.go"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go test ./internal/account/... ./internal/ears/... ./cmd/sworn/... -count=1 -timeout 300s",
+    "go test ./internal/run/... -count=1 -timeout 300s",
+    "go test ./... -count=1 -timeout 600s",
+    "go vet ./internal/account/... ./internal/ears/... ./cmd/sworn/... ./internal/run/...",
+    "gofmt -l internal/account/notify.go internal/account/notify_test.go internal/ears/ears.go internal/ears/ears_test.go cmd/sworn/ledger.go cmd/sworn/ledger_test.go internal/run/slice.go"
+  ],
+  "reachability_artifacts": [
+    "docs/release/2026-07-01-render-drift-reconciliation/S07-remaining-rescrape-cleanup/reachability-lint-ac-output.txt"
+  ]
+}

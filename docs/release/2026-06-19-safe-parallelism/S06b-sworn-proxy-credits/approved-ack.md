@@ -16,7 +16,7 @@ does not re-page. The spec has been amended with matching acceptance checks and 
   displays `Credits: <int>`; `sworn account buy <N>` treats `<N>` as a number of
   credits (same unit). All three agree.
 - The credit→token→currency **conversion rate is a backend concern** and stays out of
-  scope for this slice (consistent with the already-excluded Stripe/webhook work).
+  scope for this slice (consistent with the already-excluded external-billing/webhook work).
   Document the unit in the `docs/api-contract.md` stub.
 
 ## Pin B — proxy URL is a credential-trust boundary  *(was: "UX security requirement")*

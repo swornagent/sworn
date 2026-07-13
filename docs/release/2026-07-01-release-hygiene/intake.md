@@ -30,7 +30,7 @@ correctness (the reported version must match the source), and CI fail-closed beh
 
 - `cmd/sworn/main.go:27` — `var version = "0.0.0-dev"`, overridden only by
   `make`'s `-ldflags "-X main.version=$(VERSION)"` (Makefile `VERSION ?= 0.1.0`). So
-  `go install ./cmd/sworn` (how the live `/home/brad/go/bin/sworn` was built) reports
+  `go install ./cmd/sworn` (how the live `/home/user/go/bin/sworn` was built) reports
   `0.0.0-dev` instead of `0.1.0`. There is no `VERSION` file; the version lives only in the
   Makefile literal.
 - No CI gate enforces a version bump on merge to `main`, so a release can ship without the

@@ -17,7 +17,7 @@ When a user logs in with Sworn credentials, model calls are routed through the S
 
 §4. Things I'm NOT doing
 
-- No billing webhook or Stripe integration.
+- No billing webhook or external-billing integration.
 - No team credit pools (post‑R3).
 - No TUI header credit display integration (handled by S04b).
 

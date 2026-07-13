@@ -4,7 +4,12 @@
   "release": "2026-06-30-sworn-operational-readiness",
   "track": "T1-operational-unblock",
   "state": "verified",
-  "covers_needs": ["N-01", "N-02", "N-03", "N-04"],
+  "covers_needs": [
+    "N-01",
+    "N-02",
+    "N-03",
+    "N-04"
+  ],
   "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/spec.json",
   "proof_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/proof.json",
   "journal_path": "docs/release/2026-06-30-sworn-operational-readiness/S01-d6-record-reconciliation/journal.md",
@@ -32,7 +37,7 @@
     "go test ./... -timeout 120s"
   ],
   "reachability_artifacts": [
-    "manual-smoke-step: STRICT-binary sworn board --release 2026-06-16-critical-journey-resolutions on the live fired repo (~/projects/fired, clean before+after — Rule 11) renders the full board with 0 'cannot unmarshal object' errors; S05-engine-owned-real-dollars (4 object-form open_deferrals) reads 'verified [verifier]' (reachability/ac08-reachability.txt)",
+    "manual-smoke-step: STRICT-binary sworn board --release 2026-06-16-critical-journey-resolutions on the live consumer repo (~/projects/fired, clean before+after — Rule 11) renders the full board with 0 'cannot unmarshal object' errors; S05-engine-owned-real-dollars (4 object-form open_deferrals) reads 'verified [verifier]' (reachability/ac08-reachability.txt)",
     "manual-smoke-step: direct state.Read on real fired S05 status.json — all 4 deferrals read OK; acknowledged_by + acknowledged_at populate the NEW named fields, acknowledgement='' (real pre-migration data, confirms AC-11), id/field preserved in Extra (reachability/ac08-direct-read.txt). The fired LOOP was NOT run on the strict binary (AC-11 sequencing: gated on #40)."
   ],
   "design_decisions": [
@@ -79,7 +84,7 @@
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
-    "quadrant": "epic",
+    "quadrant": "beast",
     "rationale": "Careful atomic type migration touching the Rule-10 no-mock-boundary, with a round-trip-fidelity trap (fired data uses acknowledged_by, schema requires acknowledgement); ~15 files.",
     "confirmed_by_implementer": true
   },

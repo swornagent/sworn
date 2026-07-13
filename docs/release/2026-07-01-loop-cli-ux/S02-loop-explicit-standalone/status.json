@@ -1,0 +1,23 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S02-loop-explicit-standalone",
+  "release": "2026-07-01-loop-cli-ux",
+  "track": "T1-loop-cli-ux",
+  "state": "planned",
+  "covers_needs": [
+    "N-02",
+    "N-04"
+  ],
+  "spec_path": "docs/release/2026-07-01-loop-cli-ux/S02-loop-explicit-standalone/spec.json",
+  "start_commit": null,
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "quick",
+    "rationale": "Flag-gating condition change + remove one dead flag, confined to cmd/sworn/run.go.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending"
+  }
+}

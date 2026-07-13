@@ -48,7 +48,7 @@
     },
     {
       "item": "AC5: artefact.IsRatified true",
-      "evidence": ".sworn/journeys.json: ratification.is_ratified=true, ratified_by=brad@sawyer.net.au (Pin 5)"
+      "evidence": ".sworn/journeys.json: ratification.is_ratified=true, ratified_by=maintainer@sworn.sh (Pin 5)"
     },
     {
       "item": "AC6: journey.Check() returns CheckPass",

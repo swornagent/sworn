@@ -108,7 +108,7 @@ $ go build ./...
 ## First-pass script output
 
 ```
-$ PLAYWRIGHT_OPTIN=false /home/brad/.claude/bin/release-verify.sh S52-ledger-projection 2026-06-19-safe-parallelism
+$ PLAYWRIGHT_OPTIN=false /home/user/.claude/bin/release-verify.sh S52-ledger-projection 2026-06-19-safe-parallelism
 
 == Slice artefacts ==
   PASS  slice folder exists

@@ -2,7 +2,7 @@ package implement
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,39 +16,60 @@ import (
 // Fake verifier for reqverify tests
 // ---------------------------------------------------------------------------
 
-// fakeVerifier returns a canned reply. For passing tests, it returns grades
-// where every AC passes. For failing tests, it includes a FAIL grade.
+// fakeVerifier returns a canned STRUCTURED reply (S02: the DoR grading call is
+// schema-constrained — Verify carries the emit schema and returns the
+// reqverify-results JSON object, not a `## RESULTS` prose section). For passing
+// tests every AC grades PASS; failing tests include a FAIL grade.
 type fakeVerifier struct {
 	reply string
 }
 
-func (f fakeVerifier) Verify(_ context.Context, _, _ string) (string, float64, int64, int64, error) {
-	return f.reply, 0.0, 0, 0, nil}
-
-// passingReply returns a reply that grades every AC as PASS.
-// Format must match reqverify's parseGrades expectations:
-// ## RESULTS\n\nAC <N> (<sliceID>): PASS|FAIL...
-func passingReply(acs []reqverify.AC) string {
-	var b strings.Builder
-	b.WriteString("## RESULTS\n\n")
-	for _, ac := range acs {
-		b.WriteString(fmt.Sprintf("AC %d (%s): PASS\n", ac.Index, ac.SliceID))
-	}
-	return b.String()
+func (f fakeVerifier) Verify(_ context.Context, _, _ string, _ []byte) (string, float64, int64, int64, error) {
+	return f.reply, 0.0, 0, 0, nil
 }
 
-// failingReply returns a reply with one FAIL grade for the given slice.
+// gradeRec is one record in the structured reqverify-results emission.
+type gradeRec struct {
+	SliceID        string `json:"slice_id"`
+	ACIndex        int    `json:"ac_index"`
+	Status         string `json:"status"`
+	Characteristic string `json:"characteristic,omitempty"`
+	Reason         string `json:"reason,omitempty"`
+}
+
+func gradesReply(recs []gradeRec) string {
+	b, _ := json.Marshal(map[string]any{"results": recs})
+	return string(b)
+}
+
+// passingReply returns a structured reply that grades every AC as PASS.
+func passingReply(acs []reqverify.AC) string {
+	recs := make([]gradeRec, 0, len(acs))
+	for _, ac := range acs {
+		recs = append(recs, gradeRec{SliceID: ac.SliceID, ACIndex: ac.Index, Status: "PASS"})
+	}
+	return gradesReply(recs)
+}
+
+// failingReply returns a structured reply with one FAIL grade for the given slice.
 func failingReply(acs []reqverify.AC, sliceID string) string {
-	var b strings.Builder
-	b.WriteString("## RESULTS\n\n")
+	recs := make([]gradeRec, 0, len(acs))
 	for _, ac := range acs {
 		if ac.SliceID == sliceID {
-			b.WriteString(fmt.Sprintf("AC %d (%s): FAIL — ambiguous Contains multiple interpretations\n", ac.Index, ac.SliceID))
+			recs = append(recs, gradeRec{SliceID: ac.SliceID, ACIndex: ac.Index, Status: "FAIL", Characteristic: "ambiguous", Reason: "Contains multiple interpretations"})
 		} else {
-			b.WriteString(fmt.Sprintf("AC %d (%s): PASS\n", ac.Index, ac.SliceID))
+			recs = append(recs, gradeRec{SliceID: ac.SliceID, ACIndex: ac.Index, Status: "PASS"})
 		}
 	}
-	return b.String()
+	return gradesReply(recs)
+}
+
+// unsupportedVerifier models a model with no structured-output capability —
+// drives the AC-03 declared-deferral arm of CheckDoR.
+type unsupportedVerifier struct{}
+
+func (unsupportedVerifier) Verify(_ context.Context, _, _ string, _ []byte) (string, float64, int64, int64, error) {
+	return "", 0, 0, 0, reqverify.ErrStructuredUnsupported
 }
 
 // ---------------------------------------------------------------------------// Release directory fixture builder
@@ -197,10 +218,10 @@ func writeValidationRecord(t *testing.T, releaseDir, sliceID string, humanRatifi
 
 	dir := filepath.Join(releaseDir, sliceID)
 	s := state.Status{
-		Schema:     "https://example.com/schemas/baton/slice-status-v1.json",
-		SliceID:    sliceID,
-		Release:    "test-release",
-		Track:      "T1-test",
+		Schema:       "https://example.com/schemas/baton/slice-status-v1.json",
+		SliceID:      sliceID,
+		Release:      "test-release",
+		Track:        "T1-test",
 		State:        state.Planned,
 		Validation:   v,
 		Verification: state.Verification{Result: "pending"},
@@ -382,6 +403,32 @@ func TestCheckDoR_FailClosedNoVerifier(t *testing.T) {
 	}
 	if result.ReqverifyPassed {
 		t.Fatal("expected reqverify to fail with nil verifier, but it passed")
+	}
+}
+
+// TestCheckDoR_CapabilityAbsentDeferral is AC-03 at the DoR integration point
+// (ready.go CheckDoR -> reqverify.Run): a verifier whose model cannot emit
+// structured output routes through the "not evaluated" arm as a DECLARED Rule 2
+// deferral — DoR fails closed (ReqverifyPassed=false) with a capability-naming
+// reason, never a silent pass and never a hard error.
+func TestCheckDoR_CapabilityAbsentDeferral(t *testing.T) {
+	releaseDir := writeRTMFixture(t)
+	os.MkdirAll(filepath.Join(releaseDir, "S06-target-slice"), 0755)
+	writeValidationRecord(t, releaseDir, "S06-target-slice", true)
+
+	result, err := CheckDoR(context.Background(), releaseDir, "S06-target-slice", unsupportedVerifier{})
+	if err != nil {
+		t.Fatalf("capability-absent must be a deferral, not a CheckDoR error: %v", err)
+	}
+	if result.Passed {
+		t.Fatal("expected DoR to fail closed on a capability-absent model, but it passed")
+	}
+	if result.ReqverifyPassed {
+		t.Fatal("expected reqverify to fail closed (not evaluated) on capability-absent, but it passed")
+	}
+	joined := strings.Join(result.ReqverifyFailures, " ")
+	if !strings.Contains(joined, "structured-output capability") {
+		t.Errorf("reqverify failure should name the missing capability, got: %q", joined)
 	}
 }
 

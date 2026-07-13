@@ -15,6 +15,7 @@ func TestNewClient_OAICompat(t *testing.T) {
 		OpenRouterKey: "or-test",
 		CloudflareKey: "cf-test",
 		GitHubToken:   "gh-test",
+		XAIKey:        "xai-test",
 	}
 
 	tests := []struct {
@@ -22,13 +23,16 @@ func TestNewClient_OAICompat(t *testing.T) {
 		wantURL string
 		wantKey string
 	}{
-		{"openai/gpt-4o", "https://api.openai.com/v1", "sk-test"},
+		// sworn#31: openai-completions/ is the chat/completions wire format
+		// (openai/ is the Responses API — see TestNewClientOpenAIIsResponses).
+		{"openai-completions/gpt-4o", "https://api.openai.com/v1", "sk-test"},
 		{"deepseek/deepseek-chat", "https://api.deepseek.com/v1", "ds-test"},
 		{"groq/llama-3.3-70b", "https://api.groq.com/openai/v1", "groq-test"},
 		{"mistral/mistral-large", "https://api.mistral.ai/v1", "mistral-test"},
 		{"openrouter/anthropic/claude-sonnet-4-6", "https://openrouter.ai/api/v1", "or-test"},
 		{"cloudflare/@cf/meta/llama-3", "https://api.cloudflare.com/client/v4/ai/v1", "cf-test"},
 		{"github/gpt-4o", "https://models.inference.ai.azure.com", "gh-test"},
+		{"xai/grok-4.5", "https://api.x.ai/v1", "xai-test"},
 	}
 
 	for _, tt := range tests {
@@ -105,6 +109,62 @@ func TestNewClient_NativeStub(t *testing.T) {
 	}
 }
 
+// TestNewClientOpenAIIsResponses (S05 AC-04, sworn#31): openai/ now routes
+// to the Responses API driver.
+func TestNewClientOpenAIIsResponses(t *testing.T) {
+	v, err := NewClient("openai/gpt-5", ProviderConfig{OpenAIKey: "sk-test"})
+	if err != nil {
+		t.Fatalf("NewClient(openai/gpt-5) error: %v", err)
+	}
+	resp, ok := v.(*OpenAIResponses)
+	if !ok {
+		t.Fatalf("NewClient(openai/gpt-5) returned %T, want *OpenAIResponses", v)
+	}
+	if resp.BaseURL != "https://api.openai.com/v1" {
+		t.Errorf("BaseURL = %q, want https://api.openai.com/v1", resp.BaseURL)
+	}
+	if resp.APIKey != "sk-test" {
+		t.Errorf("APIKey = %q, want sk-test", resp.APIKey)
+	}
+}
+
+// TestNewClientOpenAICompletions (S05 AC-04, sworn#31): openai-completions/
+// is the legacy chat/completions wire format under its new explicit name,
+// keeping the strict json_schema structured mode the old openai/ case had.
+func TestNewClientOpenAICompletions(t *testing.T) {
+	v, err := NewClient("openai-completions/gpt-4.1", ProviderConfig{OpenAIKey: "sk-test"})
+	if err != nil {
+		t.Fatalf("NewClient(openai-completions/gpt-4.1) error: %v", err)
+	}
+	oai, ok := v.(*OAI)
+	if !ok {
+		t.Fatalf("NewClient(openai-completions/gpt-4.1) returned %T, want *OAI", v)
+	}
+	if oai.Structured != StructuredResponseFormat {
+		t.Errorf("Structured = %v, want StructuredResponseFormat", oai.Structured)
+	}
+}
+
+// TestNewClient_XAIStructured (S03 AC-03): xai/ resolves to an *OAI in the
+// native strict json_schema structured mode (StructuredResponseFormat) — the
+// mode verifier/captain need — so the declared role set is honest.
+func TestNewClient_XAIStructured(t *testing.T) {
+	v, err := NewClient("xai/grok-4.5", ProviderConfig{XAIKey: "xai-test"})
+	if err != nil {
+		t.Fatalf("NewClient(xai/grok-4.5) error: %v", err)
+	}
+	oai, ok := v.(*OAI)
+	if !ok {
+		t.Fatalf("NewClient(xai/grok-4.5) returned %T, want *OAI", v)
+	}
+	if oai.Structured != StructuredResponseFormat {
+		t.Errorf("Structured = %v, want StructuredResponseFormat", oai.Structured)
+	}
+	if oai.BaseURL != "https://api.x.ai/v1" {
+		t.Errorf("BaseURL = %q, want https://api.x.ai/v1", oai.BaseURL)
+	}
+}
+
 func TestNewClient_Unknown(t *testing.T) {
 	_, err := NewClient("unknown/model", ProviderConfig{})
 	if err == nil {
@@ -131,13 +191,20 @@ func TestNewClient_OpenRouterSubPath(t *testing.T) {
 }
 
 func TestProviderConfigFromEnv(t *testing.T) {
-	// Clear all provider env vars first to avoid real env leak.
+	// Clear all provider env vars first to avoid real env leak — including
+	// every SWORN_* alias, since S06 D7 widened ProviderConfigFromEnv so
+	// each key falls back to its SWORN_* counterpart.
 	for _, k := range []string{
 		"OPENAI_API_KEY", "DEEPSEEK_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY",
 		"OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY",
 		"CLOUDFLARE_API_KEY", "GITHUB_TOKEN", "OLLAMA_HOST",
-		"SWORN_OPENAI_API_KEY", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
-		"AZURE_OPENAI_API_KEY",
+		"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
+		"AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_VERSION",
+		"SWORN_OPENAI_API_KEY", "SWORN_DEEPSEEK_API_KEY", "SWORN_GROQ_API_KEY",
+		"SWORN_MISTRAL_API_KEY", "SWORN_OPENROUTER_API_KEY", "SWORN_ANTHROPIC_API_KEY",
+		"SWORN_GOOGLE_API_KEY", "SWORN_CLOUDFLARE_API_KEY", "SWORN_GITHUB_TOKEN",
+		"SWORN_AWS_ACCESS_KEY_ID", "SWORN_AWS_SECRET_ACCESS_KEY",
+		"SWORN_AZURE_OPENAI_API_KEY", "SWORN_AZURE_OPENAI_ENDPOINT", "SWORN_AZURE_OPENAI_API_VERSION",
 	} {
 		t.Setenv(k, "")
 	}

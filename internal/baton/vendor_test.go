@@ -228,6 +228,7 @@ func TestVendorFailsOnUnmappedScriptInSource(t *testing.T) {
 	mustCreate("baton/track-mode.md", "# Track Mode")
 	mustCreate("baton/session-discipline.md", "# Session")
 	mustCreate("baton/brainstorm-patterns.md", "# Brainstorm")
+	mustCreate("baton/capability-policy.md", "# Capability Policy")
 
 	tmpRepo := t.TempDir()
 	for _, m := range batonFileMappings {

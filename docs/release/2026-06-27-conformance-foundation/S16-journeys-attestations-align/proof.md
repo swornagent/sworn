@@ -46,7 +46,7 @@ ok  	github.com/swornagent/sworn/internal/journey	0.040s
 ## Delivered
 
 - [x] `JourneyArtefact` struct uses nested `Ratification` sub-struct (`{By, At, IsRatified}`), not flat fields. Evidence: `internal/journey/journey.go:75-102`
-- [x] `Ratify("brad@sawyer.net.au")` writes nested JSON: `"ratification": {"by": "brad@sawyer.net.au", "at": "...", "is_ratified": true}`. Evidence: `TestRatify_NestedShapeRoundtrip` PASS
+- [x] `Ratify("maintainer@sworn.sh")` writes nested JSON: `"ratification": {"by": "maintainer@sworn.sh", "at": "...", "is_ratified": true}`. Evidence: `TestRatify_NestedShapeRoundtrip` PASS
 - [x] Journey JSON includes `"$schema": "https://baton.sawy3r.net/schemas/journeys-v1.json"`. Evidence: `TestRatify_NestedShapeRoundtrip` validates `$schema` key
 - [x] Attestation JSON includes `"$schema": "https://baton.sawy3r.net/schemas/attestations-v1.json"` with nested `ratification` and `boundary`. Evidence: `TestSaveAttestations_NestedShapeRoundtrip` PASS
 - [x] Validate-on-write: serializer calls `baton.Validate("journeys-v1", data)` / `baton.Validate("attestations-v1", data)` before writing. Evidence: `internal/journey/journey.go:196` and `internal/journey/walkthrough.go:143`

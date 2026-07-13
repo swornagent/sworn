@@ -81,15 +81,20 @@ type ValidationRecord struct {
 // deterministically — downstream consumers (S56) treat 0 as "no signal",
 // never as "free".
 type Dispatch struct {
-	Role             string  `json:"role"`
-	Model            string  `json:"model"`
-	CostUSD          float64 `json:"cost_usd"`
-	Attempt          int     `json:"attempt"`
-	DurationMS       int64   `json:"duration_ms,omitempty"`
-	InputTokens      int64   `json:"input_tokens,omitempty"`
-	OutputTokens     int64   `json:"output_tokens,omitempty"`
-	ModelIDConfirmed string  `json:"model_id_confirmed,omitempty"`
-	// Quadrant is the slice's effort_complexity quadrant (chore/grind/puzzle/epic)
+	Role    string  `json:"role"`
+	Model   string  `json:"model"`
+	CostUSD float64 `json:"cost_usd"`
+	Attempt int     `json:"attempt"`
+	// CostSource names where CostUSD came from — one of the
+	// driver.CostSource* constants (S08, honest cost telemetry — sworn#70).
+	// Additive/omitempty: a synthetic dispatch record (proof-absent,
+	// first-pass) that made no driver call carries no cost source, honestly.
+	CostSource       string `json:"cost_source,omitempty"`
+	DurationMS       int64  `json:"duration_ms,omitempty"`
+	InputTokens      int64  `json:"input_tokens,omitempty"`
+	OutputTokens     int64  `json:"output_tokens,omitempty"`
+	ModelIDConfirmed string `json:"model_id_confirmed,omitempty"`
+	// Quadrant is the slice's effort_complexity quadrant (quick/grind/puzzle/beast)
 	// at dispatch time (#36 / T16). Capturing it per dispatch is what turns the
 	// ledger from a global model leaderboard into the routing function
 	// f(effort_complexity, cost/velocity) → model: "which model fits this kind of
@@ -407,29 +412,34 @@ type DesignDecision struct {
 type EffortComplexity struct {
 	Effort                 string `json:"effort"`     // "low" | "high"
 	Complexity             string `json:"complexity"` // "low" | "high"
-	Quadrant               string `json:"quadrant"`   // "chore" | "grind" | "puzzle" | "epic"
+	Quadrant               string `json:"quadrant"`   // "quick" | "grind" | "puzzle" | "beast"
 	Rationale              string `json:"rationale,omitempty"`
 	ConfirmedByImplementer bool   `json:"confirmed_by_implementer,omitempty"`
 }
 
 // Quadrant derives the routing quadrant from the two axes — the single source of
-// truth for the effort×complexity → quadrant mapping (ADR-0011 §3.7):
+// truth for the effort×complexity → quadrant mapping (ADR-0011 §3.7). Baton
+// v0.7.1 renamed the two extreme quadrants: low/low is "quick" (was "chore") and
+// high/high is "beast" (was "epic"); grind/puzzle are unchanged.
 //
 //	             low complexity   high complexity
-//	high effort    grind            epic
-//	low effort     chore            puzzle
+//	high effort    grind            beast
+//	low effort     quick            puzzle
 //
-// It returns "" if either axis is not "low" or "high".
+// It returns "" if either axis is not "low" or "high". Quadrant only ever emits
+// the canonical v0.10.0 names; the retired chore/epic names have no tolerance
+// layer any more (the S11 read-path normalise shim was removed by S12), so a
+// record still carrying them fails the strict quadrant<->axes checksum in Validate.
 func Quadrant(effort, complexity string) string {
 	switch {
 	case effort == "low" && complexity == "low":
-		return "chore"
+		return "quick"
 	case effort == "high" && complexity == "low":
 		return "grind"
 	case effort == "low" && complexity == "high":
 		return "puzzle"
 	case effort == "high" && complexity == "high":
-		return "epic"
+		return "beast"
 	default:
 		return ""
 	}
@@ -510,6 +520,11 @@ func Read(path string) (*Status, error) {
 	if err != nil {
 		return nil, fmt.Errorf("state: read %s: %w", path, err)
 	}
+	// The S11 read-path normalise shim was removed wholesale by
+	// S12-record-migration once all on-disk records were migrated to canonical
+	// baton v0.10.0. There is no tolerance layer: EffortComplexity.Validate below
+	// is strictly quick/grind/puzzle/beast, so a record still carrying the retired
+	// chore/epic quadrant now fails closed on read (sworn#90 fully closed).
 	var s Status
 	if err := json.Unmarshal(data, &s); err != nil {
 		return nil, fmt.Errorf("state: parse %s: %w", path, err)

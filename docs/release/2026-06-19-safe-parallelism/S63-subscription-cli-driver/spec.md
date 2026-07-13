@@ -1,6 +1,6 @@
 ---
 title: 'S63-subscription-cli-driver — run roles via a Claude Code / Codex subscription (no API key)'
-description: 'A subprocess model driver that dispatches a role by spawning `claude -p` (Claude Code) or `codex exec` (Codex), which authenticate via the user''s logged-in subscription — so sworn runs with NO SWORN_*_API_KEY. Mirrors the reference coach-loop `claude-cli` driver. The open-core on-ramp: use the subscription you already pay for. depends_on S10-provider-foundation (the driver interface + typed model.Error). See ADR-0007 (dep policy) and internal-docs/decisions/2026-06-24-sworn-orchestration-surfaces-and-subscription-drivers.md.'
+description: 'A subprocess model driver that dispatches a role by spawning `claude -p` (Claude Code) or `codex exec` (Codex), which authenticate via the user''s logged-in subscription — so sworn runs with NO SWORN_*_API_KEY. Mirrors the reference coach-loop `claude-cli` driver. The open-core on-ramp: use the subscription you already pay for. depends_on S10-provider-foundation (the driver interface + typed model.Error). See ADR-0007 (dep policy) and docs/decisions/2026-06-24-sworn-orchestration-surfaces-and-subscription-drivers.md.'
 ---
 
 # Slice: `S63-subscription-cli-driver`

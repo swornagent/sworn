@@ -5,42 +5,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/agent"
-	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/state"
 )
 
-// TestStripInlineComment covers the YAML inline-comment trap (eval finding 2):
-// the unfilled placeholder collapses to "" and an inline note after a real value
-// is trimmed, while a '#' embedded in a token is left intact.
-func TestStripInlineComment(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"/tmp/wt/release", "/tmp/wt/release"},
-		{"# set by first /implement-slice in this release", ""},
-		{"/tmp/wt  # inline note", "/tmp/wt"},
-		{"a#b", "a#b"}, // embedded, not a comment
-		{"  spaced  ", "spaced"},
-		{"", ""},
-	}
-	for _, c := range cases {
-		if got := stripInlineComment(c.in); got != c.want {
-			t.Errorf("stripInlineComment(%q)=%q want %q", c.in, got, c.want)
-		}
-	}
-}
-
-// TestExtractReleaseWorktreePath_CommentPlaceholder proves the release-board
-// placeholder no longer yields the comment text as a literal worktree path.
-func TestExtractReleaseWorktreePath_CommentPlaceholder(t *testing.T) {
-	fm := "release: r1\nrelease_worktree_path: # set by first /implement-slice in this release\n"
-	if got := extractReleaseWorktreePath(fm); got != "" {
-		t.Errorf("placeholder should parse empty, got %q", got)
-	}
-	fm2 := "release_worktree_path: /tmp/wt/r1  # the worktree\n"
-	if got := extractReleaseWorktreePath(fm2); got != "/tmp/wt/r1" {
-		t.Errorf("got %q want /tmp/wt/r1", got)
-	}
-}
+// NOTE: TestStripInlineComment and TestExtractReleaseWorktreePath_CommentPlaceholder
+// were removed with S06 — the frontmatter helpers they covered
+// (stripInlineComment, extractReleaseWorktreePath) are deleted now that
+// RunParallel reads tracks and the release worktree path from board.json via
+// board.ReadBoard (the oracle) rather than parsing index.md frontmatter. The
+// board package retains its own stripInlineComment for the lazy index.md
+// migration path, covered by internal/board's tests.
 
 // TestRunSlice_ColdStartBootstrapsStartCommit is the reachability test for the
 // self-bootstrap (eval finding 7): a freshly-planned slice with empty
@@ -66,17 +40,11 @@ func TestRunSlice_ColdStartBootstrapsStartCommit(t *testing.T) {
 
 	called := false
 	opts := RunSliceOptions{
-		EscalationModels: []string{"quick"},
+		EscalationModels: []string{"fake/quick"},
 		VerifierModel:    "fake/verifier",
 		RetryCap:         0,
 		ImplementTimeout: DefaultImplementTimeout,
-		NewAgent: func(modelID string) (agent.Agent, error) {
-			if modelID == "fake/verifier" {
-				return &passingVerifierAgent{}, nil
-			}
-			return &markedAgent{called: &called}, nil
-		},
-		NewVerifier: func(_ string) (model.Verifier, error) { return &alwaysPassVerifier{}, nil },
+		Registry:         testRegistry(&fakeDriver{implement: markedImplement(&called)}),
 	}
 
 	if err := RunSlice(context.Background(), workspaceRoot, specPath, statusPath, opts); err != nil {

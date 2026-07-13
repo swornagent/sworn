@@ -49,6 +49,18 @@ files. Strategy is maintained privately, elsewhere.
   The core invariant; touch with care.
 - `internal/model/` — model client(s) behind a single interface; provider-neutral,
   BYO-key.
+- `internal/driver/` — the role-dispatch driver contract (ADR-0012);
+  `internal/driver/registry/` is the single resolution authority for loop
+  dispatch: an explicit prefix → driver table with fail-fast role checking
+  and dispatch-free enumeration (`sworn capabilities`). Model-ID prefixes
+  (sworn#31): `openai/` = OpenAI Responses API; `openai-completions/` =
+  legacy chat/completions; `openai-responses/` = deprecated alias of
+  `openai/`, kept for one release; `claude-cli/` and `codex/` = subscription
+  CLI subprocess drivers (no API key); `deepseek/`, `groq/`, `mistral/`,
+  `openrouter/`, `cloudflare/`, `github/`, `anthropic/` = in-process
+  chat-capable providers. Verify-only providers (google, vertex, bedrock,
+  azure, oci, ollama) stay on the one-shot utility path
+  (`model.FromEnv`/`model.NewClient`) used by gates/bench.
 - `internal/verify/` — the verification protocol (deterministic first-pass →
   dispatch → conservative verdict parse).
 - `internal/...` — engine/state/git/implement/run packages as slices land.
@@ -71,9 +83,12 @@ no token spend.
 ## Engineering Process — Baton (we dogfood the protocol)
 
 This project follows the **Baton** rule-set — the same protocol SwornAgent
-productises. Full rule docs with provenance live in [`docs/baton/`](docs/baton/);
-the seven rules below are the canonical fragment, adapted for this Go CLI. They
-are **listed in priority order** (higher rule wins on conflict).
+productises. Full rule docs with provenance are vendored into the binary
+(`internal/adopt/baton/`, pinned to a tagged upstream release — see
+`internal/adopt/baton/VERSION`; inspect with `sworn doctor`) rather than
+duplicated as a second per-repo copy under `docs/`. The seven rules below are
+the canonical fragment, adapted for this Go CLI. They are **listed in
+priority order** (higher rule wins on conflict).
 
 ### 1. Reachability Gate (CRITICAL)
 

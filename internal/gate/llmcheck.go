@@ -16,11 +16,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/swornagent/sworn/internal/model"
+	"github.com/swornagent/sworn/internal/spec"
 	"github.com/swornagent/sworn/internal/style"
 )
 
@@ -253,19 +253,25 @@ func RunLLMCheck(ctx context.Context, checkType CheckType, sliceDir string, diff
 		return nil, fmt.Errorf("llm-check: unknown check type %q (valid: %s)", checkType, validCheckTypeList())
 	}
 
-	// Read spec.md.
-	specPath := filepath.Join(sliceDir, "spec.md")
-	specContent, err := os.ReadFile(specPath)
+	// Read the machine contract — spec.json preferred (rendered to a readable
+	// markdown body for the model), spec.md legacy fallback (ADR-0009). Without
+	// this, `sworn llm-check` (including the design-review check the captain
+	// flow runs) hard-failed on a spec.json-only slice (AC-02, Coach Pin 2).
+	rec, specMD, err := spec.LoadSpec(sliceDir)
 	if err != nil {
-		return nil, fmt.Errorf("llm-check: read spec.md: %w", err)
+		return nil, fmt.Errorf("llm-check: read spec: %w", err)
+	}
+	specContent := specMD
+	if rec != nil {
+		specContent = spec.RenderMarkdown(rec)
 	}
 
 	// Build the prompt.
 	systemPrompt := systemPrompts[checkType]
-	userPayload := buildUserPayload(checkType, string(specContent), diffContent)
+	userPayload := buildUserPayload(checkType, specContent, diffContent)
 
 	// Call the model.
-	rawResponse, _, _, _, err := verifier.Verify(ctx, systemPrompt, userPayload) 
+	rawResponse, _, _, _, err := verifier.Verify(ctx, systemPrompt, userPayload)
 	if err != nil {
 		return nil, fmt.Errorf("llm-check: model call failed: %w", err)
 	}

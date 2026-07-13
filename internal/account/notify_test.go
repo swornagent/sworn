@@ -222,76 +222,103 @@ func TestNotifyWebhook_TimeoutContext(t *testing.T) {
 	n.Notify(ctx, event)
 }
 
+// writeProofJSON writes a minimal proof-v1 proof.json fixture carrying the
+// given not_delivered entries into sliceDir/proof.json.
+func writeProofJSON(t *testing.T, sliceDir string, notDelivered []string) {
+	t.Helper()
+	payload := struct {
+		NotDelivered []string `json:"not_delivered"`
+	}{NotDelivered: notDelivered}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sliceDir, "proof.json"), data, 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestViolationsSummary_FromFile is AC-01's integration test: ViolationsSummary
+// reads proof.json.not_delivered directly — no proof.md regex-scrape remains.
 func TestViolationsSummary_FromFile(t *testing.T) {
-	tmpDir := t.TempDir()
-	proofPath := filepath.Join(tmpDir, "proof.md")
+	sliceDir := t.TempDir()
 
-	// No file — should fall back.
-	got := ViolationsSummary(proofPath, 3)
+	// No proof.json at all — should fall back.
+	got := ViolationsSummary(sliceDir, 3)
 	if got != "3 violation(s) found" {
 		t.Errorf("got %q, want '3 violation(s) found'", got)
 	}
 
-	// Write a proof with violations.
-	content := `# Proof Bundle
+	// Write a proof.json with not_delivered violations.
+	writeProofJSON(t, sliceDir, []string{
+		"Missing reachability artefact in proof bundle",
+		"Test coverage below threshold",
+		"Design TL;DR not reviewed",
+	})
 
-## Delivered
-- Item 1
-
-## Not delivered
-- Deferred item
-
-## Violations
-1. Missing reachability artefact in proof bundle
-2. Test coverage below threshold
-3. Design TL;DR not reviewed
-`
-	if err := os.WriteFile(proofPath, []byte(content), 0644); err != nil {
-		t.Fatal(err)
+	got = ViolationsSummary(sliceDir, 3)
+	if got != "Missing reachability artefact in proof bundle" {
+		t.Errorf("got %q, want 'Missing reachability artefact in proof bundle'", got)
 	}
 
-	got = ViolationsSummary(proofPath, 3)
-	if got != "1. Missing reachability artefact in proof bundle" {
-		t.Errorf("got %q, want '1. Missing reachability artefact in proof bundle'", got)
-	}
+	// proof.json present but not_delivered empty.
+	writeProofJSON(t, sliceDir, nil)
 
-	// File with no parseable violations.
-	content2 := "# Proof Bundle\n\nAll checks passed.\n"
-	if err := os.WriteFile(proofPath, []byte(content2), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	got = ViolationsSummary(proofPath, 3)
+	got = ViolationsSummary(sliceDir, 3)
 	if got != "3 violation(s) found" {
 		t.Errorf("got %q, want '3 violation(s) found'", got)
 	}
 
-	// File with no violations, count 0.
-	got = ViolationsSummary(proofPath, 0)
+	// No violations, count 0.
+	got = ViolationsSummary(sliceDir, 0)
 	if got != "verification failed" {
 		t.Errorf("got %q, want 'verification failed'", got)
+	}
+
+	// A decoy proof.md sitting alongside proof.json must be ignored entirely
+	// (AC-01: "instead of", not "in addition to").
+	decoy := "# Proof Bundle\n\n## Violations\n1. LEGACY-SCRAPE-MARKER should never surface\n"
+	if err := os.WriteFile(filepath.Join(sliceDir, "proof.md"), []byte(decoy), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeProofJSON(t, sliceDir, []string{"the real violation"})
+	got = ViolationsSummary(sliceDir, 1)
+	if got != "the real violation" {
+		t.Errorf("got %q, want 'the real violation' (proof.md decoy must be ignored)", got)
 	}
 }
 
 func TestViolationsSummary_Truncation(t *testing.T) {
-	tmpDir := t.TempDir()
-	proofPath := filepath.Join(tmpDir, "proof.md")
+	sliceDir := t.TempDir()
 
-	longSummary := "1. "
+	long := ""
 	for i := 0; i < 250; i++ {
-		longSummary += "x"
+		long += "x"
 	}
-	content := "# Proof\n" + longSummary + "\n"
-	if err := os.WriteFile(proofPath, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
+	writeProofJSON(t, sliceDir, []string{long})
 
-	got := ViolationsSummary(proofPath, 0)
+	got := ViolationsSummary(sliceDir, 0)
 	if len(got) > 200 {
 		t.Errorf("summary length %d exceeds max 200: %q", len(got), got)
 	}
 	if len(got) < 197 {
 		t.Errorf("summary not truncated near boundary: len=%d", len(got))
+	}
+}
+
+// TestViolationsSummary_MalformedProofJSONFallsBack proves an unparseable
+// proof.json is treated the same as an absent one (matches the established
+// internal/mcp/context.go readProofViolations precedent) — no panic, no
+// proof.md fallback.
+func TestViolationsSummary_MalformedProofJSONFallsBack(t *testing.T) {
+	sliceDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(sliceDir, "proof.json"), []byte("{not json"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := ViolationsSummary(sliceDir, 2)
+	if got != "2 violation(s) found" {
+		t.Errorf("got %q, want '2 violation(s) found'", got)
 	}
 }
 

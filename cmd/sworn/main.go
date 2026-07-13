@@ -29,7 +29,16 @@ var version = "0.0.0-dev"
 func main() {
 	// ShowDisclosure prints the one-time telemetry disclosure if the user
 	// is in a neutral state. It only prints on the first invocation.
-	telemetry.ShowDisclosure(os.Stderr)
+	//
+	// Suppress it entirely for machine-readable invocations (e.g. --json):
+	// the disclosure goes to stderr, but consumers that merge streams
+	// (`sworn board --json 2>&1 | jq`, exec.CombinedOutput) would otherwise
+	// see it prepended to the JSON on stdout and fail to parse. Skipping it
+	// here leaves the neutral-state sentinel unwritten, so the disclosure
+	// still shows on the next human-facing invocation — no consent lost.
+	if !isMachineReadable(os.Args) {
+		telemetry.ShowDisclosure(os.Stderr)
+	}
 
 	start := time.Now()
 	exitCode := dispatch(os.Args)
@@ -53,6 +62,19 @@ func main() {
 	os.Exit(exitCode)
 }
 
+// isMachineReadable reports whether the invocation requests machine-readable
+// output (a --json / -json flag anywhere in the args). Used to suppress
+// human-facing notices that would corrupt a machine-readable stdout stream
+// when stderr is merged into stdout.
+func isMachineReadable(args []string) bool {
+	for _, a := range args {
+		if a == "--json" || a == "-json" {
+			return true
+		}
+	}
+	return false
+}
+
 // dispatch resolves the subcommand from the registry and runs it.
 // No per-command case statements — the registry owns dispatch.
 // Returns exit code (0 for success, non-zero for errors).
@@ -60,7 +82,7 @@ func main() {
 func dispatch(args []string) int {
 	if len(args) < 2 {
 		// No subcommand — launch the TUI (S04, T2-monitoring).
-		if err := tui.Run(); err != nil {
+		if err := tui.Run(version); err != nil {
 			fmt.Fprintf(os.Stderr, "sworn: %v\n", err)
 			return 1
 		}
@@ -111,6 +133,7 @@ func usage() {
 		rest string
 	}{
 		{"bench", " --task-set <dir> [--models <comma-sep>] [--output <dir>]"},
+		{"capabilities", ""},
 		{"init", " [--api-key <key>] [--force]"},
 		{"journeys", " [--check] [--impact <release>] [project-path]"},
 		{"lint ac", " <release>"},
@@ -143,6 +166,12 @@ func usage() {
 	b.WriteString("of slice specs with known-good diffs, record pass-rate + cost + jurisdiction, and\n")
 	b.WriteString("pick the safe-hosted default model from data.\n\n")
 
+	b.WriteString(style.Accent("capabilities"))
+	b.WriteString(" lists the registered drivers from the driver registry: prefixes,\n")
+	b.WriteString("roles, availability (no dispatch), and which prefixes route via the sworn proxy.\n")
+	b.WriteString("Model prefixes (sworn#31): openai/ = Responses API; openai-completions/ =\n")
+	b.WriteString("legacy chat/completions; openai-responses/ = deprecated alias of openai/ (one\n")
+	b.WriteString("release); claude-cli/ and codex/ = subscription CLI subprocess drivers.\n")
 	b.WriteString(style.Accent("init"))
 	b.WriteString(" bootstraps SwornAgent in a repo: writes a config file, vendors the Baton\n")
 	b.WriteString("protocol into docs/baton/, and splices the seven-rule fragment into AGENTS.md.\n")

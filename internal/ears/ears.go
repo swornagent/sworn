@@ -29,6 +29,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/swornagent/sworn/internal/spec"
 	"github.com/swornagent/sworn/internal/style"
 )
 
@@ -55,9 +56,14 @@ const (
 )
 
 // Result is the classification of a single acceptance criterion.
+//
+// Line is a 1-based line number within spec.md for a spec.md-sourced AC. For
+// a spec.json-sourced AC there is no markdown body to point at, so Line is
+// instead the 1-based ordinal position of the AC within acceptance_criteria[]
+// (deterministic and non-zero, but not a physical line number).
 type Result struct {
-	SliceID string  // the slice this AC belongs to
-	Line    int     // 1-based line number within the spec.md
+	SliceID string // the slice this AC belongs to
+	Line    int
 	Text    string  // the AC text (trimmed, without the checkbox marker)
 	Pattern Pattern // the EARS pattern class, or PatternNone
 }
@@ -189,15 +195,27 @@ func Classify(text string) Pattern {
 }
 
 // Validate reads a release directory and classifies every acceptance check
-// in every slice's spec.md. It returns a Report with per-AC results, any
-// violations (free-form ACs), and the per-pattern distribution.
+// in every slice. It returns a Report with per-AC results, any violations
+// (free-form ACs), and the per-pattern distribution.
+//
+// For each slice, spec.json is preferred over spec.md whenever spec.json
+// exists and carries at least one acceptance criterion (AC-02/AC-04): the
+// already-computed ears_pattern field is read directly instead of
+// re-classifying spec.md prose text, and this holds even when spec.md is
+// also present — spec.json is authoritative on disagreement. spec.md is
+// used only as a legacy fallback for slices with no spec.json (pre-ADR-0009
+// releases). This source-of-truth order deliberately differs from
+// internal/gate/trace.go's spec.md-first order: trace.go also runs
+// text-level prose checks that need a markdown body, which ears.go does not.
 //
 // The releaseDir is the path to docs/release/<release-name>/, which must
-// contain one subdirectory per slice (each containing spec.md). Non-slice
-// directories (e.g. screenshots) are skipped.
+// contain one subdirectory per slice. Non-slice directories (e.g.
+// screenshots) are skipped.
 //
-// Validate returns an error only for I/O failures. Violations are in the
-// Report, not the error.
+// Validate returns an error for I/O failures and for a malformed spec.json
+// (spec.ReadRecord fails closed on a parse error — that is distinct from an
+// absent spec.json, which is the legacy-fallback case, not an error).
+// Violations (free-form ACs) are reported in the Report, not the error.
 func Validate(releaseDir string) (*Report, error) {
 	report := &Report{Dist: Distribution{}}
 
@@ -214,12 +232,29 @@ func Validate(releaseDir string) (*Report, error) {
 		if !isSliceID(sliceID) {
 			continue
 		}
-		specPath := filepath.Join(releaseDir, sliceID, "spec.md")
-		specText, err := os.ReadFile(specPath)
-		if err != nil {
-			return nil, fmt.Errorf("ears: read %s: %w", specPath, err)
+		sliceDir := filepath.Join(releaseDir, sliceID)
+
+		var results []Result
+		rec, recErr := spec.ReadRecord(sliceDir)
+		if recErr != nil {
+			// spec.ReadRecord fails closed on a malformed spec.json — a real
+			// error, distinct from "spec.json absent" (nil, nil), which is
+			// the legacy-fallback case below. Do not conflate the two.
+			return nil, fmt.Errorf("ears: %w", recErr)
 		}
-		results := classifySpec(sliceID, string(specText))
+		if rec != nil && len(rec.AcceptanceCriteria) > 0 {
+			// spec.json wins whenever it exists and has ACs, even if
+			// spec.md also exists (AC-04 — JSON authoritative on
+			// disagreement).
+			results = classifySpecJSON(sliceID, rec)
+		} else {
+			specPath := filepath.Join(sliceDir, "spec.md")
+			specText, err := os.ReadFile(specPath)
+			if err != nil {
+				return nil, fmt.Errorf("ears: read %s: %w", specPath, err)
+			}
+			results = classifySpec(sliceID, string(specText))
+		}
 		for _, r := range results {
 			report.Results = append(report.Results, r)
 			if r.Pattern == PatternNote {
@@ -307,6 +342,54 @@ func classifySpec(sliceID, text string) []Result {
 	}
 	flush()
 	return results
+}
+
+// classifySpecJSON classifies each acceptance criterion in a spec-v1 record.
+// Unlike classifySpec, it does not re-derive the pattern from the AC text via
+// Classify — it reads the already-computed ears_pattern field (the canonical
+// v0.10.0 EARS pattern class the planner recorded, and that S12 migrated from
+// the retired sworn-local type field) and maps it directly. Returns one Result
+// per AC, in acceptance_criteria[] order; Line is the 1-based ordinal position
+// (see Result's doc comment — there is no markdown line for a JSON record).
+func classifySpecJSON(sliceID string, rec *spec.Record) []Result {
+	results := make([]Result, 0, len(rec.AcceptanceCriteria))
+	for i, ac := range rec.AcceptanceCriteria {
+		text := strings.TrimSpace(ac.Text)
+		pattern := patternFromEARSPattern(ac.EARSPattern)
+		// Defensive NOTE: check — belt-and-braces. The current spec.json
+		// writer already filters NOTE: lines out at write time, but this
+		// matches the spec.md path's behaviour if a future writer changes.
+		if reNote.MatchString(text) {
+			pattern = PatternNote
+		}
+		results = append(results, Result{
+			SliceID: sliceID,
+			Line:    i + 1,
+			Text:    text,
+			Pattern: pattern,
+		})
+	}
+	return results
+}
+
+// patternFromEARSPattern maps a spec-v1 acceptance-criterion's stored
+// ears_pattern field (the canonical v0.10.0 EARS pattern class) to an
+// ears.Pattern. The stored values are identical to the Pattern constants, so
+// the mapping is a direct, case-insensitive match. An empty or unrecognised
+// value defaults to PatternUbiquitous, mirroring the writer-side
+// default-to-ubiquitous fallback (a plain "THE SYSTEM SHALL" AC carries no
+// precondition). "none" is deliberately absent from the accepted set — the
+// strict spec-v1 schema forbids it as an authored value, so an unknown value
+// collapses to Ubiquitous here rather than surfacing as a spurious violation.
+func patternFromEARSPattern(pat string) Pattern {
+	p := Pattern(strings.ToLower(strings.TrimSpace(pat)))
+	switch p {
+	case PatternUbiquitous, PatternEventDriven, PatternStateDriven,
+		PatternOptionalFeature, PatternUnwanted, PatternComplex, PatternNote:
+		return p
+	default:
+		return PatternUbiquitous
+	}
 }
 
 // Print renders the validation report as human-readable text.

@@ -78,4 +78,4 @@ One outcome, all three surfaces, complementary not competing. This is a strong c
 
 - `sworn run --task`: **RATIFIED (direction C)** — becomes a real single-slice planner-assist quickstart (planner drafts a concrete-AC spec from the task, then implement+verify), not the current faked stub. Fixes the Rule-8 vague-AC + example.com-schema bugs.
 - Whether MCP run-control (`run.start/pause/resume/status`) is the canonical UI integration path (per the orchestration-surfaces decision: "MCP server owns the long-running loop").
-- Where the hosted layer attaches (it wraps Driver 3 + the moat data; out of scope for this public-safe artefact).
+- Where the hosted layer attaches (it wraps Driver 3 + the differentiator data; out of scope for this public-safe artefact).

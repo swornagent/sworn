@@ -54,12 +54,13 @@ Both worktree levels are materialised **lazily** — the planner creates no work
 
 ## The safety invariants
 
-Parallelism is safe **only** while all four hold. Every command enforces one or more of them.
+Parallelism is safe **only** while all five hold. Every command enforces one or more of them.
 
 1. **One worktree per track; one implementer at a time; slices sequential.** A track worktree has its own working tree and its own git index, so concurrent implementers in *different* tracks cannot race. Within a track, slices are done one after another — never two implementers in one track worktree.
 2. **Tracks are touchpoint-disjoint.** No file is written by two tracks — with one narrow, documented exception. The planner proves disjointness with the **touchpoint matrix** (below). **Documented region-split exception:** a large, append-mostly module (a shared types file, a registry, a barrel export) MAY appear in two tracks IF the touchpoint matrix row records the specific, well-separated region/symbol each track edits and they do not overlap. Such a row is a *documented shared file*. This exception is for genuinely additive, region-separable modules only — never a component, a hook, or a logic file.
 3. **A track branch is linear and contiguous.** Because a track's slices are sequential, the track branch carries only that track's commits, in order. A slice's diff is therefore exactly `start_commit..HEAD` — no commit-range archaeology.
 4. **A conflict at `/merge-track` is a planner error — except on a documented shared file.** Invariant 2 means track branches never touch the same file *except documented shared files*, so `track → release-wt` merges are conflict-free on every other file. A conflict on `index.md` or a **documented shared file** is expected reconciliation, and `/merge-track` resolves it. A conflict on **any other file** means the touchpoint matrix was wrong: `/merge-track` BLOCKs and the release returns to `/plan-release` (or `/replan-release`) to re-group.
+5. **`release-wt/<release>` is written only by `/merge-track` and the planner.** Two writers, and only two: `/merge-track` lands verified track branches (integration), and the planner (`/plan-release` / `/replan-release`) commits the plan itself — `board.json`, specs, intake. **An implementer never commits to `release-wt`** — not to register a worktree, not to flip a track to `in_progress`, not for anything. A track worktree is materialised by `git worktree add -b track/<release>/<track-id> release-wt/<release>` (which creates a branch, not a commit on `release-wt`); its path is **conventional** (`$HOME/projects/<REPO_BASENAME>-worktrees/release-<release>-<track-id>`) and its live state is **derived** by the oracle from the track branch — neither is persisted to `release-wt`. Why load-bearing: every implementer write to `release-wt` advances it under the sibling tracks' feet, forcing needless forward-merges and blurring the one branch whose history should read as a clean sequence of integrated tracks. The materialisation record is the `track/<release>/<track-id>` **branch ref**, discoverable by enumerating `track/<release>/*` refs — not a board mutation.
 
 ## The touchpoint matrix — the planner's load-bearing artefact
 
@@ -136,18 +137,20 @@ When the blocker clears, the next `/implement-slice <slice-id>` session resumes 
 
 ## Where the discovery data lives
 
-`index.md` frontmatter is the machine-readable registry the commands read:
+`board.json` is the machine-readable registry the commands read (via the oracle); `index.md` is its rendered view. `board.json` is a **pure plan** — the planner writes track ids, ordered slices, and `depends_on`, and nothing else about a track. Everything runtime is derived (invariant 5):
 
 ```yaml
-release_worktree_path: <absolute path, set by first /implement-slice in the release>
-release_worktree_branch: release-wt/<release>
+# board.json tracks[] — a pure plan; NO worktree path, NO state persisted
 tracks:
   - id: T1-identity-account
     slices: [S03-..., S07-...]      # ordered
     depends_on: null                 # or another track id
-    worktree_path: <set by first /implement-slice in this track>
-    worktree_branch: track/<release>/T1-identity-account
-    state: planned                   # planned | in_progress | merged
 ```
+
+**Worktree paths AND track state are derived, never stored (invariant 5).** The oracle computes them:
+- **Worktree path** — conventional: `$HOME/projects/<REPO_BASENAME>-worktrees/release-<release>[-<track-id>]`, from repo basename + release + track id. No command writes it.
+- **Track state** — from refs alone: `merged` iff the track branch is an ancestor of `release-wt/<release>` (`git merge-base --is-ancestor`); else `in_progress` iff the track branch exists with commits beyond `release-wt`'s cut; else `planned` (no branch, or branch at the cut). `/merge-track`'s merge commit *is* the `merged` signal — no `state` field is written to record it.
+
+Because neither is persisted, there is no field for a stale value to live in — the class of "board says `planned`, the branch says `verified`" bugs is gone by construction, not by discipline.
 
 The **Tracks table** and **touchpoint matrix** in the body of `index.md` are the human-readable mirror, kept in sync the same way the slice table mirrors each `status.json`. Each slice's `status.json` carries its `track` id and, once implementation starts, its `start_commit` (the SHA of the `docs(...): start implementation` commit) — the verifier diffs `start_commit..HEAD`.

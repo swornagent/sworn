@@ -15,6 +15,18 @@ description: The spec is not an axiom. Requirements are verified (quality), vali
 
 A need that drops silently between intake and spec is a requirements-fidelity defect. The traceability matrix makes it visible and blocks the release.
 
+## An acceptance criterion must be bounded
+
+Verifiable (29148) is necessary but **not sufficient**: an acceptance criterion can *look* verifiable and be **unbounded**, and an unbounded criterion produces a **non-terminating verification loop** — it can only be failed again, never discharged.
+
+**An acceptance criterion whose satisfaction cannot be enumerated is not verifiable, however verifiable it sounds.** If an AC quantifies over an open domain — *"no claim in the doc that the code contradicts"*, *"the system is secure"*, *"the API is consistent"* — it has no edge for verification to converge on. Bound it to a **named, enumerable set**, make each member machine-checkable, and declare everything outside the bound explicitly **non-normative**. An open-domain AC is not a criterion; it is an infinite regress with a checkbox.
+
+**The honest-bounding test.** Correctly bounding an AC is simultaneously a **narrowing** (of the claim) and a **strengthening** (of the enforcement) — the claim covers less, but every member of what it now covers is actually checked. That combination is the signature of an honest bound; a bounding that only narrows (drops items to make the check pass) without strengthening (checking the ones it keeps) is a dodge, and the gate should treat the distinction as the test.
+
+This is the front-half twin of Rule 12's scope-parity condition: Rule 12 forbids a *check* narrower than its claim; this forbids a *criterion* wider than any check can discharge. Both are the same root cause — a claim made wider than the evidence that backs it — caught at different layers.
+
+**Evidence.** A slice failed fresh-context verification **seven times, and not one failure touched the AC's named items.** Every failure lived in an `in_scope` clause reading *"no claim in the doc that the code contradicts"* — which asks a prose document to be verifiably true about an entire monorepo. The guard suite sat 125-green while the document could still have claimed the wrong font and a non-existent component variant — two of the four things the AC named by name. The fix (bound the AC to its six named items, machine-check all six) narrowed *and* strengthened at once.
+
 ## Why
 
 Rules 1, 6, and 7 verify **delivery against the spec** rigorously. They treat the spec itself as an axiom — the spec is the contract, and the verifier checks the code against it. But the spec can be wrong, incomplete, or disconnected from what the user actually asked for. The front half of the fidelity chain — from intake need to spec acceptance criterion — is unverified by the delivery rules. A perfectly implemented, perfectly verified slice that answers the wrong question is a fidelity defect no amount of delivery rigour will catch.

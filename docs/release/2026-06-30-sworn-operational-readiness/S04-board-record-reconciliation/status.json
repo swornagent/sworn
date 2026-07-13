@@ -4,7 +4,9 @@
   "release": "2026-06-30-sworn-operational-readiness",
   "track": "T4-board-record-reconciliation",
   "state": "verified",
-  "covers_needs": ["N-07"],
+  "covers_needs": [
+    "N-07"
+  ],
   "spec_path": "docs/release/2026-06-30-sworn-operational-readiness/S04-board-record-reconciliation/spec.json",
   "proof_path": "docs/release/2026-06-30-sworn-operational-readiness/S04-board-record-reconciliation/proof.md",
   "start_commit": "c291d98",
@@ -25,7 +27,7 @@
   "effort_complexity": {
     "effort": "low",
     "complexity": "low",
-    "quadrant": "chore",
+    "quadrant": "quick",
     "rationale": "Confirmed by implementer: tolerant release unmarshal + fidelity marshal + legacy validator relax + schema reconcile + tests. ~5 files, no surprises; oracle.go disjoint as predicted.",
     "confirmed_by_implementer": true
   },

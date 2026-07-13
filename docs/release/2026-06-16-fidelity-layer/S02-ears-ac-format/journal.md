@@ -11,7 +11,7 @@ description: Implementation log for one slice. Append-only. Visible to verifier 
 
 - **State**: `in_progress`
 - **Notes**:
-  - Track worktree at `/home/brad/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core` (T1-fidelity-core, already materialised by S01).
+  - Track worktree at `/home/user/projects/sworn-worktrees/release-2026-06-16-fidelity-layer-T1-fidelity-core` (T1-fidelity-core, already materialised by S01).
   - Preceding slice S01-rtm-spine is `verified` — sequential gate clear.
   - No BLOCKED verdict — `verification.result` is `pending` on both track branch and release-wt.
   - `start_commit` set to `cd46236` (the start-implementation commit).

@@ -1,0 +1,89 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S02-claude-subprocess-driver",
+  "release": "2026-06-28-driver-contract",
+  "track": "T2-subprocess",
+  "user_outcome": "An operator on a Claude subscription can dispatch the implementer and verifier roles through a claude-cli subprocess driver that delegates the entire agentic loop to the CLI, runs the child process inside the slice worktree, and returns a normalized Result with honest cost/token/duration data — the sworn#35 class (tools silently ignored, child running in the wrong directory) is gone by construction.",
+  "rationale": "The fix for sworn#35, the confirmed blocker for running `sworn loop` on a Claude subscription (2026-07-02 attempt stopped pre-spend on exactly this). Grounding against live code: today's cliDriver (internal/model/cli.go:19-157) runs `claude -p --no-session-persistence --model <m> <prompt>` with NO cmd.Dir, ignores the tools argument entirely, collapses history into one stacked prompt, and always reports cost/tokens 0; it advertises CapVerify|CapChat. This slice builds the real subprocess Driver in internal/driver and retires cli.go's dishonest Chat advertisement; cli.go's one-shot Verify stays — it serves the utility path (decided 2026-07-02: one-shot is utility-only). Test strategy: a fake `claude` binary on PATH emitting canned JSON envelopes — no paid dispatch in unit tests; real-CLI proof is S10's SIT + the release cutover journey walk. HOME must NOT be redirected (CLI credentials live under the real home) — this deliberately differs from the in-process tool executor's HOME=root hygiene (internal/agent/tools.go:323).",
+  "covers_needs": [
+    "N-02",
+    "N-08"
+  ],
+  "in_scope": [
+    "Shared subprocess plumbing (spawn, timeout, env hygiene, error mapping) reused by codex",
+    "claude -p --output-format json invocation with cmd.Dir=WorktreeRoot behind AssertWorktree",
+    "Verifier-role dispatch: --no-session-persistence + verdict-JSON emission into Result.StructuredJSON",
+    "JSON envelope parsing into Result (cost/tokens/duration/model)",
+    "Retiring cli.go's CapChat advertisement and toolless Chat path"
+  ],
+  "out_of_scope": [
+    "The codex variant (S03)",
+    "Registry registration and prefix mapping (S05)",
+    "cli.go's one-shot Verify — kept for the utility path",
+    "Real-CLI integration proof (S10 SIT smoke + the Rule-10 cutover journey walk)"
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "The invocation/normalisation shape is known (bash coach-loop precedent + existing cli.go); the work is breadth — two roles, env hygiene, error taxonomy, envelope parsing, fake-binary test harness.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    "internal/driver/subprocess.go",
+    "internal/driver/subprocess_test.go",
+    "internal/driver/claude.go",
+    "internal/driver/claude_test.go",
+    "internal/model/cli.go",
+    "internal/model/cli_test.go"
+  ],
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "Fake-binary unit tests prove parsing but not real CLI integration; the CLI's JSON envelope may drift across claude-cli versions.",
+      "mitigation": "Parse defensively (ignore unknown fields; missing usage fields degrade to zero-with-CostSource-unknown, never an error); S10's SIT smoke and the Rule-10 cutover journey walk exercise the real binary. Envelope assumptions documented in claude.go."
+    },
+    {
+      "id": "R-02",
+      "description": "Removing cliDriver's CapChat breaks any existing caller that resolved claude-cli for Chat.",
+      "mitigation": "The only production Chat consumers are the loop legs, which T4 moves onto the registry; until T4 merges, claude-cli Chat resolution fails fast at the existing CapChat gate in cmd/sworn/run.go:353 with a clear error instead of a silent toolless dispatch — strictly more honest than today."
+    },
+    {
+      "id": "R-03",
+      "description": "The new internal/driver ErrKind vocabulary is a new contract surface (AC-04); a non-zero CLI exit is mislabeled 'auth' even when the true cause is unrelated (a genuine imprecision, matching cli.go's existing coarse heuristic exactly). S06-loop-dispatch-rewire and S07-scheduler-failfast both consume Result.ErrKind and S07's own AC-03 assumes auth failures halt fast rather than retry — that consuming logic must explicitly treat ErrKind=auth as terminal (mirroring model.IsTerminal/KindAuth) or the fail-fast property this mapping exists to preserve is dropped silently at the rewire, not here.",
+      "mitigation": "Ratified 2026-07-03 (Captain design review, Brad): non-zero exit -> auth chosen over stderr pattern-matching, since a missed pattern match would silently reintroduce the exact fail-fast gap this mapping exists to close. S06 and S07 specs carry a matching risk entry (R-03/R-02 respectively) so the consuming side of this contract is not lost."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "When Dispatch is called with Role=implementer, a claude-cli model ID, and a valid WorktreeRoot, the driver SHALL spawn `claude -p --output-format json --model <model>` with cmd.Dir set to WorktreeRoot and SHALL return Status=ok with ResultText, CostUSD, InputTokens, OutputTokens, DurationMS, and ModelID populated from the CLI's JSON result envelope (fields result, total_cost_usd, usage.input_tokens, usage.output_tokens, duration_ms, model when present). TestClaudeDispatchImplementer proves this with a fake claude binary emitting a canned envelope and asserting the recorded cmd.Dir.",
+      "ears_pattern": "event-driven"
+    },
+    {
+      "id": "AC-02",
+      "text": "If WorktreeRoot does not exist or is not a git working tree, Dispatch SHALL return Status=error with ErrKind=config BEFORE any process is spawned (AssertWorktree from S01 fires first); the test asserts no child process launch was attempted (Rule 11).",
+      "ears_pattern": "unwanted-behaviour"
+    },
+    {
+      "id": "AC-03",
+      "text": "When Dispatch is called with Role=verifier, the driver SHALL pass --no-session-persistence (fresh context, Rule 7), SHALL include the DispatchInput.VerdictSchema in the prompt as the required output contract, and SHALL populate Result.StructuredJSON with the CLI's final result text when that text parses as a JSON object; when it does not parse as a JSON object, Dispatch SHALL return Status=error with ErrKind=protocol (fail-closed — the engine, not the driver, performs verifier-verdict-v1 schema validation).",
+      "ears_pattern": "event-driven"
+    },
+    {
+      "id": "AC-04",
+      "text": "If the CLI exits non-zero, exceeds DispatchInput.Timeout, or the binary is missing, Dispatch SHALL return Status=error with a mapped ErrKind (timeout -> transient; binary-not-found -> config; non-zero exit -> auth, with a stderr excerpt in the error message) — never a panic and never a half-populated Status=ok Result. The non-zero-exit -> auth mapping deliberately matches internal/model/cli.go's existing coarse-but-production-proven heuristic (any non-zero exit is treated as an auth failure) rather than a generic provider label, so the engine's existing terminal-halt-on-auth fail-fast (internal/run/slice.go, model.IsTerminal/KindAuth) can be preserved once S06 wires Dispatch into the loop. Table-driven TestClaudeErrorMapping covers all three.",
+      "ears_pattern": "unwanted-behaviour"
+    },
+    {
+      "id": "AC-05",
+      "text": "The child process environment SHALL set GOCACHE and GOMODCACHE to directories outside WorktreeRoot and SHALL NOT override HOME (CLI credentials live under the real home); TestClaudeEnvHygiene asserts the child env values and that no cache directory appears inside the worktree after a dispatch.",
+      "ears_pattern": "ubiquitous"
+    },
+    {
+      "id": "AC-06",
+      "text": "internal/model/cli.go SHALL no longer advertise CapChat nor expose the stacked-prompt toolless Chat path; its one-shot Verify SHALL remain unchanged for the utility path; `go test ./internal/driver/... ./internal/model/...` SHALL pass.",
+      "ears_pattern": "ubiquitous"
+    }
+  ]
+}

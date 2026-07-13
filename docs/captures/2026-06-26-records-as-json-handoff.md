@@ -47,8 +47,8 @@ gates, to make both launch-ready.
    eyeballs) → + open `sworn` binary for automated gates. **Seam revision:** the
    board oracle's *implementation* moves Baton(`.mjs`)→Sworn(Go); the oracle
    *contract* (board-v1 + state-resolution) stays in Baton.
-3. **Records vs data at the moat boundary.** The attestation *schema* (record
-   shape) is public protocol; attestation *data/telemetry* is private moat. The
+3. **Records vs data at the differentiator boundary.** The attestation *schema* (record
+   shape) is public protocol; attestation *data/telemetry* is private differentiator. The
    public-repo pre-push guard was too blunt (substring-matched `attestation`); it
    now carves out `^schemas/.*\.json$`. Guard master copy:
    `~/.claude/baton/public-repo-pre-push-hook` (+ installed `baton/.git/hooks/pre-push`).
@@ -174,7 +174,7 @@ The original numbered list below is the A1 record (now done).
 6. **Update PR #52 body** — the "Gates (bin/)" TODO section is now wrong (ADR-0010:
    gates are *removed*, not migrated to JSON-bash). Reframe to "strip bin/, pure-spec
    README/install, templates."
-7. Verify the pre-push guard still passes (no moat paths); push; the PR is then the
+7. Verify the pre-push guard still passes (no differentiator paths); push; the PR is then the
    full "records-as-JSON + Baton pure-spec" change.
 
 ## Remaining work B — Sworn Phase B (LATER, new release via `/plan-release`)

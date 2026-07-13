@@ -13,9 +13,11 @@ import (
 
 	"github.com/swornagent/sworn/internal/account"
 	"github.com/swornagent/sworn/internal/board"
+	"github.com/swornagent/sworn/internal/db"
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/router"
 	"github.com/swornagent/sworn/internal/scheduler"
+	"github.com/swornagent/sworn/internal/tracklog"
 )
 
 // ParallelOptions configures the RunParallel concurrent execution.
@@ -43,7 +45,7 @@ type ParallelOptions struct {
 	ProjectDir string
 
 	// DocsPrefix is the git-ref path prefix for release boards (default "docs").
-	// On monorepos where docs/ is a symlink (e.g. fired: docs → apps/docs/content/docs),
+	// On monorepos where docs/ is a symlink (e.g. a monorepo: docs → apps/docs/content/docs),
 	// the on-disk readers resolve through the symlink but git-ref readers (the
 	// router and the planned-files reader) cannot, so they need the real prefix
 	// (e.g. "apps/docs/content/docs"). The oracle auto-detects independently.
@@ -140,37 +142,52 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 		return fmt.Errorf("RunParallel: resolve workspace root: %w", err)
 	}
 
-	// ── Read release board ──────────────────────────────────────────────
-	indexPath := filepath.Join(absRoot, docsPrefix, "release", releaseName, "index.md")
-	indexData, err := os.ReadFile(indexPath)
+	// ── Durable log dir + coordinator tee (feat: live logs) ─────────────
+	// logDir is .sworn/logs/<release>: per-track <track>.log files are written
+	// by each worker (WorkerOptions.LogDir), and loop.log captures this
+	// coordinator goroutine's own narration. EnsureSelfIgnore stamps
+	// .sworn/.gitignore ("*") so logs are never git-tracked even on the
+	// (never-in-production) path where a log write races ahead of db.Open — in
+	// every real run db.Open has already stamped it. MkdirAll failure is
+	// non-fatal: NewWriter fails open to stderr-only.
+	logDir := filepath.Join(absRoot, db.DefaultDir, "logs", releaseName)
+	_ = os.MkdirAll(logDir, 0o755)
+	db.EnsureSelfIgnore(filepath.Join(absRoot, db.DefaultDir))
+	lw, closeLoop := tracklog.NewWriter(logDir, "loop")
+	defer closeLoop()
+
+	// ── Read release board (board.json via the oracle) ──────────────────
+	// The authoritative board lives on the release-wt ref once a release has been
+	// (re)planned in flight: /replan-release commits board.json + specs to
+	// release-wt/<name>, never to the integration branch — only the initial
+	// /plan-release lands on the integration branch (which is also the cold-start
+	// fallback, before release-wt exists). Read the board STRUCTURE from the same
+	// ref the oracle reads slice STATE from (below); reading it from the working
+	// tree instead made a replanned track/slice list invisible to a loop launched
+	// from the integration-branch primary worktree. board.ReadBoard is the
+	// cold-start/legacy fallback (lazily migrates from index.md frontmatter).
+	releaseRef := "release-wt/" + releaseName
+	repo := git.New(absRoot)
+	br, err := resolveReleaseBoard(ctx, repo, absRoot, releaseName, releaseRef)
 	if err != nil {
-		return fmt.Errorf("RunParallel: read index.md: %w", err)
+		return fmt.Errorf("RunParallel: read release board: %w", err)
 	}
 
-	// Parse frontmatter to extract release_worktree_path.
-	fm := extractFrontmatter(string(indexData))
-	if fm == "" {
-		return fmt.Errorf("RunParallel: no frontmatter found in %s", indexPath)
-	}
+	// board-v1 is a pure plan (sworn#80): the release worktree path is DERIVED as
+	// a REPO-LOCAL sibling of the repo (<repo>-worktrees/release-<name>), the same
+	// repo-local formula the cold-start default used — now the single always-on
+	// derivation rather than a persisted board.json field (eval finding 3).
+	releaseWorktreePath := board.ReleaseWorktreePathFrom(absRoot, releaseName)
 
-	releaseWorktreePath := extractReleaseWorktreePath(fm)
-	if releaseWorktreePath == "" {
-		// Cold-start (eval finding 1, completion): a freshly-planned board carries
-		// the placeholder "release_worktree_path: # set by first /implement-slice"
-		// which strips to empty. Rather than require the private Driver-1 scaffold
-		// to have filled it, default to a REPO-LOCAL path (a <repo>-worktrees
-		// sibling) so the engine self-bootstraps the release worktree below. The
-		// track worktrees then default to siblings of this path (worker.go).
-		releaseWorktreePath = filepath.Join(filepath.Dir(absRoot),
-			filepath.Base(absRoot)+"-worktrees", "release-"+releaseName)
-		fmt.Fprintf(os.Stderr, "RunParallel: release_worktree_path unset — defaulting to %s (cold-start)\n", releaseWorktreePath)
-	}
-
-	// Parse tracks from frontmatter.
-	tracks := board.ParseTracks(fm)
+	// Tracks with DERIVED worktree branch/path (state is not consumed here).
+	tracks := board.DeriveTrackInfos(br.Tracks, absRoot, releaseName, nil)
 	if len(tracks) == 0 {
 		return fmt.Errorf("RunParallel: no tracks found in release board")
 	}
+
+	// indexPath is still needed for the documented-shared touchpoint-matrix parse
+	// below (router.ParseDocumentedShared reads the rendered index.md body).
+	indexPath := filepath.Join(absRoot, docsPrefix, "release", releaseName, "index.md")
 
 	// ── Pre-flight: ensure release worktree exists ──────────────────────
 	// Self-bootstrap (eval finding 1): a freshly-planned release has no
@@ -179,13 +196,13 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 	// can cold-start without manual scaffolding; otherwise check out the existing
 	// branch into the worktree.
 	if !dirExists(releaseWorktreePath) {
-		fmt.Fprintf(os.Stderr, "RunParallel: materialising release worktree at %s\n", releaseWorktreePath)
+		fmt.Fprintf(lw, "RunParallel: materialising release worktree at %s\n", releaseWorktreePath)
 		releaseBranch := "release-wt/" + releaseName
 		args := []string{"worktree", "add"}
 		if branchExists(ctx, absRoot, releaseBranch) {
 			args = append(args, releaseWorktreePath, releaseBranch)
 		} else {
-			fmt.Fprintf(os.Stderr, "RunParallel: branch %s absent — creating it from HEAD (cold-start bootstrap)\n", releaseBranch)
+			fmt.Fprintf(lw, "RunParallel: branch %s absent — creating it from HEAD (cold-start bootstrap)\n", releaseBranch)
 			args = append(args, "-b", releaseBranch, releaseWorktreePath)
 		}
 		cmd := exec.CommandContext(ctx, "git", args...)
@@ -202,7 +219,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 		return fmt.Errorf("RunParallel: build plan: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "sworn run --parallel: loaded %d tracks in %d phases\n",
+	fmt.Fprintf(lw, "sworn run --parallel: loaded %d tracks in %d phases\n",
 		len(tracks), len(plan.Phases))
 
 	// ── Auto-construct production router when none injected ─────────────
@@ -215,8 +232,6 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 	// succeeds and the router-driven loop is the live path.
 	var ora router.OracleReader
 	if opts.Router == nil {
-		repo := git.New(absRoot)
-		releaseRef := "release-wt/" + releaseName
 		if o, oraErr := board.NewOracleReaderAdapterFromRepo(repo, releaseName, releaseRef); oraErr == nil {
 			ora = o
 			opts.Router = &productionSliceRouter{
@@ -241,10 +256,35 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 	}
 
 	// ── Parse documented shared files ────────────────────────────────────
-	// Extract from the markdown body (after frontmatter close), NOT the
-	// frontmatter — the DOCUMENTED SHARED touchpoint matrix is a table in
-	// the body. (Captain pin 2)
-	docShared := parseDocumentedSharedFiles(string(indexData))
+	// Delegate to router.ParseDocumentedShared — the canonical touchpoint-matrix
+	// parser (explicit "(DOCUMENTED SHARED)" marker AND ≥2-checkmark inference).
+	// The former local parseDocumentedSharedFiles matched ONLY the explicit
+	// marker, so a genuinely-shared file that a rendered index.md marks with ≥2
+	// checkmarks (but no annotation) was silently dropped and then wrongly treated
+	// as an invariant-2 collision (AC-03). Fail open: a release with no touchpoint
+	// matrix (single-track, or an unrendered index.md) has no documented-shared
+	// exemptions, which is not fatal — matching the oracle-read fail-open
+	// precedent (planned-files reader) in this same function.
+	docShared, err := router.ParseDocumentedShared(indexPath)
+	if err != nil {
+		fmt.Fprintf(lw, "RunParallel: parse documented shared files: %v (treating as no exemptions)\n", err)
+		docShared = nil
+	}
+
+	// ── Blocked-lane collector (S14 AC-05) ──────────────────────────────
+	// Workers report blocked-terminal lanes through the RecordBlocked
+	// side-channel (their TrackResult stays TrackFail — D3); the collector
+	// feeds the exit report so BLOCKED lanes (replan required, blocker
+	// verbatim) render distinctly from FAIL lanes (retries exhausted).
+	var (
+		blockedMu    sync.Mutex
+		blockedLanes []blockedLane
+	)
+	recordBlocked := func(trackID, sliceID, reason string) {
+		blockedMu.Lock()
+		defer blockedMu.Unlock()
+		blockedLanes = append(blockedLanes, blockedLane{Track: trackID, Slice: sliceID, Reason: reason})
+	}
 
 	// ── Fan out per phase ───────────────────────────────────────────────
 	var outcomeMap sync.Map
@@ -272,7 +312,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 		for _, trackInfo := range phase.Tracks {
 			if phaseCtx.Err() != nil {
 				outcomeMap.Store(trackInfo.ID, scheduler.TrackSkipped)
-				fmt.Fprintf(os.Stderr, "[%s] skipped: depends_on failed (phase barrier)\n", trackInfo.ID)
+				fmt.Fprintf(lw, "[%s] skipped: depends_on failed (phase barrier)\n", trackInfo.ID)
 				continue
 			}
 
@@ -292,7 +332,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 				// Find the already-launched track that owns the first
 				// overlapping file for the INVARIANT-2 message.
 				tA := fileOwner[overlaps[0]]
-				fmt.Fprintf(os.Stderr, "INVARIANT-2: tracks %s and %s both write %s — blocked %s until %s merges\n",
+				fmt.Fprintf(lw, "INVARIANT-2: tracks %s and %s both write %s — blocked %s until %s merges\n",
 					tA, trackInfo.ID, overlaps[0], trackInfo.ID, tA)
 				blockedTracks = append(blockedTracks, trackInfo)
 				outcomeMap.Store(trackInfo.ID, scheduler.TrackBlocked)
@@ -313,6 +353,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 
 				workerOpts := scheduler.WorkerOptions{
 					ReleaseName:         releaseName,
+					LogDir:              logDir,
 					TrackInfo:           t,
 					ReleaseWorktreePath: releaseWorktreePath,
 					PrimaryWorktreeRoot: absRoot,
@@ -325,6 +366,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 					Oracle:              ora,
 					PauseCh:             pauseEngine.PauseCh(releaseName),
 					MergeTrackFn:        opts.MergeTrackFn,
+					RecordBlocked:       recordBlocked,
 				}
 				// Run on the parent ctx, NOT phaseCtx (#33): a sibling track's
 				// failCancel() must not cancel this track mid-run. Tracks in a
@@ -364,7 +406,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 				overlaps := checkDisjointness(planned, running, docShared)
 				if len(overlaps) > 0 {
 					tA := retryFileOwner[overlaps[0]]
-					fmt.Fprintf(os.Stderr, "INVARIANT-2: tracks %s and %s both write %s — blocked %s after retry (merge did not resolve)\n",
+					fmt.Fprintf(lw, "INVARIANT-2: tracks %s and %s both write %s — blocked %s after retry (merge did not resolve)\n",
 						tA, t.ID, overlaps[0], t.ID)
 					outcomeMap.Store(t.ID, scheduler.TrackBlocked)
 					continue
@@ -381,6 +423,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 					defer retryWg.Done()
 					workerOpts := scheduler.WorkerOptions{
 						ReleaseName:         releaseName,
+						LogDir:              logDir,
 						TrackInfo:           tt,
 						ReleaseWorktreePath: releaseWorktreePath,
 						PrimaryWorktreeRoot: absRoot,
@@ -393,6 +436,7 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 						Oracle:              ora,
 						PauseCh:             pauseEngine.PauseCh(releaseName),
 						MergeTrackFn:        opts.MergeTrackFn,
+						RecordBlocked:       recordBlocked,
 					}
 					// Run on the parent ctx, NOT phaseCtx (#33): a sibling track's
 					// failCancel() must not cancel this track mid-run. Tracks in a
@@ -425,23 +469,35 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 		result := val.(scheduler.TrackResult)
 		switch result {
 		case scheduler.TrackPass:
-			fmt.Fprintf(os.Stderr, "[%s] result: PASS\n", trackInfo.ID)
+			fmt.Fprintf(lw, "[%s] result: PASS\n", trackInfo.ID)
 		case scheduler.TrackFail:
 			failedTracks = append(failedTracks, trackInfo.ID)
-			fmt.Fprintf(os.Stderr, "[%s] result: FAIL\n", trackInfo.ID)
+			fmt.Fprintf(lw, "[%s] result: FAIL\n", trackInfo.ID)
 		case scheduler.TrackSkipped:
 			skippedTracks = append(skippedTracks, trackInfo.ID)
-			fmt.Fprintf(os.Stderr, "[%s] result: SKIPPED\n", trackInfo.ID)
+			fmt.Fprintf(lw, "[%s] result: SKIPPED\n", trackInfo.ID)
 		case scheduler.TrackPaused:
 			pausedTracks = append(pausedTracks, trackInfo.ID)
-			fmt.Fprintf(os.Stderr, "[%s] result: PAUSED\n", trackInfo.ID)
+			fmt.Fprintf(lw, "[%s] result: PAUSED\n", trackInfo.ID)
 		case scheduler.TrackBlocked:
 			blockedTracksList = append(blockedTracksList, trackInfo.ID)
-			fmt.Fprintf(os.Stderr, "[%s] result: BLOCKED (invariant-2)\n", trackInfo.ID)
+			fmt.Fprintf(lw, "[%s] result: BLOCKED (invariant-2)\n", trackInfo.ID)
 		}
 	}
 
 	if len(failedTracks) > 0 {
+		// S14 AC-05: when any blocked lane exists, the returned error carries
+		// the distinguishing report — BLOCKED lanes (blocker verbatim, routed
+		// to /replan-release) vs FAIL lanes (retries exhausted). cmd/sworn
+		// prints this error and exits non-zero (existing plumbing). When no
+		// blocked lane exists the error stays byte-identical to the legacy
+		// format (protects TestRunParallel_FailureCascade and any caller
+		// matching on it — D5).
+		if len(blockedLanes) > 0 {
+			report := renderBlockedVsFailReport(releaseName, blockedLanes, failedTracks)
+			fmt.Fprintln(lw, report)
+			return fmt.Errorf("%s", report)
+		}
 		return fmt.Errorf("RunParallel: %d track(s) failed: %s",
 			len(failedTracks), strings.Join(failedTracks, ", "))
 	}
@@ -461,62 +517,58 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 			len(blockedTracksList), strings.Join(blockedTracksList, ", "))
 	}
 
-	fmt.Fprintf(os.Stderr, "RunParallel: all %d tracks PASS (skipped: %d, blocked: %d)\n",
+	fmt.Fprintf(lw, "RunParallel: all %d tracks PASS (skipped: %d, blocked: %d)\n",
 		len(tracks), len(skippedTracks), len(blockedTracksList))
 	return nil
 }
 
-// extractFrontmatter returns the content between the first --- and second ---
-// in a markdown file with YAML frontmatter.
-func extractFrontmatter(text string) string {
-	const delim = "---"
-	lines := strings.Split(text, "\n")
-	if len(lines) < 2 || strings.TrimSpace(lines[0]) != delim {
-		return ""
-	}
-
-	var body []string
-	for i := 1; i < len(lines); i++ {
-		if strings.TrimSpace(lines[i]) == delim {
-			return strings.Join(body, "\n")
-		}
-		body = append(body, lines[i])
-	}
-	return ""
+// blockedLane records one blocked-terminal lane reported by a worker through
+// the RecordBlocked side-channel (S14): the owning track, the slice whose
+// dispatch/verdict was blocked, and the blocker text verbatim.
+type blockedLane struct {
+	Track  string
+	Slice  string
+	Reason string
 }
 
-// extractReleaseWorktreePath extracts the release_worktree_path from
-// frontmatter body.
-func extractReleaseWorktreePath(body string) string {
-	for _, line := range strings.Split(body, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "release_worktree_path:") {
-			val := strings.TrimSpace(strings.TrimPrefix(line, "release_worktree_path:"))
-			val = stripInlineComment(val)
-			val = strings.Trim(val, `"'`)
-			return val
+// renderBlockedVsFailReport builds the S14 AC-05 exit report: BLOCKED lanes
+// with the verbatim blocker and an explicit route-to-/replan-release
+// directive, then FAIL lanes (retries exhausted). A failed track with a
+// blocked record renders as a BLOCKED lane; the remaining failed tracks are
+// FAIL lanes. The blocker text is emitted verbatim — no summarisation, no
+// truncation (R-03).
+func renderBlockedVsFailReport(releaseName string, blockedLanes []blockedLane, failedTracks []string) string {
+	blockedSet := make(map[string]bool, len(blockedLanes))
+	for _, bl := range blockedLanes {
+		blockedSet[bl.Track] = true
+	}
+	var failLanes []string
+	for _, tid := range failedTracks {
+		if !blockedSet[strings.TrimSuffix(tid, " (no outcome)")] {
+			failLanes = append(failLanes, tid)
 		}
 	}
-	return ""
-}
 
-// stripInlineComment removes a trailing YAML "# ..." inline comment from a
-// scalar value. The unfilled board placeholder
-// (release_worktree_path: # set by first /implement-slice in this release)
-// collapses to "" instead of yielding the comment text as a literal path — the
-// cold-start trap that fed the comment to `git worktree add` (eval finding 2).
-// A '#' is only treated as a comment marker at the start or after whitespace,
-// so a '#' embedded in a token is left intact.
-func stripInlineComment(s string) string {
-	s = strings.TrimSpace(s)
-	for i := 0; i < len(s); i++ {
-		if s[i] == '#' && (i == 0 || s[i-1] == ' ' || s[i-1] == '\t') {
-			return strings.TrimSpace(s[:i])
+	var b strings.Builder
+	fmt.Fprintf(&b, "RunParallel: %d lane(s) BLOCKED (replan required), %d track(s) failed",
+		len(blockedLanes), len(failLanes))
+	b.WriteString("\nBLOCKED lanes — terminal for this run; route to /replan-release:")
+	for _, bl := range blockedLanes {
+		fmt.Fprintf(&b, "\n  [%s] %s: %s", bl.Track, bl.Slice, bl.Reason)
+		fmt.Fprintf(&b, "\n      -> /replan-release %s", releaseName)
+	}
+	if len(failLanes) > 0 {
+		b.WriteString("\nFAIL lanes — retries exhausted:")
+		for _, tid := range failLanes {
+			fmt.Fprintf(&b, "\n  [%s]", tid)
 		}
 	}
-	return s
+	return b.String()
 }
 
+// trackInfosFromBoardTracks converts board.json BoardTrack records into the
+// board.TrackInfo shape the scheduler and router consume. Kept local to
+// internal/run rather than added to internal/board because internal/board is
 // ProductionMergeTrack merges a track branch into the release worktree.
 // Called from finishTrack when MergeTrackFn is wired in WorkerOptions.
 //
@@ -525,11 +577,14 @@ func stripInlineComment(s string) string {
 // the release worktree shares object storage). If that fails, fetch the branch
 // from origin (just pushed by finishTrack) and retry with origin/<branch>.
 func ProductionMergeTrack(releasePath, trackID, branch string) error {
-	// Guard: if the release path is not a git worktree, skip the merge.
-	// This happens in tests (temp dirs) and is harmless — the merge is a
-	// production-only operation.
-	if !dirExists(filepath.Join(releasePath, ".git")) {
-		return nil
+	// Rule 11 target assertion, fail closed: the release path must be a git
+	// worktree. A linked worktree from `git worktree add` (how RunParallel
+	// bootstraps release-wt) has a .git FILE (gitdir pointer), a primary
+	// checkout has a .git directory — accept either. When neither exists the
+	// target is not a worktree: return an error rather than nil, because a
+	// nil return is reported upstream by finishTrack as "auto-merged".
+	if _, err := os.Stat(filepath.Join(releasePath, ".git")); err != nil {
+		return fmt.Errorf("ProductionMergeTrack: release path %s is not a git worktree (.git not found): %v", releasePath, err)
 	}
 
 	// Attempt 1: merge the local branch name directly.
@@ -573,6 +628,41 @@ func branchExists(ctx context.Context, dir, branch string) bool {
 	return cmd.Run() == nil
 }
 
+// resolveReleaseBoard reads the release board, preferring the release-wt ref
+// (authoritative once a release is (re)planned in flight — /replan-release
+// commits board.json there, never to the integration branch) over the working
+// tree. This aligns the board-STRUCTURE read with the oracle's slice-STATE reads,
+// with /replan-release, and with the reference coach-loop — all of which read the
+// board straight from git refs, so a replanned track/slice list is never missed.
+// It also hardens resume: a loop relaunched after a crash/kill re-reads the
+// current board (and, via the oracle, the current slice states) from the refs.
+//
+// It falls back to the working-tree board (board.ReadBoard) when the release-wt
+// branch does not exist yet (cold start: the initial /plan-release plan is still
+// on the integration branch) or when board.json is not present on the ref. The
+// two board paths mirror the oracle's readTrackInfos (plain + Fumadocs monorepo).
+func resolveReleaseBoard(ctx context.Context, repo *git.Repo, absRoot, release, releaseRef string) (*board.BoardRecord, error) {
+	if branchExists(ctx, absRoot, releaseRef) {
+		for _, boardPath := range []string{
+			"docs/release/" + release + "/board.json",
+			"apps/docs/content/docs/release/" + release + "/board.json",
+		} {
+			raw, err := repo.Show(releaseRef, boardPath)
+			if err != nil {
+				continue
+			}
+			var br board.BoardRecord
+			if err := json.Unmarshal([]byte(raw), &br); err != nil {
+				return nil, fmt.Errorf("parse board.json from %s: %w", releaseRef, err)
+			}
+			return &br, nil
+		}
+	}
+	// Cold start (release-wt absent) or board.json not on the ref: fall back to
+	// the working-tree board (integration branch / initial plan; legacy migration).
+	return board.ReadBoard(absRoot, release)
+}
+
 // ── Invariant-2 enforcement (S06) ─────────────────────────────────────────
 
 // plannedFilesKey is a track-id → planned_files map key used in the default
@@ -581,51 +671,6 @@ type plannedFilesKey struct {
 	absRoot       string
 	releaseName   string
 	slicesByTrack map[string][]string
-}
-
-// parseDocumentedSharedFiles extracts file paths from the DOCUMENTED SHARED
-// rows in the index.md markdown body (after the closing --- delimiter).
-// The touchpoint matrix is a markdown table in the body, NOT the frontmatter.
-//
-// Format: | `path/to/file.go` (DOCUMENTED SHARED) | ...
-// The function extracts the first backtick-quoted path from any row containing
-// "(DOCUMENTED SHARED)".
-func parseDocumentedSharedFiles(indexData string) map[string]bool {
-	// Find the closing frontmatter delimiter — the body starts after the second ---.
-	// The first --- is at position 0; find the second --- on its own line.
-	const delim = "\n---"
-	bodyStart := strings.Index(indexData, delim)
-	if bodyStart < 0 {
-		return nil
-	}
-	// Skip past the closing --- (len(delim) bytes) plus the newline.
-	body := indexData[bodyStart+len(delim):]
-	if len(body) > 0 && body[0] == '\n' {
-		body = body[1:]
-	} else if len(body) > 1 && body[0] == '\r' && body[1] == '\n' {
-		body = body[2:]
-	}
-
-	result := make(map[string]bool)
-	for _, line := range strings.Split(body, "\n") {
-		if !strings.Contains(line, "(DOCUMENTED SHARED)") {
-			continue
-		}
-		// Extract the first backtick-quoted path.
-		start := strings.Index(line, "`")
-		if start < 0 {
-			continue
-		}
-		end := strings.Index(line[start+1:], "`")
-		if end < 0 {
-			continue
-		}
-		path := line[start+1 : start+1+end]
-		if path != "" {
-			result[path] = true
-		}
-	}
-	return result
 }
 
 // checkDisjointness returns the set of files that appear in both a and b,

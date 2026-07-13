@@ -97,6 +97,6 @@ None — implementation matches spec exactly: `internal/gate/mock.go`, `internal
 ## First-pass script output
 
 ```
-$ /home/brad/.claude/bin/release-verify.sh S68-lint-mock 2026-06-19-safe-parallelism
+$ /home/user/.claude/bin/release-verify.sh S68-lint-mock 2026-06-19-safe-parallelism
 FIRST-PASS PASS (23/23 checks) — see full output below.
 ```

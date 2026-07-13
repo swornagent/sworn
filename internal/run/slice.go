@@ -14,6 +14,8 @@ import (
 	"github.com/swornagent/sworn/internal/agent"
 	"github.com/swornagent/sworn/internal/captain"
 	"github.com/swornagent/sworn/internal/design"
+	"github.com/swornagent/sworn/internal/driver"
+	"github.com/swornagent/sworn/internal/driver/registry"
 	"github.com/swornagent/sworn/internal/gate"
 	"github.com/swornagent/sworn/internal/git"
 	"github.com/swornagent/sworn/internal/implement"
@@ -54,13 +56,15 @@ type RunSliceOptions struct {
 	// 0 means use DefaultImplementTimeout.
 	// A negative value means no timeout (opt-out).
 	ImplementTimeout time.Duration
-	// NewAgent is a factory for creating an agent.Agent from a model ID.
-	// When nil, model.FromEnv is used (production path).
-	NewAgent func(modelID string) (agent.Agent, error)
 
-	// NewVerifier is a factory for creating a model.Verifier from a model ID.
-	// When nil, model.FromEnv is used (production path).
-	NewVerifier func(modelID string) (model.Verifier, error)
+	// Registry is the driver-resolution authority (S06 rewire): every role
+	// leg — captain, implement, verify — obtains its driver via
+	// Registry.Resolve(modelID, role) and dispatches via Driver.Dispatch.
+	// When nil, registry.Default(model.ProviderConfigFromEnv()) is used
+	// (production path). Tests inject fake drivers through a test registry
+	// (registry.New() + Register) — never through factories; the factory
+	// fields this replaces were the nil-factory SIGSEGV class (AC-01).
+	Registry *registry.Registry
 
 	// Notifier is the notification dispatcher for FAIL/BLOCKED verdicts.
 	// When nil, notifications are skipped (test path).
@@ -76,11 +80,10 @@ type RunSliceOptions struct {
 	// untouched (S45-design-tldr AC2).
 	RegenerateDesign bool
 
-	// InterpretVerifier is an optional model.Verifier for the LLM interpreter
-	// (S01-llm-interpreter). When the verifier's raw output does not parse to a
-	// clean verdict, the interpreter classifies it with a bounded cheap-model
-	// call. If nil, the existing VerifierModel's client is used as a fallback.
-	InterpretVerifier model.Verifier
+	// NOTE (S06): InterpretVerifier was deleted without a shim — dead since
+	// the ADR-0011 keystone removed the stateless interpreter; repo grep
+	// showed zero readers and internal-package visibility means nothing
+	// outside the module could set it (Coach ack flag (a)).
 
 	// DB is the supervisor database handle. When non-nil, RunSlice records
 	// triage decisions via supervisor.RecordTriage (S02-orchestrator-decision-log).
@@ -127,6 +130,41 @@ func appendDispatch(ds []state.Dispatch, quadrant string, d state.Dispatch) []st
 	return append(ds, d)
 }
 
+// recordDesignGateDeferral records a machine-readable Rule 2 deferral on the
+// slice status.json when the Rule 9 design-review gate could not be applied
+// (design TL;DR or captain-review dispatch/construction failed, e.g. a
+// transient provider 429 or timeout). Without this the gate skip was silent —
+// no status trace, no deferral — so a transient infra error bypassed the
+// human-owned Rule 9 checkpoint invisibly. Recording the deferral turns a
+// silent bypass into a durable, machine-readable record (why + tracking);
+// human acknowledgement (Rule 2's third leg) is left to the Coach reviewing
+// open_deferrals. Best-effort: a status read/write failure here must not
+// itself wedge the run. Idempotent per reason: it will not append a duplicate
+// deferral carrying the same tracking marker.
+func recordDesignGateDeferral(statusPath, reason string) {
+	st, err := state.Read(statusPath)
+	if st == nil || err != nil {
+		fmt.Fprintf(os.Stderr, "sworn run: could not record design-gate deferral (status read: %v)\n", err)
+		return
+	}
+	const tracking = "swornagent/sworn#51 — Rule 9 design gate skipped on dispatch failure"
+	for _, d := range st.OpenDeferrals {
+		if d.Tracking == tracking && d.Item == "design_review_gate" {
+			return // already recorded this run
+		}
+	}
+	st.OpenDeferrals = append(st.OpenDeferrals, state.Deferral{
+		Item:     "design_review_gate",
+		Why:      reason,
+		Tracking: tracking,
+	})
+	st.LastUpdatedBy = "run-slice"
+	st.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	if err := state.Write(statusPath, st); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn run: could not record design-gate deferral (status write: %v)\n", err)
+	}
+}
+
 // violationsFromStrings wraps the verdict layer's []string violations into the
 // typed []state.Violation the status carrier now holds (D4). The verdict layer
 // stays []string by design (sworn-generated, not coach-read — see
@@ -155,14 +193,13 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	if opts.VerifierModel == "" {
 		return fmt.Errorf("RunSlice: VerifierModel is required")
 	}
-	// EVAL SUPERVISOR FIX (2026-06-28): parallel mode's runSliceFn does not wire
-	// NewAgent, so it was nil here → SIGSEGV at the design-TL;DR dispatch. Mirror
-	// run.Run's default (run.go:107-108) so the parallel loop can dispatch agents.
-	if opts.NewAgent == nil {
-		opts.NewAgent = newAgentFromModel
-	}
-	if opts.NewVerifier == nil {
-		opts.NewVerifier = newVerifierFromModel
+	// Registry default (S06, replacing the deleted NewAgent/NewVerifier
+	// factory nil-defaults — the 2026-06-28 eval supervisor SIGSEGV class is
+	// unrepresentable now: no code path holds an unresolved driver). Built
+	// from the same config `sworn capabilities` enumerates from, so the
+	// advertised and actual dispatch routes share one predicate (R-04).
+	if opts.Registry == nil {
+		opts.Registry = registry.Default(model.ProviderConfigFromEnv())
 	}
 
 	repo := git.New(worktreeRoot)
@@ -211,13 +248,31 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	}
 
 	// ── Build escalation list ─────────────────────────────────────────
-	escalationModels := opts.EscalationModels
-	if opts.ImplementerModel != "" {
-		escalationModels = append([]string{opts.ImplementerModel}, escalationModels...)
+	// Extracted to ComposeEscalationModels (S07 resolve.go) so the startup
+	// sweep (cmd/sworn/run.go, S07 AC-01) composes the IDENTICAL list this
+	// per-attempt resolution below resolves — one composition, two callers,
+	// never two.
+	escalationModels := ComposeEscalationModels(opts.ImplementerModel, opts.EscalationModels)
+
+	// ── Upfront driver resolution (S06 AC-02) ─────────────────────────
+	// Every role leg resolves its driver here, BEFORE any model dispatch.
+	// Implement/verify resolution failure is a hard error naming the model,
+	// role, and registered alternatives (the wrap adds the model ID the
+	// registry's role-arm error lacks — Coach ack pin 2); no code path ever
+	// holds a nil or unresolved driver. The captain leg fails open: its
+	// resolution error is recorded as a durable Rule 2 deferral at the
+	// design/review stages below and the run proceeds (Coach decision
+	// 2026-07-10, captain-proceed.md pin 1 — no subprocess driver declares
+	// RoleCaptain yet; sworn#86 tracks restoring role-universality).
+	// Extracted to ResolveDispatch (S07 resolve.go) — identical resolution
+	// logic, error text, and captain fail-open policy as before; see resolve.go.
+	resolution, err := ResolveDispatch(opts.Registry, "RunSlice", opts.VerifierModel, escalationModels)
+	if err != nil {
+		return err
 	}
-	if len(escalationModels) == 0 {
-		escalationModels = DefaultEscalationModels
-	}
+	verifierDriver := resolution.Verifier
+	implDrivers := resolution.Implementers
+	captainDriver, captainResolveErr := resolution.Captain, resolution.CaptainErr
 
 	// ── Triage policy (S47) ────────────────────────────────────────────
 	// The loop is driven by the triage policy, not a fixed attempt counter.
@@ -231,6 +286,11 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	if !filepath.IsAbs(specPath) {
 		absSliceDir = filepath.Join(worktreeRoot, absSliceDir)
 	}
+	// spec.json-preferred, spec.md legacy fallback (ADR-0009): resolve the
+	// truthful machine-contract path so the first-pass gate, implement, and
+	// verify legs all read spec.json when present — even when the caller passed
+	// a spec.md-named path (S01-spec-json-read-conformance).
+	specPath = resolveSpecPath(absSliceDir)
 	proofPath := filepath.Join(absSliceDir, "proof.md")
 	// ── Resolve implement timeout ──────────────────────────────────────
 	// 0 means use default; negative means no timeout; positive is used as-is.
@@ -251,11 +311,20 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	// step. A hung TL;DR call must not wedge the run: on timeout, warn
 	// and proceed without design.md.
 	{
-		spec, specErr := os.ReadFile(specPath)
+		// spec.json preferred (rendered), spec.md legacy fallback — a
+		// spec.json-only slice feeds the design gate without a missing-spec.md
+		// hard failure (S01-spec-json-read-conformance).
+		specText, specErr := loadSpecText(absSliceDir)
 		if specErr == nil {
 			firstModelID := escalationModels[0]
-			designAgent, daErr := opts.NewAgent(firstModelID)
-			if daErr == nil {
+			if captainResolveErr != nil {
+				// Captain-leg resolution failure is a fail-open on the Rule 9
+				// gate (Coach decision 2026-07-10, captain-proceed.md pin 1):
+				// record the registry's descriptive role error as a durable
+				// Rule 2 deferral, then proceed.
+				fmt.Fprintf(os.Stderr, "sworn run: design TL;DR driver resolution failed: %v — recording Rule 2 deferral\n", captainResolveErr)
+				recordDesignGateDeferral(statusPath, fmt.Sprintf("design TL;DR driver resolution failed (%s): %v — Rule 9 design gate not applied", firstModelID, captainResolveErr))
+			} else {
 				designCtx := ctx
 				var designCancel context.CancelFunc
 				if implementTimeout > 0 {
@@ -263,19 +332,27 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 					defer designCancel()
 				}
 				fmt.Fprintf(os.Stderr, "sworn run: generating design TL;DR with %s\n", firstModelID)
-				_, genErr := design.Generate(designCtx, absSliceDir, string(spec), designAgent,
+				_, genErr := design.Generate(designCtx, absSliceDir, specText, captainDriver,
+					firstModelID, worktreeRoot, implementTimeout,
 					design.GenerateOptions{Regenerate: opts.RegenerateDesign})
 				if genErr != nil {
 					if errors.Is(genErr, context.DeadlineExceeded) {
-						fmt.Fprintf(os.Stderr, "sworn run: design TL;DR timed out after %s — proceeding without design.md\n", implementTimeout)
+						fmt.Fprintf(os.Stderr, "sworn run: design TL;DR timed out after %s — recording Rule 2 deferral\n", implementTimeout)
+						recordDesignGateDeferral(statusPath, fmt.Sprintf("design TL;DR timed out after %s — Rule 9 design gate not applied", implementTimeout))
 					} else {
-						fmt.Fprintf(os.Stderr, "sworn run: design TL;DR: %v — proceeding without design.md\n", genErr)
+						fmt.Fprintf(os.Stderr, "sworn run: design TL;DR: %v — recording Rule 2 deferral\n", genErr)
+						recordDesignGateDeferral(statusPath, fmt.Sprintf("design TL;DR generation failed: %v — Rule 9 design gate not applied", genErr))
 					}
 				} else {
 					fmt.Fprintf(os.Stderr, "sworn run: design TL;DR written to %s\n",
 						filepath.Join(absSliceDir, "design.md"))
 				}
 			}
+		} else {
+			// The spec could not be read to feed the gate — the design
+			// review cannot run. Record the deferral rather than skipping
+			// silently.
+			recordDesignGateDeferral(statusPath, fmt.Sprintf("design TL;DR spec read failed: %v — Rule 9 design gate not applied", specErr))
 		}
 	}
 
@@ -286,11 +363,18 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 	{
 		designPath := filepath.Join(absSliceDir, "design.md")
 		if designBytes, err := os.ReadFile(designPath); err == nil {
-			specBytes, specErr := os.ReadFile(specPath)
+			// spec.json preferred (rendered), spec.md legacy fallback.
+			specTextForReview, specErr := loadSpecText(absSliceDir)
 			if specErr == nil {
 				firstModelID := escalationModels[0]
-				captainAgent, caErr := opts.NewAgent(firstModelID)
-				if caErr == nil {
+				if captainResolveErr != nil {
+					// Captain-leg resolution failure — the captain gate cannot
+					// run. Fail open with a durable Rule 2 deferral carrying
+					// the registry's descriptive role error (Coach decision
+					// 2026-07-10, captain-proceed.md pin 1).
+					fmt.Fprintf(os.Stderr, "sworn run: captain review driver resolution failed: %v — recording Rule 2 deferral\n", captainResolveErr)
+					recordDesignGateDeferral(statusPath, fmt.Sprintf("captain review driver resolution failed (%s): %v — Rule 9 design gate not applied", firstModelID, captainResolveErr))
+				} else {
 					// Transition to DesignReview before the review.
 					stReview, _ := state.Read(statusPath)
 					if stReview != nil && stReview.State != state.DesignReview {
@@ -308,14 +392,19 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 						defer reviewCancel()
 					}
 					fmt.Fprintf(os.Stderr, "sworn run: running captain design-review with %s\n", firstModelID)
-					captainStart := time.Now()
-					reviewResult, revErr := captain.Review(reviewCtx, absSliceDir, string(specBytes), string(designBytes), captainAgent, worktreeRoot)
-					captainDurationMS := time.Since(captainStart).Milliseconds()
+					reviewResult, revErr := captain.Review(reviewCtx, absSliceDir, specTextForReview, string(designBytes), captainDriver, firstModelID, worktreeRoot, implementTimeout)
 					if revErr != nil {
+						// Captain review dispatch failed (e.g. a transient
+						// provider 429 or timeout). Previously the run proceeded
+						// "without review", silently bypassing the human-owned
+						// Rule 9 gate. Record a machine-readable Rule 2 deferral
+						// so the skip is durable and surfaces to the Coach.
 						if errors.Is(revErr, context.DeadlineExceeded) {
-							fmt.Fprintf(os.Stderr, "sworn run: captain review timed out — proceeding without review\n")
+							fmt.Fprintf(os.Stderr, "sworn run: captain review timed out — recording Rule 2 deferral\n")
+							recordDesignGateDeferral(statusPath, fmt.Sprintf("captain design-review timed out after %s — Rule 9 design gate not applied", implementTimeout))
 						} else {
-							fmt.Fprintf(os.Stderr, "sworn run: captain review error: %v — proceeding without review\n", revErr)
+							fmt.Fprintf(os.Stderr, "sworn run: captain review error: %v — recording Rule 2 deferral\n", revErr)
+							recordDesignGateDeferral(statusPath, fmt.Sprintf("captain design-review dispatch failed: %v — Rule 9 design gate not applied", revErr))
 						}
 					} else if reviewResult.HasEscalatePins {
 						fmt.Fprintf(os.Stderr, "sworn run: captain review halted — %d escalate pins in %s\n",
@@ -328,18 +417,35 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 						// into the first implement attempt.
 						if fb := reviewResult.FormatPinsAsFeedback(); fb != "" {
 							priorFeedback = fb
-							// Record captain dispatch for per-role cost ledger (S55).
+							// Record captain dispatch for per-role cost ledger
+							// (S55). All economics fields source from the leg's
+							// driver.Result (S06 AC-05 plumbing; honest values
+							// land in S08).
 							dispatches = appendDispatch(dispatches, dispatchQuadrant, state.Dispatch{
-								Role:       "captain",
-								Model:      firstModelID,
-								CostUSD:    reviewResult.CostUSD,
-								Attempt:    1,
-								DurationMS: captainDurationMS,
+								Role:             "captain",
+								Model:            firstModelID,
+								CostUSD:          reviewResult.Dispatch.CostUSD,
+								CostSource:       reviewResult.Dispatch.CostSource,
+								Attempt:          1,
+								DurationMS:       reviewResult.Dispatch.DurationMS,
+								InputTokens:      reviewResult.Dispatch.InputTokens,
+								OutputTokens:     reviewResult.Dispatch.OutputTokens,
+								ModelIDConfirmed: reviewResult.Dispatch.ModelID,
 							})
 						}
 					}
 				}
+			} else {
+				// The spec could not be read to feed the captain gate.
+				recordDesignGateDeferral(statusPath, fmt.Sprintf("captain review spec read failed: %v — Rule 9 design gate not applied", specErr))
 			}
+		} else {
+			// design.md is absent — the captain gate has no artefact to
+			// review. This coincides with a design-stage failure (already
+			// deferred there); recordDesignGateDeferral is idempotent per
+			// run, so this defensively covers a design stage skipped without
+			// a deferral.
+			recordDesignGateDeferral(statusPath, fmt.Sprintf("design.md absent at captain review (%v) — Rule 9 design gate not applied", err))
 		}
 	}
 
@@ -384,49 +490,44 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 		totalAttempts++
 
 		implModelID := escalationModels[modelIdx]
-		implAgent, err := opts.NewAgent(implModelID)
-		if err != nil {
-			return fmt.Errorf("RunSlice: create implementer agent for %q: %w", implModelID, err)
-		}
+		implDriver := implDrivers[modelIdx]
 
 		// ── Implement ───────────────────────────────────────────────
 		fmt.Fprintf(os.Stderr, "sworn run: attempt %d (model %d/%d, resolve %d/%d) — implementing with %s\n",
 			totalAttempts, modelIdx+1, len(escalationModels), resolveCount, maxResolves, implModelID)
 
-		var implCost float64
+		var implRes driver.Result
 		var implErr error
-		implStart := time.Now()
 		if implementTimeout > 0 {
 			implCtx, cancel := context.WithTimeout(ctx, implementTimeout)
 			defer cancel() // safe: each iteration has its own defer
-			implCost, implErr = implement.Run(implCtx, worktreeRoot, specPath, priorFeedback, implAgent)
+			implRes, implErr = implement.Run(implCtx, worktreeRoot, specPath, priorFeedback, implDriver, implModelID, implementTimeout)
 		} else {
-			implCost, implErr = implement.Run(ctx, worktreeRoot, specPath, priorFeedback, implAgent)
+			implRes, implErr = implement.Run(ctx, worktreeRoot, specPath, priorFeedback, implDriver, implModelID, implementTimeout)
 		}
-		implDurationMS := time.Since(implStart).Milliseconds()
 		if implErr != nil {
 			// Max-turns exhaustion: PAGE the Coach (pause, not fail).
 			// The worker detects this via the sentinel and halts the track.
+			// The in-process driver preserves the error chain (S04 Coach ack
+			// pin 1), so the sentinel keeps firing across the driver seam.
 			if errors.Is(implErr, agent.ErrMaxTurns) {
 				fmt.Fprintf(os.Stderr, "sworn run: max turns exhausted for %s — paging Coach\n", sliceID)
 				return fmt.Errorf("%s: max turns exhausted for %s",
 					errVerdictMaxTurnsPrefix, sliceID)
 			}
 
-			// Terminal errors halt immediately (S09 AC1): KindAuth and KindCredits
-			// cannot succeed on retry. Return a BLOCKED verdict before the triage
-			// path so the orchestrator routes to /replan-release, not retry/escalate.
-			if model.IsTerminal(implErr) {
-				var me *model.Error
-				if model.AsError(implErr, &me) {
-					kindLabel := "Kind" + strings.ToUpper(me.Kind.String()[:1]) + me.Kind.String()[1:]
-					reason := fmt.Sprintf("%s: %s — halting; check provider credentials",
-						kindLabel, me.UserMessage())
-					fmt.Fprintf(os.Stderr, "sworn run: terminal error — %s\n", reason)
-					return fmt.Errorf("%s%s", errVerdictBlockedPrefix, reason)
-				}
-				fmt.Fprintf(os.Stderr, "sworn run: terminal error — %v\n", implErr)
-				return fmt.Errorf("%s%s", errVerdictBlockedPrefix, implErr.Error())
+			// Terminal errors halt immediately (S09 AC1, preserved across the
+			// S06 transport swap): driver.TerminalErrKind — auth and credits,
+			// from ANY driver — cannot succeed on retry or model escalation.
+			// Return a BLOCKED verdict before the triage path so the
+			// orchestrator routes to /replan-release, not retry/escalate.
+			// One contract predicate at both consumption points (D3; S04
+			// Coach ack, T3 captain-proceed.md 2026-07-10).
+			if driver.TerminalErrKind(implRes.ErrKind) {
+				reason := fmt.Sprintf("terminal driver error (%s): %v — halting; check provider credentials",
+					implRes.ErrKind, implErr)
+				fmt.Fprintf(os.Stderr, "sworn run: terminal error — %s\n", reason)
+				return fmt.Errorf("%s%s", errVerdictBlockedPrefix, reason)
 			}
 			if errors.Is(implErr, context.DeadlineExceeded) {
 				fmt.Fprintf(os.Stderr, "sworn run: implement attempt %d timed out after %s\n",
@@ -464,14 +565,89 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			}
 		}
 
-		// Record implementer dispatch for per-role cost ledger (S55).
+		// Record implementer dispatch for per-role cost ledger (S55). All
+		// economics fields source from the leg's driver.Result (S06 AC-05
+		// plumbing source; honest population lands in S08).
 		dispatches = appendDispatch(dispatches, dispatchQuadrant, state.Dispatch{
-			Role:       "implementer",
-			Model:      implModelID,
-			CostUSD:    implCost,
-			Attempt:    totalAttempts,
-			DurationMS: implDurationMS,
-		}) // ── Commit agent changes ────────────────────────────────────
+			Role:             "implementer",
+			Model:            implModelID,
+			CostUSD:          implRes.CostUSD,
+			CostSource:       implRes.CostSource,
+			Attempt:          totalAttempts,
+			DurationMS:       implRes.DurationMS,
+			InputTokens:      implRes.InputTokens,
+			OutputTokens:     implRes.OutputTokens,
+			ModelIDConfirmed: implRes.ModelID,
+		})
+
+		// ── Implementer BLOCKED: terminal for the lane (S14 AC-01) ──
+		// A dispatched implementer returning Status==StatusBlocked reports a
+		// blocker re-dispatch cannot clear (spec defect, out-of-authority
+		// change, missing dependency). Terminal: no verifier dispatch, no
+		// triage, no retry budget consumed (resolveCount/modelIdx untouched)
+		// — exactly one dispatch total for the lane, mirroring the verifier
+		// BLOCKED Halt branch below. The dispatch ledger record above stays:
+		// economics survive a blocked dispatch (S08 posture). The runner
+		// keys ONLY off Status, never off ResultText prose.
+		if implRes.Status == driver.StatusBlocked {
+			reason := strings.TrimSpace(implRes.BlockedReason)
+			if reason == "" {
+				reason = strings.TrimSpace(implRes.ResultText)
+			}
+			if reason == "" {
+				reason = "(no blocker reason provided)"
+			}
+			fmt.Fprintf(os.Stderr, "sworn run: implementer BLOCKED — %s\n", reason)
+			// Write the blocked verification record BEFORE committing so the
+			// commit always has content and the tree stays clean for the
+			// caller (same reason the normal path commits before verify).
+			stBlk, stErr := state.Read(statusPath)
+			if stErr == nil {
+				stBlk.Verification.Result = "blocked"
+				// Verbatim blocker (R-03): no summarisation, no truncation.
+				stBlk.Verification.Violations = violationsFromStrings([]string{reason})
+				// Machine-readable replan directive: vocabulary bound at both
+				// ends (verdict.Result.Routing doc, board.BlockedNeedsPlanner);
+				// the oracle surfaces it as blocked_owner and the router (S58)
+				// routes the slice to /replan-release.
+				stBlk.Verification.Routing = "needs_planner"
+				stBlk.Verification.Model = implModelID
+				stBlk.Verification.Attempt = totalAttempts
+				stBlk.Verification.Dispatches = dispatches
+				stBlk.LastUpdatedBy = "run-slice"
+				stBlk.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
+				_ = state.Write(statusPath, stBlk)
+			}
+			if err := repo.Stage("."); err != nil {
+				return fmt.Errorf("RunSlice: stage blocked-implementer changes: %w", err)
+			}
+			if err := repo.Commit("chore(run): implementer blocked — terminal for lane (replan required)"); err != nil {
+				return fmt.Errorf("RunSlice: commit blocked-implementer changes: %w", err)
+			}
+			if opts.Notifier != nil {
+				stNotify, _ := state.Read(statusPath)
+				if stNotify != nil {
+					summary := reason
+					if len(summary) > 200 {
+						summary = summary[:197] + "..."
+					}
+					opts.Notifier.Notify(ctx, account.NotifyEvent{
+						Release:           stNotify.Release,
+						Track:             stNotify.Track,
+						SliceID:           stNotify.SliceID,
+						State:             "blocked",
+						ViolationsSummary: summary,
+						WorktreePath:      worktreeRoot,
+					})
+				}
+			}
+			// Reason stays verbatim; the route directive rides in the same
+			// error so the AC-01 assertion is self-contained. The worker
+			// trims the suffix when recording the lane (flag (a)).
+			return fmt.Errorf("%s %s%s", errVerdictBlockedPrefix, reason, orchestrator.BlockedLaneRouteSuffix)
+		}
+
+		// ── Commit agent changes ────────────────────────────────────
 		if err := repo.Stage("."); err != nil {
 			return fmt.Errorf("RunSlice: stage agent changes: %w", err)
 		}
@@ -620,25 +796,30 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 				return fmt.Errorf("RunSlice: first-pass %s: %s", fpResult.Verdict, fpResult.Rationale)
 			}
 		}
-		// ── Dispatch agentic verifier ───────────────────────────────		// Create an agent (not just a Verifier) for the verifier model
-		// so we can dispatch the full verifier.md role prompt via Chat().
-		verifierAgent, vaErr := opts.NewAgent(verifierModelID)
-		if vaErr != nil {
-			return fmt.Errorf("RunSlice: create agentic verifier for %q: %w", verifierModelID, vaErr)
-		}
-
+		// ── Dispatch agentic verifier ───────────────────────────────
+		// The verifier driver was registry-resolved upfront (AC-02); the
+		// engine — not the driver — validates the emitted verdict against
+		// verifier-verdict-v1 inside verify.RunAgentic (AC-03).
 		fmt.Fprintf(os.Stderr, "sworn run: verifying (agentic) with %s\n", verifierModelID)
 
-		// Read spec and diff content for the agentic payload.
-		specContent, specErr := os.ReadFile(specPath)
+		// Read spec and diff content for the agentic payload — spec.json
+		// preferred (rendered), spec.md legacy fallback, so the verify leg does
+		// not hard-fail on a spec.json-only slice
+		// (S01-spec-json-read-conformance AC-02).
+		specContent, specErr := loadSpecText(absSliceDir)
 		if specErr != nil {
 			return fmt.Errorf("RunSlice: read spec for agentic verify: %w", specErr)
 		}
 		proofBytes2, _ := os.ReadFile(proofPath)
-		proofStr := string(proofBytes2)
-		specStr := string(specContent)
 
-		result, runErr := verify.RunAgentic(ctx, specStr, diff, proofStr, verifierAgent)
+		result, runErr := verify.RunAgentic(ctx, verify.AgenticInput{
+			Spec:         specContent,
+			Diff:         diff,
+			Proof:        string(proofBytes2),
+			ModelID:      verifierModelID,
+			WorktreeRoot: worktreeRoot,
+			Timeout:      implementTimeout,
+		}, verifierDriver)
 		if runErr != nil {
 			return fmt.Errorf("RunSlice: agentic verify dispatch: %w", runErr)
 		}
@@ -655,6 +836,7 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			Role:             "verifier",
 			Model:            opts.VerifierModel,
 			CostUSD:          lastVerdict.CostUSD,
+			CostSource:       lastVerdict.CostSource,
 			Attempt:          totalAttempts,
 			DurationMS:       lastVerdict.DurationMS,
 			InputTokens:      lastVerdict.InputTokens,
@@ -679,6 +861,21 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 			st.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
 			if err := state.Write(statusPath, st); err != nil {
 				return fmt.Errorf("RunSlice: write verified status: %w", err)
+			}
+			// Commit the verified transition (S10 SIT finding). The parallel
+			// worker's router reads COMMITTED track-ref state; the blocked and
+			// failed_verification terminal paths below already commit their
+			// status writes, but this PASS path did not — so a router-driven
+			// worker re-read "implemented" off the ref and re-dispatched
+			// "verify" forever. The single-slice Run() path was unaffected only
+			// because it commits the whole tree itself after RunSlice returns
+			// (run.go "chore(run): verified — merge"); that later empty commit
+			// stays harmless (git.Commit uses --allow-empty).
+			if err := repo.Stage(statusPath); err != nil {
+				return fmt.Errorf("RunSlice: stage verified status: %w", err)
+			}
+			if err := repo.Commit("chore(run): slice verified — verdict consumed by state machine"); err != nil {
+				return fmt.Errorf("RunSlice: commit verified status: %w", err)
 			}
 			return nil
 		}
@@ -791,7 +988,7 @@ haltFailedVerification:
 
 		// Notify on FAIL verdict after state is written.
 		if opts.Notifier != nil {
-			summary := account.ViolationsSummary(proofPath, len(st.Verification.Violations))
+			summary := account.ViolationsSummary(absSliceDir, len(st.Verification.Violations))
 			opts.Notifier.Notify(ctx, account.NotifyEvent{
 				Release:           st.Release,
 				Track:             st.Track,
@@ -842,7 +1039,11 @@ func writeTempFile(dir, pattern, content string) (string, error) {
 // Sentinel error string prefixes used by RunSlice. Callers can use
 // strings.Contains on the returned error to distinguish exit causes.
 const (
-	errVerdictBlockedPrefix  = "RunSlice: verification blocked:"
+	// errVerdictBlockedPrefix aliases the shared sentinel (S14 D2) — the
+	// value is byte-identical to the previous private literal, so IsBlocked
+	// and every existing assertion hold. The constant lives in orchestrator
+	// because the scheduler worker consumes it and cannot import run.
+	errVerdictBlockedPrefix  = orchestrator.BlockedLaneSentinel
 	errVerdictFailPrefix     = "RunSlice: verification failed after"
 	errVerdictMaxTurnsPrefix = "RunSlice: max turns exhausted:"
 )

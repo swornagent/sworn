@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://baton.sawy3r.net/schemas/capability-policy-v1.json",
+  "title": "Baton Capability Policy",
+  "description": "The model-agnostic hard-eligibility contract for role model-selection. Declares (a) a capability taxonomy — the shared vocabulary a role's requirement and a model's provided set are both expressed in — and (b) each Baton role's required capabilities. A model may serve a role only if it provides every capability the role requires; eligibility is the intersection of the role's requirements and the engine registry's provided set. Baton owns the roles, so role→required-capability is a Baton contract; it replaces unportable model pins (\"verifier = opus, for context\") that name a model where they mean a capability and go stale every time the frontier moves. Baton declares the hard requirement ONLY — it does not rank or pick among eligible models; that is the engine's eval-based routing (a soft prior, never a gate). This is the front half of the golden thread: need → role → required-capability → eligible-model.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["taxonomy", "roles"],
+  "$defs": {
+    "capability_token": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "A capability name; the interop token both a role requirement and a model's provided set reference. snake_case."
+    },
+    "requirement": {
+      "description": "One required capability. A bare token requires a boolean capability be true. An object requires a threshold on a quantitative/ordinal capability.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/capability_token",
+          "description": "A boolean capability the role requires (must be provided === true)."
+        },
+        {
+          "type": "object",
+          "description": "A threshold requirement on a quantitative or ordinal capability, e.g. {\"context_window\": \">=200000\"}. Exactly one key, whose name is the capability token and whose value is a comparator expression.",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "type": "string",
+              "pattern": "^(>=|<=|>|<|==)\\s*[A-Za-z0-9_]+$",
+              "description": "Comparator against the capability's provided value, e.g. '>=200000' (quantitative) or '>=high' (ordinal, compared by level index)."
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://baton.sawy3r.net/schemas/capability-policy-v1.json"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Artefact schema version for forward compatibility."
+    },
+    "taxonomy": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "The capability vocabulary. Each key is a capability token; the engine's provider registry maps model metadata onto these same tokens. The taxonomy is the interop contract — a role requires a token; a model provides the same token; eligibility is the intersection.",
+      "propertyNames": { "$ref": "#/$defs/capability_token" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind"],
+        "properties": {
+          "kind": {
+            "enum": ["boolean", "quantitative", "ordinal"],
+            "description": "boolean: present-or-not (e.g. tool_calling). quantitative: a magnitude compared numerically (e.g. context_window). ordinal: a named level compared by its index in `levels` (e.g. reasoning_effort)."
+          },
+          "unit": {
+            "type": "string",
+            "description": "For quantitative capabilities: the unit the provided value and any threshold are expressed in (e.g. 'tokens')."
+          },
+          "levels": {
+            "type": "array",
+            "minItems": 2,
+            "items": { "type": "string" },
+            "description": "For ordinal capabilities: the ordered levels, lowest first (e.g. [\"low\",\"medium\",\"high\"]). A threshold like '>=high' compares by index in this list."
+          },
+          "description": { "type": "string" }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "kind": { "const": "ordinal" } } },
+            "then": { "required": ["levels"] }
+          }
+        ]
+      }
+    },
+    "roles": {
+      "type": "object",
+      "description": "Per-role capability requirements. Keys are Baton role names. A model is eligible for a role iff it provides every requirement listed. Requirements are the HARD gate; ranking among the eligible is the engine's concern, not Baton's.",
+      "propertyNames": {
+        "enum": ["planner", "implementer", "verifier", "captain"]
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["requires"],
+        "properties": {
+          "requires": {
+            "type": "array",
+            "description": "Every capability the role requires. Empty is valid (no hard requirement). Each entry's capability token MUST exist in `taxonomy`.",
+            "items": { "$ref": "#/$defs/requirement" }
+          },
+          "rationale": {
+            "type": "string",
+            "description": "Why the role needs these — the auditable link back to the rule that motivates the requirement (e.g. 'verifier requires large context because Rule 7 reasons over the full diff + tests + gates')."
+          }
+        }
+      }
+    },
+    "on_capability_absent": {
+      "enum": ["prose_fallback_gated", "rule2_deferral"],
+      "description": "Contract for §3.5: what a capability-dependent gate does when an operator override routes it to a model that genuinely cannot provide the capability (with this policy in force, this is an override-only edge case). 'prose_fallback_gated': the gate must still return a verdict via a prose evaluation that still gates (never a silent skip). 'rule2_deferral': the gate records a Rule-2 capability-absent deferral (why + tracking + acknowledgement). Absent = engine default; declaring it makes the behaviour explicit rather than incidental."
+    }
+  }
+}

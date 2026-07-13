@@ -1,0 +1,83 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S01-driver-contract",
+  "release": "2026-06-28-driver-contract",
+  "track": "T1-contract",
+  "user_outcome": "The engine has a single role-dispatch Driver contract at the process boundary: a loop-role dispatch is Driver.Dispatch(ctx, DispatchInput) -> Result with each driver declaring the RoleSet it can serve, so an incapable driver is rejected at resolution with a named error — never discovered mid-run by a type-assert or a toolless dispatch.",
+  "rationale": "Type-1 decision made by Brad 2026-07-02 (intake 'Decisions made during planning', role-dispatch entry): capability IS the declared role set; wire types (ChatMessage/ToolDef) become internal to in-process drivers; the engine keeps verdict authority by validating Result.StructuredJSON against verifier-verdict-v1 fail-closed. This slice delivers ONLY the contract package (types + Rule-11 assertion helper + behavioural doc + ADR) — no driver implementations, no orchestrator rewiring. The one-shot model.Verifier interface is explicitly NOT touched: it survives as the utility judgement path for non-loop gates (sworn verify, reqverify, llm-check, bench). Grounding: today's seam is RunSliceOptions.NewAgent/NewVerifier factory fields with nil-defaults (internal/run/slice.go:57-63,193-201) and a runtime model.StructuredOutput type-assert in verify.RunAgentic (internal/verify/verify.go:200); this contract is what replaces that seam in T4.",
+  "covers_needs": [
+    "N-01",
+    "N-08"
+  ],
+  "in_scope": [
+    "Driver / RoleSet / DispatchInput / Result types in a new internal/driver package",
+    "AssertWorktree Rule-11 fail-closed target-assertion helper",
+    "Import-boundary test (internal/driver imports neither internal/model nor internal/agent)",
+    "docs/adr/0012-driver-contract.md recording the Type-1 decision with options + rationale"
+  ],
+  "out_of_scope": [
+    "Any driver implementation (S02/S03/S04 own those)",
+    "Registry and resolution (S05)",
+    "Orchestrator rewiring (S06/S07)",
+    "The one-shot model.Verifier utility path — kept, untouched (utility-only decision, 2026-07-02)"
+  ],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "high",
+    "quadrant": "puzzle",
+    "rationale": "Small diff (one new package + doc), but it is the keystone contract every other slice builds on — a subtle shape error here is the most expensive class of defect in the release.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    "internal/driver/driver.go",
+    "internal/driver/result.go",
+    "internal/driver/worktree.go",
+    "internal/driver/driver_test.go",
+    "internal/driver/imports_test.go",
+    "docs/adr/0012-driver-contract.md"
+  ],
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "The contract shape turns out claude-cli-shaped and does not generalise to codex or the in-process driver.",
+      "mitigation": "S03 (codex) and S04 (in-process) implement against it before the T4 rewire consumes it; S10's conformance suite asserts the behavioural clauses driver-agnostically. Any shape change discovered in T2/T3 routes back through a replan, not a silent edit."
+    },
+    {
+      "id": "R-02",
+      "description": "Scope creep: implementing a driver or touching the orchestrator in this slice.",
+      "mitigation": "Touchpoints are the contract package + ADR only; the import-boundary test enforces that internal/driver imports neither internal/model nor internal/agent."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "Package internal/driver SHALL define: type Driver interface { Name() string; Roles() RoleSet; Dispatch(ctx context.Context, in DispatchInput) (Result, error) }; type DispatchInput struct with fields Role, ModelID, SystemPrompt, Payload (strings), WorktreeRoot string, VerdictSchema []byte, Timeout time.Duration; and type Result struct with fields Status (enum ok|blocked|error), ErrKind (string, set when Status=error), ResultText string, StructuredJSON json.RawMessage, CostUSD float64, CostSource string, InputTokens int64, OutputTokens int64, ModelID string, DurationMS int64 — the shape decided 2026-07-02 and recorded in this slice's status.json design_decisions.",
+      "ears_pattern": "ubiquitous"
+    },
+    {
+      "id": "AC-02",
+      "text": "Roles SHALL be a declared set over at least {implementer, verifier, captain}; RoleSet SHALL expose a Has(Role) bool check that resolution uses, and TestRoleSet SHALL cover membership, the empty set, and String() output naming the declared roles.",
+      "ears_pattern": "ubiquitous"
+    },
+    {
+      "id": "AC-03",
+      "text": "When a dispatch carries Role=verifier, the contract doc (godoc on Driver.Dispatch plus docs/adr/0012-driver-contract.md) SHALL state that DispatchInput.VerdictSchema carries the verdict JSON schema, that the driver returns the model's verdict as Result.StructuredJSON, and that the ENGINE validates it against verifier-verdict-v1 fail-closed — a driver never self-certifies a verdict.",
+      "ears_pattern": "event-driven"
+    },
+    {
+      "id": "AC-04",
+      "text": "If AssertWorktree(path) is called with a path that does not exist, is not a directory, or is not inside a git working tree, it SHALL return a descriptive error naming the path and the failed check; TestAssertWorktree SHALL cover all three failure cases plus the success case (Rule 11 fail-closed target assertion, available to every driver before spawning work rooted at WorktreeRoot).",
+      "ears_pattern": "unwanted-behaviour"
+    },
+    {
+      "id": "AC-05",
+      "text": "internal/driver SHALL NOT import internal/model or internal/agent — enforced by TestNoWireImports in imports_test.go, which parses the package's import lists and fails naming any forbidden import.",
+      "ears_pattern": "ubiquitous"
+    },
+    {
+      "id": "AC-06",
+      "text": "docs/adr/0012-driver-contract.md SHALL record the Type-1 decision with the options considered (role-dispatch vs core+optional-interfaces vs maximal), the decision, the decider (Brad, 2026-07-02), and the four clauses: role-universality, engine-owned verdict validation, explicit-table registration with enumeration, explicit-prefix resolution with no smart fallback; `go build ./...` and `go test ./internal/driver/...` SHALL pass.",
+      "ears_pattern": "ubiquitous"
+    }
+  ]
+}

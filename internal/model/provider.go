@@ -13,6 +13,7 @@ type ProviderConfig struct {
 	GroqKey             string
 	MistralKey          string
 	OpenRouterKey       string
+	XAIKey              string
 	AnthropicKey        string
 	GoogleKey           string
 	GoogleCloudProject  string
@@ -30,28 +31,36 @@ type ProviderConfig struct {
 	// directly by the OCI driver (S15). OCICompartmentID is a SwornAgent-specific
 	// routing param — not an SDK auth var — and is stored here.
 	OCICompartmentID string
-} // ProviderConfigFromEnv reads per-provider configuration from environment variables. The SWORN_OPENAI_API_KEY alias is checked as a fallback when
-// OPENAI_API_KEY is empty (backward compatibility per spec Risk #1).
+}
+
+// ProviderConfigFromEnv reads per-provider configuration from environment
+// variables. Every provider key checks its SWORN_* alias as a fallback when
+// the canonical var is empty (S06 D7, Coach ack pin 5): canonical wins,
+// SWORN_* is fallback only — per the envOrAlias contract. The widening keeps
+// SWORN_*-only environments (the documented worker setup) on direct dispatch
+// now that the loop's default registry is built from this config, and makes
+// `sworn capabilities` truthful for those environments.
 func ProviderConfigFromEnv() ProviderConfig {
 	return ProviderConfig{
 		OpenAIKey:           envOrAlias("OPENAI_API_KEY", "SWORN_OPENAI_API_KEY"),
-		DeepSeekKey:         os.Getenv("DEEPSEEK_API_KEY"),
-		GroqKey:             os.Getenv("GROQ_API_KEY"),
-		MistralKey:          os.Getenv("MISTRAL_API_KEY"),
-		OpenRouterKey:       os.Getenv("OPENROUTER_API_KEY"),
-		AnthropicKey:        os.Getenv("ANTHROPIC_API_KEY"),
+		DeepSeekKey:         envOrAlias("DEEPSEEK_API_KEY", "SWORN_DEEPSEEK_API_KEY"),
+		GroqKey:             envOrAlias("GROQ_API_KEY", "SWORN_GROQ_API_KEY"),
+		MistralKey:          envOrAlias("MISTRAL_API_KEY", "SWORN_MISTRAL_API_KEY"),
+		OpenRouterKey:       envOrAlias("OPENROUTER_API_KEY", "SWORN_OPENROUTER_API_KEY"),
+		XAIKey:              envOrAlias("XAI_API_KEY", "SWORN_XAI_API_KEY"),
+		AnthropicKey:        envOrAlias("ANTHROPIC_API_KEY", "SWORN_ANTHROPIC_API_KEY"),
 		GoogleKey:           envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY"),
 		GoogleCloudProject:  os.Getenv("GOOGLE_CLOUD_PROJECT"),
 		GoogleCloudLocation: os.Getenv("GOOGLE_CLOUD_LOCATION"),
-		CloudflareKey:       os.Getenv("CLOUDFLARE_API_KEY"),
-		GitHubToken:         os.Getenv("GITHUB_TOKEN"),
+		CloudflareKey:       envOrAlias("CLOUDFLARE_API_KEY", "SWORN_CLOUDFLARE_API_KEY"),
+		GitHubToken:         envOrAlias("GITHUB_TOKEN", "SWORN_GITHUB_TOKEN"),
 		OllamaHost:          ollamaHost(),
-		AwsAccessKey:        os.Getenv("AWS_ACCESS_KEY_ID"),
-		AwsSecretKey:        os.Getenv("AWS_SECRET_ACCESS_KEY"),
+		AwsAccessKey:        envOrAlias("AWS_ACCESS_KEY_ID", "SWORN_AWS_ACCESS_KEY_ID"),
+		AwsSecretKey:        envOrAlias("AWS_SECRET_ACCESS_KEY", "SWORN_AWS_SECRET_ACCESS_KEY"),
 		AwsRegion:           envOrAlias("AWS_REGION", "AWS_DEFAULT_REGION"),
-		AzureAPIKey:         os.Getenv("AZURE_OPENAI_API_KEY"),
-		AzureEndpoint:       os.Getenv("AZURE_OPENAI_ENDPOINT"),
-		AzureAPIVersion:     os.Getenv("AZURE_OPENAI_API_VERSION"),
+		AzureAPIKey:         envOrAlias("AZURE_OPENAI_API_KEY", "SWORN_AZURE_OPENAI_API_KEY"),
+		AzureEndpoint:       envOrAlias("AZURE_OPENAI_ENDPOINT", "SWORN_AZURE_OPENAI_ENDPOINT"),
+		AzureAPIVersion:     envOrAlias("AZURE_OPENAI_API_VERSION", "SWORN_AZURE_OPENAI_API_VERSION"),
 		OCICompartmentID:    os.Getenv("OCI_COMPARTMENT_ID"),
 	}
 }
@@ -74,9 +83,8 @@ func ollamaHost() string {
 	return "http://localhost:11434"
 }
 
-// ErrDriverNotImplemented is returned when a model ID prefix maps to a driver
-// that has not yet been implemented. Some drivers (e.g. codex) are not yet
-// available; see S63-deferral-1.
+// ErrDriverNotImplemented is returned when a model ID prefix maps to no
+// registered utility-path client (unknown provider).
 var ErrDriverNotImplemented = constErr("driver not implemented (not yet available; see slices S11-S16)")
 
 // NewClient dispatches a model ID like "openai/gpt-4o" or "groq/llama-3.3-70b"
@@ -84,6 +92,15 @@ var ErrDriverNotImplemented = constErr("driver not implemented (not yet availabl
 // base URL preset. Native drivers return an appropriate implementation. Model
 // IDs after the provider prefix are passed through as-is — the provider needs
 // the full model name.
+//
+// Prefix semantics (sworn#31, S05-driver-registry): "openai" is the
+// Responses API (/v1/responses); "openai-completions" is the legacy
+// chat/completions wire format under its new explicit name;
+// "openai-responses" is a deprecated alias of "openai", kept for one
+// release. NewClient is the single authority for prefix meaning — the
+// driver registry (internal/driver/registry) maps the same prefixes to the
+// in-process drivers that re-resolve through this function, so enumeration
+// and dispatch can never disagree.
 func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 	provider, model, err := parseModelID(modelID)
 	if err != nil {
@@ -92,6 +109,11 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 
 	switch provider {
 	case "openai":
+		// sworn#31: openai/ now routes to the Responses API.
+		return NewOpenAIResponses(model, pcfg.OpenAIKey)
+
+	case "openai-completions":
+		// The legacy chat/completions wire format under its explicit name.
 		return &OAI{
 			BaseURL:    "https://api.openai.com/v1",
 			Model:      model,
@@ -132,6 +154,19 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 			APIKey:  pcfg.OpenRouterKey,
 		}, nil
 
+	case "xai":
+		// xAI (Grok) is OpenAI chat/completions-compatible and accepts the
+		// exact strict json_schema response_format shape (docs.x.ai
+		// structured-outputs), so it rides the shared OAI chat client with
+		// native structured output — no bespoke SDK (ADR-0007). This is the
+		// native xai/ path; openrouter/x-ai/grok-* stays as an alternate route.
+		return &OAI{
+			BaseURL:    "https://api.x.ai/v1",
+			Model:      model,
+			APIKey:     pcfg.XAIKey,
+			Structured: StructuredResponseFormat, // native strict json_schema (ADR-0011)
+		}, nil
+
 	case "ollama":
 		// Native Ollama driver — uses POST /api/chat, not the OAI-compat
 		// /v1/chat/completions shim. pcfg.OllamaHost already holds the raw
@@ -152,6 +187,9 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 		}, nil
 
 	case "openai-responses":
+		// Deprecated alias of "openai" (sworn#31), kept for one release.
+		fmt.Fprintf(os.Stderr,
+			"warning: model prefix \"openai-responses/\" is deprecated — use \"openai/\" instead (sworn#31; the alias is kept for one release)\n")
 		return NewOpenAIResponses(model, pcfg.OpenAIKey)
 
 	// Native drivers.
@@ -168,16 +206,13 @@ func NewClient(modelID string, pcfg ProviderConfig) (Verifier, error) {
 	case "oci":
 		return NewOCI(model, pcfg.OCICompartmentID)
 
-	// Subscription-based CLI drivers — no API key, authenticate via the
-	// user's logged-in CLI session (claude -p / codex exec).
+	// Subscription-based CLI driver — no API key, authenticates via the
+	// user's logged-in CLI session (claude -p). codex/ is served by the
+	// subprocess DRIVER via internal/driver/registry (S03/S05, closing
+	// sworn#19), not by a model.Verifier — it falls to the default
+	// unknown-provider error on this utility path.
 	case "claude-cli":
 		return newClaudeCLI(model), nil
-	case "codex":
-		// Codex support deferred (S63-deferral-1).
-		// TODO: codex exec support — different invocation shapes and
-		// output normalisation from claude-cli. Claude-CLI ships first.
-		// Tracking: https://github.com/swornagent/sworn/issues/19.
-		return nil, fmt.Errorf("%w: codex support deferred (S63-deferral-1)", ErrDriverNotImplemented)
 	default:
 		return nil, fmt.Errorf("%w: unknown provider %q", ErrDriverNotImplemented, provider)
 	}

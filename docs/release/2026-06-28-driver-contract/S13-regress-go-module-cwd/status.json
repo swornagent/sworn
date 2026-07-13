@@ -1,0 +1,49 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S13-regress-go-module-cwd",
+  "release": "2026-06-28-driver-contract",
+  "track": "T8-regress-cwd",
+  "state": "verified",
+  "covers_needs": [
+    "N-14"
+  ],
+  "spec_path": "docs/release/2026-06-28-driver-contract/S13-regress-go-module-cwd/spec.json",
+  "start_commit": "fcb93ad5d75284d6fa2133dcde33a68ef1865408",
+  "actual_files": [
+    "internal/gate/regress.go",
+    "internal/gate/regress_test.go"
+  ],
+  "test_commands": [
+    "go test ./internal/gate/... -v",
+    "go test -timeout 300s ./..."
+  ],
+  "reachability_artifacts": [
+    "internal/gate/regress_test.go:TestRunRegress_GoModuleInSubdir — drives runRegress (the CLI-invoked gate entry point) against a <worktree>/go go.mod fixture; mock keys only satisfy the module-dir dispatch, so the test fails with ExitCode -1 unless runGoSuite actually runs from the discovered module dir"
+  ],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "quick",
+    "rationale": "One function's cwd derivation plus a subdir-module test fixture; known shape.",
+    "confirmed_by_implementer": false
+  },
+  "design_decisions": [
+    {
+      "id": "D1",
+      "choice": "Multiple first-level Go modules under the worktree -> skip-with-reason, not \"pick one\".",
+      "stake_class": "Type-2",
+      "rationale": "Noted default: spec scopes multi-module out (out_of_scope[1]) and R-01 warns against picking the wrong go.mod; an explicit skip reason avoids reporting a partial result as the whole Go suite. Reversible in a follow-up multi-module slice."
+    },
+    {
+      "id": "D2",
+      "choice": "Go module discovery depth = worktree root, else first-level subdirectories only (no recursive walk).",
+      "stake_class": "Type-2",
+      "rationale": "Noted default: matches spec in_scope wording (\"repo-root go.mod, else a single-level subdir like <worktree>/go\"); cheaper and avoids vendored/fixture go.mod false positives below level 1 by construction."
+    }
+  ],
+  "verification": {
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-10T01:54:32Z"
+  }
+}

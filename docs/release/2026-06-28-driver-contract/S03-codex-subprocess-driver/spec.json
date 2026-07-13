@@ -1,0 +1,74 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S03-codex-subprocess-driver",
+  "release": "2026-06-28-driver-contract",
+  "track": "T2-subprocess",
+  "user_outcome": "An operator with the Codex CLI can dispatch loop roles through a codex exec subprocess driver exactly as they can with claude-cli — the N=2 proof that the Driver contract is not claude-shaped — closing the open sworn#19 deferral.",
+  "rationale": "sworn#19 (S63-deferral-1) has TODO stubs at internal/model/cli.go:59-65 (newCodexCLI returns ErrDriverNotImplemented) and internal/model/provider.go:175-180; the deferral reason was 'different invocation shapes and output normalisation'. This slice implements the codex variant over S02's shared subprocess plumbing. Codex specifics: `codex exec` runs non-interactively, takes the working directory via -C/--cd (in addition to cmd.Dir), and supports JSON output for machine parsing; token usage and final-message extraction differ from claude's envelope — that normalisation delta IS the slice. The provider.go codex stub is NOT removed here (provider.go belongs to T4's touchpoints; S05 retires it when the registry mapping lands). LATE-DEFERRAL CLAUSE (agreed at planning, 2026-07-02): if the release runs long, this slice may be re-deferred with a Rule 2 card without re-grouping any track — T2 simply shortens to S02.",
+  "covers_needs": [
+    "N-10"
+  ],
+  "in_scope": [
+    "internal/driver/codex.go over the S02 shared plumbing",
+    "codex exec non-interactive invocation with working directory = WorktreeRoot",
+    "Codex envelope normalisation into Result (the S63 deferral's substance)",
+    "Same error-kind mapping and env hygiene as the claude driver"
+  ],
+  "out_of_scope": [
+    "Removing the provider.go codex stub — S05 owns that file (T4)",
+    "Claude-driver behaviour changes beyond shared plumbing",
+    "Registry mapping for codex/ prefix (S05)"
+  ],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "high",
+    "quadrant": "puzzle",
+    "rationale": "Small file count over S02's plumbing, but the codex envelope/exit-behaviour unknowns are the substance — the reason it was deferred from S63 in the first place.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    "internal/driver/codex.go",
+    "internal/driver/codex_test.go",
+    "internal/driver/subprocess.go",
+    "internal/driver/subprocess_test.go"
+  ],
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "Codex CLI envelope/flag assumptions are wrong or drift (the original S63 deferral reason).",
+      "mitigation": "Fake-binary fixtures encode the assumed envelope with the codex CLI version documented in codex.go; parsing degrades gracefully (missing usage -> zeros with CostSource=unknown); S10 conformance runs the same behavioural clauses against it."
+    },
+    {
+      "id": "R-02",
+      "description": "Shared subprocess.go changes for codex regress the claude driver.",
+      "mitigation": "Same track, sequential after S02; S02's tests run in this slice's test commands; conformance suite (S10) covers both."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "When Dispatch is called with Role=implementer, a codex model ID, and a valid WorktreeRoot, the driver SHALL spawn `codex exec` non-interactively with the working directory set to WorktreeRoot (cmd.Dir and the -C flag) and machine-readable output enabled, and SHALL return Status=ok with ResultText set to the final agent message and InputTokens/OutputTokens/DurationMS/ModelID populated from the CLI's reported usage where present. TestCodexDispatchImplementer proves this with a fake codex binary emitting a canned envelope.",
+      "ears_pattern": "event-driven"
+    },
+    {
+      "id": "AC-02",
+      "text": "When Dispatch is called with Role=verifier, the driver SHALL include DispatchInput.VerdictSchema in the prompt as the required output contract and SHALL populate Result.StructuredJSON with the final message when it parses as a JSON object, returning Status=error with ErrKind=protocol when it does not (fail-closed; engine owns verifier-verdict-v1 validation).",
+      "ears_pattern": "event-driven"
+    },
+    {
+      "id": "AC-03",
+      "text": "If the codex CLI exits non-zero, exceeds DispatchInput.Timeout, or the binary is missing, Dispatch SHALL return Status=error with the same ErrKind mapping as the claude driver (timeout -> transient; binary-not-found -> config; non-zero exit -> provider with stderr excerpt) — never a panic, never a half-populated ok Result. Table-driven TestCodexErrorMapping covers all three.",
+      "ears_pattern": "unwanted-behaviour"
+    },
+    {
+      "id": "AC-04",
+      "text": "The codex child environment SHALL apply the same hygiene as the claude driver (GOCACHE/GOMODCACHE outside WorktreeRoot; HOME not overridden), asserted by test; when usage metadata is absent from the envelope, cost SHALL be recorded as 0 with CostSource=unknown — never fabricated.",
+      "ears_pattern": "ubiquitous"
+    },
+    {
+      "id": "AC-05",
+      "text": "`go test ./internal/driver/...` SHALL pass, including the S02 claude-driver tests unchanged (shared-plumbing regression guard).",
+      "ears_pattern": "ubiquitous"
+    }
+  ]
+}

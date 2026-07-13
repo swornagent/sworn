@@ -1,0 +1,97 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S07-scheduler-failfast",
+  "release": "2026-06-28-driver-contract",
+  "track": "T4-resolution-loop",
+  "state": "verified",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-10T13:22:29Z",
+  "covers_needs": [
+    "N-05"
+  ],
+  "spec_path": "docs/release/2026-06-28-driver-contract/S07-scheduler-failfast/spec.json",
+  "start_commit": "c06c13d0f947ba9cdcb47d40214b71056de69b7b",
+  "actual_files": [
+    "cmd/sworn/run.go",
+    "cmd/sworn/run_test.go",
+    "internal/run/resolve.go",
+    "internal/run/resolve_test.go",
+    "internal/run/slice.go",
+    "internal/run/imports_test.go",
+    "internal/run/parallel_test.go",
+    "internal/scheduler/worker_test.go",
+    "docs/release/2026-06-28-driver-contract/S07-scheduler-failfast/design.md",
+    "docs/release/2026-06-28-driver-contract/S07-scheduler-failfast/status.json"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go test -count=1 -timeout 300s ./cmd/sworn/... ./internal/scheduler/... ./internal/run/...",
+    "go test -count=1 -timeout 300s ./...",
+    "go vet ./internal/run/... ./internal/scheduler/... ./cmd/sworn/... && gofmt -l internal/run/resolve.go internal/run/resolve_test.go internal/run/slice.go internal/run/imports_test.go internal/run/parallel_test.go internal/scheduler/worker_test.go cmd/sworn/run.go cmd/sworn/run_test.go"
+  ],
+  "reachability_artifacts": [
+    "cli-run: go test -count=1 -v -run TestParallelStartupFailFast ./cmd/sworn/ — drives the real `sworn run --parallel` CLI entry point (cmdRun), not a leaf unit (Rule 1): an unregistered escalation-list prefix is rejected with non-zero exit BEFORE openDefaultDB/RunParallel spawn any worker, proven by zero rows in the tracks table (no supervisor.Acquire ever ran) — see proof.json reachability.evidence",
+    "internal/scheduler/worker_test.go:TestRunTrack_TerminalDriverErrorHaltsTrack (AC-03: a fake driver dispatching successfully twice then failing with a run.IsBlocked-shaped terminal error halts RunTrack immediately — TrackFail, no further slices in that track attempted)",
+    "internal/run/parallel_test.go:TestRunParallel_FailureCascade (extended, AC-03: T1 fails, its independent same-phase sibling T2 still reaches TrackPass in the same RunParallel call — no phase-wide cascade cancel — while the actual dependent T3 (depends_on: [T1]) reaches TrackSkipped)",
+    "internal/run/imports_test.go:TestNoWireImports extended to scan cmd/sworn (AC-02 coverage: the deleted newAgentFromModel/newVerifierFromModel factory helpers cannot be reintroduced via a wire-type-holding construction path)",
+    "internal/run/resolve_test.go: unit coverage for ComposeEscalationModels/ResolveDispatch in isolation (fake registry) — verifier/implementer resolution failure is fatal, captain resolution failure is not"
+  ],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "quick",
+    "rationale": "Startup resolution sweep + factory-helper deletion; heavy rewiring already done in S06.",
+    "confirmed_by_implementer": true
+  },
+  "design_decisions": [
+    {
+      "choice": "D1 — Shared resolution helper (internal/run/resolve.go: ComposeEscalationModels + ResolveDispatch), not a duplicated sweep. RunSlice's inline composition+resolution block (slice.go, pre-S07) is extracted into these two functions and called from BOTH RunSlice (pure refactor, byte-identical error text) and the new pre-flight sweep in cmd/sworn/run.go's --parallel branch, so 'resolvable at startup' and 'resolvable per-attempt' are structurally the same code path and can never diverge. Also folds in the touchpoint expansion Captain review pin 4 flagged: internal/run/resolve.go, internal/run/resolve_test.go, internal/run/slice.go, and internal/run/imports_test.go are added beyond spec.json's original touchpoints list as part of this same extraction (pure refactor / regression guard — no behavioural change to any AC), per Coach captain-proceed.md pin 4 (2026-07-10), which pre-authorised recording them here rather than via a separate /replan-release.",
+      "stake_class": "Type-2",
+      "options": [
+        "one shared helper, called from both RunSlice and the startup sweep (chosen) — mirrors the existing TerminalErrKind 'one predicate, two consumers' pattern in this same track",
+        "duplicate the resolution logic in cmd/sworn/run.go — rejected: two independent implementations of 'resolve verifier + escalation list + captain' could silently disagree after a future edit to only one"
+      ],
+      "human_decision": "Brad (Coach), 2026-07-10, S07 captain-proceed.md pin 4 (mechanical pin, ACCEPTED — four extra files outside spec.json's touchpoints pre-authorised as Coach-acknowledged additions).",
+      "rationale": "A list built two different ways for 'resolvable at startup' vs 'resolvable per-attempt' is exactly the kind of drift that would make AC-01's promise false; one extraction closes that class of bug structurally.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "D2 — Registry re-constructed per-invocation in cmd/sworn/run.go's startup sweep (registry.Default(model.ProviderConfigFromEnv())), not threaded through ParallelOptions/WorkerOptions/RunSliceOptions.",
+      "stake_class": "Type-2",
+      "options": [
+        "re-construct a fresh registry at the startup sweep, same construction RunSlice's own nil-Registry default falls back to (chosen) — cheap, stateless build (struct literals + exec.LookPath/env reads inside probes, no dispatch)",
+        "thread a shared *registry.Registry through ParallelOptions → WorkerOptions → RunSliceOptions — rejected: touches far more surface for a build that costs nothing to repeat, and ParallelOptions.RunSliceFn is already the seam that owns per-worker registry choice (test fakes inject their own)"
+      ],
+      "human_decision": "Brad (Coach), 2026-07-10, S07 captain-proceed.md pin 2 (memory-cited pin, ACCEPTED — design_decisions populated per this record before in_progress).",
+      "rationale": "registry.Default is a stateless build with no dispatch cost; re-constructing it at the one additional call site is simpler and lower-risk than adding a new field to three option structs.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "D3 — Startup sweep placed in cmd/sworn/run.go's --parallel branch (before openDefaultDB/supervisor.Open/RunParallel), not inside run.RunParallel.",
+      "stake_class": "Type-2",
+      "options": [
+        "sweep in cmd/sworn/run.go, immediately before RunParallel is called (chosen) — ParallelOptions carries no model identifiers today; they live only inside the RunSliceFn closure cmd/sworn/run.go already builds, so sweeping here needs no new plumbing and satisfies AC-01's 'before spawning any worker' literally (workers spawn only inside RunParallel's phase loop)",
+        "push model-aware resolution into run.RunParallel — rejected: would mean adding VerifierModel/ImplementerModel/EscalationModels fields to ParallelOptions purely to re-derive what the RunSliceFn closure already captured, duplicate state that can drift from the closure's own composition"
+      ],
+      "human_decision": "Brad (Coach), 2026-07-10, S07 captain-proceed.md pin 2 (memory-cited pin, ACCEPTED — design_decisions populated per this record before in_progress).",
+      "rationale": "Keeps internal/run/parallel.go free of a second, parallel model-resolution path, and matches Rule 1 (Reachability Gate): the affordance is the `sworn run --parallel` CLI flag, so the first failing test (TestParallelStartupFailFast) drives cmdRun end-to-end, not a leaf unit.",
+      "architecturally_significant": false
+    },
+    {
+      "choice": "D4 — AC-01 captain-leg policy: the pre-spawn startup sweep exits non-zero on an implementer-, verifier-, or escalation-list-entry resolution failure; a captain-leg resolution failure is surfaced as a warning to stderr and does NOT block startup — matching RunSlice's own per-attempt fail-open captain policy exactly (S06 captain-proceed.md pin 1, 2026-07-10). AC-01's spec.json text was AMENDED on release-wt (@e8e8858, forward-merged to this track) to state this narrowed policy explicitly, so the verifier grades the reconciled AC, not AC-01's original literal 'captain... on any failure it SHALL exit non-zero' text (which would have put the startup sweep and every in-flight RunSlice call on OPPOSITE policies for the identical role/model pair).",
+      "stake_class": "Type-1",
+      "options": [
+        "amend AC-01 to fail-open the captain leg, matching S06's ratified per-attempt policy (chosen) — policy coherence: a startup sweep and the per-attempt sweep enforcing the SAME policy is a stronger invariant than either spec's literal wording taken in isolation",
+        "enforce AC-01 literally (captain-leg failure blocks startup) — rejected: would make the startup sweep and every worker's in-flight RunSlice call enforce opposite policies for the identical role/model pair; a user would experience this as 'the run refused to start over an error that, had it started, would not have stopped it'"
+      ],
+      "human_decision": "Brad (Coach), 2026-07-10, S07 captain-proceed.md pin 1 (escalate pin RATIFIED live — the SAME decision Brad ratified for S06 pin 1 earlier the same day, propagated here rather than re-litigated). sworn#86 remains the tracked path to making captain resolution succeed outright (restoring role-universality on the subprocess drivers).",
+      "rationale": "No subprocess driver declares RoleCaptain yet (only the in-process drivers do); a hard captain-leg failure at startup would make every subprocess-only configuration unrunnable even though the identical configuration runs fine once RunSlice's own per-attempt sweep fails it open and defers.",
+      "architecturally_significant": true
+    }
+  ],
+  "verification": {
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-10T13:22:29Z"
+  }
+}

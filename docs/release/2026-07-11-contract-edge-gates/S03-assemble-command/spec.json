@@ -1,0 +1,76 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S03-assemble-command",
+  "release": "2026-07-11-contract-edge-gates",
+  "track": "T2-assemble",
+  "user_outcome": "`sworn assemble <release>` is the machine half of the Rule-10 assembly stage: it brings up the assembled release's stack from the release worktree, runs the release's deferred end-to-end set no-mock, serially, with verified teardown, and emits docs/release/<release>/assembly-proof.json (validated against the vendored assembly-proof-v1). It exits non-zero on any non-excepted failure. /merge-release (baton side, already landed) reads that artefact, flipping the assembly gate from advisory to enforced.",
+  "rationale": "W4 of the 2026-07-11 contract-edge step-3 handoff. The vendored assembly-proof-v1 schema landed advisory in the driver-contract release (v0.10.0), so sworn does not invent the proof shape — it emits and validates against the vendored schema. Greenfield internal/assemble package + cmd/sworn/assemble.go command. Reference material for the proof's content (per-suite counts, preflight/API observations, screenshot paths, verdict): fired docs/captures/2026-07-10-one-cp-assembly-verification.md + the S16 status.json verification.evidence block named in the handoff. EXTERNAL DEPENDENCY: fired#1168 (derive_ports must handle board.json-era releases without index.md) — the improvised assembly phase hit this; verify at implementation start where the fix lives (fired extension vs sworn). The no-mock boundary is the enforcement teeth: an undeclared mock at a validated boundary fails the gate closed.",
+  "covers_needs": ["N-02"],
+  "in_scope": [
+    "A new internal/assemble package + `sworn assemble <release>` command (cmd/sworn/assemble.go)",
+    "Bring up the assembled release's stack from the release worktree (derive_ports / service startup), run the release's deferred end-to-end set NO-MOCK, serially, with verified teardown (services actually torn down, ports released)",
+    "Emit docs/release/<release>/assembly-proof.json validated against the vendored assembly-proof-v1 schema (baton.ValidateSchema) — per-suite counts, preflight/API observations, screenshot paths, verdict",
+    "Exit non-zero on any non-excepted failure; a declared Rule 2 mock at a validated boundary is the only permitted exception (surfaced in the proof)",
+    "Acceptance against the fired corpus: `assemble` on the pre-S17 tree surfaces the CORS preflight failure (seam 3)"
+  ],
+  "out_of_scope": [
+    "The lint contracts grader (T1)",
+    "Inventing the assembly-proof shape — it is the vendored assembly-proof-v1 (grade/emit against it, never fork under the same $id)",
+    "The fired#1168 derive_ports fix itself IF it lives in the fired extension (not sworn) — S03 consumes derive_ports; where the fix lands is verified at implementation start, and the board.json-era-without-index.md path is a declared Rule 2 deferral in the proof if unresolved (Coach-acknowledged 2026-07-11)",
+    "The /merge-release assembly-gate read (baton side, already landed) — S03 only produces the artefact it reads",
+    "Journey elicitation/ratification (Rule 10 human-owned half) — assemble is the machine walk, not the journey artefact"
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "Greenfield package, real stack bring-up + verified teardown (process/port lifecycle), no-mock e2e orchestration, proof emission against a vendored schema, and an external dependency (fired#1168). Depth and breadth. Re-assess at design_review — may split if the file estimate exceeds the ceiling.",
+    "confirmed_by_implementer": false
+  },
+  "touchpoints": [
+    "cmd/sworn/assemble.go",
+    "cmd/sworn/assemble_test.go",
+    "internal/assemble/",
+    "internal/assemble/proof.go",
+    "internal/assemble/testdata/"
+  ],
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "fired#1168 (derive_ports without index.md) is unresolved, blocking assembly bring-up for board.json-era releases.",
+      "mitigation": "Verify fired#1168 status at implementation start (A-02 decision, Coach 2026-07-11): scope assemble for the resolved path; if derive_ports still can't handle the board.json-era-without-index.md case, that path is a declared Rule 2 deferral in the proof — the common case (index.md present) ships, the edge is tracked."
+    },
+    {
+      "id": "R-02",
+      "description": "Teardown not verified — leaked processes/ports strand the next assembly run (the process-global mutation class, Baton Rule 11).",
+      "mitigation": "Verified teardown is in-scope: assert services down and ports released after the run; a reachability artefact proves the teardown fires. Rule 11 guard on any working-directory/port mutation."
+    },
+    {
+      "id": "R-03",
+      "description": "A mock sneaks in at a validated boundary, making the assembly walk prove nothing (the no-mock boundary is the rule's teeth).",
+      "mitigation": "An undeclared mock at a validated boundary fails the gate closed; only a declared Rule 2 deferral is permitted, and it is surfaced in the proof. AC covers the fired seam-3 (CORS preflight) surfacing."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "When `sworn assemble <release>` runs, it SHALL bring up the release's stack, run the deferred end-to-end set no-mock and serially, tear the stack down with verified teardown (services down, ports released), and emit docs/release/<release>/assembly-proof.json that validates against the vendored assembly-proof-v1 schema.",
+      "ears_pattern": "event-driven"
+    },
+    {
+      "id": "AC-02",
+      "text": "When any non-excepted end-to-end check fails during assembly, `sworn assemble` SHALL exit non-zero and record the failing suite/observation in the proof with a failing verdict — proven against the fired pre-S17 tree, where the CORS preflight failure (seam 3) surfaces.",
+      "ears_pattern": "event-driven"
+    },
+    {
+      "id": "AC-03",
+      "text": "If a mock is present at a boundary declared validated (no-mock) and it is not a declared Rule 2 deferral, `sworn assemble` SHALL fail the gate closed rather than report a passing walk over the mock.",
+      "ears_pattern": "unwanted-behaviour"
+    },
+    {
+      "id": "AC-04",
+      "text": "`sworn assemble` on a well-formed assembled release SHALL emit a passing assembly-proof.json and exit 0, and `go build ./...` + `go test ./internal/assemble/... ./cmd/sworn/...` SHALL pass; verified teardown SHALL be proven by a reachability test asserting ports are released after the run.",
+      "ears_pattern": "ubiquitous"
+    }
+  ]
+}

@@ -11,33 +11,53 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/swornagent/sworn/internal/agent"
-	"github.com/swornagent/sworn/internal/model"
+	"github.com/swornagent/sworn/internal/driver"
 	"github.com/swornagent/sworn/internal/reqvalidate"
 	"github.com/swornagent/sworn/internal/reqverify"
 	"github.com/swornagent/sworn/internal/rtm"
 )
 
-// agentVerifier adapts agent.Agent to reqverify.Verifier, allowing the
-// implementer's Run() function to evaluate the requirements-verification
-// gate (S04) as part of the Definition of Ready without needing a separate
-// model client.
-type agentVerifier struct {
-	a agent.Agent
+// driverVerifier adapts a registry-resolved driver.Driver to
+// reqverify.Verifier (S06 rewire, replacing the wire-typed agentVerifier),
+// allowing the implementer's Run() function to evaluate the
+// requirements-verification gate (S04) as part of the Definition of Ready
+// without needing a separate model client. The DoR grading call is a
+// captain-family judgement call — single tool-less dispatch, read-only —
+// served by the same driver instance the implement leg resolved.
+type driverVerifier struct {
+	d            driver.Driver
+	modelID      string
+	worktreeRoot string
 }
 
-func (v agentVerifier) Verify(ctx context.Context, systemPrompt, userPayload string) (string, float64, int64, int64, error) {
-	resp, err := v.a.Chat(ctx, []model.ChatMessage{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: userPayload},
-	}, nil)
+// Verify dispatches the DoR requirements-grading call as a schema-constrained
+// captain-family dispatch (S02 migration): StructuredSchema is set, so the
+// driver constrains the model to emit the reqverify-results object and returns
+// it in Result.StructuredJSON. A model that cannot emit structured output
+// surfaces as driver.ErrKindUnsupported, which maps to
+// reqverify.ErrStructuredUnsupported so the DoR gate records a declared Rule 2
+// deferral (AC-03) rather than a hard failure.
+func (v driverVerifier) Verify(ctx context.Context, systemPrompt, userPayload string, schema []byte) (string, float64, int64, int64, error) {
+	res, err := v.d.Dispatch(ctx, driver.DispatchInput{
+		Role:             driver.RoleCaptain,
+		ModelID:          v.modelID,
+		SystemPrompt:     systemPrompt,
+		Payload:          userPayload,
+		WorktreeRoot:     v.worktreeRoot,
+		StructuredSchema: schema,
+	})
 	if err != nil {
-		return "", 0, 0, 0, err
+		if res.ErrKind == driver.ErrKindUnsupported {
+			return "", res.CostUSD, res.InputTokens, res.OutputTokens,
+				fmt.Errorf("%w: %v", reqverify.ErrStructuredUnsupported, err)
+		}
+		return "", res.CostUSD, res.InputTokens, res.OutputTokens, err
 	}
-	if len(resp.Choices) == 0 {
-		return "", 0, 0, 0, fmt.Errorf("agent verifier: empty response")
+	if res.Status != driver.StatusOK || len(res.StructuredJSON) == 0 {
+		return "", res.CostUSD, res.InputTokens, res.OutputTokens, fmt.Errorf("driver verifier: empty structured response")
 	}
-	return resp.Choices[0].Message.Content, 0.0, 0, 0, nil}
+	return string(res.StructuredJSON), res.CostUSD, res.InputTokens, res.OutputTokens, nil
+}
 
 // DoRResult captures the Definition of Ready evaluation for one slice.
 // Passed is true only when every gate passes.
@@ -99,13 +119,22 @@ func CheckDoR(ctx context.Context, releaseDir, sliceID string, verifier reqverif
 		if rvErr != nil {
 			return result, fmt.Errorf("dor: reqverify: %w", rvErr)
 		}
-		for _, v := range rvReport.Violations {
-			if v.SliceID == sliceID {
-				failure := fmt.Sprintf("%s (AC %d): %s", v.Characteristic, v.ACIndex, v.Reason)
-				result.ReqverifyFailures = append(result.ReqverifyFailures, failure)
+		if rvReport.Deferred {
+			// Capability-absent (S02 AC-03): the model cannot emit structured
+			// output. This routes through the SAME fail-closed "not evaluated"
+			// arm as the nil-verifier case, carrying the capability-naming
+			// reason — a declared Rule 2 deferral, never a silent pass.
+			result.ReqverifyPassed = false
+			result.ReqverifyFailures = append(result.ReqverifyFailures, rvReport.DeferredReason)
+		} else {
+			for _, v := range rvReport.Violations {
+				if v.SliceID == sliceID {
+					failure := fmt.Sprintf("%s (AC %d): %s", v.Characteristic, v.ACIndex, v.Reason)
+					result.ReqverifyFailures = append(result.ReqverifyFailures, failure)
+				}
 			}
+			result.ReqverifyPassed = len(result.ReqverifyFailures) == 0
 		}
-		result.ReqverifyPassed = len(result.ReqverifyFailures) == 0
 	}
 
 	// ---- 3. reqvalidate check ----

@@ -7,9 +7,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/swornagent/sworn/internal/adopt"
 	"github.com/swornagent/sworn/internal/baton"
+	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/lint"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/style"
@@ -74,7 +76,7 @@ var promptHeadingSpecs = map[string]headingSpec{
 	},
 }
 
-// batonRuleFiles is the list of all 11 embedded Baton rule files that must
+// batonRuleFiles is the list of all 12 embedded Baton rule files that must
 // exist and be non-empty.
 var batonRuleFiles = []string{
 	"01-reachability-gate.md",
@@ -87,10 +89,11 @@ var batonRuleFiles = []string{
 	"09-design-fidelity.md",
 	"10-customer-journey-validation.md",
 	"11-process-global-mutation.md",
+	"12-guard-fidelity.md",
 }
 
 // batonRulesIndexHeading is the heading the README.md must carry.
-const batonRulesIndexHeading = "## The eleven rules"
+const batonRulesIndexHeading = "## The twelve rules"
 
 // minPromptLength is the minimum byte length for an embedded prompt.
 const minPromptLength = 500
@@ -192,11 +195,29 @@ func cmdDoctor(args []string) int {
 		printResult(r)
 	}
 
+	// --- Group 1b: Baton schema manifest ---
+	fmt.Println()
+	fmt.Println(style.Heading("Group 1b: Baton schema manifest"))
+	g1b := checkSchemaManifest()
+	for _, r := range g1b {
+		if r.level == levelError {
+			hasError = true
+		}
+		printResult(r)
+	}
+
 	// --- Group 2: Repo artifact audit ---
 	fmt.Println()
 	fmt.Println(style.Heading("Group 2: Repo artifact audit"))
 	g2 := checkRepoArtifacts(repoRoot)
 	for _, r := range g2 {
+		printResult(r)
+	}
+	g2drift := checkRenderDrift(repoRoot)
+	for _, r := range g2drift {
+		if r.level == levelError {
+			hasError = true
+		}
 		printResult(r)
 	}
 
@@ -435,7 +456,6 @@ func checkEmbeddedPrompts() []checkResult {
 		})
 	}
 
-
 	// --- Pin-currency check: SHA-vs-HEAD drift detection.
 	results = append(results, checkPinCurrency())
 
@@ -445,6 +465,61 @@ func checkEmbeddedPrompts() []checkResult {
 	return results
 }
 
+// checkSchemaManifest renders the graded-schema-version manifest: one
+// checkResult per vendored Baton schema (name/$id/version/GRADED-or-ADVISORY,
+// baton.SchemaManifest), plus a final skew check that WARNs when the
+// declared graded/advisory classification table disagrees with the live
+// vendored schema set. Never a silent OK on skew (S15 AC-01/AC-02) — the
+// scar this manages is baton#54/#55/#58 (vendored schemas at one version
+// while the binary graded stale shapes, silently).
+func checkSchemaManifest() []checkResult {
+	var results []checkResult
+
+	entries, err := baton.SchemaManifest()
+	if err != nil {
+		return []checkResult{{
+			level:  levelError,
+			name:   "baton/schema-manifest",
+			detail: fmt.Sprintf("failed to build schema manifest: %v", err),
+		}}
+	}
+
+	for _, e := range entries {
+		if e.Status == "" {
+			results = append(results, checkResult{
+				level:  levelWarn,
+				name:   fmt.Sprintf("baton/schema-manifest/%s", e.Name),
+				detail: fmt.Sprintf("$id=%s version=%s status=UNCLASSIFIED — no graded/advisory entry in schemaGradeStatus", e.ID, e.Version),
+			})
+			continue
+		}
+		results = append(results, checkResult{
+			level:  levelOK,
+			name:   fmt.Sprintf("baton/schema-manifest/%s", e.Name),
+			detail: fmt.Sprintf("$id=%s version=%s status=%s", e.ID, e.Version, e.Status),
+		})
+	}
+
+	// Skew is WARN, never ERROR — it does not gate cmdDoctor's exit code
+	// (S15 design decision D2). A structural failure above (malformed
+	// embedded schema JSON, which //go:embed makes a compile-time
+	// impossibility in practice) is the only path that returns levelError.
+	if skew := baton.SchemaSkew(); len(skew) == 0 {
+		results = append(results, checkResult{
+			level:  levelOK,
+			name:   "baton/schema-skew",
+			detail: "declared graded/advisory set matches the vendored schema set",
+		})
+	} else {
+		results = append(results, checkResult{
+			level:  levelWarn,
+			name:   "baton/schema-skew",
+			detail: strings.Join(skew, "; "),
+		})
+	}
+
+	return results
+}
 
 // checkPinCurrency verifies the vendored pin is from a post-baton/ layout
 // commit. Pre-layout commits (before the baton/ directory restructure) lack
@@ -476,6 +551,7 @@ func checkPinCurrency() checkResult {
 		detail: "vendored pin is from a post-baton/ layout commit",
 	}
 }
+
 // checkPromptCurrency scans embedded prompts for pre-records-as-JSON
 // markers that indicate stale vendored prompts. The markers are:
 //   - the pre-consolidation version string (pre-consolidation version string)
@@ -486,7 +562,7 @@ func checkPinCurrency() checkResult {
 // promptReadersForCheck is the injectable map of prompt file readers.
 // Tests override this to inject mock prompts containing stale markers.
 var promptReadersForCheck = map[string]func() string{
-	"verifier.md":          prompt.Verifier,
+	"verifier.md":         prompt.Verifier,
 	"implementer.md":      prompt.Implementer,
 	"planner.md":          prompt.Planner,
 	"captain.md":          prompt.Captain,
@@ -557,7 +633,7 @@ func checkRepoArtifacts(repoRoot string) []checkResult {
 		results = append(results, checkResult{
 			level:  levelWarn,
 			name:   "AGENTS.md",
-			detail: "contains legacy Baton splice content. Run 'sworn init' to replace with the current minimal MCP-pointer template (backs up old AGENTS.md to AGENTS.md.bak)",
+			detail: "contains legacy Baton splice content. Run 'sworn doctor --fix' to migrate: replaces only the Baton section with an MCP pointer, preserves the rest of the file, backs up the original to AGENTS.md.bak",
 		})
 	} else {
 		results = append(results, checkResult{
@@ -568,6 +644,88 @@ func checkRepoArtifacts(repoRoot string) []checkResult {
 	}
 
 	return results
+}
+
+// checkRenderDrift scans docs/release/ for board.json-backed releases and
+// verifies each one's committed index.md matches board.Render's in-memory
+// output byte for byte (ADR-0009: index.md is a rendered VIEW of board.json,
+// never a hand-edited source of truth — a mismatch means the committed file
+// has drifted from the record it's supposed to represent). Releases with no
+// board.json are skipped (AC-03) — there is no JSON source to render from.
+// A release whose board.json exists but cannot be rendered (malformed,
+// legacy string-form release, a referenced slice missing its spec/status)
+// also reports ERROR: a release that can't render can't be proven
+// non-drifted, so this fails closed rather than being silently skipped
+// (mirrors board.Render's own fail-closed contract). This replaces the
+// former internal/board.driftGuard, which was advisory-only and re-parsed
+// raw index.md frontmatter instead of comparing against a real render.
+func checkRenderDrift(repoRoot string) []checkResult {
+	releaseRoot := filepath.Join(repoRoot, "docs", "release")
+	entries, err := os.ReadDir(releaseRoot)
+	if err != nil {
+		return []checkResult{{
+			level:  levelOK,
+			name:   "render drift",
+			detail: "no docs/release/ directory — nothing to check",
+		}}
+	}
+
+	var drifted []checkResult
+	checked := 0
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		release := entry.Name()
+		releaseDir := filepath.Join(releaseRoot, release)
+		if _, err := os.Stat(filepath.Join(releaseDir, "board.json")); err != nil {
+			continue // AC-03: no board.json, nothing to render from
+		}
+		checked++
+
+		rendered, err := board.Render(repoRoot, release)
+		if err != nil {
+			drifted = append(drifted, checkResult{
+				level:  levelError,
+				name:   fmt.Sprintf("render drift (%s)", release),
+				detail: fmt.Sprintf("cannot render: %v", err),
+			})
+			continue
+		}
+
+		committed, err := os.ReadFile(filepath.Join(releaseDir, "index.md"))
+		if err != nil {
+			drifted = append(drifted, checkResult{
+				level:  levelError,
+				name:   fmt.Sprintf("render drift (%s)", release),
+				detail: fmt.Sprintf("cannot read committed index.md: %v", err),
+			})
+			continue
+		}
+
+		if rendered != string(committed) {
+			drifted = append(drifted, checkResult{
+				level:  levelError,
+				name:   fmt.Sprintf("render drift (%s)", release),
+				detail: fmt.Sprintf("committed index.md does not match render(board.json) — re-render via 'sworn render %s'", release),
+			})
+		}
+	}
+
+	if len(drifted) == 0 {
+		return []checkResult{{
+			level:  levelOK,
+			name:   "render drift",
+			detail: fmt.Sprintf("%d board.json-backed release(s) match their rendered index.md", checked),
+		}}
+	}
+
+	summary := checkResult{
+		level:  levelError,
+		name:   "render drift",
+		detail: fmt.Sprintf("%d of %d board.json-backed release(s) drifted or failed to render", len(drifted), checked),
+	}
+	return append([]checkResult{summary}, drifted...)
 }
 
 // checkStatusTimestamps scans docs/release/ for status.json files and validates
@@ -891,24 +1049,70 @@ func applyFixes(repoRoot string) int {
 	content, err := os.ReadFile(agentsPath)
 	if err == nil && strings.Contains(string(content), adopt.BatonSectionHeading) {
 		fmt.Println("== --fix: migrating legacy AGENTS.md ==")
-		// Back up old content.
+		// Back up old content. Never clobber an existing backup — it may hold
+		// the only copy of a previous migration's original; fall back to a
+		// timestamped name instead.
 		bakPath := filepath.Join(repoRoot, "AGENTS.md.bak")
+		if _, statErr := os.Stat(bakPath); statErr == nil {
+			bakPath = filepath.Join(repoRoot, "AGENTS.md.bak."+time.Now().UTC().Format("20060102T150405Z"))
+		}
 		if err := os.WriteFile(bakPath, content, 0644); err != nil {
 			fmt.Fprintf(os.Stderr, "  [ERROR] failed to write backup: %v\n", err)
 		} else {
-			fmt.Println("  backed up old AGENTS.md to AGENTS.md.bak")
+			fmt.Printf("  backed up old AGENTS.md to %s\n", filepath.Base(bakPath))
 		}
-		// Write minimal template (just the fragment, which is what sworn init
-		// would create for a fresh repo).
-		if err := os.WriteFile(agentsPath, []byte(adopt.AgentsFragment()+"\n"), 0644); err != nil {
+		// Splice: replace only the legacy Baton section(s), preserving all
+		// other user content.
+		if err := os.WriteFile(agentsPath, []byte(migrateLegacyAgents(string(content))), 0644); err != nil {
 			fmt.Fprintf(os.Stderr, "  [ERROR] failed to write new AGENTS.md: %v\n", err)
 		} else {
-			fmt.Println("  wrote minimal AGENTS.md template")
+			fmt.Println("  replaced legacy Baton section with MCP pointer (rest of file preserved)")
 			fixed++
 		}
 	}
 
 	return fixed
+}
+
+// agentsMCPPointerSection is what replaces a legacy spliced Baton section
+// during doctor --fix. It intentionally contains neither
+// adopt.BatonSectionHeading (so a second doctor run detects no legacy splice
+// and the migration converges) nor a docs/baton/ pointer (the same --fix run
+// removes that directory).
+const agentsMCPPointerSection = `## Engineering Process
+
+This project follows the [Baton](https://swornagent.com) protocol via sworn.
+The canonical rules and role prompts are served by the sworn MCP server
+(run ` + "`sworn mcp`" + `; full protocol at resource ` + "`sworn://baton/rules`" + `) —
+always fetch the current protocol from the binary, not from per-repo copies.
+`
+
+// migrateLegacyAgents replaces every legacy spliced Baton section in content
+// (from adopt.BatonSectionHeading to the next same-level "## " heading or EOF)
+// with agentsMCPPointerSection, preserving all surrounding user content. The
+// loop guarantees the result no longer contains the legacy trigger heading.
+func migrateLegacyAgents(content string) string {
+	for {
+		headingIdx := strings.Index(content, adopt.BatonSectionHeading)
+		if headingIdx < 0 {
+			return content
+		}
+		// Skip past the heading line itself before searching for the next
+		// section, mirroring adopt's splice bounds logic.
+		bodyStart := headingIdx + len(adopt.BatonSectionHeading)
+		if nl := strings.IndexByte(content[bodyStart:], '\n'); nl >= 0 {
+			bodyStart += nl + 1
+		}
+		sectionEnd := len(content)
+		if next := strings.Index(content[bodyStart:], "\n## "); next >= 0 {
+			sectionEnd = bodyStart + next + 1
+		}
+		rest := content[sectionEnd:]
+		if rest != "" {
+			rest = "\n" + rest
+		}
+		content = content[:headingIdx] + agentsMCPPointerSection + rest
+	}
 }
 
 // syncBatonHome copies all embedded Baton docs to the given directory.

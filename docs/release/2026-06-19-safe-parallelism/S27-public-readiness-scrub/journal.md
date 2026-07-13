@@ -10,7 +10,7 @@ description: Implementation log. Append-only.
 Added during `/replan-release` to make the sworn repo + binary public-safe before
 launch. Splits off the scrub work that does NOT fit S21's embed scope: generalising the
 embedded role prompts, removing dogfood provenance comments, and clearing the
-fired/GetFired + coach-loop references across source and release artefacts.
+fired/the consumer project + coach-loop references across source and release artefacts.
 
 Decision (brad, 2026-06-21): **keep** the sport-aligned role vocabulary (Captain /
 Coach / Planner / Implementer / Verifier) — the scrub strips the private-orchestration
@@ -52,7 +52,7 @@ State transition: `in_progress` → `implemented`.
 1. **Embedded prompts generalised** (`internal/prompt/captain.md`, `implementer.md`, `verifier.md`, `planner.md`):
    - Stripped `coach-loop`, `--auto-ack`, `approved-ack.md`, `captain-route` private-tool references
    - Removed `[[feedback_materialise_newline_eats_next_track_entry]]` citation from `implementer.md`
-   - Removed `getfired` exemplar reference from `planner.md`
+   - Removed `the consumer repo` exemplar reference from `planner.md`
    - Re-expressed loop coupling in terms of `sworn run`'s native mechanism
    - Kept Captain/Coach role vocabulary (brad decision, 2026-06-21)
 
@@ -69,7 +69,7 @@ State transition: `in_progress` → `implemented`.
    - Removed `captain-route.sh` entry from `internal/baton/transform.go` and `transform_test.go`
    - Replaced comment references in `internal/router/router.go` and `internal/board/oracle.go`
 
-5. **`fired`/`GetFired` product-name leak scrubbed**:
+5. **`fired`/`the consumer project` product-name leak scrubbed**:
    - Source: zero hits in `internal/` and `cmd/`
    - Docs: genericised in S03 spec, ADR-0006, index.md, intake.md, and journal/proof/review files across the 2026-06-19 release
    - English verb uses (`fired an event`, `hook fired`) reworded to avoid grep false positives

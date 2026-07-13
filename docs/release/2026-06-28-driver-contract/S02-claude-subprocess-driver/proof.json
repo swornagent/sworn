@@ -1,0 +1,37 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S02-claude-subprocess-driver",
+  "release": "2026-06-28-driver-contract",
+  "scope": "Build the first real internal/driver.Driver: a claude-cli subprocess driver that dispatches the implementer and verifier roles rooted at the slice worktree and returns a normalized Result with honest cost/token/duration data.",
+  "files_changed": [
+    "docs/release/2026-06-28-driver-contract/S02-claude-subprocess-driver/status.json",
+    "internal/driver/claude.go",
+    "internal/driver/claude_test.go",
+    "internal/driver/subprocess.go",
+    "internal/driver/subprocess_test.go",
+    "internal/model/capabilities_test.go",
+    "internal/model/cli.go"
+  ],
+  "test_results": [
+    { "command": "go build ./...", "passed": true, "exit_code": 0 },
+    { "command": "go vet ./...", "passed": true, "exit_code": 0 },
+    { "command": "go test ./internal/driver/... ./internal/model/...", "passed": true, "exit_code": 0 },
+    { "command": "go test ./...", "passed": true, "exit_code": 0 }
+  ],
+  "reachability": {
+    "type": "cli-run",
+    "evidence": "go test ./internal/driver/... -run TestClaudeDispatchImplementer -v: ClaudeDriver.Dispatch spawns a real subprocess (the re-exec'd test binary acting as a fake claude CLI) rooted at a real git worktree, asserts the recorded child cmd.Dir equals WorktreeRoot, and parses the subprocess's real stdout JSON envelope into Result (ResultText=\"done\", CostUSD=0.05, CostSource=provider-reported, InputTokens=100, OutputTokens=50, ModelID=claude-sonnet-4, DurationMS=1234) — the full Dispatch path end-to-end through its actual subprocess boundary, not a leaf-level mock. TestClaudeDispatchVerifier (AC-03) and TestClaudeWorktreeGate (AC-02, Rule 11: asserts the marker-writing fake was never invoked when AssertWorktree fails) exercise the same integration point for the verifier role and the fail-closed gate respectively. Real-CLI (not fake-binary) integration proof is explicitly out of scope for this slice (spec.json out_of_scope) and deferred to S10's SIT smoke + the Rule-10 cutover journey walk."
+  },
+  "delivered": [
+    { "item": "AC-01: implementer dispatch spawns `claude -p --output-format json --model <model>` with cmd.Dir=WorktreeRoot, envelope normalized into Result", "evidence": "internal/driver/claude_test.go:TestClaudeDispatchImplementer" },
+    { "item": "AC-02: invalid WorktreeRoot rejected with ErrKind=config before any process is spawned (Rule 11 fail-closed target assertion)", "evidence": "internal/driver/claude_test.go:TestClaudeWorktreeGate" },
+    { "item": "AC-03: verifier dispatch passes --no-session-persistence, includes VerdictSchema in the prompt, populates StructuredJSON when the result parses as a JSON object, ErrKind=protocol otherwise", "evidence": "internal/driver/claude_test.go:TestClaudeDispatchVerifier, TestClaudeDispatchVerifier_ProtocolError" },
+    { "item": "AC-04: non-zero exit -> auth (ratified 2026-07-03 pin 2), timeout -> transient, missing binary -> config, table-driven", "evidence": "internal/driver/claude_test.go:TestClaudeErrorMapping" },
+    { "item": "AC-05: GOCACHE/GOMODCACHE redirected outside the worktree, HOME left untouched", "evidence": "internal/driver/claude_test.go:TestClaudeEnvHygiene, internal/driver/subprocess_test.go:TestHygieneEnv_CachesOutsideAnyDir" },
+    { "item": "AC-06: cli.go no longer advertises CapChat or exposes the toolless Chat path; one-shot Verify unchanged; go test ./internal/driver/... ./internal/model/... passes", "evidence": "internal/model/cli.go (Chat method removed, Capabilities()=CapVerify), internal/model/capabilities_test.go (cliDriver moved to no-Chat lists)" },
+    { "item": "Design decision 1/2 (ratified Type-1): internal/driver ErrKind vocabulary + non-zero-exit-is-auth mapping recorded", "evidence": "docs/release/2026-06-28-driver-contract/S02-claude-subprocess-driver/status.json design_decisions" },
+    { "item": "Defensive envelope parsing (R-01 mitigation): missing usage/cost/model/duration degrade gracefully instead of erroring; outer envelope parse failure -> ErrKind=protocol", "evidence": "internal/driver/claude_test.go:TestClaudeEnvelopeDefaults, TestClaudeDispatch_OuterEnvelopeProtocolError" }
+  ],
+  "not_delivered": [],
+  "divergence": []
+}

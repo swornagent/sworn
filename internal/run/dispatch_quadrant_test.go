@@ -4,15 +4,13 @@ import (
 	"context"
 	"testing"
 
-	"github.com/swornagent/sworn/internal/agent"
-	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/state"
 )
 
 // TestRunSlice_DispatchesCarryQuadrant proves the #36 → T16 link: when a slice
 // carries an effort_complexity rating, every recorded dispatch is stamped with
 // its quadrant, so the verdict ledger can project model fit per quadrant (the
-// routing function). This is the reachability point for the eval/routing moat.
+// routing function). This is the reachability point for the eval/routing layer.
 func TestRunSlice_DispatchesCarryQuadrant(t *testing.T) {
 	workspaceRoot, specPath, statusPath, _ := setupSliceTestRepo(t)
 
@@ -31,16 +29,10 @@ func TestRunSlice_DispatchesCarryQuadrant(t *testing.T) {
 
 	called := false
 	opts := RunSliceOptions{
-		EscalationModels: []string{"quick"},
+		EscalationModels: []string{"fake/quick"},
 		VerifierModel:    "fake/verifier",
 		ImplementTimeout: DefaultImplementTimeout,
-		NewAgent: func(modelID string) (agent.Agent, error) {
-			if modelID == "fake/verifier" {
-				return &passingVerifierAgent{}, nil
-			}
-			return &markedAgent{called: &called}, nil
-		},
-		NewVerifier: func(_ string) (model.Verifier, error) { return &alwaysPassVerifier{}, nil },
+		Registry:         testRegistry(&fakeDriver{implement: markedImplement(&called)}),
 	}
 	if err := RunSlice(context.Background(), workspaceRoot, specPath, statusPath, opts); err != nil {
 		t.Fatalf("RunSlice: %v", err)

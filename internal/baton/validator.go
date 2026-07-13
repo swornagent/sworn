@@ -30,6 +30,7 @@ const JourneysSchemaURI = "https://baton.sawy3r.net/schemas/journeys-v1.json"
 
 // AttestationsSchemaURI is the canonical $schema URI for attestations-v1.json.
 const AttestationsSchemaURI = "https://baton.sawy3r.net/schemas/attestations-v1.json"
+
 // requiredFields lists the top-level string fields that must be present
 // and non-empty in every status.json payload. `track` is intentionally NOT
 // required: single-slice `sworn run` (non-track mode) writes an empty track
@@ -88,7 +89,8 @@ func Validate(schemaName string, data []byte) error {
 		return validateJourneys(data)
 	case "attestations-v1":
 		return validateAttestations(data)
-	default:		return fmt.Errorf("validator: no validation rules for schema %q", schemaName)
+	default:
+		return fmt.Errorf("validator: no validation rules for schema %q", schemaName)
 	}
 }
 
@@ -153,27 +155,11 @@ func validateBoard(data []byte) error {
 	}
 
 	if len(m) == 0 {
-		return fmt.Errorf("validator: empty object — required fields missing: schema_version, release, tracks")
+		return fmt.Errorf("validator: empty object — required fields missing: release, tracks")
 	}
 
-	// schema_version must be 1.
-	sv, ok := m["schema_version"]
-	if !ok {
-		return fmt.Errorf("validator: missing required field \"schema_version\"")
-	}
-	// schema_version can be float64 from JSON unmarshal.
-	var svInt int
-	switch v := sv.(type) {
-	case float64:
-		svInt = int(v)
-	case int:
-		svInt = v
-	default:
-		return fmt.Errorf("validator: schema_version must be a number, got %T", sv)
-	}
-	if svInt != 1 {
-		return fmt.Errorf("validator: schema_version must be 1, got %d", svInt)
-	}
+	// board-v1 is a PURE PLAN at v0.10.0: the retired schema_version integer is
+	// gone ($schema carries the version), so it is neither required nor checked.
 
 	// release must be the canonical object form {name, ...} with a non-empty
 	// name. sworn EMITS this form (board.Release.MarshalJSON) and READS only this
@@ -203,7 +189,9 @@ func validateBoard(data []byte) error {
 		return fmt.Errorf("validator: tracks must be an array, got %T", tracksRaw)
 	}
 
-	// Each track must have id, state, worktree_branch.
+	// Each track is a pure plan entry: id + slices. worktree_branch and state are
+	// DERIVED from (release, track-id) + git ancestry, never persisted (sworn#80),
+	// so they are neither required nor checked here.
 	for i, t := range tracks {
 		tm, ok := t.(map[string]interface{})
 		if !ok {
@@ -218,23 +206,12 @@ func validateBoard(data []byte) error {
 		if !ok || strings.TrimSpace(idStr) == "" {
 			return fmt.Errorf("validator: tracks[%d].id must be a non-empty string", i)
 		}
-		// state
-		state, ok := tm["state"]
-		if !ok {
-			return fmt.Errorf("validator: tracks[%d] (%s) missing required field \"state\"", i, idStr)
+		// slices
+		if _, ok := tm["slices"]; !ok {
+			return fmt.Errorf("validator: tracks[%d] (%s) missing required field \"slices\"", i, idStr)
 		}
-		stateStr, ok := state.(string)
-		if !ok || !validTrackStates[stateStr] {
-			return fmt.Errorf("validator: tracks[%d] (%s) invalid state %q", i, idStr, stateStr)
-		}
-		// worktree_branch
-		wb, ok := tm["worktree_branch"]
-		if !ok {
-			return fmt.Errorf("validator: tracks[%d] (%s) missing required field \"worktree_branch\"", i, idStr)
-		}
-		wbStr, ok := wb.(string)
-		if !ok || strings.TrimSpace(wbStr) == "" {
-			return fmt.Errorf("validator: tracks[%d] (%s) worktree_branch must be a non-empty string", i, idStr)
+		if _, ok := tm["slices"].([]interface{}); !ok {
+			return fmt.Errorf("validator: tracks[%d] (%s) slices must be an array", i, idStr)
 		}
 	}
 
@@ -249,6 +226,15 @@ func validateBoard(data []byte) error {
 }
 
 // validateSpec validates data against the spec-v1 schema.
+//
+// spec-v1 is strict at v0.10.0 (additionalProperties:false): the retired
+// schema_version integer is gone ($schema carries the version), so it is
+// neither required nor checked — requiring it here would REJECT every
+// conformant v0.10.0 record the writer now emits. in_scope and out_of_scope are
+// required arrays. This hand-rolled check is the fast structural guard on the
+// write path; full draft-2020-12 conformance (additionalProperties:false, the
+// AC-item shape, enums, patterns) is asserted by ValidateSchema, which the
+// writer's round-trip test round-trips through.
 func validateSpec(data []byte) error {
 	var m map[string]interface{}
 	if err := json.Unmarshal(data, &m); err != nil {
@@ -256,25 +242,7 @@ func validateSpec(data []byte) error {
 	}
 
 	if len(m) == 0 {
-		return fmt.Errorf("validator: empty object — required fields missing: schema_version, slice_id, release")
-	}
-
-	// schema_version must be 1.
-	sv, ok := m["schema_version"]
-	if !ok {
-		return fmt.Errorf("validator: missing required field \"schema_version\"")
-	}
-	var svInt int
-	switch v := sv.(type) {
-	case float64:
-		svInt = int(v)
-	case int:
-		svInt = v
-	default:
-		return fmt.Errorf("validator: schema_version must be a number, got %T", sv)
-	}
-	if svInt != 1 {
-		return fmt.Errorf("validator: schema_version must be 1, got %d", svInt)
+		return fmt.Errorf("validator: empty object — required fields missing: slice_id, in_scope, out_of_scope")
 	}
 
 	// slice_id must be present and non-empty.
@@ -284,6 +252,17 @@ func validateSpec(data []byte) error {
 
 	// release must be present and non-empty.
 	if err := checkNonEmptyString(m, "release"); err != nil {
+		return err
+	}
+
+	// in_scope and out_of_scope are required arrays at v0.10.0 (each may be
+	// empty; the boundary is drawn even when nothing adjacent is worth calling
+	// out). Requiring them here keeps the structural guard reconciled with the
+	// byte-identical vendored schema's required set.
+	if err := checkArrayField(m, "in_scope"); err != nil {
+		return err
+	}
+	if err := checkArrayField(m, "out_of_scope"); err != nil {
 		return err
 	}
 
@@ -358,6 +337,22 @@ func checkNonEmptyString(m map[string]interface{}, f string) error {
 	}
 	return nil
 }
+
+// checkArrayField verifies that m[f] is present and is a JSON array (which may
+// be empty). Used for the spec-v1 required in_scope/out_of_scope arrays, where
+// a missing field or a JSON null (a nil Go slice marshalled naively) must fail
+// closed against the schema's "type": "array".
+func checkArrayField(m map[string]interface{}, f string) error {
+	v, ok := m[f]
+	if !ok {
+		return fmt.Errorf("validator: missing required field %q", f)
+	}
+	if _, ok := v.([]interface{}); !ok {
+		return fmt.Errorf("validator: field %q must be an array, got %T", f, v)
+	}
+	return nil
+}
+
 // validateJourneys validates data against the journeys-v1 schema.
 func validateJourneys(data []byte) error {
 	var m map[string]interface{}

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S02-claude-subprocess-driver",
+  "release": "2026-06-28-driver-contract",
+  "track": "T2-subprocess",
+  "state": "verified",
+  "covers_needs": ["N-02", "N-08"],
+  "spec_path": "docs/release/2026-06-28-driver-contract/S02-claude-subprocess-driver/spec.json",
+  "proof_path": "docs/release/2026-06-28-driver-contract/S02-claude-subprocess-driver/proof.json",
+  "journal_path": "docs/release/2026-06-28-driver-contract/S02-claude-subprocess-driver/journal.md",
+  "start_commit": "ab61c6db0204c46900b09b51b60d4e4f4a31f260",
+  "actual_files": [
+    "internal/driver/claude.go",
+    "internal/driver/claude_test.go",
+    "internal/driver/subprocess.go",
+    "internal/driver/subprocess_test.go",
+    "internal/model/cli.go",
+    "internal/model/capabilities_test.go"
+  ],
+  "test_commands": [
+    "go build ./...",
+    "go vet ./...",
+    "go test ./internal/driver/... ./internal/model/...",
+    "go test ./..."
+  ],
+  "reachability_artifacts": [
+    "internal/driver/claude_test.go:TestClaudeDispatchImplementer",
+    "internal/driver/claude_test.go:TestClaudeDispatchVerifier",
+    "internal/driver/claude_test.go:TestClaudeWorktreeGate"
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "Known shape (bash precedent + cli.go), breadth across two roles + env hygiene + error taxonomy + fake-binary harness.",
+    "confirmed_by_implementer": true
+  },
+  "design_decisions": [
+    {
+      "choice": "internal/driver ErrKind vocabulary (config/transient/auth/provider/protocol, package-scoped string constants since internal/driver cannot import internal/model); non-zero CLI exit maps to ErrKindAuth (not a generic provider label), matching internal/model/cli.go's existing coarse non-zero-exit-is-auth heuristic exactly",
+      "stake_class": "Type-1",
+      "options": [
+        "Blunt: non-zero exit -> auth, matching cli.go's existing coarse heuristic exactly (chosen)",
+        "Precise: stderr pattern-match for login-failure text, non-matches fall back to a generic provider label",
+        "Leave non-zero exit -> generic provider label (original design proposal) and defer the terminal-halt gap to S06/S07"
+      ],
+      "human_decision": "Brad, 2026-07-03, Captain design review for S02 (pin 2 + follow-up technical fork). Chose Option 1 (extend the vocabulary now) over deferring to S06/S07 or accepting the regression; on the follow-up fork, chose the blunt non-zero-exit-is-auth heuristic over stderr pattern-matching.",
+      "rationale": "internal/run/slice.go:487's model.IsTerminal/KindAuth fail-fast is a live, working safety property that S07-scheduler-failfast's own AC-03 already assumes survives the driver rewire. Matching cli.go's existing, already-production-validated non-zero-exit-is-auth heuristic preserves that property without inventing a new, unvalidated stderr-pattern-matching mechanism that could silently miss a real auth failure on CLI wording drift. Accepted cost: a genuine non-auth CLI crash is mislabeled auth — the same imprecision cli.go already ships today, not a new regression.",
+      "architecturally_significant": true
+    }
+  ],
+  "verification": {
+    "result": "pass",
+    "verifier_was_fresh_context": true,
+    "verifier_verdict_at": "2026-07-05T20:22:21Z"
+  }
+}

@@ -213,21 +213,22 @@ func (ot *OpsTools) readReleaseBoard(release string) (string, error) {
 		return ot.readReleaseBoardOracle(release)
 	}
 
-	indexPath := filepath.Join(ot.repoRoot, "docs", "release", release, "index.md")
-	indexData, err := os.ReadFile(indexPath)
+	br, err := board.ReadBoard(ot.repoRoot, release)
 	if err != nil {
-		return "", fmt.Errorf("read index.md: %w", err)
+		return "", fmt.Errorf("read board via oracle: %w", err)
 	}
-
-	frontmatterBody := extractFrontmatterBody(string(indexData))
-	tracks := board.ParseTracks(frontmatterBody)
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "Release: %s\n", release)
-	fmt.Fprintf(&b, "Tracks: %d\n", len(tracks))
+	fmt.Fprintf(&b, "Tracks: %d\n", len(br.Tracks))
 
-	for _, t := range tracks {
-		fmt.Fprintf(&b, "\n  Track: %s (state: %s)\n", t.ID, t.State)
+	// board-v1 is a pure plan: track state is DERIVED from git refs (sworn#80).
+	stateByID := map[string]string{}
+	for _, ti := range board.DeriveTrackInfos(br.Tracks, ot.repoRoot, release, git.New(ot.repoRoot)) {
+		stateByID[ti.ID] = ti.State
+	}
+	for _, t := range br.Tracks {
+		fmt.Fprintf(&b, "\n  Track: %s (state: %s)\n", t.ID, stateByID[t.ID])
 		fmt.Fprintf(&b, "    Slices: %d\n", len(t.Slices))
 
 		for _, sliceID := range t.Slices {
@@ -311,17 +312,13 @@ func (ot *OpsTools) handleGetBlocked(ctx context.Context, params json.RawMessage
 }
 
 func (ot *OpsTools) findBlockedInRelease(release string) []string {
-	indexPath := filepath.Join(ot.repoRoot, "docs", "release", release, "index.md")
-	indexData, err := os.ReadFile(indexPath)
+	br, err := board.ReadBoard(ot.repoRoot, release)
 	if err != nil {
 		return nil
 	}
 
-	frontmatterBody := extractFrontmatterBody(string(indexData))
-	tracks := board.ParseTracks(frontmatterBody)
-
 	var result []string
-	for _, t := range tracks {
+	for _, t := range br.Tracks {
 		for _, sliceID := range t.Slices {
 			statusPath := filepath.Join(ot.repoRoot, "docs", "release", release, sliceID, "status.json")
 			s, err := state.Read(statusPath)
@@ -329,13 +326,11 @@ func (ot *OpsTools) findBlockedInRelease(release string) []string {
 				continue
 			}
 			if s.State == state.FailedVerification || (s.Verification.Result == "blocked") {
-				violations := ""
-				proofPath := filepath.Join(ot.repoRoot, "docs", "release", release, sliceID, "proof.md")
-				if proofData, err := os.ReadFile(proofPath); err == nil {
-					violations = extractViolations(string(proofData))
-				}
+				sliceDir := filepath.Join(ot.repoRoot, "docs", "release", release, sliceID)
+				violations := readProofViolations(sliceDir)
 				entry := fmt.Sprintf("Release: %s\n  Track: %s\n  Slice: %s\n  State: %s\n  Worktree: %s\n",
-					release, t.ID, sliceID, s.State, t.WorktreePath)
+					release, t.ID, sliceID, s.State,
+					board.TrackWorktreePathFrom(board.ReleaseWorktreePathFrom(ot.repoRoot, release), release, t.ID))
 				if violations != "" {
 					entry += fmt.Sprintf("  Violations:\n%s\n", violations)
 				}
@@ -435,20 +430,17 @@ func (ot *OpsTools) handleApproveMerge(ctx context.Context, params json.RawMessa
 		return textResult(fmt.Sprintf("Error: %v", err)), nil
 	}
 
-	// Find the track
-	indexPath := filepath.Join(ot.repoRoot, "docs", "release", p.Release, "index.md")
-	indexData, err := os.ReadFile(indexPath)
+	// Resolve track metadata via the board oracle (board.json, with
+	// lazy index.md migration) instead of parsing index.md frontmatter.
+	br, err := board.ReadBoard(ot.repoRoot, p.Release)
 	if err != nil {
-		return textResult(fmt.Sprintf("Error reading release: %v", err)), nil
+		return textResult(fmt.Sprintf("Error reading release %q via board oracle: %v", p.Release, err)), nil
 	}
 
-	frontmatterBody := extractFrontmatterBody(string(indexData))
-	tracks := board.ParseTracks(frontmatterBody)
-
-	var matchTrack *board.TrackInfo
-	for i, t := range tracks {
+	var matchTrack *board.BoardTrack
+	for i, t := range br.Tracks {
 		if t.ID == p.TrackID {
-			matchTrack = &tracks[i]
+			matchTrack = &br.Tracks[i]
 			break
 		}
 	}
@@ -456,10 +448,8 @@ func (ot *OpsTools) handleApproveMerge(ctx context.Context, params json.RawMessa
 		return textResult(fmt.Sprintf("Track %q not found in release %q.", p.TrackID, p.Release)), nil
 	}
 
-	trackBranch := matchTrack.WorktreeBranch
-	if trackBranch == "" {
-		return textResult(fmt.Sprintf("Track %q has no worktree_branch set.", p.TrackID)), nil
-	}
+	// board-v1 is a pure plan: the branch is DERIVED as track/<release>/<id> (sworn#80).
+	trackBranch := board.TrackWorktreeBranch(p.Release, matchTrack.ID)
 
 	// Validate all track slices are in verified state via oracle (git-ref reads).
 	var unverified []string
@@ -477,10 +467,11 @@ func (ot *OpsTools) handleApproveMerge(ctx context.Context, params json.RawMessa
 			p.TrackID, strings.Join(unverified, "\n  - "))), nil
 	}
 
-	// Run invariant-4 classifier on the release worktree if repo is available.
-	releaseWorktreePath := extractReleaseWorktreePath(string(indexData))
+	// Run invariant-4 classifier on the release worktree. board-v1 is a pure plan:
+	// the release worktree path is DERIVED as a sibling of the repo (Pin 1 / sworn#80).
+	releaseWorktreePath := board.ReleaseWorktreePathFrom(ot.repoRoot, p.Release)
 	if releaseWorktreePath == "" {
-		return textResult(fmt.Sprintf("release_worktree_path not found in index.md frontmatter")), nil
+		return textResult(fmt.Sprintf("release worktree path not derivable for release %q (no repo root)", p.Release)), nil
 	}
 
 	releaseRepo := git.New(releaseWorktreePath)
@@ -517,20 +508,28 @@ func (ot *OpsTools) handleApproveMerge(ctx context.Context, params json.RawMessa
 
 // checkTrackVerifiedOracle uses board.Oracle to read committed slice states
 // from git refs (track branch → release-wt → HEAD priority chain).
-func (ot *OpsTools) checkTrackVerifiedOracle(release string, t *board.TrackInfo) ([]string, error) {
+func (ot *OpsTools) checkTrackVerifiedOracle(release string, t *board.BoardTrack) ([]string, error) {
 	oracle := board.NewGitOracle(ot.repo)
 	releaseRef := "refs/heads/release-wt/" + release
 
-	// Build track map for the oracle.
+	// Build track map for the oracle. The oracle expects board.TrackInfo,
+	// so materialise a one-entry map from the BoardTrack we resolved.
+	// board-v1 is a pure plan: derive the branch (track/<release>/<id>) — sworn#80.
+	trackBranch := board.TrackWorktreeBranch(release, t.ID)
 	trackMap := make(map[string]board.TrackInfo)
-	trackMap[t.ID] = *t
+	trackMap[t.ID] = board.TrackInfo{
+		ID:             t.ID,
+		Slices:         t.Slices,
+		DependsOn:      []string(t.DependsOn),
+		WorktreeBranch: trackBranch,
+	}
 
 	var unverified []string
 	for _, sliceID := range t.Slices {
 		ss, _, err := oracle.ReadSliceStatus(
 			context.Background(),
 			oracleReader{repo: ot.repo},
-			"refs/heads/"+t.WorktreeBranch,
+			"refs/heads/"+trackBranch,
 			releaseRef,
 			release,
 			sliceID,
@@ -548,7 +547,7 @@ func (ot *OpsTools) checkTrackVerifiedOracle(release string, t *board.TrackInfo)
 }
 
 // checkTrackVerifiedFS is the filesystem fallback for when repo is nil.
-func (ot *OpsTools) checkTrackVerifiedFS(release string, t *board.TrackInfo) ([]string, error) {
+func (ot *OpsTools) checkTrackVerifiedFS(release string, t *board.BoardTrack) ([]string, error) {
 	var unverified []string
 	for _, sliceID := range t.Slices {
 		statusPath := filepath.Join(ot.repoRoot, "docs", "release", release, sliceID, "status.json")
@@ -685,24 +684,20 @@ func (ot *OpsTools) handleListReleases(ctx context.Context, params json.RawMessa
 			continue
 		}
 		release := entry.Name()
-		indexPath := filepath.Join(releasesDir, release, "index.md")
-		indexData, err := os.ReadFile(indexPath)
+		br, err := board.ReadBoard(ot.repoRoot, release)
 		if err != nil {
 			continue
 		}
 
-		frontmatterBody := extractFrontmatterBody(string(indexData))
-		tracks := board.ParseTracks(frontmatterBody)
-
 		totalSlices := 0
-		for _, t := range tracks {
+		for _, t := range br.Tracks {
 			totalSlices += len(t.Slices)
 		}
 
 		releases = append(releases, releaseInfo{
 			Name:       release,
 			SliceCount: totalSlices,
-			TrackCount: len(tracks),
+			TrackCount: len(br.Tracks),
 		})
 	}
 

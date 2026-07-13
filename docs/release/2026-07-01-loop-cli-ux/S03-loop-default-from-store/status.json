@@ -1,0 +1,22 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S03-loop-default-from-store",
+  "release": "2026-07-01-loop-cli-ux",
+  "track": "T1-loop-cli-ux",
+  "state": "planned",
+  "covers_needs": [
+    "N-03"
+  ],
+  "spec_path": "docs/release/2026-07-01-loop-cli-ux/S03-loop-default-from-store/spec.json",
+  "start_commit": null,
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "low",
+    "quadrant": "quick",
+    "rationale": "Read one value from the S01 settings table, feed into S02's existing dispatch path.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending"
+  }
+}
