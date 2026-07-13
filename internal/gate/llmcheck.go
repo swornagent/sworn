@@ -62,16 +62,55 @@ type LLMCheckReport struct {
 
 // LLMFinding is one structured finding from the model's response.
 type LLMFinding struct {
-	ID       string `json:"id"`       // e.g. "F-01"
-	Severity string `json:"severity"` // "FAIL", "WARN", "INFO"
-	Title    string `json:"title"`    // one-line summary
-	Detail   string `json:"detail"`   // full explanation
+	ID       string `json:"id"`                 // e.g. "F-01"
+	Severity string `json:"severity"`           // impact: critical|high|medium|low|info (legacy: FAIL|WARN|INFO)
+	Blocking *bool  `json:"blocking,omitempty"` // disposition (llm-check-report-v1, Baton v0.12.0+); nil on legacy payloads
+	Title    string `json:"title"`              // one-line summary
+	Detail   string `json:"detail"`             // full explanation
 }
 
-// HasViolations returns true when the report contains FAIL findings.
+// IsBlocking reports whether this finding fails its check.
+//
+// Severity sets the floor and `blocking` may only ESCALATE, never de-escalate.
+// Baton v0.12.0 lets a check mark, say, a medium finding as blocking; it does
+// not let a model wave through a critical one by claiming blocking: false. A
+// critical/high finding that arrives with blocking: false is a model contract
+// violation (the security-review prompt states those always block), so we fail
+// closed on it rather than believe it.
+//
+// Two grading vocabularies are recognised because they both exist in the wild:
+// five checks graded FAIL/WARN/INFO and security-review graded
+// critical/high/medium/low. An unrecognised grade fails closed — an ungradeable
+// finding is not a pass.
+func (f LLMFinding) IsBlocking() bool {
+	if f.Blocking != nil && *f.Blocking {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(f.Severity)) {
+	case "fail", "critical", "high":
+		return true
+	case "warn", "medium", "low", "info":
+		return false
+	default:
+		return true
+	}
+}
+
+// HasViolations returns true when the report contains a blocking finding, or
+// when the model itself declared FAIL.
+//
+// The model's verdict is corroborating evidence, never the sole authority: a
+// PASS verdict cannot clear a blocking finding. Trusting `verdict` alone is
+// self-certification, which is precisely what Rule 7 exists to prevent.
+//
+// This previously string-matched severity == "FAIL" — a value security-review
+// never emits, since it grades critical/high/medium/low. The loop was therefore
+// dead code for the security check and blocking silently degraded to the model's
+// own verdict, so a critical RCE finding alongside a self-declared PASS shipped
+// the gate green (sworn#103).
 func (r *LLMCheckReport) HasViolations() bool {
 	for _, f := range r.Findings {
-		if f.Severity == "FAIL" {
+		if f.IsBlocking() {
 			return true
 		}
 	}
