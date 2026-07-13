@@ -86,14 +86,14 @@ var CapabilityPolicyV1 []byte
 // embedded bytes. Callers use this to look up the schema by the name
 // they store in the $schema field.
 var SchemaMap = map[string][]byte{
-	"slice-status-v1":     SliceStatusV1,
-	"board-v1":            BoardV1,
-	"spec-v1":             SpecV1,
-	"proof-v1":            ProofV1,
-	"journeys-v1":         JourneysV1,
-	"attestations-v1":     AttestationsV1,
-	"verifier-verdict-v1": VerifierVerdictV1,
-	"contracts-v1":        ContractsV1,
-	"assembly-proof-v1":   AssemblyProofV1,
+	"slice-status-v1":      SliceStatusV1,
+	"board-v1":             BoardV1,
+	"spec-v1":              SpecV1,
+	"proof-v1":             ProofV1,
+	"journeys-v1":          JourneysV1,
+	"attestations-v1":      AttestationsV1,
+	"verifier-verdict-v1":  VerifierVerdictV1,
+	"contracts-v1":         ContractsV1,
+	"assembly-proof-v1":    AssemblyProofV1,
 	"capability-policy-v1": CapabilityPolicyV1,
 }
