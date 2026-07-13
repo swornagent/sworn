@@ -19,7 +19,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/model"
+	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/spec"
 	"github.com/swornagent/sworn/internal/style"
 )
@@ -118,156 +120,28 @@ func (r *LLMCheckReport) HasViolations() bool {
 }
 
 // --- prompt templates ---
+//
+// The six system prompts are NOT defined here. They are vendored from the Baton
+// protocol (baton/llm-checks/<check>.md, v0.12.0) and read at runtime via
+// prompt.LLMCheck. The prompt body IS the contract, the same way a schema is: a
+// check whose wording drifted from the published spec would be a different check
+// running under the same name, and no second engine could implement the protocol
+// without them. They previously lived here as ~140 lines of inline Go constants,
+// which is what made Baton's "canonical runner, not the only possible one" claim
+// unsupportable.
 
-// systemPrompts holds the system prompt for each check type.
-var systemPrompts = map[CheckType]string{
-	CheckACSatisfaction: `You are a quality-assurance engineer verifying that a code change satisfies its acceptance criteria.
-
-Your task is to read a slice specification (spec.md) containing acceptance checks, and a git diff showing the code changes. For each acceptance check (AC) in the spec, determine whether the code genuinely satisfies it.
-
-Respond with a JSON object:
-{
-  "verdict": "PASS" or "FAIL",
-  "findings": [
-    {
-      "id": "F-01",
-      "severity": "FAIL" | "WARN" | "INFO",
-      "title": "one-line summary",
-      "detail": "what the check requires vs what the code delivers"
-    }
-  ]
+// userPromptHeaderFor builds the per-check user-payload header for a project.
+//
+// projectContext is Baton v0.12.0's {{project_context}} — a REQUIRED substitution,
+// not a default. This was previously a const hardcoded to "the SwornAgent project
+// (a Go CLI)", sent on every check in every repo: running the checks against a
+// TypeScript codebase told the model it was reading a Go CLI, so it graded against
+// the wrong priors, silently.
+func userPromptHeaderFor(projectContext string) string {
+	return "You are evaluating a slice in a release of " + projectContext + ".\n\n" +
+		"Below is the slice specification, followed by the git diff of the code change.\n\n" +
+		"--- SPECIFICATION ---\n\n"
 }
-
-Rules:
-- Each AC must be checked individually. If an AC is not satisfied, emit a FAIL finding naming that AC.
-- If the code change is unrelated to an AC, note it as INFO.
-- Be specific: cite line ranges, function names, or file paths.
-- If every AC is satisfied, verdict is PASS with zero FAIL findings.
-- Temperature 0 — be deterministic and reproducible.`,
-	CheckSpecAmbiguity: `You are a requirements engineer reviewing a slice specification for ambiguity.
-
-Your task is to read a slice specification (spec.md) and identify any acceptance checks (ACs) that are vague, incomplete, or underspecified.
-
-Respond with a JSON object:
-{
-  "verdict": "PASS" or "FAIL",
-  "findings": [
-    {
-      "id": "F-01",
-      "severity": "FAIL" | "WARN" | "INFO",
-      "title": "one-line summary",
-      "detail": "why the AC is ambiguous and what is missing"
-    }
-  ]
-}
-
-Rules:
-- An AC is ambiguous if it lacks concrete artefacts (file paths, status codes, specific label strings, numeric thresholds).
-- An AC is incomplete if it names a behaviour but not the condition or outcome.
-- An AC is underspecified if it uses vague verbs ("fix", "handle", "address") without concrete deliverables.
-- Severity: FAIL for truly ambiguous ACs, WARN for minor clarity issues.
-- If all ACs are concrete, complete, and well-specified, verdict is PASS.
-- Temperature 0 — be deterministic and reproducible.`,
-	CheckDesignReview: `You are a software architect reviewing whether a code change conflicts with established project memory.
-
-Your task is to read the project memory (provided below) and a git diff, and identify any design decisions in the code change that conflict with documented conventions, architecture decisions (ADRs), or infrastructure constraints.
-
-Respond with a JSON object:
-{
-  "verdict": "PASS" or "FAIL",
-  "findings": [
-    {
-      "id": "F-01",
-      "severity": "FAIL" | "WARN" | "INFO",
-      "title": "one-line summary",
-      "detail": "the conflict: what the code does vs what the memory says"
-    }
-  ]
-}
-
-Rules:
-- Check for violations of ADRs, branching models, naming conventions, dependency rules, and infrastructure constraints.
-- A new dependency without an ADR is a FAIL.
-- A deviation from documented architecture without justification is a FAIL.
-- If the code change is fully consistent with project memory, verdict is PASS.
-- Temperature 0 — be deterministic and reproducible.`,
-	CheckSecurityReview: `You are a security engineer reviewing a code change for vulnerabilities.
-
-Your task is to read a git diff and identify any security vulnerabilities introduced by the change.
-
-Respond with a JSON object:
-{
-  "verdict": "PASS" or "FAIL",
-  "findings": [
-    {
-      "id": "F-01",
-      "severity": "critical" | "high" | "medium" | "low",
-      "title": "one-line summary",
-      "detail": "the vulnerability: what it is, where it is, and the risk"
-    }
-  ]
-}
-
-Rules:
-- Severity scale: critical (remote code execution, auth bypass), high (data exposure, injection), medium (info leak, weak crypto), low (best-practice violations with no direct exploit).
-- Check for: hardcoded secrets, SQL/command injection, missing auth checks, unsafe deserialization, path traversal, overly permissive CORS, logging sensitive data.
-- If the diff introduces no security concerns, verdict is PASS.
-- Temperature 0 — be deterministic and reproducible.`,
-	CheckSemanticCoverage: `You are a test-quality reviewer checking whether tests genuinely verify their claimed acceptance criteria.
-
-Your task is to read a slice specification (spec.md) containing acceptance checks with their associated tests, and the test file diffs. For each AC, determine whether the matching test genuinely verifies the AC's behaviour (not just imports or passes through the code).
-
-Respond with a JSON object:
-{
-  "verdict": "PASS" or "FAIL",
-  "findings": [
-    {
-      "id": "F-01",
-      "severity": "FAIL" | "WARN" | "INFO",
-      "title": "one-line summary",
-      "detail": "what the test claims to verify vs what it actually asserts"
-    }
-  ]
-}
-
-Rules:
-- A test that calls a function but never asserts its behaviour is a FAIL.
-- A test that only checks "no error" without validating output is a FAIL.
-- A test that exercises the wrong condition for its claimed AC is a FAIL.
-- If every AC is genuinely verified by its tests, verdict is PASS.
-- Temperature 0 — be deterministic and reproducible.`,
-	CheckMaintainabilityReview: `You are a software maintainability reviewer assessing whether code will be understandable 12 months from now.
-
-Your task is to read a git diff and assess its maintainability.
-
-Respond with a JSON object:
-{
-  "verdict": "PASS" or "FAIL",
-  "findings": [
-    {
-      "id": "F-01",
-      "severity": "FAIL" | "WARN" | "INFO",
-      "title": "one-line summary",
-      "detail": "what the issue is and why it hurts future understanding"
-    }
-  ]
-}
-
-Rules:
-- Check for: unclear naming (single-letter variables, misleading names), god objects (files >500 lines or functions >50 lines), missing package/function doc comments, overly clever abstractions, tight coupling without clear interfaces.
-- Severity: FAIL for genuinely unmaintainable code (e.g. 300-line function with single-letter variables), WARN for minor clarity issues, INFO for suggestions.
-- If the code is clean, well-named, and appropriately documented, verdict is PASS.
-- Temperature 0 — be deterministic and reproducible.`,
-}
-
-// userPromptHeader is prepended to every user payload.
-const userPromptHeader = `You are evaluating a slice in a release of the SwornAgent project (a Go CLI).
-
-Below is the slice specification, followed by the git diff of the code change.
-
---- SPECIFICATION (spec.md) ---
-
-`
 
 // userPromptDiffSeparator separates the spec from the diff.
 const userPromptDiffSeparator = `
@@ -305,9 +179,17 @@ func RunLLMCheck(ctx context.Context, checkType CheckType, sliceDir string, diff
 		specContent = spec.RenderMarkdown(rec)
 	}
 
-	// Build the prompt.
-	systemPrompt := systemPrompts[checkType]
-	userPayload := buildUserPayload(checkType, specContent, diffContent)
+	// The system prompt is the vendored Baton contract, read verbatim — not a Go
+	// constant that could drift from the published spec.
+	systemPrompt, err := prompt.LLMCheck(string(checkType))
+	if err != nil {
+		return nil, fmt.Errorf("llm-check: %w", err)
+	}
+
+	// Tell the model what it is actually looking at. Detected from the repo, not
+	// hardcoded — see DetectProjectContext.
+	projectContext := DetectProjectContext(repoRootFrom(sliceDir))
+	userPayload := buildUserPayload(projectContext, specContent, diffContent)
 
 	// Call the model.
 	rawResponse, _, _, _, err := verifier.Verify(ctx, systemPrompt, userPayload)
@@ -318,11 +200,15 @@ func RunLLMCheck(ctx context.Context, checkType CheckType, sliceDir string, diff
 	// Parse the response.
 	result, parseErr := parseLLMResponse(rawResponse)
 	if parseErr != nil {
-		// Tolerant parse: if we can't extract JSON, treat the raw response
-		// as a single INFO finding and fail closed.
+		// Tolerant parse: if we can't extract JSON, fail closed on a blocking
+		// finding. An unreadable response is not a pass.
+		blocking := true
 		result = &llmResponseJSON{
-			Verdict:  "FAIL",
-			Findings: []LLMFinding{{ID: "F-00", Severity: "INFO", Title: "Unparseable model response", Detail: rawResponse}},
+			Verdict: "FAIL",
+			Findings: []LLMFinding{{
+				ID: "F-00", Severity: "high", Blocking: &blocking,
+				Title: "Unparseable model response", Detail: rawResponse,
+			}},
 		}
 	}
 
@@ -343,9 +229,9 @@ func RunLLMCheck(ctx context.Context, checkType CheckType, sliceDir string, diff
 // --- prompt building ---
 
 // buildUserPayload constructs the user message for the model.
-func buildUserPayload(_ CheckType, specContent, diffContent string) string {
+func buildUserPayload(projectContext, specContent, diffContent string) string {
 	var b strings.Builder
-	b.WriteString(userPromptHeader)
+	b.WriteString(userPromptHeaderFor(projectContext))
 	b.WriteString(specContent)
 	b.WriteString(userPromptDiffSeparator)
 	if diffContent == "" {
@@ -364,15 +250,39 @@ type llmResponseJSON struct {
 	Findings []LLMFinding `json:"findings"`
 }
 
-// parseLLMResponse extracts and parses the JSON verdict from a model response.
-// It is tolerant: if the response wraps JSON in markdown code fences, it extracts
-// the inner content first.
+// parseLLMResponse extracts and parses the JSON verdict from a model response,
+// then grades the payload against the published contract (llm-check-report-v1).
+// It is tolerant of markdown code fences around the JSON, and intolerant of
+// anything else.
 func parseLLMResponse(raw string) (*llmResponseJSON, error) {
 	cleaned := extractJSON(raw)
 
 	var result llmResponseJSON
 	if err := json.Unmarshal([]byte(cleaned), &result); err != nil {
 		return nil, fmt.Errorf("parse LLM response: %w (raw: %.200s)", err, raw)
+	}
+
+	// Grade the payload against the published record BEFORE normalising, so the
+	// contract is checked against what the model actually said.
+	//
+	// The schema is the fail-closed half of sworn#103. It splits severity (impact)
+	// from blocking (disposition) and derives the verdict from the findings, so a
+	// PASS carrying a blocking finding is schema-INVALID — the exact payload (a
+	// critical finding beside a self-declared PASS) that used to pass the security
+	// gate green cannot even be expressed. A payload that violates the contract is
+	// a FAIL, never a silently-misread pass.
+	if verr := baton.ValidateSchema("llm-check-report-v1", []byte(cleaned)); verr != nil {
+		blocking := true
+		result.Verdict = "FAIL"
+		result.Findings = append(result.Findings, LLMFinding{
+			ID:       "F-00",
+			Severity: "high",
+			Blocking: &blocking,
+			Title:    "LLM check response violates llm-check-report-v1",
+			Detail: fmt.Sprintf("The model's response does not satisfy the published check contract, "+
+				"so its verdict cannot be trusted: %v", verr),
+		})
+		return &result, nil
 	}
 
 	// Normalise verdict.
@@ -383,7 +293,7 @@ func parseLLMResponse(raw string) (*llmResponseJSON, error) {
 		if len(result.Findings) == 0 {
 			result.Findings = append(result.Findings, LLMFinding{
 				ID:       "F-00",
-				Severity: "INFO",
+				Severity: "info",
 				Title:    "Unknown verdict value",
 				Detail:   fmt.Sprintf("Model returned verdict %q — expected PASS or FAIL.", result.Verdict),
 			})

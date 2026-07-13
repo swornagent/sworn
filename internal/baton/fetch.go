@@ -70,20 +70,34 @@ func FetchUpstream(ctx context.Context, repo, tag string) (*FetchResult, error) 
 	computedDigest := fmt.Sprintf("sha256:%x", h.Sum(nil))
 
 	// 4. Verify against recorded pins.
+	//
+	// The pin records the SHA + digest OF THE PINNED TAG, so it can only verify a
+	// fetch of THAT tag. The trust model is trust-on-first-use, per tag: the first
+	// fetch of a tag records its SHA + digest, and every later fetch of the same
+	// tag must match — that is what catches a force-moved tag or a mutated tarball.
+	//
+	// Comparing the pin against a DIFFERENT tag is meaningless: on an intentional
+	// version bump the SHAs differ by definition. Doing so aborted every bump as
+	// though it were tampering, which made `--upstream --tag <newer>` — the whole
+	// point of the flag — permanently unusable. Verify only when the requested tag
+	// is the one the pin describes; a new tag has nothing to verify against, and
+	// its pin is written after the fetch succeeds.
 	pin, err := ReadUpstreamPin()
 	if err != nil {
 		return nil, fmt.Errorf("baton: cannot read pin: %w", err)
 	}
 
-	if pin.SHA != "" && pin.SHA != resolvedSHA {
-		return nil, fmt.Errorf("baton: upstream SHA mismatch: pinned %s, resolved %s — the tag may have been force-moved; aborting", pin.SHA, resolvedSHA)
+	fetchingPinnedTag := pin.Tag != "" && pin.Tag == tag
+
+	if fetchingPinnedTag && pin.SHA != "" && pin.SHA != resolvedSHA {
+		return nil, fmt.Errorf("baton: upstream SHA mismatch for pinned tag %s: pinned %s, resolved %s — the tag may have been force-moved; aborting", tag, pin.SHA, resolvedSHA)
 	}
 
-	if pin.Digest != "" {
-		// Digest pin exists — verify. (First-fetch bootstrap: Digest is empty,
-		// so this branch is skipped; SHA still catches force-moved tags.)
+	if fetchingPinnedTag && pin.Digest != "" {
+		// Digest pin exists for this tag — verify. (First-fetch bootstrap: Digest is
+		// empty, so this branch is skipped; SHA still catches force-moved tags.)
 		if pin.Digest != computedDigest {
-			return nil, fmt.Errorf("baton: upstream digest mismatch: pinned %s, computed %s — tarball content changed; aborting", pin.Digest, computedDigest)
+			return nil, fmt.Errorf("baton: upstream digest mismatch for pinned tag %s: pinned %s, computed %s — tarball content changed; aborting", tag, pin.Digest, computedDigest)
 		}
 	}
 

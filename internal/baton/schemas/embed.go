@@ -82,6 +82,20 @@ var AssemblyProofV1 []byte
 //go:embed capability-policy-v1.json
 var CapabilityPolicyV1 []byte
 
+// LLMCheckReportV1 is the canonical llm-check-report-v1.json schema (baton
+// v0.12.0), embedded at build time. It validates the report returned by each of
+// the six deterministic LLM checks.
+//
+// GRADED, not advisory: the schema is the fail-closed half of the security
+// fix in sworn#103. Grading splits `severity` (impact) from `blocking`
+// (disposition) and makes the verdict DERIVED — FAIL iff at least one finding is
+// blocking — enforced in both directions, so a PASS carrying a blocking finding
+// is schema-invalid. That is the exact payload (a critical finding beside a
+// self-declared PASS) that used to pass the security gate green.
+//
+//go:embed llm-check-report-v1.json
+var LLMCheckReportV1 []byte
+
 // SchemaMap maps a short schema name (e.g. "slice-status-v1") to its
 // embedded bytes. Callers use this to look up the schema by the name
 // they store in the $schema field.
@@ -96,4 +110,5 @@ var SchemaMap = map[string][]byte{
 	"contracts-v1":         ContractsV1,
 	"assembly-proof-v1":    AssemblyProofV1,
 	"capability-policy-v1": CapabilityPolicyV1,
+	"llm-check-report-v1":  LLMCheckReportV1,
 }

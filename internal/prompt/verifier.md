@@ -98,7 +98,7 @@ Re-run the test commands yourself. If they fail in your fresh window: FAIL.
 
 ### Gate 3b — Implementation satisfies acceptance criteria (LLM)
 
-Run the **ac-satisfaction LLM check** (reference implementation: `sworn llm-check --check ac-satisfaction`).
+Run the **ac-satisfaction LLM check** (reference implementation: `sworn llm-check --check ac-satisfaction`; prompt body: `llm-checks/ac-satisfaction.md`).
 
 This is the verifier's core adversarial check: the implementer self-assessed ac-satisfaction before claiming "implemented", but Rule 7 forbids self-certification. The verifier re-runs this check independently.
 - If the LLM provider is not configured, note it and skip (non-blocking).
@@ -151,7 +151,7 @@ Read the `reachability` artefact in `proof.json`.
 
 ### Gate 4b — Semantic test coverage (LLM, optional when LLM provider configured)
 
-Run the **semantic-coverage LLM check** (`sworn llm-check --check semantic-coverage`).
+Run the **semantic-coverage LLM check** (`sworn llm-check --check semantic-coverage`; prompt body: `llm-checks/semantic-coverage.md`).
 
 - If the LLM provider is not configured, this gate passes automatically (non-blocking).
 - If the check returns FAIL: at least one test does not genuinely verify its AC. Add the findings to the FAIL verdict.

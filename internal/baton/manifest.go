@@ -64,10 +64,14 @@ var schemaGradeStatus = map[string]GradeStatus{
 	"proof-v1":        Graded,
 	"journeys-v1":     Graded,
 	"attestations-v1": Graded,
-	// Graded: the sole production ValidateSchema(...) call site —
-	// internal/verify/verify.go's Rule-7 verifier verdict emission
+	// Graded: internal/verify/verify.go's Rule-7 verifier verdict emission
 	// (ADR-0011 keystone path).
 	"verifier-verdict-v1": Graded,
+	// Graded: internal/gate/llmcheck.go parseLLMResponse() validates every LLM
+	// check response against this schema and fails the check closed on violation.
+	// The schema is the fail-closed half of sworn#103 — it derives the verdict
+	// from the findings, so a PASS carrying a blocking finding is invalid.
+	"llm-check-report-v1": Graded,
 	// Advisory: vendored at baton v0.10.0, stored + version-declared by
 	// `sworn doctor`, not yet graded. The `sworn lint contracts` grader is
 	// the follow-on contract-edge-gates release (see

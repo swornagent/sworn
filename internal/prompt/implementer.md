@@ -90,8 +90,8 @@ Before touching code, confirm the slice's acceptance criteria satisfy Rule 8 (Re
 4. Maintain `journal.md` as you go — decisions, trade-offs, anything a verifier might need context on.
 5. When you believe the slice is done:
    - Run the **coverage gate** (reference implementation: `sworn coverage`) — every AC must have a matching test. Fix uncovered ACs before proceeding.
-   - Run the **ac-satisfaction LLM check** (reference implementation: `sworn llm-check --check ac-satisfaction`) — confirm every AC is genuinely satisfied by the implementation. Fix gaps before proceeding.
-   - If the project has security rules in `docs/baton/architecture.json`, run the **security-review LLM check** (`sworn llm-check --check security-review`) — address any findings.
+   - Run the **ac-satisfaction LLM check** (reference implementation: `sworn llm-check --check ac-satisfaction`; prompt body: `llm-checks/ac-satisfaction.md`) — confirm every AC is genuinely satisfied by the implementation. Fix gaps before proceeding.
+   - If the project has security rules in `docs/baton/architecture.json`, run the **security-review LLM check** (`sworn llm-check --check security-review`; prompt body: `llm-checks/security-review.md`) — address any findings.
    - Run all relevant test commands and capture output.
    - Run the **proof-bundle verification gate** (reference implementation: `sworn verify`) and address any failures.
    - Emit `proof.json` from live repo state, valid against `proof-v1` (files changed, test results, reachability artefact, delivered, not_delivered, divergence). The human-readable `proof.md` is rendered from it.

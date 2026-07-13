@@ -1248,6 +1248,23 @@ Per-slice verification proves the parts; the journey walk proves the whole — b
 - **The human walk comes after.** The touched journeys are re-walked against real infra **after the assembly run passes**, not merely "after all slices verify" — the machine half catches the wire-level seams (the CORS class) so the human walk spends its attention on journey semantics, not transport failures.
 - **`/merge-release` gates on `assembled`** the way it gates on per-slice `verified`. Until the reference implementation ships, the gate is advisory (a missing `assembly-proof.json` is a surfaced warning, a failing one is a hard block); it flips to fail-closed when `sworn assemble` ships (baton#59 skew-window policy).
 
+## The cutover QA runbook
+
+The assembly run is the machine half of validating the whole; the human walk is the other half. Between them sits a gap: the human re-walking the touched journeys needs to know *what changed in this release and how to check it* — and reconstructing that by hand, per release, is the step that does not scale as agent throughput rises. The **cutover QA runbook** closes it: a generated, human-facing walk of exactly what this release changed and how to verify it, that **targets** manual QA rather than replacing it.
+
+**It is a rendered view, not new data.** Every input already exists as an artefact the loop produced; the runbook aggregates and renders them (the same records → view move `index.md` makes from `board.json`):
+
+- each verified slice's **reachability** smoke-step (Rule 1) — "open X, do Y, observe Z";
+- the **journeys** this release touched (this doc's artefact);
+- each slice's **`delivered`** list (Rule 6 proof bundle);
+- the **new wire surfaces** the release introduced (`contracts-v1`), as spot-checks.
+
+Rendered into one targeted walk grouped by touched journey: what changed, how to check each thing, the expected result.
+
+**Where it sits in the chain.** `assembly-proof.json` is the machine's end-to-end pass; the runbook is the **guided human pass**; the **attestation** (`attestations-v1`) is the signed output. The runbook is the *input a human walks*; the attestation is the *output they sign* — they pair, they do not duplicate. A human walking a targeted runbook spends attention on journey semantics, not on rediscovering the diff.
+
+**Form and rendering.** `qa-runbook.md` is **prose, rendered from the records** (human-facing, so Markdown never parsed for a decision — the records-vs-prose rule). It is emitted at cutover, after the assembly run passes, by the reference implementation (`sworn`) or the orchestrator. It is **advisory**: an aid to the human walk, not a new fail-closed gate; the attestation remains the gating artefact and may reference the runbook it was walked against.
+
 ## Workflow
 
 1. A maintainer runs journey elicitation against the project.
@@ -1255,7 +1272,8 @@ Per-slice verification proves the parts; the journey walk proves the whole — b
 3. The human reviews, edits, and ratifies the artefact (`is_ratified=true`, `ratified_by`, `ratified_at`).
 4. The journeys gate passes; the artefact is committed and maintained as the project evolves.
 5. After all tracks merge to `release-wt/<name>`, the assembly run executes and emits a passing `assembly-proof.json` (the release is now `assembled`).
-6. At release cutover, the journeys that the release touches are re-walked against real boundaries (no-mock) **after the assembly run passes**, and the walkthrough is human-attested before ship.
+6. The **cutover QA runbook** (`qa-runbook.md`) is rendered from the release's records — a targeted walk of what changed and how to check it.
+7. At release cutover, the journeys that the release touches are re-walked against real boundaries (no-mock) **after the assembly run passes**, guided by the runbook, and the walkthrough is human-attested before ship.
 
 ## Relationship to existing rules
 

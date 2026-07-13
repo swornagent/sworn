@@ -12,6 +12,7 @@ package prompt
 import (
 	"embed"
 	"fmt"
+	"strings"
 
 	"github.com/swornagent/sworn/internal/baton"
 )
@@ -50,6 +51,40 @@ func mustRead(name string) string {
 		panic("prompt: embedded file " + name + " not found: " + err.Error())
 	}
 	return string(b)
+}
+
+// LLMCheck returns the vendored Baton system prompt for one of the six LLM check
+// types (ac-satisfaction, spec-ambiguity, design-review, security-review,
+// semantic-coverage, maintainability-review), with its YAML frontmatter stripped.
+//
+// The prompt body IS the contract — the same way a schema is (Baton v0.12.0,
+// baton/llm-checks/). It is read verbatim from the vendored protocol rather than
+// re-typed as a Go constant, so an upstream prompt change cannot silently diverge
+// from what sworn actually runs. Before v0.12.0 these lived only as inline consts
+// in internal/gate, which meant no other engine could implement the protocol and
+// there was no by-hand fallback for an adopter.
+func LLMCheck(name string) (string, error) {
+	b, err := fs.ReadFile("baton/llm-checks/" + name + ".md")
+	if err != nil {
+		return "", fmt.Errorf("prompt: llm-check %q not vendored: %w", name, err)
+	}
+	return stripFrontmatter(string(b)), nil
+}
+
+// stripFrontmatter removes a leading YAML frontmatter block, returning the body.
+// The frontmatter carries metadata (name, which roles run it, output schema); the
+// body is the prompt.
+func stripFrontmatter(s string) string {
+	const fence = "---\n"
+	if !strings.HasPrefix(s, fence) {
+		return s
+	}
+	rest := s[len(fence):]
+	end := strings.Index(rest, "\n"+fence)
+	if end < 0 {
+		return s // unterminated frontmatter — return as-is rather than truncate
+	}
+	return strings.TrimLeft(rest[end+len("\n"+fence):], "\n")
 }
 
 // Verifier returns the embedded Baton verifier role prompt.

@@ -216,19 +216,24 @@ func TestVendorFailsOnUnmappedScriptInSource(t *testing.T) {
 		}
 	}
 
-	for _, rule := range RuleSources() {
-		mustCreate(rule, "# Rule\nNo scripts here.")
+	// Build the source tree FROM the mapping, so a new mapping cannot silently
+	// rot this test into a "source file missing" failure that says nothing about
+	// what the test is actually for (an unmapped script reference).
+	// rules.md is a concatenation target, not a source file — Vendor skips it.
+	for _, m := range batonFileMappings {
+		if m.Source == "baton/rules.md" {
+			continue
+		}
+		content := "# Stub\nNo scripts here."
+		if strings.HasSuffix(m.Source, ".json") {
+			content = "{}"
+		}
+		mustCreate(m.Source, content)
 	}
-	mustCreate("baton/README.md", "# README")
-	mustCreate("baton/role-prompts/implementer.md", "# Implementer")
-	mustCreate("baton/role-prompts/planner.md", "# Planner")
+
+	// The point of the test: one source carries a script reference the transform
+	// has no mapping for, so Vendor must fail closed.
 	mustCreate("baton/role-prompts/verifier.md", "# Verifier\nRun `unknown-script.sh` for something.")
-	mustCreate("baton/role-prompts/captain.md", "# Captain")
-	mustCreate("baton/architecture.json", "{}")
-	mustCreate("baton/track-mode.md", "# Track Mode")
-	mustCreate("baton/session-discipline.md", "# Session")
-	mustCreate("baton/brainstorm-patterns.md", "# Brainstorm")
-	mustCreate("baton/capability-policy.md", "# Capability Policy")
 
 	tmpRepo := t.TempDir()
 	for _, m := range batonFileMappings {
