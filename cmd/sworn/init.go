@@ -258,6 +258,17 @@ func cmdInit(args []string) int {
 	}
 
 done:
+	// --- Project context (Baton project-context-v1) ---
+	// The LLM checks need to know WHAT this project is and WHAT IS AT RISK. Without
+	// a declaration the engine falls back to detection, which can read languages but
+	// can never know whether real customers depend on the system — and that is what
+	// decides whether a medium security finding blocks or merely advises.
+	if err := setupProjectContext(repoRoot, in, *yes); err != nil {
+		// Not fatal: a repo without a context record still works, it just runs its
+		// checks at fail-closed HIGH stakes with an inferred description.
+		fmt.Fprintf(os.Stderr, "  %s  project context: %v\n", style.Warn("skipped"), err)
+	}
+
 	fmt.Println()
 	fmt.Println(style.Success("Done. Connect your AI to sworn mcp to get the Baton protocol and role prompts. Run 'sworn doctor' to verify your setup."))
 	return 0

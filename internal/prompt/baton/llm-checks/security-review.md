@@ -42,10 +42,27 @@ Severity scale:
 - low — best-practice violation with no direct exploit path.
 - info — an observation with no security consequence.
 
-What blocks in this check:
-- critical and high — blocking: true, always.
-- medium — blocking: false by default. Set blocking: true when the diff's context makes it directly exploitable (say why in `detail`).
-- low and info — blocking: false.
+What blocks in this check depends on what is at stake. The project's stakes are stated in
+the user payload below; read them before you grade.
+
+Always, regardless of stakes:
+- critical and high — blocking: true.
+- info — blocking: false.
+
+**High stakes** — the project is in production, OR serves real users, OR holds sensitive
+data (PII, financial, health, credentials, government ID, location, biometric):
+- medium — blocking: true. An information leak, weak crypto, or an unsafe default is not
+  advisory when a real person is on the other end of it. Say in `detail` what the
+  real-world consequence is.
+- low — blocking: false, but say what would make it matter.
+
+**Low stakes** — a prototype, an internal tool, no real users, no sensitive data:
+- medium — blocking: false by default. Set blocking: true only when the diff's context
+  makes it directly exploitable (say why in `detail`).
+- low — blocking: false.
+
+If the stakes are not stated, assume high stakes and grade accordingly. An undeclared
+system is not a safe one; it is an unexamined one.
 
 Rules:
 - Check for: hardcoded secrets, SQL/command injection, missing auth checks, unsafe deserialization, path traversal, overly permissive CORS, logging sensitive data.

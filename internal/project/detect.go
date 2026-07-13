@@ -1,4 +1,4 @@
-package gate
+package project
 
 import (
 	"os"
@@ -7,11 +7,11 @@ import (
 	"strings"
 )
 
-// ProjectContextEnv lets an adopter state their project's context explicitly,
+// ContextEnv lets an adopter state their project's context explicitly,
 // overriding detection. Baton v0.12.0 specifies {{project_context}} as supplied
 // by the engine "from the repo's configuration"; detection is the default, this
 // is the override.
-const ProjectContextEnv = "SWORN_PROJECT_CONTEXT"
+const ContextEnv = "SWORN_PROJECT_CONTEXT"
 
 // techMarker maps a marker file to the technology it implies. Matched by exact
 // name or, where a project may name the file several ways, by prefix.
@@ -61,7 +61,7 @@ var skipDirs = map[string]bool{
 	"coverage": true, "tmp": true, ".venv": true, "venv": true, "__pycache__": true,
 }
 
-// DetectProjectContext returns a one-line description of the project rooted at
+// Detect returns a one-line description of the project rooted at
 // repoRoot, for substitution into the LLM checks' user payload
 // ({{project_context}}, Baton v0.12.0). For example "a Go project", or
 // "a Next.js and TypeScript monorepo".
@@ -75,8 +75,8 @@ var skipDirs = map[string]bool{
 // SWORN_PROJECT_CONTEXT overrides detection. Detection never fails: an
 // unrecognised repo is "a software project" — vague but true, where the old
 // header was specific and false.
-func DetectProjectContext(repoRoot string) string {
-	if v := strings.TrimSpace(os.Getenv(ProjectContextEnv)); v != "" {
+func Detect(repoRoot string) string {
+	if v := strings.TrimSpace(os.Getenv(ContextEnv)); v != "" {
 		return v
 	}
 
@@ -189,10 +189,10 @@ func joinAnd(items []string) string {
 	}
 }
 
-// repoRootFrom walks up from dir looking for a .git entry, returning the repo
+// RepoRootFrom walks up from dir looking for a .git entry, returning the repo
 // root. Falls back to dir when no .git is found — a non-git checkout still gets a
 // best-effort context rather than a hardcoded lie.
-func repoRootFrom(dir string) string {
+func RepoRootFrom(dir string) string {
 	d, err := filepath.Abs(dir)
 	if err != nil {
 		return dir

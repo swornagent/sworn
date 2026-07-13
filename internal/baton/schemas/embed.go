@@ -96,6 +96,19 @@ var CapabilityPolicyV1 []byte
 //go:embed llm-check-report-v1.json
 var LLMCheckReportV1 []byte
 
+// ProjectContextV1 is the canonical project-context-v1.json schema (baton
+// v0.13.0), embedded at build time. It validates the adopting project's declared
+// identity and stakes — the record read from .sworn/project.json to fill the
+// {{project_context}} and {{project_stakes}} substitutions in every LLM check.
+//
+// GRADED: internal/project validates the record against this schema and fails
+// closed on violation. The stakes half is load-bearing — at high stakes a `medium`
+// security finding blocks instead of advising — so a malformed record must not be
+// silently treated as "no stakes".
+//
+//go:embed project-context-v1.json
+var ProjectContextV1 []byte
+
 // SchemaMap maps a short schema name (e.g. "slice-status-v1") to its
 // embedded bytes. Callers use this to look up the schema by the name
 // they store in the $schema field.
@@ -111,4 +124,5 @@ var SchemaMap = map[string][]byte{
 	"assembly-proof-v1":    AssemblyProofV1,
 	"capability-policy-v1": CapabilityPolicyV1,
 	"llm-check-report-v1":  LLMCheckReportV1,
+	"project-context-v1":   ProjectContextV1,
 }

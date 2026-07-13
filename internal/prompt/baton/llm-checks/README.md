@@ -83,6 +83,8 @@ assembled by the engine and is common to all six:
 ```text
 You are evaluating a slice in a release of {{project_context}}.
 
+{{project_stakes}}
+
 Below is the slice specification, followed by the git diff of the code change.
 
 --- SPECIFICATION ---
@@ -94,11 +96,59 @@ Below is the slice specification, followed by the git diff of the code change.
 {{diff}}
 ```
 
-`{{project_context}}` is a one-line description of the adopting project, supplied by
-the engine from the repo's configuration — for example *"a Next.js and TypeScript
-web application"*. It is a **required** substitution, not a default: a
-check that tells the model it is reading a Go CLI while it reads TypeScript is
-grading against the wrong priors, quietly and in the model's favour.
+### `{{project_context}}` and `{{project_stakes}}` — declared, not guessed
+
+Both are filled from the project's **declared** context record
+([`project-context-v1`](https://baton.sawy3r.net/schemas/project-context-v1.json)) — a
+hand-authored, version-controlled file in the repo. They are **required** substitutions,
+not defaults.
+
+`{{project_context}}` completes the sentence *"You are evaluating a slice in a release
+of ___"* — for example *"a Next.js and TypeScript frontend with a Go backend on
+Postgres"*. A check that tells the model it is reading a Go CLI while it reads
+TypeScript grades against the wrong priors, quietly and in the model's favour.
+
+`{{project_stakes}}` renders the record's `stakes` — production, real users, sensitive
+data, regulatory regime. **The security-review check acts on it mechanically**: at high
+stakes a `medium` finding is blocking, not advisory. An information leak is a different
+severity in a prototype than in a live system holding customer financial data, and the
+check must be told which it is looking at.
+
+> **Why declared and not detected.** An engine can infer a project's *languages* from its
+> files. It cannot infer whether the system serves real customers or holds money — and
+> that is exactly what should move a finding from advisory to blocking. Detection is a
+> guess; a guess handed to the model as a fact is graded against as a fact. An engine that
+> falls back to detection **must say so** (surface it as inferred, not declared), and must
+> treat unstated stakes as **high**: an undeclared system is not a safe one, it is an
+> unexamined one.
+
+### How the record gets written: elicited → ratified → durable
+
+The same three-step Rule 10 applies to journeys, for the same reason — and nobody
+hand-writes a good one from a blank file.
+
+1. **Elicited.** At project setup, the engine has the adopter's model already configured
+   (it needs one to run the checks at all). It uses **that** model to *draft* the record by
+   reading the repo: the stack, the frameworks, the data layer, and a **proposal** for the
+   stakes — a model can see the auth code, the payment integration, the schema holding
+   customer records.
+
+2. **Ratified.** A human reviews and edits the draft, then ratifies it. The model can read
+   the code; it cannot know whether *real people depend on this today*. That is a business
+   fact, and it is the one that decides whether a `medium` finding blocks. **An unratified
+   record is a proposal, not a declaration: its stakes are treated as HIGH until a human
+   confirms otherwise.** A proposal may raise the bar; it may never lower it.
+
+3. **Durable.** The record is committed. Every session, every teammate, and CI all read the
+   same context — instead of each re-guessing it from directory names.
+
+> **The elicitation call is the adopter's, not the protocol's.** It runs through the
+> adopter's own configured model and credentials, against their own provider. Baton
+> specifies no hosted service and no phone-home, and an engine must not introduce one here:
+> drafting this record means sending repository content to a model, and where that content
+> goes is the adopter's decision — a data-residency and privacy question, not a convenience
+> one. An engine with no model configured must fall back to detection and label it inferred,
+> never silently reach out to a third party to fill the gap.
 
 `{{spec}}` is the slice's `spec.json` rendered to readable form (ADR-0009); a
 pre-migration `spec.md` may be passed verbatim.

@@ -72,6 +72,11 @@ var schemaGradeStatus = map[string]GradeStatus{
 	// The schema is the fail-closed half of sworn#103 — it derives the verdict
 	// from the findings, so a PASS carrying a blocking finding is invalid.
 	"llm-check-report-v1": Graded,
+	// Graded: internal/project Load() validates .sworn/project.json against this
+	// schema and fails closed on violation. The stakes half is load-bearing — at
+	// high stakes a `medium` security finding blocks instead of advising — so a
+	// malformed record must not read as "no stakes declared".
+	"project-context-v1": Graded,
 	// Advisory: vendored at baton v0.10.0, stored + version-declared by
 	// `sworn doctor`, not yet graded. The `sworn lint contracts` grader is
 	// the follow-on contract-edge-gates release (see

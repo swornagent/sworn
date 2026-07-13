@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/lint"
+	"github.com/swornagent/sworn/internal/project"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/style"
 ) // checkLevel classifies a doctor check result.
@@ -203,6 +205,13 @@ func cmdDoctor(args []string) int {
 		if r.level == levelError {
 			hasError = true
 		}
+		printResult(r)
+	}
+
+	// --- Group 1c: Project context ---
+	fmt.Println()
+	fmt.Println(style.Heading("Group 1c: Project context"))
+	for _, r := range checkProjectContext(repoRoot) {
 		printResult(r)
 	}
 
@@ -1185,4 +1194,59 @@ func isGitRepo(dir string) bool {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// checkProjectContext reports whether the project's Baton project-context-v1
+// record (.sworn/project.json) is DECLARED and ratified, merely DRAFTED, or
+// entirely absent (so the context is INFERRED from the file layout).
+//
+// This is the visibility mechanism the whole declared-context design turns on: a
+// detection guess must never be able to masquerade as a declaration. The engine
+// already fails closed on stakes when the record is absent or unratified — this
+// makes that fact visible instead of silent, and names the remedy.
+func checkProjectContext(repoRoot string) []checkResult {
+	// A malformed record is worse than a missing one: it looks declared and reads
+	// as nothing. Surface it as an error, with what the schema objected to.
+	if _, err := project.Load(repoRoot); err != nil && !errors.Is(err, project.ErrNoRecord) {
+		return []checkResult{{
+			level: levelError,
+			name:  "project/context",
+			detail: fmt.Sprintf("%s is present but INVALID — checks run at fail-closed HIGH stakes: %v",
+				project.RecordPath, err),
+		}}
+	}
+
+	r := project.Resolve(repoRoot)
+
+	switch r.Source {
+	case project.SourceDeclared:
+		stakes := "low stakes"
+		if r.HighStakes {
+			stakes = "HIGH stakes"
+		}
+		return []checkResult{{
+			level:  levelOK,
+			name:   "project/context",
+			detail: fmt.Sprintf("declared + ratified — %q (%s)", r.Context, stakes),
+		}}
+
+	case project.SourceDrafted:
+		return []checkResult{{
+			level: levelWarn,
+			name:  "project/context",
+			detail: fmt.Sprintf("DRAFTED but NOT RATIFIED — %q. A model proposed this; no human has confirmed it, "+
+				"so every check runs at fail-closed HIGH stakes regardless of the stakes it claims. "+
+				"Review %s and set ratification.ratified = true.", r.Context, project.RecordPath),
+		}}
+
+	default: // inferred
+		return []checkResult{{
+			level: levelWarn,
+			name:  "project/context",
+			detail: fmt.Sprintf("UNDECLARED — no %s. The context %q was INFERRED from your file layout, "+
+				"which can read your languages but cannot know whether real customers depend on this. "+
+				"Every check runs at fail-closed HIGH stakes. Run 'sworn init' to draft and ratify it.",
+				project.RecordPath, r.Context),
+		}}
+	}
 }
