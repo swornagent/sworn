@@ -1,0 +1,123 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S04-live-provider-matrix",
+  "release": "2026-07-14-local-cloud-providers",
+  "track": "T2-live-matrix",
+  "covers_needs": [
+    "N-04"
+  ],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-14T15:13:02+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-14-local-cloud-providers/S04-live-provider-matrix/spec.json",
+  "proof_path": "docs/release/2026-07-14-local-cloud-providers/S04-live-provider-matrix/proof.json",
+  "journal_path": "docs/release/2026-07-14-local-cloud-providers/S04-live-provider-matrix/journal.md",
+  "planned_files": [
+    ".github/workflows/live.yml",
+    "scripts/live-endpoint-row.sh",
+    "scripts/live-endpoint-matrix.sh",
+    "internal/liveconformance/matrix.go",
+    "internal/liveconformance/matrix_test.go",
+    "internal/liveconformance/schemas/endpoint-conformance-matrix-v1.json",
+    "internal/model/live_matrix_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/liveconformance/... ./internal/model/...",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh",
+    "gh workflow run live.yml --ref <implementation-branch>"
+  ],
+  "reachability_artifacts": [
+    "nightly or workflow_dispatch live workflow URL and run identifier",
+    "endpoint-conformance-matrix-v1 artifact with mandatory Ollama Cloud and OpenAI RUN rows",
+    "local Ollama RUN observation or an explicit local Ollama SKIP row",
+    "mandatory-SKIP mutation failure followed by restored RUN success",
+    "dialect equality success or drift failure with raw and candidate artifacts and an unchanged worktree"
+  ],
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "See spec.json; implementer must re-assess against live workflow mechanics and configured provider availability before design review.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "main",
+  "release_benefit": "A SwornAgent operator can run the full accountable implement-verify loop on Ollama Cloud or a chosen local OpenAI-compatible server, while maintainers add endpoints as data and detect provider wire drift before it reaches production.",
+  "validation": {
+    "human_ratified": true,
+    "ratified_by": "repository owner",
+    "ratified_at": "2026-07-14T15:13:02+10:00",
+    "positive_scenarios": [
+      "Every declared endpoint produces a visible RUN, FAIL, or reasoned SKIP row.",
+      "Ollama Cloud and OpenAI execute nightly and successful observations reproduce the checked-in dialect table.",
+      "A configured local Ollama service produces a real conformance observation on demand."
+    ],
+    "negative_scenarios": [
+      "A mandatory row cannot skip or disappear while the workflow remains green.",
+      "Dialect drift fails without editing or publishing repository content.",
+      "Credentials and model payload content never enter logs or artifacts."
+    ],
+    "benefit_hypothesis": "An explicit fail-closed live matrix catches endpoint drift and missing coverage before operators discover incompatibility during a real accountable loop."
+  },
+  "design_decisions": [
+    {
+      "choice": "Declare every endpoint as a machine-counted RUN, FAIL, or reasoned SKIP row, with Ollama Cloud and OpenAI mandatory nightly.",
+      "stake_class": "Type-1",
+      "options": [
+        "declared matrix with mandatory canaries and explicit skips",
+        "require every endpoint nightly on a self-hosted runner",
+        "test only Ollama Cloud and local Ollama"
+      ],
+      "human_decision": "Option A selected by repository owner on 2026-07-14.",
+      "rationale": "Coverage omissions stay visible and machine-countable without claiming GitHub-hosted runners can provide every local service.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Require explicit runner/base/model configuration for local services and never infer that workflow localhost reaches an operator machine.",
+      "stake_class": "Type-1",
+      "options": [
+        "explicit local configuration or SKIP",
+        "attempt every local default URL",
+        "omit local rows when unavailable"
+      ],
+      "human_decision": "Ratified as part of the declared live matrix decision on 2026-07-14.",
+      "rationale": "A real row must describe the environment that actually ran it; absence is explicit rather than misleading or invisible.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Fail and upload review artifacts on dialect drift without editing, committing, pushing, or opening a pull request.",
+      "stake_class": "Type-1",
+      "options": [
+        "report observations only",
+        "fail with generated review artifact",
+        "automatically publish the changed table"
+      ],
+      "human_decision": "Option B selected by repository owner on 2026-07-14.",
+      "rationale": "Observed drift becomes actionable while deterministic runtime changes remain subject to human review.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Keep the live matrix schedule/workflow_dispatch only and outside the pull-request gate.",
+      "stake_class": "Type-1",
+      "options": [
+        "nightly and on-demand only",
+        "block pull requests on live providers"
+      ],
+      "human_decision": "Ratified from the commissioned brief on 2026-07-14.",
+      "rationale": "Paid non-deterministic provider calls remain visible without making unrelated merges depend on external uptime.",
+      "architecturally_significant": true
+    }
+  ]
+}
