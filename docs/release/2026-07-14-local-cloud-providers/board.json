@@ -7,5 +7,24 @@
       "benefit": "A SwornAgent operator can run the full accountable implement-verify loop on Ollama Cloud or a chosen local OpenAI-compatible server, while maintainers add endpoints as data and detect provider wire drift before it reaches production."
     }
   },
-  "tracks": []
+  "tracks": [
+    {
+      "id": "T1-provider-runtime",
+      "slices": [
+        "S01-endpoint-registry-config",
+        "S02-keyless-loop-dispatch"
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "T2-dialect-guard",
+      "slices": [
+        "S03-endpoint-dialect-conformance",
+        "S04-live-provider-matrix"
+      ],
+      "depends_on": [
+        "T1-provider-runtime"
+      ]
+    }
+  ]
 }

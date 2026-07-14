@@ -162,6 +162,14 @@ Enable a SwornAgent operator to use Ollama Cloud or a locally hosted OpenAI-comp
 - **Decision**: Use four ordered slices: `S01-endpoint-registry-config`, `S02-keyless-loop-dispatch`, `S03-endpoint-dialect-conformance`, and `S04-live-provider-matrix`.
 - **Why**: Each slice has one observable outcome and an estimated 4–11 file surface. Live external failures remain separate from deterministic runtime work, and the shared endpoint table is not assigned to competing parallel slices.
 
+### 2026-07-14 — Group runtime and dialect work into two dependent tracks
+
+- **Context**: S01/S02 own endpoint configuration and loop dispatch; S03/S04 consume that endpoint surface but own distinct OAI dialect, conformance-command, and live-workflow files.
+- **Options considered**: two dependent touchpoint-disjoint tracks; one four-slice serial track; alternate grouping.
+- **Decision**: `T1-provider-runtime` contains S01 then S02. `T2-dialect-guard` contains S03 then S04 and depends on T1.
+- **Why**: No file is written by both tracks, while the dependency prevents dialect work from starting before the endpoint contract it consumes has merged. Each track remains a cohesive implementation body.
+- **Touchpoint constraint**: T1 exclusively owns config, endpoint/provider factories, registry, catalog, and existing capabilities/models/run/verify/doctor command files. T2 exclusively owns OAI dialect shaping, generated dialect records, endpoint-conformance packages/command dispatch additions, live tests, and `.github/workflows/live.yml`.
+
 ## Schema-vs-spec audit notes
 
 - `internal/model.ProviderConfig` currently uses dedicated fields and has only `OllamaHost`; it has no generic per-provider endpoint override representation.
