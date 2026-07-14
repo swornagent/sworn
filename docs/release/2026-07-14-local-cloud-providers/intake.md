@@ -192,6 +192,13 @@ Enable a SwornAgent operator to use Ollama Cloud or a locally hosted OpenAI-comp
 - **Decision**: Keep the release scope unchanged, update sworn#19 with the `model.Verifier` and response-schema-adaptation requirements, and run this release's four ambiguity reviews through separate ephemeral Codex CLI invocations with schema-constrained output plus local full-contract/invariant validation.
 - **Why**: The planning gate remains fail-closed and produces real fresh-model evidence now, while the reusable Sworn fix stays on its existing cross-cutting driver issue. `--yolo` was explicitly authorized for this diagnostic session and is not selected as a future product default.
 
+### 2026-07-14 — Normalize endpoint base paths deterministically
+
+- **Context**: Fresh-context ambiguity review found that an absolute `base_url` contract did not define queries, trailing slashes, or how `/chat/completions` joins an existing path such as `/gateway/v1`.
+- **Options considered**: accept arbitrary URL-reference resolution; require an exact slash-free base; reject queries and normalize trailing slashes before appending one operation path.
+- **Decision**: Reject userinfo, queries, and fragments; permit zero or more trailing slashes, remove all of them, then append exactly one operation path beginning with `/` while preserving the configured base path.
+- **Why**: Equivalent human-entered base URLs resolve identically, gateway path prefixes remain usable, and credentials cannot be routed through query/userinfo ambiguity.
+
 ## Schema-vs-spec audit notes
 
 - `internal/model.ProviderConfig` currently uses dedicated fields and has only `OllamaHost`; it has no generic per-provider endpoint override representation.

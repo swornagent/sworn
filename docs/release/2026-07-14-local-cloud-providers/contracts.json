@@ -7,7 +7,7 @@
       "id": "C-01",
       "kind": "schema-version",
       "surface": "config.json v1 providers.<prefix>.base_url",
-      "shape": "Optional top-level providers object keyed by a declared canonical provider prefix; each value is an object with optional base_url containing an absolute http:// or https:// URL. Unknown provider keys, relative URLs, userinfo, fragments, and credential/capability/pricing fields are invalid. Resolution is config value then declared endpoint default; SWORN_<PROVIDER>_BASE_URL is warned about and ignored.",
+      "shape": "Optional top-level providers object keyed by a declared canonical provider prefix; each value is an object with optional base_url containing an absolute http:// or https:// URL. Unknown provider keys, relative URLs, userinfo, queries, fragments, and credential/capability/pricing fields are invalid. Resolution is config value then declared endpoint default. Request construction removes every trailing slash from the resolved base and appends exactly one operation path beginning with `/`; SWORN_<PROVIDER>_BASE_URL is warned about and ignored.",
       "owner": "S01-endpoint-registry-config",
       "consumers": [
         "S02-keyless-loop-dispatch",

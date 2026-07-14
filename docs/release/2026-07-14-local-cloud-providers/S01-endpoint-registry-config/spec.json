@@ -31,7 +31,7 @@
     "Add ollama-cloud/ (https://ollama.com/v1, credential provider ollama-cloud), ollama/ (http://localhost:11434/v1, keyless), llamacpp/ (http://localhost:8080/v1, keyless), lmstudio/ (http://localhost:1234/v1, keyless), vllm/ (http://localhost:8000/v1, keyless), and localai/ (http://localhost:8080/v1, keyless) as OAI chat descriptors with structured mode unsupported until S04/S05 discover and apply per-model capability.",
     "Move the existing native Ollama /api/chat utility client to ollama-native/ with default http://localhost:11434; document and test that ollama/ now has one OAI-compatible meaning across utility and later loop dispatch paths.",
     "Add Config.Providers as a map keyed by canonical prefix whose value is a provider object containing optional base_url; merge it into model.ProviderConfig through one cmd/sworn adapter used by verify now and the remaining commands in S02.",
-    "Validate config provider keys against the declared endpoint/native prefix set and base_url as an absolute http(s) URL with no userinfo or fragment; reject unknown fields inside a provider object, and reject non-HTTPS overrides for descriptors that attach a credential.",
+    "Validate config provider keys against the declared endpoint/native prefix set and base_url as an absolute http(s) URL with no userinfo, query, or fragment; reject unknown fields inside a provider object, and reject non-HTTPS overrides for descriptors that attach a credential. Permit zero or more trailing slashes, remove them during resolution, then append exactly one operation path beginning with `/`.",
     "Add ollama-cloud -> OLLAMA_API_KEY to canonical credential resolution. Ensure ollama/, llamacpp/, lmstudio/, vllm/, and localai/ never attach any credential even when OLLAMA_API_KEY or another provider key is present.",
     "Remove runtime use of SWORN_<PROVIDER>_BASE_URL. When one is set, emit a value-free warning naming the variable and providers.<prefix>.base_url, ignore it, and resolve from config then descriptor default. Extend sworn doctor with the same migration finding.",
     "Preserve the no-key/no-payload logging contract and full-model-name pass-through for model IDs containing additional slashes."
@@ -78,7 +78,7 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "text": "WHEN sworn verify resolves a configured new provider model through a temporary config.json containing providers.<prefix>.base_url THE SYSTEM SHALL send the model request to that absolute override using the descriptor's /chat/completions wire, preserve the model substring after the first slash verbatim, and return the verifier verdict/exit-code pair from the command integration point (C-01, C-04, N-01).",
+      "text": "WHEN a table-driven command test makes two `sworn verify` invocations for each of ollama-cloud/org/family/model, ollama/org/family/model, llamacpp/org/family/model, lmstudio/org/family/model, vllm/org/family/model, and localai/org/family/model using a temporary config.json whose absolute base_url is `<server>/gateway/v1///` (TLS for ollama-cloud) THE SYSTEM SHALL remove all trailing slashes, POST exactly to `<server>/gateway/v1/chat/completions` with no query, and send model `org/family/model` verbatim on both invocations; the valid-verdict fixture SHALL return PASS with exit 0 and the failing-verdict fixture SHALL return FAIL with exit 1 (C-01, C-04, N-01).",
       "ears_pattern": "event-driven",
       "test_refs": [
         "cmd/sworn/verify_test.go:TestVerifyConfiguredProviderEndpointReachability"
@@ -86,7 +86,7 @@
     },
     {
       "id": "AC-02",
-      "text": "THE SYSTEM SHALL construct openai-completions/, deepseek/, groq/, mistral/, openrouter/, xai/, cloudflare/, github/, ollama-cloud/, ollama/, llamacpp/, lmstudio/, vllm/, and localai/ from one declared OAI endpoint table, and adding another OAI-compatible prefix SHALL require one descriptor-row change with no provider switch, credential switch, or registry-prefix-list edit (N-01).",
+      "text": "THE SYSTEM SHALL construct one declared OAI endpoint table with these exact prefix/default-base/credential/structured-mode rows: openai-completions=https://api.openai.com/v1,openai,response_format; deepseek=https://api.deepseek.com/v1,deepseek,tool_call; groq=https://api.groq.com/openai/v1,groq,unsupported; mistral=https://api.mistral.ai/v1,mistral,unsupported; openrouter=https://openrouter.ai/api/v1,openrouter,unsupported; xai=https://api.x.ai/v1,xai,response_format; cloudflare=https://api.cloudflare.com/client/v4/ai/v1,cloudflare,unsupported; github=https://models.inference.ai.azure.com,github,unsupported; ollama-cloud=https://ollama.com/v1,ollama-cloud,unsupported; ollama=http://localhost:11434/v1,none,unsupported; llamacpp=http://localhost:8080/v1,none,unsupported; lmstudio=http://localhost:1234/v1,none,unsupported; vllm=http://localhost:8000/v1,none,unsupported; localai=http://localhost:8080/v1,none,unsupported. Every row SHALL preserve the model substring after the first slash. `TestEndpointTableIsPrefixAuthority` SHALL parse internal/model/provider.go with stdlib go/parser and prove NewClient contains one endpoint-table lookup/generic-constructor branch and no switch case for any listed prefix; the same test SHALL pass synthetic descriptor `fixture=https://fixture.invalid/v1,none,unsupported` and model `org/family/model` directly to the generic constructor and assert concrete type `*model.OAI`, BaseURL `https://fixture.invalid/v1`, Model `org/family/model`, empty APIKey, and StructuredUnsupported without editing any provider or credential switch (N-01).",
       "ears_pattern": "ubiquitous",
       "test_refs": [
         "internal/model/endpoint_test.go:TestDeclaredOAIEndpointsConstruct",
@@ -95,7 +95,7 @@
     },
     {
       "id": "AC-03",
-      "text": "WHEN model.NewClient resolves ollama/<model> or ollama-native/<model> THE SYSTEM SHALL return respectively an OAI chat client with default base http://localhost:11434/v1 or the native Ollama client with default host http://localhost:11434, and command transport tests SHALL observe /v1/chat/completions versus /api/chat without one model ID changing meaning by role (N-01).",
+      "text": "WHEN model.NewClient or the `sworn verify` entry point resolves ollama/<model> THE SYSTEM SHALL use `*model.OAI` with default base http://localhost:11434/v1 and the verify transport SHALL observe POST /v1/chat/completions. WHEN either caller resolves ollama-native/<model> THE SYSTEM SHALL use the native Ollama client with default host http://localhost:11434 and the verify transport SHALL observe POST /api/chat. Loop registry and role agreement are excluded here and SHALL be proven by S02 (N-01).",
       "ears_pattern": "event-driven",
       "test_refs": [
         "internal/model/provider_test.go:TestOllamaPrefixMigration",
@@ -104,7 +104,7 @@
     },
     {
       "id": "AC-04",
-      "text": "IF config.json contains an unknown provider key, an unknown field inside a provider object, a relative/non-HTTP(S)/userinfo/fragment base_url, or a plaintext HTTP override for a credentialed descriptor THEN config Load/Validate/Save and sworn verify SHALL fail closed before dispatch and name the invalid config path without printing credentials (C-01, N-01).",
+      "text": "FOR EACH JSON fixture containing an unknown provider key, an unknown provider-object field, or a relative/non-HTTP(S)/userinfo/query/fragment base_url, plus a plaintext HTTP base_url for a credentialed descriptor: `config.Load` reading that fixture SHALL return an error. FOR EACH equivalent invalid value representable by Config (unknown provider key and every invalid base_url category), `Config.Validate` SHALL return an error and `config.Save` SHALL return an error without creating or changing its target file; the unknown-field case is decode-only because Config has no field in which to retain it. `sworn verify` using every JSON fixture SHALL make zero transport requests, exit 2, and write stderr naming respectively `providers.<key>`, `providers.<prefix>.<field>`, or `providers.<prefix>.base_url` without printing any configured value or credential (C-01, N-01).",
       "ears_pattern": "unwanted-behaviour",
       "test_refs": [
         "internal/config/config_test.go:TestProviderEndpointValidation",
@@ -113,7 +113,7 @@
     },
     {
       "id": "AC-05",
-      "text": "WHEN OLLAMA_API_KEY is available through the canonical environment or credentials.json THE SYSTEM SHALL attach it as a Bearer credential only for ollama-cloud/ over HTTPS and SHALL send no Authorization header for ollama/, llamacpp/, lmstudio/, vllm/, or localai/ (C-02, C-04, C-05, N-01).",
+      "text": "WHEN non-empty OLLAMA_API_KEY exists in the environment THE SYSTEM SHALL use that exact value ahead of credentials.json; WHEN the environment value is absent or empty it SHALL use a non-empty providers.ollama-cloud value from credentials.json. For ollama-cloud/ over HTTPS it SHALL send exactly `Authorization: Bearer <resolved-value>`. IF both sources are absent or empty THEN `sworn verify --verifier-model ollama-cloud/<model>` SHALL make zero transport requests, exit 2, and name OLLAMA_API_KEY plus the credentials path without printing a value. For ollama/, llamacpp/, lmstudio/, vllm/, and localai/ it SHALL omit Authorization even when either source contains a value (C-02, C-04, C-05, N-01).",
       "ears_pattern": "event-driven",
       "test_refs": [
         "internal/model/credentials_test.go:TestOllamaCloudCanonicalCredential",
@@ -123,7 +123,7 @@
     },
     {
       "id": "AC-06",
-      "text": "WHEN any removed SWORN_<PROVIDER>_BASE_URL variable is set THE SYSTEM SHALL ignore its value, emit exactly one value-free migration warning per command naming providers.<prefix>.base_url, continue from config/default, and sworn doctor SHALL report the same migration without displaying the value (N-01).",
+      "text": "WHEN one or more of SWORN_OPENAI_COMPLETIONS_BASE_URL, SWORN_DEEPSEEK_BASE_URL, SWORN_GROQ_BASE_URL, SWORN_MISTRAL_BASE_URL, SWORN_OPENROUTER_BASE_URL, SWORN_XAI_BASE_URL, SWORN_CLOUDFLARE_BASE_URL, or SWORN_GITHUB_BASE_URL has a non-empty value, `sworn verify` SHALL inspect all eight variables regardless of the selected model, ignore every non-empty value, emit exactly one stderr line per non-empty variable in the form `warning: <VARIABLE> is ignored; set providers.<prefix>.base_url in config.json`, and resolve the selected endpoint from config then its descriptor default. `sworn doctor` SHALL inspect all eight variables, emit exactly one stdout check `[WARN] removed provider endpoint override — <VARIABLE> is ignored; set providers.<prefix>.base_url in config.json` per non-empty variable, emit no additional generic migration-warning line, and exit 0 when no ERROR-level doctor check exists. An absent or present-but-empty variable SHALL emit no warning or finding; neither command SHALL display a non-empty variable value (N-01).",
       "ears_pattern": "event-driven",
       "test_refs": [
         "internal/model/oai_test.go:TestLegacyBaseURLWarnedAndIgnored",
@@ -132,7 +132,7 @@
     },
     {
       "id": "AC-07",
-      "text": "THE SYSTEM SHALL keep all pre-existing provider constructors and tests behaviourally compatible except for the ratified ollama/ migration, and go test ./internal/config/... ./internal/model/... ./cmd/sworn/... plus go vet ./... and gofmt -l SHALL pass (N-01).",
+      "text": "THE SYSTEM SHALL preserve the exact existing-provider endpoint, credential, structured-mode, and full-model-subpath mappings enumerated in AC-02 while changing only the ratified ollama/ meaning in AC-03; `go test ./internal/config/... ./internal/model/... ./cmd/sworn/...` and `go vet ./...` SHALL exit 0, and `gofmt -l .` SHALL exit 0 with empty stdout (N-01).",
       "ears_pattern": "ubiquitous",
       "test_refs": [
         "internal/model/provider_test.go:TestNewClientOAICompatProviders",
