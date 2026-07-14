@@ -58,9 +58,11 @@ collision — disjointness is what licenses tracks to run independently.
 | `internal/endpointconformance/conformance.go` | ✓ |  |
 | `internal/endpointconformance/conformance_test.go` | ✓ |  |
 | `internal/endpointconformance/probes.go` | ✓ |  |
+| `internal/endpointconformance/probes.json` | ✓ |  |
 | `internal/endpointconformance/probes_test.go` | ✓ |  |
 | `internal/endpointconformance/record.go` | ✓ |  |
 | `internal/endpointconformance/record_test.go` | ✓ |  |
+| `internal/endpointconformance/schemas/probe-manifest-v1.json` | ✓ |  |
 | `internal/model/catalog.go` | ✓ |  |
 | `internal/model/catalog_test.go` | ✓ |  |
 | `internal/model/config.go` | ✓ |  |
@@ -79,6 +81,7 @@ collision — disjointness is what licenses tracks to run independently.
 | `internal/model/provider.go` | ✓ |  |
 | `internal/model/provider_env_test.go` | ✓ |  |
 | `internal/model/provider_test.go` | ✓ |  |
+| `internal/model/schemas/endpoint-dialect-profiles-v1.json` | ✓ |  |
 | `internal/model/schemas/endpoint-dialect-record-v1.json` | ✓ |  |
 | `internal/run/factory_default_test.go` | ✓ |  |
 | `internal/run/run.go` | ✓ |  |
