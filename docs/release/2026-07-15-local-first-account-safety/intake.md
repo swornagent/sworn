@@ -21,8 +21,7 @@ drivers remain usable.
 ## Source of truth
 
 - **Human stakeholder**: repository owner / Coach
-- **Tracking issue / epic**: dedicated public issue to be created after the
-  release goal and final scope are confirmed
+- **Tracking issue / epic**: [sworn#121](https://github.com/swornagent/sworn/issues/121)
 - **Related captures**:
   - `docs/captures/2026-07-14-architecture-review-root-cause.md`
   - `docs/captures/2026-07-14-architecture-review-findings.md`
