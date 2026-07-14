@@ -106,6 +106,14 @@ Enable a SwornAgent operator to use Ollama Cloud or a locally hosted OpenAI-comp
 - **Why**: Provider objects leave room for future endpoint/wire settings without duplicating URLs across roles. Credentials remain exclusively in canonical environment variables plus `credentials.json`, and capability/pricing data remains exclusively owned by S04.
 - **Boundary**: This release must validate provider keys and absolute HTTP(S) URLs fail-closed; provider objects must not accept or persist API keys, model capability claims, or pricing data.
 
+### 2026-07-14 — Make `config.json` the only endpoint-override source
+
+- **Context**: Existing OAI clients can read `SWORN_<PROVIDER>_BASE_URL`, while the new public contract adds `providers.<prefix>.base_url` to `config.json`. Keeping both would preserve two endpoint sources with precedence rules.
+- **Options considered**: legacy environment variable over config; config over the legacy environment variable; remove the legacy environment-variable override.
+- **Decision**: Remove `SWORN_<PROVIDER>_BASE_URL` support. Resolve endpoints from `config.json` first and the declared endpoint-table default second.
+- **Why**: Endpoint selection becomes visible and durable in one configuration record instead of depending on ambient process state. This is an intentional breaking migration, not a backward-compatible alias.
+- **Migration obligation**: Documentation and `sworn doctor` must identify the removed variables and direct operators to `providers.<prefix>.base_url`; runtime handling of a still-set legacy variable must be decided before decomposition so it cannot be silently ignored.
+
 ## Schema-vs-spec audit notes
 
 - `internal/model.ProviderConfig` currently uses dedicated fields and has only `OllamaHost`; it has no generic per-provider endpoint override representation.
@@ -123,10 +131,11 @@ Not yet decided. Discovery must first resolve prefix compatibility, reachability
 |---|-----------|---------|------------|
 | A-01 | Whether to reopen #15 or create a replacement issue after it was auto-closed by the capture commit | Rule 5 issue anchor | Resolved 2026-07-14: reopen and expand #15 |
 | A-02 | Whether existing native `ollama/` retains its utility-path meaning while the loop registry maps the same prefix through the OAI shim, or a distinct prefix is introduced | Backward compatibility and dispatch consistency | Resolved 2026-07-14: `ollama/` is OAI-compatible everywhere; native moves to `ollama-native/` |
-| A-03 | Exact `config.json` shape and precedence for per-provider base URL overrides | Public config contract | Shape resolved 2026-07-14: `providers.<prefix>.base_url`; precedence remains open |
+| A-03 | Exact `config.json` shape and precedence for per-provider base URL overrides | Public config contract | Resolved 2026-07-14: `providers.<prefix>.base_url` → declared default; legacy env override removed |
 | A-04 | Whether a live reachability probe runs during `sworn capabilities`, on dispatch, or both; timeout and endpoint path are not yet fixed | Latency, availability truth, fail-closed behaviour | Human decision during discovery |
 | A-05 | Which live providers are mandatory in the nightly matrix versus configured/skipped when credentials or daemons are unavailable | Conformance coverage and CI cost | Human decision during discovery |
 | A-06 | Whether the conformance suite only reports observed dialect or also generates a checked-in runtime dialect table consumed by dispatch | Runtime architecture and drift semantics | Human decision during discovery |
+| A-07 | Whether runtime fails closed or only warns when a removed `SWORN_<PROVIDER>_BASE_URL` variable is still set | Migration safety | Human decision during discovery |
 
 ## Screenshots / references
 
