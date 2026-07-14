@@ -127,9 +127,10 @@ func tarballDigest(data []byte) string {
 	return fmt.Sprintf("sha256:%x", h.Sum(nil))
 }
 
-// setTestPin sets the upstream pin for testing.
-func setTestPin(sha, digest string) {
-	upstreamPinForTest = &UpstreamPin{SHA: sha, Digest: digest}
+// setTestPin records a pin for a specific tag. The tag matters: the SHA/digest
+// guard only applies when the fetch requests the tag the pin describes.
+func setTestPin(tag, sha, digest string) {
+	upstreamPinForTest = &UpstreamPin{Tag: tag, SHA: sha, Digest: digest}
 }
 
 func clearTestPin() {
@@ -149,7 +150,7 @@ func TestFetchUpstream_Success(t *testing.T) {
 	}
 	tarball := makeTarball(name, tag, files)
 	digest := tarballDigest(tarball)
-	setTestPin(commitSHA, digest)
+	setTestPin(testVersionTag, commitSHA, digest)
 
 	ts := ghTestServer(owner, name, tag, commitSHA, tarball, nil)
 	defer ts.Close()
@@ -197,7 +198,7 @@ func TestFetchUpstream_SHAMismatch(t *testing.T) {
 	digest := tarballDigest(tarball)
 
 	// Pin a different SHA.
-	setTestPin("xyz789", digest)
+	setTestPin(testVersionTag, "xyz789", digest)
 
 	ts := ghTestServer(owner, name, tag, commitSHA, tarball, nil)
 	defer ts.Close()
@@ -223,7 +224,7 @@ func TestFetchUpstream_DigestMismatch(t *testing.T) {
 	tarball := makeTarball(name, tag, files)
 
 	// Pin correct SHA but wrong digest.
-	setTestPin(commitSHA, "sha256:0000000000000000000000000000000000000000000000000000000000000000")
+	setTestPin(testVersionTag, commitSHA, "sha256:0000000000000000000000000000000000000000000000000000000000000000")
 
 	ts := ghTestServer(owner, name, tag, commitSHA, tarball, nil)
 	defer ts.Close()
@@ -235,6 +236,53 @@ func TestFetchUpstream_DigestMismatch(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "digest mismatch") {
 		t.Errorf("error = %v, want digest mismatch", err)
+	}
+}
+
+// TestFetchUpstream_VersionBumpIsNotTampering is the regression guard for the
+// bug that made `sworn baton vendor --upstream --tag <newer>` permanently
+// unusable.
+//
+// The SHA/digest pin describes ONE tag. The guard compared it against whatever
+// tag was requested, so bumping to a new tag — the entire purpose of --tag —
+// aborted with "the tag may have been force-moved", because a different tag
+// resolves to a different SHA by definition. Trust is per-tag: a new tag has no
+// prior pin to verify against.
+func TestFetchUpstream_VersionBumpIsNotTampering(t *testing.T) {
+	clearTestPin()
+	t.Cleanup(clearTestPin)
+	t.Cleanup(func() { baseURLForTest = "" })
+
+	const (
+		pinnedTag = "v1.0.0"
+		newTag    = "v1.1.0"
+	)
+	owner, name := "sawy3r", "baton"
+
+	// The pin describes the OLD tag: its SHA and its digest.
+	setTestPin(pinnedTag, "old-tag-sha", "sha256:"+strings.Repeat("a", 64))
+
+	// We now fetch a DIFFERENT tag, which naturally resolves to a different SHA
+	// and a different tarball. That is a version bump, not tampering.
+	newSHA := "new-tag-sha"
+	tarball := makeTarball(name, newTag, map[string]string{"README.md": "# Baton v1.1.0"})
+
+	ts := ghTestServer(owner, name, newTag, newSHA, tarball, nil)
+	defer ts.Close()
+	baseURLForTest = ts.URL
+
+	result, err := FetchUpstream(context.Background(), owner+"/"+name, newTag)
+	if err != nil {
+		t.Fatalf("fetching a NEW tag must not be treated as tampering, got: %v\n"+
+			"the pin describes %s; %s has no prior pin to verify against", err, pinnedTag, newTag)
+	}
+	defer result.Cleanup()
+
+	if result.SHA != newSHA {
+		t.Errorf("SHA = %q, want %q", result.SHA, newSHA)
+	}
+	if result.Digest != tarballDigest(tarball) {
+		t.Errorf("Digest = %q, want the new tag's digest", result.Digest)
 	}
 }
 
@@ -250,7 +298,7 @@ func TestFetchUpstream_NoDigestPinBootstrap(t *testing.T) {
 	digest := tarballDigest(tarball)
 
 	// Pin SHA but no digest — first fetch (bootstrap).
-	setTestPin(commitSHA, "")
+	setTestPin(testVersionTag, commitSHA, "")
 
 	ts := ghTestServer(owner, name, tag, commitSHA, tarball, nil)
 	defer ts.Close()
@@ -282,7 +330,7 @@ func TestFetchUpstream_NoSHAPinBootstrap(t *testing.T) {
 	digest := tarballDigest(tarball)
 
 	// No SHA pin, no digest pin — first ever fetch.
-	setTestPin("", "")
+	setTestPin(testVersionTag, "", "")
 
 	ts := ghTestServer(owner, name, tag, commitSHA, tarball, nil)
 	defer ts.Close()
@@ -311,7 +359,7 @@ func TestFetchUpstream_APINotFound(t *testing.T) {
 	commitSHA := "abc123"
 	tarball := makeTarball(name, tag, map[string]string{"README.md": "# Baton"})
 	digest := tarballDigest(tarball)
-	setTestPin(commitSHA, digest)
+	setTestPin(testVersionTag, commitSHA, digest)
 
 	ts := ghTestServer(owner, name, tag, commitSHA, tarball, map[string]int{"api": 404})
 	defer ts.Close()
@@ -335,7 +383,7 @@ func TestFetchUpstream_CodeloadNotFound(t *testing.T) {
 	commitSHA := "abc123"
 	tarball := makeTarball(name, tag, map[string]string{"README.md": "# Baton"})
 	digest := tarballDigest(tarball)
-	setTestPin(commitSHA, digest)
+	setTestPin(testVersionTag, commitSHA, digest)
 
 	ts := ghTestServer(owner, name, tag, commitSHA, tarball, map[string]int{"codeload": 404})
 	defer ts.Close()
@@ -359,7 +407,7 @@ func TestFetchUpstream_ServerError(t *testing.T) {
 	commitSHA := "abc123"
 	tarball := makeTarball(name, tag, map[string]string{"README.md": "# Baton"})
 	digest := tarballDigest(tarball)
-	setTestPin(commitSHA, digest)
+	setTestPin(testVersionTag, commitSHA, digest)
 
 	ts := ghTestServer(owner, name, tag, commitSHA, tarball, map[string]int{"api": 500})
 	defer ts.Close()
@@ -381,7 +429,7 @@ func TestFetchUpstream_BadGzip(t *testing.T) {
 	// Not real gzip — will fail on decompress.
 	badTarball := []byte("this is not a gzip file")
 	digest := tarballDigest(badTarball)
-	setTestPin("", digest) // no SHA pin so SHA check passes; digest matches bad data
+	setTestPin(testVersionTag, "", digest) // no SHA pin so SHA check passes; digest matches bad data
 
 	ts := ghTestServer(owner, name, tag, commitSHA, badTarball, nil)
 	defer ts.Close()
@@ -406,7 +454,7 @@ func TestFetchUpstream_RepoFormatValidation(t *testing.T) {
 	ts := ghTestServer("sawy3r", "baton", testVersionTag, "abc123", tb, nil)
 	defer ts.Close()
 	baseURLForTest = ts.URL
-	setTestPin("abc123", tarballDigest(tb))
+	setTestPin(testVersionTag, "abc123", tarballDigest(tb))
 	tests := []struct {
 		repo    string
 		wantErr bool

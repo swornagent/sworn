@@ -328,8 +328,12 @@ func TestBatonVendorUpstream_DigestMismatch(t *testing.T) {
 	files := vendorFixtureFiles()
 	tarball := makeUpstreamTarball(repo, tag, files)
 
-	// Pin a different digest — simulates tampered tarball.
+	// Pin a different digest for THIS tag — simulates a tampered tarball.
+	// Tag matters: the SHA/digest guard only applies to the tag the pin describes,
+	// because comparing a pin against a different tag's content is meaningless
+	// (an intentional version bump changes both by definition).
 	baton.SetUpstreamPinForTest(&baton.UpstreamPin{
+		Tag:    tag,
 		SHA:    commitSHA,
 		Digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
 	})

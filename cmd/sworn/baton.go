@@ -154,11 +154,13 @@ func cmdBatonVendor(args []string) int {
 	// not in dry-run mode (CheckOnly). This ensures a failed run doesn't
 	// leave a stale pin.
 	if !*check {
-		if err := baton.WriteUpstreamPin(repoRoot, result.SHA, result.Digest); err != nil {
+		// tag, SHA and digest are one fact — record them together, or the pin
+		// claims one version while carrying another's content.
+		if err := baton.WriteUpstreamPin(repoRoot, tag, result.SHA, result.Digest); err != nil {
 			fmt.Fprintf(os.Stderr, "baton vendor: write pin: %v\n", err)
 			return 1
 		}
-		fmt.Printf("Upstream pin recorded: sha=%s digest=%s\n", result.SHA, result.Digest)
+		fmt.Printf("Upstream pin recorded: %s sha=%s digest=%s\n", tag, result.SHA, result.Digest)
 	}
 
 	return 0

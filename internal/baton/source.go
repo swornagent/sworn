@@ -47,6 +47,19 @@ var batonFileMappings = []FileMapping{
 	// Architecture rules (v0.5.0)
 	{Source: "baton/architecture.json", Dest: "internal/adopt/baton/architecture.json"},
 
+	// LLM check prompts (v0.12.0). The prompt body IS the contract — the same way
+	// a schema is — so these are vendored verbatim and read at runtime rather than
+	// re-typed as Go string constants. Before v0.12.0 they lived only inside sworn
+	// as inline consts, which meant no second engine could implement the protocol
+	// and there was no by-hand fallback. See baton/llm-checks/README.md.
+	{Source: "baton/llm-checks/ac-satisfaction.md", Dest: "internal/prompt/baton/llm-checks/ac-satisfaction.md"},
+	{Source: "baton/llm-checks/spec-ambiguity.md", Dest: "internal/prompt/baton/llm-checks/spec-ambiguity.md"},
+	{Source: "baton/llm-checks/design-review.md", Dest: "internal/prompt/baton/llm-checks/design-review.md"},
+	{Source: "baton/llm-checks/security-review.md", Dest: "internal/prompt/baton/llm-checks/security-review.md"},
+	{Source: "baton/llm-checks/semantic-coverage.md", Dest: "internal/prompt/baton/llm-checks/semantic-coverage.md"},
+	{Source: "baton/llm-checks/maintainability-review.md", Dest: "internal/prompt/baton/llm-checks/maintainability-review.md"},
+	{Source: "baton/llm-checks/README.md", Dest: "internal/prompt/baton/llm-checks/README.md"},
+
 	// Baton protocol documents (embedded under internal/prompt/baton/)
 	{Source: "baton/track-mode.md", Dest: "internal/prompt/baton/track-mode.md"},
 	{Source: "baton/session-discipline.md", Dest: "internal/prompt/baton/session-discipline.md"},

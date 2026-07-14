@@ -66,7 +66,7 @@ func TestParseLLMResponse_Pass(t *testing.T) {
 }
 
 func TestParseLLMResponse_Fail(t *testing.T) {
-	raw := `{"verdict": "FAIL", "findings": [{"id": "F-01", "severity": "FAIL", "title": "Missing error handling", "detail": "The code does not handle error case X"}]}`
+	raw := `{"verdict": "FAIL", "findings": [{"id": "F-01", "severity": "high", "blocking": true, "title": "Missing error handling", "detail": "The code does not handle error case X"}]}`
 	result, err := parseLLMResponse(raw)
 	if err != nil {
 		t.Fatalf("parseLLMResponse: %v", err)
@@ -80,8 +80,8 @@ func TestParseLLMResponse_Fail(t *testing.T) {
 	if result.Findings[0].ID != "F-01" {
 		t.Errorf("expected F-01, got %s", result.Findings[0].ID)
 	}
-	if result.Findings[0].Severity != "FAIL" {
-		t.Errorf("expected FAIL severity, got %s", result.Findings[0].Severity)
+	if result.Findings[0].Severity != "high" {
+		t.Errorf("expected high severity, got %s", result.Findings[0].Severity)
 	}
 }
 
@@ -97,7 +97,7 @@ func TestParseLLMResponse_MarkdownFence(t *testing.T) {
 }
 
 func TestParseLLMResponse_ProseWrapping(t *testing.T) {
-	raw := "Here is my analysis:\n\n{\"verdict\": \"FAIL\", \"findings\": [{\"id\": \"F-01\", \"severity\": \"medium\", \"title\": \"Weak hash\", \"detail\": \"Uses MD5\"}]}\n\nThat's all."
+	raw := "Here is my analysis:\n\n{\"verdict\": \"FAIL\", \"findings\": [{\"id\": \"F-01\", \"severity\": \"medium\", \"blocking\": false, \"title\": \"Weak hash\", \"detail\": \"Uses MD5\"}]}\n\nThat's all."
 	result, err := parseLLMResponse(raw)
 	if err != nil {
 		t.Fatalf("parseLLMResponse: %v", err)
@@ -188,7 +188,7 @@ title: S01-test
 
 	sliceDir := dir + "/S01-test"
 	mock := &mockVerifier{
-		text: `{"verdict": "FAIL", "findings": [{"id": "F-01", "severity": "FAIL", "title": "AC not satisfied", "detail": "The code does not handle the response case"}]}`,
+		text: `{"verdict": "FAIL", "findings": [{"id": "F-01", "severity": "high", "blocking": true, "title": "AC not satisfied", "detail": "The code does not handle the response case"}]}`,
 	}
 
 	report, err := RunLLMCheck(context.Background(), CheckACSatisfaction, sliceDir, "mock diff", mock)
@@ -314,10 +314,10 @@ title: S01-test
 	sliceDir := dir + "/S01-test"
 	mock := &mockVerifier{
 		text: `{"verdict": "FAIL", "findings": [
-			{"id": "F-01", "severity": "critical", "title": "RCE via input", "detail": "..."},
-			{"id": "F-02", "severity": "high", "title": "SQL injection", "detail": "..."},
-			{"id": "F-03", "severity": "medium", "title": "Info leak", "detail": "..."},
-			{"id": "F-04", "severity": "low", "title": "Weak cipher", "detail": "..."}
+			{"id": "F-01", "severity": "critical", "blocking": true, "title": "RCE via input", "detail": "..."},
+			{"id": "F-02", "severity": "high", "blocking": true, "title": "SQL injection", "detail": "..."},
+			{"id": "F-03", "severity": "medium", "blocking": false, "title": "Info leak", "detail": "..."},
+			{"id": "F-04", "severity": "low", "blocking": false, "title": "Weak cipher", "detail": "..."}
 		]}`,
 	}
 

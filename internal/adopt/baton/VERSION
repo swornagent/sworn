@@ -1,8 +1,8 @@
-baton-protocol: v0.11.0
+baton-protocol: v0.12.0
 upstream: github.com/sawy3r/baton
-vendored: 2026-07-12
-upstream-sha: 9f509097593be57d0828a7c4244487397a4002b2
-upstream-digest: sha256:498da4542c6ca61dce52b9ee5ca4e913badb2d98fc941bb559cbe085c0d39b6d
+vendored: 2026-07-13
+upstream-sha: 357edd20420b9aa7534dd8b341a14a832b19afaa
+upstream-digest: sha256:08d41fb22c7debabf57c431c32d9c7510a0807c10674776ef8a3ed032370b2af
 rules-added: 08-requirements-fidelity (2026-06-16-fidelity-layer S01), 09-design-fidelity (2026-06-16-fidelity-layer S07), 10-customer-journey-validation (2026-06-16-fidelity-layer S11), 11-process-global-mutation (2026-06-19-safe-parallelism), role-prompt-operational-gates (v0.4.1/v0.4.2 implementer/verifier canonical prompts), 12-guard-fidelity (v0.11.0, baton#64/#65 guard-fidelity package)
 rules-hardened: 02-no-silent-deferrals tracking enforcement (v0.7.0); 08-requirements-fidelity bounded-AC + 09-design-fidelity autonomous_design_authority + 10-customer-journey-validation mock-as-code-construct (v0.11.0, baton#62/#63 sworn capability/resume dogfood)
 schemas-added: contracts-v1, assembly-proof-v1 (v0.10.0, vendored-advisory — stored + doctor-declarable, not graded here; graders are the follow-on contract-edge-gates release); capability-policy-v1 (v0.11.0, vendored-advisory — the ADR-0013 capability-eligibility contract; the eligibility gate + provider registry are the follow-on release)
