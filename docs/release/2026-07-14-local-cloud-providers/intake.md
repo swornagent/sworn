@@ -122,6 +122,14 @@ Enable a SwornAgent operator to use Ollama Cloud or a locally hosted OpenAI-comp
 - **Why**: The repository owner is currently the only person who has built the binary and is not yet using it operationally, so a reusable hard-failure migration mechanism would add machinery without a real deployed-user benefit. The warning preserves visibility without retaining the second endpoint source.
 - **Security constraint**: Never print the environment variable's value; name only the variable and the replacement config path.
 
+### 2026-07-14 — Probe keyless reachability during enumeration only
+
+- **Context**: Keyless local providers cannot use `keyProbe`. Reachability can be tested when enumerating capabilities, before every dispatch, or lazily and cached.
+- **Options considered**: probe during enumeration only; probe during enumeration and every dispatch; probe on first dispatch and cache.
+- **Decision**: `sworn capabilities` and provider model enumeration perform a bounded `GET <base_url>/models` reachability probe for keyless OpenAI-compatible endpoints; dispatch sends the real model request without a preliminary probe and classifies that request's actual error.
+- **Why**: Enumeration becomes truthful without adding a redundant request and time-of-check/time-of-use promise to every model call. Dispatch remains fail-closed on the authoritative operation.
+- **Probe contract**: Short fixed timeout, no retries, no credentials for keyless providers, and available only on a 2xx response with a parseable OpenAI-style models payload. Errors report provider and endpoint without response bodies or payloads.
+
 ## Schema-vs-spec audit notes
 
 - `internal/model.ProviderConfig` currently uses dedicated fields and has only `OllamaHost`; it has no generic per-provider endpoint override representation.
@@ -140,7 +148,7 @@ Not yet decided. Discovery must first resolve prefix compatibility, reachability
 | A-01 | Whether to reopen #15 or create a replacement issue after it was auto-closed by the capture commit | Rule 5 issue anchor | Resolved 2026-07-14: reopen and expand #15 |
 | A-02 | Whether existing native `ollama/` retains its utility-path meaning while the loop registry maps the same prefix through the OAI shim, or a distinct prefix is introduced | Backward compatibility and dispatch consistency | Resolved 2026-07-14: `ollama/` is OAI-compatible everywhere; native moves to `ollama-native/` |
 | A-03 | Exact `config.json` shape and precedence for per-provider base URL overrides | Public config contract | Resolved 2026-07-14: `providers.<prefix>.base_url` → declared default; legacy env override removed |
-| A-04 | Whether a live reachability probe runs during `sworn capabilities`, on dispatch, or both; timeout and endpoint path are not yet fixed | Latency, availability truth, fail-closed behaviour | Human decision during discovery |
+| A-04 | Whether a live reachability probe runs during `sworn capabilities`, on dispatch, or both; timeout and endpoint path are not yet fixed | Latency, availability truth, fail-closed behaviour | Resolved 2026-07-14: enumeration-only bounded `/models` probe; actual dispatch is authoritative |
 | A-05 | Which live providers are mandatory in the nightly matrix versus configured/skipped when credentials or daemons are unavailable | Conformance coverage and CI cost | Human decision during discovery |
 | A-06 | Whether the conformance suite only reports observed dialect or also generates a checked-in runtime dialect table consumed by dispatch | Runtime architecture and drift semantics | Human decision during discovery |
 | A-07 | Whether runtime fails closed or only warns when a removed `SWORN_<PROVIDER>_BASE_URL` variable is still set | Migration safety | Resolved 2026-07-14: value-free warning, ignore, continue from config/default; doctor reports it |
