@@ -9,6 +9,13 @@ description: 'Planning record for OpenAI-compatible local endpoints, Ollama Clou
 
 Enable a SwornAgent operator to use Ollama Cloud or a locally hosted OpenAI-compatible model through the full `sworn run` loop, with provider endpoints declared as data, per-provider base URLs configurable in `config.json`, keyless local services reported available through a real reachability probe, and endpoint wire quirks re-derived by a nightly/on-demand live conformance suite. Shipped means Ollama Cloud and the major local aggregators are first-class loop-capable choices without duplicating provider factories or silently assuming that every OpenAI-compatible endpoint has the same dialect.
 
+## Needs
+
+- N-01: A SwornAgent operator configures Ollama Cloud or a supported local OpenAI-compatible provider through one declared endpoint registry and one `config.json` provider-object contract, with correct credential isolation and explicit `ollama/` migration semantics.
+- N-02: A keyless local endpoint is truthfully enumerated and can drive the implementer leg of an end-to-end `sworn run` while capable configured models serve structured roles.
+- N-03: Endpoint wire behaviour is observed through a reusable conformance command and re-derived into a deterministic checked-in dialect record whose dialect-only fields shape runtime requests.
+- N-04: Nightly/on-demand live coverage emits an explicit result for every declared endpoint, cannot skip mandatory Ollama Cloud/hosted canaries, and detects drift from the checked-in dialect record.
+
 ## Source of truth
 
 - **Human stakeholder**: Repository owner / Coach

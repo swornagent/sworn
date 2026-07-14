@@ -1,0 +1,118 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S01-endpoint-registry-config",
+  "release": "2026-07-14-local-cloud-providers",
+  "track": "T1-provider-runtime",
+  "covers_needs": [
+    "N-01"
+  ],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-14T15:01:03+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-14-local-cloud-providers/S01-endpoint-registry-config/spec.json",
+  "proof_path": "docs/release/2026-07-14-local-cloud-providers/S01-endpoint-registry-config/proof.json",
+  "journal_path": "docs/release/2026-07-14-local-cloud-providers/S01-endpoint-registry-config/journal.md",
+  "planned_files": [
+    "internal/config/config.go",
+    "internal/config/config_test.go",
+    "internal/model/endpoint.go",
+    "internal/model/endpoint_test.go",
+    "internal/model/provider.go",
+    "internal/model/provider_test.go",
+    "internal/model/provider_env_test.go",
+    "internal/model/credentials.go",
+    "internal/model/credentials_test.go",
+    "internal/model/config.go",
+    "internal/model/oai_test.go",
+    "cmd/sworn/provider_config.go",
+    "cmd/sworn/provider_config_test.go",
+    "cmd/sworn/verify.go",
+    "cmd/sworn/verify_test.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/config/... ./internal/model/... ./cmd/sworn/...",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh"
+  ],
+  "reachability_artifacts": [
+    "sworn verify command using config.json providers.<prefix>.base_url against a real local HTTP transport, recording output and exit code",
+    "opt-in live Ollama Cloud chat request for contracts C-02/C-04/C-05"
+  ],
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "See spec.json; implementer must re-assess against live code before design review.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "main",
+  "release_benefit": "A SwornAgent operator can run the full accountable implement-verify loop on Ollama Cloud or a chosen local OpenAI-compatible server, while maintainers add endpoints as data and detect provider wire drift before it reaches production.",
+  "validation": {
+    "human_ratified": true,
+    "ratified_by": "repository owner",
+    "ratified_at": "2026-07-14T15:01:03+10:00",
+    "positive_scenarios": [
+      "Configured local endpoint receives the expected OAI request through sworn verify.",
+      "Ollama Cloud receives its canonical credential over HTTPS.",
+      "ollama-native remains reachable through /api/chat."
+    ],
+    "negative_scenarios": [
+      "Invalid or unknown provider config fails before dispatch.",
+      "Keyless local endpoints never receive an Authorization header.",
+      "Removed BASE_URL variables are warned about without their values and do not alter routing."
+    ],
+    "benefit_hypothesis": "One data-driven endpoint authority removes the provider-extension collision and makes local/cloud routing visible, configurable, and safe."
+  },
+  "design_decisions": [
+    {
+      "choice": "Use an explicit declared endpoint table rather than init-time self-registration.",
+      "stake_class": "Type-1",
+      "options": [
+        "central provider switch",
+        "init-time self-registration",
+        "explicit endpoint descriptor table"
+      ],
+      "human_decision": "Ratified through release goal and decomposition on 2026-07-14.",
+      "rationale": "Provider data becomes additive while resolution remains inspectable and deterministic.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Make ollama/ OAI-compatible everywhere and preserve native /api/chat as ollama-native/.",
+      "stake_class": "Type-1",
+      "options": [
+        "ollama OAI plus ollama-native",
+        "keep native ollama plus ollama-local",
+        "role-dependent ollama meaning"
+      ],
+      "human_decision": "Option A selected by repository owner on 2026-07-14.",
+      "rationale": "One prefix has one meaning and the natural name becomes full-loop capable.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Use config.json providers.<prefix>.base_url as the only endpoint override source.",
+      "stake_class": "Type-1",
+      "options": [
+        "provider_endpoints string map",
+        "providers object",
+        "per-role base URL"
+      ],
+      "human_decision": "Providers object and removal of legacy environment overrides selected by repository owner on 2026-07-14.",
+      "rationale": "Endpoint configuration is durable and provider-scoped without duplicating credentials or capabilities.",
+      "architecturally_significant": true
+    }
+  ]
+}
