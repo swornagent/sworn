@@ -71,12 +71,12 @@
       "id": "C-06",
       "kind": "schema-version",
       "surface": "endpoint-dialect-record-v1",
-      "shape": "Deterministic JSON object keyed by canonical endpoint prefix with observed_at/probe_model metadata, dialect-only request-shaping fields consumed by runtime, and separately namespaced capability observations not consumed by this release. Generation sorts keys and strips secrets, request bodies, response bodies, and model payloads.",
+      "shape": "The probe action emits raw observation records with provider, probe_model, observed_at, classified probe results, and no payload bodies. The generate action emits a deterministic checked-in profiles object keyed by canonical endpoint prefix, containing only stable dialect request-shaping fields plus stable source-model identity; it strips observed_at and all capability observations. Runtime consumes only profiles. Generation sorts keys and strips secrets, request bodies, response bodies, and model payloads.",
       "owner": "S03-endpoint-dialect-conformance",
       "consumers": [
         "S04-live-provider-matrix"
       ],
-      "live_test": "cmd/sworn/endpoint_conformance_test.go: subprocess CLI writes a record which the production dialect loader validates and embeds without mocks"
+      "live_test": "cmd/sworn/endpoint_conformance_test.go: subprocess CLI probes a real local HTTP transport, generates a normalized record, and the production dialect loader consumes it without mocks"
     },
     {
       "id": "C-07",
