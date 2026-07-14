@@ -12,14 +12,14 @@
       "id": "T1-provider-runtime",
       "slices": [
         "S01-endpoint-registry-config",
-        "S02-keyless-loop-dispatch"
+        "S02-keyless-loop-dispatch",
+        "S03-endpoint-dialect-conformance"
       ],
       "depends_on": []
     },
     {
-      "id": "T2-dialect-guard",
+      "id": "T2-live-matrix",
       "slices": [
-        "S03-endpoint-dialect-conformance",
         "S04-live-provider-matrix"
       ],
       "depends_on": [

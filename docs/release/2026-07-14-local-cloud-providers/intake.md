@@ -177,6 +177,13 @@ Enable a SwornAgent operator to use Ollama Cloud or a locally hosted OpenAI-comp
 - **Why**: No file is written by both tracks, while the dependency prevents dialect work from starting before the endpoint contract it consumes has merged. Each track remains a cohesive implementation body.
 - **Touchpoint constraint**: T1 exclusively owns config, endpoint/provider factories, registry, catalog, and existing capabilities/models/run/verify/doctor command files. T2 exclusively owns OAI dialect shaping, generated dialect records, endpoint-conformance packages/command dispatch additions, live tests, and `.github/workflows/live.yml`.
 
+### 2026-07-14 — Regroup S03 after discovering the endpoint-constructor collision
+
+- **Context**: Grounding S03 showed that runtime dialect consumption must extend `internal/model/endpoint.go` so the generic constructor attaches canonical provider identity to each OAI client. S01 already owns that file, making the earlier no-shared-file matrix false.
+- **Options considered**: move S03 into T1 and leave S04 as a dependent live track; put all four slices in one track; keep an invalid shared runtime file across tracks.
+- **Decision**: `T1-provider-runtime` now contains S01 → S02 → S03. Rename the second track to `T2-live-matrix`; it contains only S04 and depends on T1.
+- **Why**: Every runtime file stays serial in one track, while the external live-workflow implementation remains isolated and file-disjoint. The correction is captured before any S03 spec or implementation exists.
+
 ## Schema-vs-spec audit notes
 
 - `internal/model.ProviderConfig` currently uses dedicated fields and has only `OllamaHost`; it has no generic per-provider endpoint override representation.
@@ -191,7 +198,7 @@ Enable a SwornAgent operator to use Ollama Cloud or a locally hosted OpenAI-comp
 - `S03-endpoint-dialect-conformance` — An operator runs endpoint conformance and receives a schema-valid observed record; runtime embeds the generated dialect-only table and applies its wire-shaping fields.
 - `S04-live-provider-matrix` — Nightly/on-demand CI emits `RUN`, `FAIL`, or reasoned `SKIP` for every declared endpoint, enforces Ollama Cloud plus the hosted canary, and detects regenerated dialect-table drift.
 
-Ordering: `S01 → S02 → S03 → S04`. S04 is isolated as a dependent live-infrastructure track if the touchpoint matrix proves it disjoint; S01–S03 remain serial because they build on and may extend the same runtime endpoint surfaces.
+Ordering: `T1-provider-runtime: S01 → S02 → S03`, then `T2-live-matrix: S04`. T2 depends on T1 and owns only live workflow/test surfaces; all runtime endpoint and dialect files remain in T1.
 
 ## Ambiguity register
 
