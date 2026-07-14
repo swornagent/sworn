@@ -1,0 +1,115 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S02-keyless-loop-dispatch",
+  "release": "2026-07-14-local-cloud-providers",
+  "track": "T1-provider-runtime",
+  "covers_needs": [
+    "N-02"
+  ],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-14T15:04:38+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-14-local-cloud-providers/S02-keyless-loop-dispatch/spec.json",
+  "proof_path": "docs/release/2026-07-14-local-cloud-providers/S02-keyless-loop-dispatch/proof.json",
+  "journal_path": "docs/release/2026-07-14-local-cloud-providers/S02-keyless-loop-dispatch/journal.md",
+  "planned_files": [
+    "internal/driver/inprocess/inprocess.go",
+    "internal/driver/inprocess/inprocess_test.go",
+    "internal/driver/registry/registry.go",
+    "internal/driver/registry/registry_test.go",
+    "internal/model/local_probe.go",
+    "internal/model/local_probe_test.go",
+    "internal/model/catalog.go",
+    "internal/model/catalog_test.go",
+    "cmd/sworn/provider_config.go",
+    "cmd/sworn/provider_config_test.go",
+    "cmd/sworn/capabilities.go",
+    "cmd/sworn/capabilities_test.go",
+    "cmd/sworn/models.go",
+    "cmd/sworn/models_test.go",
+    "cmd/sworn/run.go",
+    "cmd/sworn/run_test.go",
+    "cmd/sworn/task.go",
+    "cmd/sworn/task_test.go",
+    "cmd/sworn/run_local_live_test.go",
+    "internal/run/run.go",
+    "internal/run/run_test.go",
+    "internal/run/slice.go",
+    "internal/run/factory_default_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/driver/... ./internal/model/... ./internal/run/... ./cmd/sworn/...",
+    "SWORN_LIVE_TESTS=1 go test ./cmd/sworn -run TestLiveRunLocalOllamaImplementer -v -count=1",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh"
+  ],
+  "reachability_artifacts": [
+    "sworn capabilities output for reachable and unreachable configured keyless endpoints",
+    "end-to-end sworn run exit 0 with recorded implementer requests to a configured local OAI endpoint",
+    "actual local Ollama sworn run output/exit code or explicit prerequisite skip",
+    "keyProbe mutation unavailable output followed by restored reachability-probe available output"
+  ],
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "See spec.json; implementer must re-assess against live code before design review.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "main",
+  "release_benefit": "A SwornAgent operator can run the full accountable implement-verify loop on Ollama Cloud or a chosen local OpenAI-compatible server, while maintainers add endpoints as data and detect provider wire drift before it reaches production.",
+  "validation": {
+    "human_ratified": true,
+    "ratified_by": "repository owner",
+    "ratified_at": "2026-07-14T15:04:38+10:00",
+    "positive_scenarios": [
+      "Capabilities reports a live local endpoint reachable from its /models response.",
+      "Models lists local IDs under the same canonical prefix.",
+      "The full loop sends implementer tool traffic to local Ollama and completes with capable structured-role models."
+    ],
+    "negative_scenarios": [
+      "A missing key does not make a keyless local endpoint unavailable.",
+      "Unreachable local defaults finish within one concurrent timeout window and expose no bodies.",
+      "A config-derived endpoint cannot be lost on single, parallel, or nested RunSlice paths."
+    ],
+    "benefit_hypothesis": "Truthful keyless enumeration plus config-consistent registry injection turns local endpoints from verify-only utilities into reliable implementer compute for the accountable loop."
+  },
+  "design_decisions": [
+    {
+      "choice": "Probe keyless local endpoints during enumeration only and treat the real dispatch request as authoritative.",
+      "stake_class": "Type-1",
+      "options": [
+        "enumeration-only probe",
+        "probe before every dispatch",
+        "first-use cached probe"
+      ],
+      "human_decision": "Option A selected by repository owner on 2026-07-14.",
+      "rationale": "Enumeration stays truthful without redundant time-of-check/time-of-use requests on every model call.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Deliver local implementer reachability now while preserving capability-based eligibility for every role.",
+      "stake_class": "Type-1",
+      "options": [
+        "local implementer in mixed-provider loop",
+        "block on every role local",
+        "duplicate structured fallback"
+      ],
+      "human_decision": "Option A selected with explicit S04/S05 and sworn#86 follow-up on 2026-07-14.",
+      "rationale": "The endpoint unlock ships without hard-coding provider role restrictions or duplicating capability discovery.",
+      "architecturally_significant": true
+    }
+  ]
+}
