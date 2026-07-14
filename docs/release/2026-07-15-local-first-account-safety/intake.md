@@ -170,6 +170,17 @@ drivers remain usable.
 
 ## Decisions made during planning
 
+### 2026-07-15 — Ratify the release goal
+
+- **Proposed goal**: make SwornAgent accounts identity-only so signing in or out
+  cannot alter provider credentials or model routing, expose managed inference
+  or credit-purchase surfaces, or cause unapproved outbound traffic; preserve
+  direct BYO-key and subscription-driver execution.
+- **Decision**: ratified as written by the Coach.
+- **Why**: it gives the release one user-visible safety promise and makes the
+  account, routing, commerce-removal and outbound-consent work testable as one
+  end-to-end contract.
+
 ### 2026-07-15 — Name the release for its user promise
 
 - **Context**: the private handoff used “trust-contract safety”, which is accurate
