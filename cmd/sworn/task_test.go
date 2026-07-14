@@ -179,6 +179,7 @@ func chdirTaskTemp(t *testing.T) (string, func()) {
 }
 
 func TestTaskRunIntegration_PlannerReturnsValidSpec(t *testing.T) {
+	withModelConfig(t)
 	tmpDir, restoreWd := chdirTaskTemp(t)
 	defer restoreWd()
 
@@ -250,6 +251,7 @@ Add a greeting endpoint to the demo server.
 }
 
 func TestTaskRunIntegration_PlannerReturnsNoACs(t *testing.T) {
+	withModelConfig(t)
 	tmpDir, restoreWd := chdirTaskTemp(t)
 	defer restoreWd()
 
@@ -330,6 +332,7 @@ func TestTaskRunIntegration_PlannerDispatchError(t *testing.T) {
 	// No artefacts expected — planner model creation failure cleans up taskRoot.
 }
 func TestTaskDryRunFlagAccepted(t *testing.T) {
+	withModelConfig(t)
 	// Integration test: --dry-run exercises the code path, verifies exit 0
 	// and the printed output confirms planner dispatch would be called.
 	// Uses the real resolvePlannerModel (which falls back to openai/gpt-4o
