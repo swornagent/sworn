@@ -180,6 +180,26 @@ drivers remain usable.
   account, routing, commerce-removal and outbound-consent work testable as one
   end-to-end contract.
 
+### 2026-07-15 — Split credential storage by ownership
+
+- **Context**: the current field-preserving `credentials.json` envelope limits
+  sequential clobbering but still couples provider keys, account sessions and
+  notification configuration to one corruption and lifecycle boundary.
+- **Options considered**: keep one versioned composite owned by one package;
+  preserve `credentials.json` for provider keys and introduce a separately
+  versioned `account.json`; or introduce a general encrypted state database.
+- **Decision**: preserve `credentials.json` as the provider-key record and move
+  the login session into a separately versioned `account.json`. Notification
+  configuration belongs to neither record and will be decided separately.
+- **Migration contract**: copy account fields from the legacy composite, verify
+  the new record, then clean the legacy fields while retaining recoverable source
+  bytes. An interrupted or corrupt migration cannot delete provider credentials.
+- **Rollback contract**: an older binary continues to find provider keys in
+  `credentials.json` but sees no account session after migration, which is the
+  safe failure mode.
+- **Why**: the identity-only account promise becomes a structural ownership
+  boundary rather than a convention every future writer must remember.
+
 ### 2026-07-15 — Name the release for its user promise
 
 - **Context**: the private handoff used “trust-contract safety”, which is accurate
@@ -233,7 +253,7 @@ credits and hosted email are now removal scope.
 
 | # | Ambiguity | Affects | Resolution |
 |---|---|---|---|
-| A-01 | Whether account and provider credentials use separate versioned files or one versioned composite owned by one package | N-01, N-08 | human decision during discovery before decomposition |
+| A-01 | Whether account and provider credentials use separate versioned files or one versioned composite owned by one package | N-01, N-08 | **Resolved**: provider-owned `credentials.json` plus session-owned `account.json`; copy-verify-clean migration with recoverable source bytes |
 | A-02 | Exact retained `sworn account` fields and behaviour after credit removal | N-03, N-08 | human decision during discovery before decomposition |
 | A-03 | Whether obsolete `SWORN_DIRECT` is removed immediately or retained as a one-release no-op deprecation | N-02, N-03, N-09 | human decision during discovery before decomposition |
 | A-04 | Migration and rollback behaviour when an older Sworn binary encounters the new credential layout | N-01, N-09 | architecture investigation plus human decision before spec emission |
