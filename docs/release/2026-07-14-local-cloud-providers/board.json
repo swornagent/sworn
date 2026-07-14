@@ -1,0 +1,11 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/board-v1.json",
+  "release": {
+    "name": "2026-07-14-local-cloud-providers",
+    "integration_branch": "main",
+    "vertical_trace": {
+      "benefit": "A SwornAgent operator can run the full accountable implement-verify loop on Ollama Cloud or a chosen local OpenAI-compatible server, while maintainers add endpoints as data and detect provider wire drift before it reaches production."
+    }
+  },
+  "tracks": []
+}
