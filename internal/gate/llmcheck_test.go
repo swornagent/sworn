@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/swornagent/sworn/internal/project"
 )
 
 // --- mock model verifier ---
@@ -25,7 +27,7 @@ func TestBuildUserPayload(t *testing.T) {
 	spec := "# Slice: S01-test\n\n## Acceptance checks\n\n- [ ] AC 1\n- [ ] AC 2\n"
 	diff := "diff --git a/foo.go b/foo.go\n+added line\n"
 
-	payload := buildUserPayload("ac-satisfaction", spec, diff)
+	payload := buildUserPayload(project.Resolved{Context: "a Go project"}, spec, diff)
 
 	// Must contain the spec content.
 	if !strings.Contains(payload, spec) {
@@ -43,7 +45,7 @@ func TestBuildUserPayload(t *testing.T) {
 
 func TestBuildUserPayload_EmptyDiff(t *testing.T) {
 	spec := "# Slice\n\n## Acceptance checks\n\n- [ ] AC 1\n"
-	payload := buildUserPayload("spec-ambiguity", spec, "")
+	payload := buildUserPayload(project.Resolved{Context: "a Go project"}, spec, "")
 	if !strings.Contains(payload, "(no diff available") {
 		t.Error("user payload missing empty-diff message")
 	}

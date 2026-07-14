@@ -1,4 +1,4 @@
-package gate
+package project
 
 import (
 	"os"
@@ -22,11 +22,11 @@ func mkRepo(t *testing.T, files ...string) string {
 	return root
 }
 
-// TestDetectProjectContext is the regression guard for the hardcoded project
+// TestDetect is the regression guard for the hardcoded project
 // header: `sworn llm-check` used to tell the model it was evaluating "the
 // SwornAgent project (a Go CLI)" no matter which repo it ran in. A TypeScript
 // codebase was graded against Go priors, silently.
-func TestDetectProjectContext(t *testing.T) {
+func TestDetect(t *testing.T) {
 	tests := []struct {
 		name  string
 		files []string
@@ -87,48 +87,23 @@ func TestDetectProjectContext(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := DetectProjectContext(mkRepo(t, tc.files...))
+			got := Detect(mkRepo(t, tc.files...))
 			if got != tc.want {
-				t.Errorf("DetectProjectContext() = %q, want %q", got, tc.want)
+				t.Errorf("Detect() = %q, want %q", got, tc.want)
 			}
 		})
 	}
 }
 
-// TestDetectProjectContext_EnvOverride — Baton specifies {{project_context}} as
+// TestDetect_EnvOverride — Baton specifies {{project_context}} as
 // supplied "from the repo's configuration"; detection is the default and this is
 // the adopter's override.
-func TestDetectProjectContext_EnvOverride(t *testing.T) {
+func TestDetect_EnvOverride(t *testing.T) {
 	root := mkRepo(t, "go.mod")
 	const want = "a regulated FSI document-processing service"
-	t.Setenv(ProjectContextEnv, want)
+	t.Setenv(ContextEnv, want)
 
-	if got := DetectProjectContext(root); got != want {
-		t.Errorf("DetectProjectContext() = %q, want the %s override %q", got, ProjectContextEnv, want)
+	if got := Detect(root); got != want {
+		t.Errorf("Detect() = %q, want the %s override %q", got, ContextEnv, want)
 	}
-}
-
-// TestUserPromptHeaderNamesTheRealProject pins the actual defect: the header must
-// carry the detected context, and must not carry the old hardcoded string.
-func TestUserPromptHeaderNamesTheRealProject(t *testing.T) {
-	payload := buildUserPayload("a Next.js and TypeScript monorepo", "SPEC", "DIFF")
-
-	if !contains(payload, "a Next.js and TypeScript monorepo") {
-		t.Error("user payload does not tell the model what project it is reading")
-	}
-	if contains(payload, "SwornAgent project") || contains(payload, "a Go CLI") {
-		t.Error("user payload still carries the hardcoded SwornAgent/Go-CLI header — " +
-			"every check in every repo would grade against Go priors")
-	}
-}
-
-func contains(haystack, needle string) bool {
-	return len(haystack) >= len(needle) && (func() bool {
-		for i := 0; i+len(needle) <= len(haystack); i++ {
-			if haystack[i:i+len(needle)] == needle {
-				return true
-			}
-		}
-		return false
-	})()
 }

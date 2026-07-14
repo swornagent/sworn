@@ -215,7 +215,7 @@ func TestNewClient_VertexRouted(t *testing.T) {
 // interfering.
 func TestFromEnv_GoogleWithCanonicalKey(t *testing.T) {
 	for _, k := range []string{
-		"GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY", "SWORN_DIRECT",
+		"GOOGLE_API_KEY", "GOOGLE_API_KEY", "SWORN_DIRECT",
 		"SWORN_GOOGLE_MODEL", "SWORN_GOOGLE_BASE_URL",
 	} {
 		t.Setenv(k, "")
@@ -242,14 +242,14 @@ func TestFromEnv_GoogleWithCanonicalKey(t *testing.T) {
 // compat per the spec's "canonical or alias" requirement.
 func TestFromEnv_GoogleWithAliasKey(t *testing.T) {
 	for _, k := range []string{
-		"GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY", "SWORN_DIRECT",
+		"GOOGLE_API_KEY", "GOOGLE_API_KEY", "SWORN_DIRECT",
 		"SWORN_GOOGLE_MODEL", "SWORN_GOOGLE_BASE_URL",
 	} {
 		t.Setenv(k, "")
 	}
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("SWORN_DIRECT", "1")
-	t.Setenv("SWORN_GOOGLE_API_KEY", "test-alias-key")
+	t.Setenv("GOOGLE_API_KEY", "test-alias-key")
 
 	v, err := FromEnv("google/gemini-2.0-flash")
 	if err != nil {
@@ -265,7 +265,7 @@ func TestFromEnv_GoogleWithAliasKey(t *testing.T) {
 // invariant (AGENTS.md non-negotiables) must hold for the google prefix.
 func TestFromEnv_GoogleMissingKey(t *testing.T) {
 	for _, k := range []string{
-		"GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY", "SWORN_DIRECT",
+		"GOOGLE_API_KEY", "GOOGLE_API_KEY", "SWORN_DIRECT",
 		"SWORN_GOOGLE_MODEL", "SWORN_GOOGLE_BASE_URL",
 	} {
 		t.Setenv(k, "")

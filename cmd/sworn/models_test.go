@@ -1,7 +1,10 @@
 package main
 
 import (
+	"path/filepath"
+
 	"fmt"
+	"github.com/swornagent/sworn/internal/model"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -32,19 +35,28 @@ func TestModelsCommandRegistered(t *testing.T) {
 // clearModelsProviderEnv blanks every env var ProviderConfigFromEnv reads
 // for this slice's 7 target providers so each test's configured-provider
 // set is exactly what it sets explicitly.
+// clearModelsProviderEnv isolates the test from EVERY credential source, so
+// "no provider keys configured" is actually true.
+//
+// It used to clear six canonical env vars and nothing else — not xai, deepseek,
+// cloudflare, azure, github or aws, and not the credentials file. A helper whose
+// scope is narrower than its name is how a test ends up asserting against the
+// developer's real keys.
 func clearModelsProviderEnv(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{
-		"OPENAI_API_KEY", "SWORN_OPENAI_API_KEY",
-		"GROQ_API_KEY", "SWORN_GROQ_API_KEY",
-		"MISTRAL_API_KEY", "SWORN_MISTRAL_API_KEY",
-		"OPENROUTER_API_KEY", "SWORN_OPENROUTER_API_KEY",
-		"ANTHROPIC_API_KEY", "SWORN_ANTHROPIC_API_KEY",
-		"GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY",
+		"OPENAI_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY", "OPENROUTER_API_KEY",
+		"ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "XAI_API_KEY", "DEEPSEEK_API_KEY",
+		"CLOUDFLARE_API_KEY", "AZURE_OPENAI_API_KEY", "GITHUB_TOKEN",
+		"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
 		"OLLAMA_HOST",
 	} {
 		t.Setenv(k, "")
 	}
+	// The credential store is the other source — point it at nothing.
+	t.Setenv(model.CredentialsPathEnv, filepath.Join(t.TempDir(), "no-credentials.json"))
+	model.ResetCredentialsCacheForTest()
+	t.Cleanup(model.ResetCredentialsCacheForTest)
 }
 
 // knownProviderHosts are the real production hosts internal/model/catalog.go

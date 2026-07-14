@@ -7,21 +7,24 @@ import (
 	"github.com/swornagent/sworn/internal/driver/registry"
 )
 
-// ComposeEscalationModels builds the final ordered model list a dispatch
-// resolves and dispatches against: implementerModel prepended (if set) to
-// escalationModels, defaulting to DefaultEscalationModels when the result
-// would otherwise be empty. Extracted from RunSlice's former inline block
-// (slice.go, pre-S07) so the startup sweep (S07 AC-01, cmd/sworn/run.go)
-// composes the IDENTICAL list RunSlice itself resolves per-attempt — a list
-// built two different ways is exactly the kind of drift that would make
-// "resolved at startup" a false promise.
+// ComposeEscalationModels builds the final ordered model list a dispatch resolves
+// and dispatches against: implementerModel prepended (if set) to escalationModels.
+// Extracted from RunSlice's former inline block (slice.go, pre-S07) so the startup
+// sweep (S07 AC-01, cmd/sworn/run.go) composes the IDENTICAL list RunSlice itself
+// resolves per-attempt — a list built two different ways is exactly the kind of
+// drift that would make "resolved at startup" a false promise.
+//
+// It NO LONGER falls back to a hardcoded ladder. It used to default to
+// ["openai/gpt-4o-mini", "openai/gpt-4o", "openai/o3-mini", "openai/o3"] — four
+// stale, hardcoded OpenAI models injected whenever nothing was configured. Two
+// things rode on that silently: the escalation ladder, and the CAPTAIN, which took
+// models[0] and therefore ran the Rule 9 design-authority role on gpt-4o-mini.
+// A configured implementer is now the only rung; an empty list means no escalation,
+// which is honest, rather than a guess dressed as a default.
 func ComposeEscalationModels(implementerModel string, escalationModels []string) []string {
 	models := escalationModels
 	if implementerModel != "" {
 		models = append([]string{implementerModel}, models...)
-	}
-	if len(models) == 0 {
-		models = DefaultEscalationModels
 	}
 	return models
 }
@@ -39,7 +42,7 @@ type DispatchResolution struct {
 }
 
 // ResolveDispatch resolves the verifier, every entry of escalationModels
-// (RoleImplementer), and escalationModels[0] (RoleCaptain) through reg.
+// (RoleImplementer), and captainModel (RoleCaptain) through reg.
 // Verifier/implementer resolution failure returns err (fatal — S06 AC-02,
 // S07 AC-01); captain resolution failure is returned via
 // DispatchResolution.CaptainErr and is NEVER fatal (S06 captain-proceed.md
@@ -50,7 +53,7 @@ type DispatchResolution struct {
 // RunSlice's pre-S07 inline wrap, so existing tests asserting on that text
 // (TestRunSliceResolutionFailure, TestRunSliceCaptainResolutionFailureDefersAndProceeds)
 // require no edits.
-func ResolveDispatch(reg *registry.Registry, errPrefix, verifierModel string, escalationModels []string) (DispatchResolution, error) {
+func ResolveDispatch(reg *registry.Registry, errPrefix, verifierModel string, escalationModels []string, captainModel string) (DispatchResolution, error) {
 	var res DispatchResolution
 
 	verifierDriver, err := reg.Resolve(verifierModel, driver.RoleVerifier)
@@ -69,9 +72,13 @@ func ResolveDispatch(reg *registry.Registry, errPrefix, verifierModel string, es
 	}
 	res.Implementers = implDrivers
 
-	captainDriver, captainResolveErr := reg.Resolve(escalationModels[0], driver.RoleCaptain)
+	// The captain gets its OWN model. It used to take escalationModels[0] — the
+	// first rung of a ladder ordered cheapest-first for RETRY — so the role holding
+	// Rule 9 design authority silently ran on the weakest model configured. Nobody
+	// decided that; it was an artefact of a list built for another purpose.
+	captainDriver, captainResolveErr := reg.Resolve(captainModel, driver.RoleCaptain)
 	if captainResolveErr != nil {
-		res.CaptainErr = fmt.Errorf("%s: resolve %q for role %q: %w", errPrefix, escalationModels[0], driver.RoleCaptain, captainResolveErr)
+		res.CaptainErr = fmt.Errorf("%s: resolve %q for role %q: %w", errPrefix, captainModel, driver.RoleCaptain, captainResolveErr)
 	} else {
 		res.Captain = captainDriver
 	}

@@ -21,6 +21,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/model"
+	"github.com/swornagent/sworn/internal/project"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/spec"
 	"github.com/swornagent/sworn/internal/style"
@@ -130,15 +131,20 @@ func (r *LLMCheckReport) HasViolations() bool {
 // which is what made Baton's "canonical runner, not the only possible one" claim
 // unsupportable.
 
-// userPromptHeaderFor builds the per-check user-payload header for a project.
+// userPromptHeaderFor builds the per-check user-payload header for a project:
+// Baton's {{project_context}} and {{project_stakes}} substitutions.
 //
-// projectContext is Baton v0.12.0's {{project_context}} — a REQUIRED substitution,
-// not a default. This was previously a const hardcoded to "the SwornAgent project
-// (a Go CLI)", sent on every check in every repo: running the checks against a
-// TypeScript codebase told the model it was reading a Go CLI, so it graded against
-// the wrong priors, silently.
-func userPromptHeaderFor(projectContext string) string {
-	return "You are evaluating a slice in a release of " + projectContext + ".\n\n" +
+// Both are REQUIRED, not defaults. The header was previously a const hardcoded to
+// "the SwornAgent project (a Go CLI)", sent on every check in every repo — so a
+// TypeScript codebase was graded against Go priors, silently (v0.12.0).
+//
+// The stakes block is what security-review grades against: at high stakes a
+// `medium` finding blocks instead of advising (v0.13.0). project.Resolve fails
+// closed to HIGH when the record is absent or unratified, and RenderStakes says so
+// out loud, so the model is never told "low stakes" on the strength of a guess.
+func userPromptHeaderFor(proj project.Resolved) string {
+	return "You are evaluating a slice in a release of " + proj.Context + ".\n\n" +
+		proj.RenderStakes() + "\n" +
 		"Below is the slice specification, followed by the git diff of the code change.\n\n" +
 		"--- SPECIFICATION ---\n\n"
 }
@@ -186,10 +192,12 @@ func RunLLMCheck(ctx context.Context, checkType CheckType, sliceDir string, diff
 		return nil, fmt.Errorf("llm-check: %w", err)
 	}
 
-	// Tell the model what it is actually looking at. Detected from the repo, not
-	// hardcoded — see DetectProjectContext.
-	projectContext := DetectProjectContext(repoRootFrom(sliceDir))
-	userPayload := buildUserPayload(projectContext, specContent, diffContent)
+	// Tell the model what it is actually looking at, and what is at risk if it gets
+	// this wrong. Both come from the project's DECLARED context record; Resolve
+	// fails closed to HIGH stakes when the record is absent or unratified, so a
+	// missing declaration can never quietly lower the security bar.
+	proj := project.Resolve(project.RepoRootFrom(sliceDir))
+	userPayload := buildUserPayload(proj, specContent, diffContent)
 
 	// Call the model.
 	rawResponse, _, _, _, err := verifier.Verify(ctx, systemPrompt, userPayload)
@@ -229,9 +237,9 @@ func RunLLMCheck(ctx context.Context, checkType CheckType, sliceDir string, diff
 // --- prompt building ---
 
 // buildUserPayload constructs the user message for the model.
-func buildUserPayload(projectContext, specContent, diffContent string) string {
+func buildUserPayload(proj project.Resolved, specContent, diffContent string) string {
 	var b strings.Builder
-	b.WriteString(userPromptHeaderFor(projectContext))
+	b.WriteString(userPromptHeaderFor(proj))
 	b.WriteString(specContent)
 	b.WriteString(userPromptDiffSeparator)
 	if diffContent == "" {

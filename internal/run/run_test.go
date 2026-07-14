@@ -268,6 +268,7 @@ func TestRun_PassPath_Merges(t *testing.T) {
 	err := Run(context.Background(), Options{
 		Task:             "Write a hello file",
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		Base:             "main",
 		RetryCap:         0,
 		WorkspaceRoot:    workspaceRoot,
@@ -327,6 +328,7 @@ func TestRun_FailPath_NoMerge(t *testing.T) {
 	err := Run(context.Background(), Options{
 		Task:             "Write a file",
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		Base:             "main",
 		RetryCap:         1,
 		WorkspaceRoot:    workspaceRoot,
@@ -367,6 +369,7 @@ func TestRun_FailThenPass_RetrySucceeds(t *testing.T) {
 	err := Run(context.Background(), Options{
 		Task:             "Write retry file",
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		Base:             "main",
 		RetryCap:         1,
 		WorkspaceRoot:    workspaceRoot,
@@ -400,6 +403,7 @@ func TestRun_Blocked_StopsImmediately(t *testing.T) {
 	err := Run(context.Background(), Options{
 		Task:             "Blocked task",
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		Base:             "main",
 		RetryCap:         3,
 		WorkspaceRoot:    workspaceRoot,
@@ -460,6 +464,7 @@ func TestRun_VerifyMarkdownPass(t *testing.T) {
 	err := Run(context.Background(), Options{
 		Task:             "Write a markdown pass file",
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		Base:             "main",
 		RetryCap:         0,
 		WorkspaceRoot:    workspaceRoot,
@@ -521,6 +526,7 @@ func TestRun_VerifyToolCallLeakBlocks(t *testing.T) {
 	err := Run(context.Background(), Options{
 		Task:             "Tool call leak task",
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		Base:             "main",
 		RetryCap:         0,
 		WorkspaceRoot:    workspaceRoot,
@@ -629,6 +635,7 @@ func TestRunSlice(t *testing.T) {
 
 	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		RetryCap:         0,
 		EscalationModels: []string{"fake/impl"},
 		Registry: testRegistry(&fakeDriver{
@@ -671,6 +678,7 @@ func TestRunSliceFail(t *testing.T) {
 
 	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		RetryCap:         1,
 		EscalationModels: []string{"fake/impl1"},
 		Registry: testRegistry(&fakeDriver{
@@ -764,6 +772,7 @@ func TestRunSlice_FailNotifiesOnce(t *testing.T) {
 
 	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		RetryCap:         1,
 		EscalationModels: []string{"fake/impl1"},
 		Registry: testRegistry(&fakeDriver{
@@ -833,6 +842,7 @@ func TestRunSlice_BlockedNotifies(t *testing.T) {
 
 	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		RetryCap:         0,
 		EscalationModels: []string{"fake/impl"},
 		Registry: testRegistry(&fakeDriver{
@@ -879,6 +889,7 @@ func TestRunSlice_NilNotifierNoOp(t *testing.T) {
 
 	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		RetryCap:         0,
 		EscalationModels: []string{"fake/impl"},
 		Registry: testRegistry(&fakeDriver{

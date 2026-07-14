@@ -62,6 +62,7 @@ func TestLoopBlockedImplementerTerminal(t *testing.T) {
 
 	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		EscalationModels: []string{"fake/impl1", "fake/impl2"},
 		Registry:         testRegistry(d),
 		Notifier:         notifier,
@@ -139,6 +140,7 @@ func TestLoopBlockedVerifierTerminal(t *testing.T) {
 
 	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		EscalationModels: []string{"fake/impl1", "fake/impl2"}, // retries remain — still terminal
 		Registry:         testRegistry(d),
 	})
@@ -193,6 +195,7 @@ func TestLoopFailRetrySemanticsUnchanged(t *testing.T) {
 
 	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		EscalationModels: []string{"fake/impl1"},
 		Registry:         testRegistry(d),
 	})

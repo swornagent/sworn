@@ -49,10 +49,11 @@ func cmdRun(args []string) int {
 	_ = fs.Parse(args)
 
 	// ── Load .env files ────────────────────────────────────────────────
-	if err := model.LoadDotEnv(); err != nil {
-		fmt.Fprintf(os.Stderr, "sworn run: load .env: %v\n", err)
-		return 1
-	}
+	// Keys are NOT bootstrapped here. The model layer resolves them itself
+	// (canonical env var, then credentials.json), so every command sees the same
+	// credentials. This used to call model.LoadDotEnv() — and it was the ONLY
+	// command that did, so a key written by `sworn init` was visible to the loop
+	// and invisible to llm-check, verify, reqverify and MCP.
 	// ── Basic CLI usage validation (before model resolution) ────────────
 	if *parallel {
 		if *releaseName == "" {
@@ -94,6 +95,14 @@ func cmdRun(args []string) int {
 
 	// ── Resolve implementer model ──────────────────────────────────────
 	impl, err := config.ResolveImplementerModel(*implModel, cfg, "", "", "quality", 0)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sworn run: %v\n", err)
+		return 2
+	}
+
+	// ── Resolve captain model ──────────────────────────────────────────
+	// Its own role, not escalationModels[0]. See config.roleFallback.
+	captain, err := config.ResolveCaptainModel("", cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sworn run: %v\n", err)
 		return 2
@@ -141,7 +150,7 @@ func cmdRun(args []string) int {
 		// policies for the identical role/model pair.
 		startupModels := run.ComposeEscalationModels(impl, escalationModels)
 		startupReg := registry.Default(model.ProviderConfigFromEnv())
-		resolution, rerr := run.ResolveDispatch(startupReg, "sworn run", verifier, startupModels)
+		resolution, rerr := run.ResolveDispatch(startupReg, "sworn run", verifier, startupModels, captain)
 		if rerr != nil {
 			fmt.Fprintf(os.Stderr, "sworn run: %v\n", rerr)
 			return 1
@@ -173,6 +182,7 @@ func cmdRun(args []string) int {
 			return run.RunSlice(ctx, worktreeRoot, specPath, statusPath, run.RunSliceOptions{
 				ImplementerModel: impl,
 				VerifierModel:    verifier,
+				CaptainModel:     captain,
 				EscalationModels: escalationModels,
 				RetryCap:         maxAttempts,
 				ImplementTimeout: implementTimeout,

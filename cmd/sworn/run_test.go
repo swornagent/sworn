@@ -173,6 +173,7 @@ tracks:
 // directly; this test exercises the full CLI entry path through cmdRun()
 // (lines 63‑90 of run.go) that the spec's smoke step requires.
 func TestCmdRun_Parallel(t *testing.T) {
+	withModelConfig(t)
 	tmpDir := t.TempDir()
 
 	// Save and restore working directory.  cmdRun → openDefaultDB uses

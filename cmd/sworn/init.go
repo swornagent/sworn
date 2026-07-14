@@ -11,6 +11,7 @@ import (
 
 	"github.com/swornagent/sworn/internal/adopt"
 	"github.com/swornagent/sworn/internal/config"
+	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/style"
 	"github.com/swornagent/sworn/internal/templates"
 )
@@ -172,7 +173,11 @@ func cmdInit(args []string) int {
 			key = promptAPIKey()
 		}
 		if key != "" {
-			fmt.Println("  API key noted — store it in env var SWORN_OPENAI_API_KEY for production use")
+			if err := model.SaveCredentials(map[string]string{"openai": key}); err != nil {
+				fmt.Fprintf(os.Stderr, "sworn init: save credentials: %v\n", err)
+			} else {
+				fmt.Printf("  %s  %s (0600)\n", style.Success("wrote"), model.CredentialsPath())
+			}
 		}
 		fmt.Printf("  %s  %s\n", style.Success("created"), cfgPath)
 	}
@@ -258,6 +263,29 @@ func cmdInit(args []string) int {
 	}
 
 done:
+	// --- Migrate legacy credentials ---
+	// Keys used to live in SWORN_-prefixed env vars and ~/.sworn/.env (a dotenv
+	// file, outside XDG). They now live in credentials.json (XDG, 0600). Move any
+	// stragglers so a working setup keeps working. Never deletes the source.
+	if moved, mErr := model.MigrateLegacyCredentials(); mErr != nil {
+		fmt.Fprintf(os.Stderr, "  %s  credentials migration: %v\n", style.Warn("skipped"), mErr)
+	} else if len(moved) > 0 {
+		fmt.Printf("\n  %s  migrated keys for %s to %s (0600)\n",
+			style.Success("moved"), strings.Join(moved, ", "), model.CredentialsPath())
+		fmt.Printf("  %s\n", style.Dim("      you can now unset the SWORN_*_API_KEY exports"))
+	}
+
+	// --- Project context (Baton project-context-v1) ---
+	// The LLM checks need to know WHAT this project is and WHAT IS AT RISK. Without
+	// a declaration the engine falls back to detection, which can read languages but
+	// can never know whether real customers depend on the system — and that is what
+	// decides whether a medium security finding blocks or merely advises.
+	if err := setupProjectContext(repoRoot, in, *yes); err != nil {
+		// Not fatal: a repo without a context record still works, it just runs its
+		// checks at fail-closed HIGH stakes with an inferred description.
+		fmt.Fprintf(os.Stderr, "  %s  project context: %v\n", style.Warn("skipped"), err)
+	}
+
 	fmt.Println()
 	fmt.Println(style.Success("Done. Connect your AI to sworn mcp to get the Baton protocol and role prompts. Run 'sworn doctor' to verify your setup."))
 	return 0

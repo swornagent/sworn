@@ -27,16 +27,9 @@ import (
 	"github.com/swornagent/sworn/internal/supervisor"
 )
 
-// DefaultEscalationModels is the default model escalation path when none is
-// provided. Each entry is a "provider/model" ID resolvable by the driver
-// registry. The list runs from cheapest to most capable; on retry the next
-// model is used.
-var DefaultEscalationModels = []string{
-	"openai/gpt-4o-mini",
-	"openai/gpt-4o",
-	"openai/o3-mini",
-	"openai/o3",
-}
+// There is deliberately no DefaultEscalationModels — see
+// ComposeEscalationModels (resolve.go). A hardcoded ladder is a lie with a shelf
+// life, and this one silently decided which model reviewed your designs.
 
 // Options configures the run loop.
 type Options struct {
@@ -46,6 +39,11 @@ type Options struct {
 	// ImplementerModel is the initial implementer model ID (provider/model).
 	// If empty, the first entry in EscalationModels is used.
 	ImplementerModel string
+
+	// CaptainModel is the captain's model ID (provider/model) — the Rule 9
+	// design-authority role. Resolved as its own role, not taken from
+	// EscalationModels[0] (the cheapest rung of a retry ladder).
+	CaptainModel string
 
 	// VerifierModel is the verifier model ID (provider/model). Required — the
 	// run loop fails closed without a verifier.
@@ -59,7 +57,7 @@ type Options struct {
 	RetryCap int
 
 	// EscalationModels is the ordered list of model IDs to try on retry.
-	// If empty, DefaultEscalationModels is used. The implementer model starts
+	// If empty, there is no escalation. The implementer model starts
 	// at ImplementerModel (or the first entry) and advances one position on
 	// each retry. The verifier model stays fixed.
 	EscalationModels []string
@@ -218,6 +216,7 @@ func Run(ctx context.Context, opts Options) error {
 	err = RunSlice(ctx, workspaceRoot, specPath, statusPath, RunSliceOptions{
 		ImplementerModel: opts.ImplementerModel,
 		VerifierModel:    opts.VerifierModel,
+		CaptainModel:     opts.CaptainModel,
 		EscalationModels: opts.EscalationModels,
 		RetryCap:         opts.RetryCap,
 		ImplementTimeout: opts.ImplementTimeout,

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/swornagent/sworn/internal/bench"
+	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/style"
 )
 
@@ -43,9 +44,9 @@ func cmdBench(args []string) int {
 		return 64
 	}
 
-	apiKey := os.Getenv("SWORN_OPENAI_API_KEY")
+	apiKey := model.ProviderKey("openai")
 	if apiKey == "" {
-		fmt.Fprintln(os.Stderr, "sworn bench: SWORN_OPENAI_API_KEY not set")
+		fmt.Fprintf(os.Stderr, "sworn bench: no OpenAI key — set OPENAI_API_KEY or add it to %s\n", model.CredentialsPath())
 		return 2
 	}
 

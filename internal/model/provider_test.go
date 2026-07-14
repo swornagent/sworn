@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -200,11 +201,11 @@ func TestProviderConfigFromEnv(t *testing.T) {
 		"CLOUDFLARE_API_KEY", "GITHUB_TOKEN", "OLLAMA_HOST",
 		"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
 		"AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_VERSION",
-		"SWORN_OPENAI_API_KEY", "SWORN_DEEPSEEK_API_KEY", "SWORN_GROQ_API_KEY",
-		"SWORN_MISTRAL_API_KEY", "SWORN_OPENROUTER_API_KEY", "SWORN_ANTHROPIC_API_KEY",
-		"SWORN_GOOGLE_API_KEY", "SWORN_CLOUDFLARE_API_KEY", "SWORN_GITHUB_TOKEN",
-		"SWORN_AWS_ACCESS_KEY_ID", "SWORN_AWS_SECRET_ACCESS_KEY",
-		"SWORN_AZURE_OPENAI_API_KEY", "SWORN_AZURE_OPENAI_ENDPOINT", "SWORN_AZURE_OPENAI_API_VERSION",
+		"OPENAI_API_KEY", "DEEPSEEK_API_KEY", "GROQ_API_KEY",
+		"MISTRAL_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY",
+		"GOOGLE_API_KEY", "CLOUDFLARE_API_KEY", "GITHUB_TOKEN",
+		"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
+		"AZURE_OPENAI_API_KEY", "SWORN_AZURE_OPENAI_ENDPOINT", "SWORN_AZURE_OPENAI_API_VERSION",
 	} {
 		t.Setenv(k, "")
 	}
@@ -214,6 +215,12 @@ func TestProviderConfigFromEnv(t *testing.T) {
 	t.Setenv("GROQ_API_KEY", "gsk-groq")
 	t.Setenv("DEEPSEEK_API_KEY", "sk-deepseek")
 	t.Setenv("OLLAMA_HOST", "http://ollama:12345")
+	// Isolate: this test asserts unset keys are EMPTY, so it must not read the
+	// developer's real exported keys. It previously did.
+	t.Setenv("MISTRAL_API_KEY", "")
+	t.Setenv(CredentialsPathEnv, filepath.Join(t.TempDir(), "none.json"))
+	ResetCredentialsCacheForTest()
+	t.Cleanup(ResetCredentialsCacheForTest)
 
 	cfg := ProviderConfigFromEnv()
 	if cfg.OpenAIKey != "sk-openai" {
@@ -232,28 +239,6 @@ func TestProviderConfigFromEnv(t *testing.T) {
 	// Unset keys should be empty.
 	if cfg.MistralKey != "" {
 		t.Errorf("MistralKey = %q, want empty", cfg.MistralKey)
-	}
-}
-
-func TestProviderConfigFromEnv_SwornOpenAIAlias(t *testing.T) {
-	// When OPENAI_API_KEY is empty, SWORN_OPENAI_API_KEY should be used.
-	t.Setenv("OPENAI_API_KEY", "") // Ensure canonical is empty.
-	t.Setenv("SWORN_OPENAI_API_KEY", "sk-sworn-alias")
-	cfg := ProviderConfigFromEnv()
-
-	if cfg.OpenAIKey != "sk-sworn-alias" {
-		t.Errorf("OpenAIKey = %q, want sk-sworn-alias (alias fallback)", cfg.OpenAIKey)
-	}
-}
-
-func TestProviderConfigFromEnv_CanonicalWins(t *testing.T) {
-	// When both canonical and alias are set, canonical wins.
-	t.Setenv("OPENAI_API_KEY", "sk-canonical")
-	t.Setenv("SWORN_OPENAI_API_KEY", "sk-alias")
-	cfg := ProviderConfigFromEnv()
-
-	if cfg.OpenAIKey != "sk-canonical" {
-		t.Errorf("OpenAIKey = %q, want sk-canonical (canonical should win)", cfg.OpenAIKey)
 	}
 }
 

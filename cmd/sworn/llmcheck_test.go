@@ -100,9 +100,11 @@ func TestLLMCheck_ResolvesFromConfigFile(t *testing.T) {
 	}
 }
 
-// TestLLMCheck_FlagBeatsEnvBeatsConfig pins the precedence llm-check now shares with
-// reqverify, verify and the loop.
-func TestLLMCheck_FlagBeatsEnvBeatsConfig(t *testing.T) {
+// TestLLMCheck_FlagBeatsConfig pins the precedence llm-check now shares with
+// reqverify, verify and the loop: flag > config.json. There is no env layer —
+// a per-role env var was a second source of truth, and drift between the two is
+// exactly what made llm-check unrunnable on a fully-configured setup.
+func TestLLMCheck_FlagBeatsConfig(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "config.json")
 	if err := os.WriteFile(cfgPath, []byte(`{"version":1,"verifier":{"model":"from/config"}}`), 0644); err != nil {
 		t.Fatal(err)
@@ -115,8 +117,8 @@ func TestLLMCheck_FlagBeatsEnvBeatsConfig(t *testing.T) {
 		want string
 	}{
 		{name: "flag wins", flag: "from/flag", env: "from/env", want: "from/flag"},
-		{name: "env beats config", flag: "", env: "from/env", want: "from/env"},
-		{name: "config is the floor", flag: "", env: "", want: "from/config"},
+		{name: "config is the source; env is IGNORED", flag: "", env: "from/env", want: "from/config"},
+		{name: "config with no env", flag: "", env: "", want: "from/config"},
 	}
 
 	for _, tc := range tests {

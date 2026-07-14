@@ -20,6 +20,7 @@ func TestRunSliceDefaultsNilRegistry(t *testing.T) {
 	opts := RunSliceOptions{
 		ImplementerModel: "bogus/none",
 		VerifierModel:    "bogus/none",
+		CaptainModel:     "bogus/none",
 		EscalationModels: []string{}, // stay on bogus/none; never fall back to real openai defaults
 		RetryCap:         1,
 		ImplementTimeout: 2 * time.Second,

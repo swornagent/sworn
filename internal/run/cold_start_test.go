@@ -42,6 +42,7 @@ func TestRunSlice_ColdStartBootstrapsStartCommit(t *testing.T) {
 	opts := RunSliceOptions{
 		EscalationModels: []string{"fake/quick"},
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		RetryCap:         0,
 		ImplementTimeout: DefaultImplementTimeout,
 		Registry:         testRegistry(&fakeDriver{implement: markedImplement(&called)}),

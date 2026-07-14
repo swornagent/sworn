@@ -30,11 +30,11 @@ func TestCapabilitiesCommandRegistered(t *testing.T) {
 func clearProviderEnv(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{
-		"OPENAI_API_KEY", "SWORN_OPENAI_API_KEY", "DEEPSEEK_API_KEY",
+		"OPENAI_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY",
 		"GROQ_API_KEY", "MISTRAL_API_KEY", "OPENROUTER_API_KEY",
-		"ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY",
+		"ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "GOOGLE_API_KEY",
 		"CLOUDFLARE_API_KEY", "GITHUB_TOKEN",
-		"XAI_API_KEY", "SWORN_XAI_API_KEY",
+		"XAI_API_KEY", "XAI_API_KEY",
 		"SWORN_DIRECT", "SWORN_PROXY_URL",
 	} {
 		t.Setenv(k, "")

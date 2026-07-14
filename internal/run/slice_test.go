@@ -150,6 +150,7 @@ func TestImplementTimeoutEscalates(t *testing.T) {
 	opts := RunSliceOptions{
 		EscalationModels: []string{"fake/blocking", "fake/working"},
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		RetryCap:         1,
 		ImplementTimeout: 500 * time.Millisecond,
 		Registry: testRegistry(&fakeDriver{
@@ -182,6 +183,7 @@ func TestImplementTimeoutExhaustsToHuman(t *testing.T) {
 	opts := RunSliceOptions{
 		EscalationModels: []string{"fake/blocking1", "fake/blocking2"},
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		RetryCap:         1,
 		ImplementTimeout: 100 * time.Millisecond,
 		Registry:         testRegistry(&fakeDriver{implement: blockingImplement}),
@@ -206,6 +208,7 @@ func TestImplementTimeoutHappyPath(t *testing.T) {
 	opts := RunSliceOptions{
 		EscalationModels: []string{"fake/quick"},
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		RetryCap:         0,
 		ImplementTimeout: DefaultImplementTimeout, // generous timeout
 		Registry:         testRegistry(&fakeDriver{implement: markedImplement(&called)}),
@@ -228,6 +231,7 @@ func TestImplementTimeoutZeroUsesDefault(t *testing.T) {
 	opts := RunSliceOptions{
 		EscalationModels: []string{"fake/quick"},
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		RetryCap:         0,
 		ImplementTimeout: 0, // zero → use default (15m), not instant timeout
 		Registry:         testRegistry(&fakeDriver{implement: markedImplement(&called)}),
@@ -250,6 +254,7 @@ func TestImplementTimeoutNegativeNoTimeout(t *testing.T) {
 	opts := RunSliceOptions{
 		EscalationModels: []string{"fake/quick"},
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		RetryCap:         0,
 		ImplementTimeout: -1, // negative → no timeout, unbounded
 		Registry:         testRegistry(&fakeDriver{implement: markedImplement(&called)}),
@@ -314,6 +319,7 @@ func TestRetryPassesVerifierRationale(t *testing.T) {
 	opts := RunSliceOptions{
 		EscalationModels: []string{"fake/model-a"},
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		RetryCap:         1,
 		ImplementTimeout: -1,
 		Registry: testRegistry(&fakeDriver{
@@ -344,6 +350,7 @@ func TestAttempt0EmptyFeedback(t *testing.T) {
 	opts := RunSliceOptions{
 		EscalationModels: []string{"fake/model-a"},
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		RetryCap:         0,
 		ImplementTimeout: -1,
 		Registry:         testRegistry(&fakeDriver{implement: rec.dispatch}),
@@ -374,6 +381,7 @@ func TestRetryFeedbackResolvesToPass(t *testing.T) {
 	opts := RunSliceOptions{
 		EscalationModels: []string{"fake/model-a"},
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		RetryCap:         1,
 		ImplementTimeout: -1,
 		Registry: testRegistry(&fakeDriver{
@@ -487,6 +495,7 @@ func TestDesignGate_GenerationFailureRecordsDeferral(t *testing.T) {
 	opts := RunSliceOptions{
 		EscalationModels: []string{"fake/m1"},
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		ImplementTimeout: -1,
 		Registry: testRegistry(&fakeDriver{
 			captain:   erroringDispatch,
@@ -526,6 +535,7 @@ func TestDesignGate_CaptainDispatchFailureRecordsDeferral(t *testing.T) {
 	opts := RunSliceOptions{
 		EscalationModels: []string{"fake/m1"},
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		ImplementTimeout: -1,
 		Registry: testRegistry(&fakeDriver{
 			captain:   erroringDispatch,
@@ -593,6 +603,7 @@ func TestRunSlice_CostSourceThreadedToStatusJSON(t *testing.T) {
 
 	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
 		VerifierModel:    "fake/verifier",
+		CaptainModel:     "fake/verifier",
 		RetryCap:         0,
 		EscalationModels: []string{"fake/impl"},
 		Registry: testRegistry(&fakeDriver{

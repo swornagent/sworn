@@ -9,13 +9,31 @@ import (
 	"github.com/swornagent/sworn/internal/ledger"
 )
 
-func TestDefaultConfig(t *testing.T) {
+// TestDefaultConfig_CarriesNoModelIDs is the guard for the hardcoded-default defect.
+//
+// DefaultConfig used to pre-fill openai/gpt-4o-mini (implementer), gpt-4o + o3
+// (escalation) and a verifier model. Load() returns DefaultConfig when no config
+// file exists, so a user who had never run `sworn init` silently ran on hardcoded,
+// years-stale models and was never told — and no "not configured" error could ever
+// fire, because the default quietly answered for them.
+func TestDefaultConfig_CarriesNoModelIDs(t *testing.T) {
 	cfg := DefaultConfig()
 	if cfg.Version != 1 {
 		t.Errorf("DefaultConfig version = %d, want 1", cfg.Version)
 	}
-	if cfg.Verifier.Model == "" {
-		t.Error("DefaultConfig Verifier.Model is empty")
+	for role, ms := range map[Role]ModelSetting{
+		RoleVerifier:    cfg.Verifier,
+		RoleImplementer: cfg.Implementer,
+		RolePlanner:     cfg.Planner,
+		RoleCaptain:     cfg.Captain,
+	} {
+		if ms.Model != "" {
+			t.Errorf("DefaultConfig hardcodes a %s model (%q) — model selection is the "+
+				"project's decision, and a hardcoded default is a lie with a shelf life", role, ms.Model)
+		}
+	}
+	if len(cfg.Implementer.EscalationModels) != 0 {
+		t.Errorf("DefaultConfig hardcodes an escalation ladder: %v", cfg.Implementer.EscalationModels)
 	}
 }
 
@@ -60,13 +78,17 @@ func TestResolveVerifierModel(t *testing.T) {
 		}
 	})
 
-	t.Run("env wins over config", func(t *testing.T) {
-		t.Setenv("SWORN_VERIFIER_MODEL", "openai/gpt-4o")
+	t.Run("config is the source (no env layer)", func(t *testing.T) {
+		// A per-role env var was a SECOND source of truth that drifted: llm-check
+		// read $SWORN_MODEL while its siblings read $SWORN_VERIFIER_MODEL, so a
+		// fully-configured setup still got "no model configured". config.json is now
+		// the only source, and an env var must not override it.
+		t.Setenv("SWORN_VERIFIER_MODEL", "openai/should-be-ignored")
 		m, err := ResolveVerifierModel("", cfg)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if m != "openai/gpt-4o" {
+		if m != cfg.Verifier.Model {
 			t.Errorf("got %q", m)
 		}
 	})
@@ -83,8 +105,7 @@ func TestResolveVerifierModel(t *testing.T) {
 }
 
 func TestResolveVerifierModelMissingKey(t *testing.T) {
-	// Missing-key error path: smoke test the error.
-	t.Setenv("SWORN_VERIFIER_MODEL", "")
+	// Missing-model error path: smoke test the error.
 	cfg := Config{Version: 1} // no verifier model set
 	_, err := ResolveVerifierModel("", cfg)
 	if err == nil {
@@ -95,8 +116,8 @@ func TestResolveVerifierModelMissingKey(t *testing.T) {
 	if !contains(msg, "sworn init") {
 		t.Errorf("error should mention 'sworn init', got: %s", msg)
 	}
-	if !contains(msg, "SWORN_VERIFIER_MODEL") {
-		t.Errorf("error should mention SWORN_VERIFIER_MODEL, got: %s", msg)
+	if !contains(msg, "verifier") {
+		t.Errorf("error should name the unconfigured role, got: %s", msg)
 	}
 }
 
@@ -164,8 +185,9 @@ func TestScaffoldWithForce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Verifier.Model != "anthropic/claude-sonnet-4-6" {
-		t.Errorf("after force overwrite: model = %q, want anthropic/claude-sonnet-4-6", cfg.Verifier.Model)
+	if cfg.Verifier.Model != "" {
+		t.Errorf("after force overwrite: verifier model = %q, want empty — "+
+			"scaffold must not hardcode a model; `sworn init` asks", cfg.Verifier.Model)
 	}
 }
 
@@ -343,18 +365,6 @@ func TestResolveImplementerModel_FlagWins(t *testing.T) {
 	}
 }
 
-func TestResolveImplementerModel_EnvFallback(t *testing.T) {
-	t.Setenv("SWORN_IMPLEMENTER_MODEL", "openai/gpt-4o-mini")
-	cfg := Config{Version: 1}
-	m, err := ResolveImplementerModel("", cfg, "", "", "quality", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if m != "openai/gpt-4o-mini" {
-		t.Errorf("got %q, want openai/gpt-4o-mini", m)
-	}
-}
-
 func TestResolveImplementerModel_ConfigFallback(t *testing.T) {
 	cfg := Config{
 		Version: 1,
@@ -397,8 +407,8 @@ func TestResolveImplementerModel_Error(t *testing.T) {
 	if !contains(msg, "sworn init") {
 		t.Errorf("error should mention 'sworn init', got: %s", msg)
 	}
-	if !contains(msg, "SWORN_IMPLEMENTER_MODEL") {
-		t.Errorf("error should mention SWORN_IMPLEMENTER_MODEL, got: %s", msg)
+	if !contains(msg, "implementer") {
+		t.Errorf("error should name the unconfigured role, got: %s", msg)
 	}
 }
 
@@ -716,15 +726,6 @@ func TestResolveEscalationModels_FlagWins(t *testing.T) {
 	}
 }
 
-func TestResolveEscalationModels_EnvParsed(t *testing.T) {
-	t.Setenv("SWORN_ESCALATION_MODELS", "a/b, c/d , e/f")
-	cfg := Config{Version: 1}
-	got := ResolveEscalationModels(nil, cfg)
-	if len(got) != 3 || got[0] != "a/b" || got[1] != "c/d" || got[2] != "e/f" {
-		t.Errorf("got %v, want [a/b c/d e/f]", got)
-	}
-}
-
 func TestResolveEscalationModels_ConfigUsed(t *testing.T) {
 	cfg := Config{
 		Version: 1,
@@ -738,14 +739,21 @@ func TestResolveEscalationModels_ConfigUsed(t *testing.T) {
 	}
 }
 
-func TestResolveEscalationModels_DefaultFallback(t *testing.T) {
-	cfg := Config{Version: 1}
-	got := ResolveEscalationModels(nil, cfg)
-	if len(got) != 4 {
-		t.Errorf("got %d entries, want 4 (DefaultEscalationModels)", len(got))
+func TestResolveEscalationModels_NoHardcodedLadder(t *testing.T) {
+	// It used to return ["openai/gpt-4o-mini", "openai/gpt-4o", "openai/o3-mini",
+	// "openai/o3"] — four stale, hardcoded models injected whenever nothing was
+	// configured. The CAPTAIN then took entry [0], so the Rule 9 design-authority
+	// role silently ran on gpt-4o-mini.
+	if got := ResolveEscalationModels(nil, Config{Version: 1}); len(got) != 0 {
+		t.Errorf("ResolveEscalationModels returned a hardcoded ladder %v — "+
+			"an unconfigured ladder must be empty, not a guess", got)
 	}
-	if got[0] != "openai/gpt-4o-mini" {
-		t.Errorf("first entry = %q, want openai/gpt-4o-mini", got[0])
+
+	// With an implementer configured, the ladder is just that model: no escalation.
+	cfg := Config{Version: 1, Implementer: ModelSetting{Model: "some/impl"}}
+	got := ResolveEscalationModels(nil, cfg)
+	if len(got) != 1 || got[0] != "some/impl" {
+		t.Errorf("got %v, want [some/impl]", got)
 	}
 }
 
@@ -810,16 +818,14 @@ func TestConfigRoundTrip_ImplementerFields(t *testing.T) {
 	}
 }
 
-func TestDefaultConfig_ImplementerDefaults(t *testing.T) {
+func TestDefaultConfig_ImplementerHasNoHardcodedModels(t *testing.T) {
 	cfg := DefaultConfig()
-	if cfg.Implementer.Model != "openai/gpt-4o-mini" {
-		t.Errorf("Implementer.Model = %q, want openai/gpt-4o-mini", cfg.Implementer.Model)
+	if cfg.Implementer.Model != "" {
+		t.Errorf("Implementer.Model = %q, want empty — a hardcoded default silently "+
+			"ran users on a stale model and defeated every not-configured error", cfg.Implementer.Model)
 	}
-	if len(cfg.Implementer.EscalationModels) != 2 {
-		t.Errorf("Implementer.EscalationModels len = %d, want 2", len(cfg.Implementer.EscalationModels))
-	}
-	if cfg.Implementer.MaxAttempts != 3 {
-		t.Errorf("Implementer.MaxAttempts = %d, want 3", cfg.Implementer.MaxAttempts)
+	if len(cfg.Implementer.EscalationModels) != 0 {
+		t.Errorf("Implementer.EscalationModels = %v, want empty", cfg.Implementer.EscalationModels)
 	}
 }
 
@@ -894,5 +900,95 @@ func TestSave_CreatesParentDirs(t *testing.T) {
 	}
 	if loaded.Verifier.Model != "anthropic/claude-sonnet-4-6" {
 		t.Errorf("Verifier.Model = %q", loaded.Verifier.Model)
+	}
+}
+
+// TestResolveRoleModel is the guard for the unified role resolution.
+//
+// Four roles used to resolve four different ways, and two of them improvised:
+//   - the planner ended in `return "openai/gpt-4o", nil` — a hardcoded, stale model;
+//   - the captain took escalationModels[0], the cheapest rung of a RETRY ladder, so
+//     the role holding Rule 9 design authority silently ran on the weakest model.
+//
+// Neither was ever decided. Both were artefacts of a call site improvising.
+func TestResolveRoleModel(t *testing.T) {
+	full := Config{
+		Version:     1,
+		Verifier:    ModelSetting{Model: "v/model"},
+		Implementer: ModelSetting{Model: "i/model"},
+		Planner:     ModelSetting{Model: "p/model"},
+		Captain:     ModelSetting{Model: "c/model"},
+	}
+	// Only the two roles a project MUST configure.
+	minimal := Config{
+		Version:     1,
+		Verifier:    ModelSetting{Model: "v/model"},
+		Implementer: ModelSetting{Model: "i/model"},
+	}
+
+	tests := []struct {
+		name string
+		role Role
+		flag string
+		cfg  Config
+		want string
+	}{
+		{name: "flag overrides everything", role: RoleVerifier, flag: "flag/model", cfg: full, want: "flag/model"},
+		{name: "each role reads its own config", role: RoleCaptain, cfg: full, want: "c/model"},
+		{name: "planner falls back to implementer (planning is authoring)", role: RolePlanner, cfg: minimal, want: "i/model"},
+		{name: "captain falls back to VERIFIER, not the cheapest escalation rung", role: RoleCaptain, cfg: minimal, want: "v/model"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ResolveRoleModel(tc.role, tc.flag, tc.cfg)
+			if err != nil {
+				t.Fatalf("ResolveRoleModel(%s): %v", tc.role, err)
+			}
+			if got != tc.want {
+				t.Errorf("ResolveRoleModel(%s) = %q, want %q", tc.role, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestResolveRoleModel_FailsClosed — an unconfigured role is an ERROR with a remedy,
+// never a hardcoded guess. This is what the old defaults made impossible.
+func TestResolveRoleModel_FailsClosed(t *testing.T) {
+	empty := Config{Version: 1}
+
+	for _, role := range []Role{RolePlanner, RoleImplementer, RoleVerifier, RoleCaptain} {
+		t.Run(string(role), func(t *testing.T) {
+			got, err := ResolveRoleModel(role, "", empty)
+			if err == nil {
+				t.Fatalf("ResolveRoleModel(%s) returned %q with nothing configured — "+
+					"it must fail closed, not guess a model", role, got)
+			}
+			if !contains(err.Error(), string(role)) {
+				t.Errorf("error must name the unconfigured role, got: %v", err)
+			}
+			if !contains(err.Error(), "sworn init") {
+				t.Errorf("error must name the remedy, got: %v", err)
+			}
+		})
+	}
+}
+
+// TestResolveRoleModel_NoEnvLayer — config.json is the single source. A per-role env
+// var was a second source that drifted, and drift is what made `sworn llm-check`
+// report "no model configured" on a fully-configured setup.
+func TestResolveRoleModel_NoEnvLayer(t *testing.T) {
+	cfg := Config{Version: 1, Verifier: ModelSetting{Model: "from/config"}}
+
+	for _, env := range []string{"SWORN_VERIFIER_MODEL", "SWORN_MODEL", "SWORN_CAPTAIN_MODEL", "SWORN_PLANNER_MODEL"} {
+		t.Setenv(env, "env/should-be-ignored")
+	}
+
+	got, err := ResolveRoleModel(RoleVerifier, "", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "from/config" {
+		t.Errorf("resolved %q — an env var overrode config.json; there must be no env layer", got)
 	}
 }

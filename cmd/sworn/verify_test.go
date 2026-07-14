@@ -33,10 +33,12 @@ func TestCmdVerify_FailClosed(t *testing.T) {
 	// (non-UI-bearing, Validate passes); a resolvable verifier model with a
 	// present (unused, default path never dispatches) key so model.FromEnv
 	// succeeds without network.
-	t.Setenv("SWORN_CONFIG_PATH", filepath.Join(dir, "no-config.json"))
+	// Model selection lives in config.json — there is no env layer.
+	cfgPath := filepath.Join(dir, "config.json")
+	os.WriteFile(cfgPath, []byte(`{"version":1,"verifier":{"model":"openai/gpt-4.1-mini"}}`), 0644)
+	t.Setenv("SWORN_CONFIG_PATH", cfgPath)
 	t.Setenv("SWORN_DIRECT", "1")
-	t.Setenv("SWORN_VERIFIER_MODEL", "openai/gpt-4o-mini")
-	t.Setenv("SWORN_OPENAI_API_KEY", "test-key-not-dispatched")
+	t.Setenv("OPENAI_API_KEY", "test-key-not-dispatched")
 
 	cases := []struct {
 		name string
@@ -69,10 +71,12 @@ func TestCmdVerify_WellFormedPasses(t *testing.T) {
 	os.WriteFile(diff, []byte("+ added"), 0644)
 	os.WriteFile(proof, []byte("# Proof\nScope: ok"), 0644)
 
-	t.Setenv("SWORN_CONFIG_PATH", filepath.Join(dir, "no-config.json"))
+	// Model selection lives in config.json — there is no env layer.
+	cfgPath := filepath.Join(dir, "config.json")
+	os.WriteFile(cfgPath, []byte(`{"version":1,"verifier":{"model":"openai/gpt-4.1-mini"}}`), 0644)
+	t.Setenv("SWORN_CONFIG_PATH", cfgPath)
 	t.Setenv("SWORN_DIRECT", "1")
-	t.Setenv("SWORN_VERIFIER_MODEL", "openai/gpt-4o-mini")
-	t.Setenv("SWORN_OPENAI_API_KEY", "test-key-not-dispatched")
+	t.Setenv("OPENAI_API_KEY", "test-key-not-dispatched")
 
 	exit := cmdVerify([]string{"--spec", spec, "--diff", diff, "--proof", proof})
 	if exit != 0 {
