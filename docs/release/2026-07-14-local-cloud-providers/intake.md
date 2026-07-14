@@ -76,6 +76,13 @@ Enable a SwornAgent operator to use Ollama Cloud or a locally hosted OpenAI-comp
 - **Decision**: Plan `2026-07-14-local-cloud-providers` as a separate release based on `main`, preserving the explicit seam with S04.
 - **Why**: The endpoint/dialect work has a distinct user outcome and touchpoints, while the repo requires non-trivial work to be issue-backed and sliced before implementation.
 
+### 2026-07-14 — Release goal ratified
+
+- **Context**: Confirm the user-reachable outcome before decomposing the commissioned brief.
+- **Options considered**: revise the goal; proceed with the drafted goal.
+- **Decision**: Proceed with the drafted goal: full-loop Ollama Cloud and local OpenAI-compatible dispatch, data-driven endpoint declarations, configurable endpoint overrides, keyless reachability, and live dialect conformance, kept separate from S04 capability metadata.
+- **Why**: The repository owner confirmed that this matches the intended release on 2026-07-14.
+
 ## Schema-vs-spec audit notes
 
 - `internal/model.ProviderConfig` currently uses dedicated fields and has only `OllamaHost`; it has no generic per-provider endpoint override representation.
@@ -101,4 +108,3 @@ Not yet decided. Discovery must first resolve prefix compatibility, reachability
 ## Screenshots / references
 
 - No screenshots; this release has no visual UI surface.
-
