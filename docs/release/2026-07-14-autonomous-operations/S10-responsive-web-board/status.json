@@ -55,7 +55,7 @@
     "verifier_was_fresh_context": null,
     "violations": []
   },
-  "release_base": "release/v0.1.0",
+  "release_base": "release/v0.2.0",
   "release_benefit": "A SwornAgent operator can trust a recoverable autonomous release loop, receive durable attention pages, and monitor or safely control it from a mobile web board.",
   "validation": {
     "human_ratified": false,

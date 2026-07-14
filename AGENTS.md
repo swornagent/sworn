@@ -172,7 +172,7 @@ merge.
 - **`main` is prod.** Never commit release work directly to it; `main` only
   advances via `/merge-release` when a release ships.
 - **`release/vX.Y.Z` is the integration base** for a release (current:
-  `release/v0.1.0`, cut from `main`). It is declared in the active release's
+  `release/v0.2.0`, cut from `main`). It is declared in the active release's
   `index.md` ("Release summary → Target version / integration branch") and as
   `release_base` in each slice's `status.json`, and merges to `main` at ship.
 - Baton layers beneath it: `release/vX.Y.Z` ← `release-wt/<release>` (per-release

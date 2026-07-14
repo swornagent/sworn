@@ -2,7 +2,7 @@
   "$schema": "https://baton.sawy3r.net/schemas/board-v1.json",
   "release": {
     "name": "2026-07-14-autonomous-operations",
-    "integration_branch": "release/v0.1.0",
+    "integration_branch": "release/v0.2.0",
     "vertical_trace": {
       "benefit": "A SwornAgent operator can trust a recoverable autonomous release loop, receive durable attention pages, and monitor or safely control it from a mobile web board."
     }
