@@ -83,7 +83,7 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "text": "WHEN sworn capabilities runs with configured keyless local endpoints THE SYSTEM SHALL concurrently GET each <base_url>/models with a two-second timeout, no retries, and no Authorization header; it SHALL render each prefix reachable only for HTTP 2xx plus a parseable data array and SHALL render classified unavailable reasons without bodies for every other result (C-01, C-03, N-02).",
+      "text": "WHEN `sworn capabilities` runs with configured ollama/, llamacpp/, lmstudio/, vllm/, and localai/ endpoints THE SYSTEM SHALL concurrently GET each normalized `<base_url>/models` with a two-second total request timeout, no retries, and no Authorization header, and SHALL exit 0 after rendering exactly one stable prefix-sorted line per local endpoint. A 2xx JSON object whose `data` member is an array SHALL render `endpoint <prefix>/: reachable (<N> models)` including N=0; timeout, other transport error, non-2xx, invalid JSON, missing data, or non-array data SHALL render respectively `endpoint <prefix>/: unavailable (timeout|transport|http-status-<code>|invalid-json|missing-data|data-not-array)`. No response body, model payload, or credential SHALL be rendered, and five hanging fixtures SHALL complete in less than three seconds rather than five serial timeout windows (C-01, C-03, N-02).",
       "ears_pattern": "event-driven",
       "test_refs": [
         "cmd/sworn/capabilities_test.go:TestCapabilitiesKeylessReachability",
@@ -92,7 +92,7 @@
     },
     {
       "id": "AC-02",
-      "text": "WHEN ollama/, llamacpp/, lmstudio/, vllm/, or localai/ resolves for implementer, verifier, or captain THE SYSTEM SHALL return the keyless OAI in-process driver without consulting an API key, while ollama-cloud/ SHALL resolve through the credentialed OAI entry; the registered prefix sets SHALL be derived from S01 descriptors rather than a second hand-written list (N-02).",
+      "text": "WHEN registry.Default resolves ollama/, llamacpp/, lmstudio/, vllm/, or localai/ for implementer, verifier, or captain THE SYSTEM SHALL return the driver whose Name is exactly `oai-local-inprocess` without consulting an API key; ollama-cloud/ SHALL return the credentialed `oai-inprocess` entry. registry.Default SHALL obtain both prefix groups only from `model.EndpointDescriptors()`, filtering the descriptor CredentialProvider field as empty versus non-empty; `TestEndpointDerivedRegistryPrefixes` SHALL parse internal/driver/registry/registry.go with stdlib go/parser and fail if any of the six prefix string literals occurs there or if the registered prefix set differs from the filtered descriptor results (N-02).",
       "ears_pattern": "event-driven",
       "test_refs": [
         "internal/driver/registry/registry_test.go:TestEndpointDerivedRegistryPrefixes",
@@ -101,7 +101,7 @@
     },
     {
       "id": "AC-03",
-      "text": "WHEN sworn models --provider <local-prefix> runs THE SYSTEM SHALL request the configured OAI /models endpoint, print returned model IDs under that same resolution prefix, and exit non-zero with a secret/payload-safe error when the transport or payload is invalid (C-01, C-03, N-02).",
+      "text": "WHEN `sworn models --provider <local-prefix>` receives HTTP 2xx JSON `data` records whose `id` values are non-empty strings THE SYSTEM SHALL deduplicate IDs, sort them lexically, print `<prefix>/ (<N> models)` followed by one `  <prefix>/<id>   tools: unknown` line per ID, and exit 0; an empty array SHALL print the zero-model header and exit 0. Timeout, other transport error, non-2xx, invalid JSON, missing data, non-array data, or any missing/empty/non-string id SHALL print exactly `<prefix>/: error: <timeout|transport|http-status-<code>|invalid-json|missing-data|data-not-array|invalid-model-id>` with no body/value, exit 1, and print no model rows (C-01, C-03, N-02).",
       "ears_pattern": "event-driven",
       "test_refs": [
         "cmd/sworn/models_test.go:TestModelsLocalOAIProviders",
@@ -110,7 +110,7 @@
     },
     {
       "id": "AC-04",
-      "text": "WHEN config.Load succeeds for capabilities, models, single-task run, release run, or parallel run THE SYSTEM SHALL construct one config-derived ProviderConfig/registry and inject it through startup resolution and every RunSlice call; no production command path SHALL rebuild a config-blind environment-only registry (C-01, N-02).",
+      "text": "WHEN config.Load succeeds, `configuredProviderRuntime(cfg)` in cmd/sworn/provider_config.go SHALL be called exactly once per capabilities, models, single-task run, release run, or parallel run invocation and SHALL return one model.ProviderConfig containing cfg.Providers overrides plus one `*registry.Registry` constructed from that ProviderConfig. capabilities and models SHALL receive that ProviderConfig; single-task/release run SHALL assign the exact registry pointer to run.Options.Registry and onward to RunSliceOptions.Registry; parallel startup resolution and every worker closure SHALL receive the same pointer. `TestProviderConfigFeedsEveryCommand` SHALL set ollama.base_url to a unique httptest URL, assert every command reaches it, inject a pointer-recording RunSlice seam for serial/parallel paths, assert one identical non-nil registry pointer at startup and every call, and fail if production command code calls model.ProviderConfigFromEnv or registry.Default outside configuredProviderRuntime (C-01, N-02).",
       "ears_pattern": "event-driven",
       "test_refs": [
         "cmd/sworn/provider_config_test.go:TestProviderConfigFeedsEveryCommand",
@@ -119,7 +119,7 @@
     },
     {
       "id": "AC-05",
-      "text": "WHEN an end-to-end sworn run command is configured with ollama/<model> as implementer and capable fixture models as captain/verifier THE SYSTEM SHALL send multi-turn tool traffic to the configured local OAI endpoint, complete implement→verify→gated-merge with exit 0, and record that the local model served the implementer leg rather than a fallback (C-04, N-02).",
+      "text": "WHEN `TestRunLocalImplementerReachability` invokes the compiled `sworn run --task 'create LOCAL_PROVIDER_PROOF.txt containing ok' --base main --implementer-model ollama/local-fixture --verifier-model openai-completions/verifier-fixture` in a temporary git workspace whose config sets captain.model=openai-completions/captain-fixture and no escalation models THE SYSTEM SHALL send exactly three ollama/local-fixture chat requests: turn 1 returns a `write` call for `LOCAL_PROVIDER_PROOF.txt`, turn 2 contains that tool result and returns a `read` call for the same file, and turn 3 contains both prior assistant/tool pairs and returns terminal text. The process SHALL exit 0; stderr SHALL contain a final line matching `sworn run: merged sworn/<branch> into main (PASS)`; git SHALL be on main with the feature tip an ancestor, LOCAL_PROVIDER_PROOF.txt SHALL contain exactly `ok`, and the single generated S01-task/status.json SHALL have state `verified` plus verification.result `pass`. The local fixture log SHALL contain model `local-fixture` on all three requests and zero requests bearing any other implementer model ID (C-04, N-02).",
       "ears_pattern": "event-driven",
       "test_refs": [
         "cmd/sworn/run_test.go:TestRunLocalImplementerReachability"
@@ -127,7 +127,7 @@
     },
     {
       "id": "AC-06",
-      "text": "WHEN the local availability guard is mutation-tested THE SYSTEM SHALL report the same local descriptor unavailable when temporarily wired to keyProbe with no key, then report it reachable after restoring the /models probe against a live HTTP transport; proof SHALL preserve both observed outputs (N-02).",
+      "text": "WHEN `TestLocalProbeMutationProof` runs for ollama/ with no key THE SYSTEM SHALL first replace its availability probe with keyProbe and assert the exact observation `ollama/: available=no reason=missing-key`, then restore endpointProbe against a live HTTP server returning `data:[{id:\"local-fixture\"}]` and assert `ollama/: available=yes models=1`. The implementer SHALL copy both lines under `## AC-06 mutation proof` in docs/release/2026-07-14-local-cloud-providers/S02-keyless-loop-dispatch/journal.md, and docs/release/2026-07-14-local-cloud-providers/S02-keyless-loop-dispatch/proof.json `reachability.evidence` SHALL contain `AC-06 mutation proof — journal.md — go test ./internal/driver/registry -run '^TestLocalProbeMutationProof$'` so both outcomes are durable and verifier-addressable (N-02).",
       "ears_pattern": "event-driven",
       "test_refs": [
         "internal/driver/registry/registry_test.go:TestLocalProbeMutationProof"
@@ -135,7 +135,7 @@
     },
     {
       "id": "AC-07",
-      "text": "IF a suitable local Ollama daemon/model is available during implementation THEN the implementer SHALL run the actual sworn run local-implementer journey and record command, output, and exit code; OTHERWISE proof SHALL name the daemon/model prerequisite that was unavailable and SHALL NOT substitute a unit test as live evidence (N-02).",
+      "text": "THE IMPLEMENTER SHALL evaluate live preconditions in this order and stop at the first failure: empty/absent SWORN_LIVE_LOCAL_MODEL=`SKIP missing-local-model`; value not matching `ollama/<non-empty-id>`=`SKIP invalid-local-model`; empty/absent SWORN_LIVE_VERIFIER_MODEL=`SKIP missing-verifier-model`; empty config.json captain.model, registry.Resolve(captain.model, RoleCaptain) error, or that resolved registry entry's availability probe returning false=`SKIP captain-unavailable`; normalized configured ollama `/models` not returning 2xx parseable data within two seconds=`SKIP endpoint-unreachable`; data lacking the exact `<non-empty-id>`=`SKIP model-not-listed`. For a run, create a disposable temporary git repository on branch main with user identity configured and one empty initial commit, use it as the command working directory, point SWORN_CONFIG_PATH at a temporary config carrying the selected captain/verifier and ollama base, and invoke the built binary as `sworn run --task 'create LOCAL_PROVIDER_PROOF.txt containing ok' --base main --implementer-model <literal-local-model-id> --verifier-model <literal-verifier-model-id>`; any subsequent failure SHALL fail rather than skip and the release worktree SHALL remain unchanged. docs/release/2026-07-14-local-cloud-providers/S02-keyless-loop-dispatch/journal.md `## AC-07 live local Ollama` SHALL record that exact command with literal non-secret model IDs, `captain.model=<literal-model-id>`, endpoint scheme/host without userinfo/query, initial/final temporary-repository commit IDs, final `sworn run: merged sworn/<branch> into main (PASS)` stderr line, generated status state/result, and exit 0; it SHALL contain no credential, request/response body, prompt, tool content, or other model output. On preflight failure the section SHALL contain exactly one line using `-` for unavailable fields: `SKIP <first-code> local_model=<literal-or-> verifier_model=<literal-or-> captain_model=<literal-or-> endpoint=<scheme-host-or->`; fields SHALL contain a literal only if its ordered check already passed before the failure. The matching proof.json `reachability.evidence` SHALL contain `AC-07 live local Ollama — journal.md`; a unit test SHALL NOT be represented as live evidence (N-02).",
       "ears_pattern": "complex",
       "test_refs": [
         "cmd/sworn/run_local_live_test.go:TestLiveRunLocalOllamaImplementer"
@@ -143,7 +143,7 @@
     },
     {
       "id": "AC-08",
-      "text": "THE SYSTEM SHALL keep all existing driver conformance, registry, catalog, run, and command tests green, and go test ./internal/driver/... ./internal/model/... ./internal/run/... ./cmd/sworn/... plus go vet ./... and gofmt -l SHALL pass (N-02).",
+      "text": "THE SYSTEM SHALL preserve existing driver conformance, registry, catalog, run, and command contracts: `go test ./internal/driver/... ./internal/model/... ./internal/run/... ./cmd/sworn/...` and `go vet ./...` SHALL exit 0, and `gofmt -l internal/driver internal/model internal/run cmd/sworn` SHALL exit 0 with empty stdout (N-02).",
       "ears_pattern": "ubiquitous",
       "test_refs": [
         "internal/driver/conformance_all_test.go:TestCompiledInDriverConformance",
