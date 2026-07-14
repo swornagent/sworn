@@ -114,6 +114,14 @@ Enable a SwornAgent operator to use Ollama Cloud or a locally hosted OpenAI-comp
 - **Why**: Endpoint selection becomes visible and durable in one configuration record instead of depending on ambient process state. This is an intentional breaking migration, not a backward-compatible alias.
 - **Migration obligation**: Documentation and `sworn doctor` must identify the removed variables and direct operators to `providers.<prefix>.base_url`; runtime handling of a still-set legacy variable must be decided before decomposition so it cannot be silently ignored.
 
+### 2026-07-14 — Warn and ignore removed endpoint environment variables
+
+- **Context**: Removing `SWORN_<PROVIDER>_BASE_URL` creates a choice between failing closed, warning and ignoring, or honouring it for a deprecation window. Ignoring without any signal could connect to a different endpoint.
+- **Options considered**: fail closed with migration instructions; warn and ignore; honour for one deprecated release.
+- **Decision**: When a removed base-URL environment variable is present, emit a value-free migration warning, ignore it, and continue with `providers.<prefix>.base_url` or the declared default. `sworn doctor` reports the same migration condition.
+- **Why**: The repository owner is currently the only person who has built the binary and is not yet using it operationally, so a reusable hard-failure migration mechanism would add machinery without a real deployed-user benefit. The warning preserves visibility without retaining the second endpoint source.
+- **Security constraint**: Never print the environment variable's value; name only the variable and the replacement config path.
+
 ## Schema-vs-spec audit notes
 
 - `internal/model.ProviderConfig` currently uses dedicated fields and has only `OllamaHost`; it has no generic per-provider endpoint override representation.
@@ -135,7 +143,7 @@ Not yet decided. Discovery must first resolve prefix compatibility, reachability
 | A-04 | Whether a live reachability probe runs during `sworn capabilities`, on dispatch, or both; timeout and endpoint path are not yet fixed | Latency, availability truth, fail-closed behaviour | Human decision during discovery |
 | A-05 | Which live providers are mandatory in the nightly matrix versus configured/skipped when credentials or daemons are unavailable | Conformance coverage and CI cost | Human decision during discovery |
 | A-06 | Whether the conformance suite only reports observed dialect or also generates a checked-in runtime dialect table consumed by dispatch | Runtime architecture and drift semantics | Human decision during discovery |
-| A-07 | Whether runtime fails closed or only warns when a removed `SWORN_<PROVIDER>_BASE_URL` variable is still set | Migration safety | Human decision during discovery |
+| A-07 | Whether runtime fails closed or only warns when a removed `SWORN_<PROVIDER>_BASE_URL` variable is still set | Migration safety | Resolved 2026-07-14: value-free warning, ignore, continue from config/default; doctor reports it |
 
 ## Screenshots / references
 
