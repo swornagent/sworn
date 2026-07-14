@@ -12,18 +12,27 @@ Preventing that recurrence is a first-class goal of the review.
 
 ---
 
-## 1. In flight — code written, awaiting merge
+## 1. Merged (2026-07-14) — do NOT report these as findings
 
-| PR | Base | What it lands |
-|---|---|---|
-| [sworn#105](https://github.com/swornagent/sworn/pull/105) | `main` | Baton **v0.12.0** consumption: the six LLM-check prompts vendored (143 lines of inline Go constants deleted); `llm-check-report-v1` GRADED; project context detected, not hardcoded. **Also fixes sworn#26** (`--upstream --tag` SHA guard) and the `WriteUpstreamPin` tag-corruption bug. |
-| [sworn#106](https://github.com/swornagent/sworn/pull/106) | `#105` (stacked) | Baton **v0.13.0**: declared, human-ratified project context + stakes (`.sworn/project.json`, fail-closed to HIGH). **Plus** the unified role-model resolution (`ResolveRoleModel`, planner/captain added, no hardcoded models, no env layer) and the **XDG credentials move** (`credentials.json`, canonical env names, `SWORN_` prefix dropped, migration + `sworn doctor` reporting). |
+Both landed on `main` @ `637d05c`.
 
-`#106` is stacked on `#105`; merge in order or retarget.
+| PR | What it landed |
+|---|---|
+| **sworn#105** | Baton **v0.12.0**: the six LLM-check prompts vendored (143 lines of inline Go constants deleted); `llm-check-report-v1` **GRADED**; project context detected, not hardcoded. **Fixed sworn#26** (`--upstream --tag` SHA guard blocked every legitimate version bump) and a `WriteUpstreamPin` bug that left the pin claiming one version while carrying another's SHA. |
+| **sworn#107** | Baton **v0.13.0**: declared, human-ratified project context + stakes (`.sworn/project.json`, fail-closed to HIGH). **Unified role-model resolution** (`config.ResolveRoleModel` — one function, four roles; planner + captain added; **no env layer, no hardcoded models**; both copies of `DefaultEscalationModels` deleted). **XDG credentials** (`internal/model/credentials.go` — `credentials.json` 0600, canonical env names, `SWORN_` prefix dropped, migration + `sworn doctor` reporting). Live LLM-check tests + a nightly `live.yml` workflow. |
+
+**Closed by these:** sworn#26. **Read the code, not your priors** — the pre-merge shape of
+`internal/config`, `internal/model`, `internal/project` and `internal/gate/llmcheck.go` no longer
+exists.
+
+## 1b. Commissioned, not yet built
+
+| Brief | Scope |
+|---|---|
+| `2026-07-14-local-and-cloud-providers-brief.md` | Ollama Cloud, local Ollama (loop-capable), llama.cpp, LM Studio, vLLM, LocalAI. A **declared endpoint table** replacing `provider.go`'s 16-case switch, plus a **live endpoint-conformance suite** that derives each provider's OAI *dialect quirks* from observation. **Closes #15.** |
+| `2026-07-14-architecture-review-brief.md` | This review. |
 
 **Protocol side:** Baton **v0.12.0** and **v0.13.0** are merged and tagged.
-
----
 
 ## 2. Specced, not implemented — the `2026-07-11-contract-edge-gates` release
 
@@ -81,11 +90,11 @@ Cross-reference before reporting.
 
 From the proof bundles in `docs/captures/`:
 
-- **The stakes gate is not proved end-to-end against a live model.** sworn renders the
-  stakes truthfully (tested) and honours `blocking` (tested); the middle — the model marking
-  a `medium` finding blocking at high stakes, per the Baton prompt — needs one real
-  `sworn llm-check --check security-review` run. *This is the single highest-value manual
-  check outstanding.*
+- ~~The stakes gate is not proved end-to-end against a live model.~~ **CLOSED** (sworn#107).
+  `internal/gate/llmcheck_live_test.go` proves it against `openai/gpt-4.1-mini`: a real model
+  emits schema-valid `llm-check-report-v1` with `blocking`, and the *same diff* is graded
+  `low`/advisory at low stakes and `medium`/**BLOCKING** at high stakes. The stakes keying does
+  real work.
 - **`sworn init`'s interactive elicitation shell has no automated test.** The pieces beneath
   it (`Elicit` parse, `Save` validation, `Resolve` fail-closed) are all covered.
 - **`LLMCheckReport` is not emitted as an `llm-check-report-v1` record to disk.** The schema

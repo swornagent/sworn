@@ -87,6 +87,19 @@ Three tests were found **passing for the wrong reason** in one session:
 - a helper named `clearModelsProviderEnv` that cleared **6 of 13** providers and no credentials
   file — a helper whose scope was narrower than its name.
 
+A fourth was caught by **CI, not by any local run**: four tests passed on the developer's machine
+by silently reading the real `~/.config/sworn/config.json`, and passed in CI by falling through to
+a hardcoded `DefaultConfig` model. Deleting that hardcoded default surfaced them. **A local green
+suite is not evidence; a clean-environment green suite is.** Probe: `env -i HOME=$(mktemp -d) go
+test ./...`.
+
+And the inverse — a guard that has *never been fired in anger*: Baton v0.12.0 published a new
+LLM-check response contract (`severity` + `blocking`, verdict derived), `parseLLMResponse` was
+made to **fail closed** on violation, and **no model had ever been asked to produce that shape**.
+A fail-closed gate whose failure mode is "everything fails" shipped unproven. It was later proved
+to pass against a live model (`internal/gate/llmcheck_live_test.go`) — **look for others of this
+kind**: guards that can only ever go red, never observed going green.
+
 A green test that protects nothing is worse than no test: it converts an unknown into a false
 assurance. **Sweep the whole test suite for this class.** Suggested probes: tests that read
 `$HOME`, real config paths, or ambient env without `t.Setenv` isolation; assertions broad
@@ -151,10 +164,20 @@ diagnosed and fixed from scratch, and only afterwards found to be **sworn#26, al
   (`/home/<user>`, `~/projects/...`), the product name, or the consumer repo's name into a
   tracked file. See §6 of the catalogue.
 - **Do not duplicate the 12 specced slices** of `2026-07-11-contract-edge-gates` (catalogue §2).
-- **Two PRs are open and unmerged** (#105, #106). Read them before reviewing the code they
-  touch — `internal/config`, `internal/model`, `internal/project`, `internal/gate/llmcheck.go`
-  and the credential layer were substantially rewritten on 2026-07-14 and the fixes are *not on
-  `main`*.
+- **UPDATED 2026-07-14: sworn#105 and sworn#107 are MERGED.** Everything below is on `main`
+  @ `637d05c`. `internal/config`, `internal/model`, `internal/project`, `internal/gate/llmcheck.go`
+  and the whole credential layer were substantially rewritten. **Do not file findings against the
+  pre-merge shape** — read the code, not your priors. In particular these are ALREADY FIXED:
+  role-model resolution (`config.ResolveRoleModel` — one function, four roles, no env layer, no
+  hardcoded models), provider credentials (`internal/model/credentials.go` — XDG
+  `credentials.json`, canonical env names, no `SWORN_` prefix), the LLM-check contract
+  (`llm-check-report-v1`, GRADED), and the project-context record (`.sworn/project.json`,
+  fail-closed to HIGH stakes).
+- **A separate provider slice is commissioned** —
+  `docs/captures/2026-07-14-local-and-cloud-providers-brief.md` (Ollama Cloud, local Ollama,
+  llama.cpp, LM Studio, vLLM; a declared endpoint table replacing `provider.go`'s switch; a live
+  endpoint-conformance suite for OAI dialect quirks). **It closes #15.** Do not duplicate it —
+  but DO report anything it misses.
 - **`main` is the trunk.** `release/v0.1.0` is merged and deleted.
 - **Fail closed.** Exit 0 only on PASS. Minimal, justified deps — each new dep needs an ADR.
 
