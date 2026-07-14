@@ -219,6 +219,23 @@ drivers remain usable.
 - **Why**: this preserves a useful hosted control-plane seam without coupling
   account identity to model execution or presenting invented product state.
 
+### 2026-07-15 — Remove `SWORN_DIRECT` immediately
+
+- **Context**: `SWORN_DIRECT=1` exists only to bypass the Sworn-managed proxy.
+  Once that route is removed, direct/BYO and subscription-driver resolution is
+  unconditional and the variable has no remaining behaviour to select.
+- **Options considered**: remove all active recognition in this release; retain
+  a one-release no-op with a `sworn doctor` warning; or repurpose the name for a
+  future routing concern.
+- **Decision**: remove the runtime reads, routing branches, active help text and
+  current documentation now. Do not add a recognized no-op or replacement flag.
+  Historical release artefacts remain unchanged.
+- **Compatibility**: users who already set the variable continue to use the same
+  direct route because direct execution is now invariant. Current release notes
+  explain that stale shell configuration may be deleted.
+- **Why**: preserving dead configuration would imply that account-driven or
+  managed routing still exists and would weaken the explicit-prefix authority.
+
 ### 2026-07-15 — Name the release for its user promise
 
 - **Context**: the private handoff used “trust-contract safety”, which is accurate
@@ -274,7 +291,7 @@ credits and hosted email are now removal scope.
 |---|---|---|---|
 | A-01 | Whether account and provider credentials use separate versioned files or one versioned composite owned by one package | N-01, N-08 | **Resolved**: provider-owned `credentials.json` plus session-owned `account.json`; copy-verify-clean migration with recoverable source bytes |
 | A-02 | Exact retained `sworn account` fields and behaviour after credit removal | N-03, N-08 | **Resolved**: authoritative identity/session status; optional server-authored plan and expiry; no commerce, models or notification state |
-| A-03 | Whether obsolete `SWORN_DIRECT` is removed immediately or retained as a one-release no-op deprecation | N-02, N-03, N-09 | human decision during discovery before decomposition |
+| A-03 | Whether obsolete `SWORN_DIRECT` is removed immediately or retained as a one-release no-op deprecation | N-02, N-03, N-09 | **Resolved**: remove active recognition now; direct routing becomes invariant and no replacement flag is introduced |
 | A-04 | Migration and rollback behaviour when an older Sworn binary encounters the new credential layout | N-01, N-09 | architecture investigation plus human decision before spec emission |
 | A-05 | Whether this release includes the complete ratified telemetry preview/invitation UX or only safety-boundary reconciliation | N-05, N-07 | human scope decision before decomposition |
 | A-06 | Exact generic webhook consent/config storage before the autonomous release supplies the durable outbox | N-05, N-06 | architecture investigation; must consume credential ownership without inventing operations state |
