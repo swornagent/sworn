@@ -75,6 +75,7 @@ collision — disjointness is what licenses tracks to run independently.
 | `internal/model/local_probe_test.go` | ✓ |  |
 | `internal/model/oai.go` | ✓ |  |
 | `internal/model/oai_test.go` | ✓ |  |
+| `internal/model/ollama_cloud_live_test.go` | ✓ |  |
 | `internal/model/provider.go` | ✓ |  |
 | `internal/model/provider_env_test.go` | ✓ |  |
 | `internal/model/provider_test.go` | ✓ |  |

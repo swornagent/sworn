@@ -22,6 +22,7 @@
     "internal/model/provider.go",
     "internal/model/provider_test.go",
     "internal/model/provider_env_test.go",
+    "internal/model/ollama_cloud_live_test.go",
     "internal/model/credentials.go",
     "internal/model/credentials_test.go",
     "internal/model/config.go",
