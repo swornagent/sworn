@@ -90,6 +90,14 @@ Enable a SwornAgent operator to use Ollama Cloud or a locally hosted OpenAI-comp
 - **Decision**: Reopen #15 and expand its contract to anchor the complete local/cloud provider release.
 - **Why**: This corrects the false delivered state, preserves the original provider-factory history, and avoids unnecessary issue-management duplication while making the broader endpoint and dialect scope explicit.
 
+### 2026-07-14 — Give `ollama/` one loop-capable meaning
+
+- **Context**: Today `model.NewClient("ollama/...")` returns the native verify-only `/api/chat` client, while loop dispatch requires an `agent.Agent` multi-turn chat client. Registering that prefix unchanged would advertise loop support and then fail closed at dispatch.
+- **Options considered**: make `ollama/` the OAI shim everywhere and move native dispatch to `ollama-native/`; keep native `ollama/` and add `ollama-local/`; make one prefix role-dependent.
+- **Decision**: `ollama/` resolves through Ollama's OpenAI-compatible `/v1` endpoint on every path; `ollama-native/` preserves the existing native `/api/chat` utility driver.
+- **Why**: The natural prefix becomes full-loop capable, every model ID retains one meaning across registry and utility paths, and the genuinely different native implementation remains available without violating the single-resolution-authority invariant.
+- **Migration obligation**: The release must document the prefix change and prove both `ollama/` OAI dispatch and `ollama-native/` native dispatch through their owning integration points.
+
 ## Schema-vs-spec audit notes
 
 - `internal/model.ProviderConfig` currently uses dedicated fields and has only `OllamaHost`; it has no generic per-provider endpoint override representation.
@@ -106,7 +114,7 @@ Not yet decided. Discovery must first resolve prefix compatibility, reachability
 | # | Ambiguity | Affects | Resolution |
 |---|-----------|---------|------------|
 | A-01 | Whether to reopen #15 or create a replacement issue after it was auto-closed by the capture commit | Rule 5 issue anchor | Resolved 2026-07-14: reopen and expand #15 |
-| A-02 | Whether existing native `ollama/` retains its utility-path meaning while the loop registry maps the same prefix through the OAI shim, or a distinct prefix is introduced | Backward compatibility and dispatch consistency | Human decision during discovery |
+| A-02 | Whether existing native `ollama/` retains its utility-path meaning while the loop registry maps the same prefix through the OAI shim, or a distinct prefix is introduced | Backward compatibility and dispatch consistency | Resolved 2026-07-14: `ollama/` is OAI-compatible everywhere; native moves to `ollama-native/` |
 | A-03 | Exact `config.json` shape and precedence for per-provider base URL overrides | Public config contract | Human decision during discovery |
 | A-04 | Whether a live reachability probe runs during `sworn capabilities`, on dispatch, or both; timeout and endpoint path are not yet fixed | Latency, availability truth, fail-closed behaviour | Human decision during discovery |
 | A-05 | Which live providers are mandatory in the nightly matrix versus configured/skipped when credentials or daemons are unavailable | Conformance coverage and CI cost | Human decision during discovery |
