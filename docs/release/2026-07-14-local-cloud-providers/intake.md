@@ -12,7 +12,7 @@ Enable a SwornAgent operator to use Ollama Cloud or a locally hosted OpenAI-comp
 ## Source of truth
 
 - **Human stakeholder**: Repository owner / Coach
-- **Tracking issue / epic**: [sworn#15](https://github.com/swornagent/sworn/issues/15), accidentally auto-closed by capture commit `2980b98` before implementation; reopen or replace before implementation starts
+- **Tracking issue / epic**: [sworn#15](https://github.com/swornagent/sworn/issues/15), reopened and expanded on 2026-07-14 after capture commit `2980b98` accidentally auto-closed it before implementation
 - **Related captures**:
   - `docs/captures/2026-07-14-local-and-cloud-providers-brief.md`
   - `docs/captures/2026-07-14-outstanding-work-catalogue.md`
@@ -83,6 +83,13 @@ Enable a SwornAgent operator to use Ollama Cloud or a locally hosted OpenAI-comp
 - **Decision**: Proceed with the drafted goal: full-loop Ollama Cloud and local OpenAI-compatible dispatch, data-driven endpoint declarations, configurable endpoint overrides, keyless reachability, and live dialect conformance, kept separate from S04 capability metadata.
 - **Why**: The repository owner confirmed that this matches the intended release on 2026-07-14.
 
+### 2026-07-14 — Reopen and expand sworn#15 as the release anchor
+
+- **Context**: Capture commit `2980b98` auto-closed #15 because its commissioned brief used the phrase “closes #15”, although no implementation had landed.
+- **Options considered**: reopen and expand #15; reopen #15 plus create a separate epic; leave #15 closed and create a replacement.
+- **Decision**: Reopen #15 and expand its contract to anchor the complete local/cloud provider release.
+- **Why**: This corrects the false delivered state, preserves the original provider-factory history, and avoids unnecessary issue-management duplication while making the broader endpoint and dialect scope explicit.
+
 ## Schema-vs-spec audit notes
 
 - `internal/model.ProviderConfig` currently uses dedicated fields and has only `OllamaHost`; it has no generic per-provider endpoint override representation.
@@ -98,7 +105,7 @@ Not yet decided. Discovery must first resolve prefix compatibility, reachability
 
 | # | Ambiguity | Affects | Resolution |
 |---|-----------|---------|------------|
-| A-01 | Whether to reopen #15 or create a replacement issue after it was auto-closed by the capture commit | Rule 5 issue anchor | Human decision during discovery, before implementation |
+| A-01 | Whether to reopen #15 or create a replacement issue after it was auto-closed by the capture commit | Rule 5 issue anchor | Resolved 2026-07-14: reopen and expand #15 |
 | A-02 | Whether existing native `ollama/` retains its utility-path meaning while the loop registry maps the same prefix through the OAI shim, or a distinct prefix is introduced | Backward compatibility and dispatch consistency | Human decision during discovery |
 | A-03 | Exact `config.json` shape and precedence for per-provider base URL overrides | Public config contract | Human decision during discovery |
 | A-04 | Whether a live reachability probe runs during `sworn capabilities`, on dispatch, or both; timeout and endpoint path are not yet fixed | Latency, availability truth, fail-closed behaviour | Human decision during discovery |
