@@ -130,6 +130,14 @@ Enable a SwornAgent operator to use Ollama Cloud or a locally hosted OpenAI-comp
 - **Why**: Enumeration becomes truthful without adding a redundant request and time-of-check/time-of-use promise to every model call. Dispatch remains fail-closed on the authoritative operation.
 - **Probe contract**: Short fixed timeout, no retries, no credentials for keyless providers, and available only on a 2xx response with a parseable OpenAI-style models payload. Errors report provider and endpoint without response bodies or payloads.
 
+### 2026-07-14 — Use a declared live matrix with mandatory canaries
+
+- **Context**: A GitHub-hosted runner cannot honestly start every local aggregator: LM Studio is desktop-oriented, vLLM normally needs suitable accelerator hardware, and each hosted provider requires a separate secret. Omitting unavailable rows would make the suite silently green over untested endpoints.
+- **Options considered**: declared matrix with mandatory canaries and explicit skips; require every endpoint nightly on a self-hosted runner; test only Ollama Cloud and local Ollama.
+- **Decision**: The live suite declares every supported OAI-compatible endpoint and emits one `RUN`, `FAIL`, or `SKIP` record with a reason for every row. Ollama Cloud plus the existing hosted canary are mandatory nightly rows and may not skip. The full local matrix runs on demand or on a configured runner; release proof must run local Ollama live or record an explicit reason for skipping it.
+- **Why**: Coverage omissions become visible and machine-countable while the default workflow remains operable on GitHub-hosted runners. A workflow with no executed mandatory row fails rather than reporting green.
+- **Workflow contract**: Live rows are outside the PR gate; no secret values, request bodies, response bodies, or model payloads appear in records or logs.
+
 ## Schema-vs-spec audit notes
 
 - `internal/model.ProviderConfig` currently uses dedicated fields and has only `OllamaHost`; it has no generic per-provider endpoint override representation.
@@ -149,7 +157,7 @@ Not yet decided. Discovery must first resolve prefix compatibility, reachability
 | A-02 | Whether existing native `ollama/` retains its utility-path meaning while the loop registry maps the same prefix through the OAI shim, or a distinct prefix is introduced | Backward compatibility and dispatch consistency | Resolved 2026-07-14: `ollama/` is OAI-compatible everywhere; native moves to `ollama-native/` |
 | A-03 | Exact `config.json` shape and precedence for per-provider base URL overrides | Public config contract | Resolved 2026-07-14: `providers.<prefix>.base_url` → declared default; legacy env override removed |
 | A-04 | Whether a live reachability probe runs during `sworn capabilities`, on dispatch, or both; timeout and endpoint path are not yet fixed | Latency, availability truth, fail-closed behaviour | Resolved 2026-07-14: enumeration-only bounded `/models` probe; actual dispatch is authoritative |
-| A-05 | Which live providers are mandatory in the nightly matrix versus configured/skipped when credentials or daemons are unavailable | Conformance coverage and CI cost | Human decision during discovery |
+| A-05 | Which live providers are mandatory in the nightly matrix versus configured/skipped when credentials or daemons are unavailable | Conformance coverage and CI cost | Resolved 2026-07-14: declared RUN/FAIL/SKIP matrix; Ollama Cloud + existing hosted canary mandatory; full locals on demand/configured runner |
 | A-06 | Whether the conformance suite only reports observed dialect or also generates a checked-in runtime dialect table consumed by dispatch | Runtime architecture and drift semantics | Human decision during discovery |
 | A-07 | Whether runtime fails closed or only warns when a removed `SWORN_<PROVIDER>_BASE_URL` variable is still set | Migration safety | Resolved 2026-07-14: value-free warning, ignore, continue from config/default; doctor reports it |
 
