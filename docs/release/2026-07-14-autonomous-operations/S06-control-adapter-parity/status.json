@@ -83,7 +83,7 @@
       "choice": "Expose controls through a dedicated sworn control command and transport adapters over the same service.",
       "stake_class": "Type-1",
       "options": ["surface-specific actions", "filesystem mutation helpers", "shared command service adapters"],
-      "human_decision": "",
+      "human_decision": "Ratified 2026-07-14 (D4): CLI, MCP, TUI, self-hosted web, and future hosted transports submit the same typed commands to the local control service.",
       "rationale": "One command contract provides scriptable reachability and prevents each UI from becoming an application core.",
       "architecturally_significant": true
     },
@@ -91,7 +91,7 @@
       "choice": "Keep adapters read-after-command rather than optimistically mutating displayed Baton state.",
       "stake_class": "Type-1",
       "options": ["optimistic local state", "poll filesystem", "query authoritative operation and state snapshots"],
-      "human_decision": "",
+      "human_decision": "Ratified 2026-07-14 (D4): every adapter waits for authoritative local state/events after command submission and never invents a successful transition.",
       "rationale": "Only the loop's accepted compare-and-write revision is authoritative.",
       "architecturally_significant": true
     }

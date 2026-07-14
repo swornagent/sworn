@@ -11,7 +11,7 @@ description: Truthful recoverable loops, durable controls and paging, and a mobi
 - **Target / integration branch:** `release/v0.1.0`
 - **State:** planned
 - **Benefit:** A SwornAgent operator can trust a recoverable autonomous release loop, receive durable attention pages, and monitor or safely control it from a mobile web board.
-- **Default release authority:** autonomous through verified release assembly; final integration merge remains human-gated unless a valid standing delegation exists.
+- **Default release authority:** autonomous through verified release assembly; final integration merge remains human-gated unless a valid standing delegation exists. Production `main` promotion remains separately human-authorized initially.
 
 ## Tracks and order
 

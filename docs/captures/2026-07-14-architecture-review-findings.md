@@ -1,4 +1,4 @@
-# Architecture review: residual decisions
+# Architecture review: residual decisions and ratification
 
 Date: 2026-07-14  
 Review: [#108](https://github.com/swornagent/sworn/issues/108)  
@@ -37,6 +37,11 @@ This must be reviewed as a Type-1 decision in
 `S12-autonomous-operations-journey`. Design-authority delegation is not release
 authority and cannot be reused implicitly.
 
+**Ratified 2026-07-14:** human-gated `ready_to_merge` is the default;
+assembly-to-integration merge may proceed under a durable scoped standing
+delegation. The normal gates still run immediately before mutation. Production
+`main` promotion remains separately human-authorized in the first version.
+
 ## 2. What “single binary, minimal dependencies” means
 
 The repository has contradictory accepted instructions. `AGENTS.md` states an
@@ -62,6 +67,10 @@ Issue [#117](https://github.com/swornagent/sworn/issues/117) owns the decision,
 instruction alignment, YAML removal, JSON Schema ratification, and the
 direct-module-to-ADR guard.
 
+**Ratified 2026-07-14:** one native binary with no required external runtime;
+standard library preferred; every direct module mapped to an accepted owning
+ADR. Official status does not pre-ratify an SDK.
+
 ## 3. Which gesture constitutes telemetry consent
 
 The high privacy defect was mechanical and has been contained: telemetry now
@@ -83,6 +92,11 @@ The neutral default and explicit opt-out dominance are non-negotiable in either
 case. Issue [#118](https://github.com/swornagent/sworn/issues/118) owns the
 choice and its real-CLI reachability proof.
 
+**Ratified 2026-07-14:** explicit `sworn telemetry on` is the sole enabling
+gesture. A one-time, non-blocking, interactive invitation after first meaningful
+success may explain the user value and point to an exact payload preview; init
+does not enable telemetry or ask a default-yes question.
+
 ## 4. Which remote deployment model the mobile board supports
 
 The requested mobile board is valuable precisely when the operator is away from
@@ -102,16 +116,24 @@ The drafted release deliberately supports a narrow first contract:
 - notifications link to that authenticated board rather than embedding a second
   mutation protocol.
 
-Those constraints are mechanically testable. The authentication mechanism,
-credential lifecycle, and supported deployment topology remain Type-1 design
-pins for `S09-operations-read-api` and
-`S11-authenticated-remote-controls`. The release must not imply hosted,
-multi-tenant, or internet-exposed operation unless a later decision explicitly
-adds those threat models.
+Those constraints are mechanically testable. The authentication mechanism and
+credential lifecycle remain Type-1 design pins for `S09-operations-read-api`
+and `S11-authenticated-remote-controls`.
+
+**Ratified 2026-07-14:** secure self-hosting and an optional hosted control
+plane are complementary. The local agent remains final mutation/policy
+authority. Hosted commands arrive over an authenticated outbound connection and
+are re-authorized locally. The hosted service is the intended primary remote
+mobile/team/fleet projection, while offline and self-hosted operation remain
+supported. The current release supplies the local authority and transport-
+independent contracts; hosted tenancy, identity, relay, and deployment details
+remain a separate architecture review.
 
 ## Decision checkpoint
 
-The remediation release is intentionally drafted with requirements-validation
-records not yet marked human-ratified. Implementation should begin only after
-these four decisions—and the affected slice designs—are reviewed. That is a
-visible gate, not a silent deferral.
+The four release-level decisions were ratified interactively on 2026-07-14 and
+are captured in `2026-07-14-architecture-review-ratification.md`. This is not a
+blanket approval of all twelve slice designs. Requirements-validation records
+remain false and Type-1 `human_decision` fields remain empty except where a
+choice maps directly to the ratified boundary. The remaining slice-specific
+decisions still require their normal design review.

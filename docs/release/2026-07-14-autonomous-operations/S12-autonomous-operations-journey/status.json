@@ -85,7 +85,7 @@
         "always merge automatically",
         "human default with explicit standing delegation"
       ],
-      "human_decision": "",
+      "human_decision": "Ratified 2026-07-14 (D1): human-gated ready_to_merge is the default; a valid scoped standing delegation may authorize assembly-to-integration merge, while production main promotion remains separate initially.",
       "rationale": "This preserves release authority while supporting genuine unattended operation where it has been deliberately delegated.",
       "architecturally_significant": true
     },

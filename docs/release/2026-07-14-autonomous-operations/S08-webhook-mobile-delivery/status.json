@@ -97,7 +97,7 @@
         "signed direct mutation links",
         "provider-native command callbacks"
       ],
-      "human_decision": "",
+      "human_decision": "Ratified 2026-07-14 (D4): notification actions may open the authenticated board, but mutations use the shared command service and local authorization boundary.",
       "rationale": "It prevents a delivery adapter from becoming a second authorization and command protocol.",
       "architecturally_significant": true
     },

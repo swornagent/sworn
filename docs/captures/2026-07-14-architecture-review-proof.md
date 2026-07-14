@@ -6,6 +6,12 @@ Review: [#108](https://github.com/swornagent/sworn/issues/108)
 
 Remediation epic: [#109](https://github.com/swornagent/sworn/issues/109)
 
+Post-review note: the repository owner subsequently ratified the four
+release-level decisions in
+`docs/captures/2026-07-14-architecture-review-ratification.md`. The evidence and
+expected gate results below describe the pre-ratification review checkpoint at
+commit `027d4b3`; they are retained as historical proof rather than rewritten.
+
 ## Scope
 
 This proof was generated from live repository state after the full-repository

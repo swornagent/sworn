@@ -30,6 +30,7 @@ shows authoritative live state and accepts authenticated conflict-safe controls.
   - `docs/captures/2026-07-14-architecture-review-brief.md`
   - `docs/captures/2026-07-14-architecture-review-root-cause.md`
   - `docs/captures/2026-07-14-architecture-review-findings.md`
+  - `docs/captures/2026-07-14-architecture-review-ratification.md`
 - **Historical evidence:** predecessor operational behavior was inspected read-only during #108; no predecessor code or private paths are part of this public release contract.
 
 ## Users and gestures
@@ -38,7 +39,7 @@ shows authoritative live state and accepts authenticated conflict-safe controls.
 - **Mobile observer:** opens the board from a phone and sees release, track, slice, liveness, blocker, event, and notification-delivery state without editing repository files.
 - **Authenticated remote operator:** pauses, resumes, retries, defers, or acknowledges an allowed operation using an expected revision and receives either one durable acceptance or a visible conflict.
 - **Automation integrator:** receives stable generic webhook events, uses mobile push links, and can replay failed deliveries without repeating the underlying loop mutation.
-- **Release authority:** keeps final production merge human-gated by default or records a scoped standing delegation before automatic integration merge is permitted.
+- **Release authority:** keeps assembly-to-integration merge human-gated by default or records a scoped standing delegation before that automatic merge is permitted; production `main` promotion remains a separate human operation initially.
 
 ## Current gaps
 
@@ -53,22 +54,23 @@ shows authoritative live state and accepts authenticated conflict-safe controls.
 ## Constraints and non-negotiables
 
 - Fail closed: absence of durable outcome evidence is non-PASS.
-- Keep one Go binary. Prefer existing dependencies and standard-library HTTP/embed facilities; any new runtime dependency requires an ADR.
+- Keep one native Go binary with no required external runtime. Prefer the standard library; every direct third-party module requires an accepted owning ADR.
 - Never expose API keys, bearer tokens, model payloads, request bodies, local worktree paths, or credential values in events, logs, web responses, or notifications.
 - The loop owns runtime state transitions. Other processes submit durable commands with stable IDs, expected status hash/revision, and idempotency key.
+- The local agent remains final command and mutation authority. Any future hosted control plane submits authenticated typed commands over an outbound agent connection and is re-authorized locally.
 - State writes are validated and atomically replaced. A stale writer receives a typed conflict; it cannot overwrite a newer verdict.
 - Localhost is the default web bind. Non-loopback bind fails closed without explicit authentication configuration; state-changing HTTP requests require authorization, origin/CSRF defense, and audit.
 - Mobile UI targets a 360 CSS-pixel viewport, keyboard navigation, visible focus, semantic status text, and WCAG 2.2 AA contrast/touch-target expectations.
 - Notification requests use bounded total/per-attempt deadlines, no secret response bodies in errors, durable replay, and idempotent event IDs.
-- Final production merge remains human-gated unless an explicit, durable, scoped standing delegation authorizes it. Readiness is not merge success.
+- Assembly-to-integration merge remains human-gated unless an explicit, durable, scoped standing delegation authorizes it. Readiness is not merge success; production `main` promotion remains separately human-authorized initially.
 
 ## Adjacent and out of scope
 
 - Provider endpoints, local/cloud model dispatch, and live dialect conformance belong to `2026-07-14-local-cloud-providers` / #15.
 - Contract lint, provider capability selection, resume-worktree reset, parallel dry-run, loop max-turns, autonomous design authority, general guard fidelity, and mock-code construction remain in `2026-07-11-contract-edge-gates`; this release consumes those contracts and does not duplicate their slices.
-- Replacing SQLite, introducing a hosted Sworn control service, multi-tenant SaaS administration, or internet exposure by default is out of scope.
+- Replacing SQLite, implementing hosted tenancy/identity/relay infrastructure, or internet exposure by default is out of scope. The local contracts must remain transport-independent and compatible with a later optional hosted control plane.
 - The read-only TUI may remain; this release adapts its runtime controls and authoritative reads rather than redesigning its visual system.
-- Automatic production merge without standing delegation is prohibited, not deferred.
+- Automatic assembly-to-integration merge without standing delegation is prohibited, not deferred. Production `main` promotion remains a separate human operation in this release.
 
 ## Decisions
 
@@ -108,9 +110,17 @@ shows authoritative live state and accepts authenticated conflict-safe controls.
 - **Decision:** A durable outbox projects stable operation events. Mobile actions link to the authenticated board; any submitted action uses the same command API and idempotency/revision rules as every other surface.
 - **Why:** Delivery retry cannot duplicate a loop mutation, and notification providers remain replaceable adapters.
 
+### 2026-07-14 — Keep authority local while supporting an optional hosted control plane
+
+- **Context:** Secure self-hosting and a polished remote/mobile service serve different operator needs and should share one mutation contract.
+- **Decision:** The local agent remains final repository, state-transition, and merge-policy authority. A future hosted service uses an authenticated outbound agent connection, submits signed typed commands, and receives public-safe events; it never edits Git or Baton records directly.
+- **Why:** This preserves offline/self-hosted trust and fail-closed local policy while allowing a primary hosted mobile, team, fleet, notification, and audit experience.
+
 ## Ratification
 
-The repository owner explicitly requested the architecture review, true automated
-loop orchestration, a mobile web board, and webhook notifications on 2026-07-14.
-The safe default for final merge and detailed slice decomposition are planner
-recommendations to be reviewed at each Type-1 design gate before implementation.
+The repository owner ratified four release-level decisions interactively on
+2026-07-14: human default plus scoped standing delegation for integration merge;
+one native binary with governed direct modules; explicit telemetry opt-in with a
+one-time value-led invitation; and complementary self-hosted/hosted control with
+local mutation authority. Detailed slice choices not directly implied by those
+decisions remain unratified and must pass their normal Type-1 design gates.

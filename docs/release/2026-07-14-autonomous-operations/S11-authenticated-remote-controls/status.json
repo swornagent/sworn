@@ -91,7 +91,7 @@
         "authentication over plain HTTP",
         "trust network location"
       ],
-      "human_decision": "",
+      "human_decision": "Ratified 2026-07-14 (D4): direct non-loopback self-hosting requires TLS, a secure secret reference, and one exact allowed HTTPS origin; network location alone is not identity.",
       "rationale": "Bearer/session authentication without transport confidentiality is not a safe remote-control boundary.",
       "architecturally_significant": true
     },
@@ -103,7 +103,7 @@
         "persistent browser bearer token",
         "URL capability token"
       ],
-      "human_decision": "",
+      "human_decision": "Ratified 2026-07-14 (D4): browser commands use short-lived Secure HttpOnly sessions, session-bound CSRF, and exact Origin validation rather than persistent script-readable or URL tokens.",
       "rationale": "It avoids persistent script-readable bearer material and gives ordinary browser requests an explicit cross-site defense.",
       "architecturally_significant": true
     },
@@ -115,7 +115,7 @@
         "HTTP-only deduplication",
         "last writer wins"
       ],
-      "human_decision": "",
+      "human_decision": "Ratified 2026-07-14 (D4): revision and durable idempotency are enforced by the local command service for every transport, including a future hosted relay.",
       "rationale": "The same safety must hold for CLI, MCP, web, retries, and concurrent processes.",
       "architecturally_significant": true
     },
@@ -127,7 +127,7 @@
         "client-inferred controls",
         "optimistic status mutation"
       ],
-      "human_decision": "",
+      "human_decision": "Ratified 2026-07-14 (D4): clients render server-advertised allowed actions and wait for authoritative state/events instead of applying optimistic status mutations.",
       "rationale": "The UI remains an adapter and conflict/failure stays visible rather than being overwritten by optimistic presentation.",
       "architecturally_significant": false
     }

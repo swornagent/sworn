@@ -79,7 +79,7 @@
       "choice": "Keep ready_to_merge distinct from merge success.",
       "stake_class": "Type-1",
       "options": ["readiness equals PASS", "readiness is a separate non-merge result"],
-      "human_decision": "",
+      "human_decision": "Ratified 2026-07-14 (D1): ready_to_merge is distinct from merge success; unattended assembly-to-integration merge requires a valid scoped standing delegation.",
       "rationale": "Operational autonomy does not imply delegated production merge authority.",
       "architecturally_significant": true
     }

@@ -94,7 +94,7 @@
         "all-interface default",
         "no network server"
       ],
-      "human_decision": "",
+      "human_decision": "Ratified 2026-07-14 (D4): secure self-hosting remains supported and loopback is the local default; optional hosted access uses an authenticated outbound agent transport.",
       "rationale": "The useful local board ships first without silently exposing repository state.",
       "architecturally_significant": true
     },

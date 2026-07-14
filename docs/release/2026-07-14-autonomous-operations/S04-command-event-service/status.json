@@ -84,7 +84,7 @@
       "choice": "Make notification and UI data consume typed public-safe operation events.",
       "stake_class": "Type-1",
       "options": ["surface-specific logs", "raw status diffs", "typed public-safe events"],
-      "human_decision": "",
+      "human_decision": "Ratified 2026-07-14 (D4): hosted, self-hosted, UI, and notification projections consume typed public-safe events from the local authority rather than reading or mutating repository state directly.",
       "rationale": "One safe projection prevents later transports from parsing logs or exposing internal payloads.",
       "architecturally_significant": true
     }

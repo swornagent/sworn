@@ -92,7 +92,7 @@
         "read and mutate together",
         "notification-only monitoring"
       ],
-      "human_decision": "",
+      "human_decision": "Ratified 2026-07-14 (D4): ship summary-first read-only mobile monitoring before enabling remote mutation controls.",
       "rationale": "It delivers the priority mobile value while the authorization, conflict, and audit boundary receives independent verification in S11.",
       "architecturally_significant": true
     },

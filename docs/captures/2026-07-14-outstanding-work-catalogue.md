@@ -94,7 +94,7 @@ Cross-reference before reporting.
 
 | Issue | Class / planned owner |
 |---|---|
-| **#109** autonomous operations plane: durable loop control, mobile board, notifications | remediation epic / drafted release |
+| **#109** autonomous operations plane: durable loop control, mobile board, notifications | remediation epic / drafted release; authority boundary ratified |
 | **#110** benchmark accepts invalid ground truth as PASS | guard-domain integrity |
 | **#111** notification delivery can hang loops; no durable outbox | S07–S08 |
 | **#112** specquality gives current-format specs 100% with zero examples | guard-domain integrity |
@@ -102,8 +102,8 @@ Cross-reference before reporting.
 | **#114** parallel loop silently substitutes legacy routing after oracle failure | S02 |
 | **#115** terminal labels can outrun durable effects | S01 |
 | **#116** subscription CLI drivers inherit unrelated parent secrets | subprocess security |
-| **#117** dependency policy/direct-module ADR ownership is contradictory | governance guard |
-| **#118** telemetry init consent is unreachable; opt-in contract drift | consent reachability |
+| **#117** dependency policy/direct-module ADR ownership is contradictory | policy ratified; implementation/governance guard open |
+| **#118** telemetry init consent is unreachable; opt-in contract drift | explicit opt-in/value-led invitation ratified; implementation open |
 
 **81 open issues in total.** The full list is authoritative:
 `gh issue list --repo swornagent/sworn --state open --limit 100`.

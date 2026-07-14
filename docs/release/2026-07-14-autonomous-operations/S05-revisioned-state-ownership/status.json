@@ -84,7 +84,7 @@
       "choice": "Make the loop the only runtime transition owner.",
       "stake_class": "Type-1",
       "options": ["every adapter writes status", "shared write library in every process", "adapters submit commands to loop owner"],
-      "human_decision": "",
+      "human_decision": "Ratified 2026-07-14 (D4): the local Sworn agent remains the final runtime-transition authority; adapters and hosted services submit commands for local authorization.",
       "rationale": "One owner prevents transport-specific transition semantics and races.",
       "architecturally_significant": true
     }
