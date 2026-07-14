@@ -155,6 +155,13 @@ Enable a SwornAgent operator to use Ollama Cloud or a locally hosted OpenAI-comp
 - **Why**: This delivers the endpoint and local-compute unlock without duplicating S04, while retaining the architecture's all-drivers/all-roles intent as a capability decision rather than a provider-name allowlist.
 - **Follow-up proof obligation**: S05's eventual reachability evidence must include at least one model newly introduced by this release serving a structured role after its discovered capabilities satisfy that role's policy; #86 separately owns subprocess captain reachability.
 
+### 2026-07-14 — Decompose the release into four proof-bounded slices
+
+- **Context**: The release spans public endpoint/config contracts, loop availability, dialect generation/runtime consumption, and non-deterministic live CI. Each needs a user-reachable proof boundary without exceeding the slice ceiling.
+- **Options considered**: four slices separating those boundaries; merge dialect conformance with live CI; split hosted and local endpoints into parallel slices despite their shared table.
+- **Decision**: Use four ordered slices: `S01-endpoint-registry-config`, `S02-keyless-loop-dispatch`, `S03-endpoint-dialect-conformance`, and `S04-live-provider-matrix`.
+- **Why**: Each slice has one observable outcome and an estimated 4–11 file surface. Live external failures remain separate from deterministic runtime work, and the shared endpoint table is not assigned to competing parallel slices.
+
 ## Schema-vs-spec audit notes
 
 - `internal/model.ProviderConfig` currently uses dedicated fields and has only `OllamaHost`; it has no generic per-provider endpoint override representation.
@@ -164,7 +171,12 @@ Enable a SwornAgent operator to use Ollama Cloud or a locally hosted OpenAI-comp
 
 ## Proposed slice decomposition (draft)
 
-Not yet decided. Discovery must first resolve prefix compatibility, reachability semantics, endpoint-override shape, and whether live dialect discovery is one slice or a dependent track.
+- `S01-endpoint-registry-config` — A configured provider prefix resolves through one declared endpoint table, including the new cloud/local prefixes, `providers.<prefix>.base_url`, the `ollama/`/`ollama-native/` migration, and value-free handling of removed base-URL environment overrides.
+- `S02-keyless-loop-dispatch` — `sworn capabilities` truthfully probes keyless local endpoints and an end-to-end `sworn run` dispatches its implementer to local Ollama while configured capable models serve the structured roles.
+- `S03-endpoint-dialect-conformance` — An operator runs endpoint conformance and receives a schema-valid observed record; runtime embeds the generated dialect-only table and applies its wire-shaping fields.
+- `S04-live-provider-matrix` — Nightly/on-demand CI emits `RUN`, `FAIL`, or reasoned `SKIP` for every declared endpoint, enforces Ollama Cloud plus the hosted canary, and detects regenerated dialect-table drift.
+
+Ordering: `S01 → S02 → S03 → S04`. S04 is isolated as a dependent live-infrastructure track if the touchpoint matrix proves it disjoint; S01–S03 remain serial because they build on and may extend the same runtime endpoint surfaces.
 
 ## Ambiguity register
 
