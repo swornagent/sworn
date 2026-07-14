@@ -34,7 +34,7 @@ type VendorResult struct {
 
 // Vendor orchestrates the vendor-down pipeline:
 //  1. Validate the source directory has all expected files.
-//  2. For each entry in the file mapping: read source, apply Transform, write dest.
+//  2. Materialise each mapping through the shared content policy, then write it.
 //  3. Returns the diff (for display) and the count of files written.
 //
 // In CheckOnly mode, the diff is computed against the current tree but no
@@ -58,56 +58,21 @@ func Vendor(opts VendorOpts) (*VendorResult, error) {
 			}
 		}
 
-		var transformed string
-
-		if m.Source == "baton/rules.md" {
-			// Concatenate all individual rules into a single document.
-			var buf bytes.Buffer
-			for _, ruleSrc := range RuleSources() {
-				srcPath := filepath.Join(opts.SourceDir, ruleSrc)
-				content, err := os.ReadFile(srcPath)
-				if err != nil {
-					return nil, fmt.Errorf("baton: cannot read rule %s: %w", ruleSrc, err)
-				}
-				t, err := Transform(string(content))
-				if err != nil {
-					return nil, fmt.Errorf("baton: transform rule %s: %w", ruleSrc, err)
-				}
-				buf.WriteString(strings.TrimSpace(t))
-				buf.WriteString("\n\n")
-			}
-			transformed = strings.TrimRight(buf.String(), "\n") + "\n"
-		} else {
-			srcPath := filepath.Join(opts.SourceDir, m.Source)
-			content, err := os.ReadFile(srcPath)
-			if err != nil {
-				return nil, fmt.Errorf("baton: cannot read %s: %w", m.Source, err)
-			}
-			if strings.HasPrefix(filepath.ToSlash(m.Source), "schemas/") {
-				// Schemas are normative wire contracts. Copy their bytes exactly;
-				// command-reference transformations are only valid for prose.
-				transformed = string(content)
-			} else {
-				t, err := Transform(string(content))
-				if err != nil {
-					return nil, fmt.Errorf("baton: transform %s: %w", m.Source, err)
-				}
-				transformed = t
-			}
+		desired, err := mappedContent(opts.SourceDir, m)
+		if err != nil {
+			return nil, err
 		}
 
 		// Compute diff for this file.
 		existing, _ := os.ReadFile(destAbs)
-		if string(existing) != transformed {
-			diff := unifiedDiff(m.Dest, string(existing), transformed)
+		if !bytes.Equal(existing, desired) {
+			diff := unifiedDiff(m.Dest, string(existing), string(desired))
 			if diff != "" {
 				diffs = append(diffs, diff)
 			}
 
 			if !opts.CheckOnly {
-				// Normalise newline: ensure a single trailing newline.
-				transformed = strings.TrimRight(transformed, "\n") + "\n"
-				if err := os.WriteFile(destAbs, []byte(transformed), 0644); err != nil {
+				if err := os.WriteFile(destAbs, desired, 0644); err != nil {
 					return nil, fmt.Errorf("baton: cannot write %s: %w", m.Dest, err)
 				}
 				filesWritten++

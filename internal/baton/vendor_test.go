@@ -107,6 +107,9 @@ func TestVendorWritesTransformedEmbed(t *testing.T) {
 
 	// Verify no script refs survive in any output.
 	for _, m := range batonFileMappings {
+		if isSchemaSource(m.Source) {
+			continue // normative schemas are deliberately copied verbatim
+		}
 		destAbs := filepath.Join(tmpRepo, m.Dest)
 		content, err := os.ReadFile(destAbs)
 		if err != nil {

@@ -324,7 +324,9 @@ func TestBatonVendorUpstream_Success(t *testing.T) {
 func TestBatonVendorUpstream_RefreshesProjectContextSchema(t *testing.T) {
 	owner, repo, tag := "sawy3r", "baton", testBatonTag
 	commitSHA := "abc123def4567890123456789012345678abcdef"
-	expected := "{\n  \"$id\": \"https://baton.sawy3r.net/schemas/project-context-v1.json\",\n  \"description\": \"The literal install.sh token proves schemas are copied byte-for-byte.\",\n  \"examples\": [{\"ratification\": {\"by\": \"sam\"}}]\n}\n"
+	// Deliberately omit a trailing newline and include a transform token: a
+	// normative schema must survive the public vendor command byte-for-byte.
+	expected := "{\n  \"$id\": \"https://baton.sawy3r.net/schemas/project-context-v1.json\",\n  \"description\": \"The literal install.sh token proves schemas are copied byte-for-byte.\",\n  \"examples\": [{\"ratification\": {\"by\": \"sam\"}}]\n}"
 
 	files := vendorFixtureFiles()
 	files["schemas/project-context-v1.json"] = expected
@@ -357,8 +359,8 @@ func TestBatonVendorUpstream_RefreshesProjectContextSchema(t *testing.T) {
 	}
 	defer os.Chdir(oldDir)
 
-	if exit := cmdBatonVendor([]string{"--upstream", "--repo", owner + "/" + repo, "--tag", tag}); exit != 0 {
-		t.Fatalf("cmdBatonVendor --upstream exit = %d, want 0", exit)
+	if exit := dispatch([]string{"sworn", "baton", "vendor", "--upstream", "--repo", owner + "/" + repo, "--tag", tag}); exit != 0 {
+		t.Fatalf("dispatch sworn baton vendor --upstream exit = %d, want 0", exit)
 	}
 
 	dest := filepath.Join(tmpRepo, "internal", "baton", "schemas", "project-context-v1.json")

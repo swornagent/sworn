@@ -1,4 +1,5 @@
 {
   "$id": "https://baton.sawy3r.net/schemas/project-context-v1.json",
+  "description": "The literal install.sh token proves Diff applies the schema policy shared with Vendor.",
   "type": "object"
 }
