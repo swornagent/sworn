@@ -1,0 +1,90 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/contracts-v1.json",
+  "version": 1,
+  "release": "2026-07-14-local-cloud-providers",
+  "contracts": [
+    {
+      "id": "C-01",
+      "kind": "schema-version",
+      "surface": "config.json v1 providers.<prefix>.base_url",
+      "shape": "Optional top-level providers object keyed by a declared canonical provider prefix; each value is an object with optional base_url containing an absolute http:// or https:// URL. Unknown provider keys, relative URLs, userinfo, fragments, and credential/capability/pricing fields are invalid. Resolution is config value then declared endpoint default; SWORN_<PROVIDER>_BASE_URL is warned about and ignored.",
+      "owner": "S01-endpoint-registry-config",
+      "consumers": [
+        "S02-keyless-loop-dispatch",
+        "S03-endpoint-dialect-conformance"
+      ],
+      "live_test": "cmd/sworn/verify_test.go: subprocess CLI loads a temporary config.json override and sends a request to the configured real httptest HTTP transport",
+      "rationale": "One public config shape must feed utility dispatch, loop dispatch, enumeration, and conformance without a second endpoint resolver. Credentials and capability data are explicitly excluded."
+    },
+    {
+      "id": "C-02",
+      "kind": "env-var",
+      "surface": "OLLAMA_API_KEY",
+      "shape": "Canonical Ollama Cloud bearer credential. Read from the process environment first and credentials.json second through model.ProviderKey(\"ollama-cloud\"); never sent by keyless ollama/, llamacpp/, lmstudio/, vllm/, or localai/ descriptors and never logged.",
+      "owner": "S01-endpoint-registry-config",
+      "consumers": [
+        "S03-endpoint-dialect-conformance",
+        "S04-live-provider-matrix"
+      ],
+      "live_test": "internal/model/ollama_cloud_live_test.go: opt-in HTTPS Ollama Cloud request using OLLAMA_API_KEY with secret-safe output"
+    },
+    {
+      "id": "C-03",
+      "kind": "http-endpoint",
+      "surface": "GET <keyless-provider-base-url>/models",
+      "shape": "No Authorization header; short fixed timeout; no retries; available only for HTTP 2xx with a parseable OpenAI-compatible object containing a data array of model records. Error output names provider and endpoint but never response bodies or payloads.",
+      "owner": "S02-keyless-loop-dispatch",
+      "consumers": [
+        "S04-live-provider-matrix"
+      ],
+      "live_test": "internal/model/local_endpoint_live_test.go: opt-in local Ollama /v1/models transport probe",
+      "edge_config": "n/a: direct CLI request to an operator-configured endpoint; no repository-owned browser or proxy middleware"
+    },
+    {
+      "id": "C-04",
+      "kind": "http-endpoint",
+      "surface": "POST <oai-compatible-base-url>/chat/completions",
+      "shape": "Existing OpenAI-compatible chat request/response envelope used for ollama-cloud/, ollama/, llamacpp/, lmstudio/, vllm/, and localai/. Only descriptors declaring an API-key environment attach Authorization: Bearer; keyless local descriptors send no credential. Non-2xx, malformed, and empty responses fail closed without logging bodies.",
+      "owner": "S01-endpoint-registry-config",
+      "consumers": [
+        "S02-keyless-loop-dispatch",
+        "S03-endpoint-dialect-conformance",
+        "S04-live-provider-matrix"
+      ],
+      "live_test": "internal/model/ollama_cloud_live_test.go: opt-in real Ollama Cloud chat completion plus internal/model/local_endpoint_live_test.go: opt-in local Ollama chat completion",
+      "edge_config": "n/a: direct CLI request to provider HTTPS or an operator-configured local endpoint; no repository-owned browser middleware"
+    },
+    {
+      "id": "C-05",
+      "kind": "header",
+      "surface": "Authorization for ollama-cloud/",
+      "shape": "Authorization: Bearer <OLLAMA_API_KEY> over an https:// endpoint only. The header is absent for every keyless local descriptor. Logs and generated records may identify auth as required/present/absent but never include the credential value.",
+      "owner": "S01-endpoint-registry-config",
+      "consumers": [
+        "S03-endpoint-dialect-conformance",
+        "S04-live-provider-matrix"
+      ],
+      "live_test": "internal/model/ollama_cloud_live_test.go: opt-in real Ollama Cloud request succeeds while secret-safe assertions reject credential reflection",
+      "edge_config": "n/a: direct CLI HTTPS request; provider-side edge configuration is outside this repository"
+    },
+    {
+      "id": "C-06",
+      "kind": "schema-version",
+      "surface": "endpoint-dialect-record-v1",
+      "shape": "Deterministic JSON object keyed by canonical endpoint prefix with observed_at/probe_model metadata, dialect-only request-shaping fields consumed by runtime, and separately namespaced capability observations not consumed by this release. Generation sorts keys and strips secrets, request bodies, response bodies, and model payloads.",
+      "owner": "S03-endpoint-dialect-conformance",
+      "consumers": [
+        "S04-live-provider-matrix"
+      ],
+      "live_test": "cmd/sworn/endpoint_conformance_test.go: subprocess CLI writes a record which the production dialect loader validates and embeds without mocks"
+    },
+    {
+      "id": "C-07",
+      "kind": "schema-version",
+      "surface": "endpoint-conformance-matrix-v1",
+      "shape": "One row per declared OAI-compatible endpoint with provider, status RUN|FAIL|SKIP, reason code, probe-model identifier, and dialect-record result reference. Mandatory rows cannot be SKIP; zero executed mandatory rows is failure. No secrets or payload bodies are permitted.",
+      "owner": "S04-live-provider-matrix",
+      "rationale": "The matrix makes unavailable providers explicit and machine-countable so a green workflow cannot hide unexecuted coverage."
+    }
+  ]
+}
