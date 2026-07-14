@@ -200,6 +200,25 @@ drivers remain usable.
 - **Why**: the identity-only account promise becomes a structural ownership
   boundary rather than a convention every future writer must remember.
 
+### 2026-07-15 — Keep account status authoritative and identity-only
+
+- **Context**: the device-token response already carries tier and expiry data,
+  but the CLI discards it, manufactures a `free` tier and 24-hour expiry, then
+  mixes credit commerce and notification configuration into account status.
+- **Options considered**: show only identity and expiry; show identity plus
+  optional server-authored plan/tier and expiry; or remove `sworn account` and
+  retain only login/logout.
+- **Decision**: retain `sworn account` as an identity/session status command. It
+  shows login state and email, plus plan/tier and expiry only when supplied by
+  the auth server. It never manufactures account values or claims model access,
+  inference funding, notification consent or delivery state.
+- **State behaviour**: absent and expired sessions are successful status queries
+  with clear login guidance; corrupt or unsupported records return non-zero with
+  secret-safe recovery guidance. Credits, purchasing, webhook configuration and
+  notification status leave the account command.
+- **Why**: this preserves a useful hosted control-plane seam without coupling
+  account identity to model execution or presenting invented product state.
+
 ### 2026-07-15 — Name the release for its user promise
 
 - **Context**: the private handoff used “trust-contract safety”, which is accurate
@@ -254,7 +273,7 @@ credits and hosted email are now removal scope.
 | # | Ambiguity | Affects | Resolution |
 |---|---|---|---|
 | A-01 | Whether account and provider credentials use separate versioned files or one versioned composite owned by one package | N-01, N-08 | **Resolved**: provider-owned `credentials.json` plus session-owned `account.json`; copy-verify-clean migration with recoverable source bytes |
-| A-02 | Exact retained `sworn account` fields and behaviour after credit removal | N-03, N-08 | human decision during discovery before decomposition |
+| A-02 | Exact retained `sworn account` fields and behaviour after credit removal | N-03, N-08 | **Resolved**: authoritative identity/session status; optional server-authored plan and expiry; no commerce, models or notification state |
 | A-03 | Whether obsolete `SWORN_DIRECT` is removed immediately or retained as a one-release no-op deprecation | N-02, N-03, N-09 | human decision during discovery before decomposition |
 | A-04 | Migration and rollback behaviour when an older Sworn binary encounters the new credential layout | N-01, N-09 | architecture investigation plus human decision before spec emission |
 | A-05 | Whether this release includes the complete ratified telemetry preview/invitation UX or only safety-boundary reconciliation | N-05, N-07 | human scope decision before decomposition |
