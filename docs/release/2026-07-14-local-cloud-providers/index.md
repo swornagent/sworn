@@ -91,6 +91,12 @@ collision — disjointness is what licenses tracks to run independently.
 | `internal/liveconformance/matrix.go` |  | ✓ |
 | `internal/liveconformance/matrix_test.go` |  | ✓ |
 | `internal/liveconformance/schemas/endpoint-conformance-matrix-v1.json` |  | ✓ |
+| `internal/liveconformance/schemas/endpoint-row-result-v1.json` |  | ✓ |
+| `internal/liveconformance/schemas/openai-responses-canary-v1.json` |  | ✓ |
+| `internal/liveconformance/testdata/mandatory-mutation/mandatory-run.json` |  | ✓ |
+| `internal/liveconformance/testdata/mandatory-mutation/mandatory-skip.json` |  | ✓ |
+| `internal/liveconformance/testdata/mandatory-mutation/observations/ollama-cloud.json` |  | ✓ |
+| `internal/liveconformance/testdata/mandatory-mutation/observations/openai-completions.json` |  | ✓ |
 | `internal/model/live_matrix_test.go` |  | ✓ |
 | `scripts/live-endpoint-matrix.sh` |  | ✓ |
 | `scripts/live-endpoint-row.sh` |  | ✓ |

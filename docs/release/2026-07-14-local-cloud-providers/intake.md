@@ -199,6 +199,12 @@ Enable a SwornAgent operator to use Ollama Cloud or a locally hosted OpenAI-comp
 - **Decision**: Reject userinfo, queries, and fragments; permit zero or more trailing slashes, remove all of them, then append exactly one operation path beginning with `/` while preserving the configured base path.
 - **Why**: Equivalent human-entered base URLs resolve identically, gateway path prefixes remain usable, and credentials cannot be routed through query/userinfo ambiguity.
 
+### 2026-07-15 — Rebase the planning checkpoint onto `release/v0.2.0`
+
+- **Context**: The endpoint release's S01–S03 ambiguity remediations and the uncommitted S04 planning patch were based on the earlier integration lineage. The repository owner stopped the S04 process after eighteen sequential fresh reviews exposed an unbounded specification-expansion loop; Baton v0.13.1 now provides a two-recheck convergence boundary and has been re-vendored on `release/v0.2.0`.
+- **Decision**: Replay the uncommitted planning patch on `release/v0.2.0`, update the board and every slice's `release_base`, and commit it as a durable planning checkpoint. S04 remains `planned` and is not ready for handoff until its remaining ambiguity is resolved under the v0.13.1 convergence protocol.
+- **Why**: This preserves the ratified release work on the current integration lineage without manufacturing a PASS or continuing the retired serial-review workflow.
+
 ## Schema-vs-spec audit notes
 
 - `internal/model.ProviderConfig` currently uses dedicated fields and has only `OllamaHost`; it has no generic per-provider endpoint override representation.
@@ -227,6 +233,7 @@ Ordering: `T1-provider-runtime: S01 → S02 → S03`, then `T2-live-matrix: S04`
 | A-06 | Whether the conformance suite only reports observed dialect or also generates a checked-in runtime dialect table consumed by dispatch | Runtime architecture and drift semantics | Resolved 2026-07-14: suite re-derives checked-in table; runtime consumes dialect-only fields; CI fails and uploads on drift |
 | A-07 | Whether runtime fails closed or only warns when a removed `SWORN_<PROVIDER>_BASE_URL` variable is still set | Migration safety | Resolved 2026-07-14: value-free warning, ignore, continue from config/default; doctor reports it |
 | A-08 | Whether this release must run every role locally before shipping or may deliver local implementer dispatch ahead of capability eligibility | Release dependency and reachability | Resolved 2026-07-14: local implementer in mixed-provider loop now; S04/S05 + #86 own capability-based all-role universality follow-up |
+| A-09 | What `started_at` and `finished_at` contain when an S04 row is dispatched but fails tooling or `/models` reachability before the endpoint-conformance probe launches | S04 AC-05 row-result contract and provenance validation | Open: resolve by re-scoping the overloaded AC under Baton v0.13.1's bounded convergence protocol before implementation handoff; do not resume serial fresh-review fan-out |
 
 ## Screenshots / references
 

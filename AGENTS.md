@@ -148,7 +148,7 @@ a silent deferral of verification (Rule 2).
 ### 7. Adversarial Verification (CRITICAL)
 
 No slice reaches `verified` without a PASS from a **fresh-context** session loaded
-only with the slice artefacts (`spec.md`, `proof.md`, `status.json`) and live repo
+only with the slice artefacts (`spec.json`, `proof.md`, `proof.json`, `status.json`) and live repo
 state. **The implementer never certifies its own work.** Verifier returns exactly
 one of `PASS` / `FAIL: <numbered violations>` / `BLOCKED: <reason>`, and **fails
 closed** — absence of evidence is FAIL, not optimistic PASS. State machine:
@@ -162,10 +162,10 @@ hand on ourselves until the binary can.
 ### Operating the board
 
 Work is **sliced**: each slice lives at `docs/release/<release>/<slice-id>/` with
-a `spec.md` (the contract) and `status.json` (machine state). Read the active
-release board at `docs/release/2026-06-15-e2e-turnkey-loop/` (`index.md` + the
-relevant slice's `spec.md`) before implementing anything. Only `verified` slices
-merge.
+a canonical `spec.json` contract and `status.json` machine state; Rule 6 adds
+`proof.md` and `proof.json`. Read the release named by the active workflow at
+`docs/release/<release>/` (`board.json` plus rendered `index.md`) and the relevant
+slice's `spec.json` before implementing anything. Only `verified` slices merge.
 
 ## Branching
 

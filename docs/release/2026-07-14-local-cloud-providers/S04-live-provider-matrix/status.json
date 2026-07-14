@@ -9,7 +9,7 @@
   "state": "planned",
   "owner": "human",
   "last_updated_by": "codex-planner",
-  "last_updated_at": "2026-07-14T15:13:02+10:00",
+  "last_updated_at": "2026-07-15T00:03:31+10:00",
   "start_commit": null,
   "spec_path": "docs/release/2026-07-14-local-cloud-providers/S04-live-provider-matrix/spec.json",
   "proof_path": "docs/release/2026-07-14-local-cloud-providers/S04-live-provider-matrix/proof.json",
@@ -20,7 +20,13 @@
     "scripts/live-endpoint-matrix.sh",
     "internal/liveconformance/matrix.go",
     "internal/liveconformance/matrix_test.go",
+    "internal/liveconformance/testdata/mandatory-mutation/mandatory-run.json",
+    "internal/liveconformance/testdata/mandatory-mutation/mandatory-skip.json",
+    "internal/liveconformance/testdata/mandatory-mutation/observations/ollama-cloud.json",
+    "internal/liveconformance/testdata/mandatory-mutation/observations/openai-completions.json",
     "internal/liveconformance/schemas/endpoint-conformance-matrix-v1.json",
+    "internal/liveconformance/schemas/endpoint-row-result-v1.json",
+    "internal/liveconformance/schemas/openai-responses-canary-v1.json",
     "internal/model/live_matrix_test.go"
   ],
   "actual_files": [],
@@ -33,7 +39,7 @@
   ],
   "reachability_artifacts": [
     "nightly or workflow_dispatch live workflow URL and run identifier",
-    "endpoint-conformance-matrix-v1 artifact with mandatory Ollama Cloud and OpenAI RUN rows",
+    "endpoint-conformance-matrix-v1 artifact with mandatory Ollama Cloud and OpenAI Completions RUN rows plus successful existing OpenAI Responses canary",
     "local Ollama RUN observation or an explicit local Ollama SKIP row",
     "mandatory-SKIP mutation failure followed by restored RUN success",
     "dialect equality success or drift failure with raw and candidate artifacts and an unchanged worktree"
@@ -53,15 +59,15 @@
     "verifier_was_fresh_context": null,
     "violations": []
   },
-  "release_base": "main",
+  "release_base": "release/v0.2.0",
   "release_benefit": "A SwornAgent operator can run the full accountable implement-verify loop on Ollama Cloud or a chosen local OpenAI-compatible server, while maintainers add endpoints as data and detect provider wire drift before it reaches production.",
   "validation": {
     "human_ratified": true,
     "ratified_by": "repository owner",
-    "ratified_at": "2026-07-14T15:13:02+10:00",
+    "ratified_at": "2026-07-14T21:49:20+10:00",
     "positive_scenarios": [
       "Every declared endpoint produces a visible RUN, FAIL, or reasoned SKIP row.",
-      "Ollama Cloud and OpenAI execute nightly and successful observations reproduce the checked-in dialect table.",
+      "Ollama Cloud and OpenAI Completions endpoint rows plus the existing OpenAI Responses canary execute nightly, and successful observations reproduce their projection of the checked-in dialect table.",
       "A configured local Ollama service produces a real conformance observation on demand."
     ],
     "negative_scenarios": [
