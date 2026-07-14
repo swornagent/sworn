@@ -138,6 +138,14 @@ Enable a SwornAgent operator to use Ollama Cloud or a locally hosted OpenAI-comp
 - **Why**: Coverage omissions become visible and machine-countable while the default workflow remains operable on GitHub-hosted runners. A workflow with no executed mandatory row fails rather than reporting green.
 - **Workflow contract**: Live rows are outside the PR gate; no secret values, request bodies, response bodies, or model payloads appear in records or logs.
 
+### 2026-07-14 — Generate and embed the observed dialect table
+
+- **Context**: Live endpoint probes can remain a report, generate a reproducible runtime artefact, or discover/cache behaviour dynamically on first use.
+- **Options considered**: observation report only; generated checked-in dialect table; dynamic first-use discovery cache.
+- **Decision**: The conformance suite re-derives a checked-in dialect record from live observations. Runtime embeds and consumes only the record's true wire-shaping fields. Nightly/on-demand CI fails visibly when regenerated output differs and uploads the candidate record for human review; it never mutates the repository automatically.
+- **Why**: Runtime behaviour is based on observed endpoint behaviour without introducing paid first-use probes or mutable installation state. Checked-in generation keeps builds deterministic and makes dialect drift reviewable.
+- **S04 boundary**: Structured-output, tools, reasoning, and determinism observations remain evidence for S04/S05 and are not promoted by this release into provider- or endpoint-wide model capability claims.
+
 ## Schema-vs-spec audit notes
 
 - `internal/model.ProviderConfig` currently uses dedicated fields and has only `OllamaHost`; it has no generic per-provider endpoint override representation.
@@ -158,7 +166,7 @@ Not yet decided. Discovery must first resolve prefix compatibility, reachability
 | A-03 | Exact `config.json` shape and precedence for per-provider base URL overrides | Public config contract | Resolved 2026-07-14: `providers.<prefix>.base_url` → declared default; legacy env override removed |
 | A-04 | Whether a live reachability probe runs during `sworn capabilities`, on dispatch, or both; timeout and endpoint path are not yet fixed | Latency, availability truth, fail-closed behaviour | Resolved 2026-07-14: enumeration-only bounded `/models` probe; actual dispatch is authoritative |
 | A-05 | Which live providers are mandatory in the nightly matrix versus configured/skipped when credentials or daemons are unavailable | Conformance coverage and CI cost | Resolved 2026-07-14: declared RUN/FAIL/SKIP matrix; Ollama Cloud + existing hosted canary mandatory; full locals on demand/configured runner |
-| A-06 | Whether the conformance suite only reports observed dialect or also generates a checked-in runtime dialect table consumed by dispatch | Runtime architecture and drift semantics | Human decision during discovery |
+| A-06 | Whether the conformance suite only reports observed dialect or also generates a checked-in runtime dialect table consumed by dispatch | Runtime architecture and drift semantics | Resolved 2026-07-14: suite re-derives checked-in table; runtime consumes dialect-only fields; CI fails and uploads on drift |
 | A-07 | Whether runtime fails closed or only warns when a removed `SWORN_<PROVIDER>_BASE_URL` variable is still set | Migration safety | Resolved 2026-07-14: value-free warning, ignore, continue from config/default; doctor reports it |
 
 ## Screenshots / references
