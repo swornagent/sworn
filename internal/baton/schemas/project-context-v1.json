@@ -97,22 +97,22 @@
   "examples": [
     {
       "$schema": "https://baton.sawy3r.net/schemas/project-context-v1.json",
-      "context": "a Next.js and TypeScript frontend with a Go backend on Neon Postgres",
+      "context": "a React SPA with a Python and FastAPI backend on Postgres",
       "stakes": {
         "production": true,
         "real_users": true,
         "sensitive_data": [
           "pii",
-          "financial"
+          "health"
         ],
         "regulated": [
-          "Australian Privacy Principles"
+          "HIPAA"
         ],
-        "notes": "A defect here reaches paying customers and their financial records."
+        "notes": "A defect here can expose patient records to the wrong account."
       },
       "ratification": {
         "ratified": true,
-        "by": "brad",
+        "by": "sam",
         "at": "2026-07-14T09:00:00Z",
         "drafted_by": "openai/gpt-5.6"
       }

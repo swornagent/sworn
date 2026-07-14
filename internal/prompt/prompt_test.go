@@ -172,6 +172,19 @@ func TestPlannerPhase2bFastPath(t *testing.T) {
 	}
 }
 
+func TestPlannerBoundsSpecAmbiguityRemediation(t *testing.T) {
+	got := Planner()
+	for _, required := range []string{
+		"Spec-ambiguity convergence protocol",
+		"at most **two remediation-and-recheck cycles per slice**",
+		"A retry limit never converts FAIL to PASS",
+	} {
+		if !strings.Contains(got, required) {
+			t.Errorf("Planner() missing v0.13.1 convergence contract %q", required)
+		}
+	}
+}
+
 func TestImplementerHasDeviationCheck(t *testing.T) {
 	got := Implementer()
 	// v0.5.0 implementer has "Required reading at session start"

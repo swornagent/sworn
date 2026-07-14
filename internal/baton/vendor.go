@@ -83,11 +83,17 @@ func Vendor(opts VendorOpts) (*VendorResult, error) {
 			if err != nil {
 				return nil, fmt.Errorf("baton: cannot read %s: %w", m.Source, err)
 			}
-			t, err := Transform(string(content))
-			if err != nil {
-				return nil, fmt.Errorf("baton: transform %s: %w", m.Source, err)
+			if strings.HasPrefix(filepath.ToSlash(m.Source), "schemas/") {
+				// Schemas are normative wire contracts. Copy their bytes exactly;
+				// command-reference transformations are only valid for prose.
+				transformed = string(content)
+			} else {
+				t, err := Transform(string(content))
+				if err != nil {
+					return nil, fmt.Errorf("baton: transform %s: %w", m.Source, err)
+				}
+				transformed = t
 			}
-			transformed = t
 		}
 
 		// Compute diff for this file.

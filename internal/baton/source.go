@@ -60,6 +60,22 @@ var batonFileMappings = []FileMapping{
 	{Source: "baton/llm-checks/maintainability-review.md", Dest: "internal/prompt/baton/llm-checks/maintainability-review.md"},
 	{Source: "baton/llm-checks/README.md", Dest: "internal/prompt/baton/llm-checks/README.md"},
 
+	// Record schemas consumed by Sworn remain under the same tag/SHA/digest
+	// parity check as prompts and rules. This closes the v0.13.1 gap where the
+	// pin could advance while a changed embedded schema remained stale.
+	{Source: "schemas/assembly-proof-v1.json", Dest: "internal/baton/schemas/assembly-proof-v1.json"},
+	{Source: "schemas/attestations-v1.json", Dest: "internal/baton/schemas/attestations-v1.json"},
+	{Source: "schemas/board-v1.json", Dest: "internal/baton/schemas/board-v1.json"},
+	{Source: "schemas/capability-policy-v1.json", Dest: "internal/baton/schemas/capability-policy-v1.json"},
+	{Source: "schemas/contracts-v1.json", Dest: "internal/baton/schemas/contracts-v1.json"},
+	{Source: "schemas/journeys-v1.json", Dest: "internal/baton/schemas/journeys-v1.json"},
+	{Source: "schemas/llm-check-report-v1.json", Dest: "internal/baton/schemas/llm-check-report-v1.json"},
+	{Source: "schemas/project-context-v1.json", Dest: "internal/baton/schemas/project-context-v1.json"},
+	{Source: "schemas/proof-v1.json", Dest: "internal/baton/schemas/proof-v1.json"},
+	{Source: "schemas/slice-status-v1.json", Dest: "internal/baton/schemas/slice-status-v1.json"},
+	{Source: "schemas/spec-v1.json", Dest: "internal/baton/schemas/spec-v1.json"},
+	{Source: "schemas/verifier-verdict-v1.json", Dest: "internal/baton/schemas/verifier-verdict-v1.json"},
+
 	// Baton protocol documents (embedded under internal/prompt/baton/)
 	{Source: "baton/track-mode.md", Dest: "internal/prompt/baton/track-mode.md"},
 	{Source: "baton/session-discipline.md", Dest: "internal/prompt/baton/session-discipline.md"},

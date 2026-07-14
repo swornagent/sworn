@@ -5,7 +5,23 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	batonschemas "github.com/swornagent/sworn/internal/baton/schemas"
 )
+
+func TestVendorMappingsCoverEveryEmbeddedSchema(t *testing.T) {
+	mapped := make(map[string]bool)
+	for _, mapping := range batonFileMappings {
+		mapped[filepath.ToSlash(mapping.Dest)] = true
+	}
+
+	for name := range batonschemas.SchemaMap {
+		dest := "internal/baton/schemas/" + name + ".json"
+		if !mapped[dest] {
+			t.Errorf("embedded schema %s is outside Baton tag parity enforcement", dest)
+		}
+	}
+}
 
 func TestValidateSource(t *testing.T) {
 	fixture := filepath.Join("testdata", "fixture")
