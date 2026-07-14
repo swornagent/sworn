@@ -65,6 +65,7 @@ Enable a SwornAgent operator to use Ollama Cloud or a locally hosted OpenAI-comp
 
 - **Capability and pricing cache**: model capability taxonomy, OpenRouter metadata sync, TTL refresh, and attempt-and-degrade capability selection remain in `2026-07-11-contract-edge-gates/S04-provider-registry`. **Why deferred**: it is already specced and conflating endpoint dialect with model capability would duplicate an in-flight contract. **Tracking**: `S04-provider-registry`. **Acknowledged**: repository owner, 2026-07-14, in the commissioned brief.
 - **Capability eligibility and eval-based routing**: choosing a model by capability or eval score is not part of declaring or probing endpoints. **Why deferred**: those consumers depend on S04 and are already sequenced separately. **Tracking**: `S05-capability-eligibility` and `S06-routing-preferences` in `2026-07-11-contract-edge-gates`. **Acknowledged**: repository owner, 2026-07-14, in the commissioned brief.
+- **All-role capability universality**: this release proves local/Ollama Cloud implementer dispatch first; it does not independently make every model and driver usable for every role. **Why deferred**: role admission must be based on per-model capabilities, not duplicated provider-specific rules in this endpoint release. **Tracking**: `S04-provider-registry` → `S05-capability-eligibility` in `2026-07-11-contract-edge-gates` for in-process models, plus [sworn#86](https://github.com/swornagent/sworn/issues/86) for subprocess-driver captain support. **Acknowledged**: repository owner, 2026-07-14; required follow-up is that every model/driver can serve every role whose declared minimum capabilities it meets.
 - **New credential store or prefixed environment variables**: credentials were unified in sworn#107. **Why deferred**: a second key path would recreate the resolved drift defect. **Tracking**: sworn#107 is the landed authority. **Acknowledged**: repository owner, 2026-07-14, in the commissioned brief.
 
 ## Decisions made during planning
@@ -146,6 +147,14 @@ Enable a SwornAgent operator to use Ollama Cloud or a locally hosted OpenAI-comp
 - **Why**: Runtime behaviour is based on observed endpoint behaviour without introducing paid first-use probes or mutable installation state. Checked-in generation keeps builds deterministic and makes dialect drift reviewable.
 - **S04 boundary**: Structured-output, tools, reasoning, and determinism observations remain evidence for S04/S05 and are not promoted by this release into provider- or endpoint-wide model capability claims.
 
+### 2026-07-14 — Prove local implementation now; preserve capability-based role universality
+
+- **Context**: A local OAI client with no declared structured-output mode can drive the implementer today, but captain/verifier structured calls fail closed until S04 discovers model capabilities and S05 applies per-role eligibility.
+- **Options considered**: prove local implementer dispatch inside the complete mixed-provider loop; block this release until every role runs locally; duplicate structured attempt-and-degrade here.
+- **Decision**: This release's reachability obligation is a local or Ollama Cloud implementer inside the complete loop, with a configured capable captain and verifier. It must not hard-code local providers as implementer-only. Follow-up S04/S05 and #86 must make every model/driver eligible for every role whose minimum capabilities it satisfies.
+- **Why**: This delivers the endpoint and local-compute unlock without duplicating S04, while retaining the architecture's all-drivers/all-roles intent as a capability decision rather than a provider-name allowlist.
+- **Follow-up proof obligation**: S05's eventual reachability evidence must include at least one model newly introduced by this release serving a structured role after its discovered capabilities satisfy that role's policy; #86 separately owns subprocess captain reachability.
+
 ## Schema-vs-spec audit notes
 
 - `internal/model.ProviderConfig` currently uses dedicated fields and has only `OllamaHost`; it has no generic per-provider endpoint override representation.
@@ -168,6 +177,7 @@ Not yet decided. Discovery must first resolve prefix compatibility, reachability
 | A-05 | Which live providers are mandatory in the nightly matrix versus configured/skipped when credentials or daemons are unavailable | Conformance coverage and CI cost | Resolved 2026-07-14: declared RUN/FAIL/SKIP matrix; Ollama Cloud + existing hosted canary mandatory; full locals on demand/configured runner |
 | A-06 | Whether the conformance suite only reports observed dialect or also generates a checked-in runtime dialect table consumed by dispatch | Runtime architecture and drift semantics | Resolved 2026-07-14: suite re-derives checked-in table; runtime consumes dialect-only fields; CI fails and uploads on drift |
 | A-07 | Whether runtime fails closed or only warns when a removed `SWORN_<PROVIDER>_BASE_URL` variable is still set | Migration safety | Resolved 2026-07-14: value-free warning, ignore, continue from config/default; doctor reports it |
+| A-08 | Whether this release must run every role locally before shipping or may deliver local implementer dispatch ahead of capability eligibility | Release dependency and reachability | Resolved 2026-07-14: local implementer in mixed-provider loop now; S04/S05 + #86 own capability-based all-role universality follow-up |
 
 ## Screenshots / references
 
