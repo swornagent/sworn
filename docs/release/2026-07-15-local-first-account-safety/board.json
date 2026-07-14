@@ -1,0 +1,12 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/board-v1.json",
+  "release": {
+    "name": "2026-07-15-local-first-account-safety",
+    "target_version": "v0.2.0",
+    "integration_branch": "release/v0.2.0",
+    "vertical_trace": {
+      "benefit": "A SwornAgent user can use account identity without losing provider credentials, changing model routes, purchasing managed inference, or generating unapproved outbound traffic."
+    }
+  },
+  "tracks": []
+}
