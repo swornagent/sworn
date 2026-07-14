@@ -49,10 +49,11 @@ func cmdRun(args []string) int {
 	_ = fs.Parse(args)
 
 	// ── Load .env files ────────────────────────────────────────────────
-	if err := model.LoadDotEnv(); err != nil {
-		fmt.Fprintf(os.Stderr, "sworn run: load .env: %v\n", err)
-		return 1
-	}
+	// Keys are NOT bootstrapped here. The model layer resolves them itself
+	// (canonical env var, then credentials.json), so every command sees the same
+	// credentials. This used to call model.LoadDotEnv() — and it was the ONLY
+	// command that did, so a key written by `sworn init` was visible to the loop
+	// and invisible to llm-check, verify, reqverify and MCP.
 	// ── Basic CLI usage validation (before model resolution) ────────────
 	if *parallel {
 		if *releaseName == "" {

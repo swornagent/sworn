@@ -89,26 +89,20 @@ func FromEnv(modelID string) (Verifier, error) {
 		// OCI uses SDK config file (~/.oci/config) and OCI_CLI_REGION —
 		// no API key required. The compartment ID is checked later.
 		key = "compartment"
-	case "google":
-		key = envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY")
-	case "openai-responses":
-		key = envOrAlias("OPENAI_API_KEY", "SWORN_OPENAI_API_KEY")
-	case "xai":
-		// D4: honour the canonical XAI_API_KEY (SWORN_XAI_API_KEY fallback) on
-		// the one-shot path too; the generic default reads SWORN_-only.
-		key = envOrAlias("XAI_API_KEY", "SWORN_XAI_API_KEY")
-	case "openai-completions":
-		// Shares the openai key: the generic default would demand
-		// SWORN_OPENAI_COMPLETIONS_API_KEY, which nothing sets and which
-		// swornProviderConfig would not read into OpenAIKey.
-		key = os.Getenv("SWORN_OPENAI_API_KEY")
-	case "azure":
-		key = envOrAlias("AZURE_OPENAI_API_KEY", "SWORN_AZURE_OPENAI_API_KEY")
 	default:
-		key = os.Getenv("SWORN_" + prefix + "_API_KEY")
+		// EVERY provider resolves the same way: canonical env var, then
+		// credentials.json (XDG). No SWORN_-prefixed names, and no per-provider
+		// special case — the special cases were the bug. Four providers honoured
+		// their canonical env name, two of those only on ONE of the two code
+		// paths, and the rest demanded a SWORN_-prefixed duplicate of a key you
+		// already had exported.
+		key = ProviderKey(provider)
 	}
 	if key == "" {
-		return nil, fmt.Errorf("model: SWORN_%s_API_KEY not set", prefix)
+		return nil, fmt.Errorf(
+			"model: no API key for provider %q — set %s, or add it to %s (run 'sworn init')",
+			provider, canonicalKeyEnv[provider], CredentialsPath(),
+		)
 	}
 	pcfg := swornProviderConfig()
 	// Apply SWORN_<PREFIX>_MODEL override before dispatch.
@@ -219,28 +213,12 @@ func errorsIs(err, target error) bool {
 // swornProviderConfig reads the backward-compat SWORN_* env var namespace
 // into a ProviderConfig. This bridges existing SWORN_*_API_KEY env vars to
 // the new canonical ProviderConfig used by NewClient.
+// swornProviderConfig is ProviderConfigFromEnv. It existed as a near-duplicate that
+// DISAGREED with it (SWORN_-prefixed reads where the other honoured canonical
+// names), so the same provider answered differently depending on which code path a
+// command happened to take. One builder now.
 func swornProviderConfig() ProviderConfig {
-	return ProviderConfig{
-		OpenAIKey:           os.Getenv("SWORN_OPENAI_API_KEY"),
-		DeepSeekKey:         os.Getenv("SWORN_DEEPSEEK_API_KEY"),
-		GroqKey:             os.Getenv("SWORN_GROQ_API_KEY"),
-		MistralKey:          os.Getenv("SWORN_MISTRAL_API_KEY"),
-		OpenRouterKey:       os.Getenv("SWORN_OPENROUTER_API_KEY"),
-		XAIKey:              envOrAlias("XAI_API_KEY", "SWORN_XAI_API_KEY"),
-		AnthropicKey:        os.Getenv("SWORN_ANTHROPIC_API_KEY"),
-		GoogleKey:           envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY"),
-		GoogleCloudProject:  os.Getenv("GOOGLE_CLOUD_PROJECT"),
-		GoogleCloudLocation: os.Getenv("GOOGLE_CLOUD_LOCATION"),
-		CloudflareKey:       os.Getenv("SWORN_CLOUDFLARE_API_KEY"),
-		GitHubToken:         os.Getenv("SWORN_GITHUB_TOKEN"),
-		OllamaHost:          ollamaHost(),
-		AwsAccessKey:        os.Getenv("SWORN_AWS_ACCESS_KEY_ID"),
-		AwsSecretKey:        os.Getenv("SWORN_AWS_SECRET_ACCESS_KEY"),
-		AwsRegion:           envOrAlias("AWS_REGION", "AWS_DEFAULT_REGION"),
-		AzureAPIKey:         os.Getenv("SWORN_AZURE_OPENAI_API_KEY"),
-		AzureEndpoint:       os.Getenv("SWORN_AZURE_OPENAI_ENDPOINT"),
-		AzureAPIVersion:     os.Getenv("SWORN_AZURE_OPENAI_API_VERSION"),
-		OCICompartmentID:    os.Getenv("OCI_COMPARTMENT_ID")}
+	return ProviderConfigFromEnv()
 }
 
 // parseModelID splits "provider/model" into its parts. The first "/" is the

@@ -33,34 +33,38 @@ type ProviderConfig struct {
 	OCICompartmentID string
 }
 
-// ProviderConfigFromEnv reads per-provider configuration from environment
-// variables. Every provider key checks its SWORN_* alias as a fallback when
-// the canonical var is empty (S06 D7, Coach ack pin 5): canonical wins,
-// SWORN_* is fallback only — per the envOrAlias contract. The widening keeps
-// SWORN_*-only environments (the documented worker setup) on direct dispatch
-// now that the loop's default registry is built from this config, and makes
-// `sworn capabilities` truthful for those environments.
+// ProviderConfigFromEnv builds the provider configuration from the ONE credential
+// source: the canonical env var (OPENAI_API_KEY, ANTHROPIC_API_KEY, …), then
+// credentials.json (XDG). See internal/model/credentials.go.
+//
+// There is no SWORN_-prefixed alias any more. A key is a key: if OPENAI_API_KEY is
+// already exported for every other tool on the machine, sworn reads it rather than
+// demanding a private duplicate.
+//
+// This was one of THREE key-resolution paths that disagreed with each other — this
+// one honoured canonical names, swornProviderConfig read SWORN_-only, and FromEnv's
+// switch did some of each. All three now call ProviderKey.
 func ProviderConfigFromEnv() ProviderConfig {
 	return ProviderConfig{
-		OpenAIKey:           envOrAlias("OPENAI_API_KEY", "SWORN_OPENAI_API_KEY"),
-		DeepSeekKey:         envOrAlias("DEEPSEEK_API_KEY", "SWORN_DEEPSEEK_API_KEY"),
-		GroqKey:             envOrAlias("GROQ_API_KEY", "SWORN_GROQ_API_KEY"),
-		MistralKey:          envOrAlias("MISTRAL_API_KEY", "SWORN_MISTRAL_API_KEY"),
-		OpenRouterKey:       envOrAlias("OPENROUTER_API_KEY", "SWORN_OPENROUTER_API_KEY"),
-		XAIKey:              envOrAlias("XAI_API_KEY", "SWORN_XAI_API_KEY"),
-		AnthropicKey:        envOrAlias("ANTHROPIC_API_KEY", "SWORN_ANTHROPIC_API_KEY"),
-		GoogleKey:           envOrAlias("GOOGLE_API_KEY", "SWORN_GOOGLE_API_KEY"),
+		OpenAIKey:           ProviderKey("openai"),
+		DeepSeekKey:         ProviderKey("deepseek"),
+		GroqKey:             ProviderKey("groq"),
+		MistralKey:          ProviderKey("mistral"),
+		OpenRouterKey:       ProviderKey("openrouter"),
+		XAIKey:              ProviderKey("xai"),
+		AnthropicKey:        ProviderKey("anthropic"),
+		GoogleKey:           ProviderKey("google"),
 		GoogleCloudProject:  os.Getenv("GOOGLE_CLOUD_PROJECT"),
 		GoogleCloudLocation: os.Getenv("GOOGLE_CLOUD_LOCATION"),
-		CloudflareKey:       envOrAlias("CLOUDFLARE_API_KEY", "SWORN_CLOUDFLARE_API_KEY"),
-		GitHubToken:         envOrAlias("GITHUB_TOKEN", "SWORN_GITHUB_TOKEN"),
+		CloudflareKey:       ProviderKey("cloudflare"),
+		GitHubToken:         ProviderKey("github"),
 		OllamaHost:          ollamaHost(),
-		AwsAccessKey:        envOrAlias("AWS_ACCESS_KEY_ID", "SWORN_AWS_ACCESS_KEY_ID"),
-		AwsSecretKey:        envOrAlias("AWS_SECRET_ACCESS_KEY", "SWORN_AWS_SECRET_ACCESS_KEY"),
+		AwsAccessKey:        ProviderKey("aws-access-key"),
+		AwsSecretKey:        ProviderKey("aws-secret-key"),
 		AwsRegion:           envOrAlias("AWS_REGION", "AWS_DEFAULT_REGION"),
-		AzureAPIKey:         envOrAlias("AZURE_OPENAI_API_KEY", "SWORN_AZURE_OPENAI_API_KEY"),
-		AzureEndpoint:       envOrAlias("AZURE_OPENAI_ENDPOINT", "SWORN_AZURE_OPENAI_ENDPOINT"),
-		AzureAPIVersion:     envOrAlias("AZURE_OPENAI_API_VERSION", "SWORN_AZURE_OPENAI_API_VERSION"),
+		AzureAPIKey:         ProviderKey("azure"),
+		AzureEndpoint:       os.Getenv("AZURE_OPENAI_ENDPOINT"),
+		AzureAPIVersion:     os.Getenv("AZURE_OPENAI_API_VERSION"),
 		OCICompartmentID:    os.Getenv("OCI_COMPARTMENT_ID"),
 	}
 }

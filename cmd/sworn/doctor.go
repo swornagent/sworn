@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/board"
 	"github.com/swornagent/sworn/internal/lint"
+	"github.com/swornagent/sworn/internal/model"
 	"github.com/swornagent/sworn/internal/project"
 	"github.com/swornagent/sworn/internal/prompt"
 	"github.com/swornagent/sworn/internal/style"
@@ -205,6 +207,13 @@ func cmdDoctor(args []string) int {
 		if r.level == levelError {
 			hasError = true
 		}
+		printResult(r)
+	}
+
+	// --- Group 1bb: Credentials ---
+	fmt.Println()
+	fmt.Println(style.Heading("Group 1bb: Provider credentials"))
+	for _, r := range checkCredentials() {
 		printResult(r)
 	}
 
@@ -1249,4 +1258,59 @@ func checkProjectContext(repoRoot string) []checkResult {
 				project.RecordPath, r.Context),
 		}}
 	}
+}
+
+// checkCredentials reports where sworn is finding provider API keys — and warns
+// when keys are sitting in a place sworn no longer looks.
+//
+// Keys used to live in ~/.sworn/.env (a dotenv file, outside XDG) and in
+// SWORN_-prefixed env vars. Worse, that file was loaded into the environment by ONE
+// command (`sworn run`), so a key written by `sworn init` was visible to the loop
+// and invisible to llm-check, verify, reqverify and MCP — each resolved a model
+// correctly and then failed for want of a key that was on disk the whole time.
+//
+// Keys now live in credentials.json (XDG) or the canonical env vars, and the model
+// layer resolves them itself. This check makes the remaining legacy keys visible
+// instead of silently ignored.
+func checkCredentials() []checkResult {
+	var results []checkResult
+
+	configured := model.ConfiguredProviders()
+	if len(configured) == 0 {
+		results = append(results, checkResult{
+			level: levelWarn,
+			name:  "credentials",
+			detail: fmt.Sprintf("no provider API keys found — set a canonical env var (OPENAI_API_KEY, "+
+				"ANTHROPIC_API_KEY, …) or add one to %s (run 'sworn init')", model.CredentialsPath()),
+		})
+	} else {
+		sort.Strings(configured)
+		results = append(results, checkResult{
+			level:  levelOK,
+			name:   "credentials",
+			detail: fmt.Sprintf("keys found for: %s (%s)", strings.Join(configured, ", "), model.CredentialsPath()),
+		})
+	}
+
+	// Legacy keys that sworn NO LONGER READS.
+	if legacy := model.FindLegacyCredentials(); len(legacy) > 0 {
+		var stranded []string
+		for provider := range legacy {
+			if model.ProviderKey(provider) == "" {
+				stranded = append(stranded, provider)
+			}
+		}
+		if len(stranded) > 0 {
+			sort.Strings(stranded)
+			results = append(results, checkResult{
+				level: levelWarn,
+				name:  "credentials/legacy",
+				detail: fmt.Sprintf("keys for %s are in a legacy location sworn NO LONGER READS "+
+					"(SWORN_-prefixed env vars, or %s). Run 'sworn init' to migrate them to %s.",
+					strings.Join(stranded, ", "), model.LegacyEnvPath(), model.CredentialsPath()),
+			})
+		}
+	}
+
+	return results
 }

@@ -38,7 +38,7 @@ func TestCmdVerify_FailClosed(t *testing.T) {
 	os.WriteFile(cfgPath, []byte(`{"version":1,"verifier":{"model":"openai/gpt-4.1-mini"}}`), 0644)
 	t.Setenv("SWORN_CONFIG_PATH", cfgPath)
 	t.Setenv("SWORN_DIRECT", "1")
-	t.Setenv("SWORN_OPENAI_API_KEY", "test-key-not-dispatched")
+	t.Setenv("OPENAI_API_KEY", "test-key-not-dispatched")
 
 	cases := []struct {
 		name string
@@ -76,7 +76,7 @@ func TestCmdVerify_WellFormedPasses(t *testing.T) {
 	os.WriteFile(cfgPath, []byte(`{"version":1,"verifier":{"model":"openai/gpt-4.1-mini"}}`), 0644)
 	t.Setenv("SWORN_CONFIG_PATH", cfgPath)
 	t.Setenv("SWORN_DIRECT", "1")
-	t.Setenv("SWORN_OPENAI_API_KEY", "test-key-not-dispatched")
+	t.Setenv("OPENAI_API_KEY", "test-key-not-dispatched")
 
 	exit := cmdVerify([]string{"--spec", spec, "--diff", diff, "--proof", proof})
 	if exit != 0 {

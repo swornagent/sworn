@@ -254,7 +254,7 @@ func TestFromEnv(t *testing.T) {
 		{
 			name: "openai with key, no base URL → uses default",
 			env: map[string]string{
-				"SWORN_OPENAI_API_KEY": "sk-test",
+				"OPENAI_API_KEY": "sk-test",
 			},
 			modelID: "openai/gpt-4.1",
 			wantErr: false,
@@ -262,7 +262,7 @@ func TestFromEnv(t *testing.T) {
 		{
 			name: "openai-completions with key → legacy chat/completions (sworn#31)",
 			env: map[string]string{
-				"SWORN_OPENAI_API_KEY": "sk-test",
+				"OPENAI_API_KEY": "sk-test",
 			},
 			modelID: "openai-completions/gpt-4.1",
 			wantErr: false,
@@ -270,7 +270,7 @@ func TestFromEnv(t *testing.T) {
 		{
 			name: "groq provider with key, no base URL — uses preset",
 			env: map[string]string{
-				"SWORN_GROQ_API_KEY": "sk-test",
+				"GROQ_API_KEY": "sk-test",
 			},
 			modelID: "groq/llama-3.3-70b",
 			wantErr: false,
@@ -278,7 +278,7 @@ func TestFromEnv(t *testing.T) {
 		{
 			name: "groq provider with key and base URL override",
 			env: map[string]string{
-				"SWORN_GROQ_API_KEY":  "sk-test",
+				"GROQ_API_KEY":        "sk-test",
 				"SWORN_GROQ_BASE_URL": "https://custom-groq.example.com/v1",
 			},
 			modelID: "groq/llama-3.3-70b",
@@ -286,8 +286,8 @@ func TestFromEnv(t *testing.T) {
 		}, {
 			name: "env model override",
 			env: map[string]string{
-				"SWORN_OPENAI_API_KEY": "sk-test",
-				"SWORN_OPENAI_MODEL":   "gpt-4.1-nano",
+				"OPENAI_API_KEY":     "sk-test",
+				"SWORN_OPENAI_MODEL": "gpt-4.1-nano",
 			},
 			modelID: "openai/gpt-4.1", // flag says gpt-4.1 but env overrides
 			wantErr: false,
@@ -297,7 +297,7 @@ func TestFromEnv(t *testing.T) {
 			// client, which openai-completions/ now names.
 			name: "invalid base URL",
 			env: map[string]string{
-				"SWORN_OPENAI_API_KEY":              "sk-test",
+				"OPENAI_API_KEY":                    "sk-test",
 				"SWORN_OPENAI_COMPLETIONS_BASE_URL": "://bad",
 			},
 			modelID: "openai-completions/gpt-4.1",
@@ -308,9 +308,9 @@ func TestFromEnv(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Clear relevant env vars first
 			for _, k := range []string{
-				"SWORN_OPENAI_API_KEY", "SWORN_OPENAI_BASE_URL", "SWORN_OPENAI_MODEL",
+				"OPENAI_API_KEY", "SWORN_OPENAI_BASE_URL", "SWORN_OPENAI_MODEL",
 				"SWORN_OPENAI_COMPLETIONS_BASE_URL", "SWORN_OPENAI_COMPLETIONS_MODEL",
-				"SWORN_GROQ_API_KEY", "SWORN_GROQ_BASE_URL", "SWORN_GROQ_MODEL",
+				"GROQ_API_KEY", "SWORN_GROQ_BASE_URL", "SWORN_GROQ_MODEL",
 				"SWORN_DIRECT", "SWORN_PROXY_URL",
 			} {
 				t.Setenv(k, "")
@@ -382,7 +382,7 @@ func TestFromEnvUsesProxy(t *testing.T) {
 	writeTestCreds(t, t.TempDir())
 
 	// Clear direct provider key to ensure we're using proxy, not direct.
-	t.Setenv("SWORN_OPENAI_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("SWORN_DIRECT", "")
 
 	// sworn#31 migration: the chat/completions-shaped mock pairs with the
@@ -409,7 +409,7 @@ func TestFromEnvUsesProxy(t *testing.T) {
 func TestFromEnvProxyOpenAIIsResponses(t *testing.T) {
 	t.Setenv("SWORN_PROXY_URL", "")
 	writeTestCreds(t, t.TempDir())
-	t.Setenv("SWORN_OPENAI_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("SWORN_DIRECT", "")
 
 	for _, modelID := range []string{"openai/gpt-5", "openai-responses/gpt-5"} {
@@ -457,7 +457,7 @@ func TestFromEnvBypassProxy(t *testing.T) {
 	// Set SWORN_DIRECT=1 and provider key + base URL. sworn#31 migration:
 	// the chat/completions leg is openai-completions/ now.
 	t.Setenv("SWORN_DIRECT", "1")
-	t.Setenv("SWORN_OPENAI_API_KEY", "sk-direct")
+	t.Setenv("OPENAI_API_KEY", "sk-direct")
 	t.Setenv("SWORN_OPENAI_COMPLETIONS_BASE_URL", providerSrv.URL)
 	v, err := FromEnv("openai-completions/gpt-4.1")
 	if err != nil {
@@ -486,7 +486,7 @@ func TestFromEnvProxyDefaultHost(t *testing.T) {
 	// Write credentials file into a temp config dir.
 	writeTestCreds(t, t.TempDir())
 
-	t.Setenv("SWORN_OPENAI_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("SWORN_DIRECT", "")
 	// sworn#31 migration: the *OAI proxy leg is openai-completions/ now.
 	v, err := FromEnv("openai-completions/gpt-4.1")
@@ -522,7 +522,7 @@ func TestFromEnvProxyOverrideWarns(t *testing.T) {
 	// Write credentials file into a temp config dir.
 	writeTestCreds(t, t.TempDir())
 
-	t.Setenv("SWORN_OPENAI_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("SWORN_DIRECT", "")
 	// sworn#31 migration: the *OAI proxy leg is openai-completions/ now.
 	v, err := FromEnv("openai-completions/gpt-4.1")
@@ -579,7 +579,7 @@ func TestFromEnvInsufficientCredits(t *testing.T) {
 	// Set provider key + URL so a fallback *could* happen if the code were
 	// buggy. sworn#31 migration: the chat/completions leg is
 	// openai-completions/ now.
-	t.Setenv("SWORN_OPENAI_API_KEY", "sk-direct")
+	t.Setenv("OPENAI_API_KEY", "sk-direct")
 	t.Setenv("SWORN_OPENAI_COMPLETIONS_BASE_URL", providerSrv.URL)
 	t.Setenv("SWORN_DIRECT", "")
 	v, err := FromEnv("openai-completions/gpt-4.1")
@@ -613,7 +613,7 @@ func TestFromEnvNoCredsUnchanged(t *testing.T) {
 
 	t.Setenv("SWORN_PROXY_URL", "")
 	t.Setenv("SWORN_DIRECT", "")
-	t.Setenv("SWORN_OPENAI_API_KEY", "sk-test")
+	t.Setenv("OPENAI_API_KEY", "sk-test")
 
 	// sworn#31 migration: the *OAI direct leg is openai-completions/ now.
 	v, err := FromEnv("openai-completions/gpt-4.1")
