@@ -22,6 +22,7 @@ const (
 	StateRunning = "running"
 	StateDone    = "done"
 	StateFailed  = "failed"
+	StatePaused  = "paused"
 )
 
 // ErrTrackOwned is returned by Acquire when another process already owns the
@@ -197,12 +198,12 @@ func (s *Supervisor) Acquire(trackID string) error {
 	return nil
 }
 
-// Release marks a track as done or failed and clears the PID, releasing
-// ownership. It is safe to call multiple times; a row that doesn't exist
-// is silently ignored.
+// Release marks a track as done, failed, or paused and clears the PID. It
+// fails when this supervisor no longer owns the row so a stale/double release
+// cannot be reported as a successful terminal transition.
 func (s *Supervisor) Release(trackID string, state string) error {
-	if state != StateDone && state != StateFailed {
-		state = StateDone
+	if state != StateDone && state != StateFailed && state != StatePaused {
+		return fmt.Errorf("supervisor: release %q: invalid terminal state %q", trackID, state)
 	}
 
 	result, err := s.db.Exec(
@@ -212,7 +213,13 @@ func (s *Supervisor) Release(trackID string, state string) error {
 	if err != nil {
 		return fmt.Errorf("supervisor: release %q: %w", trackID, err)
 	}
-	rows, _ := result.RowsAffected()
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("supervisor: release %q rows affected: %w", trackID, err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("supervisor: release %q: ownership row not found", trackID)
+	}
 	if rows > 0 {
 		_ = s.logEvent(trackID, "released-"+state, fmt.Sprintf("PID %d", s.pid))
 	}

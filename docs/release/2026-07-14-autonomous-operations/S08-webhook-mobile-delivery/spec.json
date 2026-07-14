@@ -1,0 +1,141 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S08-webhook-mobile-delivery",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T3-durable-paging",
+  "user_outcome": "A SwornAgent operator can configure a generic webhook and an optional mobile push destination, receive stable safe event notifications with links to the board, and see bounded delivery outcomes in the durable outbox.",
+  "rationale": "This delivers the requested webhook and mobile paging outcome in #109 after the best-effort notification defects confirmed by #108. It consumes C-05 from S07, owns the C-09 generic webhook, C-10 outbound edge, and C-11 mobile-push wire contracts, and uses the envelope's optional canonical board URL. Providers are transport adapters only: they serialize a stable event projection, report typed attempt outcomes to the outbox, and may link to the board, but they never embed or execute a mutation. The generic webhook remains provider-neutral; the mobile adapter uses an ntfy-compatible HTTP contract without adding an SDK.",
+  "touchpoints": [
+    "internal/notify/delivery.go",
+    "internal/notify/delivery_test.go",
+    "internal/notify/destinations.go",
+    "internal/notify/destinations_test.go",
+    "internal/notify/webhook.go",
+    "internal/notify/webhook_test.go",
+    "internal/notify/mobile.go",
+    "internal/notify/mobile_test.go",
+    "internal/account/notify.go",
+    "internal/account/notify_test.go",
+    "internal/account/account.go",
+    "internal/account/account_test.go",
+    "cmd/sworn/account.go",
+    "cmd/sworn/account_test.go",
+    "cmd/sworn/notifications.go",
+    "cmd/sworn/notifications_test.go"
+  ],
+  "in_scope": [
+    "Define versioned generic-webhook-v1 and mobile-push-v1 projections from C-05 using stable notification/event IDs, attention class, safe title/body, source revision, and optional canonical C-06 board URL.",
+    "Preserve `sworn account set-webhook <url>` as the generic webhook configuration gesture while moving delivery through the S07 outbox; add explicit mobile destination configuration and secret-safe status output.",
+    "Store destination secrets in the shared credential envelope, store only opaque destination references in the operations database, and migrate an existing webhook_url without deleting provider or account fields.",
+    "Implement the generic webhook with JSON content type, stable idempotency and event headers, an optional HMAC signature over exact body bytes, no redirects, bounded connect/response/total deadlines, and response-body-free diagnostics.",
+    "Implement an ntfy-compatible mobile POST using standard-library HTTP with safe topic URL validation, title/priority/tags headers, and a single view action whose URL opens the read board for the event target.",
+    "Forbid notification-carried mutation URLs, command bodies, bearer credentials, local file paths, and provider-specific operation semantics; all remote actions must be initiated through S11.",
+    "Map HTTP and transport results into S07's closed delivered/retryable/permanent classification, honoring a valid Retry-After only when it remains inside outbox policy bounds.",
+    "Provide a no-secret `sworn notifications test <destination>` reachability gesture that enqueues and delivers a synthetic safe test envelope through the real dispatcher."
+  ],
+  "out_of_scope": [
+    "Outbox schema, leasing, retry scheduling, replay, and attention taxonomy are owned by S07-notification-outbox.",
+    "Email, SMS, Slack, Telegram, inbound provider callbacks, and hosted notification fan-out are outside #109.",
+    "Remote command authentication and mutation endpoints are owned by S11; this slice emits view links only.",
+    "The web read API and board implementation are owned by S09 and S10; this slice only validates and carries their canonical URL.",
+    "The twelve planned slices in 2026-07-11-contract-edge-gates remain excluded, including their loop max-turn, provider, dry-run, design-authority, and guard-fidelity work."
+  ],
+  "covers_needs": [
+    "N-03"
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "The wire formats and HTTP safety controls are well understood, but configuration migration, two adapters, outbox integration, signing, security fixtures, and command reachability make the implementation broad.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "A mobile action button becomes an alternate unauthenticated command surface.",
+      "mitigation": "Allow only a browser view action to a validated C-06 URL; reject mutation verbs, command parameters, and provider callbacks in both config and serialized headers."
+    },
+    {
+      "id": "R-02",
+      "description": "Destination URLs or signing secrets leak through the database, notification output, redirects, or HTTP errors.",
+      "mitigation": "Keep secrets in the credential envelope, persist references only, disable redirects, never log response bodies, and inject recognizable canaries into transport tests and public-safe scans."
+    },
+    {
+      "id": "R-03",
+      "description": "Retry behavior differs by adapter and bypasses the durable policy.",
+      "mitigation": "Both adapters return the same closed DeliveryResult to S07; neither sleeps or retries internally. Contract tests run identical status/timeout cases against both."
+    },
+    {
+      "id": "R-04",
+      "description": "Credential-envelope migration overwrites provider keys, login state, or an existing destination.",
+      "mitigation": "Use field-preserving credential updates and a command-level sequence test spanning provider setup, login, both destinations, refresh, and logout."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN a generic-webhook-v1 attempt is delivered THE SYSTEM SHALL POST one C-09 JSON body whose notification_id and operation_event_id equal the C-05 envelope and whose event header is stable across retries (C-03, C-05, C-09, N-03).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/notify/webhook_test.go:TestGenericWebhookStableProjectionAndHeaders"
+      ]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN a webhook signing secret is configured THE SYSTEM SHALL attach the C-09 HMAC signature computed over the exact transmitted body under C-10 credential isolation (C-05, C-09, C-10, N-03).",
+      "ears_pattern": "optional-feature",
+      "test_refs": [
+        "internal/notify/webhook_test.go:TestGenericWebhookHMACAndSecretConfinement"
+      ]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN a mobile-push-v1 attempt is delivered THE SYSTEM SHALL emit one C-11 ntfy-compatible view action whose URL equals the optional canonical board URL in C-05 and contains no command or mutation parameter (C-05, C-11, N-03).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/notify/mobile_test.go:TestMobilePushContainsViewLinkOnly"
+      ]
+    },
+    {
+      "id": "AC-04",
+      "text": "IF a destination redirects, exceeds its deadline, returns 408/425/429/5xx, or returns another non-2xx status THEN THE SYSTEM SHALL report the C-10 permanent or retryable DeliveryResult classification to the outbox without reading a response body into diagnostics (C-05, C-10, N-03).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "internal/notify/delivery_test.go:TestHTTPOutcomeClassificationIsBounded"
+      ]
+    },
+    {
+      "id": "AC-05",
+      "text": "IF a destination URL violates C-10 or a mobile topic violates C-11 THEN THE SYSTEM SHALL reject configuration before storing credentials or enqueueing a test notification (C-05, C-10, C-11, N-03).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "internal/notify/destinations_test.go:TestDestinationURLValidationFailsClosed"
+      ]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHEN existing provider keys and account fields surround webhook/mobile configuration, login refresh, and logout THE SYSTEM SHALL preserve every field not owned by the invoked command and SHALL retain both destination settings after logout (C-05, N-03).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "cmd/sworn/account_test.go:TestNotificationConfigurationPreservesCredentialEnvelope"
+      ]
+    },
+    {
+      "id": "AC-07",
+      "text": "IF a notification fixture includes canary credentials, model payloads, response bodies, absolute worktree paths, or mutation instructions THEN THE SYSTEM SHALL transmit, persist, and print none of those values through C-09 or C-11 under C-10 (C-03, C-05, C-09, C-10, C-11, N-03).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "internal/notify/delivery_test.go:TestAdaptersTransmitSafeProjectionOnly"
+      ]
+    },
+    {
+      "id": "AC-08",
+      "text": "WHEN the built binary runs `sworn notifications test <destination>` against a real local HTTP fixture THE SYSTEM SHALL enqueue through S07, deliver through C-09 or C-11, print the durable notification ID and delivered state, and exit zero (C-05, C-09, C-10, C-11, N-03).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "cmd/sworn/notifications_test.go:TestNotificationTestBinaryReachability"
+      ]
+    }
+  ]
+}

@@ -1,9 +1,8 @@
 // Package telemetry provides anonymous usage telemetry for sworn.
 //
-// Telemetry is opt-in only, collected during sworn init, and managed
-// post-init via sworn telemetry on|off|status. Every sworn invocation
-// that is not a telemetry meta-command fires one non-blocking POST to
-// https://api.sworn.sh/v1/events.
+// Telemetry is opt-in only and managed via sworn telemetry on|off|status.
+// After explicit opt-in, every sworn invocation that is not a telemetry
+// meta-command fires one non-blocking POST to https://api.sworn.sh/v1/events.
 //
 // Schema v1 fields:
 //
@@ -199,6 +198,12 @@ type event struct {
 // The caller passes sworn_version from the main package,
 // avoiding circular imports.
 func Fire(cmd, sub, swornVersion string, durationMS int64, exitCode int) {
+	// Consent is the first gate. Do not create an install ID or launch a
+	// network goroutine in the neutral or explicitly opted-out states.
+	if !IsEnabled() {
+		return
+	}
+
 	// Meta-command exclusion: sworn telemetry * does NOT fire telemetry
 	// events. sworn version and sworn help
 	// still fire — useful version-usage signal.

@@ -392,7 +392,8 @@ func cmdLintCoverage(args []string) int {
 //
 // Port of bin/release-audit-design.sh from bash to Go. Runs hardcoded colour
 // detection in UI files from the slice's diff, then executes the architecture
-// rule engine (grep, touchpoints, diff-size, external) from docs/baton/architecture.json.
+// rule engine (grep, touchpoints, diff-size, external) from docs/architecture.json
+// with a legacy docs/baton fallback.
 // Reads docs/baton/design-fidelity.json for design token exemptions and the
 // per-slice design-allowlist.json for escape-hatch suppression.
 // Exits 0 on clean pass, 1 with enumerated violations.

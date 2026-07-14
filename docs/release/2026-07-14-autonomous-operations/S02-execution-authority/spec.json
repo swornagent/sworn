@@ -1,0 +1,99 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S02-execution-authority",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T1-engine-truth",
+  "user_outcome": "A SwornAgent operator invokes the real task or parallel command and reaches one declared fail-closed execution engine whose accepted flags govern the run.",
+  "rationale": "Architecture review #108 confirmed that the tested internal single-task Run engine is not the command's production path, cmdRunTask duplicates orchestration and discards --base, and parallel execution can fall into a retired static-worker path when router construction fails. This slice resolves #27 at the owning command boundary and extends #52's fail-closed principle to release routing.",
+  "touchpoints": [
+    "cmd/sworn/run.go",
+    "cmd/sworn/run_test.go",
+    "internal/run/run.go",
+    "internal/run/run_test.go",
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go",
+    "internal/run/parallel_board_resolve_test.go",
+    "internal/run/resolve.go",
+    "internal/run/resolve_test.go",
+    "internal/router/router.go",
+    "internal/router/router_test.go"
+  ],
+  "in_scope": [
+    "Choose one production single-task engine and make cmd/sworn a thin option/configuration adapter to it; delete or production-wire the duplicate path so no production-dead orchestrator remains.",
+    "Thread --base from CLI parse through branch creation and gated merge and reject an unknown or non-ancestor base before model dispatch.",
+    "Require the committed-state router for production parallel runs and return a typed startup error when board, status, or router construction cannot establish the next role.",
+    "Keep the retired static iteration path available only to explicitly named compatibility tests or remove it when its final test value is migrated.",
+    "Centralise model/role resolution and option validation so dry-run and live command construction use the same engine inputs.",
+    "Add an assembled command guard proving task and parallel modes each dispatch at least one owning engine through cmd/sworn."
+  ],
+  "out_of_scope": [
+    "Terminal effect ordering is S01-terminal-outcome-commit.",
+    "Cancellation and restart semantics are S03-cancellation-recovery.",
+    "Parallel dry-run and loop max-turn behavior remain owned by their planned slices in 2026-07-11-contract-edge-gates.",
+    "Provider capability selection and model registry expansion remain outside this release.",
+    "Fixing every state.Read validation path remains tracked by #52; this slice fails closed at the production routing boundary."
+  ],
+  "covers_needs": ["N-01"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "Removing a duplicated production path changes command construction, task setup, routing, flags, and tests while preserving both CLI modes.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "Consolidating engines regresses one-off task creation or legacy command output.",
+      "mitigation": "Capture current supported task gestures as command-level fixtures and compare release artefacts, branch base, verdict, and exit code through the chosen engine."
+    },
+    {
+      "id": "R-02",
+      "description": "A compatibility switch silently re-enables static parallel routing in production.",
+      "mitigation": "Make compatibility injection test-only or an explicit non-production option and add an architecture rule rejecting production construction of the static path."
+    },
+    {
+      "id": "R-03",
+      "description": "Valid flags remain parsed but unused after consolidation.",
+      "mitigation": "A flag-consumption table maps every accepted run flag to an engine option and command tests use deliberately non-default values."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN sworn run --task is invoked THE SYSTEM SHALL execute the single declared task engine used by its direct engine tests (C-01, N-01; #27).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/run_test.go:TestTaskCommandReachesDeclaredEngine"]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN sworn run --task accepts --base <ref> THE SYSTEM SHALL create and merge the task branch relative to that exact validated ref (C-01, N-01; #27).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/run_test.go:TestTaskCommandHonoursBase"]
+    },
+    {
+      "id": "AC-03",
+      "text": "IF production parallel router construction fails THEN THE SYSTEM SHALL exit non-zero before any worker dispatch (C-01, N-01; #52).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["cmd/sworn/run_test.go:TestParallelRouterFailureFailsBeforeDispatch"]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN a later sibling has malformed or unreadable committed status THE SYSTEM SHALL return an oracle error instead of selecting an implementation role (C-01, N-01; #52).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/run/parallel_board_resolve_test.go:TestParallelMalformedSiblingCannotRoute"]
+    },
+    {
+      "id": "AC-05",
+      "text": "THE SYSTEM SHALL expose no production call site for legacy static parallel iteration (C-01, N-01).",
+      "ears_pattern": "ubiquitous",
+      "test_refs": ["internal/run/parallel_test.go:TestProductionParallelHasNoLegacyFallback"]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHEN supported run flags are set to non-default values THE SYSTEM SHALL pass each value to the owning engine option observed by the cmd/sworn integration test (N-01).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/run_test.go:TestRunCommandConsumesEveryAcceptedFlag"]
+    }
+  ]
+}

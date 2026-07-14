@@ -642,7 +642,6 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 						SliceID:           stNotify.SliceID,
 						State:             "blocked",
 						ViolationsSummary: summary,
-						WorktreePath:      worktreeRoot,
 					})
 				}
 			}
@@ -710,7 +709,6 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 						SliceID:           stNotify.SliceID,
 						State:             "blocked",
 						ViolationsSummary: summary,
-						WorktreePath:      worktreeRoot,
 					})
 				}
 			}
@@ -794,7 +792,6 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 							SliceID:           stNotify.SliceID,
 							State:             "blocked",
 							ViolationsSummary: summary,
-							WorktreePath:      worktreeRoot,
 						})
 					}
 				}
@@ -962,7 +959,6 @@ func RunSlice(ctx context.Context, worktreeRoot, specPath, statusPath string, op
 							SliceID:           stNotify.SliceID,
 							State:             "blocked",
 							ViolationsSummary: summary,
-							WorktreePath:      worktreeRoot,
 						})
 					}
 				}
@@ -1000,7 +996,6 @@ haltFailedVerification:
 				SliceID:           st.SliceID,
 				State:             "failed_verification",
 				ViolationsSummary: summary,
-				WorktreePath:      worktreeRoot,
 			})
 		}
 	}

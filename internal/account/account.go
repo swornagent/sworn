@@ -16,6 +16,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	credentialstore "github.com/swornagent/sworn/internal/credentials"
 )
 
 // Credentials represents a stored SwornAgent authentication session.
@@ -35,21 +37,12 @@ type Credentials struct {
 // On Linux: $HOME/.config/sworn, on macOS: $HOME/Library/Application Support/sworn.
 // Uses os.UserConfigDir() for correct XDG/macOS resolution.
 func configDir() string {
-	base, err := os.UserConfigDir()
-	if err != nil {
-		// Fallback: use HOME directly on platforms where UserConfigDir fails
-		home, _ := os.UserHomeDir()
-		if home != "" {
-			return filepath.Join(home, ".config", "sworn")
-		}
-		return ""
-	}
-	return filepath.Join(base, "sworn")
+	return credentialstore.Dir()
 }
 
 // CredentialsPath returns the full path to the credentials JSON file.
 func CredentialsPath() string {
-	return filepath.Join(configDir(), "credentials.json")
+	return credentialstore.Path()
 }
 
 // OpenBrowser tries to open a URL in the system browser, falling back to
@@ -203,21 +196,41 @@ func DeviceCodeFlow(ctx context.Context, authEndpoint string) (token, email stri
 
 // write time; no Load() check.
 func Save(creds Credentials, dir string) error {
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("creating credentials directory: %w", err)
-	}
+	return saveAt(creds, credentialstore.PathIn(dir))
+}
 
-	data, err := json.MarshalIndent(creds, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshalling credentials: %w", err)
-	}
+// SaveDefault persists account fields at the canonical shared credential path.
+// Unlike Save, it honours an exact SWORN_CREDENTIALS_PATH override.
+func SaveDefault(creds Credentials) error {
+	return saveAt(creds, CredentialsPath())
+}
 
-	path := filepath.Join(dir, "credentials.json")
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		return fmt.Errorf("writing credentials file: %w", err)
-	}
+func saveAt(creds Credentials, path string) error {
+	return credentialstore.UpdateAt(path, func(fields map[string]json.RawMessage) error {
+		values := map[string]any{
+			"token":      creds.Token,
+			"email":      creds.Email,
+			"tier":       creds.Tier,
+			"expires_at": creds.ExpiresAt,
+		}
+		if creds.WebhookURL != "" {
+			values["webhook_url"] = creds.WebhookURL
+		}
+		for name, value := range values {
+			raw, err := json.Marshal(value)
+			if err != nil {
+				return fmt.Errorf("marshalling account credential %s: %w", name, err)
+			}
+			fields[name] = raw
+		}
+		return nil
+	})
+}
 
-	return nil
+// Logout removes the account session while preserving provider keys and
+// independently configured notification settings in the shared envelope.
+func Logout() error {
+	return credentialstore.DeleteAt(CredentialsPath(), "token", "email", "tier", "expires_at")
 }
 
 // Load reads credentials from <dir>/credentials.json. Returns nil, nil if the
@@ -225,7 +238,15 @@ func Save(creds Credentials, dir string) error {
 // are surfaced. No Load() permissions warning per Coach decision
 
 func Load(dir string) (*Credentials, error) {
-	path := filepath.Join(dir, "credentials.json")
+	return loadAt(credentialstore.PathIn(dir))
+}
+
+// LoadDefault reads account fields from the canonical shared credential path.
+func LoadDefault() (*Credentials, error) {
+	return loadAt(CredentialsPath())
+}
+
+func loadAt(path string) (*Credentials, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {

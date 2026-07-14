@@ -137,11 +137,12 @@ tracks:
 	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
 	preCreateDerivedWorktrees(t, tmpDir, "test-parallel")
 	opts := ParallelOptions{
-		ReleaseName:   "test-parallel",
-		WorkspaceRoot: tmpDir,
-		DB:            db,
-		RunSliceFn:    fakeRunSlicePass,
-		ProjectDir:    "sworn",
+		LegacyStaticIteration: true,
+		ReleaseName:           "test-parallel",
+		WorkspaceRoot:         tmpDir,
+		DB:                    db,
+		RunSliceFn:            fakeRunSlicePass,
+		ProjectDir:            "sworn",
 	}
 
 	err = RunParallel(context.Background(), opts)
@@ -149,6 +150,45 @@ tracks:
 		t.Fatalf("RunParallel: %v", err)
 	}
 }
+
+func TestRunParallelRouterConstructionFailureFailsClosed(t *testing.T) {
+	tmpDir := t.TempDir()
+	release := "test-router-required"
+	releaseDir := filepath.Join(tmpDir, "docs", "release", release)
+	if err := os.MkdirAll(releaseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	index := `---
+title: Router Required
+tracks:
+  - id: T1
+    slices: []
+    depends_on: null
+---
+`
+	if err := os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(index), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	preCreateDerivedWorktrees(t, tmpDir, release)
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.Exec(`CREATE TABLE tracks (id TEXT, release TEXT, pid INT, state TEXT, current_slice TEXT, started_at TEXT, PRIMARY KEY (id, release))`)
+	db.Exec(`CREATE TABLE events (track_id TEXT, release TEXT, event TEXT, detail TEXT, ts TEXT)`)
+
+	err = RunParallel(context.Background(), ParallelOptions{
+		ReleaseName:   release,
+		WorkspaceRoot: tmpDir,
+		DB:            db,
+		RunSliceFn:    fakeRunSlicePass,
+	})
+	if err == nil || !strings.Contains(err.Error(), "construct committed-state router") {
+		t.Fatalf("router construction error = %v, want fail-closed error", err)
+	}
+}
+
 func TestRunParallel_ReleaseWorktreePathMissing(t *testing.T) {
 	tmpDir := t.TempDir()
 	releaseDir := filepath.Join(tmpDir, "docs", "release", "test-missing")
@@ -165,8 +205,9 @@ tracks: []
 	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0o644)
 
 	opts := ParallelOptions{
-		ReleaseName:   "test-missing",
-		WorkspaceRoot: tmpDir,
+		LegacyStaticIteration: true,
+		ReleaseName:           "test-missing",
+		WorkspaceRoot:         tmpDir,
 	}
 
 	err := RunParallel(context.Background(), opts)
@@ -191,8 +232,9 @@ tracks: []
 	os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0o644)
 
 	opts := ParallelOptions{
-		ReleaseName:   "test-notracks",
-		WorkspaceRoot: tmpDir,
+		LegacyStaticIteration: true,
+		ReleaseName:           "test-notracks",
+		WorkspaceRoot:         tmpDir,
 	}
 
 	err := RunParallel(context.Background(), opts)
@@ -205,8 +247,9 @@ func TestRunParallel_MissingIndex(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	opts := ParallelOptions{
-		ReleaseName:   "test-nonexistent",
-		WorkspaceRoot: tmpDir,
+		LegacyStaticIteration: true,
+		ReleaseName:           "test-nonexistent",
+		WorkspaceRoot:         tmpDir,
 	}
 
 	err := RunParallel(context.Background(), opts)
@@ -282,11 +325,12 @@ tracks:
 
 	preCreateDerivedWorktrees(t, tmpDir, "test-cascade")
 	opts := ParallelOptions{
-		ReleaseName:   "test-cascade",
-		WorkspaceRoot: tmpDir,
-		DB:            db,
-		RunSliceFn:    runSliceFn,
-		ProjectDir:    "sworn",
+		LegacyStaticIteration: true,
+		ReleaseName:           "test-cascade",
+		WorkspaceRoot:         tmpDir,
+		DB:                    db,
+		RunSliceFn:            runSliceFn,
+		ProjectDir:            "sworn",
 	}
 
 	// T1 fails → RunParallel should return an error.
@@ -374,11 +418,12 @@ tracks:
 
 	preCreateDerivedWorktrees(t, tmpDir, "test-concurrent")
 	opts := ParallelOptions{
-		ReleaseName:   "test-concurrent",
-		WorkspaceRoot: tmpDir,
-		DB:            db,
-		RunSliceFn:    blockingRunSlice(startCh, blockCh),
-		ProjectDir:    "sworn",
+		LegacyStaticIteration: true,
+		ReleaseName:           "test-concurrent",
+		WorkspaceRoot:         tmpDir,
+		DB:                    db,
+		RunSliceFn:            blockingRunSlice(startCh, blockCh),
+		ProjectDir:            "sworn",
 	}
 
 	// Run Parallel in a goroutine (it will block on the channel).
@@ -475,11 +520,12 @@ tracks:
 
 	preCreateDerivedWorktrees(t, tmpDir, "test-dep-success")
 	opts := ParallelOptions{
-		ReleaseName:   "test-dep-success",
-		WorkspaceRoot: tmpDir,
-		DB:            db,
-		RunSliceFn:    runSliceFn,
-		ProjectDir:    "sworn",
+		LegacyStaticIteration: true,
+		ReleaseName:           "test-dep-success",
+		WorkspaceRoot:         tmpDir,
+		DB:                    db,
+		RunSliceFn:            runSliceFn,
+		ProjectDir:            "sworn",
 	}
 
 	err = RunParallel(context.Background(), opts)
@@ -542,12 +588,13 @@ tracks:
 
 	preCreateDerivedWorktrees(t, tmpDir, "test-paused")
 	opts := ParallelOptions{
-		ReleaseName:   "test-paused",
-		WorkspaceRoot: tmpDir,
-		DB:            db,
-		RunSliceFn:    fakeRunSlicePass,
-		ProjectDir:    "sworn",
-		Router:        &pausingRouter{},
+		LegacyStaticIteration: true,
+		ReleaseName:           "test-paused",
+		WorkspaceRoot:         tmpDir,
+		DB:                    db,
+		RunSliceFn:            fakeRunSlicePass,
+		ProjectDir:            "sworn",
+		Router:                &pausingRouter{},
 	}
 
 	err = RunParallel(context.Background(), opts)
@@ -629,11 +676,12 @@ func TestInvariant2_OverlapBlocksSecondTrack(t *testing.T) {
 
 	preCreateDerivedWorktrees(t, tmpDir, "test-inv2-overlap")
 	opts := ParallelOptions{
-		ReleaseName:   "test-inv2-overlap",
-		WorkspaceRoot: tmpDir,
-		DB:            db,
-		RunSliceFn:    fakeRunSlicePass,
-		ProjectDir:    "sworn",
+		LegacyStaticIteration: true,
+		ReleaseName:           "test-inv2-overlap",
+		WorkspaceRoot:         tmpDir,
+		DB:                    db,
+		RunSliceFn:            fakeRunSlicePass,
+		ProjectDir:            "sworn",
 		PlannedFilesFn: fakePlannedFilesFn(map[string][]string{
 			"T1": {"internal/run/parallel.go"},
 			"T2": {"internal/run/parallel.go"},
@@ -727,11 +775,12 @@ func TestInvariant2_NoOverlapBothRun(t *testing.T) {
 
 	preCreateDerivedWorktrees(t, tmpDir, "test-inv2-no-overlap")
 	opts := ParallelOptions{
-		ReleaseName:   "test-inv2-no-overlap",
-		WorkspaceRoot: tmpDir,
-		DB:            db,
-		RunSliceFn:    runSliceFn,
-		ProjectDir:    "sworn",
+		LegacyStaticIteration: true,
+		ReleaseName:           "test-inv2-no-overlap",
+		WorkspaceRoot:         tmpDir,
+		DB:                    db,
+		RunSliceFn:            runSliceFn,
+		ProjectDir:            "sworn",
 		PlannedFilesFn: fakePlannedFilesFn(map[string][]string{
 			"T1": {"internal/run/parallel.go"},
 			"T2": {"internal/run/slice.go"},
@@ -810,11 +859,12 @@ func TestInvariant2_DocumentedSharedExempt(t *testing.T) {
 
 	preCreateDerivedWorktrees(t, tmpDir, "test-inv2-docshared")
 	opts := ParallelOptions{
-		ReleaseName:   "test-inv2-docshared",
-		WorkspaceRoot: tmpDir,
-		DB:            db,
-		RunSliceFn:    runSliceFn,
-		ProjectDir:    "sworn",
+		LegacyStaticIteration: true,
+		ReleaseName:           "test-inv2-docshared",
+		WorkspaceRoot:         tmpDir,
+		DB:                    db,
+		RunSliceFn:            runSliceFn,
+		ProjectDir:            "sworn",
 		PlannedFilesFn: fakePlannedFilesFn(map[string][]string{
 			"T1": {"internal/model/oai.go"},
 			"T2": {"internal/model/oai.go"},
@@ -916,11 +966,12 @@ func TestInvariant2_DocumentedSharedFromRenderedBoard(t *testing.T) {
 
 	preCreateDerivedWorktrees(t, tmpDir, release)
 	opts := ParallelOptions{
-		ReleaseName:   release,
-		WorkspaceRoot: tmpDir,
-		DB:            db,
-		RunSliceFn:    runSliceFn,
-		ProjectDir:    "sworn",
+		LegacyStaticIteration: true,
+		ReleaseName:           release,
+		WorkspaceRoot:         tmpDir,
+		DB:                    db,
+		RunSliceFn:            runSliceFn,
+		ProjectDir:            "sworn",
 		PlannedFilesFn: fakePlannedFilesFn(map[string][]string{
 			"T1-alpha": {sharedFile},
 			"T2-beta":  {sharedFile},
@@ -990,12 +1041,13 @@ func TestInvariant2_OracleReadFailureFailsOpen(t *testing.T) {
 
 	preCreateDerivedWorktrees(t, tmpDir, "test-inv2-failopen")
 	opts := ParallelOptions{
-		ReleaseName:    "test-inv2-failopen",
-		WorkspaceRoot:  tmpDir,
-		DB:             db,
-		RunSliceFn:     fakeRunSlicePass,
-		ProjectDir:     "sworn",
-		PlannedFilesFn: errorPlannedFilesFn,
+		LegacyStaticIteration: true,
+		ReleaseName:           "test-inv2-failopen",
+		WorkspaceRoot:         tmpDir,
+		DB:                    db,
+		RunSliceFn:            fakeRunSlicePass,
+		ProjectDir:            "sworn",
+		PlannedFilesFn:        errorPlannedFilesFn,
 	}
 
 	err = RunParallel(context.Background(), opts)
@@ -1084,13 +1136,14 @@ func TestRunParallel_AC06_RealReleaseBoardResolvesTracks(t *testing.T) {
 
 	preCreateDerivedWorktrees(t, tmpDir, release)
 	opts := ParallelOptions{
-		ReleaseName:    release,
-		WorkspaceRoot:  tmpDir,
-		DB:             db,
-		RunSliceFn:     fakeRunSlicePass, // never reached — pausing router pauses first
-		ProjectDir:     "sworn",
-		Router:         &pausingRouter{},
-		PlannedFilesFn: fakePlannedFilesFn(map[string][]string{}),
+		LegacyStaticIteration: true,
+		ReleaseName:           release,
+		WorkspaceRoot:         tmpDir,
+		DB:                    db,
+		RunSliceFn:            fakeRunSlicePass, // never reached — pausing router pauses first
+		ProjectDir:            "sworn",
+		Router:                &pausingRouter{},
+		PlannedFilesFn:        fakePlannedFilesFn(map[string][]string{}),
 	}
 
 	err = RunParallel(context.Background(), opts)

@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/swornagent/sworn/internal/account"
@@ -68,8 +66,7 @@ func cmdLogin(args []string) int {
 		ExpiresAt: time.Now().Add(24 * time.Hour),
 	}
 
-	dir := filepath.Dir(account.CredentialsPath())
-	if err := account.Save(creds, dir); err != nil {
+	if err := account.SaveDefault(creds); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to save credentials: %v\n", err)
 		return 1
 	}
@@ -78,17 +75,10 @@ func cmdLogin(args []string) int {
 	return 0
 }
 
-// cmdLogout implements `sworn logout`. It removes the credentials file and
-// prints a message. If no credentials file exists, it is a silent no-op
-// Suppress os.ErrNotExist — no credentials file is not an error.
+// cmdLogout implements `sworn logout`. It removes only the account session
+// fields from the shared credentials envelope. A missing file is a no-op.
 func cmdLogout(args []string) int {
-	path := account.CredentialsPath()
-	if err := os.Remove(path); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			// No credentials file — no-op, print success anyway.
-			fmt.Fprintln(os.Stderr, "Logged out")
-			return 0
-		}
+	if err := account.Logout(); err != nil {
 		fmt.Fprintf(os.Stderr, "Logout failed: %v\n", err)
 		return 1
 	}

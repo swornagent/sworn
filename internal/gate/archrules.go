@@ -1,7 +1,7 @@
 // Package gate provides lint gates for the SwornAgent CLI.
 //
 // archrules.go implements the architecture rule engine for `sworn lint design`.
-// It reads docs/baton/architecture.json and runs four check types (grep,
+// It reads docs/architecture.json (with a legacy docs/baton fallback) and runs four check types (grep,
 // touchpoints, diff-size, external) against a slice's git diff, reporting
 // violations with file:line detail.
 //
@@ -27,6 +27,7 @@ import (
 type ArchRulesReport struct {
 	Release    string          `json:"release"`
 	Slice      string          `json:"slice"`
+	Configured bool            `json:"configured"`
 	Rules      int             `json:"rules_checked"`
 	Violations []ArchViolation `json:"violations"`
 	Failed     int             `json:"failed"`
@@ -107,7 +108,7 @@ type AllowlistEntry struct {
 
 // --- main entry point ---
 
-// RunArchRules loads architecture.json from docs/baton/, reads the slice's git
+// RunArchRules loads the project architecture policy, reads the slice's git
 // diff against baseRef, and runs every configured architecture rule.
 //
 // Parameters:
@@ -134,30 +135,45 @@ func RunArchRules(releaseDir, sliceID, baseRef string) (*ArchRulesReport, error)
 	sliceDir := filepath.Join(releaseDir, sliceID)
 
 	// 1. Load architecture config.
-	archPath := filepath.Join(root, "docs", "baton", "architecture.json")
+	archPath := filepath.Join(root, "docs", "architecture.json")
+	legacyArchPath := filepath.Join(root, "docs", "baton", "architecture.json")
+	if _, statErr := os.Stat(archPath); os.IsNotExist(statErr) {
+		archPath = legacyArchPath
+	}
+	configured := true
 	cfg, err := loadArchConfig(archPath)
 	if err != nil {
-		// No architecture.json is not an error — just nothing to check.
-		cfg = &ArchConfig{Rules: nil}
+		if os.IsNotExist(err) {
+			// Architecture policy is optional for adopting projects. This repo
+			// has a repository-level guard requiring its own policy to exist.
+			cfg = &ArchConfig{Rules: nil}
+			configured = false
+		} else {
+			return nil, fmt.Errorf("archrules: load %s: %w", archPath, err)
+		}
 	}
 
 	// 2. Load per-slice allowlist.
 	allowlistPath := filepath.Join(sliceDir, "design-allowlist.json")
-	allowlist, _ := loadAllowlist(allowlistPath)
+	allowlist, allowlistErr := loadAllowlist(allowlistPath)
+	if allowlistErr != nil && !os.IsNotExist(allowlistErr) {
+		return nil, fmt.Errorf("archrules: load allowlist %s: %w", allowlistPath, allowlistErr)
+	}
 	if allowlist == nil {
 		allowlist = &DesignAllowlist{}
 	}
 
 	// 3. Get changed files from the diff.
-	changedFiles, err := diffChangedFiles(baseRef)
+	changedFiles, err := diffChangedFilesAt(root, baseRef)
 	if err != nil {
 		return nil, fmt.Errorf("archrules: git diff: %w", err)
 	}
 
 	report := &ArchRulesReport{
-		Release: releaseName,
-		Slice:   sliceID,
-		Rules:   len(cfg.Rules),
+		Release:    releaseName,
+		Slice:      sliceID,
+		Configured: configured,
+		Rules:      len(cfg.Rules),
 	}
 
 	// 4. Run each rule.
@@ -171,7 +187,9 @@ func RunArchRules(releaseDir, sliceID, baseRef string) (*ArchRulesReport, error)
 		}
 	}
 
-	if report.Failed == 0 {
+	if !report.Configured {
+		report.Verdict = "SKIP"
+	} else if report.Failed == 0 {
 		report.Verdict = "PASS"
 	} else {
 		report.Verdict = "FAIL"
@@ -191,7 +209,59 @@ func loadArchConfig(path string) (*ArchConfig, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse architecture.json: %w", err)
 	}
+	if err := validateArchConfig(&cfg); err != nil {
+		return nil, fmt.Errorf("validate architecture.json: %w", err)
+	}
 	return &cfg, nil
+}
+
+func validateArchConfig(cfg *ArchConfig) error {
+	if len(cfg.Rules) == 0 {
+		return fmt.Errorf("at least one architecture rule is required")
+	}
+	seen := make(map[string]bool, len(cfg.Rules))
+	for i, rule := range cfg.Rules {
+		prefix := fmt.Sprintf("rules[%d]", i)
+		if strings.TrimSpace(rule.ID) == "" {
+			return fmt.Errorf("%s.id is required", prefix)
+		}
+		if seen[rule.ID] {
+			return fmt.Errorf("duplicate rule id %q", rule.ID)
+		}
+		seen[rule.ID] = true
+		if strings.TrimSpace(rule.Description) == "" {
+			return fmt.Errorf("%s.description is required", prefix)
+		}
+		if rule.Severity != "error" && rule.Severity != "warning" {
+			return fmt.Errorf("%s.severity %q must be error or warning", prefix, rule.Severity)
+		}
+		switch rule.Check {
+		case "grep":
+			if rule.Pattern == "" {
+				return fmt.Errorf("%s.pattern is required for grep", prefix)
+			}
+			if _, err := regexp.Compile(rule.Pattern); err != nil {
+				return fmt.Errorf("%s.pattern: %w", prefix, err)
+			}
+			if rule.Files != "" {
+				if _, err := compileGlobToRegex(rule.Files); err != nil {
+					return fmt.Errorf("%s.files: %w", prefix, err)
+				}
+			}
+		case "touchpoints":
+		case "diff-size":
+			if rule.MaxLinesAdded <= 0 && rule.MaxFileLines <= 0 {
+				return fmt.Errorf("%s requires max_lines_added or max_file_lines", prefix)
+			}
+		case "external":
+			if strings.TrimSpace(rule.Command) == "" {
+				return fmt.Errorf("%s.command is required for external", prefix)
+			}
+		default:
+			return fmt.Errorf("%s.check %q is unknown", prefix, rule.Check)
+		}
+	}
+	return nil
 }
 
 func loadAllowlist(path string) (*DesignAllowlist, error) {
@@ -222,7 +292,14 @@ func isExempt(allowlist *DesignAllowlist, ruleID, file string) bool {
 
 // diffChangedFiles returns the list of files changed between baseRef and HEAD.
 func diffChangedFiles(baseRef string) ([]string, error) {
+	return diffChangedFilesAt("", baseRef)
+}
+
+func diffChangedFilesAt(root, baseRef string) ([]string, error) {
 	cmd := exec.Command("git", "diff", "--name-only", baseRef, "HEAD")
+	if root != "" {
+		cmd.Dir = root
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git diff: %w", err)
@@ -238,8 +315,9 @@ func diffChangedFiles(baseRef string) ([]string, error) {
 }
 
 // diffFileContent returns the full diff (added lines) for a specific file.
-func diffFileContent(baseRef, file string) ([]string, error) {
+func diffFileContent(root, baseRef, file string) ([]string, error) {
 	cmd := exec.Command("git", "diff", baseRef, "HEAD", "--", file)
+	cmd.Dir = root
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git diff %s: %w", file, err)
@@ -249,7 +327,11 @@ func diffFileContent(baseRef, file string) ([]string, error) {
 
 // diffAddedLines returns only the added lines (prefixed with + but not +++ ) from the diff.
 func diffAddedLines(baseRef, file string) ([]lineInfo, error) {
-	diffLines, err := diffFileContent(baseRef, file)
+	return diffAddedLinesAt("", baseRef, file)
+}
+
+func diffAddedLinesAt(root, baseRef, file string) ([]lineInfo, error) {
+	diffLines, err := diffFileContent(root, baseRef, file)
 	if err != nil {
 		return nil, err
 	}
@@ -319,7 +401,7 @@ func runRule(rule ArchRule, root string, changedFiles []string, baseRef, sliceDi
 	case "diff-size":
 		return runDiffSizeRule(rule, root, changedFiles, baseRef, allowlist)
 	case "external":
-		return runExternalRule(rule, allowlist)
+		return runExternalRule(rule, root, allowlist)
 	default:
 		return []ArchViolation{{
 			RuleID:      rule.ID,
@@ -443,7 +525,7 @@ func runGrepRule(rule ArchRule, root string, changedFiles []string, baseRef stri
 			continue
 		}
 
-		added, err := diffAddedLines(baseRef, file)
+		added, err := diffAddedLinesAt(root, baseRef, file)
 		if err != nil {
 			continue
 		}
@@ -537,7 +619,7 @@ func runDiffSizeRule(rule ArchRule, root string, changedFiles []string, baseRef 
 
 		// Check growth limit (lines added).
 		if rule.MaxLinesAdded > 0 {
-			added, err := diffAddedLines(baseRef, file)
+			added, err := diffAddedLinesAt(root, baseRef, file)
 			if err != nil {
 				continue
 			}
@@ -574,7 +656,7 @@ func runDiffSizeRule(rule ArchRule, root string, changedFiles []string, baseRef 
 
 // --- external check ---
 
-func runExternalRule(rule ArchRule, allowlist *DesignAllowlist) []ArchViolation {
+func runExternalRule(rule ArchRule, root string, allowlist *DesignAllowlist) []ArchViolation {
 	if isExempt(allowlist, rule.ID, "") {
 		return nil
 	}
@@ -590,6 +672,7 @@ func runExternalRule(rule ArchRule, allowlist *DesignAllowlist) []ArchViolation 
 
 	// Simple command execution: use /bin/sh -c
 	cmd := exec.Command("sh", "-c", rule.Command)
+	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		// Non-zero exit = violation.
@@ -630,6 +713,8 @@ func PrintArchRules(r *ArchRulesReport) string {
 
 	if r.Verdict == "PASS" {
 		b.WriteString(style.Success("PASS — no architecture rule violations\n"))
+	} else if r.Verdict == "SKIP" {
+		b.WriteString(style.Warn("SKIP — no project architecture policy configured\n"))
 	} else {
 		b.WriteString(style.Danger(fmt.Sprintf("FAIL — %d error violation(s)\n", r.Failed)))
 	}

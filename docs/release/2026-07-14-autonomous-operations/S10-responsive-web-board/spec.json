@@ -1,0 +1,144 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S10-responsive-web-board",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T4-mobile-board",
+  "user_outcome": "A SwornAgent operator can open the embedded board on a 360-pixel-wide phone and quickly understand active loops, blockers, terminal states, recent events, and notification health using an accessible read-only interface.",
+  "rationale": "This is the priority web UI outcome requested in #109 from architecture review #108. It consumes C-06 only through S09's same-origin reads and event stream, so it cannot repeat the source drift in #81 or perform the synchronous repository I/O tracked in #82. The UI is embedded in the Go binary with standard-library facilities and ships monitoring before mutation. Browser verification is mandatory at a 360 CSS-pixel viewport; handler or DOM unit tests alone are not Rule 1 evidence.",
+  "touchpoints": [
+    "internal/webui/embed.go",
+    "internal/webui/embed_test.go",
+    "internal/webui/assets/index.html",
+    "internal/webui/assets/app.css",
+    "internal/webui/assets/app.js",
+    "internal/webui/browser_test.go",
+    "internal/webapi/server.go",
+    "internal/webapi/server_test.go",
+    "cmd/sworn/serve_test.go",
+    ".github/workflows/ci.yml",
+    "docs/adr/0016-embedded-web-ui.md"
+  ],
+  "in_scope": [
+    "Embed versioned HTML, CSS, and dependency-free JavaScript into the sworn binary with go:embed, serve it at /, and keep API/event fetches same-origin under C-06.",
+    "Render a mobile-first 360 CSS-pixel board showing release and loop liveness, track and slice progression, source revision, blockers/action-required state, recent events, and notification pending/retry/dead health from S09.",
+    "Provide compact summary-first cards with expandable details, release/state filters, connection and last-updated indicators, useful empty/loading/degraded states, and stable deep links to a release/slice/event without exposing a filesystem path.",
+    "Use semantic header/nav/main/section/list markup, a skip link, programmatic headings and labels, textual state names/icons in addition to color, polite live-region announcements, logical focus order, and preserved focus across SSE updates.",
+    "Meet WCAG 2.2 AA contrast for text and focus indicators, provide at least 24-by-24 CSS-pixel targets with 44-pixel primary mobile rows, support 200 percent text zoom and prefers-reduced-motion, and avoid horizontal scrolling at 360 pixels for ordinary content.",
+    "Make every filter, disclosure, link, and retry-view gesture keyboard operable with visible focus; this slice includes no command button and makes no state-changing request.",
+    "Render untrusted release/event text with text nodes rather than HTML injection, use an external embedded script under a restrictive CSP, make no third-party network request, and show typed API degradation rather than a healthy empty board.",
+    "Add a standard-library Chromium DevTools Protocol browser harness or equivalent no-runtime-dependency browser gate that checks layout, keyboard/focus, semantics, dynamic updates, contrast tokens, and captures a 360-pixel screenshot from the real `sworn serve` process."
+  ],
+  "out_of_scope": [
+    "Pause, resume, retry, defer, acknowledge, or other mutations are owned exclusively by S11-authenticated-remote-controls.",
+    "Read endpoint, SSE, source authority, and loopback binding semantics are owned by S09-operations-read-api.",
+    "A framework runtime, CDN assets, analytics, service worker, offline mutation queue, hosted deployment, and fleet aggregation are outside #109.",
+    "Redesigning the terminal TUI is outside this slice; #82 remains relevant only as a failure class this web adapter must not reproduce.",
+    "The twelve planned contract-edge-gates slices remain excluded, including UI-unrelated provider, dry-run, max-turn, design-authority, and general guard-fidelity scope."
+  ],
+  "covers_needs": [
+    "N-04"
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "A small dependency-free UI still spans information architecture, mobile layout, dynamic state, accessibility, secure rendering, embedding, real-browser automation, screenshots, and visual review. Usability and focus behavior are emergent and require browser evidence.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "A desktop-looking board technically shrinks to 360 pixels but hides priority state or requires horizontal scrolling.",
+      "mitigation": "Design summary-first at 360 pixels, make the browser gate assert no document overflow and visible blocker/liveness content before expansion, and require a reviewed mobile screenshot."
+    },
+    {
+      "id": "R-02",
+      "description": "Frequent SSE rerenders steal keyboard focus or make screen readers announce the entire board repeatedly.",
+      "mitigation": "Key DOM nodes by stable IDs, patch changed text only, preserve active element and disclosure state, and announce concise event summaries in a dedicated polite live region."
+    },
+    {
+      "id": "R-03",
+      "description": "Status is conveyed only by color or contrast/touch targets regress after visual tuning.",
+      "mitigation": "Centralize tokens, pair every status color with text/icon, assert computed target sizes and contrast in the real browser, and retain a 360-pixel screenshot in proof."
+    },
+    {
+      "id": "R-04",
+      "description": "Untrusted event text becomes script/markup or a remote asset bypasses the one-binary security boundary.",
+      "mitigation": "Use textContent/createTextNode, no inline or remote scripts, restrictive CSP, same-origin requests only, and browser-test malicious fixture strings plus request logs."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN the board loads at a 360-by-800 CSS-pixel viewport THE SYSTEM SHALL show release identity, loop liveness, the highest-attention blocker, slice progress, and notification health without horizontal document overflow (C-06, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/webui/browser_test.go:TestMobile360PriorityLayout"
+      ]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN a keyboard-only user traverses the board THE SYSTEM SHALL reach the skip link, filters, disclosures, and deep links in logical order with a visible focus indicator and no focus trap (C-06, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/webui/browser_test.go:TestKeyboardOrderAndVisibleFocus"
+      ]
+    },
+    {
+      "id": "AC-03",
+      "text": "THE SYSTEM SHALL expose header, navigation, main, named status sections, heading hierarchy, form labels, textual state names, and one polite update region through the browser accessibility tree (C-06, N-04).",
+      "ears_pattern": "ubiquitous",
+      "test_refs": [
+        "internal/webui/browser_test.go:TestSemanticStructureAndStateText"
+      ]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN an SSE event changes a visible slice THE SYSTEM SHALL update only the affected projection, preserve the focused element and open disclosure, and announce one concise textual update (C-03, C-06, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/webui/browser_test.go:TestLiveUpdatePreservesFocusAndDisclosure"
+      ]
+    },
+    {
+      "id": "AC-05",
+      "text": "IF the C-06 snapshot or event stream reports unavailable, malformed, stale, or disconnected state THEN THE SYSTEM SHALL display that typed degradation prominently and SHALL NOT render the affected area as healthy or empty (C-06, N-04).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "internal/webui/browser_test.go:TestDegradedAPIStateIsVisible"
+      ]
+    },
+    {
+      "id": "AC-06",
+      "text": "THE SYSTEM SHALL render all body text, state tokens, and focus indicators at WCAG 2.2 AA contrast and all interactive targets at least 24-by-24 CSS pixels at 360 pixels wide and 200 percent text zoom (C-06, N-04).",
+      "ears_pattern": "ubiquitous",
+      "test_refs": [
+        "internal/webui/browser_test.go:TestContrastTargetsAndTextZoom"
+      ]
+    },
+    {
+      "id": "AC-07",
+      "text": "IF release or event fields contain HTML, script, URL, credential, or absolute-path canaries THEN THE SYSTEM SHALL display them only as inert safe text or omit them and SHALL make no request outside the board origin (C-03, C-06, N-04).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "internal/webui/browser_test.go:TestUntrustedContentIsInertAndSameOrigin"
+      ]
+    },
+    {
+      "id": "AC-08",
+      "text": "WHILE S11 controls are not enabled THE SYSTEM SHALL render no operation command control and SHALL issue only GET requests to /api/v1 and /events during every board gesture (C-02, C-06, N-04).",
+      "ears_pattern": "state-driven",
+      "test_refs": [
+        "internal/webui/browser_test.go:TestReadOnlyBoardNeverMutates"
+      ]
+    },
+    {
+      "id": "AC-09",
+      "text": "WHEN release reachability is captured THE SYSTEM SHALL serve the embedded board from the built `sworn serve` binary and produce a reviewed 360-pixel screenshot plus browser assertions for layout, keyboard focus, semantics, live update, and degraded state (C-06, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/webui/browser_test.go:TestBuiltBinaryMobileBoardReachability"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,149 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S12-autonomous-operations-journey",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T5-assembled-journey",
+  "user_outcome": "A SwornAgent operator drives the real binary from a committed current-format release through implementation, fresh verification, retry, interruption/restart, durable paging, mobile observation/control, release assembly, and the chosen final-merge authority without any optimistic terminal result.",
+  "rationale": "This is the release reachability gate for #109 and closes the architecture review's central gap: independently tested components have repeatedly failed to prove that production selects and assembles them. It also reconciles #53 by making one native release operation own both gates and the release-worktree-to-integration merge, while preserving the human pause unless a separate release-merge delegation exists. The slice owns C-07 and proves C-01 through C-08 as one story.",
+  "touchpoints": [
+    "cmd/sworn/merge.go",
+    "cmd/sworn/merge_test.go",
+    "cmd/sworn/main.go",
+    "cmd/sworn/operations_journey_test.go",
+    "internal/control/delegation.go",
+    "internal/control/delegation_test.go",
+    "internal/run/parallel.go",
+    "internal/run/operations_journey_test.go",
+    "internal/scheduler/worker.go",
+    "internal/scheduler/worker_test.go",
+    "internal/web/operations_browser_test.go",
+    "internal/notify/outbox_integration_test.go",
+    "docs/adr/0015-release-merge-delegation.md"
+  ],
+  "in_scope": [
+    "Make one native release-finalization operation run the deterministic release gates and merge release-wt/<release> into the board-declared integration branch when invoked by an authorized human; success requires the target ref to move or already contain the exact release head.",
+    "Keep the autonomous scheduler's default terminal action as a durable ready_to_merge outcome plus human-required command; it must not report merged or exit PASS for automatic merge while no standing delegation exists.",
+    "Define merge-delegation-v1 with release scope, integration target, granting actor, grant/expiry/revocation timestamps, and fail-closed validation. Design-authority delegation is not release-merge authority.",
+    "Allow the scheduler to invoke the same native release-finalization operation automatically only when an unexpired, unrevoked, target-matching standing delegation exists and every normal merge/ship gate passes.",
+    "Build a hermetic real-binary journey using deterministic local protocol-speaking driver fixtures: committed current-format board, at least two tracks, one initial verifier FAIL followed by retry PASS, one attention-required state, and fresh process identity for every verifier attempt.",
+    "Interrupt the real loop with SIGTERM while a child operation is active, prove bounded child cleanup and a durable non-PASS event, restart the loop, and prove reconciliation resumes without repeating a committed effect or losing a verdict.",
+    "Withhold a webhook/mobile delivery, observe it remain durably pending/retryable while loop progress continues, restore the endpoint, and prove exactly one delivered notification for the stable operation event.",
+    "Start the embedded operations server on loopback, drive the responsive board with a browser at a 360 CSS-pixel viewport, observe live progress, authenticate, submit one revision-checked idempotent pause/resume or retry command, and reconcile the UI result to the event and status revision.",
+    "Record a machine-readable assembled-journey artefact containing binary revision, command/exit sequence, process identities, state revisions, Git refs, operation/event IDs, notification attempt/result, browser assertions, and merge-authority outcome without secrets, payload bodies, or machine-local paths."
+  ],
+  "out_of_scope": [
+    "Production deployment after integration-branch merge, release publishing, package registries, and hosted multi-tenant control services are not part of this local operations journey.",
+    "Provider endpoint/dialect coverage remains in 2026-07-14-local-cloud-providers; deterministic local drivers prove orchestration without token spend.",
+    "General guard-fidelity, assembly-proof generation, dry-run, max-turn, and design-authority slices remain owned by 2026-07-11-contract-edge-gates. This slice consumes their landed behavior when available and does not re-specify it.",
+    "Automatic release merge without a standing delegation is forbidden rather than deferred."
+  ],
+  "covers_needs": [
+    "N-01",
+    "N-02",
+    "N-03",
+    "N-04"
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "The slice assembles every release track through real process, Git, HTTP, browser, persistence, and authority boundaries. The implementation should mostly be integration and missing merge-delegation logic, but failures can span the entire product.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "A broad journey passes through test-only seams and again fails to prove the production command assembly.",
+      "mitigation": "Build and invoke the real binary, use only external deterministic driver/HTTP fixtures, assert real refs/process identities, and reject in-process replacement of command construction, router selection, state store, outbox, or HTTP handlers."
+    },
+    {
+      "id": "R-02",
+      "description": "Release merge delegation is confused with design-authority delegation or becomes an unbounded permanent bypass.",
+      "mitigation": "Use a distinct schema/command, require release and target scope plus expiry/revocation, surface it in board/audit views, and exercise absent, mismatched, expired, revoked, and valid cases."
+    },
+    {
+      "id": "R-03",
+      "description": "The journey becomes flaky because it relies on timing, paid providers, or an externally installed browser/service.",
+      "mitigation": "Use barrier-controlled local subprocess and HTTP fixtures, repository browser-test tooling selected in S10, bounded polling on durable events rather than sleeps, and no network or token dependency."
+    },
+    {
+      "id": "R-04",
+      "description": "The proof captures secrets or machine-local paths while combining many boundaries.",
+      "mitigation": "Generate the artefact from typed safe records, scan it with the public-safety guard, use stable logical IDs/relative refs only, and add explicit forbidden-field assertions."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN the built sworn binary starts loop --parallel for a committed current-format two-track release with deterministic local drivers THE SYSTEM SHALL reach ready_to_merge only after an implementer attempt, a fresh-context verifier FAIL, one retry, a fresh-context verifier PASS, verified status/Git commits for every slice, and successful release-worktree assembly (C-01, N-01).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "cmd/sworn/operations_journey_test.go:TestBinaryColdStartRetryVerifyAndAssemble"
+      ]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN SIGTERM arrives while the binary journey has an active model-tool or proof child THE SYSTEM SHALL terminate the child within the configured bound, persist cancelled or paused operation evidence with no PASS, and on restart resume from the last committed revision without duplicating a completed dispatch, commit, event, or merge (C-01, C-03, C-04, N-01).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "cmd/sworn/operations_journey_test.go:TestBinarySignalRestartReconcilesExactlyOnce"
+      ]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN a C-09 or C-11 notification endpoint accepts a connection but withholds its response during the binary journey THE SYSTEM SHALL continue loop progress, record a C-10-bounded failed attempt and retry schedule, and after recovery record exactly one delivered notification for the original operation-event ID (C-03, C-05, C-09, C-10, C-11, N-03).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/notify/outbox_integration_test.go:TestJourneyStalledWebhookReplaysExactlyOnce"
+      ]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN a browser opens the loopback operations board at a 360 CSS-pixel viewport during the binary journey THE SYSTEM SHALL display the authoritative release, track, slice, liveness, blocker, event, and notification states without horizontal page overflow and SHALL update from the resumable event stream (C-03, C-04, C-05, C-06, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/web/operations_browser_test.go:TestJourneyMobileBoardTracksLiveState"
+      ]
+    },
+    {
+      "id": "AC-05",
+      "text": "WHEN a C-12-authenticated browser submits an allowed control with C-13 CSRF, current C-14 If-Match, and a new C-15 Idempotency-Key THE SYSTEM SHALL accept one durable control-command, emit its audit events, apply it through the loop owner, and return the original operation without a second mutation on replay (C-02, C-03, C-04, C-06, C-08, C-12, C-13, C-14, C-15, N-02, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/web/operations_browser_test.go:TestJourneyAuthenticatedControlIsExactlyOnce"
+      ]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHEN a human invokes sworn merge-release for a ready release with all gates passing THE SYSTEM SHALL merge the exact release-wt head into the board-declared integration branch, verify ancestry after the mutation, record terminal merge evidence, and exit 0 only after those effects succeed (C-01, C-07, N-01).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "cmd/sworn/merge_test.go:TestMergeReleaseMovesDeclaredIntegrationRef"
+      ]
+    },
+    {
+      "id": "AC-07",
+      "text": "IF the autonomous scheduler reaches release merge without a matching unexpired unrevoked merge-delegation-v1 record THEN THE SYSTEM SHALL persist ready_to_merge, page the release authority, leave the integration ref unchanged, and return a non-PASS automatic-merge outcome (C-01, C-05, C-07, N-01, N-03).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "internal/run/operations_journey_test.go:TestAutomaticMergeAbsentDelegationPauses"
+      ]
+    },
+    {
+      "id": "AC-08",
+      "text": "WHEN the autonomous scheduler reaches release merge with a matching valid merge-delegation-v1 record THE SYSTEM SHALL invoke the same gated native finalization operation as the human command, merge exactly once, record the delegation and resulting Git reference in the audit event, and reject a later replay as already completed (C-01, C-03, C-07, N-01, N-02).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/run/operations_journey_test.go:TestAutomaticMergeWithStandingDelegation"
+      ]
+    },
+    {
+      "id": "AC-09",
+      "text": "THE SYSTEM SHALL emit an assembled-journey-v1 artefact that reconciles every asserted outcome to command exit, process identity, status revision, Git reference, event ID, notification result, browser assertion, and merge-authority decision and SHALL fail validation if any required evidence is absent or any secret, payload body, absolute path, or credential field is present (N-01, N-02, N-03, N-04).",
+      "ears_pattern": "ubiquitous",
+      "test_refs": [
+        "cmd/sworn/operations_journey_test.go:TestAssembledJourneyRecordValidatesFailClosed"
+      ]
+    }
+  ]
+}

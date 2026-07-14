@@ -1,0 +1,92 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S04-command-event-service",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T2-control-core",
+  "covers_needs": ["N-02"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-14T16:19:18+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-14-autonomous-operations/S04-command-event-service/spec.json",
+  "proof_path": "docs/release/2026-07-14-autonomous-operations/S04-command-event-service/proof.json",
+  "journal_path": "docs/release/2026-07-14-autonomous-operations/S04-command-event-service/journal.md",
+  "planned_files": [
+    "internal/db/db.go",
+    "internal/db/db_test.go",
+    "internal/control/command.go",
+    "internal/control/event.go",
+    "internal/control/service.go",
+    "internal/control/store.go",
+    "internal/control/service_test.go",
+    "internal/control/store_test.go",
+    "internal/control/integration_test.go",
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go",
+    "internal/scheduler/scheduler.go",
+    "internal/scheduler/scheduler_test.go",
+    "internal/supervisor/supervisor.go",
+    "internal/supervisor/supervisor_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/control/... ./internal/db/... ./internal/run/... ./internal/scheduler/... ./internal/supervisor/...",
+    "go test -race ./internal/control/... ./internal/db/...",
+    "go test ./...",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh"
+  ],
+  "reachability_artifacts": [
+    "integration test running the real loop command processor against two SQLite connections, with command, claim, effect, and operation-event rows captured",
+    "database migration transcript showing a pre-operations supervisor fixture opened and queried after migration"
+  ],
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "See spec.json; command taxonomy, transaction boundaries, and safe event projection require design review.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.1.0",
+  "release_benefit": "A SwornAgent operator can trust a recoverable autonomous release loop, receive durable attention pages, and monitor or safely control it from a mobile web board.",
+  "validation": {
+    "human_ratified": false,
+    "positive_scenarios": [
+      "A control intent is accepted once and its lifecycle is queryable after restart.",
+      "Concurrent processors grant only one operation claim."
+    ],
+    "negative_scenarios": [
+      "Duplicate submissions cannot duplicate an operation.",
+      "Unsafe event detail cannot reach durable storage."
+    ],
+    "benefit_hypothesis": "A durable command/event authority gives every adapter and recovery path the same auditable operation semantics."
+  },
+  "design_decisions": [
+    {
+      "choice": "Store commands, operations, and events in the existing repository-local SQLite database.",
+      "stake_class": "Type-1",
+      "options": ["Git-only command files", "new external broker", "existing SQLite store"],
+      "human_decision": "",
+      "rationale": "The existing database already coordinates cross-process loop ownership and can make command acceptance atomic.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Make notification and UI data consume typed public-safe operation events.",
+      "stake_class": "Type-1",
+      "options": ["surface-specific logs", "raw status diffs", "typed public-safe events"],
+      "human_decision": "",
+      "rationale": "One safe projection prevents later transports from parsing logs or exposing internal payloads.",
+      "architecturally_significant": true
+    }
+  ]
+}

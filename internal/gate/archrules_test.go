@@ -223,7 +223,7 @@ func TestRunExternalRule_CommandSucceeds(t *testing.T) {
 		Note:        "should pass",
 	}
 
-	violations := runExternalRule(rule, &DesignAllowlist{})
+	violations := runExternalRule(rule, t.TempDir(), &DesignAllowlist{})
 	if len(violations) != 0 {
 		t.Errorf("expected 0 violations for 'true', got %d", len(violations))
 	}
@@ -239,7 +239,7 @@ func TestRunExternalRule_CommandFails(t *testing.T) {
 		Note:        "should fail",
 	}
 
-	violations := runExternalRule(rule, &DesignAllowlist{})
+	violations := runExternalRule(rule, t.TempDir(), &DesignAllowlist{})
 	if len(violations) != 1 {
 		t.Fatalf("expected 1 violation for 'false', got %d", len(violations))
 	}
@@ -258,9 +258,26 @@ func TestRunExternalRule_NoCommand(t *testing.T) {
 		Note:        "no command",
 	}
 
-	violations := runExternalRule(rule, &DesignAllowlist{})
+	violations := runExternalRule(rule, t.TempDir(), &DesignAllowlist{})
 	if len(violations) != 1 {
 		t.Errorf("expected 1 violation for empty command, got %d", len(violations))
+	}
+}
+
+func TestRunExternalRuleRunsFromRepositoryRoot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "root-marker"), []byte("ok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rule := ArchRule{
+		ID:          "repository-root",
+		Description: "external checks are repository-scoped",
+		Check:       "external",
+		Command:     "test -f root-marker",
+		Severity:    "error",
+	}
+	if violations := runExternalRule(rule, root, &DesignAllowlist{}); len(violations) != 0 {
+		t.Fatalf("external rule did not run at repository root: %#v", violations)
 	}
 }
 
@@ -327,6 +344,61 @@ func TestLoadArchConfig_Missing(t *testing.T) {
 	}
 }
 
+func TestLoadArchConfigRejectsInvalidPolicy(t *testing.T) {
+	tests := map[string]string{
+		"unknown check":    `{"rules":[{"id":"x","description":"x","check":"mystery","severity":"error"}]}`,
+		"invalid severity": `{"rules":[{"id":"x","description":"x","check":"grep","pattern":"x","severity":"info"}]}`,
+		"invalid regexp":   `{"rules":[{"id":"x","description":"x","check":"grep","pattern":"[","severity":"error"}]}`,
+		"duplicate id":     `{"rules":[{"id":"x","description":"x","check":"grep","pattern":"x","severity":"error"},{"id":"x","description":"x","check":"grep","pattern":"x","severity":"error"}]}`,
+	}
+	for name, policy := range tests {
+		t.Run(name, func(t *testing.T) {
+			dir := fixture(t, map[string]string{"architecture.json": policy})
+			if _, err := loadArchConfig(filepath.Join(dir, "architecture.json")); err == nil {
+				t.Fatal("expected invalid architecture policy to fail closed")
+			}
+		})
+	}
+}
+
+func TestRunArchRulesRejectsMalformedProjectPolicy(t *testing.T) {
+	root := fixture(t, map[string]string{
+		".git/HEAD":              "ref: refs/heads/main\n",
+		"docs/architecture.json": `{"rules":`,
+		"docs/release/test-release/S01-test/spec.md": "test\n",
+	})
+	releaseDir := filepath.Join(root, "docs", "release", "test-release")
+	if _, err := RunArchRules(releaseDir, "S01-test", "HEAD"); err == nil {
+		t.Fatal("malformed project architecture policy must not become a zero-rule PASS")
+	}
+}
+
+func TestRepositoryArchitecturePolicyIsPopulated(t *testing.T) {
+	path := filepath.Join("..", "..", "docs", "architecture.json")
+	cfg, err := loadArchConfig(path)
+	if err != nil {
+		t.Fatalf("load repository architecture policy: %v", err)
+	}
+	if len(cfg.Rules) < 10 {
+		t.Fatalf("repository architecture policy has %d rules, want at least 10", len(cfg.Rules))
+	}
+	want := map[string]bool{
+		"control-adapters-do-not-write-state":        false,
+		"terminal-persistence-errors-must-propagate": false,
+		"no-duplicate-credential-paths":              false,
+	}
+	for _, rule := range cfg.Rules {
+		if _, ok := want[rule.ID]; ok {
+			want[rule.ID] = true
+		}
+	}
+	for id, found := range want {
+		if !found {
+			t.Errorf("repository architecture policy missing required rule %q", id)
+		}
+	}
+}
+
 func TestLoadAllowlist(t *testing.T) {
 	dir := fixture(t, map[string]string{
 		"design-allowlist.json": `{
@@ -389,6 +461,18 @@ func TestPrintArchRules_Fail(t *testing.T) {
 	out := PrintArchRules(r)
 	if !strings.Contains(out, "FAIL") {
 		t.Error("expected FAIL in output")
+	}
+}
+
+func TestPrintArchRules_SkipIsNotReportedAsPass(t *testing.T) {
+	r := &ArchRulesReport{
+		Release: "test-release",
+		Slice:   "S01-test",
+		Verdict: "SKIP",
+	}
+	out := PrintArchRules(r)
+	if !strings.Contains(out, "SKIP") || strings.Contains(out, "PASS —") {
+		t.Fatalf("unconfigured policy output = %q, want explicit SKIP", out)
 	}
 }
 

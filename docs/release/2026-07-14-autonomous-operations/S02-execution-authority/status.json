@@ -1,0 +1,88 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S02-execution-authority",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T1-engine-truth",
+  "covers_needs": ["N-01"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-14T16:19:18+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-14-autonomous-operations/S02-execution-authority/spec.json",
+  "proof_path": "docs/release/2026-07-14-autonomous-operations/S02-execution-authority/proof.json",
+  "journal_path": "docs/release/2026-07-14-autonomous-operations/S02-execution-authority/journal.md",
+  "planned_files": [
+    "cmd/sworn/run.go",
+    "cmd/sworn/run_test.go",
+    "internal/run/run.go",
+    "internal/run/run_test.go",
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go",
+    "internal/run/parallel_board_resolve_test.go",
+    "internal/run/resolve.go",
+    "internal/run/resolve_test.go",
+    "internal/router/router.go",
+    "internal/router/router_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./cmd/sworn/... ./internal/run/... ./internal/router/...",
+    "go test -race ./internal/run/... ./internal/router/...",
+    "go test ./...",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh"
+  ],
+  "reachability_artifacts": [
+    "sworn run --task <fixture> --base <non-default-ref> through the built binary, recording selected base, created branch, terminal verdict, and exit code",
+    "sworn run --parallel --release <malformed-fixture> through the built binary, recording zero worker dispatches and non-zero exit"
+  ],
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "See spec.json; implementer must confirm which task engine becomes authoritative before design approval.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.1.0",
+  "release_benefit": "A SwornAgent operator can trust a recoverable autonomous release loop, receive durable attention pages, and monitor or safely control it from a mobile web board.",
+  "validation": {
+    "human_ratified": false,
+    "positive_scenarios": [
+      "Task mode uses a non-default base through the same engine tested directly.",
+      "Parallel mode routes all work from committed Baton state."
+    ],
+    "negative_scenarios": [
+      "A malformed board/status cannot trigger a retired worker fallback.",
+      "No accepted run flag is parsed and discarded."
+    ],
+    "benefit_hypothesis": "One production execution authority makes unit evidence predictive of the real CLI and eliminates optimistic fallback routing."
+  },
+  "design_decisions": [
+    {
+      "choice": "Make cmd/sworn a thin adapter over one task engine and one router-driven parallel engine.",
+      "stake_class": "Type-1",
+      "options": ["retain duplicate task engine", "choose and wire one task engine", "remove task mode"],
+      "human_decision": "",
+      "rationale": "Tests and production must exercise the same orchestration code for reachability evidence to be meaningful.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Reject router construction failure without a production fallback.",
+      "stake_class": "Type-1",
+      "options": ["static fallback", "skip unreadable slices", "fail closed"],
+      "human_decision": "",
+      "rationale": "Unknown committed state cannot safely imply an implementation role.",
+      "architecturally_significant": true
+    }
+  ]
+}

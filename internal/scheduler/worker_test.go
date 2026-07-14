@@ -1422,6 +1422,15 @@ func TestDependentTrack_MergeTrackFnErrorFails(t *testing.T) {
 	if result != TrackFail {
 		t.Fatalf("expected TrackFail when MergeTrackFn errors, got %s", result)
 	}
+	var finalState string
+	if err := db.QueryRow(
+		`SELECT state FROM tracks WHERE id = ? AND release = ?`, "T1", "test-dep",
+	).Scan(&finalState); err != nil {
+		t.Fatalf("query supervisor state: %v", err)
+	}
+	if finalState != supervisor.StateFailed {
+		t.Fatalf("supervisor state after merge failure = %q, want %q", finalState, supervisor.StateFailed)
+	}
 }
 
 // TestDependentTrack_MergeTrackDecisionAutoMerges proves that when the router

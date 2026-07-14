@@ -298,11 +298,12 @@ func runSingleIteration(n int, cfg FixtureConfig, numSlices int) (*OverclaimResu
 
 	// Run RunParallel.
 	opts := run.ParallelOptions{
-		ReleaseName:   cfg.ReleaseName,
-		WorkspaceRoot: tmpRoot,
-		DB:            db,
-		RunSliceFn:    mockRunSliceFn,
-		ProjectDir:    "sworn",
+		ReleaseName:           cfg.ReleaseName,
+		WorkspaceRoot:         tmpRoot,
+		DB:                    db,
+		RunSliceFn:            mockRunSliceFn,
+		ProjectDir:            "sworn",
+		LegacyStaticIteration: true, // Synthetic benchmark fixture has no committed Git refs.
 	}
 
 	if err := run.RunParallel(context.Background(), opts); err != nil {

@@ -1,0 +1,135 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S11-authenticated-remote-controls",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T4-mobile-board",
+  "covers_needs": [
+    "N-02",
+    "N-04"
+  ],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-14T16:19:18+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-14-autonomous-operations/S11-authenticated-remote-controls/spec.json",
+  "proof_path": "docs/release/2026-07-14-autonomous-operations/S11-authenticated-remote-controls/proof.json",
+  "journal_path": "docs/release/2026-07-14-autonomous-operations/S11-authenticated-remote-controls/journal.md",
+  "planned_files": [
+    "internal/control/authorization.go",
+    "internal/control/authorization_test.go",
+    "internal/control/audit.go",
+    "internal/control/audit_test.go",
+    "internal/webapi/auth.go",
+    "internal/webapi/auth_test.go",
+    "internal/webapi/commands.go",
+    "internal/webapi/commands_test.go",
+    "internal/webapi/server.go",
+    "internal/webapi/server_test.go",
+    "internal/webui/assets/index.html",
+    "internal/webui/assets/app.css",
+    "internal/webui/assets/app.js",
+    "internal/webui/browser_test.go",
+    "internal/credentials/control_auth.go",
+    "internal/credentials/control_auth_test.go",
+    "cmd/sworn/serve.go",
+    "cmd/sworn/serve_test.go",
+    ".github/workflows/ci.yml"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/control/... ./internal/webapi/... ./internal/webui/... ./internal/credentials/... ./cmd/sworn/...",
+    "go test -race ./internal/control/... ./internal/webapi/...",
+    "SWORN_BROWSER_TESTS=1 go test ./internal/webui/... -run 'Authenticated|MobilePause|Browser' -count=1 -v",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh"
+  ],
+  "reachability_artifacts": [
+    "C-08 built sworn serve unsafe-bind matrix showing loopback default and non-loopback rejection until TLS, secret reference, and exact HTTPS origin all validate",
+    "360-pixel real-browser capture of login, pause, idempotent retry, stale If-Match conflict, authoritative paused state, focus restoration, and audit event",
+    "two-process contention capture proving only one command advances a shared revision and the other receives a non-mutating conflict",
+    "secret-canary scan over URL, browser storage, response, event, notification, and server log artifacts"
+  ],
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "See spec.json; this security-critical slice requires Captain review of session, TLS, origin/CSRF, command authorization, and concurrency design before implementation.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.1.0",
+  "release_benefit": "A SwornAgent operator can trust a recoverable autonomous release loop, receive durable attention pages, and monitor or safely control it from a mobile web board.",
+  "validation": {
+    "human_ratified": false,
+    "positive_scenarios": [
+      "A remote phone authenticates over TLS and pauses an active loop through one durable command.",
+      "A lost-response retry returns the original operation without applying the pause twice.",
+      "Two operators on the same revision receive one accepted operation and one visible conflict."
+    ],
+    "negative_scenarios": [
+      "Remote bind fails before listen when TLS, authentication, or exact origin is absent.",
+      "Missing auth, origin, CSRF, idempotency, content type, or If-Match reaches no command handler.",
+      "No web handler writes status directly, spawns a loop CLI, or leaks authentication material."
+    ],
+    "benefit_hypothesis": "A single authenticated revisioned command path makes mobile intervention safe enough to use during long autonomous runs without introducing another state writer."
+  },
+  "design_decisions": [
+    {
+      "choice": "Require TLS, a secure operator-secret reference, and an exact allowed HTTPS origin for any non-loopback bind.",
+      "stake_class": "Type-1",
+      "options": [
+        "TLS plus local authentication and exact origin",
+        "authentication over plain HTTP",
+        "trust network location"
+      ],
+      "human_decision": "",
+      "rationale": "Bearer/session authentication without transport confidentiality is not a safe remote-control boundary.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Use short-lived HttpOnly sessions with session-bound CSRF and exact Origin checks for browser commands.",
+      "stake_class": "Type-1",
+      "options": [
+        "HttpOnly session plus CSRF/origin",
+        "persistent browser bearer token",
+        "URL capability token"
+      ],
+      "human_decision": "",
+      "rationale": "It avoids persistent script-readable bearer material and gives ordinary browser requests an explicit cross-site defense.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Require both durable idempotency and If-Match content revision at the command service, not only in HTTP middleware.",
+      "stake_class": "Type-1",
+      "options": [
+        "service-owned idempotency plus revision",
+        "HTTP-only deduplication",
+        "last writer wins"
+      ],
+      "human_decision": "",
+      "rationale": "The same safety must hold for CLI, MCP, web, retries, and concurrent processes.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Render controls only from server-advertised allowed actions and wait for authoritative state before updating status.",
+      "stake_class": "Type-2",
+      "options": [
+        "server-advertised controls with authoritative refresh",
+        "client-inferred controls",
+        "optimistic status mutation"
+      ],
+      "human_decision": "",
+      "rationale": "The UI remains an adapter and conflict/failure stays visible rather than being overwritten by optimistic presentation.",
+      "architecturally_significant": false
+    }
+  ]
+}

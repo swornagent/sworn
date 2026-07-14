@@ -1,0 +1,211 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/contracts-v1.json",
+  "version": 1,
+  "release": "2026-07-14-autonomous-operations",
+  "contracts": [
+    {
+      "id": "C-01",
+      "kind": "schema-version",
+      "surface": "terminal-outcome-v1",
+      "shape": "Typed PASS, FAIL, BLOCKED, paused, cancelled, or ready-to-merge result carrying release/track/slice identity, durable status revision, Git effect reference, operation-event ID, and notification-enqueue result. A missing required effect is a non-PASS persistence error; readiness is distinct from merge success.",
+      "owner": "S01-terminal-outcome-commit",
+      "consumers": [
+        "S02-execution-authority",
+        "S03-cancellation-recovery",
+        "S07-notification-outbox",
+        "S12-autonomous-operations-journey"
+      ],
+      "live_test": "S12 drives the real binary through PASS, BLOCKED, cancellation, restart, and ready-to-merge outcomes and reconciles each record to Git and the event store.",
+      "rationale": "All orchestration paths must make the same claim about when a terminal label is true."
+    },
+    {
+      "id": "C-02",
+      "kind": "schema-version",
+      "surface": "control-command-v1",
+      "shape": "Durable command with operation_id, idempotency_key, actor, release/track/slice target, command kind, expected_status_revision, requested_at, and authorization context. Duplicate idempotency keys return the original operation; stale revisions return a typed conflict without mutation.",
+      "owner": "S04-command-event-service",
+      "consumers": [
+        "S05-revisioned-state-ownership",
+        "S06-control-adapter-parity",
+        "S11-authenticated-remote-controls",
+        "S12-autonomous-operations-journey"
+      ],
+      "live_test": "internal/control/service_integration_test.go:TestControlCommandPersistsIdempotentlyAcrossServiceRestart",
+      "rationale": "Operator intent must be transport-independent and safe to retry across process and network boundaries."
+    },
+    {
+      "id": "C-03",
+      "kind": "schema-version",
+      "surface": "operation-event-v1",
+      "shape": "Append-only event with monotonically ordered repository-local sequence, stable event ID, operation ID when applicable, timestamp, actor, target identity, event kind, public-safe detail, and source status revision. Events never contain credentials, model payloads, request/response bodies, or local worktree paths.",
+      "owner": "S04-command-event-service",
+      "consumers": [
+        "S06-control-adapter-parity",
+        "S07-notification-outbox",
+        "S09-operations-read-api",
+        "S10-responsive-web-board",
+        "S11-authenticated-remote-controls",
+        "S12-autonomous-operations-journey"
+      ],
+      "live_test": "internal/control/service_integration_test.go:TestOperationEventStreamPersistsAndResumesInOrder",
+      "rationale": "Monitoring, recovery, notification, and audit require one durable lifecycle account rather than surface-specific logs."
+    },
+    {
+      "id": "C-04",
+      "kind": "schema-version",
+      "surface": "state-snapshot-v1",
+      "shape": "Validated Baton status record plus authoritative source_ref and lowercase SHA-256 revision of canonical record bytes. CompareAndWrite requires the expected revision, validates the next state, writes a secure temporary file, syncs, atomically renames, and returns the new revision; a stale revision returns ErrConflict.",
+      "owner": "S05-revisioned-state-ownership",
+      "consumers": [
+        "S06-control-adapter-parity",
+        "S09-operations-read-api",
+        "S11-authenticated-remote-controls",
+        "S12-autonomous-operations-journey"
+      ],
+      "live_test": "internal/state/repository_integration_test.go:TestStateSnapshotCompareAndWriteUsesRealFilesystem",
+      "rationale": "Content revisions provide cross-process conflict detection without changing Baton slice-status-v1."
+    },
+    {
+      "id": "C-05",
+      "kind": "schema-version",
+      "surface": "notification-envelope-v1",
+      "shape": "Stable event-derived notification with notification_id, operation_event_id, destination kind/reference, attention class, safe title/body, optional canonical board URL, state pending|delivering|delivered|retry_wait|dead, attempt count, next_attempt_at, delivered_at, and bounded error classification. It contains no mutation instruction or secret value.",
+      "owner": "S07-notification-outbox",
+      "consumers": [
+        "S08-webhook-mobile-delivery",
+        "S09-operations-read-api",
+        "S10-responsive-web-board",
+        "S12-autonomous-operations-journey"
+      ],
+      "live_test": "S12 withholds an HTTP response, observes a durable retry, restores the endpoint, and observes exactly one delivered notification for the event.",
+      "rationale": "Delivery failure must be observable and replayable without repeating the underlying operation."
+    },
+    {
+      "id": "C-06",
+      "kind": "http-endpoint",
+      "surface": "operations API v1 under /api/v1 plus GET /events stream",
+      "shape": "Read endpoints return release/track/slice snapshots with source_ref and revision, liveness, blockers, operations, events, and notification health. Command endpoints accept control-command-v1 and require authentication, allowed origin/CSRF token, idempotency key, and If-Match status revision. SSE resumes from a stable event sequence. Errors are typed JSON and never optimistic 2xx.",
+      "owner": "S11-authenticated-remote-controls",
+      "consumers": [
+        "S12-autonomous-operations-journey"
+      ],
+      "live_test": "internal/web/server_integration_test.go:TestOperationsAPIRealHTTPContract",
+      "edge_config": "C-08",
+      "rationale": "The web UI and future transports need one versioned safe boundary over the same control service."
+    },
+    {
+      "id": "C-07",
+      "kind": "schema-version",
+      "surface": "merge-delegation-v1",
+      "shape": "Durable standing delegation naming release scope, integration target, granting actor, granted_at, expires_at, and optional revoked_at. Automatic integration merge requires an unexpired unrevoked matching delegation and all normal ship gates; otherwise the terminal operation is ready_to_merge and exits non-zero for an attempted automatic merge.",
+      "owner": "S12-autonomous-operations-journey",
+      "live_test": "cmd/sworn/merge_test.go:TestMergeReleaseMovesDeclaredIntegrationRefOnlyWithAuthority",
+      "rationale": "Operational autonomy must not silently consume release authority."
+    },
+    {
+      "id": "C-08",
+      "kind": "edge-config",
+      "surface": "operations HTTP bind, authentication, origin, CSRF, and mutation-precondition policy",
+      "shape": "Loopback bind is the default. Non-loopback bind requires valid authentication and an explicit allowed-origin set. State-changing requests require authenticated authorization, an allowed Origin, a CSRF token bound to the session, an Idempotency-Key, and If-Match with the current state revision before command enqueue. Safe response headers deny framing and content sniffing; credentials are never accepted in query strings.",
+      "owner": "S11-authenticated-remote-controls",
+      "consumers": [
+        "S12-autonomous-operations-journey"
+      ],
+      "live_test": "internal/web/server_integration_test.go:TestOperationsHTTPPolicyFailsClosedOnRemoteAndMutationEdges",
+      "rationale": "The API shape is not safe unless the HTTP edge between browser and handler has one owned policy."
+    },
+    {
+      "id": "C-09",
+      "kind": "http-endpoint",
+      "surface": "POST <configured-generic-webhook-url>",
+      "shape": "application/json projection of notification-envelope-v1 containing notification_id, operation_event_id, attention class, safe title/body, event timestamp, and optional canonical board URL. X-Sworn-Event-ID is stable across retries. When a destination signing secret is configured, X-Sworn-Signature carries an HMAC-SHA256 over the exact body. No command, credential, payload body, response body, or local path is sent.",
+      "owner": "S08-webhook-mobile-delivery",
+      "consumers": [
+        "S12-autonomous-operations-journey"
+      ],
+      "live_test": "internal/notify/webhook_integration_test.go:TestGenericWebhookRealHTTPContract",
+      "edge_config": "C-10",
+      "rationale": "Generic webhook consumers need a stable retry/signature contract rather than provider-specific payloads."
+    },
+    {
+      "id": "C-10",
+      "kind": "edge-config",
+      "surface": "outbound notification URL, redirect, credential, timeout, and response policy",
+      "shape": "Destination URLs are absolute HTTP(S), have no userinfo or fragment, and are validated before persistence. Redirects are rejected. Credentials/signing secrets are destination-scoped and never forwarded to another host. Each attempt and total delivery have explicit deadlines. Diagnostics record bounded classification/status only and never response bodies or secret values.",
+      "owner": "S08-webhook-mobile-delivery",
+      "consumers": [
+        "S12-autonomous-operations-journey"
+      ],
+      "live_test": "internal/notify/webhook_integration_test.go:TestOutboundNotificationEdgeFailsClosed",
+      "rationale": "The payload contract is not safe if redirects, credentials, and deadlines are left to the process default client."
+    },
+    {
+      "id": "C-11",
+      "kind": "http-endpoint",
+      "surface": "POST <configured-mobile-push-base>/<topic>",
+      "shape": "ntfy-compatible notification carrying safe title/body/tags and at most one view action to the canonical authenticated board URL. The action has no mutation query or command payload. Provider authentication is destination-scoped under C-10; notification_id/operation_event_id remain stable across retries.",
+      "owner": "S08-webhook-mobile-delivery",
+      "consumers": [
+        "S12-autonomous-operations-journey"
+      ],
+      "live_test": "internal/notify/mobile_integration_test.go:TestMobilePushRealHTTPContract",
+      "edge_config": "C-10",
+      "rationale": "Mobile paging preserves the useful phone notification gesture without creating a second control protocol."
+    },
+    {
+      "id": "C-12",
+      "kind": "cookie",
+      "surface": "sworn_ops_session",
+      "shape": "Opaque bounded session reference with HttpOnly, SameSite=Strict, Path=/, explicit Max-Age, and Secure whenever TLS is used. It is never accepted from a URL or browser storage and never echoed in API/event/log payloads.",
+      "owner": "S09-operations-read-api",
+      "consumers": [
+        "S10-responsive-web-board",
+        "S11-authenticated-remote-controls",
+        "S12-autonomous-operations-journey"
+      ],
+      "live_test": "internal/web/auth_integration_test.go:TestOperationsSessionCookieRealHTTPContract",
+      "edge_config": "C-08",
+      "rationale": "Browser authentication attributes are an edge contract shared by the board and command handlers."
+    },
+    {
+      "id": "C-13",
+      "kind": "header",
+      "surface": "X-CSRF-Token",
+      "shape": "Session-bound unpredictable token required on every state-changing operation request in addition to an exact allowed Origin. It is issued only through an authenticated same-origin response and is never persisted in events, URLs, or browser storage.",
+      "owner": "S11-authenticated-remote-controls",
+      "consumers": [
+        "S12-autonomous-operations-journey"
+      ],
+      "live_test": "internal/web/auth_integration_test.go:TestOperationsCSRFAndOriginRealHTTPContract",
+      "edge_config": "C-08",
+      "rationale": "Authentication alone does not protect browser mutation requests from cross-site submission."
+    },
+    {
+      "id": "C-14",
+      "kind": "header",
+      "surface": "If-Match",
+      "shape": "Required lowercase SHA-256 C-04 status revision for a targeted state-changing request. Missing or stale values return a typed non-2xx precondition conflict with the current safe revision and enqueue no command.",
+      "owner": "S11-authenticated-remote-controls",
+      "consumers": [
+        "S12-autonomous-operations-journey"
+      ],
+      "live_test": "internal/web/command_integration_test.go:TestOperationsIfMatchRealHTTPContract",
+      "edge_config": "C-08",
+      "rationale": "The browser representation must not overwrite a newer loop-owned state."
+    },
+    {
+      "id": "C-15",
+      "kind": "header",
+      "surface": "Idempotency-Key",
+      "shape": "Required clean client-generated key scoped to authenticated actor, command kind, and target. Reuse with the same command returns the original operation; reuse with different content is a typed conflict. The key contains no secret and maps to exactly one C-02 operation.",
+      "owner": "S09-operations-read-api",
+      "consumers": [
+        "S11-authenticated-remote-controls",
+        "S12-autonomous-operations-journey"
+      ],
+      "live_test": "internal/web/command_integration_test.go:TestOperationsIdempotencyKeyRealHTTPContract",
+      "edge_config": "C-08",
+      "rationale": "Network/client replay must not duplicate a durable control operation."
+    }
+  ]
+}

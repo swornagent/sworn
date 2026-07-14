@@ -1,0 +1,105 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S12-autonomous-operations-journey",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T5-assembled-journey",
+  "covers_needs": [
+    "N-01",
+    "N-02",
+    "N-03",
+    "N-04"
+  ],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-14T16:19:18+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-14-autonomous-operations/S12-autonomous-operations-journey/spec.json",
+  "proof_path": "docs/release/2026-07-14-autonomous-operations/S12-autonomous-operations-journey/proof.json",
+  "journal_path": "docs/release/2026-07-14-autonomous-operations/S12-autonomous-operations-journey/journal.md",
+  "planned_files": [
+    "cmd/sworn/merge.go",
+    "cmd/sworn/merge_test.go",
+    "cmd/sworn/main.go",
+    "cmd/sworn/operations_journey_test.go",
+    "internal/control/delegation.go",
+    "internal/control/delegation_test.go",
+    "internal/run/parallel.go",
+    "internal/run/operations_journey_test.go",
+    "internal/scheduler/worker.go",
+    "internal/scheduler/worker_test.go",
+    "internal/web/operations_browser_test.go",
+    "internal/notify/outbox_integration_test.go",
+    "docs/adr/0015-release-merge-delegation.md"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./cmd/sworn ./internal/control ./internal/run ./internal/scheduler ./internal/notify ./internal/web -run 'OperationsJourney|MergeRelease|AutomaticMerge' -count=1",
+    "go test ./...",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh"
+  ],
+  "reachability_artifacts": [
+    "real-binary assembled-journey-v1 record covering cold start, retry/fresh verify, signal/restart, notification replay, 360px browser observation, authenticated exactly-once control, release readiness, and human/delegated merge behavior"
+  ],
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "See spec.json; implementer must confirm the complete real-binary fixture and merge-authority design against live code before design review.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.1.0",
+  "release_benefit": "A SwornAgent operator can trust a recoverable autonomous release loop, receive durable attention pages, and monitor or safely control it from a mobile web board.",
+  "validation": {
+    "human_ratified": false,
+    "positive_scenarios": [
+      "The real binary retries a failed verification, assembles the verified release, and pauses ready for a human merge by default.",
+      "A valid standing merge delegation lets the scheduler use the same gated native merge exactly once.",
+      "A phone-sized browser follows live state and submits one authenticated exactly-once control.",
+      "A failed notification is replayed after recovery without blocking the loop."
+    ],
+    "negative_scenarios": [
+      "Signal cancellation cannot leave a child running or create an optimistic PASS.",
+      "Absent, expired, revoked, or target-mismatched merge delegation cannot move the integration branch.",
+      "Stale/replayed remote commands cannot overwrite or repeat a newer operation.",
+      "The assembled evidence rejects missing proof, secrets, payload bodies, and absolute paths."
+    ],
+    "benefit_hypothesis": "One real assembled journey turns autonomous operation from a collection of green components into a product guarantee an operator can observe and trust."
+  },
+  "design_decisions": [
+    {
+      "choice": "Keep ready_to_merge as the autonomous default and require a distinct scoped standing delegation for automatic integration merge.",
+      "stake_class": "Type-1",
+      "options": [
+        "always pause for human merge",
+        "always merge automatically",
+        "human default with explicit standing delegation"
+      ],
+      "human_decision": "",
+      "rationale": "This preserves release authority while supporting genuine unattended operation where it has been deliberately delegated.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Make one native operation own both release gates and the integration-branch mutation.",
+      "stake_class": "Type-1",
+      "options": [
+        "retain separate gate-only and merge-only paths",
+        "native gated merge operation",
+        "rename native command to readiness check only"
+      ],
+      "human_decision": "",
+      "rationale": "No default path currently proves both halves; unification makes exit 0 mean the documented mutation occurred.",
+      "architecturally_significant": true
+    }
+  ]
+}

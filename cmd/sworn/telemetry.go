@@ -470,7 +470,7 @@ func telemetryStatus() int {
 	} else if enabledExists {
 		fmt.Fprintln(os.Stdout, style.Success("telemetry: enabled"))
 	} else {
-		fmt.Fprintln(os.Stdout, style.Dim("telemetry: disabled (init not run)"))
+		fmt.Fprintln(os.Stdout, style.Dim("telemetry: disabled (not opted in)"))
 	}
 
 	return 0

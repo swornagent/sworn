@@ -233,6 +233,35 @@ func TestReleaseFailed(t *testing.T) {
 	}
 }
 
+func TestReleasePausedAndRejectUnknown(t *testing.T) {
+	sup, _, cleanup := newTestSupervisor(t)
+	defer cleanup()
+
+	if err := sup.Acquire("T1-paused"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Release("T1-paused", StatePaused); err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	if err := sup.db.QueryRow(
+		`SELECT state FROM tracks WHERE id = ? AND release = ?`,
+		"T1-paused", "test-release",
+	).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != StatePaused {
+		t.Fatalf("paused track state = %q, want %q", got, StatePaused)
+	}
+
+	if err := sup.Acquire("T2-invalid"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Release("T2-invalid", "mystery"); err == nil {
+		t.Fatal("unknown final state must fail closed")
+	}
+}
+
 func TestConcurrentAcquireRace(t *testing.T) {
 	// Two goroutines race to Acquire the same track with different PIDs
 	// (simulated via different supervisor pid values). Exactly one wins,

@@ -1,0 +1,116 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S04-command-event-service",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T2-control-core",
+  "user_outcome": "A SwornAgent operator's control intent becomes one durable, idempotent operation whose lifecycle is visible through an append-only public-safe event stream.",
+  "rationale": "MCP, TUI, and loop code currently perform independent mutations or emit best-effort audit rows, so retry, recovery, monitoring, and later web controls cannot agree on one operation. This slice owns control-command-v1 and operation-event-v1 from #109. It creates the transport-neutral service that resolves #68's dark pause engine only after adapters in S06 make the command reachable.",
+  "touchpoints": [
+    "internal/db/db.go",
+    "internal/db/db_test.go",
+    "internal/control/command.go",
+    "internal/control/event.go",
+    "internal/control/service.go",
+    "internal/control/store.go",
+    "internal/control/service_test.go",
+    "internal/control/store_test.go",
+    "internal/control/integration_test.go",
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go",
+    "internal/scheduler/scheduler.go",
+    "internal/scheduler/scheduler_test.go",
+    "internal/supervisor/supervisor.go",
+    "internal/supervisor/supervisor_test.go"
+  ],
+  "in_scope": [
+    "Define and validate control-command-v1 with operation ID, idempotency key, actor, target, kind, expected status revision, request time, and authorization context.",
+    "Define operation-event-v1 with repository-local sequence, stable event/operation IDs, actor, target, kind, safe detail, and source status revision.",
+    "Migrate the repository-local SQLite store with commands, operations, and versioned operation_events tables while retaining existing supervisor data.",
+    "Implement atomic Submit, Claim, Complete, Reject, and List/Get operations with typed invalid, conflict, busy, and storage errors.",
+    "Support pause, resume, retry, defer, acknowledge, and merge-approval intent as validated command kinds without granting automatic production merge authority.",
+    "Make loop/scheduler command polling claim each accepted operation once and append explicit accepted, started, succeeded, rejected, or failed events.",
+    "Redact or reject credentials, model payloads, request bodies, response bodies, and local worktree paths from public-safe event detail."
+  ],
+  "out_of_scope": [
+    "Writing status through compare-and-write is S05-revisioned-state-ownership.",
+    "CLI, MCP, and TUI transport adapters are S06-control-adapter-parity.",
+    "HTTP/SSE and web authentication are S09-operations-read-api and S11-authenticated-remote-controls.",
+    "Notification delivery is T3-durable-paging.",
+    "Automatic integration merge remains prohibited until S12's merge-delegation-v1 contract is present.",
+    "The twelve planned 2026-07-11-contract-edge-gates slices remain excluded."
+  ],
+  "covers_needs": ["N-02"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "This introduces a durable application-service boundary, a versioned schema migration, concurrent command claiming, event safety, and loop integration.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "Command submission and its accepted event diverge during a partial database failure.",
+      "mitigation": "Write command, operation, and accepted event in one SQLite transaction and inject failures before commit."
+    },
+    {
+      "id": "R-02",
+      "description": "Concurrent pollers execute one command more than once.",
+      "mitigation": "Claim with a conditional state transition in one transaction and test two independent database connections racing the same operation."
+    },
+    {
+      "id": "R-03",
+      "description": "Free-form event detail leaks a secret or machine-local path to the later web/notification plane.",
+      "mitigation": "Prefer typed detail fields, validate safe projections at append time, and include sentinel secret/path rejection tests."
+    },
+    {
+      "id": "R-04",
+      "description": "A schema migration makes existing supervisor databases unreadable.",
+      "mitigation": "Upgrade a version-1 fixture in place and prove track, decision, event, and circuit data remain queryable."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN a valid control-command-v1 is submitted THE SYSTEM SHALL atomically persist one pending operation and one accepted operation-event-v1 (C-02, C-03, N-02).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/control/integration_test.go:TestSubmitPersistsOperationAndAcceptedEventAtomically"]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN the same idempotency key is submitted again for the same actor and target THE SYSTEM SHALL return the original operation without appending another accepted event (C-02, C-03, N-02).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/control/service_test.go:TestSubmitDuplicateReturnsOriginalOperation"]
+    },
+    {
+      "id": "AC-03",
+      "text": "IF a command's expected status revision is stale THEN THE SYSTEM SHALL reject it with a typed conflict before mutation (C-02, N-02).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/control/service_test.go:TestSubmitStaleRevisionConflictsWithoutMutation"]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN two command processors race to claim one pending operation THE SYSTEM SHALL grant exactly one claim (C-02, C-03, N-02).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/control/store_test.go:TestClaimOperationHasSingleWinner"]
+    },
+    {
+      "id": "AC-05",
+      "text": "WHEN operation events are appended concurrently THE SYSTEM SHALL expose a unique monotonically ordered repository-local sequence (C-03, N-02).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/control/store_test.go:TestEventSequenceIsUniqueAndMonotonic"]
+    },
+    {
+      "id": "AC-06",
+      "text": "IF event detail contains a credential sentinel, model payload, request body, response body, or local worktree path THEN THE SYSTEM SHALL reject the event before storage (C-03, N-02).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/control/service_test.go:TestUnsafeEventDetailRejected"]
+    },
+    {
+      "id": "AC-07",
+      "text": "WHEN an existing version-1 supervisor database is opened THE SYSTEM SHALL preserve its rows while adding the command and operation-event schema (C-02, C-03, N-02).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/db/db_test.go:TestMigrateV1ToOperationsSchemaPreservesRows"]
+    }
+  ]
+}

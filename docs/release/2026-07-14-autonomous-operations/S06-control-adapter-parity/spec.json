@@ -1,0 +1,122 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S06-control-adapter-parity",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T2-control-core",
+  "user_outcome": "A SwornAgent operator gets the same authoritative state, durable operation, and typed failure whether a control is submitted from CLI, MCP, or TUI.",
+  "rationale": "Architecture review #108 found a second application core in MCP and TUI: direct whole-file mutations, an obsolete rerun subprocess shape, patch instructions the loop does not consume, transport errors returned as successful text, and board reads that can disagree by source. This slice makes those surfaces adapters over C-02/C-03/C-04, finally making cooperative pause reachable (#68) without adding another state owner.",
+  "touchpoints": [
+    "cmd/sworn/commands.go",
+    "cmd/sworn/commands_test.go",
+    "cmd/sworn/control.go",
+    "cmd/sworn/control_test.go",
+    "cmd/sworn/board.go",
+    "cmd/sworn/board_test.go",
+    "cmd/sworn/mcp.go",
+    "internal/control/query.go",
+    "internal/control/query_test.go",
+    "internal/control/conformance_test.go",
+    "internal/mcp/tools_ops.go",
+    "internal/mcp/tools_test.go",
+    "internal/mcp/server.go",
+    "internal/mcp/server_test.go",
+    "internal/mcp/context.go",
+    "internal/tui/blocked.go",
+    "internal/tui/board.go",
+    "internal/tui/model.go",
+    "internal/tui/tui_test.go",
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go",
+    "docs/architecture.json"
+  ],
+  "in_scope": [
+    "Add a sworn control subcommand for pause, resume, retry, patch-retry, defer, acknowledge, and approve-track commands with required release/target, idempotency key, actor, and expected status revision.",
+    "Make CLI, MCP, and TUI command adapters call the same control service instead of rewriting status/intake files or spawning a nested sworn run process.",
+    "Represent patch instructions as a bounded public-safe retry command parameter and make the loop consume that parameter exactly once when it claims the operation.",
+    "Make CLI board, MCP board/context, and TUI board consume one query service that returns source_ref, state-snapshot-v1 revision, liveness, blocker, and operation state.",
+    "Map invalid, conflict, unauthorized, unavailable, and storage failures to equivalent non-zero CLI exits, MCP isError responses, and TUI error states.",
+    "Retain transport-specific presentation while proving a conformance matrix over command construction, idempotency, revision conflict, and read source.",
+    "Add architecture rules preventing runtime adapters from writing status files or spawning loop commands."
+  ],
+  "out_of_scope": [
+    "HTTP/SSE transport and web authentication are S09-operations-read-api and S11-authenticated-remote-controls.",
+    "Redesigning the terminal UI's visual layout is excluded; only authoritative reads, controls, and error presentation change.",
+    "Protocol planning tools that intentionally create planned release artefacts remain outside runtime adapter restrictions.",
+    "Automatic final integration merge is forbidden until S12 validates merge-delegation-v1.",
+    "Provider, dry-run, max-turn, resume-worktree, design-authority, and other planned 2026-07-11-contract-edge-gates work is not absorbed."
+  ],
+  "covers_needs": ["N-02"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "Three user-facing transports and their read/error semantics must migrate together while preserving each surface's protocol and interaction model.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "One adapter preserves a hidden direct-write or subprocess escape hatch.",
+      "mitigation": "Delete runtime mutation helpers, use adapter conformance fakes, and enforce architecture rules for status writes and nested loop commands."
+    },
+    {
+      "id": "R-02",
+      "description": "MCP returns an error-looking string with JSON-RPC success semantics.",
+      "mitigation": "Map typed control errors to ToolResult.IsError and test serialized JSON-RPC responses, not handler text alone."
+    },
+    {
+      "id": "R-03",
+      "description": "Patch instructions are stored but never influence the claimed retry.",
+      "mitigation": "An assembled test submits patch-retry through MCP, observes one claimed parameter, and verifies the implement prompt receives it once."
+    },
+    {
+      "id": "R-04",
+      "description": "A read adapter silently falls back from the authoritative Git ref to mutable filesystem state.",
+      "mitigation": "The query result always carries source_ref/revision, fallback is an explicit typed error, and all transport fixtures assert identical values."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN equivalent valid controls are submitted through CLI, MCP, and TUI THE SYSTEM SHALL produce equivalent control-command-v1 records (C-02, N-02).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/control/conformance_test.go:TestAdapterCommandConformance"]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN CLI, MCP, and TUI read the same target THE SYSTEM SHALL return the same authoritative source_ref and state-snapshot-v1 revision (C-04, N-02; #52).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/control/conformance_test.go:TestAdapterReadConformance"]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN sworn control pause is invoked with a current revision THE SYSTEM SHALL return the accepted operation ID without directly changing status (C-02, C-03, C-04, N-02; #68).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/control_test.go:TestControlPauseCommandReachability"]
+    },
+    {
+      "id": "AC-04",
+      "text": "IF an MCP control receives a stale revision or invalid target THEN THE SYSTEM SHALL serialize a JSON-RPC tool result with isError true (C-02, C-04, N-02).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/mcp/server_test.go:TestControlErrorSerializesAsToolError"]
+    },
+    {
+      "id": "AC-05",
+      "text": "WHEN MCP patch-retry is accepted THE SYSTEM SHALL deliver its bounded instructions exactly once to the loop's claimed retry operation (C-02, C-03, N-02; #27).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/mcp/tools_test.go:TestPatchRetryInstructionsReachLoopOnce"]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHEN a TUI control is accepted THE SYSTEM SHALL keep the displayed status unchanged until the query service observes the loop-produced revision (C-02, C-04, N-02).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/tui/tui_test.go:TestControlWaitsForAuthoritativeRevision"]
+    },
+    {
+      "id": "AC-07",
+      "text": "THE SYSTEM SHALL contain no runtime CLI, MCP, or TUI code that writes status.json or spawns sworn run (C-02, C-04, N-02).",
+      "ears_pattern": "ubiquitous",
+      "test_refs": ["internal/control/conformance_test.go:TestRuntimeAdaptersHaveNoMutationEscapeHatch"]
+    }
+  ]
+}

@@ -82,11 +82,12 @@ tracks:
 
 	preCreateDerivedWorktrees(t, tmpDir, "test-report")
 	err = RunParallel(context.Background(), ParallelOptions{
-		ReleaseName:   "test-report",
-		WorkspaceRoot: tmpDir,
-		DB:            db,
-		RunSliceFn:    runSliceFn,
-		ProjectDir:    "sworn",
+		LegacyStaticIteration: true,
+		ReleaseName:           "test-report",
+		WorkspaceRoot:         tmpDir,
+		DB:                    db,
+		RunSliceFn:            runSliceFn,
+		ProjectDir:            "sworn",
 	})
 	// Non-zero outcome: RunParallel returns a non-nil error, which cmd/sworn
 	// prints and converts to exit 1 (existing plumbing).

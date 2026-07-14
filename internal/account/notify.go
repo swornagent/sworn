@@ -13,6 +13,11 @@ import (
 	"time"
 )
 
+const (
+	defaultNotifyRequestTimeout = 5 * time.Second
+	defaultNotifyTotalTimeout   = 15 * time.Second
+)
+
 // NotifyEvent is the payload sent to the webhook and SwornAgent API.
 // Fields match the spec's JSON payload exactly.
 type NotifyEvent struct {
@@ -21,7 +26,6 @@ type NotifyEvent struct {
 	SliceID           string `json:"slice_id"`
 	State             string `json:"state"`
 	ViolationsSummary string `json:"violations_summary"`
-	WorktreePath      string `json:"worktree_path"`
 	Timestamp         string `json:"timestamp"`
 }
 
@@ -32,6 +36,7 @@ type Notifier struct {
 	WebhookURL string
 	creds      *Credentials
 	client     *http.Client
+	totalLimit time.Duration
 }
 
 // NewNotifier creates a Notifier from a webhook URL and credentials.
@@ -40,20 +45,26 @@ func NewNotifier(webhookURL string, creds *Credentials) *Notifier {
 	return &Notifier{
 		WebhookURL: webhookURL,
 		creds:      creds,
-		client:     http.DefaultClient,
+		client:     &http.Client{Timeout: defaultNotifyRequestTimeout},
+		totalLimit: defaultNotifyTotalTimeout,
 	}
 }
 
 // Notify sends a webhook POST (and optionally an email via the SwornAgent API)
 // for the given event. It retries the webhook up to 3 times with exponential
-// backoff (1s, 2s, 4s). Failure is logged to stderr and does not block the
-// caller — Notify always returns nil.
+// backoff (1s, 2s, 4s). Delivery is synchronous but bounded by notifier-owned
+// request and total deadlines. Failure is logged and does not fail the caller.
 //
 // When no webhook URL is configured and no account is active, Notify is a
 // no-op (no error, no network call).
 func (n *Notifier) Notify(ctx context.Context, event NotifyEvent) {
 	if n == nil {
 		return
+	}
+	if n.totalLimit > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, n.totalLimit)
+		defer cancel()
 	}
 
 	// Set timestamp if not already set.

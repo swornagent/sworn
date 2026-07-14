@@ -1,0 +1,139 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S09-operations-read-api",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T4-mobile-board",
+  "user_outcome": "A SwornAgent operator can start `sworn serve` and read authoritative release, loop, event, blocker, and notification health through one versioned localhost API and resumable event stream without granting any mutation authority.",
+  "rationale": "This is the read boundary for the priority mobile board in #109 and owns the C-06 endpoint plus C-08 HTTP edge policy. It consumes C-03/C-04 from the command/state core and C-05 from paging rather than scraping each UI's preferred files. That directly prevents the split-source class tracked in #81 and gives the web client an asynchronous network seam instead of repeating the blocking-I/O class tracked in #82. The server is loopback-only by default; S11 adds and re-verifies the authentication and browser-mutation boundary before non-loopback control is usable.",
+  "touchpoints": [
+    "internal/control/monitoring.go",
+    "internal/control/monitoring_test.go",
+    "internal/webapi/api.go",
+    "internal/webapi/api_test.go",
+    "internal/webapi/events.go",
+    "internal/webapi/events_test.go",
+    "internal/webapi/server.go",
+    "internal/webapi/server_test.go",
+    "internal/web/server_integration_test.go",
+    "cmd/sworn/serve.go",
+    "cmd/sworn/serve_test.go",
+    "cmd/sworn/main.go"
+  ],
+  "in_scope": [
+    "Add `sworn serve` with default bind 127.0.0.1 on an explicitly reported port, bounded header/read/idle/shutdown timeouts, graceful signal shutdown, and no default internet exposure.",
+    "Define JSON read endpoints under /api/v1 for release/track/slice snapshots, active operations and liveness, blockers, operation events, and notification/outbox health using the C-03/C-04/C-05 authorities.",
+    "Return source_ref and lowercase SHA-256 status revision on every slice snapshot; distinguish missing, malformed, stale, conflicted, and unavailable data with typed non-2xx JSON rather than healthy empty collections.",
+    "Add a read-only SSE endpoint at GET /events ordered by stable repository-local event sequence, supporting Last-Event-ID resume, bounded replay, heartbeat comments, slow-client disconnect, and clean server shutdown.",
+    "Set explicit Content-Type, Cache-Control, X-Content-Type-Options, Content-Security-Policy, Referrer-Policy, and frame-denial headers on API/error responses where applicable; never serialize secrets, model payloads, request bodies, or local worktree paths.",
+    "Keep GET/HEAD same-origin and loopback-readable in this slice, reject non-loopback bind unless a valid S11 authentication configuration is present, and expose no POST/PUT/PATCH/DELETE operation route before S11.",
+    "Bound query page sizes, event replay windows, path/identifier lengths, and concurrent SSE clients; reject malformed percent-encoding and unknown fields/parameters with typed errors.",
+    "Prove binary reachability with a live `sworn serve` process, real current-format release records, HTTP requests, event append/resume, and shutdown."
+  ],
+  "out_of_scope": [
+    "HTML, CSS, client-side rendering, mobile layout, and accessibility presentation belong to S10-responsive-web-board.",
+    "State-changing HTTP routes, authentication issuance/storage, CSRF/origin enforcement for commands, idempotency, If-Match mutation semantics, and audit are owned by S11.",
+    "Remote fleet aggregation, hosted deployment, TLS termination, reverse-proxy configuration, and multi-tenant authorization are outside #109.",
+    "MCP/TUI adapter rewiring is owned by S06; this slice consumes the same operation queries and does not edit those UIs.",
+    "The twelve contract-edge-gates slices remain excluded; this slice does not absorb their contract lint, provider, dry-run, max-turn, design-authority, or general guard-fidelity scope."
+  ],
+  "covers_needs": [
+    "N-02",
+    "N-04"
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "The HTTP mechanics are standard, but source authority, typed degraded states, resumable streaming, graceful lifecycle, security headers, and assembled command reachability form a wide public contract consumed by two later slices.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "The API silently invents healthy empty data when an oracle, status file, or operations database is unreadable.",
+      "mitigation": "Query services return typed unavailable/malformed/conflict results; handler tests corrupt each source and require non-2xx errors with no optimistic empty payload."
+    },
+    {
+      "id": "R-02",
+      "description": "An SSE client can exhaust memory, block event producers, or replay an unbounded history.",
+      "mitigation": "Use bounded per-client queues and replay limits, disconnect slow readers, cap concurrent streams, and test a stalled client while events continue."
+    },
+    {
+      "id": "R-03",
+      "description": "Starting the read board accidentally exposes repository data to a network.",
+      "mitigation": "Bind to loopback by default, reject non-loopback without S11 auth configuration, print the effective address, and mutation-test the default bind."
+    },
+    {
+      "id": "R-04",
+      "description": "The API becomes another state parser and drifts from CLI/MCP/TUI semantics.",
+      "mitigation": "Consume S04-S06 query types directly, expose C-04 source_ref/revision, and compare API/CLI projections from the same fixture in integration tests."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN GET /api/v1/releases/<release> reads a valid current-format release THE SYSTEM SHALL return its tracks and slices from the operations query authority with each slice's source_ref and C-04 revision (C-03, C-04, C-06, N-02, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/webapi/api_test.go:TestReleaseSnapshotUsesAuthoritativeQuery"
+      ]
+    },
+    {
+      "id": "AC-02",
+      "text": "IF a status source or operations database is unreadable, malformed, stale, or conflicted THEN THE SYSTEM SHALL return a typed non-2xx JSON error and SHALL NOT substitute an empty healthy snapshot (C-04, C-06, N-02, N-04).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "internal/webapi/api_test.go:TestDegradedSourcesNeverMapToHealthyEmpty"
+      ]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN GET /events reconnects with a valid Last-Event-ID THE SYSTEM SHALL emit subsequent C-03 events in ascending stable sequence without replaying an acknowledged event (C-03, C-06, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/webapi/events_test.go:TestSSEResumeFromStableSequence"
+      ]
+    },
+    {
+      "id": "AC-04",
+      "text": "IF an SSE client exceeds the declared replay window, queue bound, or write deadline THEN THE SYSTEM SHALL send a typed reset/error event when possible and close that client without blocking event persistence or other clients (C-03, C-06, N-04).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "internal/webapi/events_test.go:TestSlowSSEClientIsBoundedAndIsolated"
+      ]
+    },
+    {
+      "id": "AC-05",
+      "text": "WHILE no valid remote authentication configuration exists THE SYSTEM SHALL bind `sworn serve` to loopback by default and SHALL reject any requested non-loopback address before listening (C-06, C-08, N-04).",
+      "ears_pattern": "state-driven",
+      "test_refs": [
+        "cmd/sworn/serve_test.go:TestServeDefaultsLoopbackAndRejectsUnsafeBind",
+        "internal/web/server_integration_test.go:TestOperationsHTTPPolicyFailsClosedOnRemoteAndMutationEdges"
+      ]
+    },
+    {
+      "id": "AC-06",
+      "text": "IF an HTTP method other than GET, HEAD, or OPTIONS targets /api/v1 or /events before S11 is active THEN THE SYSTEM SHALL return 405 and SHALL append no command, event, status, or notification record (C-02, C-03, C-06, C-08, N-02).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "internal/webapi/api_test.go:TestReadAPIHasNoMutationRoute"
+      ]
+    },
+    {
+      "id": "AC-07",
+      "text": "IF source fixtures contain credentials, model/request payloads, response bodies, or absolute worktree paths THEN THE SYSTEM SHALL serialize none of those values in success JSON, SSE, errors, headers, or server logs (C-03, C-05, C-06, C-08, N-04).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "internal/webapi/api_test.go:TestReadSurfacesAreSecretAndPathSafe"
+      ]
+    },
+    {
+      "id": "AC-08",
+      "text": "WHEN the built binary runs `sworn serve --listen 127.0.0.1:0` against a current-format release THE SYSTEM SHALL report its effective URL, serve a schema-valid snapshot and live event, then stop cleanly on SIGTERM with exit zero (C-03, C-04, C-06, C-08, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "cmd/sworn/serve_test.go:TestServeBinaryReadAndSignalReachability"
+      ]
+    }
+  ]
+}

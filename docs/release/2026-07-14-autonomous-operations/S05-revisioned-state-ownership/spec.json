@@ -1,0 +1,115 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S05-revisioned-state-ownership",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T2-control-core",
+  "user_outcome": "A SwornAgent operator can trust that stale processes cannot overwrite newer Baton runtime state and that every accepted transition names its authoritative source and revision.",
+  "rationale": "Loop, MCP, and TUI processes can currently read and rewrite an entire status file without cross-process conflict detection, and state.Read's fail-open behavior is tracked by #52. This slice owns state-snapshot-v1: validated authoritative reads plus content-hash compare-and-write. Runtime transition ownership stays in the loop; S06 removes adapter writes in favor of commands.",
+  "touchpoints": [
+    "internal/state/state.go",
+    "internal/state/state_test.go",
+    "internal/state/repository.go",
+    "internal/state/repository_test.go",
+    "internal/state/record_reconciliation_test.go",
+    "internal/run/slice.go",
+    "internal/run/slice_terminal_test.go",
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go",
+    "internal/scheduler/worker.go",
+    "internal/scheduler/worker_test.go",
+    "internal/router/router.go",
+    "internal/router/router_test.go",
+    "internal/lint/status.go",
+    "internal/lint/status_test.go"
+  ],
+  "in_scope": [
+    "Define state-snapshot-v1 as a validated Baton status record, authoritative source_ref, and lowercase SHA-256 revision over canonical record bytes.",
+    "Implement Repository.Read and CompareAndWrite with required expected revision, transition validation, secure same-directory temporary file, file sync, atomic rename, directory sync where supported, and typed ErrConflict.",
+    "Fail closed on malformed JSON, schema-invalid fields, unknown runtime state, unreadable status, symlink substitution, and an authoritative source ref that cannot be resolved.",
+    "Migrate loop, scheduler, router, and terminal-outcome writes to the repository so runtime transitions no longer call the unversioned whole-file writer.",
+    "Return the new status revision to terminal-outcome-v1 and operation-event-v1 after each accepted transition.",
+    "Add a static architecture rule preventing new runtime state writes outside the state repository and approved protocol-planning paths."
+  ],
+  "out_of_scope": [
+    "MCP and TUI adapter migration is S06-control-adapter-parity.",
+    "Changing Baton slice-status-v1 to carry a Sworn-only numeric revision is prohibited by the release decision.",
+    "Git commit ordering for verified verdicts remains covered by C-01 and #93 rather than being inferred from a content revision.",
+    "Resume-worktree reset behavior remains in its planned 2026-07-11-contract-edge-gates slice.",
+    "Collaborative multi-host storage and remote lock services are outside this repository-local release.",
+    "The remaining eleven planned contract-edge-gates slices are excluded."
+  ],
+  "covers_needs": ["N-01", "N-02"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "The repository becomes the write authority for a widely used protocol file, requiring strict validation, atomic filesystem semantics, collision tests, and broad caller migration.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "Different encoders calculate different revisions for logically identical status records.",
+      "mitigation": "Define revision over the exact validated bytes read from the authoritative source and return the exact post-write bytes/revision from one encoder."
+    },
+    {
+      "id": "R-02",
+      "description": "Atomic rename preserves content but changes unsafe permissions or follows a symlink.",
+      "mitigation": "Use secure same-directory creation, reject symlink targets, preserve approved mode, sync before rename, and test substitution/permission cases."
+    },
+    {
+      "id": "R-03",
+      "description": "Broad caller migration accidentally changes legal Baton transition semantics.",
+      "mitigation": "Keep state.Transition as the transition oracle, wrap it in CompareAndWrite, and run the existing state and loop transition matrix unchanged."
+    },
+    {
+      "id": "R-04",
+      "description": "A reader treats an unreadable or invalid record as an empty/planned state.",
+      "mitigation": "Repository.Read returns typed validation/I/O errors and router/status-lint integration tests prove no role or PASS is produced."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN Repository.Read loads a valid authoritative status record THE SYSTEM SHALL return the validated record with source_ref and its lowercase SHA-256 content revision (C-04, N-01, N-02).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/state/repository_test.go:TestReadReturnsValidatedSnapshotRevision"]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN CompareAndWrite receives the current revision and a legal next state THE SYSTEM SHALL atomically replace the status record and return its new revision (C-04, N-01, N-02).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/state/repository_test.go:TestCompareAndWriteLegalTransitionIsAtomic"]
+    },
+    {
+      "id": "AC-03",
+      "text": "IF CompareAndWrite receives a stale revision THEN THE SYSTEM SHALL return ErrConflict without changing the status bytes (C-04, N-02).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/state/repository_test.go:TestCompareAndWriteStaleRevisionPreservesBytes"]
+    },
+    {
+      "id": "AC-04",
+      "text": "IF Repository.Read encounters malformed, schema-invalid, unknown-state, unreadable, or symlink-substituted status THEN THE SYSTEM SHALL return a typed non-PASS error (C-04, N-01; #52).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/state/repository_test.go:TestReadInvalidSourcesFailClosed"]
+    },
+    {
+      "id": "AC-05",
+      "text": "WHEN two repository instances race from the same expected revision THE SYSTEM SHALL accept exactly one state transition (C-04, N-02).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/state/repository_test.go:TestConcurrentCompareAndWriteHasSingleWinner"]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHEN the real loop accepts a runtime transition THE SYSTEM SHALL publish the returned status revision in its terminal outcome or operation event (C-01, C-03, C-04, N-01).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/run/slice_terminal_test.go:TestRunSlicePublishesRepositoryRevision"]
+    },
+    {
+      "id": "AC-07",
+      "text": "THE SYSTEM SHALL contain no runtime status write outside the state repository and explicitly approved planning/protocol paths (C-04, N-02).",
+      "ears_pattern": "ubiquitous",
+      "test_refs": ["internal/state/repository_test.go:TestRuntimeStatusWritesUseRepository"]
+    }
+  ]
+}

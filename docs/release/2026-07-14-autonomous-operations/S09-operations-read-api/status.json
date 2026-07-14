@@ -1,0 +1,114 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S09-operations-read-api",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T4-mobile-board",
+  "covers_needs": [
+    "N-02",
+    "N-04"
+  ],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-14T16:19:18+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-14-autonomous-operations/S09-operations-read-api/spec.json",
+  "proof_path": "docs/release/2026-07-14-autonomous-operations/S09-operations-read-api/proof.json",
+  "journal_path": "docs/release/2026-07-14-autonomous-operations/S09-operations-read-api/journal.md",
+  "planned_files": [
+    "internal/control/monitoring.go",
+    "internal/control/monitoring_test.go",
+    "internal/webapi/api.go",
+    "internal/webapi/api_test.go",
+    "internal/webapi/events.go",
+    "internal/webapi/events_test.go",
+    "internal/webapi/server.go",
+    "internal/webapi/server_test.go",
+    "internal/web/server_integration_test.go",
+    "cmd/sworn/serve.go",
+    "cmd/sworn/serve_test.go",
+    "cmd/sworn/main.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/control/... ./internal/web/... ./internal/webapi/... ./cmd/sworn/...",
+    "go test -race ./internal/webapi/...",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh"
+  ],
+  "reachability_artifacts": [
+    "built sworn serve process output showing the C-06/C-08 effective loopback URL, schema-valid /api/v1 snapshot, SSE event/resume, SIGTERM shutdown, and exit code",
+    "live HTTP capture showing malformed/unreadable state returns typed non-2xx rather than an empty healthy board",
+    "C-08 unsafe-bind and mutation-method capture showing non-loopback listen and unguarded writes are rejected before reaching an operation"
+  ],
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "See spec.json; implementer must confirm source query ownership, SSE backpressure, and server lifecycle before design review.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.1.0",
+  "release_benefit": "A SwornAgent operator can trust a recoverable autonomous release loop, receive durable attention pages, and monitor or safely control it from a mobile web board.",
+  "validation": {
+    "human_ratified": false,
+    "positive_scenarios": [
+      "A localhost client reads authoritative release, operation, event, blocker, and notification state.",
+      "An SSE client reconnects from its last event sequence without duplicating acknowledged events.",
+      "SIGTERM drains active requests and stops the server cleanly."
+    ],
+    "negative_scenarios": [
+      "Unreadable state never appears as a healthy empty board.",
+      "A stalled stream cannot block event persistence or other clients.",
+      "Non-loopback serving is unavailable without valid authentication configuration."
+    ],
+    "benefit_hypothesis": "One truthful read API gives the mobile board and every future observer the same state while making degraded sources visible instead of optimistic."
+  },
+  "design_decisions": [
+    {
+      "choice": "Use versioned REST JSON reads plus Server-Sent Events over the shared operation query service.",
+      "stake_class": "Type-1",
+      "options": [
+        "REST plus SSE",
+        "WebSocket RPC",
+        "gRPC"
+      ],
+      "human_decision": "",
+      "rationale": "The operations plane is server-to-client dominant, SSE resumes by sequence, and both protocols fit standard-library single-binary delivery and ordinary mobile browsers.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Serve read-only data on loopback by default and make remote bind contingent on the S11 authentication configuration.",
+      "stake_class": "Type-1",
+      "options": [
+        "loopback default with guarded remote bind",
+        "all-interface default",
+        "no network server"
+      ],
+      "human_decision": "",
+      "rationale": "The useful local board ships first without silently exposing repository state.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Return typed degraded states instead of empty fallback projections.",
+      "stake_class": "Type-1",
+      "options": [
+        "typed non-2xx degradation",
+        "empty success fallback",
+        "stale cache without marker"
+      ],
+      "human_decision": "",
+      "rationale": "A monitoring board is dangerous if source failure looks like no work and no blockers.",
+      "architecturally_significant": true
+    }
+  ]
+}

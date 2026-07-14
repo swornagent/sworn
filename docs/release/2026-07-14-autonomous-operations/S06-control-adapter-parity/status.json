@@ -1,0 +1,99 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S06-control-adapter-parity",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T2-control-core",
+  "covers_needs": ["N-02"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-14T16:19:18+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-14-autonomous-operations/S06-control-adapter-parity/spec.json",
+  "proof_path": "docs/release/2026-07-14-autonomous-operations/S06-control-adapter-parity/proof.json",
+  "journal_path": "docs/release/2026-07-14-autonomous-operations/S06-control-adapter-parity/journal.md",
+  "planned_files": [
+    "cmd/sworn/commands.go",
+    "cmd/sworn/commands_test.go",
+    "cmd/sworn/control.go",
+    "cmd/sworn/control_test.go",
+    "cmd/sworn/board.go",
+    "cmd/sworn/board_test.go",
+    "cmd/sworn/mcp.go",
+    "internal/control/query.go",
+    "internal/control/query_test.go",
+    "internal/control/conformance_test.go",
+    "internal/mcp/tools_ops.go",
+    "internal/mcp/tools_test.go",
+    "internal/mcp/server.go",
+    "internal/mcp/server_test.go",
+    "internal/mcp/context.go",
+    "internal/tui/blocked.go",
+    "internal/tui/board.go",
+    "internal/tui/model.go",
+    "internal/tui/tui_test.go",
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go",
+    "docs/architecture.json"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./cmd/sworn/... ./internal/control/... ./internal/mcp/... ./internal/tui/... ./internal/run/...",
+    "go test -race ./internal/control/... ./internal/mcp/... ./internal/tui/...",
+    "go test ./...",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh"
+  ],
+  "reachability_artifacts": [
+    "built sworn control pause invocation recording operation ID, unchanged pre-loop status revision, claimed operation event, new loop-produced revision, output, and exit code",
+    "serialized MCP JSON-RPC patch-retry and stale-revision responses plus a TUI key-driven pause flow, reconciled to the same command/event rows"
+  ],
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "See spec.json; adapter command taxonomy and transport error mappings require implementer confirmation before design review.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.1.0",
+  "release_benefit": "A SwornAgent operator can trust a recoverable autonomous release loop, receive durable attention pages, and monitor or safely control it from a mobile web board.",
+  "validation": {
+    "human_ratified": false,
+    "positive_scenarios": [
+      "CLI, MCP, and TUI submit the same pause command and observe the same operation lifecycle.",
+      "All three surfaces show the same authoritative source and revision."
+    ],
+    "negative_scenarios": [
+      "A stale command is visibly rejected on every surface.",
+      "No runtime adapter directly rewrites status or starts a nested loop."
+    ],
+    "benefit_hypothesis": "Adapter parity removes split-brain controls and creates the trustworthy base required by web/mobile operations."
+  },
+  "design_decisions": [
+    {
+      "choice": "Expose controls through a dedicated sworn control command and transport adapters over the same service.",
+      "stake_class": "Type-1",
+      "options": ["surface-specific actions", "filesystem mutation helpers", "shared command service adapters"],
+      "human_decision": "",
+      "rationale": "One command contract provides scriptable reachability and prevents each UI from becoming an application core.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Keep adapters read-after-command rather than optimistically mutating displayed Baton state.",
+      "stake_class": "Type-1",
+      "options": ["optimistic local state", "poll filesystem", "query authoritative operation and state snapshots"],
+      "human_decision": "",
+      "rationale": "Only the loop's accepted compare-and-write revision is authoritative.",
+      "architecturally_significant": true
+    }
+  ]
+}

@@ -1,0 +1,107 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S03-cancellation-recovery",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T1-engine-truth",
+  "user_outcome": "A SwornAgent operator can interrupt an autonomous loop and restart it without orphaned child work, duplicate dispatch, or an optimistic terminal result.",
+  "rationale": "The real CLI currently starts parallel execution with context.Background, while model-requested tool commands, proof commands, and some Git subprocesses are not bound to the attempt context. Process ownership can reap dead PIDs, but restart does not yet reconcile the complete interrupted outcome. This slice establishes the process-lifetime cancellation and recovery contract that later pause and remote controls consume (#68, #108).",
+  "touchpoints": [
+    "cmd/sworn/main.go",
+    "cmd/sworn/run.go",
+    "cmd/sworn/run_test.go",
+    "internal/run/slice.go",
+    "internal/run/slice_terminal_test.go",
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go",
+    "internal/run/recovery.go",
+    "internal/run/recovery_test.go",
+    "internal/agent/tools.go",
+    "internal/agent/tools_test.go",
+    "internal/implement/proof_record.go",
+    "internal/implement/proof_record_test.go",
+    "internal/driver/subprocess.go",
+    "internal/driver/driver_test.go",
+    "internal/supervisor/supervisor.go",
+    "internal/supervisor/supervisor_test.go",
+    "internal/scheduler/pause.go",
+    "internal/scheduler/scheduler_test.go"
+  ],
+  "in_scope": [
+    "Create one process-lifetime context from SIGINT/SIGTERM and pass it through command, parallel scheduler, slice, driver, tool, proof, and Git subprocess boundaries.",
+    "Replace orchestration subprocess construction with context-bound helpers that terminate the child process group within a bounded grace period.",
+    "Persist cancelled or paused intent through terminal-outcome-v1 before relinquishing supervisor ownership.",
+    "On restart, reap dead ownership, inspect committed status/Git/event references, reconcile an interrupted attempt, and dispatch only the next legal role.",
+    "Make a context already cancelled before parallel startup return non-PASS without reducing an empty result set to success.",
+    "Expose cooperative pause/resume primitives to the later control service while retaining the loop as the only runtime transition owner."
+  ],
+  "out_of_scope": [
+    "A CLI, MCP, TUI, or web pause command is S04-command-event-service and S06-control-adapter-parity; #68 remains open until an operator surface is reachable.",
+    "Loop max-turn policy remains in its planned 2026-07-11-contract-edge-gates slice.",
+    "Provider-specific remote cancellation guarantees beyond terminating Sworn-owned subprocesses are excluded.",
+    "Cross-machine failover and hosted workers are outside this repository-local release.",
+    "The other eleven planned contract-edge-gates slices are not reimplemented here."
+  ],
+  "covers_needs": ["N-01"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "Cancellation crosses process, scheduler, model, tool, proof, Git, state, and restart boundaries, and reliable subprocess-group termination is platform-sensitive.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "Cancellation stops the parent but leaves a child or grandchild mutating the worktree.",
+      "mitigation": "Use process-group-aware context execution on supported platforms, a bounded grace/kill sequence, and a real child-process reachability fixture."
+    },
+    {
+      "id": "R-02",
+      "description": "Restart repeats an implement or verify effect that completed before the crash.",
+      "mitigation": "Reconcile terminal-outcome-v1 references and committed status before routing; operation idempotency in S04 later strengthens explicit commands."
+    },
+    {
+      "id": "R-03",
+      "description": "Platform-specific signal behavior makes tests flaky or unsupported.",
+      "mitigation": "Keep a portable context contract, isolate process-group implementation by build tag, and assert platform-specific behavior only where supported."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN the sworn process receives SIGINT or SIGTERM during a loop THE SYSTEM SHALL cancel the root run context (C-01, N-01).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/run_test.go:TestRunSignalCancelsRootContext"]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN an attempt context expires during a model-requested tool or proof command THE SYSTEM SHALL terminate the owned subprocess group within the configured grace period (C-01, N-01).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/agent/tools_test.go:TestAttemptCancellationTerminatesToolProcessGroup"]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN interruption occurs after supervisor acquisition THE SYSTEM SHALL persist a cancelled outcome before clearing process ownership (C-01, C-03, N-01).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/run/slice_terminal_test.go:TestInterruptedSlicePersistsCancelledBeforeRelease"]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN a loop restarts after an interrupted attempt THE SYSTEM SHALL route from reconciled committed state without repeating a proven completed role (C-01, C-03, N-01).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/run/recovery_test.go:TestRestartReconcilesInterruptedAttempt"]
+    },
+    {
+      "id": "AC-05",
+      "text": "IF the run context is cancelled before parallel dispatch THEN THE SYSTEM SHALL return a non-PASS cancellation result with zero worker starts (C-01, N-01).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/run/parallel_test.go:TestPreCancelledParallelRunFailsClosed"]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHEN the built binary is interrupted and restarted against a fixture release THE SYSTEM SHALL reach the next legal Baton role with no live process from the interrupted attempt (C-01, N-01).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/run_test.go:TestInterruptRestartReachability"]
+    }
+  ]
+}

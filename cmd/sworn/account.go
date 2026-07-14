@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -40,8 +39,7 @@ func cmdAccount(args []string) int {
 		}
 	}
 
-	dir := filepath.Dir(account.CredentialsPath())
-	creds, err := account.Load(dir)
+	creds, err := account.LoadDefault()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading credentials: %v\n", err)
 		return 1
@@ -104,8 +102,7 @@ func cmdAccountSetWebhook(args []string) int {
 		return 64
 	}
 
-	dir := filepath.Dir(account.CredentialsPath())
-	creds, err := account.Load(dir)
+	creds, err := account.LoadDefault()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading credentials: %v\n", err)
 		return 1
@@ -116,7 +113,7 @@ func cmdAccountSetWebhook(args []string) int {
 	}
 	creds.WebhookURL = webhookURL
 
-	if err := account.Save(*creds, dir); err != nil {
+	if err := account.SaveDefault(*creds); err != nil {
 		fmt.Fprintf(os.Stderr, "Error saving webhook URL: %v\n", err)
 		return 1
 	}
@@ -129,8 +126,7 @@ func cmdAccountSetWebhook(args []string) int {
 // It prints the current webhook URL and whether email notifications
 // are enabled (account is logged in).
 func cmdAccountNotifications(args []string) int {
-	dir := filepath.Dir(account.CredentialsPath())
-	creds, err := account.Load(dir)
+	creds, err := account.LoadDefault()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading credentials: %v\n", err)
 		return 1

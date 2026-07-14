@@ -61,6 +61,11 @@ type ParallelOptions struct {
 	// without real git state.
 	Router scheduler.SliceRouter
 
+	// LegacyStaticIteration explicitly enables the retired static worker path.
+	// It exists for compatibility tests only; production callers leave it false
+	// so an unavailable committed-state router fails closed.
+	LegacyStaticIteration bool
+
 	// PauseEngine manages cooperative pause signals. When nil, defaults to
 	// scheduler.DefaultPauseEngine (the process-global engine shared by CLI,
 	// TUI, and MCP). Tests may supply their own to avoid global state.
@@ -123,6 +128,9 @@ func (p *productionSliceRouter) Route(ctx context.Context, release, sliceID, tra
 //
 // Returns nil if all tracks PASS, or an error if any track FAILs.
 func RunParallel(ctx context.Context, opts ParallelOptions) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("RunParallel: cancelled before start: %w", err)
+	}
 	releaseName := opts.ReleaseName
 	workspaceRoot := opts.WorkspaceRoot
 	if workspaceRoot == "" {
@@ -225,21 +233,20 @@ func RunParallel(ctx context.Context, opts ParallelOptions) error {
 	// ── Auto-construct production router when none injected ─────────────
 	// Tests inject fakes via opts.Router; production gets a router backed by
 	// the live oracle (board.OracleReaderAdapter) and git content reader.
-	// Soft-fail: if the git repo or release ref is unavailable (e.g. in
-	// unit tests that operate outside a real repo), opts.Router stays nil
-	// and workers fall back to the legacy static-iteration path via RunTrack.
-	// In production (real git repo + release branch) the construction always
-	// succeeds and the router-driven loop is the live path.
+	// Production must never silently substitute the retired static iterator:
+	// that protocol cannot honour committed-state routing decisions.
 	var ora router.OracleReader
-	if opts.Router == nil {
-		if o, oraErr := board.NewOracleReaderAdapterFromRepo(repo, releaseName, releaseRef); oraErr == nil {
-			ora = o
-			opts.Router = &productionSliceRouter{
-				oracle:     ora,
-				content:    repo,
-				trackInfos: tracks,
-				docsPrefix: docsPrefix,
-			}
+	if opts.Router == nil && !opts.LegacyStaticIteration {
+		o, oraErr := board.NewOracleReaderAdapterFromRepo(repo, releaseName, releaseRef)
+		if oraErr != nil {
+			return fmt.Errorf("RunParallel: construct committed-state router: %w", oraErr)
+		}
+		ora = o
+		opts.Router = &productionSliceRouter{
+			oracle:     ora,
+			content:    repo,
+			trackInfos: tracks,
+			docsPrefix: docsPrefix,
 		}
 	}
 

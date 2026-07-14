@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
+
+	credentialstore "github.com/swornagent/sworn/internal/credentials"
 )
 
 // Provider credentials live in ONE place: an XDG-conventional JSON file next to
@@ -32,7 +33,7 @@ import (
 // other caller can forget, and the one that forgets is never the one you test.
 
 // CredentialsPathEnv overrides the credentials file location outright.
-const CredentialsPathEnv = "SWORN_CREDENTIALS_PATH"
+const CredentialsPathEnv = credentialstore.PathEnv
 
 // Credentials is the on-disk record: a provider name to its API key.
 //
@@ -44,23 +45,7 @@ type Credentials struct {
 
 // CredentialsPath returns the XDG-conventional credentials file path.
 func CredentialsPath() string {
-	if p := os.Getenv(CredentialsPathEnv); p != "" {
-		return p
-	}
-	if dir := os.Getenv("SWORN_HOME"); dir != "" {
-		return filepath.Join(dir, "credentials.json")
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	if runtime.GOOS == "darwin" {
-		return filepath.Join(home, "Library", "Application Support", "sworn", "credentials.json")
-	}
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, "sworn", "credentials.json")
-	}
-	return filepath.Join(home, ".config", "sworn", "credentials.json")
+	return credentialstore.Path()
 }
 
 // canonicalKeyEnv maps a provider to the env var the WIDER ECOSYSTEM already uses.
@@ -164,15 +149,7 @@ func SaveCredentials(updates map[string]string) error {
 		current.Providers[k] = v
 	}
 
-	if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
-		return err
-	}
-	raw, err := json.MarshalIndent(current, "", "  ")
-	if err != nil {
-		return err
-	}
-	raw = append(raw, '\n')
-	if err := os.WriteFile(p, raw, 0600); err != nil {
+	if err := credentialstore.SetJSONAt(p, "providers", current.Providers); err != nil {
 		return err
 	}
 

@@ -807,9 +807,6 @@ func TestRunSlice_FailNotifiesOnce(t *testing.T) {
 	if ev.State != "failed_verification" {
 		t.Errorf("State = %q, want %q", ev.State, "failed_verification")
 	}
-	if ev.WorktreePath != worktreeRoot {
-		t.Errorf("WorktreePath = %q, want %q", ev.WorktreePath, worktreeRoot)
-	}
 	if ev.ViolationsSummary == "" {
 		t.Error("ViolationsSummary must not be empty on FAIL")
 	}

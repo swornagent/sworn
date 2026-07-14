@@ -1,0 +1,92 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S05-revisioned-state-ownership",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T2-control-core",
+  "covers_needs": ["N-01", "N-02"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-14T16:19:18+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-14-autonomous-operations/S05-revisioned-state-ownership/spec.json",
+  "proof_path": "docs/release/2026-07-14-autonomous-operations/S05-revisioned-state-ownership/proof.json",
+  "journal_path": "docs/release/2026-07-14-autonomous-operations/S05-revisioned-state-ownership/journal.md",
+  "planned_files": [
+    "internal/state/state.go",
+    "internal/state/state_test.go",
+    "internal/state/repository.go",
+    "internal/state/repository_test.go",
+    "internal/state/record_reconciliation_test.go",
+    "internal/run/slice.go",
+    "internal/run/slice_terminal_test.go",
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go",
+    "internal/scheduler/worker.go",
+    "internal/scheduler/worker_test.go",
+    "internal/router/router.go",
+    "internal/router/router_test.go",
+    "internal/lint/status.go",
+    "internal/lint/status_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/state/... ./internal/run/... ./internal/scheduler/... ./internal/router/... ./internal/lint/...",
+    "go test -race ./internal/state/... ./internal/run/...",
+    "go test ./...",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh"
+  ],
+  "reachability_artifacts": [
+    "real loop integration test showing the status bytes/revision before transition, the accepted revision in terminal/event output, and one conflict from a competing repository instance",
+    "sworn board or router command against an invalid status fixture recording a typed error and non-zero exit instead of an empty/planned state"
+  ],
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "See spec.json; canonical revision bytes and portable atomic replacement require implementer confirmation before design review.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.1.0",
+  "release_benefit": "A SwornAgent operator can trust a recoverable autonomous release loop, receive durable attention pages, and monitor or safely control it from a mobile web board.",
+  "validation": {
+    "human_ratified": false,
+    "positive_scenarios": [
+      "One writer advances a legal state and receives the new content revision.",
+      "Every runtime outcome/event names the revision it observed or created."
+    ],
+    "negative_scenarios": [
+      "A stale process cannot overwrite a newer verdict.",
+      "Invalid or unreadable state cannot become planned, empty, or PASS."
+    ],
+    "benefit_hypothesis": "Revisioned validated writes eliminate lost updates and give commands, events, recovery, and web clients one concurrency token."
+  },
+  "design_decisions": [
+    {
+      "choice": "Use a SHA-256 revision over authoritative validated record bytes rather than extend Baton slice-status-v1.",
+      "stake_class": "Type-1",
+      "options": ["numeric field in Baton status", "filesystem metadata", "content-hash revision"],
+      "human_decision": "",
+      "rationale": "Cross-process optimistic concurrency is needed without forking the protocol schema.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Make the loop the only runtime transition owner.",
+      "stake_class": "Type-1",
+      "options": ["every adapter writes status", "shared write library in every process", "adapters submit commands to loop owner"],
+      "human_decision": "",
+      "rationale": "One owner prevents transport-specific transition semantics and races.",
+      "architecturally_significant": true
+    }
+  ]
+}

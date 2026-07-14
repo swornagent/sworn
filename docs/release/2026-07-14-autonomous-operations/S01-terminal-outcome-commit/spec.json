@@ -1,0 +1,98 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S01-terminal-outcome-commit",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T1-engine-truth",
+  "user_outcome": "A SwornAgent operator sees a terminal loop or track result only after every required status, Git, supervisor, and lifecycle-event effect for that result is durably recorded.",
+  "rationale": "Architecture review #108 found terminal labels that can outrun their effects: slice non-PASS persistence errors are discarded, track completion can be recorded before merge succeeds, and single-task supervision defaults to done on later failure. This slice defines terminal-outcome-v1 and makes the real slice and track finalizers fail closed. It addresses #63 and #93 without claiming one cross-store ACID transaction; ordered effects and explicit reconciliation make partial failure visible and recoverable.",
+  "touchpoints": [
+    "internal/run/outcome.go",
+    "internal/run/outcome_test.go",
+    "internal/run/slice.go",
+    "internal/run/slice_terminal_test.go",
+    "internal/run/run.go",
+    "internal/run/run_test.go",
+    "internal/scheduler/worker.go",
+    "internal/scheduler/worker_test.go",
+    "internal/supervisor/supervisor.go",
+    "internal/supervisor/supervisor_test.go"
+  ],
+  "in_scope": [
+    "Define terminal-outcome-v1 as a typed result that distinguishes PASS, FAIL, BLOCKED, paused, cancelled, ready_to_merge, and persistence_error and carries the durable references required by contract C-01.",
+    "Make RunSlice propagate every terminal status/proof write error instead of returning the intended verdict as though persistence succeeded.",
+    "Make single-task supervision release failed on every post-acquire error and done only after the verified Git effect succeeds.",
+    "Make track finalization record done only after the track merge/publish effect succeeds; merge or push failure records failed and returns non-zero.",
+    "Record one public-safe lifecycle event for each accepted terminal outcome and surface an event-write failure when C-01 requires the event.",
+    "Add reconciliation helpers that identify a recorded terminal label whose status revision, Git reference, or event ID is absent or inconsistent."
+  ],
+  "out_of_scope": [
+    "Selecting the production task and parallel engines is S02-execution-authority.",
+    "Signal propagation and restart recovery are S03-cancellation-recovery.",
+    "The versioned command/event service and durable event schema are S04-command-event-service; S01 may use a minimal outcome event adapter until S04 replaces it.",
+    "Remote push transport redesign is excluded; this slice makes the existing push result truthful and retains #63 as the source issue.",
+    "The twelve planned slices in 2026-07-11-contract-edge-gates, including verdict commit-loop work owned by #93, remain excluded except where S01 consumes their verified contract."
+  ],
+  "covers_needs": ["N-01"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "The change spans slice, single-task, track, supervisor, Git, and event finalizers, and failure ordering must remain conservative across stores that cannot share one transaction.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "A new outcome wrapper hides rather than removes a terminal write that still discards an error.",
+      "mitigation": "Table-driven failure injection covers each terminal effect at the owning RunSlice, Run, and RunTrack integration points, and a source guard rejects discarded terminal persistence calls."
+    },
+    {
+      "id": "R-02",
+      "description": "A crash between ordered effects leaves an ambiguous partial outcome.",
+      "mitigation": "Persist intent/effect references before publishing the terminal label and make reconciliation return persistence_error until every required reference can be proven."
+    },
+    {
+      "id": "R-03",
+      "description": "Treating ready_to_merge as PASS accidentally grants release authority.",
+      "mitigation": "C-01 keeps readiness distinct from merge success, and command tests assert an attempted automatic merge without delegation exits non-zero."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN the verifier returns FAIL or BLOCKED and the corresponding status write fails THE SYSTEM SHALL return persistence_error with a non-zero exit path from RunSlice (C-01, N-01).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/run/slice_terminal_test.go:TestRunSliceTerminalWriteFailureFailsClosed"]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN single-task execution fails after supervisor acquisition THE SYSTEM SHALL release the synthetic track as failed (C-01, N-01).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/run/run_test.go:TestRunPostAcquireFailureReleasesFailed"]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN a track merge or push effect fails THE SYSTEM SHALL retain a failed supervisor state and return a non-PASS TrackResult (C-01, N-01; #63).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/scheduler/worker_test.go:TestRunTrackPublishFailureCannotRecordDone"]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN a terminal outcome is accepted THE SYSTEM SHALL return its status revision, Git effect reference when applicable, and lifecycle-event ID in terminal-outcome-v1 (C-01, C-03, C-04, N-01).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/run/outcome_test.go:TestTerminalOutcomeCarriesDurableReferences"]
+    },
+    {
+      "id": "AC-05",
+      "text": "IF reconciliation cannot prove any required terminal-outcome-v1 reference THEN THE SYSTEM SHALL classify the outcome as persistence_error (C-01, N-01).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/run/outcome_test.go:TestReconcileTerminalOutcomeFailsClosed"]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHEN the real sworn run --parallel command encounters an injected track-merge failure THE SYSTEM SHALL print a non-PASS terminal result and exit non-zero without a done supervisor row (C-01, N-01).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/run_test.go:TestParallelTerminalOutcomeReachability"]
+    }
+  ]
+}

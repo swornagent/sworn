@@ -1,0 +1,156 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/architecture-rules-v1.json",
+  "_description": "SwornAgent project architecture policy. The binary owns protocol, orchestration, state, and control-plane contracts; adapters must not recreate them.",
+  "canonical_docs": {
+    "_description": "Canonical code and decision records consulted by planning and architecture review.",
+    "data_model": "internal/state/state.go",
+    "api_contracts": [
+      "internal/verdict/verdict.go",
+      "internal/driver/driver.go",
+      "internal/board/oracle.go",
+      "internal/command/registry.go"
+    ],
+    "component_hierarchy": [
+      "AGENTS.md",
+      "docs/adr/0010-baton-pure-spec-sworn-implements.md",
+      "docs/adr/0012-driver-contract.md"
+    ],
+    "architectural_decisions": "docs/adr/",
+    "design_tokens": ""
+  },
+  "rules": [
+    {
+      "id": "planned-touchpoints-only",
+      "description": "Production files changed by a slice must be declared in planned_files",
+      "check": "touchpoints",
+      "severity": "error",
+      "note": "Add the file to the slice plan or record and approve a scoped design allowlist entry."
+    },
+    {
+      "id": "control-adapters-do-not-write-state",
+      "description": "MCP and TUI adapters must submit use cases rather than write authoritative state",
+      "check": "grep",
+      "pattern": "state\\.Write|os\\.WriteFile\\([^\\n]*(status\\.json|board\\.json)",
+      "files": "internal/{mcp,tui}/**/*.go",
+      "severity": "error",
+      "note": "Route the mutation through the canonical control or state-transition service."
+    },
+    {
+      "id": "control-adapters-do-not-spawn-loop-commands",
+      "description": "Control adapters must call typed services rather than construct Sworn subprocess commands",
+      "check": "grep",
+      "pattern": "execSwornRun|exec\\.Command(Context)?\\([^\\n]*(sworn|os\\.Args\\[0\\])",
+      "files": "internal/{mcp,tui}/**/*.go",
+      "severity": "error",
+      "note": "Use the shared command/control application service and return its typed outcome."
+    },
+    {
+      "id": "terminal-persistence-errors-must-propagate",
+      "description": "Orchestration must not discard terminal state or Git persistence errors",
+      "check": "grep",
+      "pattern": "_\\s*=\\s*(state\\.Write|repo\\.(Stage|Commit)|[^\\n]*\\.Release\\()",
+      "files": "internal/{run,scheduler,supervisor}/**/*.go",
+      "severity": "error",
+      "note": "Return the persistence failure through the typed terminal-outcome boundary."
+    },
+    {
+      "id": "no-new-process-global-mutation",
+      "description": "Production code must not add process-global environment or working-directory mutation",
+      "check": "grep",
+      "pattern": "os\\.(Setenv|Unsetenv|Chdir)\\(",
+      "files": "{cmd,internal}/**/*.go",
+      "severity": "error",
+      "note": "Pass configuration and repository paths explicitly instead of mutating process state."
+    },
+    {
+      "id": "orchestration-subprocesses-are-context-bound",
+      "description": "New orchestration subprocesses must consume cancellation and deadlines",
+      "check": "grep",
+      "pattern": "exec\\.Command\\(",
+      "files": "internal/{agent,implement,run,scheduler,mcp}/**/*.go",
+      "severity": "error",
+      "note": "Use CommandContext with the owning operation context and tested child cleanup."
+    },
+    {
+      "id": "child-process-environments-are-allowlisted",
+      "description": "Agentic child processes must not inherit the complete parent environment",
+      "check": "grep",
+      "pattern": "os\\.Environ\\(\\)",
+      "files": "internal/{driver,agent,implement,run,scheduler,mcp}/**/*.go",
+      "severity": "error",
+      "note": "Construct an explicit per-driver environment and pass through secrets only by documented opt-in."
+    },
+    {
+      "id": "no-legacy-provider-key-environment",
+      "description": "Provider credentials use canonical ecosystem environment names only",
+      "check": "grep",
+      "pattern": "SWORN_[A-Z0-9_]+_API_KEY",
+      "files": "{cmd,internal}/**/*.go",
+      "severity": "error",
+      "note": "Resolve provider keys through the canonical credentials authority."
+    },
+    {
+      "id": "no-duplicate-credential-paths",
+      "description": "Account and model packages must not reconstruct the shared credential filename",
+      "check": "grep",
+      "pattern": "credentials\\.json",
+      "files": "internal/{account,model}/**/*.go",
+      "severity": "error",
+      "note": "Use internal/credentials for path resolution and field-preserving persistence."
+    },
+    {
+      "id": "no-hardcoded-routing-models",
+      "description": "Orchestration and control surfaces must not hardcode provider/model routing choices",
+      "check": "grep",
+      "pattern": "\"(openai|anthropic|deepseek|groq|mistral|openrouter|cloudflare|github|claude-cli|codex)/[^\"]+\"",
+      "files": "{cmd/sworn,internal/run,internal/scheduler,internal/router,internal/mcp}/**/*.go",
+      "severity": "error",
+      "note": "Declare models in provider/role configuration and resolve through the canonical registry."
+    },
+    {
+      "id": "no-stale-operator-command-text",
+      "description": "Operator guidance must use registered current Sworn commands",
+      "check": "grep",
+      "pattern": "coach (ack|decline|board|loop)|sworn run --slice",
+      "files": "{cmd/sworn,internal/router,internal/tui,internal/mcp}/**/*.go",
+      "severity": "error",
+      "note": "Render next actions from the canonical command/control registry."
+    },
+    {
+      "id": "remote-payloads-omit-worktree-paths",
+      "description": "Remote notification payloads must not include machine-local worktree paths",
+      "check": "grep",
+      "pattern": "WorktreePath\\s*:",
+      "files": "internal/account/**/*.go",
+      "severity": "error",
+      "note": "Send stable project/release/slice identifiers and a canonical remote action instead."
+    },
+    {
+      "id": "notification-transports-are-bounded",
+      "description": "Notification transports must not use the process default unbounded HTTP client",
+      "check": "grep",
+      "pattern": "http\\.DefaultClient",
+      "files": "internal/{account,notify}/**/*.go",
+      "severity": "error",
+      "note": "Use a notifier-owned client with explicit request and total delivery deadlines."
+    },
+    {
+      "id": "notification-call-sites-are-centralised",
+      "description": "New orchestration code must project events through the outbox instead of calling notifier adapters directly",
+      "check": "grep",
+      "pattern": "\\.Notify\\(",
+      "files": "internal/{run,scheduler,mcp,tui,web}/**/*.go",
+      "severity": "error",
+      "note": "Enqueue an operation event for the canonical notification outbox dispatcher."
+    },
+    {
+      "id": "file-growth-review",
+      "description": "Large single-slice file growth requires an explicit cohesion review",
+      "check": "diff-size",
+      "max_lines_added": 250,
+      "max_file_lines": 1200,
+      "severity": "warning",
+      "note": "Prefer typed seams and cohesive files; explain intentional large analyzers in the design record."
+    }
+  ]
+}

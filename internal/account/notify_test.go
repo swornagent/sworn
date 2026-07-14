@@ -12,6 +12,12 @@ import (
 	"time"
 )
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
 func TestNotifyWebhook(t *testing.T) {
 	var received atomic.Value
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -39,7 +45,6 @@ func TestNotifyWebhook(t *testing.T) {
 		SliceID:           "S01-fail",
 		State:             "failed_verification",
 		ViolationsSummary: "3 violation(s) found",
-		WorktreePath:      "/tmp/test-worktree",
 		Timestamp:         "2026-07-01T00:00:00Z",
 	}
 
@@ -63,9 +68,6 @@ func TestNotifyWebhook(t *testing.T) {
 	}
 	if got.ViolationsSummary != "3 violation(s) found" {
 		t.Errorf("ViolationsSummary = %q, want %q", got.ViolationsSummary, "3 violation(s) found")
-	}
-	if got.WorktreePath != "/tmp/test-worktree" {
-		t.Errorf("WorktreePath = %q, want %q", got.WorktreePath, "/tmp/test-worktree")
 	}
 	if got.Timestamp != "2026-07-01T00:00:00Z" {
 		t.Errorf("Timestamp = %q, want %q", got.Timestamp, "2026-07-01T00:00:00Z")
@@ -119,6 +121,44 @@ func TestNotifyNoOp_NilNotifier(t *testing.T) {
 	}
 	// Nil receiver must not panic.
 	n.Notify(context.Background(), event)
+}
+
+func TestNotifierDefaultsBoundNetworkDelivery(t *testing.T) {
+	n := NewNotifier("https://hooks.example.test", nil)
+	if n.client == http.DefaultClient {
+		t.Fatal("notifier uses unbounded process default HTTP client")
+	}
+	if n.client.Timeout <= 0 {
+		t.Fatalf("request timeout = %v, want bounded", n.client.Timeout)
+	}
+	if n.totalLimit <= 0 {
+		t.Fatalf("total delivery limit = %v, want bounded", n.totalLimit)
+	}
+}
+
+func TestNotifyTotalLimitStopsStalledWebhook(t *testing.T) {
+	requestStarted := make(chan struct{})
+	n := NewNotifier("https://stalled.example.test", nil)
+	n.totalLimit = 100 * time.Millisecond
+	n.client = &http.Client{
+		Timeout: time.Second,
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			close(requestStarted)
+			<-req.Context().Done()
+			return nil, req.Context().Err()
+		}),
+	}
+
+	started := time.Now()
+	n.Notify(context.Background(), NotifyEvent{Release: "test", State: "blocked"})
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("stalled notification returned after %v, want bounded", elapsed)
+	}
+	select {
+	case <-requestStarted:
+	default:
+		t.Fatal("stalled endpoint was not reached")
+	}
 }
 
 func TestNotifyWithAccount(t *testing.T) {
@@ -329,7 +369,6 @@ func TestNotifyEvent_JSONShape(t *testing.T) {
 		SliceID:           "S01-fail",
 		State:             "failed_verification",
 		ViolationsSummary: "1. Missing reachability artefact",
-		WorktreePath:      "/tmp/worktree",
 		Timestamp:         "2026-07-01T00:00:00Z",
 	}
 
@@ -343,11 +382,14 @@ func TestNotifyEvent_JSONShape(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	required := []string{"release", "track", "slice_id", "state", "violations_summary", "worktree_path", "timestamp"}
+	required := []string{"release", "track", "slice_id", "state", "violations_summary", "timestamp"}
 	for _, key := range required {
 		if _, ok := decoded[key]; !ok {
 			t.Errorf("missing required JSON key: %s", key)
 		}
+	}
+	if _, ok := decoded["worktree_path"]; ok {
+		t.Error("remote notification payload exposed a machine-local worktree path")
 	}
 }
 

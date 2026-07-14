@@ -384,7 +384,6 @@ func runTrackRouter(
 						SliceID:           currentSlice,
 						State:             "track_failed",
 						ViolationsSummary: summary,
-						WorktreePath:      workRoot,
 					})
 				}
 
@@ -541,7 +540,6 @@ func runTrackLegacy(
 					SliceID:           sliceID,
 					State:             "track_failed",
 					ViolationsSummary: summary,
-					WorktreePath:      workRoot,
 				})
 			}
 
@@ -585,8 +583,6 @@ func finishTrack(
 	workRoot, trackID, trackBranch string,
 	releaseTrack func(string),
 ) TrackResult {
-	releaseTrack(supervisor.StateDone)
-
 	pushCmd := exec.Command("git", "push", "origin", "HEAD:"+trackBranch)
 	pushCmd.Dir = workRoot
 	_ = pushCmd.Run()
@@ -599,11 +595,13 @@ func finishTrack(
 		fmt.Fprintf(w, "[%s] auto-merging into release-wt\n", trackID)
 		if err := opts.MergeTrackFn(opts.ReleaseWorktreePath, trackID, trackBranch); err != nil {
 			fmt.Fprintf(w, "[%s] auto-merge failed: %v\n", trackID, err)
+			releaseTrack(supervisor.StateFailed)
 			return TrackFail
 		}
 		fmt.Fprintf(w, "[%s] auto-merged into release-wt\n", trackID)
 	}
 
+	releaseTrack(supervisor.StateDone)
 	fmt.Fprintf(w, "[%s] done\n", trackID)
 	return TrackPass
 }

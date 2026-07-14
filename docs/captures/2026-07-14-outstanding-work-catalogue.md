@@ -32,6 +32,15 @@ exists.
 | `2026-07-14-local-and-cloud-providers-brief.md` | Ollama Cloud, local Ollama (loop-capable), llama.cpp, LM Studio, vLLM, LocalAI. A **declared endpoint table** replacing `provider.go`'s 16-case switch, plus a **live endpoint-conformance suite** that derives each provider's OAI *dialect quirks* from observation. **Closes #15.** |
 | `2026-07-14-architecture-review-brief.md` | This review. |
 
+### Architecture review outputs (2026-07-14)
+
+The guard-first review is tracked by **#108**. Its remediation epic is **#109**
+and the drafted release board is
+`docs/release/2026-07-14-autonomous-operations/` (12 planned slices). That board
+orders terminal truth and cancellation before the command/event core, durable
+paging, the responsive mobile board, authenticated controls, and the final
+assembled real-binary journey.
+
 **Protocol side:** Baton **v0.12.0** and **v0.13.0** are merged and tagged.
 
 ## 2. Specced, not implemented — the `2026-07-11-contract-edge-gates` release
@@ -64,7 +73,7 @@ Cross-reference before reporting.
 | **#15** self-registering provider factory to eliminate `provider.go` touchpoint collision | duplication / extension point |
 | **#22** replace bespoke string scanners over structured docs with marshaller round-trips + write-time validation | contract drift / prose-scraping |
 | **#89** unify `google.go` / `bedrock.go` duplicate pricing lookups into the S08 registry | duplication |
-| **#79** ADR-0011 cited 30+ times across `internal/` but **the file was never committed** | phantom contract |
+| **#79** historical ADR-0011 phantom-contract issue; the file was backfilled in `957de6d`, but the issue remains open/stale | record hygiene |
 | **#70** agent-loop cost telemetry is nominal flat $2/1M; the pricing registry is **dark code** | dead code |
 | **#68** `PauseEngine` is **dark code** — no CLI/MCP/TUI surface can trigger it | dead code |
 | **#67** dead `example.com` `$schema` literals in code + stale artefacts on disk | dead code |
@@ -80,6 +89,21 @@ Cross-reference before reporting.
 | **#93** parallel loop: a verified slice never commits its verdict → router re-dispatches verify forever | loop correctness |
 | **#31** rename OpenAI provider prefixes (`openai/` → `/v1/responses`) | naming/contract |
 | **#29** ADR: namespace release artefacts under `docs/sworn/` to avoid consumer-repo collision | layout |
+
+### Newly filed by architecture review #108
+
+| Issue | Class / planned owner |
+|---|---|
+| **#109** autonomous operations plane: durable loop control, mobile board, notifications | remediation epic / drafted release |
+| **#110** benchmark accepts invalid ground truth as PASS | guard-domain integrity |
+| **#111** notification delivery can hang loops; no durable outbox | S07–S08 |
+| **#112** specquality gives current-format specs 100% with zero examples | guard-domain integrity |
+| **#113** runtime control surfaces bypass loop state ownership | S04–S06 |
+| **#114** parallel loop silently substitutes legacy routing after oracle failure | S02 |
+| **#115** terminal labels can outrun durable effects | S01 |
+| **#116** subscription CLI drivers inherit unrelated parent secrets | subprocess security |
+| **#117** dependency policy/direct-module ADR ownership is contradictory | governance guard |
+| **#118** telemetry init consent is unreachable; opt-in contract drift | consent reachability |
 
 **81 open issues in total.** The full list is authoritative:
 `gh issue list --repo swornagent/sworn --state open --limit 100`.
@@ -107,8 +131,9 @@ From the proof bundles in `docs/captures/`:
 
 ## 5. Known-stale / contradictory records (a review will trip over these)
 
-- **#79 — ADR-0011 does not exist.** It is cited 30+ times in `internal/`. Any review reading
-  those citations will chase a document that was never committed.
+- **#79 is stale.** ADR-0011 was originally missing but was backfilled in commit
+  `957de6d`; the open issue should be reconciled rather than treated as a current
+  missing-file defect.
 - **#73 — the vendored advisory AGENTS fragment is stuck in the seven-rule era** (pre-Rules
   8–12) in some surfaces.
 - **#74 — `internal/prompt/VERSION.txt` is dead provenance** contradicting the actual vendor

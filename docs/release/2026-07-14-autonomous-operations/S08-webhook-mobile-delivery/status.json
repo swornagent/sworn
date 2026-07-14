@@ -1,0 +1,117 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S08-webhook-mobile-delivery",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T3-durable-paging",
+  "covers_needs": [
+    "N-03"
+  ],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-14T16:19:18+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-14-autonomous-operations/S08-webhook-mobile-delivery/spec.json",
+  "proof_path": "docs/release/2026-07-14-autonomous-operations/S08-webhook-mobile-delivery/proof.json",
+  "journal_path": "docs/release/2026-07-14-autonomous-operations/S08-webhook-mobile-delivery/journal.md",
+  "planned_files": [
+    "internal/notify/delivery.go",
+    "internal/notify/delivery_test.go",
+    "internal/notify/destinations.go",
+    "internal/notify/destinations_test.go",
+    "internal/notify/webhook.go",
+    "internal/notify/webhook_test.go",
+    "internal/notify/mobile.go",
+    "internal/notify/mobile_test.go",
+    "internal/account/notify.go",
+    "internal/account/notify_test.go",
+    "internal/account/account.go",
+    "internal/account/account_test.go",
+    "cmd/sworn/account.go",
+    "cmd/sworn/account_test.go",
+    "cmd/sworn/notifications.go",
+    "cmd/sworn/notifications_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/notify/... ./internal/account/... ./cmd/sworn/...",
+    "go test -race ./internal/notify/...",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh"
+  ],
+  "reachability_artifacts": [
+    "built sworn notifications test generic-webhook invocation against a local HTTP fixture with captured body, headers, durable ID, result, and exit code",
+    "built sworn notifications test mobile invocation capturing the ntfy-compatible headers and a view-only board link",
+    "credential lifecycle capture proving notification configuration survives provider/account updates and logout without printing secret values"
+  ],
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "See spec.json; implementer must confirm destination storage and URL policy against the shared credential authority before design review.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.1.0",
+  "release_benefit": "A SwornAgent operator can trust a recoverable autonomous release loop, receive durable attention pages, and monitor or safely control it from a mobile web board.",
+  "validation": {
+    "human_ratified": false,
+    "positive_scenarios": [
+      "A signed generic webhook receives a stable event projection and durable identity.",
+      "A mobile push opens the matching read-only board state on a phone.",
+      "A temporary endpoint outage becomes a visible bounded retry and later delivery."
+    ],
+    "negative_scenarios": [
+      "A notification cannot encode an operation mutation or provider callback action.",
+      "Redirects, malformed URLs, and unbounded responses fail closed into typed results.",
+      "Destination credentials and response bodies never reach logs or persisted events."
+    ],
+    "benefit_hypothesis": "Stable provider-neutral delivery plus a simple mobile adapter restores useful paging while keeping all mutations behind one authenticated command boundary."
+  },
+  "design_decisions": [
+    {
+      "choice": "Keep a provider-neutral generic webhook and implement mobile push as an ntfy-compatible standard-library HTTP adapter.",
+      "stake_class": "Type-1",
+      "options": [
+        "generic webhook plus ntfy-compatible adapter",
+        "vendor SDKs",
+        "one bespoke webhook per provider"
+      ],
+      "human_decision": "",
+      "rationale": "The two transports exercise the same C-05 boundary without adding dependencies or provider-specific operation logic.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Allow notification actions to open the board only, never to perform a mutation.",
+      "stake_class": "Type-1",
+      "options": [
+        "view link only",
+        "signed direct mutation links",
+        "provider-native command callbacks"
+      ],
+      "human_decision": "",
+      "rationale": "It prevents a delivery adapter from becoming a second authorization and command protocol.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Disable redirects and return typed outcomes to the outbox instead of retrying inside adapters.",
+      "stake_class": "Type-2",
+      "options": [
+        "outbox-owned retry with no redirects",
+        "adapter-owned retry",
+        "default HTTP redirect behavior"
+      ],
+      "human_decision": "",
+      "rationale": "One retry authority preserves bounded behavior and avoids forwarding signed or secret-bearing requests to another host.",
+      "architecturally_significant": false
+    }
+  ]
+}

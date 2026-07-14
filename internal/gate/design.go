@@ -1,8 +1,8 @@
 // Package gate provides lint gates for the SwornAgent CLI.
 //
 // design.go implements `sworn lint design`: hardcoded colour detection plus
-// architecture rule enforcement. It reads docs/baton/architecture.json for rule
-// configuration, docs/baton/design-fidelity.json for design system config (token
+// architecture rule enforcement. It reads docs/architecture.json (with a
+// legacy docs/baton fallback) for rules, docs/baton/design-fidelity.json for design system config (token
 // exemptions), and the per-slice design-allowlist.json for escape-hatch
 // suppression.
 //

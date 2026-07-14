@@ -123,7 +123,6 @@ tracks:
 	if err := os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0o644); err != nil {
 		t.Fatalf("write index.md: %v", err)
 	}
-
 	// "nope/model-x" names an unregistered prefix — the startup sweep must
 	// reject it before any worker spawns.
 	t.Setenv("SWORN_VERIFIER_MODEL", "openai/gpt-4o")
@@ -255,6 +254,11 @@ tracks:
 	if err := os.WriteFile(filepath.Join(releaseDir, "index.md"), []byte(indexContent), 0o644); err != nil {
 		t.Fatalf("write index.md: %v", err)
 	}
+	// The production router reads only committed release state. Commit the
+	// fixture before cold-start creates release-wt/<release>; an uncommitted
+	// working-tree board must never trigger the retired static route.
+	runGit(t, tmpDir, "add", "docs/release/test-parallel-cmd/index.md")
+	runGit(t, tmpDir, "commit", "-m", "test: add parallel release fixture")
 
 	// ── Environment ───────────────────────────────────────────────────────
 	// SWORN_VERIFIER_MODEL must be set so the verifier-resolution gate

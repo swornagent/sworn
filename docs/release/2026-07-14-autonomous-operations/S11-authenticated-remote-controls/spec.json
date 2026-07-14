@@ -1,0 +1,168 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S11-authenticated-remote-controls",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T4-mobile-board",
+  "user_outcome": "An authenticated SwornAgent operator can safely pause, resume, retry, defer, or acknowledge an allowed loop operation from the mobile board and receive one revision-checked audited result even across retries or concurrent processes.",
+  "rationale": "This completes the controlled side of the mobile operations outcome in #109 while preserving the fail-closed findings of #108. It is the user-facing reachability path for the pause capability tracked as dark code in #68 and applies the cross-process safety lessons of #5. Every gesture becomes C-02, every accepted or authenticated-rejected decision becomes C-03, every state precondition uses C-04, and every HTTP edge follows C-06 plus S09-owned C-08. This slice owns the C-12 session cookie, C-13 CSRF header, C-14 If-Match header, and C-15 Idempotency-Key contracts. The browser and handler never write status files or spawn loop commands directly.",
+  "touchpoints": [
+    "internal/control/authorization.go",
+    "internal/control/authorization_test.go",
+    "internal/control/audit.go",
+    "internal/control/audit_test.go",
+    "internal/webapi/auth.go",
+    "internal/webapi/auth_test.go",
+    "internal/webapi/commands.go",
+    "internal/webapi/commands_test.go",
+    "internal/webapi/server.go",
+    "internal/webapi/server_test.go",
+    "internal/webui/assets/index.html",
+    "internal/webui/assets/app.css",
+    "internal/webui/assets/app.js",
+    "internal/webui/browser_test.go",
+    "internal/credentials/control_auth.go",
+    "internal/credentials/control_auth_test.go",
+    "cmd/sworn/serve.go",
+    "cmd/sworn/serve_test.go",
+    ".github/workflows/ci.yml"
+  ],
+  "in_scope": [
+    "Keep the default `sworn serve` bind on loopback. Require an explicit TLS certificate/key, secure authentication secret reference, and exact allowed HTTPS origin before accepting a non-loopback bind; reject wildcard origins and secret values supplied on the command line.",
+    "Add a bounded bootstrap-to-session flow using a high-entropy operator secret stored in the secure credential envelope or mode-0600 file; issue short-lived HttpOnly SameSite=Strict sessions, use Secure cookies for non-loopback TLS, rotate session/CSRF material, and never persist bearer material in browser storage.",
+    "Require authentication for every state-changing endpoint, including loopback; require exact Origin validation, a session-bound X-CSRF-Token, Idempotency-Key, Content-Type application/json, bounded body, and If-Match C-04 revision before C-02 enqueue.",
+    "Enumerate the browser wire edge: exact allowed origin response, credentials mode, OPTIONS handling, Access-Control-Allow-Headers for Content-Type/If-Match/Idempotency-Key/X-CSRF-Token, no wildcard with credentials, and no proxy rewrite or cross-origin requirement for the embedded same-origin board.",
+    "Expose only command kinds authorized by the current operation state and actor: pause, resume, retry failed/blocked work, acknowledge an action-required event, and record a Rule-2-complete deferral; validate release/track/slice identity and closed reason fields before enqueue.",
+    "Submit commands only through S04's C-02 service. A duplicate idempotency key returns the original operation; a stale/missing If-Match returns a typed precondition failure; neither path mutates status, Git, events, or notifications twice.",
+    "Record public-safe C-03 audit events for authentication session lifecycle, accepted commands, outcomes, and authenticated authorization/precondition rejections with actor, operation ID, target, prior/new revision where applicable, and safe reason classification.",
+    "Add accessible mobile controls only when the API advertises an allowed action, with explicit labels, confirmation for deferral, visible pending/success/conflict state, focus restoration, and no optimistic state mutation before the authoritative event/snapshot arrives.",
+    "Prove two-process contention, browser preflight/session/CSRF behavior, idempotent retry, stale revision conflict, dark pause reachability, audit completeness, and secret-safe logs with the built binary and real command/event/state services."
+  ],
+  "out_of_scope": [
+    "Automatic final integration merge and standing merge delegation are owned by S12 and C-07; this slice exposes no merge command.",
+    "A hosted identity provider, OAuth federation, multi-user roles, password recovery, fleet administration, public internet hosting, and TLS certificate issuance are outside #109.",
+    "Notification action callbacks are forbidden; S08 mobile notifications open the authenticated board and do not submit C-02 directly.",
+    "The S09 read model and S10 read-only board remain authoritative; this slice layers authenticated controls without changing their source semantics.",
+    "The twelve planned slices in 2026-07-11-contract-edge-gates retain resume-worktree, dry-run, max-turn, design-authority, provider, lint, and guard-fidelity ownership and are not reimplemented here."
+  ],
+  "covers_needs": [
+    "N-02",
+    "N-04"
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "This is a security-critical public boundary spanning bind/TLS policy, credential storage, sessions, CSRF/origin/CORS, idempotency, optimistic concurrency, command authorization, audit, mobile interaction, and cross-process tests. Both blast radius and emergent risk are high.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "A remote bind exposes read or mutation routes over cleartext or without effective authentication.",
+      "mitigation": "Validate non-loopback TLS, secret reference, and exact HTTPS origin before listen; mutation-test removal of each prerequisite and inspect the actual listening address."
+    },
+    {
+      "id": "R-02",
+      "description": "CSRF, permissive CORS, or a notification link can submit a command using an operator session.",
+      "mitigation": "Use same-origin by default, SameSite session cookies, exact Origin, session-bound CSRF, explicit credentialed preflight headers with no wildcard, and view-only notification links."
+    },
+    {
+      "id": "R-03",
+      "description": "A mobile retry or concurrent process applies a command twice or overwrites a newer verifier result.",
+      "mitigation": "Require durable idempotency key and If-Match revision at the C-02 service; prove duplicate and stale requests under two server/loop processes."
+    },
+    {
+      "id": "R-04",
+      "description": "The web handler bypasses the command service and directly edits status or spawns a CLI, recreating adapter-specific application logic.",
+      "mitigation": "Construct handlers with the C-02 interface only, add architecture rules forbidding state/exec imports in web adapters, and verify a fake command service observes every gesture."
+    },
+    {
+      "id": "R-05",
+      "description": "Authentication material or sensitive command reasons leak through URLs, browser storage, audit, or server logs.",
+      "mitigation": "Use body/header credentials only, HttpOnly sessions, in-memory CSRF, safe reason allowlists, query/log canaries, and no request-body logging."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHILE remote security configuration is absent or invalid THE SYSTEM SHALL default to loopback and SHALL reject a non-loopback bind before listen unless TLS, an authentication secret reference, and one exact allowed HTTPS origin all validate (C-06, C-08, N-04).",
+      "ears_pattern": "state-driven",
+      "test_refs": [
+        "cmd/sworn/serve_test.go:TestRemoteBindRequiresTLSAuthAndExactOrigin"
+      ]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN a valid bootstrap credential is exchanged THE SYSTEM SHALL issue the bounded C-12 session cookie and C-13 session-bound CSRF token without placing either secret in a URL, response log, localStorage, or sessionStorage (C-06, C-08, C-12, C-13, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/webapi/auth_test.go:TestBootstrapCreatesConfinedSessionAndCSRF"
+      ]
+    },
+    {
+      "id": "AC-03",
+      "text": "IF a state-changing request lacks valid authentication, exact Origin, C-13 CSRF, C-15 Idempotency-Key, application/json, or C-14 If-Match THEN THE SYSTEM SHALL reject it before C-02 enqueue and preserve status revision, Git, events, and notifications (C-02, C-03, C-04, C-06, C-08, C-12, C-13, C-14, C-15, N-02, N-04).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "internal/webapi/commands_test.go:TestMutationPrerequisitesFailBeforeEnqueue"
+      ]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN the same authenticated C-02 request is retried with the same C-15 Idempotency-Key THE SYSTEM SHALL return the original operation ID with at most one state transition, Git effect, event sequence, and notification enqueue (C-01, C-02, C-03, C-04, C-06, C-15, N-02).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/control/authorization_test.go:TestDuplicateCommandReturnsOriginalOperation"
+      ]
+    },
+    {
+      "id": "AC-05",
+      "text": "IF C-14 If-Match does not equal the current C-04 revision THEN THE SYSTEM SHALL return a typed precondition conflict containing the current safe revision and perform no mutation (C-02, C-04, C-06, C-14, N-02, N-04).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "internal/webapi/commands_test.go:TestStaleIfMatchReturnsConflictWithoutMutation"
+      ]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHEN an authenticated operator pauses an eligible active loop from the mobile board THE SYSTEM SHALL submit one C-02 pause command, persist a C-03 audit/lifecycle event, and render the authoritative paused C-04 revision without direct handler file writes or subprocess dispatch (C-02, C-03, C-04, C-06, N-02, N-04; #68).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/webui/browser_test.go:TestMobilePauseCommandEndToEnd"
+      ]
+    },
+    {
+      "id": "AC-07",
+      "text": "WHEN two authenticated processes submit different valid commands against the same C-04 revision THE SYSTEM SHALL accept at most one and SHALL return a typed conflict for the other with one linear C-03 audit order (C-02, C-03, C-04, C-06, N-02; #5).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/control/authorization_test.go:TestTwoProcessRevisionContentionLinearizes"
+      ]
+    },
+    {
+      "id": "AC-08",
+      "text": "WHEN an authenticated command is accepted, completed, or rejected by authorization/precondition THE SYSTEM SHALL append a public-safe C-03 audit event carrying actor, operation ID when assigned, target, classification, and applicable prior/current revisions (C-02, C-03, C-06, N-02, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/control/audit_test.go:TestCommandAuditCoverageAndSafeFields"
+      ]
+    },
+    {
+      "id": "AC-09",
+      "text": "IF authentication, CSRF, command, or audit fixtures contain token, cookie, credential, request-body, model-payload, or absolute-path canaries THEN THE SYSTEM SHALL expose none of them in URLs, API bodies, events, notifications, browser storage, or logs (C-03, C-06, N-04).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "internal/webapi/auth_test.go:TestControlPlaneSecretConfinement",
+        "internal/webui/browser_test.go:TestBrowserStoresNoAuthenticationSecret"
+      ]
+    },
+    {
+      "id": "AC-10",
+      "text": "WHEN the built binary serves the board on a configured non-loopback TLS fixture THE SYSTEM SHALL complete browser login, exact-origin preflight, one revision-checked pause, one idempotent retry, one stale-revision conflict, and one audit read at a 360-pixel viewport (C-02, C-03, C-04, C-06, C-08, N-02, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/webui/browser_test.go:TestAuthenticatedRemoteControlBinaryReachability"
+      ]
+    }
+  ]
+}

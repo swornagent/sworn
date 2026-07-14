@@ -115,8 +115,7 @@ func cmdRun(args []string) int {
 	maxAttempts := config.ResolveMaxAttempts(*retryCap, cfg)
 
 	// Load credentials for the notifier (shared by both modes).
-	credsDir := filepath.Dir(account.CredentialsPath())
-	creds, _ := account.Load(credsDir)
+	creds, _ := account.LoadDefault()
 
 	var webhookURL string
 	if creds != nil {

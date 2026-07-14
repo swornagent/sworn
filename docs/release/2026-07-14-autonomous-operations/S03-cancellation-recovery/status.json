@@ -1,0 +1,96 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S03-cancellation-recovery",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T1-engine-truth",
+  "covers_needs": ["N-01"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-14T16:19:18+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-14-autonomous-operations/S03-cancellation-recovery/spec.json",
+  "proof_path": "docs/release/2026-07-14-autonomous-operations/S03-cancellation-recovery/proof.json",
+  "journal_path": "docs/release/2026-07-14-autonomous-operations/S03-cancellation-recovery/journal.md",
+  "planned_files": [
+    "cmd/sworn/main.go",
+    "cmd/sworn/run.go",
+    "cmd/sworn/run_test.go",
+    "internal/run/slice.go",
+    "internal/run/slice_terminal_test.go",
+    "internal/run/parallel.go",
+    "internal/run/parallel_test.go",
+    "internal/run/recovery.go",
+    "internal/run/recovery_test.go",
+    "internal/agent/tools.go",
+    "internal/agent/tools_test.go",
+    "internal/implement/proof_record.go",
+    "internal/implement/proof_record_test.go",
+    "internal/driver/subprocess.go",
+    "internal/driver/driver_test.go",
+    "internal/supervisor/supervisor.go",
+    "internal/supervisor/supervisor_test.go",
+    "internal/scheduler/pause.go",
+    "internal/scheduler/scheduler_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./cmd/sworn/... ./internal/run/... ./internal/agent/... ./internal/implement/... ./internal/driver/... ./internal/supervisor/... ./internal/scheduler/...",
+    "go test -race ./internal/run/... ./internal/supervisor/... ./internal/scheduler/...",
+    "go test ./...",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh"
+  ],
+  "reachability_artifacts": [
+    "built sworn binary interrupted during a fixture child command, with PID/process-group evidence, cancelled outcome, supervisor ownership release, and non-zero exit",
+    "same fixture release restarted through sworn run --parallel, with dispatch history proving no completed role was repeated"
+  ],
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "See spec.json; process-group mechanics and recovery checkpoints require implementer confirmation before design review.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.1.0",
+  "release_benefit": "A SwornAgent operator can trust a recoverable autonomous release loop, receive durable attention pages, and monitor or safely control it from a mobile web board.",
+  "validation": {
+    "human_ratified": false,
+    "positive_scenarios": [
+      "An interrupted child is gone before ownership is released.",
+      "Restart continues from the next legal role."
+    ],
+    "negative_scenarios": [
+      "A pre-cancelled parallel run cannot reduce an empty result set to PASS.",
+      "A completed implement or verify role is not duplicated after restart."
+    ],
+    "benefit_hypothesis": "Bounded cancellation and evidence-based recovery turn autonomous runs from disposable processes into controllable operations."
+  },
+  "design_decisions": [
+    {
+      "choice": "Use one signal-derived process context and context-bound subprocess groups.",
+      "stake_class": "Type-1",
+      "options": ["per-command backgrounds", "root cancellation without group kill", "root cancellation with bounded group termination"],
+      "human_decision": "",
+      "rationale": "Cancellation must reach every Sworn-owned descendant before the loop relinquishes ownership.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Recover by reconciling persisted evidence before redispatch.",
+      "stake_class": "Type-1",
+      "options": ["restart slice from scratch", "resume from in-memory checkpoint", "reconcile durable status, Git, and events"],
+      "human_decision": "",
+      "rationale": "Only repository-visible evidence survives process death and can prevent duplicate work.",
+      "architecturally_significant": true
+    }
+  ]
+}

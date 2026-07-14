@@ -1,0 +1,112 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S07-notification-outbox",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T3-durable-paging",
+  "covers_needs": [
+    "N-03"
+  ],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-14T16:19:18+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-14-autonomous-operations/S07-notification-outbox/spec.json",
+  "proof_path": "docs/release/2026-07-14-autonomous-operations/S07-notification-outbox/proof.json",
+  "journal_path": "docs/release/2026-07-14-autonomous-operations/S07-notification-outbox/journal.md",
+  "planned_files": [
+    "internal/db/db.go",
+    "internal/db/db_test.go",
+    "internal/notify/outbox.go",
+    "internal/notify/outbox_test.go",
+    "internal/notify/policy.go",
+    "internal/notify/policy_test.go",
+    "internal/control/notification.go",
+    "internal/control/notification_test.go",
+    "cmd/sworn/notifications.go",
+    "cmd/sworn/notifications_test.go",
+    "cmd/sworn/main.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/db/... ./internal/control/... ./internal/notify/... ./cmd/sworn/...",
+    "go test -race ./internal/control/... ./internal/notify/...",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh"
+  ],
+  "reachability_artifacts": [
+    "built sworn notifications list output and exit code showing pending, retry_wait, delivered, and dead records from a live repository-local database",
+    "built sworn notifications replay invocation proving the delivery is requeued while operation events and Baton status revisions remain unchanged",
+    "process-kill capture proving an expired lease is recovered and eventually delivered once the dispatcher restarts"
+  ],
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "See spec.json; implementer must confirm schema, lease, and transaction boundaries against live S04 output before design review.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.1.0",
+  "release_benefit": "A SwornAgent operator can trust a recoverable autonomous release loop, receive durable attention pages, and monitor or safely control it from a mobile web board.",
+  "validation": {
+    "human_ratified": false,
+    "positive_scenarios": [
+      "A blocked loop transaction creates one pending notification per configured destination.",
+      "A transient delivery failure becomes retry_wait and succeeds after restart.",
+      "An operator inspects and replays a dead delivery without changing loop state."
+    ],
+    "negative_scenarios": [
+      "Outbox insertion failure prevents an optimistic terminal PASS.",
+      "Concurrent dispatchers cannot hold the same live lease.",
+      "Secret values and worktree paths never appear in storage, output, or errors."
+    ],
+    "benefit_hypothesis": "Making notification intent durable before network delivery turns paging from a best-effort side effect into inspectable operational evidence."
+  },
+  "design_decisions": [
+    {
+      "choice": "Store notification envelopes and attempts in the existing repository-local SQLite operations database.",
+      "stake_class": "Type-1",
+      "options": [
+        "repository-local SQLite outbox",
+        "append-only JSON files",
+        "hosted external queue"
+      ],
+      "human_decision": "",
+      "rationale": "It preserves one-binary operation, transactional event linkage, cross-process leases, and crash recovery without adding infrastructure.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Guarantee at-least-once delivery with stable envelope IDs and idempotent destination projections.",
+      "stake_class": "Type-1",
+      "options": [
+        "at-most-once best effort",
+        "at-least-once stable identity",
+        "claim exactly-once network delivery"
+      ],
+      "human_decision": "",
+      "rationale": "Network exactly-once cannot be promised, but durable IDs and replay-safe providers make duplicates observable and suppressible.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Keep notification replay structurally incapable of invoking operation commands.",
+      "stake_class": "Type-1",
+      "options": [
+        "replay envelope only",
+        "replay source operation",
+        "provider-specific action callbacks"
+      ],
+      "human_decision": "",
+      "rationale": "A transport retry must never repeat a loop mutation.",
+      "architecturally_significant": true
+    }
+  ]
+}

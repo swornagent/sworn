@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -72,6 +73,8 @@ func TestIsEnabled_OptedIn_NoOverrides(t *testing.T) {
 func TestInstallIDIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	resetInstallIDForTest()
+	t.Cleanup(resetInstallIDForTest)
 
 	first := InstallID()
 	if first == "" {
@@ -121,6 +124,20 @@ type fireTestTransport struct {
 	targetURL string
 }
 
+func enableTelemetryForTest(t *testing.T) {
+	t.Helper()
+	t.Setenv("SWORN_NO_TELEMETRY", "")
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	cfgDir := filepath.Join(dir, ".config", "sworn")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, ".telemetry-enabled"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func (ft *fireTestTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.URL.String() == "https://api.sworn.sh/v1/events" {
 		u, err := url.Parse(ft.targetURL)
@@ -133,6 +150,7 @@ func (ft *fireTestTransport) RoundTrip(req *http.Request) (*http.Response, error
 }
 
 func TestFireSchema(t *testing.T) {
+	enableTelemetryForTest(t)
 	// First, verify the event struct serialises correctly.
 	evt := event{
 		V:            1,
@@ -189,8 +207,6 @@ func TestFireSchema(t *testing.T) {
 	defer SetHTTPClient(prevClient)
 
 	// Set up clean install-id.
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
 	resetInstallIDForTest()
 	InstallID()
 
@@ -238,6 +254,7 @@ var ioReadAll = func(r interface{ Read([]byte) (int, error) }) ([]byte, error) {
 }
 
 func TestFireNonBlocking(t *testing.T) {
+	enableTelemetryForTest(t)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(5 * time.Second)
 		w.WriteHeader(http.StatusOK)
@@ -258,6 +275,7 @@ func TestFireNonBlocking(t *testing.T) {
 }
 
 func TestFireSilentOnError(t *testing.T) {
+	enableTelemetryForTest(t)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -275,6 +293,7 @@ func TestFireSilentOnError(t *testing.T) {
 }
 
 func TestFireTelemetryMetaCommandExcluded(t *testing.T) {
+	enableTelemetryForTest(t)
 	var hit bool
 	hitMu := sync.Mutex{}
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -301,6 +320,7 @@ func TestFireTelemetryMetaCommandExcluded(t *testing.T) {
 }
 
 func TestFireSkipsEmptyCmd(t *testing.T) {
+	enableTelemetryForTest(t)
 	var hit bool
 	hitMu := sync.Mutex{}
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -329,6 +349,7 @@ func TestFireSkipsEmptyCmd(t *testing.T) {
 }
 
 func TestFireStillFiresRealCmd(t *testing.T) {
+	enableTelemetryForTest(t)
 	var hit bool
 	hitMu := sync.Mutex{}
 	requestReceived := make(chan struct{}, 1)
@@ -361,6 +382,64 @@ func TestFireStillFiresRealCmd(t *testing.T) {
 	if !wasHit {
 		t.Error("Fire(\"verify\", ...) did not send request; real commands must still fire")
 	}
+}
+
+func TestFireRequiresExplicitConsent(t *testing.T) {
+	tests := map[string]func(*testing.T, string){
+		"neutral": func(t *testing.T, _ string) {},
+		"opted out file": func(t *testing.T, home string) {
+			cfgDir := filepath.Join(home, ".config", "sworn")
+			if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(cfgDir, ".no-telemetry"), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"environment override": func(t *testing.T, home string) {
+			cfgDir := filepath.Join(home, ".config", "sworn")
+			if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(cfgDir, ".telemetry-enabled"), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("SWORN_NO_TELEMETRY", "1")
+		},
+	}
+	for name, configure := range tests {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("SWORN_NO_TELEMETRY", "")
+			configure(t, home)
+
+			var requests atomic.Int32
+			client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				requests.Add(1)
+				return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+			})}
+			previous := HTTPClient()
+			SetHTTPClient(client)
+			t.Cleanup(func() { SetHTTPClient(previous) })
+
+			resetInstallIDForTest()
+			Fire("verify", "", "test", 1, 0)
+			time.Sleep(50 * time.Millisecond)
+			if got := requests.Load(); got != 0 {
+				t.Fatalf("telemetry requests = %d, want zero without consent", got)
+			}
+			if fileExists(filepath.Join(home, ".config", "sworn", "install-id")) {
+				t.Fatal("telemetry created an install ID without consent")
+			}
+		})
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 // --- ShowDisclosure tests ----------------------------------------------

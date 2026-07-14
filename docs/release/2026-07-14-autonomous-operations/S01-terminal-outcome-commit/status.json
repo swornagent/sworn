@@ -1,0 +1,87 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S01-terminal-outcome-commit",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T1-engine-truth",
+  "covers_needs": ["N-01"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-14T16:19:18+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-14-autonomous-operations/S01-terminal-outcome-commit/spec.json",
+  "proof_path": "docs/release/2026-07-14-autonomous-operations/S01-terminal-outcome-commit/proof.json",
+  "journal_path": "docs/release/2026-07-14-autonomous-operations/S01-terminal-outcome-commit/journal.md",
+  "planned_files": [
+    "internal/run/outcome.go",
+    "internal/run/outcome_test.go",
+    "internal/run/slice.go",
+    "internal/run/slice_terminal_test.go",
+    "internal/run/run.go",
+    "internal/run/run_test.go",
+    "internal/scheduler/worker.go",
+    "internal/scheduler/worker_test.go",
+    "internal/supervisor/supervisor.go",
+    "internal/supervisor/supervisor_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/run/... ./internal/scheduler/... ./internal/supervisor/... ./cmd/sworn/...",
+    "go test -race ./internal/run/... ./internal/scheduler/... ./internal/supervisor/...",
+    "go test ./...",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh"
+  ],
+  "reachability_artifacts": [
+    "sworn run --parallel --release <fixture> with a real injected merge failure, recording non-zero exit, terminal output, supervisor row, status revision, Git ref, and lifecycle event",
+    "sworn run --task <fixture> with a post-acquire failure, recording non-zero exit and failed supervisor release"
+  ],
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "See spec.json; the implementer must reassess failure ordering against live finalizers before design review.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.1.0",
+  "release_benefit": "A SwornAgent operator can trust a recoverable autonomous release loop, receive durable attention pages, and monitor or safely control it from a mobile web board.",
+  "validation": {
+    "human_ratified": false,
+    "positive_scenarios": [
+      "A fully persisted verified slice returns PASS with status, Git, and event references.",
+      "A successful track merge records done only after its Git effect exists."
+    ],
+    "negative_scenarios": [
+      "A status, proof, Git, supervisor, or event failure cannot return the intended terminal label.",
+      "Ready-to-merge cannot be reported as a completed integration merge."
+    ],
+    "benefit_hypothesis": "Making terminal claims evidence-bearing removes false completion and gives later recovery and monitoring one truthful boundary."
+  },
+  "design_decisions": [
+    {
+      "choice": "Use ordered durable effects plus reconciliation rather than claim a cross-store ACID transaction.",
+      "stake_class": "Type-1",
+      "options": ["single SQLite authority", "ordered effects with reconciliation", "best-effort independent writes"],
+      "human_decision": "",
+      "rationale": "Git, Baton files, and SQLite cannot share one atomic commit, so terminal publication must prove all required references.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Keep ready_to_merge distinct from merge success.",
+      "stake_class": "Type-1",
+      "options": ["readiness equals PASS", "readiness is a separate non-merge result"],
+      "human_decision": "",
+      "rationale": "Operational autonomy does not imply delegated production merge authority.",
+      "architecturally_significant": true
+    }
+  ]
+}

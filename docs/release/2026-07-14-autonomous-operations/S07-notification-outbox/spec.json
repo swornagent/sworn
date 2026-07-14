@@ -1,0 +1,137 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S07-notification-outbox",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T3-durable-paging",
+  "user_outcome": "A SwornAgent operator can trust that every action-required loop event is durably queued, retried within bounded policy, inspected, and replayed without repeating the underlying loop operation.",
+  "rationale": "This is the durable paging foundation for #109 and the notification defect confirmed by architecture review #108. It consumes operation-event-v1 (C-03) and owns notification-envelope-v1 (C-05). The current synchronous notifier can disappear on process exit, block on an unbounded client, and retain no delivery history; this slice moves delivery intent into repository-local durable state before any network adapter runs. It deliberately does not choose a webhook or mobile provider wire format, which belongs to S08.",
+  "touchpoints": [
+    "internal/db/db.go",
+    "internal/db/db_test.go",
+    "internal/notify/outbox.go",
+    "internal/notify/outbox_test.go",
+    "internal/notify/policy.go",
+    "internal/notify/policy_test.go",
+    "internal/control/notification.go",
+    "internal/control/notification_test.go",
+    "cmd/sworn/notifications.go",
+    "cmd/sworn/notifications_test.go",
+    "cmd/sworn/main.go"
+  ],
+  "in_scope": [
+    "Add versioned repository-local notification-outbox storage for C-05 envelopes, linked by foreign key or equivalent validated reference to exactly one C-03 operation event and one configured destination reference.",
+    "Define a closed attention taxonomy covering failed verification, blocked, circuit breaker open, max-turn exhaustion, action-required design decision, paused, cancelled, ready to merge, merge failed, and completed release; ordinary progress remains queryable but is not paged by default.",
+    "Enqueue the notification record durably before the operation that emitted its event may report terminal success; enqueue failure is surfaced through C-01 rather than logged and discarded.",
+    "Lease pending or retry_wait records to one dispatcher, enforce bounded per-attempt and total delivery deadlines, classify outcomes into a closed retryable/permanent set, and apply deterministic capped exponential backoff with a maximum attempt count.",
+    "Recover an expired delivery lease after process interruption, preserve attempt history, and move exhausted or permanent failures to dead without losing the source event.",
+    "Expose read-only list/show and explicit replay gestures through `sworn notifications`; replay creates a new attempt for the same stable envelope and never re-emits the source operation or command.",
+    "Redact credentials, model payloads, request/response bodies, absolute worktree paths, and secret-bearing destination values from envelope bodies, persistence errors, CLI output, and logs.",
+    "Prove schema migration from the current repository-local database and concurrent dispatch safety with deterministic no-network tests."
+  ],
+  "out_of_scope": [
+    "Generic webhook serialization, ntfy-compatible mobile push, HTTP signing, and destination configuration belong to S08-webhook-mobile-delivery.",
+    "Read API and board presentation of delivery health belong to S09 and S10.",
+    "Inbound actions from a notification are forbidden; S11 owns authenticated commands and notifications may only link to that UI.",
+    "Hosted queues, email campaign systems, Slack, Telegram, and multi-tenant routing are outside #109.",
+    "The twelve planned slices in 2026-07-11-contract-edge-gates retain their contract-lint, provider-capability, resume-worktree, dry-run, max-turn, design-authority, and general guard-fidelity ownership; this slice does not duplicate them."
+  ],
+  "covers_needs": [
+    "N-03"
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "Durability crosses schema migration, event commit ordering, leases, crash recovery, retry policy, CLI reachability, and secret-safe diagnostics. The individual mechanisms are known, but their failure ordering is load-bearing and requires adversarial process tests.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "A crash between event persistence and outbox insertion loses the only operator page.",
+      "mitigation": "Persist event and derived outbox row in one database transaction where applicable, and make terminal C-01 completion depend on a committed enqueue result. A kill-point integration test checks every boundary."
+    },
+    {
+      "id": "R-02",
+      "description": "Two dispatchers deliver the same pending row concurrently or a retry duplicates the underlying loop operation.",
+      "mitigation": "Use a conditional lease transition keyed by notification ID, keep delivery at-least-once but envelope identity stable, and make replay/delivery incapable of invoking the command service."
+    },
+    {
+      "id": "R-03",
+      "description": "A poison destination retries forever and blocks useful notifications.",
+      "mitigation": "Bound attempt count, request and total deadlines, use a closed permanent/retryable classification, and expose dead records plus explicit replay."
+    },
+    {
+      "id": "R-04",
+      "description": "Safe-looking notification text leaks a worktree path, response body, token, or model payload.",
+      "mitigation": "Build C-05 only from an allowlisted event projection, store destination references instead of secret URLs, inject canary secrets into tests, and scan CLI/persistence output."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN an attention-class C-03 event commits THE SYSTEM SHALL commit exactly one pending C-05 envelope for each matching destination before the C-01 terminal operation can report success (C-01, C-03, C-05, N-03).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/notify/outbox_test.go:TestAttentionEventTransactionallyEnqueuesOnce"
+      ]
+    },
+    {
+      "id": "AC-02",
+      "text": "IF event-to-outbox persistence fails THEN THE SYSTEM SHALL return a non-PASS terminal persistence error and SHALL leave no optimistic delivered or completed record (C-01, C-05, N-03).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "internal/notify/outbox_test.go:TestEnqueueFailureFailsTerminalCommitClosed"
+      ]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHILE a pending or retry_wait envelope is eligible THE SYSTEM SHALL grant at most one unexpired delivery lease across concurrent dispatcher processes (C-05, N-03).",
+      "ears_pattern": "state-driven",
+      "test_refs": [
+        "internal/notify/outbox_test.go:TestConcurrentDispatchersAcquireOneLease"
+      ]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN an attempt returns a retryable result THE SYSTEM SHALL persist its classification and schedule the next attempt using the declared capped backoff without sleeping past the configured total deadline (C-05, N-03).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/notify/policy_test.go:TestRetryableOutcomePersistsBoundedBackoff"
+      ]
+    },
+    {
+      "id": "AC-05",
+      "text": "WHEN a dispatcher process terminates after leasing an envelope THE SYSTEM SHALL make that envelope eligible after lease expiry with its prior attempt history intact (C-05, N-03).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/notify/outbox_test.go:TestExpiredLeaseRecoversAfterProcessExit"
+      ]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHEN `sworn notifications replay <notification-id>` targets a dead envelope THE SYSTEM SHALL enqueue one new delivery attempt for the same operation_event_id without submitting a C-02 command or changing any Baton status revision (C-02, C-04, C-05, N-03).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "cmd/sworn/notifications_test.go:TestReplayCommandRequeuesDeliveryOnly"
+      ]
+    },
+    {
+      "id": "AC-07",
+      "text": "IF canary credentials, payloads, response bodies, destination secrets, or absolute worktree paths enter source fixtures THEN THE SYSTEM SHALL persist and print none of those values in C-05 records, attempts, errors, or `sworn notifications` output (C-03, C-05, N-03).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "internal/notify/outbox_test.go:TestNotificationPersistenceIsPublicSafe",
+        "cmd/sworn/notifications_test.go:TestNotificationsOutputRedactsSecrets"
+      ]
+    },
+    {
+      "id": "AC-08",
+      "text": "WHEN the built binary runs `sworn notifications list --release <release>` against a fixture containing pending, retry_wait, delivered, and dead envelopes THE SYSTEM SHALL print all four states with stable IDs and exit zero; an unreadable or malformed store SHALL exit non-zero (C-05, N-03).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "cmd/sworn/notifications_test.go:TestNotificationsListBinaryReachability"
+      ]
+    }
+  ]
+}

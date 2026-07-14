@@ -1,0 +1,112 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S10-responsive-web-board",
+  "release": "2026-07-14-autonomous-operations",
+  "track": "T4-mobile-board",
+  "covers_needs": [
+    "N-04"
+  ],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-14T16:19:18+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-14-autonomous-operations/S10-responsive-web-board/spec.json",
+  "proof_path": "docs/release/2026-07-14-autonomous-operations/S10-responsive-web-board/proof.json",
+  "journal_path": "docs/release/2026-07-14-autonomous-operations/S10-responsive-web-board/journal.md",
+  "planned_files": [
+    "internal/webui/embed.go",
+    "internal/webui/embed_test.go",
+    "internal/webui/assets/index.html",
+    "internal/webui/assets/app.css",
+    "internal/webui/assets/app.js",
+    "internal/webui/browser_test.go",
+    "internal/webapi/server.go",
+    "internal/webapi/server_test.go",
+    "cmd/sworn/serve_test.go",
+    ".github/workflows/ci.yml",
+    "docs/adr/0016-embedded-web-ui.md"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/webui/... ./internal/webapi/... ./cmd/sworn/...",
+    "SWORN_BROWSER_TESTS=1 go test ./internal/webui/... -run Browser -count=1 -v",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh"
+  ],
+  "reachability_artifacts": [
+    "built sworn serve mobile browser journey at 360 by 800 CSS pixels with the current release, active loop, blocker, event, and notification health visible",
+    "360-pixel browser screenshot retained under the slice proof assets and reviewed for overflow, hierarchy, readable states, focus, and touch targets",
+    "browser accessibility and network capture proving semantic state, keyboard traversal, preserved focus during SSE, same-origin GET-only traffic, and visible degraded state"
+  ],
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "See spec.json; implementer must re-evaluate visual architecture and browser harness feasibility before design review.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.1.0",
+  "release_benefit": "A SwornAgent operator can trust a recoverable autonomous release loop, receive durable attention pages, and monitor or safely control it from a mobile web board.",
+  "validation": {
+    "human_ratified": false,
+    "positive_scenarios": [
+      "A phone user sees the active loop, most urgent blocker, and delivery health at 360 pixels without scrolling sideways.",
+      "A keyboard and screen-reader user can navigate the board and receive concise live updates.",
+      "A disconnected or malformed source is visibly degraded rather than presented as no work."
+    ],
+    "negative_scenarios": [
+      "The read-only board exposes no command control and sends no mutation request.",
+      "Malicious event text is inert and causes no third-party request.",
+      "SSE rerenders do not steal focus or collapse an operator's open details."
+    ],
+    "benefit_hypothesis": "A mobile-first summary of authoritative loop state restores the practical ability to supervise autonomous work away from a terminal."
+  },
+  "design_decisions": [
+    {
+      "choice": "Embed a dependency-free HTML, CSS, and JavaScript board in the Go binary.",
+      "stake_class": "Type-1",
+      "options": [
+        "dependency-free embedded assets",
+        "embedded framework bundle",
+        "separate web deployment"
+      ],
+      "human_decision": "",
+      "rationale": "It preserves distribution and offline-local operation while allowing direct use of C-06 in ordinary mobile browsers.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Ship summary-first read-only monitoring before any remote operation control.",
+      "stake_class": "Type-1",
+      "options": [
+        "read-only first",
+        "read and mutate together",
+        "notification-only monitoring"
+      ],
+      "human_decision": "",
+      "rationale": "It delivers the priority mobile value while the authorization, conflict, and audit boundary receives independent verification in S11.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Use a real-browser gate and reviewed 360-pixel screenshot as mandatory reachability evidence.",
+      "stake_class": "Type-1",
+      "options": [
+        "browser gate plus screenshot",
+        "DOM unit tests only",
+        "manual desktop smoke only"
+      ],
+      "human_decision": "",
+      "rationale": "Responsive overflow, computed focus/contrast, and dynamic accessibility behavior do not exist at handler-test level.",
+      "architecturally_significant": true
+    }
+  ]
+}
