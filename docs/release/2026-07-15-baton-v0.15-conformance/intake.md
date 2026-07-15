@@ -433,6 +433,25 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   same tag. `sworn doctor --sync-baton` is a final mirror check, not a substitute
   for the two upstream installers.
 
+### 2026-07-15 — Decompose conformance into 18 proof-bounded slices
+
+- **Context**: v0.15 adoption spans atomic vendoring, exact installed parity,
+  lossless record carriers, ambiguity checking, protocol provenance, raw Git
+  plumbing, canonical semantic scope, report identity, lifecycle history,
+  deterministic integration, role recovery, release adapters, re-plan and
+  public conformance proof.
+- **Options considered**: 18 proof-bounded slices; approximately 12 consolidated
+  slices; approximately 22 micro-slices.
+- **Decision**: Use the 18 slices below, each with one operator or maintainer
+  outcome and one independent proof boundary. Keep every slice under the
+  15–25-file ceiling; exact v0.15 parity and install proof may sit at the upper
+  edge because the normative mapped vendor surface is itself indivisible.
+- **Why**: The decomposition separates deterministic primitives from lifecycle,
+  integration and adapter authorities without inventing coordination seams that
+  have no independently verifiable outcome. It also preserves the engine
+  cutover as an explicit boundary between manually governed bootstrap evidence
+  and automated v0.15 authority.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`
@@ -446,12 +465,65 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
 - Existing closed records cannot be assigned PASS report ledgers without real
   committed reports, invocation identities and blob OIDs.
 
-## Proposed slice decomposition (draft)
+## Ratified slice decomposition
 
-Pending structured discovery and ratification. The upstream handoff recommends
-three layers: immutable parity, reusable deterministic primitives, and role plus
-command adapters. Those layers are inputs to decomposition, not pre-approved
-slice boundaries.
+- `S01-vendor-boundary-readiness`: A maintainer can run the upstream v0.15
+  vendor/check workflow without false script-reference matches, unsupported
+  schema-expression failures or partial primary-worktree writes.
+- `S02-v015-parity-and-installs`: The binary, vendored normative content and
+  supported Codex and Claude installations report and byte-match the exact
+  Baton v0.15 pin.
+- `S03-lossless-record-carriers`: State, board and spec records round-trip
+  maintainability, shared touchpoints and typed references without loss and
+  validate the exact v0.15 schemas.
+- `S04-typed-reference-ambiguity`: The Planner runs the dedicated ambiguity
+  check over typed, workspace-confined references and every generic check emits
+  the required canonical check identity.
+- `S05-protocol-provenance-archive`: An operator can inspect historical records
+  read-only with committed version evidence, while every live operation fails
+  before side effects unless its exact protocol marker matches the binary and
+  all authority refs.
+- `S06-exact-git-object-plumbing`: Domain authorities receive NUL-safe,
+  binary-safe typed APIs for committed paths, blobs, trees, ancestry, merge-base
+  and merge-file operations without importing Baton semantics.
+- `S07-canonical-semantic-scope`: An operator receives one exact candidate path
+  set, exclusion record, manifest, fingerprint and normalized prompt diff, with
+  provenance changes failing closed.
+- `S08-report-ledger-identity`: Missing, rewritten, deleted or blob-mismatched
+  reports fail closed, while an exact committed report can be validated and
+  reused without another model dispatch.
+- `S09-lifecycle-fsm-adjudication`: Committed history enforces phase order,
+  dispatch budgets, cycle transitions, Coach authority and immutable lifecycle
+  fields.
+- `S10-shared-touchpoint-composition`: Exactly declared shared files compose
+  from committed blobs identically across Git configurations, and malformed,
+  manual or custom merge results block.
+- `S11-track-evidence-freshness`: Active and retired ownership intervals plus
+  sync provenance preserve disjoint evidence while invalidating or blocking
+  stale overlap.
+- `S12-rollback-readiness`: Ordinary and post-sync rollback equality plus one
+  canonical integration-ready predicate distinguish legitimate deferrals and
+  preserve bytes outside the failed ownership interval.
+- `S13-maintainability-engine-cutover`: Public review and adjudication commands
+  atomically persist, commit and push lifecycle transitions, recover without
+  redispatch, and revalidate every S01–S12 bootstrap record before automation
+  becomes authoritative.
+- `S14-role-lifecycle-recovery`: Loop, router, Implementer and Verifier paths use
+  the shared command authority with exact dispatch counts, cycle routing and
+  restart recovery.
+- `S15-unified-track-merge`: CLI, autonomous-loop and MCP track-merge paths use
+  the same provenance, freshness, composition and readiness authorities on
+  normal and idempotent execution.
+- `S16-release-ship-transitions`: Release merge, pre-cutover ship and
+  post-deployment mark-shipped paths share canonical gates while preserving
+  readiness and deployment as distinct facts.
+- `S17-engine-replan-migration`: Planner and MCP adapters apply ratified deltas
+  and pristine migrations through one engine operation that seeds the exact
+  owner track, preserves lifecycle authority and commits and propagates
+  atomically.
+- `S18-public-conformance-proof`: Real-binary temporary-Git tests prove complete
+  PASS, failure, tamper, restart, merge, re-plan and ship behavior through public
+  entry points.
 
 ## Ambiguity register
 
@@ -466,6 +538,7 @@ slice boundaries.
 | A-07 | Whether readiness validation and the deployed `shipped` transition are one command or distinct facts | Public command semantics, deployment truth and idempotent terminal validation | Ratified: keep `sworn ship` as pre-cutover gate and add post-deployment `sworn mark-shipped` |
 | A-08 | Whether re-plan requirements judgment and authoritative record mutation belong in the same layer | Re-slicing, rollback linkage, owner-track seeding, MCP writes and recovery | Ratified: Planner owns meaning; one engine operation validates, commits and propagates the ratified mutation |
 | A-09 | How the release can obey v0.15 before the conformant Sworn engine exists | Early slice governance, first install activity, evidence integrity and engine cutover | Ratified: staged manual v0.15 bootstrap followed by mandatory engine revalidation before automated authority |
+| A-10 | How deeply to decompose the v0.15 conformance body | Slice independence, proof boundaries, track parallelism and file ceilings | Ratified: 18 proof-bounded slices, each under the 15–25-file ceiling, with exact vendoring alone permitted at the upper edge |
 
 ## Screenshots / references
 
