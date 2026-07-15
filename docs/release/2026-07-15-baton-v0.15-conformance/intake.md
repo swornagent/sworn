@@ -228,6 +228,37 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   integration adapter call the same internal maintainability authority. No role
   or merge command may reconstruct the lifecycle independently.
 
+### 2026-07-15 — Separate deterministic scope, ledger and integration authorities
+
+- **Context**: v0.15 combines Git semantic identity, report/history lifecycle
+  authority and integration/rollback composition. Current Sworn success paths
+  distribute related logic across `gate`, `state`, `board`, `router`, `run`, CLI
+  merge and MCP merge adapters.
+- **Options considered**: focused domain packages with one-way dependencies; one
+  broad maintainability package; extend the existing packages with local helper
+  functions.
+- **Decision**: Create `internal/maintainability/scope` for authored-path
+  discovery, canonical exclusions, normalized diff, manifest and fingerprint;
+  create `internal/maintainability/ledger` for full-report/blob identity,
+  append-only committed history, role budgets and Coach adjudication; and create
+  `internal/integration` for shared-touchpoint validation/composition, sync
+  provenance, active and retired evidence intervals, rollback equality and the
+  integration-ready predicate. A thin root `internal/maintainability`
+  coordinator may compose those authorities and dispatch through the canonical
+  driver interface, but owns no duplicate Git or FSM rules.
+- **Why**: These boundaries match Baton's independent authorities, support
+  focused adversarial tests and a one-way dependency graph, and stop CLI, loop
+  and MCP adapters from growing divergent local success predicates.
+- **Carrier obligation**: Existing `internal/state`, `internal/board` and
+  `internal/spec` packages become lossless record carriers. They preserve every
+  v0.15 field but do not infer lifecycle transitions. `internal/git` gains only
+  typed raw-byte/object plumbing; Baton semantics remain in the domain packages.
+- **Dependency obligation**: Low-level record/Git packages feed scope and
+  ledger; integration may consume their validated results; the thin coordinator
+  may consume integration; public adapters consume the coordinator and shared
+  validators. Reverse imports and adapter-specific reimplementations are
+  prohibited.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`
@@ -254,7 +285,7 @@ slice boundaries.
 |---|-----------|---------|------------|
 | A-01 | Whether strict v0.15 validation applies retroactively to closed historical releases or only to records whose committed protocol version predates v0.15 | Record loading, trace, board oracle, merge/release/ship gates, and active-plan migration | Ratified: version-gated read-only archive; explicit Planner migration before any current workflow |
 | A-02 | Exact public command spelling for maintainability operations and Coach adjudication | CLI reachability tests and adapter ownership | Ratified: dedicated `sworn maintainability review` and `sworn maintainability adjudicate`; generic `llm-check` execution retired |
-| A-03 | Whether canonical v0.15 operations fit existing packages or require new focused internal packages | Touchpoints, tracks and file ceilings | Requires repository surface audit before slice approval |
+| A-03 | Whether canonical v0.15 operations fit existing packages or require new focused internal packages | Touchpoints, tracks and file ceilings | Ratified: focused `maintainability/scope`, `maintainability/ledger`, and `integration` authorities with thin adapters and lossless carriers |
 
 ## Screenshots / references
 
