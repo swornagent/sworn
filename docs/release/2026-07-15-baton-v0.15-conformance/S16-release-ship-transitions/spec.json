@@ -1,0 +1,104 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S16-release-ship-transitions",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "track": "T6-release-adapters",
+  "user_outcome": "Release merge, pre-cutover ship and post-deployment mark-shipped paths share canonical gates while preserving readiness and deployment as distinct facts.",
+  "rationale": "C-11 prevents a successful readiness check from becoming false production history. Release integration, read-only pre-cutover authorization, and the durable post-deployment transition remain separate operations but consume the same committed protocol and C-09 authority.",
+  "touchpoints": [
+    "internal/integration/release.go",
+    "internal/integration/release_test.go",
+    "internal/integration/shipping.go",
+    "internal/integration/shipping_test.go",
+    "cmd/sworn/merge_release.go",
+    "cmd/sworn/merge_release_test.go",
+    "cmd/sworn/ship.go",
+    "cmd/sworn/ship_test.go",
+    "cmd/sworn/mark_shipped.go",
+    "cmd/sworn/mark_shipped_test.go"
+  ],
+  "references": [
+    {"kind": "contract", "contract_id": "C-03"},
+    {"kind": "contract", "contract_id": "C-05"},
+    {"kind": "contract", "contract_id": "C-06"},
+    {"kind": "contract", "contract_id": "C-07"},
+    {"kind": "contract", "contract_id": "C-08"},
+    {"kind": "contract", "contract_id": "C-09"},
+    {"kind": "contract", "contract_id": "C-11"},
+    {"kind": "slice", "slice_id": "S12-rollback-readiness"},
+    {"kind": "slice", "slice_id": "S13-maintainability-engine-cutover"},
+    {"kind": "slice", "slice_id": "S15-unified-track-merge"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"}
+  ],
+  "in_scope": [
+    "Make sworn merge-release require exact C-03 authority, every track's retained canonical integration, and every slice's fresh C-09 readiness before merging release-wt into the declared integration branch; normal and already-integrated execution revalidate the same evidence.",
+    "Keep sworn ship <release> as a read-only pre-cutover gate that first validates C-03 through C-09 and then preserves the existing human journey-attestation checks; it neither deploys nor changes any slice to shipped.",
+    "Add sworn mark-shipped <release> as the sole post-deployment transition: require a clean primary worktree on the integration branch, validate the deployed commit contains the release integration, revalidate C-03 through C-09 from durable integration ancestry, and atomically transition only eligible verified statuses to shipped with deploy evidence.",
+    "Preserve verified statuses through track merge, release merge, and pre-cutover ship; preserve legal deferred statuses and already-shipped records; change no verification, maintainability, report, or implementation identity during mark-shipped.",
+    "On idempotent ship or mark-shipped reruns, revalidate every current gate and deployment fact before success; never trust only current state or the absence of verified records."
+  ],
+  "out_of_scope": [
+    "Neither ship nor mark-shipped builds, deploys, pushes, deletes branches, or cleans worktrees.",
+    "Track merge mechanics belong to S15-unified-track-merge.",
+    "Human journey content and attestation collection are not redesigned by this slice.",
+    "Mark-shipped cannot infer that deployment occurred; it validates an explicit deploy reference containing the release integration."
+  ],
+  "covers_needs": ["N-04", "N-06", "N-07", "N-09", "N-10"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "Three public release facts must share deep evidence gates while retaining different mutation authority and durable-history locations.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "Pre-cutover ship mutates shipped state or mark-shipped is treated as a deployment action.",
+      "mitigation": "Assert byte-identical release records around ship; mark-shipped accepts only already-deployed evidence and performs no build, deploy, merge, or push callback."
+    },
+    {
+      "id": "R-02",
+      "description": "Cleaned-up track refs make terminal evidence appear unavailable after deployment.",
+      "mitigation": "Resolve track integration parents and reports from durable release/integration ancestry and compare integration-branch status to that history."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN sworn merge-release runs on the declared integration branch and every retained track integration and slice satisfies C-03 and C-09 THE SYSTEM SHALL merge the exact release-wt authority while leaving every verified slice verified; WHEN rerun after the exact merge exists THE SYSTEM SHALL revalidate all gates before idempotent success (C-03, C-09, C-11, N-09).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/merge_release_test.go:TestMergeReleaseRegatesLifecycleAndReadiness"]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN sworn ship <release> receives valid C-03 through C-09 evidence and passing required journey attestations THE SYSTEM SHALL exit 0 with a pre-cutover-ready result, leave every file and ref byte-identical, keep verified statuses verified, and perform no deploy, push, merge, or shipped transition (C-09, C-11, N-09, N-10).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/mark_shipped_test.go:TestShipAndMarkShippedBinaryReachability"]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN sworn mark-shipped <release> receives a deployed commit that contains the release integration and every verified slice still satisfies C-03 through C-09 from durable integration ancestry THE SYSTEM SHALL atomically change only those states to shipped, record one deploy identity and timestamp per transitioned status, preserve every verification and maintainability byte, and create no deployment side effect (C-09, C-11, N-10).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/mark_shipped_test.go:TestShipAndMarkShippedBinaryReachability"]
+    },
+    {
+      "id": "AC-04",
+      "text": "IF the deployed commit does not contain the release integration, any status/report/protocol/provenance/rollback/readiness gate fails, the worktree is dirty or on the wrong branch, or any slice is non-terminal THEN sworn mark-shipped SHALL exit non-zero and leave all files, refs, statuses, and deploy evidence unchanged (C-03, C-09, C-11, N-09).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["cmd/sworn/mark_shipped_test.go:TestMarkShippedFailsClosedBeforeStatusMutation"]
+    },
+    {
+      "id": "AC-05",
+      "text": "WHEN ship or mark-shipped reruns after their prior success THE SYSTEM SHALL revalidate all C-03 through C-11 inputs and, for mark-shipped, the deployed-commit containment and existing ship identities; it SHALL succeed idempotently only when those facts remain exact and SHALL NOT rewrite timestamps or reports (C-11, N-09, N-10).",
+      "ears_pattern": "complex",
+      "test_refs": ["internal/integration/shipping_test.go:TestReleaseTransitionsIdempotentlyRegateAllEvidence"]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHILE a release contains a legal unstarted deferral or rollback-backed terminal deferral, THE SYSTEM SHALL preserve it unchanged through merge-release, ship, and mark-shipped; raw deferred, superseded, or deferred rollback state SHALL block all three operations through C-09 (C-06, C-09, C-11, N-07, N-09).",
+      "ears_pattern": "state-driven",
+      "test_refs": ["internal/integration/release_test.go:TestReleaseTransitionsPreserveOnlyLegalDeferrals"]
+    }
+  ]
+}
