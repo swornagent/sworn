@@ -1,0 +1,43 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S10-shared-touchpoint-composition",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "track": "T4-integration-cutover",
+  "covers_needs": ["N-06", "N-08", "N-09"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-16T00:09:16+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S10-shared-touchpoint-composition/spec.json",
+  "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S10-shared-touchpoint-composition/proof.json",
+  "journal_path": "docs/release/2026-07-15-baton-v0.15-conformance/S10-shared-touchpoint-composition/journal.md",
+  "planned_files": [
+    "internal/integration/types.go",
+    "internal/integration/touchpoints.go",
+    "internal/integration/touchpoints_test.go",
+    "internal/integration/compose.go",
+    "internal/integration/compose_test.go",
+    "internal/integration/prospective.go",
+    "internal/integration/prospective_test.go",
+    "internal/integration/syncshape.go",
+    "internal/integration/syncshape_test.go",
+    "internal/integration/testgit_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": ["go test ./internal/integration", "go test ./...", "go vet ./...", "test -z \"$(gofmt -l .)\""],
+  "reachability_artifacts": ["go test ./internal/integration -run TestCanonicalSharedCompositionIgnoresGitConfiguration exercises C-07 against real committed Git objects under hostile Git configuration"],
+  "maintainability": {"state": "pending", "cycle": 0, "implementation_head": null, "rollback_slice_id": null, "reports": [], "adjudication": null},
+  "open_deferrals": [],
+  "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []},
+  "release_base": "release/v0.2.0",
+  "release_benefit": "Sworn can integrate declared shared files deterministically without trusting machine-local Git behavior.",
+  "validation": {
+    "human_ratified": true,
+    "ratified_by": "Coach",
+    "ratified_at": "2026-07-16T00:09:16+10:00",
+    "positive_scenarios": ["Two declared additive regions compose to one stable committed blob across hostile Git configurations."],
+    "negative_scenarios": ["An undeclared, conflicting, hand-resolved, mode-mismatched, or driver-dependent result blocks before mutation."],
+    "benefit_hypothesis": "Making the exception executable removes configuration-dependent merge outcomes from parallel release integration."
+  }
+}

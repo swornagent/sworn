@@ -1,0 +1,87 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S10-shared-touchpoint-composition",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "track": "T4-integration-cutover",
+  "user_outcome": "Exactly declared shared files compose from committed blobs identically across Git configurations, and malformed, manual, or custom merge results block.",
+  "rationale": "Baton permits one narrow exception to track-level file disjointness. This slice makes C-07 the sole authority for that exception and derives the result from committed blob identities, not from a checkout, merge driver, attributes, filters, or an operator's conflict resolution.",
+  "touchpoints": [
+    "internal/integration/types.go",
+    "internal/integration/touchpoints.go",
+    "internal/integration/touchpoints_test.go",
+    "internal/integration/compose.go",
+    "internal/integration/compose_test.go",
+    "internal/integration/prospective.go",
+    "internal/integration/prospective_test.go",
+    "internal/integration/syncshape.go",
+    "internal/integration/syncshape_test.go",
+    "internal/integration/testgit_test.go"
+  ],
+  "references": [
+    {"kind": "contract", "contract_id": "C-03"},
+    {"kind": "contract", "contract_id": "C-07"},
+    {"kind": "slice", "slice_id": "S03-lossless-record-carriers"},
+    {"kind": "slice", "slice_id": "S05-protocol-provenance-archive"},
+    {"kind": "slice", "slice_id": "S06-exact-git-object-plumbing"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"}
+  ],
+  "in_scope": [
+    "Validate board.json.shared_touchpoints as the only executable grant for a shared path: the path is canonical and repository-relative, every named track exists and owns the path in at least one slice, at least two contributors are declared, and every contributor has a distinct non-empty region label.",
+    "Resolve the base and contributing versions as regular committed Git blobs with one common mode, and invoke Git's object-id merge-file operation through the typed S06 plumbing without reading working-tree bytes.",
+    "Return a canonical composed blob OID and bytes only when the committed blobs compose conflict-free; compare any proposed or already-installed result to that exact identity.",
+    "Prove the same declaration and blob tuple produces the same result with union and custom merge drivers, clean and hostile attributes, clean and hostile filters, and different local merge configuration.",
+    "Fail closed before index or worktree mutation for an undeclared path, malformed declaration, missing or non-blob object, mode mismatch, canonical conflict, contributor mismatch, hand-resolved bytes, or driver-produced bytes that differ from the canonical result."
+  ],
+  "out_of_scope": [
+    "Track ownership intervals and sync freshness belong to S11-track-evidence-freshness.",
+    "Rollback equality and the complete integration-ready predicate belong to S12-rollback-readiness.",
+    "Installing a validated composed blob during CLI, autonomous-loop, or MCP track merge belongs to S15-unified-track-merge.",
+    "Broadening the documented-shared exception beyond additive region-separable files is prohibited."
+  ],
+  "covers_needs": ["N-06", "N-08", "N-09"],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "high",
+    "quadrant": "puzzle",
+    "rationale": "The surface is three focused files, but Git blob/mode identity and configuration independence make a superficially simple merge helper security-sensitive.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "A checkout or ordinary git merge leaks attributes, filters, or local driver configuration into the supposedly canonical result.",
+      "mitigation": "Consume only committed blob OIDs and modes through S06 and derive the result with the object-id merge-file operation; adversarial tests must vary attributes, filters, drivers, and local config around the same tuple."
+    },
+    {
+      "id": "R-02",
+      "description": "A hand-resolved or custom-driver result is accepted because it is conflict-free even though it is not the canonical third blob.",
+      "mitigation": "Require exact resulting blob-OID equality with the canonical composition and reject all mismatches before writing the index or worktree."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN C-07 declares one canonical path for two existing owner tracks with distinct regions and the base, first-parent, and second-parent entries are regular committed blobs with one mode whose object-id merge is conflict-free THE SYSTEM SHALL return the exact canonical composed blob OID and bytes containing both declared contributions (C-07, N-08).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/integration/compose_test.go:TestCanonicalSharedCompositionIgnoresGitConfiguration"]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN the AC-01 repository is rerun with union and custom merge drivers, alternate .gitattributes entries, clean and smudge filters, and conflicting local merge configuration THE SYSTEM SHALL return the same composed blob OID on every run and SHALL NOT invoke any configured driver or filter (C-07, N-08).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/integration/compose_test.go:TestCanonicalSharedCompositionIgnoresGitConfiguration"]
+    },
+    {
+      "id": "AC-03",
+      "text": "IF shared_touchpoints omits the path, names an unknown or non-owning track, has fewer than two contributors, repeats a region, contains an absolute or dot-segment path, or the committed entries are absent, non-blobs, or mode-mismatched THEN THE SYSTEM SHALL return a typed blocking error naming the failed C-07 invariant and SHALL leave HEAD, index, and worktree hashes unchanged (C-07, N-08, N-09).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/integration/compose_test.go:TestSharedCompositionRejectsInvalidAuthorityWithoutMutation"]
+    },
+    {
+      "id": "AC-04",
+      "text": "IF Git's canonical object-id merge conflicts or proposed worktree or index bytes resolve to any blob other than the canonical composed OID THEN THE SYSTEM SHALL block the composition, report the exact path and expected versus observed OIDs without printing file content, and SHALL NOT accept a manual or custom-driver result (C-07, N-08).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/integration/compose_test.go:TestSharedCompositionRejectsConflictAndNonCanonicalResult"]
+    }
+  ]
+}
