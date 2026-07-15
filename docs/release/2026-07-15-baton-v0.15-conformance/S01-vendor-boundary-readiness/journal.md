@@ -69,3 +69,21 @@
 - Coach resolution is incorporated, but not acknowledged as design approval.
   State remains `design_review`; a fresh Captain review is required before any
   `in_progress` transition or implementation.
+
+## 2026-07-16 — Coach acknowledgement and Captain PROCEED
+
+- Coach acknowledgement, verbatim: “Preserve staged bootstrap authority.
+  Implement S01’s vendor machinery and proof without claiming current protocol
+  authority or bypassing the Coach-ratified S13 revalidation boundary.”
+- Acknowledged all smaller flags in `review.md`: the twelve ratified
+  touchpoints, exhaustive public 0/1/2 exit map, one captured invocation instant
+  and transaction-member VERSION bytes, non-self-referential Git-admin-confined
+  recovery authority, exact normative schema bytes with only the ratified
+  unsupported-expression adapter, the S02 content/pin/install boundary, S05’s
+  serial shared-file obligation, and the passing design-fit gate.
+- Captain decision `PROCEED`, `CONSTITUTIONAL: no`, with no critical pins, is
+  accepted. The pre-cutover optional design-review LLM check remains unclaimed;
+  no model PASS is inferred from its unavailable adapter/API-key path.
+- Implementation remains under the staged manual bootstrap. S01 will stop at
+  `implemented`; fresh verification and the S13 engine revalidation boundary
+  remain separate authorities.
