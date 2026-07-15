@@ -292,6 +292,34 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   writers or lazily create `board.json`. The working tree and refs are
   byte-identical before and after inspection.
 
+### 2026-07-15 — Make the stateful command own the complete durability boundary
+
+- **Context**: Baton requires maintainability failures and Coach decisions to be
+  durable committed handoffs. A valid result left in a dirty worktree or a
+  machine-local commit can disappear across the exact session/machine boundary
+  the track branch is designed to survive.
+- **Options considered**: command writes, commits and pushes atomically; command
+  commits and the role session pushes; command returns data and the role session
+  authors all records and Git operations.
+- **Decision**: `sworn maintainability review` and
+  `sworn maintainability adjudicate` resolve the authoritative owner track,
+  require a clean starting tree/index, validate the current committed lifecycle,
+  write the full report, compact status ledger and journal transition as one
+  coherent change, commit it, and push the exact track ref before reporting
+  protocol success. A valid maintainability FAIL is also durably committed and
+  pushed before its FAIL exit is returned.
+- **Why**: The command that owns the transition is the only layer able to make
+  record identity, lifecycle mutation and Git durability one restartable
+  operation instead of a multi-actor convention.
+- **Recovery obligation**: If the report and transition commit succeed but the
+  push fails, a rerun validates and reuses that exact committed report, performs
+  no model dispatch and completes the missing push. Rewritten or partial local
+  evidence fails closed rather than being repaired heuristically.
+- **Authority obligation**: Stateful operations expose no `--dry-run`,
+  `--no-push`, `--force`, waiver or lifecycle-override flag. Caller-controlled
+  flags cannot change phase, cycle, head, invocation identity, fingerprint,
+  findings, timestamp or authority ref.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`
@@ -320,6 +348,7 @@ slice boundaries.
 | A-02 | Exact public command spelling for maintainability operations and Coach adjudication | CLI reachability tests and adapter ownership | Ratified: dedicated `sworn maintainability review` and `sworn maintainability adjudicate`; generic `llm-check` execution retired |
 | A-03 | Whether canonical v0.15 operations fit existing packages or require new focused internal packages | Touchpoints, tracks and file ceilings | Ratified: focused `maintainability/scope`, `maintainability/ledger`, and `integration` authorities with thin adapters and lossless carriers |
 | A-04 | How a current operation proves v0.15 authority while historical releases contain mixed protocol eras | Protocol selection, archive inspection, migration and every mutation/success path | Ratified: exact committed `protocol.json` for live authority plus per-record Git evidence for read-only history |
+| A-05 | Whether the maintainability command or the surrounding role session owns report/status commits and the track push | Crash recovery, report reuse, machine-to-machine handoff and public exit semantics | Ratified: stateful command owns atomic records, commit and push; interrupted push resumes without model dispatch |
 
 ## Screenshots / references
 
