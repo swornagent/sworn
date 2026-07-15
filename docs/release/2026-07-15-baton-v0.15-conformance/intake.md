@@ -452,6 +452,29 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   cutover as an explicit boundary between manually governed bootstrap evidence
   and automated v0.15 authority.
 
+### 2026-07-16 — Group the release into seven dependency-safe tracks
+
+- **Context**: The 18 slices contain two genuine parallel seams: semantic scope
+  and lifecycle ledger can proceed independently after foundation, while role
+  orchestration and release adapters can proceed independently after the
+  maintainability engine cutover.
+- **Options considered**: seven dependency-safe tracks; four broader tracks;
+  nine narrower tracks.
+- **Decision**: Use seven tracks. `T1-foundation` owns S01–S05;
+  `T2-semantic-scope` owns S06–S07 and depends on T1;
+  `T3-lifecycle-ledger` owns S08–S09 and depends on T1;
+  `T4-integration-cutover` owns S10–S13 and depends on T2 and T3;
+  `T5-role-loop` owns S14 and depends on T4;
+  `T6-release-adapters` owns S15–S17 and depends on T4; and
+  `T7-conformance-proof` owns S18 and depends on T5 and T6.
+- **Why**: This exposes the safe parallelism without splitting independently
+  unverifiable mechanics. S13 remains the explicit automation boundary, and
+  every track has exclusive planned file ownership, so the release requires no
+  shared-touchpoint exception.
+- **Execution obligation**: `board.shared_touchpoints` is `{}`. Any newly
+  discovered cross-track write collision blocks implementation and returns to
+  re-planning rather than being accepted silently.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`
@@ -539,6 +562,7 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
 | A-08 | Whether re-plan requirements judgment and authoritative record mutation belong in the same layer | Re-slicing, rollback linkage, owner-track seeding, MCP writes and recovery | Ratified: Planner owns meaning; one engine operation validates, commits and propagates the ratified mutation |
 | A-09 | How the release can obey v0.15 before the conformant Sworn engine exists | Early slice governance, first install activity, evidence integrity and engine cutover | Ratified: staged manual v0.15 bootstrap followed by mandatory engine revalidation before automated authority |
 | A-10 | How deeply to decompose the v0.15 conformance body | Slice independence, proof boundaries, track parallelism and file ceilings | Ratified: 18 proof-bounded slices, each under the 15–25-file ceiling, with exact vendoring alone permitted at the upper edge |
+| A-11 | How to group the 18 slices for safe parallel delivery | Track dependencies, file ownership, worktree materialisation and the S13 cutover | Ratified: seven tracks with T2/T3 parallel after T1, T5/T6 parallel after T4, T7 final, and no shared-touchpoint exceptions |
 
 ## Screenshots / references
 
