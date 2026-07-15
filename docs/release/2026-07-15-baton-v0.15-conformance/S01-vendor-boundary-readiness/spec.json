@@ -7,6 +7,7 @@
   "rationale": "This is the staged bootstrap boundary: it repairs the existing vendor transaction and exact-schema preflight before S02 is allowed to replace the pinned protocol. The implementation remains local, non-interactive, and linear in mapped source bytes; it handles no PII, credentials, network authentication, UI, or accessibility surface, and must never log source payloads that could contain private adopting-project content.",
   "touchpoints": [
     "cmd/sworn/baton.go",
+    "internal/baton/diff_test.go",
     "internal/baton/vendor.go",
     "internal/baton/vendor_test.go",
     "internal/baton/vendor_transaction.go",
@@ -43,7 +44,7 @@
     "effort": "low",
     "complexity": "low",
     "quadrant": "quick",
-    "rationale": "The failure modes are known and confined to twelve existing vendor/compiler/command touchpoints, with deterministic fault-injection tests and no new product surface.",
+    "rationale": "The failure modes are known and confined to thirteen existing vendor/compiler/command touchpoints, with deterministic fault-injection tests and no new product surface.",
     "confirmed_by_implementer": false
   },
   "risks": [
