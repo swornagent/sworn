@@ -402,6 +402,37 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   locally committed and fully propagated outcomes without replaying Planner
   judgment or narrowing lifecycle history.
 
+### 2026-07-15 — Bootstrap conformance in stages under the exact tagged protocol
+
+- **Context**: Sworn cannot use a v0.15 engine operation to implement the first
+  pieces of that same engine. Building everything outside the release would put
+  code before its slice contracts; running early slices under v0.13 and
+  migrating them later would violate the pristine-only migration boundary.
+- **Options considered**: staged v0.15 self-bootstrap; out-of-band monolithic
+  engine implementation followed by retrospective planning; early v0.13 work
+  followed by in-place migration of started records.
+- **Decision**: Author every release record against the exact v0.15 contract
+  from planning onward. The first delivery activity repairs the atomic vendor
+  boundary, then vendors the exact v0.15 tag and refreshes both supported local
+  Baton installations from that pin. Until Sworn's new engine authorities are
+  reachable, early slices follow the tagged v0.15 role prompts manually, use
+  fresh Implementer/Verifier contexts, and commit schema-valid v0.15 reports and
+  lifecycle transitions without claiming engine automation.
+- **Cutover rule**: The engine-cutover slice must run the new binary against all
+  earlier release records, reports, Git scopes and transitions. Any mismatch is
+  a blocking defect repaired under the original slice authority; no report is
+  synthesized or grandfathered. Only after that independent revalidation passes
+  do later role and adapter slices use the automated stateful operations as
+  their execution authority.
+- **Why**: Staged self-bootstrap preserves specification-first delivery and the
+  exact new protocol while acknowledging the temporary absence of its reference
+  implementation. The cutover turns manual evidence into engine-validated
+  evidence rather than retrospectively inventing it.
+- **Install obligation**: Local Codex and Claude mirrors are updated only after
+  exact vendored source parity is established, and are byte-checked against the
+  same tag. `sworn doctor --sync-baton` is a final mirror check, not a substitute
+  for the two upstream installers.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`
@@ -434,6 +465,7 @@ slice boundaries.
 | A-06 | Which pre-v0.15 records may receive an in-place Planner migration | Local-first plan activation and protection of started historical evidence | Ratified: only pristine planned records with null start and no execution evidence; started or terminal work requires new v0.15 IDs |
 | A-07 | Whether readiness validation and the deployed `shipped` transition are one command or distinct facts | Public command semantics, deployment truth and idempotent terminal validation | Ratified: keep `sworn ship` as pre-cutover gate and add post-deployment `sworn mark-shipped` |
 | A-08 | Whether re-plan requirements judgment and authoritative record mutation belong in the same layer | Re-slicing, rollback linkage, owner-track seeding, MCP writes and recovery | Ratified: Planner owns meaning; one engine operation validates, commits and propagates the ratified mutation |
+| A-09 | How the release can obey v0.15 before the conformant Sworn engine exists | Early slice governance, first install activity, evidence integrity and engine cutover | Ratified: staged manual v0.15 bootstrap followed by mandatory engine revalidation before automated authority |
 
 ## Screenshots / references
 
