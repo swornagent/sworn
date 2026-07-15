@@ -200,6 +200,34 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   "legacy" heuristic. Original-version validation grants archival inspection
   only; it never grants current mutation or integration authority.
 
+### 2026-07-15 — Give maintainability one dedicated public command authority
+
+- **Context**: Sworn currently exposes `maintainability-review` through the
+  generic `llm-check` command, but v0.15 makes it a stateful operation that owns
+  phase order, role authority, dispatch budgets, semantic identity, committed
+  reports and lifecycle transitions.
+- **Options considered**: add a dedicated `maintainability` command namespace;
+  extend generic `llm-check` with lifecycle flags; keep the operation internal
+  and require another tool or direct record editing for Coach decisions.
+- **Decision**: Make `sworn maintainability review` the sole public review
+  operation and `sworn maintainability adjudicate` the sole public Coach
+  transition. The review command accepts only Baton-valid role/phase pairs:
+  Implementer `preflight` or `closure`, and Verifier `authoritative`. The
+  adjudication command accepts only the exact Baton decisions
+  `resume_in_scope` or `re_slice`. Both derive cycle, reports, semantic scope,
+  invocation identities and current authority from validated committed state;
+  user flags cannot assert or override them.
+- **Why**: A dedicated stateful namespace gives public reachability and recovery
+  without mixing a durable protocol FSM into one-shot quality checks or leaving
+  a second executable authority path.
+- **Compatibility obligation**: Retire generic
+  `sworn llm-check --type maintainability-review` as an executable path. If the
+  old spelling is recognized at all, it exits non-zero and points to the
+  dedicated command; it never dispatches a model or mutates lifecycle state.
+- **Adapter obligation**: `sworn loop`, verifier orchestration, routing and every
+  integration adapter call the same internal maintainability authority. No role
+  or merge command may reconstruct the lifecycle independently.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`
@@ -225,7 +253,7 @@ slice boundaries.
 | # | Ambiguity | Affects | Resolution |
 |---|-----------|---------|------------|
 | A-01 | Whether strict v0.15 validation applies retroactively to closed historical releases or only to records whose committed protocol version predates v0.15 | Record loading, trace, board oracle, merge/release/ship gates, and active-plan migration | Ratified: version-gated read-only archive; explicit Planner migration before any current workflow |
-| A-02 | Exact public command spelling for maintainability operations and Coach adjudication | CLI reachability tests and adapter ownership | Resolve from existing command architecture during decomposition; Baton owns semantics, Sworn owns spelling |
+| A-02 | Exact public command spelling for maintainability operations and Coach adjudication | CLI reachability tests and adapter ownership | Ratified: dedicated `sworn maintainability review` and `sworn maintainability adjudicate`; generic `llm-check` execution retired |
 | A-03 | Whether canonical v0.15 operations fit existing packages or require new focused internal packages | Touchpoints, tracks and file ceilings | Requires repository surface audit before slice approval |
 
 ## Screenshots / references
