@@ -179,6 +179,27 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   contracts; treating it as a content-only bump would make every downstream
   proof untrustworthy.
 
+### 2026-07-15 — Version-gate historical records as a read-only archive
+
+- **Context**: The repository contains pre-v0.15 records that cannot truthfully
+  satisfy v0.15's maintainability ledger, report identity and authoritative PASS
+  requirements because those artefacts did not exist when the work was done.
+- **Options considered**: preserve historical records under a pinned original
+  protocol and require migration before execution; bulk-rewrite every record;
+  accept missing maintainability data through a permissive legacy shim.
+- **Decision**: Historical records remain immutable and read-only under their
+  deterministically resolved original protocol version. Any planning record that
+  enters a mutating, verification, integration, release or shipping workflow
+  must first receive an explicit Planner migration to v0.15 and pass the v0.15
+  gates. An unresolvable version fails closed rather than selecting a default.
+- **Why**: This preserves the audit record without inventing PASS reports,
+  invocation identities, fingerprints or blob OIDs, while keeping every live
+  success path strictly conformant instead of embedding an ambiguous bypass.
+- **Implementation obligation**: Protocol selection must be derived from
+  committed repository evidence, not folder names, displayed state or a loose
+  "legacy" heuristic. Original-version validation grants archival inspection
+  only; it never grants current mutation or integration authority.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`
@@ -203,7 +224,7 @@ slice boundaries.
 
 | # | Ambiguity | Affects | Resolution |
 |---|-----------|---------|------------|
-| A-01 | Whether strict v0.15 validation applies retroactively to closed historical releases or only to records whose declared protocol version is v0.15+ | Record loading, trace, board oracle, merge/release/ship gates, and active-plan migration | Requires Coach decision before decomposition |
+| A-01 | Whether strict v0.15 validation applies retroactively to closed historical releases or only to records whose committed protocol version predates v0.15 | Record loading, trace, board oracle, merge/release/ship gates, and active-plan migration | Ratified: version-gated read-only archive; explicit Planner migration before any current workflow |
 | A-02 | Exact public command spelling for maintainability operations and Coach adjudication | CLI reachability tests and adapter ownership | Resolve from existing command architecture during decomposition; Baton owns semantics, Sworn owns spelling |
 | A-03 | Whether canonical v0.15 operations fit existing packages or require new focused internal packages | Touchpoints, tracks and file ceilings | Requires repository surface audit before slice approval |
 
