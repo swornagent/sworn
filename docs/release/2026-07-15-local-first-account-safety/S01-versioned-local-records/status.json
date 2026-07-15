@@ -58,11 +58,11 @@
   "validation": {
     "human_ratified": false,
     "positive_scenarios": [
-      "A legacy combined record migrates to two versioned records with every provider and account value intact.",
+      "A legacy combined record migrates to a versioned provider record with every provider and unrelated value intact, no account record, and fresh-login guidance.",
       "A provider-only command continues to work when account state is absent or invalid."
     ],
     "negative_scenarios": [
-      "An interrupted migration cannot delete the only recoverable copy of a provider key or token.",
+      "An interrupted migration cannot delete the only recoverable copy of a provider key or leave a token-bearing backup behind.",
       "A corrupt, conflicting, or future-version record cannot be silently normalized or overwritten."
     ],
     "benefit_hypothesis": "Separating versioned ownership removes the shared corruption and logout blast radius that made account use unsafe for local provider users."
@@ -77,11 +77,11 @@
       "architecturally_significant": true
     },
     {
-      "choice": "Use automatic copy-verify-clean migration with temporary recovery material.",
+      "choice": "Use automatic verify-and-replace migration and discard issuer-less legacy session fields.",
       "stake_class": "Type-1",
       "options": ["automatic idempotent migration", "doctor-only explicit migration", "indefinite dual read"],
-      "human_decision": "Ratified 2026-07-15: automatic account-aware migration, destination verification before cleanup, no permanent token-bearing backup.",
-      "rationale": "The upgrade should be turnkey without allowing a partial write to destroy source secrets.",
+      "human_decision": "Ratified 2026-07-15: preserve and verify provider state, create no account record from issuer-less legacy fields, discard those fields at atomic replacement, and require fresh login.",
+      "rationale": "The upgrade should be turnkey without guessing token origin or allowing a partial write to destroy provider secrets.",
       "architecturally_significant": true
     }
   ]

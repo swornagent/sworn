@@ -7,7 +7,7 @@
       "id": "C-01",
       "kind": "schema-version",
       "surface": "provider-credentials-v1 at credentials.json",
-      "shape": "A 0600 JSON record with version=1 and providers as a provider-name to API-key map. It contains no account token, identity field, notification destination, or consent state. Canonical provider environment variables retain precedence. Writes use a secure temporary file, sync, atomic rename, and fresh reads; an unsupported version fails closed without mutation. The legacy unversioned composite is accepted only by the bounded migration path.",
+      "shape": "A 0600 JSON record with version=1 and providers as a provider-name to API-key map. It contains no account token, identity field, notification destination, consent state, or unknown legacy field. Canonical provider environment variables retain precedence. Writes use a secure temporary file, sync, atomic rename, and fresh reads; an unsupported version fails closed without mutation. The legacy unversioned composite is accepted only by the bounded migration coordinator, which first invokes recognized non-account field owners and blocks on unknown fields.",
       "owner": "S01-versioned-local-records",
       "consumers": [
         "S03-direct-routing-only",
@@ -20,7 +20,7 @@
       "id": "C-02",
       "kind": "schema-version",
       "surface": "account-session-v1 at account.json",
-      "shape": "A 0600 JSON record with version=1, token, canonical issuer, email, optional server-authored tier, and server-authored expires_at. It contains no provider key, model route, credit value, or notification configuration. Missing and expired records are valid logged-out status; corrupt, conflicting, or unsupported records fail non-zero without disabling provider-only operation.",
+      "shape": "A 0600 JSON record created only by a new issuer-bound login, with version=1, token, canonical issuer, email, optional server-authored tier, and server-authored expires_at. It contains no provider key, model route, credit value, or notification configuration. Issuer-less legacy account fields never create this record and are discarded only after provider preservation is verified. Missing and expired records are valid logged-out status; corrupt, conflicting, or unsupported records fail non-zero without disabling provider-only operation.",
       "owner": "S01-versioned-local-records",
       "consumers": [
         "S02-authoritative-account-session",

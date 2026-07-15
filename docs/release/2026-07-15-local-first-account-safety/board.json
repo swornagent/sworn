@@ -12,11 +12,11 @@
     {
       "id": "T1-local-account-boundary",
       "slices": [
+        "S05-independent-webhook-consent",
         "S01-versioned-local-records",
         "S02-authoritative-account-session",
         "S03-direct-routing-only",
-        "S04-remove-managed-inference-credits",
-        "S05-independent-webhook-consent"
+        "S04-remove-managed-inference-credits"
       ],
       "depends_on": []
     },

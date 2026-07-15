@@ -191,9 +191,14 @@ drivers remain usable.
 - **Decision**: preserve `credentials.json` as the provider-key record and move
   the login session into a separately versioned `account.json`. Notification
   configuration belongs to neither record and will be decided separately.
-- **Migration contract**: copy account fields from the legacy composite, verify
-  the new record, then clean the legacy fields while retaining recoverable source
-  bytes. An interrupted or corrupt migration cannot delete provider credentials.
+- **Migration contract**: validate the legacy composite, construct and verify the
+  versioned provider record, then atomically replace the source. The
+  notification-owned migration first moves any valid legacy `webhook_url` to
+  `notifications.json`; unknown non-account fields block replacement rather than
+  being discarded. Issuer-less legacy account fields are discarded only after
+  every owned non-account value is durably preserved; they never become an
+  active `account.json`. An interrupted or corrupt migration cannot delete
+  provider credentials.
 - **Rollback contract**: an older binary continues to find provider keys in
   `credentials.json` but sees no account session after migration, which is the
   safe failure mode.
@@ -236,27 +241,48 @@ drivers remain usable.
 - **Why**: preserving dead configuration would imply that account-driven or
   managed routing still exists and would weaken the explicit-prefix authority.
 
-### 2026-07-15 — Migrate account state automatically and recoverably
+### 2026-07-15 — Migrate local records automatically and recoverably
 
-- **Context**: splitting the shared envelope can be interrupted after creating
-  `account.json` but before removing account fields from `credentials.json`, or
-  can encounter conflicting, corrupt or unsupported records.
+- **Context**: splitting the shared envelope can be interrupted while replacing
+  `credentials.json`, or can encounter conflicting, corrupt or unsupported
+  records. The legacy account token has no issuer and cannot safely seed C-02.
 - **Options considered**: automatic idempotent migration when an account-aware
   command opens the store; require `sworn doctor --fix`; or read both layouts
   indefinitely.
 - **Decision**: account-aware commands use one automatic idempotent migration
   routine. Provider-only commands never open or migrate account state. The
-  routine validates the legacy record, writes and syncs versioned `account.json`,
-  re-reads and verifies it, then atomically removes only account fields from the
-  provider record.
-- **Recovery contract**: temporary recovery bytes exist only while migration is
-  incomplete and must not become a permanent token-bearing backup. Every
-  interrupted stage converges safely when retried. Conflicting old/new records,
-  unsupported versions or incomplete recovery leave both records untouched and
-  return non-zero with secret-safe `sworn doctor` guidance; the doctor fix path
-  calls the same migration routine.
+  routine validates the legacy record, constructs a versioned provider record
+  that preserves the provider map, and refuses to proceed until owning migrations
+  have consumed other recognized fields and no unknown field remains. It writes
+  C-01 to a 0600 temporary file, syncs and re-reads it, deep-compares the provider
+  map, then atomically replaces `credentials.json`. It creates no `account.json`
+  from issuer-less legacy account fields and requires a fresh `sworn login`.
+- **Recovery contract**: before atomic replacement, the original composite is the
+  recovery source; after replacement, C-01 is complete and no temporary file may
+  remain. There is no permanent token backup or quarantine. Every interrupted
+  stage converges safely when retried. Conflicting canonical records, unsupported
+  versions or incomplete recovery leave authoritative bytes untouched and return
+  non-zero with secret-safe `sworn doctor` guidance; the doctor fix path calls
+  the same migration routine.
 - **Why**: this is turnkey for ordinary upgrades without allowing convenience to
   outrank durable verification or secret hygiene.
+
+### 2026-07-15 — Discard issuer-less legacy account sessions
+
+- **Context**: the pre-user shared record stores a token, email, tier and expiry
+  but no issuer. Activating or copying that token would require guessing its
+  origin and would violate the new token-origin binding contract.
+- **Options considered**: guess the compiled issuer and keep the session;
+  quarantine the token pending re-authentication; or discard the unused legacy
+  account fields after provider preservation and require a fresh login.
+- **Decision**: discard the issuer-less legacy account fields during the bounded
+  migration and create no `account.json`. Preserve all provider credentials and
+  route each recognized non-account field through its owning migration, reject
+  unknown fields, report that a fresh `sworn login` is required, and let only a
+  new issuer-bound login create C-02.
+- **Why**: no one besides the project owner is using the pre-release build and
+  its token authentication has never been used, so retaining an unverifiable
+  bearer token adds security and migration complexity without user value.
 
 ### 2026-07-15 — Complete the ratified telemetry consent experience
 
@@ -402,23 +428,23 @@ notification configuration contract.
 
 | # | Ambiguity | Affects | Resolution |
 |---|---|---|---|
-| A-01 | Whether account and provider credentials use separate versioned files or one versioned composite owned by one package | N-01, N-08 | **Resolved**: provider-owned `credentials.json` plus session-owned `account.json`; copy-verify-clean migration with recoverable source bytes |
+| A-01 | Whether account and provider credentials use separate versioned files or one versioned composite owned by one package | N-01, N-08 | **Resolved**: provider-owned `credentials.json` plus session-owned `account.json`; verified provider rewrite with recoverable source bytes |
 | A-02 | Exact retained `sworn account` fields and behaviour after credit removal | N-03, N-08 | **Resolved**: authoritative identity/session status; optional server-authored plan and expiry; no commerce, models or notification state |
 | A-03 | Whether obsolete `SWORN_DIRECT` is removed immediately or retained as a one-release no-op deprecation | N-02, N-03, N-09 | **Resolved**: remove active recognition now; direct routing becomes invariant and no replacement flag is introduced |
-| A-04 | Migration and rollback behaviour when an older Sworn binary encounters the new credential layout | N-01, N-09 | **Resolved**: automatic idempotent account-command migration; verify before cleanup; temporary recovery only; conflicts fail closed; old binaries retain providers and appear logged out |
+| A-04 | Migration and rollback behaviour when an older Sworn binary encounters the new credential layout | N-01, N-09 | **Resolved**: automatic idempotent account-command migration; verify provider preservation before replacement; conflicts fail closed; old binaries retain providers and appear logged out |
 | A-05 | Whether this release includes the complete ratified telemetry preview/invitation UX or only safety-boundary reconciliation | N-05, N-07 | **Resolved**: full ratified preview, explicit opt-in, value-led one-time invitation and output suppression; absorb #118 |
 | A-06 | Exact generic webhook consent/config storage before the autonomous release supplies the durable outbox | N-05, N-06 | **Resolved**: versioned `notifications.json`; explicit top-level webhook gestures; redacted status and no-send preview; #109 outbox consumes opaque references |
 | A-07 | Which account/auth endpoint override seam remains for tests after all ordinary bearer-token redirection is removed | N-07, N-08 | **Resolved**: retain scoped login-only issuer selection and bind tokens to canonical issuer; remove all general bearer-host overrides |
-| A-08 | How to migrate a legacy account token whose shared record contains no issuer and therefore cannot be safely origin-bound | N-01, N-08 | human decision required after first spec-ambiguity review; never guess an issuer or send the token while unresolved |
+| A-08 | How to migrate a legacy account token whose shared record contains no issuer and therefore cannot be safely origin-bound | N-01, N-08 | **Resolved**: after notification-owned fields migrate and provider preservation verifies, discard only issuer-less legacy account fields; create no account record and require fresh login |
 
 ## Planner gate notes
 
 - The first spec-ambiguity pass found a real cross-version security gap: legacy
   shared account records contain `token`, email, tier and expiry but no issuer.
-  The new issuer-binding contract therefore cannot treat such a token as active
-  without either guessing its origin, quarantining it pending re-authentication,
-  or retaining a legacy dual-authority state. A-08 must be resolved before the
-  S01/S02 acceptance checks can converge.
+  A-08 resolves it fail-closed: the bounded coordinator first invokes each
+  recognized field owner's migration, rejects unknown fields, verifies provider
+  preservation, discards only those unused account fields, and requires a new
+  issuer-bound login instead of guessing or retaining token authority.
 
 ## Screenshots / references
 
