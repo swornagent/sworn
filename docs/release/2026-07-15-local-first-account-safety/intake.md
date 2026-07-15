@@ -282,6 +282,32 @@ drivers remain usable.
   enablement and transport; another partial repair would retain a known trust
   contradiction.
 
+### 2026-07-15 — Give notifications an independent configuration record
+
+- **Context**: the planned operations release preserves notification secrets in
+  the shared credential envelope and retains `sworn account set-webhook`, which
+  conflicts with the ratified identity-only account boundary and independent
+  outbound consent.
+- **Options considered**: a separate versioned `notifications.json`; a section in
+  general `config.json`; or environment variables only.
+- **Decision**: create a `0600`, versioned `notifications.json` owned only by
+  notification configuration. `sworn notifications webhook set <url>` is the
+  affirmative enable gesture; `off` retains configuration while disabling it,
+  `remove` deletes it, `status` redacts secret-bearing destination components,
+  and `preview` renders the exact safe payload without sending.
+- **Migration and delivery contract**: an existing `webhook_url` migrates enabled
+  only after validation because it originated in an explicit set gesture; an
+  invalid value leaves the source untouched. Account presence never enables
+  email or another channel. The operations database stores only an opaque
+  destination reference, and any reachable pre-outbox sender must consume the
+  same allowlisted projection and bounded HTTP policy rather than the legacy
+  payload.
+- **Tracking**: durable enqueue, retry, replay and mobile delivery remain with
+  sworn#109. Its planned S08 slice must be replanned to consume this record and
+  command surface rather than the shared credential envelope.
+- **Why**: notification destinations are neither identity nor provider
+  credentials and require an independently inspectable consent lifecycle.
+
 ### 2026-07-15 — Name the release for its user promise
 
 - **Context**: the private handoff used “trust-contract safety”, which is accurate
@@ -340,7 +366,7 @@ credits and hosted email are now removal scope.
 | A-03 | Whether obsolete `SWORN_DIRECT` is removed immediately or retained as a one-release no-op deprecation | N-02, N-03, N-09 | **Resolved**: remove active recognition now; direct routing becomes invariant and no replacement flag is introduced |
 | A-04 | Migration and rollback behaviour when an older Sworn binary encounters the new credential layout | N-01, N-09 | **Resolved**: automatic idempotent account-command migration; verify before cleanup; temporary recovery only; conflicts fail closed; old binaries retain providers and appear logged out |
 | A-05 | Whether this release includes the complete ratified telemetry preview/invitation UX or only safety-boundary reconciliation | N-05, N-07 | **Resolved**: full ratified preview, explicit opt-in, value-led one-time invitation and output suppression; absorb #118 |
-| A-06 | Exact generic webhook consent/config storage before the autonomous release supplies the durable outbox | N-05, N-06 | architecture investigation; must consume credential ownership without inventing operations state |
+| A-06 | Exact generic webhook consent/config storage before the autonomous release supplies the durable outbox | N-05, N-06 | **Resolved**: versioned `notifications.json`; explicit top-level webhook gestures; redacted status and no-send preview; #109 outbox consumes opaque references |
 | A-07 | Which account/auth endpoint override seam remains for tests after all ordinary bearer-token redirection is removed | N-07, N-08 | architecture investigation before wire-contract registration |
 
 ## Screenshots / references
