@@ -409,6 +409,16 @@ notification configuration contract.
 | A-05 | Whether this release includes the complete ratified telemetry preview/invitation UX or only safety-boundary reconciliation | N-05, N-07 | **Resolved**: full ratified preview, explicit opt-in, value-led one-time invitation and output suppression; absorb #118 |
 | A-06 | Exact generic webhook consent/config storage before the autonomous release supplies the durable outbox | N-05, N-06 | **Resolved**: versioned `notifications.json`; explicit top-level webhook gestures; redacted status and no-send preview; #109 outbox consumes opaque references |
 | A-07 | Which account/auth endpoint override seam remains for tests after all ordinary bearer-token redirection is removed | N-07, N-08 | **Resolved**: retain scoped login-only issuer selection and bind tokens to canonical issuer; remove all general bearer-host overrides |
+| A-08 | How to migrate a legacy account token whose shared record contains no issuer and therefore cannot be safely origin-bound | N-01, N-08 | human decision required after first spec-ambiguity review; never guess an issuer or send the token while unresolved |
+
+## Planner gate notes
+
+- The first spec-ambiguity pass found a real cross-version security gap: legacy
+  shared account records contain `token`, email, tier and expiry but no issuer.
+  The new issuer-binding contract therefore cannot treat such a token as active
+  without either guessing its origin, quarantining it pending re-authentication,
+  or retaining a legacy dual-authority state. A-08 must be resolved before the
+  S01/S02 acceptance checks can converge.
 
 ## Screenshots / references
 

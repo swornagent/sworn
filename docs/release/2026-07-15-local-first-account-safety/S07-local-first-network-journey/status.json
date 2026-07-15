@@ -1,0 +1,98 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S07-local-first-network-journey",
+  "release": "2026-07-15-local-first-account-safety",
+  "track": "T3-assembled-proof",
+  "covers_needs": ["N-01", "N-02", "N-03", "N-04", "N-05", "N-06", "N-07", "N-08", "N-09"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-15T16:03:20+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-15-local-first-account-safety/S07-local-first-network-journey/spec.json",
+  "proof_path": "docs/release/2026-07-15-local-first-account-safety/S07-local-first-network-journey/proof.json",
+  "journal_path": "docs/release/2026-07-15-local-first-account-safety/S07-local-first-network-journey/journal.md",
+  "planned_files": [
+    "cmd/sworn/local_first_network_journey_test.go",
+    "docs/local-first-account-safety.md",
+    "README.md",
+    "scripts/public-safe-scan.sh"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./cmd/sworn/... -run 'Test(LocalFirst|DisabledOutbound|WebhookPreview|AccountState|RetiredSurface)' -count=1",
+    "go test ./...",
+    "go test -race ./...",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh"
+  ],
+  "reachability_artifacts": [
+    "one built-binary temporary-home transcript and machine-readable fixture summary covering migration, direct provider before/during/after login, account state failures, webhook preview/delivery/disable, telemetry preview/disabled state, and classified network attempts",
+    "hash manifest for credentials.json, account.json, notifications.json, telemetry state, legacy recovery material, and every captured request destination/header/body canary"
+  ],
+  "open_deferrals": [
+    {
+      "item": "Durable outbox, mobile WebUI/push, and hosted remote operations",
+      "why": "This release proves safe local contracts; durable event/control state and remote projections require the autonomous operations engine and security gates rather than another adapter-owned implementation.",
+      "tracking": "sworn#109 and docs/release/2026-07-14-autonomous-operations, which must be replanned against C-05 and C-06 before implementation",
+      "acknowledgement": "The Coach was told that self-hosted setup guidance remains open while turnkey mobile/fleet operations stay hosted/future scope, and ratified that boundary on 2026-07-15.",
+      "acknowledged_by": "Coach",
+      "acknowledged_at": "2026-07-15"
+    },
+    {
+      "item": "Partner-managed inference or reseller integration",
+      "why": "No approved partner, upstream rights, billing, support, or data-processing boundary exists, and this release removes rather than preserves Sworn-managed inference code.",
+      "tracking": "A new ratified decision and dedicated future release are required before implementation; no dormant public seam is retained.",
+      "acknowledgement": "The Coach explicitly rejected Sworn-operated managed inference for this release and approved future consideration only through a specialist-provider partnership.",
+      "acknowledged_by": "Coach",
+      "acknowledged_at": "2026-07-15"
+    }
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "See spec.json; the implementer must confirm the journey remains a real command path with causal evidence at every network and filesystem boundary.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.2.0",
+  "release_benefit": "A SwornAgent user can use account identity without losing provider credentials, changing model routes, purchasing managed inference, or generating unapproved outbound traffic.",
+  "validation": {
+    "human_ratified": false,
+    "positive_scenarios": [
+      "One isolated user journey preserves the same direct provider and credential across migration, login, status, logout, and recovery states.",
+      "An explicitly configured webhook sends only previewed safe bytes and disabled outbound features remain completely offline."
+    ],
+    "negative_scenarios": [
+      "A false-green early failure cannot count as zero-network proof without its expected provider/auth/verdict milestone.",
+      "Ambient user configuration or a test-only routing branch cannot satisfy the journey."
+    ],
+    "benefit_hypothesis": "An assembled binary proof turns the local-first promise into causal evidence and prevents the writer/router/sender drift that prompted the architecture review."
+  },
+  "design_decisions": [
+    {
+      "choice": "Use one dependent built-binary journey as the release reachability gate.",
+      "stake_class": "Type-1",
+      "options": ["package tests only", "separate command smoke tests", "one assembled causal journey"],
+      "human_decision": "Ratified 2026-07-15 through the seven-slice release decomposition: T3 depends on both implementation tracks and proves the combined contract.",
+      "rationale": "The confirmed defect class was production selection drift across individually green components.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Permit only loopback external-protocol fixtures and no test-only production routing seams.",
+      "stake_class": "Type-2",
+      "options": ["injected internal fakes", "loopback protocol fixtures", "paid live services"],
+      "human_decision": "",
+      "rationale": "Real command construction and HTTP/filesystem boundaries are needed without network cost, secrets, or nondeterminism.",
+      "architecturally_significant": false
+    }
+  ]
+}

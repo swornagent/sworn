@@ -1,0 +1,112 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S05-independent-webhook-consent",
+  "release": "2026-07-15-local-first-account-safety",
+  "track": "T1-local-account-boundary",
+  "covers_needs": ["N-01", "N-05", "N-06", "N-07", "N-09"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-15T16:03:20+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-15-local-first-account-safety/S05-independent-webhook-consent/spec.json",
+  "proof_path": "docs/release/2026-07-15-local-first-account-safety/S05-independent-webhook-consent/proof.json",
+  "journal_path": "docs/release/2026-07-15-local-first-account-safety/S05-independent-webhook-consent/journal.md",
+  "planned_files": [
+    "internal/account/account.go",
+    "internal/account/account_test.go",
+    "internal/account/notify.go",
+    "internal/account/notify_test.go",
+    "internal/notify/config.go",
+    "internal/notify/config_test.go",
+    "internal/notify/projection.go",
+    "internal/notify/projection_test.go",
+    "internal/notify/webhook.go",
+    "internal/notify/webhook_test.go",
+    "internal/notify/webhook_integration_test.go",
+    "cmd/sworn/account.go",
+    "cmd/sworn/account_test.go",
+    "cmd/sworn/notifications.go",
+    "cmd/sworn/notifications_test.go",
+    "cmd/sworn/commands_test.go",
+    "cmd/sworn/credentials_integration_test.go",
+    "cmd/sworn/run.go",
+    "cmd/sworn/run_test.go",
+    "internal/run/run.go",
+    "internal/run/run_test.go",
+    "internal/run/slice.go",
+    "internal/run/slice_terminal_test.go",
+    "internal/scheduler/worker.go",
+    "internal/scheduler/worker_test.go",
+    "docs/notifications.md"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/notify/... ./internal/account/... ./internal/run/... ./internal/scheduler/... ./cmd/sworn/...",
+    "go test -race ./internal/notify/... ./internal/run/... ./internal/scheduler/...",
+    "go test ./...",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh"
+  ],
+  "reachability_artifacts": [
+    "built sworn notifications webhook set/status/preview/off/remove sequence in an isolated home with filesystem hashes and a network sentinel",
+    "built loop fixture delivering the previewed safe payload to a real local HTTP server while excluded canaries remain absent and a delivery failure leaves the verdict unchanged"
+  ],
+  "open_deferrals": [
+    {
+      "item": "Durable notification outbox, replay, mobile delivery, and delivery history",
+      "why": "This safety release owns consent, secret storage, projection, and the bounded adapter; durable operation events and outbox transaction ordering depend on the autonomous control core and must not be duplicated here.",
+      "tracking": "sworn#109; docs/release/2026-07-14-autonomous-operations/S07-notification-outbox and S08-webhook-mobile-delivery require replanning against C-05 and C-06",
+      "acknowledgement": "The Coach was told during 2026-07-15 planning that durability, mobile delivery, and replay remain in #109 and ratified this boundary.",
+      "acknowledged_by": "Coach",
+      "acknowledged_at": "2026-07-15"
+    }
+  ],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "See spec.json; the implementer must confirm the adapter seam and every current notification producer before design review.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.2.0",
+  "release_benefit": "A SwornAgent user can use account identity without losing provider credentials, changing model routes, purchasing managed inference, or generating unapproved outbound traffic.",
+  "validation": {
+    "human_ratified": false,
+    "positive_scenarios": [
+      "A user explicitly configures a webhook, previews its safe payload, and can inspect or disable it without logging in.",
+      "An existing explicitly configured webhook migrates without touching provider or account secrets."
+    ],
+    "negative_scenarios": [
+      "Login alone cannot enable email, webhook, or another outbound channel.",
+      "A webhook cannot receive paths, credentials, payloads, free-form diagnostics, or mutation instructions."
+    ],
+    "benefit_hypothesis": "Independent consent and a previewable safe payload preserve useful generic paging without making account identity an outbound-data decision."
+  },
+  "design_decisions": [
+    {
+      "choice": "Store notification destinations in versioned notifications.json and move configuration to sworn notifications.",
+      "stake_class": "Type-1",
+      "options": ["separate notifications record", "general config section", "environment only"],
+      "human_decision": "Ratified 2026-07-15: independent 0600 notifications.json, top-level webhook gestures, explicit enablement, redacted status, and no-send preview.",
+      "rationale": "Destinations are neither account identity nor provider credentials and require their own consent lifecycle.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Keep the interim adapter transport-independent and leave durability to #109.",
+      "stake_class": "Type-1",
+      "options": ["temporary second outbox", "bounded adapter consumed later", "remove webhooks until #109"],
+      "human_decision": "Ratified 2026-07-15 as part of the release decomposition: this slice owns safe configuration/projection; #109 retains outbox, replay, mobile, and WebUI delivery health.",
+      "rationale": "The safety contract can land without duplicating the autonomous command/event engine.",
+      "architecturally_significant": true
+    }
+  ]
+}

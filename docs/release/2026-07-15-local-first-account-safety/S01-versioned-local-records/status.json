@@ -1,0 +1,88 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S01-versioned-local-records",
+  "release": "2026-07-15-local-first-account-safety",
+  "track": "T1-local-account-boundary",
+  "covers_needs": ["N-01", "N-08", "N-09"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-15T16:03:20+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-15-local-first-account-safety/S01-versioned-local-records/spec.json",
+  "proof_path": "docs/release/2026-07-15-local-first-account-safety/S01-versioned-local-records/proof.json",
+  "journal_path": "docs/release/2026-07-15-local-first-account-safety/S01-versioned-local-records/journal.md",
+  "planned_files": [
+    "internal/credentials/store.go",
+    "internal/credentials/store_test.go",
+    "internal/model/credentials.go",
+    "internal/model/credentials_test.go",
+    "internal/account/account.go",
+    "internal/account/account_test.go",
+    "cmd/sworn/credentials_integration_test.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go",
+    "cmd/sworn/init.go",
+    "cmd/sworn/init_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/credentials/... ./internal/model/... ./internal/account/... ./cmd/sworn/...",
+    "go test -race ./internal/credentials/... ./internal/model/... ./internal/account/...",
+    "go test ./...",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh"
+  ],
+  "reachability_artifacts": [
+    "built sworn doctor and sworn doctor --fix runs against isolated legacy, corrupt, conflicting, interrupted, and canonical temporary homes, recording exit codes, redacted output, file modes, and hashes",
+    "built provider-only command run with a corrupt account.json, recording successful provider resolution and zero account-file mutation"
+  ],
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "See spec.json; the implementer must confirm the migration kill-point inventory against live filesystem call sites.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.2.0",
+  "release_benefit": "A SwornAgent user can use account identity without losing provider credentials, changing model routes, purchasing managed inference, or generating unapproved outbound traffic.",
+  "validation": {
+    "human_ratified": false,
+    "positive_scenarios": [
+      "A legacy combined record migrates to two versioned records with every provider and account value intact.",
+      "A provider-only command continues to work when account state is absent or invalid."
+    ],
+    "negative_scenarios": [
+      "An interrupted migration cannot delete the only recoverable copy of a provider key or token.",
+      "A corrupt, conflicting, or future-version record cannot be silently normalized or overwritten."
+    ],
+    "benefit_hypothesis": "Separating versioned ownership removes the shared corruption and logout blast radius that made account use unsafe for local provider users."
+  },
+  "design_decisions": [
+    {
+      "choice": "Keep credentials.json provider-owned and move account sessions to account.json.",
+      "stake_class": "Type-1",
+      "options": ["one composite record", "separate provider and account records", "general encrypted state database"],
+      "human_decision": "Ratified 2026-07-15: separate provider-owned credentials.json and session-owned account.json.",
+      "rationale": "Different secret domains require different lifecycles and corruption boundaries.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Use automatic copy-verify-clean migration with temporary recovery material.",
+      "stake_class": "Type-1",
+      "options": ["automatic idempotent migration", "doctor-only explicit migration", "indefinite dual read"],
+      "human_decision": "Ratified 2026-07-15: automatic account-aware migration, destination verification before cleanup, no permanent token-bearing backup.",
+      "rationale": "The upgrade should be turnkey without allowing a partial write to destroy source secrets.",
+      "architecturally_significant": true
+    }
+  ]
+}

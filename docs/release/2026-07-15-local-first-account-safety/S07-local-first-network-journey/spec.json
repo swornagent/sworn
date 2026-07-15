@@ -1,0 +1,98 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S07-local-first-network-journey",
+  "release": "2026-07-15-local-first-account-safety",
+  "track": "T3-assembled-proof",
+  "user_outcome": "A SwornAgent user can follow one documented temporary-home journey proving provider credentials survive account operations, direct routing never changes, and disabled outbound features make zero unapproved network attempts across success and failure paths.",
+  "rationale": "The architectural defect class was assembled-path drift: separate tests proved local components while the real CLI selected a different writer, route, or sender. This dependent slice consumes C-01 through C-08, adds no alternate production logic, and makes the release benefit pass or fail through one built-binary journey with real filesystem and loopback HTTP boundaries.",
+  "touchpoints": [
+    "cmd/sworn/local_first_network_journey_test.go",
+    "docs/local-first-account-safety.md",
+    "README.md",
+    "scripts/public-safe-scan.sh"
+  ],
+  "in_scope": [
+    "Build the current sworn binary once and run every journey step as a subprocess with isolated HOME, XDG_CONFIG_HOME, SWORN_HOME, environment, repository fixture, and request-counting network boundary.",
+    "Seed a realistic legacy composite, migrate it, execute one direct provider-backed command before login, complete login against a real loopback device issuer, execute the same command while logged in, logout, and execute it again.",
+    "Capture the selected provider endpoint and recognizable customer-key canary on all three direct requests while proving C-01 remains intact and C-02 is the only account-owned mutation.",
+    "Exercise absent, expired, corrupt, conflicting, and unsupported account states and prove provider-only operation remains available while account-aware commands report conservative recovery outcomes.",
+    "With C-05 and C-07 neutral or disabled, exercise successful, validation-error, provider-error, FAIL/BLOCKED where reachable, and early-exit commands and assert zero request or DNS attempts to any Sworn-hosted endpoint plus no pre-consent install ID.",
+    "Configure a loopback webhook explicitly, compare preview and captured C-06, disable it, and prove later attention paths make no notification request.",
+    "Run an active-source/current-doc removal scan covering managed proxy, Sworn credits, account buy, get_credits, account-driven notification, and obsolete telemetry-consent claims while excluding immutable historical records and legitimate provider quota semantics.",
+    "Publish public-safe migration, recovery, direct-route, telemetry, webhook, self-host exposure, and rollback guidance and link it from README."
+  ],
+  "out_of_scope": [
+    "The journey does not contact paid model APIs, the public Sworn service, a hosted control plane, or an internet webhook; loopback fixtures are the only allowed network peers.",
+    "Durable notification outbox, ntfy/mobile delivery, WebUI, remote identity/relay, and hosted fleet operations remain in sworn#109 and its replanned autonomous-operations release.",
+    "Partner-managed inference, resale, upstream metering, and keyless model access require a new ratified partner and data-boundary release and are not simulated.",
+    "This slice may add tests, scripts, and public technical guidance but must not repair a failed production contract by creating a second test-only implementation."
+  ],
+  "covers_needs": ["N-01", "N-02", "N-03", "N-04", "N-05", "N-06", "N-07", "N-08", "N-09"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "The test is intentionally assembled and must coordinate a built binary, filesystem migrations, device auth, provider HTTP, webhook HTTP, network denial, failure paths, redaction, and current documentation without adding test-only production seams.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "The network harness reports zero only because the exercised command failed before reaching the intended boundary.",
+      "mitigation": "Assert causal milestones for each gesture: expected exit/verdict, provider/auth fixture hits, output marker, file hashes, and the specific denial counter independently."
+    },
+    {
+      "id": "R-02",
+      "description": "Ambient user configuration, credentials, proxy exclusions, or DNS makes the journey pass for the wrong reason.",
+      "mitigation": "Clear the environment to an allowlist, isolate every home/config variable, use recognizable canaries, and fail on any unclassified network attempt."
+    },
+    {
+      "id": "R-03",
+      "description": "The final test introduces a special code path unavailable to actual users.",
+      "mitigation": "Drive only registered CLI commands and public configuration seams; local servers emulate external protocols, not internal interfaces, and source review rejects test-only routing branches."
+    },
+    {
+      "id": "R-04",
+      "description": "A broad scan treats historical proof or provider quota terminology as an active managed-inference regression.",
+      "mitigation": "Declare included current-code/reference roots and excluded immutable history explicitly, then mutation-test one prohibited active reference and one allowed provider-quota reference."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN the built binary migrates a legacy composite and executes the same direct provider command before login, while logged in, and after logout THE SYSTEM SHALL send all three requests to the same loopback provider with the same customer-key canary, preserve C-01 values, and mutate only C-02 during account gestures (C-01, C-02, C-03, C-04, N-01, N-02, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/local_first_network_journey_test.go:TestLocalFirstAccountSafetyBuiltBinaryJourney"]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHILE C-05 and C-07 are neutral or disabled THE SYSTEM SHALL make zero Sworn-hosted DNS or HTTP attempts and create no telemetry install ID across successful, validation-error, provider-error, non-PASS, and early-exit subprocess gestures (C-05, C-07, C-08, N-05, N-07).",
+      "ears_pattern": "state-driven",
+      "test_refs": ["cmd/sworn/local_first_network_journey_test.go:TestDisabledOutboundHasZeroNetworkAcrossExitClasses"]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN a user explicitly configures a loopback webhook, previews it, triggers one eligible event, disables it, and triggers another THE SYSTEM SHALL deliver the first exact C-06 bytes once and SHALL attempt no delivery for the second event (C-05, C-06, N-05, N-06, N-07).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/local_first_network_journey_test.go:TestWebhookPreviewDeliveryAndDisableJourney"]
+    },
+    {
+      "id": "AC-04",
+      "text": "IF account-session-v1 is absent, expired, corrupt, conflicting, or unsupported THEN THE SYSTEM SHALL produce the declared account status or non-zero recovery result while an explicit provider-only command still reaches the configured direct provider (C-01, C-02, N-01, N-08).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["cmd/sworn/local_first_network_journey_test.go:TestAccountStateMatrixCannotDisableDirectProvider"]
+    },
+    {
+      "id": "AC-05",
+      "text": "IF active source or current public documentation contains a Sworn-managed proxy, credit purchase/balance/cache, get_credits, account-driven outbound consent, default-yes telemetry consent, or pre-value invitation THEN THE SYSTEM SHALL fail the release removal scan while immutable history and provider quota terminology remain allowed (N-03, N-05, N-09).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["scripts/public-safe-scan.sh", "cmd/sworn/local_first_network_journey_test.go:TestRetiredSurfaceMutationGuard"]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHEN a user follows docs/local-first-account-safety.md THE SYSTEM SHALL provide runnable public-safe steps for record locations, migration and recovery, direct provider and subscription routing, telemetry preview/on/off, webhook set/status/preview/off/remove, stale SWORN_DIRECT removal, self-host exposure responsibility, and older-binary rollback behavior (N-01, N-04, N-05, N-09).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/local_first_network_journey_test.go:TestLocalFirstGuideCommandsRemainReachable"]
+    }
+  ]
+}

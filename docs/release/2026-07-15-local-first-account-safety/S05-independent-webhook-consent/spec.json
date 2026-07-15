@@ -1,0 +1,126 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S05-independent-webhook-consent",
+  "release": "2026-07-15-local-first-account-safety",
+  "track": "T1-local-account-boundary",
+  "user_outcome": "A SwornAgent user can explicitly configure, inspect, preview, disable, or remove a generic webhook independently of login, and any delivered event contains only the stable safe projection they previewed.",
+  "rationale": "Webhook URLs and hosted email are currently embedded in account credentials, login implicitly enables email, and the best-effort payload can export free-form violation detail. This slice owns C-05 and C-06, moves the command and secret boundary to internal/notify, removes account-driven email, and leaves the adapter ready for the durable outbox planned in #109.",
+  "touchpoints": [
+    "internal/account/account.go",
+    "internal/account/account_test.go",
+    "internal/account/notify.go",
+    "internal/account/notify_test.go",
+    "internal/notify/config.go",
+    "internal/notify/config_test.go",
+    "internal/notify/projection.go",
+    "internal/notify/projection_test.go",
+    "internal/notify/webhook.go",
+    "internal/notify/webhook_test.go",
+    "internal/notify/webhook_integration_test.go",
+    "cmd/sworn/account.go",
+    "cmd/sworn/account_test.go",
+    "cmd/sworn/notifications.go",
+    "cmd/sworn/notifications_test.go",
+    "cmd/sworn/commands_test.go",
+    "cmd/sworn/credentials_integration_test.go",
+    "cmd/sworn/run.go",
+    "cmd/sworn/run_test.go",
+    "internal/run/run.go",
+    "internal/run/run_test.go",
+    "internal/run/slice.go",
+    "internal/run/slice_terminal_test.go",
+    "internal/scheduler/worker.go",
+    "internal/scheduler/worker_test.go",
+    "docs/notifications.md"
+  ],
+  "in_scope": [
+    "Define C-05 as a versioned 0600 record independent of C-01 and C-02, with one webhook destination, enabled state, validated URL, and optional destination-scoped signing secret.",
+    "Register sworn notifications webhook set|off|remove|status|preview as the complete local configuration surface; set is affirmative consent and status redacts path, query, userinfo, and secret material.",
+    "Migrate a valid legacy webhook_url as enabled because it came from an explicit set gesture, verify C-05 before removing the legacy field, and leave invalid/conflicting source untouched with non-zero recovery guidance.",
+    "Remove webhook fields and hosted-email behavior from account records, account commands, login/logout, and the account notifier package.",
+    "Define C-06 from a strict allowlist and make preview and delivery serialize the same type; local diagnostics may retain detail but cannot enter the projection through a free-form field.",
+    "Move generic HTTP delivery into internal/notify with no redirects, bounded per-request and total deadlines, optional HMAC over exact body bytes, response-body-free diagnostics, and destination-scoped credentials.",
+    "Keep an absent or disabled destination as a zero-request no-op; webhook failure remains observable but cannot change the verification verdict or repeat the underlying loop action.",
+    "Rewire current run and scheduler notification calls to the safe adapter without introducing the durable operations schema or a second event authority."
+  ],
+  "out_of_scope": [
+    "Durable enqueue, leases, retry scheduling, delivery history, dead-letter state, and replay remain in sworn#109 S07-notification-outbox.",
+    "Mobile/ntfy delivery, board links sourced from the operations API, and hosted notification fan-out remain in sworn#109 S08 and later hosted planning.",
+    "Email, SMS, Slack, Telegram, inbound callbacks, and notification-carried mutation commands are not implemented.",
+    "Account presence is not a notification gesture and no migration enables a channel solely because C-02 exists."
+  ],
+  "covers_needs": ["N-01", "N-05", "N-06", "N-07", "N-09"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "Secret migration, CLI consent semantics, payload minimization, bounded HTTP, and run/scheduler rewiring cross several live failure paths and the future outbox seam.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "A supposedly safe title or error field carries a path, violation, token, or model content into the webhook.",
+      "mitigation": "Construct C-06 only from closed enums and bounded literals; inject canaries into every excluded source and compare preview bytes with captured HTTP body bytes."
+    },
+    {
+      "id": "R-02",
+      "description": "Redirect or error handling forwards a destination secret or prints a secret-bearing URL/response body.",
+      "mitigation": "Reject redirects, userinfo, and fragments; redact status and errors; never read response bodies into diagnostics; sign only the exact body for the configured host."
+    },
+    {
+      "id": "R-03",
+      "description": "The interim adapter competes with or constrains the durable outbox contract.",
+      "mitigation": "Keep configuration and projection transport-independent, keep delivery behind one adapter interface, persist no delivery state, and require #109 S08 replanning before implementation."
+    },
+    {
+      "id": "R-04",
+      "description": "Legacy migration silently enables an invalid or unacknowledged destination.",
+      "mitigation": "Migrate only the exact legacy field created by the prior explicit command, apply the full new URL policy, and fail without cleanup on invalid or conflicting state."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN the built binary runs sworn notifications webhook set <url> and then status THE SYSTEM SHALL persist enabled C-05 at mode 0600, print only a redacted destination identity, and leave C-01 and C-02 byte-for-byte unchanged (C-01, C-02, C-05, N-01, N-05).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/notifications_test.go:TestNotificationsConfigBinaryReachability"]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN webhook off, remove, and preview are invoked THE SYSTEM SHALL respectively disable without deleting, delete the destination, and render C-06 without making an HTTP or DNS request (C-05, C-06, N-05, N-07).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/notifications_test.go:TestWebhookLifecycleAndPreviewMakeNoUnexpectedRequest"]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN a valid legacy webhook_url exists beside provider and account fields THE SYSTEM SHALL migrate it enabled into C-05, verify the destination, remove only webhook_url from the legacy record, and preserve every other field; an invalid or conflicting value SHALL leave both records untouched and exit non-zero with secret-safe public recovery guidance (C-01, C-02, C-05, N-01, N-05, N-09).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/credentials_integration_test.go:TestLegacyWebhookMigrationPreservesOtherSecretDomains"]
+    },
+    {
+      "id": "AC-04",
+      "text": "IF a source fixture contains credential canaries, model payloads, response bodies, paths, source/spec/proof text, free-form errors, violations, or mutation instructions THEN THE SYSTEM SHALL serialize, transmit, persist, and print none of those values through C-06 (C-06, N-06).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/notify/projection_test.go:TestSafeProjectionRejectsAllExcludedCanaries"]
+    },
+    {
+      "id": "AC-05",
+      "text": "WHEN the generic webhook adapter delivers C-06 to a real local HTTP fixture THE SYSTEM SHALL send the exact previewed JSON bytes with stable event identity, reject redirects, enforce bounded deadlines, optionally sign those exact bytes, and retain no response body or secret in diagnostics (C-05, C-06, N-06, N-07).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/notify/webhook_integration_test.go:TestGenericWebhookSafeProjectionRealHTTP"]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHILE C-05 is absent or disabled THE SYSTEM SHALL make success, FAIL, BLOCKED, and early-exit run paths attempt zero notification requests regardless of account login state (C-02, C-05, N-05, N-07).",
+      "ears_pattern": "state-driven",
+      "test_refs": ["internal/run/run_test.go:TestDisabledNotificationsHaveZeroRequestsAcrossTerminalPaths"]
+    },
+    {
+      "id": "AC-07",
+      "text": "IF webhook delivery returns a transport error, timeout, redirect, or non-2xx status THEN THE SYSTEM SHALL surface only a bounded classification and SHALL not change the underlying PASS, FAIL, or BLOCKED verdict or repeat the loop operation (C-06, N-06).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/run/slice_terminal_test.go:TestWebhookFailureCannotChangeVerdictOrRepeatOperation"]
+    }
+  ]
+}

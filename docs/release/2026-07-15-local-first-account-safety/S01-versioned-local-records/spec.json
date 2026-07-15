@@ -1,0 +1,99 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S01-versioned-local-records",
+  "release": "2026-07-15-local-first-account-safety",
+  "track": "T1-local-account-boundary",
+  "user_outcome": "A SwornAgent user upgrades from the shared credential envelope without losing provider keys, and thereafter account sessions and provider credentials have separate versioned, recoverable lifecycles.",
+  "rationale": "The current field-preserving envelope contains unrelated secrets under one unversioned corruption and logout boundary. This slice owns C-01 and C-02, preserves the provider file path for compatibility, and makes the split converge through a copy-verify-clean protocol before later slices change login, routing, or notifications.",
+  "touchpoints": [
+    "internal/credentials/store.go",
+    "internal/credentials/store_test.go",
+    "internal/model/credentials.go",
+    "internal/model/credentials_test.go",
+    "internal/account/account.go",
+    "internal/account/account_test.go",
+    "cmd/sworn/credentials_integration_test.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go",
+    "cmd/sworn/init.go",
+    "cmd/sworn/init_test.go"
+  ],
+  "in_scope": [
+    "Define and validate provider-credentials-v1 at the existing credentials.json path and account-session-v1 at account.json, each written 0600 inside a 0700 configuration directory.",
+    "Replace field-name mutation as the long-term authority with record-specific stores that reject malformed or unsupported versions without overwriting source bytes.",
+    "Implement one idempotent migration routine that validates the legacy composite, writes and syncs account.json, re-reads and verifies it, then atomically removes only migrated account fields from credentials.json.",
+    "Retain exact recovery bytes only while a migration is incomplete; converge every declared interruption point and remove temporary token-bearing recovery material after verified completion.",
+    "Preserve providers, unknown legacy notification fields, permissions, and canonical provider environment precedence throughout migration and later record-specific writes.",
+    "Make sworn doctor report absent, legacy, migrated, conflicting, corrupt, and unsupported layouts without printing field values; make its fix path call the same migration routine used by account-aware commands.",
+    "Keep provider-only readers and commands independent of account migration and account-record validity."
+  ],
+  "out_of_scope": [
+    "Device login, issuer validation, account output, and logout gestures belong to S02-authoritative-account-session.",
+    "Model routing and proxy removal belong to S03-direct-routing-only.",
+    "Legacy webhook_url migration and notifications.json belong to S05-independent-webhook-consent.",
+    "OS keyrings, hardware-backed secret storage, and a general encrypted state database are not introduced."
+  ],
+  "covers_needs": ["N-01", "N-08", "N-09"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "Two live secret formats, crash ordering, compatibility, cache freshness, permissions, and recovery behavior create a wide and failure-sensitive migration surface.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "A crash after one destination write strands or duplicates a live token.",
+      "mitigation": "Use named kill points around write, sync, verify, cleanup, and recovery deletion; every fixture must converge on retry without deleting either source domain."
+    },
+    {
+      "id": "R-02",
+      "description": "A migration backup becomes a permanent second copy of an account token.",
+      "mitigation": "Recovery material is transaction-scoped, 0600, detected by doctor, and removed only after destination and cleaned source re-verify; completion fails closed while it remains unexpectedly."
+    },
+    {
+      "id": "R-03",
+      "description": "A new binary writes a provider record an older binary can no longer read.",
+      "mitigation": "Keep credentials.json and the providers field stable; version is additive and an old-reader compatibility test unmarshals the migrated provider record."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN the built binary runs sworn doctor --fix against a valid unversioned composite containing provider and account fields THE SYSTEM SHALL write C-01 and C-02 with mode 0600, preserve every provider value, verify account values, and remove only the migrated account fields from credentials.json (C-01, C-02, N-01, N-08).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/credentials_integration_test.go:TestAccountSplitMigrationRealFilesystem"]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN migration is interrupted at any declared write, sync, verify, cleanup, or recovery-deletion boundary THE SYSTEM SHALL retain recoverable source bytes and SHALL converge to the same two canonical records when the migration is retried (C-01, C-02, N-01).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/credentials/store_test.go:TestAccountSplitMigrationConvergesAcrossKillPoints"]
+    },
+    {
+      "id": "AC-03",
+      "text": "IF the legacy composite is malformed, either canonical record has an unsupported version, or old and new account values conflict THEN THE SYSTEM SHALL modify neither authoritative record, print no secret value, and return a non-zero repair result (C-01, C-02, N-01, N-09).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["cmd/sworn/doctor_test.go:TestCredentialMigrationConflictFailsClosed"]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN provider credentials are read or updated after migration THE SYSTEM SHALL access only credentials.json, preserve account.json byte-for-byte, and observe external-process writes rather than a stale process cache (C-01, C-02, N-01).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/model/credentials_test.go:TestProviderStoreIsAccountIndependentAndFresh"]
+    },
+    {
+      "id": "AC-05",
+      "text": "WHEN an old provider-credentials reader opens the migrated credentials.json THE SYSTEM SHALL still recover the complete providers map while finding no account session fields (C-01, N-01, N-09).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/credentials_integration_test.go:TestVersionedProviderCredentialMigrationRealFilesystem"]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHILE account.json is corrupt, conflicting, or unsupported THE SYSTEM SHALL leave canonical environment and C-01 provider resolution usable without invoking migration from a provider-only command (C-01, C-02, N-01, N-08).",
+      "ears_pattern": "state-driven",
+      "test_refs": ["cmd/sworn/credentials_integration_test.go:TestCorruptAccountDoesNotDisableProviderOnlyResolution"]
+    }
+  ]
+}

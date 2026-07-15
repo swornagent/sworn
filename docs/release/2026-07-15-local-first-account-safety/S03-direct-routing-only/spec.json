@@ -1,0 +1,106 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S03-direct-routing-only",
+  "release": "2026-07-15-local-first-account-safety",
+  "track": "T1-local-account-boundary",
+  "user_outcome": "A SwornAgent user resolves the same explicit direct provider or subscription driver before login, while logged in, and after logout, with no Sworn-managed route or bypass flag involved.",
+  "rationale": "Account presence currently selects a proxy unless SWORN_DIRECT=1, and the registry separately advertises that implicit route. This slice owns C-04, deletes the proxy predicate and its host override, preserves customer-owned OpenRouter and other direct integrations, and makes the registry the only routing authority.",
+  "touchpoints": [
+    "internal/account/proxy.go",
+    "internal/account/proxy_test.go",
+    "internal/model/config.go",
+    "internal/model/oai.go",
+    "internal/model/oai_test.go",
+    "internal/model/openai_responses.go",
+    "internal/model/openai_responses_test.go",
+    "internal/model/google_test.go",
+    "internal/driver/inprocess/inprocess.go",
+    "internal/driver/inprocess/inprocess_test.go",
+    "internal/driver/registry/registry.go",
+    "internal/driver/registry/registry_test.go",
+    "internal/driver/registry/registry_r04_test.go",
+    "internal/driver/drivertest/wiring.go",
+    "cmd/sworn/capabilities.go",
+    "cmd/sworn/capabilities_test.go",
+    "cmd/sworn/run_test.go",
+    "cmd/sworn/verify_test.go"
+  ],
+  "in_scope": [
+    "Delete the Sworn account proxy endpoint, proxy-route predicate, bearer substitution, ViaProxy registry metadata, and capability output that advertises account-driven routing.",
+    "Remove every active read and current-help reference for SWORN_DIRECT and SWORN_PROXY_URL; introduce no recognized no-op or replacement routing flag.",
+    "Resolve in-process drivers only from explicit model prefixes, canonical provider configuration, and C-01; resolve subscription drivers only from their explicit CLI prefixes.",
+    "Preserve direct openrouter/, openai/, openai-completions/, deepseek/, groq/, mistral/, cloudflare/, github/, and anthropic/ behavior according to the canonical registry and provider configuration.",
+    "Preserve provider-side quota/credits error classification while removing account-proxy-specific error wrapping; S04 owns final user-message and product-surface cleanup.",
+    "Make capabilities enumeration and actual dispatch derive from the same registry entry without consulting account-session-v1.",
+    "Prove through real command construction that login/account records cannot alter the selected driver, endpoint, or credential source."
+  ],
+  "out_of_scope": [
+    "Adding provider endpoints or dialects belongs to 2026-07-14-local-cloud-providers.",
+    "Removing account purchase, cached balance, TUI, MCP, and public credit surfaces belongs to S04-remove-managed-inference-credits.",
+    "Partner-managed inference requires a new ratified product/data boundary and is not preserved as dormant routing code.",
+    "Historical release specifications and proof bundles remain immutable evidence of prior behavior."
+  ],
+  "covers_needs": ["N-02", "N-03", "N-04", "N-07", "N-09"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "Routing is duplicated across model construction, loop dispatch, driver enumeration, capability output, and many proxy-shaped tests, so deletion has a broad regression surface.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "Capabilities say direct while a lower dispatch layer still substitutes an account bearer or proxy endpoint.",
+      "mitigation": "One assembled test compares registry resolution, constructed request destination, and credential canary before/during/after account login."
+    },
+    {
+      "id": "R-02",
+      "description": "Removing managed proxy code accidentally removes customer-owned OpenRouter or another OpenAI-compatible provider.",
+      "mitigation": "Table-driven registry and request tests name every retained direct prefix, including openrouter/ with OPENROUTER_API_KEY and C-01."
+    },
+    {
+      "id": "R-03",
+      "description": "A compatibility test or helper keeps SWORN_PROXY_URL as a production credential redirect.",
+      "mitigation": "Use injected HTTP clients or explicit provider endpoint seams in tests and add an active-source guard that rejects both retired environment names outside historical artefacts."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN the built binary resolves and dispatches the same explicit in-process model before login, while C-02 is active, and after logout THE SYSTEM SHALL select the same registry driver, direct provider endpoint, and customer credential in all three states (C-01, C-02, C-04, N-02, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/run_test.go:TestLoginCannotChangeRealDriverRoute"]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN sworn capabilities enumerates in-process and subscription drivers THE SYSTEM SHALL report explicit prefixes and reachability without ViaProxy metadata, account-dependent alternatives, or SWORN_DIRECT guidance (C-04, N-02, N-03).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/capabilities_test.go:TestCapabilitiesExposeDirectRegistryOnly"]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN openrouter/<model> is configured with the customer's canonical environment key or C-01 value THE SYSTEM SHALL send directly to the configured OpenRouter endpoint and SHALL not require C-02 (C-01, C-04, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/model/oai_test.go:TestOpenRouterRemainsCustomerOwnedDirectProvider"]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN an explicit subscription-driver prefix is selected THE SYSTEM SHALL dispatch that CLI driver without reading provider-credentials-v1 or account-session-v1 (C-04, N-02, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/driver/registry/registry_test.go:TestSubscriptionDriversIgnoreAccountAndProviderRecords"]
+    },
+    {
+      "id": "AC-05",
+      "text": "IF SWORN_DIRECT or SWORN_PROXY_URL is present in the process environment THEN THE SYSTEM SHALL give it no routing, endpoint, credential, help, warning, capability, DNS, or HTTP behavior (C-04, N-02, N-03, N-07, N-09).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/driver/registry/registry_r04_test.go:TestRetiredRoutingEnvironmentHasNoRuntimeAuthority"]
+    },
+    {
+      "id": "AC-06",
+      "text": "IF a direct provider returns a quota or credit-exhaustion response THEN THE SYSTEM SHALL retain the provider terminal classification without wrapping it in a Sworn account purchase or managed-proxy error (C-04, N-03).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/model/openai_responses_test.go:TestDirectProviderQuotaErrorHasNoSwornCommerceDependency"]
+    }
+  ]
+}

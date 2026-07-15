@@ -1,0 +1,104 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S04-remove-managed-inference-credits",
+  "release": "2026-07-15-local-first-account-safety",
+  "track": "T1-local-account-boundary",
+  "user_outcome": "A SwornAgent user sees no Sworn-managed inference purchase, balance, cache, TUI, MCP, API, or remediation surface, while direct providers still report their own quota exhaustion accurately.",
+  "rationale": "The repository exposes account buy, a nonexistent credits API, inconsistent cache fields, a TUI balance, an MCP get_credits tool, and Sworn-purchase error guidance despite no approved managed inference service. S03 removes routing; this slice removes the remaining product contract without deleting provider-neutral quota classification.",
+  "touchpoints": [
+    "internal/account/account.go",
+    "internal/account/account_test.go",
+    "cmd/sworn/account.go",
+    "cmd/sworn/account_test.go",
+    "internal/run/run.go",
+    "internal/run/run_test.go",
+    "internal/tui/model.go",
+    "internal/tui/concurrent.go",
+    "internal/tui/tui_test.go",
+    "internal/mcp/tools_ops.go",
+    "internal/mcp/tools_test.go",
+    "internal/model/errors.go",
+    "internal/model/errors_test.go",
+    "cmd/sworn/mcp.go",
+    "docs/api-contract.md",
+    "docs/mcp-setup.md"
+  ],
+  "in_scope": [
+    "Remove sworn account buy, purchase URL construction, Sworn credit display, and all account-command guidance that suggests funding model inference through Sworn.",
+    "Delete the account credits endpoint client, credits.json cache reads/writes, startup credit-fetch goroutine, and inconsistent credits/balance cache schemas.",
+    "Remove credit balance from the TUI model/rendering and remove get_credits from the MCP schema, registration, handler, catalog/help text, and tests.",
+    "Remove current public API documentation for the Sworn proxy and account credits endpoint and replace any active migration note with the direct/BYO and subscription-driver contract.",
+    "Retain the closed provider/driver credits or quota error classification where it represents an upstream provider condition, but make user guidance point only to the selected provider or subscription service.",
+    "Add an active-source and current-document scan that distinguishes removed Sworn commerce from legitimate provider quota terminology and historical release evidence.",
+    "Ensure no ordinary command opens, creates, updates, or reports a legacy credits.json file."
+  ],
+  "out_of_scope": [
+    "Changing provider SDK/API quota semantics or the driver's terminal auth/credits classification is excluded.",
+    "Deleting historical specifications, proof bundles, journals, or captures that document previously shipped behavior is forbidden.",
+    "Pricing, billing, managed inference partnerships, and commercial rationale are private and do not enter this public repository.",
+    "Hosted account plans may be displayed as issuer-authored identity/control-plane data under S02; they are not inference credits."
+  ],
+  "covers_needs": ["N-03", "N-07", "N-08", "N-09"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "The deletion is conceptually straightforward but spans CLI, account, loop startup, TUI, MCP, model messages, tests, and active documentation.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "A broad text cleanup removes legitimate provider quota classification and breaks fail-fast orchestration.",
+      "mitigation": "Delete only Sworn commerce/cache surfaces; retain driver.ErrKindCredits and model.KindCredits with provider-specific remediation tests."
+    },
+    {
+      "id": "R-02",
+      "description": "An obscure MCP, TUI, or startup reader keeps the nonexistent product reachable.",
+      "mitigation": "Inventory symbols and built command/help/catalog output, then mutation-test the source guard by reintroducing one active get_credits or account-buy reference."
+    },
+    {
+      "id": "R-03",
+      "description": "The cleanup rewrites historical evidence and obscures why old behavior existed.",
+      "mitigation": "Scope documentation writes to current reference/help files and make the scan explicitly exclude immutable historical release and capture paths."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN the built binary renders account help and runs sworn account THE SYSTEM SHALL expose identity/session status only and SHALL expose no buy command, credit balance, purchase URL, or managed-inference guidance (N-03, N-08).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/account_test.go:TestAccountSurfaceContainsNoManagedInferenceCommerce"]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN the TUI starts and the MCP tool catalog initializes THE SYSTEM SHALL neither read credits.json nor render or register a Sworn credit balance or get_credits tool (N-03, N-07).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/tui/tui_test.go:TestTUIHasNoSwornCreditSurface", "internal/mcp/tools_test.go:TestCatalogHasNoGetCreditsTool"]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN sworn run starts with a valid account session THE SYSTEM SHALL make no account-credit request and SHALL not create or update credits.json (N-03, N-07).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/run/run_test.go:TestRunStartupHasNoAccountCreditFetch"]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN a direct provider or subscription driver reports quota exhaustion THE SYSTEM SHALL preserve the terminal credits classification and SHALL direct remediation to that provider or subscription service without naming sworn account buy (C-04, N-03).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/model/errors_test.go:TestProviderCreditErrorHasProviderOnlyRemediation"]
+    },
+    {
+      "id": "AC-05",
+      "text": "IF an active source file or current public reference reintroduces SWORN_PROXY_URL, a Sworn credit endpoint/cache/purchase surface, or get_credits THEN THE SYSTEM SHALL fail the removal guard while allowing generic provider quota terminology and immutable historical records (N-03, N-09).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["cmd/sworn/account_test.go:TestManagedInferenceRemovalGuard"]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHEN current API and MCP documentation is read THE SYSTEM SHALL describe direct/BYO and subscription execution without documenting a Sworn proxy, account credits endpoint, purchase flow, or get_credits tool (N-03, N-09).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/account_test.go:TestCurrentDocsContainNoManagedInferenceContract"]
+    }
+  ]
+}

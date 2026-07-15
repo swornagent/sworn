@@ -8,5 +8,34 @@
       "benefit": "A SwornAgent user can use account identity without losing provider credentials, changing model routes, purchasing managed inference, or generating unapproved outbound traffic."
     }
   },
-  "tracks": []
+  "tracks": [
+    {
+      "id": "T1-local-account-boundary",
+      "slices": [
+        "S01-versioned-local-records",
+        "S02-authoritative-account-session",
+        "S03-direct-routing-only",
+        "S04-remove-managed-inference-credits",
+        "S05-independent-webhook-consent"
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "T2-telemetry-consent",
+      "slices": [
+        "S06-value-led-telemetry-opt-in"
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "T3-assembled-proof",
+      "slices": [
+        "S07-local-first-network-journey"
+      ],
+      "depends_on": [
+        "T1-local-account-boundary",
+        "T2-telemetry-consent"
+      ]
+    }
+  ]
 }

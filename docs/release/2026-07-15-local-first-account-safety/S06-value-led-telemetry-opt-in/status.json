@@ -1,0 +1,85 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S06-value-led-telemetry-opt-in",
+  "release": "2026-07-15-local-first-account-safety",
+  "track": "T2-telemetry-consent",
+  "covers_needs": ["N-05", "N-07", "N-09"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-15T16:03:20+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-15-local-first-account-safety/S06-value-led-telemetry-opt-in/spec.json",
+  "proof_path": "docs/release/2026-07-15-local-first-account-safety/S06-value-led-telemetry-opt-in/proof.json",
+  "journal_path": "docs/release/2026-07-15-local-first-account-safety/S06-value-led-telemetry-opt-in/journal.md",
+  "planned_files": [
+    "internal/telemetry/telemetry.go",
+    "internal/telemetry/telemetry_test.go",
+    "cmd/sworn/main.go",
+    "cmd/sworn/main_test.go",
+    "cmd/sworn/telemetry.go",
+    "cmd/sworn/telemetry_test.go",
+    "docs/telemetry.md"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/telemetry/... ./cmd/sworn/...",
+    "go test -race ./internal/telemetry/... ./cmd/sworn/...",
+    "go test ./...",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh"
+  ],
+  "reachability_artifacts": [
+    "built neutral/disabled/enabled telemetry command matrix behind a request-counting transport, recording install-ID filesystem hashes and exact request counts",
+    "PTY and non-PTY built verify/run fixtures proving one post-success invitation and suppression from JSON, pipe, redirect, CI, MCP, TUI, help, version, telemetry, and non-zero paths",
+    "built sworn telemetry preview output compared with a captured opted-in event from the shared production encoder"
+  ],
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "See spec.json; the implementer must confirm portable TTY detection and every machine-readable dispatch path before design review.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.2.0",
+  "release_benefit": "A SwornAgent user can use account identity without losing provider credentials, changing model routes, purchasing managed inference, or generating unapproved outbound traffic.",
+  "validation": {
+    "human_ratified": false,
+    "positive_scenarios": [
+      "After a meaningful interactive success, a user sees one useful invitation, previews the exact payload, and explicitly opts in.",
+      "An opted-in user can opt out persistently and observe truthful status."
+    ],
+    "negative_scenarios": [
+      "Neutral, dismissed, opted-out, automated, or machine-readable use cannot create an ID or attempt telemetry delivery.",
+      "A telemetry failure cannot affect command output contracts, exit codes, or verdicts."
+    ],
+    "benefit_hypothesis": "Showing value first and making the exact payload inspectable earns informed opt-in without compromising offline trust."
+  },
+  "design_decisions": [
+    {
+      "choice": "Complete the full ratified explicit opt-in, preview, and value-led invitation contract in this release.",
+      "stake_class": "Type-1",
+      "options": ["complete contract", "transport safety only", "remove telemetry"],
+      "human_decision": "Ratified 2026-07-15: full #118 scope, sole enabling gesture sworn telemetry on, exact no-network preview, and one post-success interactive invitation.",
+      "rationale": "A partial consent repair would retain a known contradiction between the sender and the user experience.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Treat only successful verify PASS and completed run as meaningful invitation triggers.",
+      "stake_class": "Type-2",
+      "options": ["any successful command", "verify/run delivery success", "init completion"],
+      "human_decision": "",
+      "rationale": "The invitation should follow demonstrated product value, not installation, help, or administrative gestures.",
+      "architecturally_significant": false
+    }
+  ]
+}

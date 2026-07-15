@@ -1,0 +1,93 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S04-remove-managed-inference-credits",
+  "release": "2026-07-15-local-first-account-safety",
+  "track": "T1-local-account-boundary",
+  "covers_needs": ["N-03", "N-07", "N-08", "N-09"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-15T16:03:20+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-15-local-first-account-safety/S04-remove-managed-inference-credits/spec.json",
+  "proof_path": "docs/release/2026-07-15-local-first-account-safety/S04-remove-managed-inference-credits/proof.json",
+  "journal_path": "docs/release/2026-07-15-local-first-account-safety/S04-remove-managed-inference-credits/journal.md",
+  "planned_files": [
+    "internal/account/account.go",
+    "internal/account/account_test.go",
+    "cmd/sworn/account.go",
+    "cmd/sworn/account_test.go",
+    "internal/run/run.go",
+    "internal/run/run_test.go",
+    "internal/tui/model.go",
+    "internal/tui/concurrent.go",
+    "internal/tui/tui_test.go",
+    "internal/mcp/tools_ops.go",
+    "internal/mcp/tools_test.go",
+    "internal/model/errors.go",
+    "internal/model/errors_test.go",
+    "cmd/sworn/mcp.go",
+    "docs/api-contract.md",
+    "docs/mcp-setup.md"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/account/... ./internal/run/... ./internal/tui/... ./internal/mcp/... ./internal/model/... ./cmd/sworn/...",
+    "go test -race ./internal/run/... ./internal/mcp/...",
+    "go test ./...",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh"
+  ],
+  "reachability_artifacts": [
+    "built sworn help, sworn account, and MCP tool-list output proving no managed inference purchase, balance, cache, proxy, or get_credits surface",
+    "built sworn run with an active account and a network sentinel, proving no account-credit request and no credits.json mutation"
+  ],
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "See spec.json; the implementer must separate removed Sworn commerce from retained provider quota semantics across a broad file inventory.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.2.0",
+  "release_benefit": "A SwornAgent user can use account identity without losing provider credentials, changing model routes, purchasing managed inference, or generating unapproved outbound traffic.",
+  "validation": {
+    "human_ratified": false,
+    "positive_scenarios": [
+      "Users continue receiving actionable provider quota errors without seeing Sworn credit commerce.",
+      "Account, TUI, MCP, and current docs expose only capabilities that exist."
+    ],
+    "negative_scenarios": [
+      "No startup path can fetch or cache a Sworn credit balance.",
+      "No cleanup guard may erase historical release evidence or generic provider quota vocabulary."
+    ],
+    "benefit_hypothesis": "Removing nonexistent commerce and managed inference surfaces eliminates hidden spend expectations and misleading product claims."
+  },
+  "design_decisions": [
+    {
+      "choice": "Remove Sworn-managed credit commerce and cache surfaces rather than repair their schemas.",
+      "stake_class": "Type-1",
+      "options": ["repair and harden", "preserve disabled", "remove completely"],
+      "human_decision": "Ratified 2026-07-15: remove proxy, purchase, credit balance, cache, TUI, MCP, and active public contract surfaces.",
+      "rationale": "Managed inference and its financial metering are outside the approved product boundary.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Retain provider quota classification independently of Sworn commerce.",
+      "stake_class": "Type-2",
+      "options": ["remove every credits term", "retain provider terminal classification with provider-only remediation"],
+      "human_decision": "",
+      "rationale": "Provider quota exhaustion remains a real fail-fast condition even when Sworn sells no inference credits.",
+      "architecturally_significant": false
+    }
+  ]
+}

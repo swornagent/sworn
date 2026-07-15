@@ -1,0 +1,113 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S06-value-led-telemetry-opt-in",
+  "release": "2026-07-15-local-first-account-safety",
+  "track": "T2-telemetry-consent",
+  "user_outcome": "After SwornAgent first proves useful, an interactive user may inspect the exact anonymous telemetry payload and explicitly enable it, while neutral, dismissed, opted-out, CI, piped, JSON, and MCP use remain silent and offline.",
+  "rationale": "Dispatch now checks opt-in before identifier creation, but the process still prints a pre-value disclosure and retains a dead default-yes consent function while preview and the ratified post-success invitation are absent. This slice owns C-07 and C-08 and closes #118 through the real CLI boundary.",
+  "touchpoints": [
+    "internal/telemetry/telemetry.go",
+    "internal/telemetry/telemetry_test.go",
+    "cmd/sworn/main.go",
+    "cmd/sworn/main_test.go",
+    "cmd/sworn/telemetry.go",
+    "cmd/sworn/telemetry_test.go",
+    "docs/telemetry.md"
+  ],
+  "in_scope": [
+    "Make sworn telemetry on the sole enabling transition in C-07; keep neutral disabled and make persistent opt-out plus SWORN_NO_TELEMETRY=1 dominate stored opt-in.",
+    "Remove the default-yes ShowConsent function, init-era consent language, and pre-value process-start disclosure/sentinel.",
+    "Add sworn telemetry preview that serializes C-08 through the production event builder with representative local values, substitutes a clear not-created-before-opt-in install-ID marker, and performs no filesystem identity creation, DNS, or HTTP.",
+    "After the first exit-zero sworn verify PASS or completed sworn run in a real interactive TTY, show one non-blocking value-led invitation that points to preview and on; record invitation-shown locally without enabling telemetry or creating an install ID.",
+    "Suppress the invitation for stderr/stdout redirection, pipes, JSON flags, CI environments, MCP, TUI/no-command, telemetry meta-commands, help/version, non-PASS exits, and existing enabled/disabled/invited states.",
+    "Make preview and actual delivery share the exact C-08 type and encoding path; status reports neutral, enabled, persistent opt-out, and environment override truthfully.",
+    "Keep event dispatch best-effort and non-blocking after opt-in, with bounded request lifetime and no effect on command exit or verdict.",
+    "Document exact fields, consent precedence, invitation trigger, value proposition, disablement, and zero-data behavior in current public technical documentation."
+  ],
+  "out_of_scope": [
+    "Telemetry dashboards, commercial analytics, user identity joins, model/prompt collection, experiments, or remote feature flags are excluded.",
+    "Release marketing claims about improvements derived from telemetry are not implementation scope; public release communication must remain evidence-based.",
+    "Webhook and notification consent use C-05 and are independent of telemetry.",
+    "Changing local operational telemetry commands such as decisions, events, and report is excluded except where help must distinguish them from anonymous outbound telemetry."
+  ],
+  "covers_needs": ["N-05", "N-07", "N-09"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "The consent rules are ratified and deterministic, but TTY/CI/JSON suppression, exact preview parity, sentinel migration, and built-binary request evidence create a broad test matrix.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "The invitation corrupts machine-readable output or appears during automation.",
+      "mitigation": "Gate on both terminal descriptors, explicit machine-output/CI exclusions, eligible commands and exit codes; exercise built subprocesses with merged and separate streams."
+    },
+    {
+      "id": "R-02",
+      "description": "Preview reimplements the schema and drifts from actual delivered bytes.",
+      "mitigation": "Export one event builder/encoder, capture an opted-in request through a real HTTP transport fixture, and compare key set and representative encoding with preview output."
+    },
+    {
+      "id": "R-03",
+      "description": "A neutral preview or invitation creates the persistent installation identifier.",
+      "mitigation": "Keep identifier creation inside the enabled dispatch branch only and hash the isolated config directory across neutral preview/invitation tests."
+    },
+    {
+      "id": "R-04",
+      "description": "Both enabled and disabled state files exist and the wrong one wins.",
+      "mitigation": "Encode and test conservative precedence: environment opt-out, persistent opt-out, enabled, then neutral; on/off transitions remove only the opposing state after durable write succeeds."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHILE C-07 is neutral, persistently disabled, or disabled by SWORN_NO_TELEMETRY=1 THE SYSTEM SHALL create no install ID and attempt zero telemetry DNS or HTTP requests across successful, failing, and early-exit built commands (C-07, N-05, N-07).",
+      "ears_pattern": "state-driven",
+      "test_refs": ["cmd/sworn/telemetry_test.go:TestTelemetryConsentBinaryReachability"]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN the built binary runs sworn telemetry preview before consent THE SYSTEM SHALL print the exact C-08 field set with representative values and an explicit not-created install-ID marker without creating an ID, changing C-07, or making a request (C-07, C-08, N-05, N-07).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/telemetry_test.go:TestTelemetryPreviewMatchesDeliveredEvent"]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN a neutral user completes the first exit-zero sworn verify PASS or sworn run in an interactive TTY THE SYSTEM SHALL print one value-led invitation, record invitation-shown locally, leave telemetry disabled, and never print the invitation again (C-07, N-05).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/main_test.go:TestFirstMeaningfulInteractiveSuccessInvitesOnceWithoutConsent"]
+    },
+    {
+      "id": "AC-04",
+      "text": "IF an invocation is piped, redirected, JSON-producing, in CI, MCP-hosted, TUI/no-command, a telemetry meta-command, help/version, or non-zero THEN THE SYSTEM SHALL not print or record the invitation (C-07, N-05).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["cmd/sworn/main_test.go:TestTelemetryInvitationSuppressionMatrix"]
+    },
+    {
+      "id": "AC-05",
+      "text": "WHEN sworn telemetry on succeeds THE SYSTEM SHALL enter enabled and permit later eligible commands to build and dispatch C-08; WHEN sworn telemetry off succeeds THE SYSTEM SHALL persist opt-out and suppress dispatch even if an enabled marker or install ID remains (C-07, C-08, N-05).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/telemetry/telemetry_test.go:TestExplicitOnOffAndOverridePrecedence"]
+    },
+    {
+      "id": "AC-06",
+      "text": "IF account identities, provider keys, model identifiers, paths, project/release/slice names, prompts, request/response bodies, or proof/spec content are present in process fixtures THEN THE SYSTEM SHALL include none of them in preview or delivered C-08 bytes (C-08, N-05).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/telemetry/telemetry_test.go:TestTelemetryEventRejectsSensitiveCanaries"]
+    },
+    {
+      "id": "AC-07",
+      "text": "IF an enabled telemetry request times out or fails THEN THE SYSTEM SHALL leave the originating command exit code and verdict unchanged and SHALL print no payload, credential, or transport body (C-08, N-07).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/telemetry/telemetry_test.go:TestTelemetryFailureCannotChangeCommandOutcome"]
+    },
+    {
+      "id": "AC-08",
+      "text": "WHEN current telemetry documentation is read THE SYSTEM SHALL describe the exact C-08 fields, explicit on/off/preview gestures, consent precedence, post-success invitation trigger, suppression matrix, and zero-data neutral behavior without an init-consent or default-yes claim (C-07, C-08, N-09).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/telemetry_test.go:TestTelemetryDocumentationMatchesRuntimeContract"]
+    }
+  ]
+}

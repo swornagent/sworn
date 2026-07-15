@@ -1,0 +1,105 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/contracts-v1.json",
+  "version": 1,
+  "release": "2026-07-15-local-first-account-safety",
+  "contracts": [
+    {
+      "id": "C-01",
+      "kind": "schema-version",
+      "surface": "provider-credentials-v1 at credentials.json",
+      "shape": "A 0600 JSON record with version=1 and providers as a provider-name to API-key map. It contains no account token, identity field, notification destination, or consent state. Canonical provider environment variables retain precedence. Writes use a secure temporary file, sync, atomic rename, and fresh reads; an unsupported version fails closed without mutation. The legacy unversioned composite is accepted only by the bounded migration path.",
+      "owner": "S01-versioned-local-records",
+      "consumers": [
+        "S03-direct-routing-only",
+        "S07-local-first-network-journey"
+      ],
+      "live_test": "cmd/sworn/credentials_integration_test.go:TestVersionedProviderCredentialMigrationRealFilesystem",
+      "rationale": "Provider keys must remain usable independently of account and outbound-feature lifecycles."
+    },
+    {
+      "id": "C-02",
+      "kind": "schema-version",
+      "surface": "account-session-v1 at account.json",
+      "shape": "A 0600 JSON record with version=1, token, canonical issuer, email, optional server-authored tier, and server-authored expires_at. It contains no provider key, model route, credit value, or notification configuration. Missing and expired records are valid logged-out status; corrupt, conflicting, or unsupported records fail non-zero without disabling provider-only operation.",
+      "owner": "S01-versioned-local-records",
+      "consumers": [
+        "S02-authoritative-account-session",
+        "S07-local-first-network-journey"
+      ],
+      "live_test": "cmd/sworn/credentials_integration_test.go:TestAccountSplitMigrationRealFilesystem",
+      "rationale": "Account identity needs a lifecycle and corruption boundary separate from customer-owned model credentials."
+    },
+    {
+      "id": "C-03",
+      "kind": "edge-config",
+      "surface": "login issuer selection and token-origin binding",
+      "shape": "sworn login uses the compiled issuer unless SWORN_AUTH_URL explicitly selects another issuer. The selector is accepted only as an absolute HTTPS base URL, or HTTP on loopback, with no userinfo, query, fragment, malformed host, or unsafe redirect. The canonical issuer is stored in account-session-v1. No existing bearer token is sent during issuer selection, and future authenticated control-plane use may return a token only to its bound issuer.",
+      "owner": "S02-authoritative-account-session",
+      "consumers": [
+        "S07-local-first-network-journey"
+      ],
+      "live_test": "cmd/sworn/login_test.go:TestLoginIssuerBindingBinaryReachability",
+      "rationale": "A self-host and binary-test seam must not become a general bearer-token redirect."
+    },
+    {
+      "id": "C-04",
+      "kind": "edge-config",
+      "surface": "direct-route-authority-v1",
+      "shape": "The canonical driver registry resolves explicit model-ID prefixes to either a direct customer-configured provider or an explicit subscription CLI driver. Account presence, account tier, SWORN_DIRECT, SWORN_PROXY_URL, credit state, and notification state are not routing inputs. A direct openrouter/ prefix uses the customer's OPENROUTER_API_KEY or provider-credentials-v1 value.",
+      "owner": "S03-direct-routing-only",
+      "consumers": [
+        "S07-local-first-network-journey"
+      ],
+      "live_test": "cmd/sworn/run_test.go:TestLoginCannotChangeRealDriverRoute",
+      "rationale": "One explicit registry must answer model execution routing for every entry point."
+    },
+    {
+      "id": "C-05",
+      "kind": "schema-version",
+      "surface": "notification-config-v1 at notifications.json",
+      "shape": "A 0600 JSON record with version=1 and an optional webhook destination containing enabled, an absolute validated HTTP(S) URL, and optional destination-scoped signing secret. It contains no account token or provider key. set is the affirmative enable gesture; off retains the destination while disabling it; remove deletes it; status redacts path, query, and secret material; preview makes no request.",
+      "owner": "S05-independent-webhook-consent",
+      "consumers": [
+        "S07-local-first-network-journey"
+      ],
+      "live_test": "cmd/sworn/notifications_test.go:TestNotificationsConfigBinaryReachability",
+      "rationale": "Outbound destinations require an inspectable consent lifecycle independent of account identity."
+    },
+    {
+      "id": "C-06",
+      "kind": "schema-version",
+      "surface": "webhook-safe-event-v1",
+      "shape": "An allowlisted JSON projection containing version, stable event_id, closed event_kind, closed attention class, bounded safe title, occurred_at, and optional canonical board_url. It contains no repository or worktree path, account/provider credential, model payload, request/response body, source/spec/proof text, free-form error, violation detail, mutation command, or destination secret.",
+      "owner": "S05-independent-webhook-consent",
+      "consumers": [
+        "S07-local-first-network-journey"
+      ],
+      "live_test": "internal/notify/webhook_integration_test.go:TestGenericWebhookSafeProjectionRealHTTP",
+      "rationale": "Generic delivery should remain useful without exporting local diagnostic or secret-bearing data."
+    },
+    {
+      "id": "C-07",
+      "kind": "schema-version",
+      "surface": "telemetry-consent-v1",
+      "shape": "A local state machine with neutral, enabled, disabled, and invitation-shown facts. Neutral and disabled make no request and create no install ID. Only sworn telemetry on enters enabled. Persistent opt-out and SWORN_NO_TELEMETRY=1 dominate enabled. The one-time invitation may be recorded locally only after an eligible success in an interactive TTY and never counts as consent.",
+      "owner": "S06-value-led-telemetry-opt-in",
+      "consumers": [
+        "S07-local-first-network-journey"
+      ],
+      "live_test": "cmd/sworn/telemetry_test.go:TestTelemetryConsentBinaryReachability",
+      "rationale": "Consent must have one explicit transition and conservative precedence across every invocation."
+    },
+    {
+      "id": "C-08",
+      "kind": "event",
+      "surface": "telemetry-event-v1",
+      "shape": "The exact outbound JSON event contains v, install_id, cmd, sub, duration_ms, exit_code, sworn_version, go_version, os, and arch. It contains no code, path, project/release/slice identity, account identity, model identifier, credential, prompt, request, response, or proof/spec content. sworn telemetry preview renders this exact key set with representative values without creating an ID or making a request.",
+      "owner": "S06-value-led-telemetry-opt-in",
+      "consumers": [
+        "S07-local-first-network-journey"
+      ],
+      "live_test": "cmd/sworn/telemetry_test.go:TestTelemetryPreviewMatchesDeliveredEvent",
+      "rationale": "A preview is meaningful only when it cannot drift from the payload that explicit opt-in enables."
+    }
+  ]
+}

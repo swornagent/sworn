@@ -1,0 +1,86 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S02-authoritative-account-session",
+  "release": "2026-07-15-local-first-account-safety",
+  "track": "T1-local-account-boundary",
+  "covers_needs": ["N-01", "N-02", "N-03", "N-08", "N-09"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-15T16:03:20+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-15-local-first-account-safety/S02-authoritative-account-session/spec.json",
+  "proof_path": "docs/release/2026-07-15-local-first-account-safety/S02-authoritative-account-session/proof.json",
+  "journal_path": "docs/release/2026-07-15-local-first-account-safety/S02-authoritative-account-session/journal.md",
+  "planned_files": [
+    "internal/account/account.go",
+    "internal/account/account_test.go",
+    "internal/account/issuer.go",
+    "internal/account/issuer_test.go",
+    "cmd/sworn/login.go",
+    "cmd/sworn/login_test.go",
+    "cmd/sworn/account.go",
+    "cmd/sworn/account_test.go",
+    "cmd/sworn/credentials_integration_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/account/... ./cmd/sworn/...",
+    "go test -race ./internal/account/... ./cmd/sworn/...",
+    "go test ./...",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh"
+  ],
+  "reachability_artifacts": [
+    "built sworn login against a real loopback device-code HTTP fixture followed by sworn account and sworn logout, recording exit codes, redacted output, issuer-bound account.json, and unchanged provider hashes",
+    "built sworn account runs for absent, expired, corrupt, conflicting, and unsupported account records"
+  ],
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "See spec.json; behavior is well-defined but spans the real device flow, record lifecycle, output contract, and migration seam.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.2.0",
+  "release_benefit": "A SwornAgent user can use account identity without losing provider credentials, changing model routes, purchasing managed inference, or generating unapproved outbound traffic.",
+  "validation": {
+    "human_ratified": false,
+    "positive_scenarios": [
+      "A user logs in through an approved issuer and sees only authoritative identity and session facts.",
+      "A user logs out while provider credentials and notification migration input remain unchanged."
+    ],
+    "negative_scenarios": [
+      "An unsafe issuer or redirect cannot receive an existing bearer token.",
+      "Missing server tier or expiry cannot be replaced with a locally invented value."
+    ],
+    "benefit_hypothesis": "A truthful identity-only account surface lets hosted-control-plane identity coexist with trustworthy local execution."
+  },
+  "design_decisions": [
+    {
+      "choice": "Retain authoritative identity/session status with optional server-authored tier and expiry.",
+      "stake_class": "Type-1",
+      "options": ["identity and expiry only", "identity plus optional server-authored tier and expiry", "remove account status"],
+      "human_decision": "Ratified 2026-07-15: retain login status and email, plus tier and expiry only when supplied by the issuer; remove commerce, model, and notification claims.",
+      "rationale": "The command remains useful without inventing hosted product facts or coupling identity to inference.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Retain SWORN_AUTH_URL only as a scoped new-login issuer selector.",
+      "stake_class": "Type-1",
+      "options": ["scoped issuer selector", "compiled issuer only", "general API base override"],
+      "human_decision": "Ratified 2026-07-15: scoped login-only issuer selection, canonical issuer binding, no general bearer-host override.",
+      "rationale": "Self-host and real-binary testing remain possible without redirecting an already-issued credential.",
+      "architecturally_significant": true
+    }
+  ]
+}

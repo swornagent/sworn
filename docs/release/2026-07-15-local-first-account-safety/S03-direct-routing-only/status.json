@@ -1,0 +1,95 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S03-direct-routing-only",
+  "release": "2026-07-15-local-first-account-safety",
+  "track": "T1-local-account-boundary",
+  "covers_needs": ["N-02", "N-03", "N-04", "N-07", "N-09"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-15T16:03:20+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-15-local-first-account-safety/S03-direct-routing-only/spec.json",
+  "proof_path": "docs/release/2026-07-15-local-first-account-safety/S03-direct-routing-only/proof.json",
+  "journal_path": "docs/release/2026-07-15-local-first-account-safety/S03-direct-routing-only/journal.md",
+  "planned_files": [
+    "internal/account/proxy.go",
+    "internal/account/proxy_test.go",
+    "internal/model/config.go",
+    "internal/model/oai.go",
+    "internal/model/oai_test.go",
+    "internal/model/openai_responses.go",
+    "internal/model/openai_responses_test.go",
+    "internal/model/google_test.go",
+    "internal/driver/inprocess/inprocess.go",
+    "internal/driver/inprocess/inprocess_test.go",
+    "internal/driver/registry/registry.go",
+    "internal/driver/registry/registry_test.go",
+    "internal/driver/registry/registry_r04_test.go",
+    "internal/driver/drivertest/wiring.go",
+    "cmd/sworn/capabilities.go",
+    "cmd/sworn/capabilities_test.go",
+    "cmd/sworn/run_test.go",
+    "cmd/sworn/verify_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": [
+    "go test ./internal/model/... ./internal/driver/... ./internal/account/... ./cmd/sworn/...",
+    "go test -race ./internal/model/... ./internal/driver/registry/...",
+    "go test ./...",
+    "go vet ./...",
+    "test -z \"$(gofmt -l .)\"",
+    "bash scripts/public-safe-scan.sh"
+  ],
+  "reachability_artifacts": [
+    "built sworn capabilities plus real provider request capture before login, during login, and after logout, proving identical registry identity, endpoint, and customer credential source",
+    "built direct OpenRouter and subscription-driver gestures proving both retained paths without account state"
+  ],
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "See spec.json; the implementer must confirm every dispatch and enumeration consumer of the retired proxy predicate.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.2.0",
+  "release_benefit": "A SwornAgent user can use account identity without losing provider credentials, changing model routes, purchasing managed inference, or generating unapproved outbound traffic.",
+  "validation": {
+    "human_ratified": false,
+    "positive_scenarios": [
+      "A direct provider route and a subscription route remain identical across login and logout.",
+      "A customer-owned OpenRouter key remains a normal direct provider credential."
+    ],
+    "negative_scenarios": [
+      "Account presence cannot change a registry choice, endpoint, or API key.",
+      "Retired proxy environment variables cannot retain hidden runtime authority."
+    ],
+    "benefit_hypothesis": "Making explicit prefixes the only route authority removes hidden spend and trust changes from account gestures."
+  },
+  "design_decisions": [
+    {
+      "choice": "Remove managed proxy routing rather than preserve a dormant partner seam.",
+      "stake_class": "Type-1",
+      "options": ["harden managed routing", "preserve disabled routing", "remove routing and require future ratification"],
+      "human_decision": "Ratified 2026-07-15: remove Sworn-managed proxy routing; execution remains direct/BYO or explicit subscription driver.",
+      "rationale": "Dormant bearer, metering, and route-switching code remains a trust liability without an approved service boundary.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Remove SWORN_DIRECT immediately with no recognized no-op.",
+      "stake_class": "Type-1",
+      "options": ["immediate removal", "one-release no-op", "repurpose"],
+      "human_decision": "Ratified 2026-07-15: remove all active recognition; direct routing becomes invariant and no replacement flag is introduced.",
+      "rationale": "Existing users remain direct, while dead configuration would imply another route still exists.",
+      "architecturally_significant": true
+    }
+  ]
+}

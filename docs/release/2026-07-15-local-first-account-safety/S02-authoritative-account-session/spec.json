@@ -1,0 +1,97 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S02-authoritative-account-session",
+  "release": "2026-07-15-local-first-account-safety",
+  "track": "T1-local-account-boundary",
+  "user_outcome": "A SwornAgent user can log in, inspect authoritative identity and session status, and log out without fabricated account data, provider-key changes, model claims, or notification side effects.",
+  "rationale": "The current device flow parses server tier and expiry but returns only token and email, after which the CLI invents a free tier and 24-hour expiry. This slice consumes C-02, owns C-03, narrows the account command to identity/session status, and binds a newly issued token to the issuer that created it.",
+  "touchpoints": [
+    "internal/account/account.go",
+    "internal/account/account_test.go",
+    "internal/account/issuer.go",
+    "internal/account/issuer_test.go",
+    "cmd/sworn/login.go",
+    "cmd/sworn/login_test.go",
+    "cmd/sworn/account.go",
+    "cmd/sworn/account_test.go",
+    "cmd/sworn/credentials_integration_test.go"
+  ],
+  "in_scope": [
+    "Return and persist server-authored token, email, optional tier, expiry, and canonical issuer from the device flow instead of manufacturing tier or lifetime locally.",
+    "Validate C-03 before the first request, announce a non-default issuer, reject unsafe redirects, and ensure no existing bearer credential is attached to device-code or polling requests.",
+    "Make account-session-v1 the sole login-status authority and trigger S01's shared migration routine before any account-aware read or write.",
+    "Render sworn account as identity/session status only: login state and email, with tier and expiry shown only when supplied by the issuer.",
+    "Treat missing and expired sessions as successful status queries with explicit login guidance; treat corrupt, conflicting, or unsupported records as non-zero recovery cases without printing record contents.",
+    "Make logout idempotently remove only account.json and any account-only transient state while preserving credentials.json and legacy notification fields byte-for-byte.",
+    "Remove credit commerce and notification configuration from the account command surface; deeper credit and notification implementation removal remains in their owning slices."
+  ],
+  "out_of_scope": [
+    "Refresh tokens, browser SSO sessions, hosted tenancy, account mutation, billing, and entitlement enforcement are not implemented.",
+    "Account state does not select a model route; registry enforcement belongs to S03-direct-routing-only.",
+    "Credit cache, TUI, MCP, provider-quota messages, and API-document removal belong to S04-remove-managed-inference-credits.",
+    "The replacement webhook command and notifications.json belong to S05-independent-webhook-consent."
+  ],
+  "covers_needs": ["N-01", "N-02", "N-03", "N-08", "N-09"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "The desired issuer and status semantics are clear, but login, persistence, output states, redirect policy, migration, and command tests span several existing surfaces.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "An issuer override becomes a way to forward an existing bearer credential.",
+      "mitigation": "Construct device-flow requests from an empty auth context, ban general account API base overrides, bind the returned token to the canonical issuer, and inject a canary old token in the real HTTP test."
+    },
+    {
+      "id": "R-02",
+      "description": "Account status leaks tokens or presents local guesses as server facts.",
+      "mitigation": "Use explicit output fields from the safe account projection only; canary-scan stdout/stderr and omit absent tier/expiry rather than defaulting them."
+    },
+    {
+      "id": "R-03",
+      "description": "Logout still removes another domain through a legacy shared-file path.",
+      "mitigation": "Drive built login/account/logout against hashed provider and notification fixtures and assert only account-owned files change."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN the built binary completes sworn login against a loopback device issuer THE SYSTEM SHALL persist the issuer-returned email, optional tier, expiry, token, and canonical issuer in C-02 without storing a manufactured tier or expiry (C-02, C-03, N-08).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/login_test.go:TestLoginIssuerBindingBinaryReachability"]
+    },
+    {
+      "id": "AC-02",
+      "text": "IF SWORN_AUTH_URL contains non-loopback HTTP, userinfo, a query, a fragment, a malformed host, or a redirect outside the canonical issuer THEN THE SYSTEM SHALL reject login before persisting an account record or sending an existing bearer token (C-03, N-07, N-08).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/account/issuer_test.go:TestIssuerPolicyRejectsUnsafeBasesAndRedirects"]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN sworn account reads a valid C-02 record THE SYSTEM SHALL print logged-in state and email plus only issuer-supplied tier and expiry, and SHALL print no credit, model, provider, webhook, notification, or token field (C-02, N-02, N-03, N-08).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/account_test.go:TestAccountStatusIsAuthoritativeAndIdentityOnly"]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN C-02 is absent or expired THE SYSTEM SHALL make sworn account print the corresponding not-logged-in or expired status with login guidance and exit zero (C-02, N-08).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/account_test.go:TestAccountAbsentAndExpiredAreSuccessfulStatusQueries"]
+    },
+    {
+      "id": "AC-05",
+      "text": "IF C-02 is malformed, conflicting, or unsupported THEN THE SYSTEM SHALL make sworn account and account-aware login/logout fail non-zero with secret-safe doctor guidance while provider-only commands remain unaffected (C-01, C-02, N-01, N-08, N-09).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["cmd/sworn/account_test.go:TestAccountCorruptionFailsClosedWithoutProviderImpact"]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHEN the built binary runs sworn logout after login THE SYSTEM SHALL remove only C-02, preserve credentials.json and unmigrated notification fields byte-for-byte, print Logged out, and remain idempotent on a second invocation (C-01, C-02, N-01).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/credentials_integration_test.go:TestLogoutRemovesOnlyVersionedAccountSession"]
+    }
+  ]
+}
