@@ -308,6 +308,27 @@ drivers remain usable.
 - **Why**: notification destinations are neither identity nor provider
   credentials and require an independently inspectable consent lifecycle.
 
+### 2026-07-15 — Retain only a scoped login-issuer override
+
+- **Context**: `SWORN_PROXY_URL` redirects already-issued bearer credentials
+  across proxy, credit and hosted-notification paths. `SWORN_AUTH_URL` instead
+  selects the issuer for a new device-code login and is also the built-binary
+  loopback test seam.
+- **Options considered**: retain a tightly scoped issuer selector; allow only the
+  compiled official issuer; or introduce a general configurable API base URL.
+- **Decision**: retain `SWORN_AUTH_URL` only for `sworn login`. It selects the
+  issuer for that new flow and never receives an existing bearer token. Store the
+  canonical issuer with the resulting token in `account.json`; any future
+  authenticated control-plane request may return the token only to that bound
+  issuer. Remove `SWORN_PROXY_URL` entirely and add no general API-host override.
+- **URL and test contract**: accept absolute HTTPS issuers, plus HTTP only on
+  loopback for test or self-host use; reject userinfo, query, fragment, malformed
+  host and unsafe redirects. State a non-default issuer before starting login.
+  Package tests inject HTTP directly while real-binary reachability may use the
+  loopback issuer selector.
+- **Why**: issuer selection preserves self-hosting and reachability without
+  recreating an environment-controlled bearer-token exfiltration path.
+
 ### 2026-07-15 — Name the release for its user promise
 
 - **Context**: the private handoff used “trust-contract safety”, which is accurate
@@ -367,7 +388,7 @@ credits and hosted email are now removal scope.
 | A-04 | Migration and rollback behaviour when an older Sworn binary encounters the new credential layout | N-01, N-09 | **Resolved**: automatic idempotent account-command migration; verify before cleanup; temporary recovery only; conflicts fail closed; old binaries retain providers and appear logged out |
 | A-05 | Whether this release includes the complete ratified telemetry preview/invitation UX or only safety-boundary reconciliation | N-05, N-07 | **Resolved**: full ratified preview, explicit opt-in, value-led one-time invitation and output suppression; absorb #118 |
 | A-06 | Exact generic webhook consent/config storage before the autonomous release supplies the durable outbox | N-05, N-06 | **Resolved**: versioned `notifications.json`; explicit top-level webhook gestures; redacted status and no-send preview; #109 outbox consumes opaque references |
-| A-07 | Which account/auth endpoint override seam remains for tests after all ordinary bearer-token redirection is removed | N-07, N-08 | architecture investigation before wire-contract registration |
+| A-07 | Which account/auth endpoint override seam remains for tests after all ordinary bearer-token redirection is removed | N-07, N-08 | **Resolved**: retain scoped login-only issuer selection and bind tokens to canonical issuer; remove all general bearer-host overrides |
 
 ## Screenshots / references
 
