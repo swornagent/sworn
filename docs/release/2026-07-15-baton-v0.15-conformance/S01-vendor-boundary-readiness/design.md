@@ -1,7 +1,7 @@
 # Design TL;DR — S01-vendor-boundary-readiness
 
-**Slice:** `S01-vendor-boundary-readiness` · **Track:** `T1-foundation` · **Release:** `2026-07-15-baton-v0.15-conformance`  
-**State:** `design_review` — no production code or tests written  
+**Slice:** `S01-vendor-boundary-readiness` · **Track:** `T1-foundation` · **Release:** `2026-07-15-baton-v0.15-conformance`
+**State:** `design_review` — no production code or tests written
 **Covers:** `N-01`, `N-02`, `N-10` · **Effort/complexity:** low / low (`quick`), confirmed
 
 ## User outcome
