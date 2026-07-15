@@ -1,0 +1,213 @@
+---
+title: 'Release intake: Baton v0.15 conformance'
+description: 'Planning record for exact Baton v0.15 adoption, maintainability lifecycle enforcement, deterministic integration, and fail-closed recovery.'
+---
+
+# Release Intake: `2026-07-15-baton-v0.15-conformance`
+
+## Release goal
+
+Make Sworn faithfully execute and enforce the Baton `v0.15.0` protocol before
+any later release depends on its records or lifecycle. Shipped means an operator
+can drive Sworn's public release commands through the bounded Implementer,
+fresh-Verifier, Coach, Track Integrator, re-plan, merge, release and ship paths;
+the same committed semantic inputs produce the same identity and reusable
+evidence; malformed, stale or rewritten evidence fails closed; deterministic
+rollback and shared-file composition protect integration; and the installed
+Codex and Claude Baton mirrors report the same pinned protocol as the binary.
+
+## Needs
+
+- N-01: **Immutable upstream parity.** Sworn vendors and reports exact Baton
+  `v0.15.0` content, preserves normative JSON bytes, and updates both supported
+  local Baton installations from that same pinned source.
+- N-02: **Typed planning and report contracts.** Sworn preserves and validates
+  typed `spec.references`, `board.shared_touchpoints`, the dedicated
+  `spec-ambiguity-report-v1` contract, the required generic check identity, and
+  the complete `slice-status-v1.maintainability` record.
+- N-03: **Canonical semantic identity.** One reusable operation constructs the
+  Baton semantic path set, manifest, fingerprint and normalized prompt diff from
+  immutable commits, modes and Git object identities with all canonical
+  exclusions and provenance checks.
+- N-04: **Durable report authority.** Full reports and compact status ledgers
+  remain append-only, pin committed report paths/blob OIDs, validate their
+  identity and history, and fail closed after deletion, rewriting or mismatch.
+- N-05: **Bounded role lifecycle.** Implementer, fresh Verifier and Coach
+  adapters enforce Baton's phase order, role authority, dispatch budget,
+  committed handoffs, single cycle-1 resume and mandatory re-slicing outcome.
+- N-06: **Deterministic integration evidence.** Track scope and freshness compose
+  active authoritative intervals and rollback-backed retired ownership without
+  treating historical ownership as PASS evidence or losing disjoint sibling
+  work.
+- N-07: **Rollback-backed recovery.** Ordinary and post-sync rollback paths
+  compare the correct candidate envelope to the correct committed baseline and
+  preserve later or sibling bytes that the failed interval did not own.
+- N-08: **Configuration-independent shared-file composition.** Declared shared
+  touchpoints are validated from `board.json` and composed from committed blobs
+  identically regardless of merge drivers, attributes, filters or local config.
+- N-09: **One integration-ready gate.** Re-plan, track merge, release merge and
+  ship adapters call shared lifecycle, provenance, rollback and readiness
+  validators on every success and idempotent path, distinguishing valid
+  unstarted deferral and rollback-backed terminal deferral from raw `deferred`.
+- N-10: **Restart-safe public proof.** Integration tests exercise Sworn's public
+  entry points, verdict/exit behavior, durable commits, exact dispatch counts,
+  idempotency and recovery after process restart.
+- N-11: **Safe active-plan migration.** Planning records that will be executed
+  after the upgrade, including `2026-07-15-local-first-account-safety`, are
+  migrated by the Planner to the exact v0.15 record shape and re-run through the
+  v0.15 trace and spec-ambiguity gates without fabricating historical evidence.
+
+## Source of truth
+
+- **Human stakeholder**: repository owner / Coach
+- **Tracking issue / epic**: [sworn#122](https://github.com/swornagent/sworn/issues/122)
+- **Normative upstream release**: [Baton v0.15.0](https://github.com/sawy3r/baton/releases/tag/v0.15.0)
+- **Normative upstream tag commit**: `16a3b304f360ec9b6a0f2cc5544d019058ac687c`
+- **Normative source archive SHA-256**: `8acfaaabe27d93cfd6eeb0d8d9fba37261095e9e702826cc9e678f9ab8c3343b`
+- **Authoritative handoff**: [sworn#122 final v0.15 handoff](https://github.com/swornagent/sworn/issues/122#issuecomment-4978801054)
+- **Upstream design history**: [Baton PR #76](https://github.com/sawy3r/baton/pull/76) and [Baton issue #75](https://github.com/sawy3r/baton/issues/75)
+- **Downstream dependent plan**: `docs/release/2026-07-15-local-first-account-safety/`
+- **Related memory entries consulted**: none committed; live repository and tagged upstream records are authoritative.
+
+## Users and their gestures
+
+- **Sworn release operator**: starts or resumes a planned slice through the
+  public Sworn commands and receives only Baton-valid transitions, bounded model
+  calls, durable handoffs and fail-closed exits.
+- **Implementer**: reaches one stable-diff maintainability preflight, performs at
+  most one remediation and closure review in the active cycle, commits the
+  resulting handoff, and never certifies the authoritative verdict.
+- **Fresh Verifier**: performs exactly one final read-only maintainability gate
+  over the pinned semantic identity and cannot repair or rerun its own result.
+- **Coach**: adjudicates a cycle-0 authoritative failure as either the single
+  `resume_in_scope` cycle or `re_slice`; a later failure has no waiver path.
+- **Track Integrator**: merges a track only when committed scope, report history,
+  freshness, rollback, shared-file composition and integration readiness all
+  pass the same canonical validators.
+- **Planner/re-planner**: emits v0.15 records, seeds started status from the exact
+  owner track, preserves maintainability as an opaque authority object, and
+  creates rollback/replacement slices without resetting failed history.
+- **Protocol maintainer**: vendors the exact upstream tag, proves byte parity,
+  refreshes local Codex/Claude installs and sees the same version through
+  `sworn doctor` and parity commands.
+
+## What's currently broken or missing
+
+- Sworn is pinned to Baton `v0.13.1`; v0.14 typed references and ambiguity
+  reporting and v0.15 maintainability/integration contracts are not adopted.
+- `RunLLMCheck` assumes the earlier generic report shape, and generic reports do
+  not consistently carry the required check identity.
+- The current spec record reader ignores typed references, so normative inputs
+  cannot be resolved and confined as Baton requires.
+- Board and status readers/writers drop `shared_touchpoints` and
+  `maintainability`, which would silently erase protocol authority.
+- The current schema compiler cannot compile a board-v1 expression that uses a
+  negative lookahead unsupported by Go's regular-expression engine.
+- The vendoring transform can mistake prose containing
+  `board.json.shared_touchpoints` for a shell source path, so upstream sync is
+  not yet atomic or safely path-aware.
+- No shared Sworn operations yet construct the canonical semantic manifest,
+  committed report ledger, lifecycle-history FSM, evidence intervals, rollback
+  equality, shared-blob composition or integration-ready predicate.
+- Existing command adapters do not enforce the v0.15 retry/authority budget or
+  re-gate idempotent merge/release/ship paths.
+- The repository contains historical closed slice records without v0.15
+  maintainability evidence and active planned records that need a legitimate
+  Planner migration before implementation.
+
+## Constraints and non-negotiables
+
+- Baton `v0.15.0` is the sole normative protocol contract. Earlier issue
+  comments are historical context only where wording differs from the tag.
+- Planning and implementation target `release/v0.2.0`; `main` remains production.
+- This Planner session writes only this release's artefacts. It does not modify
+  production code, tests, other releases or local Baton installations.
+- Sworn remains one native Go binary with no required external runtime and no
+  new third-party dependency without an accepted ADR.
+- Every construction, validation, dispatch, history, provenance, blob or
+  integration ambiguity fails closed with non-zero exit behavior.
+- The same semantic bytes/modes/object identities within one role session reuse
+  evidence without another model call; every semantic change changes identity.
+- Release records, generated output and lockfile-only changes are excluded only
+  by Baton's canonical rules, never by broad local heuristics.
+- `start_commit`, pinned implementation/report identities, report prefixes,
+  terminal re-slice history and Coach adjudication retain Baton's immutability.
+- An Implementer never certifies its own authoritative result; the final
+  Verifier remains fresh-context and read-only.
+- Public artefacts contain only public-safe technical requirements. No private
+  strategy, pricing, customer or provider-negotiation material enters this repo.
+- Upgrade and install operations must be atomic enough that a failed fetch,
+  transform or validation cannot partially overwrite the primary worktree or a
+  supported local install.
+- Integration tests must enter through Sworn's public command dispatch and pair
+  protocol outcome with exit behavior; leaf-only tests are insufficient proof.
+
+## Adjacent / out of scope
+
+- **Local-first account safety implementation**: remains planned in
+  `2026-07-15-local-first-account-safety` and begins only after this conformance
+  release is integrated. **Why deferred**: implementing it against v0.13 records
+  would immediately create invalid lifecycle evidence. **Tracking**: sworn#121
+  and its release board. **Acknowledged**: Coach, 2026-07-15, by approving this
+  prerequisite release.
+- **Autonomous loop, web board and notification delivery implementation**:
+  remains owned by `2026-07-14-autonomous-operations`. **Why deferred**: this
+  release supplies protocol correctness and gates, not the operations UI or
+  durable event/outbox product. **Tracking**: sworn#109 and its release board.
+  **Acknowledged**: Coach, 2026-07-15, through the ratified sequencing.
+- **New Baton protocol design**: Sworn will not reinterpret or simplify v0.15.
+  **Why deferred**: protocol changes belong upstream and this release is a
+  downstream conformance implementation. **Tracking**: Baton issues/PRs for any
+  newly discovered defect. **Acknowledged**: Coach, 2026-07-15, by accepting the
+  tagged release as normative.
+- **Commercial or hosted-control-plane strategy**: no business or private
+  strategy is part of this public technical release. **Why deferred**: it is a
+  separate private decision surface and is not required for v0.15 correctness.
+  **Tracking**: outside this public repository. **Acknowledged**: Coach,
+  2026-07-15, under the repository's public-doc discipline.
+
+## Decisions made during planning
+
+### 2026-07-15 — Ratify a dedicated v0.15 conformance prerequisite
+
+- **Context**: The local-first account-safety plan validates structurally only
+  after v0.15, while current Sworn code and installed Baton mirrors are v0.13.1.
+- **Options considered**: implement trust-safety work first; fold the upgrade
+  into its first slice; plan a dedicated conformance prerequisite.
+- **Decision**: plan and deliver `2026-07-15-baton-v0.15-conformance` first.
+- **Why**: v0.15 changes executable record, lifecycle, evidence and integration
+  contracts; treating it as a content-only bump would make every downstream
+  proof untrustworthy.
+
+## Schema-vs-spec audit notes
+
+- The v0.15 `slice-status-v1` schema requires a non-null `maintainability`
+  object even for a planned slice; missing data is not an Implementer reset.
+- The v0.15 `board-v1` schema adds machine-authoritative
+  `shared_touchpoints`; the rendered matrix is not an alternate authority.
+- The v0.14/v0.15 `spec-v1` contract makes `references` the sole normative
+  discovery surface for contract, slice and file inputs.
+- `llm-check-report-v1` and `spec-ambiguity-report-v1` are distinct contracts;
+  the latter cannot be parsed as the older generic findings array.
+- Existing closed records cannot be assigned PASS report ledgers without real
+  committed reports, invocation identities and blob OIDs.
+
+## Proposed slice decomposition (draft)
+
+Pending structured discovery and ratification. The upstream handoff recommends
+three layers: immutable parity, reusable deterministic primitives, and role plus
+command adapters. Those layers are inputs to decomposition, not pre-approved
+slice boundaries.
+
+## Ambiguity register
+
+| # | Ambiguity | Affects | Resolution |
+|---|-----------|---------|------------|
+| A-01 | Whether strict v0.15 validation applies retroactively to closed historical releases or only to records whose declared protocol version is v0.15+ | Record loading, trace, board oracle, merge/release/ship gates, and active-plan migration | Requires Coach decision before decomposition |
+| A-02 | Exact public command spelling for maintainability operations and Coach adjudication | CLI reachability tests and adapter ownership | Resolve from existing command architecture during decomposition; Baton owns semantics, Sworn owns spelling |
+| A-03 | Whether canonical v0.15 operations fit existing packages or require new focused internal packages | Touchpoints, tracks and file ceilings | Requires repository surface audit before slice approval |
+
+## Screenshots / references
+
+- No screenshots supplied; the normative tagged records and linked handoff are
+  the durable evidence for this release.
