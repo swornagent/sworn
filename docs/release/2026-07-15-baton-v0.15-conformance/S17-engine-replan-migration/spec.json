@@ -1,0 +1,142 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S17-engine-replan-migration",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "track": "T6-release-adapters",
+  "user_outcome": "Planner and MCP adapters apply ratified deltas and pristine migrations through one engine operation that seeds the exact owner track, preserves lifecycle authority and commits and propagates atomically.",
+  "rationale": "Requirements meaning remains a human Planner decision. C-12 makes only the mechanical application authoritative and restart-safe, and proves the first eligible seven-slice migration exactly without fabricating v0.15 execution evidence. The live downstream records are migrated only after this conformance release is integrated and its engine is current authority.",
+  "touchpoints": [
+    "internal/replan/schemas/plan-delta-v1.json",
+    "internal/replan/schemas/protocol-migration-receipt-v1.json",
+    "internal/replan/schema.go",
+    "internal/replan/schema_test.go",
+    "internal/replan/delta.go",
+    "internal/replan/delta_test.go",
+    "internal/replan/owner.go",
+    "internal/replan/owner_test.go",
+    "internal/replan/apply.go",
+    "internal/replan/apply_test.go",
+    "internal/replan/transaction.go",
+    "internal/replan/transaction_test.go",
+    "internal/replan/migration.go",
+    "internal/replan/migration_test.go",
+    "internal/replan/receipt.go",
+    "internal/replan/receipt_test.go",
+    "internal/replan/recovery.go",
+    "internal/replan/recovery_test.go",
+    "cmd/sworn/replan.go",
+    "cmd/sworn/replan_test.go",
+    "internal/mcp/tools_plan.go",
+    "internal/mcp/tools_plan_test.go"
+  ],
+  "references": [
+    {"kind": "contract", "contract_id": "C-02"},
+    {"kind": "contract", "contract_id": "C-03"},
+    {"kind": "contract", "contract_id": "C-05"},
+    {"kind": "contract", "contract_id": "C-06"},
+    {"kind": "contract", "contract_id": "C-09"},
+    {"kind": "contract", "contract_id": "C-12"},
+    {"kind": "slice", "slice_id": "S03-lossless-record-carriers"},
+    {"kind": "slice", "slice_id": "S04-typed-reference-ambiguity"},
+    {"kind": "slice", "slice_id": "S05-protocol-provenance-archive"},
+    {"kind": "slice", "slice_id": "S08-report-ledger-identity"},
+    {"kind": "slice", "slice_id": "S09-lifecycle-fsm-adjudication"},
+    {"kind": "slice", "slice_id": "S12-rollback-readiness"},
+    {"kind": "slice", "slice_id": "S13-maintainability-engine-cutover"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-local-first-account-safety/board.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-local-first-account-safety/contracts.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-local-first-account-safety/S01-versioned-local-records/spec.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-local-first-account-safety/S01-versioned-local-records/status.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-local-first-account-safety/S02-authoritative-account-session/spec.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-local-first-account-safety/S02-authoritative-account-session/status.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-local-first-account-safety/S03-direct-routing-only/spec.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-local-first-account-safety/S03-direct-routing-only/status.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-local-first-account-safety/S04-remove-managed-inference-credits/spec.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-local-first-account-safety/S04-remove-managed-inference-credits/status.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-local-first-account-safety/S05-independent-webhook-consent/spec.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-local-first-account-safety/S05-independent-webhook-consent/status.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-local-first-account-safety/S06-value-led-telemetry-opt-in/spec.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-local-first-account-safety/S06-value-led-telemetry-opt-in/status.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-local-first-account-safety/S07-local-first-network-journey/spec.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-local-first-account-safety/S07-local-first-network-journey/status.json"}
+  ],
+  "in_scope": [
+    "Embed strict plan-delta-v1 and protocol-migration-receipt-v1 schemas for C-12. A human-ratified delta contains the release, source ref and object IDs, exact owner track and status blob identities, intended record mutations, rollback or replacement links, target propagation refs, ratifier identity, and deterministic transaction state; the engine never invents omitted planning meaning.",
+    "Expose sworn replan apply --delta <workspace-relative-json> for the Planner adapter and replace direct MCP planning-record writes with one apply_plan_delta tool that calls the same engine operation.",
+    "Seed any started-slice status mutation from the exact oracle-resolved owner-track commit, validate full C-05/C-06 history, preserve maintainability byte-for-byte except adding an explicitly ratified rollback_slice_id, commit release records atomically to release-wt, and propagate the exact planner commit to affected track refs under Baton's conflict rules.",
+    "Record source and target ref/object identities plus not-started, locally-committed, and fully-propagated transaction state so restart completes only missing propagation without replaying Planner judgment or narrowing lifecycle history.",
+    "Support in-place migration only when every selected slice is planned with start_commit null, empty actual_files and maintainability.reports, null adjudication and rollback, and pending verification; write the v0.15 protocol marker, typed references, exact pending lifecycle, and a committed before/after blob receipt, then validate schemas and rerun trace and spec-ambiguity before activation.",
+    "Run the first pristine migration against an isolated committed copy of all seven 2026-07-15-local-first-account-safety slices as one all-or-nothing public reachability proof, pinning the exact proposed before/after identities and gate results without modifying the live downstream release."
+  ],
+  "out_of_scope": [
+    "The engine does not decide requirements, decomposition, deferral rationale, Coach disposition, rollback need, replacement scope, or track grouping.",
+    "No started, implemented, verified, deferred, or shipped pre-v0.15 slice is reset or migrated in place.",
+    "The migration creates no synthetic report, invocation ID, fingerprint, implementation head, adjudication, PASS, or historical protocol evidence.",
+    "Applying the proven transformation to the live 2026-07-15-local-first-account-safety release occurs in a fresh Planner session only after this conformance release is integrated; it is tracked by sworn#121 and that release board.",
+    "Historical read-only protocol resolution belongs to S05-protocol-provenance-archive."
+  ],
+  "covers_needs": ["N-02", "N-04", "N-05", "N-09", "N-10", "N-11"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "This is a multi-ref, crash-recoverable planning transaction plus an all-or-nothing live migration whose core invariant is preserving opaque lifecycle authority.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "A re-plan seeded from release-wt overwrites newer owner-track reports or lifecycle transitions.",
+      "mitigation": "Pin the exact owner-track status blob, validate append-only C-05/C-06 history, and preserve the maintainability JSON subtree byte-for-byte except the one ratified rollback link."
+    },
+    {
+      "id": "R-02",
+      "description": "A partial migration leaves some local-first slices v0.15-active while sibling records still use the old shape.",
+      "mitigation": "Preflight all seven records and references before any commit, write one release-wt transaction and receipt, and expose no partial-selection path for the confirmed first migration."
+    },
+    {
+      "id": "R-03",
+      "description": "The CLI or MCP adapter smuggles unratified plan meaning into an apparently mechanical delta.",
+      "mitigation": "C-12 pins the human ratifier and exact before/after object identities; the engine validates declared mutations but refuses to derive or amend qualitative content."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN the built binary runs sworn replan apply --delta with a human-ratified C-12 delta whose source and owner-track object identities still match THE SYSTEM SHALL seed from the exact owner status, validate C-02/C-03/C-05/C-06/C-09, apply only declared record mutations, commit one release-wt transaction, propagate it to every declared affected track ref, and record a fully-propagated receipt (C-12, N-09, N-10).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/replan_test.go:TestReplanApplyAndPristineMigrationBinaryReachability", "internal/replan/schema_test.go:TestPlanDeltaAndReceiptSchemas"]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHILE a delta mutates a started slice, THE SYSTEM SHALL preserve its maintainability object byte-for-byte; ONLY WHEN C-12 explicitly ratifies a rollback_slice_id for a re_slice_required original MAY that one member differ, and the linked rollback SHALL be a new later slice that cannot be deferred (C-05, C-06, C-12, N-04, N-05).",
+      "ears_pattern": "state-driven",
+      "test_refs": ["internal/replan/apply_test.go:TestApplyPreservesOpaqueLifecycleExceptRatifiedRollbackLink"]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN a C-12 application restarts after the local planner commit but before all target refs are propagated THE SYSTEM SHALL verify the exact source, transaction commit, and already-updated refs, replay zero planning decisions, create zero new commits, and propagate only missing refs; IF any ref diverged THE SYSTEM SHALL block without force (C-12, N-10).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/replan/recovery_test.go:TestReplanRestartCompletesOnlyMissingPropagation"]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN an isolated committed copy of all seven referenced local-first-account-safety slices is planned with null start_commit, empty actual_files and reports, null adjudication and rollback, and pending verification THE SYSTEM SHALL migrate it in one transaction to exact v0.15 typed references and pending lifecycle, add the exact live protocol marker, record every before/after blob OID in C-12, and pass schema, trace, and spec-ambiguity gates without creating execution evidence or modifying the live downstream release (C-02, C-03, C-12, N-02, N-11).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/replan_test.go:TestReplanApplyAndPristineMigrationBinaryReachability"]
+    },
+    {
+      "id": "AC-05",
+      "text": "IF any selected migration record is started, non-planned, has actual files, reports, adjudication, rollback, non-pending verification, mismatched source blob, invalid schema, unresolved typed reference, trace failure, or ambiguity failure THEN THE SYSTEM SHALL block the entire migration, leave all seven records and refs unchanged, and create no receipt or synthetic v0.15 evidence (C-02, C-03, C-12, N-11).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/replan/migration_test.go:TestPristineMigrationIsAllOrNothingAndFailsClosed"]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHEN MCP apply_plan_delta receives the same C-12 bytes as the CLI adapter THE SYSTEM SHALL call the same engine operation and produce the same transaction commit, receipt, propagation, restart, and failure outcomes; legacy MCP create_slice and set_track SHALL no longer mutate authoritative release records directly (C-12, N-09).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/mcp/tools_plan_test.go:TestApplyPlanDeltaUsesReplanEngine"]
+    }
+  ]
+}
