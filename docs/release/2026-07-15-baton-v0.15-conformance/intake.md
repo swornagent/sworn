@@ -52,10 +52,12 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
 - N-10: **Restart-safe public proof.** Integration tests exercise Sworn's public
   entry points, verdict/exit behavior, durable commits, exact dispatch counts,
   idempotency and recovery after process restart.
-- N-11: **Safe active-plan migration.** Planning records that will be executed
-  after the upgrade, including `2026-07-15-local-first-account-safety`, are
-  migrated by the Planner to the exact v0.15 record shape and re-run through the
-  v0.15 trace and spec-ambiguity gates without fabricating historical evidence.
+- N-11: **Safe active-plan migration.** Sworn provides a Planner-governed
+  migration operation and proves the exact transformation against the pristine
+  `2026-07-15-local-first-account-safety` records without fabricating historical
+  evidence. After this conformance release is integrated, a fresh Planner
+  session applies that migration and reruns the v0.15 trace and spec-ambiguity
+  gates before any downstream implementation begins.
 
 ## Source of truth
 
