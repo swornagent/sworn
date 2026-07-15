@@ -1,0 +1,82 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S08-report-ledger-identity",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "track": "T3-lifecycle-ledger",
+  "user_outcome": "An exact committed maintainability report can be validated and reused without another model dispatch, while a missing, rewritten, deleted, duplicate-key, or blob-mismatched report fails closed.",
+  "rationale": "This slice owns C-05 and binds compact status authority to the full committed report rather than trusting self-described JSON. It reads only release-confined public technical evidence from committed Git objects, never the network or credentials, and never logs report prompt/diff payloads on failure. The operation is non-interactive and linear in history entries plus report bytes, with indexed uniqueness checks rather than pairwise scans.",
+  "touchpoints": [
+    "internal/maintainability/ledger/types.go",
+    "internal/maintainability/ledger/report.go",
+    "internal/maintainability/ledger/report_test.go",
+    "internal/maintainability/ledger/blob.go",
+    "internal/maintainability/ledger/blob_test.go",
+    "internal/maintainability/ledger/identity.go",
+    "internal/maintainability/ledger/identity_test.go",
+    "internal/maintainability/ledger/duplicatejson.go",
+    "internal/maintainability/ledger/duplicatejson_test.go",
+    "internal/maintainability/ledger/testdata/report-pass.json",
+    "internal/maintainability/ledger/testdata/report-fail.json"
+  ],
+  "references": [
+    {"kind": "contract", "contract_id": "C-01"},
+    {"kind": "contract", "contract_id": "C-04"},
+    {"kind": "contract", "contract_id": "C-05"},
+    {"kind": "slice", "slice_id": "S03-lossless-record-carriers"},
+    {"kind": "slice", "slice_id": "S07-canonical-semantic-scope"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"}
+  ],
+  "in_scope": [
+    "Define full maintainability report and compact status-entry carriers for role, phase, cycle, invocation ID, release/slice/check identity, release-confined report path, report blob OID, review base/head and fingerprint algorithm, input fingerprint, verdict, findings, and exact blocking finding IDs.",
+    "Reject duplicate raw JSON keys before normal decoding and validate the full report against C-01's llm-check-report-v1 plus C-05's maintainability-specific identity constraints.",
+    "Resolve report_path lexically and physically beneath the reviewed slice evidence root, read the exact committed blob at the authority head, compute/compare its Git object ID, and reject working-tree-only, missing, deleted, symlinked, rewritten, or non-regular evidence.",
+    "Require the compact entry and full report to agree exactly on release, slice, maintainability check, role, phase, cycle, invocation ID, review_scope_head, C-04 fingerprint, verdict, and sorted unique blocking finding IDs.",
+    "Derive reuse eligibility only when the exact committed full report, compact tuple, current C-04 semantic identity, authority head, and lifecycle-requested role/phase/cycle all match; return reuse metadata without performing or authorizing model dispatch.",
+    "Provide stable structured failures that identify the field/path class but never echo report prompt, diff, model response, credentials, or blob bytes."
+  ],
+  "out_of_scope": [
+    "Constructing C-04 semantic scope belongs to S07; this slice consumes its fingerprint and review head as immutable inputs.",
+    "Determining whether a role/phase/cycle transition is legal belongs to S09-lifecycle-fsm-adjudication.",
+    "Writing, committing, pushing, recovering, or dispatching a report transaction belongs to S13-maintainability-engine-cutover.",
+    "Track freshness, rollback, integration readiness, and release success predicates belong to S11 and S12."
+  ],
+  "covers_needs": ["N-04", "N-05", "N-10"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "Authority spans strict duplicate-safe JSON, schema validation, Git blob identity, full-versus-compact reconciliation, and exact reuse without dispatch.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {"id": "R-01", "description": "A compact status entry is trusted after its full report is rewritten or deleted.", "mitigation": "Read only the committed report blob at the authority head and require its current object ID plus every identity field to equal the compact tuple on every use."},
+    {"id": "R-02", "description": "Duplicate JSON keys let a validator and decoder observe different report identities.", "mitigation": "Reject duplicates recursively from raw bytes before schema validation or typed decoding; mutation-test every authority-bearing object and map."},
+    {"id": "R-03", "description": "Fingerprint equality alone reuses a report for the wrong role, phase, cycle, head, or invocation.", "mitigation": "Reuse requires equality of the full C-05 tuple and current C-04 identity, with mismatch tests for each individual field and a counting dispatcher fixed at zero."}
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN TestReportIdentityFromCommittedHistory validates a C-05 entry and full report from a real committed repository THE SYSTEM SHALL prove report path confinement, blob OID, C-04 scope identity, check/release/slice/role/phase/cycle/invocation fields, verdict, and exact blocking IDs all agree.",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/maintainability/ledger/report_test.go:TestReportIdentityFromCommittedHistory"]
+    },
+    {
+      "id": "AC-02",
+      "text": "IF the full report or compact entry contains duplicate keys, malformed schema, missing or rewritten blob, deleted path, symlink/non-regular target, escaped path, OID mismatch, verdict mismatch, finding mismatch, or any identity-field mismatch THEN THE SYSTEM SHALL return non-authoritative without a reuse result.",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/maintainability/ledger/blob_test.go:TestCommittedReportBlobFailureMatrix", "internal/maintainability/ledger/duplicatejson_test.go:TestReportDuplicateKeysFailClosed", "internal/maintainability/ledger/identity_test.go:TestFullCompactIdentityMismatchMatrix"]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN an existing committed report's complete C-05 tuple and C-04 semantic identity equal the requested review THE SYSTEM SHALL return that exact report as reusable and the supplied dispatch counter SHALL remain zero.",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/maintainability/ledger/identity_test.go:TestExactCommittedReportReuseHasZeroDispatch"]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN any included semantic byte, mode, object ID, scope head, provenance, role, phase, cycle, or invocation identity changes THE SYSTEM SHALL refuse reuse; excluded release-record, declared-generated, exact-lockfile-only, or net-zero changes MAY reuse only when C-04 emits the identical fingerprint and every other C-05 field still matches.",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/maintainability/ledger/identity_test.go:TestReportReuseSemanticAndLifecycleMatrix"]
+    }
+  ]
+}
