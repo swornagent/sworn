@@ -141,6 +141,35 @@ func TestBatonDiffExitsZeroWhenInSync(t *testing.T) {
 
 // -- upstream vendor integration tests (Rule 1: through the command) ---------
 
+func TestBatonVendorAtomicPreflightReachability(t *testing.T) {
+	fixture, err := filepath.Abs(filepath.Join("..", "..", "internal", "baton", "testdata", "fixture"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tmpRepo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(tmpRepo, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	oldDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(tmpRepo); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldDir)
+
+	exit := dispatch([]string{"sworn", "baton", "vendor", "--check", fixture})
+	if exit != 1 {
+		t.Fatalf("sworn baton vendor --check drift exit = %d, want 1", exit)
+	}
+	if _, err := os.Stat(filepath.Join(tmpRepo, "internal")); !os.IsNotExist(err) {
+		t.Fatalf("check mode mutated repository: stat internal error = %v", err)
+	}
+}
+
 // makeUpstreamTarball creates a gzipped tar archive in memory with the
 // GitHub-style top-level prefix <repo>-<tag>/. Each entry in files is a
 // relative path within the archive.

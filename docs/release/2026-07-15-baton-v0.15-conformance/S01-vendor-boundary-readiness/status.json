@@ -8,7 +8,7 @@
   "owner": "implementer",
   "last_updated_by": "implementer",
   "last_updated_at": "2026-07-16T08:54:55+10:00",
-  "start_commit": null,
+  "start_commit": "5e16d2b54b0793381b246a9e7b9f1eb2c8e5cb18",
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/proof.json",
   "journal_path": "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/journal.md",
