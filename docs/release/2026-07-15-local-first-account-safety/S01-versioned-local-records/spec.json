@@ -68,37 +68,37 @@
     },
     {
       "id": "AC-02",
-      "text": "WHEN migration is interrupted before temporary write, after temporary write, after sync, after re-read verification, or after atomic rename THE SYSTEM SHALL retain the original composite before rename or the complete C-01 record after rename, and a retry SHALL converge to the identical C-01 bytes with no account.json and no temporary file (C-01, C-02, N-01).",
+      "text": "WHEN the migration test hook returns its sentinel error at before-temp-create, after-temp-write, after-temp-sync, after-temp-verify, or after-rename THE SYSTEM SHALL, for every pre-rename hook, leave credentials.json at the original SHA-256 and, for after-rename, leave it at the uninterrupted migration's canonical SHA-256; after the hook is removed, one retry SHALL produce that canonical SHA-256, no account.json, and zero .credentials-*.tmp files (C-01, C-02, N-01).",
       "ears_pattern": "event-driven",
       "test_refs": ["internal/credentials/store_test.go:TestAccountSplitMigrationConvergesAcrossKillPoints"]
     },
     {
       "id": "AC-03",
-      "text": "IF the legacy composite is malformed, C-01 or C-02 has an unsupported version, or account.json already exists while legacy account fields remain THEN THE SYSTEM SHALL exit 1, print the secret-safe class and 'run sworn doctor', preserve SHA-256 hashes of credentials.json and account.json, and create no temporary file (C-01, C-02, N-01, N-09).",
+      "text": "IF the legacy composite is malformed, C-01 or C-02 has an unsupported version, or account.json already exists while legacy account fields remain THEN THE SYSTEM SHALL exit 1, print exactly one of 'Credential migration blocked: malformed credentials; run sworn doctor', 'Credential migration blocked: unsupported record version; run sworn doctor', or 'Credential migration blocked: conflicting account state; run sworn doctor', preserve SHA-256 hashes of every existing record, create no temporary file, and omit the fixture API-key, token, email, webhook path, and signing-secret canaries from stdout and stderr (C-01, C-02, N-01, N-09).",
       "ears_pattern": "unwanted-behaviour",
       "test_refs": ["cmd/sworn/doctor_test.go:TestCredentialMigrationConflictFailsClosed"]
     },
     {
       "id": "AC-04",
-      "text": "IF legacy credentials.json contains webhook_url before the C-05 migration or contains any unknown field THEN THE SYSTEM SHALL not replace credentials.json; the coordinator SHALL invoke the C-05 owner for webhook_url and SHALL exit 1 with a secret-safe unclaimed-field class for any unknown field (C-01, C-05, N-01, N-09).",
+      "text": "IF unversioned credentials.json contains webhook_url THE SYSTEM SHALL invoke the C-05 owning migration before C-01 replacement; IF any top-level key other than providers, token, email, tier, expires_at, or webhook_url remains after recognized migrations THEN THE SYSTEM SHALL exit 1 with exactly 'Credential migration blocked: unclaimed legacy field; run sworn doctor', retain the original credentials.json SHA-256, create neither account.json nor a temporary file, and print neither the key name nor any fixture value (C-01, C-05, N-01, N-09).",
       "ears_pattern": "unwanted-behaviour",
       "test_refs": ["cmd/sworn/credentials_integration_test.go:TestProviderRewriteRequiresOwnedLegacyFieldMigration"]
     },
     {
       "id": "AC-05",
-      "text": "WHEN provider credentials are read or updated after migration THE SYSTEM SHALL access only credentials.json, preserve account.json byte-for-byte, and observe external-process writes rather than a stale process cache (C-01, C-02, N-01).",
+      "text": "WHEN one process reads provider key provider-key-a, a second process atomically replaces C-01 with provider-key-b, and the first process reads again THE SYSTEM SHALL return provider-key-b on the second read and preserve the pre-test SHA-256 of account.json throughout (C-01, C-02, N-01).",
       "ears_pattern": "event-driven",
       "test_refs": ["internal/model/credentials_test.go:TestProviderStoreIsAccountIndependentAndFresh"]
     },
     {
       "id": "AC-06",
-      "text": "WHEN an old provider-credentials reader opens the migrated credentials.json THE SYSTEM SHALL still recover the complete providers map while finding no account session fields (C-01, N-01, N-09).",
+      "text": "WHEN the migrated credentials.json bytes are decoded by the legacy compatibility struct containing only Providers map[string]string THE SYSTEM SHALL produce a map deeply equal to the source providers fixture, and raw top-level inspection SHALL find version and providers but no token, email, tier, expires_at, or webhook_url (C-01, N-01, N-09).",
       "ears_pattern": "event-driven",
       "test_refs": ["cmd/sworn/credentials_integration_test.go:TestVersionedProviderCredentialMigrationRealFilesystem"]
     },
     {
       "id": "AC-07",
-      "text": "WHILE account.json is corrupt, conflicting, or unsupported THE SYSTEM SHALL leave canonical environment and C-01 provider resolution usable without invoking migration from a provider-only command (C-01, C-02, N-01, N-08).",
+      "text": "WHILE account.json is malformed JSON or has version=2, WHEN the built binary resolves an openai-completions/test-model provider using provider-key-canary from C-01 or the canonical environment override THE SYSTEM SHALL select that provider key, exit with the provider fixture's expected result, leave both record SHA-256 values unchanged, and make zero calls to the migration routine (C-01, C-02, N-01, N-08).",
       "ears_pattern": "state-driven",
       "test_refs": ["cmd/sworn/credentials_integration_test.go:TestCorruptAccountDoesNotDisableProviderOnlyResolution"]
     }

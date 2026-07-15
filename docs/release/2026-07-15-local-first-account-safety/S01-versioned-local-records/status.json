@@ -58,7 +58,7 @@
   "validation": {
     "human_ratified": false,
     "positive_scenarios": [
-      "A legacy combined record migrates to a versioned provider record with every provider and unrelated value intact, no account record, and fresh-login guidance.",
+      "After notification-owned fields migrate, a legacy combined record migrates to a versioned provider record with every provider intact, no account record, and fresh-login guidance.",
       "A provider-only command continues to work when account state is absent or invalid."
     ],
     "negative_scenarios": [
