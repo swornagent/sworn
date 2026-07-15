@@ -1,0 +1,41 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S12-rollback-readiness",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "track": "T4-integration-cutover",
+  "covers_needs": ["N-04", "N-06", "N-07", "N-09"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-16T00:09:16+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S12-rollback-readiness/spec.json",
+  "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S12-rollback-readiness/proof.json",
+  "journal_path": "docs/release/2026-07-15-baton-v0.15-conformance/S12-rollback-readiness/journal.md",
+  "planned_files": [
+    "internal/integration/rollback.go",
+    "internal/integration/rollback_test.go",
+    "internal/integration/readiness.go",
+    "internal/integration/readiness_test.go",
+    "internal/integration/deferred.go",
+    "internal/integration/deferred_test.go",
+    "internal/integration/releasegate.go",
+    "internal/integration/releasegate_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": ["go test ./internal/integration", "go test ./...", "go vet ./...", "test -z \"$(gofmt -l .)\""],
+  "reachability_artifacts": ["go test ./internal/integration -run TestIntegrationReadyRealGitHistories exercises C-09 over committed status, report, rollback, and Git-tree evidence"],
+  "maintainability": {"state": "pending", "cycle": 0, "implementation_head": null, "rollback_slice_id": null, "reports": [], "adjudication": null},
+  "open_deferrals": [],
+  "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []},
+  "release_base": "release/v0.2.0",
+  "release_benefit": "Every later integration and ship adapter can ask one conservative question and receive a deterministic readiness answer.",
+  "validation": {
+    "human_ratified": true,
+    "ratified_by": "Coach",
+    "ratified_at": "2026-07-16T00:09:16+10:00",
+    "positive_scenarios": ["Verified current evidence and both legal deferral forms satisfy one canonical predicate after all report, provenance, and rollback checks pass."],
+    "negative_scenarios": ["Raw deferred state, stale PASS, an unequal or deferred rollback, or unevaluable provenance never authorizes integration."],
+    "benefit_hypothesis": "One exhaustive readiness predicate prevents adapters from reintroducing permissive state-only gates."
+  }
+}

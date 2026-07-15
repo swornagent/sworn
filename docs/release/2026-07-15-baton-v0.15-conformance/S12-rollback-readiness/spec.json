@@ -1,0 +1,104 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S12-rollback-readiness",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "track": "T4-integration-cutover",
+  "user_outcome": "Ordinary and post-sync rollback equality plus one canonical integration-ready predicate distinguish legitimate deferrals and preserve bytes outside the failed ownership interval.",
+  "rationale": "C-09 is the one fail-closed readiness decision consumed by every later integration, release, and shipping adapter. It combines current lifecycle authority with exact rollback tree equality so raw deferred state can never bypass failed evidence.",
+  "touchpoints": [
+    "internal/integration/rollback.go",
+    "internal/integration/rollback_test.go",
+    "internal/integration/readiness.go",
+    "internal/integration/readiness_test.go",
+    "internal/integration/deferred.go",
+    "internal/integration/deferred_test.go",
+    "internal/integration/releasegate.go",
+    "internal/integration/releasegate_test.go"
+  ],
+  "references": [
+    {"kind": "contract", "contract_id": "C-03"},
+    {"kind": "contract", "contract_id": "C-04"},
+    {"kind": "contract", "contract_id": "C-05"},
+    {"kind": "contract", "contract_id": "C-06"},
+    {"kind": "contract", "contract_id": "C-07"},
+    {"kind": "contract", "contract_id": "C-08"},
+    {"kind": "contract", "contract_id": "C-09"},
+    {"kind": "slice", "slice_id": "S07-canonical-semantic-scope"},
+    {"kind": "slice", "slice_id": "S08-report-ledger-identity"},
+    {"kind": "slice", "slice_id": "S09-lifecycle-fsm-adjudication"},
+    {"kind": "slice", "slice_id": "S10-shared-touchpoint-composition"},
+    {"kind": "slice", "slice_id": "S11-track-evidence-freshness"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"}
+  ],
+  "in_scope": [
+    "Derive an ordinary rollback envelope from every authored semantic path and authored generated or lockfile path between the failed original's immutable start_commit and the rollback slice's pinned head, including stray post-report production commits and excluding only recognized merge-only contributions and physical release records.",
+    "Require every ordinary rollback envelope path's mode and object identity, including absence, to equal the original start_commit tree at the verified rollback head.",
+    "For a deterministic S11 post-sync invalidation, use start_commit through invalidated_review_head as the complete candidate envelope and the recognized synchronization merge's exact parent-2 tree as baseline, preserving later disjoint authoritative and sibling paths and requiring track reconstruction for later overlap.",
+    "Implement C-09 as one pure integration-ready predicate: verified or shipped requires current-cycle authoritative Verifier PASS and valid reports; an unstarted deferral requires null start, the empty pending cycle-0 lifecycle, and a Rule-2-complete deferral; a terminal re_slice_required original requires its recorded rollback to be verified or shipped and tree-equal under the applicable rule.",
+    "Reject raw deferred, superseded, missing rollback links, deferred rollback slices, invalid report or protocol authority, ambiguous provenance, or any inability to evaluate equality."
+  ],
+  "out_of_scope": [
+    "Choosing re_slice versus resume_in_scope and creating rollback or replacement slices belong to the Coach and Planner surfaces implemented in S13 and S17.",
+    "Performing a track, release, or ship transition belongs to S15-unified-track-merge and S16-release-ship-transitions.",
+    "The predicate does not repair, reset, synthesize, or narrow lifecycle or report history.",
+    "Deployment and journey-attestation checks remain outside C-09."
+  ],
+  "covers_needs": ["N-04", "N-06", "N-07", "N-09"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "Rollback has two baselines and must preserve disjoint later history while the readiness predicate closes every lifecycle and deferral bypass.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "A rollback deletes sibling or later authoritative bytes because its scope is derived from the rollback commit range rather than the failed slice's immutable candidate interval.",
+      "mitigation": "Use C-04/S11 ownership intervals, compare only the failed envelope to the applicable baseline, and block automatic post-sync rollback on any later-authority overlap."
+    },
+    {
+      "id": "R-02",
+      "description": "A displayed deferred state becomes a permissive substitute for valid terminal lifecycle evidence.",
+      "mitigation": "Expose one C-09 predicate with three exhaustive success forms and fail every other state or unevaluable dependency closed."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN an ordinary re_slice_required original records a verified rollback whose pinned head restores every authored production, generated, lockfile, mode, and absence entry from start_commit through the rollback head to the exact start_commit tree THE SYSTEM SHALL report rollback equality PASS without requiring recognized merge-only sibling paths to match that baseline (C-04, C-06, C-09, N-07).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/integration/rollback_test.go:TestOrdinaryRollbackComparesCompleteAuthoredEnvelopeToStartCommit"]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN S11 records a recognized post-sync invalidation and the verified rollback restores the complete start_commit..invalidated_review_head candidate set to invalidating_sync_merge parent-2 while later authoritative intervals are disjoint THE SYSTEM SHALL report equality PASS and preserve every sibling and later path byte-for-byte (C-08, C-09, N-07).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/integration/rollback_test.go:TestPostSyncRollbackUsesParentTwoAndPreservesDisjointHistory"]
+    },
+    {
+      "id": "AC-03",
+      "text": "IF any rollback envelope path has a different mode or object ID from its canonical baseline, an expected absence is present, an expected path is absent, provenance is unrecognized, or a later authoritative interval overlaps THEN THE SYSTEM SHALL return C-09 not-ready with exact identity evidence and SHALL NOT mutate a ref, status, index, or worktree (C-08, C-09, N-07, N-09).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/integration/rollback_test.go:TestRollbackEqualityFailsClosedOnEveryIdentityMismatch"]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN C-09 evaluates a slice that is verified or shipped with a current-cycle authoritative Verifier PASS and valid C-03 through C-08 evidence THE SYSTEM SHALL return integration-ready; IF the authoritative PASS is absent, stale, rewritten, from another cycle, or its implementation head is no longer active THEN THE SYSTEM SHALL return not-ready (C-03, C-05, C-06, C-08, C-09, N-09).",
+      "ears_pattern": "complex",
+      "test_refs": ["internal/integration/readiness_test.go:TestIntegrationReadyRealGitHistories"]
+    },
+    {
+      "id": "AC-05",
+      "text": "WHEN C-09 evaluates an unstarted planned-intent deferral with start_commit null, empty actual files, pending verification, the exact empty pending cycle-0 lifecycle, and at least one Rule-2-complete deferral THE SYSTEM SHALL return integration-ready; IF any execution evidence exists or the deferral lacks why, tracking, acknowledgement, or acknowledged_by THEN THE SYSTEM SHALL return not-ready (C-06, C-09, N-09).",
+      "ears_pattern": "complex",
+      "test_refs": ["internal/integration/readiness_test.go:TestIntegrationReadyDistinguishesValidUnstartedDeferral"]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHEN C-09 evaluates a deferred terminal re_slice_required original whose immutable rollback_slice_id resolves to a verified or shipped tree-equal rollback THE SYSTEM SHALL return integration-ready; IF the link is missing or changed, the rollback is deferred, non-terminal, not tree-equal, or raw state is superseded or deferred without either legal form THEN THE SYSTEM SHALL return not-ready (C-06, C-09, N-07, N-09).",
+      "ears_pattern": "complex",
+      "test_refs": ["internal/integration/readiness_test.go:TestIntegrationReadyRequiresVerifiedTreeEqualRollback"]
+    }
+  ]
+}
