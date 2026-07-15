@@ -348,6 +348,30 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   preconditions and are the first required downstream migration after this
   conformance release is integrated.
 
+### 2026-07-15 — Separate pre-cutover readiness from post-deployment truth
+
+- **Context**: Current `sworn ship` validates human journey attestations and
+  reports whether cutover may proceed; it does not deploy or persist a `shipped`
+  transition. Baton v0.15 separately requires the post-deployment state change
+  to revalidate lifecycle, report, provenance, rollback and readiness evidence.
+- **Options considered**: preserve `ship` and add `mark-shipped`; make `ship`
+  both validate and transition; leave the shipped transition to an external
+  role/skill without a deterministic binary entry point.
+- **Decision**: Keep `sworn ship <release>` as the pre-cutover gate and prepend
+  the canonical v0.15 lifecycle, provenance, rollback and integration-ready
+  validation to its existing journey checks. Add
+  `sworn mark-shipped <release>` as the explicit post-deployment operation that
+  revalidates the same committed authority and atomically transitions eligible
+  `verified` slices to `shipped`. Neither command deploys code.
+- **Why**: "safe to deploy" and "deployed" are different facts. Separate
+  operations prevent a successful pre-cutover check from becoming false
+  production history while giving the terminal transition a public proof and
+  recovery surface.
+- **Idempotency obligation**: Re-running either command revalidates every gate.
+  `mark-shipped` succeeds idempotently only when the already-shipped records and
+  deployed release authority remain valid; it never short-circuits on displayed
+  state alone.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`
@@ -378,6 +402,7 @@ slice boundaries.
 | A-04 | How a current operation proves v0.15 authority while historical releases contain mixed protocol eras | Protocol selection, archive inspection, migration and every mutation/success path | Ratified: exact committed `protocol.json` for live authority plus per-record Git evidence for read-only history |
 | A-05 | Whether the maintainability command or the surrounding role session owns report/status commits and the track push | Crash recovery, report reuse, machine-to-machine handoff and public exit semantics | Ratified: stateful command owns atomic records, commit and push; interrupted push resumes without model dispatch |
 | A-06 | Which pre-v0.15 records may receive an in-place Planner migration | Local-first plan activation and protection of started historical evidence | Ratified: only pristine planned records with null start and no execution evidence; started or terminal work requires new v0.15 IDs |
+| A-07 | Whether readiness validation and the deployed `shipped` transition are one command or distinct facts | Public command semantics, deployment truth and idempotent terminal validation | Ratified: keep `sworn ship` as pre-cutover gate and add post-deployment `sworn mark-shipped` |
 
 ## Screenshots / references
 
