@@ -6,6 +6,7 @@
   "user_outcome": "A protocol maintainer can run the Baton v0.15 vendor or check workflow without false script-reference matches, unsupported schema-expression failures, or any partial write being reported as authoritative success.",
   "rationale": "This is the staged bootstrap boundary: it repairs the existing vendor transaction and exact-schema preflight before S02 is allowed to replace the pinned protocol. The implementation remains local, non-interactive, and linear in mapped source bytes; it handles no PII, credentials, network authentication, UI, or accessibility surface, and must never log source payloads that could contain private adopting-project content.",
   "touchpoints": [
+    "cmd/sworn/baton.go",
     "internal/baton/vendor.go",
     "internal/baton/vendor_test.go",
     "internal/baton/vendor_transaction.go",
@@ -14,6 +15,8 @@
     "internal/baton/transform_test.go",
     "internal/baton/validate_schema.go",
     "internal/baton/validate_schema_test.go",
+    "internal/baton/version.go",
+    "internal/baton/version_test.go",
     "cmd/sworn/baton_test.go"
   ],
   "references": [
@@ -22,14 +25,15 @@
     {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"}
   ],
   "in_scope": [
-    "Replace incremental destination writes with a transaction that materialises every mapped byte and compiles every mapped JSON schema before the first primary-worktree mutation, then applies atomic per-file replacements with rollback of original bytes, modes, and non-existence if any apply step fails; an incomplete rollback remains explicitly non-authoritative with preserved recovery material and blocks later write-mode success until exact restoration.",
+    "Replace incremental destination writes with one transaction that materialises every mapped byte, compiles every mapped JSON schema, and, for upstream write mode, constructs the complete replacement bytes for internal/adopt/baton/VERSION from one captured invocation instant before the first primary-worktree mutation; the VERSION candidate is an ordinary transaction member in the same destination ordering, snapshot, apply, rollback, verification, and recovery boundary as every mapped vendor destination.",
+    "Apply atomic per-file replacements with rollback of original bytes, modes, and non-existence if any apply step fails; an incomplete rollback remains explicitly non-authoritative beneath the current worktree's resolved Git administrative directory using the deterministic owner-only record and snapshot contract in planning/normative-clarifications.md section 1, and every later write invocation is recovery-only until exact restoration.",
     "Make check-only mode use the identical materialisation and validation path while prohibiting destination-directory creation, temporary files beneath the repository, pin writes, or other worktree mutation.",
     "Constrain script-reference detection to lexical shell/script tokens so prose such as board.json.shared_touchpoints is accepted while a real scripts/example.sh, example.py, or example.mjs reference still fails closed unless mapped.",
     "Compile the exact v0.15 board-v1 expression with its ECMA-262 negative-lookahead semantics without rewriting normative schema bytes or weakening the forbidden-path cases expressed by that pattern.",
     "Keep work O(total mapped bytes plus mapped file count), preserve source file bytes in diagnostics only as path-safe summaries, and expose deterministic errors naming the failed phase and destination without request bodies, secrets, or source payloads."
   ],
   "out_of_scope": [
-    "Changing the protocol pin, mapped content set, embedded prompts, embedded schemas, or local Codex and Claude mirrors belongs to S02-v015-parity-and-installs.",
+    "S01 changes transaction machinery only: it does not execute the v0.15.1 vendor operation, advance the committed VERSION pin, replace mapped content, update embedded prompts or schemas, or install local Codex and Claude mirrors; those content, pin, and install changes remain S02-v015-parity-and-installs.",
     "Interpreting v0.15 state, board, spec, report, or lifecycle semantics belongs to S03 through S09.",
     "Adding a third-party schema engine or another runtime dependency is prohibited; any such change would require a separate accepted ADR.",
     "Remote fetch authenticity beyond the existing pinned SHA and digest checks is not redesigned in this slice."
@@ -39,14 +43,14 @@
     "effort": "low",
     "complexity": "low",
     "quadrant": "quick",
-    "rationale": "The failure modes are known and confined to nine existing vendor/compiler touchpoints, with deterministic fault-injection tests and no new product surface.",
+    "rationale": "The failure modes are known and confined to twelve existing vendor/compiler/command touchpoints, with deterministic fault-injection tests and no new product surface.",
     "confirmed_by_implementer": false
   },
   "risks": [
     {
       "id": "R-01",
-      "description": "A multi-file apply failure could still leave a mixture of old and new vendored bytes.",
-      "mitigation": "Fault-inject failure at every apply and rollback index; prove preflight leaves the worktree unchanged, recoverable apply failure restores exact bytes/modes/absence, and incomplete rollback returns rollback-incomplete with byte-sorted unrestored paths and preserved recovery material."
+      "description": "A multi-file apply or separate upstream-pin write could leave a mixture of old and new vendored bytes or a pin that describes content which was not installed.",
+      "mitigation": "Construct the VERSION replacement before mutation from the same captured invocation instant, make it an ordinary transaction member, fault-inject failure at every apply and rollback index, and prove exact bytes/modes/absence restoration across mapped destinations and VERSION."
     },
     {
       "id": "R-02",
@@ -57,6 +61,11 @@
       "id": "R-03",
       "description": "Schema compatibility handling could silently weaken the v0.15 path restriction.",
       "mitigation": "Compile from the untouched upstream bytes and mutation-test every accepted and rejected path class named by the exact upstream expression."
+    },
+    {
+      "id": "R-04",
+      "description": "A restarted process could trust stale, foreign, traversing, missing, or tampered recovery material and either overwrite an unrelated path or resume ordinary vendoring on a non-authoritative tree.",
+      "mitigation": "Use the deterministic Git-admin-confined owner-only recovery record in planning/normative-clarifications.md section 1; integrity-check repository identity, every destination/snapshot tuple, original bytes/mode/existence and the complete material set before restoration, and fail recovery-only with no ordinary vendor writes on any mismatch."
     }
   ],
   "acceptance_criteria": [
@@ -74,13 +83,13 @@
     },
     {
       "id": "AC-03",
-      "text": "IF preflight materialisation or schema validation fails THEN THE SYSTEM SHALL exit 2 with the primary worktree unchanged; IF apply fails and rollback succeeds THEN THE SYSTEM SHALL exit 2 with every destination's bytes, mode, and existence equal to the starting snapshot; IF rollback is incomplete THEN THE SYSTEM SHALL exit 2 with class rollback-incomplete, byte-sorted unrestored destination paths, preserved recovery material, and no later write-mode success until exact restoration completes.",
+      "text": "WHEN upstream write mode is requested THE SYSTEM SHALL capture one invocation instant and, before mutation, construct the complete VERSION replacement and every mapped destination byte so VERSION participates in the same ordered snapshot/apply/rollback/recovery transaction; IF preflight fails, apply fails, rollback is incomplete, or a later fresh invocation finds missing, foreign, traversing, symlinked, tampered, or integrity-mismatched recovery material under the exact planning/normative-clarifications.md section 1 contract THEN the public command SHALL exit 2, SHALL perform no ordinary vendor write, and SHALL preserve recovery-only authority until every recorded destination's original bytes, mode, and existence are restored and verified.",
       "ears_pattern": "unwanted-behaviour",
-      "test_refs": ["internal/baton/vendor_transaction_test.go:TestVendorTransactionFailureRestoresPrimaryWorktree"]
+      "test_refs": ["internal/baton/vendor_transaction_test.go:TestVendorTransactionFailureRestoresPrimaryWorktree", "internal/baton/vendor_transaction_test.go:TestVendorRecoveryRecordRejectsUntrustedMaterial", "internal/baton/version_test.go:TestUpstreamPinReplacementUsesCapturedInstant", "cmd/sworn/baton_test.go:TestBatonVendorAtomicPreflightReachability"]
     },
     {
       "id": "AC-04",
-      "text": "WHEN a maintainer invokes sworn baton vendor --check against the v0.15 checkout THE SYSTEM SHALL exercise the same transform and schema preflight as write mode, create or modify no repository path, and return exit 0 only for a valid byte-identical destination, exit 1 for a valid deterministic non-empty drift diff, or exit 2 for invalid or indeterminate source/validation input.",
+      "text": "WHEN a maintainer invokes the public sworn baton vendor command against the v0.15 checkout THE SYSTEM SHALL bind exit 0 to a valid byte-identical check or a fully successful write, exit 1 only to a valid deterministic non-empty check-mode drift diff, and exit 2 to invalid source, operational, preflight, apply, rollback, or recovery failure; --check SHALL exercise the same transform/schema materialisation path, create or modify no repository path including VERSION or Git-admin recovery material, and print no mapped payload bytes.",
       "ears_pattern": "event-driven",
       "test_refs": ["cmd/sworn/baton_test.go:TestBatonVendorAtomicPreflightReachability"]
     }

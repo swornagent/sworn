@@ -679,6 +679,34 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
 - **Ratification**: These are mechanical consistency repairs within the
   already-ratified fail-closed architecture; no slice or track boundary changes.
 
+### 2026-07-16 — Put the upstream VERSION pin inside S01's atomic transaction
+
+- **Context**: Captain review commit
+  `1bc4d7508960d83182e2177a18374df530c632fc` returned `NEEDS_COACH` because
+  S01 AC-03/AC-04 required the public exit map, upstream VERSION write and
+  restart-authoritative recovery beyond the declared touchpoints.
+- **Options considered**: keep the pin as a post-vendor write; exclude upstream
+  write mode from S01; or construct the pin candidate before mutation and make
+  it an ordinary member of the mapped-file transaction.
+- **Coach decision**: include `cmd/sworn/baton.go`, `internal/baton/version.go`
+  and `internal/baton/version_test.go` in S01. Public vendor outcomes are 0 for
+  clean/success, 1 only for deterministic check drift, and 2 for invalid,
+  operational, apply, rollback or recovery failure. Upstream VERSION bytes are
+  constructed from one captured invocation instant and join the same fully
+  materialised snapshot/apply/rollback/recovery transaction as mapped vendor
+  destinations. Excluding the pin write is rejected because it preserves a
+  partial-success state.
+- **Recovery decision**: one deterministic owner-only record and snapshot tree
+  beneath the current worktree's resolved Git administrative directory is the
+  sole restart authority. Repository/path tuples and original
+  bytes/modes/existence are integrity-checked; traversal, foreign, symlinked,
+  missing or tampered material exits 2 in recovery-only mode without ordinary
+  vendor writes.
+- **Scope boundary**: S01 changes machinery and tests but does not advance the
+  actual v0.15.1 pin/content/install state. S02 still executes and proves that
+  update. S01 remains in `design_review`; its design must be revised and
+  re-reviewed before implementation.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`

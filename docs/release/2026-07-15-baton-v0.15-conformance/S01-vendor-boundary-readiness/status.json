@@ -4,15 +4,16 @@
   "release": "2026-07-15-baton-v0.15-conformance",
   "track": "T1-foundation",
   "covers_needs": ["N-01", "N-02", "N-10"],
-  "state": "planned",
-  "owner": "unassigned",
+  "state": "design_review",
+  "owner": "implementer",
   "last_updated_by": "planner",
-  "last_updated_at": "2026-07-16T00:00:00+10:00",
+  "last_updated_at": "2026-07-16T08:24:09+10:00",
   "start_commit": null,
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/proof.json",
   "journal_path": "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/journal.md",
   "planned_files": [
+    "cmd/sworn/baton.go",
     "internal/baton/vendor.go",
     "internal/baton/vendor_test.go",
     "internal/baton/vendor_transaction.go",
@@ -21,6 +22,8 @@
     "internal/baton/transform_test.go",
     "internal/baton/validate_schema.go",
     "internal/baton/validate_schema_test.go",
+    "internal/baton/version.go",
+    "internal/baton/version_test.go",
     "cmd/sworn/baton_test.go"
   ],
   "actual_files": [],
@@ -28,7 +31,7 @@
   "reachability_artifacts": ["cmd/sworn/baton_test.go:TestBatonVendorAtomicPreflightReachability"],
   "maintainability": {"state": "pending", "cycle": 0, "implementation_head": null, "rollback_slice_id": null, "reports": [], "adjudication": null},
   "open_deferrals": [],
-  "effort_complexity": {"effort": "low", "complexity": "low", "quadrant": "quick", "rationale": "Known bounded vendor and compiler repairs with deterministic fault injection.", "confirmed_by_implementer": false},
+  "effort_complexity": {"effort": "low", "complexity": "low", "quadrant": "quick", "rationale": "Known bounded vendor, pin, recovery and public-exit repairs with deterministic fault injection.", "confirmed_by_implementer": false},
   "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []},
   "release_base": "release/v0.2.0",
   "release_benefit": "Establishes the atomic bootstrap boundary required before exact Baton v0.15 content can replace the current pin.",
@@ -46,8 +49,8 @@
     "human_ratified": true,
     "ratified_by": "Coach",
     "ratified_at": "2026-07-16T00:00:00+10:00",
-    "positive_scenarios": ["A v0.15 check completes with no primary-worktree mutation."],
-    "negative_scenarios": ["Preflight leaves the worktree unchanged; recoverable apply failure restores exactly; incomplete rollback is explicit, preserves recovery material, and blocks later success."],
+    "positive_scenarios": ["The public command returns 0 for a clean check, 1 for deterministic drift, and 2 for invalid or operational failure without check-mode mutation.", "An upstream write constructs VERSION bytes from one captured invocation instant and commits them in the same fully restored-or-applied transaction as every mapped vendor destination."],
+    "negative_scenarios": ["Preflight leaves the worktree unchanged; recoverable apply failure restores every mapped destination and VERSION exactly; incomplete rollback is explicit and blocks later success.", "A fresh invocation rejects traversing, foreign, missing, symlinked or tampered Git-admin recovery material with exit 2, preserves recovery-only authority, and performs no ordinary vendor write."],
     "benefit_hypothesis": "An atomic, exact preflight prevents protocol upgrades from manufacturing mixed-version repository state."
   }
 }
