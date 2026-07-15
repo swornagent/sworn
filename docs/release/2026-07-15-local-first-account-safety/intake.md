@@ -374,9 +374,29 @@ drivers remain usable.
 
 ## Proposed slice decomposition (draft)
 
-Decomposition is intentionally pending structured discovery. The private
-handoff's A1/A2/B1/B2/C1/C2/D1 proposal must be re-cut because managed routing,
-credits and hosted email are now removal scope.
+The Coach ratified seven slices across two parallel implementation tracks and
+one dependent assembled-proof track:
+
+| Track | Ordered slices | Purpose |
+|---|---|---|
+| `T1-local-account-boundary` | `S01-versioned-local-records`, `S02-authoritative-account-session`, `S03-direct-routing-only`, `S04-remove-managed-inference-credits`, `S05-independent-webhook-consent` | Serialise the overlapping account, model, run, TUI, MCP and notification boundaries. |
+| `T2-telemetry-consent` | `S06-value-led-telemetry-opt-in` | Complete the file-disjoint telemetry consent experience in parallel with T1. |
+| `T3-assembled-proof` | `S07-local-first-network-journey` | Depend on T1 and T2, then prove the combined contract through the real binary and publish final public-safe migration guidance. |
+
+`T3-assembled-proof` depends on both preceding tracks. Durable outbox, replay,
+mobile delivery and the WebUI remain in sworn#109; that release consumes S05's
+notification configuration contract.
+
+### 2026-07-15 — Ratify the release decomposition
+
+- **Options considered**: one fully serial release; split every domain into
+  dependent tracks despite source overlap; or use one serial local-boundary
+  track, one genuinely disjoint telemetry track, and one dependent assembled
+  proof track.
+- **Decision**: use the seven-slice, three-track shape above.
+- **Why**: it exposes meaningful fresh-verification checkpoints, permits only
+  real file-disjoint parallelism, and reserves the final binary journey for the
+  combined contract without duplicating the autonomous operations engine.
 
 ## Ambiguity register
 
