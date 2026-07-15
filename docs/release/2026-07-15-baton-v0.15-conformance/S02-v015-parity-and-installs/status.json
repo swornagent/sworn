@@ -7,7 +7,7 @@
   "state": "planned",
   "owner": "unassigned",
   "last_updated_by": "planner",
-  "last_updated_at": "2026-07-16T00:00:00Z",
+  "last_updated_at": "2026-07-16T00:00:00+10:00",
   "start_commit": null,
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/proof.json",
@@ -16,6 +16,7 @@
     "internal/adopt/baton/VERSION",
     "internal/adopt/baton/README.md",
     "internal/adopt/baton/architecture.json",
+    "internal/adopt/baton/installer-input-v0.15.1.tar",
     "internal/adopt/baton/rules/07-adversarial-verification.md",
     "internal/adopt/baton/rules/10-customer-journey-validation.md",
     "internal/prompt/implementer.md",
@@ -37,23 +38,35 @@
     "internal/baton/manifest.go",
     "internal/baton/manifest_test.go",
     "internal/baton/testdata/fixture/schemas/spec-ambiguity-report-v1.json",
-    "internal/baton/records_conformance_test.go"
+    "internal/baton/records_conformance_test.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go"
   ],
   "actual_files": [],
-  "test_commands": ["go test ./internal/baton", "go test ./...", "go vet ./...", "/home/brad/projects/baton/install-codex.sh -y", "/home/brad/projects/baton/install-claude.sh -y", "bin/sworn doctor --sync-baton"],
-  "reachability_artifacts": ["internal/baton/records_conformance_test.go:TestBatonV015ExactParity"],
+  "test_commands": ["go test ./internal/baton -run TestBatonV015CodexAndClaudeMirrorParity", "go test ./internal/baton", "go test ./...", "go vet ./...", "bin/sworn doctor --sync-baton"],
+  "reachability_artifacts": ["built sworn doctor and sworn baton diff runs from cmd/sworn/doctor_test.go:TestDoctorAndBatonDiffV015BinaryReachability plus isolated Codex/Claude installer parity prove the public v0.15 pin and managed-tree boundary"],
+  "design_decisions": [
+    {
+      "choice": "Treat the exact pinned upstream installers as canonical managed-tree generators and make doctor repair both supported installations in one transaction.",
+      "stake_class": "Type-1",
+      "options": ["canonical installer output plus one dual-install doctor transaction", "compare only documented path substitutions", "leave doctor outside the parity boundary"],
+      "human_decision": "Ratified under Brad's 2026-07-16 instruction to proceed with exact conformance, including the indivisible twenty-eight-file complete-offline-input exception.",
+      "rationale": "Installer-generated wrappers are protocol-operational bytes, and one repair authority must not leave Codex and Claude on different pins.",
+      "architecturally_significant": true
+    }
+  ],
   "maintainability": {"state": "pending", "cycle": 0, "implementation_head": null, "rollback_slice_id": null, "reports": [], "adjudication": null},
   "open_deferrals": [],
-  "effort_complexity": {"effort": "high", "complexity": "low", "quadrant": "grind", "rationale": "Indivisible exact-parity update at the twenty-five-file ceiling.", "confirmed_by_implementer": false},
+  "effort_complexity": {"effort": "high", "complexity": "low", "quadrant": "grind", "rationale": "Ratified twenty-eight-file exception: exact embedded parity, complete offline installer input, both installer-generated managed trees, and transactional doctor repair/recovery are one indivisible bootstrap contract.", "confirmed_by_implementer": false},
   "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []},
   "release_base": "release/v0.2.0",
   "release_benefit": "Pins the binary, repository and supported agent installations to one exact Baton v0.15 authority.",
   "validation": {
     "human_ratified": true,
     "ratified_by": "Coach",
-    "ratified_at": "2026-07-16T00:00:00Z",
-    "positive_scenarios": ["Every embedded and installed Baton surface matches C-01."],
-    "negative_scenarios": ["Any stale or transformed normative byte makes parity fail closed."],
+    "ratified_at": "2026-07-16T00:00:00+10:00",
+    "positive_scenarios": ["Every embedded and installed Baton surface matches C-01 from one complete offline bundle, and doctor either finds both installations exact or repairs both transactionally."],
+    "negative_scenarios": ["Any stale/transformed normative or bundle byte fails closed; failed doctor repair restores both complete pre-run installations, while incomplete restoration preserves recovery material and blocks later installs."],
     "benefit_hypothesis": "One immutable pin prevents the binary and its operating instructions from enforcing different protocols."
   }
 }

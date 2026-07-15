@@ -2,8 +2,8 @@
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
   "slice_id": "S10-shared-touchpoint-composition",
   "release": "2026-07-15-baton-v0.15-conformance",
-  "track": "T4-integration-cutover",
-  "user_outcome": "Exactly declared shared files compose from committed blobs identically across Git configurations, and malformed, manual, or custom merge results block.",
+  "track": "T2-engine-bootstrap",
+  "user_outcome": "An operator's sworn maintainability review recognizes a synchronization only when declared shared files compose canonically from committed blobs across Git configurations, while malformed, manual, or custom results fail closed.",
   "rationale": "Baton permits one narrow exception to track-level file disjointness. This slice makes C-07 the sole authority for that exception and derives the result from committed blob identities, not from a checkout, merge driver, attributes, filters, or an operator's conflict resolution.",
   "touchpoints": [
     "internal/integration/types.go",
@@ -15,14 +15,18 @@
     "internal/integration/prospective_test.go",
     "internal/integration/syncshape.go",
     "internal/integration/syncshape_test.go",
-    "internal/integration/testgit_test.go"
+    "internal/integration/testgit_test.go",
+    "cmd/sworn/maintainability.go",
+    "cmd/sworn/maintainability_composition_test.go"
   ],
   "references": [
+    {"kind": "contract", "contract_id": "C-01"},
     {"kind": "contract", "contract_id": "C-03"},
     {"kind": "contract", "contract_id": "C-07"},
     {"kind": "slice", "slice_id": "S03-lossless-record-carriers"},
     {"kind": "slice", "slice_id": "S05-protocol-provenance-archive"},
     {"kind": "slice", "slice_id": "S06-exact-git-object-plumbing"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/normative-clarifications.md"},
     {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"}
   ],
   "in_scope": [
@@ -30,7 +34,8 @@
     "Resolve the base and contributing versions as regular committed Git blobs with one common mode, and invoke Git's object-id merge-file operation through the typed S06 plumbing without reading working-tree bytes.",
     "Return a canonical composed blob OID and bytes only when the committed blobs compose conflict-free; compare any proposed or already-installed result to that exact identity.",
     "Prove the same declaration and blob tuple produces the same result with union and custom merge drivers, clean and hostile attributes, clean and hostile filters, and different local merge configuration.",
-    "Fail closed before index or worktree mutation for an undeclared path, malformed declaration, missing or non-blob object, mode mismatch, canonical conflict, contributor mismatch, hand-resolved bytes, or driver-produced bytes that differ from the canonical result."
+    "Fail closed before index or worktree mutation for an undeclared path, malformed declaration, missing or non-blob object, mode mismatch, canonical conflict, contributor mismatch, hand-resolved bytes, or driver-produced bytes that differ from the canonical result.",
+    "Extend the real sworn maintainability review scaffold to apply C-07 to every both-parents-changed declared shared path in candidate synchronization provenance; after a valid composition it exits non-zero with redacted reason canonical_scope_unavailable until S07 lands, with zero model dispatch or mutation."
   ],
   "out_of_scope": [
     "Track ownership intervals and sync freshness belong to S11-track-evidence-freshness.",
@@ -61,7 +66,7 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "text": "WHEN C-07 declares one canonical path for two existing owner tracks with distinct regions and the base, first-parent, and second-parent entries are regular committed blobs with one mode whose object-id merge is conflict-free THE SYSTEM SHALL return the exact canonical composed blob OID and bytes containing both declared contributions (C-07, N-08).",
+      "text": "WHEN C-07 declares one canonical path for two existing owner tracks with distinct regions and the base, first-parent, and second-parent entries are regular committed blobs with one mode whose object-id merge is conflict-free THE SYSTEM SHALL return the exact canonical composed blob OID and bytes containing both declared contributions (C-07, N-06, N-08, N-09).",
       "ears_pattern": "event-driven",
       "test_refs": ["internal/integration/compose_test.go:TestCanonicalSharedCompositionIgnoresGitConfiguration"]
     },
@@ -82,6 +87,12 @@
       "text": "IF Git's canonical object-id merge conflicts or proposed worktree or index bytes resolve to any blob other than the canonical composed OID THEN THE SYSTEM SHALL block the composition, report the exact path and expected versus observed OIDs without printing file content, and SHALL NOT accept a manual or custom-driver result (C-07, N-08).",
       "ears_pattern": "unwanted-behaviour",
       "test_refs": ["internal/integration/compose_test.go:TestSharedCompositionRejectsConflictAndNonCanonicalResult"]
+    },
+    {
+      "id": "AC-05",
+      "text": "WHEN the built sworn binary runs maintainability review against a clean temporary history containing a both-parents-changed board-declared shared path THE SYSTEM SHALL reach C-07 through the public command, accept only the canonical committed-blob composition, then exit non-zero with redacted reason canonical_scope_unavailable and zero dispatch or mutation; malformed, driver-dependent, manual, or conflicting composition SHALL fail at C-07 instead (C-07, N-06, N-08, N-09).",
+      "ears_pattern": "complex",
+      "test_refs": ["cmd/sworn/maintainability_composition_test.go:TestMaintainabilityCompositionBinaryReachability"]
     }
   ]
 }

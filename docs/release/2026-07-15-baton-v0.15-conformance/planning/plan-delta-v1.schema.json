@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swornagent.dev/schemas/plan-delta-v1.json",
+  "title": "Sworn ratified plan delta v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["record_version", "delta_id", "release", "operation", "source", "ratification", "owner_seeds", "mutations", "rollback_links", "targets", "receipt_path"],
+  "properties": {
+    "record_version": {"const": 1},
+    "delta_id": {"$ref": "#/$defs/id"},
+    "release": {"$ref": "#/$defs/id"},
+    "operation": {"enum": ["replan", "protocol_migration"]},
+    "source": {"$ref": "#/$defs/source"},
+    "ratification": {"$ref": "#/$defs/ratification"},
+    "owner_seeds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/owner_seed"}
+    },
+    "mutations": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/mutation"}
+    },
+    "rollback_links": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/rollback_link"}
+    },
+    "targets": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/target"}
+    },
+    "receipt_path": {"$ref": "#/$defs/path"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"operation": {"const": "protocol_migration"}}},
+      "then": {"properties": {"owner_seeds": {"maxItems": 0}, "rollback_links": {"maxItems": 0}}}
+    }
+  ],
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "object_id": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "path": {"type": "string", "minLength": 1},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "commit_oid", "board_blob_oid", "contracts_blob_oid", "protocol_blob_oid"],
+      "properties": {
+        "ref": {"type": "string", "minLength": 1},
+        "commit_oid": {"$ref": "#/$defs/object_id"},
+        "board_blob_oid": {"$ref": "#/$defs/object_id"},
+        "contracts_blob_oid": {"$ref": "#/$defs/object_id"},
+        "protocol_blob_oid": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/object_id"}]}
+      }
+    },
+    "ratification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ratified_by", "ratified_at", "tracking", "decision_digest"],
+      "properties": {
+        "ratified_by": {"type": "string", "minLength": 1},
+        "ratified_at": {"type": "string", "format": "date-time", "pattern": "[+-][0-9]{2}:[0-9]{2}$"},
+        "tracking": {"type": "string", "minLength": 1},
+        "decision_digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "owner_seed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slice_id", "track_id", "ref", "commit_oid", "status_path", "status_blob_oid"],
+      "properties": {
+        "slice_id": {"$ref": "#/$defs/id"},
+        "track_id": {"$ref": "#/$defs/id"},
+        "ref": {"type": "string", "minLength": 1},
+        "commit_oid": {"$ref": "#/$defs/object_id"},
+        "status_path": {"$ref": "#/$defs/path"},
+        "status_blob_oid": {"$ref": "#/$defs/object_id"}
+      }
+    },
+    "mutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "kind", "before_blob_oid", "after_utf8_base64", "after_blob_oid"],
+      "properties": {
+        "path": {
+          "allOf": [
+            {"$ref": "#/$defs/path"},
+            {"not": {"pattern": "(^|/)plan-deltas/"}}
+          ]
+        },
+        "kind": {"enum": ["create", "replace", "delete"]},
+        "before_blob_oid": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/object_id"}]},
+        "after_utf8_base64": {"type": ["string", "null"], "contentEncoding": "base64"},
+        "after_blob_oid": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/object_id"}]}
+      },
+      "allOf": [
+        {"if": {"properties": {"kind": {"const": "create"}}}, "then": {"properties": {"before_blob_oid": {"type": "null"}, "after_utf8_base64": {"type": "string"}, "after_blob_oid": {"$ref": "#/$defs/object_id"}}}},
+        {"if": {"properties": {"kind": {"const": "replace"}}}, "then": {"properties": {"before_blob_oid": {"$ref": "#/$defs/object_id"}, "after_utf8_base64": {"type": "string"}, "after_blob_oid": {"$ref": "#/$defs/object_id"}}}},
+        {"if": {"properties": {"kind": {"const": "delete"}}}, "then": {"properties": {"before_blob_oid": {"$ref": "#/$defs/object_id"}, "after_utf8_base64": {"type": "null"}, "after_blob_oid": {"type": "null"}}}}
+      ]
+    },
+    "rollback_link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["original_slice_id", "rollback_slice_id"],
+      "properties": {
+        "original_slice_id": {"$ref": "#/$defs/id"},
+        "rollback_slice_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "expected_local_head_oid", "expected_remote_head_oid"],
+      "properties": {
+        "ref": {"type": "string", "minLength": 1},
+        "expected_local_head_oid": {"$ref": "#/$defs/object_id"},
+        "expected_remote_head_oid": {"$ref": "#/$defs/object_id"}
+      }
+    }
+  }
+}

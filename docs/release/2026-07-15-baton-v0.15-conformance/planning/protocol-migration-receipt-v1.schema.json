@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swornagent.dev/schemas/protocol-migration-receipt-v1.json",
+  "title": "Sworn protocol migration receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["record_version", "receipt_id", "release", "delta_path", "delta_blob_oid", "planner_authority", "source", "ratification_digest", "mutations", "targets", "created_at"],
+  "properties": {
+    "record_version": {"const": 1},
+    "receipt_id": {"$ref": "#/$defs/id"},
+    "release": {"$ref": "#/$defs/id"},
+    "delta_path": {"$ref": "#/$defs/path"},
+    "delta_blob_oid": {"$ref": "#/$defs/object_id"},
+    "planner_authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "commit_oid"],
+      "properties": {
+        "ref": {"type": "string", "minLength": 1},
+        "commit_oid": {"$ref": "#/$defs/object_id"}
+      }
+    },
+    "source": {"$ref": "#/$defs/source"},
+    "ratification_digest": {"$ref": "#/$defs/digest"},
+    "mutations": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/mutation_identity"}
+    },
+    "targets": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/target"}
+    },
+    "created_at": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "object_id": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "path": {"type": "string", "minLength": 1},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "commit_oid", "board_blob_oid", "contracts_blob_oid", "protocol_blob_oid"],
+      "properties": {
+        "ref": {"type": "string", "minLength": 1},
+        "commit_oid": {"$ref": "#/$defs/object_id"},
+        "board_blob_oid": {"$ref": "#/$defs/object_id"},
+        "contracts_blob_oid": {"$ref": "#/$defs/object_id"},
+        "protocol_blob_oid": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/object_id"}]}
+      }
+    },
+    "mutation_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "before_blob_oid", "after_blob_oid"],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "before_blob_oid": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/object_id"}]},
+        "after_blob_oid": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/object_id"}]}
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "expected_local_head_oid", "expected_remote_head_oid"],
+      "properties": {
+        "ref": {"type": "string", "minLength": 1},
+        "expected_local_head_oid": {"$ref": "#/$defs/object_id"},
+        "expected_remote_head_oid": {"$ref": "#/$defs/object_id"}
+      }
+    }
+  }
+}

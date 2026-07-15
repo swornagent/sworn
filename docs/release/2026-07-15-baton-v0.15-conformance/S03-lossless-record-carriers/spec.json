@@ -3,7 +3,7 @@
   "slice_id": "S03-lossless-record-carriers",
   "release": "2026-07-15-baton-v0.15-conformance",
   "track": "T1-foundation",
-  "user_outcome": "A Planner or operator can read, write, render, and exchange v0.15 state, board, and spec records without losing maintainability, shared-touchpoint, typed-reference, or explicit-null authority.",
+  "user_outcome": "An operator running sworn doctor can prove that v0.15 state, board, and spec records read, write, render, and round-trip without losing maintainability, shared-touchpoint, typed-reference, or explicit-null authority.",
   "rationale": "Existing carriers silently omit v0.15 fields, so every later domain authority would otherwise receive corrupted input. This slice adds lossless data carriers and exact-schema boundaries only; it does not infer lifecycle meaning. Records are public technical metadata with no PII or secrets, CLI/rendered output remains textual and screen-reader compatible, and parsing/writing must be linear in record size with bounded nesting supplied by the exact schemas.",
   "touchpoints": [
     "internal/state/state.go",
@@ -15,7 +15,9 @@
     "internal/board/render_test.go",
     "internal/spec/spec.go",
     "internal/spec/spec_test.go",
-    "internal/baton/records_conformance_test.go"
+    "internal/baton/records_conformance_test.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_records_v015_test.go"
   ],
   "references": [
     {"kind": "contract", "contract_id": "C-01"},
@@ -27,7 +29,8 @@
     "Represent board-v1 shared_touchpoints as exact path to track-to-region maps and preserve release metadata, ordered tracks, dependency arrays, and an intentionally empty shared-touchpoint object across read/write/render cycles.",
     "Represent spec-v1 track, rationale, touchpoints, typed references, risks, effort/complexity, EARS pattern, and test references without scanning prose for normative inputs.",
     "Make the canonical filesystem carrier writers validate emitted JSON against the exact C-01 schemas before atomic replacement; invalid or incomplete output is rejected without modifying the prior record.",
-    "Update the rendered board view from these carriers while keeping JSON as the only authority and prove real release records plus fixtures survive semantic round trips with explicit null and empty values intact."
+    "Update the rendered board view from these carriers while keeping JSON as the only authority and prove real release records plus fixtures survive semantic round trips with explicit null and empty values intact.",
+    "Add a read-only v0.15 record-carrier group to the existing sworn doctor command. It reports one redacted PASS/FAIL result for state, board, and spec carrier losslessness and never repairs, rewrites, or prints record payloads."
   ],
   "out_of_scope": [
     "Resolving typed references or executing the spec-ambiguity model check belongs to S04-typed-reference-ambiguity.",
@@ -53,7 +56,7 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "text": "WHEN a planned, passed, needs_coach, resume_approved, or re_slice_required status record is read and written THE SYSTEM SHALL preserve every v0.15 maintainability field, explicit null, report order, unknown permitted additive status field, and invalidation tuple while schema-invalid input fails before write.",
+      "text": "WHEN a planned, passed, needs_coach, resume_approved, or re_slice_required status record is read and written THE SYSTEM SHALL preserve every v0.15 maintainability field, explicit null, report order, unknown permitted additive status field, and invalidation tuple while schema-invalid input fails before write (N-02, N-04, N-05, N-10, N-11).",
       "ears_pattern": "event-driven",
       "test_refs": ["internal/state/state_test.go:TestV015MaintainabilityCarrierRoundTrip", "internal/state/record_reconciliation_test.go:TestV015StatusNullAndEmptySemantics"]
     },
@@ -80,6 +83,12 @@
       "text": "WHEN the v0.15 conformance sweep loads committed and fixture records through the real state, board, and spec carriers THE SYSTEM SHALL validate them against C-01 and prove a second semantic round trip produces an equivalent record with no dropped authoritative field.",
       "ears_pattern": "event-driven",
       "test_refs": ["internal/baton/records_conformance_test.go:TestBatonV015RecordCarrierRoundTrip"]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHEN the built sworn binary runs doctor against schema-valid v0.15 state, board, and spec fixtures THE SYSTEM SHALL execute the real carrier and renderer path, report the v0.15 record-carrier group PASS, and exit consistently with the aggregate doctor result; IF any authoritative field, explicit null, array order, shared touchpoint, or typed reference is lost or schema-invalid THEN that group SHALL report FAIL without rewriting or printing record payloads (C-01, N-02, N-04, N-05, N-10, N-11).",
+      "ears_pattern": "complex",
+      "test_refs": ["cmd/sworn/doctor_records_v015_test.go:TestDoctorV015RecordCarriersBinaryReachability"]
     }
   ]
 }

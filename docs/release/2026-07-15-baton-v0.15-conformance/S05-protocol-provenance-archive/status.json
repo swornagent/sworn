@@ -7,7 +7,7 @@
   "state": "planned",
   "owner": "unassigned",
   "last_updated_by": "planner",
-  "last_updated_at": "2026-07-16T00:00:00Z",
+  "last_updated_at": "2026-07-16T00:00:00+10:00",
   "start_commit": null,
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S05-protocol-provenance-archive/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S05-protocol-provenance-archive/proof.json",
@@ -32,7 +32,11 @@
     "cmd/sworn/protocol_preflight.go",
     "cmd/sworn/protocol_preflight_test.go",
     "cmd/sworn/main.go",
-    "cmd/sworn/commands_test.go"
+    "cmd/sworn/commands_test.go",
+    "internal/mcp/policy.go",
+    "internal/mcp/policy_test.go",
+    "internal/mcp/server.go",
+    "internal/mcp/server_test.go"
   ],
   "actual_files": [],
   "test_commands": ["go test ./internal/protocol ./internal/baton ./cmd/sworn", "go test ./...", "go vet ./..."],
@@ -43,12 +47,22 @@
   "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []},
   "release_base": "release/v0.2.0",
   "release_benefit": "Separates current protocol authority from immutable historical inspection using only committed evidence.",
+  "design_decisions": [
+    {
+      "choice": "Use an exact committed live protocol marker and per-record historical Git evidence, with historical authority limited to read-only inspection.",
+      "stake_class": "Type-1",
+      "options": ["committed live marker plus per-record Git provenance", "release-name version registry", "infer protocol from record shape or running binary"],
+      "human_decision": "Ratified by Brad (Coach), 2026-07-15: preserve historical records as a version-gated read-only archive and require exact committed protocol authority for every live operation.",
+      "rationale": "This preserves mixed-era audit truth without permitting a legacy heuristic to authorize current mutation or integration.",
+      "architecturally_significant": true
+    }
+  ],
   "validation": {
     "human_ratified": true,
     "ratified_by": "Coach",
-    "ratified_at": "2026-07-16T00:00:00Z",
-    "positive_scenarios": ["Live refs share one marker equal to the binary and archive inspection resolves its original committed version."],
-    "negative_scenarios": ["Dirty, divergent, incomplete, malformed, or binary-mismatched evidence fails before side effects."],
+    "ratified_at": "2026-07-16T00:00:00+10:00",
+    "positive_scenarios": ["Live refs share one marker equal to the binary, every CLI/MCP operation is classified before its handler, and archive inspection resolves the current uninterrupted blob run's introduction."],
+    "negative_scenarios": ["Unclassified operations and dirty, divergent, incomplete, malformed, shallow, or binary-mismatched evidence fail before side effects."],
     "benefit_hypothesis": "Committed protocol provenance prevents mixed-era records from being silently reinterpreted under today's binary."
   }
 }

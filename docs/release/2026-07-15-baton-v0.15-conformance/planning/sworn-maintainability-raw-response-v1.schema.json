@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swornagent.dev/schemas/sworn-maintainability-raw-response-v1.json",
+  "title": "SwornAgent maintainability raw-response constraint",
+  "description": "Constraint composed with exact Baton llm-check-report-v1 for structured model output before engine-owned provenance is injected.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["check", "findings"],
+  "not": {"required": ["sworn"]},
+  "properties": {
+    "check": {"const": "maintainability-review"},
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["blocking"],
+        "properties": {
+          "blocking": {"type": "boolean"},
+          "sworn_disposition": {"$ref": "#/$defs/disposition"}
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"blocking": {"const": true}}, "required": ["blocking"]},
+            "then": {"required": ["sworn_disposition"]},
+            "else": {"not": {"required": ["sworn_disposition"]}}
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "repoPath": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Repository-relative path whose byte sorting, lexical validity, and physical confinement are enforced by C-02."
+    },
+    "disposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "required_touchpoints"],
+      "properties": {
+        "action": {"type": "string", "enum": ["remediate_in_scope", "re_slice"]},
+        "required_touchpoints": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/repoPath"}
+        }
+      }
+    }
+  }
+}

@@ -2,8 +2,8 @@
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
   "slice_id": "S09-lifecycle-fsm-adjudication",
   "release": "2026-07-15-baton-v0.15-conformance",
-  "track": "T3-lifecycle-ledger",
-  "user_outcome": "Committed status history enforces maintainability phase order, exact dispatch budgets, bounded cycle transitions, Coach authority, and immutable lifecycle fields without adapter-specific inference.",
+  "track": "T2-engine-bootstrap",
+  "user_outcome": "An operator's sworn maintainability review enforces committed-history phase order, exact dispatch budgets, bounded cycles, Coach authority, and immutable lifecycle fields before any coordinator side effect.",
   "rationale": "This slice owns C-06 and makes role authority a deterministic state machine over committed C-05 evidence. It reads only public technical lifecycle records, logs identities rather than prompt/report bodies, performs no network/model call itself, and offers no UI surface. History validation is one first-parent pass with hash/set prefix checks, O(history records plus ledger entries), and must reject rather than repair ambiguous state.",
   "touchpoints": [
     "internal/maintainability/ledger/types.go",
@@ -16,7 +16,9 @@
     "internal/maintainability/ledger/budget.go",
     "internal/maintainability/ledger/budget_test.go",
     "internal/maintainability/ledger/transition.go",
-    "internal/maintainability/ledger/transition_test.go"
+    "internal/maintainability/ledger/transition_test.go",
+    "cmd/sworn/maintainability.go",
+    "cmd/sworn/maintainability_lifecycle_test.go"
   ],
   "references": [
     {"kind": "contract", "contract_id": "C-01"},
@@ -25,16 +27,21 @@
     {"kind": "contract", "contract_id": "C-06"},
     {"kind": "slice", "slice_id": "S03-lossless-record-carriers"},
     {"kind": "slice", "slice_id": "S08-report-ledger-identity"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/normative-clarifications.md"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/sworn-maintainability-report-overlay-v1.schema.json"},
     {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"}
   ],
   "in_scope": [
     "Enumerate every committed version of the physical status.json path along first-parent history, validate each exact schema and C-05 report identity, and require every later reports array to retain each earlier array as an exact prefix.",
     "Keep start_commit immutable after first non-null value; keep cycle monotonic and bounded to 0 or 1; keep adjudication immutable once present; and preserve implementation_head according to the newest valid PASS/FAIL transition without reconstructing missing history.",
-    "Enforce cycle-0 Implementer preflight exactly once; a PASS ends Implementer review, while a FAIL permits one bounded remediation followed by exactly one closure review. No closure is legal without the earlier preflight FAIL.",
+    "Enforce cycle-0 Implementer preflight exactly once; a PASS ends Implementer review, while a FAIL permits one bounded remediation followed by exactly one closure review. Closure PASS permits the one fresh Verifier; closure FAIL transitions to needs_coach. No closure is legal without the earlier preflight FAIL.",
     "Permit exactly one fresh Verifier authoritative review only after the current-cycle Implementer PASS, over the same pinned implementation head; Verifier PASS preserves passed authority and Verifier FAIL follows C-06's cycle-specific transition without self-repair or rerun.",
-    "Permit the human Coach to adjudicate a completed cycle-0 authoritative failure exactly once as resume_in_scope or re_slice; resume requires two unique cited report invocation IDs and corresponding fingerprints, non-empty permitted touchpoints that are a subset of the ratified spec touchpoints, and advances to cycle 1.",
-    "Enforce cycle-1 as the final Implementer/fresh-Verifier budget; any cycle-1 blocking failure or any re_slice decision reaches re_slice_required with no second resume or waiver path.",
-    "Expose pure ValidateHistory, AllowedNext, DispatchBudget, and ApplyCoachDecision operations consumed later by one coordinator; return structured reasons and proposed next authority but perform no model dispatch, record write, commit, push, or adapter routing."
+    "Classify each preflight FAIL from C-05's structured blocker dispositions and sorted unique required-touchpoint union: remediate_in_scope is legal only for an exact spec-touchpoint subset, while any re_slice action or outside member is boundary-expanding, with malformed overlay evidence rejected before lifecycle evaluation.",
+    "Permit the human Coach to adjudicate a terminal cycle-0 closure or Verifier failure exactly once as resume_in_scope or re_slice; the Coach supplies decision, non-empty rationale and approved_by plus resume-only permitted touchpoints, while committed reports derive the chronological citation identities and byte-sorted unique blocking-ID union and the command alone captures approved_at. A boundary-expanding cycle-0 preflight permits only re_slice; resume cites the exact eligible report pair, permits a non-empty inclusive subset of ratified spec touchpoints, and advances to cycle 1.",
+    "Derive cycle-1 resume_base_head from the last report cited by the immutable adjudication and require every first-parent non-merge authored path through requested_review_head, excluding only release records and recognized merge-only contributions, to equal an immutable permitted_touchpoint; an outside path or structured re_slice transition terminates before dispatch.",
+    "Enforce cycle-1 as the final Implementer/fresh-Verifier budget; only a preflight FAIL whose structured remediation stays within immutable permitted touchpoints retains one remediation and one closure, while closure FAIL, Verifier FAIL, boundary expansion, or re_slice reaches re_slice_required with implementation_head null and zero second Coach/remediation/closure/Verifier authority.",
+    "Expose pure ValidateHistory, AllowedNext, DispatchBudget, and ApplyCoachDecision operations consumed later by one coordinator; return structured reasons and proposed next authority but perform no model dispatch, record write, commit, push, or adapter routing.",
+    "Extend the real sworn maintainability review command to enforce C-06 after C-04/C-05 authority; for an otherwise eligible next review it exits non-zero with redacted reason coordinator_unavailable until S13 lands and performs no dispatch or mutation."
   ],
   "out_of_scope": [
     "Constructing semantic scope belongs to S07 and validating full report blob identity belongs to S08; this FSM consumes already validated C-04/C-05 inputs.",
@@ -58,7 +65,7 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "text": "WHEN TestLifecycleHistoryFSMRealGit evaluates real first-parent histories covering preflight PASS, preflight FAIL plus closure, authoritative PASS/FAIL, Coach decisions, and cycle 1 THE SYSTEM SHALL return exactly C-06's legal state, next role/phase, remaining dispatch budget, and terminal disposition.",
+      "text": "WHEN TestLifecycleHistoryFSMRealGit evaluates real first-parent histories covering preflight PASS, in-scope preflight FAIL plus closure, boundary-expanding cycle-0 preflight FAIL to needs_coach and Coach re_slice, boundary-expanding cycle-1 preflight FAIL directly to re_slice_required, authoritative PASS/FAIL, Coach decisions, and cycle 1 THE SYSTEM SHALL return exactly C-06's legal state, next role/phase, remaining dispatch budget, and terminal disposition (N-04, N-05, N-09, N-10).",
       "ears_pattern": "event-driven",
       "test_refs": ["internal/maintainability/ledger/fsm_test.go:TestLifecycleHistoryFSMRealGit"]
     },
@@ -70,7 +77,7 @@
     },
     {
       "id": "AC-03",
-      "text": "WHEN cycle 0 has an authoritative FAIL and the Coach submits resume_in_scope citing the two required unique invocation IDs and fingerprints with permitted touchpoints strictly inside spec.touchpoints THE SYSTEM SHALL produce one immutable resume_approved cycle-1 adjudication; IF any citation or boundary differs, or a second resume is requested, THE SYSTEM SHALL reject it.",
+      "text": "WHEN cycle 0 ends in closure FAIL or Verifier FAIL and the Coach supplies resume_in_scope, non-empty rationale, non-empty approved_by, and a non-empty unique inclusive subset of spec.touchpoints THE SYSTEM SHALL derive the exact eligible chronological report IDs/fingerprints and byte-sorted unique blocking-ID union from committed evidence, capture approved_at once, and produce one immutable resume_approved cycle-1 adjudication; IF the caller supplies derived identities/timestamp, any evidence/boundary differs, or a second resume is requested THE SYSTEM SHALL reject it.",
       "ears_pattern": "event-driven",
       "test_refs": ["internal/maintainability/ledger/adjudication_test.go:TestCoachResumeInScopeExactAuthority", "internal/maintainability/ledger/adjudication_test.go:TestCoachAdjudicationFailureMatrix"]
     },
@@ -82,9 +89,15 @@
     },
     {
       "id": "AC-05",
-      "text": "IF the Coach chooses re_slice in cycle 0 or any blocking maintainability result exhausts cycle 1 THEN THE SYSTEM SHALL return re_slice_required, clear active implementation authority as C-06 requires, preserve the full append-only history, and expose no waiver, reset, or synthetic PASS transition.",
+      "text": "IF the Coach chooses re_slice in cycle 0, a cycle-1 preflight carries structured re_slice or any required_touchpoint/authored resumed path outside the exact immutable permitted boundary, or cycle 1 ends in closure FAIL or Verifier FAIL THEN THE SYSTEM SHALL return re_slice_required with implementation_head null, preserve the immutable cycle-1 resume adjudication, every historical review_scope_head, and the full append-only history, perform zero boundary-expanding remediation/closure/Verifier/second-Coach dispatches, and expose no waiver, reset, or synthetic PASS transition.",
       "ears_pattern": "unwanted-behaviour",
       "test_refs": ["internal/maintainability/ledger/transition_test.go:TestReSliceTerminalAuthorityCannotReset"]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHEN the built sworn binary runs maintainability review for a committed C-06 history with exactly one legal next role/phase THE SYSTEM SHALL reach lifecycle and budget authority through the public command, then exit non-zero with redacted reason coordinator_unavailable and zero model dispatch or record/ref mutation; illegal order, exhausted budget, rewritten prefix, invalid Coach authority, or boundary expansion SHALL fail at C-06 instead (C-05, C-06, N-04, N-05, N-09, N-10).",
+      "ears_pattern": "complex",
+      "test_refs": ["cmd/sworn/maintainability_lifecycle_test.go:TestMaintainabilityLifecycleBinaryReachability"]
     }
   ]
 }

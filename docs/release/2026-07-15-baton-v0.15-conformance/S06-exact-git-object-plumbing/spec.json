@@ -2,8 +2,8 @@
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
   "slice_id": "S06-exact-git-object-plumbing",
   "release": "2026-07-15-baton-v0.15-conformance",
-  "track": "T2-semantic-scope",
-  "user_outcome": "Sworn domain authorities receive NUL-safe, binary-safe typed APIs for committed paths, blobs, trees, ancestry, merge-base, canonical merge-file, clean-state, commit, and exact-ref push operations without importing Baton semantics.",
+  "track": "T2-engine-bootstrap",
+  "user_outcome": "An operator invoking sworn maintainability review reaches a NUL-safe, binary-safe committed-Git boundary and receives a redacted fail-closed gate before unavailable semantic-scope authority can act.",
   "rationale": "This slice is the sole low-level Git boundary for semantic scope and later integration. It returns raw committed identities rather than parsing human-oriented output, invokes git with argv rather than a shell, never logs blobs, and confines every path to the repository. There is no PII, network protocol, UI, or accessibility surface beyond deterministic errors. Path/object enumeration and history walks are linear in Git output; callers, not this layer, own Baton policy.",
   "touchpoints": [
     "internal/git/raw.go",
@@ -16,7 +16,9 @@
     "internal/git/mergefile_test.go",
     "internal/git/durable.go",
     "internal/git/durable_test.go",
-    "internal/git/testrepo_test.go"
+    "internal/git/testrepo_test.go",
+    "cmd/sworn/maintainability.go",
+    "cmd/sworn/maintainability_git_boundary_test.go"
   ],
   "references": [
     {"kind": "contract", "contract_id": "C-01"},
@@ -29,7 +31,8 @@
     "Wrap git merge-file --object-id over explicit base/ours/theirs committed blobs and return the canonical result object ID, clean/conflict disposition, and stderr-safe error without consulting worktree attributes, filters, custom drivers, or hand-resolved bytes.",
     "Provide clean worktree/index preflight, atomic staging of an explicit confined path set, commit identity retrieval, and exact destination-ref push with expected-source verification for later restart-safe command transactions.",
     "Use one argv-based runner with an explicit repository directory, -- separators where paths follow revisions, bounded output parsing, and typed exit-status handling; reject empty repository roots, NUL-bearing inputs, option-like unsafe refs, and non-confined paths before execution.",
-    "Prove the exported Git boundary against real temporary SHA-1 and, when supported, SHA-256 repositories with adversarial filenames, binary bytes, merge commits, shallow-history fixtures, conflicts, clean/dirty state, and a local bare remote."
+    "Prove the exported Git boundary against real temporary SHA-1 and, when supported, SHA-256 repositories with adversarial filenames, binary bytes, merge commits, shallow-history fixtures, conflicts, clean/dirty state, and a local bare remote.",
+    "Introduce the already-planned sworn maintainability review public command as a fail-closed scaffold: it validates protocol policy and the committed-Git boundary, then exits non-zero with the redacted structured reason semantic_scope_unavailable until S07 supplies that gate. It performs no model dispatch, report write, commit, or push."
   ],
   "out_of_scope": [
     "Candidate-path selection, canonical exclusions, normalized diffs, manifests, and fingerprints belong to S07-canonical-semantic-scope.",
@@ -53,7 +56,7 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "text": "WHEN the raw Git boundary reads a real repository containing adversarial filenames, binary blobs, symlinks, submodules, and both object formats THE SYSTEM SHALL return exact path bytes, modes, object types, object IDs, and blob bytes without line-splitting or normalization.",
+      "text": "WHEN the raw Git boundary reads a real repository containing adversarial filenames, binary blobs, symlinks, submodules, and both object formats THE SYSTEM SHALL return exact path bytes, modes, object types, object IDs, and blob bytes without line-splitting or normalization (N-03, N-04, N-06, N-07, N-08, N-10).",
       "ears_pattern": "event-driven",
       "test_refs": ["internal/git/raw_test.go:TestRawGitObjectPlumbingRealRepository"]
     },
@@ -74,6 +77,12 @@
       "text": "IF repository root, ref, object, path, cleanliness, staging, commit, expected source, or exact destination-ref push precondition is invalid THEN THE SYSTEM SHALL return a typed non-success result before performing the next mutation and SHALL redact blob bytes, credentials, and remote URLs from errors.",
       "ears_pattern": "unwanted-behaviour",
       "test_refs": ["internal/git/durable_test.go:TestDurableGitMutationPreconditionsAndExactRefPush", "internal/git/raw_test.go:TestGitRunnerRejectsUnsafeInputs"]
+    },
+    {
+      "id": "AC-05",
+      "text": "WHEN the built sworn binary runs maintainability review against a clean temporary repository with committed adversarial paths THE SYSTEM SHALL reach the real typed Git boundary, preserve exact path/object identities, then exit non-zero with redacted reason semantic_scope_unavailable and zero model dispatch, report write, commit, or push; IF Git identity or cleanliness is invalid THEN it SHALL fail at that earlier gate (C-01, N-03, N-04, N-06, N-07, N-08, N-10).",
+      "ears_pattern": "complex",
+      "test_refs": ["cmd/sworn/maintainability_git_boundary_test.go:TestMaintainabilityGitBoundaryBinaryReachability"]
     }
   ]
 }

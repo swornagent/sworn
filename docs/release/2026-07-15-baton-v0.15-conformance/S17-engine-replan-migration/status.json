@@ -34,11 +34,13 @@
     "cmd/sworn/replan.go",
     "cmd/sworn/replan_test.go",
     "internal/mcp/tools_plan.go",
-    "internal/mcp/tools_plan_test.go"
+    "internal/mcp/tools_plan_test.go",
+    "internal/mcp/catalog.go",
+    "internal/mcp/catalog_test.go"
   ],
   "actual_files": [],
   "test_commands": ["go test ./internal/replan ./internal/mcp ./cmd/sworn", "go test ./...", "go vet ./...", "test -z \"$(gofmt -l .)\""],
-  "reachability_artifacts": ["built sworn replan apply run against an isolated committed copy of the seven-slice local-first plan plus the equivalent MCP call, proving one pristine transaction, receipt identities, restart propagation, all-or-nothing failure, and zero mutation of the live downstream release"],
+  "reachability_artifacts": ["built sworn replan migrate/activate against an isolated committed copy of the seven-slice local-first plan plus equivalent MCP calls, proving all 17 mutations including contracts consumers, receipt identities, restart propagation, retirement of four direct MCP planning writers, all-or-nothing failure, and zero mutation of the live downstream release"],
   "maintainability": {"state": "pending", "cycle": 0, "implementation_head": null, "rollback_slice_id": null, "reports": [], "adjudication": null},
   "open_deferrals": [
     {
@@ -53,12 +55,30 @@
   "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []},
   "release_base": "release/v0.2.0",
   "release_benefit": "Human-led re-planning can be applied and recovered mechanically without corrupting lifecycle authority or fabricating migration evidence.",
+  "design_decisions": [
+    {
+      "choice": "Keep re-plan meaning human-led while one engine operation applies only a ratified delta, and permit in-place migration only for pristine planned records.",
+      "stake_class": "Type-1",
+      "options": ["human judgment plus deterministic engine application with pristine-only migration", "role sessions directly mutate authority records", "binary invents decomposition and migrates any unshipped state"],
+      "human_decision": "Ratified by Brad (Coach), 2026-07-15: Planner owns meaning, the engine owns exact application, and only pristine planned records may migrate in place.",
+      "rationale": "The boundary preserves qualitative human judgment while preventing retroactive fabrication of lifecycle evidence.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Use a canonical non-self-referential Planner ref, byte-pinned plan deltas, a deterministic receipt, Git-derived propagation state, and a separate migrated-only activation edge.",
+      "stake_class": "Type-1",
+      "options": ["canonical Planner ref plus byte-pinned delta, Git-derived topology, and separate migrated activation", "mutable receipt carrying transaction state", "adapter-specific direct record writes"],
+      "human_decision": "Ratified under Brad's 2026-07-16 instruction to proceed with the orchestrator recommendation: adopt the referenced v1 schemas, canonical Planner ref, deterministic receipt, compare-and-swap propagation topology, and distinct migrated-release activation.",
+      "rationale": "Separating source identity from the commit containing the delta removes self-reference; keeping transaction and activation state derivable from Git makes crash recovery exact without replaying Planner judgment or misusing native C-13 authority.",
+      "architecturally_significant": true
+    }
+  ],
   "validation": {
     "human_ratified": true,
     "ratified_by": "Coach",
     "ratified_at": "2026-07-16T00:09:16+10:00",
-    "positive_scenarios": ["A ratified delta is seeded from the exact owner track and a fully pristine seven-slice plan migrates atomically with before/after receipts."],
-    "negative_scenarios": ["A started record, stale source identity, lifecycle mutation beyond the ratified rollback link, or propagation divergence blocks without partial writes or force."],
+    "positive_scenarios": ["A ratified delta is seeded from the exact owner track and a fully pristine seven-slice plan migrates all 17 blobs, including contracts consumers, atomically with before/after receipts."],
+    "negative_scenarios": ["A started record, stale source/contract identity, direct legacy MCP planning write, lifecycle mutation beyond the ratified rollback link, or propagation divergence blocks without partial writes or force."],
     "benefit_hypothesis": "Separating human planning judgment from deterministic application makes re-plan and migration safe for autonomous orchestration."
   }
 }

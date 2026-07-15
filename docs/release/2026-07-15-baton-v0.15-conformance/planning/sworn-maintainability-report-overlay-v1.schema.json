@@ -1,0 +1,226 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swornagent.dev/schemas/sworn-maintainability-report-overlay-v1.json",
+  "title": "SwornAgent maintainability report overlay",
+  "description": "Additive SwornAgent constraints applied after exact Baton llm-check-report-v1 validation. The engine also composes the finding disposition constraint into structured-output dispatch without changing the Baton prompt or schema bytes.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "check",
+    "findings",
+    "sworn"
+  ],
+  "properties": {
+    "check": {
+      "const": "maintainability-review"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "blocking"
+        ],
+        "properties": {
+          "blocking": {
+            "type": "boolean"
+          },
+          "sworn_disposition": {
+            "$ref": "#/$defs/disposition"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "blocking": {
+                  "const": true
+                }
+              },
+              "required": [
+                "blocking"
+              ]
+            },
+            "then": {
+              "required": [
+                "sworn_disposition"
+              ]
+            },
+            "else": {
+              "not": {
+                "required": [
+                  "sworn_disposition"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    "sworn": {
+      "$ref": "#/$defs/sworn"
+    }
+  },
+  "$defs": {
+    "repoPath": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Repository-relative path whose byte sorting, lexical validity, and physical confinement are enforced by C-02."
+    },
+    "oid": {
+      "type": "string",
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "disposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "required_touchpoints"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "remediate_in_scope",
+            "re_slice"
+          ]
+        },
+        "required_touchpoints": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/repoPath"
+          }
+        }
+      }
+    },
+    "scopeProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "release",
+        "slice_id",
+        "status_path",
+        "start_commit",
+        "review_base",
+        "review_head"
+      ],
+      "properties": {
+        "release": {
+          "type": "string",
+          "minLength": 1
+        },
+        "slice_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status_path": {
+          "$ref": "#/$defs/repoPath"
+        },
+        "start_commit": {
+          "$ref": "#/$defs/oid"
+        },
+        "review_base": {
+          "$ref": "#/$defs/oid"
+        },
+        "review_head": {
+          "$ref": "#/$defs/oid"
+        }
+      }
+    },
+    "synchronization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "merge",
+        "parent1",
+        "parent2",
+        "base"
+      ],
+      "properties": {
+        "merge": {
+          "$ref": "#/$defs/oid"
+        },
+        "parent1": {
+          "$ref": "#/$defs/oid"
+        },
+        "parent2": {
+          "$ref": "#/$defs/oid"
+        },
+        "base": {
+          "$ref": "#/$defs/oid"
+        }
+      }
+    },
+    "freshnessFrontier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "track_ref",
+        "validated_track_head",
+        "release_wt_ref",
+        "validated_release_wt_head",
+        "synchronizations"
+      ],
+      "properties": {
+        "track_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "validated_track_head": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/oid"
+            }
+          ]
+        },
+        "release_wt_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "validated_release_wt_head": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/oid"
+            }
+          ]
+        },
+        "synchronizations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/synchronization"
+          }
+        }
+      }
+    },
+    "sworn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "record_version",
+        "scope_provenance",
+        "freshness_frontier"
+      ],
+      "properties": {
+        "record_version": {
+          "const": 1
+        },
+        "scope_provenance": {
+          "$ref": "#/$defs/scopeProvenance"
+        },
+        "freshness_frontier": {
+          "$ref": "#/$defs/freshnessFrontier"
+        }
+      }
+    }
+  }
+}

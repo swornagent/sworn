@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swornagent.dev/schemas/mark-shipped-ship-v1.json",
+  "title": "Exact Baton v0.15 mark-shipped ship block",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["shipped_at", "deployed_commit", "deploy_ref", "shipped_by"],
+  "properties": {
+    "shipped_at": {"type": "string", "format": "date-time"},
+    "deployed_commit": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"},
+    "deploy_ref": {"type": ["string", "null"]},
+    "shipped_by": {"const": "/mark-shipped"}
+  }
+}

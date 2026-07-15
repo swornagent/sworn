@@ -20,15 +20,21 @@
     "internal/mcp/tools_test.go"
   ],
   "references": [
+    {"kind": "contract", "contract_id": "C-01"},
     {"kind": "contract", "contract_id": "C-03"},
+    {"kind": "contract", "contract_id": "C-04"},
+    {"kind": "contract", "contract_id": "C-05"},
+    {"kind": "contract", "contract_id": "C-06"},
     {"kind": "contract", "contract_id": "C-07"},
     {"kind": "contract", "contract_id": "C-08"},
     {"kind": "contract", "contract_id": "C-09"},
+    {"kind": "contract", "contract_id": "C-13"},
     {"kind": "slice", "slice_id": "S05-protocol-provenance-archive"},
     {"kind": "slice", "slice_id": "S10-shared-touchpoint-composition"},
     {"kind": "slice", "slice_id": "S11-track-evidence-freshness"},
     {"kind": "slice", "slice_id": "S12-rollback-readiness"},
     {"kind": "slice", "slice_id": "S13-maintainability-engine-cutover"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/normative-clarifications.md"},
     {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"}
   ],
   "in_scope": [
@@ -36,6 +42,7 @@
     "Require every slice to satisfy C-09, validate C-08 freshness, and compose every declared shared file to its canonical C-07 blob before creating a two-parent integration whose first parent is the validated release-wt head and second parent is the retained board-declared track head.",
     "Install canonical shared blobs in both index and worktree during forward synchronization or merge, independent of an ordinary Git driver result; block every undeclared production conflict and return it to re-planning.",
     "Make sworn merge-track, the parallel autonomous loop's ProductionMergeTrack path, and MCP approve_merge call the same operation with equivalent structured outcomes and fail-closed exit or tool behavior.",
+    "When S11 returns the sole recoverable recognized-sync invalidation plan, atomically write the exact status/journal transition, commit it locally on the track branch, preserve remote track and release-wt refs, return non-success, and route to re-plan; this is a lifecycle durability action, not an integration merge.",
     "On an already-merged or interrupted rerun, revalidate the complete protocol, status, report, freshness, rollback, composition, parent topology, and resulting tree before reporting idempotent success; never short-circuit on ancestry or displayed state alone."
   ],
   "out_of_scope": [
@@ -67,7 +74,7 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "text": "WHEN sworn merge-track receives a track whose slices all satisfy C-09 and whose retained head, evidence intervals, sync provenance, rollback facts, and shared declarations satisfy C-03, C-07, and C-08 THE SYSTEM SHALL create one two-parent integration with the validated release-wt head as parent 1, retained track head as parent 2, and the exact canonical composed tree, then return exit 0 (C-03, C-07, C-08, C-09, N-09, N-10).",
+      "text": "WHEN sworn merge-track receives a T6 track cut from the exact C-13-activated release-wt head whose slices satisfy C-09 and whose retained head, intervals, sync provenance, rollback facts, and shared declarations satisfy C-03/C-07/C-08 THE SYSTEM SHALL create one two-parent integration with validated release-wt as parent 1, retained track head as parent 2, and the exact canonical composed tree, then return exit 0; planning authority SHALL block before merge (C-03, C-07, C-08, C-09, C-13, N-06, N-07, N-08, N-09, N-10).",
       "ears_pattern": "event-driven",
       "test_refs": ["cmd/sworn/merge_track_test.go:TestMergeTrackCanonicalAuthorityBinaryReachability"]
     },
@@ -79,7 +86,7 @@
     },
     {
       "id": "AC-03",
-      "text": "IF any slice is not C-09 ready, protocol refs diverge, a report or provenance identity is stale, rollback equality fails, shared composition conflicts, or an undeclared production conflict exists THEN every CLI, loop, and MCP adapter SHALL block before creating or advancing a merge ref and SHALL return the same typed failed gate and evidence (C-03, C-07, C-08, C-09, N-06, N-07, N-08).",
+      "text": "IF any slice is not C-09 ready, protocol refs diverge, a report/provenance identity is stale, rollback equality fails, shared composition conflicts, an undeclared conflict exists, or C-08 reports later overlap/unrecognized/shipped authority THEN every CLI, loop, and MCP adapter SHALL block with no lifecycle mutation or ref advance and return the same typed gate; the only exception is AC-06's exact recoverable local invalidation commit (C-03, C-07, C-08, C-09, N-06, N-07, N-08).",
       "ears_pattern": "unwanted-behaviour",
       "test_refs": ["internal/integration/trackmerge_test.go:TestTrackMergeFailsClosedBeforeRefMutation"]
     },
@@ -94,6 +101,12 @@
       "text": "WHEN a declared shared path's ordinary Git merge conflicts or produces driver-dependent bytes but C-07 produces one canonical blob THE SYSTEM SHALL install that exact blob in index and worktree and complete the valid track integration; IF C-07 itself conflicts THE SYSTEM SHALL abort and preserve the pre-operation ref, index, and worktree (C-07, N-08).",
       "ears_pattern": "complex",
       "test_refs": ["internal/integration/trackmerge_test.go:TestTrackMergeInstallsCanonicalSharedBlob"]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHEN S11 classifies a recognized intersecting post-frontier synchronization whose invalidated candidate set is disjoint from all later authority THE SYSTEM SHALL preserve ledger/adjudication, clear implementation_head, set maintainability re_slice_required plus overall failed_verification/verification fail, persist exact invalidated_review_head, invalidating_sync_merge, and parent-2 rollback_baseline_commit in status/journal, create one one-parent local track commit, leave the remote track at that commit's parent and release-wt unchanged, return non-success, and route every adapter to re-plan; rerun SHALL revalidate that exact local/remote split without push, and C-12 SHALL preserve the invalidation commit as the re-plan target's expected local parent while compare-and-swap advancing the remote from its separately declared expected parent (C-08, C-12, N-06, N-07, N-09, N-10).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/integration/trackmerge_test.go:TestRecognizedSyncInvalidationCommitsLocallyWithoutPush"]
     }
   ]
 }

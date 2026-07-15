@@ -21,36 +21,19 @@
       "depends_on": []
     },
     {
-      "id": "T2-semantic-scope",
+      "id": "T2-engine-bootstrap",
       "slices": [
         "S06-exact-git-object-plumbing",
-        "S07-canonical-semantic-scope"
-      ],
-      "depends_on": [
-        "T1-foundation"
-      ]
-    },
-    {
-      "id": "T3-lifecycle-ledger",
-      "slices": [
-        "S08-report-ledger-identity",
-        "S09-lifecycle-fsm-adjudication"
-      ],
-      "depends_on": [
-        "T1-foundation"
-      ]
-    },
-    {
-      "id": "T4-integration-cutover",
-      "slices": [
         "S10-shared-touchpoint-composition",
+        "S07-canonical-semantic-scope",
+        "S08-report-ledger-identity",
+        "S09-lifecycle-fsm-adjudication",
         "S11-track-evidence-freshness",
         "S12-rollback-readiness",
         "S13-maintainability-engine-cutover"
       ],
       "depends_on": [
-        "T2-semantic-scope",
-        "T3-lifecycle-ledger"
+        "T1-foundation"
       ]
     },
     {
@@ -59,7 +42,7 @@
         "S14-role-lifecycle-recovery"
       ],
       "depends_on": [
-        "T4-integration-cutover"
+        "T2-engine-bootstrap"
       ]
     },
     {
@@ -70,7 +53,7 @@
         "S17-engine-replan-migration"
       ],
       "depends_on": [
-        "T4-integration-cutover"
+        "T2-engine-bootstrap"
       ]
     },
     {

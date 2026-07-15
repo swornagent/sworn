@@ -2,7 +2,7 @@
   "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
   "slice_id": "S11-track-evidence-freshness",
   "release": "2026-07-15-baton-v0.15-conformance",
-  "track": "T4-integration-cutover",
+  "track": "T2-engine-bootstrap",
   "covers_needs": ["N-04", "N-06", "N-07", "N-09"],
   "state": "planned",
   "owner": "human",
@@ -20,22 +20,25 @@
     "internal/integration/freshness.go",
     "internal/integration/freshness_test.go",
     "internal/integration/invalidation.go",
-    "internal/integration/invalidation_test.go"
+    "internal/integration/invalidation_test.go",
+    "cmd/sworn/maintainability.go",
+    "cmd/sworn/maintainability_freshness_test.go"
   ],
   "actual_files": [],
   "test_commands": ["go test ./internal/integration", "go test ./...", "go vet ./...", "test -z \"$(gofmt -l .)\""],
-  "reachability_artifacts": ["go test ./internal/integration -run TestEvidenceIntervalsPreserveDisjointSiblingWork drives C-08 through real temporary Git histories with recognized synchronization"],
+  "reachability_artifacts": ["built sworn maintainability review run from cmd/sworn/maintainability_freshness_test.go:TestMaintainabilityFreshnessBinaryReachability reaches C-08 and then fails closed at the next unavailable gate"],
   "maintainability": {"state": "pending", "cycle": 0, "implementation_head": null, "rollback_slice_id": null, "reports": [], "adjudication": null},
   "open_deferrals": [],
   "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []},
   "release_base": "release/v0.2.0",
   "release_benefit": "Sworn can distinguish current verified evidence from stale or historical ownership after track synchronization.",
+  "design_decisions": [{"choice": "Revalidate C-08 active/retired ownership on the public command path before any report reuse or dispatch and keep invalidation mutation-free here.", "stake_class": "Type-1", "options": ["trust displayed PASS", "invalidate every synchronization", "pathwise provenance and freshness authority"], "human_decision": "Ratified under Brad's 2026-07-16 Coach instruction to follow the orchestrator recommendation: use pathwise C-08 authority before reuse or dispatch.", "rationale": "Disjoint sibling work remains valid while stale overlap is detected without letting this primitive mutate lifecycle state.", "architecturally_significant": true}],
   "validation": {
     "human_ratified": true,
     "ratified_by": "Coach",
     "ratified_at": "2026-07-16T00:09:16+10:00",
-    "positive_scenarios": ["Disjoint authoritative intervals survive a recognized release synchronization merge without losing sibling evidence."],
-    "negative_scenarios": ["Overlapping or non-canonical synchronization cannot preserve stale PASS evidence or authorize an automatic rollback."],
+    "positive_scenarios": ["Disjoint authoritative intervals survive recognized synchronization, while an intersecting sync disjoint from later authority yields one exact mutation-free local invalidation plan."],
+    "negative_scenarios": ["Later overlap, shipped authority, or non-canonical synchronization emits no transition plan and cannot preserve stale PASS evidence or authorize automatic rollback."],
     "benefit_hypothesis": "Explicit interval and provenance authority prevents a green board from hiding code that changed after review."
   }
 }

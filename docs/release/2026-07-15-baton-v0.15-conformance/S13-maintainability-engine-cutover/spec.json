@@ -2,8 +2,8 @@
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
   "slice_id": "S13-maintainability-engine-cutover",
   "release": "2026-07-15-baton-v0.15-conformance",
-  "track": "T4-integration-cutover",
-  "user_outcome": "Public review and adjudication commands atomically persist, commit and push lifecycle transitions, recover without redispatch, and revalidate every S01–S12 bootstrap record before automation becomes authoritative.",
+  "track": "T2-engine-bootstrap",
+  "user_outcome": "Public review and adjudication commands atomically persist, commit and push lifecycle transitions, recover without redispatch, and revalidate every S01–S13 bootstrap record before automation becomes authoritative.",
   "rationale": "This is the mandatory boundary between manually governed v0.15 bootstrap evidence and Sworn-owned automation. C-10 gives one stateful operation ownership of semantic identity, dispatch, append-only records, the local commit, the exact owner-track push, and restart recovery.",
   "touchpoints": [
     "internal/maintainability/coordinator.go",
@@ -21,16 +21,20 @@
     "internal/maintainability/cutover.go",
     "internal/maintainability/cutover_test.go",
     "cmd/sworn/maintainability.go",
-    "cmd/sworn/maintainability_test.go"
+    "cmd/sworn/maintainability_test.go",
+    "cmd/sworn/maintainability_cutover_test.go"
   ],
   "references": [
+    {"kind": "contract", "contract_id": "C-01"},
     {"kind": "contract", "contract_id": "C-03"},
     {"kind": "contract", "contract_id": "C-04"},
     {"kind": "contract", "contract_id": "C-05"},
     {"kind": "contract", "contract_id": "C-06"},
+    {"kind": "contract", "contract_id": "C-07"},
     {"kind": "contract", "contract_id": "C-08"},
     {"kind": "contract", "contract_id": "C-09"},
     {"kind": "contract", "contract_id": "C-10"},
+    {"kind": "contract", "contract_id": "C-13"},
     {"kind": "slice", "slice_id": "S01-vendor-boundary-readiness"},
     {"kind": "slice", "slice_id": "S02-v015-parity-and-installs"},
     {"kind": "slice", "slice_id": "S03-lossless-record-carriers"},
@@ -43,20 +47,24 @@
     {"kind": "slice", "slice_id": "S10-shared-touchpoint-composition"},
     {"kind": "slice", "slice_id": "S11-track-evidence-freshness"},
     {"kind": "slice", "slice_id": "S12-rollback-readiness"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/normative-clarifications.md"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/sworn-maintainability-raw-response-v1.schema.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/sworn-maintainability-report-overlay-v1.schema.json"},
     {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"}
   ],
   "in_scope": [
-    "Expose sworn maintainability review as the sole public review operation, accepting only Implementer preflight, Implementer closure, and fresh Verifier authoritative role-phase pairs and deriving slice, owner track/ref, cycle, semantic scope, invocation identity, fingerprint, phase eligibility, and dispatch budget from committed authority.",
-    "Expose sworn maintainability adjudicate as the sole public Coach transition, accepting only resume_in_scope or re_slice and deriving the eligible cycle-0 authoritative failure and permitted touchpoints from committed reports and status.",
-    "Require a clean starting tree and index, validate C-03 through C-09 before side effects, write the full report, compact status ledger, and journal transition coherently, create one decision-bearing commit, and push the exact owner track ref before protocol success; a valid FAIL is also committed and pushed before its non-zero result.",
+    "Expose sworn maintainability review as the sole public review operation, accepting only Implementer preflight, Implementer closure, and fresh Verifier authoritative role-phase pairs; retain exact Baton prompt/schema bytes, compose the structured-output schema with the Sworn finding-disposition overlay, derive all semantic/lifecycle identity from committed authority, and inject the engine-owned provenance overlay before persistence. When C-04 has no included paths, persist the exact deterministic PASS report with zero model dispatch.",
+    "Expose sworn maintainability adjudicate as the sole public Coach transition through one typed public/internal request: Coach supplies decision, non-empty rationale and approved_by plus resume-only non-empty permitted touchpoints; committed terminal evidence derives eligible citation identities and byte-sorted unique blocking IDs, and the command captures approved_at once from its injected clock.",
+    "Require a clean starting tree and index and, for review/adjudication, validate C-03 through C-08 plus the operation-specific C-06 lifecycle before side effects; C-09 is not a review precondition and is evaluated only by the terminal cutover validator. Write the full report, compact status ledger, and journal transition coherently, create one decision-bearing commit, and push the exact owner track ref before protocol success; a valid FAIL is also committed and pushed before its non-zero result.",
     "Recover a commit-without-push rerun by revalidating and reusing the exact committed report and transition with zero model dispatch, then complete only the missing exact-ref push; reject partial, rewritten, divergent, or caller-selected evidence.",
-    "Run an explicit engine-cutover validator over the committed S01–S12 specs, statuses, journals, reports, semantic identities, transitions, and Git histories and refuse automated authority until every bootstrap artefact passes the new engine unchanged.",
+    "Run an explicit engine-cutover validator over the committed S01–S13 specs, statuses, journals, reports, semantic identities, transitions, Git histories, and exact pinned Baton v0.15.1 Track Integrator commits for T1 then T2; this includes S13's independently verified planning-authority evidence and does not let S13 award itself PASS. Refuse automated authority until every bootstrap artefact and integration passes the new engine unchanged.",
+    "After S13 is freshly verified and T1 then T2 have canonically merged to release-wt under the exact manual planning-authority Track Integrator transaction in planning/normative-clarifications.md section 4, expose the zero-dispatch C-13 sworn maintainability cutover <release> operation on that clean local/remote-equal release-wt before T5/T6 exist; revalidate every gate, change only protocol.json authority planning to current, commit and push once, and recover only an exact commit-without-push.",
     "Provide structured fail-closed exit behavior and redacted diagnostics; expose no dry-run, no-push, force, waiver, lifecycle override, user-supplied fingerprint, report path, cycle, authority ref, or timestamp."
   ],
   "out_of_scope": [
     "Implementer, Verifier, router, and loop adapter adoption belongs to S14-role-lifecycle-recovery.",
     "Track, release, ship, and re-plan adapter adoption belongs to S15-unified-track-merge through S17-engine-replan-migration.",
-    "The engine does not repair or synthesize any S01–S12 bootstrap report; a mismatch returns to the original slice authority.",
+    "The engine does not repair or synthesize any S01–S13 bootstrap report; a mismatch returns to the original slice authority.",
     "The maintainability command does not merge, deploy, mark shipped, invent Coach decisions, or broaden permitted touchpoints."
   ],
   "covers_needs": ["N-04", "N-05", "N-09", "N-10"],
@@ -76,18 +84,18 @@
     {
       "id": "R-02",
       "description": "The new engine certifies its own bootstrap by accepting records that differ from the manually governed evidence.",
-      "mitigation": "Cutover is read-only over S01–S12 and requires exact validation of live committed artefacts and histories; any mismatch is repaired and reverified under the original slice, never rewritten by S13."
+      "mitigation": "Cutover is read-only over S01–S13, including S13's separately verifier-certified evidence, and requires exact validation of live committed artefacts and histories; any mismatch is repaired and reverified under the original slice, never rewritten or self-certified by S13."
     },
     {
       "id": "R-03",
-      "description": "A caller-controlled option bypasses Baton's role, phase, authority, or durability budget.",
-      "mitigation": "Expose only the exact role/phase and Coach decision vocabulary; derive all other authority inputs and reject unknown or override-like flags before dispatch or mutation."
+      "description": "A caller-controlled option bypasses Baton's role, phase, Coach authority, or durability budget, or the command infers a human decision field from model evidence.",
+      "mitigation": "Use one typed request separating Coach-supplied decision/rationale/identity/permissions from evidence-derived citations and command-captured time; reject missing, inferred, decision-incompatible, unknown, or override-like inputs before dispatch or mutation."
     }
   ],
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "text": "WHEN the built binary runs sworn maintainability review for an eligible Implementer preflight or closure or fresh Verifier authoritative phase on a clean owner-track worktree THE SYSTEM SHALL derive C-03 through C-06 inputs from committed state, perform at most the phase's one permitted dispatch, validate the full report, atomically write report/status/journal, commit them, push the exact track ref, and return success only for PASS (C-10, N-04, N-05, N-10).",
+      "text": "WHEN the built binary runs sworn maintainability review for an eligible Implementer preflight or closure or fresh Verifier authoritative phase on a clean owner-track worktree THE SYSTEM SHALL derive C-03 through C-08 inputs from committed state, including C-07 for any declared shared synchronization and C-08 before reuse or dispatch but not terminal C-09, dispatch the exact Baton prompt with the composed finding-disposition constraint, validate the raw response against exact Baton plus that constraint, inject engine-owned provenance, validate the complete persisted report against exact Baton plus the full overlay, atomically write report/status/journal, commit them, push the exact track ref, and return success only for PASS (C-10, N-04, N-05, N-09, N-10).",
       "ears_pattern": "event-driven",
       "test_refs": ["cmd/sworn/maintainability_test.go:TestMaintainabilityReviewCommitPushRecoveryBinaryReachability"]
     },
@@ -105,21 +113,33 @@
     },
     {
       "id": "AC-04",
-      "text": "WHEN the built binary runs sworn maintainability adjudicate resume_in_scope for an eligible cycle-0 authoritative failure THE SYSTEM SHALL commit and push one C-06 cycle-1 resume with the exact report identities and permitted existing touchpoints; WHEN it runs re_slice THE SYSTEM SHALL commit and push re_slice_required without inventing a rollback slice or replacement scope (C-06, C-10, N-05).",
+      "text": "WHEN the built binary runs sworn maintainability adjudicate for an eligible cycle-0 terminal failure and the Coach supplies decision, non-empty rationale and approved_by plus resume-only non-empty unique permitted touchpoints from spec.touchpoints THE SYSTEM SHALL derive chronological citation IDs/fingerprints and the byte-sorted unique blocking-ID union from committed evidence, capture approved_at once, and commit/push the exact immutable C-06 adjudication; re_slice SHALL forbid permitted touchpoints and SHALL NOT invent a rollback slice or replacement scope (C-06, C-10, N-05).",
       "ears_pattern": "event-driven",
       "test_refs": ["cmd/sworn/maintainability_test.go:TestMaintainabilityAdjudicateBinaryAuthority"]
     },
     {
       "id": "AC-05",
-      "text": "IF review receives an invalid role-phase pair, exhausted dispatch budget, dirty tree or index, stale or divergent owner ref, invalid protocol/report/lifecycle/fingerprint, or any dry-run, no-push, force, waiver, lifecycle-override, caller-selected-cycle, caller-selected-report, or caller-selected-authority option THEN THE SYSTEM SHALL exit non-zero with zero model dispatches and leave refs, index, worktree, reports, status, and journal unchanged (C-03, C-10, N-05, N-09).",
+      "text": "IF review receives an invalid role-phase pair, exhausted dispatch budget, dirty tree or index, stale/divergent owner ref, invalid protocol/report/lifecycle/fingerprint/overlay, or any dry-run, no-push, force, waiver, lifecycle-override, caller-selected-cycle/report/authority option, OR adjudication omits Coach rationale/identity/resume permissions, supplies derived citation/timestamp fields, or supplies decision-incompatible permissions THEN THE SYSTEM SHALL exit non-zero with zero model dispatches and leave refs, index, worktree, reports, status, and journal unchanged (C-03, C-10, N-05, N-09).",
       "ears_pattern": "unwanted-behaviour",
       "test_refs": ["cmd/sworn/maintainability_test.go:TestMaintainabilityRejectsOverridesBeforeSideEffects"]
     },
     {
       "id": "AC-06",
-      "text": "WHEN the S13 cutover validator runs against the committed release authority THE SYSTEM SHALL revalidate every S01–S12 spec, status, report, report blob OID, semantic fingerprint, lifecycle transition, evidence interval, rollback fact, and protocol marker without changing a byte; IF any item cannot be reproduced exactly THEN THE SYSTEM SHALL block automated authority and identify the owning original slice (C-03 through C-10, N-09, N-10).",
+      "text": "WHEN the S13 cutover validator runs against the committed release authority THE SYSTEM SHALL revalidate every S01–S13 spec, status, report, report blob OID, semantic fingerprint, lifecycle transition, evidence interval, rollback fact, protocol marker, and T1/T2 bootstrap integration without changing a byte or awarding S13 its own PASS; IF any item cannot be reproduced exactly THEN THE SYSTEM SHALL block automated authority and identify the owning original slice (C-03 through C-10, N-09, N-10).",
       "ears_pattern": "complex",
       "test_refs": ["internal/maintainability/cutover_test.go:TestCutoverRevalidatesEveryBootstrapSliceWithoutMutation"]
+    },
+    {
+      "id": "AC-07",
+      "text": "WHEN S01 through S13 are freshly verified, T1 then T2 have exact pinned Baton v0.15.1 two-parent Track Integrator commits on clean local/remote-equal release-wt, no T5/T6 ref exists, and every planning, ambiguity, engine, and evidence gate passes THE SYSTEM SHALL let sworn maintainability cutover <release> recognize those two manual bootstrap integrations, change only protocol.json authority from planning to current, commit and push once, and return exit 0; a local exact commit without its remote update SHALL recover by push only, while any bootstrap parent/tree/provenance divergence, downgrade, force, alternate ref, or premature activation SHALL exit non-zero without mutation (C-03, C-13, N-09, N-10).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/maintainability_cutover_test.go:TestMaintainabilityCutoverBinaryReachability"]
+    },
+    {
+      "id": "AC-08",
+      "text": "WHEN sworn maintainability review receives an eligible exact C-04 scope with no included paths THE SYSTEM SHALL persist and durably transition the deterministic schema-valid PASS report for that empty manifest identity, perform zero model dispatches, and expose the same PASS/exit result and restart identity as any other authorized PASS (C-04, C-05, C-10, N-03, N-10).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["cmd/sworn/maintainability_test.go:TestMaintainabilityReviewEmptyScopePassesWithoutDispatch"]
     }
   ]
 }

@@ -7,7 +7,7 @@
   "state": "planned",
   "owner": "unassigned",
   "last_updated_by": "planner",
-  "last_updated_at": "2026-07-16T00:00:00Z",
+  "last_updated_at": "2026-07-16T00:00:00+10:00",
   "start_commit": null,
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/proof.json",
@@ -32,12 +32,22 @@
   "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []},
   "release_base": "release/v0.2.0",
   "release_benefit": "Establishes the atomic bootstrap boundary required before exact Baton v0.15 content can replace the current pin.",
+  "design_decisions": [
+    {
+      "choice": "Bootstrap the conformance release under exact v0.15 records before its conformant Sworn engine exists.",
+      "stake_class": "Type-1",
+      "options": ["staged manual v0.15 bootstrap with later engine revalidation", "out-of-band implementation followed by retrospective planning", "start under v0.13 and migrate executed records"],
+      "human_decision": "Ratified by Brad (Coach), 2026-07-15: use the staged manual v0.15 bootstrap and require S13 engine revalidation before automated authority.",
+      "rationale": "This preserves specification-first delivery without inventing lifecycle evidence during the self-hosting transition.",
+      "architecturally_significant": true
+    }
+  ],
   "validation": {
     "human_ratified": true,
     "ratified_by": "Coach",
-    "ratified_at": "2026-07-16T00:00:00Z",
+    "ratified_at": "2026-07-16T00:00:00+10:00",
     "positive_scenarios": ["A v0.15 check completes with no primary-worktree mutation."],
-    "negative_scenarios": ["A fault at any transaction phase restores the exact starting worktree."],
+    "negative_scenarios": ["Preflight leaves the worktree unchanged; recoverable apply failure restores exactly; incomplete rollback is explicit, preserves recovery material, and blocks later success."],
     "benefit_hypothesis": "An atomic, exact preflight prevents protocol upgrades from manufacturing mixed-version repository state."
   }
 }

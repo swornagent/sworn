@@ -2,8 +2,8 @@
   "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
   "slice_id": "S11-track-evidence-freshness",
   "release": "2026-07-15-baton-v0.15-conformance",
-  "track": "T4-integration-cutover",
-  "user_outcome": "Active and retired ownership intervals plus sync provenance preserve disjoint evidence while invalidating or blocking stale overlap.",
+  "track": "T2-engine-bootstrap",
+  "user_outcome": "An operator's sworn maintainability review revalidates active and retired ownership plus synchronization provenance, preserving disjoint evidence while planning or blocking stale overlap before reuse or dispatch.",
   "rationale": "A displayed PASS is not current integration evidence after sibling synchronization. C-08 reconstructs authoritative authored intervals and recognizes only Baton's exact synchronization topology so disjoint sibling bytes survive while overlapping reviewed evidence is invalidated deterministically.",
   "touchpoints": [
     "internal/integration/provenance.go",
@@ -13,27 +13,33 @@
     "internal/integration/freshness.go",
     "internal/integration/freshness_test.go",
     "internal/integration/invalidation.go",
-    "internal/integration/invalidation_test.go"
+    "internal/integration/invalidation_test.go",
+    "cmd/sworn/maintainability.go",
+    "cmd/sworn/maintainability_freshness_test.go"
   ],
   "references": [
+    {"kind": "contract", "contract_id": "C-01"},
     {"kind": "contract", "contract_id": "C-03"},
     {"kind": "contract", "contract_id": "C-04"},
     {"kind": "contract", "contract_id": "C-05"},
     {"kind": "contract", "contract_id": "C-06"},
+    {"kind": "contract", "contract_id": "C-07"},
     {"kind": "contract", "contract_id": "C-08"},
     {"kind": "slice", "slice_id": "S05-protocol-provenance-archive"},
     {"kind": "slice", "slice_id": "S06-exact-git-object-plumbing"},
     {"kind": "slice", "slice_id": "S07-canonical-semantic-scope"},
     {"kind": "slice", "slice_id": "S08-report-ledger-identity"},
     {"kind": "slice", "slice_id": "S09-lifecycle-fsm-adjudication"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/normative-clarifications.md"},
     {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"}
   ],
   "in_scope": [
     "Reconstruct each slice's active authoritative interval from its immutable start_commit through the current pinned implementation_head, walking first-parent non-merge authored commits and validating every C-04 semantic path and C-05 report identity.",
     "Retain terminal failed or re-sliced candidate intervals as retired ownership evidence without treating their historical PASS or former implementation_head as current readiness.",
-    "Recognize synchronization only as a validated two-parent merge whose parents, tree, authority refs, release-record conflict treatment, and first-parent position satisfy C-08; arbitrary merges, rebases, octopus merges, squash commits, and copied trees are not synchronization provenance.",
-    "Compare post-review synchronization contributions to active candidate paths and later authoritative intervals, preserving disjoint additions and deterministically invalidating the exact overlapping reviewed interval with its synchronization merge, parent-2 rollback baseline, and invalidated review head.",
-    "Fail closed on missing ancestry, rewritten refs, ambiguous ownership, overlap with a later authoritative interval, or any provenance shape that cannot support one deterministic disposition."
+    "Recognize synchronization only as the exact two-parent parent order, unique merge-base, canonical production/shared tree, structural release-wt segment, and release-record composition in planning/normative-clarifications.md section 6; arbitrary merges, same-path record conflicts, rebases, octopus merges, squash commits, and copied trees are unrecognized.",
+    "Compare post-review synchronization contributions to active candidate paths and later authoritative intervals, preserving disjoint additions and, only for a recognized intersecting sync disjoint from later authority, return the exact mutation-free local invalidation plan from section 8 with invalidating merge, parent-2 rollback baseline, invalidated review head, state/result changes, preserved ledger/adjudication, and cleared implementation head.",
+    "Fail closed without a transition plan on missing ancestry, rewritten refs, ambiguous ownership, shipped authority, overlap with a later authoritative interval, or any provenance shape that cannot support one deterministic disposition.",
+    "Extend the real sworn maintainability review command to revalidate C-08 before report reuse or dispatch; when freshness is valid it exits non-zero with redacted reason readiness_authority_unavailable until S12 lands, while a deterministic invalidation remains a mutation-free plan for S15."
   ],
   "out_of_scope": [
     "Computing the canonical semantic manifest and fingerprint belongs to S07-canonical-semantic-scope.",
@@ -64,13 +70,13 @@
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "text": "WHEN a linear track contains two slices with valid C-05 authoritative reports and disjoint C-04 candidate sets separated by recognized release-wt synchronization merges THE SYSTEM SHALL reconstruct each slice's first-parent non-merge authored interval, retain both active authorities, and attribute no merge-only sibling path to either slice (C-04, C-05, C-08, N-06).",
+      "text": "WHEN a linear track contains two slices with valid C-05 authoritative reports and disjoint C-04 candidate sets separated by recognized release-wt synchronization merges THE SYSTEM SHALL reconstruct each slice's first-parent non-merge authored interval, retain both active authorities, and attribute no merge-only sibling path to either slice (C-04, C-05, C-08, N-04, N-06, N-07, N-09).",
       "ears_pattern": "event-driven",
       "test_refs": ["internal/integration/freshness_test.go:TestEvidenceIntervalsPreserveDisjointSiblingWork"]
     },
     {
       "id": "AC-02",
-      "text": "WHEN a recognized two-parent synchronization merge changes a path in the newest authoritative review_scope_head candidate set THE SYSTEM SHALL invalidate that active interval, clear no historical ledger entry, and return the exact invalidating_sync_merge, parent-2 rollback_baseline_commit, and invalidated_review_head required by C-08 (C-08, N-06, N-07).",
+      "text": "WHEN a recognized two-parent synchronization merge after the verified frontier changes a path in the newest authoritative review_scope_head candidate set and that set is disjoint from all later authoritative candidates THE SYSTEM SHALL return one mutation-free C-08 transition plan preserving ledger/adjudication, clearing implementation_head, setting maintainability re_slice_required plus overall failed_verification/verification fail, and recording exact invalidating_sync_merge, parent-2 rollback_baseline_commit, and invalidated_review_head for S15 to commit locally without push (C-08, N-06, N-07).",
       "ears_pattern": "event-driven",
       "test_refs": ["internal/integration/freshness_test.go:TestRecognizedSyncOverlapProducesDeterministicInvalidation"]
     },
@@ -82,15 +88,21 @@
     },
     {
       "id": "AC-04",
-      "text": "IF a candidate sync is an octopus, squash, rebase, copied tree, parent-reversed merge, has an unretained or wrong authority parent, changes release records outside the permitted composition, or cannot resolve required ancestry THEN THE SYSTEM SHALL reject it as unrecognized provenance and SHALL leave every status and ref unchanged (C-03, C-08, N-06, N-09).",
+      "text": "IF a candidate sync violates any parent, ancestry, structural-segment, canonical non-record/shared tuple, or pathwise release-record rule in planning/normative-clarifications.md section 6—including a divergent both-parent-changed record other than deterministic index rendering—THEN THE SYSTEM SHALL reject it as unrecognized provenance and leave every status and ref unchanged (C-03, C-08, N-06, N-09).",
       "ears_pattern": "unwanted-behaviour",
       "test_refs": ["internal/integration/freshness_test.go:TestSyncProvenanceRejectsNonCanonicalHistoryShapes"]
     },
     {
       "id": "AC-05",
-      "text": "IF a post-sync invalidated candidate set overlaps any later authoritative slice candidate set THEN THE SYSTEM SHALL block automatic rollback classification with both slice IDs and the overlapping paths, require track reconstruction, and SHALL NOT narrow either ownership interval (C-08, N-06, N-07).",
+      "text": "IF a post-sync invalidated candidate set overlaps any later authoritative slice candidate set, provenance is unrecognized/custom, or shipped authority is affected THEN THE SYSTEM SHALL block with both slice IDs and overlapping paths when applicable, require track reconstruction, emit no invalidation transition plan, and leave every lifecycle record and ref unchanged (C-08, N-06, N-07).",
       "ears_pattern": "unwanted-behaviour",
       "test_refs": ["internal/integration/freshness_test.go:TestPostSyncOverlapWithLaterAuthorityRequiresReconstruction"]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHEN the built sworn binary runs maintainability review over exact C-04/C-05/C-06 evidence with a recognized disjoint synchronization THE SYSTEM SHALL reach C-08 through the public command, preserve reusable authority, then exit non-zero with redacted reason readiness_authority_unavailable and zero dispatch or mutation; recognized stale overlap SHALL return only the deterministic invalidation plan and later overlap, shipped authority, or unrecognized provenance SHALL block without a plan (C-08, N-04, N-06, N-07, N-09).",
+      "ears_pattern": "complex",
+      "test_refs": ["cmd/sworn/maintainability_freshness_test.go:TestMaintainabilityFreshnessBinaryReachability"]
     }
   ]
 }
