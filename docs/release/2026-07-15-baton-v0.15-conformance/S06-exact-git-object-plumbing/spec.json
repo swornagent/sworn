@@ -1,0 +1,79 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S06-exact-git-object-plumbing",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "track": "T2-semantic-scope",
+  "user_outcome": "Sworn domain authorities receive NUL-safe, binary-safe typed APIs for committed paths, blobs, trees, ancestry, merge-base, canonical merge-file, clean-state, commit, and exact-ref push operations without importing Baton semantics.",
+  "rationale": "This slice is the sole low-level Git boundary for semantic scope and later integration. It returns raw committed identities rather than parsing human-oriented output, invokes git with argv rather than a shell, never logs blobs, and confines every path to the repository. There is no PII, network protocol, UI, or accessibility surface beyond deterministic errors. Path/object enumeration and history walks are linear in Git output; callers, not this layer, own Baton policy.",
+  "touchpoints": [
+    "internal/git/raw.go",
+    "internal/git/raw_test.go",
+    "internal/git/object.go",
+    "internal/git/object_test.go",
+    "internal/git/history.go",
+    "internal/git/history_test.go",
+    "internal/git/mergefile.go",
+    "internal/git/mergefile_test.go",
+    "internal/git/durable.go",
+    "internal/git/durable_test.go",
+    "internal/git/testrepo_test.go"
+  ],
+  "references": [
+    {"kind": "contract", "contract_id": "C-01"},
+    {"kind": "slice", "slice_id": "S05-protocol-provenance-archive"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"}
+  ],
+  "in_scope": [
+    "Add typed committed tree-entry and blob APIs returning exact repo-relative path bytes, mode, object type, object ID, and unmodified blob bytes; parse -z/NUL-delimited Git output and preserve unusual whitespace, tabs, newlines, Unicode, symlinks, submodules, and binary blobs.",
+    "Add first-parent commit/parent enumeration, merge-base, ancestry, exact tree lookup, and commit-to-path/blob history operations that distinguish absent objects, shallow history, command failure, and a legitimate false ancestry result.",
+    "Wrap git merge-file --object-id over explicit base/ours/theirs committed blobs and return the canonical result object ID, clean/conflict disposition, and stderr-safe error without consulting worktree attributes, filters, custom drivers, or hand-resolved bytes.",
+    "Provide clean worktree/index preflight, atomic staging of an explicit confined path set, commit identity retrieval, and exact destination-ref push with expected-source verification for later restart-safe command transactions.",
+    "Use one argv-based runner with an explicit repository directory, -- separators where paths follow revisions, bounded output parsing, and typed exit-status handling; reject empty repository roots, NUL-bearing inputs, option-like unsafe refs, and non-confined paths before execution.",
+    "Prove the exported Git boundary against real temporary SHA-1 and, when supported, SHA-256 repositories with adversarial filenames, binary bytes, merge commits, shallow-history fixtures, conflicts, clean/dirty state, and a local bare remote."
+  ],
+  "out_of_scope": [
+    "Candidate-path selection, canonical exclusions, normalized diffs, manifests, and fingerprints belong to S07-canonical-semantic-scope.",
+    "Report, lifecycle, freshness, rollback, shared-touchpoint, and integration-ready semantics belong to S08 through S12.",
+    "This package must not import internal/maintainability, internal/integration, board, state, protocol policy, model, command, or MCP packages.",
+    "Network transports other than Git's later caller-directed push to an already configured ref are not added; credentials and remote URLs are never logged."
+  ],
+  "covers_needs": ["N-03", "N-04", "N-06", "N-07", "N-08", "N-10"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "The API surface is broad across eleven files but each operation has a documented Git plumbing contract and deterministic temporary-repository proof.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {"id": "R-01", "description": "Line-oriented parsing corrupts valid Git paths or binary content and changes semantic identity.", "mitigation": "Use -z output and length-safe byte parsing end to end; include newline, tab, leading dash, Unicode, symlink, submodule, and NUL-containing blob fixtures."},
+    {"id": "R-02", "description": "Ref or path input is interpreted as a Git option or shell expression.", "mitigation": "Never invoke a shell, validate refs with Git's check-ref-format/rev-parse rules, use -- separators, and reject empty roots or NUL before spawning."},
+    {"id": "R-03", "description": "Canonical merge-file or push behavior depends on ambient Git configuration.", "mitigation": "Operate on explicit object IDs and explicit destination refs, clear relevant config in fixtures, and repeat proofs under hostile attributes, filters, merge drivers, and push defaults."}
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN the raw Git boundary reads a real repository containing adversarial filenames, binary blobs, symlinks, submodules, and both object formats THE SYSTEM SHALL return exact path bytes, modes, object types, object IDs, and blob bytes without line-splitting or normalization.",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/git/raw_test.go:TestRawGitObjectPlumbingRealRepository"]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN callers request first-parent history, commit parents, ancestry, merge-base, tree entries, or a record's introducing path/blob commit THE SYSTEM SHALL distinguish valid false/absent outcomes from command errors and fail explicitly on shallow or missing required history.",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/git/history_test.go:TestTypedHistoryAndAncestryOutcomes", "internal/git/object_test.go:TestCommittedTreeEntryIdentity"]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN merge-file receives three committed blob OIDs under hostile attributes, filters, and custom merge drivers THE SYSTEM SHALL return Git's configuration-independent --object-id result and clean/conflict status, never worktree or manually resolved bytes.",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/git/mergefile_test.go:TestMergeFileObjectIDIgnoresRepositoryConfiguration"]
+    },
+    {
+      "id": "AC-04",
+      "text": "IF repository root, ref, object, path, cleanliness, staging, commit, expected source, or exact destination-ref push precondition is invalid THEN THE SYSTEM SHALL return a typed non-success result before performing the next mutation and SHALL redact blob bytes, credentials, and remote URLs from errors.",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/git/durable_test.go:TestDurableGitMutationPreconditionsAndExactRefPush", "internal/git/raw_test.go:TestGitRunnerRejectsUnsafeInputs"]
+    }
+  ]
+}
