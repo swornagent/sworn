@@ -1,0 +1,84 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S07-canonical-semantic-scope",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "track": "T2-semantic-scope",
+  "user_outcome": "An operator receives one exact candidate path set, exclusion record, mode-and-object manifest, fingerprint, and normalized maintainability prompt diff, with stale or unrecognized provenance failing closed.",
+  "rationale": "This slice owns C-04 and turns S06's raw committed objects into Baton's sole semantic identity. It reads no network or credentials, never logs source/blob payloads outside the explicitly returned normalized diff, and ignores dirty/untracked work. Output is deterministic machine data with no UI accessibility concern. Enumeration, classification, manifest construction, and sorting are O(commits plus changed paths plus included bytes), with bytewise sort O(n log n); no quadratic path comparisons are permitted.",
+  "touchpoints": [
+    "internal/maintainability/scope/types.go",
+    "internal/maintainability/scope/builder.go",
+    "internal/maintainability/scope/builder_test.go",
+    "internal/maintainability/scope/paths.go",
+    "internal/maintainability/scope/paths_test.go",
+    "internal/maintainability/scope/exclusions.go",
+    "internal/maintainability/scope/exclusions_test.go",
+    "internal/maintainability/scope/manifest.go",
+    "internal/maintainability/scope/manifest_test.go",
+    "internal/maintainability/scope/diff.go",
+    "internal/maintainability/scope/diff_test.go",
+    "internal/maintainability/scope/provenance.go",
+    "internal/maintainability/scope/provenance_test.go"
+  ],
+  "references": [
+    {"kind": "contract", "contract_id": "C-01"},
+    {"kind": "contract", "contract_id": "C-04"},
+    {"kind": "slice", "slice_id": "S05-protocol-provenance-archive"},
+    {"kind": "slice", "slice_id": "S06-exact-git-object-plumbing"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"}
+  ],
+  "in_scope": [
+    "Require a clean worktree/index; accept immutable full commit IDs for start/base, requested review head, current track head, release-wt ref, release, slice, and physical status path; verify base and pinned heads on the required first-parent chains.",
+    "Derive authored candidates from reverse first-parent non-merge commits in base..head using NUL-delimited no-rename path changes; separately derive merge contributions, reject authored/merge overlap, and exclude a merge only after exact two-parent release-wt synchronization provenance succeeds.",
+    "Reject unrecognized synchronization, ambiguous merge-base, custom merge trees, post-pin authored semantic changes, invalid UTF-8 paths, and post-pin merge contributions overlapping the reviewed candidate set; record recognized merge-only paths as excluded with stable reasons.",
+    "Exclude only net-zero paths, the physical release record/evidence tree, head-tree paths explicitly marked baton-generated or linguist-generated as set/true, and the exact Baton lockfile basename list; undeclared generated output remains included.",
+    "Sort included and excluded paths by unsigned UTF-8 bytes and emit exclusions once with stable reason codes plus the exact base/head/sync provenance tuple used to construct the scope.",
+    "Build C-04's NUL-framed baton-maintainability-v1 manifest from path length/bytes and base/head mode plus full object IDs or absence, then derive lowercase sha256 input_fingerprint from those exact bytes.",
+    "Generate the prompt diff only over included literal paths with LC_ALL=C, disabled external/textconv/colour/rename/indent/function/inter-hunk effects, full indexes, binary patches, Myers, three context lines, fixed a/ and b/ prefixes, and short submodule rendering; invalid UTF-8 output fails closed and an empty included set returns deterministic empty-diff identity."
+  ],
+  "out_of_scope": [
+    "Model dispatch, full-report persistence, reuse, and status-ledger identity belong to S08 and S13.",
+    "Lifecycle phase, role, cycle, budget, and Coach transition validation belongs to S09-lifecycle-fsm-adjudication.",
+    "Track-wide active/retired intervals, shared composition, rollback equality, and integration readiness belong to S10 through S12.",
+    "This package must not read working-tree content as semantic authority, guess generated files, use broad ignore patterns, or expose adapter-specific scope variants."
+  ],
+  "covers_needs": ["N-03", "N-06", "N-07", "N-08", "N-10"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "The algorithm binds first-parent provenance, exact exclusions, binary object identity, deterministic diff presentation, and stale-head rejection across thirteen focused files.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {"id": "R-01", "description": "A merge-only contribution is excluded without proving it is a canonical release-wt synchronization, hiding authored product bytes from review.", "mitigation": "Require the exact two-parent, second-parent reachability, unique merge-base, canonical tree, and release-branch structural provenance tests before classifying any merge contribution as excluded."},
+    {"id": "R-02", "description": "Generated or lockfile heuristics become broad local ignore rules and omit semantic changes.", "mitigation": "Implement only the exact attribute values and basename allowlist in C-04, record every exclusion reason, and mutation-test near-miss names and unset/false attributes as included."},
+    {"id": "R-03", "description": "Ambient Git diff configuration changes prompt bytes without changing the fingerprint, allowing unsafe report reuse.", "mitigation": "Pin every diff flag and locale, compare under hostile config/attributes/drivers, and require the committed manifest identity plus normalized diff fixture to remain invariant."}
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN TestCanonicalScopeRealGitRepository constructs clean real histories with authored commits, recognized sync merges, generated attributes, lockfiles, binary changes, modes, submodules, and adversarial paths THE SYSTEM SHALL emit exactly C-04's included paths, exclusion reasons, provenance, manifest, fingerprint, and normalized diff.",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/maintainability/scope/builder_test.go:TestCanonicalScopeRealGitRepository"]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN two repositories have the same committed base/head path bytes, modes, objects, and accepted provenance but different worktree bytes, locale, diff config, attributes, external drivers, textconv, or rename settings THE SYSTEM SHALL emit identical C-04 identity and prompt diff.",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/maintainability/scope/diff_test.go:TestNormalizedDiffIgnoresAmbientConfiguration", "internal/maintainability/scope/manifest_test.go:TestManifestIdentityExactBytes"]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN any included path's committed bytes, mode, full object identity, net presence, or accepted provenance changes THE SYSTEM SHALL change the semantic manifest or reject construction; release-record, explicitly generated, exact lockfile-only, and net-zero changes SHALL remain recorded exclusions and not consume prompt scope.",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/maintainability/scope/manifest_test.go:TestEverySemanticMutationChangesFingerprint", "internal/maintainability/scope/exclusions_test.go:TestCanonicalExclusionMatrix"]
+    },
+    {
+      "id": "AC-04",
+      "text": "IF commits, first-parent ancestry, synchronization provenance, merge tree, UTF-8, cleanliness, pinned head, post-pin changes, authored-versus-merge ownership, or normalized diff output is ambiguous or invalid THEN THE SYSTEM SHALL fail scope construction with no partial scope, report, or model dispatch.",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/maintainability/scope/provenance_test.go:TestScopeProvenanceFailureMatrix", "internal/maintainability/scope/builder_test.go:TestScopeFailureHasNoPartialAuthority"]
+    }
+  ]
+}
