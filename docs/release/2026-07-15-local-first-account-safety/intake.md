@@ -258,6 +258,30 @@ drivers remain usable.
 - **Why**: this is turnkey for ordinary upgrades without allowing convenience to
   outrank durable verification or secret hygiene.
 
+### 2026-07-15 — Complete the ratified telemetry consent experience
+
+- **Context**: outbound dispatch and install-ID creation now gate on opt-in, but
+  the CLI still has a pre-value startup disclosure and dead default-yes consent
+  function while the ratified exact preview and success-triggered invitation are
+  absent.
+- **Options considered**: complete the full ratified contract and resolve #118;
+  limit this release to transport safety; or remove outbound telemetry entirely.
+- **Decision**: complete the full contract in this release. Telemetry remains off
+  until `sworn telemetry on`; `sworn init` may state that it is disabled but does
+  not ask for consent; the obsolete prompt and pre-value disclosure are removed;
+  and `sworn telemetry preview` shows the exact representative event without an
+  install ID or network request.
+- **Invitation contract**: after the first successful PASS or verified delivery
+  gesture, an interactive TTY may show one non-blocking value-led invitation.
+  Dismissal leaves telemetry off and suppresses future invitations. It never
+  enters JSON, piped, CI, MCP or other non-interactive output. Persistent opt-out
+  and `SWORN_NO_TELEMETRY=1` continue to dominate stored opt-in.
+- **Tracking**: this release absorbs the reachable implementation and
+  reconciliation scope of [sworn#118](https://github.com/swornagent/sworn/issues/118).
+- **Why**: consent must be coherent from invitation through preview, explicit
+  enablement and transport; another partial repair would retain a known trust
+  contradiction.
+
 ### 2026-07-15 — Name the release for its user promise
 
 - **Context**: the private handoff used “trust-contract safety”, which is accurate
@@ -315,7 +339,7 @@ credits and hosted email are now removal scope.
 | A-02 | Exact retained `sworn account` fields and behaviour after credit removal | N-03, N-08 | **Resolved**: authoritative identity/session status; optional server-authored plan and expiry; no commerce, models or notification state |
 | A-03 | Whether obsolete `SWORN_DIRECT` is removed immediately or retained as a one-release no-op deprecation | N-02, N-03, N-09 | **Resolved**: remove active recognition now; direct routing becomes invariant and no replacement flag is introduced |
 | A-04 | Migration and rollback behaviour when an older Sworn binary encounters the new credential layout | N-01, N-09 | **Resolved**: automatic idempotent account-command migration; verify before cleanup; temporary recovery only; conflicts fail closed; old binaries retain providers and appear logged out |
-| A-05 | Whether this release includes the complete ratified telemetry preview/invitation UX or only safety-boundary reconciliation | N-05, N-07 | human scope decision before decomposition |
+| A-05 | Whether this release includes the complete ratified telemetry preview/invitation UX or only safety-boundary reconciliation | N-05, N-07 | **Resolved**: full ratified preview, explicit opt-in, value-led one-time invitation and output suppression; absorb #118 |
 | A-06 | Exact generic webhook consent/config storage before the autonomous release supplies the durable outbox | N-05, N-06 | architecture investigation; must consume credential ownership without inventing operations state |
 | A-07 | Which account/auth endpoint override seam remains for tests after all ordinary bearer-token redirection is removed | N-07, N-08 | architecture investigation before wire-contract registration |
 
