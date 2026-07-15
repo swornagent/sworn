@@ -1,0 +1,41 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
+  "slice_id": "S11-track-evidence-freshness",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "track": "T4-integration-cutover",
+  "covers_needs": ["N-04", "N-06", "N-07", "N-09"],
+  "state": "planned",
+  "owner": "human",
+  "last_updated_by": "codex-planner",
+  "last_updated_at": "2026-07-16T00:09:16+10:00",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S11-track-evidence-freshness/spec.json",
+  "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S11-track-evidence-freshness/proof.json",
+  "journal_path": "docs/release/2026-07-15-baton-v0.15-conformance/S11-track-evidence-freshness/journal.md",
+  "planned_files": [
+    "internal/integration/provenance.go",
+    "internal/integration/provenance_test.go",
+    "internal/integration/intervals.go",
+    "internal/integration/intervals_test.go",
+    "internal/integration/freshness.go",
+    "internal/integration/freshness_test.go",
+    "internal/integration/invalidation.go",
+    "internal/integration/invalidation_test.go"
+  ],
+  "actual_files": [],
+  "test_commands": ["go test ./internal/integration", "go test ./...", "go vet ./...", "test -z \"$(gofmt -l .)\""],
+  "reachability_artifacts": ["go test ./internal/integration -run TestEvidenceIntervalsPreserveDisjointSiblingWork drives C-08 through real temporary Git histories with recognized synchronization"],
+  "maintainability": {"state": "pending", "cycle": 0, "implementation_head": null, "rollback_slice_id": null, "reports": [], "adjudication": null},
+  "open_deferrals": [],
+  "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []},
+  "release_base": "release/v0.2.0",
+  "release_benefit": "Sworn can distinguish current verified evidence from stale or historical ownership after track synchronization.",
+  "validation": {
+    "human_ratified": true,
+    "ratified_by": "Coach",
+    "ratified_at": "2026-07-16T00:09:16+10:00",
+    "positive_scenarios": ["Disjoint authoritative intervals survive a recognized release synchronization merge without losing sibling evidence."],
+    "negative_scenarios": ["Overlapping or non-canonical synchronization cannot preserve stale PASS evidence or authorize an automatic rollback."],
+    "benefit_hypothesis": "Explicit interval and provenance authority prevents a green board from hiding code that changed after review."
+  }
+}
