@@ -57,6 +57,51 @@ later write-mode invocation may report success until the preserved snapshot has
 been restored exactly; diagnostics name only the unrestored destination paths
 and recovery location, never source payload bytes.
 
+For upstream write mode, the command captures one invocation instant before
+materialisation. `internal/baton/version.go` constructs the complete replacement
+bytes for `internal/adopt/baton/VERSION` from that instant, tag, SHA and digest
+without writing them. Those bytes join the same byte-sorted destination plan as
+every mapped vendor file before the first mutation and participate in the same
+snapshot, apply, rollback, post-rollback comparison and recovery transaction.
+There is no later standalone pin write. S01 implements and proves this machinery
+but does not run the v0.15.1 content/pin update; S02 executes that update.
+
+Incomplete rollback is restart-authoritative only through the fixed sentinel
+`<git-admin>/sworn/recovery/baton-vendor/rollback-incomplete.json`, where
+`<git-admin>` is the physically resolved administrative directory for the
+current worktree. The sentinel and its one transaction directory are owner-only:
+directories are `0700`, sentinel/manifest/snapshot files are `0600`, and no
+symlink may occur at or below the recovery root. The compact deterministic
+manifest contains the physical repository root and Git-admin directory plus
+destination tuples byte-sorted by canonical repository-relative UTF-8 path; it
+does not contain its own transaction identity. Each tuple contains exactly the
+destination path, original existence, original four-digit permission mode or
+`-`, original byte SHA-256 or `-`, and a recovery-root-relative snapshot path or
+`-`. Existing destinations have one regular snapshot whose bytes match the
+recorded digest; originally absent destinations have neither mode, digest nor
+snapshot. The transaction identity is SHA-256 over the exact compact manifest
+bytes plus final LF, and the transaction directory name is the bare 64-hex
+digest. The separately serialized fixed sentinel contains the lowercase
+`sha256:<64 hex>` transaction identity and points to that transaction directory;
+it is not an input to the manifest digest.
+
+A later write invocation that sees the sentinel performs recovery only. Before
+touching a destination it requires the record's physical repository/Git-admin
+identity to equal the current invocation, every path to be canonical,
+repository-confined and one of that transaction's mapped destinations or
+VERSION, every snapshot path to be canonical and confined to the named
+transaction directory, every recovery component to be non-symlinked with the
+required owner-only mode, the manifest digest/directory identity to match, and
+the complete material set to contain no missing, duplicate or foreign entry.
+Traversal, foreign paths or entries, missing material, symlinks, mode drift,
+tampered records/manifests/snapshots, or any bytes/mode/existence mismatch makes
+recovery fail with exit 2: recovery material remains, no ordinary vendor plan is
+applied, and diagnostics expose paths/classes only. Valid recovery restores each
+recorded original, verifies exact bytes, mode and existence for the complete
+tuple set, then removes the sentinel and transaction material; that invocation
+still exits 2 with explicit re-run guidance and never combines recovery with a
+new vendor write.
+
 `sworn baton diff` is the repository-to-embedded read-only parity surface. It
 exits 0 only when the complete mapped repository set, normative JSON bytes,
 schema classifications, pin fields, and embedded source are exact; it exits 1

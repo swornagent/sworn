@@ -25,3 +25,25 @@
   `cmd/sworn/baton.go`, but that file is absent from the slice touchpoints. The
   Captain must require a planner correction or decline before implementation;
   the Implementer will not cross that ownership boundary.
+## 2026-07-16 — Coach-ratified narrow replan
+
+- Seeded the authoritative lifecycle from owner ref
+  `track/2026-07-15-baton-v0.15-conformance/T1-foundation` at Captain review tip
+  `1bc4d7508960d83182e2177a18374df530c632fc`; source `status.json` blob
+  `fe20a546c5b9b98e42a245ac4933a267047e27c9`. The `design_review` state and
+  complete pending cycle-0 `maintainability` object are preserved.
+- Captain review commit `1bc4d7508960d83182e2177a18374df530c632fc`
+  returned `NEEDS_COACH`: S01 could not own the public exit map or durable
+  recovery authority, and the upstream pin sat outside the mapped-file
+  transaction.
+- Coach decision: add `cmd/sworn/baton.go`, `internal/baton/version.go`, and
+  `internal/baton/version_test.go`; bind public vendor exits 0/1/2; construct
+  upstream VERSION replacement bytes before mutation from one captured
+  invocation instant and include them in the mapped-file transaction; and make
+  the fixed Git-admin-confined owner-only recovery record the sole,
+  integrity-checked recovery authority. Excluding pin writes from the atomic
+  boundary is rejected because it preserves partial success.
+- S01 changes transaction machinery and tests only. It does not execute the
+  v0.15.1 pin/content/install update; S02 retains that outcome.
+- The expanded design must be revised and receive a fresh Captain review before
+  implementation resumes; no production code was authorized here.
