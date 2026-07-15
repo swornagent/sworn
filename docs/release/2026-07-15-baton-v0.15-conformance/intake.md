@@ -259,6 +259,39 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   validators. Reverse imports and adapter-specific reimplementations are
   prohibited.
 
+### 2026-07-15 — Prove live and historical protocol authority from committed evidence
+
+- **Context**: Five existing releases contain status records authored under
+  more than one Baton version. Release name, planning date, displayed state,
+  missing fields and the running binary's current pin therefore cannot establish
+  the protocol that governed an individual historical record.
+- **Options considered**: exact live marker plus per-record historical Git
+  evidence; one release-name/version registry; inference from record shape or
+  the running binary.
+- **Decision**: Every live or migrated release carries a Sworn-owned committed
+  `docs/release/<release>/protocol.json` record that pins the protocol name,
+  exact version, upstream commit SHA, source digest and vendored `VERSION` blob
+  OID. Before any dispatch, write, verification, integration, release or ship
+  operation, the marker must be committed, identical on every participating
+  authority ref and exactly equal to the running binary's embedded pin.
+- **Historical rule**: For read-only archive inspection, resolve each requested
+  record's blob at the authority ref, walk the first-parent history to the commit
+  that introduced the current path/blob identity, and read the canonical Baton
+  `VERSION` blob from that exact tree. Return the record blob, evidence commit,
+  version path/blob and resolved pin as inspection metadata. This evidence never
+  authorizes a current operation.
+- **Why**: The two-layer scheme gives live work an explicit immutable authority
+  and preserves the truth of mixed-era history without a manually curated
+  mapping or a structural legacy heuristic.
+- **Fail-closed obligation**: Missing, dirty-only, deleted, divergent,
+  unsupported, malformed or binary-mismatched live markers block before side
+  effects. Missing objects, shallow history, conflicting version files or an
+  otherwise unresolvable archive record fail structured inspection; an explicit
+  raw mode may emit exact committed bytes but cannot claim validation.
+- **Read-only obligation**: Archive inspection must not call current record
+  writers or lazily create `board.json`. The working tree and refs are
+  byte-identical before and after inspection.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`
@@ -286,6 +319,7 @@ slice boundaries.
 | A-01 | Whether strict v0.15 validation applies retroactively to closed historical releases or only to records whose committed protocol version predates v0.15 | Record loading, trace, board oracle, merge/release/ship gates, and active-plan migration | Ratified: version-gated read-only archive; explicit Planner migration before any current workflow |
 | A-02 | Exact public command spelling for maintainability operations and Coach adjudication | CLI reachability tests and adapter ownership | Ratified: dedicated `sworn maintainability review` and `sworn maintainability adjudicate`; generic `llm-check` execution retired |
 | A-03 | Whether canonical v0.15 operations fit existing packages or require new focused internal packages | Touchpoints, tracks and file ceilings | Ratified: focused `maintainability/scope`, `maintainability/ledger`, and `integration` authorities with thin adapters and lossless carriers |
+| A-04 | How a current operation proves v0.15 authority while historical releases contain mixed protocol eras | Protocol selection, archive inspection, migration and every mutation/success path | Ratified: exact committed `protocol.json` for live authority plus per-record Git evidence for read-only history |
 
 ## Screenshots / references
 
