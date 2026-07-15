@@ -47,3 +47,25 @@
   v0.15.1 pin/content/install update; S02 retains that outcome.
 - The expanded design must be revised and receive a fresh Captain review before
   implementation resumes; no production code was authorized here.
+
+## 2026-07-16 — Implementer design revision after Coach resolution
+
+- Revised `design.md` against Coach-ratified replan
+  `05eefeb0c849b22a68f669a80de199ac071c023f` and the exact v0.15.1 role source
+  at `3fb4d275ae8a151f6287e7b9279d71628b12eea0`; no production code, tests,
+  proof, acknowledgement, or lifecycle transition was created.
+- Resolved Captain pin 1 in the design: S01 now plans `cmd/sworn/baton.go`,
+  `internal/baton/version.go`, and `internal/baton/version_test.go`; the public
+  command captures one invocation instant, pure VERSION bytes join the complete
+  transaction before mutation, and exits are exactly 0/1/2.
+- Resolved Captain pin 2 in the design: the sole restart authority is the fixed,
+  owner-only Git-admin sentinel plus a non-self-referential manifest-addressed
+  transaction; a fresh invocation validates the complete confined material set
+  and rejects tamper, traversal, missing, symlinked, mode-drifted, duplicate, or
+  foreign material before any destination write.
+- Preserved Captain pin 3 and the ownership boundary: the exact normative schema
+  bytes remain compiler input, while S02 still owns executing the v0.15.1
+  content/pin update and Codex/Claude mirror installs.
+- Coach resolution is incorporated, but not acknowledged as design approval.
+  State remains `design_review`; a fresh Captain review is required before any
+  `in_progress` transition or implementation.
