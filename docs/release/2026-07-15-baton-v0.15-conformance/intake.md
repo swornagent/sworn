@@ -707,6 +707,25 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   update. S01 remains in `design_review`; its design must be revised and
   re-reviewed before implementation.
 
+### 2026-07-16 — Keep the diff parity fixtures compatible with S01 preflight
+
+- **Context**: All three pre-existing parity tests in
+  `internal/baton/diff_test.go` call write-mode `Vendor` to seed temporary
+  repositories. S01's exact Git-admin-confined recovery preflight now requires
+  those repository fixtures to provide a fake or real `.git` administrative
+  directory.
+- **Coach decision**: Add only `internal/baton/diff_test.go` to S01's
+  touchpoints and planned files so the owned test fixtures can satisfy that
+  mechanically required precondition.
+- **Boundary**: This is test-fixture compatibility, not new behavior. There is
+  no `internal/baton/diff.go` production change, acceptance-criterion or user
+  outcome change, new dependency, track/topology change, contract change, or
+  shared-touchpoint exception.
+- **Lifecycle**: Preserve the exact committed T1 owner lifecycle at
+  `dc9835e4cb66a7e5f51f8ad5f6e64ffcc48a2488`, including `in_progress`, the
+  immutable `start_commit`, and the complete maintainability and verification
+  objects; update only the planned-file boundary and planner metadata.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`

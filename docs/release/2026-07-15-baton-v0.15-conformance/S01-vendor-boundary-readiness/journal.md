@@ -87,3 +87,26 @@
 - Implementation remains under the staged manual bootstrap. S01 will stop at
   `implemented`; fresh verification and the S13 engine revalidation boundary
   remain separate authorities.
+## 2026-07-16 — Coach-ratified diff fixture compatibility replan
+
+- Seeded the authoritative lifecycle from owner ref
+  `track/2026-07-15-baton-v0.15-conformance/T1-foundation` at committed tip
+  `dc9835e4cb66a7e5f51f8ad5f6e64ffcc48a2488`; source `status.json` blob
+  `747b0e433a740ad5f50ffbcb1bab7262b6e9fe72` validates against exact Baton
+  v0.15.1 `slice-status-v1`, and its immutable start anchor is present in the
+  owner first-parent history.
+- Coach decision: add only `internal/baton/diff_test.go` to S01's touchpoints
+  and planned files. Its three pre-existing parity tests call write-mode
+  `Vendor` to seed temporary repositories, so the exact Git-admin-confined
+  recovery preflight requires those fixtures to create a fake or real `.git`
+  administrative directory.
+- This is test-fixture compatibility only. `internal/baton/diff.go`, the user
+  outcome, acceptance criteria, dependency graph, track topology, contracts,
+  and shared-touchpoint authority remain unchanged.
+- The owner-seeded `in_progress` state, `start_commit`, complete pending cycle-0
+  `maintainability` object, and pending `verification` object are preserved;
+  only the planned-file addition and planner update metadata change.
+- The T1 worktree has uncommitted implementation work, so release-to-track
+  propagation is deliberately skipped. The release-wt planner commit is the
+  handoff for the orchestrator to merge after confirming the dirty files do not
+  overlap these release records.
