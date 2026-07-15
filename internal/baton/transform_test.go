@@ -1,6 +1,7 @@
 package baton
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -143,6 +144,44 @@ func TestTransformFailsClosedOnUnmappedScript(t *testing.T) {
 			_, err := Transform(tt.in)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Transform() error = %v, wantErr = %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestTransformScriptReferenceLexicalBoundaries(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		wantToken string
+	}{
+		{name: "prose member", input: "board.json.shared_touchpoints"},
+		{name: "suffix inside prose", input: "example.pyish"},
+		{name: "bare shell", input: "run example.sh", wantToken: "example.sh"},
+		{name: "relative python", input: "run ./tools/example.py now", wantToken: "./tools/example.py"},
+		{name: "scripts module", input: "`scripts/example.mjs`", wantToken: "scripts/example.mjs"},
+		{name: "markdown link target", input: "[run](scripts/example.sh)", wantToken: "scripts/example.sh"},
+		{name: "punctuation adjacent", input: "then example.py, next", wantToken: "example.py"},
+		{name: "absolute looking", input: "/opt/tools/example.mjs", wantToken: "/opt/tools/example.mjs"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := Transform(tt.input)
+			if tt.wantToken == "" {
+				if err != nil {
+					t.Fatalf("Transform(%q) error = %v", tt.input, err)
+				}
+				if got != tt.input {
+					t.Fatalf("Transform(%q) = %q, want unchanged", tt.input, got)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Transform(%q) error = nil, want exact token %q", tt.input, tt.wantToken)
+			}
+			if !strings.Contains(err.Error(), fmt.Sprintf("%q", tt.wantToken)) {
+				t.Fatalf("Transform(%q) error = %v, want exact token %q", tt.input, err, tt.wantToken)
 			}
 		})
 	}

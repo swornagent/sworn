@@ -1,7 +1,9 @@
 package baton
 
 import (
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestIsSemverTag(t *testing.T) {
@@ -46,6 +48,36 @@ func TestIsSemverTag(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("IsSemverTag(%q) = %v, want %v", tt.input, got, tt.want)
 		}
+	}
+}
+
+func TestUpstreamPinReplacementUsesCapturedInstant(t *testing.T) {
+	existing := []byte("baton-protocol: v0.13.1\nvendored: 2026-07-14\nupstream-sha: old\nupstream-digest: sha256:old\n")
+	captured := time.Date(2026, 7, 16, 23, 59, 59, 0, time.FixedZone("AEST", 10*60*60))
+	candidate := UpstreamVersionCandidate{
+		Tag:        "v0.15.1",
+		SHA:        "3fb4d275ae8a151f6287e7b9279d71628b12eea0",
+		Digest:     "sha256:8f0839ea897374eb10d6db2a789939714727739621babef1117d74cbf4488d2f",
+		CapturedAt: captured,
+	}
+
+	got, err := UpstreamPinReplacement(existing, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantLines := []string{
+		"baton-protocol: v0.15.1",
+		"vendored: 2026-07-16",
+		"upstream-sha: 3fb4d275ae8a151f6287e7b9279d71628b12eea0",
+		"upstream-digest: sha256:8f0839ea897374eb10d6db2a789939714727739621babef1117d74cbf4488d2f",
+	}
+	for _, line := range wantLines {
+		if !strings.Contains(string(got), line) {
+			t.Errorf("VERSION candidate missing %q:\n%s", line, got)
+		}
+	}
+	if string(existing) != "baton-protocol: v0.13.1\nvendored: 2026-07-14\nupstream-sha: old\nupstream-digest: sha256:old\n" {
+		t.Fatal("pure VERSION construction mutated its input")
 	}
 }
 

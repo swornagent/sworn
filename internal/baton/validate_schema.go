@@ -3,12 +3,39 @@ package baton
 import (
 	"bytes"
 	"fmt"
+	"regexp"
+	"strings"
 	"sync"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
 	"github.com/swornagent/sworn/internal/baton/schemas"
 )
+
+const v015BoardPathPattern = `^(?!/)(?!.*(?:^|/)\.\.?($|/)).+$`
+
+type v015BoardPathRegexp struct{}
+
+func (v015BoardPathRegexp) MatchString(value string) bool {
+	if value == "" || strings.HasPrefix(value, "/") {
+		return false
+	}
+	for _, segment := range strings.Split(value, "/") {
+		if segment == "." || segment == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+func (v015BoardPathRegexp) String() string { return v015BoardPathPattern }
+
+func compileCompatibleRegexp(expression string) (jsonschema.Regexp, error) {
+	if expression == v015BoardPathPattern {
+		return v015BoardPathRegexp{}, nil
+	}
+	return regexp.Compile(expression)
+}
 
 // Real draft-2020-12 schema validation (ADR-0011 keystone, step 1).
 //
@@ -49,6 +76,7 @@ func CompiledSchema(name string) (*jsonschema.Schema, error) {
 		return nil, fmt.Errorf("validator: parse schema %q: %w", name, err)
 	}
 	c := jsonschema.NewCompiler()
+	c.UseRegexpEngine(compileCompatibleRegexp)
 	url := schemaURL(name)
 	if err := c.AddResource(url, doc); err != nil {
 		return nil, fmt.Errorf("validator: add schema %q: %w", name, err)
@@ -59,6 +87,24 @@ func CompiledSchema(name string) (*jsonschema.Schema, error) {
 	}
 	schemaCache[name] = s
 	return s, nil
+}
+
+func compileSchemaBytes(name string, raw []byte) (*jsonschema.Schema, error) {
+	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(raw))
+	if err != nil {
+		return nil, fmt.Errorf("validator: parse schema %q: %w", name, err)
+	}
+	c := jsonschema.NewCompiler()
+	c.UseRegexpEngine(compileCompatibleRegexp)
+	url := schemaURL(name)
+	if err := c.AddResource(url, doc); err != nil {
+		return nil, fmt.Errorf("validator: add schema %q: %w", name, err)
+	}
+	schema, err := c.Compile(url)
+	if err != nil {
+		return nil, fmt.Errorf("validator: compile schema %q: %w", name, err)
+	}
+	return schema, nil
 }
 
 // ValidateSchema validates a JSON payload against the embedded JSON Schema by

@@ -7,7 +7,6 @@ package baton
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 )
 
@@ -17,7 +16,6 @@ import (
 // fail-closed guard to check that no known script token survives the transform.
 // new is the sworn-native replacement string.
 type replacement struct {
-	re    *regexp.Regexp
 	token string
 	new   string
 }
@@ -47,18 +45,6 @@ var replacements = []replacement{
 	{token: "install-codex.sh", new: "sworn codex"},
 }
 
-func init() {
-	// Compile regex patterns for each replacement.
-	// Pattern matches: optional path prefix (scripts/|bin/|...), then the token.
-	for i := range replacements {
-		tok := regexp.QuoteMeta(replacements[i].token)
-		// Match common path prefixes: scripts/, bin/, $HOME/.claude/bin/
-		// Also match the bare token (no prefix).
-		pattern := `(?:scripts/|bin/|\$HOME/\.claude/bin/)?` + tok
-		replacements[i].re = regexp.MustCompile(pattern)
-	}
-}
-
 // Transform applies every substitution in the replacements table to content.
 // It is file-format agnostic — it operates on the plain string, not on parsed
 // markdown — so it won't break on upstream format changes.
@@ -68,36 +54,52 @@ func init() {
 // This is the fail-closed guard: a new script reference added upstream that is
 // not in the map cannot slip through unmapped.
 func Transform(content string) (string, error) {
-	out := content
-	for _, r := range replacements {
-		out = r.re.ReplaceAllString(out, r.new)
-	}
+	var out strings.Builder
+	out.Grow(len(content))
 
-	// Fail-closed guard: check that no known Baton script token survives.
-	// The guard list is derived from the same table, so they can't drift apart.
-	for _, r := range replacements {
-		if strings.Contains(out, r.token) {
-			return out, fmt.Errorf("baton: unmapped script reference %q survives transform — update the substitution map", r.token)
+	for start := 0; start < len(content); {
+		if !isScriptTokenByte(content[start]) {
+			out.WriteByte(content[start])
+			start++
+			continue
 		}
-	}
 
-	// Additional guard: scan for any Baton script-like reference that isn't in
-	// the map. This catches new script names added upstream (e.g. "new-tool.sh").
-	// Match bare script names (lowercase + hyphens + .sh/.py/.mjs), excluding
-	// known tokens that have already been replaced.
-	scriptRef := regexp.MustCompile(`[a-z][a-z0-9-]*\.(?:sh|py|mjs)`)
-	for _, m := range scriptRef.FindAllString(out, -1) {
-		known := false
-		for _, r := range replacements {
-			if m == r.token {
-				known = true
+		end := start + 1
+		for end < len(content) && isScriptTokenByte(content[end]) {
+			end++
+		}
+		token := content[start:end]
+		if !hasScriptSuffix(token) {
+			out.WriteString(token)
+			start = end
+			continue
+		}
+
+		base := token
+		if slash := strings.LastIndexByte(base, '/'); slash >= 0 {
+			base = base[slash+1:]
+		}
+		replacementText := ""
+		for _, replacement := range replacements {
+			if base == replacement.token {
+				replacementText = replacement.new
 				break
 			}
 		}
-		if !known {
-			return out, fmt.Errorf("baton: unknown script reference %q survives transform — add it to the substitution map or update upstream", m)
+		if replacementText == "" {
+			return out.String() + token + content[end:], fmt.Errorf("baton: unknown script reference %q survives transform — add it to the substitution map or update upstream", token)
 		}
+		out.WriteString(replacementText)
+		start = end
 	}
 
-	return out, nil
+	return out.String(), nil
+}
+
+func isScriptTokenByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || strings.ContainsRune("_-.+/$~@", rune(b))
+}
+
+func hasScriptSuffix(token string) bool {
+	return strings.HasSuffix(token, ".sh") || strings.HasSuffix(token, ".py") || strings.HasSuffix(token, ".mjs")
 }

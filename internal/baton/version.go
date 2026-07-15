@@ -54,6 +54,16 @@ type UpstreamPin struct {
 	Digest string // upstream-digest from VERSION (empty on first fetch)
 }
 
+// UpstreamVersionCandidate is the complete immutable input needed to build a
+// VERSION transaction member. CapturedAt is supplied by the public invocation;
+// materialisation never consults the clock itself.
+type UpstreamVersionCandidate struct {
+	Tag        string
+	SHA        string
+	Digest     string
+	CapturedAt time.Time
+}
+
 // ReadUpstreamPin reads the embedded VERSION and extracts the pinned tag,
 // upstream-sha and upstream-digest values. Returns zero-valued UpstreamPin on
 // missing or unparseable embed — the caller treats empty SHA/digest as a
@@ -88,56 +98,78 @@ func WriteUpstreamPin(repoRoot, tag, sha, digest string) error {
 		return fmt.Errorf("read VERSION: %w", err)
 	}
 
-	lines := strings.Split(string(data), "\n")
+	content, err := UpstreamPinReplacement(data, UpstreamVersionCandidate{
+		Tag:        tag,
+		SHA:        sha,
+		Digest:     digest,
+		CapturedAt: time.Now(),
+	})
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		return fmt.Errorf("write VERSION: %w", err)
+	}
+	return nil
+}
+
+// UpstreamPinReplacement returns the complete VERSION bytes for one captured
+// invocation without mutating the repository.
+func UpstreamPinReplacement(existing []byte, candidate UpstreamVersionCandidate) ([]byte, error) {
+	if candidate.CapturedAt.IsZero() {
+		return nil, fmt.Errorf("construct VERSION: captured invocation instant is required")
+	}
+	if candidate.Tag == "" || candidate.SHA == "" || candidate.Digest == "" {
+		return nil, fmt.Errorf("construct VERSION: tag, SHA, and digest are required")
+	}
+
+	lines := strings.Split(string(existing), "\n")
 	var out []string
 	hasTag := false
 	hasDate := false
 	hasSHA := false
 	hasDigest := false
 
-	vendoredOn := time.Now().UTC().Format("2006-01-02")
+	vendoredOn := candidate.CapturedAt.UTC().Format("2006-01-02")
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		switch {
-		case tag != "" && strings.HasPrefix(trimmed, "baton-protocol:"):
-			out = append(out, fmt.Sprintf("baton-protocol: %s", tag))
+		case strings.HasPrefix(trimmed, "baton-protocol:"):
+			out = append(out, fmt.Sprintf("baton-protocol: %s", candidate.Tag))
 			hasTag = true
-		case tag != "" && strings.HasPrefix(trimmed, "vendored:"):
+		case strings.HasPrefix(trimmed, "vendored:"):
 			out = append(out, fmt.Sprintf("vendored: %s", vendoredOn))
 			hasDate = true
 		case strings.HasPrefix(trimmed, "upstream-sha:"):
-			out = append(out, fmt.Sprintf("upstream-sha: %s", sha))
+			out = append(out, fmt.Sprintf("upstream-sha: %s", candidate.SHA))
 			hasSHA = true
 		case strings.HasPrefix(trimmed, "upstream-digest:"):
-			out = append(out, fmt.Sprintf("upstream-digest: %s", digest))
+			out = append(out, fmt.Sprintf("upstream-digest: %s", candidate.Digest))
 			hasDigest = true
 		default:
 			out = append(out, line)
 		}
 	}
 
-	if !hasTag && tag != "" {
-		out = append(out, fmt.Sprintf("baton-protocol: %s", tag))
+	if !hasTag {
+		out = append(out, fmt.Sprintf("baton-protocol: %s", candidate.Tag))
 	}
-	if !hasDate && tag != "" {
+	if !hasDate {
 		out = append(out, fmt.Sprintf("vendored: %s", vendoredOn))
 	}
-	if !hasSHA && sha != "" {
-		out = append(out, fmt.Sprintf("upstream-sha: %s", sha))
+	if !hasSHA {
+		out = append(out, fmt.Sprintf("upstream-sha: %s", candidate.SHA))
 	}
-	if !hasDigest && digest != "" {
-		out = append(out, fmt.Sprintf("upstream-digest: %s", digest))
+	if !hasDigest {
+		out = append(out, fmt.Sprintf("upstream-digest: %s", candidate.Digest))
 	}
 
 	content := strings.Join(out, "\n")
 	// Normalise trailing newline.
 	content = strings.TrimRight(content, "\n") + "\n"
 
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		return fmt.Errorf("write VERSION: %w", err)
-	}
-	return nil
+	return []byte(content), nil
 }
 
 // parseUpstreamPin extracts UpstreamPin from the raw VERSION content.

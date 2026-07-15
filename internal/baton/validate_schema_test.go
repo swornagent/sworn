@@ -1,11 +1,117 @@
 package baton
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/swornagent/sworn/internal/baton/schemas"
 )
+
+const exactV015BoardSchema = `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://baton.sawy3r.net/schemas/board-v1.json",
+  "title": "Baton Release Board",
+  "description": "Machine-readable structure of one release board: tracks, slices, dependency edges, narrow shared-touchpoint declarations, and the vertical trace — a PURE PLAN artefact. All runtime state is DERIVED from git refs, never persisted here (track-mode invariant 5): worktree paths are conventional (computed from repo basename + release + track-id), and a track's state is computed from ref existence + merge-base ancestry against release-wt. Slice runtime state lives in each slice's status.json (slice-status-v1); the board references slices by id and never duplicates their state.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["release", "tracks"],
+  "$defs": {
+    "id_token": {
+      "type": "string",
+      "description": "A clean identifier token. Disallows whitespace and ':' so a newline-fusion defect (e.g. a track id that absorbed a following 'slices:' key) fails validation by construction.",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "minLength": 1
+    }
+  },
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://baton.sawy3r.net/schemas/board-v1.json"
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Release identifier, e.g. 2026-06-19-safe-parallelism."
+        },
+        "target_version": {
+          "type": "string",
+          "description": "Semver the release ships, e.g. v0.1.0."
+        },
+        "integration_branch": {
+          "type": "string",
+          "description": "The release integration base branch, e.g. release/v0.1.0."
+        },
+        "vertical_trace": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The golden-thread top: the benefit every slice traces up to, and the optional higher objective it serves. Grouped so the trace can grow without a breaking change.",
+          "required": ["benefit"],
+          "properties": {
+            "benefit": {
+              "type": "string",
+              "description": "The user/business benefit this release delivers. The RTM gate threads every slice up to this."
+            },
+            "org_objective": {
+              "type": "string",
+              "description": "Optional higher objective the benefit serves. The solo/small-team floor has none; absence is valid."
+            }
+          }
+        }
+      }
+    },
+    "tracks": {
+      "type": "array",
+      "description": "Touchpoint-disjoint tracks. Order is informational; dependencies are explicit via depends_on.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "slices"],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/id_token",
+            "description": "Track id, e.g. T14-baton-integration."
+          },
+          "slices": {
+            "type": "array",
+            "description": "Slice ids in this track, in implementation order. Each slice's own status.json (slice-status-v1) holds its runtime state; the track's own state (planned/in_progress/merged) is DERIVED from git refs, not stored here (invariant 5).",
+            "items": { "$ref": "#/$defs/id_token" }
+          },
+          "depends_on": {
+            "type": "array",
+            "description": "Track ids that must merge before this track.",
+            "items": { "$ref": "#/$defs/id_token" }
+          }
+        }
+      }
+    },
+    "shared_touchpoints": {
+      "type": "object",
+      "description": "Narrow machine-readable exceptions to path-level track disjointness, keyed by exact repository-relative path. Omission is equivalent to an empty object for older plans. Each value maps every contributing track id to its distinct non-empty region or symbol. This declaration licenses only Git's conflict-free canonical three-way composition; it never licenses manual conflict resolution.",
+      "propertyNames": {
+        "minLength": 1,
+        "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?($|/)).+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "minProperties": 2,
+        "description": "Every track permitted to contribute to this path, keyed uniquely by track id. Region strings must be unique within the declaration.",
+        "propertyNames": { "$ref": "#/$defs/id_token" },
+        "additionalProperties": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
+`
 
 // TestValidateSchema_Compiles confirms every embedded schema compiles under a
 // real draft-2020-12 evaluator (the legacy hand-rolled validator never did).
@@ -117,5 +223,39 @@ func TestValidateSchema_EffortComplexity(t *testing.T) {
 	}`
 	if err := ValidateSchema("slice-status-v1", []byte(statusBadMissing)); err == nil {
 		t.Error("rating missing required complexity/quadrant accepted")
+	}
+}
+
+func TestCompileV015BoardSchemaWithoutSemanticWeakening(t *testing.T) {
+	digest := sha256.Sum256([]byte(exactV015BoardSchema))
+	if got, want := fmt.Sprintf("%x", digest), "1122cbf7fb8fd2de62d2e54667ed00ec9ef12bf52970c5362a0fcdfcffbfaae5"; got != want {
+		t.Fatalf("exact v0.15.1 board-v1 fixture digest = %s, want %s", got, want)
+	}
+
+	schema, err := compileSchemaBytes("board-v1", []byte(exactV015BoardSchema))
+	if err != nil {
+		t.Fatalf("compile exact v0.15.1 board-v1 bytes: %v", err)
+	}
+
+	accepted := []string{"a", ".a", "a..b", "a//b", "a/", ".github/workflows/ci.yml"}
+	rejected := []string{"/a", ".", "..", "a/./b", "a/../b", "a/.", "a/.."}
+	validate := func(path string) error {
+		return schema.Validate(map[string]any{
+			"release": map[string]any{"name": "r1"},
+			"tracks":  []any{},
+			"shared_touchpoints": map[string]any{
+				path: map[string]any{"T1": "first", "T2": "second"},
+			},
+		})
+	}
+	for _, path := range accepted {
+		if err := validate(path); err != nil {
+			t.Errorf("path %q rejected: %v", path, err)
+		}
+	}
+	for _, path := range rejected {
+		if err := validate(path); err == nil {
+			t.Errorf("path %q accepted, want rejection", path)
+		}
 	}
 }
