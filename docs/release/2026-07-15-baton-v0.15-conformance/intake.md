@@ -372,6 +372,36 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   deployed release authority remain valid; it never short-circuits on displayed
   state alone.
 
+### 2026-07-15 — Keep re-plan judgment human-led and make application engine-backed
+
+- **Context**: Requirements, deferrals and replacement boundaries require
+  Planner/Coach judgment, while v0.15 re-plan mechanics require exact owner-track
+  status seeding, immutable lifecycle preservation, narrowly authorized rollback
+  linkage and safe propagation. Current role and MCP paths can edit records
+  without one shared mutation authority.
+- **Options considered**: conversational Planner plus deterministic engine
+  application; keep every mutation in the role session; move requirements
+  decomposition and re-planning judgment into the binary.
+- **Decision**: The human and conversational Planner continue to decide the
+  meaning of a revised plan, including slice boundaries, deferrals, rollback and
+  replacement work. A shared engine operation applies only a ratified plan
+  delta: it resolves the exact owner track/ref and status blob, validates schema,
+  report identity and committed lifecycle history, preserves the seeded
+  `maintainability` object byte-for-byte except for an explicitly ratified
+  `rollback_slice_id`, commits release records atomically, and propagates them to
+  affected track refs under Baton's conflict rules.
+- **Why**: This keeps qualitative product/spec judgment in the proper human
+  planning boundary while making it impossible for CLI, skill or MCP adapters
+  to corrupt or bypass protocol authority during application.
+- **Adapter obligation**: Planner/CLI and MCP entry points call the same engine
+  operation; direct MCP filesystem mutation of board/status authority is
+  removed. The binary validates and applies a decision but never invents
+  decomposition, deferral rationale or Coach approval.
+- **Recovery obligation**: Every application records its source ref/object IDs
+  and committed target transaction so restart can distinguish not-started,
+  locally committed and fully propagated outcomes without replaying Planner
+  judgment or narrowing lifecycle history.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`
@@ -403,6 +433,7 @@ slice boundaries.
 | A-05 | Whether the maintainability command or the surrounding role session owns report/status commits and the track push | Crash recovery, report reuse, machine-to-machine handoff and public exit semantics | Ratified: stateful command owns atomic records, commit and push; interrupted push resumes without model dispatch |
 | A-06 | Which pre-v0.15 records may receive an in-place Planner migration | Local-first plan activation and protection of started historical evidence | Ratified: only pristine planned records with null start and no execution evidence; started or terminal work requires new v0.15 IDs |
 | A-07 | Whether readiness validation and the deployed `shipped` transition are one command or distinct facts | Public command semantics, deployment truth and idempotent terminal validation | Ratified: keep `sworn ship` as pre-cutover gate and add post-deployment `sworn mark-shipped` |
+| A-08 | Whether re-plan requirements judgment and authoritative record mutation belong in the same layer | Re-slicing, rollback linkage, owner-track seeding, MCP writes and recovery | Ratified: Planner owns meaning; one engine operation validates, commits and propagates the ratified mutation |
 
 ## Screenshots / references
 
