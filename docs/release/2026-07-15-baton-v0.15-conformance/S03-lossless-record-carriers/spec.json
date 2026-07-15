@@ -1,0 +1,85 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S03-lossless-record-carriers",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "track": "T1-foundation",
+  "user_outcome": "A Planner or operator can read, write, render, and exchange v0.15 state, board, and spec records without losing maintainability, shared-touchpoint, typed-reference, or explicit-null authority.",
+  "rationale": "Existing carriers silently omit v0.15 fields, so every later domain authority would otherwise receive corrupted input. This slice adds lossless data carriers and exact-schema boundaries only; it does not infer lifecycle meaning. Records are public technical metadata with no PII or secrets, CLI/rendered output remains textual and screen-reader compatible, and parsing/writing must be linear in record size with bounded nesting supplied by the exact schemas.",
+  "touchpoints": [
+    "internal/state/state.go",
+    "internal/state/state_test.go",
+    "internal/state/record_reconciliation_test.go",
+    "internal/board/board.go",
+    "internal/board/board_test.go",
+    "internal/board/render.go",
+    "internal/board/render_test.go",
+    "internal/spec/spec.go",
+    "internal/spec/spec_test.go",
+    "internal/baton/records_conformance_test.go"
+  ],
+  "references": [
+    {"kind": "contract", "contract_id": "C-01"},
+    {"kind": "slice", "slice_id": "S02-v015-parity-and-installs"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"}
+  ],
+  "in_scope": [
+    "Represent the complete slice-status-v1 maintainability object, including explicit null start_commit, implementation_head, rollback_slice_id, adjudication, report identity tuple, invalidation fields, permitted touchpoints, and append-only arrays, without applying transition rules.",
+    "Represent board-v1 shared_touchpoints as exact path to track-to-region maps and preserve release metadata, ordered tracks, dependency arrays, and an intentionally empty shared-touchpoint object across read/write/render cycles.",
+    "Represent spec-v1 track, rationale, touchpoints, typed references, risks, effort/complexity, EARS pattern, and test references without scanning prose for normative inputs.",
+    "Make the canonical filesystem carrier writers validate emitted JSON against the exact C-01 schemas before atomic replacement; invalid or incomplete output is rejected without modifying the prior record.",
+    "Update the rendered board view from these carriers while keeping JSON as the only authority and prove real release records plus fixtures survive semantic round trips with explicit null and empty values intact."
+  ],
+  "out_of_scope": [
+    "Resolving typed references or executing the spec-ambiguity model check belongs to S04-typed-reference-ambiguity.",
+    "Selecting live versus historical protocol authority belongs to S05-protocol-provenance-archive.",
+    "Validating full report blobs or lifecycle transitions belongs to S08 and S09; carrier code must not infer, repair, default, or reorder those facts.",
+    "MCP planning mutation authority and its migration to the shared re-plan engine belong to S17-engine-replan-migration.",
+    "Migrating pre-v0.15 active plans belongs to S17-engine-replan-migration; historical records remain untouched here."
+  ],
+  "covers_needs": ["N-02", "N-04", "N-05", "N-10", "N-11"],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "low",
+    "quadrant": "grind",
+    "rationale": "The exact field shapes are known from C-01 but must be threaded through ten read, write, render, and conformance touchpoints.",
+    "confirmed_by_implementer": false
+  },
+  "risks": [
+    {"id": "R-01", "description": "omitempty or zero-value Go fields erase explicit nulls and empty arrays that distinguish pristine v0.15 state.", "mitigation": "Use pointer/raw carrier shapes where absence and null differ and golden-test null, empty, and populated records through every writer."},
+    {"id": "R-02", "description": "Carrier code begins enforcing a partial lifecycle and diverges from the later canonical ledger FSM.", "mitigation": "Restrict this slice to schema validation and lossless transport; transition legality has no API in state, board, spec, render, or MCP carrier code."},
+    {"id": "R-03", "description": "A rendered Markdown view becomes a second authority and drifts from board.json.", "mitigation": "Render only from the validated BoardRecord and slice records, then mutation-test stale Markdown to prove readers ignore it."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN a planned, passed, needs_coach, resume_approved, or re_slice_required status record is read and written THE SYSTEM SHALL preserve every v0.15 maintainability field, explicit null, report order, unknown permitted additive status field, and invalidation tuple while schema-invalid input fails before write.",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/state/state_test.go:TestV015MaintainabilityCarrierRoundTrip", "internal/state/record_reconciliation_test.go:TestV015StatusNullAndEmptySemantics"]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN board and spec records containing shared_touchpoints and all three typed reference kinds traverse their readers, writers, and renderer THE SYSTEM SHALL preserve exact paths, region strings, track order, reference identities, risks, and acceptance traces without discovering references from prose.",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/board/board_test.go:TestV015SharedTouchpointsRoundTrip", "internal/board/render_test.go:TestV015BoardRenderUsesJSONAuthority", "internal/spec/spec_test.go:TestV015TypedReferenceCarrierRoundTrip"]
+    },
+    {
+      "id": "AC-03",
+      "text": "IF a canonical filesystem carrier write would emit a record that fails its exact v0.15 schema THEN THE SYSTEM SHALL return a structured error and leave the previous record bytes unchanged.",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": ["internal/state/state_test.go:TestStatusWriteFailsClosedWithoutMutation", "internal/board/board_test.go:TestBoardWriteFailsClosedWithoutMutation", "internal/spec/spec_test.go:TestSpecWriteFailsClosedWithoutMutation"]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHILE carrying a status record THE SYSTEM SHALL NOT derive a lifecycle state, synthesize a report or adjudication, replace null with a guessed commit, reorder reports, or migrate a historical record.",
+      "ears_pattern": "state-driven",
+      "test_refs": ["internal/state/record_reconciliation_test.go:TestRecordCarriersNeverInferLifecycle"]
+    },
+    {
+      "id": "AC-05",
+      "text": "WHEN the v0.15 conformance sweep loads committed and fixture records through the real state, board, and spec carriers THE SYSTEM SHALL validate them against C-01 and prove a second semantic round trip produces an equivalent record with no dropped authoritative field.",
+      "ears_pattern": "event-driven",
+      "test_refs": ["internal/baton/records_conformance_test.go:TestBatonV015RecordCarrierRoundTrip"]
+    }
+  ]
+}
