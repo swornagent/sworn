@@ -320,6 +320,34 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   flags cannot change phase, cycle, head, invocation identity, fingerprint,
   findings, timestamp or authority ref.
 
+### 2026-07-15 — Migrate only pristine planned records in place
+
+- **Context**: Some pre-v0.15 releases are complete historical evidence, while
+  `2026-07-15-local-first-account-safety` contains seven untouched planned
+  slices with null starts, no implementation artefacts, no maintainability
+  reports and pending verification.
+- **Options considered**: allow in-place migration only before implementation
+  begins; migrate every unshipped record; archive every pre-v0.15 plan and
+  recreate even untouched work under new release/slice IDs.
+- **Decision**: An in-place Planner migration is legal only when every affected
+  slice is `planned`, has `start_commit: null`, empty actual files and reports,
+  null adjudication and pending verification. The migration preserves the source
+  authority commit and record blob identities in a committed receipt, adds the
+  exact v0.15 pending lifecycle and typed references, writes the live protocol
+  marker, validates every output, and reruns the v0.15 trace and ambiguity gates
+  before implementation may start.
+- **Why**: The boundary coincides with the first execution evidence. Untouched
+  intent can be translated truthfully; once implementation starts, retroactive
+  lifecycle evidence would be invented rather than migrated.
+- **Started-history obligation**: Any started, implemented, verified, deferred
+  or shipped pre-v0.15 slice remains an immutable archive record. Continuing or
+  replacing its functionality requires a new v0.15 slice ID under a live marked
+  plan; the old record is never reset, narrowed or assigned synthetic reports.
+- **Confirmed eligibility**: All seven slices in
+  `2026-07-15-local-first-account-safety` satisfy the pristine-planned
+  preconditions and are the first required downstream migration after this
+  conformance release is integrated.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`
@@ -349,6 +377,7 @@ slice boundaries.
 | A-03 | Whether canonical v0.15 operations fit existing packages or require new focused internal packages | Touchpoints, tracks and file ceilings | Ratified: focused `maintainability/scope`, `maintainability/ledger`, and `integration` authorities with thin adapters and lossless carriers |
 | A-04 | How a current operation proves v0.15 authority while historical releases contain mixed protocol eras | Protocol selection, archive inspection, migration and every mutation/success path | Ratified: exact committed `protocol.json` for live authority plus per-record Git evidence for read-only history |
 | A-05 | Whether the maintainability command or the surrounding role session owns report/status commits and the track push | Crash recovery, report reuse, machine-to-machine handoff and public exit semantics | Ratified: stateful command owns atomic records, commit and push; interrupted push resumes without model dispatch |
+| A-06 | Which pre-v0.15 records may receive an in-place Planner migration | Local-first plan activation and protection of started historical evidence | Ratified: only pristine planned records with null start and no execution evidence; started or terminal work requires new v0.15 IDs |
 
 ## Screenshots / references
 
