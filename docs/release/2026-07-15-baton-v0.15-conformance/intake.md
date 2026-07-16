@@ -880,6 +880,39 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   amended planner gates pass, the release record is synchronized into T1, the
   Implementer reconfirms effort, and a fresh Captain returns `PROCEED`.
 
+### 2026-07-16 — Seal pre-C12 bootstrap reconciliation provenance
+
+- **Context**: S02 Gate-8 scope construction proved all semantic paths and both
+  synchronization topologies exact, but stopped before model dispatch because
+  merges `b8df1857…` and `7696c9bf…` contain manual release-record resolutions
+  forbidden by normative clarification section 6. A separate audit found the
+  same defect in S01's already committed report frontier at `36d1bd56…` and
+  `d062d055…`; rejecting the class now would invalidate durable S01 evidence.
+- **Options considered**: A partial S02 rewrite or re-slice leaves S01 invalid.
+  Rebuilding T1 far enough back changes S02's immutable start object, rewrites
+  pushed evidence, and requires reissuing S01 reports. A generic exception would
+  weaken fail-closed synchronization provenance.
+- **Coach decision**: Record a sealed, schema-validated, exact-object historical
+  manifest for only the four merges consumed by S01/S02 immutable intervals.
+  Pin every ordered parent/base and eight exceptional B/P1/P2/result path tuples,
+  plus the exact consumer slice, immutable start, exact review head,
+  start-exclusive/head-inclusive first-parent membership, and permitted purpose;
+  require ordinary section-6 validation everywhere else, and forbid pattern,
+  subject, prefix, wildcard, caller-supplied, recomputed, cross-slice,
+  endpoint-widened, or future use.
+- **Boundary**: Three other audited non-compliant merges lie below the relevant
+  immutable starts and remain unrecognized. The manifest is available only
+  while authority is planning, only for historical scope/freshness/bootstrap
+  evidence, and is revalidated then retired by C-13. It grants no merge creation
+  or lifecycle authority.
+- **Ratification**: Brad's standing instruction selected the orchestrator's
+  recommendation. The sealed manifest contains four entries/eight paths and is
+  pinned at SHA-256
+  `f9e0de63c0a5ecf15cdb6058a52166ff0a609fa0d0cf2ecdf81d7955030b1943`.
+  S02 preflight remains paused until this release-only provenance amendment is
+  synchronized through an ordinary section-6-compliant merge and fresh planner
+  ambiguity validation passes.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`

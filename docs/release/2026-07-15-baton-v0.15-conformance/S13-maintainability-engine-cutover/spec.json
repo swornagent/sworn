@@ -48,6 +48,8 @@
     {"kind": "slice", "slice_id": "S11-track-evidence-freshness"},
     {"kind": "slice", "slice_id": "S12-rollback-readiness"},
     {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/normative-clarifications.md"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/bootstrap-sync-reconciliations-v1.schema.json"},
+    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/bootstrap-sync-reconciliations.json"},
     {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/sworn-maintainability-raw-response-v1.schema.json"},
     {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/sworn-maintainability-report-overlay-v1.schema.json"},
     {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"}
@@ -57,7 +59,7 @@
     "Expose sworn maintainability adjudicate as the sole public Coach transition through one typed public/internal request: Coach supplies decision, non-empty rationale and approved_by plus resume-only non-empty permitted touchpoints; committed terminal evidence derives eligible citation identities and byte-sorted unique blocking IDs, and the command captures approved_at once from its injected clock.",
     "Require a clean starting tree and index and, for review/adjudication, validate C-03 through C-08 plus the operation-specific C-06 lifecycle before side effects; C-09 is not a review precondition and is evaluated only by the terminal cutover validator. Write the full report, compact status ledger, and journal transition coherently, create one decision-bearing commit, and push the exact owner track ref before protocol success; a valid FAIL is also committed and pushed before its non-zero result.",
     "Recover a commit-without-push rerun by revalidating and reusing the exact committed report and transition with zero model dispatch, then complete only the missing exact-ref push; reject partial, rewritten, divergent, or caller-selected evidence.",
-    "Run an explicit engine-cutover validator over the committed S01–S13 specs, statuses, journals, reports, semantic identities, transitions, Git histories, and exact pinned Baton v0.15.1 Track Integrator commits for T1 then T2; this includes S13's independently verified planning-authority evidence and does not let S13 award itself PASS. Refuse automated authority until every bootstrap artefact and integration passes the new engine unchanged.",
+    "Run an explicit engine-cutover validator over the committed S01–S13 specs, statuses, journals, reports, semantic identities, transitions, Git histories, every consumed sealed bootstrap-reconciliation entry with its exact consumer slice, immutable start, exact review head, start-exclusive/head-inclusive first-parent interval, bootstrap_cutover_revalidation purpose and schema/digest, and exact pinned Baton v0.15.1 Track Integrator commits for T1 then T2. Require equality between the manifest declaration set and the entries actually consumed by committed S01/S02 evidence; this includes S13's independently verified planning-authority evidence and does not let S13 award itself PASS. Refuse automated authority until every bootstrap artefact, exact historical authorization/merge/parent/base/path/mode/blob tuple, and integration passes the new engine unchanged.",
     "After S13 is freshly verified and T1 then T2 have canonically merged to release-wt under the exact manual planning-authority Track Integrator transaction in planning/normative-clarifications.md section 4, expose the zero-dispatch C-13 sworn maintainability cutover <release> operation on that clean local/remote-equal release-wt before T5/T6 exist; revalidate every gate, change only protocol.json authority planning to current, commit and push once, and recover only an exact commit-without-push.",
     "Provide structured fail-closed exit behavior and redacted diagnostics; expose no dry-run, no-push, force, waiver, lifecycle override, user-supplied fingerprint, report path, cycle, authority ref, or timestamp."
   ],
@@ -90,6 +92,11 @@
       "id": "R-03",
       "description": "A caller-controlled option bypasses Baton's role, phase, Coach authority, or durability budget, or the command infers a human decision field from model evidence.",
       "mitigation": "Use one typed request separating Coach-supplied decision/rationale/identity/permissions from evidence-derived citations and command-captured time; reject missing, inferred, decision-incompatible, unknown, or override-like inputs before dispatch or mutation."
+    },
+    {
+      "id": "R-04",
+      "description": "Cutover preserves or extends the planning-only sealed reconciliation exception after automated authority activates.",
+      "mitigation": "Independently reconstruct every consumed authorization envelope, first-parent interval, merge tuple and the pinned digest, require manifest declaration/observed-consumption set equality before activation, reject any extension or mismatch, and make recognition unavailable once protocol authority changes to current."
     }
   ],
   "acceptance_criteria": [
@@ -125,13 +132,13 @@
     },
     {
       "id": "AC-06",
-      "text": "WHEN the S13 cutover validator runs against the committed release authority THE SYSTEM SHALL revalidate every S01–S13 spec, status, report, report blob OID, semantic fingerprint, lifecycle transition, evidence interval, rollback fact, protocol marker, and T1/T2 bootstrap integration without changing a byte or awarding S13 its own PASS; IF any item cannot be reproduced exactly THEN THE SYSTEM SHALL block automated authority and identify the owning original slice (C-03 through C-10, N-09, N-10).",
+      "text": "WHEN the S13 cutover validator runs against the committed release authority THE SYSTEM SHALL revalidate every S01–S13 spec, status, report, report blob OID, semantic fingerprint, lifecycle transition, evidence interval, rollback fact, protocol marker, T1/T2 bootstrap integration, and every consumed sealed reconciliation manifest entry by reproducing its schema-valid duplicate-key-free pinned digest plus exact release, planning authority, owning consumer slice, immutable start, exact review head, start-exclusive/head-inclusive first-parent membership, bootstrap_cutover_revalidation purpose, merge OID, ordered parents, unique base, complete exceptional path set, and B/P1/P2/result mode-and-blob tuples, and SHALL require exact equality between the manifest declaration set and the entries observed in committed S01/S02 evidence, without changing a byte or awarding S13 its own PASS; IF any item cannot be reproduced exactly THEN THE SYSTEM SHALL block automated authority and identify the owning original slice (C-03 through C-10, N-09, N-10).",
       "ears_pattern": "complex",
       "test_refs": ["internal/maintainability/cutover_test.go:TestCutoverRevalidatesEveryBootstrapSliceWithoutMutation"]
     },
     {
       "id": "AC-07",
-      "text": "WHEN S01 through S13 are freshly verified, T1 then T2 have exact pinned Baton v0.15.1 two-parent Track Integrator commits on clean local/remote-equal release-wt, no T5/T6 ref exists, and every planning, ambiguity, engine, and evidence gate passes THE SYSTEM SHALL let sworn maintainability cutover <release> recognize those two manual bootstrap integrations, change only protocol.json authority from planning to current, commit and push once, and return exit 0; a local exact commit without its remote update SHALL recover by push only, while any bootstrap parent/tree/provenance divergence, downgrade, force, alternate ref, or premature activation SHALL exit non-zero without mutation (C-03, C-13, N-09, N-10).",
+      "text": "WHEN S01 through S13 are freshly verified, T1 then T2 have exact pinned Baton v0.15.1 two-parent Track Integrator commits on clean local/remote-equal release-wt, no T5/T6 ref exists, every planning, ambiguity, engine, and evidence gate passes, and the validator has independently reconstructed the sealed manifest, every consumed authorization/interval/tuple, and exact manifest-declaration versus S01/S02-observed set equality THE SYSTEM SHALL let sworn maintainability cutover <release> recognize those two manual bootstrap integrations, make the planning-only historical exception unavailable, change only protocol.json authority from planning to current, commit and push once, and return exit 0; a local exact commit without its remote update SHALL recover by push only, while any authorization widening, manifest extension, declaration/observed mismatch, bootstrap parent/tree/provenance divergence, downgrade, force, alternate ref, or premature activation SHALL exit non-zero without mutation (C-03, C-13, N-09, N-10).",
       "ears_pattern": "event-driven",
       "test_refs": ["cmd/sworn/maintainability_cutover_test.go:TestMaintainabilityCutoverBinaryReachability"]
     },

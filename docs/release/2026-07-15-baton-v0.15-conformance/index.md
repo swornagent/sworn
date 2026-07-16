@@ -130,6 +130,7 @@ collision — disjointness is what licenses tracks to run independently.
 | `internal/protocol/schema.go` | ✓ |  |  |  |  |
 | `internal/protocol/schema_test.go` | ✓ |  |  |  |  |
 | `internal/protocol/schemas/release-protocol-v1.json` | ✓ |  |  |  |  |
+| `internal/run/slice_test.go` | ✓ |  | ✓ |  |  |
 | `internal/spec/references.go` | ✓ |  |  |  |  |
 | `internal/spec/references_test.go` | ✓ |  |  |  |  |
 | `internal/spec/spec.go` | ✓ |  |  |  |  |
@@ -247,7 +248,6 @@ collision — disjointness is what licenses tracks to run independently.
 | `internal/run/run_test.go` |  |  | ✓ |  |  |
 | `internal/run/slice.go` |  |  | ✓ |  |  |
 | `internal/run/slice_terminal_test.go` |  |  | ✓ |  |  |
-| `internal/run/slice_test.go` |  |  | ✓ |  |  |
 | `internal/scheduler/worker.go` |  |  | ✓ |  |  |
 | `internal/scheduler/worker_test.go` |  |  | ✓ |  |  |
 | `internal/verify/verify.go` |  |  | ✓ |  |  |

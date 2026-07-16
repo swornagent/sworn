@@ -7,7 +7,7 @@
   "state": "planned",
   "owner": "human",
   "last_updated_by": "codex-planner",
-  "last_updated_at": "2026-07-16T00:09:16+10:00",
+  "last_updated_at": "2026-07-16T18:06:44+10:00",
   "start_commit": null,
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S13-maintainability-engine-cutover/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S13-maintainability-engine-cutover/proof.json",
@@ -63,14 +63,22 @@
       "human_decision": "Ratified under Brad's 2026-07-16 instruction to proceed with the orchestrator recommendation.",
       "rationale": "Human intent, cryptographic evidence identity, and machine time have different authorities and must not be inferred from one another.",
       "architecturally_significant": true
+    },
+    {
+      "choice": "Independently reconstruct every consumed sealed bootstrap reconciliation authorization and interval, require manifest-declaration/observed-evidence set equality, and retire planning-only recognition at cutover.",
+      "stake_class": "Type-1",
+      "options": ["carry the exception into current authority", "trust earlier recognition without reconstruction", "reconstruct exact evidence and retire it at cutover"],
+      "human_decision": "Ratified under Brad's standing instruction to follow the orchestrator recommendation: exact historical recognition may preserve bootstrap evidence only until C-13 activates current authority.",
+      "rationale": "Automated authority must prove the exact owning slice, endpoints, purpose and exceptional tuples for all and only the bootstrap evidence actually consumed, and must not inherit a reusable manual-merge waiver.",
+      "architecturally_significant": true
     }
   ],
   "validation": {
     "human_ratified": true,
     "ratified_by": "Coach",
-    "ratified_at": "2026-07-16T00:09:16+10:00",
-    "positive_scenarios": ["A valid overlay-conformant PASS or FAIL is durably committed and pushed once; empty scope produces exact deterministic PASS with zero dispatch; explicit Coach adjudication preserves its authority; push-only restart reuses exact evidence without another model call."],
-    "negative_scenarios": ["Invalid bootstrap/overlay evidence, missing or inferred Coach inputs, caller overrides, dirty state, rewritten evidence, or ambiguous recovery blocks before unauthorized dispatch or mutation."],
+    "ratified_at": "2026-07-16T18:06:44+10:00",
+    "positive_scenarios": ["A valid overlay-conformant PASS or FAIL is durably committed and pushed once; empty scope produces exact deterministic PASS with zero dispatch; explicit Coach adjudication preserves its authority; push-only restart reuses exact evidence without another model call.", "Cutover reproduces the sealed manifest digest, every consumed authorization/interval/merge/parent/base/path/mode/blob tuple, and exact declared-versus-observed set equality, then makes planning-only recognition unavailable as authority becomes current."],
+    "negative_scenarios": ["Invalid bootstrap/overlay evidence, missing or inferred Coach inputs, caller overrides, dirty state, rewritten evidence, or ambiguous recovery blocks before unauthorized dispatch or mutation.", "Any authorization widening, sealed-manifest extension, declared/observed set mismatch, digest or tuple mismatch, missing consumed entry, or attempt to retain the exception after cutover blocks without mutation."],
     "benefit_hypothesis": "One durable command authority closes the gap between correct review output and trustworthy cross-session lifecycle state."
   }
 }

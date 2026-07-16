@@ -1,0 +1,125 @@
+{
+  "$schema": "https://swornagent.dev/schemas/bootstrap-sync-reconciliations-v1.json",
+  "record_version": 1,
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "authority": "planning",
+  "sealed": true,
+  "entries": [
+    {
+      "merge": "36d1bd56cdc12ddc824533e24d385ef9e8cc550a",
+      "parent_1": "dc9835e4cb66a7e5f51f8ad5f6e64ffcc48a2488",
+      "parent_2": "9156599088203e217d03cbd0f0c7fa39249b1774",
+      "merge_base": "05eefeb0c849b22a68f669a80de199ac071c023f",
+      "authorization": {
+        "consumer_slice_id": "S01-vendor-boundary-readiness",
+        "start_commit": "5e16d2b54b0793381b246a9e7b9f1eb2c8e5cb18",
+        "review_head": "d062d055cdbe90e8290f0bf47574be660cd9a675",
+        "interval_semantics": "first-parent-start-exclusive-head-inclusive",
+        "permitted_purposes": ["semantic_scope", "freshness_revalidation", "bootstrap_cutover_revalidation"]
+      },
+      "exceptional_paths": [
+        {
+          "path": "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/journal.md",
+          "base": {"mode": "100644", "oid": "7d3d3e432a451135b1643c68c3d5cebd88b40cac"},
+          "parent_1": {"mode": "100644", "oid": "51b69fdfc1389559c989387c9cb373b358394fa0"},
+          "parent_2": {"mode": "100644", "oid": "8dc5c6ec8fdb31794ae9d5b1e555218deaa5c4fc"},
+          "result": {"mode": "100644", "oid": "ad0bf3f1d0bff7abf297979319ff34d199193eed"}
+        },
+        {
+          "path": "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/status.json",
+          "base": {"mode": "100644", "oid": "adb44a841895b9b781802fdbe2460c827d79e81b"},
+          "parent_1": {"mode": "100644", "oid": "747b0e433a740ad5f50ffbcb1bab7262b6e9fe72"},
+          "parent_2": {"mode": "100644", "oid": "21f872714addca614d502a17e4e15e6566989b74"},
+          "result": {"mode": "100644", "oid": "21f872714addca614d502a17e4e15e6566989b74"}
+        }
+      ]
+    },
+    {
+      "merge": "d062d055cdbe90e8290f0bf47574be660cd9a675",
+      "parent_1": "190decb5ce67ca12bec4f2d7d2822c2ad7b07478",
+      "parent_2": "73afccd6108bb44fafeba0825d8ac1953a062335",
+      "merge_base": "9156599088203e217d03cbd0f0c7fa39249b1774",
+      "authorization": {
+        "consumer_slice_id": "S01-vendor-boundary-readiness",
+        "start_commit": "5e16d2b54b0793381b246a9e7b9f1eb2c8e5cb18",
+        "review_head": "d062d055cdbe90e8290f0bf47574be660cd9a675",
+        "interval_semantics": "first-parent-start-exclusive-head-inclusive",
+        "permitted_purposes": ["semantic_scope", "freshness_revalidation", "bootstrap_cutover_revalidation"]
+      },
+      "exceptional_paths": [
+        {
+          "path": "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/journal.md",
+          "base": {"mode": "100644", "oid": "8dc5c6ec8fdb31794ae9d5b1e555218deaa5c4fc"},
+          "parent_1": {"mode": "100644", "oid": "23abfa60f6a5cde7f7f16e8df76a3ffe1e866178"},
+          "parent_2": {"mode": "100644", "oid": "745ca17964a8c55643fc67d57a0eaeaf9bf86cae"},
+          "result": {"mode": "100644", "oid": "36d5a4e1084ee387328e9dbd58bb0a5f5b844ba9"}
+        },
+        {
+          "path": "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/status.json",
+          "base": {"mode": "100644", "oid": "21f872714addca614d502a17e4e15e6566989b74"},
+          "parent_1": {"mode": "100644", "oid": "de21e7e3ae031d8e31b99f6ee778d0517d0af4e9"},
+          "parent_2": {"mode": "100644", "oid": "57378b3fcc3ed13498cecf9d3bdafd94329c7b1d"},
+          "result": {"mode": "100644", "oid": "57378b3fcc3ed13498cecf9d3bdafd94329c7b1d"}
+        }
+      ]
+    },
+    {
+      "merge": "b8df1857ab8c7d2acf4b91c4c37df3cf07f80832",
+      "parent_1": "7b57f64fbfe9d0540737034d1794100b80aeec3b",
+      "parent_2": "32060a486d2045c1db54fd01551eae1946207efb",
+      "merge_base": "6ceded2435a193a45dfd9732c92ae0ace3ab0d64",
+      "authorization": {
+        "consumer_slice_id": "S02-v015-parity-and-installs",
+        "start_commit": "e61cb190736ee7483fb4ed1a993442b26ce3574c",
+        "review_head": "60097cfa65dc39d9a0ab174be7c627fde2d3f7d5",
+        "interval_semantics": "first-parent-start-exclusive-head-inclusive",
+        "permitted_purposes": ["semantic_scope", "freshness_revalidation", "bootstrap_cutover_revalidation"]
+      },
+      "exceptional_paths": [
+        {
+          "path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/status.json",
+          "base": {"mode": "100644", "oid": "f4d9a1871bec2d358df69f617fd3ad491532ec99"},
+          "parent_1": {"mode": "100644", "oid": "437c69e729baf8240107bcf062673bf2bdfbbd80"},
+          "parent_2": {"mode": "100644", "oid": "3d3f81a024255bc20f3dead7b986b6e43cfd09b3"},
+          "result": {"mode": "100644", "oid": "70441d9c53aaa04fc4d1bc7ac9d7e6301e2fbaea"}
+        }
+      ]
+    },
+    {
+      "merge": "7696c9bf9c235fffb937d3ed7e4be5a8a2bbda2a",
+      "parent_1": "60dcd6291ddbe3491e16a05d2ed98d896d714165",
+      "parent_2": "dcd6386fc0268cd476287fc70bfb1f389c158f2e",
+      "merge_base": "32060a486d2045c1db54fd01551eae1946207efb",
+      "authorization": {
+        "consumer_slice_id": "S02-v015-parity-and-installs",
+        "start_commit": "e61cb190736ee7483fb4ed1a993442b26ce3574c",
+        "review_head": "60097cfa65dc39d9a0ab174be7c627fde2d3f7d5",
+        "interval_semantics": "first-parent-start-exclusive-head-inclusive",
+        "permitted_purposes": ["semantic_scope", "freshness_revalidation", "bootstrap_cutover_revalidation"]
+      },
+      "exceptional_paths": [
+        {
+          "path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/design.md",
+          "base": null,
+          "parent_1": {"mode": "100644", "oid": "fc46d0b786283d4b9bcced4889f094e25ccee70a"},
+          "parent_2": null,
+          "result": {"mode": "100644", "oid": "d1d319e16b7db8a634868789272e7989783c784a"}
+        },
+        {
+          "path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/journal.md",
+          "base": null,
+          "parent_1": {"mode": "100644", "oid": "1e2aa68d4e44a63e6742394b6ab44b7488b5a5d2"},
+          "parent_2": null,
+          "result": {"mode": "100644", "oid": "354e9d53cc174d0e1768d5db9251e4d7174d3006"}
+        },
+        {
+          "path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/status.json",
+          "base": {"mode": "100644", "oid": "3d3f81a024255bc20f3dead7b986b6e43cfd09b3"},
+          "parent_1": {"mode": "100644", "oid": "a60e1a5fbc1bf4416faf2d43ba310e522ebdaf0c"},
+          "parent_2": {"mode": "100644", "oid": "f53e238db275067edc1530d46bfa06ffc75676e0"},
+          "result": {"mode": "100644", "oid": "e8c8c627b95cc1885b2f12864f4f3814d0aca129"}
+        }
+      ]
+    }
+  ]
+}
