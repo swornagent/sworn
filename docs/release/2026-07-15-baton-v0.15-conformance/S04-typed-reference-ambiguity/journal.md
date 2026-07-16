@@ -77,3 +77,24 @@
   ordinary host build needs `GOFLAGS=-buildvcs=false`: Go otherwise attempts
   VCS stamping from the stale non-repository `/home/brad/.git`. This is a host
   metadata condition, not a change to S04 or its release records.
+
+## 2026-07-17T07:03:07+10:00 — Proof and implemented checkpoint
+
+- Ran the required ordinary-environment command matrix first in a disposable
+  detached worktree outside `/home/brad`. It was clean at `cc1373f`, but its
+  shared Git common-dir made VCS stamping fail (`exit status 128`) in
+  binary-reachability tests and `make build`. `go vet ./...` passed. This was
+  recorded rather than treated as a green run.
+- To distinguish shared-worktree metadata from source behavior, created and
+  verified a complete temporary bundle at `cc1373f`, cloned it independently
+  under `/tmp`, checked out the same detached commit, and confirmed `GOFLAGS`
+  was empty. There all required commands passed normally: scoped tests,
+  `go test ./...`, `go vet ./...`, and `make build`.
+- Both temporary repositories were clean at the tested commit. The detached
+  worktree was removed with `git worktree remove`; the independent clone and
+  bundle were removed; the track worktree and its branch ref remain clean at
+  `cc1373f`.
+- Generated `proof.md` and `proof.json` from that live evidence and moved only
+  this slice to `implemented`. No verifier verdict is asserted here: a fresh
+  S04 verifier must evaluate the artefacts and live source before any
+  `verified` transition or S20 unblock.
