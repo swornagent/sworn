@@ -156,3 +156,37 @@ Next: `/replan-release 2026-07-15-baton-v0.15-conformance`
   evidence, proof claim, or fresh-verifier claim was changed after discovering
   this contract gap. The existing 45-path evidence and final Implementer
   maintainability binding remain intact.
+
+## 2026-07-17T01:59:17+10:00 — Planner correction: deterministic rendered-index condition
+
+- Reconciled the live T1 BLOCKED handoff at
+  `07c8d65d50e0400c8efa1cac61947d0aca215a08`. The blocker is factual: the
+  original contract retained only S19 lifecycle/proof paths plus the first
+  precise spec transition, even though the planner's required rendered board
+  changed `index.md`.
+- Preserved the observed history as audit-only evidence in the contract record:
+  direct planner transition `deb090f...` / `8aeef3849541106b6cb5503daed1874b0fb4d31f`
+  to `c0d7d67...` / `b3ba13ef1b9d958e67b035f662e39dd0175a82a7`, and propagated
+  T1 merge `c7d56c1...` with parent-one
+  `37b0d6ebb72445802eab1ab336e3b4f5b7a8e7d5`, parent-two
+  `b3ba13ef1b9d958e67b035f662e39dd0175a82a7`, and result
+  `1614b35035b685d7d9d3f9451c98fa350a91033f`. These blobs are not a current or
+  future allowlist.
+- The authoritative rule is executable and current: the repaired checker must
+  create a disposable detached Git worktree at its current T1 HEAD, run
+  `sworn render 2026-07-15-baton-v0.15-conformance
+  <ephemeral-project-root>`, byte-compare the emitted `index.md` with the
+  current committed index, then remove the copy without mutating the validated
+  checkout or any release ref. An isolated run at `07c8d65...` correctly
+  exposed the prior drift (`blocked` status versus `failed_verification` view),
+  proving the condition is reproducible and fail-closed.
+- The contract now permits exactly the original c0 S19 spec transition and this
+  planner correction's second exact transition. It rejects arbitrary index
+  bytes, every other S19 spec transition, and every other non-S19/non-lifecycle
+  release record. S02 immutability remains unchanged.
+- Returned S19 to `failed_verification` with `verification.result: pending` for
+  a fresh Implementer. Preserve the immutable `start_commit`, actual-file
+  inventory, existing proof bundle, exact-head maintainability PASS, and S20
+  block. The next Implementer repairs only `proof/check-rollback.sh` and proof
+  evidence; no production/test/CI harness, semantic rollback, or S20 change is
+  authorized.
