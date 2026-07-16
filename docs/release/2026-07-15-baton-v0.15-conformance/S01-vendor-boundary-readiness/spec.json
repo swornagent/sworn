@@ -4,7 +4,7 @@
   "release": "2026-07-15-baton-v0.15-conformance",
   "track": "T1-foundation",
   "user_outcome": "A protocol maintainer can run the Baton v0.15 vendor or check workflow without false script-reference matches, unsupported schema-expression failures, or any partial write being reported as authoritative success.",
-  "rationale": "This is the staged bootstrap boundary: it repairs the existing vendor transaction and exact-schema preflight before S02 is allowed to replace the pinned protocol. The implementation remains local, non-interactive, and linear in mapped source bytes; it handles no PII, credentials, network authentication, UI, or accessibility surface, and must never log source payloads that could contain private adopting-project content.",
+  "rationale": "This is the staged bootstrap boundary: it repairs the existing vendor transaction and exact-schema preflight before S02 is allowed to replace the pinned protocol. The vendor implementation remains local, non-interactive, and linear in mapped source bytes; it handles no PII, credentials, UI, or accessibility surface and must never log source payloads. Because exact Baton v0.15.1 has no maintainability waiver, the planning-authority role adapter also reviews only this public repository's committed semantic diff through the configured model and persists the exact report identity before the slice may be verified.",
   "touchpoints": [
     "cmd/sworn/baton.go",
     "internal/baton/diff_test.go",
@@ -31,20 +31,22 @@
     "Make check-only mode use the identical materialisation and validation path while prohibiting destination-directory creation, temporary files beneath the repository, pin writes, or other worktree mutation.",
     "Constrain script-reference detection to lexical shell/script tokens so prose such as board.json.shared_touchpoints is accepted while a real scripts/example.sh, example.py, or example.mjs reference still fails closed unless mapped.",
     "Compile the exact v0.15 board-v1 expression with its ECMA-262 negative-lookahead semantics without rewriting normative schema bytes or weakening the forbidden-path cases expressed by that pattern.",
-    "Keep work O(total mapped bytes plus mapped file count), preserve source file bytes in diagnostics only as path-safe summaries, and expose deterministic errors naming the failed phase and destination without request bodies, secrets, or source payloads."
+    "Keep work O(total mapped bytes plus mapped file count), preserve source file bytes in diagnostics only as path-safe summaries, and expose deterministic errors naming the failed phase and destination without request bodies, secrets, or source payloads.",
+    "Before the implemented handoff, execute the exact Baton v0.15.1 maintainability-review operation through the planning-authority bootstrap adapter defined by planning/normative-clarifications.md section 4: construct the canonical committed semantic scope, fingerprint and prompt diff from start_commit to the stable implementation head; run the untouched tagged prompt with temperature 0; validate and commit the Implementer report against exact llm-check-report-v1; pin its committed blob and review_scope.head in status.json; and let the fresh Verifier run and commit its own authoritative report against that same pinned head before verification may PASS."
   ],
   "out_of_scope": [
     "S01 changes transaction machinery only: it does not execute the v0.15.1 vendor operation, advance the committed VERSION pin, replace mapped content, update embedded prompts or schemas, or install local Codex and Claude mirrors; those content, pin, and install changes remain S02-v015-parity-and-installs.",
     "Interpreting v0.15 state, board, spec, report, or lifecycle semantics belongs to S03 through S09.",
     "Adding a third-party schema engine or another runtime dependency is prohibited; any such change would require a separate accepted ADR.",
-    "Remote fetch authenticity beyond the existing pinned SHA and digest checks is not redesigned in this slice."
+    "Remote fetch authenticity beyond the existing pinned SHA and digest checks is not redesigned in this slice.",
+    "S01 does not add the generalized public maintainability command, automated lifecycle coordinator, report-reuse engine, Coach adjudication, track-composition handling, rollback readiness, or planning-to-current cutover; S06 through S13 retain those product outcomes and S13 revalidates every manually produced bootstrap report before activation."
   ],
   "covers_needs": ["N-01", "N-02", "N-10"],
   "effort_complexity": {
-    "effort": "low",
-    "complexity": "low",
-    "quadrant": "quick",
-    "rationale": "The failure modes are known and confined to thirteen existing vendor/compiler/command touchpoints, with deterministic fault-injection tests and no new product surface.",
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "The production change remains confined to thirteen vendor/compiler/command touchpoints, but the exact planning-authority Gate-8 evidence must derive a merge-aware semantic scope, canonical fingerprint and two role-owned blob-pinned reports without relying on the not-yet-built generalized engine.",
     "confirmed_by_implementer": false
   },
   "risks": [
@@ -67,6 +69,11 @@
       "id": "R-04",
       "description": "A restarted process could trust stale, foreign, traversing, missing, or tampered recovery material and either overwrite an unrelated path or resume ordinary vendoring on a non-authoritative tree.",
       "mitigation": "Use the deterministic Git-admin-confined owner-only recovery record in planning/normative-clarifications.md section 1; integrity-check repository identity, every destination/snapshot tuple, original bytes/mode/existence and the complete material set before restoration, and fail recovery-only with no ordinary vendor writes on any mismatch."
+    },
+    {
+      "id": "R-05",
+      "description": "Calling the manual bootstrap a waiver or creating schema-shaped reports without the exact semantic scope would let unreviewed code become verified and leave S13 unable to distinguish evidence from fabrication.",
+      "mitigation": "Use the exact tagged v0.15.1 scope, fingerprint, prompt, report-schema, role, phase, cycle, committed-blob and ledger contracts; fail closed on any unsupported history or adapter failure; require a separate fresh Verifier authoritative invocation; and make S13 reproduce and revalidate every bootstrap record before current authority."
     }
   ],
   "acceptance_criteria": [
@@ -93,6 +100,12 @@
       "text": "WHEN a maintainer invokes the public sworn baton vendor command against the v0.15 checkout THE SYSTEM SHALL bind exit 0 to a valid byte-identical check or a fully successful write, exit 1 only to a valid deterministic non-empty check-mode drift diff, and exit 2 to invalid source, operational, preflight, apply, rollback, or recovery failure; --check SHALL exercise the same transform/schema materialisation path, create or modify no repository path including VERSION or Git-admin recovery material, and print no mapped payload bytes.",
       "ears_pattern": "event-driven",
       "test_refs": ["cmd/sworn/baton_test.go:TestBatonVendorAtomicPreflightReachability"]
+    },
+    {
+      "id": "AC-05",
+      "text": "WHEN the stable S01 implementation and proof checkpoint are committed under protocol.json authority planning THE SYSTEM SHALL execute the exact Baton v0.15.1 maintainability-review operation over the canonical start_commit-to-implementation_head semantic scope, persist a schema-valid blob-pinned Implementer cycle-0 preflight PASS, pin that review_scope.head as maintainability.implementation_head, and require the fresh Verifier to persist one distinct authoritative PASS for the identical input_fingerprint before the slice enters verified; IF scope construction, model execution, schema validation, blob identity, ledger identity, history freshness, or either role verdict fails THEN verification SHALL fail closed without fabricating or deferring per-slice Gate-8 authority to S13 (N-10).",
+      "ears_pattern": "event-driven",
+      "test_refs": ["docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/status.json:maintainability", "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/reports/maintainability/"]
     }
   ]
 }

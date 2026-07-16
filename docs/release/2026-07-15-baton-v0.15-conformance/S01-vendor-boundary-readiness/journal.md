@@ -163,3 +163,32 @@ BLOCKED
 Slice: `S01-vendor-boundary-readiness`
 Reason: The ratified slice contract leaves maintainability pending with `implementation_head` null and defers this slice's canonical maintainability authority to S13, but exact Baton v0.15.1 requires a pinned Implementer PASS ledger entry and a fresh authoritative Verifier report before the slice can become verified. The dedicated maintainability operation is absent at this implementation head, so Gate 8 cannot be completed within S01's current scope without fabricating authority.
 Proposed spec.json amendment: Add an in-scope item and acceptance criterion requiring canonical Baton v0.15.1 maintainability preflight before the implemented handoff, including a committed semantic `implementation_head` and blob-pinned Implementer PASS report, and authorize the fresh Verifier authoritative review. Add the bootstrap maintainability operation and tests to S01 touchpoints or create a prerequisite slice that owns them. Remove the S13 deferral for per-slice Gate-8 evidence; S13 may retain only release-wide cutover and revalidation ownership.
+
+## 2026-07-16 — Planner correction for fresh-verifier Gate-8 BLOCKED
+
+- Reconciled the authoritative owner-track verdict at
+  `190decb5ce67ca12bec4f2d7d2822c2ad7b07478`: deterministic Gates 1–7 and the
+  public CLI rerun passed, but exact Baton v0.15.1 Gate 8 BLOCKED because the
+  planned S13 deferral left `maintainability.implementation_head` null and no
+  role-owned reports.
+- The verifier was correct. `authority: planning` permits manual orchestration,
+  not a maintainability waiver, and S13 is explicitly forbidden to synthesize
+  missing earlier evidence. The installed legacy generic `llm-check` also cannot
+  substitute because its prompt/report schema predate the exact fingerprint and
+  review-scope identity and its attempted S01 invocation failed closed.
+- Corrected S01 with AC-05 and the referenced planning-authority bootstrap
+  adapter. It must execute the exact tagged v0.15.1 scope, fingerprint, prompt,
+  report-schema, committed-blob and ledger contracts for an Implementer preflight
+  and a distinct fresh Verifier authoritative run. S13 retains generalized
+  command, lifecycle, composition, rollback, revalidation and cutover ownership.
+- Cleared `verification.result` to pending and returned the slice to
+  `in_progress`; the immutable start commit, implementation file inventory,
+  proof path and deterministic evidence are preserved. No production code was
+  changed by this replan.
+- This resolves the inbound BLOCKED contract defect rather than returning it to
+  the verifier unchanged. The next fresh Implementer session owns only the
+  exact preflight report/ledger checkpoint and any bounded remediation that its
+  real verdict requires.
+- Exact v0.15.1 schema validation, release-wide EARS/trace/requirements/design-fit
+  gates, and a fresh tagged spec-ambiguity check all passed after the correction;
+  the ambiguity report contained no blocking or advisory findings.
