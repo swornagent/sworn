@@ -26,3 +26,25 @@
 - No cross-track collision is present: all declared implementation surfaces are
   T1-only. S20 remains blocked until a fresh S04 verifier PASS; no workaround
   or S20 mutation is authorized.
+
+## 2026-07-17T05:59:16+10:00 — Automatic Coach acknowledgement and Captain PROCEED
+
+- Under the Coach's standing instruction to orchestrate this release, the
+  Captain's `PROCEED` verdict in `review.md` (commit `de87826`) is
+  acknowledged. There are no `[escalate]` pins and no new Type-1 decision to
+  seek.
+- Apply pin 1 inline: preserve the exact v0.15.1 vendored prompt and user
+  payload bytes. Use the exact generic schema only as a separately labelled,
+  schema-constrained output envelope; never synthesize `check` or fall back to
+  unconstrained text.
+- Apply pin 2 inline: prove wrong, missing, and unknown emitted identities fail
+  through the public CLI and registered MCP paths.
+- Apply pin 3 inline: reject retired generic `maintainability-review` before
+  release/model/diff work in the gate, CLI, and MCP, with zero calls and no
+  mutation.
+- Apply pin 4 inline: retain typed `spec.references` and the dedicated
+  ambiguity report as the sole ambiguity authority.
+- Proceed to `in_progress` only in a fresh Implementer session. That session
+  must stop at `implemented`; a fresh S04 verifier PASS is the only event that
+  may unblock S20, which must then rerun its own readiness and maintainability
+  evidence.
