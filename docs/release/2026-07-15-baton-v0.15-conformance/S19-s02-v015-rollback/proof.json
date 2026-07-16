@@ -1,0 +1,136 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S19-s02-v015-rollback",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "scope": "Restore the complete S02-authored semantic envelope to S02's immutable start tree, without rewriting its release evidence, and bind the rollback's final Implementer maintainability PASS to its sole semantic implementation head.",
+  "files_changed": [
+    "cmd/sworn/baton.go",
+    "cmd/sworn/baton_test.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/journal.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/check-rollback.sh",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/complete-rollback-envelope.txt",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/fail-closed-checks.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/llm-checks.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/validation-output.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/reports/maintainability/implementer-cycle-0-73909151-0ead-4f0b-8cca-c1b4e78e6fdf.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/status.json",
+    "internal/adopt/baton/README.md",
+    "internal/adopt/baton/VERSION",
+    "internal/adopt/baton/architecture.json",
+    "internal/adopt/baton/installer-input-v0.15.1.tar",
+    "internal/adopt/baton/rules/07-adversarial-verification.md",
+    "internal/adopt/baton/rules/10-customer-journey-validation.md",
+    "internal/adopt/baton_archive.go",
+    "internal/baton/diff.go",
+    "internal/baton/install_transaction.go",
+    "internal/baton/install_transaction_test.go",
+    "internal/baton/installer_archive.go",
+    "internal/baton/installer_archive_test.go",
+    "internal/baton/manifest.go",
+    "internal/baton/manifest_test.go",
+    "internal/baton/records_conformance_test.go",
+    "internal/baton/schemas/board-v1.json",
+    "internal/baton/schemas/embed.go",
+    "internal/baton/schemas/llm-check-report-v1.json",
+    "internal/baton/schemas/slice-status-v1.json",
+    "internal/baton/schemas/spec-ambiguity-report-v1.json",
+    "internal/baton/schemas/spec-v1.json",
+    "internal/baton/source.go",
+    "internal/baton/testdata/fixture/schemas/spec-ambiguity-report-v1.json",
+    "internal/baton/validate_schema_test.go",
+    "internal/baton/vendor.go",
+    "internal/baton/vendor_transaction.go",
+    "internal/baton/vendor_transaction_test.go",
+    "internal/gate/llmcheck_test.go",
+    "internal/prompt/baton/README.md",
+    "internal/prompt/baton/llm-checks/README.md",
+    "internal/prompt/baton/llm-checks/maintainability-review.md",
+    "internal/prompt/baton/llm-checks/spec-ambiguity.md",
+    "internal/prompt/baton/rules.md",
+    "internal/prompt/baton/track-mode.md",
+    "internal/prompt/implementer.md",
+    "internal/prompt/planner.md",
+    "internal/prompt/verifier.md",
+    "internal/run/slice_test.go",
+    "internal/state/record_reconciliation_test.go",
+    "internal/state/state.go",
+    "internal/state/state_test.go"
+  ],
+  "test_results": [
+    {
+      "command": "make build",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/validation-output.md#build"
+    },
+    {
+      "command": "go test ./... -count=1",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/validation-output.md#uncached-repository-suite"
+    },
+    {
+      "command": "go vet ./...",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/validation-output.md#vet-and-whole-tree-equality-backstop"
+    },
+    {
+      "command": "git diff --exit-code e61cb190736ee7483fb4ed1a993442b26ce3574c HEAD -- . ':(exclude)docs/release/2026-07-15-baton-v0.15-conformance/**'",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/validation-output.md#vet-and-whole-tree-equality-backstop"
+    },
+    {
+      "command": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/check-rollback.sh --head 4b38887e666f7e4ab664bac4780535b080ad54eb --require-maintainability",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/complete-rollback-envelope.txt"
+    },
+    {
+      "command": "./bin/sworn capabilities",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/validation-output.md#built-binary-reachability-sanitized"
+    }
+  ],
+  "reachability": {
+    "type": "cli-run",
+    "evidence": "The executable proof/check-rollback.sh runs from the assigned T1 worktree against the pinned commit 4b38887e666f7e4ab664bac4780535b080ad54eb, derives its complete first-parent provenance envelope directly from Git, proves 37 exact baseline blobs and eight exact absences, and exits 0 only when the preserved S02/S20 lifecycle state is also valid. ./bin/sworn capabilities additionally exercised the built public CLI successfully; both outputs are captured under proof/."
+  },
+  "delivered": [
+    {
+      "item": "AC-01 and AC-02: dynamically derived the complete 45-path ordinary semantic envelope and restored every member mode-for-mode and blob-for-blob to S02 start tree c57285e3f652e5f49aa8bb15e3ba65249b4a3db8, including eight absences.",
+      "evidence": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/complete-rollback-envelope.txt; check-rollback.sh"
+    },
+    {
+      "item": "AC-03: provenance ambiguity fails closed for a pre-rollback head, later ordinary authority, authored/merge overlap, semantic merge drift, or any mode/blob/absence mismatch.",
+      "evidence": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/fail-closed-checks.md; check-rollback.sh"
+    },
+    {
+      "item": "AC-04: kept S02's release records byte-identical after the S19 start checkpoint, restricted changed release records to the S19 lifecycle/proof root, and proved no non-release semantic difference remains from S02 start.",
+      "evidence": "check-rollback.sh; docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/validation-output.md#vet-and-whole-tree-equality-backstop"
+    },
+    {
+      "item": "Captain pin 1: persisted one schema-valid Implementer maintainability PASS whose report blob, review scope, status ledger, and implementation_head all bind to 4b38887e666f7e4ab664bac4780535b080ad54eb.",
+      "evidence": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/reports/maintainability/implementer-cycle-0-73909151-0ead-4f0b-8cca-c1b4e78e6fdf.json; status.json maintainability ledger"
+    },
+    {
+      "item": "AC-05 precondition enforcement: retained S02 as the rollback-backed terminal deferral and retained S20 in planned/pending state until a fresh verifier supplies independent PASS evidence.",
+      "evidence": "check-rollback.sh lifecycle checks; S02-v015-parity-and-installs/status.json; S20-v015-parity-portable-fixture/status.json"
+    }
+  ],
+  "not_delivered": [
+    {
+      "item": "Independent fresh Verifier PASS and the resulting S20 unlock.",
+      "why": "Rule 7 assigns adversarial verification to a separate fresh-context /verify-slice session; the Implementer must stop at implemented and cannot certify this work.",
+      "tracking": "S19-s02-v015-rollback fresh verification gate before S20-v015-parity-portable-fixture",
+      "acknowledged": true
+    }
+  ],
+  "divergence": []
+}
