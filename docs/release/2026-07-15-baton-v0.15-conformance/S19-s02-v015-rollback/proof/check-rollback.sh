@@ -191,17 +191,13 @@ if ! printf '%s' "$s20_status_json" | jq -e '
   .start_commit == null and
   .maintainability.state == "pending"
 ' >/dev/null; then
-  # S20 is allowed to leave its planned/pending state only after an independently
-  # recorded fresh verifier PASS. This makes the gate a genuine permission,
-  # rather than an unconditional prohibition that would reject valid successor
-  # work after S19 has been verified.
-  printf '%s' "$s19_status_json" | jq -e --arg h "$head" '
-    .state == "verified" and
-    .maintainability.implementation_head == $h and
-    .verification.result == "pass" and
-    .verification.verifier_was_fresh_context == true and
-    (.verification.verifier_verdict_at | type == "string" and length > 0)
-  ' >/dev/null || fail 'S20 started before S19 fresh verification'
+  # A successor may leave planned/pending only after the whole AC-05
+  # conjunction is established: exact-head Implementer PASS, a complete proof
+  # bundle, and independent fresh verifier evidence. Turning on the existing
+  # strict checks here makes that a default transition gate, not caller choice.
+  require_maintainability=1
+  require_proof_bundle=1
+  require_fresh_verifier=1
 fi
 
 if (( require_maintainability == 1 )); then

@@ -33,6 +33,22 @@ fresh-context PASS timestamp bound to the same implementation head. The recheck
 after that correction is recorded below. F-01 remains a deliberate, tracked
 handoff rather than an Implementer self-certification.
 
+## Final AC recheck, second pass
+
+```text
+$ sworn llm-check -type ac-satisfaction -release 2026-07-15-baton-v0.15-conformance -slice S19-s02-v015-rollback -base 640396fa8cc319229d6f96dedfdbef65dbe317fe -json
+verdict: FAIL
+F-01 (blocking): the default S20 transition path checked fresh verifier fields
+                  but did not also activate the exact-head Implementer PASS and
+                  complete-proof-bundle checks.
+exit: 1
+```
+
+The next committed checker revision resolves that conjunction defect by turning
+on all three strict checks automatically whenever S20 is no longer
+planned/pending. A fresh verifier PASS remains intentionally pending until the
+required independent `/verify-slice` handoff.
+
 ## Maintainability preflight
 
 ```text
