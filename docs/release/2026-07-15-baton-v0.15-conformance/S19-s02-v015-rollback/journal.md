@@ -215,3 +215,18 @@ Next: `/replan-release 2026-07-15-baton-v0.15-conformance`
 - S02's immutable release records, the 45-path semantic equality evidence, the
   existing maintainability implementation head, and S20's planned/pending gate
   remain unchanged. Fresh verification remains a separate later session.
+
+## 2026-07-17T02:25:25+10:00 — Deterministic checker repair checkpoint
+
+- Added the bounded checker repair before broad validation. It pins and
+  schema-validates the planner-ratified amendment record, verifies exactly the
+  two declared S19 `spec.json` transitions plus their provenance-preserving
+  track propagations, and otherwise retains the original lifecycle/proof
+  allowlist.
+- The only non-S19 lifecycle record admitted is the rendered release
+  `index.md`, and only when a detached disposable worktree at the current HEAD
+  runs `sworn render` and byte-compares equal. The checker captures and compares
+  release refs and the validated checkout state around that disposable run.
+- This is a code/evidence checkpoint, not an Implementer completion claim.
+  `bash -n` and `git diff --check` pass; live history and adversarial-object
+  validation remain to be recorded before the slice can return to `implemented`.

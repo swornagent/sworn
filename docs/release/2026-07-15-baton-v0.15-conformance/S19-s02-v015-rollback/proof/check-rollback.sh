@@ -16,10 +16,21 @@ readonly S20_ID='S20-v015-parity-portable-fixture'
 readonly S19_ROOT="${RELEASE_ROOT}${S19_ID}/"
 readonly S02_ROOT="${RELEASE_ROOT}${S02_ID}/"
 readonly S19_STATUS="${S19_ROOT}status.json"
+readonly S19_SPEC="${S19_ROOT}spec.json"
 readonly S02_STATUS="${S02_ROOT}status.json"
 readonly S20_STATUS="${RELEASE_ROOT}${S20_ID}/status.json"
+readonly INDEX_PATH="${RELEASE_ROOT}index.md"
+readonly AMENDMENT_SCHEMA="${S19_ROOT}proof/contract-amendment-v1.schema.json"
+readonly AMENDMENT_RECORD="${S19_ROOT}proof/contract-amendment.json"
+# These planner-ratified evidence records are immutable input to this repair.
+# Pinning their committed objects prevents a later proof-file edit from becoming
+# a mutable-spec or rendered-index waiver.
+readonly AMENDMENT_SCHEMA_BLOB='b62d48f698059fc0151ea0a3b9da18dfe1e507f5'
+readonly AMENDMENT_RECORD_BLOB='9e298676129ee628714ffa80caa8c02bcea244f7'
 readonly EXPECTED_CONTROL_PATHS=45
 readonly EXPECTED_CONTROL_ABSENCES=8
+
+contract_json=''
 
 usage() {
   printf 'usage: %s --head <implementation-commit> [--require-maintainability] [--require-proof-bundle] [--require-fresh-verifier]\n' "$0" >&2
@@ -58,6 +69,221 @@ tree_tuple() {
   IFS=$' \t' read -r mode kind object_id _name <<< "$entry"
   [[ "$kind" == 'blob' ]] || fail "non-blob envelope object at ${file_path}: ${kind}"
   printf '%s\t%s\n' "$mode" "$object_id"
+}
+
+validate_contract_amendment() {
+  local schema_blob record_blob schema_json source_head source_status_path
+  local source_status_blob source_checker_blob trigger_head trigger_status_blob
+
+  schema_blob=$(git rev-parse "${current_track_head}:${AMENDMENT_SCHEMA}") || fail 'contract amendment schema is absent from the current track head'
+  record_blob=$(git rev-parse "${current_track_head}:${AMENDMENT_RECORD}") || fail 'contract amendment record is absent from the current track head'
+  [[ "$schema_blob" == "$AMENDMENT_SCHEMA_BLOB" ]] || fail 'contract amendment schema blob differs from the planner-ratified v1 schema'
+  [[ "$record_blob" == "$AMENDMENT_RECORD_BLOB" ]] || fail 'contract amendment record blob differs from the planner-ratified record'
+
+  schema_json=$(git show "${current_track_head}:${AMENDMENT_SCHEMA}") || fail 'cannot read contract amendment schema'
+  contract_json=$(git show "${current_track_head}:${AMENDMENT_RECORD}") || fail 'cannot read contract amendment record'
+
+  # Validate the complete record through the committed v1 schema rather than
+  # trusting a field-by-field shell allowlist. The schema uses only this compact
+  # JSON-Schema subset; unsupported references or constraints fail closed.
+  if ! jq -en --argjson schema "$schema_json" --argjson document "$contract_json" '
+    def resolve($root; $ref):
+      if (($ref | type) != "string") or (($ref | startswith("#/")) | not) then
+        error("unsupported schema reference")
+      else
+        reduce ($ref | ltrimstr("#/") | split("/"))[] as $part ($root; .[$part])
+      end;
+    def resolved($root; $schema):
+      if ($schema | has("$ref")) then resolve($root; $schema["$ref"]) else $schema end;
+    def type_ok($schema; $value):
+      if ($schema.type? == null) then true
+      elif $schema.type == "object" then ($value | type) == "object"
+      elif $schema.type == "array" then ($value | type) == "array"
+      elif $schema.type == "string" then ($value | type) == "string"
+      elif $schema.type == "integer" then (($value | type) == "number" and ($value | floor) == $value)
+      elif $schema.type == "boolean" then ($value | type) == "boolean"
+      else false
+      end;
+    def valid($root; $schema; $value):
+      resolved($root; $schema) as $s
+      | (type_ok($s; $value)
+         and (if ($s | has("const")) then $value == $s.const else true end)
+         and (if $s.type == "object" then
+                (($s.required // []) | all(.[]; . as $key | ($value | has($key))))
+                and (($s.properties // {}) | to_entries | all(.[]; . as $entry |
+                  if ($value | has($entry.key)) then valid($root; $entry.value; $value[$entry.key]) else true end))
+                and (if $s.additionalProperties == false then
+                       ((($value | keys) - (($s.properties // {}) | keys)) | length == 0)
+                     else true end)
+              else true end)
+         and (if $s.type == "array" then
+                (($s.minItems // 0) as $min | ($value | length) >= $min)
+                and (if ($s | has("maxItems")) then ($value | length) <= $s.maxItems else true end)
+                and (($s.prefixItems // []) as $prefix |
+                     [range(0; ($prefix | length))] | all(.[]; . as $i | valid($root; $prefix[$i]; $value[$i])))
+                and (if ($s.items? == false) then ($value | length) == (($s.prefixItems // []) | length) else true end)
+              else true end)
+         and (if $s.type == "string" and ($s | has("minLength")) then ($value | length) >= $s.minLength else true end)
+         and (if $s.type == "string" and ($s | has("pattern")) then ($value | test($s.pattern)) else true end)
+         and (if $s.format? == "date-time" then ($value | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$")) else true end));
+    ($schema."$schema" == "https://json-schema.org/draft/2020-12/schema")
+    and ($schema."$id" == "https://swornagent.dev/schemas/s19-executable-proof-contract-amendment-v1.json")
+    and ($schema.type == "object")
+    and ($schema.additionalProperties == false)
+    and valid($schema; $schema; $document)
+  ' >/dev/null; then
+    fail 'contract amendment record does not validate against the planner-ratified v1 schema'
+  fi
+
+  source_head=$(printf '%s' "$contract_json" | jq -r '.source.track_head')
+  source_status_path=$(printf '%s' "$contract_json" | jq -r '.source.status_path')
+  source_status_blob=$(printf '%s' "$contract_json" | jq -r '.source.status_blob_oid')
+  source_checker_blob=$(printf '%s' "$contract_json" | jq -r '.checker_repair.checker_blob_before_repair')
+  trigger_head=$(printf '%s' "$contract_json" | jq -r '.allowed_rendered_index_validation.trigger.blocked_track_head')
+  trigger_status_blob=$(printf '%s' "$contract_json" | jq -r '.allowed_rendered_index_validation.trigger.blocked_status_blob_oid')
+
+  git merge-base --is-ancestor "$source_head" "$current_track_head" || fail 'amendment source blocked verdict is not reachable from the current track head'
+  [[ $(git rev-parse "${source_head}:${source_status_path}") == "$source_status_blob" ]] || fail 'amendment source status blob does not match its declared provenance'
+  git show "${source_head}:${source_status_path}" | jq -e '.verification.result == "blocked"' >/dev/null || fail 'amendment source does not contain the declared blocked verdict'
+  [[ $(git rev-parse "${source_head}:${S19_ROOT}proof/check-rollback.sh") == "$source_checker_blob" ]] || fail 'amendment source checker blob does not match its declared pre-repair identity'
+
+  git merge-base --is-ancestor "$trigger_head" "$current_track_head" || fail 'render correction trigger is not reachable from the current track head'
+  [[ $(git rev-parse "${trigger_head}:${S19_STATUS}") == "$trigger_status_blob" ]] || fail 'render correction trigger status blob does not match its declared provenance'
+  git show "${trigger_head}:${S19_STATUS}" | jq -e '.verification.result == "blocked"' >/dev/null || fail 'render correction trigger does not contain the declared blocked verdict'
+
+  printf 'CONTRACT_AMENDMENT PASS schema=%s record=%s\n' "$schema_blob" "$record_blob"
+}
+
+spec_state() {
+  local tuple=$1 expected_mode=$2 first_before=$3 first_after=$4 second_after=$5
+  local mode object_id
+  IFS=$'\t' read -r mode object_id <<< "$tuple"
+  [[ "$mode" == "$expected_mode" ]] || fail "S19 spec mode drifted to ${mode}"
+  case "$object_id" in
+    "$first_before") printf '0\n' ;;
+    "$first_after") printf '1\n' ;;
+    "$second_after") printf '2\n' ;;
+    *) fail "unrecognized post-start S19 spec blob ${object_id}" ;;
+  esac
+}
+
+validate_s19_spec_history() {
+  local first_before first_after first_count first_pre first_subject
+  local second_before second_after second_count second_pre second_subject
+  local start_tuple spec_mode start_oid commit parent_line subject before_tuple after_tuple
+  local -a parents=()
+  local parent_one_state parent_two_state result_state
+  local first_commit='' second_commit='' first_propagations=0 second_propagations=0
+
+  first_before=$(printf '%s' "$contract_json" | jq -r '.allowed_post_start_spec_transition.before_blob_oid')
+  first_after=$(printf '%s' "$contract_json" | jq -r '.allowed_post_start_spec_transition.after_blob_oid')
+  first_count=$(printf '%s' "$contract_json" | jq -r '.allowed_post_start_spec_transition.allowed_transition_count')
+  first_pre=$(printf '%s' "$contract_json" | jq -r '.ratification.pre_ratification_release_wt_head')
+  first_subject=$(printf '%s' "$contract_json" | jq -r '.ratification.required_planner_commit_subject')
+  second_before=$(printf '%s' "$contract_json" | jq -r '.allowed_rendered_index_validation.correction_spec_transition.before_blob_oid')
+  second_after=$(printf '%s' "$contract_json" | jq -r '.allowed_rendered_index_validation.correction_spec_transition.after_blob_oid')
+  second_count=$(printf '%s' "$contract_json" | jq -r '.allowed_rendered_index_validation.correction_spec_transition.allowed_transition_count')
+  second_pre=$(printf '%s' "$contract_json" | jq -r '.allowed_rendered_index_validation.correction_spec_transition.pre_ratification_release_wt_head')
+  second_subject=$(printf '%s' "$contract_json" | jq -r '.allowed_rendered_index_validation.correction_spec_transition.required_planner_commit_subject')
+
+  [[ "$first_count" == '1' && "$second_count" == '1' ]] || fail 'contract amendment does not declare exactly one transition for each S19 spec correction'
+  [[ "$second_before" == "$first_after" ]] || fail 'contract amendment does not form a contiguous S19 spec-transition chain'
+
+  start_tuple=$(tree_tuple "$S19_START" "$S19_SPEC")
+  IFS=$'\t' read -r spec_mode start_oid <<< "$start_tuple"
+  [[ "$spec_mode" != '-' && "$start_oid" == "$first_before" ]] || fail 'S19 start spec does not match the first declared amendment baseline'
+
+  while IFS= read -r commit; do
+    parent_line=$(git show -s --format='%P' "$commit")
+    read -r -a parents <<< "$parent_line"
+    [[ ${#parents[@]} -ge 1 ]] || fail "S19 spec history contains a parentless post-start commit ${commit}"
+    after_tuple=$(tree_tuple "$commit" "$S19_SPEC")
+    before_tuple=$(tree_tuple "${parents[0]}" "$S19_SPEC")
+    if [[ ${#parents[@]} -eq 1 && "$after_tuple" == "$before_tuple" ]]; then
+      continue
+    fi
+    if [[ ${#parents[@]} -eq 2 ]]; then
+      local parent_two_tuple
+      parent_two_tuple=$(tree_tuple "${parents[1]}" "$S19_SPEC")
+      [[ "$after_tuple" == "$before_tuple" && "$after_tuple" == "$parent_two_tuple" ]] && continue
+    fi
+
+    if [[ ${#parents[@]} -eq 1 ]]; then
+      subject=$(git show -s --format='%s' "$commit")
+      if [[ "$subject" == "$first_subject" ]]; then
+        [[ -z "$first_commit" ]] || fail 'duplicate first planner-ratified S19 spec transition'
+        [[ "${parents[0]}" == "$first_pre" ]] || fail 'first S19 spec transition has the wrong planner provenance parent'
+        [[ "$before_tuple" == "${spec_mode}"$'\t'"${first_before}" && "$after_tuple" == "${spec_mode}"$'\t'"${first_after}" ]] || fail 'first S19 spec transition has the wrong mode or blob identity'
+        first_commit=$commit
+      elif [[ "$subject" == "$second_subject" ]]; then
+        [[ -n "$first_commit" && -z "$second_commit" ]] || fail 'second S19 spec transition is duplicate or precedes the first transition'
+        [[ "${parents[0]}" == "$second_pre" && "$second_pre" == "$first_commit" ]] || fail 'second S19 spec transition has the wrong planner provenance parent'
+        [[ "$before_tuple" == "${spec_mode}"$'\t'"${second_before}" && "$after_tuple" == "${spec_mode}"$'\t'"${second_after}" ]] || fail 'second S19 spec transition has the wrong mode or blob identity'
+        second_commit=$commit
+      else
+        fail "unrecognized ordinary S19 spec transition ${commit}"
+      fi
+      continue
+    fi
+
+    [[ ${#parents[@]} -eq 2 ]] || fail "S19 spec history contains an unrecognized multi-parent transition ${commit}"
+    parent_one_state=$(spec_state "$before_tuple" "$spec_mode" "$first_before" "$first_after" "$second_after")
+    parent_two_state=$(spec_state "$(tree_tuple "${parents[1]}" "$S19_SPEC")" "$spec_mode" "$first_before" "$first_after" "$second_after")
+    result_state=$(spec_state "$after_tuple" "$spec_mode" "$first_before" "$first_after" "$second_after")
+    case "$result_state" in
+      1)
+        [[ "$parent_one_state" == '0' && "$parent_two_state" == '1' ]] || fail "first S19 spec propagation merge ${commit} has unexpected provenance"
+        ((first_propagations += 1))
+        ;;
+      2)
+        [[ "$parent_one_state" == '1' && "$parent_two_state" == '2' ]] || fail "second S19 spec propagation merge ${commit} has unexpected provenance"
+        ((second_propagations += 1))
+        ;;
+      *)
+        fail "S19 spec propagation merge ${commit} does not carry a declared amended state"
+        ;;
+    esac
+  done < <(git rev-list --topo-order --reverse "${S19_START}..${current_track_head}")
+
+  [[ -n "$first_commit" && -n "$second_commit" ]] || fail 'S19 spec history is missing a planner-ratified amendment transition'
+  [[ "$first_propagations" -eq 1 && "$second_propagations" -eq 1 ]] || fail 'S19 spec history does not contain exactly one provenance-preserving propagation for each amendment'
+  printf 'S19_SPEC_HISTORY PASS first=%s second=%s\n' "$first_commit" "$second_commit"
+}
+
+remove_disposable_worktree() {
+  local worktree_path=$1
+  [[ -n "$worktree_path" && -d "$worktree_path" ]] || return 0
+  git worktree remove --force "$worktree_path" >/dev/null 2>&1 || rm -rf "$worktree_path"
+}
+
+validate_rendered_index() {
+  local worktree_path='' status_before status_after refs_before refs_after render_output
+
+  git cat-file -e "${current_track_head}:${INDEX_PATH}" || fail 'current track head has no committed rendered release index'
+  command -v sworn >/dev/null 2>&1 || fail 'sworn render is unavailable for deterministic rendered-index validation'
+  status_before=$(git status --porcelain)
+  refs_before=$(git for-each-ref --format='%(refname) %(objectname)' 'refs/heads/release/*' 'refs/heads/release-wt/*')
+  worktree_path=$(mktemp -d "${TMPDIR:-/tmp}/s19-render.XXXXXX") || fail 'cannot allocate disposable rendered-index worktree path'
+  rmdir "$worktree_path" || fail 'cannot prepare disposable rendered-index worktree path'
+
+  if ! git worktree add --detach "$worktree_path" "$current_track_head" >/dev/null 2>&1; then
+    fail 'cannot create disposable detached worktree for rendered-index validation'
+  fi
+  if ! render_output=$(sworn render "$RELEASE" "$worktree_path" 2>&1); then
+    remove_disposable_worktree "$worktree_path"
+    fail "deterministic rendered-index command failed: ${render_output}"
+  fi
+  if ! cmp -s "${worktree_path}/${INDEX_PATH}" <(git show "${current_track_head}:${INDEX_PATH}"); then
+    remove_disposable_worktree "$worktree_path"
+    fail 'committed release index does not byte-match the disposable current-head sworn render'
+  fi
+  remove_disposable_worktree "$worktree_path"
+
+  status_after=$(git status --porcelain)
+  refs_after=$(git for-each-ref --format='%(refname) %(objectname)' 'refs/heads/release/*' 'refs/heads/release-wt/*')
+  [[ "$status_before" == "$status_after" ]] || fail 'deterministic rendered-index validation mutated the validated checkout'
+  [[ "$refs_before" == "$refs_after" ]] || fail 'deterministic rendered-index validation mutated a release ref'
+  printf 'RENDERED_INDEX PASS head=%s\n' "$current_track_head"
 }
 
 head_arg=''
@@ -169,10 +395,28 @@ git diff --exit-code "$BASE_COMMIT" "$head" -- . ":(exclude)${RELEASE_ROOT}**" >
 git diff --quiet "$S19_START" "$current_track_head" -- "$S02_ROOT" || fail 'S02 release evidence changed after S19 start'
 
 changed_release_records=0
+s19_spec_record_changes=0
+rendered_index_record_changes=0
 while IFS= read -r -d '' file_path; do
   ((changed_release_records += 1))
-  is_allowed_s19_record "$file_path" || fail "non-S19 or non-lifecycle release record changed after S19 start: ${file_path}"
+  case "$file_path" in
+    "$S19_SPEC")
+      ((s19_spec_record_changes += 1))
+      ;;
+    "$INDEX_PATH")
+      ((rendered_index_record_changes += 1))
+      ;;
+    *)
+      is_allowed_s19_record "$file_path" || fail "non-S19 or non-lifecycle release record changed after S19 start: ${file_path}"
+      ;;
+  esac
 done < <(git diff --name-only -z "$S19_START" "$current_track_head" -- "$RELEASE_ROOT")
+
+[[ "$s19_spec_record_changes" -eq 1 ]] || fail 'S19 spec amendment is absent or appears more than once in the post-start release-record diff'
+[[ "$rendered_index_record_changes" -eq 1 ]] || fail 'rendered release index amendment is absent or appears more than once in the post-start release-record diff'
+validate_contract_amendment
+validate_s19_spec_history
+validate_rendered_index
 
 status_start=$(git show "${current_track_head}:${S19_STATUS}" | jq -r '.start_commit')
 [[ "$status_start" == "$S19_START" ]] || fail 'S19 status start_commit changed or does not match its immutable start checkpoint'
