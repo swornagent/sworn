@@ -354,3 +354,25 @@ All nine Rule-9 decisions are acknowledged. No open design question remains. Pro
   Verifier action, real-home access, or `doctor --sync-baton` execution has
   occurred. One fresh role-isolated Implementer closure review is now
   authorized against exact semantic head `2a17443…` only.
+
+## 2026-07-16 — Implementer Gate-8 cycle-0 closure PASS
+
+- One fresh role-isolated Implementer closure review consumed the untouched
+  v0.15.1 maintainability prompt and exact canonical semantic scope from
+  immutable base `e61cb190736ee7483fb4ed1a993442b26ce3574c` through corrected
+  head `2a17443d67d39cf681dba117a57673714a916d7f`. Its 45 included and 20
+  excluded paths fingerprint to
+  `sha256:c72341fa8bab5c4a9b7a548b7ffb3ba1d57955f5e322d527c5284a1eed54f8d2`.
+- Invocation `f4ef4f75-4dc8-48d1-a37c-d37d5f83c5ff` returned `PASS` with zero
+  findings. The full overlay-valid report is committed in
+  `1c46bccc4ea8a2e360bd3e17d587a7963ed5d90e` at
+  `reports/maintainability/implementer-cycle-0-f4ef4f75-4dc8-48d1-a37c-d37d5f83c5ff.json`,
+  blob `31172c04c2063333d2cd041ded2fbe66b7e8f965`.
+- The append-only ledger preserves the earlier preflight `FAIL` and records the
+  permitted closure `PASS`; `maintainability.state` is now `passed` and
+  `implementation_head` is pinned to the reviewed semantic head. Overall S02
+  state remains `in_progress` with verification pending until a live proof bundle
+  and deterministic proof gate are complete.
+- No semantic source/test/configuration change, fresh Verifier dispatch,
+  real-home access, or `doctor --sync-baton` execution occurred in this
+  transition.

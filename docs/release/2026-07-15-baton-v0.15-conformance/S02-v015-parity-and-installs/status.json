@@ -7,7 +7,7 @@
   "state": "in_progress",
   "owner": "implementer",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-16T18:43:36+10:00",
+  "last_updated_at": "2026-07-16T20:44:40+10:00",
   "start_commit": "e61cb190736ee7483fb4ed1a993442b26ce3574c",
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/proof.json",
@@ -147,9 +147,9 @@
     }
   ],
   "maintainability": {
-    "state": "pending",
+    "state": "passed",
     "cycle": 0,
-    "implementation_head": null,
+    "implementation_head": "2a17443d67d39cf681dba117a57673714a916d7f",
     "rollback_slice_id": null,
     "reports": [
       {
@@ -163,6 +163,18 @@
         "input_fingerprint": "sha256:4d58ca4027c3919073f0c51daa1f5b3ca0ab33a87414c9aebe17372f5bd338a7",
         "verdict": "FAIL",
         "blocking_finding_ids": ["F-01"]
+      },
+      {
+        "role": "implementer",
+        "phase": "closure",
+        "cycle": 0,
+        "invocation_id": "f4ef4f75-4dc8-48d1-a37c-d37d5f83c5ff",
+        "report_path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/reports/maintainability/implementer-cycle-0-f4ef4f75-4dc8-48d1-a37c-d37d5f83c5ff.json",
+        "report_blob_oid": "31172c04c2063333d2cd041ded2fbe66b7e8f965",
+        "review_scope_head": "2a17443d67d39cf681dba117a57673714a916d7f",
+        "input_fingerprint": "sha256:c72341fa8bab5c4a9b7a548b7ffb3ba1d57955f5e322d527c5284a1eed54f8d2",
+        "verdict": "PASS",
+        "blocking_finding_ids": []
       }
     ],
     "adjudication": null
