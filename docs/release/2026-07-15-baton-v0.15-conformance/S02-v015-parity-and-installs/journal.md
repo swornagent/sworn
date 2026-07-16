@@ -127,3 +127,30 @@ All nine Rule-9 decisions are acknowledged. No open design question remains. Pro
   S02 remains `in_progress`; immutable `start_commit`
   `e61cb190736ee7483fb4ed1a993442b26ce3574c`, pending cycle-0 maintainability,
   and pending fresh verification are preserved.
+
+## 2026-07-16 — Explicit AC record-sweep closure
+
+- Added the three exact test references named by AC-01, AC-03, and AC-04 in
+  `internal/baton/records_conformance_test.go`. The positive sweep authenticates
+  the C-01 tag/commit/digest, distinct upstream root `VERSION` object, complete
+  78-node archive identity/inventory, mapped repository, compiled adopting
+  manifest, every embedded schema byte, and complete classification set.
+- The AC-03 companion independently extracts and runs both tagged installers in
+  isolated fixed-`0022` homes, then asks the production read-only install checker
+  to compare all three resulting roots plus separate Sworn `VERSION` sentinels
+  against the native trees. The existing same-named
+  `installer_archive_test.go` test remains the second independent script/native
+  oracle rather than being weakened or replaced.
+- The fail-closed sweep mutation-tests mapped repository bytes, the adopting
+  manifest/binary identity, upstream `VERSION` bytes, archive repository and
+  compiled consumers, source inventory, schema classification, all three managed
+  roots, and all three sentinels. All mutations fail on their applicable public
+  or production read-only surface; no real installation home is read or written.
+- `internal/baton/diff_test.go` and `internal/baton/vendor_test.go` remain
+  byte-unchanged: their existing tests already own generic mapped-drift,
+  operational-source, schema-mapping, transformed-vendor, idempotence, and
+  check-only roles. The new record sweep composes those production seams against
+  the exact v0.15.1 authority without duplicating generic fixture coverage.
+- Focused `go test ./internal/baton -run '^TestBatonV015' -count=1` passed in
+  8.599s; full `go test ./internal/baton -count=1` passed in 227.880s; and
+  `git diff --check` was clean. Real-home sync remains deliberately uninvoked.
