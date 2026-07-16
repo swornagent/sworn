@@ -10,7 +10,7 @@
   "state": "failed_verification",
   "owner": "implementer",
   "last_updated_by": "planner",
-  "last_updated_at": "2026-07-17T01:59:17+10:00",
+  "last_updated_at": "2026-07-17T02:05:18+10:00",
   "start_commit": "640396fa8cc319229d6f96dedfdbef65dbe317fe",
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.json",
@@ -153,18 +153,11 @@
     "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "blocked",
+    "result": "pending",
     "verifier_session_id": null,
     "verifier_verdict_at": null,
     "verifier_was_fresh_context": null,
-    "violations": [
-      {
-        "gate": "planner-ratified executable-proof contract completeness",
-        "description": "The ratification commit c0d7d672fe14090655fea7db3f5bf0e22dfd29f9 changes release-wide index.md, but contract-amendment-v1.schema.json fixes the preserved allowlist to six S19-only paths plus the sole S19 spec transition. A checker cannot both admit the live ratification lineage and reject every non-S19 release record without a narrowly pinned index transition.",
-        "evidence": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/journal.md#2026-07-17t0146231000--implementer-blocked-contract-amendment-omits-rendered-index-lineage",
-        "proposed_amendment": "Replan only the contract-amendment schema and record to pin the c0d7d672 index.md lineage: its direct parent/blob transition and the exact propagated T1 rendered blob, both tied to their commits. Add no general index or non-S19 allowlist exception."
-      }
-    ]
+    "violations": []
   },
   "release_base": "release/v0.2.0",
   "release_benefit": "Restores a trustworthy pre-S02 semantic base without erasing the failed slice's immutable evidence.",

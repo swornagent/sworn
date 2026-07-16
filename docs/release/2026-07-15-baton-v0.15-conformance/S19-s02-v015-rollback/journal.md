@@ -190,3 +190,14 @@ Next: `/replan-release 2026-07-15-baton-v0.15-conformance`
   block. The next Implementer repairs only `proof/check-rollback.sh` and proof
   evidence; no production/test/CI harness, semantic rollback, or S20 change is
   authorized.
+
+## 2026-07-17T02:05:18+10:00 — Track propagation reconciliation
+
+- The forward merge preserved the inbound BLOCKED verification payload because
+  it was a track-only change outside the initial status conflict. Planner
+  authority now clears that stale payload to `verification.result: pending` so
+  the repaired contract can enter a fresh Implementer session.
+- Preserve the incoming blocker journal entry as audit evidence, the immutable
+  S19 `start_commit`, the 45-path actual-file inventory, all proof references,
+  the exact-head maintainability PASS, and the S20 block. No semantic, product,
+  test, CI, checker, or S20 artifact is changed by this propagation correction.
