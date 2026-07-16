@@ -8,10 +8,10 @@
     "N-02",
     "N-10"
   ],
-  "state": "blocked",
-  "owner": "planner",
+  "state": "in_progress",
+  "owner": "implementer",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-17T07:35:39+10:00",
+  "last_updated_at": "2026-07-17T09:41:07+10:00",
   "start_commit": "08dd38f81e466d3288ff4bf64953cfc90ea6063c",
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S20-v015-parity-portable-fixture/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S20-v015-parity-portable-fixture/proof.json",
@@ -112,7 +112,7 @@
     "complexity": "high",
     "quadrant": "beast",
     "rationale": "Fresh 45-path C-01 replacement after exact rollback, plus a portable clean-CI source oracle cloned from an authenticated exact upstream Git bundle, remains one indivisible bootstrap boundary.",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
   "verification": {
     "result": "pending",

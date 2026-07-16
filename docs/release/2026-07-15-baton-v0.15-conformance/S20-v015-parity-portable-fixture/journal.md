@@ -150,3 +150,24 @@
   did not produce a schema-valid accepted contract identity. Tracking:
   `S04-typed-reference-ambiguity` AC-04 via `/replan-release
   2026-07-15-baton-v0.15-conformance`.
+
+## 2026-07-17T09:41:07+10:00 — Resume after fresh S21 verifier PASS
+
+- The planner-authorized provider-envelope resolution is now independently
+  verified on this track: `S21-openai-structured-envelope` is `verified` with
+  `verification.result: pass` and `verifier_was_fresh_context: true` at
+  `240a2ede9a5fd022ae403ced30a6a5f80d918747`. It preserves S04's canonical
+  schema/prompt/local-validation authority while making the generic report
+  acceptable to the OpenAI structured-output wire profile.
+- S20 transitions `blocked` → `in_progress` only for fresh live evidence. Its
+  immutable start remains `08dd38f81e466d3288ff4bf64953cfc90ea6063c`; its
+  only semantic implementation commits remain
+  `edad0fa8a75ab3b4a1938bdaf856c7973be72107` and
+  `f3da6a49c3f89f0883e265befd30d1eb099d6a90`. No S20 production source,
+  canonical schema, prompt, or scope changed in this resume checkpoint.
+- The historical generic-identity and pre-output provider-schema blockers stay
+  append-only in `status.json`. Completion still requires a genuine
+  schema-constrained `ac-satisfaction` response accepted by S04's unchanged
+  local canonical validation, the manual planning-authority Gate-8 Implementer
+  preflight, refreshed proof, and a later fresh verifier. Real Codex and Claude
+  homes remain out of scope.
