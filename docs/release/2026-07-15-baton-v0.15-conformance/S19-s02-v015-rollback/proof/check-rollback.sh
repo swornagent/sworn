@@ -52,12 +52,12 @@ tree_tuple() {
   local entry mode kind object_id _name
   entry=$(git ls-tree "$tree" -- "$file_path")
   if [[ -z "$entry" ]]; then
-    printf '%s\t%s' '-' '-'
+    printf '%s\t%s\n' '-' '-'
     return
   fi
   IFS=$' \t' read -r mode kind object_id _name <<< "$entry"
   [[ "$kind" == 'blob' ]] || fail "non-blob envelope object at ${file_path}: ${kind}"
-  printf '%s\t%s' "$mode" "$object_id"
+  printf '%s\t%s\n' "$mode" "$object_id"
 }
 
 head_arg=''
@@ -101,7 +101,7 @@ while IFS= read -r commit; do
   while IFS= read -r -d '' file_path; do
     is_release_record_path "$file_path" && continue
     ordinary_paths["$file_path"]=1
-    if git merge-base --is-ancestor "$FROZEN_HEAD" "$commit"; then
+    if [[ "$commit" != "$FROZEN_HEAD" ]] && git merge-base --is-ancestor "$FROZEN_HEAD" "$commit"; then
       git merge-base --is-ancestor "$S19_START" "$commit" || fail "unexpected later ordinary authority ${commit} before S19 start"
       [[ "$commit" == "$head" ]] || fail "unexpected later ordinary authority ${commit}; only the pinned implementation head may restore semantics"
       later_semantic_commits["$commit"]=1
