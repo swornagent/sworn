@@ -376,3 +376,28 @@ All nine Rule-9 decisions are acknowledged. No open design question remains. Pro
 - No semantic source/test/configuration change, fresh Verifier dispatch,
   real-home access, or `doctor --sync-baton` execution occurred in this
   transition.
+
+## 2026-07-16 — Planner invalidates premature closure authority
+
+- A fresh independent Gate-8 reconstruction proved that historical merge
+  `7696c9bf9c235fffb937d3ed7e4be5a8a2bbda2a` fails section 6's mandatory
+  deterministic `index.md` check. Its committed projection omits S02 ownership
+  of `internal/run/slice_test.go`; rendering the exact composed historical
+  records produces a different blob. The other three sealed merges reproduce
+  byte-identically.
+- Invocation `f4ef4f75-4dc8-48d1-a37c-d37d5f83c5ff` was dispatched by a
+  concurrent session before that provenance defect was repaired. Its committed
+  PASS report remains in Git as forensic evidence, but it is non-authoritative:
+  scope construction was required to fail before model dispatch, so the report
+  is removed from the status ledger and cannot support lifecycle or Verifier
+  authority.
+- The current sealed manifest also binds the two S02 historical merges only to
+  final review head `2a17443…`, while the preserved preflight report consumed
+  them at exact head `60097cfa…`. A replacement manifest must authorize both
+  exact historical consumers separately; ancestor or descendant substitution
+  remains prohibited.
+- Fail-closed state is restored: maintainability is `pending`, cycle 0,
+  `implementation_head` is null, and only the original authoritative preflight
+  FAIL remains in the ledger. Overall S02 stays `in_progress` with verification
+  pending. No semantic code, proof, Verifier, merge, real-home, or installation
+  action is authorized until a human-ratified v2 planning amendment is synced.
