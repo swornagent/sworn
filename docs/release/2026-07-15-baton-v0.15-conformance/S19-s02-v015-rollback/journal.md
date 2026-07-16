@@ -201,3 +201,17 @@ Next: `/replan-release 2026-07-15-baton-v0.15-conformance`
   S19 `start_commit`, the 45-path actual-file inventory, all proof references,
   the exact-head maintainability PASS, and the S20 block. No semantic, product,
   test, CI, checker, or S20 artifact is changed by this propagation correction.
+
+## 2026-07-17T02:14:10+10:00 — Repair resumed
+
+- Transitioned from `failed_verification` to `in_progress` for the
+  planner-ratified deterministic-render repair. S19's immutable
+  `start_commit` remains `640396fa8cc319229d6f96dedfdbef65dbe317fe`; this
+  repair does not re-anchor the rollback diff base.
+- Scope is limited to the committed rollback checker and S19 lifecycle/proof
+  evidence. The repair will validate the amendment record and schema, accept
+  only the two declared S19 spec transitions, and accept the rendered release
+  index only through an isolated current-head `sworn render` byte comparison.
+- S02's immutable release records, the 45-path semantic equality evidence, the
+  existing maintainability implementation head, and S20's planned/pending gate
+  remain unchanged. Fresh verification remains a separate later session.
