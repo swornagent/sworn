@@ -48,3 +48,17 @@ the original pinned-head authority gate before they can narrow the envelope.
 S20 remains fail-closed: a successor state is permissible only after the
 exact-head Implementer PASS/report binding, a complete proof bundle, and a
 fresh `state: verified` PASS with timestamp.
+
+## Captain-authorized first-parent history repair
+
+The historical later-authority assertion is retained in the verifier record but
+does not satisfy AC-03: it used the pinned implementation head instead of the
+required adversarial descendant head. The contract-correct disposable descendant
+`bdef578b3fce9e7327dad448704531c870724c91` was rejected non-zero. The accepted
+AC-04 gap was separately reproduced with a disposable S02 journal mutation at
+`6d9dce04c8737579ab48530adc298dda3c9c54e8` and exact byte-restoration at
+`524f1b443209403c1dd463439b8e70afd28ed266`; final S02 bytes matched, but the
+repaired checker rejected the first transition. Both detached worktrees were
+removed and all refs were unchanged. Valid live T1 history still passed because
+the guard compares each commit only to parent one, not to a propagation merge's
+parent two.

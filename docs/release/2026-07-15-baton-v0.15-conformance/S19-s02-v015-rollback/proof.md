@@ -5,10 +5,12 @@
 Preserve the ordinary S02 rollback from immutable start tree
 `e61cb190736ee7483fb4ed1a993442b26ce3574c` (tree
 `c57285e3f652e5f49aa8bb15e3ba65249b4a3db8`) without rewriting release
-records, then repair only its planner-ratified executable-proof boundary. The
-repair validates the immutable amendment schema/record, allows only the two
-declared S19 `spec.json` transitions, and admits `index.md` only if a detached
-current-head `sworn render` reproduces its committed bytes.
+records, then repair the accepted AC-04 history gap. The repair retains the
+final-tree S02 backstop and rejects every S02 release-record change on the T1
+first-parent path from S19 start through current HEAD. It also validates the
+immutable amendment schema/record, allows only the two declared S19 `spec.json`
+transitions, and admits `index.md` only if a detached current-head `sworn render`
+reproduces its committed bytes.
 
 ## Files changed
 
@@ -26,8 +28,9 @@ generated release index. The authoritative complete list is the
 - `git diff --exit-code e61cb190736ee7483fb4ed1a993442b26ce3574c HEAD -- . ':(exclude)docs/release/2026-07-15-baton-v0.15-conformance/**'` — PASS (0)
 - `proof/check-rollback.sh --head 4b38887e666f7e4ab664bac4780535b080ad54eb --require-maintainability` — PASS (0)
 - `proof/check-rollback.sh --head 4b38887e666f7e4ab664bac4780535b080ad54eb --require-maintainability --require-proof-bundle` — PASS (0)
+- `bash -n proof/check-rollback.sh` — PASS (0)
 - detached current-head `sworn render` byte comparison — PASS (0; performed by the checker without modifying a release ref or the validated checkout)
-- disposable adversarial Git objects — PASS (all named cases rejected non-zero; release refs unchanged)
+- disposable adversarial Git objects — PASS: AC-03's contract-correct descendant-head invocation rejected non-zero; an S02-record mutation followed by byte restoration rejected non-zero; release refs and worktrees were unchanged after cleanup
 - deterministic `sworn verify` proof-bundle gate with the live S19 diff — PASS (0)
 - `sworn llm-check -type ac-satisfaction ...` — PASS (0; one non-blocking handoff observation)
 
@@ -56,6 +59,18 @@ release board only inside a disposable detached current-head worktree and byte
 compares that output to committed `index.md`. It exited 0 at the exact head
 above. The built public CLI also exited 0 for `./bin/sworn capabilities`; its
 configuration-safe result is captured in the validation record.
+
+## Captain adjudication
+
+`CAPTAIN-VERDICT: PROCEED`. The historical verifier’s first later-authority
+claim is retained as historical evidence but does not establish an AC-03 or
+AC-04 breach: it pinned `--head` to the implementation commit while executing
+from an adversarial descendant. AC-03 explicitly requires `--head
+<adversarial-descendant>`; the contract-correct disposable run at
+`bdef578b3fce9e7327dad448704531c870724c91` exited non-zero. The mutation then
+byte-restoration of an S02 record is the accepted AC-04 defect. The repair
+therefore adds only first-parent S02-record transition inspection, while keeping
+the final-tree check and ignoring parent-two-only propagation differences.
 
 ## ProofBundleVerificationGate
 
@@ -93,6 +108,12 @@ This working-tree form was rerun after the `implemented` status transition and
 generated release index were present, so the first pass covers the complete
 handoff diff. It remains a structural preflight, not a fresh-verifier verdict.
 
+For the Captain-authorized first-parent S02 history repair, the same supported
+flag invocation returned `PASS` before the `implemented` transition. Its live
+output is retained in
+[`proof/validation-output.md`](proof/validation-output.md#first-parent-s02-record-history-repair).
+It remains a structural preflight, not a fresh-verifier verdict.
+
 The structural PASS is a Rule-6 proof-bundle preflight only; it does not change
 the independent fresh-verifier requirement.
 
@@ -111,6 +132,7 @@ IMPLEMENTATION_HEAD 4b38887e666f7e4ab664bac4780535b080ad54eb
 ENVELOPE_PATHS 45 baseline-present=37 baseline-absent=8
 CONTRACT_AMENDMENT PASS schema=b62d48f698059fc0151ea0a3b9da18dfe1e507f5 record=9e298676129ee628714ffa80caa8c02bcea244f7
 S19_SPEC_HISTORY PASS first=c0d7d672fe14090655fea7db3f5bf0e22dfd29f9 second=2c25021305b62d4b1e1f75bf1c7e0e6db504651b
+S02_RECORD_HISTORY PASS first-parent-commits=19
 RENDERED_INDEX PASS
 ```
 
@@ -128,17 +150,21 @@ release-record checkpoint as semantic authority. Captured negative output is in
 [`proof/fail-closed-checks.md`](proof/fail-closed-checks.md). Live disposable
 objects also reject arbitrary index bytes, all other S19 spec blobs, amendment
 record tamper, an unrecognized merge/parent-two drift, authored/merge overlap,
-mode/blob/absence drift, a surviving added path, S02 record drift, and a
-premature S20 state transition.
+mode/blob/absence drift, a surviving added path, an AC-03-correct later
+authority descendant, a transient S02-record mutation even when its final bytes
+are restored, and a premature S20 state transition.
 
 ## PreservedReleaseHistory
 
 At the S19 start checkpoint, S02 was already a deferred terminal record. The
-checker compares the current track head to that checkpoint and fails if any S02
-release-record byte changes. It permits only S19's lifecycle/proof records under
-the physical release root, the two exact schema-validated S19 spec transitions,
-and a generated `index.md` whose isolated current-head render is byte-identical.
-The non-release whole-tree diff remains exact to the immutable S02 baseline.
+checker preserves that final-tree comparison and additionally compares every
+post-start T1 first-parent commit to its parent one, failing on every S02
+release-record transition. It deliberately does not compare merge parent two:
+valid release propagation can differ there while retaining T1's exact S02 bytes.
+It permits only S19's lifecycle/proof records under the physical release root,
+the two exact schema-validated S19 spec transitions, and a generated `index.md`
+whose isolated current-head render is byte-identical. The non-release whole-tree
+diff remains exact to the immutable S02 baseline.
 
 ## Delivered
 
@@ -150,6 +176,9 @@ The non-release whole-tree diff remains exact to the immutable S02 baseline.
 - The repaired proof validates both planner-pinned S19 spec transitions and
   their provenance, while arbitrary spec edits and amendment-record drift fail
   closed.
+- The repair keeps the S02 final-tree check and rejects every changed S02 record
+  on the T1 first-parent history, including a disposable mutation then exact
+  restoration; valid parent-two-only propagation remains accepted.
 - The release index is admitted only after a disposable detached render
   byte-compares it; arbitrary index bytes fail closed.
 - S02 remains rollback-backed/deferred and S20 remains planned/pending.

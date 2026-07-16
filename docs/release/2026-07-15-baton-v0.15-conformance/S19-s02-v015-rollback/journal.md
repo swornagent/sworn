@@ -298,3 +298,27 @@ Required next step: `/implement-slice S19-s02-v015-rollback
 - S19 is reopened to `in_progress` for this bounded repair. The historical
   fresh-verifier FAIL remains in `status.json` and is not rewritten or cleared;
   a future fresh verifier must independently assess the repaired evidence.
+
+## 2026-07-17T03:37:23+10:00 — Bounded repair implemented
+
+- Retained the final-tree S02 record comparison and added the authorized
+  first-parent transition check. Live T1 history passed all 19 post-start
+  parent-one comparisons; propagation merge `c7d56c10f62c5583b5aeb27fda5aa9c8de50b81d`
+  remains valid because its S02 bytes match parent one even though parent two
+  differs.
+- Proved the real AC-04 defect with disposable mutation
+  `6d9dce04c8737579ab48530adc298dda3c9c54e8` followed by exact restoration
+  `524f1b443209403c1dd463439b8e70afd28ed266`: final S02 bytes were equal, but
+  the repaired checker rejected the first-parent transition. The contract-correct
+  AC-03 descendant-head case `bdef578b3fce9e7327dad448704531c870724c91` also
+  rejected non-zero, confirming why the first historical finding was not an AC
+  violation.
+- Both detached adversarial worktrees were removed with all refs unchanged.
+  `make build`, `go test ./... -count=1`, `go vet ./...`, non-release equality,
+  the live required checker, and the supported deterministic `sworn verify`
+  first pass passed. The generated release index is refreshed only by
+  `sworn render`.
+- S19 now returns to `implemented` without changing its immutable start anchor,
+  S02 bytes, original spec/amendment, or historical fresh-verifier FAIL. This
+  Implementer does not self-certify; an independent fresh `/verify-slice`
+  session remains required before any S20 transition.
