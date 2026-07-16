@@ -196,6 +196,13 @@ run in parallel with it.
   the undefined word "stale". Remediation makes all non-selected checkout files
   ineligible regardless of validity, defines the exact selected-checkout test,
   and retains committed-oracle fallback for absent or malformed selected files.
+- **S02 first remediation recheck, PASS**: the two low-severity observations
+  are non-contractual. AC-04 deliberately preserves named, existing interaction
+  tests rather than replacing stable keyboard/layout output with a new UI copy
+  contract; AC-03's non-Git fallback is limited by the existing
+  `git rev-parse HEAD` viability check and the named filesystem fallback test.
+  Neither changes source selection, state authority, exit behaviour, or the
+  ref-only user outcome, so no further recheck is warranted.
 
 ## Screenshots / references
 
