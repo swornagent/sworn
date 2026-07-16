@@ -291,3 +291,39 @@ All nine Rule-9 decisions are acknowledged. No open design question remains. Pro
   existing behavior suites. It must stop at the clean pushed semantic commit:
   closure dispatch is prohibited until planning authority repins the sealed S02
   authorization to that exact new review head.
+
+## 2026-07-16 — Bounded remediation and closure authority synchronized
+
+- The bounded remediation is committed and pushed at exact semantic head
+  `4377d71a23a2252d4bbb6bb3784692171b0329da`. It authors only
+  `internal/baton/install_transaction.go`, replaces the reusable transaction
+  bag with complete preflight/captured/staged/published states, reconstructs
+  recovery from validated published authority, and removes inert
+  `needManifest` without changing public APIs, fault names, error classes,
+  transaction identity, durability boundaries, rollback, or diagnostics.
+- Final-byte verification passed: targeted `TestBatonSync|TestInstallIdentity`
+  (118.840s), `go test ./internal/baton -count=1` (362.262s),
+  `go test ./... -count=1`, `go vet ./...`, `make build`, `gofmt`, diff checks,
+  and public-signature/fault-name/error-class comparisons.
+- Planning amendment `af9426e0005e8f319acbf504fa63f76553dcd880`
+  replaced only the two S02 sealed-manifest `review_head` values with
+  `4377d71…`, updated the pinned digest to
+  `2fabdcbf60ea0d81f77259bcaa08258a0e804f4cf1e23b8ba33eb2a7d47f5666`,
+  and recorded the ratified endpoint decision. Both S01 envelopes, both S02
+  starts, all merge/path/tuple evidence, purposes, interval semantics, schema,
+  prohibitions, and the three unrecognized pre-start merges remain unchanged.
+- A fresh no-history ambiguity review returned `PASS`. Draft 2020-12 manifest
+  validation, digest reproduction, endpoint ancestry and one-file semantic
+  delta checks, all 109 ACs, trace, requirements validation, design-fit,
+  spec-quality, deterministic rendering, and diff checks passed.
+- Ordinary two-parent synchronization
+  `866bd2113e9530c8cd645006eb573fe11af4b3c1` has exact parents `4377d71…` and
+  `af9426e…`. Every affected tuple satisfies section 6, the release-wt segment
+  is the single planner commit under the release root, and deterministic
+  `index.md` remains the current track version. The merge is pushed and clean.
+- S02 remains `in_progress` with maintainability `pending`, cycle 0, and null
+  `implementation_head`. One fresh role-isolated Implementer closure review is
+  now authorized against exact semantic head `4377d71…`; its canonical scope,
+  exclusions, fingerprint, and presentation digest must be recomputed from Git.
+  No closure dispatch, new report, status transition, proof, Verifier action,
+  real-home access, or `doctor --sync-baton` execution occurred in this record.
