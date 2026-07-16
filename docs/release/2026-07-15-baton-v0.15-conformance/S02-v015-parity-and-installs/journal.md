@@ -200,3 +200,31 @@ All nine Rule-9 decisions are acknowledged. No open design question remains. Pro
   surgery, and any install-transaction refactor remain outside this delta.
 - The Implementer may resume only after reconfirming high/high `beast`. The
   semantic implementation outside the five added paths remains frozen.
+
+## 2026-07-16 — Gate-8 bootstrap provenance amendment synchronized
+
+- Formal maintainability preflight stopped before model dispatch at semantic
+  checkpoint `60097cfa65dc39d9a0ab174be7c627fde2d3f7d5` because historical syncs
+  `b8df1857…` and `7696c9bf…` fail literal section-6 release-record composition;
+  an independent audit proved S01's committed frontier also consumes the same
+  pre-C12 class at `36d1bd56…` and `d062d055…`.
+- Planner amendment `5eaa7aea39b5ce17f483647824ca538e316a5ac8` sealed exactly those four
+  merges/eight exceptional paths at manifest SHA-256
+  `f9e0de63c0a5ecf15cdb6058a52166ff0a609fa0d0cf2ecdf81d7955030b1943`.
+  Every entry is bound to its exact S01/S02 consumer, immutable start, exact
+  review head, start-exclusive/head-inclusive first-parent interval, and
+  permitted purpose; all ordinary section-6 checks remain mandatory on the
+  same merge. Three audited pre-start merges remain unrecognized.
+- Two fresh ambiguity reviews identified interval-binding, positive-AC, and
+  same-merge ordinary-validation gaps; all were corrected. A final fresh review
+  returned `PASS`, Draft 2020-12 validation passed, and all 109 release ACs,
+  trace, requirements validation, design-fit, and spec-quality gates passed.
+- Ordinary two-parent synchronization `d54c102f9d244a316ae3f0301bec617b2fc6c6f3`
+  composed all 77 affected paths by section 6, with `index.md` regenerated from
+  the combined records. No implementation bytes changed, and S02's authorized
+  semantic review head remains `60097cfa65dc39d9a0ab174be7c627fde2d3f7d5`.
+- The previously computed 45-included/9-excluded scope and fingerprint
+  `sha256:4d58ca4027c3919073f0c51daa1f5b3ca0ab33a87414c9aebe17372f5bd338a7`
+  remain candidates only. No report, status, proof, model, or real-home
+  installation mutation occurred. Gate 8 must reconstruct the sealed entry and
+  authorization from this clean pushed head before dispatch.
