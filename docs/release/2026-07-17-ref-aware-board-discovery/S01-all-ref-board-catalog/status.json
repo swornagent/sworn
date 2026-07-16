@@ -6,12 +6,14 @@
   "covers_needs": [
     "N-01",
     "N-02",
-    "N-04"
+    "N-03",
+    "N-04",
+    "N-05"
   ],
   "state": "planned",
   "owner": "unassigned",
   "last_updated_by": "codex-planner",
-  "last_updated_at": "2026-07-17T05:41:37+10:00",
+  "last_updated_at": "2026-07-17T06:48:23+10:00",
   "start_commit": null,
   "spec_path": "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/spec.json",
   "proof_path": "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/proof.json",
@@ -19,10 +21,14 @@
   "planned_files": [
     "internal/git/git.go",
     "internal/git/git_test.go",
+    "internal/board/oracle.go",
+    "internal/board/oracle_test.go",
     "internal/board/releaseref.go",
     "internal/board/releaseref_test.go",
     "internal/board/discovery.go",
     "internal/board/discovery_test.go",
+    "internal/board/status_evidence.go",
+    "internal/board/status_evidence_test.go",
     "cmd/sworn/board.go",
     "cmd/sworn/board_test.go"
   ],
@@ -34,8 +40,8 @@
     "test -z \"$(gofmt -l .)\""
   ],
   "reachability_artifacts": [
-    "cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogReachability",
-    "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/proof.md: non-HEAD discovery/rank mutation transcript"
+    "cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogStateEvidenceReachability",
+    "docs/release/2026-07-17-ref-aware-board-discovery/S01-all-ref-board-catalog/proof.md: non-HEAD discovery/state-evidence mutation transcript"
   ],
   "maintainability": {
     "state": "pending",
@@ -50,7 +56,7 @@
     "effort": "high",
     "complexity": "high",
     "quadrant": "beast",
-    "rationale": "See spec.json; selection correctness and fail-closed behaviour cross Git, board, CLI, and real-ref integration boundaries.",
+    "rationale": "See spec.json; one state-evidence authority crosses Git, board, CLI, lifecycle selection, provenance, and real-ref integration boundaries.",
     "confirmed_by_implementer": false
   },
   "verification": {
@@ -61,20 +67,21 @@
     "violations": []
   },
   "release_base": "release/v0.2.0",
-  "release_benefit": "A SwornAgent operator or automation caller can discover every locally available release board without checking out each ref or knowing its release name in advance.",
+  "release_benefit": "A SwornAgent operator or automation caller can discover every locally available release board and see whether its farthest reported slice state is committed or only present in the active working tree.",
   "validation": {
     "human_ratified": true,
     "ratified_by": "repository owner",
-    "ratified_at": "2026-07-17T05:41:37+10:00",
+    "ratified_at": "2026-07-17T06:48:23+10:00",
     "positive_scenarios": [
-      "A project-root all-ref board query lists valid non-HEAD releases with their deterministic source refs and authoritative track state.",
-      "A named board query retains its existing single-release text and JSON shape while using the catalog selection policy."
+      "A project-root all-ref board query lists valid non-HEAD releases with deterministic source refs and the farthest valid state evidence across available refs and a dirty active worktree.",
+      "A named board query retains its established top-level text and JSON shape while using the same catalog and exposing per-slice provenance."
     ],
     "negative_scenarios": [
       "A missing, malformed, or identity-mismatched canonical board stops the query rather than selecting a lower-priority copy.",
+      "A malformed, mismatched, lower-ranked, or arbitrary-worktree status cannot displace valid elected evidence, and an uncommitted winner cannot appear committed.",
       "The catalog query cannot fetch, switch refs, alter the worktree, or change the caller process working directory."
     ],
-    "benefit_hypothesis": "A deterministic catalog removes the release-name prerequisite that prevents Sworn release-mode automation from discovering work already represented in Git."
+    "benefit_hypothesis": "A deterministic high-water catalog removes the release-name prerequisite and exposes real progress without falsely claiming that process-local state has been committed."
   },
   "design_decisions": [
     {
@@ -87,6 +94,18 @@
       ],
       "human_decision": "Repository owner accepted the recommended first option on 2026-07-17.",
       "rationale": "Canonical release assembly state is preferred when present, while deterministic lexical fallbacks preserve visibility without silently masking skew.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Elect high-water slice state once in board.DiscoverCatalog and attach explicit committed/uncommitted provenance.",
+      "stake_class": "Type-1",
+      "options": [
+        "separate committed CLI and live TUI state rules",
+        "one bounded lifecycle-first election across eligible ref tips and the active working tree",
+        "unbounded scan of Git history and sibling worktrees"
+      ],
+      "human_decision": "Repository owner chose the bounded shared election with explicit uncommitted indication on 2026-07-17.",
+      "rationale": "The farthest available lifecycle state must agree across interfaces, while provenance makes a surviving dirty record distinguishable from durable Git evidence and preserves a bounded read-only oracle.",
       "architecturally_significant": true
     }
   ]

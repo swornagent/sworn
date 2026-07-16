@@ -5,7 +5,7 @@
     "target_version": "v0.2.0",
     "integration_branch": "release/v0.2.0",
     "vertical_trace": {
-      "benefit": "A SwornAgent operator or automation caller can discover and open every locally available release board without checking out each ref or knowing its release name in advance."
+      "benefit": "A SwornAgent operator or automation caller can discover and open every locally available release board and see whether each farthest advanced slice state is committed or only present in the active working tree."
     }
   },
   "tracks": [

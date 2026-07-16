@@ -6,14 +6,14 @@
     {
       "id": "C-01",
       "kind": "schema-version",
-      "surface": "project board catalog v1",
-      "shape": "When `sworn board` omits `--release`, JSON is `{\"releases\":{\"<release-name>\":{\"release\":\"<release-name>\",\"sourceRef\":\"<fully-qualified-ref>\",\"tracks\":[...]}}}` with release-name keys in bytewise lexical order. Each record is derived by the shared all-ref catalog and contains the committed BoardState track projection selected from its stated sourceRef. `sourceRef` remains the TUI plan-topology authority; the CLI does not read ambient working-tree files, while S02 may render a farther advanced valid matching current-checkout status over this committed baseline. Named `sworn board --release <name> --json` retains its pre-release `{release,tracks}` shape.",
+      "surface": "project board catalog and state evidence v1",
+      "shape": "One internal board.DiscoverCatalog result owns ref selection, plan topology, and per-slice state evidence for the #123 CLI and TUI surfaces. With no --release, sworn board --json emits {\"releases\":{\"<release-name>\":{\"release\":\"<release-name>\",\"sourceRef\":\"<fully-qualified-ref>\",\"tracks\":[...]}}} with release keys in bytewise lexical order. Every slice in tracks has the established fields plus stateSource and stateDurability. stateSource is a fully-qualified selected evidence ref or the literal working-tree; stateDurability is committed or uncommitted. The election considers only valid, topology-identity-matching status records from locally available eligible ref tips plus a dirty active working-tree record, uses the published lifecycle/attention/timestamp/durability/source order, and never silently treats a working-tree result as committed. Named sworn board --release <name> --json selects the same catalog result and retains top-level {release,tracks}; its slice objects include the same additive stateSource and stateDurability fields. sourceRef remains the topology authority, not a competing status rule.",
       "owner": "S01-all-ref-board-catalog",
       "consumers": [
         "S02-tui-ref-aware-release-navigation"
       ],
-      "live_test": "cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogReachability",
-      "rationale": "The CLI aggregate and the TUI must not independently rediscover or rank refs. One catalog contract makes source selection observable and prevents divergent release lists, while keeping committed catalog discovery distinct from S02's bounded live-status display policy."
+      "live_test": "cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogStateEvidenceReachability",
+      "rationale": "A plan's source ref and a slice's farthest available lifecycle evidence answer different questions. Centralising both in one catalog prevents the CLI and TUI from independently rediscovering or ranking refs, while provenance makes an uncommitted winner operationally honest."
     }
   ]
 }

@@ -3,51 +3,59 @@
   "slice_id": "S01-all-ref-board-catalog",
   "release": "2026-07-17-ref-aware-board-discovery",
   "track": "T1-ref-aware-board",
-  "user_outcome": "A SwornAgent CLI or automation operator can run `sworn board` from a project root without naming a release and receive a deterministic, source-attributed catalog of every valid local or remote-tracking release board, while named board queries retain their existing output shape.",
-  "rationale": "Issue #123 exposed a missing project-level board oracle: callers could resolve a known release but could not discover the release set when records lived only on release assembly, track, or remote-tracking refs. This slice establishes one read-only catalog and makes the CLI its first consumer. S02 consumes the same selection contract for the TUI rather than implementing a second ref scan. C-01 is owned here.",
+  "user_outcome": "A SwornAgent CLI or automation operator can run `sworn board` from a project root without naming a release and receive a deterministic, source-attributed catalog whose every slice reports the farthest valid available lifecycle state and whether that elected evidence is committed or uncommitted; named board queries use that same oracle while retaining their established top-level shape.",
+  "rationale": "Issue #123 exposed a missing project-level board oracle: callers could resolve a known release but could not discover the release set when records lived only on release assembly, track, or remote-tracking refs. The repository owner further required one source of truth for the farthest advanced release/track/slice state. This slice therefore owns one read-only `board.DiscoverCatalog` state-evidence result, makes the CLI its first consumer, and leaves S02 to render that result rather than implement a second ref scan or lifecycle ranking. C-01 is owned here.",
   "touchpoints": [
     "internal/git/git.go",
     "internal/git/git_test.go",
+    "internal/board/oracle.go",
+    "internal/board/oracle_test.go",
     "internal/board/releaseref.go",
     "internal/board/releaseref_test.go",
     "internal/board/discovery.go",
     "internal/board/discovery_test.go",
+    "internal/board/status_evidence.go",
+    "internal/board/status_evidence_test.go",
     "cmd/sworn/board.go",
     "cmd/sworn/board_test.go"
   ],
   "in_scope": [
     "Add a read-only internal Git operation that enumerates available local heads and remote-tracking refs in bytewise lexical order, without invoking fetch, checkout, branch creation, ref update, worktree mutation, or a current-directory change. Ignore tags and remote symbolic-HEAD aliases because they are neither local heads nor remote-tracking release records.",
-    "Add one internal board-catalog resolver that examines only direct `docs/release/<release>/board.json` and legacy `docs/release/<release>/index.md` paths under each eligible ref and uses the existing BoardState/oracle path to validate the selected plan and resolve each slice's authoritative state. It must not read arbitrary working-tree paths or construct shell commands from ref or release values.",
-    "For every release name found on multiple candidates, select exactly one source ref using the ratified order: `refs/heads/release-wt/<release>`; then matching `refs/remotes/<remote>/release-wt/<release>` refs in bytewise lexical order; then other `refs/heads/*` candidates in bytewise lexical order; then other `refs/remotes/*` candidates in bytewise lexical order.",
+    "Add one exported `board.DiscoverCatalog` operation that is the #123 topology and state-evidence authority. It discovers direct `docs/release/<release>/board.json` and legacy `docs/release/<release>/index.md` paths under eligible refs, validates the selected plan through the existing board/oracle parsing path, and returns catalog records that carry their selected `sourceRef` and complete `BoardState`. The CLI and S02 must consume its returned records rather than call a competing ref resolver or status selector.",
+    "For every release name found on multiple candidates, select exactly one topology source ref using the ratified order: `refs/heads/release-wt/<release>`; then matching `refs/remotes/<remote>/release-wt/<release>` refs in bytewise lexical order; then other `refs/heads/*` candidates in bytewise lexical order; then other `refs/remotes/*` candidates in bytewise lexical order.",
     "Treat a canonical local or remote release-worktree ref as authoritative evidence of that release even when it lacks a readable board. A missing record, malformed JSON, or board whose release identity does not match its direct release-directory name must stop the catalog with a deterministic error naming the release and ref; the command must not silently omit, substitute, or emit a partial successful catalog.",
-    "Make `--release` an optional board-command filter. With no filter, emit the C-01 aggregate JSON shape and readable, release-name-sorted sections that identify the selected source ref. With a filter, resolve through the same selection policy but retain the current single-release text and `{release,tracks}` JSON result without a `releases` wrapper or `sourceRef` field.",
-    "Preserve the existing track-branch, release-worktree, and selected-ref state priority inside each BoardState. A newer owning track-branch status must still win over the selected board plan's copied status.",
-    "Add real temporary-Git-repository integration fixtures that prove discovery works when HEAD contains no release board, including both canonical and noncanonical non-HEAD refs and a newer track-branch status. The fixture must execute the compiled `sworn` command from the consumer-project root, not invoke a catalog leaf directly.",
-    "Record in the implementation proof bundle the required mutation evidence: remove non-HEAD discovery or alter the source-rank ordering, observe the all-ref CLI reachability test fail, restore the implementation, and record the restored green run."
+    "For every slice declared by the selected plan topology, elect one `SliceState` evidence candidate from every eligible locally available ref tip that has a readable, parseable `status.json` whose `release`, `track`, and `slice_id` exactly match that topology. Add the active working-tree file only when its bytes differ from `HEAD` at the same path, including an added or untracked file; when no usable Git HEAD exists, use the shared filesystem fallback and mark its file evidence `working-tree` / `uncommitted`. Exclude malformed, unknown-state, and identity-mismatched candidates. Do not enumerate sibling worktrees or Git history.",
+    "Implement the complete deterministic election in the shared board package: normal rank is `planned` 0, `design_review` 1, `in_progress` 2, `implemented` 3, `verified` 5, and `shipped` 6. `blocked`, `failed_verification`, `deferred`, and a `verification.result` of `blocked` are attention rank 4. A higher normal rank wins; a valid later attention record wins over a higher normal candidate and attention wins exact or missing-timestamp safety ties; equal normal/equal attention candidates use later valid RFC3339 `last_updated_at`, then committed over uncommitted, then bytewise source-ref order. The winner populates explicit SliceState `stateSource` and `stateDurability` values (`<fully-qualified-ref>`/`committed` or `working-tree`/`uncommitted`).",
+    "Make `--release` an optional board-command filter. With no filter, emit the C-01 aggregate JSON shape and readable, release-name-sorted sections that identify the selected topology source ref. With a filter, select through the same `DiscoverCatalog` result and retain the current `{release,tracks}` JSON envelope and one-board text section. In both modes, every slice JSON object includes additive `stateSource` and `stateDurability`; text visibly appends `[uncommitted]` to an uncommitted elected state.",
+    "Keep all catalog state, track aggregates, and release aggregates derived from the selected per-slice evidence rather than letting the CLI, TUI, or a caller-specific helper rank lifecycle states. Existing low-level oracle parsing may remain an implementation detail, but it must not become a second externally consumed election path for this release.",
+    "Add real temporary-Git-repository integration fixtures that prove discovery works when HEAD contains no release board, including canonical and noncanonical non-HEAD refs, a higher committed track/ref state, and a higher uncommitted current-working-tree state. The fixture must execute the compiled `sworn` command from the consumer-project root, not invoke a catalog leaf directly.",
+    "Record in the implementation proof bundle the required mutation evidence: remove non-HEAD discovery or bypass the central state-evidence election, observe the all-ref CLI reachability test fail, restore the implementation, and record the restored green run."
   ],
   "out_of_scope": [
-    "TUI release-list and board-view loading changes are S02-tui-ref-aware-release-navigation.",
-    "Changing the release selection rules of route, merge, run, lint, or other named-release commands is outside #123 and remains deferred in the intake.",
-    "Fetching refs, configuring remotes, or inspecting tag-only release records is excluded; discovery operates only on refs already present in the local object database.",
-    "Changing the existing BoardState track/slice JSON schema is excluded; only the no-filter CLI envelope adds the C-01 catalog shape."
+    "TUI release-list and board-view rendering changes are S02-tui-ref-aware-release-navigation; S02 consumes, but does not re-elect, S01 evidence.",
+    "Changing the release selection or gate semantics of route, merge, run, lint, or other named-release commands is outside #123 and remains deferred in the intake.",
+    "Fetching refs, configuring remotes, inspecting tag-only records, scanning Git history, or scanning sibling worktrees is excluded; the oracle operates only on locally available ref tips and the active working tree.",
+    "Changing slice-status-v1 records or introducing a new runtime dependency is excluded. Provenance is a BoardState/output projection, not persisted status schema state."
   ],
   "covers_needs": [
     "N-01",
     "N-02",
-    "N-04"
+    "N-03",
+    "N-04",
+    "N-05"
   ],
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
     "quadrant": "beast",
-    "rationale": "The user-visible CLI behaviour is bounded, but correct all-ref discovery crosses the Git wrapper, board oracle, duplicate selection, failure handling, and a real Git integration fixture. Incorrect priority or a partial error path can silently choose the wrong release plan, so the blast radius is high.",
+    "rationale": "The user-visible CLI behaviour is bounded, but one correct answer now crosses all-ref discovery, plan topology, status candidate validation, deterministic lifecycle/attention election, durability provenance, JSON/text compatibility, and a real Git integration fixture. A split authority can silently misreport whether a slice is both advanced and durable.",
     "confirmed_by_implementer": false
   },
   "risks": [
     {
       "id": "R-01",
-      "description": "Different callers reimplement ref enumeration or selection and later expose inconsistent release catalogs.",
-      "mitigation": "Create one catalog resolver as the selection authority; both the no-filter CLI path and S02 consume it. C-01 and sourceRef assertions make divergence visible."
+      "description": "Different callers reimplement ref enumeration or state ranking and expose inconsistent release catalogs or lifecycle states.",
+      "mitigation": "Create one `board.DiscoverCatalog` result as the topology and State Evidence Oracle; both CLI modes and S02 consume it. C-01 and cross-interface assertions make divergence visible."
     },
     {
       "id": "R-02",
@@ -56,22 +64,27 @@
     },
     {
       "id": "R-03",
-      "description": "Ref enumeration changes the caller's checkout or performs a network fetch, violating the operator's read-only expectation.",
-      "mitigation": "Use only read-only Git subprocesses with explicit argument vectors and snapshot the fixture's HEAD, branch, refs, porcelain status, and process working directory before and after the CLI command."
+      "description": "A dirty working-tree state is silently presented as durable, or an equal committed copy needlessly creates an uncommitted warning.",
+      "mitigation": "Attach source and durability to the elected SliceState. Working-tree evidence enters only for a dirty path; committed evidence wins exact evidence ties; JSON and text assertions cover both cases."
     },
     {
       "id": "R-04",
-      "description": "The aggregate board reports a plan's stale release-worktree status even though the owner track has a newer status record.",
-      "mitigation": "Build the aggregate entries through the existing Oracle ReadBoard path and assert a newer track-branch slice status in the reachability fixture."
+      "description": "An older branch status, malformed record, or arbitrary worktree masks genuine progress or causes an unbounded scan.",
+      "mitigation": "Validate candidates against the selected topology, use explicit lifecycle/attention/timestamp rules, and limit the candidate set to eligible ref tips plus the active working tree."
+    },
+    {
+      "id": "R-05",
+      "description": "Ref enumeration or dirty-file inspection changes the caller's checkout or performs a network fetch, violating the operator's read-only expectation.",
+      "mitigation": "Use only read-only Git subprocesses with explicit argument vectors and snapshot the fixture's HEAD, branch, refs, porcelain status, and process working directory before and after the CLI command."
     }
   ],
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "text": "WHEN `sworn board --json` runs from a temporary consumer Git repository whose checked-out HEAD has no `docs/release` board, two release boards exist only on non-HEAD refs, and one selected board has a newer owning `refs/heads/track/<release>/<track>` status record, THE SYSTEM SHALL exit 0 and emit exactly one JSON object with a `releases` object containing both release-name keys in bytewise lexical order. Each entry SHALL contain its matching `release`, its fully qualified selected `sourceRef`, and the existing `tracks` projection; the track-owned slice SHALL report the newer authoritative state rather than the stale selected-plan copy (C-01, N-01, N-04).",
+      "text": "WHEN `sworn board --json` runs from a temporary consumer Git repository whose checked-out HEAD has no `docs/release` board, two release boards exist only on non-HEAD refs, and one selected board has a newer owning `refs/heads/track/<release>/<track>` status record, THE SYSTEM SHALL exit 0 and emit exactly one JSON object with a `releases` object containing both release-name keys in bytewise lexical order. Each entry SHALL contain its matching `release`, its fully qualified selected `sourceRef`, and the existing `tracks` projection; every slice SHALL contain `stateSource` and `stateDurability`, and the track-owned slice SHALL report the farthest elected state rather than the stale selected-plan copy (C-01, N-01, N-03, N-05).",
       "ears_pattern": "event-driven",
       "test_refs": [
-        "cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogReachability"
+        "cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogStateEvidenceReachability"
       ]
     },
     {
@@ -79,7 +92,7 @@
       "text": "WHEN one release has valid direct board records on a local canonical release-worktree ref, two remote-tracking canonical release-worktree refs, a local noncanonical head, and a remote noncanonical ref, THE SYSTEM SHALL select `refs/heads/release-wt/<release>`. WHEN each higher class is removed in turn, it SHALL select the first remaining remote canonical ref in bytewise lexical order, then the first local noncanonical head in bytewise lexical order, then the first remote noncanonical ref in bytewise lexical order. `sourceRef` SHALL equal the selected fully qualified ref on every run (C-01, N-02).",
       "ears_pattern": "event-driven",
       "test_refs": [
-        "internal/board/discovery_test.go:TestDiscoverBoardsSourceRefRanking",
+        "internal/board/discovery_test.go:TestDiscoverCatalogSourceRefRanking",
         "cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogSourceRef"
       ]
     },
@@ -88,22 +101,32 @@
       "text": "WHEN an eligible canonical `release-wt/<release>` ref exists but has no board record, malformed board JSON, or a board release identity different from `<release>`, `sworn board --json` SHALL write no successful aggregate JSON, exit 2, and write a deterministic stderr error naming the release and fully qualified ref. It SHALL not omit that release, select a lower-priority copy, or retain a partial catalog. The same failure behaviour SHALL apply whether the canonical ref is local or remote-tracking (N-02, N-04).",
       "ears_pattern": "unwanted-behaviour",
       "test_refs": [
-        "internal/board/discovery_test.go:TestDiscoverBoardsCanonicalSkewFailsClosed",
-        "cmd/sworn/board_test.go:TestBoardCLIAllRefsCanonicalSkewFailsClosed"
+        "internal/board/discovery_test.go:TestDiscoverCatalogCanonicalSkewFailsClosed",
+        "cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogCanonicalSkewFailsClosed"
       ]
     },
     {
       "id": "AC-04",
-      "text": "WHEN `sworn board --release <release> [--json]` runs for a valid discovered release, THE SYSTEM SHALL use the same selected source-ref policy as the catalog while retaining the current single-release output contract: JSON contains top-level `release` and `tracks`, contains neither `releases` nor `sourceRef`, and text retains one existing release-board section. Existing named-release CLI tests and an explicit shape-regression assertion SHALL pass unchanged (C-01, N-04).",
-      "ears_pattern": "event-driven",
+      "text": "WHEN a topology-declared `S01-alpha` has valid matching committed candidates at `implemented` on the selected source ref and `verified` on a different eligible ref tip, THE SYSTEM SHALL select `verified`, set `stateSource` to that fully qualified ref, and set `stateDurability` to `committed`. WHEN the current working tree then has a valid matching dirty `status.json` at a higher normal lifecycle state, THE SYSTEM SHALL select it with `stateSource` `working-tree`, `stateDurability` `uncommitted`, and a visible text `[uncommitted]` marker. A lower normal candidate SHALL not regress a higher one; a valid later attention candidate SHALL not be masked by a higher normal candidate; malformed, unknown, or identity-mismatched candidates SHALL not participate; and an exact state/timestamp tie between committed and uncommitted evidence SHALL select the committed candidate (C-01, N-03, N-05).",
+      "ears_pattern": "state-driven",
       "test_refs": [
-        "cmd/sworn/board_test.go:TestBoardCLIJSON",
-        "cmd/sworn/board_test.go:TestBoardCLINamedReleaseJSONShapeCompatibility"
+        "internal/board/status_evidence_test.go:TestElectStateEvidenceLifecycleAndAttention",
+        "internal/board/status_evidence_test.go:TestElectStateEvidenceCommittedTieBeatsWorkingTree",
+        "cmd/sworn/board_test.go:TestBoardCLIStateEvidenceProvenance"
       ]
     },
     {
       "id": "AC-05",
-      "text": "WHEN the all-ref CLI reachability fixture snapshots its Git HEAD, current branch, sorted refs, porcelain status, and process working directory immediately before and after `sworn board --json`, THE SYSTEM SHALL leave every snapshot byte-identical. `go test ./internal/git ./internal/board ./cmd/sworn`, `go test ./...`, and `go vet ./...` SHALL exit 0, and `gofmt -l .` SHALL produce empty output. The S01 proof bundle SHALL include a transcript showing the all-ref reachability test fail after temporarily removing non-HEAD discovery or changing the rank order, then pass after restoration (N-04).",
+      "text": "WHEN `sworn board --release <release> [--json]` runs for a valid discovered release, THE SYSTEM SHALL select the release through the same `DiscoverCatalog` result as the no-filter catalog and retain the established single-release top-level contract: JSON contains top-level `release` and `tracks`, contains neither `releases` nor top-level `sourceRef`, and text retains one release-board section. Every returned slice SHALL include the same `stateSource` and `stateDurability` values as its aggregate-catalog counterpart (C-01, N-03, N-05).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "cmd/sworn/board_test.go:TestBoardCLINamedReleaseJSONShapeCompatibility",
+        "cmd/sworn/board_test.go:TestBoardCLINamedAndCatalogStateEvidenceAgree"
+      ]
+    },
+    {
+      "id": "AC-06",
+      "text": "WHEN the all-ref CLI reachability fixture snapshots its Git HEAD, current branch, sorted refs, porcelain status, and process working directory immediately before and after `sworn board --json`, THE SYSTEM SHALL leave every snapshot byte-identical. `go test ./internal/git ./internal/board ./cmd/sworn`, `go test ./...`, and `go vet ./...` SHALL exit 0, and `gofmt -l .` SHALL produce empty output. The S01 proof bundle SHALL include a transcript showing the all-ref reachability test fail after temporarily removing non-HEAD discovery or bypassing the central state-evidence election, then pass after restoration (N-04).",
       "ears_pattern": "event-driven",
       "test_refs": [
         "cmd/sworn/board_test.go:TestBoardCLIAllRefsCatalogReadOnly",
