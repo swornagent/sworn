@@ -327,3 +327,30 @@ All nine Rule-9 decisions are acknowledged. No open design question remains. Pro
   exclusions, fingerprint, and presentation digest must be recomputed from Git.
   No closure dispatch, new report, status transition, proof, Verifier action,
   real-home access, or `doctor --sync-baton` execution occurred in this record.
+
+## 2026-07-16 — Corrected closure endpoint synchronized before dispatch
+
+- Before any closure dispatch, independent final-byte review found and the
+  Implementer corrected the sole `paths-ready` pre-capture crash-disposition
+  regression in exact semantic commit
+  `2a17443d67d39cf681dba117a57673714a916d7f`. The correction remains confined
+  to `internal/baton/install_transaction.go`; final targeted, package,
+  repository, vet, build, formatting, diff, reachability, and repeat
+  independent-audit gates passed.
+- Planner commits `4d9e70b6b2df5583a36a9dc350fb2abece07c647` and
+  `727fbf1f2debbe3e2a46655ef390ceca7858b6c9` replace only the two S02 sealed
+  `review_head` endpoints with `2a17443…`, pin manifest SHA-256
+  `23ca47fe790e5f8d4e9022b5b0df819de9972938d581e014a7ffd9c0dc16227e`, and
+  capture fresh authority PASS plus deterministic planner gates. The prior
+  `4377d71…` authorization is superseded before use; all S01/S02 envelope
+  evidence and prohibitions remain unchanged.
+- Ordinary two-parent synchronization
+  `d3acf943f666f52c0e575e9116f07766ff94a5f7` has first parent `2a17443…` and
+  second parent `727fbf1…`. Its staged result was exactly the three planner
+  paths, each equal to the second-parent blob; Draft 2020-12 validation,
+  manifest digest, board reconciliation, and section-6 composition passed.
+- S02 remains `in_progress`, maintainability remains `pending` at cycle 0 with
+  null `implementation_head`, and no closure report, status transition, proof,
+  Verifier action, real-home access, or `doctor --sync-baton` execution has
+  occurred. One fresh role-isolated Implementer closure review is now
+  authorized against exact semantic head `2a17443…` only.
