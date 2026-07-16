@@ -60,11 +60,13 @@ and recovery location, never source payload bytes.
 For upstream write mode, the command captures one invocation instant before
 materialisation. `internal/baton/version.go` constructs the complete replacement
 bytes for `internal/adopt/baton/VERSION` from that instant, tag, SHA and digest
-without writing them. Those bytes join the same byte-sorted destination plan as
-every mapped vendor file before the first mutation and participate in the same
-snapshot, apply, rollback, post-rollback comparison and recovery transaction.
-There is no later standalone pin write. S01 implements and proves this machinery
-but does not run the v0.15.1 content/pin update; S02 executes that update.
+without writing them. S02 constructs and fully validates the pinned installer
+archive before the first mutation. The VERSION bytes and archive bytes join the
+same byte-sorted destination plan as every mapped vendor file and participate in
+the same snapshot, apply, rollback, post-rollback comparison and recovery
+transaction. There is no standalone pin or archive write. S01 implements and
+proves the mapped-plus-VERSION machinery; S02 expands its declared candidate and
+recovery set for the archive, then executes the v0.15.1 content/pin update.
 
 Incomplete rollback is restart-authoritative only through the fixed sentinel
 `<git-admin>/sworn/recovery/baton-vendor/rollback-incomplete.json`, where
@@ -88,8 +90,9 @@ it is not an input to the manifest digest.
 A later write invocation that sees the sentinel performs recovery only. Before
 touching a destination it requires the record's physical repository/Git-admin
 identity to equal the current invocation, every path to be canonical,
-repository-confined and one of that transaction's mapped destinations or
-VERSION, every snapshot path to be canonical and confined to the named
+repository-confined and one of that transaction's mapped destinations, VERSION,
+or the exact installer archive destination, every snapshot path to be canonical
+and confined to the named
 transaction directory, every recovery component to be non-symlinked with the
 required owner-only mode, the manifest digest/directory identity to match, and
 the complete material set to contain no missing, duplicate or foreign entry.
@@ -154,6 +157,24 @@ missing/extra paths or identity drift, and natively applies the exact copy,
 frontmatter and path-rewrite rules to a staged tree. The mapped Sworn subset is
 never treated as sufficient installer input, and the native output must
 byte/mode-match independent exact-script output before installation.
+
+The responsibility boundary is fixed. `internal/adopt/baton_archive.go` is the
+only binary embed owner for the tar. `internal/baton/installer_archive.go` owns
+deterministic Git-archive construction, hostile-tar validation, and native
+Codex/Claude managed-tree generation. `internal/baton/diff.go` owns public
+archive parity in addition to its ordinary mapped-file checks.
+`internal/baton/vendor.go` and `internal/baton/vendor_transaction.go` own the
+single expanded repository transaction and its restart recovery.
+`internal/baton/install_transaction.go` owns staging, whole-root replacement,
+rollback-incomplete persistence, and recovery-only execution for the three
+logical install roots. `cmd/sworn/baton.go` and `cmd/sworn/doctor.go` remain thin
+public adapters. Schema `manifest.go`, ordinary `source.go`, and mapped-content
+`content.go` do not absorb archive or install-transaction responsibilities.
+
+The exact tagged command inventory contains eight commands. Both native trees
+and both independent installer-script oracles must include `design-review.md`
+and derive the rest of the set from the validated archive rather than a
+hard-coded command count.
 
 `sworn doctor --sync-baton` stages the complete canonical Codex and Claude
 managed trees plus their Sworn-owned sentinels, verifies them independently
@@ -960,6 +981,9 @@ orders, trees, identities, timestamps and one-line subjects specified above.
 ## Ratification
 
 These clarifications apply exact Baton v0.15.1 behavior and the release intake's
-ratified architecture. The remaining Sworn adapter choices above were selected
+ratified architecture. The remaining Sworn adapter choices above, including the
+expanded repository transaction, single embed, whole-root install rollback,
+bounded helper ownership, and complete eight-command inventory, were selected
 under the Coach's 2026-07-16 instruction to proceed with the orchestrator's
-recommendation. They are Type-1 where copied into a slice's `design_decisions`.
+recommendation. They are Type-1 where copied into a slice's `design_decisions`;
+path-only diagnostics are the recorded Type-2 default.
