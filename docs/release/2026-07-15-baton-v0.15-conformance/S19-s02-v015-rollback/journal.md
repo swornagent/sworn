@@ -34,3 +34,24 @@
 - Proceed to `in_progress` only in a fresh Implementer session; that session
   must implement the accepted design and stop at `implemented` for fresh
   adversarial verification.
+
+## 2026-07-17T00:47:14+10:00 — Implemented
+
+- Derived the ordinary rollback envelope from live first-parent history through
+  the sole semantic restoration commit
+  `4b38887e666f7e4ab664bac4780535b080ad54eb`: 45 paths total, with 37 exact
+  baseline blobs and eight exact baseline absences.
+- Restored every derived semantic tuple to S02 start tree
+  `c57285e3f652e5f49aa8bb15e3ba65249b4a3db8`; preserved S02 release evidence
+  byte-for-byte and kept S20 planned/pending.
+- Applied both Captain pins: the final Implementer maintainability PASS, report
+  blob, proof checker, and future fresh-verifier gate bind to the same exact
+  implementation head; equality includes modes, blobs, and absence.
+- The committed Rule-6 checker and supported deterministic `sworn verify`
+  first-pass gate pass. The final AC-satisfaction recheck passes after making
+  the S20 transition require the full exact-head maintainability, proof-bundle,
+  and fresh-verifier conjunction.
+- No local Baton installation or S20 work was performed. Fresh adversarial
+  verification remains required in a new `/verify-slice
+  S19-s02-v015-rollback 2026-07-15-baton-v0.15-conformance` session; this
+  Implementer intentionally stops at `implemented`.

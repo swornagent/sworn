@@ -49,6 +49,21 @@ on all three strict checks automatically whenever S20 is no longer
 planned/pending. A fresh verifier PASS remains intentionally pending until the
 required independent `/verify-slice` handoff.
 
+## Final AC recheck, third pass
+
+```text
+$ sworn llm-check -type ac-satisfaction -release 2026-07-15-baton-v0.15-conformance -slice S19-s02-v015-rollback -base 640396fa8cc319229d6f96dedfdbef65dbe317fe -json
+verdict: PASS
+F-01 (non-blocking): the S20 transition is now a strict full-conjunction gate;
+                     fresh verifier evidence is intentionally pending and S20
+                     remains planned/pending.
+exit: 0
+```
+
+The final check accepts that a fresh verifier is a future independent action,
+not an Implementer self-certification. Its only observation is recorded as a
+non-blocking handoff condition.
+
 ## Maintainability preflight
 
 ```text

@@ -7,10 +7,10 @@
     "N-07",
     "N-09"
   ],
-  "state": "in_progress",
+  "state": "implemented",
   "owner": "implementer",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-17T00:28:29+10:00",
+  "last_updated_at": "2026-07-17T00:47:14+10:00",
   "start_commit": "640396fa8cc319229d6f96dedfdbef65dbe317fe",
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.json",
@@ -62,7 +62,53 @@
     "internal/state/state.go",
     "internal/state/state_test.go"
   ],
-  "actual_files": [],
+  "actual_files": [
+    "cmd/sworn/baton.go",
+    "cmd/sworn/baton_test.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go",
+    "internal/adopt/baton/README.md",
+    "internal/adopt/baton/VERSION",
+    "internal/adopt/baton/architecture.json",
+    "internal/adopt/baton/installer-input-v0.15.1.tar",
+    "internal/adopt/baton/rules/07-adversarial-verification.md",
+    "internal/adopt/baton/rules/10-customer-journey-validation.md",
+    "internal/adopt/baton_archive.go",
+    "internal/baton/diff.go",
+    "internal/baton/install_transaction.go",
+    "internal/baton/install_transaction_test.go",
+    "internal/baton/installer_archive.go",
+    "internal/baton/installer_archive_test.go",
+    "internal/baton/manifest.go",
+    "internal/baton/manifest_test.go",
+    "internal/baton/records_conformance_test.go",
+    "internal/baton/schemas/board-v1.json",
+    "internal/baton/schemas/embed.go",
+    "internal/baton/schemas/llm-check-report-v1.json",
+    "internal/baton/schemas/slice-status-v1.json",
+    "internal/baton/schemas/spec-ambiguity-report-v1.json",
+    "internal/baton/schemas/spec-v1.json",
+    "internal/baton/source.go",
+    "internal/baton/testdata/fixture/schemas/spec-ambiguity-report-v1.json",
+    "internal/baton/validate_schema_test.go",
+    "internal/baton/vendor.go",
+    "internal/baton/vendor_transaction.go",
+    "internal/baton/vendor_transaction_test.go",
+    "internal/gate/llmcheck_test.go",
+    "internal/prompt/baton/README.md",
+    "internal/prompt/baton/llm-checks/README.md",
+    "internal/prompt/baton/llm-checks/maintainability-review.md",
+    "internal/prompt/baton/llm-checks/spec-ambiguity.md",
+    "internal/prompt/baton/rules.md",
+    "internal/prompt/baton/track-mode.md",
+    "internal/prompt/implementer.md",
+    "internal/prompt/planner.md",
+    "internal/prompt/verifier.md",
+    "internal/run/slice_test.go",
+    "internal/state/record_reconciliation_test.go",
+    "internal/state/state.go",
+    "internal/state/state_test.go"
+  ],
   "test_commands": [
     "make build",
     "go test ./... -count=1",
@@ -70,7 +116,8 @@
     "git diff --exit-code e61cb190736ee7483fb4ed1a993442b26ce3574c HEAD -- . ':(exclude)docs/release/2026-07-15-baton-v0.15-conformance/**'"
   ],
   "reachability_artifacts": [
-    "live first-parent authored-envelope inventory plus exact Git mode/blob/absence equality against S02 start_commit, accompanied by a built sworn binary and the full uncached repository suite"
+    "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/check-rollback.sh --head 4b38887e666f7e4ab664bac4780535b080ad54eb --require-maintainability --require-proof-bundle: PASS with a dynamically derived 45-path envelope, exact mode/blob/absence equality, preserved S02 records, planned S20, and exact-head Implementer PASS binding",
+    "git diff --no-ext-diff 640396fa8cc319229d6f96dedfdbef65dbe317fe..HEAD | sworn verify --spec docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/spec.json --diff - --proof docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.json: deterministic Rule-6 first pass PASS; ./bin/sworn capabilities also exited 0"
   ],
   "maintainability": {
     "state": "passed",
@@ -99,7 +146,7 @@
     "complexity": "low",
     "quadrant": "grind",
     "rationale": "The change is a broad but mechanically exact 45-path restoration; the acceptance boundary is fixed by immutable Git modes, blobs, absences, and a no-subtraction envelope.",
-    "confirmed_by_implementer": false
+    "confirmed_by_implementer": true
   },
   "verification": {
     "result": "pending",

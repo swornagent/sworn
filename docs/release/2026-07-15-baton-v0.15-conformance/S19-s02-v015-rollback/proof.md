@@ -23,6 +23,9 @@ that list.
 - `go vet ./...` — PASS (0)
 - `git diff --exit-code e61cb190736ee7483fb4ed1a993442b26ce3574c HEAD -- . ':(exclude)docs/release/2026-07-15-baton-v0.15-conformance/**'` — PASS (0)
 - `proof/check-rollback.sh --head 4b38887e666f7e4ab664bac4780535b080ad54eb --require-maintainability` — PASS (0)
+- `proof/check-rollback.sh --head 4b38887e666f7e4ab664bac4780535b080ad54eb --require-maintainability --require-proof-bundle` — PASS (0)
+- deterministic `sworn verify` proof-bundle gate with the live S19 diff — PASS (0)
+- `sworn llm-check -type ac-satisfaction ...` — PASS (0; one non-blocking handoff observation)
 
 Full live command output is retained in
 [`proof/validation-output.md`](proof/validation-output.md) and
@@ -37,6 +40,41 @@ mode/blob/absence tuples, and checks the live S02/S20 lifecycle records. It
 exited 0 at the exact head above. The built public CLI also exited 0 for
 `./bin/sworn capabilities`; its configuration-safe output is captured in the
 validation record.
+
+## ProofBundleVerificationGate
+
+The role prompt's positional reference command was run first:
+
+```text
+$ sworn verify S19-s02-v015-rollback 2026-07-15-baton-v0.15-conformance
+{
+  "verdict": "BLOCKED",
+  "failed_gate": "first_pass:spec",
+  "rationale": "no path provided",
+  "cost_usd": 0
+}
+exit: 2
+```
+
+The installed binary exposes the supported flag interface rather than positional
+slice/release lookup. Its deterministic first pass was therefore run with the
+same live S19 evidence and did not dispatch an agentic verifier:
+
+```text
+$ git diff --no-ext-diff 640396fa8cc319229d6f96dedfdbef65dbe317fe..HEAD | \
+    sworn verify --spec docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/spec.json \
+      --diff - \
+      --proof docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.json
+{
+  "verdict": "PASS",
+  "rationale": "",
+  "cost_usd": 0
+}
+exit: 0
+```
+
+The structural PASS is a Rule-6 proof-bundle preflight only; it does not change
+the independent fresh-verifier requirement.
 
 ## CompleteRollbackEnvelope
 
@@ -84,6 +122,7 @@ immutable S02 baseline.
 - The final Implementer maintainability PASS is bound to that exact commit via
   the report blob and status ledger.
 - S02 remains rollback-backed/deferred and S20 remains planned/pending.
+- The supported deterministic `sworn verify` proof-bundle first pass passed.
 
 ## Not delivered
 
@@ -106,4 +145,8 @@ closed. It is deliberately not run as a passing condition by this Implementer.
 
 ## Divergence from plan
 
-None.
+The role prompt's positional `sworn verify <slice-id> <release>` reference is
+not implemented by the installed CLI: it ignores positional values and blocks on
+a missing `--spec` path. The same deterministic first pass passed through the
+installed flag interface with the S19 spec, proof, and non-empty live diff. No
+agentic verifier was invoked and no fresh-verifier evidence is claimed.

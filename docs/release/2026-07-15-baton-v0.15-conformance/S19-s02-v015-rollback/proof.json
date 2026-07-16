@@ -92,6 +92,24 @@
       "output_ref": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/complete-rollback-envelope.txt"
     },
     {
+      "command": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/check-rollback.sh --head 4b38887e666f7e4ab664bac4780535b080ad54eb --require-maintainability --require-proof-bundle",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.md#proofbundleverificationgate"
+    },
+    {
+      "command": "git diff --no-ext-diff 640396fa8cc319229d6f96dedfdbef65dbe317fe..HEAD | sworn verify --spec docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/spec.json --diff - --proof docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.json",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.md#proofbundleverificationgate"
+    },
+    {
+      "command": "sworn llm-check -type ac-satisfaction -release 2026-07-15-baton-v0.15-conformance -slice S19-s02-v015-rollback -base 640396fa8cc319229d6f96dedfdbef65dbe317fe -json",
+      "passed": true,
+      "exit_code": 0,
+      "output_ref": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/llm-checks.md#final-ac-recheck-third-pass"
+    },
+    {
       "command": "./bin/sworn capabilities",
       "passed": true,
       "exit_code": 0,
@@ -122,6 +140,10 @@
     {
       "item": "AC-05 precondition enforcement: retained S02 as the rollback-backed terminal deferral and retained S20 in planned/pending state until a fresh verifier supplies independent PASS evidence.",
       "evidence": "check-rollback.sh lifecycle checks; S02-v015-parity-and-installs/status.json; S20-v015-parity-portable-fixture/status.json"
+    },
+    {
+      "item": "The deterministic proof-bundle first pass passes through the installed supported verify interface without invoking an agentic verifier.",
+      "evidence": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.md#proofbundleverificationgate"
     }
   ],
   "not_delivered": [
@@ -132,5 +154,9 @@
       "acknowledged": true
     }
   ],
-  "divergence": []
+  "divergence": [
+    {
+      "description": "The role prompt's positional proof-gate form, `sworn verify <slice-id> <release>`, is not supported by the installed CLI: it ignores positional values and blocks on a missing spec path. The same deterministic first pass was run through the installed flag interface with the S19 spec, proof, and non-empty live diff, and returned PASS. No agentic verifier was invoked or self-certified."
+    }
+  ]
 }
