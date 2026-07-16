@@ -127,3 +127,26 @@
   `"check":"ac-satisfaction"` and the exact requested/emitted identity gate
   accepts it. No S20 prompt/schema change, synthetic report, waiver, or scope
   expansion is authorized.
+
+## 2026-07-17T07:35:39+10:00 — Blocked: OpenAI rejects exact structured schema
+
+- Independent normal validation was prepared without shared-worktree VCS
+  metadata: a clean clone at resume commit
+  `bef712dbc629678d7bf2579d3beb560e2b025c0a` built with ordinary VCS stamping,
+  and `TestDoctorAndBatonDiffV015BinaryReachability` passed. A separate clean
+  semantic clone was detached at S20's only semantic implementation head
+  `f3da6a49c3f89f0883e265befd30d1eb099d6a90`, preserving the exact S20 review
+  interval `08dd38f81e466d3288ff4bf64953cfc90ea6063c..f3da6a49c3f89f0883e265befd30d1eb099d6a90`.
+- The current binary (which includes S04's generic schema-constrained channel)
+  was invoked from that semantic clone with the exact S20 `ac-satisfaction`
+  base. It exited 2 before a model response: `Invalid schema for
+  response_format 'llm-check-report-v1': In context=(), 'allOf' is not
+  permitted.` Consequently no model-emitted `check` exists, so it cannot
+  genuinely match `ac-satisfaction`.
+- S20 returns to `blocked` for planner handling. This session does not modify
+  S04, any vendored prompt/schema, or S20 source; it does not synthesize,
+  waive, or downgrade the missing identity. The maintainability preflight and
+  final proof remain unrun because their deterministic-readiness prerequisite
+  did not produce a schema-valid accepted contract identity. Tracking:
+  `S04-typed-reference-ambiguity` AC-04 via `/replan-release
+  2026-07-15-baton-v0.15-conformance`.
