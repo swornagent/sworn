@@ -1,8 +1,12 @@
 package main
 
 import (
+	"crypto/sha1" //nolint:gosec // Git's bundle object format is SHA-1.
+	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,6 +15,380 @@ import (
 	"github.com/swornagent/sworn/internal/baton/schemas"
 	"github.com/swornagent/sworn/internal/board"
 )
+
+const (
+	batonV015BundleSize   = 2505826
+	batonV015BundleSHA256 = "cba3796ed382623f35abc568183e3a5a0d4a82335cebd4589989d0ae41b43ad5"
+	batonV015BundleBlob   = "77e5b4cc7210a41ce8779bc352a1f487101fb80e"
+	batonV015TagObject    = "3ba5f70435ff1ef3ea819def7b06c126fdb269d8"
+	batonV015Commit       = "3fb4d275ae8a151f6287e7b9279d71628b12eea0"
+	batonV015VersionBlob  = "5f1dd0af59642311ee04e018a0023562d4dde008"
+	batonV015BundleHeader = "# v2 git bundle\n3ba5f70435ff1ef3ea819def7b06c126fdb269d8 refs/tags/v0.15.1\n\n"
+)
+
+func TestDoctorAndBatonDiffV015BinaryReachability(t *testing.T) {
+	// The test-only setup is allowed to use Git. Everything after this point
+	// exercises the built binary: the source of truth is the committed,
+	// authenticated bundle clone, never a sibling Baton checkout.
+	source := cloneVerifiedBatonV015Bundle(t)
+	bin := buildSworn(t)
+	base := t.TempDir()
+	repo := newBatonDiffRepositoryFixture(t, base)
+	roots := []string{
+		filepath.Join(base, "home"),
+		filepath.Join(base, "agents"),
+		filepath.Join(base, "codex"),
+		filepath.Join(base, "claude"),
+		filepath.Join(base, "sworn-config"),
+	}
+	assertContainedDisjointProofRoots(t, base, roots...)
+
+	withGit := childProofEnvironment(base, false)
+	withoutCommands := childProofEnvironment(base, true)
+	run := func(env []string, dir string, args ...string) (int, string) {
+		t.Helper()
+		cmd := exec.Command(bin, args...)
+		cmd.Dir = dir
+		cmd.Env = env
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			return 0, string(output)
+		}
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("%v: %v\n%s", args, err, output)
+		}
+		return exitErr.ExitCode(), string(output)
+	}
+
+	if code, output := run(withGit, repo, "baton", "diff", source); code != 0 {
+		t.Fatalf("built baton diff exact verified clone exit = %d, want 0\n%s", code, output)
+	}
+
+	// A mapped repository byte is a deterministic, read-only drift result.
+	driftPath := filepath.Join(repo, "internal", "adopt", "baton", "README.md")
+	driftBytes, err := os.ReadFile(driftPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	driftBytes = append(driftBytes, []byte("\nS20-binary-drift-fixture\n")...)
+	if err := os.WriteFile(driftPath, driftBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, output := run(withGit, repo, "baton", "diff", source); code != 1 {
+		t.Fatalf("built baton diff deterministic drift exit = %d, want 1\n%s", code, output)
+	}
+	if got, err := os.ReadFile(driftPath); err != nil || string(got) != string(driftBytes) {
+		t.Fatalf("built baton diff mutated drift fixture: bytes=%q err=%v", got, err)
+	}
+
+	if code, output := run(withGit, repo, "baton", "diff", filepath.Join(base, "missing-baton-source")); code != 2 {
+		t.Fatalf("built baton diff missing source exit = %d, want 2\n%s", code, output)
+	}
+	if got, err := os.ReadFile(driftPath); err != nil || string(got) != string(driftBytes) {
+		t.Fatalf("built baton diff missing-source path mutated fixture: bytes=%q err=%v", got, err)
+	}
+	if status := gitOutput(t, source, "status", "--porcelain=v1", "--untracked-files=all"); status != "" {
+		t.Fatalf("verified temporary clone became dirty: %q", status)
+	}
+
+	// No Go or shell is available to the shipped installation/recovery path.
+	// Explicit child-only roots make an accidental real HOME selection a test
+	// failure before the binary is invoked.
+	if code, output := run(withoutCommands, repo, "doctor", "--sync-baton"); code != 2 {
+		t.Fatalf("built doctor isolated repair without PATH tools exit = %d, want 2\n%s", code, output)
+	}
+	if code, output := run(withoutCommands, repo, "doctor", "--sync-baton"); code != 0 {
+		t.Fatalf("built doctor isolated idempotent sync without PATH tools exit = %d, want 0\n%s", code, output)
+	}
+}
+
+// TestDoctorAndBatonDiffV015BinaryReachabilityRejectsInvalidBundle proves the
+// clean-CI source constructor rejects an invalid fixture before it creates a
+// temporary source checkout that could be supplied as C-01 evidence to the
+// built command. The valid bundle's post-clone tag, tree, VERSION, archive,
+// and clean-status predicates are exercised by the reachability test above.
+func TestDoctorAndBatonDiffV015BinaryReachabilityRejectsInvalidBundle(t *testing.T) {
+	committedBundle := filepath.Join(swornTestRepoRoot(t), "internal", "baton", "testdata", "fixture", "baton-v0.15.1.bundle")
+	valid, err := os.ReadFile(committedBundle)
+	if err != nil {
+		t.Fatalf("read committed Baton bundle: %v", err)
+	}
+	if len(valid) != batonV015BundleSize {
+		t.Fatalf("committed bundle size = %d, want %d", len(valid), batonV015BundleSize)
+	}
+
+	base := t.TempDir()
+	truncated := append([]byte(nil), valid[:len(valid)-1]...)
+	corrupt := append([]byte(nil), valid...)
+	corrupt[len(corrupt)-1] ^= 0xff
+	cases := []struct {
+		name     string
+		contents []byte
+		missing  bool
+	}{
+		{name: "missing", missing: true},
+		{name: "truncated", contents: truncated},
+		{name: "byte-corrupt", contents: corrupt},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			bundle := filepath.Join(base, tc.name+".bundle")
+			if !tc.missing {
+				if err := os.WriteFile(bundle, tc.contents, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			evidence := filepath.Join(base, tc.name+"-source-evidence")
+			if err := cloneVerifiedBatonV015BundleAt(bundle, evidence); err == nil {
+				t.Fatal("invalid bundle unexpectedly produced temporary source evidence")
+			}
+			if _, err := os.Stat(evidence); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("invalid bundle created source evidence at %s: %v", evidence, err)
+			}
+		})
+	}
+}
+
+func cloneVerifiedBatonV015Bundle(t *testing.T) string {
+	t.Helper()
+	repoRoot := swornTestRepoRoot(t)
+	bundle := filepath.Join(repoRoot, "internal", "baton", "testdata", "fixture", "baton-v0.15.1.bundle")
+	clone := filepath.Join(t.TempDir(), "baton-v0.15.1")
+	if err := cloneVerifiedBatonV015BundleAt(bundle, clone); err != nil {
+		t.Fatalf("construct authenticated Baton v0.15.1 source: %v", err)
+	}
+	return clone
+}
+
+func cloneVerifiedBatonV015BundleAt(bundle, clone string) error {
+	if err := verifyBatonV015Bundle(bundle); err != nil {
+		return err
+	}
+	cloneCmd := exec.Command("git", "clone", "--no-checkout", bundle, clone)
+	if output, err := cloneCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("clone authenticated bundle: %w\n%s", err, output)
+	}
+	if _, err := gitOutputAt(clone, "fsck", "--full", "--no-reflogs"); err != nil {
+		return err
+	}
+	if _, err := gitOutputAt(clone, "checkout", "--detach", "v0.15.1^{commit}"); err != nil {
+		return err
+	}
+	if got, err := gitOutputAt(clone, "rev-parse", "v0.15.1^{tag}"); err != nil {
+		return err
+	} else if got != batonV015TagObject {
+		return fmt.Errorf("annotated tag object = %s, want %s", got, batonV015TagObject)
+	}
+	if got, err := gitOutputAt(clone, "rev-parse", "v0.15.1^{commit}"); err != nil {
+		return err
+	} else if got != batonV015Commit {
+		return fmt.Errorf("peeled tag commit = %s, want %s", got, batonV015Commit)
+	}
+	if got, err := gitOutputAt(clone, "rev-parse", "HEAD"); err != nil {
+		return err
+	} else if got != batonV015Commit {
+		return fmt.Errorf("checked-out HEAD = %s, want %s", got, batonV015Commit)
+	}
+	if got, err := gitOutputAt(clone, "rev-parse", batonV015Commit+":VERSION"); err != nil {
+		return err
+	} else if got != batonV015VersionBlob {
+		return fmt.Errorf("upstream VERSION blob = %s, want %s", got, batonV015VersionBlob)
+	}
+	version, err := os.ReadFile(filepath.Join(clone, "VERSION"))
+	if err != nil || string(version) != "v0.15.1\n" {
+		return fmt.Errorf("upstream VERSION bytes = %q err=%v", version, err)
+	}
+	if status, err := gitOutputAt(clone, "status", "--porcelain=v1", "--untracked-files=all"); err != nil {
+		return err
+	} else if status != "" {
+		return fmt.Errorf("fresh bundle clone is dirty: %q", status)
+	}
+	return nil
+}
+
+func verifyBatonV015Bundle(bundle string) error {
+	contents, err := os.ReadFile(bundle)
+	if err != nil {
+		return fmt.Errorf("read committed Baton bundle: %w", err)
+	}
+	if len(contents) != batonV015BundleSize {
+		return fmt.Errorf("bundle size = %d, want %d", len(contents), batonV015BundleSize)
+	}
+	digest := sha256.Sum256(contents)
+	if got := fmt.Sprintf("%x", digest); got != batonV015BundleSHA256 {
+		return fmt.Errorf("bundle SHA-256 = %s, want %s", got, batonV015BundleSHA256)
+	}
+	if got := testGitBlobOID(contents); got != batonV015BundleBlob {
+		return fmt.Errorf("bundle Git blob = %s, want %s", got, batonV015BundleBlob)
+	}
+	if len(contents) < len(batonV015BundleHeader) || string(contents[:len(batonV015BundleHeader)]) != batonV015BundleHeader {
+		return errors.New("bundle v2 header differs from the authenticated v0.15.1 source")
+	}
+	verify := exec.Command("git", "bundle", "verify", bundle)
+	verifyOutput, err := verify.CombinedOutput()
+	if err != nil || !strings.Contains(string(verifyOutput), "complete history") {
+		return fmt.Errorf("verify committed bundle: %w\n%s", err, verifyOutput)
+	}
+	return nil
+}
+
+func gitOutputAt(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %w\n%s", strings.Join(args, " "), err, output)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+func swornTestRepoRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("cannot find repository go.mod")
+		}
+		dir = parent
+	}
+}
+
+func newBatonDiffRepositoryFixture(t *testing.T, base string) string {
+	t.Helper()
+	repo := filepath.Join(base, "repository")
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	live := swornTestRepoRoot(t)
+	paths := map[string]struct{}{
+		"internal/adopt/baton/VERSION":                     {},
+		"internal/adopt/baton/installer-input-v0.15.1.tar": {},
+	}
+	for _, mapping := range baton.AllMappings() {
+		paths[mapping.Dest] = struct{}{}
+	}
+	for path := range paths {
+		from := filepath.Join(live, filepath.FromSlash(path))
+		to := filepath.Join(repo, filepath.FromSlash(path))
+		contents, err := os.ReadFile(from)
+		if err != nil {
+			t.Fatalf("read fixture source %s: %v", path, err)
+		}
+		info, err := os.Stat(from)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(to, contents, info.Mode().Perm()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return repo
+}
+
+func childProofEnvironment(base string, noPathTools bool) []string {
+	blocked := map[string]bool{
+		"HOME": true, "AGENTS_HOME": true, "CODEX_HOME": true, "CLAUDE_HOME": true,
+		"SWORN_HOME": true, "XDG_CONFIG_HOME": true, "PATH": true,
+	}
+	env := make([]string, 0, len(os.Environ())+8)
+	for _, item := range os.Environ() {
+		key, _, _ := strings.Cut(item, "=")
+		if !blocked[key] {
+			env = append(env, item)
+		}
+	}
+	path := os.Getenv("PATH")
+	if noPathTools {
+		path = filepath.Join(base, "no-command-path")
+	}
+	return append(env,
+		"HOME="+filepath.Join(base, "home"),
+		"AGENTS_HOME="+filepath.Join(base, "agents"),
+		"CODEX_HOME="+filepath.Join(base, "codex"),
+		"CLAUDE_HOME="+filepath.Join(base, "claude"),
+		"SWORN_HOME="+filepath.Join(base, "sworn-config"),
+		"XDG_CONFIG_HOME="+filepath.Join(base, "xdg-config"),
+		"PATH="+path,
+	)
+}
+
+func assertContainedDisjointProofRoots(t *testing.T, base string, roots ...string) {
+	t.Helper()
+	base, err := filepath.Abs(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	realHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, root := range roots {
+		root, err = filepath.Abs(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !isPathContained(base, root) {
+			t.Fatalf("proof root escapes test base: %s", root)
+		}
+		if pathsOverlap(realHome, root) {
+			t.Fatalf("proof root can select real home: %s", root)
+		}
+		for _, forbidden := range []string{".agents", ".codex", ".claude"} {
+			if pathsOverlap(filepath.Join(realHome, forbidden), root) {
+				t.Fatalf("proof root can select real %s home: %s", forbidden, root)
+			}
+		}
+		for _, other := range roots[:i] {
+			if pathsOverlap(root, other) {
+				t.Fatalf("proof roots are equal or nested: %s and %s", root, other)
+			}
+		}
+	}
+}
+
+func isPathContained(base, candidate string) bool {
+	rel, err := filepath.Rel(base, candidate)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func pathsOverlap(left, right string) bool {
+	left, _ = filepath.Abs(left)
+	right, _ = filepath.Abs(right)
+	return isPathContained(left, right) || isPathContained(right, left)
+}
+
+func gitRun(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	if output, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
+	}
+}
+
+func gitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
+	}
+	return strings.TrimSpace(string(output))
+}
+
+func testGitBlobOID(contents []byte) string {
+	header := fmt.Sprintf("blob %d%c", len(contents), 0)
+	digest := sha1.Sum(append([]byte(header), contents...))
+	return fmt.Sprintf("%x", digest)
+}
 
 // runDoctorInDir runs cmdDoctor with the given args in the given directory,
 // capturing stdout+stderr. Returns exit code and combined output.
@@ -447,55 +825,43 @@ func TestDoctorAdviceNotCircular(t *testing.T) {
 	}
 }
 
-// TestDoctorSyncBaton tests that --sync-baton writes embedded files to the
-// baton home directory (overridden via SWORN_BATON_HOME).
+// TestDoctorSyncBaton proves the public adapter repairs all three isolated
+// logical roots and returns the v0.15 2/0 changed/idempotent exits.
 func TestDoctorSyncBaton(t *testing.T) {
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, ".git"), 0755)
-	batonHome := filepath.Join(dir, ".fake-baton-home")
+	os.MkdirAll(filepath.Join(dir, ".git"), 0o755)
+	agentsHome := filepath.Join(dir, "agents")
+	codexHome := filepath.Join(dir, "codex")
+	claudeHome := filepath.Join(dir, "claude")
+	t.Setenv("HOME", filepath.Join(dir, "home"))
+	t.Setenv("AGENTS_HOME", agentsHome)
+	t.Setenv("CODEX_HOME", codexHome)
+	t.Setenv("CLAUDE_HOME", claudeHome)
+	t.Setenv("SWORN_HOME", filepath.Join(dir, "sworn-config"))
 
-	origBatonHome := os.Getenv("SWORN_BATON_HOME")
-	defer os.Setenv("SWORN_BATON_HOME", origBatonHome)
-	os.Setenv("SWORN_BATON_HOME", batonHome)
-
-	origDir, _ := os.Getwd()
-	defer os.Chdir(origDir)
-	os.Chdir(dir)
-
-	// Capture stdout.
-	origStdout := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	exitCode := cmdDoctor([]string{"--sync-baton"})
-
-	w.Close()
-	os.Stdout = origStdout
-	buf := make([]byte, 65536)
-	n, _ := r.Read(buf)
-	output := string(buf[:n])
-	r.Close()
-
-	if exitCode != 0 {
-		t.Errorf("expected exit 0, got %d\nOutput:\n%s", exitCode, output)
+	exitCode, output := runDoctorInDir(t, dir, "--sync-baton")
+	if exitCode != 2 {
+		t.Fatalf("first sync exit = %d, want 2\nOutput:\n%s", exitCode, output)
 	}
-
-	// Verify files were written.
-	if _, err := os.Stat(filepath.Join(batonHome, "README.md")); err != nil {
-		t.Errorf("expected README.md to be written: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(batonHome, "VERSION")); err != nil {
-		t.Errorf("expected VERSION to be written: %v", err)
-	}
-	for _, rf := range batonRuleFiles {
-		if _, err := os.Stat(filepath.Join(batonHome, "rules", rf)); err != nil {
-			t.Errorf("expected rules/%s to be written: %v", rf, err)
+	for _, path := range []string{
+		filepath.Join(agentsHome, "skills", "baton-design-review", "SKILL.md"),
+		filepath.Join(codexHome, "baton", "README.md"),
+		filepath.Join(claudeHome, "commands", "design-review.md"),
+		filepath.Join(agentsHome, ".sworn-baton", "VERSION"),
+		filepath.Join(codexHome, ".sworn-baton", "VERSION"),
+		filepath.Join(claudeHome, ".sworn-baton", "VERSION"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("expected managed path %s: %v", path, err)
 		}
 	}
+	if !strings.Contains(output, "repaired Baton mirrors") {
+		t.Errorf("repair output omitted transaction result\n%s", output)
+	}
 
-	// Verify output mentions each file written.
-	if !strings.Contains(output, "wrote") {
-		t.Errorf("expected 'wrote' in output\nOutput:\n%s", output)
+	exitCode, output = runDoctorInDir(t, dir, "--sync-baton")
+	if exitCode != 0 || !strings.Contains(output, "already match") {
+		t.Fatalf("idempotent sync = %d, want 0\n%s", exitCode, output)
 	}
 }
 

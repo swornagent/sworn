@@ -45,3 +45,22 @@
   must stop at `implemented`; fresh adversarial verification remains the
   certification backstop, and no real local Codex or Claude installation is
   authorised yet.
+
+## 2026-07-17T05:03:46+10:00 — Implementation checkpoint
+
+- Bound the immutable S20 start anchor to
+  `08dd38f81e466d3288ff4bf64953cfc90ea6063c`; all S20 evidence and the later
+  maintainability review use that commit as their base.
+- Reconstructed the frozen 45-path semantic result and added the committed
+  authenticated v0.15.1 Git-bundle fixture. The clean-CI oracle validates the
+  bundle's size, SHA-256, Git blob, v2 header, complete history, annotated tag,
+  peeled commit, root VERSION object/bytes, clean status, and fsck before the
+  built public `baton diff` receives its temporary checkout.
+- Applied all Captain pins: the public adapter has explicit 0/1/2 behavior;
+  `doctor --sync-baton` bypasses external dependency checks; child-process
+  proof roots are explicit, contained, pairwise-disjoint temporary homes; and
+  the new ambiguity schema plus full installer archive inventory are compared
+  byte-for-byte to the verified clone.
+- No real Codex or Claude home was selected or mutated. The native sync proof
+  used disposable roots with `PATH` containing no shell or Go executable and
+  observed exits 2 then 0.

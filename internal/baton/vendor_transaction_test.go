@@ -384,6 +384,21 @@ func TestVendorRecoveryRecordRejectsUntrustedMaterial(t *testing.T) {
 				})
 			},
 		},
+		{
+			name: "missing installer archive tuple",
+			tamper: func(t *testing.T, repo vendorRepository, transactionDir string) {
+				t.Helper()
+				rewriteVendorRecoveryManifest(t, repo, transactionDir, func(manifest *vendorRecoveryManifest) {
+					for i, destination := range manifest.Destinations {
+						if destination.Path == installerArchivePath {
+							manifest.Destinations = append(manifest.Destinations[:i], manifest.Destinations[i+1:]...)
+							return
+						}
+					}
+					t.Fatal("recovery fixture omitted installer archive before tamper")
+				})
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -557,7 +572,7 @@ func fullVendorTestPlan(t *testing.T, repo vendorRepository) *vendorPlan {
 	t.Helper()
 	versionBytes := []byte("baton-protocol: v0.13.1\nvendored: 2026-07-14\nupstream-sha: old\nupstream-digest: sha256:old\n")
 	writeVendorTestFile(t, repo.root, upstreamVersionPath, versionBytes, 0o600)
-	inputs := make([]vendorTestCandidate, 0, len(batonFileMappings)+1)
+	inputs := make([]vendorTestCandidate, 0, len(batonFileMappings)+2)
 	for _, mapping := range batonFileMappings {
 		inputs = append(inputs, vendorTestCandidate{
 			path:    filepath.ToSlash(mapping.Dest),
@@ -567,6 +582,10 @@ func fullVendorTestPlan(t *testing.T, repo vendorRepository) *vendorPlan {
 	inputs = append(inputs, vendorTestCandidate{
 		path:    upstreamVersionPath,
 		desired: []byte("baton-protocol: v0.15.1\nvendored: 2026-07-16\nupstream-sha: new\nupstream-digest: sha256:new\n"),
+	})
+	inputs = append(inputs, vendorTestCandidate{
+		path:    installerArchivePath,
+		desired: []byte("installer archive candidate\n"),
 	})
 	return vendorTestPlan(t, repo, inputs)
 }

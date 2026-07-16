@@ -98,6 +98,13 @@ func cmdBatonVendor(args []string) int {
 			RepoRoot:  repoRoot,
 			CheckOnly: parsed.check,
 		}
+		if inputs, pinned, err := baton.PinnedInstallerVendorInputs(context.Background(), sourceDir, time.Now().UTC()); err != nil {
+			fmt.Fprintf(os.Stderr, "baton vendor: %v\n", err)
+			return 2
+		} else if pinned {
+			opts.VersionCandidate = &inputs.Version
+			opts.InstallerArchiveCandidate = inputs.Archive
+		}
 
 		result, err := baton.Vendor(opts)
 		if err != nil {
@@ -342,7 +349,7 @@ func cmdBatonDiff(args []string) int {
 	repoRoot, err := findRepoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "baton diff: %v\n", err)
-		return 1
+		return 2
 	}
 
 	divs, err := baton.Diff(baton.DiffOpts{
@@ -351,7 +358,7 @@ func cmdBatonDiff(args []string) int {
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "baton diff: %v\n", err)
-		return 1
+		return 2
 	}
 
 	if len(divs) == 0 {

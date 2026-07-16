@@ -713,12 +713,24 @@ Rule 7 introduces a small state machine that lives in `status.json` per slice:
 planned -> in_progress -> implemented -> [verifier] -> verified | failed_verification
                                                   \-> deferred (per Rule 2)
 verified -> [human] -> shipped
+verified -> [track integrator: deterministic post-sync invalidation only] -> failed_verification
 ```
 
 State transitions:
 
 - **Implementer can move**: `planned` → `in_progress`, `in_progress` → `implemented`, anything → `deferred` (with Rule 2 surfacing).
 - **Verifier can move**: `implemented` → `verified` or `failed_verification`.
+- **Track Integrator can invalidate**: `verified` → `failed_verification` only when canonical
+  track-integration freshness composition proves that a recognized synchronization merge contributed
+  an intersecting path after its latest authoritative frontier, supplies an exact trustworthy
+  parent-2 rollback baseline, and the invalidated slice's complete candidate set is disjoint from
+  every later authoritative slice. It
+  preserves the append-only report ledger, clears the stale pinned head, sets
+  `maintainability.state: re_slice_required`, records the deterministic violation, commits locally,
+  and stops for `/replan-release`. It cannot append a Verifier report, repair code, push, or
+  invalidate human-terminal `shipped` state. Unowned semantic commits, custom merges, or invalid
+  provenance, or a later-slice candidate overlap BLOCK without a lifecycle mutation because bounded
+  rollback cannot preserve the trustworthy baseline and later verified bytes simultaneously.
 - **Human can move**: `verified` → `shipped`.
 - **No agent can move directly to `verified` from `in_progress`.** The `implemented` checkpoint exists to mark "implementer believes done; awaiting fresh-context verification."
 
@@ -1203,7 +1215,7 @@ A deterministic, fail-closed gate reads the journeys artefact and returns:
 - **Exit 1** — artefact is missing (elicitation not run) or exists but is unratified.
 - **Exit 2** — unrecoverable error (parse failure, I/O error).
 
-The gate is additive — it runs alongside per-slice verification (Rule 7), after all slices are verified but before the release merges. It does not replace any existing gate.
+The gate is additive — it runs alongside per-slice verification (Rule 7), after all slices satisfy track-mode's canonical integration-ready predicate but before the release merges. It does not replace any existing gate.
 
 ## No-mock boundary — the enforcement that makes a journey count
 
@@ -1288,7 +1300,7 @@ Rendered into one targeted walk grouped by touched journey: what changed, how to
 ## When this rule applies
 
 - Any release that changes a user-visible surface (UI, API, CLI command, form, route).
-- Pre-release cutover — the journeys gate runs after all slices are verified but before the release merges.
+- Pre-release cutover — the journeys gate runs after all slices are integration-ready but before the release merges.
 
 ## When this rule does NOT apply
 

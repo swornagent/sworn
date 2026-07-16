@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -142,6 +143,24 @@ func TestBatonDiffExitsZeroWhenInSync(t *testing.T) {
 	exit := cmdBatonDiff([]string{fixture})
 	if exit != 0 {
 		t.Errorf("cmdBatonDiff clean exit = %d, want 0", exit)
+	}
+}
+
+// TestBatonDiffV015BinaryReachability drives the registered public command
+// against the authenticated, committed v0.15.1 Git-bundle clone. The bundle is
+// test-only; the built command receives the verified temporary checkout rather
+// than an ambient sibling repository or an extracted installer archive.
+func TestBatonDiffV015BinaryReachability(t *testing.T) {
+	sourceRoot := cloneVerifiedBatonV015Bundle(t)
+	base := t.TempDir()
+	repo := newBatonDiffRepositoryFixture(t, base)
+	bin := buildSworn(t)
+	cmd := exec.Command(bin, "baton", "diff", sourceRoot)
+	cmd.Dir = repo
+	cmd.Env = childProofEnvironment(base, false)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("sworn baton diff exact v0.15.1 source: %v\n%s", err, output)
 	}
 }
 

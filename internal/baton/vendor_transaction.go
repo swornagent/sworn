@@ -944,14 +944,15 @@ func publishVendorRecovery(repo vendorRepository, plan *vendorPlan) (*vendorReco
 }
 
 func validateVendorRecoveryMaterial(repo vendorRepository, transactionDir string, manifest vendorRecoveryManifest) (map[string][]byte, error) {
-	if len(manifest.Destinations) != len(batonFileMappings)+1 {
+	if len(manifest.Destinations) != len(batonFileMappings)+2 {
 		return nil, newVendorError("recovery-material-incomplete", "recovery", "", transactionDir, fmt.Errorf("unexpected destination count"))
 	}
-	expected := make(map[string]struct{}, len(batonFileMappings)+1)
+	expected := make(map[string]struct{}, len(batonFileMappings)+2)
 	for _, mapping := range batonFileMappings {
 		expected[filepath.ToSlash(mapping.Dest)] = struct{}{}
 	}
 	expected[upstreamVersionPath] = struct{}{}
+	expected[installerArchivePath] = struct{}{}
 	seen := make(map[string]struct{}, len(manifest.Destinations))
 	referencedSnapshots := make(map[string]struct{})
 	snapshots := make(map[string][]byte)
@@ -1021,6 +1022,9 @@ func validateVendorRecoveryMaterial(repo vendorRepository, transactionDir string
 	}
 	if _, ok := seen[upstreamVersionPath]; !ok {
 		return nil, newVendorError("recovery-material-incomplete", "recovery", upstreamVersionPath, transactionDir, fmt.Errorf("VERSION destination is missing"))
+	}
+	if _, ok := seen[installerArchivePath]; !ok {
+		return nil, newVendorError("recovery-material-incomplete", "recovery", installerArchivePath, transactionDir, fmt.Errorf("installer archive destination is missing"))
 	}
 
 	txEntries, err := readVendorDirectoryEntries(repo, transactionDir, 0o700)

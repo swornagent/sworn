@@ -1,0 +1,164 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S20-v015-parity-portable-fixture",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "scope": "Re-deliver exact Baton v0.15.1 protocol, archive, schema, state-carrier, and isolated-install parity with a committed authenticated Git-bundle clean-CI oracle instead of any developer-specific sibling checkout.",
+  "files_changed": [
+    "cmd/sworn/baton.go",
+    "cmd/sworn/baton_test.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S20-v015-parity-portable-fixture/journal.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S20-v015-parity-portable-fixture/proof.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S20-v015-parity-portable-fixture/proof.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S20-v015-parity-portable-fixture/status.json",
+    "internal/adopt/baton/README.md",
+    "internal/adopt/baton/VERSION",
+    "internal/adopt/baton/architecture.json",
+    "internal/adopt/baton/installer-input-v0.15.1.tar",
+    "internal/adopt/baton/rules/07-adversarial-verification.md",
+    "internal/adopt/baton/rules/10-customer-journey-validation.md",
+    "internal/adopt/baton_archive.go",
+    "internal/baton/diff.go",
+    "internal/baton/install_transaction.go",
+    "internal/baton/install_transaction_test.go",
+    "internal/baton/installer_archive.go",
+    "internal/baton/installer_archive_test.go",
+    "internal/baton/manifest.go",
+    "internal/baton/manifest_test.go",
+    "internal/baton/records_conformance_test.go",
+    "internal/baton/schemas/board-v1.json",
+    "internal/baton/schemas/embed.go",
+    "internal/baton/schemas/llm-check-report-v1.json",
+    "internal/baton/schemas/slice-status-v1.json",
+    "internal/baton/schemas/spec-ambiguity-report-v1.json",
+    "internal/baton/schemas/spec-v1.json",
+    "internal/baton/source.go",
+    "internal/baton/testdata/fixture/baton-v0.15.1.bundle",
+    "internal/baton/testdata/fixture/schemas/spec-ambiguity-report-v1.json",
+    "internal/baton/validate_schema_test.go",
+    "internal/baton/vendor.go",
+    "internal/baton/vendor_transaction.go",
+    "internal/baton/vendor_transaction_test.go",
+    "internal/gate/llmcheck_test.go",
+    "internal/prompt/baton/README.md",
+    "internal/prompt/baton/llm-checks/README.md",
+    "internal/prompt/baton/llm-checks/maintainability-review.md",
+    "internal/prompt/baton/llm-checks/spec-ambiguity.md",
+    "internal/prompt/baton/rules.md",
+    "internal/prompt/baton/track-mode.md",
+    "internal/prompt/implementer.md",
+    "internal/prompt/planner.md",
+    "internal/prompt/verifier.md",
+    "internal/run/slice_test.go",
+    "internal/state/record_reconciliation_test.go",
+    "internal/state/state.go",
+    "internal/state/state_test.go"
+  ],
+  "test_results": [
+    {
+      "command": "go test ./cmd/sworn -run '^TestDoctorAndBatonDiffV015BinaryReachability(RejectsInvalidBundle)?$' -count=1",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "go test ./internal/baton -run '^(TestBatonV015GitBundleFixtureIdentity|TestBatonV015CodexAndClaudeMirrorParity|TestBatonSyncRollbackAndRecovery)$' -count=1",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "go test ./internal/baton -count=1",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "go test ./internal/gate ./internal/run ./internal/state -count=1",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "go test ./... -count=1",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "go vet ./...",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "make build",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "bin/sworn baton diff <verified-temp-clone-from-baton-v0.15.1.bundle>",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "bin/sworn doctor --sync-baton twice with explicit disposable homes and no PATH tools",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --no-ext-diff 08dd38f81e466d3288ff4bf64953cfc90ea6063c | bin/sworn verify --spec docs/release/2026-07-15-baton-v0.15-conformance/S20-v015-parity-portable-fixture/spec.json --diff - --proof docs/release/2026-07-15-baton-v0.15-conformance/S20-v015-parity-portable-fixture/proof.json",
+      "passed": true,
+      "exit_code": 0
+    }
+  ],
+  "reachability": {
+    "type": "cli-run",
+    "evidence": "cmd/sworn/doctor_test.go:TestDoctorAndBatonDiffV015BinaryReachability authenticates and clones the repository-owned exact-tag bundle under t.TempDir(), then drives the built sworn baton diff command through clean=0, mapped drift=1 without mutation, and missing source=2 without mutation. It also drives the built doctor --sync-baton command in explicit temporary HOME, AGENTS_HOME, CODEX_HOME, CLAUDE_HOME, SWORN_HOME, and XDG_CONFIG_HOME roots with no shell or Go on PATH, observing repair=2 then exact=0. The live built-binary runs reproduced clean diff=0 and sync exits 2 then 0 using disposable roots."
+  },
+  "delivered": [
+    {
+      "item": "AC-01: exact v0.15.1 mapped bytes, schema identity, VERSION evidence, manifest, and the complete deterministic 78-entry installer archive are checked against a verified exact-tag clone.",
+      "evidence": "internal/baton/records_conformance_test.go:TestBatonV015ExactParity; internal/baton/manifest_test.go:TestV015SchemaManifestComplete; internal/adopt/baton/VERSION"
+    },
+    {
+      "item": "AC-02: public baton diff preserves clean=0, deterministic mapped drift=1, and operational/missing source=2 without mutation; the ambiguity schema is independently mapped, embedded, fixture-carried, and graded.",
+      "evidence": "cmd/sworn/doctor_test.go:TestDoctorAndBatonDiffV015BinaryReachability; cmd/sworn/baton_test.go:TestBatonDiffV015BinaryReachability; internal/baton/manifest.go"
+    },
+    {
+      "item": "AC-03: independently generated Codex and Claude managed trees and native archive generation agree byte-for-byte and mode-for-mode under fixed umask and contained temporary roots.",
+      "evidence": "internal/baton/installer_archive_test.go:TestBatonV015CodexAndClaudeMirrorParity; internal/baton/records_conformance_test.go:TestBatonV015CodexAndClaudeMirrorParity"
+    },
+    {
+      "item": "AC-04: the three-root doctor transaction remains fail-closed across unsafe topology, fault-injected rollback, durable recovery, and a shell-free built-binary repair path.",
+      "evidence": "internal/baton/install_transaction_test.go:TestBatonSyncRollbackAndRecovery; internal/baton/records_conformance_test.go:TestBatonV015ParityFailsClosedOnEveryLayer; cmd/sworn/doctor.go"
+    },
+    {
+      "item": "AC-05: exact v0.15 consumers retain canonical generic-check and status facts while state.Status carries an explicitly supplied maintainability object without synthesizing lifecycle state.",
+      "evidence": "internal/gate/llmcheck_test.go:TestParseLLMResponse_Pass; internal/run/slice_test.go:TestRunSlice_CostSourceThreadedToStatusJSON; internal/state/state_test.go:TestMaintainabilityCarrierPreservesSuppliedObject"
+    },
+    {
+      "item": "AC-06: the committed Git bundle is authenticated as exact v0.15.1 before a clean temporary clone reaches the built binary, with no ambient sibling checkout dependency.",
+      "evidence": "cmd/sworn/doctor_test.go:TestDoctorAndBatonDiffV015BinaryReachability; internal/baton/installer_archive_test.go:TestBatonV015GitBundleFixtureIdentity"
+    },
+    {
+      "item": "AC-07: missing, truncated, and byte-corrupt bundle fixtures fail before a temporary source-evidence checkout is created.",
+      "evidence": "cmd/sworn/doctor_test.go:TestDoctorAndBatonDiffV015BinaryReachabilityRejectsInvalidBundle"
+    }
+  ],
+  "not_delivered": [
+    {
+      "item": "Complete typed maintainability/null semantics, protocol selection, and active-record migration.",
+      "why": "S20 carries only the bounded opaque status object needed for C-01 parity and must not broaden into lifecycle or migration behavior.",
+      "tracking": "S03-lossless-record-carriers, S05-protocol-provenance-archive, S17-engine-replan-migration",
+      "acknowledged": true
+    },
+    {
+      "item": "Requested-check matching, typed ambiguity resolution, and retirement of generic maintainability dispatch.",
+      "why": "Those behaviors are outside the C-01 portable-fixture boundary and require their dedicated report/reference authority.",
+      "tracking": "S04-typed-reference-ambiguity",
+      "acknowledged": true
+    }
+  ],
+  "divergence": []
+}

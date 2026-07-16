@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://baton.sawy3r.net/schemas/board-v1.json",
   "title": "Baton Release Board",
-  "description": "Machine-readable structure of one release board: tracks, slices, dependency edges, and the vertical trace — a PURE PLAN artefact. All runtime state is DERIVED from git refs, never persisted here (track-mode invariant 5): worktree paths are conventional (computed from repo basename + release + track-id), and a track's state is computed from ref existence + merge-base ancestry against release-wt. Slice runtime state lives in each slice's status.json (slice-status-v1); the board references slices by id and never duplicates their state.",
+  "description": "Machine-readable structure of one release board: tracks, slices, dependency edges, narrow shared-touchpoint declarations, and the vertical trace — a PURE PLAN artefact. All runtime state is DERIVED from git refs, never persisted here (track-mode invariant 5): worktree paths are conventional (computed from repo basename + release + track-id), and a track's state is computed from ref existence + merge-base ancestry against release-wt. Slice runtime state lives in each slice's status.json (slice-status-v1); the board references slices by id and never duplicates their state.",
   "type": "object",
   "additionalProperties": false,
   "required": ["release", "tracks"],
@@ -77,6 +77,24 @@
             "description": "Track ids that must merge before this track.",
             "items": { "$ref": "#/$defs/id_token" }
           }
+        }
+      }
+    },
+    "shared_touchpoints": {
+      "type": "object",
+      "description": "Narrow machine-readable exceptions to path-level track disjointness, keyed by exact repository-relative path. Omission is equivalent to an empty object for older plans. Each value maps every contributing track id to its distinct non-empty region or symbol. This declaration licenses only Git's conflict-free canonical three-way composition; it never licenses manual conflict resolution.",
+      "propertyNames": {
+        "minLength": 1,
+        "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?($|/)).+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "minProperties": 2,
+        "description": "Every track permitted to contribute to this path, keyed uniquely by track id. Region strings must be unique within the declaration.",
+        "propertyNames": { "$ref": "#/$defs/id_token" },
+        "additionalProperties": {
+          "type": "string",
+          "minLength": 1
         }
       }
     }
