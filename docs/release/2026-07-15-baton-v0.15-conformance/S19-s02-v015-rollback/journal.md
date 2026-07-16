@@ -253,3 +253,24 @@ Next: `/replan-release 2026-07-15-baton-v0.15-conformance`
 - Fresh verification remains pending for a separate context. S20 is still
   planned/pending and no verifier result, fresh-context assertion, or release
   unlock is claimed by this Implementer session.
+
+## 2026-07-17T03:11:03+10:00 — Fresh verifier verdict: FAIL
+
+FAIL:
+
+1. Gate 3 / AC-03 and AC-04 — the contract-required checker accepted a
+   disposable post-implementation ordinary semantic change to
+   `cmd/sworn/baton.go` at `fb95e7d67a71daf665c4651ce21a49e9b9e0b39c` while
+   invoked in the mandated `--head 4b38887e666f7e4ab664bac4780535b080ad54eb`
+   form. It compares semantic equality and later authority only through the
+   supplied implementation head, not the current T1 head.
+2. Gate 3 / AC-04 — the checker accepted a disposable S02-record mutation at
+   `0e7414d899baed42da635997bef9c96611291a01` followed by a byte-restoring
+   descendant `3236ad182b3502e69f37e4a07ac2e058f126e0ac`. Its final-tree S02
+   diff does not prove the required append-only history invariant.
+
+The live baseline checker, immutable 45-path equality, amendment/schema
+provenance, detached current-head index render, and S20 planned/pending state
+all passed. The two fail-open adversarial outcomes prevent certification.
+Required next step: `/implement-slice S19-s02-v015-rollback
+2026-07-15-baton-v0.15-conformance` in a fresh session.

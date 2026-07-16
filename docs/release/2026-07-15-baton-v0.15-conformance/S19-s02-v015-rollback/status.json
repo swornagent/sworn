@@ -7,10 +7,10 @@
     "N-07",
     "N-09"
   ],
-  "state": "implemented",
+  "state": "failed_verification",
   "owner": "implementer",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-17T02:41:13+10:00",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-17T03:11:03+10:00",
   "start_commit": "640396fa8cc319229d6f96dedfdbef65dbe317fe",
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.json",
@@ -153,11 +153,22 @@
     "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "pending",
-    "verifier_session_id": null,
-    "verifier_verdict_at": null,
-    "verifier_was_fresh_context": null,
-    "violations": []
+    "result": "fail",
+    "verifier_session_id": "s19-final-fresh-verifier",
+    "verifier_verdict_at": "2026-07-17T03:11:03+10:00",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      {
+        "gate": "Gate 3 / AC-03 and AC-04",
+        "description": "The required checker accepts an ordinary non-release semantic change made after the pinned implementation head, so later authority is not fail-closed.",
+        "evidence": "In a disposable detached worktree at adversarial commit fb95e7d67a71daf665c4651ce21a49e9b9e0b39c (parent 2cddfbf680d12e354e546f904b89047847887c14), cmd/sworn/baton.go was changed. The mandated invocation with --head 4b38887e666f7e4ab664bac4780535b080ad54eb --require-maintainability --require-proof-bundle exited 0. check-rollback.sh compares non-release equality and later authority only through $head, not the current track head."
+      },
+      {
+        "gate": "Gate 3 / AC-04",
+        "description": "The required checker does not enforce append-only preservation of original S02 release records across reachable post-start history.",
+        "evidence": "In a disposable history, 0e7414d899baed42da635997bef9c96611291a01 altered the S02 status record and 3236ad182b3502e69f37e4a07ac2e058f126e0ac restored its final bytes. The mandated checker invocation still exited 0 because it checks only the final-tree diff from S19 start, not every post-start commit."
+      }
+    ]
   },
   "release_base": "release/v0.2.0",
   "release_benefit": "Restores a trustworthy pre-S02 semantic base without erasing the failed slice's immutable evidence.",
