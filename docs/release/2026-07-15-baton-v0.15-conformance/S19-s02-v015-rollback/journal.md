@@ -116,3 +116,43 @@ Next: `/replan-release 2026-07-15-baton-v0.15-conformance`
   references, exact-head Implementer maintainability PASS, and S20 block are
   preserved. No production code, test code, checker implementation, or fresh
   verification was performed by this Planner replan.
+
+## 2026-07-17T01:46:23+10:00 — Implementer BLOCKED: contract amendment omits rendered index lineage
+
+- Resumed the failed-verification repair without changing S19's immutable
+  `start_commit` `640396fa8cc319229d6f96dedfdbef65dbe317fe`. The generic start
+  step was intentionally not used to re-anchor that rollback base.
+- Reproduced the expected pre-repair checker failure at pinned semantic head
+  `4b38887e666f7e4ab664bac4780535b080ad54eb`: its original allowlist rejects
+  the ratified `S19/spec.json` transition. The proposed repair is otherwise
+  mechanically concrete: the amendment pins
+  `1e2f7a3ee70164320fa7dd30d6aba749fc5de47d` to
+  `ae05d118cbb0eb47c6ad7595c25f93df5c14417e` under planner commit
+  `c0d7d672fe14090655fea7db3f5bf0e22dfd29f9`.
+- The same planner ratification changes the release-wide rendered
+  `docs/release/2026-07-15-baton-v0.15-conformance/index.md`, which is outside
+  the schema's exact six-entry S19-only `preserved_allowlist`. Its direct
+  transition is parent `deb090fcef736ca2e61b2c2136283beec4743e45`, blob
+  `8aeef3849541106b6cb5503daed1874b0fb4d31f`, to ratification blob
+  `b3ba13ef1b9d958e67b035f662e39dd0175a82a7` at `c0d7d672...`.
+- Live T1 propagation is also deterministically different from that direct
+  planner blob: merge `c7d56c10f62c5583b5aeb27fda5aa9c8de50b81d` combines
+  parent-one blob `37b0d6ebb72445802eab1ab336e3b4f5b7a8e7d5` and parent-two
+  blob `b3ba13ef1b9d958e67b035f662e39dd0175a82a7` into rendered blob
+  `1614b35035b685d7d9d3f9451c98fa350a91033f`. The merge result is not
+  parent-two exact, so accepting it generically would weaken the original
+  release-record and merge-provenance gates.
+- The amended schema says to retain the original allowlist and admit only the
+  S19 spec transition. It supplies no exact index path/blob/provenance
+  exception. Implementing one here would modify the planner contract and
+  violate AC-04's non-S19 release-record rejection.
+- Required planner action: run `/replan-release
+  2026-07-15-baton-v0.15-conformance` and amend only the contract record and
+  its schema to authorize this one exact c0-originated index lineage (direct
+  parent/blob, ratification commit, and exact live propagation render), then
+  add that bounded identity to the allowlist. It must not create a generic
+  `index.md` exception or relax any S02, S19-spec, semantic, or S20 gate.
+- No checker, product code, S20 record, local installation, semantic rollback
+  evidence, proof claim, or fresh-verifier claim was changed after discovering
+  this contract gap. The existing 45-path evidence and final Implementer
+  maintainability binding remain intact.
