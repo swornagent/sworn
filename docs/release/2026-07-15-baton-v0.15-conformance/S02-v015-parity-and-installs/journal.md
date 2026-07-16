@@ -469,3 +469,32 @@ All nine Rule-9 decisions are acknowledged. No open design question remains. Pro
 - No second replacement dispatch, orphan-report reuse, semantic code change,
   proof certification, real-home read/write, or `doctor --sync-baton` execution
   occurred in this transition.
+
+## 2026-07-16 — Live proof bundle complete; ready for fresh verification
+
+- Generated `proof.json` and `proof.md` from live Git state at immutable base
+  `e61cb190736ee7483fb4ed1a993442b26ce3574c`. Their 75-path inventory includes
+  every semantic implementation path, ratified planning/lifecycle artefact,
+  maintainability report, claim, receipt, status/journal record, and both proof
+  files.
+- Uncached `go test ./internal/baton -count=1` passed in 322.281s. Uncached
+  `go test ./... -count=1` passed across the repository, including
+  `cmd/sworn` in 110.645s and `internal/baton` in 329.123s. Focused mirror
+  parity, exact-schema consumer packages, build, vet, formatting/diff, all 109
+  EARS checks, 11/11 trace needs, 5/5 S02 coverage, 18/18 requirements,
+  design-fit, spec-quality, and the non-UI design-audit exemption all passed.
+- Built public `baton diff` and `baton vendor --check` both exited 0 against
+  `/home/brad/projects/baton`. A clean temporary Git repository with disposable
+  disjoint homes exercised `doctor --sync-baton`: the first run repaired all
+  managed trees with expected exit 2 and the immediate second run exited 0 at
+  exact parity. An earlier run from this worktree was excluded from proof
+  because unrelated legacy release render/timestamp audits correctly forced
+  overall exit 1 despite successful disposable-home repair.
+- The changed-file deferral sweep found only normative Baton rule/prompt
+  vocabulary, test-fixture placeholder text, state enum values, and explanatory
+  recovery comments; it found no new silent production deferral or stub.
+- S02 is now `implemented`, maintainability remains `passed` with
+  `implementation_head` frozen at `2a17443…`, and verification remains pending.
+  No semantic edit followed the final closure PASS. No real Codex or Claude
+  home was read or written; real-home synchronization remains prohibited until
+  a fresh Verifier certifies this proof and all final gates pass.

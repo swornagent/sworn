@@ -1,0 +1,227 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/proof-v1.json",
+  "slice_id": "S02-v015-parity-and-installs",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "scope": "Pin SwornAgent's binary, vendored protocol bytes, offline installer authority, and supported Codex and Claude managed trees to exact Baton v0.15.1 with fail-closed transactional repair and exact-schema consumer compatibility.",
+  "files_changed": [
+    "cmd/sworn/baton.go",
+    "cmd/sworn/baton_test.go",
+    "cmd/sworn/doctor.go",
+    "cmd/sworn/doctor_test.go",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/design.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/journal.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/proof.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/proof.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/replacement-closure-claim.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/replacement-closure-dispatch-receipt.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/reports/maintainability/implementer-cycle-0-1329db03-1597-45a1-a6de-2c778325af62.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/reports/maintainability/implementer-cycle-0-f4ef4f75-4dc8-48d1-a37c-d37d5f83c5ff.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/reports/maintainability/implementer-cycle-0-ff6145c0-2d33-46f7-af38-2ab742516425.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/review.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/spec.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/status.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S03-lossless-record-carriers/spec.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S04-typed-reference-ambiguity/spec.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S07-canonical-semantic-scope/spec.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S07-canonical-semantic-scope/status.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S09-lifecycle-fsm-adjudication/spec.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S11-track-evidence-freshness/spec.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S11-track-evidence-freshness/status.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S13-maintainability-engine-cutover/spec.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S13-maintainability-engine-cutover/status.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/contracts.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/index.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/intake.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/planning/bootstrap-sync-reconciliations-v1.schema.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/planning/bootstrap-sync-reconciliations-v2.schema.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/planning/bootstrap-sync-reconciliations.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/planning/normative-clarifications.md",
+    "docs/release/2026-07-15-baton-v0.15-conformance/planning/replacement-closure-claim-v1.schema.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/planning/replacement-closure-dispatch-receipt-v1.schema.json",
+    "internal/adopt/baton/README.md",
+    "internal/adopt/baton/VERSION",
+    "internal/adopt/baton/architecture.json",
+    "internal/adopt/baton/installer-input-v0.15.1.tar",
+    "internal/adopt/baton/rules/07-adversarial-verification.md",
+    "internal/adopt/baton/rules/10-customer-journey-validation.md",
+    "internal/adopt/baton_archive.go",
+    "internal/baton/diff.go",
+    "internal/baton/install_transaction.go",
+    "internal/baton/install_transaction_test.go",
+    "internal/baton/installer_archive.go",
+    "internal/baton/installer_archive_test.go",
+    "internal/baton/manifest.go",
+    "internal/baton/manifest_test.go",
+    "internal/baton/records_conformance_test.go",
+    "internal/baton/schemas/board-v1.json",
+    "internal/baton/schemas/embed.go",
+    "internal/baton/schemas/llm-check-report-v1.json",
+    "internal/baton/schemas/slice-status-v1.json",
+    "internal/baton/schemas/spec-ambiguity-report-v1.json",
+    "internal/baton/schemas/spec-v1.json",
+    "internal/baton/source.go",
+    "internal/baton/testdata/fixture/schemas/spec-ambiguity-report-v1.json",
+    "internal/baton/validate_schema_test.go",
+    "internal/baton/vendor.go",
+    "internal/baton/vendor_transaction.go",
+    "internal/baton/vendor_transaction_test.go",
+    "internal/gate/llmcheck_test.go",
+    "internal/prompt/baton/README.md",
+    "internal/prompt/baton/llm-checks/README.md",
+    "internal/prompt/baton/llm-checks/maintainability-review.md",
+    "internal/prompt/baton/llm-checks/spec-ambiguity.md",
+    "internal/prompt/baton/rules.md",
+    "internal/prompt/baton/track-mode.md",
+    "internal/prompt/implementer.md",
+    "internal/prompt/planner.md",
+    "internal/prompt/verifier.md",
+    "internal/run/slice_test.go",
+    "internal/state/record_reconciliation_test.go",
+    "internal/state/state.go",
+    "internal/state/state_test.go"
+  ],
+  "test_results": [
+    {
+      "command": "make build",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "go vet ./...",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "go test ./internal/baton -run '^TestBatonV015CodexAndClaudeMirrorParity$' -count=1",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "go test ./internal/baton -count=1",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "go test ./internal/gate ./internal/run ./internal/state -count=1",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "go test ./... -count=1",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "bin/sworn baton diff /home/brad/projects/baton",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "bin/sworn baton vendor /home/brad/projects/baton --check",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "From a clean temporary Git repository with disposable AGENTS_HOME, CODEX_HOME, CLAUDE_HOME, SWORN_HOME and HOME: run bin/sworn doctor --sync-baton twice and assert exits 2 then 0",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "bin/sworn lint ac 2026-07-15-baton-v0.15-conformance",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "bin/sworn lint trace 2026-07-15-baton-v0.15-conformance",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "bin/sworn lint coverage --slice S02-v015-parity-and-installs --release 2026-07-15-baton-v0.15-conformance --base e61cb190736ee7483fb4ed1a993442b26ce3574c",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "bin/sworn reqvalidate 2026-07-15-baton-v0.15-conformance",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "bin/sworn designfit 2026-07-15-baton-v0.15-conformance",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "bin/sworn specquality 2026-07-15-baton-v0.15-conformance",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "bin/sworn designaudit .",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "Validate the replacement report against llm-check-report-v1 and the Sworn overlay, validate the receipt and status against their Draft 2020-12 schemas, and reproduce the claim token hash, report blob, invocation, four authority digests, path union, and baton-maintainability-v1 fingerprint",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "passed": true,
+      "exit_code": 0
+    }
+  ],
+  "reachability": {
+    "type": "cli-run",
+    "evidence": "The built public binary ran `bin/sworn baton diff /home/brad/projects/baton` and `bin/sworn baton vendor /home/brad/projects/baton --check`; both exited 0 and reported exact embedded/vendor parity. From a clean temporary Git repository with four disposable, physically disjoint roots, the same binary's `doctor --sync-baton` repaired all three managed homes and Sworn VERSION sentinels with expected exit 2, then immediately re-ran with exit 0 and reported the Codex and Claude mirrors exact. cmd/sworn/doctor_test.go:TestDoctorAndBatonDiffV015BinaryReachability drives the same public entry points across exact, repair, rollback and recovery-only cases without accessing real user homes."
+  },
+  "delivered": [
+    {
+      "item": "AC-01: every mapped prompt, rule, schema, fixture, manifest identity, upstream VERSION object, adopting VERSION manifest, and the complete 78-entry offline installer archive match exact Baton v0.15.1 authority.",
+      "evidence": "internal/baton/records_conformance_test.go:TestBatonV015ExactParity; internal/baton/manifest_test.go:TestV015SchemaManifestComplete; internal/adopt/baton/VERSION; internal/adopt/baton/installer-input-v0.15.1.tar"
+    },
+    {
+      "item": "AC-02: vendor check and public Baton diff are mutation-free and report zero repository drift while spec-ambiguity-report-v1 remains independently embedded and classified.",
+      "evidence": "Live built-binary `baton diff` and `baton vendor --check` exits 0; cmd/sworn/baton_test.go:TestBatonDiffV015BinaryReachability; internal/baton/manifest_test.go:TestV015SchemaManifestComplete"
+    },
+    {
+      "item": "AC-03: exact tagged Codex and Claude installer scripts under fixed umask 0022 and the native stdlib generator produce complete byte-and-mode-identical managed trees from the one validated embedded archive.",
+      "evidence": "internal/baton/installer_archive_test.go:TestBatonV015CodexAndClaudeMirrorParity; internal/baton/records_conformance_test.go:TestBatonV015CodexAndClaudeMirrorParity; focused live test exit 0"
+    },
+    {
+      "item": "AC-04: doctor rejects unsafe topology before mutation and repairs agents_home, codex_home and claude_home as one crash-durable whole-root transaction with recovery-only restoration and path-only diagnostics.",
+      "evidence": "internal/baton/install_transaction_test.go:TestBatonSyncRollbackAndRecovery; internal/baton/records_conformance_test.go:TestBatonV015ParityFailsClosedOnEveryLayer; cmd/sworn/doctor_test.go:TestDoctorAndBatonDiffV015BinaryReachability; live disposable-home doctor exits 2 then 0"
+    },
+    {
+      "item": "AC-05: exact v0.15 schema consumers supply canonical report and status identities, while state.Status preserves an explicitly supplied maintainability object opaquely and losslessly without inventing lifecycle state.",
+      "evidence": "internal/gate/llmcheck_test.go:TestParseLLMResponse_Pass; internal/run/slice_test.go:TestRunSlice_CostSourceThreadedToStatusJSON; internal/state/state_test.go:TestMaintainabilityCarrierPreservesSuppliedObject; internal/state/record_reconciliation_test.go:TestWrite_CanonicalDeferral_RoundTrips"
+    },
+    {
+      "item": "The sole planning-authority replacement closure is crash-durable and authoritative: one pushed claim consumed the dispatch, one fresh role-isolated response returned PASS, and a co-committed receipt binds the continuity preimage, exact report blob, invocation, verdict and all four sealed digests.",
+      "evidence": "replacement-closure-claim.json at commit 9896756ca118eef46662fba465e95f6ba6adbdb9; replacement-closure-dispatch-receipt.json; reports/maintainability/implementer-cycle-0-1329db03-1597-45a1-a6de-2c778325af62.json at blob 7aadead414b8f04674f2bce5b0966c657922e370; status.json append-only maintainability ledger"
+    }
+  ],
+  "not_delivered": [
+    {
+      "item": "Complete typed maintainability/null semantics, protocol selection, and active-record migration.",
+      "why": "S02 carries only the opaque supplied object needed to adopt exact v0.15.1 without weakening the repository gate; the complete record and migration contracts remain separately sliced.",
+      "tracking": "S03-lossless-record-carriers, S05-protocol-provenance-archive, S17-engine-replan-migration",
+      "acknowledged": true
+    },
+    {
+      "item": "Requested-check matching, typed ambiguity separation, and retirement of generic maintainability handling.",
+      "why": "Those behaviors require the typed report/reference boundary and are explicitly outside this exact Baton-content and installer parity slice.",
+      "tracking": "S04-typed-reference-ambiguity",
+      "acknowledged": true
+    }
+  ],
+  "divergence": [
+    {
+      "description": "The planned generic owners internal/baton/diff_test.go and internal/baton/vendor_test.go remained byte-unchanged because their existing mapped-drift, operational-source, schema-mapping, transformed-vendor, idempotence, and check-only tests already covered those generic seams; exact v0.15.1 composition and mutation coverage landed in records_conformance_test.go instead."
+    },
+    {
+      "description": "The initial install transaction bag failed the sparse maintainability preflight and was replaced, within the ratified one-file boundary, by explicit preflight, captured, staged and published private states before the authoritative closure PASS."
+    }
+  ]
+}
