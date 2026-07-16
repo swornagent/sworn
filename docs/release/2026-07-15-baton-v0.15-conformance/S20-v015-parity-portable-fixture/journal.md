@@ -189,5 +189,6 @@
   maintainability preflight, refreshed proof, deterministic first pass, and
   any real Codex or Claude installation remain unrun. Do not retry or work
   around this command in this Implementer session; route provider-readiness
-  triage through `/replan-release 2026-07-15-baton-v0.15-conformance` with
-  `S21-openai-structured-envelope` as the tracked owner.
+  triage through a fresh `/replan-release 2026-07-15-baton-v0.15-conformance`
+  diagnostic before S20 can resume. This record does not attribute the
+  non-zero smoke result to S21 or any other existing slice.
