@@ -335,8 +335,14 @@ commits exist, a missing remote update permits only the compare-and-swap push.
 Any other parent/tree/provenance/projection/ref shape blocks and the integration
 is rebuilt from the retained clean refs. S13's cutover validator
 owns recognition of these two bootstrap integrations and refuses activation
-unless all are exact. After C-13 activation, every T5/T6/T7 integration uses
-the current-authority native Sworn handler.
+unless all are exact. Its pre-activation equality gate also requires the sealed
+v2 declaration to match every S01/S02 live or historical consumption, the
+authoritative report ledger, the one exact non-authoritative orphan, the
+one-shot replacement disposition, the schema digest, the manifest digest, and
+the exact `7696c9bf…` actual-versus-expected projection tuple. Cutover cannot
+promote the stale historical index or orphan PASS; successful activation retires
+all v2 recognition and replacement authority. After C-13 activation, every
+T5/T6/T7 integration uses the current-authority native Sworn handler.
 
 Every registered CLI spelling and alias carries exactly one policy enum. An
 unregistered spelling exits 64 before a handler. A newly registered spelling
@@ -606,54 +612,113 @@ manual-merge waiver. Neither is permitted.
 For this release only, while `protocol.json.authority` is exactly `planning`,
 the schema-valid sealed manifest
 `planning/bootstrap-sync-reconciliations.json` at exact SHA-256
-`23ca47fe790e5f8d4e9022b5b0df819de9972938d581e014a7ffd9c0dc16227e`
+`3156341aecb1c2a40c33c036f826a6c4cc870451239b1cec5ae461b0fe58b576`
 is historical recognition evidence. Its only entries are exact merges
 `36d1bd56cdc12ddc824533e24d385ef9e8cc550a`,
 `d062d055cdbe90e8290f0bf47574be660cd9a675`,
 `b8df1857ab8c7d2acf4b91c4c37df3cf07f80832`, and
 `7696c9bf9c235fffb937d3ed7e4be5a8a2bbda2a`.
 
-Each entry also carries one exact authorization envelope: owning consumer
-slice, immutable `start_commit`, exact `review_head`, interval semantics, and
-permitted purpose. `first-parent-start-exclusive-head-inclusive` means the
-merge must appear in the first-parent ancestry path `start_commit..review_head`:
-the start is excluded and the exact review head is included. The consumer must
-present that same slice, status start, requested review head, and one of the
-entry's exact purposes (`semantic_scope`, `freshness_revalidation`, or
-`bootstrap_cutover_revalidation`). A descendant or ancestor review head, the
-same merge requested by another slice, or another purpose is not authorized.
-Cutover uses the owning S01/S02 envelope to reproduce that slice's evidence; it
-does not substitute S13 as the consumer.
+The manifest is record version 2 and validates only against
+`planning/bootstrap-sync-reconciliations-v2.schema.json`, whose exact bytes are
+bound by manifest member `schema_sha256` to SHA-256
+`bca6edb0819db19ebff825510e225b2d3eb660dba7695fe84a2247f9b7e6d5f8`.
+The retained v1 schema is historical documentation only and cannot validate or
+authorize the v2 manifest.
+
+Each S01 entry retains one exact `live_review` authorization: owning S01
+consumer, immutable start, exact `d062d055…` review head, interval semantics,
+and the three existing purposes. Each S02 entry carries two distinct envelopes.
+The non-dispatch `historical_report` envelope binds exact head `60097cfa…` only
+to invocation `ff6145c0…`, its preflight/0/FAIL identity, report path, blob
+`6f95a34a…`, fingerprint `sha256:4d58ca…`, and only
+`historical_report_revalidation` or `bootstrap_cutover_revalidation`. The
+separate `live_review` envelope binds exact head `2a17443…` to ordinary
+`semantic_scope`, `freshness_revalidation`, and
+`bootstrap_cutover_revalidation`. A historical envelope can reconstruct its
+named committed report but can never authorize dispatch, report reuse, a new
+report, or a lifecycle transition.
+
+`first-parent-start-exclusive-head-inclusive` means the merge must appear in
+the first-parent ancestry path `start_commit..review_head`: the start is
+excluded and the exact review head is included. The consumer must present the
+same slice, status start, exact requested head, envelope kind, and one exact
+purpose. An ancestor or descendant head, the same merge requested by another
+slice, a purpose borrowed between envelope kinds, or S13 substituted as the
+consumer is not authorized.
+
+Merge `7696c9bf…` alone also carries one `index_projection_defect`. Its
+committed `index.md` tuple is mode `100644`, blob `998b44c0…`; an exact replay
+using source and renderer commit `7696c9bf…`, release-wt head `dcd6386f…`, T1
+head `7696c9bf…`, and absent T2/T5/T6/T7 refs produces mode `100644`, blob
+`9bf11cda0fb35ef8bb1995ab3ba3087e9b5e056e`, SHA-256
+`7c06230ba73add2f99ce3982931092c30253ba8be1e007540f118bfb4a5c319d`,
+and 22,468 bytes. The stale committed blob omitted T1 ownership of
+`internal/run/slice_test.go`; it is observed noncanonical historical evidence,
+never the authoritative projection. Recognition permits traversal of that one
+exact defect under an otherwise-valid S02 envelope; it does not accept the
+stale bytes as current board authority. Every other historical, current, or
+future `index.md` must satisfy the ordinary deterministic render rule.
+
+The v2 manifest separately declares one permanent forensic orphan: S02
+Implementer closure invocation `f4ef4f75…`, report commit `1c46bccc…`, report
+blob `31172c04…`, lifecycle commit `0d593202…`, and hold commit `3ac42c01…` at
+head `2a17443…`, fingerprint `sha256:c72341fa…`, PASS. Its disposition is
+`provenance_gate_failure`: the file remains in Git but is non-authoritative,
+unledgered, and cannot supply response, report, verdict, lifecycle, Verifier,
+or cutover authority.
+
+One exact replacement closure is human-ratified. It is bound to S02 start
+`e61cb190…`, live head `2a17443…`, Implementer/closure/cycle 0, hold
+`3ac42c01…`, and orphan invocation `f4ef4f75…`. It permits at most one fresh
+dispatch with a new invocation ID after v2 schema/manifest/digest validation,
+ordinary release-wt-to-T1 synchronization, clean local/remote-equal T1, and a
+fresh Git scope reconstruction. No orphan response, report, verdict, scope, or
+fingerprint may be reused or assumed. The authorization expires when one
+authoritative replacement report is committed; it does not authorize a
+Verifier. Any invalid, interrupted, or exhausted replacement returns to the
+Coach without another automatic dispatch.
 
 Recognition requires all of the following, fail-closed:
 
-1. the manifest validates against
-   `planning/bootstrap-sync-reconciliations-v1.schema.json`, has no duplicate
-   JSON keys, and its committed bytes reproduce the pinned digest;
-2. release, planning authority, consumer slice, status `start_commit`, exact
-   requested `review_head`, first-parent interval membership, permitted purpose,
-   merge OID, ordered parents, unique merge base, every exceptional path, and
-   every base/parent-1/parent-2/result mode-and-blob tuple equal the manifest
-   exactly;
-3. the observed exceptional path set equals the listed set exactly, while
-   topology, release-wt structural ancestry, every non-record path, every
-   unlisted release-record path, and deterministic `index.md` rendering still
-   satisfy the ordinary rules in this section; and
-4. the consumer uses the entry only for the exact authorized slice interval and
-   purpose. It cannot create or recompute a merge, accept another result, widen
-   either endpoint, select a caller-supplied exception, authorize another slice,
-   or authorize any future reconciliation.
+1. the manifest and v2 schema have no duplicate JSON keys, the schema bytes
+   reproduce `schema_sha256`, the instance validates under Draft 2020-12, and
+   the manifest bytes reproduce the separately pinned digest;
+2. release, planning authority, ordered entry identity, envelope kind, consumer,
+   status start, exact requested head, first-parent membership, purpose, merge,
+   ordered parents, unique base, every exceptional path, and every
+   base/parent-1/parent-2/result tuple equal the manifest exactly;
+3. the four ordered entries and eight exceptional release-record paths equal the
+   declaration set exactly; topology, structural ancestry, every non-record
+   path, every unlisted release-record path, and deterministic index rendering
+   satisfy the ordinary rules except for the exact independently reproduced
+   `7696c9bf…` projection defect above;
+4. historical-report evidence matches its exact committed invocation/path/blob/
+   fingerprint/verdict and never dispatches; live-review evidence uses only its
+   exact live endpoint and purpose;
+5. the orphan file, its three commits, status exclusion, and every false
+   authority/reuse flag equal the declaration; no ledger or consumer treats it
+   as a report; and
+6. any replacement closure satisfies every exact one-shot precondition before
+   dispatch and consumes the authorization once. No caller can create or
+   recompute a merge, accept another result or projection, widen an endpoint,
+   select an exception, authorize another slice, convert the orphan into
+   authority, or authorize a future reconciliation or replacement.
 
 The separately audited pre-start merges `9f1d499c595b098e14b329e377f901bd55dfecaf`,
 `5e4a7b3410e975ce7507a13291d3411749bd680e`, and
 `1ee6c319505b7dd466485bff406f11828cf0507f` remain unrecognized because they
 are below the relevant immutable review starts. If a later operation proves it
 must traverse one, that operation blocks and returns to the Planner; the sealed
-manifest is not extended in place. Any S01/S02 review-head change likewise
-blocks until a new human-ratified planning amendment and digest replace the
-authorization; consumers never widen it dynamically. C-13 revalidates every
-consumed entry, authorization envelope, interval, and the manifest digest before
-cutover, after which the exception is unavailable.
+manifest is not extended in place. Any S01/S02 review-head or report-consumption
+change likewise blocks until a new human-ratified planning amendment and digest
+replace the exact declaration; consumers never widen it dynamically. C-13
+requires exact equality between the four entries, every live and historical
+envelope actually consumed, the authoritative report ledger, the declared
+orphan file, the replacement authorization and its single disposition, plus
+schema and manifest digests. It revalidates all of them before cutover, after
+which every v2 historical exception, orphan declaration, and replacement
+permission is unavailable.
 
 ## 7. Lifecycle transition table
 
@@ -716,6 +781,21 @@ only by the newest Implementer PASS and is retained through a Verifier PASS. It
 is set to null on any transition to `needs_coach` or `re_slice_required`; the
 historical reviewed heads remain immutable in the full reports and compact
 ledger.
+
+The sole v2 S02 replacement closure is not a generic retry and does not make the
+orphan a lifecycle report. Hold commit `3ac42c01…` restored the exact ordinary
+pre-closure state: overall `in_progress`, maintainability `pending`, cycle 0,
+null `implementation_head`, pending verification, and only preflight invocation
+`ff6145c0…` in the authoritative ledger. After the v2 authority is ordinarily
+synchronized, the replacement command revalidates that state and the sealed
+one-shot authorization, reconstructs the same immutable start/live-head scope
+from Git, and dispatches a fresh Implementer closure under a new invocation.
+The resulting valid report, not the orphan, occupies the ordinary cycle-0
+closure row below. The orphan's prior model call does not satisfy that row
+because its provenance precondition required zero dispatch. A missing hold,
+extra ledger entry, reused orphan identity/content, changed semantic head,
+second replacement attempt, or failed v2 gate blocks before dispatch and routes
+to the Coach.
 
 | Cycle | New report/result | Required next state | Next authority |
 |---:|---|---|---|

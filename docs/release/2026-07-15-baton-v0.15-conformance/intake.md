@@ -973,6 +973,52 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   Closure dispatch remains prohibited until ordinary section-6 synchronization
   into T1 passes.
 
+### 2026-07-16 — Seal the exact historical index defect and replacement closure
+
+- **Trigger**: A fresh independent all-four-merge reconstruction found that
+  `7696c9bf9c235fffb937d3ed7e4be5a8a2bbda2a` does not satisfy the ordinary
+  deterministic `index.md` rule that the v1 manifest still required. Its
+  committed blob `998b44c05390a0e1cef9d37ccd312669610e9474`
+  omits S02/T1 ownership of `internal/run/slice_test.go`. Replaying the exact
+  merge's renderer against P2 `dcd6386…`, T1 at the merge, and absent dependent
+  track refs produces blob `9bf11cda0fb35ef8bb1995ab3ba3087e9b5e056e`,
+  SHA-256
+  `7c06230ba73add2f99ce3982931092c30253ba8be1e007540f118bfb4a5c319d`,
+  22,468 bytes. The other three sealed merges render byte-identically.
+- **Fail-closed hold**: A concurrent session dispatched closure invocation
+  `f4ef4f75-4dc8-48d1-a37c-d37d5f83c5ff` before this provenance defect was
+  repaired. Its PASS report is committed at `1c46bccc…`, blob `31172c04…`, and
+  its lifecycle transition at `0d593202…`; hold commit
+  `3ac42c01cca6e9227bb93092ed13813bad95aa08` removes it from the authoritative
+  ledger and restores S02 to in-progress/pending cycle 0 with null
+  implementation head and pending verification. The file remains permanent
+  forensic evidence but cannot supply response, report, verdict, lifecycle,
+  Verifier, or cutover authority.
+- **Independent design recommendation**: Retain v1 unchanged for audit and
+  replace live recognition with a closed v2 schema. Preserve the exact four
+  ordered merges and eight exceptional release-record paths. For each S02
+  entry, bind a non-dispatch `historical_report` envelope to original preflight
+  head `60097cfa…`, invocation `ff6145c0…`, report blob `6f95a34a…`, and
+  fingerprint `sha256:4d58ca…`, plus a separate `live_review` envelope at final
+  semantic head `2a17443…`. Only `7696c9bf…` may carry the exact actual-versus-
+  expected projection record, and its stale bytes are never current authority.
+- **Replacement decision**: Authorize exactly one new fresh Implementer
+  closure at S02 start `e61cb190…`, head `2a17443…`, cycle 0, only after the v2
+  schema/manifest/digests and ordinary release-wt-to-T1 synchronization pass on
+  a clean local/remote-equal track containing hold `3ac42c01…`. The replacement
+  must use a new invocation and recompute scope from Git; it cannot reuse the
+  orphan response, report, verdict, fingerprint, or lifecycle transition. The
+  authorization expires after one authoritative report, does not authorize a
+  Verifier, and any invalid or exhausted attempt returns to the Coach without a
+  second automatic dispatch.
+- **Ratification**: Brad's standing instruction selects the orchestrator's
+  recommendation. The v2 schema is bound at SHA-256
+  `bca6edb0819db19ebff825510e225b2d3eb660dba7695fe84a2247f9b7e6d5f8` and the
+  sealed manifest at SHA-256
+  `3156341aecb1c2a40c33c036f826a6c4cc870451239b1cec5ae461b0fe58b576`.
+  No S01/S02 spec, report, proof, semantic code, lifecycle state, Verifier,
+  installation, or branch authority is changed by this planning amendment.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`

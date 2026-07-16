@@ -1,0 +1,394 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swornagent.dev/schemas/bootstrap-sync-reconciliations-v2.json",
+  "title": "SwornAgent planning-authority bootstrap synchronization reconciliations v2",
+  "description": "Sealed exact-object recognition for the four pre-C12 historical reconciliations, their exact report consumers, one observed noncanonical index projection, one forensic orphan report, and one bounded replacement closure. It grants no pattern-based, caller-selected, or future authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "record_version",
+    "release",
+    "authority",
+    "sealed",
+    "schema_sha256",
+    "entries",
+    "orphaned_consumptions",
+    "replacement_closure_authorization"
+  ],
+  "properties": {
+    "$schema": {"const": "https://swornagent.dev/schemas/bootstrap-sync-reconciliations-v2.json"},
+    "record_version": {"const": 2},
+    "release": {"const": "2026-07-15-baton-v0.15-conformance"},
+    "authority": {"const": "planning"},
+    "sealed": {"const": true},
+    "schema_sha256": {"$ref": "#/$defs/sha256"},
+    "entries": {
+      "type": "array",
+      "prefixItems": [
+        {"$ref": "#/$defs/s01EntryOne"},
+        {"$ref": "#/$defs/s01EntryTwo"},
+        {"$ref": "#/$defs/s02EntryOne"},
+        {"$ref": "#/$defs/s02EntryTwo"}
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "orphaned_consumptions": {
+      "type": "array",
+      "prefixItems": [{"$ref": "#/$defs/orphanedClosure"}],
+      "items": false,
+      "minItems": 1,
+      "maxItems": 1
+    },
+    "replacement_closure_authorization": {"$ref": "#/$defs/replacementClosure"}
+  },
+  "$defs": {
+    "oid": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "uuid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+    "treeEntry": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "oid"],
+          "properties": {
+            "mode": {"type": "string", "pattern": "^[0-7]{6}$"},
+            "oid": {"$ref": "#/$defs/oid"}
+          }
+        }
+      ]
+    },
+    "exceptionalPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "base", "parent_1", "parent_2", "result"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^docs/release/2026-07-15-baton-v0\\.15-conformance/.+"},
+        "base": {"$ref": "#/$defs/treeEntry"},
+        "parent_1": {"$ref": "#/$defs/treeEntry"},
+        "parent_2": {"$ref": "#/$defs/treeEntry"},
+        "result": {"$ref": "#/$defs/treeEntry"}
+      }
+    },
+    "s01LiveReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "consumer_slice_id", "start_commit", "review_head", "interval_semantics", "permitted_purposes", "dispatch_authorized"],
+      "properties": {
+        "kind": {"const": "live_review"},
+        "consumer_slice_id": {"const": "S01-vendor-boundary-readiness"},
+        "start_commit": {"const": "5e16d2b54b0793381b246a9e7b9f1eb2c8e5cb18"},
+        "review_head": {"const": "d062d055cdbe90e8290f0bf47574be660cd9a675"},
+        "interval_semantics": {"const": "first-parent-start-exclusive-head-inclusive"},
+        "permitted_purposes": {
+          "type": "array",
+          "prefixItems": [
+            {"const": "semantic_scope"},
+            {"const": "freshness_revalidation"},
+            {"const": "bootstrap_cutover_revalidation"}
+          ],
+          "items": false,
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "dispatch_authorized": {"const": true}
+      }
+    },
+    "historicalReportBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "phase", "cycle", "invocation_id", "report_path", "report_blob_oid", "input_fingerprint", "verdict"],
+      "properties": {
+        "role": {"const": "implementer"},
+        "phase": {"const": "preflight"},
+        "cycle": {"const": 0},
+        "invocation_id": {"const": "ff6145c0-2d33-46f7-af38-2ab742516425"},
+        "report_path": {"const": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/reports/maintainability/implementer-cycle-0-ff6145c0-2d33-46f7-af38-2ab742516425.json"},
+        "report_blob_oid": {"const": "6f95a34a0273d95f8f9d2008b1f9355f4179f7c1"},
+        "input_fingerprint": {"const": "sha256:4d58ca4027c3919073f0c51daa1f5b3ca0ab33a87414c9aebe17372f5bd338a7"},
+        "verdict": {"const": "FAIL"}
+      }
+    },
+    "s02HistoricalReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "consumer_slice_id", "start_commit", "review_head", "interval_semantics", "permitted_purposes", "dispatch_authorized", "report"],
+      "properties": {
+        "kind": {"const": "historical_report"},
+        "consumer_slice_id": {"const": "S02-v015-parity-and-installs"},
+        "start_commit": {"const": "e61cb190736ee7483fb4ed1a993442b26ce3574c"},
+        "review_head": {"const": "60097cfa65dc39d9a0ab174be7c627fde2d3f7d5"},
+        "interval_semantics": {"const": "first-parent-start-exclusive-head-inclusive"},
+        "permitted_purposes": {
+          "type": "array",
+          "prefixItems": [
+            {"const": "historical_report_revalidation"},
+            {"const": "bootstrap_cutover_revalidation"}
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "dispatch_authorized": {"const": false},
+        "report": {"$ref": "#/$defs/historicalReportBinding"}
+      }
+    },
+    "s02LiveReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "consumer_slice_id", "start_commit", "review_head", "interval_semantics", "permitted_purposes", "dispatch_authorized"],
+      "properties": {
+        "kind": {"const": "live_review"},
+        "consumer_slice_id": {"const": "S02-v015-parity-and-installs"},
+        "start_commit": {"const": "e61cb190736ee7483fb4ed1a993442b26ce3574c"},
+        "review_head": {"const": "2a17443d67d39cf681dba117a57673714a916d7f"},
+        "interval_semantics": {"const": "first-parent-start-exclusive-head-inclusive"},
+        "permitted_purposes": {
+          "type": "array",
+          "prefixItems": [
+            {"const": "semantic_scope"},
+            {"const": "freshness_revalidation"},
+            {"const": "bootstrap_cutover_revalidation"}
+          ],
+          "items": false,
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "dispatch_authorized": {"const": true}
+      }
+    },
+    "s01Authorizations": {
+      "type": "array",
+      "prefixItems": [{"$ref": "#/$defs/s01LiveReview"}],
+      "items": false,
+      "minItems": 1,
+      "maxItems": 1
+    },
+    "s02Authorizations": {
+      "type": "array",
+      "prefixItems": [
+        {"$ref": "#/$defs/s02HistoricalReport"},
+        {"$ref": "#/$defs/s02LiveReview"}
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "reconciliationBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["merge", "parent_1", "parent_2", "merge_base", "authorizations", "exceptional_paths"],
+      "properties": {
+        "merge": {"$ref": "#/$defs/oid"},
+        "parent_1": {"$ref": "#/$defs/oid"},
+        "parent_2": {"$ref": "#/$defs/oid"},
+        "merge_base": {"$ref": "#/$defs/oid"},
+        "authorizations": {"type": "array"},
+        "exceptional_paths": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/exceptionalPath"}
+        },
+        "index_projection_defect": {"$ref": "#/$defs/indexProjectionDefect"}
+      }
+    },
+    "s01EntryOne": {
+      "allOf": [
+        {"$ref": "#/$defs/reconciliationBase"},
+        {
+          "properties": {
+            "merge": {"const": "36d1bd56cdc12ddc824533e24d385ef9e8cc550a"},
+            "authorizations": {"$ref": "#/$defs/s01Authorizations"},
+            "exceptional_paths": {"minItems": 2, "maxItems": 2}
+          },
+          "not": {"required": ["index_projection_defect"]}
+        }
+      ]
+    },
+    "s01EntryTwo": {
+      "allOf": [
+        {"$ref": "#/$defs/reconciliationBase"},
+        {
+          "properties": {
+            "merge": {"const": "d062d055cdbe90e8290f0bf47574be660cd9a675"},
+            "authorizations": {"$ref": "#/$defs/s01Authorizations"},
+            "exceptional_paths": {"minItems": 2, "maxItems": 2}
+          },
+          "not": {"required": ["index_projection_defect"]}
+        }
+      ]
+    },
+    "s02EntryOne": {
+      "allOf": [
+        {"$ref": "#/$defs/reconciliationBase"},
+        {
+          "properties": {
+            "merge": {"const": "b8df1857ab8c7d2acf4b91c4c37df3cf07f80832"},
+            "authorizations": {"$ref": "#/$defs/s02Authorizations"},
+            "exceptional_paths": {"minItems": 1, "maxItems": 1}
+          },
+          "not": {"required": ["index_projection_defect"]}
+        }
+      ]
+    },
+    "s02EntryTwo": {
+      "allOf": [
+        {"$ref": "#/$defs/reconciliationBase"},
+        {
+          "required": ["index_projection_defect"],
+          "properties": {
+            "merge": {"const": "7696c9bf9c235fffb937d3ed7e4be5a8a2bbda2a"},
+            "authorizations": {"$ref": "#/$defs/s02Authorizations"},
+            "exceptional_paths": {"minItems": 3, "maxItems": 3},
+            "index_projection_defect": {"$ref": "#/$defs/indexProjectionDefect"}
+          }
+        }
+      ]
+    },
+    "exactTree998b": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "oid"],
+      "properties": {
+        "mode": {"const": "100644"},
+        "oid": {"const": "998b44c05390a0e1cef9d37ccd312669610e9474"}
+      }
+    },
+    "exactTreeD3bb": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "oid"],
+      "properties": {
+        "mode": {"const": "100644"},
+        "oid": {"const": "d3bb15f1eaf534b68710f14bc1b1e0057adb51ff"}
+      }
+    },
+    "expectedIndexRender": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "oid", "sha256", "bytes"],
+      "properties": {
+        "mode": {"const": "100644"},
+        "oid": {"const": "9bf11cda0fb35ef8bb1995ab3ba3087e9b5e056e"},
+        "sha256": {"const": "sha256:7c06230ba73add2f99ce3982931092c30253ba8be1e007540f118bfb4a5c319d"},
+        "bytes": {"const": 22468}
+      }
+    },
+    "renderTrackHeads": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["T1-foundation", "T2-engine-bootstrap", "T5-role-loop", "T6-release-adapters", "T7-conformance-proof"],
+      "properties": {
+        "T1-foundation": {"const": "7696c9bf9c235fffb937d3ed7e4be5a8a2bbda2a"},
+        "T2-engine-bootstrap": {"type": "null"},
+        "T5-role-loop": {"type": "null"},
+        "T6-release-adapters": {"type": "null"},
+        "T7-conformance-proof": {"type": "null"}
+      }
+    },
+    "renderRefSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["release_wt_head", "track_heads"],
+      "properties": {
+        "release_wt_head": {"const": "dcd6386fc0268cd476287fc70bfb1f389c158f2e"},
+        "track_heads": {"$ref": "#/$defs/renderTrackHeads"}
+      }
+    },
+    "indexProjectionDefect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "source_commit", "renderer_commit", "base", "parent_1", "parent_2", "result", "expected_render", "render_ref_snapshot", "authoritative"],
+      "properties": {
+        "path": {"const": "docs/release/2026-07-15-baton-v0.15-conformance/index.md"},
+        "source_commit": {"const": "7696c9bf9c235fffb937d3ed7e4be5a8a2bbda2a"},
+        "renderer_commit": {"const": "7696c9bf9c235fffb937d3ed7e4be5a8a2bbda2a"},
+        "base": {"$ref": "#/$defs/exactTreeD3bb"},
+        "parent_1": {"$ref": "#/$defs/exactTree998b"},
+        "parent_2": {"$ref": "#/$defs/exactTreeD3bb"},
+        "result": {"$ref": "#/$defs/exactTree998b"},
+        "expected_render": {"$ref": "#/$defs/expectedIndexRender"},
+        "render_ref_snapshot": {"$ref": "#/$defs/renderRefSnapshot"},
+        "authoritative": {"const": false}
+      }
+    },
+    "orphanedClosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "consumer_slice_id", "start_commit", "review_head", "role", "phase", "cycle",
+        "invocation_id", "input_fingerprint", "report_path", "report_blob_oid",
+        "report_commit", "lifecycle_commit", "hold_commit", "verdict", "disposition",
+        "permanent", "authoritative", "ledgered", "response_reuse_allowed",
+        "report_reuse_allowed", "verdict_reuse_allowed", "lifecycle_authority",
+        "verifier_authority", "cutover_satisfaction"
+      ],
+      "properties": {
+        "consumer_slice_id": {"const": "S02-v015-parity-and-installs"},
+        "start_commit": {"const": "e61cb190736ee7483fb4ed1a993442b26ce3574c"},
+        "review_head": {"const": "2a17443d67d39cf681dba117a57673714a916d7f"},
+        "role": {"const": "implementer"},
+        "phase": {"const": "closure"},
+        "cycle": {"const": 0},
+        "invocation_id": {"const": "f4ef4f75-4dc8-48d1-a37c-d37d5f83c5ff"},
+        "input_fingerprint": {"const": "sha256:c72341fa8bab5c4a9b7a548b7ffb3ba1d57955f5e322d527c5284a1eed54f8d2"},
+        "report_path": {"const": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/reports/maintainability/implementer-cycle-0-f4ef4f75-4dc8-48d1-a37c-d37d5f83c5ff.json"},
+        "report_blob_oid": {"const": "31172c04c2063333d2cd041ded2fbe66b7e8f965"},
+        "report_commit": {"const": "1c46bccc4ea8a2e360bd3e17d587a7963ed5d90e"},
+        "lifecycle_commit": {"const": "0d5932023e470a14d10e6abede35cc40cea500c2"},
+        "hold_commit": {"const": "3ac42c01cca6e9227bb93092ed13813bad95aa08"},
+        "verdict": {"const": "PASS"},
+        "disposition": {"const": "provenance_gate_failure"},
+        "permanent": {"const": true},
+        "authoritative": {"const": false},
+        "ledgered": {"const": false},
+        "response_reuse_allowed": {"const": false},
+        "report_reuse_allowed": {"const": false},
+        "verdict_reuse_allowed": {"const": false},
+        "lifecycle_authority": {"const": false},
+        "verifier_authority": {"const": false},
+        "cutover_satisfaction": {"const": false}
+      }
+    },
+    "replacementClosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "consumer_slice_id", "start_commit", "review_head", "role", "phase", "cycle",
+        "required_hold_commit", "replaces_orphan_invocation_id", "max_dispatches",
+        "new_invocation_id_required", "fresh_context_required", "scope_recompute_required",
+        "response_reuse_allowed", "report_reuse_allowed", "verdict_reuse_allowed",
+        "requires_v2_authority", "requires_ordinary_sync", "requires_clean_remote_equal_track",
+        "expires_after_authoritative_report", "authorizes_verifier", "failure_owner"
+      ],
+      "properties": {
+        "consumer_slice_id": {"const": "S02-v015-parity-and-installs"},
+        "start_commit": {"const": "e61cb190736ee7483fb4ed1a993442b26ce3574c"},
+        "review_head": {"const": "2a17443d67d39cf681dba117a57673714a916d7f"},
+        "role": {"const": "implementer"},
+        "phase": {"const": "closure"},
+        "cycle": {"const": 0},
+        "required_hold_commit": {"const": "3ac42c01cca6e9227bb93092ed13813bad95aa08"},
+        "replaces_orphan_invocation_id": {"const": "f4ef4f75-4dc8-48d1-a37c-d37d5f83c5ff"},
+        "max_dispatches": {"const": 1},
+        "new_invocation_id_required": {"const": true},
+        "fresh_context_required": {"const": true},
+        "scope_recompute_required": {"const": true},
+        "response_reuse_allowed": {"const": false},
+        "report_reuse_allowed": {"const": false},
+        "verdict_reuse_allowed": {"const": false},
+        "requires_v2_authority": {"const": true},
+        "requires_ordinary_sync": {"const": true},
+        "requires_clean_remote_equal_track": {"const": true},
+        "expires_after_authoritative_report": {"const": true},
+        "authorizes_verifier": {"const": false},
+        "failure_owner": {"const": "coach"}
+      }
+    }
+  }
+}
