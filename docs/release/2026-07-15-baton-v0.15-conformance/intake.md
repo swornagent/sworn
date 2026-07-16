@@ -280,10 +280,12 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   the running binary.
 - **Decision**: Every live or migrated release carries a Sworn-owned committed
   `docs/release/<release>/protocol.json` record that pins the protocol name,
-  exact version, upstream commit SHA, source digest and vendored `VERSION` blob
-  OID. Before any dispatch, write, verification, integration, release or ship
-  operation, the marker must be committed, identical on every participating
-  authority ref and exactly equal to the running binary's embedded pin.
+  exact version, upstream commit SHA, source digest and upstream root `VERSION`
+  blob OID. Before any dispatch, write, verification, integration, release or
+  ship operation, the marker must be committed and identical on every
+  participating authority ref. Separately, each ref's committed
+  `internal/adopt/baton/VERSION` manifest blob must agree across participants,
+  and its parsed tag/SHA/digest must equal the marker and running binary.
 - **Historical rule**: For read-only archive inspection, resolve each requested
   record's blob at the authority ref and walk first-parent history newest to
   oldest while that path has the exact current blob. Select the oldest commit in
@@ -501,7 +503,7 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   slices; approximately 22 micro-slices.
 - **Decision**: Use the 18 slices below, each with one operator or maintainer
   outcome and one independent proof boundary. Keep every slice under the
-  15–25-file ceiling except the ratified 28-file S02 parity/install/doctor
+  15–25-file ceiling except the ratified 41-file S02 parity/install/doctor
   transaction: the normative mapped surface, complete offline installer input,
   and its one repair/recovery authority are indivisible.
 - **Why**: The decomposition separates deterministic primitives from lifecycle,
@@ -785,6 +787,45 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   to converge before any success claim. No vendoring or real-home mutation is
   authorized until the revised design receives fresh Captain PROCEED.
 
+### 2026-07-16 — Separate VERSION identities and make install recovery crash-safe
+
+- **Context**: The next fresh Captain confirmed all seven ownership pins were
+  resolved, then proved that `5f1dd0af59642311ee04e018a0023562d4dde008`
+  is the upstream tag's root `VERSION` blob containing exactly `v0.15.1` plus
+  LF, while Sworn's `internal/adopt/baton/VERSION` is a different multi-line
+  manifest required by the running parser. The same review found that upstream
+  installer modes inherit umask and that environment-selected install roots
+  could alias or crash between replacements before recovery authority existed.
+- **Coach decision — identity**: Rename the strict marker field to
+  `upstream_version_blob_oid` and keep `5f1dd...` as upstream source identity.
+  Resolve the actual committed Sworn manifest blob separately on every
+  participating ref, require those blobs equal, and parse/compare their
+  tag/SHA/digest to the marker and binary. Neither identity substitutes for the
+  other.
+- **Coach decision — modes**: Run both independent exact-script oracles under
+  umask `0022`; canonical managed-tree directories are `0755` and regular files
+  are `0644`. A hostile inherited umask must not change the oracle.
+- **Coach decision — recovery**: Physically resolve and require pairwise-disjoint
+  `agents_home`, `codex_home`, `claude_home`, and recovery roots; reject equal,
+  nested, aliased, symlinked, special-file, or recovery-overlapping topology
+  before mutation. Durably publish complete owner-only snapshots, manifest, and
+  sentinel before the first replacement. Any sentinel presence makes later sync
+  recovery-only until all three complete pre-run roots are restored.
+- **Golden cascade**: The corrected migrated marker changes one of the 17
+  local-first mutation blobs, so the delta, Planner, receipt, transaction, and
+  activation blob/tree/commit identities were independently reconstructed and
+  all nine section-11 goldens refreshed. No live downstream release was
+  modified.
+- **Fresh ambiguity gate**: A context-isolated read-only reviewer returned PASS
+  after checking the two VERSION identities, deterministic modes, root topology,
+  pre-replacement recovery authority, S05 provenance, all 17 S17 mutations, and
+  the refreshed nine-object cascade. It found no materially divergent conforming
+  implementation.
+- **Rule-9 record**: Identity separation and crash-safe root topology are Type-1
+  Coach choices. Umask `0022` is the deterministic Type-2 default. Production,
+  vendored, archive, and real-home writes remain blocked pending revised design
+  and a fresh Captain `PROCEED`.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`
@@ -876,6 +917,7 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
 | A-12 | How exact v0.15 adapter decisions and the planning-to-current boundary become executable | Vendor exits, reference resolution, semantic identity, lifecycle, integration, deployment, re-plan, recovery and downstream track activation | Ratified: direct normative planning references plus C-13 post-T2 release-wt activation before T5/T6 materialisation |
 | A-13 | How a committed delta avoids naming its own commit and how a migrated marker becomes current | Re-plan source identity, receipt bytes, crash recovery and downstream protocol migration | Ratified: canonical Planner ref parented by the source, deterministic receipt fields, and distinct C-12 migrate/activate edges; C-13 stays native-only |
 | A-14 | Which owners publish, embed, compare, generate, install, and recover S02's offline archive | Repository atomicity, public parity, binary authority, local-home safety, file ceiling and Rule-9 records | Ratified: one expanded repository transaction; explicit `internal/adopt` embed; focused archive and install-transaction helpers; `internal/baton/diff.go` public parity; thin CLI adapters; eight-command inventory |
+| A-15 | Whether the upstream root VERSION blob and Sworn's adopting-repository VERSION manifest share one identity, and when local-install recovery becomes authoritative | Protocol marker schema, live/archive provenance, oracle modes, root topology, crash recovery and migration goldens | Ratified: `upstream_version_blob_oid` names only upstream `v0.15.1\n`; committed Sworn manifest blobs and parsed pins are separate per-ref evidence; umask 0022 is fixed; roots are disjoint; complete recovery authority is durable before first replacement; all affected goldens are refreshed |
 
 ## Screenshots / references
 
