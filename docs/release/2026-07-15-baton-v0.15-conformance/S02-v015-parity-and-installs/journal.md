@@ -401,3 +401,37 @@ All nine Rule-9 decisions are acknowledged. No open design question remains. Pro
   FAIL remains in the ledger. Overall S02 stays `in_progress` with verification
   pending. No semantic code, proof, Verifier, merge, real-home, or installation
   action is authorized until a human-ratified v2 planning amendment is synced.
+
+## 2026-07-16 — Crash-durable replacement authority synchronized
+
+- Planner commit `7ceeb46107fa4371ee1e59d6c4bb882dd2da806c`
+  truthfully seals the physical orphan dispatch and temporary historical ledger
+  append while denying them C-06 authority, recognizes only the exact
+  `0d593202…` to `3ac42c01…` hold correction, and keeps C-08 restricted to
+  `live_review` freshness authority.
+- The replacement remains planning-only through the manual bootstrap adapter.
+  Its claim commit consumes the sole dispatch budget and issues one
+  non-resumable permit; the claim stores only a random continuity-token hash.
+  A valid result requires a receipt revealing the preimage and binding the
+  exact claim commit, invocation, report blob and verdict. Any restart without
+  that receipt routes to the Coach with zero redispatch.
+- The sealed v2 schema, manifest, claim schema, and receipt schema SHA-256
+  digests are respectively
+  `daa13bd5cb8dd3d5c0f7473ee132b9d15d083405a1e89bfeedc7f8e298bbbbad`,
+  `3d0e0da7fa57a0d754b8e0b6a0faae90f47bea72c100ea2dbf0ba4c68c486dc1`,
+  `32023df8e953640b266d9113c9055b9cd601cceb26e842def080dc1491563746`,
+  and `3678f1ac208e0d9a04a3bc01ad9d9e61fa8bc5472402a05ae376f21ca8022a52`.
+- Fresh authority and consistency reviewers both returned `PASS` against exact
+  commit `7ceeb46…`. Draft 2020-12, duplicate-key, 109-AC, trace, requirements,
+  design-fit, spec-quality, deterministic render, full repository test, vet,
+  and build gates passed.
+- Ordinary two-parent synchronization
+  `da8cc0664732bf3f5e0a043b8c397ce094ed4821` has fail-closed hold
+  `3ac42c01…` as parent one and sealed planning authority `7ceeb46…` as parent
+  two. It changes only the eleven ratified release-record paths and revalidates
+  all four digests and the byte-identical rendered board.
+- No replacement claim or receipt exists yet, so no replacement dispatch
+  budget has been consumed. S02 remains `in_progress`, maintainability remains
+  `pending` at cycle 0 with null `implementation_head`, and verification remains
+  pending. No model, Verifier, real-home, or installation action occurred in
+  this record.
