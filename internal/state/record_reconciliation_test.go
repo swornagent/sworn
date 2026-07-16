@@ -154,11 +154,9 @@ func TestRoundTrip_PreservesFieldsAndIsByteStable(t *testing.T) {
 // the consumer loop runs on once the AC-11 cutover has added acknowledgement.
 func TestWrite_CanonicalDeferral_RoundTrips(t *testing.T) {
 	st := &Status{
-		SliceID:         "S01-x",
-		Release:         "2026-06-28-x",
-		State:           InProgress,
-		StartCommit:     fixtureStartCommit,
-		Maintainability: pendingMaintainabilityFixture(),
+		SliceID: "S01-x",
+		Release: "2026-06-28-x",
+		State:   InProgress,
 		OpenDeferrals: []Deferral{{
 			Item:            "year-snapshot backfill postponed",
 			Why:             "depends on the schema migration landing first",
@@ -202,10 +200,8 @@ func TestSchema_OpenDeferralStrictAdditive(t *testing.T) {
   "slice_id": "S01-x",
   "release": "2026-06-28-x",
   "state": "in_progress",
-	"start_commit": "` + fixtureStartCommit + `",
   "open_deferrals": [` + deferral + `],
-  "verification": { "result": "pending" },
-	"maintainability": ` + string(pendingMaintainabilityFixture()) + `
+  "verification": { "result": "pending" }
 }`)
 	}
 	cases := []struct {
@@ -243,9 +239,7 @@ func TestSchema_InconclusiveResultValidates(t *testing.T) {
   "slice_id": "S01-x",
   "release": "2026-06-28-x",
   "state": "implemented",
-  "start_commit": "` + fixtureStartCommit + `",
-  "verification": { "result": "inconclusive" },
-  "maintainability": ` + string(pendingMaintainabilityFixture()) + `
+  "verification": { "result": "inconclusive" }
 }`)
 	if err := baton.ValidateSchema("slice-status-v1", data); err != nil {
 		t.Errorf("AC-07: result=inconclusive must validate against slice-status-v1, got: %v", err)

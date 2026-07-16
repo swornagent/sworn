@@ -54,7 +54,7 @@ func TestBuildUserPayload_EmptyDiff(t *testing.T) {
 // --- response parsing tests ---
 
 func TestParseLLMResponse_Pass(t *testing.T) {
-	raw := `{"check": "ac-satisfaction", "verdict": "PASS", "findings": []}`
+	raw := `{"verdict": "PASS", "findings": []}`
 	result, err := parseLLMResponse(raw)
 	if err != nil {
 		t.Fatalf("parseLLMResponse: %v", err)
@@ -68,7 +68,7 @@ func TestParseLLMResponse_Pass(t *testing.T) {
 }
 
 func TestParseLLMResponse_Fail(t *testing.T) {
-	raw := `{"check": "ac-satisfaction", "verdict": "FAIL", "findings": [{"id": "F-01", "severity": "high", "blocking": true, "title": "Missing error handling", "detail": "The code does not handle error case X"}]}`
+	raw := `{"verdict": "FAIL", "findings": [{"id": "F-01", "severity": "high", "blocking": true, "title": "Missing error handling", "detail": "The code does not handle error case X"}]}`
 	result, err := parseLLMResponse(raw)
 	if err != nil {
 		t.Fatalf("parseLLMResponse: %v", err)
@@ -88,7 +88,7 @@ func TestParseLLMResponse_Fail(t *testing.T) {
 }
 
 func TestParseLLMResponse_MarkdownFence(t *testing.T) {
-	raw := "```json\n{\"check\": \"ac-satisfaction\", \"verdict\": \"PASS\", \"findings\": []}\n```"
+	raw := "```json\n{\"verdict\": \"PASS\", \"findings\": []}\n```"
 	result, err := parseLLMResponse(raw)
 	if err != nil {
 		t.Fatalf("parseLLMResponse: %v", err)
@@ -99,7 +99,7 @@ func TestParseLLMResponse_MarkdownFence(t *testing.T) {
 }
 
 func TestParseLLMResponse_ProseWrapping(t *testing.T) {
-	raw := "Here is my analysis:\n\n{\"check\": \"ac-satisfaction\", \"verdict\": \"FAIL\", \"findings\": [{\"id\": \"F-01\", \"severity\": \"medium\", \"blocking\": false, \"title\": \"Weak hash\", \"detail\": \"Uses MD5\"}]}\n\nThat's all."
+	raw := "Here is my analysis:\n\n{\"verdict\": \"FAIL\", \"findings\": [{\"id\": \"F-01\", \"severity\": \"medium\", \"blocking\": false, \"title\": \"Weak hash\", \"detail\": \"Uses MD5\"}]}\n\nThat's all."
 	result, err := parseLLMResponse(raw)
 	if err != nil {
 		t.Fatalf("parseLLMResponse: %v", err)
@@ -110,7 +110,7 @@ func TestParseLLMResponse_ProseWrapping(t *testing.T) {
 }
 
 func TestParseLLMResponse_UnknownVerdict(t *testing.T) {
-	raw := `{"check": "ac-satisfaction", "verdict": "UNCLEAR", "findings": []}`
+	raw := `{"verdict": "UNCLEAR", "findings": []}`
 	result, err := parseLLMResponse(raw)
 	if err != nil {
 		t.Fatalf("parseLLMResponse: %v", err)
@@ -155,7 +155,7 @@ Test outcome.
 
 	sliceDir := dir + "/S01-test"
 	mock := &mockVerifier{
-		text: `{"check": "ac-satisfaction", "verdict": "PASS", "findings": []}`,
+		text: `{"verdict": "PASS", "findings": []}`,
 	}
 
 	report, err := RunLLMCheck(context.Background(), CheckACSatisfaction, sliceDir, "mock diff", mock)
@@ -190,7 +190,7 @@ title: S01-test
 
 	sliceDir := dir + "/S01-test"
 	mock := &mockVerifier{
-		text: `{"check": "ac-satisfaction", "verdict": "FAIL", "findings": [{"id": "F-01", "severity": "high", "blocking": true, "title": "AC not satisfied", "detail": "The code does not handle the response case"}]}`,
+		text: `{"verdict": "FAIL", "findings": [{"id": "F-01", "severity": "high", "blocking": true, "title": "AC not satisfied", "detail": "The code does not handle the response case"}]}`,
 	}
 
 	report, err := RunLLMCheck(context.Background(), CheckACSatisfaction, sliceDir, "mock diff", mock)
@@ -234,7 +234,7 @@ title: S01-test
 	for _, ct := range checkTypes {
 		t.Run(string(ct), func(t *testing.T) {
 			mock := &mockVerifier{
-				text: `{"check":"` + string(ct) + `","verdict":"PASS","findings":[]}`,
+				text: `{"verdict": "PASS", "findings": []}`,
 			}
 			report, err := RunLLMCheck(context.Background(), ct, sliceDir, "mock diff", mock)
 			if err != nil {
@@ -315,7 +315,7 @@ title: S01-test
 
 	sliceDir := dir + "/S01-test"
 	mock := &mockVerifier{
-		text: `{"check": "security-review", "verdict": "FAIL", "findings": [
+		text: `{"verdict": "FAIL", "findings": [
 			{"id": "F-01", "severity": "critical", "blocking": true, "title": "RCE via input", "detail": "..."},
 			{"id": "F-02", "severity": "high", "blocking": true, "title": "SQL injection", "detail": "..."},
 			{"id": "F-03", "severity": "medium", "blocking": false, "title": "Info leak", "detail": "..."},

@@ -77,9 +77,6 @@ var schemaGradeStatus = map[string]GradeStatus{
 	// high stakes a `medium` security finding blocks instead of advising — so a
 	// malformed record must not read as "no stakes declared".
 	"project-context-v1": Graded,
-	// Graded: the Baton v0.15 implementation preflight validates the dedicated
-	// structured ambiguity result independently from generic LLM-check reports.
-	"spec-ambiguity-report-v1": Graded,
 	// Advisory: vendored at baton v0.10.0, stored + version-declared by
 	// `sworn doctor`, not yet graded. The `sworn lint contracts` grader is
 	// the follow-on contract-edge-gates release (see

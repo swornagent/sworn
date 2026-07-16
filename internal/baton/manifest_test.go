@@ -70,25 +70,6 @@ func TestSchemaSkewCleanOnRealSchemaMap(t *testing.T) {
 	}
 }
 
-func TestV015SchemaManifestComplete(t *testing.T) {
-	entries, err := SchemaManifest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range entries {
-		if entry.Name == "spec-ambiguity-report-v1" {
-			if entry.Status != Graded {
-				t.Fatalf("spec-ambiguity-report-v1 status = %q, want %q", entry.Status, Graded)
-			}
-			if entry.ID != "https://baton.sawy3r.net/schemas/spec-ambiguity-report-v1.json" {
-				t.Fatalf("spec-ambiguity-report-v1 id = %q", entry.ID)
-			}
-			return
-		}
-	}
-	t.Fatal("spec-ambiguity-report-v1 omitted from live schema manifest")
-}
-
 // TestSchemaSkewFiresOnExtraUnclassifiedSchema injects a fixture schema map
 // with one extra name absent from schemaGradeStatus and asserts SchemaSkew
 // reports it, and that the corresponding SchemaManifest entry renders with

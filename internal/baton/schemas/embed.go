@@ -109,30 +109,20 @@ var LLMCheckReportV1 []byte
 //go:embed project-context-v1.json
 var ProjectContextV1 []byte
 
-// SpecAmbiguityReportV1 is the canonical spec-ambiguity-report-v1.json schema
-// (Baton v0.15.0), embedded independently from the generic LLM-check report.
-//
-// GRADED: the spec-ambiguity preflight parses its structured report against
-// this schema and fails closed before implementation begins.
-//
-//go:embed spec-ambiguity-report-v1.json
-var SpecAmbiguityReportV1 []byte
-
 // SchemaMap maps a short schema name (e.g. "slice-status-v1") to its
 // embedded bytes. Callers use this to look up the schema by the name
 // they store in the $schema field.
 var SchemaMap = map[string][]byte{
-	"slice-status-v1":          SliceStatusV1,
-	"board-v1":                 BoardV1,
-	"spec-v1":                  SpecV1,
-	"proof-v1":                 ProofV1,
-	"journeys-v1":              JourneysV1,
-	"attestations-v1":          AttestationsV1,
-	"verifier-verdict-v1":      VerifierVerdictV1,
-	"contracts-v1":             ContractsV1,
-	"assembly-proof-v1":        AssemblyProofV1,
-	"capability-policy-v1":     CapabilityPolicyV1,
-	"llm-check-report-v1":      LLMCheckReportV1,
-	"project-context-v1":       ProjectContextV1,
-	"spec-ambiguity-report-v1": SpecAmbiguityReportV1,
+	"slice-status-v1":      SliceStatusV1,
+	"board-v1":             BoardV1,
+	"spec-v1":              SpecV1,
+	"proof-v1":             ProofV1,
+	"journeys-v1":          JourneysV1,
+	"attestations-v1":      AttestationsV1,
+	"verifier-verdict-v1":  VerifierVerdictV1,
+	"contracts-v1":         ContractsV1,
+	"assembly-proof-v1":    AssemblyProofV1,
+	"capability-policy-v1": CapabilityPolicyV1,
+	"llm-check-report-v1":  LLMCheckReportV1,
+	"project-context-v1":   ProjectContextV1,
 }

@@ -500,9 +500,6 @@ type Status struct {
 	// verification rigor, and timeout/retry budget; the planned→confirmed delta is
 	// eval/calibration data. Nil until the planner sets it.
 	EffortComplexity *EffortComplexity `json:"effort_complexity,omitempty"`
-	// Maintainability is an optional opaque carrier. Callers must supply the
-	// complete lifecycle object; state does not default or interpret it.
-	Maintainability json.RawMessage `json:"maintainability,omitempty"`
 }
 
 // DeferralStrings projects the typed open deferrals to the []string view the

@@ -1,10 +1,8 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,55 +11,6 @@ import (
 	"github.com/swornagent/sworn/internal/baton/schemas"
 	"github.com/swornagent/sworn/internal/board"
 )
-
-func TestDoctorAndBatonDiffV015BinaryReachability(t *testing.T) {
-	bin := buildSworn(t)
-	repo := t.TempDir()
-	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	home := filepath.Join(repo, "home")
-	env := append(os.Environ(),
-		"HOME="+home,
-		"AGENTS_HOME="+filepath.Join(repo, "agents"),
-		"CODEX_HOME="+filepath.Join(repo, "codex"),
-		"CLAUDE_HOME="+filepath.Join(repo, "claude"),
-		"SWORN_HOME="+filepath.Join(repo, "sworn-config"),
-	)
-	run := func(dir string, args ...string) (int, string) {
-		t.Helper()
-		cmd := exec.Command(bin, args...)
-		cmd.Dir = dir
-		cmd.Env = env
-		output, err := cmd.CombinedOutput()
-		if err == nil {
-			return 0, string(output)
-		}
-		var exitErr *exec.ExitError
-		if !errors.As(err, &exitErr) {
-			t.Fatalf("%v: %v\n%s", args, err, output)
-		}
-		return exitErr.ExitCode(), string(output)
-	}
-
-	if code, output := run(repo, "doctor", "--sync-baton"); code != 2 {
-		t.Fatalf("built doctor repair exit = %d, want 2\n%s", code, output)
-	}
-	if code, output := run(repo, "doctor", "--sync-baton"); code != 0 {
-		t.Fatalf("built doctor idempotent exit = %d, want 0\n%s", code, output)
-	}
-	if code, output := run(repo, "doctor"); code != 0 || !strings.Contains(output, "baton/local-mirrors") {
-		t.Fatalf("built ordinary doctor = %d, want exact mirrors exit 0\n%s", code, output)
-	}
-
-	workspace, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if code, output := run(workspace, "baton", "diff", "/home/brad/projects/baton"); code != 0 {
-		t.Fatalf("built baton diff exact exit = %d, want 0\n%s", code, output)
-	}
-}
 
 // runDoctorInDir runs cmdDoctor with the given args in the given directory,
 // capturing stdout+stderr. Returns exit code and combined output.
@@ -498,43 +447,55 @@ func TestDoctorAdviceNotCircular(t *testing.T) {
 	}
 }
 
-// TestDoctorSyncBaton proves the public adapter repairs all three isolated
-// logical roots and returns the v0.15 2/0 changed/idempotent exits.
+// TestDoctorSyncBaton tests that --sync-baton writes embedded files to the
+// baton home directory (overridden via SWORN_BATON_HOME).
 func TestDoctorSyncBaton(t *testing.T) {
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, ".git"), 0o755)
-	agentsHome := filepath.Join(dir, "agents")
-	codexHome := filepath.Join(dir, "codex")
-	claudeHome := filepath.Join(dir, "claude")
-	t.Setenv("HOME", filepath.Join(dir, "home"))
-	t.Setenv("AGENTS_HOME", agentsHome)
-	t.Setenv("CODEX_HOME", codexHome)
-	t.Setenv("CLAUDE_HOME", claudeHome)
-	t.Setenv("SWORN_HOME", filepath.Join(dir, "sworn-config"))
+	os.MkdirAll(filepath.Join(dir, ".git"), 0755)
+	batonHome := filepath.Join(dir, ".fake-baton-home")
 
-	exitCode, output := runDoctorInDir(t, dir, "--sync-baton")
-	if exitCode != 2 {
-		t.Fatalf("first sync exit = %d, want 2\nOutput:\n%s", exitCode, output)
+	origBatonHome := os.Getenv("SWORN_BATON_HOME")
+	defer os.Setenv("SWORN_BATON_HOME", origBatonHome)
+	os.Setenv("SWORN_BATON_HOME", batonHome)
+
+	origDir, _ := os.Getwd()
+	defer os.Chdir(origDir)
+	os.Chdir(dir)
+
+	// Capture stdout.
+	origStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	exitCode := cmdDoctor([]string{"--sync-baton"})
+
+	w.Close()
+	os.Stdout = origStdout
+	buf := make([]byte, 65536)
+	n, _ := r.Read(buf)
+	output := string(buf[:n])
+	r.Close()
+
+	if exitCode != 0 {
+		t.Errorf("expected exit 0, got %d\nOutput:\n%s", exitCode, output)
 	}
-	for _, path := range []string{
-		filepath.Join(agentsHome, "skills", "baton-design-review", "SKILL.md"),
-		filepath.Join(codexHome, "baton", "README.md"),
-		filepath.Join(claudeHome, "commands", "design-review.md"),
-		filepath.Join(agentsHome, ".sworn-baton", "VERSION"),
-		filepath.Join(codexHome, ".sworn-baton", "VERSION"),
-		filepath.Join(claudeHome, ".sworn-baton", "VERSION"),
-	} {
-		if _, err := os.Stat(path); err != nil {
-			t.Errorf("expected managed path %s: %v", path, err)
+
+	// Verify files were written.
+	if _, err := os.Stat(filepath.Join(batonHome, "README.md")); err != nil {
+		t.Errorf("expected README.md to be written: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(batonHome, "VERSION")); err != nil {
+		t.Errorf("expected VERSION to be written: %v", err)
+	}
+	for _, rf := range batonRuleFiles {
+		if _, err := os.Stat(filepath.Join(batonHome, "rules", rf)); err != nil {
+			t.Errorf("expected rules/%s to be written: %v", rf, err)
 		}
 	}
-	if !strings.Contains(output, "repaired Baton mirrors") {
-		t.Errorf("repair output omitted transaction result\n%s", output)
-	}
 
-	exitCode, output = runDoctorInDir(t, dir, "--sync-baton")
-	if exitCode != 0 || !strings.Contains(output, "already match") {
-		t.Fatalf("idempotent sync = %d, want 0\n%s", exitCode, output)
+	// Verify output mentions each file written.
+	if !strings.Contains(output, "wrote") {
+		t.Errorf("expected 'wrote' in output\nOutput:\n%s", output)
 	}
 }
 

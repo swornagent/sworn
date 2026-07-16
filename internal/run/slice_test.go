@@ -2,7 +2,6 @@ package run
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -566,51 +565,6 @@ func TestDesignGate_CaptainDispatchFailureRecordsDeferral(t *testing.T) {
 // additive/omitempty mitigation, confirmed live rather than by inspection).
 func TestRunSlice_CostSourceThreadedToStatusJSON(t *testing.T) {
 	worktreeRoot, specPath, statusPath, _ := setupFixtureSlice(t)
-	fixtureStatus, err := state.Read(statusPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(fixtureStatus.StartCommit) != 40 {
-		t.Fatalf("fixture start_commit = %q, want valid 40-hex commit", fixtureStatus.StartCommit)
-	}
-	fixtureStatus.Maintainability = json.RawMessage(fmt.Sprintf(`{
-		"state":"passed",
-		"cycle":0,
-		"implementation_head":%q,
-		"rollback_slice_id":null,
-		"reports":[
-			{
-				"role":"implementer",
-				"phase":"preflight",
-				"cycle":0,
-				"invocation_id":"fixture-implementer-preflight",
-				"report_path":"reports/maintainability/fixture-implementer.json",
-				"report_blob_oid":"1111111111111111111111111111111111111111",
-				"review_scope_head":%q,
-				"input_fingerprint":"sha256:2222222222222222222222222222222222222222222222222222222222222222",
-				"verdict":"PASS",
-				"blocking_finding_ids":[]
-			},
-			{
-				"role":"verifier",
-				"phase":"authoritative",
-				"cycle":0,
-				"invocation_id":"fixture-verifier-authoritative",
-				"report_path":"reports/maintainability/fixture-verifier.json",
-				"report_blob_oid":"3333333333333333333333333333333333333333",
-				"review_scope_head":%q,
-				"input_fingerprint":"sha256:2222222222222222222222222222222222222222222222222222222222222222",
-				"verdict":"PASS",
-				"blocking_finding_ids":[]
-			}
-		],
-		"adjudication":null
-	}`, fixtureStatus.StartCommit, fixtureStatus.StartCommit, fixtureStatus.StartCommit))
-	if err := state.Write(statusPath, fixtureStatus); err != nil {
-		t.Fatal(err)
-	}
-	runCmd(t, worktreeRoot, "git", "add", statusPath)
-	runCmd(t, worktreeRoot, "git", "commit", "-m", "test: add maintainability fixture facts")
 
 	// Pre-create a valid six-section design.md so the design gate skips
 	// straight through (no captain dispatch, no open_deferrals entry) — this
@@ -647,7 +601,7 @@ func TestRunSlice_CostSourceThreadedToStatusJSON(t *testing.T) {
 		return res, nil
 	}
 
-	err = RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
+	err := RunSlice(context.Background(), worktreeRoot, specPath, statusPath, RunSliceOptions{
 		VerifierModel:    "fake/verifier",
 		CaptainModel:     "fake/verifier",
 		RetryCap:         0,

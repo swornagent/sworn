@@ -129,8 +129,6 @@ func TestValidateSchema_GoodAndBad(t *testing.T) {
 	good := `{
 		"$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
 		"slice_id": "S01-x", "release": "r1", "state": "planned",
-		"start_commit": null,
-		"maintainability": {"state": "pending", "cycle": 0, "implementation_head": null, "rollback_slice_id": null, "reports": [], "adjudication": null},
 		"verification": {"result": "pending"}
 	}`
 	if err := ValidateSchema("slice-status-v1", []byte(good)); err != nil {
@@ -210,8 +208,6 @@ func TestValidateSchema_EffortComplexity(t *testing.T) {
 	statusGood := `{
 		"$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
 		"slice_id": "S01", "release": "r1", "state": "planned",
-		"start_commit": null,
-		"maintainability": {"state": "pending", "cycle": 0, "implementation_head": null, "rollback_slice_id": null, "reports": [], "adjudication": null},
 		"verification": {"result": "pending"},
 		"effort_complexity": {"effort": "low", "complexity": "high", "quadrant": "puzzle", "confirmed_by_implementer": true}
 	}`

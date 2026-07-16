@@ -2,10 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://baton.sawy3r.net/schemas/llm-check-report-v1.json",
   "title": "Baton LLM Check Report",
-  "description": "The structured report returned by Baton's design-review, ac-satisfaction, security-review, semantic-coverage, and maintainability-review checks. Legacy spec-ambiguity reports remain valid for compatibility, but current spec-ambiguity uses spec-ambiguity-report-v1. Emitted as a schema-constrained structured-output call (ADR-0011), never scraped from prose. Grading uses two ORTHOGONAL fields: `severity` is impact and `blocking` is disposition. The verdict is DERIVED: FAIL if and only if at least one finding is blocking. Both directions are enforced below, so a PASS carrying a blocking finding is schema-invalid.",
+  "description": "The structured report returned by any of Baton's six deterministic LLM check types (spec-ambiguity, design-review, ac-satisfaction, security-review, semantic-coverage, maintainability-review). Emitted as a schema-constrained structured-output call (ADR-0011), never scraped from prose. Grading uses two ORTHOGONAL fields: `severity` is impact (one scale across all six checks) and `blocking` is disposition (does this finding fail the check?). Conflating them is what allowed a critical finding to ride alongside a self-declared PASS. The verdict is therefore DERIVED, not independently asserted: it is FAIL if and only if at least one finding is blocking. Both directions are enforced below, so a PASS carrying a blocking finding is schema-invalid.",
   "type": "object",
   "additionalProperties": true,
-  "required": ["check", "verdict", "findings"],
+  "required": ["verdict", "findings"],
   "properties": {
     "$schema": { "type": "string", "const": "https://baton.sawy3r.net/schemas/llm-check-report-v1.json" },
     "schema_version": { "type": "integer", "const": 1 },
@@ -22,10 +22,6 @@
     },
     "slice_id": { "type": "string", "minLength": 1 },
     "release": { "type": "string", "minLength": 1 },
-    "role": { "type": "string", "enum": ["implementer", "verifier"] },
-    "phase": { "type": "string", "enum": ["preflight", "closure", "authoritative"] },
-    "cycle": { "type": "integer", "minimum": 0, "maximum": 1 },
-    "invocation_id": { "type": "string", "minLength": 1 },
     "verdict": {
       "description": "DERIVED from the findings, never independently asserted. FAIL if and only if at least one finding has blocking: true. An engine that disagrees with the model's stated verdict must fail closed.",
       "type": "string",
@@ -54,32 +50,6 @@
         }
       }
     },
-    "input_fingerprint": {
-      "description": "Identity of the semantic review input. Maintainability reports use sha256:<lowercase hex> over the canonical baton-maintainability-v1 path/mode/object manifest.",
-      "type": "string",
-      "pattern": "^sha256:[a-f0-9]{64}$"
-    },
-    "review_scope": {
-      "description": "The committed boundary and path set used to construct the semantic review input.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["base", "head", "included_paths", "excluded_paths", "fingerprint_algorithm"],
-      "properties": {
-        "base": { "type": "string", "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$" },
-        "head": { "type": "string", "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$" },
-        "fingerprint_algorithm": { "type": "string", "const": "baton-maintainability-v1" },
-        "included_paths": {
-          "type": "array",
-          "items": { "type": "string", "minLength": 1 },
-          "uniqueItems": true
-        },
-        "excluded_paths": {
-          "type": "array",
-          "items": { "type": "string", "minLength": 1 },
-          "uniqueItems": true
-        }
-      }
-    },
     "model_id_confirmed": { "type": "string" },
     "structured_output_mode": { "type": "string", "enum": ["json_schema", "tool_call", "text_fallback"] },
     "cost_usd": { "type": "number" },
@@ -88,38 +58,6 @@
     "duration_ms": { "type": "integer" }
   },
   "allOf": [
-    {
-      "title": "Maintainability reports must identify their semantic review input.",
-      "if": {
-        "properties": { "check": { "const": "maintainability-review" } },
-        "required": ["check"]
-      },
-      "then": {
-        "required": ["slice_id", "release", "role", "phase", "cycle", "invocation_id", "input_fingerprint", "review_scope"]
-      }
-    },
-    {
-      "title": "Maintainability Implementer reports use readiness phases.",
-      "if": {
-        "properties": {
-          "check": { "const": "maintainability-review" },
-          "role": { "const": "implementer" }
-        },
-        "required": ["check", "role"]
-      },
-      "then": { "properties": { "phase": { "enum": ["preflight", "closure"] } } }
-    },
-    {
-      "title": "Maintainability Verifier reports are authoritative.",
-      "if": {
-        "properties": {
-          "check": { "const": "maintainability-review" },
-          "role": { "const": "verifier" }
-        },
-        "required": ["check", "role"]
-      },
-      "then": { "properties": { "phase": { "const": "authoritative" } } }
-    },
     {
       "title": "A FAIL verdict must be backed by at least one blocking finding.",
       "if": { "properties": { "verdict": { "const": "FAIL" } }, "required": ["verdict"] },
