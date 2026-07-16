@@ -108,3 +108,22 @@
   evidence remain authoritative.
 - Resume S20 only after a fresh verifier PASS for S04, then rerun S20 readiness
   and maintainability evidence before any S20 finalization.
+
+## 2026-07-17T07:30:15+10:00 — Resume after fresh S04 verifier PASS
+
+- The authorized prerequisite is now live on this T1 track: S04's fresh-context
+  verifier PASS is commit `f1a46827d4592565c6f2f70b09c0e597cae1f380`, with
+  `status.json` recording `state: verified`, `verification.result: pass`, and
+  `verifier_was_fresh_context: true`. That commit is the current first-parent
+  head before this S20 resume checkpoint.
+- S20 transitions `blocked` → `in_progress` only under that verified S04 gate.
+  Its immutable start remains
+  `08dd38f81e466d3288ff4bf64953cfc90ea6063c`; the preserved semantic
+  implementation commits remain
+  `edad0fa8a75ab3b4a1938bdaf856c7973be72107` and
+  `f3da6a49c3f89f0883e265befd30d1eb099d6a90`.
+- The historical generic `ac-satisfaction` identity blocker is retained above
+  and in `status.json` until a genuine schema-constrained response emits
+  `"check":"ac-satisfaction"` and the exact requested/emitted identity gate
+  accepts it. No S20 prompt/schema change, synthetic report, waiver, or scope
+  expansion is authorized.
