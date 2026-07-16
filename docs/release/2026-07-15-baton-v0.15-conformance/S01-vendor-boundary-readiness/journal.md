@@ -153,3 +153,13 @@
   with the keyless `claude-cli/sonnet` construction. The default Anthropic
   construction failed closed because no API key is configured; it produced no
   verdict and is not claimed as evidence.
+
+## Verifier verdicts received
+
+### 2026-07-16T11:16:55+10:00 — Fresh-context verifier
+
+BLOCKED
+
+Slice: `S01-vendor-boundary-readiness`
+Reason: The ratified slice contract leaves maintainability pending with `implementation_head` null and defers this slice's canonical maintainability authority to S13, but exact Baton v0.15.1 requires a pinned Implementer PASS ledger entry and a fresh authoritative Verifier report before the slice can become verified. The dedicated maintainability operation is absent at this implementation head, so Gate 8 cannot be completed within S01's current scope without fabricating authority.
+Proposed spec.json amendment: Add an in-scope item and acceptance criterion requiring canonical Baton v0.15.1 maintainability preflight before the implemented handoff, including a committed semantic `implementation_head` and blob-pinned Implementer PASS report, and authorize the fresh Verifier authoritative review. Add the bootstrap maintainability operation and tests to S01 touchpoints or create a prerequisite slice that owns them. Remove the S13 deferral for per-slice Gate-8 evidence; S13 may retain only release-wide cutover and revalidation ownership.

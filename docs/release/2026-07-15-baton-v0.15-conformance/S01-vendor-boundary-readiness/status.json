@@ -6,8 +6,8 @@
   "covers_needs": ["N-01", "N-02", "N-10"],
   "state": "implemented",
   "owner": "implementer",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-16T11:02:02+10:00",
+  "last_updated_by": "verifier",
+  "last_updated_at": "2026-07-16T11:16:55+10:00",
   "start_commit": "5e16d2b54b0793381b246a9e7b9f1eb2c8e5cb18",
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/proof.json",
@@ -47,7 +47,20 @@
   "maintainability": {"state": "pending", "cycle": 0, "implementation_head": null, "rollback_slice_id": null, "reports": [], "adjudication": null},
   "open_deferrals": [],
   "effort_complexity": {"effort": "low", "complexity": "low", "quadrant": "quick", "rationale": "Known bounded vendor, pin, recovery and public-exit repairs with deterministic fault injection.", "confirmed_by_implementer": true},
-  "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []},
+  "verification": {
+    "result": "blocked",
+    "verifier_session_id": null,
+    "verifier_verdict_at": "2026-07-16T11:16:55+10:00",
+    "verifier_was_fresh_context": true,
+    "violations": [
+      {
+        "gate": "Gate 8",
+        "description": "The ratified slice contract leaves maintainability pending with implementation_head null and defers this slice's canonical maintainability authority to S13, but exact Baton v0.15.1 requires a pinned Implementer PASS ledger entry and a fresh authoritative Verifier report before the slice can become verified. The dedicated maintainability operation is absent at this implementation head, so the verifier cannot legally construct Gate-8 evidence within S01's current scope.",
+        "evidence": "spec.json out_of_scope assigns current maintainability authority to S13; proof.json not_delivered repeats that deferral; status.json maintainability is pending with implementation_head null and reports []; bin/sworn maintainability review exits 64 as an unknown command.",
+        "proposed_amendment": "Add an in-scope item and acceptance criterion requiring canonical Baton v0.15.1 maintainability preflight before the implemented handoff, including a committed semantic implementation_head and blob-pinned Implementer PASS report, and authorize the fresh Verifier authoritative review. Add the bootstrap maintainability operation and tests to S01 touchpoints or create a prerequisite slice that owns them. Remove the S13 deferral for per-slice Gate-8 evidence; S13 may retain only release-wide cutover and revalidation ownership."
+      }
+    ]
+  },
   "release_base": "release/v0.2.0",
   "release_benefit": "Establishes the atomic bootstrap boundary required before exact Baton v0.15 content can replace the current pin.",
   "design_decisions": [
