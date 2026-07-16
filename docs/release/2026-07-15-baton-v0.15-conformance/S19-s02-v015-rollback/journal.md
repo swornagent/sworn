@@ -322,3 +322,33 @@ Required next step: `/implement-slice S19-s02-v015-rollback
   S02 bytes, original spec/amendment, or historical fresh-verifier FAIL. This
   Implementer does not self-certify; an independent fresh `/verify-slice`
   session remains required before any S20 transition.
+
+## 2026-07-17T03:59:16+10:00 — Fresh verifier verdict: PASS
+
+PASS
+
+Slice: `S19-s02-v015-rollback`
+Verified record head: `6fe306b7ce2594391ff431f54e908d07e88cf378`
+Semantic implementation head: `4b38887e666f7e4ab664bac4780535b080ad54eb`
+Verifier session: fresh, artefact-only
+
+- Re-ran build, uncached repository tests, vet, the deterministic proof-bundle
+  first pass, and the contract-owned executable checker with the required
+  maintainability/proof-bundle binding. The checker derived 45 ordinary
+  envelope paths (37 exact blobs and eight exact absences), validated the
+  immutable amendment/schema and both declared spec transitions, preserved the
+  S02 first-parent record history, and reproduced the current-head index in a
+  disposable detached render.
+- Independently constructed disposable Git objects. The checker rejected blob
+  and mode/absence drift, a surviving S02-added path, malformed parent-two
+  provenance, authored/merge overlap, arbitrary S19 spec and amendment-record
+  changes, arbitrary index bytes, premature S20 start, maintainability-head
+  drift, and an S02 mutation followed by exact byte restoration. The
+  unexpected-later-ordinary-authority case was invoked with its adversarial
+  descendant as `--head` and rejected as required. All disposable worktrees
+  were removed with release refs unchanged.
+- Real first-parent propagation merges that differ only from parent two remain
+  accepted; the checker passed the seven historical record-only merges while
+  still rejecting a malformed parent-two semantic merge.
+
+Next step: `/implement-slice S20-v015-parity-portable-fixture 2026-07-15-baton-v0.15-conformance` in a fresh session.
