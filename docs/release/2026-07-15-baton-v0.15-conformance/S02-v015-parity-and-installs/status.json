@@ -6,8 +6,8 @@
   "covers_needs": ["N-01", "N-02", "N-10"],
   "state": "design_review",
   "owner": "implementer",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-16T13:14:55+10:00",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-07-16T13:53:56+10:00",
   "start_commit": null,
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/proof.json",
@@ -100,6 +100,30 @@
       "architecturally_significant": true
     },
     {
+      "choice": "Name 5f1dd0af59642311ee04e018a0023562d4dde008 only as the upstream root VERSION blob and separately derive, compare, and parse Sworn's committed internal/adopt/baton/VERSION manifest on each participating ref.",
+      "stake_class": "Type-1",
+      "options": ["separate upstream source identity from adopting-manifest evidence", "treat the upstream blob as Sworn manifest identity", "store a time-dependent Sworn manifest blob in protocol.json"],
+      "human_decision": "Coach selected the explicit two-identity contract under Brad's 2026-07-16 standing instruction to follow the orchestrator's recommendation.",
+      "rationale": "The upstream object is exactly v0.15.1 plus LF, while Sworn requires a multi-line parseable manifest; conflating them would either break the binary or make the claimed blob impossible.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Require physically resolved pairwise-disjoint install and recovery roots and durably publish complete recovery authority before the first target replacement.",
+      "stake_class": "Type-1",
+      "options": ["disjoint roots plus pre-write restart authority", "best-effort rollback authority created after failure", "permit aliased or nested logical roots"],
+      "human_decision": "Coach selected fail-closed root topology and crash authority under Brad's 2026-07-16 standing instruction to follow the orchestrator's recommendation.",
+      "rationale": "Aliased roots can overwrite one another, and recovery material created only after a failure cannot restore a process killed between replacements.",
+      "architecturally_significant": true
+    },
+    {
+      "choice": "Run isolated installer oracles under umask 0022 and make 0755 directories plus 0644 regular files the only canonical managed-tree modes.",
+      "stake_class": "Type-2",
+      "options": ["fixed umask 0022", "inherit caller umask", "ignore file modes"],
+      "human_decision": "Implementer deterministic default accepted by Coach during the 2026-07-16 replan.",
+      "rationale": "The tagged scripts do not set umask, so an inherited value would otherwise make the byte-and-mode oracle environment-dependent.",
+      "architecturally_significant": false
+    },
+    {
       "choice": "Emit path-only mismatch and recovery diagnostics, with byte-sorted logical paths and no payload, credential, request, or snapshot bytes.",
       "stake_class": "Type-2",
       "options": ["path-only diagnostics", "include content excerpts", "suppress all target detail"],
@@ -110,7 +134,7 @@
   ],
   "maintainability": {"state": "pending", "cycle": 0, "implementation_head": null, "rollback_slice_id": null, "reports": [], "adjudication": null},
   "open_deferrals": [],
-  "effort_complexity": {"effort": "high", "complexity": "high", "quadrant": "beast", "rationale": "Ratified forty-one-file bootstrap exception: exact embedded parity, archive publication inside repository recovery, complete offline installer input, both installer-generated managed trees, and bounded whole-root repair/recovery are one indivisible C-01 contract.", "confirmed_by_implementer": true},
+  "effort_complexity": {"effort": "high", "complexity": "high", "quadrant": "beast", "rationale": "Ratified forty-one-file bootstrap exception: exact embedded parity, archive publication inside repository recovery, complete offline installer input, both installer-generated managed trees, and bounded whole-root repair/recovery are one indivisible C-01 contract.", "confirmed_by_implementer": false},
   "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []},
   "release_base": "release/v0.2.0",
   "release_benefit": "Pins the binary, repository and supported agent installations to one exact Baton v0.15 authority.",
@@ -118,8 +142,8 @@
     "human_ratified": true,
     "ratified_by": "Coach",
     "ratified_at": "2026-07-16T00:00:00+10:00",
-    "positive_scenarios": ["Every embedded and installed Baton surface matches C-01 from one complete offline bundle, and doctor either finds both installations exact or repairs both transactionally."],
-    "negative_scenarios": ["Any stale/transformed normative or bundle byte fails closed; failed doctor repair restores both complete pre-run installations, while incomplete restoration preserves recovery material and blocks later installs."],
+    "positive_scenarios": ["Every embedded and installed Baton surface matches both C-01 identities from one complete offline bundle, and doctor either finds all three logical roots exact or repairs them transactionally from disjoint paths with recovery authority durable before replacement."],
+    "negative_scenarios": ["Any stale/transformed normative or bundle byte, hostile inherited umask, conflated VERSION identity, aliased root, process death, or incomplete restoration fails closed; sentinel presence preserves recovery material and blocks every later install until exact pre-run restoration."],
     "benefit_hypothesis": "One immutable pin prevents the binary and its operating instructions from enforcing different protocols."
   }
 }

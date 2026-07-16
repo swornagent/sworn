@@ -120,7 +120,8 @@ different surface cannot mask it.
 
 | Mismatch | Exact parity test | `sworn baton diff` | `sworn doctor` | `sworn doctor --sync-baton` | isolated Codex/Claude installer proof |
 |---|---|---|---|---|---|
-| embedded version/tag/SHA/digest/VERSION blob | fail | drift, exit 1 | ERROR and exit 1 | fail before install, exit 1 | fail before install |
+| embedded version/tag/SHA/digest/upstream root VERSION blob | fail | drift, exit 1 | ERROR and exit 1 | fail before install, exit 1 | fail before install |
+| committed Sworn `internal/adopt/baton/VERSION` manifest bytes or parsed tag/SHA/digest differ | fail | drift, exit 1 | ERROR and exit 1 | fail before install, exit 1 | fail before install |
 | mapped vendor file missing/extra/changed | fail | drift, exit 1 | ERROR and exit 1 | fail before install, exit 1 | fail before install |
 | normative JSON differs byte-for-byte | fail | drift, exit 1 | ERROR and exit 1 | fail before install, exit 1 | fail before install |
 | schema manifest missing/extra/misclassified | fail | drift, exit 1 | ERROR and exit 1 | fail before install, exit 1 | fail before install |
@@ -136,6 +137,12 @@ Claude output is analogously the complete managed tree produced by the exact
 pinned `install-claude.sh` in an empty isolated home. Sworn-owned `VERSION`
 sentinels are checked separately and excluded from the upstream-managed-tree
 comparison.
+
+Both exact installer-script oracles run under an explicitly set process umask
+`0022`; inherited caller umask is not authority. Canonical managed-tree
+directories are therefore `0755` and regular files are `0644`. Native generation
+must reproduce those modes, and a hostile inherited umask is a required negative
+fixture rather than an alternate canonical result.
 
 Offline installer authority is the single embedded file
 `internal/adopt/baton/installer-input-v0.15.1.tar`. It is produced only by the
@@ -185,6 +192,24 @@ both complete pre-run installations. It exits 0 when both were already exact,
 The command reports which installation changed, but never prints embedded
 prompt, rule, schema, or credential bytes.
 
+Before any snapshot or mutation, the command physically resolves every existing
+component of `agents_home`, `codex_home`, `claude_home`, and the Sworn recovery
+root without following a symlink as authority. The four resolved roots must be
+pairwise disjoint: none may be equal, an ancestor or descendant of another,
+inode-aliased through path resolution, or overlap the recovery directory. A
+pre-existing symlink, device, socket, FIFO, invalid UTF-8 path, or other
+unsupported node beneath a target fails before mutation.
+
+The complete pre-run snapshots, manifest, transaction directory, and fixed
+sentinel are owner-only and durably published and directory-synced before the
+first target replacement. Sentinel presence is the sole restart authority and
+always routes a later sync invocation to recovery-only restoration of all three
+pre-run roots, even when process death occurred before rollback began. Normal
+success verifies every installed root before atomically retiring and syncing the
+sentinel authority. Fault injection kills the process before/after publication,
+after each replacement and verification, and before/after retirement; no crash
+state may continue a new install or infer success from partially updated roots.
+
 If any restoration step itself fails, the command must not claim restoration.
 It exits 1 with class `rollback-incomplete`, reports the byte-sorted repository-
 independent target paths that could not be restored, preserves the complete
@@ -204,15 +229,17 @@ sockets, FIFOs, invalid UTF-8, duplicate logical paths, or other file types fail
 preflight before mutation. The complete manifest is stored as `manifest.bin`;
 its SHA-256 is the transaction identity.
 
-The command atomically writes
+Before the first replacement the command atomically writes
 `<sworn-config-dir>/recovery/baton-sync/rollback-incomplete.json` as compact
 UTF-8 JSON with HTML escaping disabled and one final LF. Its exact ordered shape
 is `record_version` (constant 1), `transaction_sha256` (`sha256:<64 hex>`),
 `recovery_directory` (absolute path), `targets` (array sorted by logical root,
 each object ordered `logical_root`, `target_path`, `snapshot_path`), and
-`unrestored_paths` (unique unsigned-UTF-8-byte-sorted logical paths). No map
-participates in serialization. The sentinel names that directory, digest,
-exact target roots and unrestored paths and is the sole recovery authority.
+`unrestored_paths` (initially empty, later unique unsigned-UTF-8-byte-sorted
+logical paths if rollback is incomplete). No map participates in serialization.
+The sentinel names that directory, digest, exact target roots and unrestored
+paths and is the sole recovery authority; updating `unrestored_paths` after a
+failed restoration never changes the transaction identity or snapshot set.
 Payload bytes are never printed.
 `sworn doctor` treats the sentinel as ERROR. A later
 `sworn doctor --sync-baton` enters recovery-only mode: it
@@ -268,13 +295,22 @@ The exact `release-protocol-authority-v1` object has required top-level members
 `$schema`, `record_version`, `release`, `protocol_pin`, `origin`, and
 `authority`, with no unknown or duplicate key at any depth. `protocol_pin` has
 exactly `name`, `version`, `upstream_sha`, `upstream_digest`, and
-`vendored_version_blob_oid`. `origin: native` forbids
+`upstream_version_blob_oid`. That OID names the upstream tag's root `VERSION`
+blob—exactly `v0.15.1` plus LF at C-01—and never the adopting repository's
+multi-line manifest. `origin: native` forbids
 `migration_receipt_path`. `origin: migrated` requires
 `migration_receipt_path` to equal the canonical repository-relative path
 `docs/release/<release>/protocol-migration-receipt.json`; that path must resolve
 as a regular committed file beneath the physical release root. The exact
 `$schema` value is `https://swornagent.dev/schemas/release-protocol-v1.json`,
 `record_version` is 1, and `authority` is exactly `planning` or `current`.
+
+For live authority, each participating ref separately resolves committed
+`internal/adopt/baton/VERSION`. Those adopting-manifest blobs must be identical
+across participants and their parsed `baton-protocol`, `upstream-sha`, and
+`upstream-digest` fields must equal `protocol_pin` and the running binary. The
+marker's upstream root VERSION OID and the participating manifest blob are two
+different identities; neither may substitute for the other.
 
 The policy tables below govern native Sworn handlers, not the temporary human
 bootstrap roles used to build this self-hosting release. While the marker is
@@ -964,15 +1000,15 @@ store must reproduce these golden identities exactly:
 
 | Object | Golden OID |
 |---|---|
-| delta blob | `3512d743def4cd27e0f28913881ed0987334cd1d` |
-| Planner tree | `e67a2dd7339d319254b13430b6c75cde5bcc9c46` |
-| Planner commit | `28ef9226788d929d230bc355745bea72ef6be6a6` |
-| receipt blob | `29c4e056ef76b967632568a0702b7283412e8ef4` |
-| transaction tree | `6b40b9417922f69be7c453812d3cc8e07ede3d73` |
-| transaction commit | `9de6b78b54bfa9cec0e32fe9f05a87b8f882ad30` |
-| activated protocol blob | `e95567a6d1a50da3d0a70b98f2c6b4bd11bd647e` |
-| activation tree | `b3fc91a4944cd9a722b07fe525bc3c761b61168c` |
-| activation commit | `1b27f317446010184c8304c9994f7ce83e0df94c` |
+| delta blob | `8f362f86d5516148e437c98b64735c102872c145` |
+| Planner tree | `2c602ac89fbd7bbd6a4d9739cd761cfab5434aa3` |
+| Planner commit | `748cc928173a2c5c71453b425d4526c2f0b4eaab` |
+| receipt blob | `89e70a6830f3a029eb9579a675ec4d9ea55c2d82` |
+| transaction tree | `d1bdd62932df5e4b33276eb2eec5f3bf9ca070b8` |
+| transaction commit | `ceb14cc439d646f2e40632ace446e1567e2dde7d` |
+| activated protocol blob | `3a12dd96c44aec2b69f59957aed1df8c22204967` |
+| activation tree | `9fc113f062f0833e2c139dbcfb7b0651f07e65cf` |
+| activation commit | `1ea27ba2e86f544ed1a1aa661a82eec4f20e1d4b` |
 
 This fixture has no target refs, so it intentionally has no propagation commit
 golden. Generic target propagation and activation still use the exact parent
@@ -983,7 +1019,9 @@ orders, trees, identities, timestamps and one-line subjects specified above.
 These clarifications apply exact Baton v0.15.1 behavior and the release intake's
 ratified architecture. The remaining Sworn adapter choices above, including the
 expanded repository transaction, single embed, whole-root install rollback,
-bounded helper ownership, and complete eight-command inventory, were selected
-under the Coach's 2026-07-16 instruction to proceed with the orchestrator's
-recommendation. They are Type-1 where copied into a slice's `design_decisions`;
-path-only diagnostics are the recorded Type-2 default.
+bounded helper ownership, complete eight-command inventory, distinct upstream
+and adopting-manifest identities, physically disjoint install/recovery roots,
+and pre-replacement durable recovery authority, were selected under the Coach's
+2026-07-16 instruction to proceed with the orchestrator's recommendation. They
+are Type-1 where copied into a slice's `design_decisions`; fixed umask `0022`
+and path-only diagnostics are the recorded Type-2 defaults.
