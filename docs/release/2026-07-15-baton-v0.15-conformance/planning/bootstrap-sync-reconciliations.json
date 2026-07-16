@@ -71,7 +71,7 @@
       "authorization": {
         "consumer_slice_id": "S02-v015-parity-and-installs",
         "start_commit": "e61cb190736ee7483fb4ed1a993442b26ce3574c",
-        "review_head": "60097cfa65dc39d9a0ab174be7c627fde2d3f7d5",
+        "review_head": "4377d71a23a2252d4bbb6bb3784692171b0329da",
         "interval_semantics": "first-parent-start-exclusive-head-inclusive",
         "permitted_purposes": ["semantic_scope", "freshness_revalidation", "bootstrap_cutover_revalidation"]
       },
@@ -93,7 +93,7 @@
       "authorization": {
         "consumer_slice_id": "S02-v015-parity-and-installs",
         "start_commit": "e61cb190736ee7483fb4ed1a993442b26ce3574c",
-        "review_head": "60097cfa65dc39d9a0ab174be7c627fde2d3f7d5",
+        "review_head": "4377d71a23a2252d4bbb6bb3784692171b0329da",
         "interval_semantics": "first-parent-start-exclusive-head-inclusive",
         "permitted_purposes": ["semantic_scope", "freshness_revalidation", "bootstrap_cutover_revalidation"]
       },
