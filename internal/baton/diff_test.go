@@ -14,6 +14,7 @@ func TestDiffCleanWhenInSync(t *testing.T) {
 	}
 
 	tmpRepo := t.TempDir()
+	makeVendorGitAdmin(t, tmpRepo)
 	for _, m := range batonFileMappings {
 		destDir := filepath.Join(tmpRepo, filepath.Dir(m.Dest))
 		if err := os.MkdirAll(destDir, 0755); err != nil {
@@ -54,6 +55,7 @@ func TestDiffDetectsHandEditedEmbed(t *testing.T) {
 	}
 
 	tmpRepo := t.TempDir()
+	makeVendorGitAdmin(t, tmpRepo)
 	for _, m := range batonFileMappings {
 		destDir := filepath.Join(tmpRepo, filepath.Dir(m.Dest))
 		if err := os.MkdirAll(destDir, 0755); err != nil {
@@ -115,6 +117,7 @@ func TestDiffDetectsMissingEmbedFile(t *testing.T) {
 	}
 
 	tmpRepo := t.TempDir()
+	makeVendorGitAdmin(t, tmpRepo)
 	for _, m := range batonFileMappings {
 		destDir := filepath.Join(tmpRepo, filepath.Dir(m.Dest))
 		if err := os.MkdirAll(destDir, 0755); err != nil {

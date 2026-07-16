@@ -2,11 +2,14 @@ package baton
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+const upstreamVersionPath = "internal/adopt/baton/VERSION"
 
 // VendorOpts controls the vendor behaviour.
 type VendorOpts struct {
@@ -17,143 +20,270 @@ type VendorOpts struct {
 	// in the file mapping are resolved relative to this root.
 	RepoRoot string
 
-	// CheckOnly enables dry-run mode: diff is computed and returned but
+	// CheckOnly enables dry-run mode: drift is computed and returned but
 	// no files are written.
 	CheckOnly bool
+
+	// VersionCandidate, when non-nil, adds VERSION to the same immutable
+	// materialisation, snapshot, apply, rollback, and recovery plan as every
+	// mapped destination. The public upstream command supplies this for both
+	// check and write mode; local vendoring leaves it nil.
+	VersionCandidate *UpstreamVersionCandidate
+
+	// fileOps is an injected, per-invocation filesystem seam used by the
+	// transaction fault matrix. Production callers leave it nil.
+	fileOps *vendorFileOps
 }
 
 // VendorResult carries the outcome of a Vendor run.
 type VendorResult struct {
-	// Diff contains the unified diff of all changes (empty if no changes).
+	// Diff is a deterministic path-only drift summary (empty if no changes).
+	// It deliberately never contains mapped source payload bytes.
 	Diff string
 
-	// FilesWritten is the number of embed files that were written (0 in
+	// FilesWritten is the number of transaction members replaced (0 in
 	// CheckOnly mode).
 	FilesWritten int
 }
 
-// Vendor orchestrates the vendor-down pipeline:
-//  1. Validate the source directory has all expected files.
-//  2. Materialise each mapping through the shared content policy, then write it.
-//  3. Returns the diff (for display) and the count of files written.
-//
-// In CheckOnly mode, the diff is computed against the current tree but no
-// files are modified.
+type vendorCandidate struct {
+	path        string
+	desired     []byte
+	desiredMode os.FileMode
+	original    vendorOriginal
+	preserve    bool
+}
+
+type vendorOriginal struct {
+	exists         bool
+	mode           os.FileMode
+	bytes          []byte
+	missingParents []string
+}
+
+type vendorPlan struct {
+	candidates []vendorCandidate
+	changed    []int
+	diff       string
+	fileOps    *vendorFileOps
+}
+
+// Vendor materialises the complete candidate set before the first repository
+// mutation. Check and write mode share this exact plan; write mode alone submits
+// it to the rollback-protected transaction.
 func Vendor(opts VendorOpts) (*VendorResult, error) {
-	if err := ValidateSource(opts.SourceDir); err != nil {
-		return nil, err
-	}
-
-	var diffs []string
-	filesWritten := 0
-
-	for _, m := range batonFileMappings {
-		destAbs := filepath.Join(opts.RepoRoot, m.Dest)
-
-		// Ensure the destination directory exists (skip in CheckOnly).
-		if !opts.CheckOnly {
-			destDir := filepath.Dir(destAbs)
-			if err := os.MkdirAll(destDir, 0755); err != nil {
-				return nil, fmt.Errorf("baton: cannot create dest dir %s: %w", destDir, err)
-			}
-		}
-
-		desired, err := mappedContent(opts.SourceDir, m)
+	var repo vendorRepository
+	if opts.CheckOnly {
+		// Check mode must not create or inspect Git-admin transaction state.
+		// It needs only the physically resolved repository root to run the
+		// same source/materialisation/schema/destination preflight.
+		var err error
+		repo, err = resolveVendorRepositoryRoot(opts.RepoRoot)
 		if err != nil {
 			return nil, err
 		}
-
-		// Compute diff for this file.
-		existing, _ := os.ReadFile(destAbs)
-		if !bytes.Equal(existing, desired) {
-			diff := unifiedDiff(m.Dest, string(existing), string(desired))
-			if diff != "" {
-				diffs = append(diffs, diff)
+	} else {
+		var recovery *vendorRecovery
+		var err error
+		repo, recovery, err = loadVendorRecovery(opts.RepoRoot)
+		if err != nil {
+			return nil, err
+		}
+		if recovery != nil {
+			if err := recoverVendorTransaction(repo, recovery); err != nil {
+				return nil, err
 			}
-
-			if !opts.CheckOnly {
-				if err := os.WriteFile(destAbs, desired, 0644); err != nil {
-					return nil, fmt.Errorf("baton: cannot write %s: %w", m.Dest, err)
-				}
-				filesWritten++
-			}
+			return nil, newVendorErrorWithDetail("recovered-rerun-required", "recovery", "", recovery.root, "original repository state restored; rerun vendor command", fmt.Errorf("original repository state restored; re-run the vendor command"))
 		}
 	}
 
-	return &VendorResult{
-		Diff:         strings.Join(diffs, ""),
-		FilesWritten: filesWritten,
+	plan, err := materialiseVendorPlan(opts, repo)
+	if err != nil {
+		return nil, err
+	}
+	result := &VendorResult{Diff: plan.diff}
+	if opts.CheckOnly || len(plan.changed) == 0 {
+		return result, nil
+	}
+
+	if err := applyVendorTransaction(repo, plan); err != nil {
+		return nil, err
+	}
+	result.FilesWritten = len(plan.changed)
+	return result, nil
+}
+
+// RecoverVendorIfPending restores or finishes cleanup for a previously
+// published write transaction. It never performs ordinary vendoring. A
+// successful recovery therefore returns a rerun-required error so callers do
+// not combine restart handling with a new network fetch or repository update.
+func RecoverVendorIfPending(repoRoot string) error {
+	repo, recovery, err := loadVendorRecovery(repoRoot)
+	if err != nil {
+		return err
+	}
+	if recovery == nil {
+		return nil
+	}
+	if err := recoverVendorTransaction(repo, recovery); err != nil {
+		return err
+	}
+	return newVendorErrorWithDetail("recovered-rerun-required", "recovery", "", recovery.root, "repository recovery completed; rerun vendor command", fmt.Errorf("repository transaction recovery completed; re-run the vendor command"))
+}
+
+func materialiseVendorPlan(opts VendorOpts, repo vendorRepository) (*vendorPlan, error) {
+	if err := ValidateSource(opts.SourceDir); err != nil {
+		return nil, newVendorError("invalid-source", "preflight", "", "", err)
+	}
+
+	materialised := make(map[string]vendorCandidate, len(batonFileMappings)+1)
+	seen := make(map[string]struct{}, len(batonFileMappings)+1)
+	for _, mapping := range batonFileMappings {
+		if err := validateVendorRelativePath(mapping.Dest); err != nil {
+			return nil, newVendorError("invalid-mapping", "preflight", mapping.Dest, "", err)
+		}
+		if _, duplicate := seen[mapping.Dest]; duplicate {
+			return nil, newVendorError("invalid-mapping", "preflight", mapping.Dest, "", fmt.Errorf("duplicate destination"))
+		}
+		seen[mapping.Dest] = struct{}{}
+
+		desired, err := mappedContent(opts.SourceDir, mapping)
+		if err != nil {
+			var scriptErr *scriptReferenceError
+			if errors.As(err, &scriptErr) {
+				detail := fmt.Sprintf("unknown script reference %q", scriptErr.token)
+				return nil, newVendorErrorWithDetail("materialisation-failed", "preflight", mapping.Dest, "", detail, err)
+			}
+			return nil, newVendorError("materialisation-failed", "preflight", mapping.Dest, "", err)
+		}
+		if isSchemaSource(mapping.Source) {
+			name := strings.TrimSuffix(filepath.Base(mapping.Source), ".json")
+			if _, err := compileSchemaBytes(name, desired); err != nil {
+				return nil, newVendorError("schema-invalid", "preflight", mapping.Dest, "", err)
+			}
+		}
+		materialised[mapping.Dest] = vendorCandidate{
+			path:        filepath.ToSlash(mapping.Dest),
+			desired:     append([]byte(nil), desired...),
+			desiredMode: 0o644,
+		}
+	}
+
+	if _, duplicate := seen[upstreamVersionPath]; duplicate {
+		return nil, newVendorError("invalid-mapping", "preflight", upstreamVersionPath, "", fmt.Errorf("VERSION duplicates a mapped destination"))
+	}
+	// VERSION is present in every complete transaction/recovery set so a
+	// tampered upstream manifest cannot masquerade as a local transaction by
+	// dropping the pin tuple. Local mode preserves its original state exactly;
+	// only an explicit upstream candidate can make it a changed member.
+	materialised[upstreamVersionPath] = vendorCandidate{
+		path:        upstreamVersionPath,
+		desiredMode: 0o644,
+		preserve:    opts.VersionCandidate == nil,
+	}
+
+	candidates := make([]vendorCandidate, 0, len(materialised))
+	for _, candidate := range materialised {
+		candidates = append(candidates, candidate)
+	}
+	sortVendorCandidatesBytewise(candidates)
+	lastPath := ""
+	for i, candidate := range candidates {
+		if i > 0 && candidate.path <= lastPath {
+			return nil, newVendorError("invalid-mapping", "preflight", candidate.path, "", fmt.Errorf("materialised destinations are not unique byte-sorted paths"))
+		}
+		lastPath = candidate.path
+	}
+	for i := range candidates {
+		original, err := snapshotVendorOriginal(repo, candidates[i].path)
+		if err != nil {
+			return nil, err
+		}
+		candidates[i].original = original
+		if candidates[i].path == upstreamVersionPath {
+			if candidates[i].preserve {
+				candidates[i].desired = append([]byte(nil), original.bytes...)
+				candidates[i].desiredMode = original.mode
+				continue
+			}
+			if !original.exists {
+				return nil, newVendorError("version-missing", "preflight", candidates[i].path, "", fmt.Errorf("VERSION must exist before upstream vendoring"))
+			}
+			replacement, err := UpstreamPinReplacement(original.bytes, *opts.VersionCandidate)
+			if err != nil {
+				return nil, newVendorError("version-invalid", "preflight", candidates[i].path, "", err)
+			}
+			candidates[i].desired = replacement
+		}
+	}
+
+	changed := make([]int, 0, len(candidates))
+	var diff strings.Builder
+	for i := range candidates {
+		candidate := &candidates[i]
+		if candidate.preserve {
+			continue
+		}
+		if candidate.original.exists && bytes.Equal(candidate.original.bytes, candidate.desired) {
+			continue
+		}
+		changed = append(changed, i)
+		kind := "changed"
+		if !candidate.original.exists {
+			kind = "added"
+		}
+		fmt.Fprintf(&diff, "%s: %s\n", kind, candidate.path)
+	}
+
+	return &vendorPlan{
+		candidates: candidates,
+		changed:    changed,
+		diff:       diff.String(),
+		fileOps:    opts.fileOps,
 	}, nil
 }
 
-// unifiedDiff produces a minimal unified-style diff between old and new for a
-// single file. Returns an empty string if they are identical.
-func unifiedDiff(path, old, new string) string {
-	if old == new {
-		return ""
+// sortVendorCandidatesBytewise is an MSD byte-radix sort. Each path byte is
+// inspected at most once per shared prefix level and the alphabet is fixed, so
+// ordering remains O(total path bytes + file count) without a second
+// hand-maintained mapping index or comparison-sort term.
+func sortVendorCandidatesBytewise(candidates []vendorCandidate) {
+	if len(candidates) < 2 {
+		return
 	}
-	oldLines := strings.Split(old, "\n")
-	newLines := strings.Split(new, "\n")
-
-	// Remove trailing empty string from split if content ends with newline.
-	if len(oldLines) > 0 && oldLines[len(oldLines)-1] == "" {
-		oldLines = oldLines[:len(oldLines)-1]
-	}
-	if len(newLines) > 0 && newLines[len(newLines)-1] == "" {
-		newLines = newLines[:len(newLines)-1]
-	}
-
-	// Simple diff: find common prefix and suffix, then show changes.
-	prefix := commonPrefixLen(oldLines, newLines)
-	suffix := commonSuffixLen(oldLines, newLines, prefix)
-
-	oldStart := prefix + 1
-	oldCount := len(oldLines) - prefix - suffix
-	newStart := prefix + 1
-	newCount := len(newLines) - prefix - suffix
-
-	if oldCount == 0 && newCount == 0 {
-		return ""
-	}
-
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "--- a/%s\n", path)
-	fmt.Fprintf(&buf, "+++ b/%s\n", path)
-	fmt.Fprintf(&buf, "@@ -%d,%d +%d,%d @@\n", oldStart, oldCount, newStart, newCount)
-
-	for _, l := range oldLines[prefix : len(oldLines)-suffix] {
-		fmt.Fprintf(&buf, "-%s\n", l)
-	}
-	for _, l := range newLines[prefix : len(newLines)-suffix] {
-		fmt.Fprintf(&buf, "+%s\n", l)
-	}
-
-	return buf.String()
+	scratch := make([]vendorCandidate, len(candidates))
+	radixSortVendorCandidates(candidates, scratch, 0, len(candidates), 0)
 }
 
-func commonPrefixLen(a, b []string) int {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
+func radixSortVendorCandidates(candidates, scratch []vendorCandidate, start, end, depth int) {
+	if end-start < 2 {
+		return
 	}
-	for i := 0; i < n; i++ {
-		if a[i] != b[i] {
-			return i
+	var counts [257]int
+	bucketFor := func(candidate vendorCandidate) int {
+		if depth == len(candidate.path) {
+			return 0
 		}
+		return int(candidate.path[depth]) + 1
 	}
-	return n
-}
-
-func commonSuffixLen(a, b []string, prefix int) int {
-	la, lb := len(a), len(b)
-	n := la - prefix
-	if lb-prefix < n {
-		n = lb - prefix
+	for i := start; i < end; i++ {
+		counts[bucketFor(candidates[i])]++
 	}
-	for i := 0; i < n; i++ {
-		if a[la-1-i] != b[lb-1-i] {
-			return i
-		}
+	var starts [257]int
+	position := start
+	for bucket, count := range counts {
+		starts[bucket] = position
+		position += count
 	}
-	return n
+	next := starts
+	for i := start; i < end; i++ {
+		bucket := bucketFor(candidates[i])
+		scratch[next[bucket]] = candidates[i]
+		next[bucket]++
+	}
+	copy(candidates[start:end], scratch[start:end])
+	for bucket := 1; bucket < len(counts); bucket++ {
+		bucketStart := starts[bucket]
+		radixSortVendorCandidates(candidates, scratch, bucketStart, bucketStart+counts[bucket], depth+1)
+	}
 }

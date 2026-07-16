@@ -17,7 +17,9 @@ const v015BoardPathPattern = `^(?!/)(?!.*(?:^|/)\.\.?($|/)).+$`
 type v015BoardPathRegexp struct{}
 
 func (v015BoardPathRegexp) MatchString(value string) bool {
-	if value == "" || strings.HasPrefix(value, "/") {
+	// ECMA-262 dot does not match line terminators without the s flag. Preserve
+	// that anchored .+ boundary in addition to the explicit lookaheads.
+	if value == "" || strings.HasPrefix(value, "/") || strings.ContainsAny(value, "\n\r\u2028\u2029") {
 		return false
 	}
 	for _, segment := range strings.Split(value, "/") {

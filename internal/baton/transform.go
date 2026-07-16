@@ -20,6 +20,14 @@ type replacement struct {
 	new   string
 }
 
+type scriptReferenceError struct {
+	token string
+}
+
+func (e *scriptReferenceError) Error() string {
+	return fmt.Sprintf("baton: unknown script reference %q survives transform — add it to the substitution map or update upstream", e.token)
+}
+
 // replacements is the ordered, table-driven substitution map from ADR-0006.
 // Every Baton bash/node script reference is replaced with its sworn-native
 // equivalent. The regex handles common path prefixes (scripts/, bin/,
@@ -87,7 +95,7 @@ func Transform(content string) (string, error) {
 			}
 		}
 		if replacementText == "" {
-			return out.String() + token + content[end:], fmt.Errorf("baton: unknown script reference %q survives transform — add it to the substitution map or update upstream", token)
+			return out.String() + token + content[end:], &scriptReferenceError{token: token}
 		}
 		out.WriteString(replacementText)
 		start = end

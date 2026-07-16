@@ -2,8 +2,6 @@ package baton
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -78,39 +76,6 @@ func ReadUpstreamPin() (UpstreamPin, error) {
 		return UpstreamPin{}, nil
 	}
 	return parseUpstreamPin(string(data)), nil
-}
-
-// WriteUpstreamPin writes the resolved tag, SHA and digest — plus the vendoring
-// date — into the VERSION file at repoRoot/internal/adopt/baton/VERSION.
-// Existing lines are updated in place; absent ones are appended.
-//
-// The tag, SHA and digest are ONE FACT — "this is the upstream we vendored" — so
-// they are written together. This previously wrote the SHA and digest while
-// deliberately preserving the baton-protocol line, which left the pin claiming
-// one version while carrying another's content: `sworn doctor` reported the wrong
-// protocol version, and a later fetch of the tag the pin *claimed* compared that
-// tag's real SHA against a pin secretly holding a different tag's, aborting with a
-// bogus "force-moved" error. An empty tag leaves baton-protocol untouched.
-func WriteUpstreamPin(repoRoot, tag, sha, digest string) error {
-	path := filepath.Join(repoRoot, "internal", "adopt", "baton", "VERSION")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("read VERSION: %w", err)
-	}
-
-	content, err := UpstreamPinReplacement(data, UpstreamVersionCandidate{
-		Tag:        tag,
-		SHA:        sha,
-		Digest:     digest,
-		CapturedAt: time.Now(),
-	})
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(path, content, 0644); err != nil {
-		return fmt.Errorf("write VERSION: %w", err)
-	}
-	return nil
 }
 
 // UpstreamPinReplacement returns the complete VERSION bytes for one captured

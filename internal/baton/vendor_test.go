@@ -1,13 +1,23 @@
 package baton
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	batonschemas "github.com/swornagent/sworn/internal/baton/schemas"
 )
+
+func makeVendorGitAdmin(t *testing.T, repoRoot string) {
+	t.Helper()
+	if err := os.Mkdir(filepath.Join(repoRoot, ".git"), 0o755); err != nil && !os.IsExist(err) {
+		t.Fatalf("create fake Git admin: %v", err)
+	}
+}
 
 func TestVendorMappingsCoverEveryEmbeddedSchema(t *testing.T) {
 	mapped := make(map[string]bool)
@@ -19,6 +29,24 @@ func TestVendorMappingsCoverEveryEmbeddedSchema(t *testing.T) {
 		dest := "internal/baton/schemas/" + name + ".json"
 		if !mapped[dest] {
 			t.Errorf("embedded schema %s is outside Baton tag parity enforcement", dest)
+		}
+	}
+}
+
+func TestSortVendorCandidatesBytewise(t *testing.T) {
+	candidates := []vendorCandidate{
+		{path: "z"},
+		{path: "a/b"},
+		{path: "a"},
+		{path: "a//b"},
+		{path: "internal/é"},
+		{path: "internal/z"},
+	}
+	sortVendorCandidatesBytewise(candidates)
+	want := []string{"a", "a//b", "a/b", "internal/z", "internal/é", "z"}
+	for i, candidate := range candidates {
+		if candidate.path != want[i] {
+			t.Fatalf("candidate %d = %q, want byte order %q", i, candidate.path, want[i])
 		}
 	}
 }
@@ -49,6 +77,7 @@ func TestVendorWritesTransformedEmbed(t *testing.T) {
 	}
 
 	tmpRepo := t.TempDir()
+	makeVendorGitAdmin(t, tmpRepo)
 	for _, m := range batonFileMappings {
 		destDir := filepath.Join(tmpRepo, filepath.Dir(m.Dest))
 		if err := os.MkdirAll(destDir, 0755); err != nil {
@@ -133,6 +162,7 @@ func TestVendorIsIdempotent(t *testing.T) {
 	}
 
 	tmpRepo := t.TempDir()
+	makeVendorGitAdmin(t, tmpRepo)
 	for _, m := range batonFileMappings {
 		destDir := filepath.Join(tmpRepo, filepath.Dir(m.Dest))
 		if err := os.MkdirAll(destDir, 0755); err != nil {
@@ -208,6 +238,7 @@ func TestVendorCheckOnlyDoesNotWrite(t *testing.T) {
 		RepoRoot:  tmpRepo,
 		CheckOnly: false,
 	}
+	makeVendorGitAdmin(t, tmpRepo)
 	if _, err := Vendor(realOpts); err != nil {
 		t.Fatalf("Vendor(real) error = %v", err)
 	}
@@ -255,6 +286,7 @@ func TestVendorFailsOnUnmappedScriptInSource(t *testing.T) {
 	mustCreate("baton/role-prompts/verifier.md", "# Verifier\nRun `unknown-script.sh` for something.")
 
 	tmpRepo := t.TempDir()
+	makeVendorGitAdmin(t, tmpRepo)
 	for _, m := range batonFileMappings {
 		destDir := filepath.Join(tmpRepo, filepath.Dir(m.Dest))
 		if err := os.MkdirAll(destDir, 0755); err != nil {
@@ -272,5 +304,90 @@ func TestVendorFailsOnUnmappedScriptInSource(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unknown script reference") {
 		t.Errorf("error = %v, want 'unknown script reference'", err)
+	}
+}
+
+func TestVendorVersionCandidateSharesCheckAndRollbackTransaction(t *testing.T) {
+	fixture, err := filepath.Abs(filepath.Join("testdata", "fixture"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoRoot := t.TempDir()
+	makeVendorGitAdmin(t, repoRoot)
+	if _, err := Vendor(VendorOpts{SourceDir: fixture, RepoRoot: repoRoot}); err != nil {
+		t.Fatalf("seed vendor tree: %v", err)
+	}
+	versionPath := filepath.Join(repoRoot, filepath.FromSlash(upstreamVersionPath))
+	if err := os.MkdirAll(filepath.Dir(versionPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	originalVersion := []byte("baton-protocol: v0.13.1\nvendored: 2026-07-14\nupstream-sha: old\nupstream-digest: sha256:old\n")
+	if err := os.WriteFile(versionPath, originalVersion, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(versionPath, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	candidate := &UpstreamVersionCandidate{
+		Tag:        "v0.15.1",
+		SHA:        strings.Repeat("a", 40),
+		Digest:     "sha256:" + strings.Repeat("b", 64),
+		CapturedAt: time.Date(2026, 7, 16, 9, 0, 0, 0, time.FixedZone("AEST", 10*60*60)),
+	}
+
+	checkResult, err := Vendor(VendorOpts{
+		SourceDir:        fixture,
+		RepoRoot:         repoRoot,
+		CheckOnly:        true,
+		VersionCandidate: candidate,
+	})
+	if err != nil {
+		t.Fatalf("upstream check: %v", err)
+	}
+	if !strings.Contains(checkResult.Diff, "changed: "+upstreamVersionPath) {
+		t.Fatalf("check drift omitted VERSION transaction member: %q", checkResult.Diff)
+	}
+	gotVersion, err := os.ReadFile(versionPath)
+	if err != nil || !bytes.Equal(gotVersion, originalVersion) {
+		t.Fatalf("check mutated VERSION: read=%v got=%q", err, gotVersion)
+	}
+	if _, err := os.Lstat(filepath.Join(repoRoot, ".git", "sworn")); !os.IsNotExist(err) {
+		t.Fatalf("check created Git-admin transaction state: %v", err)
+	}
+
+	applyCount := 0
+	result, err := Vendor(VendorOpts{
+		SourceDir:        fixture,
+		RepoRoot:         repoRoot,
+		VersionCandidate: candidate,
+		fileOps: &vendorFileOps{
+			replace: func(repo vendorRepository, rel string, content []byte, mode os.FileMode) error {
+				current := applyCount
+				applyCount++
+				if err := atomicReplaceVendorFile(repo, rel, content, mode); err != nil {
+					return err
+				}
+				if current == 0 {
+					return errors.New("injected first-apply failure")
+				}
+				return nil
+			},
+			restore: restoreVendorOriginal,
+		},
+	})
+	if result != nil {
+		t.Fatalf("failed transaction returned result: %#v", result)
+	}
+	var txErr *vendorError
+	if !errors.As(err, &txErr) || txErr.class != "apply-failed" {
+		t.Fatalf("write error = %v, want apply-failed", err)
+	}
+	gotVersion, err = os.ReadFile(versionPath)
+	if err != nil || !bytes.Equal(gotVersion, originalVersion) {
+		t.Fatalf("rollback did not restore VERSION bytes: read=%v got=%q", err, gotVersion)
+	}
+	info, err := os.Stat(versionPath)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("rollback did not restore VERSION mode: info=%v err=%v", info, err)
 	}
 }

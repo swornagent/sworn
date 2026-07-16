@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/swornagent/sworn/internal/baton"
 	"github.com/swornagent/sworn/internal/command"
@@ -64,47 +67,72 @@ See 'sworn baton vendor --help' or 'sworn baton diff --help' for details.
 // With --check, it prints the transform diff without writing any files (dry-run
 // mode). In upstream + dry-run mode, no pin is written even on success.
 func cmdBatonVendor(args []string) int {
-	fs := flag.NewFlagSet("baton vendor", flag.ExitOnError)
-	check := fs.Bool("check", false, "print the transform diff without writing files")
-	upstream := fs.Bool("upstream", false, "fetch from the public Baton repo over HTTPS")
-	tagFlag := fs.String("tag", "", "semver tag to fetch (default: pinned tag from VERSION)")
-	repoFlag := fs.String("repo", "", "GitHub repo as owner/name (default: github.com/sawy3r/baton)")
-	_ = fs.Parse(args)
+	parsed, err := parseBatonVendorArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "baton vendor: %v\n", err)
+		printBatonVendorUsage(os.Stderr)
+		return 2
+	}
+	if parsed.help {
+		printBatonVendorUsage(os.Stderr)
+		return 2
+	}
 
-	if !*upstream {
+	if !parsed.upstream {
 		// Local vendor path (S48 back-compat).
-		if fs.NArg() < 1 {
-			fmt.Fprintf(os.Stderr, "usage: sworn baton vendor <source-dir> [--check]\n")
-			fmt.Fprintf(os.Stderr, "  source-dir  path to a Baton checkout (e.g. ~/projects/baton)\n")
-			fmt.Fprintf(os.Stderr, "  --check     dry-run: print the transform diff without writing\n")
-			return 64
+		if len(parsed.positionals) != 1 {
+			fmt.Fprintln(os.Stderr, "baton vendor: local mode requires exactly one source-dir")
+			printBatonVendorUsage(os.Stderr)
+			return 2
 		}
 
-		sourceDir := fs.Arg(0)
+		sourceDir := parsed.positionals[0]
 		repoRoot, err := findRepoRoot()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "baton vendor: %v\n", err)
-			return 1
+			return 2
 		}
 
 		opts := baton.VendorOpts{
 			SourceDir: sourceDir,
 			RepoRoot:  repoRoot,
-			CheckOnly: *check,
+			CheckOnly: parsed.check,
 		}
 
 		result, err := baton.Vendor(opts)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "baton vendor: %v\n", err)
-			return 1
+			return 2
 		}
 
-		printVendorResult(result, *check, sourceDir)
+		printVendorResult(result, parsed.check, sourceDir)
+		if parsed.check && result.Diff != "" {
+			return 1
+		}
 		return 0
 	}
 
-	// --upstream path: fetch from the public Baton repo.
-	repo := *repoFlag
+	if len(parsed.positionals) != 0 {
+		fmt.Fprintln(os.Stderr, "baton vendor: upstream mode does not accept a source-dir")
+		printBatonVendorUsage(os.Stderr)
+		return 2
+	}
+
+	// --upstream path: recover an interrupted local transaction before doing
+	// any network work, then fetch from the public Baton repo.
+	repoRoot, err := findRepoRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "baton vendor: %v\n", err)
+		return 2
+	}
+	if !parsed.check {
+		if err := baton.RecoverVendorIfPending(repoRoot); err != nil {
+			fmt.Fprintf(os.Stderr, "baton vendor: %v\n", err)
+			return 2
+		}
+	}
+
+	repo := parsed.repo
 	if repo == "" {
 		if envRepo := os.Getenv("SWORN_BATON_REPO"); envRepo != "" {
 			repo = envRepo
@@ -113,12 +141,12 @@ func cmdBatonVendor(args []string) int {
 		}
 	}
 
-	tag := *tagFlag
+	tag := parsed.tag
 	if tag == "" {
 		tag = baton.Version()
 		if tag == "" {
 			fmt.Fprintf(os.Stderr, "baton vendor: no tag specified and no baton-protocol pin in VERSION — use --tag vX.Y.Z\n")
-			return 64
+			return 2
 		}
 	}
 
@@ -126,44 +154,120 @@ func cmdBatonVendor(args []string) int {
 	result, err := baton.FetchUpstream(ctx, repo, tag)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "baton vendor: %v\n", err)
-		return 1
+		return 2
 	}
 	defer result.Cleanup()
-
-	repoRoot, err := findRepoRoot()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "baton vendor: %v\n", err)
-		return 1
-	}
+	invocationInstant := time.Now().UTC()
 
 	opts := baton.VendorOpts{
 		SourceDir: result.SourceDir,
 		RepoRoot:  repoRoot,
-		CheckOnly: *check,
+		CheckOnly: parsed.check,
+		VersionCandidate: &baton.UpstreamVersionCandidate{
+			Tag:        tag,
+			SHA:        result.SHA,
+			Digest:     result.Digest,
+			CapturedAt: invocationInstant,
+		},
 	}
 
 	vendorResult, err := baton.Vendor(opts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "baton vendor: %v\n", err)
+		return 2
+	}
+
+	printVendorResult(vendorResult, parsed.check, fmt.Sprintf("%s @ %s", repo, tag))
+	if parsed.check && vendorResult.Diff != "" {
 		return 1
 	}
-
-	printVendorResult(vendorResult, *check, fmt.Sprintf("%s @ %s", repo, tag))
-
-	// Write the upstream pin only after a successful Vendor, and only when
-	// not in dry-run mode (CheckOnly). This ensures a failed run doesn't
-	// leave a stale pin.
-	if !*check {
-		// tag, SHA and digest are one fact — record them together, or the pin
-		// claims one version while carrying another's content.
-		if err := baton.WriteUpstreamPin(repoRoot, tag, result.SHA, result.Digest); err != nil {
-			fmt.Fprintf(os.Stderr, "baton vendor: write pin: %v\n", err)
-			return 1
-		}
-		fmt.Printf("Upstream pin recorded: %s sha=%s digest=%s\n", tag, result.SHA, result.Digest)
-	}
-
 	return 0
+}
+
+type batonVendorArgs struct {
+	check       bool
+	upstream    bool
+	tag         string
+	repo        string
+	help        bool
+	positionals []string
+}
+
+// parseBatonVendorArgs accepts vendor flags before or after the local source
+// operand. The standard flag package stops at the first positional argument,
+// which made `vendor SOURCE --check` silently perform a write.
+func parseBatonVendorArgs(args []string) (batonVendorArgs, error) {
+	var parsed batonVendorArgs
+	flagsEnabled := true
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if !flagsEnabled || arg == "" || arg[0] != '-' || arg == "-" {
+			parsed.positionals = append(parsed.positionals, arg)
+			continue
+		}
+		if arg == "--" {
+			flagsEnabled = false
+			continue
+		}
+		if strings.HasPrefix(arg, "---") {
+			return batonVendorArgs{}, fmt.Errorf("unknown flag %q", arg)
+		}
+
+		name, value, hasValue := strings.Cut(strings.TrimLeft(arg, "-"), "=")
+		switch name {
+		case "h", "help":
+			if hasValue {
+				return batonVendorArgs{}, fmt.Errorf("flag --%s does not accept a value", name)
+			}
+			parsed.help = true
+		case "check":
+			if !hasValue {
+				parsed.check = true
+				continue
+			}
+			boolValue, err := strconv.ParseBool(value)
+			if err != nil {
+				return batonVendorArgs{}, fmt.Errorf("invalid value %q for --check", value)
+			}
+			parsed.check = boolValue
+		case "upstream":
+			if !hasValue {
+				parsed.upstream = true
+				continue
+			}
+			boolValue, err := strconv.ParseBool(value)
+			if err != nil {
+				return batonVendorArgs{}, fmt.Errorf("invalid value %q for --upstream", value)
+			}
+			parsed.upstream = boolValue
+		case "tag", "repo":
+			if !hasValue {
+				i++
+				if i >= len(args) || strings.HasPrefix(args[i], "-") {
+					return batonVendorArgs{}, fmt.Errorf("flag --%s requires a value", name)
+				}
+				value = args[i]
+			}
+			if value == "" {
+				return batonVendorArgs{}, fmt.Errorf("flag --%s requires a non-empty value", name)
+			}
+			if name == "tag" {
+				parsed.tag = value
+			} else {
+				parsed.repo = value
+			}
+		default:
+			return batonVendorArgs{}, fmt.Errorf("unknown flag %q", arg)
+		}
+	}
+	return parsed, nil
+}
+
+func printBatonVendorUsage(w *os.File) {
+	fmt.Fprintln(w, "usage: sworn baton vendor <source-dir> [--check]")
+	fmt.Fprintln(w, "       sworn baton vendor --upstream [--tag vX.Y.Z] [--repo owner/name] [--check]")
+	fmt.Fprintln(w, "  source-dir  path to a Baton checkout (e.g. ~/projects/baton)")
+	fmt.Fprintln(w, "  --check     dry-run: print the transform diff without writing")
 }
 
 // printVendorResult prints the VendorResult in the standard format.

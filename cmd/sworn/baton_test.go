@@ -7,18 +7,24 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/swornagent/sworn/internal/baton"
 )
 
 // testBatonTag is a test-only Baton version tag.
 var testBatonTag = "v9.8.7"
+
+const vendorPayloadCanary = "SWORN_VENDOR_SECRET_PAYLOAD_CANARY_7f31d64c"
 
 func TestBatonDiffExitsNonZeroOnDivergence(t *testing.T) {
 	fixture, err := filepath.Abs(filepath.Join("..", "..", "internal", "baton", "testdata", "fixture"))
@@ -146,27 +152,381 @@ func TestBatonVendorAtomicPreflightReachability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	canaryFixture := t.TempDir()
+	if err := os.CopyFS(canaryFixture, os.DirFS(fixture)); err != nil {
+		t.Fatalf("copy vendor fixture: %v", err)
+	}
+	canarySource := filepath.Join(canaryFixture, filepath.FromSlash(baton.AllMappings()[0].Source))
+	canaryContent, err := os.ReadFile(canarySource)
+	if err != nil {
+		t.Fatalf("read canary source: %v", err)
+	}
+	canaryContent = append(canaryContent, []byte("\n"+vendorPayloadCanary+"\n")...)
+	if err := os.WriteFile(canarySource, canaryContent, 0o644); err != nil {
+		t.Fatalf("write canary source: %v", err)
+	}
+	fixture = canaryFixture
 
-	tmpRepo := t.TempDir()
-	if err := os.Mkdir(filepath.Join(tmpRepo, ".git"), 0755); err != nil {
-		t.Fatal(err)
+	newRepo := func(t *testing.T) string {
+		t.Helper()
+		repo := t.TempDir()
+		if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return repo
 	}
 
+	t.Run("valid drift is exit 1 and check is mutation-free", func(t *testing.T) {
+		repo := newRepo(t)
+		canaryDest := filepath.Join(repo, filepath.FromSlash(baton.AllMappings()[0].Dest))
+		if err := os.MkdirAll(filepath.Dir(canaryDest), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(canaryDest, []byte(vendorPayloadCanary), 0o640); err != nil {
+			t.Fatal(err)
+		}
+		exit, output := captureBatonDispatch(t, repo, []string{"sworn", "baton", "vendor", "--check", fixture})
+		if exit != 1 {
+			t.Fatalf("sworn baton vendor --check drift exit = %d, want 1; output=%s", exit, output)
+		}
+		got, err := os.ReadFile(canaryDest)
+		if err != nil {
+			t.Fatalf("read pre-existing destination after check: %v", err)
+		}
+		if string(got) != vendorPayloadCanary {
+			t.Fatalf("check mode changed pre-existing payload: got %q", got)
+		}
+		info, err := os.Stat(canaryDest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o640 {
+			t.Fatalf("check mode changed pre-existing mode to %04o", info.Mode().Perm())
+		}
+		if _, err := os.Stat(filepath.Join(repo, ".git", "sworn")); !os.IsNotExist(err) {
+			t.Fatalf("check mode created Git-admin recovery state: %v", err)
+		}
+		assertBatonPathOnlyOutput(t, output)
+	})
+
+	t.Run("positional source followed by check is honored and mutation-free", func(t *testing.T) {
+		repo := newRepo(t)
+		exit, output := captureBatonDispatch(t, repo, []string{"sworn", "baton", "vendor", fixture, "--check"})
+		if exit != 1 {
+			t.Fatalf("sworn baton vendor SOURCE --check exit = %d, want 1; output=%s", exit, output)
+		}
+		if _, err := os.Stat(filepath.Join(repo, "internal")); !os.IsNotExist(err) {
+			t.Fatalf("SOURCE --check mutated repository: stat internal error = %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(repo, ".git", "sworn")); !os.IsNotExist(err) {
+			t.Fatalf("SOURCE --check created Git-admin recovery state: %v", err)
+		}
+		assertBatonPathOnlyOutput(t, output)
+	})
+
+	t.Run("successful write and byte-identical check are exit 0", func(t *testing.T) {
+		repo := newRepo(t)
+		exit, output := captureBatonDispatch(t, repo, []string{"sworn", "baton", "vendor", fixture})
+		if exit != 0 {
+			t.Fatalf("sworn baton vendor write exit = %d, want 0; output=%s", exit, output)
+		}
+		assertBatonPathOnlyOutput(t, output)
+		exit, output = captureBatonDispatch(t, repo, []string{"sworn", "baton", "vendor", "--check", fixture})
+		if exit != 0 {
+			t.Fatalf("sworn baton vendor clean check exit = %d, want 0; output=%s", exit, output)
+		}
+		if !strings.Contains(output, "No changes") {
+			t.Fatalf("clean check output = %q, want no-changes guidance", output)
+		}
+		modeProbe := filepath.Join(repo, filepath.FromSlash(baton.AllMappings()[0].Dest))
+		if err := os.Chmod(modeProbe, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		exit, output = captureBatonDispatch(t, repo, []string{"sworn", "baton", "vendor", "--check", fixture})
+		if exit != 0 || !strings.Contains(output, "No changes") {
+			t.Fatalf("byte-identical mode-only check = exit %d output %q, want clean exit 0", exit, output)
+		}
+		if info, err := os.Stat(modeProbe); err != nil || info.Mode().Perm() != 0o600 {
+			t.Fatalf("byte-identical check changed existing mode: info=%v err=%v", info, err)
+		}
+	})
+
+	t.Run("invalid source is exit 2 without mutation", func(t *testing.T) {
+		repo := newRepo(t)
+		exit, output := captureBatonDispatch(t, repo, []string{"sworn", "baton", "vendor", "--check", t.TempDir()})
+		if exit != 2 {
+			t.Fatalf("invalid source exit = %d, want 2; output=%s", exit, output)
+		}
+		if _, err := os.Stat(filepath.Join(repo, "internal")); !os.IsNotExist(err) {
+			t.Fatalf("invalid preflight mutated repository: %v", err)
+		}
+		assertBatonPathOnlyOutput(t, output)
+	})
+
+	t.Run("invalid schema error is path-only and payload-redacted", func(t *testing.T) {
+		repo := newRepo(t)
+		invalidFixture := t.TempDir()
+		if err := os.CopyFS(invalidFixture, os.DirFS(fixture)); err != nil {
+			t.Fatal(err)
+		}
+		invalidSchema := []byte(`{"type":"string","pattern":"` + vendorPayloadCanary + `["}`)
+		if err := os.WriteFile(filepath.Join(invalidFixture, "schemas", "board-v1.json"), invalidSchema, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		exit, output := captureBatonDispatch(t, repo, []string{"sworn", "baton", "vendor", "--check", invalidFixture})
+		if exit != 2 {
+			t.Fatalf("invalid-schema exit = %d, want 2; output=%s", exit, output)
+		}
+		if !strings.Contains(output, "class=schema-invalid") || !strings.Contains(output, "destination=internal/baton/schemas/board-v1.json") {
+			t.Fatalf("invalid-schema output omitted deterministic class/path: %s", output)
+		}
+		assertBatonPathOnlyOutput(t, output)
+		if _, err := os.Stat(filepath.Join(repo, ".git", "sworn")); !os.IsNotExist(err) {
+			t.Fatalf("invalid schema created Git-admin state: %v", err)
+		}
+	})
+
+	t.Run("non-regular destination is operational exit 2 not drift", func(t *testing.T) {
+		repo := newRepo(t)
+		first := baton.AllMappings()[0]
+		if err := os.MkdirAll(filepath.Join(repo, filepath.FromSlash(first.Dest)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		exit, output := captureBatonDispatch(t, repo, []string{"sworn", "baton", "vendor", "--check", fixture})
+		if exit != 2 {
+			t.Fatalf("non-regular destination exit = %d, want 2; output=%s", exit, output)
+		}
+		if info, err := os.Stat(filepath.Join(repo, filepath.FromSlash(first.Dest))); err != nil || !info.IsDir() {
+			t.Fatalf("operational failure changed destination directory: info=%v err=%v", info, err)
+		}
+		assertBatonPathOnlyOutput(t, output)
+	})
+
+	t.Run("apply failure rolls back and is public exit 2", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("requires POSIX directory write permissions")
+		}
+		repo := newRepo(t)
+		blockedParent := filepath.Join(repo, "internal", "baton", "schemas")
+		if err := os.MkdirAll(blockedParent, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(blockedParent, 0o555); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(blockedParent, 0o755) })
+		exit, output := captureBatonDispatch(t, repo, []string{"sworn", "baton", "vendor", fixture})
+		if exit != 2 {
+			t.Fatalf("apply failure exit = %d, want 2; output=%s", exit, output)
+		}
+		if !strings.Contains(output, "class=apply-failed") || !strings.Contains(output, "phase=apply") {
+			t.Fatalf("apply failure output omitted deterministic classification: %s", output)
+		}
+		firstDest := filepath.Join(repo, filepath.FromSlash(baton.AllMappings()[0].Dest))
+		if _, err := os.Stat(firstDest); !os.IsNotExist(err) {
+			t.Fatalf("successful rollback retained an earlier apply destination: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(repo, ".git", "sworn")); !os.IsNotExist(err) {
+			t.Fatalf("successful rollback retained recovery authority: %v", err)
+		}
+		assertBatonPathOnlyOutput(t, output)
+	})
+
+	t.Run("incomplete rollback publishes public recovery-only authority", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("requires POSIX directory write permissions")
+		}
+		repo := newRepo(t)
+		blockedApplyParent := filepath.Join(repo, "internal", "prompt")
+		if err := os.MkdirAll(blockedApplyParent, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(blockedApplyParent, 0o555); err != nil {
+			t.Fatal(err)
+		}
+		rollbackParent := filepath.Join(repo, "internal", "adopt", "baton")
+		watchPath := filepath.Join(repo, "internal", "baton", "schemas", "assembly-proof-v1.json")
+		watchDone := make(chan error, 1)
+		stopWatch := make(chan struct{})
+		defer close(stopWatch)
+		go func() {
+			for {
+				select {
+				case <-stopWatch:
+					return
+				default:
+				}
+				if _, err := os.Stat(watchPath); err == nil {
+					watchDone <- os.Chmod(rollbackParent, 0o555)
+					return
+				} else if !os.IsNotExist(err) {
+					watchDone <- err
+					return
+				}
+				runtime.Gosched()
+			}
+		}()
+		t.Cleanup(func() {
+			_ = os.Chmod(blockedApplyParent, 0o755)
+			_ = os.Chmod(rollbackParent, 0o755)
+		})
+
+		exit, output := captureBatonDispatch(t, repo, []string{"sworn", "baton", "vendor", fixture})
+		select {
+		case err := <-watchDone:
+			if err != nil {
+				t.Fatalf("arm rollback fault: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out arming rollback fault")
+		}
+		if exit != 2 || !strings.Contains(output, "class=rollback-incomplete") {
+			t.Fatalf("incomplete rollback = exit %d output %s, want exit 2 rollback-incomplete", exit, output)
+		}
+		sentinel := filepath.Join(repo, ".git", "sworn", "recovery", "baton-vendor", "rollback-incomplete.json")
+		if _, err := os.Stat(sentinel); err != nil {
+			t.Fatalf("incomplete rollback omitted fixed recovery authority: %v", err)
+		}
+		assertBatonPathOnlyOutput(t, output)
+
+		if err := os.Chmod(blockedApplyParent, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(rollbackParent, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		exit, output = captureBatonDispatch(t, repo, []string{"sworn", "baton", "vendor", fixture})
+		if exit != 2 || !strings.Contains(output, "class=recovered-rerun-required") {
+			t.Fatalf("valid recovery-only invocation = exit %d output %s, want exit 2 rerun", exit, output)
+		}
+		firstDest := filepath.Join(repo, filepath.FromSlash(baton.AllMappings()[0].Dest))
+		if _, err := os.Stat(firstDest); !os.IsNotExist(err) {
+			t.Fatalf("recovery-only invocation combined restoration with ordinary vendor write: %v", err)
+		}
+		if _, err := os.Stat(sentinel); !os.IsNotExist(err) {
+			t.Fatalf("valid recovery retained fixed authority: %v", err)
+		}
+		assertBatonPathOnlyOutput(t, output)
+
+		exit, output = captureBatonDispatch(t, repo, []string{"sworn", "baton", "vendor", fixture})
+		if exit != 0 {
+			t.Fatalf("post-recovery rerun exit = %d, want 0; output=%s", exit, output)
+		}
+	})
+
+	t.Run("invalid invocations are exit 2 without mutation", func(t *testing.T) {
+		tests := []struct {
+			name string
+			args []string
+		}{
+			{name: "missing source", args: []string{"sworn", "baton", "vendor"}},
+			{name: "extra local operand", args: []string{"sworn", "baton", "vendor", fixture, fixture}},
+			{name: "upstream source operand", args: []string{"sworn", "baton", "vendor", "--upstream", fixture}},
+			{name: "unknown flag", args: []string{"sworn", "baton", "vendor", "--unknown"}},
+			{name: "missing tag value", args: []string{"sworn", "baton", "vendor", "--upstream", "--tag"}},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				repo := newRepo(t)
+				exit, output := captureBatonDispatch(t, repo, tt.args)
+				if exit != 2 {
+					t.Fatalf("invalid vendor invocation exit = %d, want 2; output=%s", exit, output)
+				}
+				if _, err := os.Stat(filepath.Join(repo, ".git", "sworn")); !os.IsNotExist(err) {
+					t.Fatalf("invalid invocation created Git-admin recovery state: %v", err)
+				}
+			})
+		}
+	})
+
+	t.Run("help is non-success exit 2", func(t *testing.T) {
+		repo := newRepo(t)
+		exit, output := captureBatonDispatch(t, repo, []string{"sworn", "baton", "vendor", "--help"})
+		if exit != 2 {
+			t.Fatalf("vendor --help exit = %d, want 2; output=%s", exit, output)
+		}
+		if !strings.Contains(output, "usage: sworn baton vendor") {
+			t.Fatalf("vendor --help output missing usage: %s", output)
+		}
+	})
+}
+
+func captureBatonDispatch(t *testing.T, repo string, args []string) (int, string) {
+	t.Helper()
 	oldDir, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chdir(tmpRepo); err != nil {
+	if err := os.Chdir(repo); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chdir(oldDir)
+	defer func() {
+		if err := os.Chdir(oldDir); err != nil {
+			t.Errorf("restore cwd: %v", err)
+		}
+	}()
 
-	exit := dispatch([]string{"sworn", "baton", "vendor", "--check", fixture})
-	if exit != 1 {
-		t.Fatalf("sworn baton vendor --check drift exit = %d, want 1", exit)
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(tmpRepo, "internal")); !os.IsNotExist(err) {
-		t.Fatalf("check mode mutated repository: stat internal error = %v", err)
+	oldStdout, oldStderr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = writer, writer
+	exit := dispatch(args)
+	_ = writer.Close()
+	os.Stdout, os.Stderr = oldStdout, oldStderr
+	output, readErr := io.ReadAll(reader)
+	_ = reader.Close()
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	return exit, string(output)
+}
+
+func assertBatonPathOnlyOutput(t *testing.T, output string) {
+	t.Helper()
+	for _, payloadMarker := range []string{"--- a/", "+++ b/", "# Rule:", `"properties":`, "sworn verify", vendorPayloadCanary} {
+		if strings.Contains(output, payloadMarker) {
+			t.Fatalf("vendor output exposed mapped payload marker %q: %s", payloadMarker, output)
+		}
+	}
+}
+
+func TestBatonVendorUpstreamRecoveryPrecedesNetwork(t *testing.T) {
+	repo := t.TempDir()
+	recoveryRoot := filepath.Join(repo, ".git", "sworn", "recovery", "baton-vendor")
+	if err := os.MkdirAll(recoveryRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(recoveryRoot, "rollback-incomplete.json")
+	if err := os.WriteFile(sentinel, []byte("{not-valid-recovery-json}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		http.Error(w, "network must not be reached", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	baton.SetBaseURLForTest(server.URL)
+	t.Cleanup(baton.ClearBaseURLForTest)
+
+	exit, output := captureBatonDispatch(t, repo, []string{
+		"sworn", "baton", "vendor", "--upstream",
+		"--repo", "example/baton", "--tag", testBatonTag,
+	})
+	if exit != 2 {
+		t.Fatalf("upstream pending-recovery exit = %d, want 2; output=%s", exit, output)
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("upstream fetch started before recovery was handled: requests=%d", got)
+	}
+	if !strings.Contains(output, "recovery") {
+		t.Fatalf("upstream recovery failure output missing recovery classification: %s", output)
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatalf("invalid recovery authority was not preserved: %v", err)
 	}
 }
 
@@ -264,7 +624,14 @@ func vendorFixtureFiles() map[string]string {
 		if _, ok := files[m.Source]; ok {
 			continue
 		}
-		files[m.Source] = fmt.Sprintf("# %s\n\nMinimal fixture content for integration test.\n", filepath.Base(m.Source))
+		if strings.HasSuffix(m.Source, ".json") {
+			// Candidate schemas now compile during the shared preflight. An
+			// empty JSON Schema is valid and keeps these network tests focused
+			// on fetch/transaction reachability rather than schema semantics.
+			files[m.Source] = "{}\n"
+		} else {
+			files[m.Source] = fmt.Sprintf("# %s\n\nMinimal fixture content for integration test.\n", filepath.Base(m.Source))
+		}
 	}
 	return files
 }
@@ -297,7 +664,7 @@ func TestBatonVendorUpstream_Success(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Create VERSION file for WriteUpstreamPin.
+	// Create the existing VERSION transaction member.
 	versionDir := filepath.Join(tmpRepo, "internal", "adopt", "baton")
 	if err := os.MkdirAll(versionDir, 0755); err != nil {
 		t.Fatal(err)
@@ -348,6 +715,59 @@ func TestBatonVendorUpstream_Success(t *testing.T) {
 	if len(content) == 0 {
 		t.Error("rule file is empty after vendor")
 	}
+}
+
+func TestBatonVendorUpstreamCheckIncludesVersionWithoutMutation(t *testing.T) {
+	owner, repo, tag := "sawy3r", "baton", testBatonTag
+	commitSHA := "abc123def4567890123456789012345678abcdef"
+	files := vendorFixtureFiles()
+	tarball := makeUpstreamTarball(repo, tag, files)
+	digest := sha256HexDigest(tarball)
+	baton.SetUpstreamPinForTest(&baton.UpstreamPin{SHA: commitSHA, Digest: digest})
+	t.Cleanup(baton.ClearUpstreamPinForTest)
+	ts := upstreamTestServer(owner, repo, tag, commitSHA, tarball)
+	defer ts.Close()
+	baton.SetBaseURLForTest(ts.URL)
+	t.Cleanup(baton.ClearBaseURLForTest)
+
+	tmpRepo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(tmpRepo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	versionPath := filepath.Join(tmpRepo, "internal", "adopt", "baton", "VERSION")
+	if err := os.MkdirAll(filepath.Dir(versionPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	originalVersion := []byte("baton-protocol: v0.4.2\nvendored: 2026-07-01\nupstream-sha: old\nupstream-digest: sha256:old\n")
+	if err := os.WriteFile(versionPath, originalVersion, 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	exit, output := captureBatonDispatch(t, tmpRepo, []string{
+		"sworn", "baton", "vendor", "--upstream", "--check",
+		"--repo", owner + "/" + repo, "--tag", tag,
+	})
+	if exit != 1 {
+		t.Fatalf("upstream check drift exit = %d, want 1; output=%s", exit, output)
+	}
+	if !strings.Contains(output, "changed: internal/adopt/baton/VERSION") {
+		t.Fatalf("upstream check omitted VERSION drift: %s", output)
+	}
+	got, err := os.ReadFile(versionPath)
+	if err != nil || !bytes.Equal(got, originalVersion) {
+		t.Fatalf("upstream check mutated VERSION: read=%v got=%q", err, got)
+	}
+	if info, err := os.Stat(versionPath); err != nil || info.Mode().Perm() != 0o640 {
+		t.Fatalf("upstream check mutated VERSION mode: info=%v err=%v", info, err)
+	}
+	if _, err := os.Stat(filepath.Join(tmpRepo, ".git", "sworn")); !os.IsNotExist(err) {
+		t.Fatalf("upstream check created Git-admin state: %v", err)
+	}
+	firstDest := filepath.Join(tmpRepo, filepath.FromSlash(baton.AllMappings()[0].Dest))
+	if _, err := os.Stat(firstDest); !os.IsNotExist(err) {
+		t.Fatalf("upstream check created mapped destination: %v", err)
+	}
+	assertBatonPathOnlyOutput(t, output)
 }
 
 func TestBatonVendorUpstream_RefreshesProjectContextSchema(t *testing.T) {

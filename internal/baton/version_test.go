@@ -1,7 +1,6 @@
 package baton
 
 import (
-	"strings"
 	"testing"
 	"time"
 )
@@ -65,19 +64,40 @@ func TestUpstreamPinReplacementUsesCapturedInstant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantLines := []string{
-		"baton-protocol: v0.15.1",
-		"vendored: 2026-07-16",
-		"upstream-sha: 3fb4d275ae8a151f6287e7b9279d71628b12eea0",
-		"upstream-digest: sha256:8f0839ea897374eb10d6db2a789939714727739621babef1117d74cbf4488d2f",
-	}
-	for _, line := range wantLines {
-		if !strings.Contains(string(got), line) {
-			t.Errorf("VERSION candidate missing %q:\n%s", line, got)
-		}
+	want := "baton-protocol: v0.15.1\n" +
+		"vendored: 2026-07-16\n" +
+		"upstream-sha: 3fb4d275ae8a151f6287e7b9279d71628b12eea0\n" +
+		"upstream-digest: sha256:8f0839ea897374eb10d6db2a789939714727739621babef1117d74cbf4488d2f\n"
+	if string(got) != want {
+		t.Fatalf("VERSION candidate bytes = %q, want %q", got, want)
 	}
 	if string(existing) != "baton-protocol: v0.13.1\nvendored: 2026-07-14\nupstream-sha: old\nupstream-digest: sha256:old\n" {
 		t.Fatal("pure VERSION construction mutated its input")
+	}
+}
+
+func TestUpstreamPinReplacementRejectsIncompleteCandidate(t *testing.T) {
+	complete := UpstreamVersionCandidate{
+		Tag:        "v0.15.1",
+		SHA:        "sha",
+		Digest:     "sha256:digest",
+		CapturedAt: time.Date(2026, 7, 16, 0, 0, 0, 0, time.UTC),
+	}
+	tests := []struct {
+		name      string
+		candidate UpstreamVersionCandidate
+	}{
+		{name: "zero instant", candidate: UpstreamVersionCandidate{Tag: complete.Tag, SHA: complete.SHA, Digest: complete.Digest}},
+		{name: "missing tag", candidate: UpstreamVersionCandidate{SHA: complete.SHA, Digest: complete.Digest, CapturedAt: complete.CapturedAt}},
+		{name: "missing SHA", candidate: UpstreamVersionCandidate{Tag: complete.Tag, Digest: complete.Digest, CapturedAt: complete.CapturedAt}},
+		{name: "missing digest", candidate: UpstreamVersionCandidate{Tag: complete.Tag, SHA: complete.SHA, CapturedAt: complete.CapturedAt}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got, err := UpstreamPinReplacement([]byte("baton-protocol: old\n"), test.candidate); err == nil || got != nil {
+				t.Fatalf("UpstreamPinReplacement incomplete candidate = (%q, %v), want nil error result", got, err)
+			}
+		})
 	}
 }
 

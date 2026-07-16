@@ -238,7 +238,10 @@ func TestCompileV015BoardSchemaWithoutSemanticWeakening(t *testing.T) {
 	}
 
 	accepted := []string{"a", ".a", "a..b", "a//b", "a/", ".github/workflows/ci.yml"}
-	rejected := []string{"/a", ".", "..", "a/./b", "a/../b", "a/.", "a/.."}
+	rejected := []string{
+		"/a", ".", "..", "a/./b", "a/../b", "a/.", "a/..",
+		"a\nb", "\n", "a\rb", "a\u2028b", "a\u2029b", "a\n",
+	}
 	validate := func(path string) error {
 		return schema.Validate(map[string]any{
 			"release": map[string]any{"name": "r1"},
