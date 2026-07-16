@@ -55,3 +55,32 @@
   verification remains required in a new `/verify-slice
   S19-s02-v015-rollback 2026-07-15-baton-v0.15-conformance` session; this
   Implementer intentionally stops at `implemented`.
+
+### 2026-07-17T01:10:16+10:00 — fresh verifier
+
+BLOCKED
+
+Slice: `S19-s02-v015-rollback`
+
+Reason: The independently configured semantic-coverage check returned blocking
+F-01: AC-01 through AC-05 rely on `proof/check-rollback.sh`, but no
+CI-enforced test executes and asserts its pass/fail semantics. A persistent
+non-release test or CI hook cannot be added within the current contract because
+AC-02 and AC-04 require exact non-release equality to the S02 start tree.
+
+Proposed `spec.json` amendment: Amend AC-01 through AC-05 to name
+`docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/check-rollback.sh`
+as the required executable integration test, require a fresh verifier to run it
+against live Git history plus adversarial bad Git objects, and state explicitly
+that no persistent non-release test or CI hook is required or permitted for this
+historical rollback proof. Replace each AC `test_refs` entry with that executable
+checker path and its named invocation.
+
+Evidence: fresh verification re-ran build, uncached repository tests, vet,
+whole-tree equality, deterministic proof verification, AC-satisfaction, and the
+rollback checker. The checker rejected real-form synthetic blob drift, a
+surviving added path, unrecognized merge provenance, authored/merge overlap,
+later ordinary authority, and absent fresh-verifier evidence. The semantic
+coverage LLM check itself returned `FAIL`/`F-01`.
+
+Next: `/replan-release 2026-07-15-baton-v0.15-conformance`
