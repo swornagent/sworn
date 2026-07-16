@@ -8,11 +8,11 @@
     "N-02",
     "N-10"
   ],
-  "state": "planned",
-  "owner": "unassigned",
+  "state": "blocked",
+  "owner": "planner",
   "last_updated_by": "planner",
-  "last_updated_at": "2026-07-16T22:53:25+10:00",
-  "start_commit": null,
+  "last_updated_at": "2026-07-17T05:28:20+10:00",
+  "start_commit": "08dd38f81e466d3288ff4bf64953cfc90ea6063c",
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S20-v015-parity-portable-fixture/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S20-v015-parity-portable-fixture/proof.json",
   "journal_path": "docs/release/2026-07-15-baton-v0.15-conformance/S20-v015-parity-portable-fixture/journal.md",
@@ -89,7 +89,16 @@
     "reports": [],
     "adjudication": null
   },
-  "open_deferrals": [],
+  "open_deferrals": [
+    {
+      "item": "The generic LLM check identity required by the upgraded v0.15 schema is omitted by the exact ac-satisfaction prompt.",
+      "why": "The exact prompt asks for verdict and findings only, while llm-check-report-v1 requires check. After the AC-04 recovery-exit repair, the raw configured ac-satisfaction response {\"verdict\":\"PASS\",\"findings\":[]} still failed closed because it omitted check. S04 AC-04 exclusively owns requested/emitted generic-check identity; S20 AC-05 explicitly excludes requested-check matching.",
+      "tracking": "S04-typed-reference-ambiguity AC-04 and its fresh verifier PASS; then rerun S20 readiness and maintainability evidence.",
+      "acknowledgement": "The Coach directed this replan: S04 is immediately before S20; S20 remains blocked until S04 receives fresh verification, then reruns its own readiness and maintainability evidence. No S20 scope widening or synthetic report workaround is authorized.",
+      "acknowledged_by": "Coach",
+      "acknowledged_at": "2026-07-17T05:28:20+10:00"
+    }
+  ],
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",

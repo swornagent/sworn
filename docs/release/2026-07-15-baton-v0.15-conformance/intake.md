@@ -1071,6 +1071,25 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   to continue. Real Codex and Claude homes remain untouched until S20 receives an
   independent fresh Verifier PASS.
 
+### 2026-07-17 - Make S04 the immediate prerequisite for blocked S20
+
+- **Trigger**: The exact `ac-satisfaction` prompt emits only `verdict` and
+  `findings`, but the upgraded generic `llm-check-report-v1` requires emitted
+  `check`. The configured raw response therefore failed closed even when it
+  stated PASS.
+- **Decision**: Move `S04-typed-reference-ambiguity` immediately before S20 in
+  T1. S04's existing AC-04 is the sole correction for requested/emitted generic
+  check identity. S20 AC-05 explicitly excludes that behavior, so no S20
+  acceptance criterion, implementation, or workaround is widened.
+- **Lifecycle**: S20 remains `blocked` at
+  `a7229cae11ea342eab5677269c24f03754e6b6b9`; its immutable start
+  `08dd38f81e466d3288ff4bf64953cfc90ea6063c` and implementation commits
+  `edad0fa8a75ab3b4a1938bdaf856c7973be72107` and
+  `f3da6a49c3f89f0883e265befd30d1eb099d6a90` remain reachable and unmodified.
+- **Handoff**: A fresh S04 verification PASS is required before S20 may resume.
+  The resumed S20 session reruns its readiness and maintainability evidence; it
+  does not inherit, fabricate, or bypass those gates.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`
