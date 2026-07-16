@@ -606,7 +606,7 @@ manual-merge waiver. Neither is permitted.
 For this release only, while `protocol.json.authority` is exactly `planning`,
 the schema-valid sealed manifest
 `planning/bootstrap-sync-reconciliations.json` at exact SHA-256
-`f9e0de63c0a5ecf15cdb6058a52166ff0a609fa0d0cf2ecdf81d7955030b1943`
+`2fabdcbf60ea0d81f77259bcaa08258a0e804f4cf1e23b8ba33eb2a7d47f5666`
 is historical recognition evidence. Its only entries are exact merges
 `36d1bd56cdc12ddc824533e24d385ef9e8cc550a`,
 `d062d055cdbe90e8290f0bf47574be660cd9a675`,

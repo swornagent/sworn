@@ -913,6 +913,33 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   synchronized through an ordinary section-6-compliant merge and fresh planner
   ambiguity validation passes.
 
+### 2026-07-16 — Repin the sealed S02 closure-review endpoint
+
+- **Trigger**: The first authorized S02 Implementer preflight at exact review
+  head `60097cfa65dc39d9a0ab174be7c627fde2d3f7d5` returned in-scope `FAIL`.
+  Blocking `F-01` required phase-specific private transaction states in
+  `internal/baton/install_transaction.go`; advisory `F-02` identified the inert
+  `needManifest` parameter. The report and mandatory pending transition are
+  committed at `bce66675862c18286dfee5d59f462ee50359abb1` and `fdae1cc…`.
+- **Bounded remediation**: A fresh Captain returned `PROCEED` for a mechanical
+  four-phase typestate extraction confined to the single required touchpoint.
+  Commit `4377d71a23a2252d4bbb6bb3784692171b0329da` authors only that file,
+  removes `preparedInstall`, `createdPaths`, and `needManifest`, preserves public
+  APIs/faults/error classes/transaction identity, and passes targeted tests,
+  full `internal/baton`, `go test ./...`, `go vet ./...`, and `make build`.
+- **Coach decision**: Replace only the two S02 authorization `review_head`
+  values in the sealed manifest with exact remediation head `4377d71…`. S01's
+  two envelopes, both S02 starts, all four merge OIDs, eight exceptional paths,
+  every Git tuple, interval semantics, purposes, schema, and all prohibitions
+  remain byte-identical. This is endpoint replacement after an authorized
+  remediation, not an entry/path/purpose extension.
+- **Ratification**: Brad's standing instruction selected the orchestrator's
+  recommendation. The replacement manifest is pinned at SHA-256
+  `2fabdcbf60ea0d81f77259bcaa08258a0e804f4cf1e23b8ba33eb2a7d47f5666`.
+  The sole closure dispatch remains prohibited until fresh ambiguity review,
+  deterministic planner gates, and ordinary section-6 synchronization into T1
+  all pass.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`
