@@ -1,77 +1,56 @@
 # Captain review — S02-v015-parity-and-installs
 Date: 2026-07-16
-Design commit: 38b0dd4e7ef6f21389f02089ae4344f2d34e40f5
+Design commit: 956c1d61aff0124b7e74506836b1587e8910ff2f
 
 ## Pins
 
-1. [escalate] §Review pins.1 — The offline archive has no declared binary-embed owner
-   What I observed: `internal/adopt/adopt.go` owns the only `embed.FS` that exposes `internal/adopt/baton/*`, and its directive does not include `installer-input-v0.15.1.tar`. `cmd/sworn` cannot embed across `..`, so the shipped binary needs either this file or a new file in `internal/adopt`; neither is in the ratified 28-file boundary.
-   What to ask the implementer: After Coach/planner re-planning, use the selected explicit embed owner and expose only validated archive bytes through `internal/adopt`; do not fall back to the repository filesystem at runtime.
+1. [escalate] §User outcome / AC-01 — The pinned VERSION blob has two incompatible live meanings
+   What I observed: `5f1dd0af59642311ee04e018a0023562d4dde008` is the exact Git blob of upstream Baton v0.15.1 `VERSION`, whose complete bytes are `v0.15.1\n`. The live destination `internal/adopt/baton/VERSION` is instead Sworn's multi-line pin manifest; `internal/baton/version.go` requires its `baton-protocol:`, `upstream-sha:`, and `upstream-digest:` fields, and S01's `UpstreamPinReplacement` preserves that shape. Replacing the destination with the pinned upstream blob would break the binary, while preserving the manifest cannot give that destination the pinned blob OID. `protocol.json` and C-03 call the value `vendored_version_blob_oid`, but the revised design does not distinguish upstream source VERSION identity from the committed Sworn manifest identity.
+   What to ask the implementer: Pause for Coach/Planner clarification of C-01/C-03. If `5f1dd...` means the upstream tag's VERSION blob, name and test it explicitly as upstream source identity while separately pinning/parsing Sworn's manifest. If it means the committed `internal/adopt/baton/VERSION` blob, re-plan the OID and deterministic bytes. Do not silently reinterpret the field or overwrite the manifest with `v0.15.1\n`.
 
-2. [escalate] §Review pins.2 — Public archive parity requires an undeclared `baton diff` owner
-   What I observed: C-01 and normative clarification §2 require repository parity to verify the archive SHA-256, Git blob, safe inventory, modes, and entry blobs. The live `Diff` implementation in `internal/baton/diff.go` only iterates `batonFileMappings`; `internal/baton/content.go` only materialises ordinary mapped files and the combined-rules sentinel. The archive is deliberately not an ordinary mapping, so `source.go` or `manifest.go` alone cannot make the public check fail closed.
-   What to ask the implementer: Re-plan the smallest explicit archive-parity owner including `internal/baton/diff.go`. Do not add `content.go` by reflex: own it only if the Coach-selected design deliberately places archive materialisation there; otherwise keep ordinary mapped content and archive validation separate.
+2. [mechanical] §Proposed implementation.8 — Canonical managed-tree modes need a fixed oracle umask
+   What I observed: the exact tagged installers use `mkdir`, `cp`, generated `cat` output, and `sed` without setting `umask`; the archived source modes are 0664/0775. Empty-home script output modes therefore vary with the invoking process even though AC-03 requires canonical byte/mode identity.
+   What to ask the implementer: Run both isolated script oracles under one explicitly fixed safe umask, derive native file/directory modes from that canonical result, and mutation-test a hostile inherited umask so environment-dependent modes cannot pass.
 
-3. [escalate] §Proposed approach.4 — The archive is outside the repository vendor transaction and recovery authority
-   What I observed: S01's live vendor plan and restart recovery accept exactly `batonFileMappings + VERSION`. The design constructs the tar before running that transaction but names no mechanism that makes the tar a candidate, snapshot, rollback member, or recovery member. A direct archive write can therefore survive a failed mapped-byte/VERSION transaction, or the mapped-byte/VERSION transaction can succeed while archive publication fails.
-   What to ask the implementer: The Coach must choose and the Planner must record either (a) expansion of the repository transaction/recovery boundary to include the fully validated archive, with the necessary `vendor.go` and `vendor_transaction.go` ownership, or (b) an explicit amended split-transaction contract with exact failure semantics. Do not implement an unrecorded standalone tar write.
+3. [mechanical] §Proposed implementation.9-10 — The three-root transaction needs explicit alias and crash guards
+   What I observed: `AGENTS_HOME`, `CODEX_HOME`, `CLAUDE_HOME`, and the Sworn recovery directory are caller/environment-derived paths. The design promises whole-root restoration and recovery-only restart behavior but does not explicitly reject equal/nested/aliased roots or recovery-root overlap, nor state that complete recovery authority is durable before the first root replacement. Without those guards, one logical replacement can overwrite another or process death can leave mixed roots without sole recovery authority.
+   What to ask the implementer: Before mutation, physically resolve and prove all three targets and the recovery root are disjoint and non-symlinked, reject unsupported pre-existing symlink/special-file trees as the normative manifest requires, and durably publish the complete owner-only snapshot/manifest/sentinel authority before the first replacement; fault-test process death at every publish/replace/verify/retire boundary.
 
-4. [escalate] §Review pins.3 — Archive generation and three-root recovery placement is an unrecorded architectural choice
-   What I observed: `cmd/sworn/doctor.go` is already 1,316 lines, while the design adds hostile-tar validation, native Codex/Claude generation, complete-tree manifests, a three-root transaction, rollback-incomplete persistence, and recovery-only routing. The ratified file ceiling provides no semantically named helper owner, and `manifest.go` is currently the schema-grade manifest rather than a filesystem transaction package.
-   What to ask the implementer: The Coach must choose between bounded new internal owners (and a re-planned file ceiling) or explicit acceptance of placement in the existing large files. Record the choice, options, and rationale as Type-1 before code.
-
-5. [mechanical] §Proposed approach.7 — The exact tag installs eight commands, not seven
-   What I observed: The design says native Claude generation will "copy the seven command files", but Baton v0.15.1 contains eight files under `commands/`, including `design-review.md`; both tagged installers glob `commands/*.md`. Encoding seven would make both canonical trees incomplete and violate AC-03/AC-04.
-   What to ask the implementer: Enumerate the complete tagged command set, assert all eight outputs including design-review, and derive both native trees from the exact script-visible inventory rather than stale installer prose or a hard-coded seven-file list.
-
-6. [mechanical] §Design choices — Rule 9 records are incomplete and two structural choices are misclassified Type-2
-   What I observed: `status.json` records one combined Type-1 decision, while design.md separately labels staged whole-root rollback and one embedded source as Type-2 and omits all Type-2 defaults from `design_decisions`. Both of those choices shape the cross-home transaction and protocol authority and are architecturally significant; the unresolved helper-placement choice is also Type-1-equivalent.
-   What to ask the implementer: In the re-plan/acknowledgement, fold the structural choices into explicit Type-1 records with the applicable Coach decision, record the remaining Type-2 path-only diagnostic default, and add the selected responsibility-placement decision before transitioning to code.
-
-7. [memory-cited] §Design choices.1 — Exact normative bytes and dual-install proof preserve the prior parity lesson
-   What I observed: The design's byte-exact JSON policy and independent Codex/Claude checks align with the previous Sworn Baton upgrade, where a stale normative schema escaped until vendor and diff shared exact schema-aware policy and both local mirrors were checked.
-   What to ask the implementer: Preserve that contract across the new schema, archive, public diff, doctor, and isolated installer proofs; no prose transform or success on only one mirror may count as parity.
-   Citation (if [memory-cited]): [[Baton v0.13.1 prerequisite upgrade and parity verification]]
-
-Pins: 7 total — 2 [mechanical], 1 [memory-cited], 4 [escalate]
-Critical pins (if any): 1, 2, 3, 5
+Pins: 3 total — 2 [mechanical], 0 [memory-cited], 1 [escalate]
+Critical pins (if any): 1, 2, 3
 
 ## Summary
 
-Pins: 7 total — 2 [mechanical], 1 [memory-cited], 4 [escalate]
-Critical pins (if any): 1, 2, 3, 5
+Pins: 3 total — 2 [mechanical], 0 [memory-cited], 1 [escalate]
+Critical pins (if any): 1, 2, 3
 
 ## Smaller flags (not pins, worth one-line acknowledgement)
 
-- The exact archive command independently reproduces 78 entries, SHA-256 `27d5021cb3ec258a7fd7a5feb6eed92968be0e6cb439e2951da7c6b368e0ca15`, and Git blob `39ae650dfe0282b0fa8bda14e1a01e7084077702` at the pinned commit.
-- The live pre-v0.15 `sworn baton diff` reports exactly the 17 mapped destination drifts named by the design; no additional ordinary mapped file is missing from its planned set.
-- S03 later shares `internal/baton/records_conformance_test.go` and `cmd/sworn/doctor.go`, but it is still planned in the same serial track, so there is no active sibling collision.
-- No planned S02 file has cross-release ancestry on the current track beyond the release base.
-- The design correctly keeps real Codex/Claude installations untouched until repository parity and approval; this review performed no vendoring or installation mutation.
+- All seven prior review pins are resolved: the design now declares `internal/adopt/baton_archive.go`, gives archive parity to `internal/baton/diff.go` with `content.go` excluded, places the archive inside mapped+VERSION transaction/recovery, assigns bounded archive/install owners, asserts all eight commands including `design-review.md`, records five Type-1 choices plus the Type-2 diagnostic default, and requires normative-byte plus dual-install fail-closed parity.
+- The exact tag is `v0.15.1` at `3fb4d275ae8a151f6287e7b9279d71628b12eea0`; the archive operation independently reproduces 78 entries, SHA-256 `27d5021cb3ec258a7fd7a5feb6eed92968be0e6cb439e2951da7c6b368e0ca15`, and Git blob `39ae650dfe0282b0fa8bda14e1a01e7084077702`.
+- S01's verified transaction implementation is the only relevant post-base ancestry and is explicitly consumed by the revised design. S03 shares `records_conformance_test.go` and `doctor.go` only as a later planned slice in the same serial track; no active sibling collision exists.
+- The first-red and companion built-binary tests reach the registered `sworn baton diff`, `sworn doctor`, and `sworn doctor --sync-baton` surfaces with exact 0/1/2 behavior; no leaf-only reachability claim remains.
+- This review used only committed release/slice artefacts, exact upstream-tag objects, and live repo state; no project or inherited memory was used as evidence.
 
 ## Suggested acknowledgement reply
 <!-- Human-extractable section: a driver that applies the acknowledgement automatically reads everything
      between this heading and the next ## heading (or EOF). Keep this content
      verbatim-pasteable into the Implementer session — no surrounding prose. -->
 
-TL;DR The conformance direction is sound, but implementation proceeds only from the Coach-selected, planner-recorded ownership and transaction boundary. 7 pins + 5 flags:
+TL;DR The revised ownership and parity design is implementation-ready once the Coach/Planner resolves the VERSION identity wording. 3 pins + 5 flags:
 
-1. **Use the re-planned embed owner.** Consume `installer-input-v0.15.1.tar` only through the explicit `internal/adopt` embed boundary; no repository-filesystem runtime fallback.
-2. **Make public diff own archive parity.** Use the re-planned `internal/baton/diff.go` boundary to fail closed on archive identity, inventory, mode, and blob drift; keep ordinary mapped-content materialisation separate unless the recorded design explicitly says otherwise.
-3. **Keep the archive inside the recorded repository transaction contract.** Implement the Coach-selected, planner-recorded archive publication and rollback semantics; no standalone unprotected tar write.
-4. **Use the recorded responsibility placement.** Put archive generation and three-root recovery in the bounded owners selected during re-planning, and preserve the Type-1 rationale.
-5. **Generate all eight commands.** Derive the complete command/skill set from the exact tagged inventory and include `design-review.md` in Claude and Codex output.
-6. **Repair Rule 9 records.** Record every structural choice as Type-1 with its Coach authority, record the path-only diagnostic Type-2 default, and include the selected helper-placement decision.
-7. **Preserve exact-byte parity.** Keep normative JSON verbatim and require both Codex and Claude mirrors plus every public archive surface to agree before success.
+1. **Apply the ratified VERSION identity correction.** Implement the Coach/Planner's explicit distinction between upstream source VERSION identity and the committed Sworn pin manifest; do not reinterpret `vendored_version_blob_oid` locally or replace the manifest with bytes its parser cannot consume.
+2. **Fix the installer oracle umask.** Run both exact script oracles under one declared safe umask, generate native modes to match, and prove hostile inherited umasks cannot change the canonical result.
+3. **Harden the three-root transaction.** Reject equal, nested, aliased, symlinked, special-file, or recovery-overlapping roots before mutation and publish complete owner-only restart authority before the first replacement; kill-test every durable boundary.
 
-Flags (not pins): (a) archive SHA/blob/count independently match; (b) the live ordinary mapping has exactly 17 expected drifts; (c) S03 shared files remain serial and planned; (d) no S02 planned-file ancestry collision exists; (e) no real install or vendor mutation occurred during review.
+Flags (not pins): (a) all seven prior pins are resolved; (b) archive SHA/blob/count reproduce exactly; (c) no active sibling collision exists; (d) public binary reachability is explicit; (e) no inherited memory or real installation mutation entered this review.
 
-The Coach-selected re-plan and §2 Type-1/Type-2 records are acknowledged. The six review questions are resolved by that durable boundary plus pins 5–7. Address pins 1–7 inline during implementation, then proceed to in_progress.
+§2 decisions 1–6 acknowledged subject to the Planner-ratified VERSION wording. No open design question remains after that correction. Address pins 1–3 inline during implementation, then proceed to in_progress.
 
 ## Triage verdict
 
 <!-- CAPTAIN-VERDICT
 DECISION: NEEDS_COACH
 CONSTITUTIONAL: no
-REASON: The exact archive lacks declared embed, public-diff, and repository-rollback owners, and choosing the required file-boundary expansion and responsibility placement exceeds Captain authority.
+REASON: All prior design pins are resolved, but C-01/C-03 must distinguish the exact upstream VERSION blob from Sworn's differently shaped committed pin manifest before implementation can preserve both byte identity and binary parsing.
 -->
