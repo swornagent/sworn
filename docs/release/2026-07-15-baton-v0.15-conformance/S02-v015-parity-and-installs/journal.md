@@ -534,3 +534,22 @@ Gate 8 did not run because Gate 3 failed. No authoritative Verifier maintainabil
   is `/replan-release 2026-07-15-baton-v0.15-conformance`, which must assign the
   mandatory rollback and corrected replacement slices before implementation
   resumes.
+
+## 2026-07-16 — Planner assigned mandatory rollback and replacement
+
+- Seeded this release-planning copy from the exact T1 owner-track lifecycle at
+  `e925bbf0ab93d44607b950c6be52321f85817c73`; the failed Verifier result,
+  immutable start, complete two-report ledger, claim, receipt, proof, and null
+  implementation head remain unchanged.
+- Overall state is now `deferred` only in the terminal rollback-backed sense.
+  `maintainability.state` remains `re_slice_required` and its sole immutable
+  `rollback_slice_id` is `S19-s02-v015-rollback`.
+- `S19-s02-v015-rollback` must restore the complete first-parent non-merge semantic envelope
+  through its verified implementation head to the exact S02 start tree
+  `e61cb190736ee7483fb4ed1a993442b26ce3574c`. Only after that rollback is
+  freshly verified may `S20-v015-parity-portable-fixture` re-deliver C-01 with a clean-CI portable
+  Baton source fixture.
+- Brad was told this mandatory rollback/replacement topology, accepted the
+  orchestrator's recommendation, and instructed the process to continue. No
+  semantic, report, proof, claim, receipt, installation, or real-home byte was
+  changed by this planning transition.

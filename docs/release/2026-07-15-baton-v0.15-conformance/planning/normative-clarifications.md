@@ -429,15 +429,19 @@ unprovable boundary, or a missing VERSION blob fails validation.
 `maintainability cutover` is owned by S13 and is the only native
 planning-to-current transition for this release:
 
-1. complete and freshly verify S01 through S13 under the ratified manual v0.15
-   bootstrap, integrating T1 then T2 with the exact
+1. complete and freshly verify S01, S03 through S13, S19, and S20 under the
+   ratified manual v0.15 bootstrap; require original S02 to remain a terminal
+   `re_slice_required` deferral whose immutable S19 rollback is verified and
+   tree-equal, then integrate T1 and T2 with the exact
    pinned Track Integrator transaction above while the marker remains
    `planning`;
 2. before creating T5 or T6, run in the clean primary release worktree on the
    exact local and remote `release-wt/<release>` head; no downstream track ref
    may already exist;
 3. require the exact committed planning marker and embedded pin, canonical T1
-   and T2 bootstrap integration ancestry, S01 through S13 verified evidence, the S01 through S13
+   and T2 bootstrap integration ancestry, verified S01/S03-S13/S19/S20
+   evidence, original S02's immutable failed/deferred history and exact S19
+   rollback equality, S20's fresh active C-01 authority, the complete bootstrap
    engine cutover reproduction, and current schema, trace, requirements,
    design-fit, spec-quality, and ambiguity PASS results;
 4. write only `protocol.json.authority` from `planning` to `current`; every
@@ -461,7 +465,9 @@ active owner and assembly refs against the same current marker.
 
 `authority: planning` is not a maintainability waiver. Before S13 makes the
 generalized stateful command authoritative, the human-ratified bootstrap roles
-must execute the exact operation manually for every S01 through S13 slice. The
+must execute the exact operation manually for every active bootstrap slice:
+S01, S03 through S13, S19, and S20. Original S02 remains historical evidence;
+its prior manual reports are validated but never reused as current authority. The
 adapter is the role session plus deterministic Git and record tooling; its CLI
 spelling is deliberately non-normative. It may not use the installed legacy
 generic `llm-check --type maintainability-review` result, because that binary's
@@ -496,8 +502,10 @@ upstream commit `3fb4d275ae8a151f6287e7b9279d71628b12eea0`:
 The adapter grants no public command authority, lifecycle automation, general
 merge composition, adjudication, rollback, or cutover behavior. S06 through S13
 still deliver those product operations. S13 must reproduce the scope and ledger
-validation for every S01 through S13 bootstrap report before it may change only
-`protocol.json.authority` from `planning` to `current`.
+validation for every active bootstrap report plus original S02's complete
+historical ledger, immutable rollback link, exact S19 equality, and S20 fresh
+authority before it may change only `protocol.json.authority` from `planning`
+to `current`.
 
 ## 5. Canonical semantic scope
 
@@ -955,6 +963,32 @@ active authority. Unexpected later ordinary history is a provenance failure
 requiring track reconstruction. At rollback head, every envelope path's mode,
 object ID, or absence must equal the original `start_commit` tree exactly.
 
+For the concrete S02 Gate-3 re-slice, the original is
+`S02-v015-parity-and-installs`, its immutable `start_commit` is
+`e61cb190736ee7483fb4ed1a993442b26ce3574c` with tree
+`c57285e3f652e5f49aa8bb15e3ba65249b4a3db8`, and the last valid frozen
+semantic head is `2a17443d67d39cf681dba117a57673714a916d7f`. The mandatory rollback is
+`S19-s02-v015-rollback`; its currently known envelope has 45 non-release paths,
+37 restoring exact start-tree mode/blob tuples and eight restoring absence.
+`S20-v015-parity-portable-fixture` may not start until S19 is freshly verified
+and tree-equal. S20 then owns active C-01. Its built-binary Baton source is a
+temporary clone of the committed test-only bundle
+`internal/baton/testdata/fixture/baton-v0.15.1.bundle`, produced exactly by
+the exact concatenation of ASCII `# v2 git bundle\n3ba5f70435ff1ef3ea819def7b06c126fdb269d8 refs/tags/v0.15.1\n\n` and Git 2.43.0 stdout from `printf 'refs/tags/v0.15.1\n' | git pack-objects --stdout --revs --window=0 --depth=0 --compression=9 --threads=1 --no-reuse-delta --no-reuse-object --no-sparse --delta-base-offset`; size 2505826 bytes, SHA-256
+`cba3796ed382623f35abc568183e3a5a0d4a82335cebd4589989d0ae41b43ad5`, Git
+blob `77e5b4cc7210a41ce8779bc352a1f487101fb80e`, annotated tag object
+`3ba5f70435ff1ef3ea819def7b06c126fdb269d8`, and peeled commit
+`3fb4d275ae8a151f6287e7b9279d71628b12eea0`. The test verifies every identity and complete-history status, clones with
+`--no-checkout` beneath its temporary directory, then detach-checkouts
+`v0.15.1^{commit}` before evaluating HEAD; corruption, missing reachable
+objects, wrong VERSION/tree/archive, synthetic commits, weakened production pin
+checks, `/home/brad/projects/baton`, and every ambient sibling checkout fail
+closed. The committed bytes and pinned identities are normative; regeneration under a different Git version is not required. The bundle is never embedded and is not a runtime dependency. Original
+S02 reports, claim, receipt, proof, journal, Verifier failure, and terminal
+deferral remain append-only. `contracts.json.owner` is the sole active C-01
+ownership authority; S02's frozen ownership prose is historical only and can
+never satisfy current or cutover authority.
+
 Post-sync rollback is distinct. Its candidate interval ends at the recorded
 `invalidated_review_head`, its rollback baseline is exact synchronization parent
 2, and every later authoritative candidate interval must be disjoint. Overlap
@@ -1238,4 +1272,8 @@ and adopting-manifest identities, physically disjoint install/recovery roots,
 and pre-replacement durable recovery authority, were selected under the Coach's
 2026-07-16 instruction to proceed with the orchestrator's recommendation. They
 are Type-1 where copied into a slice's `design_decisions`; fixed umask `0022`
-and path-only diagnostics are the recorded Type-2 defaults.
+and path-only diagnostics are the recorded Type-2 defaults. The later mandatory
+S02 terminal-deferral → S19 exact rollback → S20 fresh replacement topology was
+likewise ratified when Brad accepted the orchestrator's recommendation and
+instructed the release process to continue; the portable temporary-source test
+fixture is the authenticated exact-tag bundle Type-2 default within that topology.

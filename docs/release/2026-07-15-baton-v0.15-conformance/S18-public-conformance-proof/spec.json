@@ -13,44 +13,166 @@
     "cmd/sworn/conformance_v015_release_test.go"
   ],
   "references": [
-    {"kind": "contract", "contract_id": "C-01"},
-    {"kind": "contract", "contract_id": "C-02"},
-    {"kind": "contract", "contract_id": "C-03"},
-    {"kind": "contract", "contract_id": "C-04"},
-    {"kind": "contract", "contract_id": "C-05"},
-    {"kind": "contract", "contract_id": "C-06"},
-    {"kind": "contract", "contract_id": "C-07"},
-    {"kind": "contract", "contract_id": "C-08"},
-    {"kind": "contract", "contract_id": "C-09"},
-    {"kind": "contract", "contract_id": "C-10"},
-    {"kind": "contract", "contract_id": "C-11"},
-    {"kind": "contract", "contract_id": "C-12"},
-    {"kind": "contract", "contract_id": "C-13"},
-    {"kind": "slice", "slice_id": "S01-vendor-boundary-readiness"},
-    {"kind": "slice", "slice_id": "S02-v015-parity-and-installs"},
-    {"kind": "slice", "slice_id": "S03-lossless-record-carriers"},
-    {"kind": "slice", "slice_id": "S04-typed-reference-ambiguity"},
-    {"kind": "slice", "slice_id": "S05-protocol-provenance-archive"},
-    {"kind": "slice", "slice_id": "S06-exact-git-object-plumbing"},
-    {"kind": "slice", "slice_id": "S07-canonical-semantic-scope"},
-    {"kind": "slice", "slice_id": "S08-report-ledger-identity"},
-    {"kind": "slice", "slice_id": "S09-lifecycle-fsm-adjudication"},
-    {"kind": "slice", "slice_id": "S10-shared-touchpoint-composition"},
-    {"kind": "slice", "slice_id": "S11-track-evidence-freshness"},
-    {"kind": "slice", "slice_id": "S12-rollback-readiness"},
-    {"kind": "slice", "slice_id": "S13-maintainability-engine-cutover"},
-    {"kind": "slice", "slice_id": "S14-role-lifecycle-recovery"},
-    {"kind": "slice", "slice_id": "S15-unified-track-merge"},
-    {"kind": "slice", "slice_id": "S16-release-ship-transitions"},
-    {"kind": "slice", "slice_id": "S17-engine-replan-migration"},
-    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/mark-shipped-ship-v1.schema.json"},
-    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/local-first-migration-manifest.json"},
-    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/normative-clarifications.md"},
-    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/plan-delta-v1.schema.json"},
-    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/protocol-migration-receipt-v1.schema.json"},
-    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/sworn-maintainability-raw-response-v1.schema.json"},
-    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/sworn-maintainability-report-overlay-v1.schema.json"},
-    {"kind": "file", "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"}
+    {
+      "kind": "contract",
+      "contract_id": "C-01"
+    },
+    {
+      "kind": "contract",
+      "contract_id": "C-02"
+    },
+    {
+      "kind": "contract",
+      "contract_id": "C-03"
+    },
+    {
+      "kind": "contract",
+      "contract_id": "C-04"
+    },
+    {
+      "kind": "contract",
+      "contract_id": "C-05"
+    },
+    {
+      "kind": "contract",
+      "contract_id": "C-06"
+    },
+    {
+      "kind": "contract",
+      "contract_id": "C-07"
+    },
+    {
+      "kind": "contract",
+      "contract_id": "C-08"
+    },
+    {
+      "kind": "contract",
+      "contract_id": "C-09"
+    },
+    {
+      "kind": "contract",
+      "contract_id": "C-10"
+    },
+    {
+      "kind": "contract",
+      "contract_id": "C-11"
+    },
+    {
+      "kind": "contract",
+      "contract_id": "C-12"
+    },
+    {
+      "kind": "contract",
+      "contract_id": "C-13"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S01-vendor-boundary-readiness"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S02-v015-parity-and-installs"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S19-s02-v015-rollback"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S20-v015-parity-portable-fixture"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S03-lossless-record-carriers"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S04-typed-reference-ambiguity"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S05-protocol-provenance-archive"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S06-exact-git-object-plumbing"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S07-canonical-semantic-scope"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S08-report-ledger-identity"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S09-lifecycle-fsm-adjudication"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S10-shared-touchpoint-composition"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S11-track-evidence-freshness"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S12-rollback-readiness"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S13-maintainability-engine-cutover"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S14-role-lifecycle-recovery"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S15-unified-track-merge"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S16-release-ship-transitions"
+    },
+    {
+      "kind": "slice",
+      "slice_id": "S17-engine-replan-migration"
+    },
+    {
+      "kind": "file",
+      "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/mark-shipped-ship-v1.schema.json"
+    },
+    {
+      "kind": "file",
+      "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/local-first-migration-manifest.json"
+    },
+    {
+      "kind": "file",
+      "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/normative-clarifications.md"
+    },
+    {
+      "kind": "file",
+      "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/plan-delta-v1.schema.json"
+    },
+    {
+      "kind": "file",
+      "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/protocol-migration-receipt-v1.schema.json"
+    },
+    {
+      "kind": "file",
+      "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/sworn-maintainability-raw-response-v1.schema.json"
+    },
+    {
+      "kind": "file",
+      "path": "docs/release/2026-07-15-baton-v0.15-conformance/planning/sworn-maintainability-report-overlay-v1.schema.json"
+    },
+    {
+      "kind": "file",
+      "path": "docs/release/2026-07-15-baton-v0.15-conformance/protocol.json"
+    }
   ],
   "in_scope": [
     "Build the current sworn binary once per conformance test suite and invoke it as a subprocess with isolated HOME, Git config, repositories, worktrees, bare remotes, model-driver fakes, clocks, and environment; no test calls an internal operation as a substitute for its public entry point.",
@@ -67,7 +189,19 @@
     "A failing conformance scenario is fixed in its owning S01–S17 slice; S18 does not weaken assertions or add compatibility bypasses.",
     "Performance benchmarking, UI board delivery, webhook product delivery, and hosted commercial behavior are outside this conformance proof."
   ],
-  "covers_needs": ["N-01", "N-02", "N-03", "N-04", "N-05", "N-06", "N-07", "N-08", "N-09", "N-10", "N-11"],
+  "covers_needs": [
+    "N-01",
+    "N-02",
+    "N-03",
+    "N-04",
+    "N-05",
+    "N-06",
+    "N-07",
+    "N-08",
+    "N-09",
+    "N-10",
+    "N-11"
+  ],
   "effort_complexity": {
     "effort": "high",
     "complexity": "high",
@@ -89,57 +223,73 @@
     {
       "id": "R-03",
       "description": "A failing scenario is made green by relaxing the final test rather than repairing its owning behavior.",
-      "mitigation": "Every scenario names its owning C-01 through C-13 contract and S01 through S17 slice; any product mismatch routes back to that owner and the final assertion remains unchanged."
+      "mitigation": "Every scenario names its owning C-01 through C-13 contract and S01 through S20 slice; any product mismatch routes back to that owner and the final assertion remains unchanged."
     }
   ],
   "acceptance_criteria": [
     {
       "id": "AC-01",
-      "text": "WHEN the real-binary complete-PASS scenario installs isolated Codex and Claude mirrors, completes manual S01-S13 evidence, integrates T1 then T2 with exact pinned Baton v0.15.1 Track Integrator commits, activates C-13 before creating T5/T6, runs one current-authority role lifecycle, merges its track/release, passes read-only ship, and records deployment with mark-shipped THE SYSTEM SHALL exit 0 only at authorized PASS points and produce exact C-01 through C-13 records, refs, parents, trees, reports, Baton ship blocks, status-derived state/count/activity index views, byte-identical pure-plan board, and terminal states (N-01, N-02, N-03, N-04, N-05, N-06, N-07, N-08, N-09, N-10, N-11).",
+      "text": "WHEN the real-binary complete-PASS scenario installs isolated Codex and Claude mirrors, completes manual S01 and S03-S13 plus S19/S20 evidence, validates terminal S02 as rollback-backed history, integrates T1 then T2 with exact pinned Baton v0.15.1 Track Integrator commits, activates C-13 before creating T5/T6, runs one current-authority role lifecycle, merges its track/release, passes read-only ship, and records deployment with mark-shipped THE SYSTEM SHALL exit 0 only at authorized PASS points and produce exact C-01 through C-13 records, refs, parents, trees, reports, Baton ship blocks, status-derived state/count/activity index views, byte-identical pure-plan board, and terminal states (N-01, N-02, N-03, N-04, N-05, N-06, N-07, N-08, N-09, N-10, N-11).",
       "ears_pattern": "event-driven",
-      "test_refs": ["cmd/sworn/conformance_v015_test.go:TestV015ConformanceCompletePublicLifecycle"]
+      "test_refs": [
+        "cmd/sworn/conformance_v015_test.go:TestV015ConformanceCompletePublicLifecycle"
+      ]
     },
     {
       "id": "AC-02",
       "text": "IF the tamper matrix deletes or rewrites a report, changes overlay provenance/disposition, blob OID, protocol marker, semantic path, fingerprint, lifecycle/Coach member, sync parent, shared result, rollback baseline, readiness fact, deploy containment, or ratified delta source identity THEN the next affected public command SHALL exit non-zero, name the owning C-01 through C-13 gate, perform zero unauthorized model calls, and preserve pre-command refs and bytes (N-01 through N-11).",
       "ears_pattern": "unwanted-behaviour",
-      "test_refs": ["cmd/sworn/conformance_v015_tamper_test.go:TestV015ConformanceTamperMatrixFailsClosed"]
+      "test_refs": [
+        "cmd/sworn/conformance_v015_tamper_test.go:TestV015ConformanceTamperMatrixFailsClosed"
+      ]
     },
     {
       "id": "AC-03",
       "text": "WHEN the test kills and restarts separate sworn processes at each row of planning/normative-clarifications.md section 10 THE SYSTEM SHALL make standalone stateful commands fail unchanged on uncommitted partial evidence, make resumed loop target-assert then reset/clean every uncommitted leftover before reconstructing committed authority, push only exact C-10/C-13 transitions that authorize push, revalidate C-08 local invalidation without push, return the C-11 already-shipped nothing-to-do no-op without push, create/push only missing deterministic C-12 transaction/activation commits, and block every divergence while matching exact dispatch counts (C-05, C-06, C-08, C-10, C-11, C-12, C-13, N-04, N-05, N-10).",
       "ears_pattern": "event-driven",
-      "test_refs": ["cmd/sworn/conformance_v015_restart_test.go:TestV015ConformanceRestartAndDispatchMatrix"]
+      "test_refs": [
+        "cmd/sworn/conformance_v015_restart_test.go:TestV015ConformanceRestartAndDispatchMatrix"
+      ]
     },
     {
       "id": "AC-04",
-      "text": "WHEN real-binary and MCP scenarios process disjoint sibling evidence, a C-07 shared file, stale overlap, recognized sync invalidation, ordinary rollback whose rollback slice adds an otherwise surviving path, post-sync rollback, and an undeclared conflict THE SYSTEM SHALL preserve disjoint bytes, install only the canonical shared blob, commit only the eligible invalidation locally with unchanged remote/release-wt, block later-overlap/unrecognized/shipped invalidation without mutation, require exact full-through-rollback-head or parent-2 equality, and block every ambiguous integration (C-07, C-08, C-09, N-06, N-07, N-08, N-09).",
+      "text": "WHEN real-binary and MCP scenarios process disjoint sibling evidence, a C-07 shared file, stale overlap, recognized sync invalidation, the concrete S02→S19 tree-equal rollback followed by fresh S20 authority, an ordinary rollback whose rollback slice adds an otherwise surviving path, post-sync rollback, and an undeclared conflict THE SYSTEM SHALL preserve disjoint bytes, install only the canonical shared blob, commit only the eligible invalidation locally with unchanged remote/release-wt, block later-overlap/unrecognized/shipped invalidation without mutation, require exact full-through-rollback-head or parent-2 equality, and block every ambiguous integration (C-07, C-08, C-09, N-06, N-07, N-08, N-09).",
       "ears_pattern": "event-driven",
-      "test_refs": ["cmd/sworn/conformance_v015_release_test.go:TestV015ConformanceMergeAndRollbackMatrix"]
+      "test_refs": [
+        "cmd/sworn/conformance_v015_release_test.go:TestV015ConformanceMergeAndRollbackMatrix"
+      ]
     },
     {
       "id": "AC-05",
       "text": "WHEN sworn replan apply and MCP apply_plan_delta receive the same ordinary schema-valid C-12 bytes THE SYSTEM SHALL produce byte-identical unsigned canonical commit objects, receipts, topology, and restart behavior; WHEN migrate/activate adapters use the complete 17-mutation local-first manifest against an isolated SHA-1 copy THE SYSTEM SHALL update all seven records plus contracts consumers or none, reproduce every section 11 golden blob/tree/commit OID including exact timezone/message bytes, separately activate authority, add no synthetic evidence, retire direct MCP plan_release/create_slice/set_track/update_intake writes, pass every gate, and leave the live downstream release byte-identical (C-02, C-03, C-12, N-02, N-10, N-11).",
       "ears_pattern": "event-driven",
-      "test_refs": ["cmd/sworn/conformance_v015_release_test.go:TestV015ConformanceReplanAndPristineMigrationMatrix"]
+      "test_refs": [
+        "cmd/sworn/conformance_v015_release_test.go:TestV015ConformanceReplanAndPristineMigrationMatrix"
+      ]
     },
     {
       "id": "AC-06",
       "text": "WHEN the same valid release is checked before deployment, after a deployed commit containing its release merge, after mark-shipped, and on an already-shipped rerun THE SYSTEM SHALL keep ship read-only, make mark-shipped fetch origin and revalidate exact upstream gates, create one local exact last_updated plus Baton ship/status/index commit with byte-identical pure-plan board, leave remotes unchanged, return the exact handoff once, then return the fully regated no-deployment-evidence nothing-to-do no-op; IF fetch/remote ancestry, current C-09 authority, terminal record validity, or board immutability is absent THEN neither shipped nor no-op success SHALL occur; IF a verified slice remains and the deployed commit is absent/invalid or fails to contain an existing conventional release-merge identity THEN the transition SHALL block, while absence of that identity SHALL record Baton's legacy containment-skip note; no command SHALL push or clean automatically (C-09, C-11, N-09, N-10).",
       "ears_pattern": "complex",
-      "test_refs": ["cmd/sworn/conformance_v015_release_test.go:TestV015ConformanceShipAndMarkShippedRemainDistinct"]
+      "test_refs": [
+        "cmd/sworn/conformance_v015_release_test.go:TestV015ConformanceShipAndMarkShippedRemainDistinct"
+      ]
     },
     {
       "id": "AC-07",
       "text": "WHEN public maintainability adjudication receives explicit Coach decision, rationale, identity, and resume-only permissions THE SYSTEM SHALL derive report citations/blocking IDs, capture time once, and preserve that immutable authority through restart; IF any Coach field is missing/inferred or cycle-1 structured disposition/Git-authored paths exceed permitted_touchpoints THEN THE SYSTEM SHALL block before unauthorized mutation and perform zero boundary-expanding remediation, closure, Verifier, or second-Coach dispatches across CLI loop, router, scheduler, and MCP-visible state (C-05, C-06, C-10, N-04, N-05, N-09, N-10).",
       "ears_pattern": "complex",
-      "test_refs": ["cmd/sworn/conformance_v015_test.go:TestV015ConformanceCoachAuthorityAndCycleOneBoundary"]
+      "test_refs": [
+        "cmd/sworn/conformance_v015_test.go:TestV015ConformanceCoachAuthorityAndCycleOneBoundary"
+      ]
     },
     {
       "id": "AC-08",
       "text": "WHEN public maintainability review receives an eligible semantic scope with zero included paths THE SYSTEM SHALL persist the exact deterministic PASS report and lifecycle transition, exit 0, invoke neither Git diff nor a model driver, and preserve the same report identity and zero dispatch count across restart (C-04, C-05, C-10, N-03, N-10).",
       "ears_pattern": "event-driven",
-      "test_refs": ["cmd/sworn/conformance_v015_test.go:TestV015ConformanceEmptyScopeDeterministicPass"]
+      "test_refs": [
+        "cmd/sworn/conformance_v015_test.go:TestV015ConformanceEmptyScopeDeterministicPass"
+      ]
     }
   ]
 }

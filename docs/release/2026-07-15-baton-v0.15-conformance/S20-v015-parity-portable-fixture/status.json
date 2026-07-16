@@ -1,6 +1,6 @@
 {
   "$schema": "https://baton.sawy3r.net/schemas/slice-status-v1.json",
-  "slice_id": "S02-v015-parity-and-installs",
+  "slice_id": "S20-v015-parity-portable-fixture",
   "release": "2026-07-15-baton-v0.15-conformance",
   "track": "T1-foundation",
   "covers_needs": [
@@ -8,64 +8,15 @@
     "N-02",
     "N-10"
   ],
-  "state": "deferred",
-  "owner": "implementer",
+  "state": "planned",
+  "owner": "unassigned",
   "last_updated_by": "planner",
   "last_updated_at": "2026-07-16T22:53:25+10:00",
-  "start_commit": "e61cb190736ee7483fb4ed1a993442b26ce3574c",
-  "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/spec.json",
-  "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/proof.json",
-  "journal_path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/journal.md",
+  "start_commit": null,
+  "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S20-v015-parity-portable-fixture/spec.json",
+  "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S20-v015-parity-portable-fixture/proof.json",
+  "journal_path": "docs/release/2026-07-15-baton-v0.15-conformance/S20-v015-parity-portable-fixture/journal.md",
   "planned_files": [
-    "internal/adopt/baton/VERSION",
-    "internal/adopt/baton/README.md",
-    "internal/adopt/baton/architecture.json",
-    "internal/adopt/baton/installer-input-v0.15.1.tar",
-    "internal/adopt/baton/rules/07-adversarial-verification.md",
-    "internal/adopt/baton/rules/10-customer-journey-validation.md",
-    "internal/adopt/baton_archive.go",
-    "internal/prompt/implementer.md",
-    "internal/prompt/planner.md",
-    "internal/prompt/verifier.md",
-    "internal/prompt/baton/README.md",
-    "internal/prompt/baton/rules.md",
-    "internal/prompt/baton/track-mode.md",
-    "internal/prompt/baton/llm-checks/README.md",
-    "internal/prompt/baton/llm-checks/maintainability-review.md",
-    "internal/prompt/baton/llm-checks/spec-ambiguity.md",
-    "internal/baton/schemas/board-v1.json",
-    "internal/baton/schemas/llm-check-report-v1.json",
-    "internal/baton/schemas/slice-status-v1.json",
-    "internal/baton/schemas/spec-v1.json",
-    "internal/baton/schemas/spec-ambiguity-report-v1.json",
-    "internal/baton/source.go",
-    "internal/baton/diff.go",
-    "internal/baton/diff_test.go",
-    "internal/baton/vendor.go",
-    "internal/baton/vendor_test.go",
-    "internal/baton/vendor_transaction.go",
-    "internal/baton/vendor_transaction_test.go",
-    "internal/baton/installer_archive.go",
-    "internal/baton/installer_archive_test.go",
-    "internal/baton/install_transaction.go",
-    "internal/baton/install_transaction_test.go",
-    "internal/baton/schemas/embed.go",
-    "internal/baton/manifest.go",
-    "internal/baton/manifest_test.go",
-    "internal/baton/validate_schema_test.go",
-    "internal/baton/testdata/fixture/schemas/spec-ambiguity-report-v1.json",
-    "internal/baton/records_conformance_test.go",
-    "internal/gate/llmcheck_test.go",
-    "internal/run/slice_test.go",
-    "internal/state/state.go",
-    "internal/state/state_test.go",
-    "internal/state/record_reconciliation_test.go",
-    "cmd/sworn/baton.go",
-    "cmd/sworn/baton_test.go",
-    "cmd/sworn/doctor.go",
-    "cmd/sworn/doctor_test.go"
-  ],
-  "actual_files": [
     "cmd/sworn/baton.go",
     "cmd/sworn/baton_test.go",
     "cmd/sworn/doctor.go",
@@ -110,19 +61,51 @@
     "internal/run/slice_test.go",
     "internal/state/record_reconciliation_test.go",
     "internal/state/state.go",
-    "internal/state/state_test.go"
+    "internal/state/state_test.go",
+    "internal/baton/testdata/fixture/baton-v0.15.1.bundle"
   ],
+  "actual_files": [],
   "test_commands": [
-    "go test ./internal/baton -run TestBatonV015CodexAndClaudeMirrorParity",
-    "go test ./internal/baton",
-    "go test ./internal/gate ./internal/run ./internal/state",
-    "go test ./...",
+    "go test ./cmd/sworn -run '^TestDoctorAndBatonDiffV015BinaryReachability$' -count=1",
+    "go test ./cmd/sworn -run '^TestDoctorAndBatonDiffV015BinaryReachabilityRejectsInvalidBundle$' -count=1",
+    "go test ./internal/baton -run '^TestBatonV015GitBundleFixtureIdentity$' -count=1",
+    "go test ./internal/baton -run '^TestBatonV015CodexAndClaudeMirrorParity$' -count=1",
+    "go test ./internal/baton -count=1",
+    "go test ./internal/gate ./internal/run ./internal/state -count=1",
+    "go test ./... -count=1",
     "go vet ./...",
+    "make build",
+    "bin/sworn baton diff <verified-temp-clone-from-baton-v0.15.1.bundle>",
     "bin/sworn doctor --sync-baton"
   ],
   "reachability_artifacts": [
-    "built sworn doctor and sworn baton diff runs from cmd/sworn/doctor_test.go:TestDoctorAndBatonDiffV015BinaryReachability plus isolated fixed-umask Codex/Claude installer parity and publish/replace/verify/retire crash fixtures prove the public v0.15 pin, managed-tree modes, root topology, and recovery-only boundary"
+    "built sworn doctor and sworn baton diff runs from cmd/sworn/doctor_test.go:TestDoctorAndBatonDiffV015BinaryReachability using only a verified temporary clone of the authenticated exact-tag Git bundle beneath t.TempDir(), plus isolated fixed-umask Codex/Claude installer parity and transaction recovery fixtures"
   ],
+  "maintainability": {
+    "state": "pending",
+    "cycle": 0,
+    "implementation_head": null,
+    "rollback_slice_id": null,
+    "reports": [],
+    "adjudication": null
+  },
+  "open_deferrals": [],
+  "effort_complexity": {
+    "effort": "high",
+    "complexity": "high",
+    "quadrant": "beast",
+    "rationale": "Fresh 45-path C-01 replacement after exact rollback, plus a portable clean-CI source oracle cloned from an authenticated exact upstream Git bundle, remains one indivisible bootstrap boundary.",
+    "confirmed_by_implementer": false
+  },
+  "verification": {
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
+  },
+  "release_base": "release/v0.2.0",
+  "release_benefit": "Restores exact Baton v0.15.1 parity and safe installs with clean-CI proof that does not depend on Brad's filesystem.",
   "design_decisions": [
     {
       "choice": "Treat the exact pinned upstream installers as canonical managed-tree generators and make doctor repair both supported installations in one transaction.",
@@ -243,85 +226,30 @@
       "human_decision": "Coach selected the orchestrator's recommendation under Brad's 2026-07-16 standing instruction after an independent read-only scope audit returned BLOCKED for a fixture-only repair.",
       "rationale": "state.Status otherwise drops a supplied maintainability object and production Write cannot emit it, while broader lifecycle, null-semantics, and check-matching authority remains deliberately owned by S03 and S04.",
       "architecturally_significant": true
-    }
-  ],
-  "maintainability": {
-    "state": "re_slice_required",
-    "cycle": 0,
-    "implementation_head": null,
-    "rollback_slice_id": "S19-s02-v015-rollback",
-    "reports": [
-      {
-        "role": "implementer",
-        "phase": "preflight",
-        "cycle": 0,
-        "invocation_id": "ff6145c0-2d33-46f7-af38-2ab742516425",
-        "report_path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/reports/maintainability/implementer-cycle-0-ff6145c0-2d33-46f7-af38-2ab742516425.json",
-        "report_blob_oid": "6f95a34a0273d95f8f9d2008b1f9355f4179f7c1",
-        "review_scope_head": "60097cfa65dc39d9a0ab174be7c627fde2d3f7d5",
-        "input_fingerprint": "sha256:4d58ca4027c3919073f0c51daa1f5b3ca0ab33a87414c9aebe17372f5bd338a7",
-        "verdict": "FAIL",
-        "blocking_finding_ids": [
-          "F-01"
-        ]
-      },
-      {
-        "role": "implementer",
-        "phase": "closure",
-        "cycle": 0,
-        "invocation_id": "1329db03-1597-45a1-a6de-2c778325af62",
-        "report_path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/reports/maintainability/implementer-cycle-0-1329db03-1597-45a1-a6de-2c778325af62.json",
-        "report_blob_oid": "7aadead414b8f04674f2bce5b0966c657922e370",
-        "review_scope_head": "2a17443d67d39cf681dba117a57673714a916d7f",
-        "input_fingerprint": "sha256:c72341fa8bab5c4a9b7a548b7ffb3ba1d57955f5e322d527c5284a1eed54f8d2",
-        "verdict": "PASS",
-        "blocking_finding_ids": []
-      }
-    ],
-    "adjudication": null
-  },
-  "open_deferrals": [
+    },
     {
-      "item": "The original S02 semantic boundary is retired after fresh Verifier Gate 3 found a developer-specific absolute Baton checkout in the public reachability test.",
-      "why": "A final Implementer maintainability PASS froze S02 at 2a17443d67d39cf681dba117a57673714a916d7f; Baton's fail-closed lifecycle forbids semantic repair under that slice id.",
-      "tracking": "S19-s02-v015-rollback, S20-v015-parity-portable-fixture, and sworn#122",
-      "acknowledgement": "Brad was told that protocol-correct recovery requires a complete rollback and fresh replacement, accepted the orchestrator's recommendation, and instructed the release process to continue.",
-      "acknowledged_by": "Coach",
-      "acknowledged_at": "2026-07-16T22:53:25+10:00"
+      "choice": "Create the reachability test's exact Baton source by verifying and cloning a committed exact-tag Git bundle, rather than adding a synthetic commit, weakening production pin checks, or using a sibling checkout.",
+      "stake_class": "Type-2",
+      "options": [
+        "authenticated exact-tag Git bundle",
+        "archive-authenticated synthetic commit with weakened pin predicate",
+        "developer-specific sibling checkout"
+      ],
+      "human_decision": "The deterministic portable-fixture default follows the fresh Verifier's required correction and Brad's instruction to continue with the orchestrator's recommendation.",
+      "rationale": "Production requires the exact upstream commit and tag; the 78-entry installer tar cannot reproduce those Git objects, while the pinned bundle preserves clean-CI fidelity without a runtime dependency.",
+      "architecturally_significant": false
     }
   ],
-  "effort_complexity": {
-    "effort": "high",
-    "complexity": "high",
-    "quadrant": "beast",
-    "rationale": "Ratified forty-seven-file bootstrap exception: exact embedded parity, separate upstream/adopting VERSION evidence, archive publication inside repository recovery, v0.15 consumer alignment, bounded opaque status carrier, fixed-mode dual-installer trees, and bounded disjoint-root whole-tree repair/recovery are one indivisible C-01 contract.",
-    "confirmed_by_implementer": true
-  },
-  "verification": {
-    "result": "fail",
-    "verifier_session_id": "772eb7d2-62c8-4b20-aabb-9860080a4875",
-    "verifier_verdict_at": "2026-07-16T22:39:04+10:00",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      {
-        "gate": "3",
-        "description": "The public binary reachability test depends on a developer-specific absolute Baton checkout instead of creating its own exact source fixture.",
-        "evidence": "cmd/sworn/doctor_test.go:61 passes /home/brad/projects/baton to the built binary, but the test never creates that path; the green run therefore relies on host state and will fail on a clean CI runner without Brad's sibling checkout."
-      }
-    ]
-  },
-  "release_base": "release/v0.2.0",
-  "release_benefit": "Pins the binary, repository and supported agent installations to one exact Baton v0.15 authority.",
   "validation": {
     "human_ratified": true,
     "ratified_by": "Coach",
-    "ratified_at": "2026-07-16T00:00:00+10:00",
+    "ratified_at": "2026-07-16T22:53:25+10:00",
     "positive_scenarios": [
-      "Every embedded and installed Baton surface matches both C-01 identities from one complete offline bundle, and doctor either finds all three logical roots exact or repairs them transactionally from disjoint paths with recovery authority durable before replacement."
+      "Every C-01 surface is re-delivered under fresh lifecycle authority and the built-binary reachability test passes from a verified exact-tag bundle clone without any developer checkout."
     ],
     "negative_scenarios": [
-      "Any stale/transformed normative or bundle byte, hostile inherited umask, conflated VERSION identity, aliased root, process death, or incomplete restoration fails closed; sentinel presence preserves recovery material and blocks every later install until exact pre-run restoration."
+      "Any inherited S02 authority, archive/pin drift, non-transactional install, corrupt/missing Git bundle, wrong tag/commit/tree/VERSION, or ambient /home/brad/projects/baton dependency fails closed."
     ],
-    "benefit_hypothesis": "One immutable pin prevents the binary and its operating instructions from enforcing different protocols."
+    "benefit_hypothesis": "Fresh replacement plus portable proof makes exact protocol parity reproducible for users and CI rather than only on the maintainer's host."
   }
 }

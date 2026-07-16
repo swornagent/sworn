@@ -14,6 +14,8 @@
       "slices": [
         "S01-vendor-boundary-readiness",
         "S02-v015-parity-and-installs",
+        "S19-s02-v015-rollback",
+        "S20-v015-parity-portable-fixture",
         "S03-lossless-record-carriers",
         "S04-typed-reference-ambiguity",
         "S05-protocol-provenance-archive"
