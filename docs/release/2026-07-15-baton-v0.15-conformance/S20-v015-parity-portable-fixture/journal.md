@@ -78,3 +78,21 @@
 - The thin `cmdDoctorSyncBaton` adapter now maps `InstallRecovered` to 1;
   repair remains 2 and already-exact remains 0. The new built-binary test and
   the complete repository suite pass after the repair.
+
+## 2026-07-17T05:19:45+10:00 — Blocked: generic check identity contract
+
+- After the AC-04 recovery-exit repair, the configured exact
+  `ac-satisfaction` operation emitted `{\"verdict\":\"PASS\",\"findings\":[]}`.
+  The upgraded `llm-check-report-v1` schema requires `check`, so the operation
+  failed closed despite the model's stated PASS. The exact prompt asks only for
+  `verdict` and `findings`, which is the contract mismatch.
+- S04 AC-04 exclusively owns the canonical requested/emitted generic-check
+  identity contract. S20 AC-05 explicitly excludes requested-check matching,
+  so this slice cannot correct the mismatch without widening its scope.
+- Preserve immutable start `08dd38f81e466d3288ff4bf64953cfc90ea6063c` and
+  committed implementation heads `edad0fa8a75ab3b4a1938bdaf856c7973be72107`
+  and `f3da6a49c3f89f0883e265befd30d1eb099d6a90`; no product, proof, or
+  workaround change was made in response to this blocker.
+- Tracking: `/replan-release 2026-07-15-baton-v0.15-conformance`. The Coach
+  directed this block and explicitly prohibited S20 scope widening or a
+  synthetic report workaround.
