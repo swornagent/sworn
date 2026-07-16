@@ -435,3 +435,37 @@ All nine Rule-9 decisions are acknowledged. No open design question remains. Pro
   `pending` at cycle 0 with null `implementation_head`, and verification remains
   pending. No model, Verifier, real-home, or installation action occurred in
   this record.
+
+## 2026-07-16 — Crash-durable replacement closure PASS
+
+- The uninterrupted manual bootstrap adapter created and pushed the sole
+  schema-valid claim in commit
+  `9896756ca118eef46662fba465e95f6ba6adbdb9`, consuming dispatch slot 1 for
+  invocation `1329db03-1597-45a1-a6de-2c778325af62`. The claim was the only
+  changed path and bound exact semantic base `e61cb190…`, review head
+  `2a17443…`, all four sealed authority digests, and continuity-token hash
+  `sha256:2b7a27944cd2d078106664c52fa8b77fee4c34a0db778d14d44c8b043349897e`
+  before the model request.
+- Exactly one fresh no-history Implementer closure reviewer inspected the 45
+  canonical included paths and excluded all 20 release-record paths. It
+  returned a valid `PASS` for fingerprint
+  `sha256:c72341fa8bab5c4a9b7a548b7ffb3ba1d57955f5e322d527c5284a1eed54f8d2`
+  with no blocking findings. Its single low-severity advisory identifies an
+  unused owner-only branch and helpers in
+  `internal/baton/install_transaction.go`; this does not fail the sparse
+  maintainability gate and is preserved verbatim in the full report.
+- Commit `434a455cb81276e81a4b1e16c00f5c9f71b486b1` co-commits the authoritative
+  report and continuity receipt. The receipt reveals the matching token
+  preimage, binds claim commit `9896756…`, invocation, `PASS` verdict, all four
+  live digests, and report blob
+  `7aadead414b8f04674f2bce5b0966c657922e370`. Exact Baton schema, Sworn overlay,
+  receipt schema, duplicate-key, token-hash, report-blob, invocation, digest,
+  scope-union, and independently recomputed semantic-fingerprint checks passed.
+- The append-only authoritative ledger now preserves the original cycle-0
+  preflight `FAIL` and appends this permitted closure `PASS`.
+  `maintainability.state` is `passed`, `implementation_head` is the reviewed
+  semantic head `2a17443…`, overall S02 remains `in_progress`, and verification
+  remains pending for a fresh Verifier.
+- No second replacement dispatch, orphan-report reuse, semantic code change,
+  proof certification, real-home read/write, or `doctor --sync-baton` execution
+  occurred in this transition.
