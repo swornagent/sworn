@@ -515,3 +515,22 @@ Required to address:
 1. Replace the absolute checkout path with a test-created exact v0.15.1 source derived from the committed installer archive or another repository-owned fixture, then rerun the focused reachability test and the full proof commands.
 
 Gate 8 did not run because Gate 3 failed. No authoritative Verifier maintainability report was created, and the pinned implementation head remains unchanged.
+
+## 2026-07-16 — Final maintainability boundary invalidated fail-closed
+
+- The Gate-3 repair is semantically in scope at
+  `cmd/sworn/doctor_test.go`, but S02's final Implementer closure `PASS` already
+  froze semantic head `2a17443d67d39cf681dba117a57673714a916d7f` under the exact
+  v0.15.1 Implementer resume gate. A passed semantic boundary cannot be edited
+  under the same slice id, even for a bounded test-only correction discovered
+  by a later Verifier.
+- Applied the mandatory fail-closed transition before any test edit:
+  `maintainability.state` is now `re_slice_required`,
+  `implementation_head` is null, overall state remains
+  `failed_verification`, and the complete two-report Implementer ledger plus
+  the fresh Gate-3 violation remain immutable.
+- No source, test, configuration, proof, claim, receipt, report, real-home, or
+  installation byte changed in this transition. The only legal next authority
+  is `/replan-release 2026-07-15-baton-v0.15-conformance`, which must assign the
+  mandatory rollback and corrected replacement slices before implementation
+  resumes.

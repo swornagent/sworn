@@ -6,8 +6,8 @@
   "covers_needs": ["N-01", "N-02", "N-10"],
   "state": "failed_verification",
   "owner": "implementer",
-  "last_updated_by": "verifier",
-  "last_updated_at": "2026-07-16T22:39:04+10:00",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-16T22:44:26+10:00",
   "start_commit": "e61cb190736ee7483fb4ed1a993442b26ce3574c",
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/proof.json",
@@ -193,9 +193,9 @@
     }
   ],
   "maintainability": {
-    "state": "passed",
+    "state": "re_slice_required",
     "cycle": 0,
-    "implementation_head": "2a17443d67d39cf681dba117a57673714a916d7f",
+    "implementation_head": null,
     "rollback_slice_id": null,
     "reports": [
       {
