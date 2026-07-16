@@ -1,0 +1,135 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/llm-check-report-v1.json",
+  "schema_version": 1,
+  "check": "maintainability-review",
+  "slice_id": "S02-v015-parity-and-installs",
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "role": "implementer",
+  "phase": "preflight",
+  "cycle": 0,
+  "invocation_id": "ff6145c0-2d33-46f7-af38-2ab742516425",
+  "input_fingerprint": "sha256:4d58ca4027c3919073f0c51daa1f5b3ca0ab33a87414c9aebe17372f5bd338a7",
+  "review_scope": {
+    "base": "e61cb190736ee7483fb4ed1a993442b26ce3574c",
+    "head": "60097cfa65dc39d9a0ab174be7c627fde2d3f7d5",
+    "included_paths": [
+      "cmd/sworn/baton.go",
+      "cmd/sworn/baton_test.go",
+      "cmd/sworn/doctor.go",
+      "cmd/sworn/doctor_test.go",
+      "internal/adopt/baton/README.md",
+      "internal/adopt/baton/VERSION",
+      "internal/adopt/baton/architecture.json",
+      "internal/adopt/baton/installer-input-v0.15.1.tar",
+      "internal/adopt/baton/rules/07-adversarial-verification.md",
+      "internal/adopt/baton/rules/10-customer-journey-validation.md",
+      "internal/adopt/baton_archive.go",
+      "internal/baton/diff.go",
+      "internal/baton/install_transaction.go",
+      "internal/baton/install_transaction_test.go",
+      "internal/baton/installer_archive.go",
+      "internal/baton/installer_archive_test.go",
+      "internal/baton/manifest.go",
+      "internal/baton/manifest_test.go",
+      "internal/baton/records_conformance_test.go",
+      "internal/baton/schemas/board-v1.json",
+      "internal/baton/schemas/embed.go",
+      "internal/baton/schemas/llm-check-report-v1.json",
+      "internal/baton/schemas/slice-status-v1.json",
+      "internal/baton/schemas/spec-ambiguity-report-v1.json",
+      "internal/baton/schemas/spec-v1.json",
+      "internal/baton/source.go",
+      "internal/baton/testdata/fixture/schemas/spec-ambiguity-report-v1.json",
+      "internal/baton/validate_schema_test.go",
+      "internal/baton/vendor.go",
+      "internal/baton/vendor_transaction.go",
+      "internal/baton/vendor_transaction_test.go",
+      "internal/gate/llmcheck_test.go",
+      "internal/prompt/baton/README.md",
+      "internal/prompt/baton/llm-checks/README.md",
+      "internal/prompt/baton/llm-checks/maintainability-review.md",
+      "internal/prompt/baton/llm-checks/spec-ambiguity.md",
+      "internal/prompt/baton/rules.md",
+      "internal/prompt/baton/track-mode.md",
+      "internal/prompt/implementer.md",
+      "internal/prompt/planner.md",
+      "internal/prompt/verifier.md",
+      "internal/run/slice_test.go",
+      "internal/state/record_reconciliation_test.go",
+      "internal/state/state.go",
+      "internal/state/state_test.go"
+    ],
+    "excluded_paths": [
+      "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/design.md",
+      "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/journal.md",
+      "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/review.md",
+      "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/spec.json",
+      "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/status.json",
+      "docs/release/2026-07-15-baton-v0.15-conformance/S03-lossless-record-carriers/spec.json",
+      "docs/release/2026-07-15-baton-v0.15-conformance/S04-typed-reference-ambiguity/spec.json",
+      "docs/release/2026-07-15-baton-v0.15-conformance/index.md",
+      "docs/release/2026-07-15-baton-v0.15-conformance/intake.md"
+    ],
+    "fingerprint_algorithm": "baton-maintainability-v1"
+  },
+  "verdict": "FAIL",
+  "findings": [
+    {
+      "id": "F-01",
+      "severity": "high",
+      "blocking": true,
+      "title": "Installer transaction phases are coupled through one mutable state bag",
+      "detail": "In internal/baton/install_transaction.go, SyncBatonInstall and preparedInstall combine root topology and inode identity, drift scanning, snapshot capture, a custom manifest codec, stage construction, recovery publication, fault injection, replacement, rollback, retirement, fsync, and debris cleanup. More than forty helpers implicitly require different subsets of preparedInstall fields such as operation, transaction, manifestRaw, snapshot and stage paths, identities, and createdPaths to have been populated by earlier phases, while normal execution and recovery reuse that state with different initialization paths. A future maintainer changing staging, recovery validation, or cleanup must reconstruct field liveness and ownership across the entire 2,645-line implementation, costing hours and making inconsistent phase invariants likely. Remediate within the existing internal/baton responsibility boundary by introducing phase-specific private state values for preflight identity, captured snapshots and manifest, staged installation, and published recovery, and make each operation accept only the invariants its phase requires; keep the existing public InstallOpts, CheckBatonInstall, and SyncBatonInstall API.",
+      "sworn_disposition": {
+        "action": "remediate_in_scope",
+        "required_touchpoints": [
+          "internal/baton/install_transaction.go"
+        ]
+      }
+    },
+    {
+      "id": "F-02",
+      "severity": "low",
+      "blocking": false,
+      "title": "prepareInstall exposes an inert mode parameter",
+      "detail": "In internal/baton/install_transaction.go, prepareInstall accepts needManifest but immediately discards it with `_ = needManifest`, and the changed callers pass false. The name advertises a behavioral mode that does not exist, so a future reader must investigate whether manifest preparation was intentionally removed or accidentally bypassed. Remove the parameter until it has defined behavior, or replace it with an explicitly implemented option."
+    }
+  ],
+  "sworn": {
+    "record_version": 1,
+    "scope_provenance": {
+      "release": "2026-07-15-baton-v0.15-conformance",
+      "slice_id": "S02-v015-parity-and-installs",
+      "status_path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/status.json",
+      "start_commit": "e61cb190736ee7483fb4ed1a993442b26ce3574c",
+      "review_base": "e61cb190736ee7483fb4ed1a993442b26ce3574c",
+      "review_head": "60097cfa65dc39d9a0ab174be7c627fde2d3f7d5"
+    },
+    "freshness_frontier": {
+      "track_ref": "track/2026-07-15-baton-v0.15-conformance/T1-foundation",
+      "validated_track_head": "8ca00899f8fa45a06c099d3e5a01095229e09fd8",
+      "release_wt_ref": "release-wt/2026-07-15-baton-v0.15-conformance",
+      "validated_release_wt_head": "5eaa7aea39b5ce17f483647824ca538e316a5ac8",
+      "synchronizations": [
+        {
+          "merge": "b8df1857ab8c7d2acf4b91c4c37df3cf07f80832",
+          "parent1": "7b57f64fbfe9d0540737034d1794100b80aeec3b",
+          "parent2": "32060a486d2045c1db54fd01551eae1946207efb",
+          "base": "6ceded2435a193a45dfd9732c92ae0ace3ab0d64"
+        },
+        {
+          "merge": "7696c9bf9c235fffb937d3ed7e4be5a8a2bbda2a",
+          "parent1": "60dcd6291ddbe3491e16a05d2ed98d896d714165",
+          "parent2": "dcd6386fc0268cd476287fc70bfb1f389c158f2e",
+          "base": "32060a486d2045c1db54fd01551eae1946207efb"
+        },
+        {
+          "merge": "d54c102f9d244a316ae3f0301bec617b2fc6c6f3",
+          "parent1": "60097cfa65dc39d9a0ab174be7c627fde2d3f7d5",
+          "parent2": "5eaa7aea39b5ce17f483647824ca538e316a5ac8",
+          "base": "dcd6386fc0268cd476287fc70bfb1f389c158f2e"
+        }
+      ]
+    }
+  }
+}
