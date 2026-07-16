@@ -1,0 +1,21 @@
+{
+  "$schema": "https://swornagent.dev/schemas/replacement-closure-claim-v1.json",
+  "record_version": 1,
+  "release": "2026-07-15-baton-v0.15-conformance",
+  "slice_id": "S02-v015-parity-and-installs",
+  "start_commit": "e61cb190736ee7483fb4ed1a993442b26ce3574c",
+  "review_head": "2a17443d67d39cf681dba117a57673714a916d7f",
+  "role": "implementer",
+  "phase": "closure",
+  "cycle": 0,
+  "required_hold_commit": "3ac42c01cca6e9227bb93092ed13813bad95aa08",
+  "replaces_orphan_invocation_id": "f4ef4f75-4dc8-48d1-a37c-d37d5f83c5ff",
+  "authorization_manifest_sha256": "sha256:3d0e0da7fa57a0d754b8e0b6a0faae90f47bea72c100ea2dbf0ba4c68c486dc1",
+  "authorization_schema_sha256": "sha256:daa13bd5cb8dd3d5c0f7473ee132b9d15d083405a1e89bfeedc7f8e298bbbbad",
+  "claim_schema_sha256": "sha256:32023df8e953640b266d9113c9055b9cd601cceb26e842def080dc1491563746",
+  "receipt_schema_sha256": "sha256:3678f1ac208e0d9a04a3bc01ad9d9e61fa8bc5472402a05ae376f21ca8022a52",
+  "invocation_id": "1329db03-1597-45a1-a6de-2c778325af62",
+  "continuity_token_sha256": "sha256:2b7a27944cd2d078106664c52fa8b77fee4c34a0db778d14d44c8b043349897e",
+  "dispatch_slot": 1,
+  "state": "consumed-before-dispatch"
+}
