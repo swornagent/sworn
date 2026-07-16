@@ -992,8 +992,9 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   `3ac42c01cca6e9227bb93092ed13813bad95aa08` removes it from the authoritative
   ledger and restores S02 to in-progress/pending cycle 0 with null
   implementation head and pending verification. The file remains permanent
-  forensic evidence but cannot supply response, report, verdict, lifecycle,
-  Verifier, or cutover authority.
+  forensic evidence. The physical dispatch and temporary historical ledger
+  append remain recorded facts, but the transition was invalid and cannot
+  supply response, report, verdict, lifecycle, Verifier, or cutover authority.
 - **Independent design recommendation**: Retain v1 unchanged for audit and
   replace live recognition with a closed v2 schema. Preserve the exact four
   ordered merges and eight exceptional release-record paths. For each S02
@@ -1006,16 +1007,27 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   closure at S02 start `e61cb190…`, head `2a17443…`, cycle 0, only after the v2
   schema/manifest/digests and ordinary release-wt-to-T1 synchronization pass on
   a clean local/remote-equal track containing hold `3ac42c01…`. The replacement
-  must use a new invocation and recompute scope from Git; it cannot reuse the
-  orphan response, report, verdict, fingerprint, or lifecycle transition. The
-  authorization expires after one authoritative report, does not authorize a
-  Verifier, and any invalid or exhausted attempt returns to the Coach without a
-  second automatic dispatch.
+  runs only through the manual bootstrap Implementer adapter, not the native
+  current-only command. It must use a new invocation and recompute scope from
+  Git; it cannot reuse the orphan response, report, verdict, fingerprint, or
+  lifecycle transition. Before any model request, the adapter creates a
+  one-parent commit changing only the immutable claim record, whose digest
+  fields equal the live manifest/v2-schema/claim-schema/receipt-schema bytes.
+  The claim stores only the SHA-256 of a random 32-byte continuity token whose
+  preimage remains in process memory. Creating that commit consumes the sole
+  replacement dispatch and issues a non-resumable permit; it must be pushed
+  before use. A local-only or pushed claim without a token-matching receipt and
+  authoritative report routes to the Coach with zero redispatch. The matching
+  receipt reveals the token and binds the claim commit, invocation, report blob
+  and verdict; only that report consumes the ordinary C-06 closure row. It does
+  not authorize a Verifier by itself, and any invalid or exhausted attempt
+  returns to the Coach without a second automatic dispatch.
 - **Ratification**: Brad's standing instruction selects the orchestrator's
   recommendation. The v2 schema is bound at SHA-256
-  `bca6edb0819db19ebff825510e225b2d3eb660dba7695fe84a2247f9b7e6d5f8` and the
-  sealed manifest at SHA-256
-  `3156341aecb1c2a40c33c036f826a6c4cc870451239b1cec5ae461b0fe58b576`.
+  `daa13bd5cb8dd3d5c0f7473ee132b9d15d083405a1e89bfeedc7f8e298bbbbad`, the claim schema at SHA-256
+  `32023df8e953640b266d9113c9055b9cd601cceb26e842def080dc1491563746`, the receipt schema at SHA-256
+  `3678f1ac208e0d9a04a3bc01ad9d9e61fa8bc5472402a05ae376f21ca8022a52`, and the sealed manifest at SHA-256
+  `3d0e0da7fa57a0d754b8e0b6a0faae90f47bea72c100ea2dbf0ba4c68c486dc1`.
   No S01/S02 spec, report, proof, semantic code, lifecycle state, Verifier,
   installation, or branch authority is changed by this planning amendment.
 
