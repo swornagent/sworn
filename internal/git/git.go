@@ -11,6 +11,7 @@ package git
 import (
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 )
 
@@ -189,6 +190,39 @@ func (r *Repo) RefExists(ref string) (bool, error) {
 		return false, fmt.Errorf("git rev-parse --verify %s: %w", ref, err)
 	}
 	return true, nil
+}
+
+// ListRefs returns local heads and remote-tracking refs in bytewise order.
+// Symbolic remote HEAD aliases are excluded by asking git for symref targets.
+func (r *Repo) ListRefs() ([]string, error) {
+	out, err := r.run("for-each-ref", "--format=%(refname)%09%(symref)", "refs/heads", "refs/remotes")
+	if err != nil {
+		return nil, err
+	}
+	var refs []string
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.SplitN(line, "\t", 2)
+		if fields[0] == "" || (len(fields) == 2 && fields[1] != "") {
+			continue
+		}
+		refs = append(refs, fields[0])
+	}
+	sort.Strings(refs)
+	return refs, nil
+}
+
+// ListTreePaths lists files below prefix at ref without checking it out.
+func (r *Repo) ListTreePaths(ref, prefix string) ([]string, error) {
+	out, err := r.run("ls-tree", "-r", "--name-only", ref, "--", prefix)
+	if err != nil {
+		return nil, err
+	}
+	if out == "" {
+		return nil, nil
+	}
+	paths := strings.Split(out, "\n")
+	sort.Strings(paths)
+	return paths, nil
 }
 
 // PrimaryWorktreeRoot returns the absolute path of the repository's MAIN worktree

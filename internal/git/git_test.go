@@ -395,3 +395,35 @@ func TestCatFileExists_RejectsEmptyDir(t *testing.T) {
 		t.Errorf("error: want mention of 'empty Repo.Dir', got: %v", err)
 	}
 }
+
+func TestRepoListRefsReadOnly(t *testing.T) {
+	r := setupRepo(t)
+	if err := os.WriteFile(filepath.Join(r.Dir, "x"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Stage("x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Commit("x"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.run("branch", "z"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.run("branch", "a"); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := r.StatusPorcelain()
+	refs, err := r.ListRefs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, _ := r.StatusPorcelain()
+	want := []string{"refs/heads/a", "refs/heads/main", "refs/heads/z"}
+	if strings.Join(refs, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("refs=%v want=%v", refs, want)
+	}
+	if before != after {
+		t.Fatalf("status changed: %q -> %q", before, after)
+	}
+}

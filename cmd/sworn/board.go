@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -24,15 +23,9 @@ func init() {
 
 func cmdBoard(args []string) int {
 	fs := flag.NewFlagSet("board", flag.ExitOnError)
-	releaseName := fs.String("release", "", "release name (required)")
+	releaseName := fs.String("release", "", "release name (optional filter)")
 	asJSON := fs.Bool("json", false, "output as JSON")
 	_ = fs.Parse(args)
-
-	if *releaseName == "" {
-		fmt.Fprintln(os.Stderr, "sworn board: --release is required")
-		fmt.Fprintln(os.Stderr, "usage: sworn board --release <name> [--json]")
-		return 64
-	}
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -41,18 +34,32 @@ func cmdBoard(args []string) int {
 	}
 
 	repo := git.New(cwd)
-	oracle := board.NewGitOracle(repo)
-
-	releaseRef, err := board.ReleaseRefFor(repo, *releaseName)
+	catalog, err := board.DiscoverCatalog(repo)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sworn board: %v\n", err)
 		return 2
 	}
-
-	ctx := context.Background()
-	boardState, err := oracle.ReadBoard(ctx, oracleReader{repo}, releaseRef, *releaseName)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "sworn board: %v\n", err)
+	if *releaseName == "" {
+		if *asJSON {
+			return printCatalogJSON(catalog)
+		}
+		for _, record := range catalog {
+			fmt.Printf("Source ref: %s\n", record.SourceRef)
+			if code := printBoardText(record.Board); code != 0 {
+				return code
+			}
+		}
+		return 0
+	}
+	var boardState *board.BoardState
+	for _, record := range catalog {
+		if record.Release == *releaseName {
+			boardState = record.Board
+			break
+		}
+	}
+	if boardState == nil {
+		fmt.Fprintf(os.Stderr, "sworn board: release %q not found\n", *releaseName)
 		return 2
 	}
 
@@ -88,38 +95,57 @@ type boardSliceJSON struct {
 	Blocked         bool     `json:"blocked"`
 	BlockedReason   string   `json:"blocked_reason,omitempty"`
 	BlockedOwner    string   `json:"blocked_owner,omitempty"`
+	StateSource     string   `json:"stateSource"`
+	StateDurability string   `json:"stateDurability"`
+}
+
+type trackJSON struct {
+	ID     string           `json:"id"`
+	State  string           `json:"state"`
+	Slices []boardSliceJSON `json:"slices"`
+}
+
+func projectTracks(bs *board.BoardState) []trackJSON {
+	var tracks []trackJSON
+	for _, t := range bs.Tracks {
+		tj := trackJSON{ID: t.ID, State: t.State}
+		for _, s := range t.Slices {
+			tj.Slices = append(tj.Slices, boardSliceJSON{ID: s.ID, State: string(s.State), Owner: s.Owner, LastUpdated: s.LastUpdated, Track: s.Track, Actionable: s.Actionable, DependsOnTracks: s.DependsOnTracks, Blocked: s.Blocked, BlockedReason: s.BlockedReason, BlockedOwner: string(s.BlockedOwner), StateSource: s.StateSource, StateDurability: s.StateDurability})
+		}
+		tracks = append(tracks, tj)
+	}
+	return tracks
+}
+
+func printCatalogJSON(catalog []board.CatalogRecord) int {
+	type entry struct {
+		Release   string      `json:"release"`
+		SourceRef string      `json:"sourceRef"`
+		Tracks    []trackJSON `json:"tracks"`
+	}
+	out := struct {
+		Releases map[string]entry `json:"releases"`
+	}{Releases: map[string]entry{}}
+	for _, r := range catalog {
+		out.Releases[r.Release] = entry{Release: r.Release, SourceRef: r.SourceRef, Tracks: projectTracks(r.Board)}
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(out); err != nil {
+		fmt.Fprintf(os.Stderr, "sworn board: json: %v\n", err)
+		return 2
+	}
+	return 0
 }
 
 func printBoardJSON(bs *board.BoardState) int {
-	type trackJSON struct {
-		ID     string           `json:"id"`
-		State  string           `json:"state"`
-		Slices []boardSliceJSON `json:"slices"`
-	}
 	type boardJSON struct {
 		Release string      `json:"release"`
 		Tracks  []trackJSON `json:"tracks"`
 	}
 
 	bj := boardJSON{Release: bs.Release}
-	for _, t := range bs.Tracks {
-		tj := trackJSON{ID: t.ID, State: t.State}
-		for _, s := range t.Slices {
-			tj.Slices = append(tj.Slices, boardSliceJSON{
-				ID:              s.ID,
-				State:           string(s.State),
-				Owner:           s.Owner,
-				LastUpdated:     s.LastUpdated,
-				Track:           s.Track,
-				Actionable:      s.Actionable,
-				DependsOnTracks: s.DependsOnTracks,
-				Blocked:         s.Blocked,
-				BlockedReason:   s.BlockedReason,
-				BlockedOwner:    string(s.BlockedOwner),
-			})
-		}
-		bj.Tracks = append(bj.Tracks, tj)
-	}
+	bj.Tracks = projectTracks(bs)
 
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
@@ -154,6 +180,9 @@ func printBoardText(bs *board.BoardState) int {
 
 		for _, s := range slices {
 			stateStr := string(s.State)
+			if s.StateDurability == "uncommitted" {
+				stateStr += " [uncommitted]"
+			}
 			if s.Blocked {
 				// BLOCKED visibility: render distinctly.
 				stateStr = style.Danger(fmt.Sprintf("BLOCKED → %s: %s", s.BlockedOwner, s.BlockedReason))

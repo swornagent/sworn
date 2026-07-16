@@ -18,7 +18,7 @@ func setupBoardFixture(t *testing.T) (repoDir, swornBin string) {
 	repoDir = t.TempDir()
 
 	// Init git repo.
-	runGit(t, repoDir, "init")
+	runGit(t, repoDir, "init", "-b", "main")
 	runGit(t, repoDir, "config", "user.email", "test@swornagent.dev")
 	runGit(t, repoDir, "config", "user.name", "sworn test")
 
@@ -51,9 +51,9 @@ tracks:
 
 	// Write per-slice status.json files.
 	slices := map[string]string{
-		"S01-alpha": `{"slice_id":"S01-alpha","state":"in_progress","owner":"agent","last_updated_at":"2026-01-01T00:00:00Z","track":"T1-core","verification":{"result":"pending"}}`,
-		"S02-beta":  `{"slice_id":"S02-beta","state":"verified","owner":"human","last_updated_at":"2026-01-01T00:00:00Z","track":"T1-core","verification":{"result":"pending"}}`,
-		"S03-gamma": `{"slice_id":"S03-gamma","state":"planned","owner":"agent","last_updated_at":"2026-01-01T00:00:00Z","track":"T2-aux","verification":{"result":"pending"}}`,
+		"S01-alpha": `{"slice_id":"S01-alpha","release":"test-release","state":"in_progress","owner":"agent","last_updated_at":"2026-01-01T00:00:00Z","track":"T1-core","verification":{"result":"pending"}}`,
+		"S02-beta":  `{"slice_id":"S02-beta","release":"test-release","state":"verified","owner":"human","last_updated_at":"2026-01-01T00:00:00Z","track":"T1-core","verification":{"result":"pending"}}`,
+		"S03-gamma": `{"slice_id":"S03-gamma","release":"test-release","state":"planned","owner":"agent","last_updated_at":"2026-01-01T00:00:00Z","track":"T2-aux","verification":{"result":"pending"}}`,
 	}
 	for sid, content := range slices {
 		sliceDir := filepath.Join(releaseDir, sid)
@@ -81,7 +81,7 @@ tracks:
 		// Build from source.
 		cwd, _ := os.Getwd()
 		realSworn = filepath.Join(t.TempDir(), "sworn-built")
-		build := exec.Command("go", "build", "-o", realSworn, ".")
+		build := exec.Command("go", "build", "-buildvcs=false", "-o", realSworn, ".")
 		build.Dir = cwd
 		out, err := build.CombinedOutput()
 		if err != nil {
@@ -93,7 +93,7 @@ tracks:
 	// We need the binary accessible. Let's just build it.
 	cwd, _ := os.Getwd()
 	swornBin = filepath.Join(t.TempDir(), "sworn")
-	build := exec.Command("go", "build", "-o", swornBin, ".")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", swornBin, ".")
 	build.Dir = cwd
 	out, err := build.CombinedOutput()
 	if err != nil {
@@ -124,6 +124,76 @@ func mustWrite(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func TestBoardCLIAllRefsCatalogStateEvidenceReachability(t *testing.T) {
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "main")
+	runGit(t, repoDir, "config", "user.email", "test@swornagent.dev")
+	runGit(t, repoDir, "config", "user.name", "sworn test")
+	mustWrite(t, filepath.Join(repoDir, "README.md"), "consumer\n")
+	runGit(t, repoDir, "add", "README.md")
+	runGit(t, repoDir, "commit", "-m", "consumer head")
+
+	writeRelease := func(release, track, slice, state string) {
+		dir := filepath.Join(repoDir, "docs", "release", release)
+		mustMkdir(t, filepath.Join(dir, slice))
+		mustWrite(t, filepath.Join(dir, "board.json"), `{"$schema":"board-v1","release":{"name":"`+release+`"},"tracks":[{"id":"`+track+`","slices":["`+slice+`"]}]}`)
+		mustWrite(t, filepath.Join(dir, slice, "status.json"), `{"slice_id":"`+slice+`","release":"`+release+`","track":"`+track+`","state":"`+state+`","last_updated_at":"2026-01-01T00:00:00Z","verification":{"result":"pending"}}`)
+		runGit(t, repoDir, "add", "docs")
+		runGit(t, repoDir, "commit", "-m", "add "+release)
+		runGit(t, repoDir, "branch", "release-wt/"+release)
+		runGit(t, repoDir, "reset", "--hard", "HEAD^")
+	}
+	writeRelease("alpha-release", "T1-alpha", "S01-alpha", "implemented")
+	writeRelease("beta-release", "T1-beta", "S01-beta", "planned")
+
+	// A non-topology track ref carries farther state evidence for alpha.
+	runGit(t, repoDir, "checkout", "-b", "track/alpha-release/T1-alpha", "release-wt/alpha-release")
+	status := filepath.Join(repoDir, "docs", "release", "alpha-release", "S01-alpha", "status.json")
+	mustWrite(t, status, `{"slice_id":"S01-alpha","release":"alpha-release","track":"T1-alpha","state":"verified","last_updated_at":"2026-01-02T00:00:00Z","verification":{"result":"pending"}}`)
+	runGit(t, repoDir, "add", "docs")
+	runGit(t, repoDir, "commit", "-m", "verify alpha")
+	runGit(t, repoDir, "checkout", "main")
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(t.TempDir(), "sworn")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", bin, ".")
+	build.Dir = cwd
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	cmd := exec.Command(bin, "board", "--json")
+	cmd.Dir = repoDir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("sworn board --json: %v\n%s", err, out)
+	}
+	var got struct {
+		Releases map[string]struct {
+			Release, SourceRef string
+			Tracks             []struct {
+				Slices []struct{ ID, State, StateSource, StateDurability string }
+			}
+		} `json:"releases"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("parse: %v\n%s", err, out)
+	}
+	if len(got.Releases) != 2 {
+		t.Fatalf("releases=%d, want 2: %s", len(got.Releases), out)
+	}
+	alpha := got.Releases["alpha-release"]
+	if alpha.SourceRef != "refs/heads/release-wt/alpha-release" {
+		t.Errorf("sourceRef=%q", alpha.SourceRef)
+	}
+	s := alpha.Tracks[0].Slices[0]
+	if s.State != "verified" || s.StateSource != "refs/heads/track/alpha-release/T1-alpha" || s.StateDurability != "committed" {
+		t.Fatalf("alpha evidence=%+v", s)
 	}
 }
 
@@ -206,7 +276,7 @@ func TestBoardCLI_BlockedVisibility(t *testing.T) {
 	// Overwrite S01-alpha with a blocked verdict.
 	s01Dir := filepath.Join(repoDir, "docs", "release", "test-release", "S01-alpha")
 	mustWrite(t, filepath.Join(s01Dir, "status.json"),
-		`{"slice_id":"S01-alpha","state":"implemented","owner":"agent","last_updated_at":"2026-01-01T00:00:00Z","track":"T1-core","verification":{"result":"blocked","violations":["spec defect: missing acceptance check"],"routing":"needs_planner"}}`)
+		`{"slice_id":"S01-alpha","release":"test-release","state":"implemented","owner":"agent","last_updated_at":"2026-01-01T00:00:00Z","track":"T1-core","verification":{"result":"blocked","violations":["spec defect: missing acceptance check"],"routing":"needs_planner"}}`)
 	runGit(t, repoDir, "add", "docs/")
 	runGit(t, repoDir, "commit", "-m", "blocked S01-alpha")
 	// Update release-wt branch.
