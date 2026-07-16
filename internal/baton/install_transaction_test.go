@@ -807,6 +807,40 @@ func TestInstallIdentitySuffixesOverlapSameFile(t *testing.T) {
 	}
 }
 
+func TestBatonSyncRejectsByteIdenticalUnreplacedRootInodeSwap(t *testing.T) {
+	trees, version := installTestAuthority(t)
+	for _, point := range []string{"snapshot-after:agents_home", "publish-before"} {
+		t.Run(strings.ReplaceAll(point, ":", "-"), func(t *testing.T) {
+			opts := newInstallTestOpts(t, trees, version)
+			writeInstallTestOriginals(t, opts.Roots)
+			before := snapshotInstallTestRoots(t, opts.Roots)
+			swapped := false
+			opts.Fault = func(got string) error {
+				if got != point || swapped {
+					return nil
+				}
+				swapped = true
+				moved := opts.Roots.AgentsHome + ".old-inode"
+				if err := os.Rename(opts.Roots.AgentsHome, moved); err != nil {
+					return err
+				}
+				return copyCompleteTree(moved, opts.Roots.AgentsHome, false, nil)
+			}
+			_, err := SyncBatonInstall(opts)
+			assertInstallErrorClass(t, err, "unsafe-root-identity")
+			assertInstallTestSnapshots(t, opts.Roots, before)
+			for _, root := range []string{opts.Roots.ClaudeHome, opts.Roots.CodexHome} {
+				if got := snapshotFilesystemTree(t, root); len(got) != len(before[root]) {
+					t.Fatalf("unrelated root changed after inode swap: %s", root)
+				}
+			}
+			if _, err := os.Lstat(filepath.Join(opts.Roots.RecoveryRoot, installRecoverySentinel)); !os.IsNotExist(err) {
+				t.Fatalf("inode swap reached durable publication: %v", err)
+			}
+		})
+	}
+}
+
 func TestBatonSyncCrashDispositionLeavesOwnedDebrisForFreshInvocation(t *testing.T) {
 	trees, version := installTestAuthority(t)
 	tests := []struct {

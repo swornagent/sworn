@@ -284,6 +284,10 @@ func SyncBatonInstall(opts InstallOpts) (*InstallResult, error) {
 			applyErr = err
 			break
 		}
+		if err := revalidateInstallTopology(prepared, i+1); err != nil {
+			applyErr = err
+			break
+		}
 		if err := syncTree(target.path); err != nil {
 			applyErr = err
 			break
@@ -292,7 +296,15 @@ func SyncBatonInstall(opts InstallOpts) (*InstallResult, error) {
 			applyErr = err
 			break
 		}
+		if err := revalidateInstallTopology(prepared, i+1); err != nil {
+			applyErr = err
+			break
+		}
 		if err := callInstallFault(prepared.fault, "replace-after:"+target.logical); err != nil {
+			applyErr = err
+			break
+		}
+		if err := revalidateInstallTopology(prepared, i+1); err != nil {
 			applyErr = err
 			break
 		}
@@ -301,6 +313,10 @@ func SyncBatonInstall(opts InstallOpts) (*InstallResult, error) {
 			break
 		}
 		if err := callInstallFault(prepared.fault, "verify-after:"+target.logical); err != nil {
+			applyErr = err
+			break
+		}
+		if err := revalidateInstallTopology(prepared, i+1); err != nil {
 			applyErr = err
 			break
 		}
@@ -321,6 +337,19 @@ func SyncBatonInstall(opts InstallOpts) (*InstallResult, error) {
 			return nil, newInstallError("rollback-incomplete", []string{"recovery"}, prepared.roots.RecoveryRoot, retireErr)
 		}
 		return nil, newInstallError("repair-failed-restored", drift, "", applyErr)
+	}
+	if err := verifyAllInstalledAndTopology(prepared, opts.Version); err != nil {
+		unrestored := restoreInstallTargets(prepared, prepared.manifest)
+		if len(unrestored) != 0 {
+			if updateErr := updateInstallUnrestored(prepared, unrestored); updateErr != nil {
+				return nil, newInstallError("rollback-incomplete", append(unrestored, "recovery"), prepared.roots.RecoveryRoot, errors.Join(err, updateErr))
+			}
+			return nil, newInstallError("rollback-incomplete", unrestored, prepared.roots.RecoveryRoot, err)
+		}
+		if retireErr := retireInstallRecovery(prepared); retireErr != nil {
+			return nil, newInstallError("rollback-incomplete", []string{"recovery"}, prepared.roots.RecoveryRoot, retireErr)
+		}
+		return nil, newInstallError("repair-failed-restored", nil, "", err)
 	}
 
 	if err := retireInstallRecovery(prepared); err != nil {
@@ -756,7 +785,7 @@ func writeExclusiveInstallFile(name string, data []byte, mode os.FileMode) error
 }
 
 func revalidateUnreplacedInstallTargets(prepared *preparedInstall, start int) error {
-	if err := reassertInstallIdentities(prepared, false); err != nil {
+	if err := revalidateInstallTopology(prepared, start); err != nil {
 		return err
 	}
 	want := manifestByRoot(prepared.manifest)
@@ -773,6 +802,81 @@ func revalidateUnreplacedInstallTargets(prepared *preparedInstall, start int) er
 			return newInstallError("source-changed", []string{target.logical}, "", errors.New("live root changed after immutable capture"))
 		}
 	}
+	return nil
+}
+
+func verifyAllInstalledAndTopology(prepared *preparedInstall, version []byte) error {
+	if err := revalidateInstallTopology(prepared, len(prepared.targets)); err != nil {
+		return err
+	}
+	drift, err := installDrift(prepared.targets, version)
+	if err != nil {
+		return err
+	}
+	if len(drift) != 0 {
+		return newInstallError("install-verify-failed", drift, "", errors.New("installed roots changed before retirement"))
+	}
+	return nil
+}
+
+func revalidateInstallTopology(prepared *preparedInstall, unreplacedStart int) error {
+	_, current, err := resolveInstallRoots(prepared.roots)
+	if err != nil {
+		return err
+	}
+	recovery := prepared.identities["recovery"]
+	currentRecovery := current["recovery"]
+	if recovery.ancestorInfo == nil || currentRecovery.ancestorInfo == nil || currentRecovery.ancestor != currentRecovery.path || !os.SameFile(recovery.ancestorInfo, currentRecovery.ancestorInfo) {
+		return newInstallError("unsafe-root-identity", []string{"recovery"}, "", errors.New("recovery root identity changed"))
+	}
+	for i := unreplacedStart; i < len(prepared.targets); i++ {
+		target := prepared.targets[i]
+		if err := reassertUnreplacedInstallTarget(prepared, prepared.identities[target.logical]); err != nil {
+			return newInstallError("unsafe-root-identity", []string{target.logical}, "", err)
+		}
+	}
+	return nil
+}
+
+func reassertUnreplacedInstallTarget(prepared *preparedInstall, identity installPathIdentity) error {
+	current, _, err := resolvePhysicalNoSymlink(identity.logical, identity.path)
+	if err != nil {
+		return err
+	}
+	ancestorNow, err := os.Lstat(identity.ancestor)
+	if err != nil || identity.ancestorInfo == nil || !os.SameFile(identity.ancestorInfo, ancestorNow) {
+		return errors.New("recorded ancestor identity changed")
+	}
+	if len(identity.missing) == 0 {
+		if current.ancestor != current.path || current.ancestorInfo == nil || !os.SameFile(identity.ancestorInfo, current.ancestorInfo) {
+			return errors.New("recorded target inode changed")
+		}
+		return nil
+	}
+	if _, err := os.Lstat(identity.path); !os.IsNotExist(err) {
+		return errors.New("recorded absent target appeared")
+	}
+	walk := identity.ancestor
+	for _, part := range identity.missing[:len(identity.missing)-1] {
+		walk = filepath.Join(walk, part)
+		info, err := os.Lstat(walk)
+		if os.IsNotExist(err) {
+			break
+		}
+		owned, ok := prepared.createdPaths[walk]
+		if err != nil || !ok || !info.IsDir() || !os.SameFile(owned, info) {
+			return errors.New("missing target suffix changed outside this operation")
+		}
+	}
+	return nil
+}
+
+func recordInstallRecoveryIdentity(prepared *preparedInstall) error {
+	identity, _, err := resolvePhysicalNoSymlink("recovery", prepared.roots.RecoveryRoot)
+	if err != nil || identity.ancestor != identity.path || identity.ancestorInfo == nil {
+		return newInstallError("unsafe-root-identity", []string{"recovery"}, "", errors.New("recovery root identity unavailable"))
+	}
+	prepared.identities["recovery"] = identity
 	return nil
 }
 
@@ -894,6 +998,9 @@ func captureInstallSources(prepared *preparedInstall) error {
 	if err := ensureInstallDirectory(prepared, prepared.roots.RecoveryRoot, 0o700); err != nil {
 		return err
 	}
+	if err := recordInstallRecoveryIdentity(prepared); err != nil {
+		return err
+	}
 	if err := createOwnedInstallDir(prepared, prepared.recoveryStaging, 0o700); err != nil {
 		return newInstallError("recovery-publication-failed", nil, prepared.recoveryStaging, err)
 	}
@@ -920,6 +1027,9 @@ func captureInstallSources(prepared *preparedInstall) error {
 		if err := callInstallFault(prepared.fault, "snapshot-before:"+target.logical); err != nil {
 			return err
 		}
+		if err := revalidateInstallTopology(prepared, 0); err != nil {
+			return err
+		}
 		entries, absent, err := captureInstallTarget(*target)
 		if err != nil {
 			return newInstallError("snapshot-failed", []string{target.logical}, "", err)
@@ -927,6 +1037,9 @@ func captureInstallSources(prepared *preparedInstall) error {
 		target.absent = absent
 		manifest = append(manifest, entries...)
 		if err := callInstallFault(prepared.fault, "snapshot-after:"+target.logical); err != nil {
+			return err
+		}
+		if err := revalidateInstallTopology(prepared, 0); err != nil {
 			return err
 		}
 	}
@@ -1083,10 +1196,16 @@ func stageDesiredInstall(prepared *preparedInstall, version []byte) error {
 		if err := callInstallFault(prepared.fault, "stage-sync-before:"+target.logical); err != nil {
 			return err
 		}
+		if err := revalidateUnreplacedInstallTargets(prepared, 0); err != nil {
+			return err
+		}
 		if err := syncTree(target.stage); err != nil {
 			return newInstallError("stage-failed", []string{target.logical}, "", err)
 		}
 		if err := callInstallFault(prepared.fault, "stage-sync-after:"+target.logical); err != nil {
+			return err
+		}
+		if err := revalidateUnreplacedInstallTargets(prepared, 0); err != nil {
 			return err
 		}
 	}
@@ -1350,6 +1469,9 @@ func publishInstallRecovery(prepared *preparedInstall) error {
 		return err
 	}
 	if err := callInstallFault(prepared.fault, "publish-after"); err != nil {
+		return err
+	}
+	if err := revalidateUnreplacedInstallTargets(prepared, 0); err != nil {
 		return err
 	}
 	return nil
