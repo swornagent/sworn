@@ -171,7 +171,7 @@ func parseMajor(v string) int {
 func cmdDoctor(args []string) int {
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
 	fix := fs.Bool("fix", false, "apply safe auto-repairs (removes docs/baton/, migrates legacy AGENTS.md)")
-	syncBaton := fs.Bool("sync-baton", false, "copy embedded Baton docs to ~/.claude/baton/ (or SWORN_BATON_HOME)")
+	syncBaton := fs.Bool("sync-baton", false, "transactionally repair the Codex and Claude Baton mirrors")
 	_ = fs.Parse(args)
 
 	repoRoot, err := os.Getwd()
@@ -250,21 +250,34 @@ func cmdDoctor(args []string) int {
 		printResult(r)
 	}
 
-	// --- Group 3: Local Baton sync (optional) ---
-	batonHome := os.Getenv("SWORN_BATON_HOME")
-	if batonHome == "" {
-		home, _ := os.UserHomeDir()
-		batonHome = filepath.Join(home, ".claude", "baton")
-	}
-	if _, err := os.Stat(batonHome); err == nil {
+	// --- Group 3: Complete local Baton mirrors (optional when no supported
+	// home exists; mandatory for --sync-baton and explicit root overrides). ---
+	installOpts, installApplicable, installOptsErr := doctorBatonInstallOpts(*syncBaton)
+	if installApplicable || installOptsErr != nil {
 		fmt.Println()
-		fmt.Println(style.Heading("Group 3: Local Baton sync"))
-		g3 := checkBatonSync(batonHome)
-		for _, r := range g3 {
-			printResult(r)
+		fmt.Println(style.Heading("Group 3: Local Baton mirrors"))
+		if installOptsErr != nil {
+			printResult(checkResult{level: levelError, name: "baton/local-mirrors", detail: installOptsErr.Error()})
+			if !*syncBaton {
+				hasError = true
+			}
+		} else {
+			drift, checkErr := baton.CheckBatonInstall(installOpts)
+			if checkErr != nil {
+				printResult(checkResult{level: levelError, name: "baton/local-mirrors", detail: checkErr.Error()})
+				if !*syncBaton {
+					hasError = true
+				}
+			} else if len(drift) != 0 {
+				printResult(checkResult{level: levelError, name: "baton/local-mirrors", detail: "drift: " + strings.Join(drift, ", ")})
+				if !*syncBaton {
+					hasError = true
+				}
+			} else {
+				printResult(checkResult{level: levelOK, name: "baton/local-mirrors", detail: "Codex and Claude mirrors match the embedded Baton authority"})
+			}
 		}
 	}
-	// If batonHome doesn't exist, group 3 is skipped entirely (no output).
 
 	// --- Group 4: Dependency version freshness ---
 	fmt.Println()
@@ -286,19 +299,110 @@ func cmdDoctor(args []string) int {
 		}
 	}
 
-	// --- --sync-baton: copy embedded Baton to local ---
+	// --- --sync-baton: one three-root transaction over the embedded authority. ---
 	if *syncBaton {
-		if err := syncBatonHome(batonHome); err != nil {
+		if installOptsErr != nil {
+			fmt.Fprintf(os.Stderr, "[ERROR] --sync-baton: %v\n", installOptsErr)
+			return 1
+		}
+		result, err := baton.SyncBatonInstall(installOpts)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "[ERROR] --sync-baton: %v\n", err)
 			return 1
 		}
-		fmt.Printf("[OK]    synced embedded Baton docs to %s\n", batonHome)
+		switch result.State {
+		case baton.InstallRepaired:
+			fmt.Printf("[OK]    repaired Baton mirrors: %s\n", strings.Join(result.Changed, ", "))
+			if hasError {
+				return 1
+			}
+			return 2
+		case baton.InstallRecovered:
+			fmt.Println("[OK]    restored all pre-run Baton homes from durable recovery authority; rerun --sync-baton to install")
+			if hasError {
+				return 1
+			}
+			return 2
+		case baton.InstallAlreadyExact:
+			fmt.Println("[OK]    Baton mirrors already match the embedded authority")
+		default:
+			fmt.Fprintf(os.Stderr, "[ERROR] --sync-baton: unknown result %q\n", result.State)
+			return 1
+		}
 	}
 
 	if hasError {
 		return 1
 	}
 	return 0
+}
+
+func doctorBatonInstallOpts(force bool) (baton.InstallOpts, bool, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return baton.InstallOpts{}, force, fmt.Errorf("resolve home directory: %w", err)
+	}
+	agentsHome := os.Getenv("AGENTS_HOME")
+	if agentsHome == "" {
+		agentsHome = filepath.Join(home, ".agents")
+	}
+	codexHome := os.Getenv("CODEX_HOME")
+	if codexHome == "" {
+		codexHome = filepath.Join(home, ".codex")
+	}
+	claudeHome := os.Getenv("CLAUDE_HOME")
+	if claudeHome == "" {
+		claudeHome = filepath.Join(home, ".claude")
+	}
+	swornHome := os.Getenv("SWORN_HOME")
+	if swornHome == "" {
+		configDir, configErr := os.UserConfigDir()
+		if configErr != nil {
+			return baton.InstallOpts{}, force, fmt.Errorf("resolve Sworn config directory: %w", configErr)
+		}
+		swornHome = filepath.Join(configDir, "sworn")
+	}
+	recoveryRoot := filepath.Join(swornHome, "recovery", "baton-sync")
+	explicit := os.Getenv("AGENTS_HOME") != "" || os.Getenv("CODEX_HOME") != "" || os.Getenv("CLAUDE_HOME") != "" || os.Getenv("SWORN_HOME") != ""
+	// Preserve doctor's historical project-audit behavior until this binary has
+	// installed its own sentinels. Explicit overrides and --sync-baton always
+	// opt into the complete mirror boundary; ordinary doctor auto-discovers it
+	// only from Sworn-owned sentinels or pending recovery authority, not merely
+	// because unrelated Codex/Claude config homes happen to exist.
+	applicable := force || explicit || anyPathExists(
+		recoveryRoot,
+		filepath.Join(agentsHome, filepath.FromSlash(".sworn-baton/VERSION")),
+		filepath.Join(codexHome, filepath.FromSlash(".sworn-baton/VERSION")),
+		filepath.Join(claudeHome, filepath.FromSlash(".sworn-baton/VERSION")),
+	)
+	if !applicable {
+		return baton.InstallOpts{}, false, nil
+	}
+	archiveBytes := adopt.BatonInstallerArchive()
+	trees, err := baton.GenerateInstallerManagedTrees(archiveBytes)
+	if err != nil {
+		return baton.InstallOpts{}, true, fmt.Errorf("validate embedded Baton installer input: %w", err)
+	}
+	version, err := adopt.BatonDocsFS().ReadFile("baton/VERSION")
+	if err != nil {
+		return baton.InstallOpts{}, true, fmt.Errorf("read embedded Baton VERSION: %w", err)
+	}
+	return baton.InstallOpts{
+		Roots: baton.InstallRoots{
+			AgentsHome: agentsHome, CodexHome: codexHome,
+			ClaudeHome: claudeHome, RecoveryRoot: recoveryRoot,
+		},
+		Trees: trees, Version: version,
+	}, true, nil
+}
+
+func anyPathExists(paths ...string) bool {
+	for _, path := range paths {
+		if _, err := os.Lstat(path); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // printResult prints a single check result line.
