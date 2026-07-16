@@ -1,0 +1,99 @@
+{
+  "$schema": "https://baton.sawy3r.net/schemas/spec-v1.json",
+  "slice_id": "S02-tui-ref-aware-release-navigation",
+  "release": "2026-07-17-ref-aware-board-discovery",
+  "track": "T1-ref-aware-board",
+  "user_outcome": "A SwornAgent TUI operator can launch `sworn`, select a release that exists only on a non-HEAD Git ref, and open the same catalog-snapshot board and high-water slice state that `sworn board` reports, with an explicit visual indication whenever a selected state depends on uncommitted working-tree evidence.",
+  "rationale": "The TUI currently has filesystem-only release-list and board-loading boundaries, plus a separate live-status override. S01 owns C-01 and the State Evidence Oracle. This slice makes the TUI a pure consumer of that catalog snapshot: sourceRef remains the topology identity, selected SliceState provenance remains unchanged, and the user can see when a state has not survived a commit. This is the only way the TUI and CLI can genuinely share one oracle rather than merely implement similar rules.",
+  "touchpoints": [
+    "internal/tui/releases.go",
+    "internal/tui/board.go",
+    "internal/tui/model.go",
+    "internal/tui/tui_test.go"
+  ],
+  "in_scope": [
+    "Replace the Git-repository TUI release-list discovery path with one S01 `board.DiscoverCatalog` result. Each ReleaseInfo retained by the list must carry the selected catalog record or immutable equivalent needed to open the exact same plan and SliceState evidence; list ordering remains bytewise lexical by release ID and existing keyboard navigation, labels, truncation, and loading feedback remain intact.",
+    "When the user presses Enter on a catalog release, propagate that selected catalog record through the existing asynchronous board-load command and its stale-result guard. A board-loaded result for the same release name but a different sourceRef must not overwrite the currently selected board. The loader must not call `board.ReadBoard`, `ReleaseRefFor`, `state.Read`, `os.ReadDir`, a status-authority helper, or any independent ref/status resolver after it receives the catalog snapshot.",
+    "Populate BoardView tracks and slices directly from the selected catalog BoardState, including each SliceState's elected `stateSource`, `stateDurability`, `lastUpdated`, and verification fields. A ref-only board must therefore render tracks and slices even when `docs/release/<release>` does not exist in the checked-out filesystem.",
+    "Render an explicit `[uncommitted]` marker beside every board slice whose `stateDurability` is `uncommitted`; the marker must be textual rather than colour-only. When any selected slice evidence for a release is uncommitted, append the exact textual suffix ` [uncommitted]` to that release's existing aggregate label in the release list. A committed selected state must not receive either marker. TUI display code must not inspect file bytes or rank lifecycle state to determine either marker.",
+    "On a catalog failure, surface the deterministic catalog error through the existing TUI error path and do not populate a partial release list or silently fall back to a different board. For a non-Git/no-HEAD test or initialisation directory, consume S01's shared filesystem fallback record rather than retaining a TUI-specific filesystem parser; its status evidence is conservatively rendered as uncommitted.",
+    "Add integration-level TUI fixtures in real temporary Git repositories. A fixture starts with no release board on HEAD, a valid `refs/heads/release-wt/<release>` board, a higher valid status on another eligible ref or a matching dirty current-working-tree status, invokes the CLI catalog and the Model release-list entry point, then asserts the exact same release/sourceRef/state/stateSource/stateDurability reaches the selected TUI board. Additional assertions prove the text marker is present only for uncommitted evidence and that an asynchronous result from another sourceRef cannot replace the current selection."
+  ],
+  "out_of_scope": [
+    "All-ref enumeration, topology selection, canonical skew handling, status candidate validation, lifecycle/attention election, provenance calculation, aggregate CLI formatting, and mutation proof are S01-all-ref-board-catalog.",
+    "TUI redesign, new keyboard bindings, live-view/log-view/blocked-view ref routing, and changes to unrelated release-mode commands remain out of scope for #123.",
+    "Making the TUI fetch remote refs or mutate local Git state is forbidden; it consumes only S01's locally available catalog snapshot.",
+    "Adding a TUI-local status authority or working-tree override is forbidden. Any future state-election change belongs in the shared board oracle, with a contract and CLI/TUI parity coverage."
+  ],
+  "covers_needs": [
+    "N-03",
+    "N-04",
+    "N-05"
+  ],
+  "effort_complexity": {
+    "effort": "low",
+    "complexity": "high",
+    "quadrant": "puzzle",
+    "rationale": "The changed file surface is small and S01 owns all Git/state logic, but preserving one immutable catalog snapshot across release selection, asynchronous loading, stale-result rejection, and durability-visible rendering is a subtle state-authority boundary."
+  },
+  "risks": [
+    {
+      "id": "R-01",
+      "description": "The list and board view independently resolve the same release and can choose different source refs or slice states.",
+      "mitigation": "Persist the S01 catalog record in ReleaseInfo and thread that record through Enter, BoardView, reload, and the async result. The TUI must consume, not recreate, the catalog result."
+    },
+    {
+      "id": "R-02",
+      "description": "An uncommitted winning state is indistinguishable from committed progress, or TUI code reintroduces a lifecycle ranking that diverges from the CLI.",
+      "mitigation": "Render State Evidence Oracle fields verbatim and test explicit textual markers for both durability values. No TUI state/status helper is in scope."
+    },
+    {
+      "id": "R-03",
+      "description": "A catalog failure leaves a stale or incomplete releases pane that looks successful to an operator.",
+      "mitigation": "Treat discovery errors as TUI errors, clear/avoid partial list population, and use only the shared non-Git fallback result where S01 reports it."
+    },
+    {
+      "id": "R-04",
+      "description": "Ref-aware loading blocks Bubble Tea's update loop or regresses keyboard navigation.",
+      "mitigation": "Keep catalog-record rendering inside the existing asynchronous load command and verify Enter returns a command before the board is populated, with existing j/k/up/down/Enter behaviour retained."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-01",
+      "text": "WHEN the TUI starts from a temporary Git repository whose checked-out HEAD contains no release board but `refs/heads/release-wt/ref-only-release` contains a valid board and another eligible ref contains a higher valid matching `S01-alpha` status, THE SYSTEM SHALL list `ref-only-release` in the releases pane. WHEN the operator selects it and presses Enter, the returned asynchronous load command SHALL populate the board from the selected catalog record with the ref-only plan's tracks and the exact same `S01-alpha` state, `stateSource`, and `stateDurability` as `sworn board --json`; the loaded board and selected ReleaseInfo SHALL identify `refs/heads/release-wt/ref-only-release` as sourceRef (C-01, N-03, N-04, N-05).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/tui/tui_test.go:TestRefOnlyReleaseListAndBoardUsesCatalogSnapshot",
+        "internal/tui/tui_test.go:TestRefOnlyBoardAndCLIStateEvidenceAgree"
+      ]
+    },
+    {
+      "id": "AC-02",
+      "text": "WHEN the S01 catalog selects a `working-tree` / `uncommitted` SliceState for `S01-alpha`, THE SYSTEM SHALL render `S01-alpha` with a textual `[uncommitted]` marker in the board and append the exact suffix ` [uncommitted]` to the selected release's existing aggregate label in the release list. WHEN the catalog selects the otherwise equivalent committed evidence, neither marker or suffix SHALL be present. The TUI SHALL not read a status path or change the catalog's state, source, durability, timestamp, or verification fields while rendering either case (C-01, N-03, N-05).",
+      "ears_pattern": "state-driven",
+      "test_refs": [
+        "internal/tui/tui_test.go:TestBoardViewRendersCatalogStateDurability",
+        "internal/tui/tui_test.go:TestReleasesListRendersCatalogUncommittedAggregate"
+      ]
+    },
+    {
+      "id": "AC-03",
+      "text": "WHEN the shared catalog resolver returns a missing, malformed, or identity-mismatched canonical-board error during TUI initialisation, THE SYSTEM SHALL set the root model error to that unchanged catalog error, render the exact line prefix `Error: ` followed by that error in `Model.View()`, and SHALL not render a partial successful release list or substitute a lower-priority board. WHEN a temporary supplied root has no usable Git HEAD but S01 returns filesystem catalog records for `local-alpha` and `local-zeta`, THE SYSTEM SHALL use those shared records, set both sourceRef values to empty, mark their file evidence uncommitted, list exactly `[local-alpha, local-zeta]` in bytewise lexical order, and load `local-alpha` into its declared `T1-core` board after Enter and its returned command complete (N-03, N-04, N-05).",
+      "ears_pattern": "unwanted-behaviour",
+      "test_refs": [
+        "internal/tui/tui_test.go:TestReleasesListCatalogFailureIsVisible",
+        "internal/tui/tui_test.go:TestReleasesListUsesSharedNonGitCatalogFallback"
+      ]
+    },
+    {
+      "id": "AC-04",
+      "text": "WHEN the catalog supplies two release IDs in bytewise order, `alpha` then `zeta`, THE SYSTEM SHALL initialise the releases cursor at `alpha`; `j` and down SHALL move it exactly one position toward `zeta` without moving past the final entry, and `k` and up SHALL move it exactly one position toward `alpha` without moving before the first entry. WHEN Enter selects `zeta`, the same Update call SHALL set the Board release name to `zeta`, set `Loaded` false and `Loading` true, render `Loading…`, and return a non-nil asynchronous command; only delivery of that command's result for the same release ID and sourceRef SHALL set `Loaded` true and populate the board. A result with the same release ID but a different sourceRef SHALL leave the pending/selected board unchanged. `go test ./internal/tui ./internal/board ./cmd/sworn`, `go test ./...`, and `go vet ./...` SHALL exit 0, and `gofmt -l .` SHALL produce empty output (C-01, N-03, N-04).",
+      "ears_pattern": "event-driven",
+      "test_refs": [
+        "internal/tui/tui_test.go:TestRefAwareReleaseInteractionContract",
+        "internal/tui/tui_test.go:TestRefOnlyBoardLoadRejectsStaleDifferentSourceRef"
+      ]
+    }
+  ]
+}
