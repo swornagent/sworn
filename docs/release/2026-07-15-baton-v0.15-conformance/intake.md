@@ -60,6 +60,11 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   evidence. After this conformance release is integrated, a fresh Planner
   session applies that migration and reruns the v0.15 trace and spec-ambiguity
   gates before any downstream implementation begins.
+- N-12: **OpenAI strict-envelope compatibility.** Generic LLM checks retain
+  exact Baton report semantics when only the two explicit OpenAI strict-output
+  transports need a deterministic provider envelope; canonical schemas,
+  prompts, local validation, emitted-check equality, and all other provider
+  paths remain unchanged and fail closed.
 
 ## Source of truth
 
@@ -1063,9 +1068,10 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   `v0.15.1^{commit}` before evaluating HEAD. No sibling checkout, synthetic commit, weakened pin
   predicate, or runtime bundle dependency is authority. The committed bytes and
   pinned identities are normative; cross-version regeneration is not required.
-- **Topology**: T1 order is S01, original S02, S19, S20, S03, S04, S05. The
-  release now contains 20 proof-bounded slices; T2/T5/T6/T7 dependencies and the
-  pure-plan `shared_touchpoints: {}` authority are unchanged.
+- **Topology**: T1 order is S01, original S02, S19, verified S04, planned S21,
+  blocked S20, S03, S05. The release now contains 21 proof-bounded slices;
+  T2/T5/T6/T7 dependencies and the pure-plan `shared_touchpoints: {}`
+  authority are unchanged.
 - **Ratification**: Brad was told the mandatory rollback/replacement consequence,
   accepted the orchestrator's recommendation, and instructed the release process
   to continue. Real Codex and Claude homes remain untouched until S20 receives an
@@ -1089,6 +1095,41 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
 - **Handoff**: A fresh S04 verification PASS is required before S20 may resume.
   The resumed S20 session reruns its readiness and maintainability evidence; it
   does not inherit, fabricate, or bypass those gates.
+
+### 2026-07-17 - Add a closed-world OpenAI strict envelope before S20 resumes
+
+- **Trigger**: At clean T1 head
+  69238f0b011b7e2965ede64231e17ba373a510dd, the exact canonical
+  llm-check-report-v1 request reaches the configured OpenAI structured-output
+  endpoint but is rejected before model emission because the top-level allOf
+  conditionals are unsupported. This is a transport incompatibility, not
+  evidence that the canonical report contract or S04 requested/emitted identity
+  check is wrong.
+- **Decision**: Add planned S21-openai-structured-envelope immediately after
+  verified S04 and before blocked S20. It owns only a deterministic
+  llm-check-report-v1-openai-envelope for openai/ Responses and
+  openai-completions/ native response-format calls. It selects the canonical
+  generic report only by exact $id
+  https://baton.sawy3r.net/schemas/llm-check-report-v1.json plus source SHA-256
+  ed38b77823af1b329c1dc7d8427b08849f15690d5afa9625e196505bdfa5b65b.
+  Unknown/digest-mismatched generic-report identities and
+  spec-ambiguity-report-v1 must fail locally with zero HTTP; xAI, tool-call,
+  and all unprofiled paths retain their existing schema handling.
+- **Authority boundary**: Exact vendored schemas and prompt bytes,
+  internal/gate/llmcheck.go semantic authority, local canonical validation, and
+  S04 requested/emitted equality are unchanged. The envelope neither
+  synthesizes check nor reconstructs ambiguity maps, retries without structure,
+  or falls back to raw text. This is a non-Type-1 technical correction
+  ratified under the Coach standing orchestration authority.
+- **Lifecycle**: S04 remains verified. S20 remains blocked with immutable start
+  08dd38f81e466d3288ff4bf64953cfc90ea6063c, semantic commits
+  edad0fa8a75ab3b4a1938bdaf856c7973be72107 and
+  f3da6a49c3f89f0883e265befd30d1eb099d6a90, resume
+  bef712dbc629678d7bf2579d3beb560e2b025c0a, and all existing blocked
+  evidence preserved. It may resume only after a fresh S21 verifier PASS, then
+  must rerun its own readiness and maintainability evidence and perform a
+  credentialed exact-base OpenAI smoke that produces an accepted emitted
+  check: ac-satisfaction result.
 
 ## Schema-vs-spec audit notes
 
@@ -1117,13 +1158,18 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
 - `S20-v015-parity-portable-fixture`: The binary, vendored normative content and
   supported Codex and Claude installations report and byte-match exact Baton
   v0.15.1, with built-binary reachability proven from a verified exact-tag Git
-  bundle clone rather than a developer checkout.
+  bundle clone rather than a developer checkout. It remains blocked behind a
+  fresh S21 PASS and retains all existing immutable lifecycle evidence.
 - `S03-lossless-record-carriers`: `sworn doctor` proves state, board and spec
   records round-trip maintainability, shared touchpoints and typed references
   without loss against the exact v0.15 schemas.
 - `S04-typed-reference-ambiguity`: The Planner runs the dedicated ambiguity
   check over typed, workspace-confined references and every generic check emits
   the required canonical check identity.
+- `S21-openai-structured-envelope`: Only the explicit OpenAI strict-output
+  response-format paths compile the exact generic report into a deterministic
+  small envelope; the canonical schema and S04 semantic authority remain local
+  and unchanged.
 - `S05-protocol-provenance-archive`: An operator can inspect historical records
   read-only with committed version evidence, while every live operation fails
   before side effects unless its exact protocol marker matches the binary and
@@ -1184,12 +1230,13 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
 | A-07 | Whether readiness validation and the deployed `shipped` transition are one command or distinct facts | Public command semantics, deployment truth and idempotent terminal validation | Ratified: keep `sworn ship` as pre-cutover gate; native `mark-shipped` performs exact Baton status/index bookkeeping while preserving the pure-plan board, hands push/cleanup to the human, and no-ops when nothing remains verified |
 | A-08 | Whether re-plan requirements judgment and authoritative record mutation belong in the same layer | Re-slicing, rollback linkage, owner-track seeding, MCP writes and recovery | Ratified: Planner owns meaning; one engine operation validates, commits and propagates the ratified mutation |
 | A-09 | How the release can obey v0.15 before the conformant Sworn engine exists | Early slice governance, first install activity, evidence integrity and engine cutover | Ratified: staged manual v0.15 bootstrap followed by mandatory engine revalidation before automated authority |
-| A-10 | How deeply to decompose the v0.15 conformance body | Slice independence, proof boundaries, track parallelism and file ceilings | Ratified and amended after Gate 3: 20 proof-bounded slices, normally under 25 files, with the historical S02 exception followed by an explicit 45-path S19 rollback and 46-path S20 replacement including one authenticated test-only Git bundle |
-| A-11 | How to group the 20 slices for safe parallel delivery | Track dependencies, file ownership, worktree materialisation, Rule-1 reachability and the S13 cutover | Ratified: five tracks; T1 orders original S02 → S19 rollback → S20 replacement before S03, serial T2 runs S06 through S13, T5/T6 parallel after T2 cutover, T7 final, and no shared-touchpoint exceptions |
+| A-10 | How deeply to decompose the v0.15 conformance body | Slice independence, proof boundaries, track parallelism and file ceilings | Ratified and amended after Gate 3: 21 proof-bounded slices, normally under 25 files, with the historical S02 exception followed by an explicit 45-path S19 rollback, verified S04 identity gate, planned OpenAI envelope S21, and 46-path S20 replacement including one authenticated test-only Git bundle |
+| A-11 | How to group the 21 slices for safe parallel delivery | Track dependencies, file ownership, worktree materialisation, Rule-1 reachability and the S13 cutover | Ratified: five tracks; T1 orders original S02 → S19 rollback → verified S04 → planned S21 → blocked S20 → S03 → S05, serial T2 runs S06 through S13, T5/T6 parallel after T2 cutover, T7 final, and no shared-touchpoint exceptions |
 | A-12 | How exact v0.15 adapter decisions and the planning-to-current boundary become executable | Vendor exits, reference resolution, semantic identity, lifecycle, integration, deployment, re-plan, recovery and downstream track activation | Ratified: direct normative planning references plus C-13 post-T2 release-wt activation before T5/T6 materialisation |
 | A-13 | How a committed delta avoids naming its own commit and how a migrated marker becomes current | Re-plan source identity, receipt bytes, crash recovery and downstream protocol migration | Ratified: canonical Planner ref parented by the source, deterministic receipt fields, and distinct C-12 migrate/activate edges; C-13 stays native-only |
 | A-14 | Which owners publish, embed, compare, generate, install, and recover S02's offline archive | Repository atomicity, public parity, binary authority, local-home safety, file ceiling and Rule-9 records | Ratified: one expanded repository transaction; explicit `internal/adopt` embed; focused archive and install-transaction helpers; `internal/baton/diff.go` public parity; thin CLI adapters; eight-command inventory |
 | A-15 | Whether the upstream root VERSION blob and Sworn's adopting-repository VERSION manifest share one identity, and when local-install recovery becomes authoritative | Protocol marker schema, live/archive provenance, oracle modes, root topology, crash recovery and migration goldens | Ratified: `upstream_version_blob_oid` names only upstream `v0.15.1\n`; committed Sworn manifest blobs and parsed pins are separate per-ref evidence; umask 0022 is fixed; roots are disjoint; complete recovery authority is durable before first replacement; all affected goldens are refreshed |
+| A-16 | How OpenAI can accept a strict generic-check transport schema without becoming semantic authority | Generic LLM check Responses/completions transport, S04 identity gate, dedicated ambiguity contract, provider isolation, and S20 recovery | Ratified: exact-id-plus-digest closed-world OpenAI envelope below S04; canonical bytes and local validation remain authoritative; unsupported report identities fail before HTTP; xAI/tool-call/non-OpenAI paths remain raw; fresh S21 PASS gates S20 separate real smoke |
 
 ## Screenshots / references
 
