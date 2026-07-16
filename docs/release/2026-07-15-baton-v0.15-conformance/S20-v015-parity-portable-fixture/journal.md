@@ -171,3 +171,23 @@
   local canonical validation, the manual planning-authority Gate-8 Implementer
   preflight, refreshed proof, and a later fresh verifier. Real Codex and Claude
   homes remain out of scope.
+
+## 2026-07-17T09:56:12+10:00 — Blocked: credentialed readiness smoke exited 2
+
+- After the full deterministic evidence sequence passed in an independent
+  normal-VCS bundle clone, the exact required readiness command ran from a
+  clean detached clone at S20 semantic head
+  `f3da6a49c3f89f0883e265befd30d1eb099d6a90`, with the S21-capable binary
+  built at `c52f8790eb955efed9d923b0df74e0e00b0861f6` and requested
+  `openai/gpt-5.6-sol` model prefix. It exited `2` after two seconds.
+- The evidence boundary deliberately retained only the non-secret outcome and
+  duration: no credential, request body, model output, or provider diagnostic
+  was printed, logged, or committed. Consequently the exact durable fact is
+  that no genuine emitted `check: ac-satisfaction` reached unchanged S04 local
+  canonical acceptance.
+- S20 returns to `blocked` and stops. The manual Gate-8 Implementer
+  maintainability preflight, refreshed proof, deterministic first pass, and
+  any real Codex or Claude installation remain unrun. Do not retry or work
+  around this command in this Implementer session; route provider-readiness
+  triage through `/replan-release 2026-07-15-baton-v0.15-conformance` with
+  `S21-openai-structured-envelope` as the tracked owner.

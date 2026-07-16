@@ -8,10 +8,10 @@
     "N-02",
     "N-10"
   ],
-  "state": "in_progress",
-  "owner": "implementer",
+  "state": "blocked",
+  "owner": "planner",
   "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-17T09:41:07+10:00",
+  "last_updated_at": "2026-07-17T09:56:12+10:00",
   "start_commit": "08dd38f81e466d3288ff4bf64953cfc90ea6063c",
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S20-v015-parity-portable-fixture/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S20-v015-parity-portable-fixture/proof.json",
@@ -105,6 +105,14 @@
       "acknowledgement": "The controlling resume instruction requires recording this exact structured-readiness blocker and stopping rather than changing S04, the vendored prompt/schema, or synthesizing, waiving, or downgrading a report.",
       "acknowledged_by": "Coach",
       "acknowledged_at": "2026-07-17T07:35:39+10:00"
+    },
+    {
+      "item": "The required credentialed S20 ac-satisfaction readiness smoke did not produce a locally accepted report after the verified S21 envelope resolution.",
+      "why": "From a clean detached clone at immutable S20 semantic head f3da6a49c3f89f0883e265befd30d1eb099d6a90, using the S21-capable binary built at c52f8790eb955efed9d923b0df74e0e00b0861f6, the exact ac-satisfaction command with requested model prefix openai/gpt-5.6-sol exited 2 after 2 seconds. Per the release evidence boundary, credentials, request body, model output, and provider diagnostics were not printed, logged, or committed. The non-zero exit is therefore the durable non-secret fact: no genuine emitted check was accepted by unchanged S04 local canonical validation.",
+      "tracking": "S21-openai-structured-envelope through /replan-release 2026-07-15-baton-v0.15-conformance",
+      "acknowledgement": "The controlling remedial instruction requires S20 to return to blocked and stop on any non-zero credentialed smoke result, without a retry, prompt/schema change, synthetic report, waiver, or local-install mutation.",
+      "acknowledged_by": "Coach",
+      "acknowledged_at": "2026-07-17T09:56:12+10:00"
     }
   ],
   "effort_complexity": {
