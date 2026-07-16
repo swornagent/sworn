@@ -753,6 +753,38 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   immutable `start_commit`, and the complete maintainability and verification
   objects; update only the planned-file boundary and planner metadata.
 
+### 2026-07-16 — Resolve S02 archive authority and transaction ownership
+
+- **Context**: Fresh Captain review found that the planned offline archive had
+  no binary embed owner, no public `baton diff` owner, and no place in S01's
+  mapped-bytes-plus-VERSION repository recovery set. The design also placed
+  hostile archive handling and three-root recovery implicitly in the 1,316-line
+  doctor adapter, misstated the exact tagged command count as seven, and did not
+  record the structural Rule-9 decisions.
+- **Options considered**: write the tar separately and accept split recovery;
+  place all new behavior in `doctor.go`, `source.go`, or `manifest.go`; or expand
+  the one repository transaction and assign focused internal owners.
+- **Coach decision**: Expand the existing repository transaction so the exact
+  installer tar is materialised, snapshotted, applied, rolled back, and
+  restart-recovered with mapped bytes and VERSION. Use one explicit embed in
+  `internal/adopt`, public archive parity in `internal/baton/diff.go`, bounded
+  archive generation/validation in `internal/baton/installer_archive.go`, and
+  bounded three-root install rollback/recovery in
+  `internal/baton/install_transaction.go`; keep CLI files thin.
+- **Rule-9 record**: One embedded archive, the expanded repository transaction,
+  whole-root rollback across `agents_home`, `codex_home`, and `claude_home`, and
+  bounded helper placement are Type-1 decisions selected by the Coach under
+  Brad's instruction to follow the orchestrator's recommendation. Path-only
+  diagnostics are the recorded Type-2 default.
+- **Mechanical correction**: The exact v0.15.1 tag installs eight commands,
+  including `design-review.md`; both native trees derive that complete inventory
+  from the validated archive.
+- **Boundary**: S02 is now an explicit forty-one-file bootstrap exception and a
+  high-effort/high-complexity beast. It remains one slice because C-01 requires
+  the binary embed, public parity, repository pin, and both supported installs
+  to converge before any success claim. No vendoring or real-home mutation is
+  authorized until the revised design receives fresh Captain PROCEED.
+
 ## Schema-vs-spec audit notes
 
 - The v0.15 `slice-status-v1` schema requires a non-null `maintainability`
@@ -839,10 +871,11 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
 | A-07 | Whether readiness validation and the deployed `shipped` transition are one command or distinct facts | Public command semantics, deployment truth and idempotent terminal validation | Ratified: keep `sworn ship` as pre-cutover gate; native `mark-shipped` performs exact Baton status/index bookkeeping while preserving the pure-plan board, hands push/cleanup to the human, and no-ops when nothing remains verified |
 | A-08 | Whether re-plan requirements judgment and authoritative record mutation belong in the same layer | Re-slicing, rollback linkage, owner-track seeding, MCP writes and recovery | Ratified: Planner owns meaning; one engine operation validates, commits and propagates the ratified mutation |
 | A-09 | How the release can obey v0.15 before the conformant Sworn engine exists | Early slice governance, first install activity, evidence integrity and engine cutover | Ratified: staged manual v0.15 bootstrap followed by mandatory engine revalidation before automated authority |
-| A-10 | How deeply to decompose the v0.15 conformance body | Slice independence, proof boundaries, track parallelism and file ceilings | Ratified: 18 proof-bounded slices, normally under 25 files, with one explicit 28-file S02 complete-offline parity/install/doctor exception |
+| A-10 | How deeply to decompose the v0.15 conformance body | Slice independence, proof boundaries, track parallelism and file ceilings | Ratified: 18 proof-bounded slices, normally under 25 files, with one explicit 41-file S02 complete-offline parity/install/doctor bootstrap exception after Captain review exposed its missing owners |
 | A-11 | How to group the 18 slices for safe parallel delivery | Track dependencies, file ownership, worktree materialisation, Rule-1 reachability and the S13 cutover | Ratified: five tracks; serial T2 command scaffold from S06 through S13, T5/T6 parallel after T2 cutover, T7 final, and no shared-touchpoint exceptions |
 | A-12 | How exact v0.15 adapter decisions and the planning-to-current boundary become executable | Vendor exits, reference resolution, semantic identity, lifecycle, integration, deployment, re-plan, recovery and downstream track activation | Ratified: direct normative planning references plus C-13 post-T2 release-wt activation before T5/T6 materialisation |
 | A-13 | How a committed delta avoids naming its own commit and how a migrated marker becomes current | Re-plan source identity, receipt bytes, crash recovery and downstream protocol migration | Ratified: canonical Planner ref parented by the source, deterministic receipt fields, and distinct C-12 migrate/activate edges; C-13 stays native-only |
+| A-14 | Which owners publish, embed, compare, generate, install, and recover S02's offline archive | Repository atomicity, public parity, binary authority, local-home safety, file ceiling and Rule-9 records | Ratified: one expanded repository transaction; explicit `internal/adopt` embed; focused archive and install-transaction helpers; `internal/baton/diff.go` public parity; thin CLI adapters; eight-command inventory |
 
 ## Screenshots / references
 
