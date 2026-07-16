@@ -1,8 +1,8 @@
 # Design TL;DR — S02-v015-parity-and-installs
 
 **Slice:** `S02-v015-parity-and-installs` · **Track:** `T1-foundation` · **Release:** `2026-07-15-baton-v0.15-conformance`
-**State:** `design_review` — no production code, tests, vendored bytes, archive, or Codex/Claude installation has been changed
-**Covers:** `N-01`, `N-02`, `N-10` · **Effort/complexity:** high / high (`beast`) · **Boundary:** ratified 42-file bootstrap exception
+**State:** `in_progress` — implementation is committed through `60dcd6291ddbe3491e16a05d2ed98d896d714165`; maintainability and real-home sync remain paused for this replan
+**Covers:** `N-01`, `N-02`, `N-10` · **Effort/complexity:** high / high (`beast`) · **Boundary:** ratified 47-file bootstrap exception
 
 ## User outcome
 
@@ -27,10 +27,10 @@ until all three logical roots have been restored to their pre-run state.
 - S01 is `verified`; its vendor plan already materialises candidates before the
   first mutation and protects mapped files plus VERSION with one snapshot,
   apply, rollback, and restart-recovery transaction.
-- The amended S02 spec has four concrete, traced EARS criteria. It explicitly
+- The amended S02 spec has five concrete, traced EARS criteria. It explicitly
   owns the embed, public diff, expanded repository transaction, archive/native
-  generation, three-root install transaction, thin CLI adapters, fixtures, and
-  binary reachability tests required by C-01.
+  generation, three-root install transaction, thin CLI adapters, fixtures,
+  bounded opaque status carrier, and binary reachability tests required by C-01.
 - The archive operation independently reproduces 78 entries, SHA-256
   `27d5021cb3ec258a7fd7a5feb6eed92968be0e6cb439e2951da7c6b368e0ca15`,
   and Git blob `39ae650dfe0282b0fa8bda14e1a01e7084077702` at the pinned commit.
@@ -39,10 +39,11 @@ until all three logical roots have been restored to their pre-run state.
   disjoint install/recovery roots plus complete durable recovery authority
   before the first replacement. No Captain pin remains for the Implementer to
   interpret locally.
-- `status.json` remains at `design_review` with null `start_commit`, pending
-  cycle 0, an empty maintainability ledger, and no adjudication. The Coach replan
-  has resolved every prior Captain escalation; implementation still requires a
-  fresh Captain `PROCEED` and Coach acknowledgement.
+- `status.json` remains `in_progress` with immutable `start_commit`
+  `e61cb190736ee7483fb4ed1a993442b26ce3574c`, pending cycle 0, an empty
+  maintainability ledger, and no adjudication. The repository-wide gate exposed
+  the five-path scope defect after the prior Captain review; only the amended
+  carrier/fixture delta requires a new `PROCEED` before implementation resumes.
 
 ## Proposed implementation
 
@@ -78,6 +79,15 @@ until all three logical roots have been restored to their pre-run state.
    require a second `vendor --check` and public `baton diff` to converge with
    zero drift. S05 retains ownership of general operation/ref policy; S02 does
    not invent a caller-selected participant set.
+3a. **Keep exact-schema consumers honest without taking lifecycle authority.**
+   Add one optional opaque/lossless `maintainability` carrier to `state.Status`
+   so an explicitly supplied v0.15 object survives `Read` and `Write`. Do not
+   default it, interpret it, validate transitions, migrate records, or change
+   `StartCommit` semantics. Update only canned generic-check and state/run test
+   fixtures to supply their own canonical `check`, `start_commit`, and
+   maintainability facts. Retain every exact-schema assertion. S03 still owns
+   the complete typed/null carrier and atomic writers; S04 still owns requested
+   check matching and retired-maintainability dispatch behavior.
 4. **Give the archive one explicit binary owner.** Add
    `internal/adopt/baton_archive.go` with the sole `go:embed` directive for
    `baton/installer-input-v0.15.1.tar` and a read-only byte accessor. Production
@@ -235,10 +245,13 @@ All structural choices below mirror the durable `status.json` records.
 | `internal/baton/installer_archive.go`, `installer_archive_test.go` | Archive construction/safety, native fixed-mode complete-tree generation, fixed-0022 dual-script parity, and hostile-umask proof. | AC-01, AC-03, AC-04 |
 | `internal/baton/install_transaction.go`, `install_transaction_test.go` | Four-root physical-disjointness preflight, three-root install, pre-replacement durable authority, whole-root rollback, and publish/replace/verify/retire/recovery fault matrix. | AC-03, AC-04 |
 | `internal/baton/records_conformance_test.go` | Exact C-01 repository/archive/tree parity and layer-by-layer fail-closed mutations. | AC-01, AC-03, AC-04 |
+| `internal/gate/llmcheck_test.go` | Add canonical `check` only to canned responses intended to satisfy v0.15; no requested-check matching or production parser change. | AC-05 |
+| `internal/run/slice_test.go` | Supply explicit schema-valid maintainability facts while retaining the built RunSlice exact-schema assertion. | AC-05 |
+| `internal/state/state.go`, `state_test.go`, `record_reconciliation_test.go` | Optional opaque supplied maintainability carrier and focused preservation/absence proof; fixtures supply valid start/maintainability facts with no defaults or lifecycle inference. | AC-05 |
 | `cmd/sworn/baton.go`, `cmd/sworn/baton_test.go` | Thin public vendor/diff mapping and first binary reachability red, including exact 0/1/2 exits. | AC-02, AC-04 |
 | `cmd/sworn/doctor.go`, `cmd/sworn/doctor_test.go` | Thin doctor parity/sync routing and built-binary three-root repair/recovery reachability. | AC-02, AC-03, AC-04 |
 
-The table covers the exact 42 paths in `spec.json` and `status.json`; there is
+The table covers the exact 47 paths in `spec.json` and `status.json`; there is
 no planned write to `internal/adopt/adopt.go` or `internal/baton/content.go`.
 
 ## First red, reachability, and proof

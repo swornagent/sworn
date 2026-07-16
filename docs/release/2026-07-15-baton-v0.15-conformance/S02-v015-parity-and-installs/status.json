@@ -6,8 +6,8 @@
   "covers_needs": ["N-01", "N-02", "N-10"],
   "state": "in_progress",
   "owner": "implementer",
-  "last_updated_by": "implementer",
-  "last_updated_at": "2026-07-16T14:47:32+10:00",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-07-16T17:13:28+10:00",
   "start_commit": "e61cb190736ee7483fb4ed1a993442b26ce3574c",
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S02-v015-parity-and-installs/proof.json",
@@ -51,13 +51,18 @@
     "internal/baton/validate_schema_test.go",
     "internal/baton/testdata/fixture/schemas/spec-ambiguity-report-v1.json",
     "internal/baton/records_conformance_test.go",
+    "internal/gate/llmcheck_test.go",
+    "internal/run/slice_test.go",
+    "internal/state/state.go",
+    "internal/state/state_test.go",
+    "internal/state/record_reconciliation_test.go",
     "cmd/sworn/baton.go",
     "cmd/sworn/baton_test.go",
     "cmd/sworn/doctor.go",
     "cmd/sworn/doctor_test.go"
   ],
   "actual_files": [],
-  "test_commands": ["go test ./internal/baton -run TestBatonV015CodexAndClaudeMirrorParity", "go test ./internal/baton", "go test ./...", "go vet ./...", "bin/sworn doctor --sync-baton"],
+  "test_commands": ["go test ./internal/baton -run TestBatonV015CodexAndClaudeMirrorParity", "go test ./internal/baton", "go test ./internal/gate ./internal/run ./internal/state", "go test ./...", "go vet ./...", "bin/sworn doctor --sync-baton"],
   "reachability_artifacts": ["built sworn doctor and sworn baton diff runs from cmd/sworn/doctor_test.go:TestDoctorAndBatonDiffV015BinaryReachability plus isolated fixed-umask Codex/Claude installer parity and publish/replace/verify/retire crash fixtures prove the public v0.15 pin, managed-tree modes, root topology, and recovery-only boundary"],
   "design_decisions": [
     {
@@ -131,11 +136,19 @@
       "human_decision": "Implementer default accepted by Coach during the 2026-07-16 replan.",
       "rationale": "Paths and classes are sufficient for deterministic repair while content excerpts can expose protocol or user-home bytes.",
       "architecturally_significant": false
+    },
+    {
+      "choice": "Pull forward only an optional opaque/lossless maintainability carrier and schema-valid canned fixtures so the exact v0.15 protocol can land with a green repository gate.",
+      "stake_class": "Type-1",
+      "options": ["bounded opaque carrier plus explicit fixtures", "weaken exact-schema assertions", "pull all S03 and S04 behavior into S02"],
+      "human_decision": "Coach selected the orchestrator's recommendation under Brad's 2026-07-16 standing instruction after an independent read-only scope audit returned BLOCKED for a fixture-only repair.",
+      "rationale": "state.Status otherwise drops a supplied maintainability object and production Write cannot emit it, while broader lifecycle, null-semantics, and check-matching authority remains deliberately owned by S03 and S04.",
+      "architecturally_significant": true
     }
   ],
   "maintainability": {"state": "pending", "cycle": 0, "implementation_head": null, "rollback_slice_id": null, "reports": [], "adjudication": null},
   "open_deferrals": [],
-  "effort_complexity": {"effort": "high", "complexity": "high", "quadrant": "beast", "rationale": "Ratified forty-two-file bootstrap exception: exact embedded parity, separate upstream/adopting VERSION evidence, archive publication inside repository recovery, v0.15 valid-fixture alignment, fixed-mode dual-installer trees, and bounded disjoint-root whole-tree repair/recovery are one indivisible C-01 contract.", "confirmed_by_implementer": true},
+  "effort_complexity": {"effort": "high", "complexity": "high", "quadrant": "beast", "rationale": "Ratified forty-seven-file bootstrap exception: exact embedded parity, separate upstream/adopting VERSION evidence, archive publication inside repository recovery, v0.15 consumer alignment, bounded opaque status carrier, fixed-mode dual-installer trees, and bounded disjoint-root whole-tree repair/recovery are one indivisible C-01 contract.", "confirmed_by_implementer": false},
   "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []},
   "release_base": "release/v0.2.0",
   "release_benefit": "Pins the binary, repository and supported agent installations to one exact Baton v0.15 authority.",

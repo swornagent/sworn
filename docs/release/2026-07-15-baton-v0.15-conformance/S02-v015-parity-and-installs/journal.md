@@ -154,3 +154,34 @@ All nine Rule-9 decisions are acknowledged. No open design question remains. Pro
 - Focused `go test ./internal/baton -run '^TestBatonV015' -count=1` passed in
   8.599s; full `go test ./internal/baton -count=1` passed in 227.880s; and
   `git diff --check` was clean. Real-home sync remains deliberately uninvoked.
+
+## 2026-07-16 — Coach reconciliation of the repository-wide exact-schema gate
+
+- At clean pushed semantic checkpoint
+  `60dcd6291ddbe3491e16a05d2ed98d896d714165`, `gofmt`, `make build`,
+  `go vet ./...`, S02-owned packages, public binary parity, and installer tests
+  passed, but `go test ./... -count=1` failed in ten older positive tests across
+  `internal/gate`, `internal/run`, and `internal/state`.
+- A read-only independent scope audit reproduced every failure and returned
+  `BLOCKED` for a fixture-only repair. The generic reports lacked the exact
+  v0.15 `check` identity, while `state.Status` had no carrier for a supplied
+  `maintainability` object, so production `Read`/`Write` could not honestly
+  satisfy the existing exact-schema reachability assertions.
+- Coach expanded S02 from 42 to exactly 47 paths: the three affected fixture
+  owners plus `internal/state/state.go` and `internal/state/state_test.go`.
+  The only production authority pulled forward is an optional opaque/lossless
+  supplied maintainability carrier. Defaults, transition interpretation,
+  complete null semantics, requested-check matching, validation weakening, and
+  active-record migration remain prohibited.
+- S03 retains the complete typed maintainability and absent-versus-null carrier,
+  exact-schema atomic writers, board/spec carriers, record sweeps, rendering,
+  and doctor surface. S04 retains requested/emitted check equality, mismatch
+  rejection, ambiguity separation, and generic-maintainability retirement.
+- Release-wide EARS (107/107), trace, requirements validation, design-fit, and
+  spec-quality gates passed. A first fresh ambiguity session returned no verdict
+  and was discarded fail-closed; a second bounded fresh session returned
+  `PASS`. Release-wt replan commit `dcd6386` was then synchronized into T1.
+- S02 stays `in_progress`; immutable `start_commit`, pending maintainability,
+  pending verification, and the clean semantic checkpoint are preserved.
+  Effort confirmation is reset until the Implementer accepts the 47-path beast
+  boundary, and a fresh Captain must review this delta before edits resume.
