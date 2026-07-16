@@ -111,3 +111,32 @@
   propagation is deliberately skipped. The release-wt planner commit is the
   handoff for the orchestrator to merge after confirming the dirty files do not
   overlap these release records.
+
+## 2026-07-16 — Planner correction for fresh-verifier Gate-8 BLOCKED
+
+- Reconciled the authoritative owner-track verdict at
+  `190decb5ce67ca12bec4f2d7d2822c2ad7b07478`: deterministic Gates 1–7 and the
+  public CLI rerun passed, but exact Baton v0.15.1 Gate 8 BLOCKED because the
+  planned S13 deferral left `maintainability.implementation_head` null and no
+  role-owned reports.
+- The verifier was correct. `authority: planning` permits manual orchestration,
+  not a maintainability waiver, and S13 is explicitly forbidden to synthesize
+  missing earlier evidence. The installed legacy generic `llm-check` also cannot
+  substitute because its prompt/report schema predate the exact fingerprint and
+  review-scope identity and its attempted S01 invocation failed closed.
+- Corrected S01 with AC-05 and the referenced planning-authority bootstrap
+  adapter. It must execute the exact tagged v0.15.1 scope, fingerprint, prompt,
+  report-schema, committed-blob and ledger contracts for an Implementer preflight
+  and a distinct fresh Verifier authoritative run. S13 retains generalized
+  command, lifecycle, composition, rollback, revalidation and cutover ownership.
+- Cleared `verification.result` to pending and returned the slice to
+  `in_progress`; the immutable start commit, implementation file inventory,
+  proof path and deterministic evidence are preserved. No production code was
+  changed by this replan.
+- This resolves the inbound BLOCKED contract defect rather than returning it to
+  the verifier unchanged. The next fresh Implementer session owns only the
+  exact preflight report/ledger checkpoint and any bounded remediation that its
+  real verdict requires.
+- Exact v0.15.1 schema validation, release-wide EARS/trace/requirements/design-fit
+  gates, and a fresh tagged spec-ambiguity check all passed after the correction;
+  the ambiguity report contained no blocking or advisory findings.

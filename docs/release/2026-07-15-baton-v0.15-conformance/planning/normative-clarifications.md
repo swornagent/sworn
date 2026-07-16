@@ -368,6 +368,48 @@ handler auto-promotes or accepts planning authority. T5 and T6 are materialized
 only from the activated release-wt head, so later current operations compare the
 active owner and assembly refs against the same current marker.
 
+### Planning-authority bootstrap adapter for per-slice Gate 8
+
+`authority: planning` is not a maintainability waiver. Before S13 makes the
+generalized stateful command authoritative, the human-ratified bootstrap roles
+must execute the exact operation manually for every S01 through S13 slice. The
+adapter is the role session plus deterministic Git and record tooling; its CLI
+spelling is deliberately non-normative. It may not use the installed legacy
+generic `llm-check --type maintainability-review` result, because that binary's
+pre-cutover prompt and report schema do not carry the exact v0.15.1 semantic
+identity.
+
+For each Implementer preflight and fresh Verifier authoritative run, the adapter
+MUST apply the exact Baton v0.15.1 `baton/llm-checks/README.md` bounded
+maintainability lifecycle and `maintainability-review.md` prompt at pinned
+upstream commit `3fb4d275ae8a151f6287e7b9279d71628b12eea0`:
+
+1. require a clean track worktree and use the immutable `start_commit`; the
+   Implementer head is the stable committed implementation/proof checkpoint and
+   the Verifier head is only the resulting pinned `implementation_head`;
+2. derive first-parent non-merge candidate paths, validate every synchronization
+   merge and slice/merge overlap, exclude only the exact release-record,
+   generated and lockfile classes, and construct the exact mode/object manifest,
+   `sha256:` fingerprint and canonical UTF-8 binary-capable prompt diff;
+3. invoke a fresh role-isolated model at temperature 0 with the untouched tagged
+   prompt, reject prose or duplicate-key output, derive PASS/FAIL from blocking
+   findings, and validate the completed identity fields against the exact tagged
+   `llm-check-report-v1` schema;
+4. write each immutable full report beneath
+   `<slice>/reports/maintainability/<role>-cycle-<cycle>-<invocation-id>.json`,
+   commit it, resolve its committed Git blob id, then append the matching unique
+   ledger entry to `status.json` and commit/push the role transition; and
+5. reject report reuse unless every fingerprint, review-scope, role, phase,
+   cycle, invocation, path and committed-blob identity matches. Adapter failure
+   is a failed gate, never a reason to synthesize a report or retain
+   `maintainability.state: pending` at an implemented/verified boundary.
+
+The adapter grants no public command authority, lifecycle automation, general
+merge composition, adjudication, rollback, or cutover behavior. S06 through S13
+still deliver those product operations. S13 must reproduce the scope and ledger
+validation for every S01 through S13 bootstrap report before it may change only
+`protocol.json.authority` from `planning` to `current`.
+
 ## 5. Canonical semantic scope
 
 Scope construction requires `git status --porcelain=v1 -z --untracked-files=all`

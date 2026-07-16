@@ -463,6 +463,33 @@ Codex and Claude Baton mirrors report the same pinned protocol as the binary.
   --sync-baton` uses those canonical outputs plus Sworn VERSION sentinels to
   repair both installations as one rollback-protected transaction.
 
+### 2026-07-16 — Close the per-slice Gate-8 bootstrap gap
+
+- **Trigger**: S01's first genuinely fresh v0.15.1 verifier passed deterministic
+  Gates 1–7 and then returned BLOCKED because `maintainability` remained pending
+  with a null `implementation_head`. The earlier planning decision correctly
+  prohibited fabricated evidence but incorrectly treated S13 revalidation as a
+  substitute for each slice's required Implementer and Verifier reports.
+- **Options considered**: keep the S13 deferral as an informal waiver; move the
+  complete S06–S13 engine ahead of S01; change Baton upstream to add a bootstrap
+  exception; or use a bounded planning-authority adapter to execute the exact
+  tagged operation and persist real reports while leaving generalized automation
+  and cutover with S06–S13.
+- **Decision**: Use the bounded adapter. Invocation spelling is non-normative,
+  but semantic scope, fingerprint, prompt bytes, output schema, role isolation,
+  committed report blob, ledger identity and fail-closed behavior are the exact
+  Baton v0.15.1 contracts. S01 adds a fifth AC for its two reports; the same
+  adapter governs S02–S13 until cutover.
+- **Why**: An informal waiver violates the tagged protocol, and moving the whole
+  engine forward destroys the release decomposition. The bounded adapter creates
+  the missing evidence without claiming the public command, generalized merge
+  handling, reuse, adjudication, rollback or activation behavior that later
+  slices still own.
+- **Authority**: Brad's standing instruction was to continue with the
+  orchestrator's recommendation. The orchestrator recommends this bounded exact
+  adapter after the independent verifier and a separate read-only planning agent
+  both confirmed the circular dependency and rejected synthesized evidence.
+
 ### 2026-07-15 — Decompose conformance into 18 proof-bounded slices
 
 - **Context**: v0.15 adoption spans atomic vendoring, exact installed parity,
