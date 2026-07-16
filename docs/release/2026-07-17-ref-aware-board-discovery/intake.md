@@ -184,6 +184,19 @@ run in parallel with it.
 | A-02 | What happens when a canonical release-worktree ref exists but its board is missing or malformed? | N-02, S01 AC-03 | Resolved: report a deterministic error and return non-zero; never omit or retarget silently. |
 | A-03 | Whether the TUI can load a ref-only plan after listing it. | N-03, S02 AC-01 | Resolved: consume the shared catalog/sourceRef and invoke the existing Git-ref oracle, with live-working-tree preference retained only when the selected ref is the active checkout. |
 
+## Planning-gate triage
+
+- **S01 initial spec-ambiguity check, PASS**: two non-blocking observations
+  were retained as intentional precision boundaries. Error wording need only be
+  deterministic and include release plus ref, not a brittle golden string; the
+  required mutation transcript already has the canonical Rule 6 path
+  `docs/release/<release>/<slice>/proof.md`.
+- **S02 initial spec-ambiguity check, FAIL**: AC-02 did not explicitly cover a
+  valid, uncommitted checkout status when sourceRef pointed elsewhere, and used
+  the undefined word "stale". Remediation makes all non-selected checkout files
+  ineligible regardless of validity, defines the exact selected-checkout test,
+  and retains committed-oracle fallback for absent or malformed selected files.
+
 ## Screenshots / references
 
 - No screenshot is required. The issue's command-line repro and its TUI scope

@@ -67,7 +67,7 @@
     },
     {
       "id": "AC-02",
-      "text": "WHEN a selected catalog source ref differs from the active checkout and the active checkout has an absent, stale, or malformed same-release status file, THE SYSTEM SHALL render the selected ref/oracle state and shall not read that filesystem file as an override. WHEN the selected source ref is the active checkout, an uncommitted readable status file SHALL retain the existing live-working-tree override. Both cases SHALL preserve track-branch precedence over the selected release source (N-03, N-04).",
+      "text": "WHEN the selected catalog sourceRef is not exactly `refs/heads/<git rev-parse --abbrev-ref HEAD>`, THE SYSTEM SHALL render the Oracle result and SHALL not read any checked-out `docs/release/<release>/<slice>/status.json` as an override, whether that file is absent, malformed, valid, stale relative to the selected ref, or uncommitted. WHEN sourceRef exactly equals `refs/heads/<git rev-parse --abbrev-ref HEAD>`, a readable, schema-valid checked-out status file SHALL retain the existing live-working-tree override; an absent or malformed file SHALL fall through to the committed Oracle result. In both cases, the Oracle SHALL resolve an owning track branch before the selected release source (N-03, N-04).",
       "ears_pattern": "state-driven",
       "test_refs": [
         "internal/tui/tui_test.go:TestBoardViewRefOnlySelectedSourceIgnoresPrimaryFilesystem",
