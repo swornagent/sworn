@@ -7,10 +7,10 @@
     "N-07",
     "N-09"
   ],
-  "state": "implemented",
-  "owner": "planner",
-  "last_updated_by": "verifier",
-  "last_updated_at": "2026-07-17T01:10:16+10:00",
+  "state": "failed_verification",
+  "owner": "implementer",
+  "last_updated_by": "planner",
+  "last_updated_at": "2026-07-17T01:25:52+10:00",
   "start_commit": "640396fa8cc319229d6f96dedfdbef65dbe317fe",
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.json",
@@ -60,7 +60,10 @@
     "internal/run/slice_test.go",
     "internal/state/record_reconciliation_test.go",
     "internal/state/state.go",
-    "internal/state/state_test.go"
+    "internal/state/state_test.go",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/check-rollback.sh",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/contract-amendment-v1.schema.json",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/contract-amendment.json"
   ],
   "actual_files": [
     "cmd/sworn/baton.go",
@@ -113,7 +116,8 @@
     "make build",
     "go test ./... -count=1",
     "go vet ./...",
-    "git diff --exit-code e61cb190736ee7483fb4ed1a993442b26ce3574c HEAD -- . ':(exclude)docs/release/2026-07-15-baton-v0.15-conformance/**'"
+    "git diff --exit-code e61cb190736ee7483fb4ed1a993442b26ce3574c HEAD -- . ':(exclude)docs/release/2026-07-15-baton-v0.15-conformance/**'",
+    "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/check-rollback.sh --head 4b38887e666f7e4ab664bac4780535b080ad54eb --require-maintainability --require-proof-bundle"
   ],
   "reachability_artifacts": [
     "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/check-rollback.sh --head 4b38887e666f7e4ab664bac4780535b080ad54eb --require-maintainability --require-proof-bundle: PASS with a dynamically derived 45-path envelope, exact mode/blob/absence equality, preserved S02 records, planned S20, and exact-head Implementer PASS binding",
@@ -149,18 +153,11 @@
     "confirmed_by_implementer": true
   },
   "verification": {
-    "result": "blocked",
-    "verifier_session_id": "s19_fresh_verifier",
-    "verifier_verdict_at": "2026-07-17T01:10:16+10:00",
-    "verifier_was_fresh_context": true,
-    "violations": [
-      {
-        "gate": "Gate 4b - semantic coverage",
-        "description": "The independently configured semantic-coverage check returned blocking F-01: AC-01 through AC-05 rely on the committed check-rollback.sh proof artifact, but no CI-enforced test executes and asserts its pass/fail semantics.",
-        "evidence": "sworn llm-check -type semantic-coverage -release 2026-07-15-baton-v0.15-conformance -slice S19-s02-v015-rollback -base 640396fa8cc319229d6f96dedfdbef65dbe317fe -json returned FAIL/F-01; the fresh verifier also exercised check-rollback.sh against blob drift, a surviving added path, unrecognized merge provenance, authored/merge overlap, later ordinary authority, and absent fresh-verifier evidence.",
-        "proposed_amendment": "Amend AC-01 through AC-05 to name docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/check-rollback.sh as the required executable integration test, require the fresh verifier to run it against live Git history plus adversarial bad Git objects, and explicitly state that no persistent non-release test or CI hook is required or permitted because AC-02 and AC-04 require exact non-release equality to the S02 start tree. Replace each AC test_refs entry with that executable checker path and its named invocation."
-      }
-    ]
+    "result": "pending",
+    "verifier_session_id": null,
+    "verifier_verdict_at": null,
+    "verifier_was_fresh_context": null,
+    "violations": []
   },
   "release_base": "release/v0.2.0",
   "release_benefit": "Restores a trustworthy pre-S02 semantic base without erasing the failed slice's immutable evidence.",

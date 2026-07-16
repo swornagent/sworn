@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swornagent.dev/schemas/s19-executable-proof-contract-amendment-v1.json",
+  "title": "S19 executable rollback proof contract amendment v1",
+  "description": "The sole planner-ratified exception for S19's post-start spec record. It grants no general mutable-spec authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "record_version",
+    "amendment_id",
+    "release",
+    "slice_id",
+    "authority",
+    "source",
+    "baseline",
+    "allowed_post_start_spec_transition",
+    "checker_repair",
+    "fresh_verifier_protocol",
+    "prohibitions",
+    "ratification"
+  ],
+  "properties": {
+    "$schema": {"const": "https://swornagent.dev/schemas/s19-executable-proof-contract-amendment-v1.json"},
+    "record_version": {"const": 1},
+    "amendment_id": {"const": "s19-executable-proof-contract-20260717"},
+    "release": {"const": "2026-07-15-baton-v0.15-conformance"},
+    "slice_id": {"const": "S19-s02-v015-rollback"},
+    "authority": {"const": "planner"},
+    "source": {"$ref": "#/$defs/source"},
+    "baseline": {"$ref": "#/$defs/baseline"},
+    "allowed_post_start_spec_transition": {"$ref": "#/$defs/transition"},
+    "checker_repair": {"$ref": "#/$defs/checkerRepair"},
+    "fresh_verifier_protocol": {"$ref": "#/$defs/freshVerifierProtocol"},
+    "prohibitions": {
+      "type": "array",
+      "prefixItems": [
+        {"const": "No persistent non-release test file, CI workflow, CI hook, source package, or harness may be added or relied on for S19 historical rollback proof."},
+        {"const": "No S02 release record may be changed, and no arbitrary post-start S19 spec edit may be admitted."},
+        {"const": "Disposable adversarial Git objects may not mutate a release ref or become a committed harness."}
+      ],
+      "items": false,
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "ratification": {"$ref": "#/$defs/ratification"}
+  },
+  "$defs": {
+    "oid": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"},
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "path": {"type": "string", "minLength": 1},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blocked_verdict_commit", "track_ref", "track_head", "status_path", "status_blob_oid", "verification_result", "gate"],
+      "properties": {
+        "blocked_verdict_commit": {"const": "d6bfd4578d367aa6bac2ed3243a6f2c909c183ce"},
+        "track_ref": {"const": "track/2026-07-15-baton-v0.15-conformance/T1-foundation"},
+        "track_head": {"const": "d6bfd4578d367aa6bac2ed3243a6f2c909c183ce"},
+        "status_path": {"const": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/status.json"},
+        "status_blob_oid": {"const": "7cabfb67504458dc2f6f92fc966c2d84b7bfd8f3"},
+        "verification_result": {"const": "blocked"},
+        "gate": {"const": "Gate 4b - semantic coverage"}
+      }
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["s19_start_commit", "implementation_head", "s02_start_commit", "s02_start_tree", "frozen_s02_head"],
+      "properties": {
+        "s19_start_commit": {"const": "640396fa8cc319229d6f96dedfdbef65dbe317fe"},
+        "implementation_head": {"const": "4b38887e666f7e4ab664bac4780535b080ad54eb"},
+        "s02_start_commit": {"const": "e61cb190736ee7483fb4ed1a993442b26ce3574c"},
+        "s02_start_tree": {"const": "c57285e3f652e5f49aa8bb15e3ba65249b4a3db8"},
+        "frozen_s02_head": {"const": "2a17443d67d39cf681dba117a57673714a916d7f"}
+      }
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "before_blob_oid", "after_blob_oid", "allowed_transition_count", "evidence_path", "evidence_schema_path"],
+      "properties": {
+        "path": {"const": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/spec.json"},
+        "before_blob_oid": {"const": "1e2f7a3ee70164320fa7dd30d6aba749fc5de47d"},
+        "after_blob_oid": {"$ref": "#/$defs/oid"},
+        "allowed_transition_count": {"const": 1},
+        "evidence_path": {"const": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/contract-amendment.json"},
+        "evidence_schema_path": {"const": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/contract-amendment-v1.schema.json"}
+      }
+    },
+    "checkerRepair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checker_path", "checker_blob_before_repair", "required_live_invocation", "required_fresh_verifier_invocation", "preserved_allowlist", "required_history_rule"],
+      "properties": {
+        "checker_path": {"const": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/check-rollback.sh"},
+        "checker_blob_before_repair": {"const": "ba1ef2323418ffd9e019ef2602ec1a1149b743b1"},
+        "required_live_invocation": {"const": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/check-rollback.sh --head 4b38887e666f7e4ab664bac4780535b080ad54eb --require-maintainability --require-proof-bundle"},
+        "required_fresh_verifier_invocation": {"const": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/check-rollback.sh --head 4b38887e666f7e4ab664bac4780535b080ad54eb --require-fresh-verifier"},
+        "preserved_allowlist": {
+          "type": "array",
+          "prefixItems": [
+            {"const": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/status.json"},
+            {"const": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/journal.md"},
+            {"const": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.json"},
+            {"const": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof.md"},
+            {"const": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/proof/"},
+            {"const": "docs/release/2026-07-15-baton-v0.15-conformance/S19-s02-v015-rollback/reports/maintainability/"}
+          ],
+          "items": false,
+          "minItems": 6,
+          "maxItems": 6
+        },
+        "required_history_rule": {"const": "Retain the original allowlist and admit the S19 spec path only when every reachable post-start content transition is the one before-to-after blob transition declared here, the evidence record validates, and the introducing planner commit has the recorded parent and subject; reject every other post-start S19 spec blob, path, transition, or provenance."}
+      }
+    },
+    "freshVerifierProtocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_from_live_t1_history", "adversarial_objects_disposable", "must_not_mutate_release_refs", "required_adversarial_cases"],
+      "properties": {
+        "run_from_live_t1_history": {"const": true},
+        "adversarial_objects_disposable": {"const": true},
+        "must_not_mutate_release_refs": {"const": true},
+        "required_adversarial_cases": {
+          "type": "array",
+          "prefixItems": [
+            {"const": "mode_or_blob_drift"},
+            {"const": "surviving_s02_added_path"},
+            {"const": "unrecognized_merge_or_parent_two_drift"},
+            {"const": "authored_merge_overlap"},
+            {"const": "unexpected_later_ordinary_authority"},
+            {"const": "absent_fresh_verifier_evidence"}
+          ],
+          "items": false,
+          "minItems": 6,
+          "maxItems": 6
+        }
+      }
+    },
+    "ratification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ratified_by", "ratified_at", "pre_ratification_release_wt_ref", "pre_ratification_release_wt_head", "required_planner_commit_subject", "decision_statement", "decision_digest"],
+      "properties": {
+        "ratified_by": {"const": "Captain/Coach standing orchestration authority"},
+        "ratified_at": {"type": "string", "format": "date-time", "pattern": "[+-][0-9]{2}:[0-9]{2}$"},
+        "pre_ratification_release_wt_ref": {"const": "release-wt/2026-07-15-baton-v0.15-conformance"},
+        "pre_ratification_release_wt_head": {"const": "deb090fcef736ca2e61b2c2136283beec4743e45"},
+        "required_planner_commit_subject": {"const": "docs(release): ratify S19 executable rollback proof contract"},
+        "decision_statement": {"const": "S19 executable rollback proof contract amendment: allow exactly the planner-ratified post-start spec blob that binds the committed checker as the sole integration proof; prohibit any persistent non-release CI harness."},
+        "decision_digest": {"const": "sha256:0fe68cee70fd44f3336cdb9a16d4ec23bd361cb0dcc85eb114e45edcab4ddbed"}
+      }
+    }
+  }
+}
