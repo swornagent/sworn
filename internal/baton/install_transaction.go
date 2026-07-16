@@ -20,11 +20,12 @@ import (
 )
 
 const (
-	installRecoverySentinel = "rollback-incomplete.json"
-	installManifestName     = "manifest.bin"
-	installManifestPrefix   = "sworn-baton-sync-rollback-v1"
-	installVersionPath      = ".sworn-baton/VERSION"
-	installIdentityName     = "owner-identity.json"
+	installRecoverySentinel  = "rollback-incomplete.json"
+	installManifestName      = "manifest.bin"
+	installManifestPrefix    = "sworn-baton-sync-rollback-v1"
+	installVersionPath       = ".sworn-baton/VERSION"
+	installIdentityName      = "owner-identity.json"
+	installStageIdentityName = ".sworn-baton-stage-owner.json"
 )
 
 var errInstallCrash = errors.New("simulated install process crash")
@@ -62,9 +63,9 @@ type InstallOpts struct {
 	Trees   InstallerManagedTrees
 	Version []byte
 	Fault   InstallFault
-	// TransactionIDForTest makes collision and restart fixtures deterministic.
+	// OperationIDForTest makes pre-transaction debris fixtures deterministic.
 	// Production callers must leave it empty.
-	TransactionIDForTest string
+	OperationIDForTest string
 }
 
 // InstallError omits payload and snapshot bytes by construction.
@@ -120,18 +121,23 @@ type installManifestEntry struct {
 type installSentinel struct {
 	RecordVersion     int                     `json:"record_version"`
 	TransactionSHA256 string                  `json:"transaction_sha256"`
-	ManifestSHA256    string                  `json:"manifest_sha256"`
 	RecoveryDirectory string                  `json:"recovery_directory"`
 	Targets           []installSentinelTarget `json:"targets"`
 	UnrestoredPaths   []string                `json:"unrestored_paths"`
 }
 
 type installOwnerIdentity struct {
-	RecordVersion  int                     `json:"record_version"`
-	TransactionID  string                  `json:"transaction_id"`
-	RecoveryRoot   string                  `json:"recovery_root"`
-	ManifestSHA256 string                  `json:"manifest_sha256,omitempty"`
-	Targets        []installSentinelTarget `json:"targets"`
+	RecordVersion int                     `json:"record_version"`
+	OperationID   string                  `json:"operation_id"`
+	RecoveryRoot  string                  `json:"recovery_root"`
+	Targets       []installSentinelTarget `json:"targets"`
+}
+
+type installStageIdentity struct {
+	RecordVersion     int    `json:"record_version"`
+	TransactionSHA256 string `json:"transaction_sha256"`
+	LogicalRoot       string `json:"logical_root"`
+	TargetPath        string `json:"target_path"`
 }
 
 type installSentinelTarget struct {
@@ -145,6 +151,7 @@ type preparedInstall struct {
 	targets         []installTarget
 	manifest        []installManifestEntry
 	manifestRaw     []byte
+	operation       string
 	transaction     string
 	fault           InstallFault
 	identities      map[string]installPathIdentity
@@ -193,6 +200,9 @@ func SyncBatonInstall(opts InstallOpts) (*InstallResult, error) {
 	} else if !os.IsNotExist(statErr) {
 		return nil, newInstallError("recovery-unreadable", nil, prepared.roots.RecoveryRoot, statErr)
 	}
+	if err := cleanupInstallStageDebris(prepared); err != nil {
+		return nil, err
+	}
 	if err := cleanupIncompleteInstallRecovery(prepared); err != nil {
 		return nil, err
 	}
@@ -228,21 +238,31 @@ func SyncBatonInstall(opts InstallOpts) (*InstallResult, error) {
 		return &InstallResult{State: InstallAlreadyExact}, nil
 	}
 
-	if err := beginInstallTransaction(prepared, opts.TransactionIDForTest); err != nil {
+	if err := beginInstallTransaction(prepared, opts.OperationIDForTest); err != nil {
 		return nil, err
+	}
+	cleanupOnReturn := true
+	defer func() {
+		if cleanupOnReturn {
+			cleanupInstallStages(prepared)
+		}
+	}()
+	phaseError := func(err error) error {
+		if errors.Is(err, errInstallCrash) {
+			cleanupOnReturn = false
+			return newInstallError("process-crashed", nil, prepared.roots.RecoveryRoot, err)
+		}
+		return err
 	}
 	if err := captureInstallSources(prepared); err != nil {
-		cleanupInstallStages(prepared)
-		return nil, err
+		return nil, phaseError(err)
 	}
 	if err := stageDesiredInstall(prepared, opts.Version); err != nil {
-		cleanupInstallStages(prepared)
-		return nil, err
+		return nil, phaseError(err)
 	}
-	defer cleanupInstallStages(prepared)
 
 	if err := publishInstallRecovery(prepared); err != nil {
-		return nil, err
+		return nil, phaseError(err)
 	}
 
 	var applyErr error
@@ -256,7 +276,7 @@ func SyncBatonInstall(opts InstallOpts) (*InstallResult, error) {
 			applyErr = err
 			break
 		}
-		if err := replaceInstallRoot(*target); err != nil {
+		if err := replaceInstallRoot(prepared, *target); err != nil {
 			applyErr = err
 			break
 		}
@@ -287,6 +307,7 @@ func SyncBatonInstall(opts InstallOpts) (*InstallResult, error) {
 	}
 	if applyErr != nil {
 		if errors.Is(applyErr, errInstallCrash) {
+			cleanupOnReturn = false
 			return nil, newInstallError("process-crashed", nil, prepared.roots.RecoveryRoot, applyErr)
 		}
 		unrestored := restoreInstallTargets(prepared, prepared.manifest)
@@ -303,6 +324,10 @@ func SyncBatonInstall(opts InstallOpts) (*InstallResult, error) {
 	}
 
 	if err := retireInstallRecovery(prepared); err != nil {
+		if errors.Is(err, errInstallCrash) {
+			cleanupOnReturn = false
+			return nil, newInstallError("process-crashed", nil, prepared.roots.RecoveryRoot, err)
+		}
 		return nil, newInstallError("recovery-retire-failed", []string{"recovery"}, prepared.roots.RecoveryRoot, err)
 	}
 	return &InstallResult{State: InstallRepaired, Changed: drift}, nil
@@ -362,7 +387,7 @@ func resolveInstallRoots(input InstallRoots) (InstallRoots, map[string]installPa
 	for i := 0; i < len(values); i++ {
 		for j := i + 1; j < len(values); j++ {
 			a, b := values[i].logical, values[j].logical
-			if pathsOverlap(resolved[a], resolved[b]) || (infos[a] != nil && infos[b] != nil && os.SameFile(infos[a], infos[b])) {
+			if pathsOverlap(resolved[a], resolved[b]) || (infos[a] != nil && infos[b] != nil && os.SameFile(infos[a], infos[b])) || installIdentitySuffixesOverlap(identities[a], identities[b]) {
 				return InstallRoots{}, nil, newInstallError("unsafe-root-topology", []string{a, b}, "", errors.New("roots overlap or alias"))
 			}
 		}
@@ -371,6 +396,26 @@ func resolveInstallRoots(input InstallRoots) (InstallRoots, map[string]installPa
 		AgentsHome: resolved["agents_home"], CodexHome: resolved["codex_home"],
 		ClaudeHome: resolved["claude_home"], RecoveryRoot: resolved["recovery"],
 	}, identities, nil
+}
+
+func installIdentitySuffixesOverlap(a, b installPathIdentity) bool {
+	if a.ancestorInfo == nil || b.ancestorInfo == nil || !os.SameFile(a.ancestorInfo, b.ancestorInfo) {
+		return false
+	}
+	return pathPartsOverlap(a.missing, b.missing)
+}
+
+func pathPartsOverlap(a, b []string) bool {
+	limit := len(a)
+	if len(b) < limit {
+		limit = len(b)
+	}
+	for i := 0; i < limit; i++ {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func resolvePhysicalNoSymlink(logical, name string) (installPathIdentity, fs.FileInfo, error) {
@@ -486,14 +531,11 @@ func beginInstallTransaction(prepared *preparedInstall, forced string) error {
 	if err != nil || hex.EncodeToString(decoded) != id {
 		return newInstallError("transaction-id-invalid", nil, "", errors.New("transaction id must be 32-byte lowercase hex"))
 	}
-	prepared.transaction = id
+	prepared.operation = id
 	prepared.recoveryStaging = filepath.Join(prepared.roots.RecoveryRoot, ".staging-"+id)
-	prepared.retiredPath = filepath.Join(filepath.Dir(prepared.roots.RecoveryRoot), ".baton-sync-retired-"+id)
-	prepared.sentinelTemp = filepath.Join(prepared.roots.RecoveryRoot, installRecoverySentinel+".tmp-"+id)
 	for i := range prepared.targets {
 		target := &prepared.targets[i]
 		target.snapshot = filepath.Join(prepared.recoveryStaging, "snapshots", target.logical)
-		target.stage = filepath.Join(filepath.Dir(target.path), ".sworn-baton-stage-"+id+"-"+target.logical)
 	}
 	if err := validateInstallOperationalTopology(prepared); err != nil {
 		return err
@@ -507,15 +549,40 @@ func beginInstallTransaction(prepared *preparedInstall, forced string) error {
 	return validateInstallOperationalTopology(prepared)
 }
 
+func finalizeInstallTransaction(prepared *preparedInstall) error {
+	digest := sha256.Sum256(prepared.manifestRaw)
+	prepared.transaction = hex.EncodeToString(digest[:])
+	prepared.retiredPath = filepath.Join(filepath.Dir(prepared.roots.RecoveryRoot), ".baton-sync-retired-"+prepared.transaction)
+	prepared.sentinelTemp = filepath.Join(prepared.roots.RecoveryRoot, installRecoverySentinel+".tmp-"+prepared.transaction)
+	for i := range prepared.targets {
+		target := &prepared.targets[i]
+		target.stage = filepath.Join(filepath.Dir(target.path), ".sworn-baton-stage-"+prepared.transaction+"-"+target.logical)
+	}
+	if err := validateInstallOperationalTopology(prepared); err != nil {
+		return err
+	}
+	if err := callInstallFault(prepared.fault, "transaction-paths-ready"); err != nil {
+		return err
+	}
+	return validateInstallOperationalTopology(prepared)
+}
+
 func validateInstallOperationalTopology(prepared *preparedInstall) error {
 	targetPaths := []string{prepared.roots.AgentsHome, prepared.roots.ClaudeHome, prepared.roots.CodexHome}
 	standalone := []struct {
 		logical string
 		path    string
-	}{
-		{"retired", prepared.retiredPath},
+	}{}
+	if prepared.retiredPath != "" {
+		standalone = append(standalone, struct {
+			logical string
+			path    string
+		}{"retired", prepared.retiredPath})
 	}
 	for _, target := range prepared.targets {
+		if target.stage == "" {
+			continue
+		}
 		standalone = append(standalone, struct {
 			logical string
 			path    string
@@ -543,18 +610,31 @@ func validateInstallOperationalTopology(prepared *preparedInstall) error {
 	contained := []struct {
 		logical string
 		path    string
-	}{
-		{"recovery_staging", prepared.recoveryStaging},
-		{"transaction", filepath.Join(prepared.roots.RecoveryRoot, prepared.transaction)},
-		{"sentinel_temp", prepared.sentinelTemp},
+	}{{"recovery_staging", prepared.recoveryStaging}}
+	if prepared.transaction != "" {
+		contained = append(contained, struct {
+			logical string
+			path    string
+		}{"transaction", filepath.Join(prepared.roots.RecoveryRoot, prepared.transaction)})
+	}
+	if prepared.sentinelTemp != "" {
+		contained = append(contained, struct {
+			logical string
+			path    string
+		}{"sentinel_temp", prepared.sentinelTemp})
 	}
 	for _, candidate := range contained {
 		rel, err := filepath.Rel(prepared.roots.RecoveryRoot, candidate.path)
 		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return newInstallError("unsafe-operation-topology", []string{candidate.logical}, candidate.path, errors.New("control path escapes recovery root"))
 		}
-		if _, err := os.Lstat(candidate.path); err == nil || !os.IsNotExist(err) {
-			return newInstallError("operation-path-collision", []string{candidate.logical}, candidate.path, errors.New("derived path already exists"))
+		if info, err := os.Lstat(candidate.path); err == nil {
+			owned, ok := prepared.createdPaths[candidate.path]
+			if candidate.path != prepared.recoveryStaging || !ok || validateOwnedInstallPath(candidate.path, owned, info.IsDir()) != nil {
+				return newInstallError("operation-path-collision", []string{candidate.logical}, candidate.path, errors.New("derived path already exists"))
+			}
+		} else if !os.IsNotExist(err) {
+			return newInstallError("operation-path-collision", []string{candidate.logical}, candidate.path, err)
 		}
 		for _, root := range targetPaths {
 			if pathsOverlap(candidate.path, root) {
@@ -820,12 +900,10 @@ func captureInstallSources(prepared *preparedInstall) error {
 	if err := createOwnedInstallDir(prepared, filepath.Join(prepared.recoveryStaging, "snapshots"), 0o700); err != nil {
 		return err
 	}
-	identity := installOwnerIdentity{RecordVersion: 1, TransactionID: prepared.transaction, RecoveryRoot: prepared.roots.RecoveryRoot}
-	transactionDir := filepath.Join(prepared.roots.RecoveryRoot, prepared.transaction)
+	identity := installOwnerIdentity{RecordVersion: 1, OperationID: prepared.operation, RecoveryRoot: prepared.roots.RecoveryRoot}
 	for _, target := range prepared.targets {
 		identity.Targets = append(identity.Targets, installSentinelTarget{
 			LogicalRoot: target.logical, TargetPath: target.path,
-			SnapshotPath: filepath.Join(transactionDir, "snapshots", target.logical),
 		})
 	}
 	identityRaw, err := marshalInstallOwnerIdentity(identity)
@@ -855,6 +933,9 @@ func captureInstallSources(prepared *preparedInstall) error {
 	sort.Slice(manifest, func(i, j int) bool { return manifest[i].Path < manifest[j].Path })
 	prepared.manifest = manifest
 	prepared.manifestRaw = marshalInstallManifest(manifest)
+	if err := finalizeInstallTransaction(prepared); err != nil {
+		return err
+	}
 	if err := revalidateUnreplacedInstallTargets(prepared, 0); err != nil {
 		return err
 	}
@@ -983,6 +1064,17 @@ func stageDesiredInstall(prepared *preparedInstall, version []byte) error {
 		if err := os.Chmod(target.stage, rootMode); err != nil {
 			return err
 		}
+		stageIdentity := installStageIdentity{
+			RecordVersion: 1, TransactionSHA256: "sha256:" + prepared.transaction,
+			LogicalRoot: target.logical, TargetPath: target.path,
+		}
+		identityRaw, err := marshalInstallStageIdentity(stageIdentity)
+		if err != nil {
+			return err
+		}
+		if err := writeExclusiveInstallFile(filepath.Join(target.stage, installStageIdentityName), identityRaw, 0o600); err != nil {
+			return newInstallError("stage-failed", []string{target.logical}, "", err)
+		}
 		stageTarget := *target
 		stageTarget.path = target.stage
 		if err := verifyInstalledTarget(stageTarget, version); err != nil {
@@ -1107,10 +1199,15 @@ func marshalInstallManifest(entries []installManifestEntry) []byte {
 		}
 		out.WriteByte(0)
 	}
+	out.WriteByte('\n')
 	return out.Bytes()
 }
 
 func parseInstallManifest(raw []byte) ([]installManifestEntry, error) {
+	if len(raw) == 0 || raw[len(raw)-1] != '\n' {
+		return nil, errors.New("manifest final LF missing")
+	}
+	raw = raw[:len(raw)-1]
 	prefix := append([]byte(installManifestPrefix), 0)
 	if !bytes.HasPrefix(raw, prefix) {
 		return nil, errors.New("manifest prefix mismatch")
@@ -1228,10 +1325,9 @@ func publishInstallRecovery(prepared *preparedInstall) error {
 	if err := revalidateUnreplacedInstallTargets(prepared, 0); err != nil {
 		return err
 	}
-	manifestDigest := sha256.Sum256(prepared.manifestRaw)
 	sentinel := installSentinel{
 		RecordVersion: 1, TransactionSHA256: "sha256:" + prepared.transaction,
-		ManifestSHA256: "sha256:" + hex.EncodeToString(manifestDigest[:]), RecoveryDirectory: transactionDir,
+		RecoveryDirectory: transactionDir,
 	}
 	for _, target := range prepared.targets {
 		sentinel.Targets = append(sentinel.Targets, installSentinelTarget{LogicalRoot: target.logical, TargetPath: target.path, SnapshotPath: filepath.Join(transactionDir, "snapshots", target.logical)})
@@ -1301,6 +1397,46 @@ func loadInstallOwnerIdentity(path string) (installOwnerIdentity, error) {
 	return identity, nil
 }
 
+func marshalInstallStageIdentity(identity installStageIdentity) ([]byte, error) {
+	var out bytes.Buffer
+	encoder := json.NewEncoder(&out)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(identity); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
+func loadInstallStageIdentity(path string) (installStageIdentity, error) {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
+		return installStageIdentity{}, errors.New("stage identity type or mode invalid")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return installStageIdentity{}, err
+	}
+	var identity installStageIdentity
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&identity); err != nil {
+		return installStageIdentity{}, err
+	}
+	canonical, err := marshalInstallStageIdentity(identity)
+	if err != nil || !bytes.Equal(raw, canonical) {
+		return installStageIdentity{}, errors.New("stage identity is not canonical")
+	}
+	return identity, nil
+}
+
+func validateInstallStage(root, transaction string, target installTarget) error {
+	identity, err := loadInstallStageIdentity(filepath.Join(root, installStageIdentityName))
+	if err != nil || identity.RecordVersion != 1 || identity.TransactionSHA256 != "sha256:"+transaction || identity.LogicalRoot != target.logical || identity.TargetPath != target.path {
+		return newInstallError("stage-identity-invalid", []string{target.logical}, root, errors.New("stage owner identity invalid"))
+	}
+	return nil
+}
+
 func loadInstallSentinel(root string) (installSentinel, []byte, error) {
 	path := filepath.Join(root, installRecoverySentinel)
 	info, err := os.Lstat(path)
@@ -1340,6 +1476,9 @@ func recoverBatonInstall(prepared *preparedInstall) error {
 		}
 		return newInstallError("rollback-incomplete", unrestored, prepared.roots.RecoveryRoot, errors.New("recovery incomplete"))
 	}
+	if err := cleanupInstallStageDebris(prepared); err != nil {
+		return newInstallError("recovery-stage-cleanup-failed", []string{"recovery"}, prepared.roots.RecoveryRoot, err)
+	}
 	if err := retireInstallRecovery(prepared); err != nil {
 		return newInstallError("recovery-retire-failed", []string{"recovery"}, prepared.roots.RecoveryRoot, err)
 	}
@@ -1350,7 +1489,7 @@ func validateInstallRecovery(prepared *preparedInstall, sentinel installSentinel
 	if err := reassertInstallIdentities(prepared, false); err != nil {
 		return nil, err
 	}
-	if sentinel.RecordVersion != 1 || !strings.HasPrefix(sentinel.TransactionSHA256, "sha256:") || !strings.HasPrefix(sentinel.ManifestSHA256, "sha256:") {
+	if sentinel.RecordVersion != 1 || !strings.HasPrefix(sentinel.TransactionSHA256, "sha256:") {
 		return nil, newInstallError("recovery-invalid", nil, prepared.roots.RecoveryRoot, errors.New("sentinel identity invalid"))
 	}
 	id := strings.TrimPrefix(sentinel.TransactionSHA256, "sha256:")
@@ -1389,7 +1528,7 @@ func validateInstallRecovery(prepared *preparedInstall, sentinel installSentinel
 		return nil, newInstallError("recovery-invalid", nil, prepared.roots.RecoveryRoot, err)
 	}
 	digest := sha256.Sum256(manifestRaw)
-	if "sha256:"+hex.EncodeToString(digest[:]) != sentinel.ManifestSHA256 {
+	if "sha256:"+hex.EncodeToString(digest[:]) != sentinel.TransactionSHA256 {
 		return nil, newInstallError("recovery-invalid", nil, prepared.roots.RecoveryRoot, errors.New("manifest digest mismatch"))
 	}
 	manifest, err := parseInstallManifest(manifestRaw)
@@ -1400,13 +1539,11 @@ func validateInstallRecovery(prepared *preparedInstall, sentinel installSentinel
 		return nil, newInstallError("recovery-invalid", nil, prepared.roots.RecoveryRoot, err)
 	}
 	owner, err := loadInstallOwnerIdentity(filepath.Join(sentinel.RecoveryDirectory, installIdentityName))
-	if err != nil || owner.RecordVersion != 1 || owner.TransactionID != id || owner.RecoveryRoot != prepared.roots.RecoveryRoot || owner.ManifestSHA256 != "" || len(owner.Targets) != len(sentinel.Targets) {
+	if err != nil || owner.RecordVersion != 1 || !validInstallTransactionID(owner.OperationID) || owner.RecoveryRoot != prepared.roots.RecoveryRoot {
 		return nil, newInstallError("recovery-invalid", nil, prepared.roots.RecoveryRoot, errors.New("owner identity invalid"))
 	}
-	for i := range owner.Targets {
-		if owner.Targets[i] != sentinel.Targets[i] {
-			return nil, newInstallError("recovery-invalid", nil, prepared.roots.RecoveryRoot, errors.New("owner target identity differs"))
-		}
+	if err := validateOwnerTargets(prepared, owner.Targets); err != nil {
+		return nil, newInstallError("recovery-invalid", nil, prepared.roots.RecoveryRoot, err)
 	}
 	if err := validateSnapshotMaterial(prepared.targets, manifest); err != nil {
 		return nil, err
@@ -1627,11 +1764,20 @@ func verifyRestoredTarget(target installTarget, entries []installManifestEntry) 
 	return nil
 }
 
-func replaceInstallRoot(target installTarget) error {
+func replaceInstallRoot(prepared *preparedInstall, target installTarget) error {
+	if err := validateInstallStage(target.stage, prepared.transaction, target); err != nil {
+		return err
+	}
 	if err := os.RemoveAll(target.path); err != nil {
 		return err
 	}
 	if err := os.Rename(target.stage, target.path); err != nil {
+		return err
+	}
+	if err := validateInstallStage(target.path, prepared.transaction, target); err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.Join(target.path, installStageIdentityName)); err != nil {
 		return err
 	}
 	return syncDir(filepath.Dir(target.path))
@@ -1833,11 +1979,10 @@ func validateIncompleteInstallBundle(prepared *preparedInstall, path, id string,
 		return err
 	}
 	owner, err := loadInstallOwnerIdentity(filepath.Join(path, installIdentityName))
-	if err != nil || owner.RecordVersion != 1 || owner.TransactionID != id || owner.RecoveryRoot != prepared.roots.RecoveryRoot || owner.ManifestSHA256 != "" {
+	if err != nil || owner.RecordVersion != 1 || !validInstallTransactionID(owner.OperationID) || owner.RecoveryRoot != prepared.roots.RecoveryRoot || (staging && owner.OperationID != id) {
 		return errors.New("incomplete bundle owner identity invalid")
 	}
-	transactionDir := filepath.Join(prepared.roots.RecoveryRoot, id)
-	if err := validateOwnerTargets(prepared, owner.Targets, transactionDir); err != nil {
+	if err := validateOwnerTargets(prepared, owner.Targets); err != nil {
 		return err
 	}
 	entries, err := os.ReadDir(path)
@@ -1907,17 +2052,17 @@ func validateRelocatedInstallRecovery(prepared *preparedInstall, retired string)
 		return err
 	}
 	owner, err := loadInstallOwnerIdentity(filepath.Join(relocatedTransaction, installIdentityName))
-	if err != nil || owner.RecordVersion != 1 || owner.TransactionID != id || owner.RecoveryRoot != prepared.roots.RecoveryRoot || owner.ManifestSHA256 != "" {
+	if err != nil || owner.RecordVersion != 1 || !validInstallTransactionID(owner.OperationID) || owner.RecoveryRoot != prepared.roots.RecoveryRoot {
 		return errors.New("retired owner identity invalid")
 	}
-	if err := validateOwnerTargets(prepared, owner.Targets, originalTransaction); err != nil {
+	if err := validateOwnerTargets(prepared, owner.Targets); err != nil {
 		return err
 	}
 	if len(owner.Targets) != len(sentinel.Targets) {
 		return errors.New("retired target inventory differs")
 	}
 	for i := range owner.Targets {
-		if owner.Targets[i] != sentinel.Targets[i] {
+		if owner.Targets[i].LogicalRoot != sentinel.Targets[i].LogicalRoot || owner.Targets[i].TargetPath != sentinel.Targets[i].TargetPath {
 			return errors.New("retired target identity differs")
 		}
 	}
@@ -1926,7 +2071,7 @@ func validateRelocatedInstallRecovery(prepared *preparedInstall, retired string)
 		return err
 	}
 	digest := sha256.Sum256(manifestRaw)
-	if sentinel.ManifestSHA256 != "sha256:"+hex.EncodeToString(digest[:]) {
+	if sentinel.TransactionSHA256 != "sha256:"+hex.EncodeToString(digest[:]) {
 		return errors.New("retired manifest digest differs")
 	}
 	manifest, err := parseInstallManifest(manifestRaw)
@@ -1940,14 +2085,13 @@ func validateRelocatedInstallRecovery(prepared *preparedInstall, retired string)
 	return validateSnapshotMaterial(targets, manifest)
 }
 
-func validateOwnerTargets(prepared *preparedInstall, records []installSentinelTarget, transactionDir string) error {
+func validateOwnerTargets(prepared *preparedInstall, records []installSentinelTarget) error {
 	if len(records) != len(prepared.targets) {
 		return errors.New("owner target inventory differs")
 	}
 	for i, target := range prepared.targets {
 		want := installSentinelTarget{
 			LogicalRoot: target.logical, TargetPath: target.path,
-			SnapshotPath: filepath.Join(transactionDir, "snapshots", target.logical),
 		}
 		if records[i] != want {
 			return errors.New("owner target identity differs")
@@ -2264,6 +2408,66 @@ func cleanupInstallStages(prepared *preparedInstall) {
 		_ = removeOwnedInstallPath(prepared, target.stage)
 	}
 	_ = removeOwnedInstallPath(prepared, prepared.sentinelTemp)
+}
+
+func cleanupInstallStageDebris(prepared *preparedInstall) error {
+	seenParents := make(map[string]struct{})
+	for _, target := range prepared.targets {
+		parent := filepath.Dir(target.path)
+		if _, ok := seenParents[parent]; ok {
+			continue
+		}
+		seenParents[parent] = struct{}{}
+		entries, err := os.ReadDir(parent)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			if !strings.HasPrefix(entry.Name(), ".sworn-baton-stage-") {
+				continue
+			}
+			stage := filepath.Join(parent, entry.Name())
+			info, err := os.Lstat(stage)
+			if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+				return newInstallError("stage-debris-invalid", []string{"stage"}, stage, errors.New("unidentified external stage debris"))
+			}
+			identity, err := loadInstallStageIdentity(filepath.Join(stage, installStageIdentityName))
+			if err != nil || identity.RecordVersion != 1 || !strings.HasPrefix(identity.TransactionSHA256, "sha256:") {
+				return newInstallError("stage-debris-invalid", []string{"stage"}, stage, errors.New("external stage owner identity invalid"))
+			}
+			transaction := strings.TrimPrefix(identity.TransactionSHA256, "sha256:")
+			if !validInstallTransactionID(transaction) {
+				return newInstallError("stage-debris-invalid", []string{"stage"}, stage, errors.New("external stage transaction invalid"))
+			}
+			var matched *installTarget
+			for i := range prepared.targets {
+				candidate := &prepared.targets[i]
+				if candidate.logical == identity.LogicalRoot && candidate.path == identity.TargetPath {
+					matched = candidate
+					break
+				}
+			}
+			if matched == nil || entry.Name() != ".sworn-baton-stage-"+transaction+"-"+matched.logical {
+				return newInstallError("stage-debris-invalid", []string{"stage"}, stage, errors.New("external stage path identity differs"))
+			}
+			if err := scanInstallTarget(stage); err != nil {
+				return newInstallError("stage-debris-invalid", []string{"stage"}, stage, err)
+			}
+			if err := validateInstallStage(stage, transaction, *matched); err != nil {
+				return err
+			}
+			if err := os.RemoveAll(stage); err != nil {
+				return err
+			}
+			if err := syncDir(parent); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func removeOwnedInstallPath(prepared *preparedInstall, name string) error {

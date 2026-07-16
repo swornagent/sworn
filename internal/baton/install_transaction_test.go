@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net"
 	"os"
@@ -343,7 +344,7 @@ func TestBatonSyncRejectsDerivedPathCollisionsWithoutDeletion(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			opts := newInstallTestOpts(t, trees, version)
-			opts.TransactionIDForTest = id
+			opts.OperationIDForTest = id
 			writeInstallTestOriginals(t, opts.Roots)
 			path := test.path(opts.Roots)
 			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -709,6 +710,160 @@ func TestBatonSyncRejectsCompleteUnsafePathMatrix(t *testing.T) {
 	})
 }
 
+func TestBatonSyncManifestDigestIsSoleTransactionIdentity(t *testing.T) {
+	trees, version := installTestAuthority(t)
+	opts := newInstallTestOpts(t, trees, version)
+	writeInstallTestOriginals(t, opts.Roots)
+	before := snapshotInstallTestRoots(t, opts.Roots)
+	opts.Fault = func(point string) error {
+		if point == "publish-after" {
+			return errInstallCrash
+		}
+		return nil
+	}
+	if _, err := SyncBatonInstall(opts); err == nil {
+		t.Fatal("publication crash unexpectedly succeeded")
+	}
+	sentinel, raw, err := loadInstallSentinel(opts.Roots.RecoveryRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	wantFields := []string{"record_version", "transaction_sha256", "recovery_directory", "targets", "unrestored_paths"}
+	if len(fields) != len(wantFields) {
+		t.Fatalf("sentinel fields = %v, want exactly %v", fields, wantFields)
+	}
+	for _, field := range wantFields {
+		if _, ok := fields[field]; !ok {
+			t.Fatalf("sentinel field %q missing", field)
+		}
+	}
+	manifestRaw, err := os.ReadFile(filepath.Join(sentinel.RecoveryDirectory, installManifestName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifestRaw) == 0 || manifestRaw[len(manifestRaw)-1] != '\n' {
+		t.Fatal("manifest.bin lacks final LF")
+	}
+	digest := sha256.Sum256(manifestRaw)
+	wantID := hex.EncodeToString(digest[:])
+	if sentinel.TransactionSHA256 != "sha256:"+wantID || filepath.Base(sentinel.RecoveryDirectory) != wantID {
+		t.Fatalf("transaction identity = %s / %s, want manifest digest %s", sentinel.TransactionSHA256, sentinel.RecoveryDirectory, wantID)
+	}
+
+	keep := filepath.Join(sentinel.RecoveryDirectory, "snapshots", "agents_home", "unrelated", "keep.txt")
+	changed := []byte("coherently changed\n")
+	if err := os.WriteFile(keep, changed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mutateInstallManifest(t, opts, sentinel, func(entries []installManifestEntry) []installManifestEntry {
+		for i := range entries {
+			if entries[i].Path == "agents_home/unrelated/keep.txt" {
+				hash := sha256.Sum256(changed)
+				entries[i].Digest = "sha256:" + hex.EncodeToString(hash[:])
+			}
+		}
+		return entries
+	})
+	opts.Fault = nil
+	_, err = SyncBatonInstall(opts)
+	assertInstallErrorClass(t, err, "recovery-invalid")
+	assertInstallTestSnapshots(t, opts.Roots, before)
+}
+
+func TestInstallIdentitySuffixesOverlapSameFile(t *testing.T) {
+	ancestor := t.TempDir()
+	infoA, err := os.Lstat(ancestor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	infoB, err := os.Lstat(ancestor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherInfo, err := os.Lstat(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name string
+		a, b installPathIdentity
+		want bool
+	}{
+		{"equal missing suffix", installPathIdentity{ancestorInfo: infoA, missing: []string{"home"}}, installPathIdentity{ancestorInfo: infoB, missing: []string{"home"}}, true},
+		{"ancestor missing suffix", installPathIdentity{ancestorInfo: infoA, missing: []string{"home"}}, installPathIdentity{ancestorInfo: infoB, missing: []string{"home", "child"}}, true},
+		{"divergent missing suffix", installPathIdentity{ancestorInfo: infoA, missing: []string{"agents"}}, installPathIdentity{ancestorInfo: infoB, missing: []string{"codex"}}, false},
+		{"different physical ancestor", installPathIdentity{ancestorInfo: infoA, missing: []string{"home"}}, installPathIdentity{ancestorInfo: otherInfo, missing: []string{"home"}}, false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := installIdentitySuffixesOverlap(test.a, test.b); got != test.want {
+				t.Fatalf("overlap = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestBatonSyncCrashDispositionLeavesOwnedDebrisForFreshInvocation(t *testing.T) {
+	trees, version := installTestAuthority(t)
+	tests := []struct {
+		point      string
+		restart    InstallState
+		wantStages bool
+	}{
+		{"stage-sync-after:agents_home", InstallRepaired, true},
+		{"publish-before", InstallRepaired, true},
+		{"publish-after", InstallRecovered, true},
+		{"replace-after:agents_home", InstallRecovered, true},
+		{"verify-after:agents_home", InstallRecovered, true},
+		{"replace-after:claude_home", InstallRecovered, true},
+		{"verify-after:claude_home", InstallRecovered, true},
+		{"replace-after:codex_home", InstallRecovered, false},
+		{"verify-after:codex_home", InstallRecovered, false},
+		{"retire-before", InstallRecovered, false},
+		{"retire-after", InstallAlreadyExact, false},
+	}
+	for _, test := range tests {
+		t.Run(strings.ReplaceAll(test.point, ":", "-"), func(t *testing.T) {
+			opts := newInstallTestOpts(t, trees, version)
+			writeInstallTestOriginals(t, opts.Roots)
+			before := snapshotInstallTestRoots(t, opts.Roots)
+			opts.Fault = func(point string) error {
+				if point == test.point {
+					return errInstallCrash
+				}
+				return nil
+			}
+			if _, err := SyncBatonInstall(opts); err == nil {
+				t.Fatal("crash disposition unexpectedly succeeded")
+			}
+			stages := installTestStageDebris(t, opts.Roots)
+			if test.wantStages && len(stages) == 0 {
+				t.Fatal("crash cleanup removed all external stage debris")
+			}
+			for _, stage := range stages {
+				if _, err := loadInstallStageIdentity(filepath.Join(stage, installStageIdentityName)); err != nil {
+					t.Fatalf("stage debris lacks valid owner identity: %s: %v", stage, err)
+				}
+			}
+			opts.Fault = nil
+			result, err := SyncBatonInstall(opts)
+			if err != nil || result.State != test.restart {
+				t.Fatalf("fresh restart = %#v, %v, want %s", result, err, test.restart)
+			}
+			if got := installTestStageDebris(t, opts.Roots); len(got) != 0 {
+				t.Fatalf("fresh restart retained stage debris: %v", got)
+			}
+			if test.restart == InstallRecovered {
+				assertInstallTestSnapshots(t, opts.Roots, before)
+			}
+		})
+	}
+}
+
 func newInstallTestOpts(t *testing.T, trees InstallerManagedTrees, version []byte) InstallOpts {
 	t.Helper()
 	base := t.TempDir()
@@ -742,6 +897,30 @@ func assertInstallErrorClass(t *testing.T, err error, want string) {
 	}
 }
 
+func installTestStageDebris(t *testing.T, roots InstallRoots) []string {
+	t.Helper()
+	seen := make(map[string]struct{})
+	var paths []string
+	for _, root := range []string{roots.AgentsHome, roots.ClaudeHome, roots.CodexHome} {
+		parent := filepath.Dir(root)
+		if _, ok := seen[parent]; ok {
+			continue
+		}
+		seen[parent] = struct{}{}
+		entries, err := os.ReadDir(parent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), ".sworn-baton-stage-") {
+				paths = append(paths, filepath.Join(parent, entry.Name()))
+			}
+		}
+	}
+	sort.Strings(paths)
+	return paths
+}
+
 func mutateInstallManifest(t *testing.T, opts InstallOpts, sentinel installSentinel, mutate func([]installManifestEntry) []installManifestEntry) {
 	t.Helper()
 	path := filepath.Join(sentinel.RecoveryDirectory, installManifestName)
@@ -760,7 +939,7 @@ func mutateInstallManifest(t *testing.T, opts InstallOpts, sentinel installSenti
 		t.Fatal(err)
 	}
 	digest := sha256.Sum256(raw)
-	sentinel.ManifestSHA256 = "sha256:" + hex.EncodeToString(digest[:])
+	sentinel.TransactionSHA256 = "sha256:" + hex.EncodeToString(digest[:])
 	sentinelRaw, err := marshalInstallSentinel(sentinel)
 	if err != nil {
 		t.Fatal(err)
