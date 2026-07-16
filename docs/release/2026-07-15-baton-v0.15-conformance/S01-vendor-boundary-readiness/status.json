@@ -6,8 +6,8 @@
   "covers_needs": ["N-01", "N-02", "N-10"],
   "state": "in_progress",
   "owner": "implementer",
-  "last_updated_by": "planner",
-  "last_updated_at": "2026-07-16T11:27:45+10:00",
+  "last_updated_by": "implementer",
+  "last_updated_at": "2026-07-16T11:47:20+10:00",
   "start_commit": "5e16d2b54b0793381b246a9e7b9f1eb2c8e5cb18",
   "spec_path": "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/spec.json",
   "proof_path": "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/proof.json",
@@ -44,7 +44,27 @@
   ],
   "test_commands": ["go test ./internal/baton ./cmd/sworn -count=1", "go test ./...", "go vet ./...", "make build", "git diff --check"],
   "reachability_artifacts": ["bin/sworn baton vendor /home/brad/projects/baton --check: exit 1 with deterministic path-only drift", "cmd/sworn/baton_test.go:TestBatonVendorAtomicPreflightReachability"],
-  "maintainability": {"state": "pending", "cycle": 0, "implementation_head": null, "rollback_slice_id": null, "reports": [], "adjudication": null},
+  "maintainability": {
+    "state": "passed",
+    "cycle": 0,
+    "implementation_head": "d062d055cdbe90e8290f0bf47574be660cd9a675",
+    "rollback_slice_id": null,
+    "reports": [
+      {
+        "role": "implementer",
+        "phase": "preflight",
+        "cycle": 0,
+        "invocation_id": "121966a1-0de7-43c5-bd65-fcb901f0ebe6",
+        "report_path": "docs/release/2026-07-15-baton-v0.15-conformance/S01-vendor-boundary-readiness/reports/maintainability/implementer-cycle-0-121966a1-0de7-43c5-bd65-fcb901f0ebe6.json",
+        "report_blob_oid": "19bfd61e8b82e616df3e657f5b783918948b25ca",
+        "review_scope_head": "d062d055cdbe90e8290f0bf47574be660cd9a675",
+        "input_fingerprint": "sha256:6dccd1e4ddaa76e9622f86026fa62700dc935b6ac5b65df95191974829a8bbad",
+        "verdict": "PASS",
+        "blocking_finding_ids": []
+      }
+    ],
+    "adjudication": null
+  },
   "open_deferrals": [],
   "effort_complexity": {"effort": "high", "complexity": "high", "quadrant": "beast", "rationale": "Production scope is bounded, but exact manual Gate-8 evidence requires canonical merge-aware scope, fingerprint and blob-pinned role reports before the generalized engine exists.", "confirmed_by_implementer": false},
   "verification": {"result": "pending", "verifier_session_id": null, "verifier_verdict_at": null, "verifier_was_fresh_context": null, "violations": []},
